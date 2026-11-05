@@ -12,7 +12,7 @@ enum Chain[T]:
     Empty
     Link(T, Box[Chain[T]])
 
-def total(chain: Chain[i64]) -> i64:
+def total(chain: Chain[i64]) -> Result[i64, OverflowError[i64]]:
     mut remaining = chain
     mut answer = 0
     while True:
@@ -22,13 +22,13 @@ def total(chain: Chain[i64]) -> i64:
             case Chain.Link(value, rest):
                 answer = answer + value
                 remaining = rest
-    answer
+    Ok(answer)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut chain = Chain[i64].Empty
     for value in range(1, 4):
         chain = Chain[i64].Link(value, Box(chain)?)
-    print(total(chain))?
+    print(total(chain)?)?
     Ok(())
 ```
 

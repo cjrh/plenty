@@ -20,17 +20,22 @@ pub class Script:
     pub def read_before(self: &mut Script, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         if cancel.is_cancelled():
             return Err(NetError.Cancelled)
-        left = self.input.len() - self.at
-        if left == 0:
-            return Ok(0)
-        mut count = stop - start
-        if count > self.step:
-            count = self.step
-        if count > left:
-            count = left
-        buffer.overwrite(start, &self.input[self.at:self.at + count])
-        self.at += count
-        Ok(count)
+        # Public fields and call spans are validated here, not by constructors.
+        if self.at < 0 or self.at > self.input.len() or self.step <= 0 or start < 0 or stop < start or stop > buffer.len():
+            return Err(NetError.Stream(std.io.StreamError.OutOfRange))
+        # Both differences and at + count stay within the held byte spans.
+        unchecked:
+            left = self.input.len() - self.at
+            if left == 0:
+                return Ok(0)
+            mut count = stop - start
+            if count > self.step:
+                count = self.step
+            if count > left:
+                count = left
+            buffer.overwrite(start, &self.input[self.at:self.at + count])
+            self.at += count
+            return Ok(count)
 
     pub def shutdown(self: &mut Script, direction: Shutdown) -> Result[(), NetError]:
         Ok(())
@@ -85,7 +90,7 @@ pub def counts(report: &Report) -> Result[str, AllocError]:
 
 # Serves each `ff`-terminated input of a hex blob on its own connection,
 # delivered `step` bytes at a time, and prints a `--` line before each.
-pub def replay(blob_hex: &str, step: i64) -> Result[(), std.bytes.BytesError | std.encoding.EncodingError | std.http.server.ServerError | AllocError | IoError]:
+pub def replay(blob_hex: &str, step: i64) -> Result[(), std.bytes.BytesError | std.encoding.EncodingError | std.http.server.ServerError | AllocError | IoError | OverflowError[i64]]:
     table = routes()?
     app = App()
     config = std.http.server.config()

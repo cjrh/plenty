@@ -108,6 +108,14 @@ pub enum Clock:
     Wall
     Fixed(Timestamp)
 
+# Diagnostic-only lifetime counts saturate; exhaustion never changes delivery.
+def increment_stat(value: u64) -> u64:
+    if value == u64.MAX:
+        return value
+    # The guard proves value <= MAX-1.
+    unchecked:
+        value + 1u64
+
 # No global logger exists: libraries take `&mut Logger[S]` (or a sink) from
 # their caller, so configuration stays explicit and testable.
 pub class Logger[S]:
@@ -132,7 +140,7 @@ pub class Logger[S]:
 
     pub def emit(self: &mut Logger[S], event: Event) -> Result[(), LogError]:
         if rank(&event.level) < self._threshold:
-            self._filtered += 1u64
+            self._filtered = increment_stat(self._filtered)
             return Ok(())
         mut stamped = event
         mut unstamped = False
@@ -151,10 +159,10 @@ pub class Logger[S]:
                     stamped.time = Some(Timestamp(at.seconds, at.nanoseconds))
         match self.sink.emit(stamped):
             case Ok(_):
-                self._emitted += 1u64
+                self._emitted = increment_stat(self._emitted)
                 Ok(())
             case Err(error):
-                self._failed += 1u64
+                self._failed = increment_stat(self._failed)
                 Err(error)
 
     pub def log(self: &mut Logger[S], level: Level, message: str, fields: list[Field]) -> Result[(), LogError]:
@@ -190,7 +198,11 @@ pub class LineBuffer:
     _overflow: bool
 
     pub def write(self: &mut LineBuffer, source: &[u8]) -> Result[i64, StreamError]:
-        if len(source) > self._limit - self.data.len():
+        # Both endpoints are nonnegative i64 lengths; their difference fits even
+        # if a caller has grown the public data buffer beyond the private limit.
+        remaining = unchecked:
+            self._limit - self.data.len()
+        if len(source) > remaining:
             self._overflow = True
             return Err(StreamError.OutOfRange)
         match self.data.extend(source):
@@ -223,10 +235,13 @@ def render(out: &mut Formatter[LineBuffer], event: &Event) -> Result[(), FormatE
             out.text("time=")?
             out.integer(at.seconds, 0)?
             out.text(".")?
+            radix = NonZero.try_from(10u32).unwrap()
             mut divisor = 100000000u32
             while divisor > 0u32:
-                out.unsigned(u64(at.nanoseconds // divisor % 10u32), 10, 0)?
-                divisor //= 10u32
+                # The loop proves the constructor succeeds; no division can fail.
+                place = NonZero.try_from(divisor).unwrap()
+                out.unsigned(u64(at.nanoseconds // place % radix), 10, 0)?
+                divisor //= radix
             out.text(" ")?
         case Nothing:
             pass
@@ -365,9 +380,9 @@ pub def drain[S: Sink](receiver: &Receiver[Event], sink: &mut S) -> Drained:
             case Ok(event):
                 match sink.emit(event):
                     case Ok(_):
-                        delivered += 1u64
+                        delivered = increment_stat(delivered)
                     case Err(_):
-                        failed += 1u64
+                        failed = increment_stat(failed)
             case Err(_):
                 return Drained(delivered, failed)
     Drained(delivered, failed)

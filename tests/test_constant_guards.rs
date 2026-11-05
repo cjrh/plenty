@@ -40,18 +40,20 @@ fn boundaries(ty: &str, bits: u32, signed: bool) -> Vec<(String, i128)> {
 }
 
 fn program() -> String {
+    // These scalar-ABI subjects deliberately retain trapping arithmetic so
+    // the original guard-folding CLIF/native oracles remain observable.
     let mut source = String::from("import std.fmt\n\n");
     for (ty, bits, signed) in TYPES {
         let top = bits - 1;
         source += &format!(
-            "def lit_{ty}(x: {ty}) -> {ty}:\n    \
+            "def lit_{ty}(x: {ty}) -> {ty}:\n    unchecked:\n        \
              (x // 7{ty}) ^ (x % 10{ty}) ^ (x >> {top}{ty}) ^ (x << 1{ty})\n\n\
-             def expr_{ty}(x: {ty}) -> {ty}:\n    \
+             def expr_{ty}(x: {ty}) -> {ty}:\n    unchecked:\n        \
              (x // (5{ty} + 5{ty})) ^ (x >> (3{ty} + 3{ty})) ^ (x % (1{ty} << 2{ty}))\n\n"
         );
         if signed {
             source += &format!(
-                "def neg_{ty}(x: {ty}) -> {ty}:\n    \
+                "def neg_{ty}(x: {ty}) -> {ty}:\n    unchecked:\n        \
                  (x // -2{ty}) ^ (x % -3{ty}) ^ (x % -1{ty})\n\n"
             );
         }
@@ -63,10 +65,11 @@ fn program() -> String {
                mut s = 0u64\n    \
                mut i = 0u64\n    \
                while i < x:\n        \
+               unchecked:\n            \
                s = s ^ (i // d) ^ (i >> (d - 4u64))\n        \
                i = i.wrapping_add(1u64)\n    \
                s\n\n";
-    source += "def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:\n";
+    source += "def main() -> Result[(), AllocError | IoError | std.fmt.FormatError | OverflowError[u8] | OverflowError[u16] | OverflowError[u32] | OverflowError[u64] | OverflowError[i8] | OverflowError[i16] | OverflowError[i32] | OverflowError[i64]]:\n";
     source += "    print(f\"{loop_div(1000u64)}\"?)?\n";
     for (ty, bits, signed) in TYPES {
         let values: Vec<String> = boundaries(ty, bits, signed)
@@ -166,19 +169,24 @@ fn literal_operands_keep_arithmetic_results_at_every_width() {
     );
 }
 
+// Each unchecked suite is the intentional trapping primitive whose exact
+// native diagnostic or CLIF trap helper is asserted below, not a bounded input.
 const TRAPS: &str = r#"import std.env
 
 def div(x: i64, y: i64) -> i64:
-    x // y
+    unchecked:
+        x // y
 
 def neg_one(x: i64) -> i64:
-    x // -1
+    unchecked:
+        x // -1
 
 def shr(x: u32, n: u32) -> u32:
     x >> n
 
 def bump(x: u8) -> u8:
-    x + 1u8
+    unchecked:
+        x + 1u8
 
 def selector() -> Result[i64, IoError]:
     match std.env.get("CASE")?:
@@ -190,11 +198,14 @@ def selector() -> Result[i64, IoError]:
 def main() -> Result[(), AllocError | IoError]:
     choice = selector()?
     if choice == 0:
-        print(7u64 // (5u64 - 5u64))?
+        unchecked:
+            print(7u64 // (5u64 - 5u64))?
     elif choice == 1:
-        print(200u8 + 56u8)?
+        unchecked:
+            print(200u8 + 56u8)?
     elif choice == 2:
-        print(1u64 << (60u64 + 4u64))?
+        unchecked:
+            print(1u64 << (60u64 + 4u64))?
     elif choice == 3:
         print(div(7, 0))?
     elif choice == 4:
@@ -206,7 +217,9 @@ def main() -> Result[(), AllocError | IoError]:
     elif choice == 7:
         print(bump(255u8))?
     else:
-        print(div(i64.MIN, 1), neg_one(i64.MIN + 1), shr(8u32, 31u32), bump(254u8))?
+        # i64.MIN + 1 is in range; keep the original successful control operands.
+        unchecked:
+            print(div(i64.MIN, 1), neg_one(i64.MIN + 1), shr(8u32, 31u32), bump(254u8))?
     Ok(())
 "#;
 
@@ -215,14 +228,14 @@ fn guards_that_can_fire_keep_their_diagnostics() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("traps.plenty"), TRAPS).unwrap();
     let cases = [
-        "traps.plenty:25:15: division by zero",
-        "traps.plenty:27:15: integer overflow",
-        "traps.plenty:29:15: shift count outside integer width",
-        "traps.plenty:4:5: division by zero",
-        "traps.plenty:4:5: integer overflow",
-        "traps.plenty:7:5: integer overflow",
-        "traps.plenty:10:5: shift count outside integer width",
-        "traps.plenty:13:5: integer overflow",
+        "traps.plenty:29:19: division by zero",
+        "traps.plenty:32:19: integer overflow",
+        "traps.plenty:35:19: shift count outside integer width",
+        "traps.plenty:5:9: division by zero",
+        "traps.plenty:5:9: integer overflow",
+        "traps.plenty:9:9: integer overflow",
+        "traps.plenty:12:5: shift count outside integer width",
+        "traps.plenty:16:9: integer overflow",
     ];
     for mode in [&["--fast-compile"][..], &["--release"][..]] {
         let executable = dir.path().join("traps");
@@ -334,9 +347,16 @@ fn constant_false_guards_emit_no_branch() {
 fn nonzero_divisors_remove_only_the_zero_guard() {
     let dir = tempfile::tempdir().unwrap();
     let mut source = String::new();
-    for (ty, _, _) in TYPES {
+    for (ty, _, signed) in TYPES {
+        // Signed MIN // -1 must still expose its trapping guard in the
+        // scalar-ABI CLIF/asm oracle; unsigned division is already total.
+        let quotient = if signed {
+            "unchecked:\n        n // d"
+        } else {
+            "n // d"
+        };
         source += &format!(
-            "def q_{ty}(n: {ty}, d: NonZero[{ty}]) -> {ty}:\n    n // d\n\ndef r_{ty}(n: {ty}, d: NonZero[{ty}]) -> {ty}:\n    n % d\n\n"
+            "def q_{ty}(n: {ty}, d: NonZero[{ty}]) -> {ty}:\n    {quotient}\n\ndef r_{ty}(n: {ty}, d: NonZero[{ty}]) -> {ty}:\n    n % d\n\n"
         );
     }
     for ty in ["i8", "i16", "i32", "i64"] {

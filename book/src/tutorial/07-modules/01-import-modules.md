@@ -11,8 +11,8 @@ pub class Point:
     pub x: i64
     pub y: i64
 
-    pub def squared_length(self) -> i64:
-        self.x * self.x + self.y * self.y
+    pub def squared_length(self) -> Result[i64, OverflowError[i64]]:
+        Ok(self.x * self.x + self.y * self.y)
 
 pub def make_point() -> Point:
     Point(3, 4)
@@ -24,9 +24,9 @@ Save the application beside it, for example as `main.plenty`:
 import geometry
 from geometry import Point as Position
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     point: Position = geometry.make_point()
-    print(point.squared_length())?
+    print(point.squared_length()?)?
     print(point.x)?
     Ok(())
 ```

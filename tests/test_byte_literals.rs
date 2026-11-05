@@ -104,14 +104,14 @@ def pick(flag: bool) -> Option[bytes]:
 def same[T](a: T, b: T) -> bool:
     a == b
 
-def zeros(value: bytes) -> i64:
+def zeros(value: bytes) -> Result[i64, OverflowError[i64]]:
     mut count = 0
     for byte in value:
         if byte == 0u8:
             count += 1
-    count
+    Ok(count)
 
-def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()] | OverflowError[i64]]:
     gif = Format("gif", b"GIF8")
     print(gif.magic)?
     print(pick(True))?
@@ -122,7 +122,7 @@ def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
     print(names[gif.magic])?
     print([b"a", b"\x01"]?)?
     with spawn(zeros, b"\x00a\x00").drop_job()? as task:
-        print(task.join())?
+        print(task.join()?)?
     tag = b"tag"
     measure = def [tag]() -> i64:
         len(tag)
@@ -140,7 +140,7 @@ def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
 fn b_and_bytes_remain_ordinary_names() {
     let printed = output(
         r#"
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     b = 2
     bytes = b + 1
     B = bytes * 2
@@ -293,17 +293,17 @@ fn bytes_is_distinct_from_text_and_buffers() {
 fn byte_literals_never_allocate() {
     let printed = output(
         r#"
-def total(value: bytes) -> i64:
+def total(value: bytes) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     for byte in value:
         sum += i64(byte)
-    sum
+    Ok(sum)
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     print("__test_begin_no_allocations__")?
     value = b"\x01\x02\x03"
     other = value
-    result = total(value) + len(other) + i64(value[-1])
+    result = total(value)? + len(other) + i64(value[-1])
     equal = value == b"\x01\x02\x03"
     print("__test_end_no_allocations__")?
     print(result)?

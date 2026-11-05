@@ -41,17 +41,17 @@ class Point:
     x: i64
     y: i64
 
-def axis(p: &Point) -> i64:
+def axis(p: &Point) -> Result[i64, OverflowError[i64]]:
     match p:
         case Point(0, y):
-            *y
+            Ok(*y)
         case Point(x=x, y=0):
-            *x
+            Ok(*x)
         case Point(y=y, x=x):
-            *x + *y
+            Ok(*x + *y)
 
-def main() -> Result[(), IoError]:
-    print(axis(&Point(0, 9)), axis(&Point(7, 0)), axis(&Point(3, 4)))?
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(axis(&Point(0, 9))?, axis(&Point(7, 0))?, axis(&Point(3, 4))?)?
     match Point(3, 4):
         case Point(0, _) | Point(_, 0):
             print("on an axis")?
@@ -113,7 +113,7 @@ class Wrap[T]:
 class Meters:
     value: i64
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     match Box(Point(5, 7))?:
         case Point(x, y):
             print(y - x)?
@@ -188,7 +188,7 @@ class Guard:
     def __del__(self) -> ():
         print("guard").unwrap()
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut p = Point(1, 2)
     match &mut p:
         case Point(x, _):
@@ -331,7 +331,7 @@ fn every_field_must_be_visible() {
         let main = dir.path().join("main.plenty");
         std::fs::write(
             &main,
-            format!("import geo\nfrom geo import Open\ndef main() -> Result[(), IoError]:\n{body}    Ok(())\n"),
+            format!("import geo\nfrom geo import Open\ndef main() -> Result[(), IoError | OverflowError[i64]]:\n{body}    Ok(())\n"),
         )
         .unwrap();
         plenty::check_file(&main, None).map_err(|error| error.to_string())

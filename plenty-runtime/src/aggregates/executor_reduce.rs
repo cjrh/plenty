@@ -120,20 +120,27 @@ unsafe extern "C" fn reduce_block(input: *const u128, out: *mut u128, _shared: *
     }
 }
 
+#[expect(clippy::too_many_arguments, reason = "typed fixed-tree reduction ABI")]
 pub(crate) unsafe fn run(
     pool: *mut Pool,
     source: u128,
     input: &'static Type,
     entry: executors::Entry,
     job_input: &'static Type,
+    worker_output: &'static Type,
+    pool_error: &'static Type,
     result_type: &'static Type,
     out: *mut u128,
 ) {
     // SAFETY: the checked adapter consumes two values of the element type and
-    // returns one of that same type. Its input is a two-capture inline closure.
+    // returns T or Result[T, PoolMapError | E], with typed widening performed
+    // by the adapter. Its input is a two-capture inline closure. Descriptors
+    // are canonical: T itself may be a Result without making the job fallible.
     // All ownership moves complete before a job or result is published.
     unsafe {
         let element = input.key.unwrap();
+        let fallible = !std::ptr::eq(element, worker_output);
+        let error_type = result_type.variants[1].fields[0];
         let _source = OwnedValue {
             value: source,
             ty: input,
@@ -166,7 +173,13 @@ pub(crate) unsafe fn run(
                 return Ok(());
             }
             let mut values = Values::new(count, element)?;
-            let width = block_width(count, executors::workers(pool));
+            // Fallible callbacks are observed by (level, pair), not by run.
+            // Keep the optimized multi-level runs only for ordinary callbacks.
+            let width = if fallible {
+                1
+            } else {
+                block_width(count, executors::workers(pool))
+            };
             let blocks = count.div_ceil(width);
             // Declared before `pending`, so they outlive its drain on every exit.
             let mut descriptors = Vec::new();
@@ -191,7 +204,7 @@ pub(crate) unsafe fn run(
                 }
             }
             let window = window.min(count / 2);
-            let mut pending = Pending::new(window, element)?;
+            let mut pending = Pending::new(window, worker_output)?;
             for index in 0..count {
                 take_input(index, values.slot(index));
             }
@@ -226,29 +239,56 @@ pub(crate) unsafe fn run(
                 let pairs = count / 2;
                 let mut submitted = 0;
                 let mut finished = 0;
+                let mut failure = None;
                 while submitted < pairs || pending.len > 0 {
-                    while submitted < pairs && pending.len < window {
+                    while failure.is_none() && submitted < pairs && pending.len < window {
                         let left = values.slot(2 * submitted);
                         let right = values.slot(2 * submitted + 1);
-                        let job = executors::submit_pair(
+                        let job = match executors::submit_pair(
                             pool,
                             [left.read(), right.read()],
                             job_input,
-                            element,
+                            worker_output,
                             entry,
-                        )
-                        .map_err(Error::submission)?;
+                        ) {
+                            Ok(job) => job,
+                            Err(tag) => {
+                                failure = Some(Error::submission(tag));
+                                break;
+                            }
+                        };
                         left.write(0);
                         right.write(0);
                         pending.push(job);
                         submitted += 1;
                     }
+                    if pending.len == 0 {
+                        break;
+                    }
                     let mut completed = pending.pop();
-                    // Both original slots for this destination are already
-                    // transferred; compact without a second scratch allocation.
-                    ranges::store(values.slot(finished), completed.value, element);
+                    if fallible && worker_output.tag(completed.value) == 1 {
+                        // Accepted results precede a later submission failure.
+                        // Pending drains before `values` or the source drops.
+                        ranges::store(
+                            out,
+                            wrap(worker_output.unpack(completed.value), 1),
+                            result_type,
+                        );
+                        completed.transferred();
+                        return Err(Error::Worker);
+                    }
+                    let value = if fallible {
+                        worker_output.unpack(completed.value)
+                    } else {
+                        completed.value
+                    };
+                    // Both original slots for this destination are transferred.
+                    ranges::store(values.slot(finished), value, element);
                     completed.transferred();
                     finished += 1;
+                }
+                if let Some(error) = failure {
+                    return Err(error);
                 }
                 if count % 2 == 1 {
                     let odd = values.slot(count - 1);
@@ -266,9 +306,21 @@ pub(crate) unsafe fn run(
             let error = match error {
                 Error::Allocation(error) => wrap(wrap(0, error as u64), 0),
                 Error::Shutdown => wrap(0, 1),
-                Error::Worker => unreachable!("reduce_tree does not unwrap application results"),
+                Error::Worker => return, // Already relocated into caller storage.
             };
-            out.write(wrap(error, 1));
+            let error = if std::ptr::eq(error_type, pool_error) {
+                error
+            } else {
+                let tag = error_type
+                    .variants
+                    .iter()
+                    .position(|variant| {
+                        variant.name.is_empty() && std::ptr::eq(variant.fields[0], pool_error)
+                    })
+                    .expect("normalized reduction error contains PoolMapError");
+                error_type.pack(error, tag)
+            };
+            ranges::store(out, wrap(error, 1), result_type);
         }
     }
 }

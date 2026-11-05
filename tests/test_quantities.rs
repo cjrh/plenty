@@ -53,7 +53,7 @@ def main() -> Result[(), IoError]:
 fn every_integer_storage_keeps_dimensions() {
     for t in ["i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64"] {
         assert_stdout(&format!("{BASES}
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[{t}] | ZeroDivisionError]:
     a = Quantity[{t}, Length](12)
     b = Quantity[{t}, Time](5)
     sum: Quantity[{t}, Length] = a + a
@@ -99,7 +99,7 @@ fn domain_results_keep_the_quantity_wrapper() {
             assert_stdout(
                 &format!(
                     "{BASES}
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[{t}]]:
     p = Quantity[{domain}[{t}], Length](3)
     sum: Quantity[{sum}, Length] = p + p
     difference: Quantity[{t}, Length] = p - p
@@ -170,7 +170,8 @@ fn generic_results_evaluate_once_in_source_order() {
         &format!(
             "{BASES}
 def make[D: Dimension](n: f64, order: &mut i64) -> Quantity[f64, D]:
-    *order = *order * 10 + i64(n)
+    unchecked:
+        *order = *order * 10 + i64(n)
     Quantity[f64, D](n)
 def main() -> Result[(), IoError]:
     mut order = 0
@@ -221,12 +222,14 @@ fn compound_destinations_and_inferred_rhs_are_evaluated_once() {
 def identity[T](x: T) -> T:
     x
 def index(order: &mut i64) -> i64:
-    *order = *order * 10 + 1
+    unchecked:
+        *order = *order * 10 + 1
     0
 def destination(q: &mut Quantity[f64, Length]) -> &mut Quantity[f64, Length]:
     q
 def addend(order: &mut i64) -> Quantity[f64, Length]:
-    *order = *order * 10 + 2
+    unchecked:
+        *order = *order * 10 + 2
     Quantity[f64, Length](3.0)
 def main() -> Result[(), AllocError | IoError]:
     mut order = 0
@@ -257,7 +260,7 @@ def positive_divisor() -> Quantity[i64, Length / Time]:
 def nonzero_divisor() -> Result[Quantity[i64, Length / Time], OverflowError[i64]]:
     checked:
         Quantity[i64, Length](i64.MIN) // Quantity[NonZero[i64], Time](-1)
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     print(overflow().is_err(), division().is_err(), nonzero_divisor().is_err(), positive_divisor().get())?
     p = Quantity[Positive[i64], Length](3)
     n: Quantity[i64, Length] = -p
@@ -267,6 +270,30 @@ def main() -> Result[(), IoError]:
     print(n.get(), q.get().get())?
     Ok(())
 "), "True True True -3\n-3 12\n");
+}
+
+/// Negating a `Positive` or `NonNegative` value cannot overflow, so it adds
+/// no error to an infallible function; `NonZero` can, and is reported at the
+/// user's operator rather than inside the builtin error module.
+#[test]
+fn negation_errors_follow_the_operand_domain() {
+    assert_stdout(&format!("{BASES}
+def flip(p: Positive[i64], n: NonNegative[i32], q: Quantity[Positive[i64], Length]) -> (i64, i32, i64):
+    m: Quantity[i64, Length] = -q
+    (-p, -n, m.get())
+def main() -> Result[(), IoError]:
+    print(flip(5, 0, Quantity[Positive[i64], Length](3)))?
+    Ok(())
+"), "(-5, 0, -3)\n");
+    for operand in ["NonZero[i64]", "Quantity[NonZero[i64], Length]"] {
+        let source = format!(
+            "{BASES}def flip(z: {operand}) -> {operand}:\n    -z\ndef main() -> ():\n    pass\n"
+        );
+        let error = plenty::check_source(&source).unwrap_err().to_string();
+        assert!(error.contains("OverflowError[i64]"), "{error}");
+        assert!(error.starts_with("4:5:"), "{error}");
+        assert!(!error.contains("<builtin"), "{error}");
+    }
 }
 
 #[test]
@@ -330,7 +357,7 @@ fn computed_quantities_support_every_ordering() {
                 "{BASES}
 def identity[T](value: T) -> T:
     value
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i32]]:
     q = Quantity[f64, Length](1.0)
     print((q + q) {operator} (q * 3.0))?
     print(identity(q + q) {operator} identity(q * 3.0))?
@@ -366,7 +393,8 @@ fn computed_comparisons_evaluate_once_and_keep_numeric_context() {
 def identity[T](value: T) -> T:
     value
 def traced[T](value: T, digit: i64, order: &mut i64) -> T:
-    *order = *order * 10 + digit
+    unchecked:
+        *order = *order * 10 + digit
     value
 def main() -> Result[(), IoError]:
     mut order = 0

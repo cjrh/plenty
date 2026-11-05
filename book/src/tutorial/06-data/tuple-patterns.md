@@ -4,20 +4,20 @@ Match a tuple when the answer depends on several values together. Each
 component takes a pattern, and the cases cover combinations of components:
 
 ```plenty
-def combine(left: Option[i64], right: Option[i64]) -> i64:
+def combine(left: Option[i64], right: Option[i64]) -> Result[i64, OverflowError[i64]]:
     match (left, right):
         case (Some(a), Some(b)):
-            a + b
+            Ok(a + b)
         case (Some(a), Nothing):
-            a
+            Ok(a)
         case (Nothing, Some(b)):
-            b
+            Ok(b)
         case (Nothing, Nothing):
-            0
+            Ok(0)
 
-def main() -> Result[(), IoError]:
-    print(combine(Some(3), Some(4)))?
-    print(combine(Nothing, Some(5)))?
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(combine(Some(3), Some(4))?)?
+    print(combine(Nothing, Some(5))?)?
     Ok(())
 ```
 ```output

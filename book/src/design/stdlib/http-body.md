@@ -77,7 +77,11 @@ forms are UTF-8. As in RFC 9110, an empty parameter (`a/b;` or `a/b;;c=d`)
 is allowed; a parameter without `=` makes the media type malformed.
 
 `read_form` refuses a declared `Content-Length` over `max_bytes` before
-reading, and stops a chunked body as soon as it passes the limit.
+reading, and stops a chunked body as soon as it passes the limit. Byte totals
+that cannot be represented as `i64` are also `TooLarge`, not arithmetic
+errors. Multipart part totals are checked before appending or writing the
+next piece; whole-body totals are checked after reading the next chunk
+but before retaining it.
 
 ## JSON
 

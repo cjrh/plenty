@@ -10,7 +10,7 @@ every item.
 import std.cli.progress as progress
 from std.cli.progress import ProgressError
 
-def main() -> Result[(), ProgressError | IoError]:
+def main() -> Result[(), ProgressError | IoError | OverflowError[i64]]:
     mut bar = progress.bar(5u64)
     mut total = 0
     for value in range(1, 6):

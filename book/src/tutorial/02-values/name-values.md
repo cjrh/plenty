@@ -4,7 +4,7 @@ Use `=` to create a binding. Plenty infers the type of a local value, so you
 usually do not need an annotation:
 
 ```plenty
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     # Comments begin with a hash.
     price = 20
     quantity = 3
@@ -38,7 +38,7 @@ def main() -> ():
 Use `mut` when a value needs to change. Write it once, at the declaration:
 
 ```plenty
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut score: i64 = 10
     score += 5
     print(score)?

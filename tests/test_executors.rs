@@ -1,9 +1,19 @@
 mod support;
 
 fn runs(source: &str, expected: &str) {
+    let source = if source.lines().any(|line| line.starts_with("def main(")) {
+        source.to_owned()
+    } else {
+        let source = support::program(source).replacen(
+            "def main() -> ():",
+            "def main() -> Result[(), OverflowError[i64]]:",
+            1,
+        );
+        format!("{}    Ok(())\n", source.strip_suffix("    pass\n").unwrap())
+    };
     let directory = tempfile::tempdir().unwrap();
     let executable = directory.path().join("executor-test");
-    support::compile_source_to_executable(source, &executable)
+    support::compile_source_to_executable(&source, &executable)
         .unwrap_or_else(|e| panic!("{source}\n{e}"));
     let output = support::output_within(
         &mut std::process::Command::new(executable),
@@ -26,25 +36,25 @@ fn named_generic_and_owned_closure_jobs_return_typed_results() {
         r#"
 def identity[T](value: T) -> T:
     value
-def square(value: i64) -> i64:
-    value * value
+def square(value: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(value * value)
 def later() -> Result[Future[list[i64]], AllocError | PoolError | SubmitError[OnceClosure[[], list[i64]]]]:
     with ThreadPoolExecutor(2, 1)? as pool:
         values = [3, 4]?
         job = def once [values]() -> list[i64]:
             values
         return Ok(pool.submit(job)?)
-def main() -> Result[(), AllocError | FutureError | IoError | PoolError | SubmitError[Closure[[], i64]] | SubmitError[OnceClosure[[], i64]] | SubmitError[OnceClosure[[], list[i64]]] | SubmitError[OnceClosure[[], str]]]:
+def main() -> Result[(), AllocError | FutureError | IoError | PoolError | SubmitError[Closure[[], Result[i64, OverflowError[i64]]]] | SubmitError[OnceClosure[[], Result[i64, OverflowError[i64]]]] | SubmitError[OnceClosure[[], list[i64]]] | SubmitError[OnceClosure[[], str]] | OverflowError[i64]]:
     with ThreadPoolExecutor(2, 2)? as pool:
         a = pool.submit(square, 6)?
         b = pool.submit(identity, "hello")?
         n = 7
-        job = def [n]() -> i64:
-            n + 1
+        job = def [n]() -> Result[i64, OverflowError[i64]]:
+            Ok(n + 1)
         c = pool.submit(job)?
-        print(a.result()?)?
+        print(a.result()??)?
         print(b.result()?)?
-        print(c.result()?)?
+        print(c.result()??)?
     future = later()?
     print(future.done())?
     print(future.result()?)?
@@ -58,18 +68,20 @@ def main() -> Result[(), AllocError | FutureError | IoError | PoolError | Submit
 fn map_is_ordered_for_ranges_owned_lists_and_inline_results() {
     runs(
         r#"
-def square[T: IntType](value: T) -> T:
-    value * value
+def square[T: IntType](value: T) -> Result[T, OverflowError[T]]:
+    Ok(value * value)
 def owned(values: list[i64]) -> list[i64]:
     values
-def span(n: i64) -> Option[range[i64]]:
-    Some(range(n, n + 3))
-with ThreadPoolExecutor(3, 1).unwrap() as pool:
-    print(pool.map(square, range[u8](8)).unwrap()).unwrap()
-    values = [[1, 2].unwrap(), [3].unwrap()].unwrap()
-    print(pool.map(owned, values).unwrap()).unwrap()
-    print(pool.map(span, range(4)).unwrap()).unwrap()
-    print(pool.map(square, range(0)).unwrap()).unwrap()
+def span(n: i64) -> Result[Option[range[i64]], OverflowError[i64]]:
+    Ok(Some(range(n, n + 3)))
+def main() -> Result[(), ParallelError[OverflowError[u8]] | ParallelError[OverflowError[i64]]]:
+    with ThreadPoolExecutor(3, 1).unwrap() as pool:
+        print(pool.map_result(square, range[u8](8))?).unwrap()
+        values = [[1, 2].unwrap(), [3].unwrap()].unwrap()
+        print(pool.map(owned, values).unwrap()).unwrap()
+        print(pool.map_result(span, range(4))?).unwrap()
+        print(pool.map_result(square, range(0))?).unwrap()
+    Ok(())
 "#,
         "[0, 1, 4, 9, 16, 25, 36, 49]\n[[1, 2], [3]]\n[Option[range].Some(range(0, 3, 1)), Option[range].Some(range(1, 4, 1)), Option[range].Some(range(2, 5, 1)), Option[range].Some(range(3, 6, 1))]\n[]\n",
     );
@@ -183,14 +195,14 @@ def run(work: Work) -> i64:
     else:
         work.sender.send(1).unwrap()
     work.id
-def square(n: i64) -> i64:
-    n * n
-def main() -> Result[(), AllocError | FutureError | IoError | PoolError | PoolMapError | SubmitError[OnceClosure[[], i64]]]:
+def square(n: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(n * n)
+def main() -> Result[(), AllocError | FutureError | IoError | PoolError | PoolMapError | SubmitError[OnceClosure[[], Result[i64, OverflowError[i64]]]] | OverflowError[i64]]:
     sender, receiver = channel[i64](1)?
     inputs = [Work(0, sender.share(), receiver.share()), Work(1, sender, receiver)]?
     with ThreadPoolExecutor(2, 1)? as pool:
         print(pool.map(run, inputs)?)?
-        print((pool.submit(square, 9)?).result()?)?
+        print((pool.submit(square, 9)?).result()??)?
     Ok(())
 "#,
         "[0, 1]\n81\n",
@@ -214,7 +226,9 @@ match &mut error:
     case PoolError.Thread(problem):
         match problem:
             case ThreadError.System(value):
-                *value = *value + 2i32
+                # The constructed code is exactly 13, so adding 2 fits i32.
+                unchecked:
+                    *value = *value + 2i32
     case PoolError.Allocation(_):
         pass
 print(code(&error)).unwrap()
@@ -387,7 +401,7 @@ def leave(sender: &Sender[i64], mode: i64) -> Result[(), Exit | PoolError | Subm
         failed: Result[(), Exit] = Err(Exit.Requested)
         failed?
     Ok(())
-def count(receiver: Receiver[i64]) -> i64:
+def count(receiver: Receiver[i64]) -> Result[i64, OverflowError[i64]]:
     mut count = 0
     while True:
         match receiver.recv():
@@ -395,7 +409,7 @@ def count(receiver: Receiver[i64]) -> i64:
                 count = count + 1
             case Err(_):
                 break
-    count
+    Ok(count)
 sender, receiver = channel[i64](8).unwrap()
 with spawn(count, receiver).unwrap() as counter:
     leave(&sender, 0).unwrap()
@@ -407,7 +421,7 @@ with spawn(count, receiver).unwrap() as counter:
                 continue
             break
     drop(sender)
-    print(counter.join()).unwrap()
+    print(counter.join()?).unwrap()
 "#,
         "4\n",
     );
@@ -1318,7 +1332,10 @@ def through(future: Future[()]) -> bool:
 def countdown(future: Future[()], n: i64) -> bool:
     if n == 0:
         return future.result().is_ok()
-    countdown(future, n - 1)
+    # Calls start at 3 and reach this path only for n in 1..=3.
+    previous = unchecked:
+        n - 1
+    countdown(future, previous)
 
 def apply(wait: Callable[[Future[()]], bool], future: Future[()]) -> bool:
     wait(future)

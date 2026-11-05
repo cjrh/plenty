@@ -12,8 +12,11 @@ def compact[W](output: &mut Formatter[W], count: u64) -> Result[(), FormatError]
     mut value = count
     mut unit = 0
     while value >= 1000u64:
-        value //= 1000u64
-        unit += 1
+        # The divisor is nonzero. A u64 has at most six groups of three
+        # decimal digits above its leading group, so unit grows only to six.
+        unchecked:
+            value //= 1000u64
+            unit += 1
     output.unsigned(value, 10)?
     match unit:
         case 1:
@@ -75,7 +78,10 @@ pub class Progress:
                 match self.rate(now):
                     case Some(rate):
                         if rate > 0.0:
-                            return Some(f64(total - self._position) / rate)
+                            # Constructors start at zero and accepted updates
+                            # preserve 0 <= position <= total for a known total.
+                            unchecked:
+                                return Some(f64(total - self._position) / rate)
                     case Nothing:
                         pass
             case Nothing:
@@ -143,7 +149,10 @@ pub class Progress:
             output.text("\n")?
         self._last = duplicate(now)
         self._drawn = True
-        self._frame = (self._frame + 1u8) % 4u8
+        # The initial frame is zero; modulo four preserves 0..3. The
+        # intermediate addition is at most four and the divisor is nonzero.
+        unchecked:
+            self._frame = (self._frame + 1u8) % 4u8
         Ok(())
 
     def display(self: &mut Progress, now: &Instant, final: bool) -> Result[(), ProgressError]:
@@ -175,9 +184,13 @@ pub class Progress:
     pub def advance(self: &mut Progress, count: u64 = 1u64) -> Result[(), ProgressError]:
         if self._finished:
             return Err(ProgressError.Finished)
-        if count > u64.MAX - self._position:
-            return Err(ProgressError.InvalidPosition)
-        self.set_position(self._position + count)
+        # position is a u64, so MAX - position cannot underflow. The guard
+        # proves the subsequent sum fits; set_position checks the known total
+        # before mutation, and retains its existing output-error behavior.
+        unchecked:
+            if count > u64.MAX - self._position:
+                return Err(ProgressError.InvalidPosition)
+            self.set_position(self._position + count)
 
     pub def tick(self: &mut Progress) -> Result[(), ProgressError]:
         self.set_position(self._position)

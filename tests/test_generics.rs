@@ -107,14 +107,15 @@ fn dependency_depth_is_bounded_separately_from_breadth() {
 #[test]
 fn a_chain_of_257_distinct_generic_functions_runs() {
     // Issue #435's reproduction, which reached the former depth limit of 256.
-    let mut source = String::from("def h0[T: IntType](x: T) -> T:\n    x + 1\n");
+    let mut source =
+        String::from("def h0[T: IntType](x: T) -> Result[T, OverflowError[T]]:\n    Ok(x + 1)\n");
     for i in 1..257 {
         source.push_str(&format!(
-            "def h{i}[T: IntType](x: T) -> T:\n    x + h{}[T](x) + 1\n",
+            "def h{i}[T: IntType](x: T) -> Result[T, OverflowError[T]]:\n    Ok(x + h{}[T](x)? + 1)\n",
             i - 1
         ));
     }
-    source.push_str("def main() -> i32:\n    i32(h256[i64](1) % 256)\n");
+    source.push_str("def main() -> Result[i32, OverflowError[i64] | ZeroDivisionError]:\n    Ok(i32(h256[i64](1)? % 256))\n");
     let output = support::run(&source);
     // h0(1) = 2 and each step adds 2, so h256(1) = 514.
     assert_eq!(output.status.code(), Some(514 % 256), "{output:?}");
@@ -145,27 +146,29 @@ fn explicit_functions_specialize_numeric_owned_and_borrowed_values() {
         r#"
 def identity[T](value: T) -> T:
     value
-def add[T: IntType](a: T, b: T) -> T:
-    a + b
-def total[T: IntType](stop: T) -> T:
+def add[T: IntType](a: T, b: T) -> Result[T, OverflowError[T]]:
+    Ok(a + b)
+def total[T: IntType](stop: T) -> Result[T, OverflowError[T]]:
     mut value: T = 0
     for n in range[T](stop):
         value = value + n
-    value
+    Ok(value)
 def first[T](values: &list[T]) -> &T:
     &values[0]
-def down[T: IntType](n: T) -> T:
+def down[T: IntType](n: T) -> Result[T, OverflowError[T]]:
     if n == 0:
-        return n
+        return Ok(n)
     down[T](n - 1)
-print(identity[i64](3)).unwrap()
-print(identity[str]("hello")).unwrap()
-print(add[u8](2, 3)).unwrap()
-print(total[u16](5)).unwrap()
-items = identity[list[i64]]([1, 2].unwrap())
-print(first[i64](&items)).unwrap()
-print(items).unwrap()
-print(down[i32](1000)).unwrap()
+def main() -> Result[(), AllocError | IoError | OverflowError[u8] | OverflowError[u16] | OverflowError[i32]]:
+    print(identity[i64](3))?
+    print(identity[str]("hello"))?
+    print(add[u8](2, 3)?)?
+    print(total[u16](5)?)?
+    items = identity[list[i64]]([1, 2]?)
+    print(first[i64](&items))?
+    print(items)?
+    print(down[i32](1000)?)?
+    Ok(())
 "#,
     );
     assert!(
@@ -226,8 +229,8 @@ def main() -> Result[(), AllocError]:
     // Found while lowering the body.
     assert_eq!(
         rejection(
-            "def sum[T](a: T, b: T) -> T:
-    a + b
+            "def sum[T](a: T, b: T) -> Result[T, OverflowError[T]]:
+    Ok(a + b)
 
 def main() -> ():
     x = sum[u8](1, 2)
@@ -235,14 +238,14 @@ def main() -> ():
 "
         ),
         "6:9: `sum[bool]` applies `+` to `T`, but `bool` does not support `+`
-  2:5: note: in instantiation `sum[bool]`: operator `+` does not accept bool"
+  2:8: note: in instantiation `sum[bool]`: operator `+` does not accept bool"
     );
     // Found by tail-call validation, after every body is lowered.
     assert_eq!(
         rejection(
-            "def walk[T](value: T, seen: &i64, n: i64) -> i64:
+            "def walk[T](value: T, seen: &i64, n: i64) -> Result[i64, OverflowError[i64]]:
     if n == 0:
-        return 0
+        return Ok(0)
     local = n
     walk(value, &local, n - 1)
 
@@ -669,7 +672,7 @@ fn only_checks_of_an_instance_body_move_to_the_use() {
     // A use that does not satisfy the declaration never reaches the body.
     assert_eq!(
         rejection(
-            "def add[T: IntType](a: T, b: T) -> T:\n    a + b\n\ndef main() -> ():\n    x = add('a', 'b')\n"
+            "def add[T: IntType](a: T, b: T) -> Result[T, OverflowError[T]]:\n    Ok(a + b)\n\ndef main() -> ():\n    x = add('a', 'b')\n"
         ),
         "5:9: str does not satisfy IntType"
     );
@@ -695,14 +698,14 @@ def deep[T](value: T) -> T:
 def shallow[T](value: T) -> T:
     ident(value)
 
-def is_even[T](n: i64, tag: T) -> bool:
+def is_even[T](n: i64, tag: T) -> Result[bool, OverflowError[i64]]:
     if n == 0:
-        return True
+        return Ok(True)
     is_odd(n - 1, tag)
 
-def is_odd[T](n: i64, tag: T) -> bool:
+def is_odd[T](n: i64, tag: T) -> Result[bool, OverflowError[i64]]:
     if n == 0:
-        return False
+        return Ok(False)
     is_even(n - 1, tag)
 
 def apply[F: Callable[[i64], i64]](f: &F, value: i64) -> i64:
@@ -713,8 +716,8 @@ def pick[T](first: T, second: T, take_second: bool = False) -> T:
         return second
     first
 
-def offset(value: i64 = ident(40)) -> i64:
-    value + 2
+def offset(value: i64 = ident(40)) -> Result[i64, OverflowError[i64]]:
+    Ok(value + 2)
 
 def describe[T](value: T) -> i64:
     add = def [value](extra: i64) -> i64:
@@ -730,15 +733,15 @@ class Holder[T]:
 def early() -> i64:
     deep(5)
 
-def main() -> Result[(), AllocError | IoError | FormatError]:
+def main() -> Result[(), AllocError | IoError | FormatError | OverflowError[i64]]:
     print(early())?
     print(twice(3))?
-    print(is_even(10, "x"), is_odd(7, 1.5))?
+    print(is_even(10, "x")?, is_odd(7, 1.5)?)?
     print(apply(&ident[i64], 9))?
     f = ident[i64]
     print(f(11))?
     print(pick(1, 2, take_second=True), pick(second="b", first="a"))?
-    print(offset(), offset(1))?
+    print(offset()?, offset(1)?)?
     print(describe("s"))?
     print(Holder(7).get())?
     T = 3
@@ -848,7 +851,7 @@ fn keytype_supports_inferred_explicit_and_forwarded_collection_functions() {
 enum Key:
     Id(i64)
     Name(str)
-def count[K: KeyType](values: &list[K]) -> Result[dict[K, i64], AllocError]:
+def count[K: KeyType](values: &list[K]) -> Result[dict[K, i64], AllocError | OverflowError[i64]]:
     mut counts: dict[K, i64] = {}?
     for value in values:
         counts.insert(*value, counts.get(*value, 0) + 1)?
@@ -860,7 +863,7 @@ def unique[K: KeyType](values: &list[K]) -> Result[set[K], AllocError]:
     Ok(result)
 def forward[K: KeyType](values: &list[K]) -> Result[set[K], AllocError]:
     unique(values)
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     values = [Key.Id(7), Key.Name("7"), Key.Id(7)]?
     counts = count(&values)?
     print(counts[Key.Id(7)], len(forward(&values)?))?

@@ -53,9 +53,9 @@ class Outer:
     inner: Inner
     weights: list[f32]
 
-    def bump(self: &mut Outer, i: i64) -> i64:
+    def bump(self: &mut Outer, i: i64) -> Result[i64, OverflowError[i64]]:
         self.inner.xs[i] += 1
-        self.inner.xs[i]
+        Ok(self.inner.xs[i])
 
 def read(o: &Outer, i: i64) -> i64:
     o.inner.xs[i]
@@ -65,21 +65,23 @@ def write(o: &mut Outer, i: i64, v: i64) -> ():
     o.inner.flags[i] = v > 0
     o.weights[-1] = 0.5f32
 
-def augment(o: &mut Outer, i: i64) -> ():
+def augment(o: &mut Outer, i: i64) -> Result[(), OverflowError[i64]]:
     o.inner.xs[i] *= 3
     o.weights[i] += 1.25f32
+    Ok(())
 
-def nested(grid: &mut list[list[u8]], i: i64, j: i64) -> ():
+def nested(grid: &mut list[list[u8]], i: i64, j: i64) -> Result[(), OverflowError[u8]]:
     grid[i][j] = grid[i][j] + 1u8
+    Ok(())
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | OverflowError[u8]]:
     mut o = Outer(Inner([1, 2, 3]?, [False, False, False]?), [1.0f32, 2.0f32]?)
     write(&mut o, 1, 7)
-    augment(&mut o, 1)
-    print(read(&o, 1), read(&o, -3), o.bump(0), o.inner.flags[1], o.inner.flags[2])?
+    augment(&mut o, 1)?
+    print(read(&o, 1), read(&o, -3), o.bump(0)?, o.inner.flags[1], o.inner.flags[2])?
     print(o.weights[0], o.weights[1])?
     mut grid = [[1u8, 2u8]?, [3u8, 4u8]?]?
-    nested(&mut grid, 1, -1)
+    nested(&mut grid, 1, -1)?
     print(grid[1][1])?
     Ok(())
 "#;
@@ -113,13 +115,13 @@ class Frontier:
     forward: list[i64]
     offset: i64
 
-def prefix(old: &list[i64], new: &list[i64]) -> i64:
+def prefix(old: &list[i64], new: &list[i64]) -> Result[i64, OverflowError[i64]]:
     mut count = 0
     while count < len(old) and count < len(new) and old[count] == new[count]:
         count += 1
-    count
+    Ok(count)
 
-def sweep(v: &mut Frontier, steps: i64) -> i64:
+def sweep(v: &mut Frontier, steps: i64) -> Result[i64, OverflowError[i64]]:
     at = v.offset
     mut k = steps
     while k >= -steps:
@@ -128,13 +130,13 @@ def sweep(v: &mut Frontier, steps: i64) -> i64:
         else:
             v.forward[at + k] = v.forward[at + k - 1] + 1
         k -= 2
-    v.forward[at]
+    Ok(v.forward[at])
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     old = [1, 2, 3, 4]?
     new = [1, 2, 5]?
     mut v = Frontier([0, 3, 1, 4, 1, 5, 9]?, 3)
-    print(prefix(&old, &new), sweep(&mut v, 2), v.forward)?
+    print(prefix(&old, &new)?, sweep(&mut v, 2)?, v.forward)?
     Ok(())
 "#;
 
@@ -253,7 +255,7 @@ def value() -> i64:
     print("value").unwrap()
     9
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut h = Holder([1, 2]?)
     h.xs[index(-1)] = value()
     h.xs[index(0)] += value()

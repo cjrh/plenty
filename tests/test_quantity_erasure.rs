@@ -137,7 +137,9 @@ def identity{index}(q: Q{index}) -> Q{index}:
 def tail{index}(q: Q{index}, n: i64) -> Q{index}:
     if n == 0:
         return q
-    tail{index}(q, n - 1)
+    # Q stays the direct return type, so the counter traps instead.
+    unchecked:
+        tail{index}(q, n - 1)
 def indirect{index}(f: Callable[[Q{index}], Q{index}], q: Q{index}) -> Q{index}:
     f(q)
 def read{index}(q: &Q{index}) -> Q{index}:
@@ -234,7 +236,8 @@ def changed(q: &mut Q) -> Q:
             r#"{BASES}
 type Q = Quantity[f64, Length]
 def traced(value: Q, digit: i64, order: &mut i64) -> Q:
-    *order = *order * 10 + digit
+    unchecked:
+        *order = *order * 10 + digit
     value
 def main() -> Result[(), IoError]:
     mut order = 0

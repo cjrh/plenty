@@ -4,6 +4,10 @@ mod support;
 use support::compile_file as compile;
 
 fn run(body: &str) -> String {
+    run_with_optimization(body, false)
+}
+
+fn run_with_optimization(body: &str, optimize: bool) -> String {
     let dir = tempfile::tempdir().unwrap();
     let source = format!(
         "import std.text\nimport std.unicode\nimport std.bytes\ndef failed[T, E](value: Result[T, E]) -> bool:\n    match value:\n        case Ok(_):\n            False\n        case Err(_):\n            True\ndef absent[T](value: Option[T]) -> bool:\n    match value:\n        case Some(_):\n            False\n        case Nothing:\n            True\ndef main() -> Result[(), AllocError | IoError | std.text.TextError | std.bytes.BytesError]:\n{}\n    Ok(())\n",
@@ -12,9 +16,17 @@ fn run(body: &str) -> String {
             .collect::<Vec<_>>()
             .join("\n")
     );
-    let output = std::process::Command::new(compile(dir.path(), &source))
-        .output()
-        .unwrap();
+    let path = dir.path().join("main.plenty");
+    let executable = dir.path().join("program");
+    std::fs::write(&path, &source).unwrap();
+    let options = plenty::CompileOptions {
+        optimize,
+        test_hooks: true,
+        ..Default::default()
+    };
+    plenty::compile_file_to_executable_with_options(&path, &executable, None, &options)
+        .unwrap_or_else(|error| panic!("{source}\n{error}"));
+    let output = std::process::Command::new(executable).output().unwrap();
     assert!(
         output.status.success(),
         "{}",
@@ -185,7 +197,7 @@ fn complete_unicode_17_normalization_conformance() {
 import std.text
 import std.bytes
 import std.unicode
-def main() -> Result[(), AllocError | IoError | std.text.TextError | std.bytes.BytesError]:
+def main() -> Result[(), AllocError | IoError | std.text.TextError | std.bytes.BytesError | OverflowError[i64]]:
     corpus = read_text("corpus.tsv")?
     mut count = 0
     for row in corpus.split("\n")?:
@@ -268,4 +280,26 @@ match normalized:
         reached_success,
         "all normalization allocation points must be exercised"
     );
+}
+
+#[test]
+fn normalization_ceiling_and_insertion_boundaries_in_both_codegen_modes() {
+    let body = r#"
+# The ceiling is a scalar budget, not an eager allocation request.
+ceiling = NonNegative.try_from(2305843009213693951).unwrap()
+print(std.unicode.nfkd("", ceiling)? == "")?
+print(std.unicode.nfkd("ﬃ", ceiling)? == "ffi")?
+# Descending combining classes force the insertion index all the way to zero.
+print(std.unicode.nfd("\u{315}\u{300}\u{327}", 3)? == "\u{327}\u{300}\u{315}")?
+print(failed(std.unicode.nfd("\u{315}\u{300}\u{327}", 2)))?
+# The scalar limit still covers all decomposed scalars before composition.
+print(failed(std.unicode.nfc("각", 2)), std.unicode.nfc("각", 3)? == "각")?
+print(std.unicode.nfkd("ﬃ", 3)? == "ffi", failed(std.unicode.nfkd("ﬃ", 2)))?
+"#;
+    for optimize in [false, true] {
+        assert_eq!(
+            run_with_optimization(body, optimize),
+            "True\nTrue\nTrue\nTrue\nTrue True\nTrue True"
+        );
+    }
 }

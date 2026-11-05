@@ -325,8 +325,9 @@ fn join_accepts_every_iterable_of_str() {
     native(
         r#"
 def words(n: i64) -> Generator[str]:
+    two: NonZero[i64] = 2
     for i in range(n):
-        yield "even" if i % 2 == 0 else "odd"
+        yield "even" if i % two == 0 else "odd"
 def show() -> Result[(), AllocError]:
     names = {"Ada"}.unwrap()
     scores = {"Ada": 1, "Bea": 2}.unwrap()

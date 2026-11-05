@@ -128,7 +128,7 @@ fn workers_own_and_borrow_handles_through_deadlines_and_cancellation() {
         &with_show(
             r#"
 # The pipe moves into the worker, which drains it under a deadline.
-def drain(stream: FileStream, cancel: CancellationToken) -> Result[i64, WaitError]:
+def drain(stream: FileStream, cancel: CancellationToken) -> Result[i64, WaitError | OverflowError[i64]]:
     mut owned = stream
     mut buffer = std.bytes.with_capacity(64).unwrap()
     buffer.resize(64, 0u8).unwrap()
@@ -200,7 +200,7 @@ fn waiting_workers_stay_idle_and_release_every_descriptor() {
 import std.fs
 import std.path
 
-def count(directory: &str) -> Result[i64, IoError]:
+def count(directory: &str) -> Result[i64, IoError | OverflowError[i64]]:
     mut entries = std.fs.read_dir(&std.path.from_text(directory)?)?
     mut total = 0
     while entries.next()?.is_some():
@@ -209,7 +209,7 @@ def count(directory: &str) -> Result[i64, IoError]:
 
 # User plus system CPU ticks. The test program's name has no spaces, so
 # fields 14 and 15 of /proc/self/stat are at fixed positions.
-def cpu_ticks() -> Result[i64, AllocError | IoError | ParseError]:
+def cpu_ticks() -> Result[i64, AllocError | IoError | ParseError | OverflowError[i64]]:
     stat = read_text("/proc/self/stat")?
     fields = stat.split(" ")?
     Ok(i64.parse(fields[13])? + i64.parse(fields[14])?)
@@ -227,7 +227,7 @@ def consume(file: File) -> bool:
     mut owned = file
     owned.close().is_ok()
 
-def main() -> Result[(), AllocError | IoError | ParseError | RangeError | SpawnError[()]]:
+def main() -> Result[(), AllocError | IoError | ParseError | RangeError | SpawnError[()] | OverflowError[i64]]:
     descriptors = count("/proc/self/fd")?
     threads = count("/proc/self/task")?
     mut child = piped("sleep 5")?
@@ -344,7 +344,7 @@ fn failed_start_closes_a_moved_handle_once() {
 import std.fs
 import std.path
 
-def count(directory: &str) -> Result[i64, IoError]:
+def count(directory: &str) -> Result[i64, IoError | OverflowError[i64]]:
     mut entries = std.fs.read_dir(&std.path.from_text(directory)?)?
     mut total = 0
     while entries.next()?.is_some():
@@ -358,7 +358,7 @@ def attempt(file: File) -> Result[bool, SpawnError[()]]:
     with spawn(consume, file).drop_job()? as task:
         return Ok(task.join())
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     descriptors = count("/proc/self/fd")?
     mut child = piped("printf x")?
     pipe = child.take_stdout().unwrap()
@@ -381,7 +381,7 @@ fn a_selector_waits_on_several_pipes() {
             r#"
 from std.ready import Selector, selector
 
-def keys(chosen: &mut Selector, deadline: &Deadline, cancel: &CancellationToken) -> Result[u64, IoError]:
+def keys(chosen: &mut Selector, deadline: &Deadline, cancel: &CancellationToken) -> Result[u64, IoError | OverflowError[u64]]:
     ready = chosen.wait(deadline, cancel).unwrap()
     mut total = 0u64
     for index in range(ready):
@@ -390,7 +390,7 @@ def keys(chosen: &mut Selector, deadline: &Deadline, cancel: &CancellationToken)
         total += event.key
     Ok(total)
 
-def main() -> Result[(), AllocError | IoError | RangeError]:
+def main() -> Result[(), AllocError | IoError | RangeError | OverflowError[u64]]:
     mut slow = piped("sleep 5")?
     mut quick = piped("printf x")?
     slow_out = slow.take_stdout().unwrap()

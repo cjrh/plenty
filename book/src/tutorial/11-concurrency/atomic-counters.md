@@ -23,7 +23,7 @@ def main() -> Result[(), SpawnError[()] | IoError]:
 ```
 
 `Atomic[u64](0)` stores the counter inline in `main`'s frame; nothing is
-allocated. `fetch_add` returns the value it replaced. Like `+`, it stops the
+allocated. `fetch_add` returns the value it replaced. It stops the
 program on overflow, before storing anything.
 
 Every operation names an `Ordering`. `Relaxed` only makes the update itself
@@ -53,15 +53,17 @@ class Stats:
     seen: Atomic[u32]
     largest: Atomic[i64]
 
-def record(stats: &Stats, start: i64) -> ():
+def record(stats: &Stats, start: i64) -> Result[(), OverflowError[i64]]:
     for value in range(start, start + 1000):
         stats.seen.fetch_add(1, Ordering.Relaxed)
         stats.largest.fetch_max(value, Ordering.Relaxed)
+    Ok(())
 
-def main() -> Result[(), SpawnError[()] | IoError]:
+def main() -> Result[(), SpawnError[()] | IoError | OverflowError[i64]]:
     stats = Stats(seen=Atomic(0), largest=Atomic(i64.MIN))
-    with spawn(record, &stats, 0)?, spawn(record, &stats, 5000)?:
-        pass
+    with spawn(record, &stats, 0)? as first, spawn(record, &stats, 5000)? as second:
+        first.join()?
+        second.join()?
     print(stats.seen.load(Ordering.Acquire))?
     print(stats.largest.load(Ordering.Acquire))?
     Ok(())

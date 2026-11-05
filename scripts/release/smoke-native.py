@@ -34,17 +34,17 @@ REQUIRED = ("README.md", "LICENSE-MIT", "LICENSE-APACHE", "THIRD-PARTY-NOTICES.m
             "licenses/rust/COPYRIGHT-library.html")
 TARGETS = {"aarch64-apple-darwin": ("tar.gz", ""), "x86_64-pc-windows-msvc": ("zip", ".exe")}
 # Same program and output as codegen.rs native_runtime_tagged_results_and_callbacks_round_trip.
-PROGRAM = '''def key(value: &i64) -> i64:
-    -*value
+PROGRAM = '''def key(value: &i64) -> Result[i64, OverflowError[i64]]:
+    Ok(-*value)
 
 def count(stop: i64) -> Generator[i64]:
     for value in range(stop):
         yield value
 
-def main() -> Result[(), AllocError | IoError | ParseError]:
+def main() -> Result[(), AllocError | IoError | ParseError | OverflowError[i64]]:
     number = i64.parse("9223372036854775806")?
     mut values = [number, -7, 42]?
-    values.sort_by_key(key)
+    values.sort_by_key(key)?
     print(values)?
     print(str.repr(i64.parse("bad"))?)?
     for value in count(3):

@@ -58,14 +58,16 @@ def value(values: &mut set[i64]) -> i64:
 class Custom:
     def discard(self, n: i64) -> i64:
         n
-mut storage = Storage({1, 2}.unwrap())
-print(storage.values.discard(value(&mut storage.values))).unwrap()
-key = 1
-print(remove(&mut storage.values, &key)).unwrap()
-print(key).unwrap()
-print(storage.values.discard(len(storage.values) + 1)).unwrap()
-print(len(storage.values)).unwrap()
-print(Custom().discard(7)).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    mut storage = Storage({1, 2}.unwrap())
+    print(storage.values.discard(value(&mut storage.values))).unwrap()
+    key = 1
+    print(remove(&mut storage.values, &key)).unwrap()
+    print(key).unwrap()
+    print(storage.values.discard(len(storage.values) + 1)).unwrap()
+    print(len(storage.values)).unwrap()
+    print(Custom().discard(7)).unwrap()
+    Ok(())
 "#,
         "value\nTrue\nTrue\n1\nTrue\n0\n7",
     );
@@ -75,22 +77,24 @@ print(Custom().discard(7)).unwrap()
 fn repeated_discard_and_reinsertion_preserve_probe_chains() {
     native(
         r#"
-mut values = {n for n in range(100)}.unwrap()
-mut valid = True
-for n in range(0, 100, 2):
-    valid = values.discard(n) and valid
-    valid = not values.discard(n) and valid
-for n in range(100):
-    valid = valid and (n in values) == (n % 2 == 1)
-print(valid).unwrap()
-print(len(values)).unwrap()
-for n in range(0, 100, 2):
-    values.add(n).unwrap()
-print(len(values)).unwrap()
-for n in range(100):
-    valid = values.discard(n) and valid
-print(valid).unwrap()
-print(len(values)).unwrap()
+def main() -> Result[(), ZeroDivisionError]:
+    mut values = {n for n in range(100)}.unwrap()
+    mut valid = True
+    for n in range(0, 100, 2):
+        valid = values.discard(n) and valid
+        valid = not values.discard(n) and valid
+    for n in range(100):
+        valid = valid and (n in values) == (n % 2 == 1)
+    print(valid).unwrap()
+    print(len(values)).unwrap()
+    for n in range(0, 100, 2):
+        values.add(n).unwrap()
+    print(len(values)).unwrap()
+    for n in range(100):
+        valid = values.discard(n) and valid
+    print(valid).unwrap()
+    print(len(values)).unwrap()
+    Ok(())
 "#,
         "True\n50\n100\nTrue\n0",
     );

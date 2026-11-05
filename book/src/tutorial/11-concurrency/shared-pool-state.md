@@ -12,23 +12,25 @@ class Stats:
     count: i64
     total: i64
 
-def work(hits: Shared[Atomic[u64]], stats: Shared[Mutex[Stats]], value: i64) -> i64:
+def work(hits: Shared[Atomic[u64]], stats: Shared[Mutex[Stats]], value: i64) -> Result[i64, OverflowError[i64]]:
     for _ in range(1000):
         hits.fetch_add(1, Ordering.Relaxed)
         with stats.lock() as data:
-            data.count = data.count + 1
-            data.total = data.total + value
-    value
+            count = data.count + 1
+            total = data.total + value
+            data.count = count
+            data.total = total
+    Ok(value)
 
 type PoolJobError = FutureError | SubmitError[()] | PoolError
 
-def main() -> Result[(), AllocError | IoError | PoolJobError]:
+def main() -> Result[(), AllocError | IoError | PoolJobError | OverflowError[i64]]:
     hits = Shared[Atomic[u64]](Atomic(0))?
     stats = Shared[Mutex[Stats]](Mutex(Stats(0, 0)))?
     with ThreadPoolExecutor(2, 4)? as pool:
         first = pool.submit(work, hits.share(), stats.share(), 3).drop_job()?
         second = pool.submit(work, hits.share(), stats.share(), 4).drop_job()?
-        print(first.result()? + second.result()?)?
+        print(first.result()?? + second.result()??)?
     print(hits.load(Ordering.Acquire))?
     with stats.lock() as data:
         print(data.count)?

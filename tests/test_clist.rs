@@ -55,6 +55,12 @@ fn filter_count_preserves_integer_comparisons_and_all_tails(#[case] release: boo
         }
     }
     source.push_str("print(\"ok\").unwrap()\n");
+    let source = support::program(&source).replacen(
+        "def main() -> ():",
+        "def main() -> Result[(), OverflowError[i64]]:",
+        1,
+    );
+    let source = format!("{source}    Ok(())\n");
     let output = run_mode(&source, release);
     assert!(
         output.status.success(),
@@ -133,6 +139,12 @@ fn filter_count_runtime_thresholds_and_ranges(#[case] release: bool) {
         }
     }
     source.push_str("print(\"ok\").unwrap()\n");
+    let source = support::program(&source).replacen(
+        "def main() -> ():",
+        "def main() -> Result[(), OverflowError[i64] | ZeroDivisionError]:",
+        1,
+    );
+    let source = format!("{source}    Ok(())\n");
     let output = run_mode(&source, release);
     assert!(
         output.status.success(),
@@ -162,7 +174,14 @@ for n in range(9):
 check(scan(&rows, 2i32, 7i32) == 5, "snapshot").unwrap()
 check(scan(&rows, 3i32, 8i32) == 5, "new snapshot on another call").unwrap()
 check(rows.column(Row.x).filter(def(x: &i32) -> bool: *x > 6i32 and effect(x)).count() == 2, "short circuit").unwrap()
-check(rows.column(Row.x).filter(def(x: &i32) -> bool: *x < 0i32 and *x + i32.MAX > 0i32).count() == 0, "skipped overflow").unwrap()
+skipped = def(x: &i32) -> bool:
+    if *x < 0i32:
+        # The guard proves x + MAX is in -1..MAX-1; retain short circuiting.
+        shifted = unchecked:
+            *x + i32.MAX
+        return shifted > 0i32
+    False
+check(rows.column(Row.x).filter(skipped).count() == 0, "skipped overflow").unwrap()
 print("ok").unwrap()
 "#;
     let output = run_mode(source, true);
@@ -189,8 +208,17 @@ def predicate(x: &i32) -> bool:
     *x > 5i32
 def named(rows: &clist[Row]) -> i64:
     rows.column(Row.x).filter(predicate).count()
+def arithmetic_predicate(x: &i32) -> bool:
+    # Deliberate trapping IR subject: keep the original arithmetic predicate
+    # and infallible filter ABI. Main supplies an empty column, not test data.
+    unchecked:
+        *x + 1i32 > 5i32
 def checked(rows: &clist[Row]) -> i64:
-    rows.column(Row.x).filter(def(x: &i32) -> bool: *x + 1i32 > 5i32).count()
+    rows.column(Row.x).filter(arithmetic_predicate).count()
+def bound_range_control(rows: &clist[Row], low: i32) -> i64:
+    predicate = def [low](x: &i32) -> bool:
+        *x > low and *x < 5i32
+    rows.column(Row.x).filter(predicate).count()
 def runtime(rows: &clist[Row], limit: i32) -> i64:
     rows.column(Row.x).filter(def [limit](x: &i32) -> bool: limit < *x).count()
 def interval(rows: &clist[Row], low: i32, high: i32) -> i64:
@@ -204,11 +232,17 @@ def mixed_range(rows: &clist[Row], low: i32) -> i64:
 def borrowed(rows: &clist[Row], limit: i32) -> i64:
     rows.column(Row.x).filter(def [&limit](x: &i32) -> bool: *x > limit).count()
 def checked_range(rows: &clist[Row], low: i32) -> i64:
-    rows.column(Row.x).filter(def [low](x: &i32) -> bool: *x > low and *x + 1i32 < 5i32).count()
+    predicate = def [low](x: &i32) -> bool:
+        # Deliberate trapping IR subject: preserve the original short-circuit
+        # arithmetic predicate/filter ABI. Main supplies an empty column.
+        unchecked:
+            *x > low and *x + 1i32 < 5i32
+    rows.column(Row.x).filter(predicate).count()
 def disjunction(rows: &clist[Row], low: i32) -> i64:
     rows.column(Row.x).filter(def [low](x: &i32) -> bool: *x < low or *x > 5i32).count()
 def main() -> Result[(), IoError]:
     rows = clist[Row]()
+    drop(bound_range_control(&rows, 2i32))
     print(eligible(&rows), named(&rows), checked(&rows))?
     print(runtime(&rows, 2i32), interval(&rows, 1i32, 4i32), borrowed(&rows, 2i32), checked_range(&rows, 2i32), disjunction(&rows, 2i32))?
     print(named_range(&rows), mixed_range(&rows, 1i32))?
@@ -220,6 +254,7 @@ def main() -> Result[(), IoError]:
         ("eligible", true),
         ("named", true),
         ("checked", false),
+        ("bound_range_control", true),
         ("runtime", true),
         ("interval", true),
         ("named_range", true),
@@ -276,8 +311,7 @@ fn run_mode(source: &str, release: bool) -> std::process::Output {
 #[case(true)]
 fn direct_access_survives_growth_and_copies_stay_independent(#[case] release: bool) {
     let output = run_mode(
-        r#"
-class Values:
+        r#"class Values:
     flag: bool
     a: i8
     b: u8
@@ -291,35 +325,37 @@ class Values:
     j: f64
 def gather(rows: &clist[Values], index: i64) -> Option[Values]:
     rows.copy_row(index)
-mut rows = clist[Values]()
-for n in range(17):
-    rows.append(Values(False, 0i8, 0u8, 0i16, 0u16, 0i32, 0u32, 0, 0u64, 0.0f32, 0.0)).unwrap()
-    rows[-1].flag = True
-    rows[-1].a = -128i8
-    rows[-1].b = 255u8
-    rows[-1].c = -32768i16
-    rows[-1].d = 65535u16
-    rows[-1].e = -2147483648i32
-    rows[-1].f = 4294967295u32
-    rows[-1].g = -9223372036854775808
-    rows[-1].h = 18446744073709551615u64
-    rows[-1].i = -0.0f32
-    rows[-1].j = -0.0
-    check(rows[n].flag and rows[n].a == -128i8 and rows[n].b == 255u8, "byte fields").unwrap()
-    check(rows[n].c == -32768i16 and rows[n].d == 65535u16, "16-bit fields").unwrap()
-    check(rows[n].e == -2147483648i32 and rows[n].f == 4294967295u32, "32-bit fields").unwrap()
-    check(rows[n].g == -9223372036854775808 and rows[n].h == 18446744073709551615u64, "64-bit fields").unwrap()
-saved = gather(&rows, -17).unwrap()
-for n in range(17):
-    check(rows.copy_row(n).unwrap() == rows.copy_row(n - 17).unwrap(), "negative indices").unwrap()
-rows.reserve(100).unwrap()
-rows[0].a = 1i8
-check(saved.a == -128i8 and rows[0].a == 1i8, "independent copy").unwrap()
-check(rows.copy_row(-18).is_none() and rows.copy_row(17).is_none(), "bounds").unwrap()
-check(rows.copy_row(i64.MIN).is_none() and rows.copy_row(i64.MAX).is_none(), "extreme indices").unwrap()
-print(saved.i, saved.j, rows[-1].i, rows[-1].j).unwrap()
-drop(rows)
-print(saved.h).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    mut rows = clist[Values]()
+    for n in range(17):
+        rows.append(Values(False, 0i8, 0u8, 0i16, 0u16, 0i32, 0u32, 0, 0u64, 0.0f32, 0.0)).unwrap()
+        rows[-1].flag = True
+        rows[-1].a = -128i8
+        rows[-1].b = 255u8
+        rows[-1].c = -32768i16
+        rows[-1].d = 65535u16
+        rows[-1].e = -2147483648i32
+        rows[-1].f = 4294967295u32
+        rows[-1].g = -9223372036854775808
+        rows[-1].h = 18446744073709551615u64
+        rows[-1].i = -0.0f32
+        rows[-1].j = -0.0
+        check(rows[n].flag and rows[n].a == -128i8 and rows[n].b == 255u8, "byte fields").unwrap()
+        check(rows[n].c == -32768i16 and rows[n].d == 65535u16, "16-bit fields").unwrap()
+        check(rows[n].e == -2147483648i32 and rows[n].f == 4294967295u32, "32-bit fields").unwrap()
+        check(rows[n].g == -9223372036854775808 and rows[n].h == 18446744073709551615u64, "64-bit fields").unwrap()
+    saved = gather(&rows, -17).unwrap()
+    for n in range(17):
+        check(rows.copy_row(n).unwrap() == rows.copy_row(n - 17).unwrap(), "negative indices").unwrap()
+    rows.reserve(100).unwrap()
+    rows[0].a = 1i8
+    check(saved.a == -128i8 and rows[0].a == 1i8, "independent copy").unwrap()
+    check(rows.copy_row(-18).is_none() and rows.copy_row(17).is_none(), "bounds").unwrap()
+    check(rows.copy_row(i64.MIN).is_none() and rows.copy_row(i64.MAX).is_none(), "extreme indices").unwrap()
+    print(saved.i, saved.j, rows[-1].i, rows[-1].j).unwrap()
+    drop(rows)
+    print(saved.h).unwrap()
+    Ok(())
 "#,
         release,
     );
@@ -407,8 +443,7 @@ print(gather(&rows, 0)).unwrap()
 #[test]
 fn nested_owner_indices_are_evaluated_in_order_and_only_once() {
     native(
-        r#"
-class Point:
+        r#"class Point:
     x: i64
 def outer() -> i64:
     print("owner").unwrap()
@@ -419,20 +454,22 @@ def inner() -> i64:
 def rhs() -> i64:
     print("rhs").unwrap()
     3
-mut rows = clist[Point]()
-rows.append(Point(4)).unwrap()
-mut groups = [rows].unwrap()
-print(groups[outer()][inner()].x).unwrap()
-print(groups[outer()].copy_row(inner()).unwrap().x).unwrap()
-groups[outer()][inner()].x = rhs()
-groups[outer()][inner()].x += rhs()
-print(groups[0][0].x).unwrap()
-mut wrapped = (clist[Point](), 7)
-wrapped[0].append(Point(8)).unwrap()
-wrapped[0][0].x += 2
-print(wrapped[0][0].x).unwrap()
-shared = Shared(groups).unwrap()
-print(shared[outer()][inner()].x).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    mut rows = clist[Point]()
+    rows.append(Point(4)).unwrap()
+    mut groups = [rows].unwrap()
+    print(groups[outer()][inner()].x).unwrap()
+    print(groups[outer()].copy_row(inner()).unwrap().x).unwrap()
+    groups[outer()][inner()].x = rhs()
+    groups[outer()][inner()].x += rhs()
+    print(groups[0][0].x).unwrap()
+    mut wrapped = (clist[Point](), 7)
+    wrapped[0].append(Point(8)).unwrap()
+    wrapped[0][0].x += 2
+    print(wrapped[0][0].x).unwrap()
+    shared = Shared(groups).unwrap()
+    print(shared[outer()][inner()].x).unwrap()
+    Ok(())
 "#,
         "owner\nrow\n4\nowner\nrow\n4\nrhs\nowner\nrow\nowner\nrow\nrhs\n6\n10\nowner\nrow\n6",
     );
@@ -441,25 +478,26 @@ print(shared[outer()][inner()].x).unwrap()
 #[test]
 fn primitive_columns_rows_and_pipelines() {
     native(
-        r#"
-class Point:
+        r#"class Point:
     x: i64
     y: f64
-def add(total: i64, x: i64) -> i64:
-    total + x
-mut points = clist[Point]()
-print(len(points), points.capacity()).unwrap()
-points.reserve(10).unwrap()
-for i in range(10):
-    points.append(Point(i, f64(i))).unwrap()
-points[-1].x = 40
-print(len(points), points[0].x, points[-1].x, points[-2].y).unwrap()
-print(points.copy_row(2), points.copy_row(-1), points.copy_row(10)).unwrap()
-print(iter(points.column(Point.x)).fold(0, add)).unwrap()
-mut total = 0
-for x, y in zip(points.column(Point.x), points.column(Point.y)):
-    total += x + i64(y)
-print(total).unwrap()
+def add(total: i64, x: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(total + x)
+def main() -> Result[(), OverflowError[i64]]:
+    mut points = clist[Point]()
+    print(len(points), points.capacity()).unwrap()
+    points.reserve(10).unwrap()
+    for i in range(10):
+        points.append(Point(i, f64(i))).unwrap()
+    points[-1].x = 40
+    print(len(points), points[0].x, points[-1].x, points[-2].y).unwrap()
+    print(points.copy_row(2), points.copy_row(-1), points.copy_row(10)).unwrap()
+    print(iter(points.column(Point.x)).try_fold(0, add)?).unwrap()
+    mut total = 0
+    for x, y in zip(points.column(Point.x), points.column(Point.y)):
+        total += x + i64(y)
+    print(total).unwrap()
+    Ok(())
 "#,
         "0 0\n10 0 40 8.0\nOption[Point].Some(Point(x=2, y=2.0)) Option[Point].Some(Point(x=40, y=9.0)) Option[Point].Nothing\n76\n121",
     );
@@ -553,8 +591,7 @@ print(items.copy_row(0), items.copy_row(-1), items.column(Point.x).count()).unwr
 #[test]
 fn projected_enum_owner_preserves_tags_and_row_updates_evaluate_once() {
     native(
-        r#"
-class Point:
+        r#"class Point:
     x: i64
 def build() -> clist[Point]:
     clist[Point]()
@@ -566,20 +603,22 @@ def position() -> i64:
 def increment() -> i64:
     print("value").unwrap()
     2
-mut wrapped = Some(build())
-match &mut wrapped:
-    case Some(items):
-        grow(&mut *items)
-    case Nothing:
-        ()
-match wrapped:
-    case Some(items):
-        mut owned = items
-        owned[position()].x += increment()
-        owned[position()].x = increment()
-        print(owned[0].x).unwrap()
-    case Nothing:
-        print("lost tag").unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    mut wrapped = Some(build())
+    match &mut wrapped:
+        case Some(items):
+            grow(&mut *items)
+        case Nothing:
+            ()
+    match wrapped:
+        case Some(items):
+            mut owned = items
+            owned[position()].x += increment()
+            owned[position()].x = increment()
+            print(owned[0].x).unwrap()
+        case Nothing:
+            print("lost tag").unwrap()
+    Ok(())
 "#,
         "index\nvalue\nvalue\nindex\n2",
     );
@@ -766,8 +805,7 @@ fn unsupported_projection_diagnostics(#[case] expression: &str, #[case] message:
 #[case(true)]
 fn ordered_removal_preserves_columns_bounds_and_owned_rows(#[case] release: bool) {
     let output = run_mode(
-        r#"
-class Row:
+        r#"class Row:
     flag: bool
     a: i8
     b: u8
@@ -779,38 +817,40 @@ class Row:
     h: u64
     i: f32
     j: f64
-def row(n: i64) -> Row:
-    Row(n % 2 == 0, i8(-n), u8(n), i16(-n), u16(n), i32(-n), u32(n), -n, u64(n), f32(n), f64(n))
-for length in range(1, 34):
-    for removed in range(length):
-        mut rows = clist[Row].with_capacity(length).unwrap()
-        for n in range(length):
-            rows.append(row(n)).unwrap()
-        capacity = rows.capacity()
-        check(rows.remove(length).is_none(), "past end").unwrap()
-        check(rows.remove(-length - 1).is_none(), "before start").unwrap()
-        check(rows.remove(i64.MIN).is_none() and rows.remove(i64.MAX).is_none(), "extreme bounds").unwrap()
-        check(len(rows) == length, "invalid removal keeps length").unwrap()
-        index = removed if removed % 2 == 0 else removed - length
-        saved = rows.remove(index).unwrap()
-        check(saved == row(removed), "removed row").unwrap()
-        check(len(rows) == length - 1 and rows.capacity() == capacity, "size and capacity").unwrap()
-        for n in range(len(rows)):
-            expected = n if n < removed else n + 1
-            check(rows.copy_row(n).unwrap() == row(expected), "all columns stay aligned").unwrap()
-        rows.append(row(99)).unwrap()
-        check(rows.copy_row(-1).unwrap() == row(99), "append uses reclaimed tail").unwrap()
-        check(rows.column(Row.a).count() == length, "scan has live length").unwrap()
-        rows.clear()
-        check(len(rows) == 0 and rows.capacity() == capacity, "clear retains capacity").unwrap()
-        check(rows.column(Row.h).count() == 0, "clear empties scan").unwrap()
-        check(rows.remove(0).is_none() and rows.remove(-1).is_none(), "allocated empty removal").unwrap()
-        rows.clear()
-        rows.append(row(100)).unwrap()
-        check(rows.copy_row(0).unwrap() == row(100), "append after clear").unwrap()
-        drop(rows)
-        check(saved == row(removed), "returned row outlives storage").unwrap()
-print("ok").unwrap()
+def row(n: i64) -> Result[Row, OverflowError[i64] | ZeroDivisionError]:
+    Ok(Row(n % 2 == 0, i8(-n), u8(n), i16(-n), u16(n), i32(-n), u32(n), -n, u64(n), f32(n), f64(n)))
+def main() -> Result[(), OverflowError[i64] | ZeroDivisionError]:
+    for length in range(1, 34):
+        for removed in range(length):
+            mut rows = clist[Row].with_capacity(length).unwrap()
+            for n in range(length):
+                rows.append(row(n)?).unwrap()
+            capacity = rows.capacity()
+            check(rows.remove(length).is_none(), "past end").unwrap()
+            check(rows.remove(-length - 1).is_none(), "before start").unwrap()
+            check(rows.remove(i64.MIN).is_none() and rows.remove(i64.MAX).is_none(), "extreme bounds").unwrap()
+            check(len(rows) == length, "invalid removal keeps length").unwrap()
+            index = removed if removed % 2 == 0 else removed - length
+            saved = rows.remove(index).unwrap()
+            check(saved == row(removed)?, "removed row").unwrap()
+            check(len(rows) == length - 1 and rows.capacity() == capacity, "size and capacity").unwrap()
+            for n in range(len(rows)):
+                expected = n if n < removed else n + 1
+                check(rows.copy_row(n).unwrap() == row(expected)?, "all columns stay aligned").unwrap()
+            rows.append(row(99)?).unwrap()
+            check(rows.copy_row(-1).unwrap() == row(99)?, "append uses reclaimed tail").unwrap()
+            check(rows.column(Row.a).count() == length, "scan has live length").unwrap()
+            rows.clear()
+            check(len(rows) == 0 and rows.capacity() == capacity, "clear retains capacity").unwrap()
+            check(rows.column(Row.h).count() == 0, "clear empties scan").unwrap()
+            check(rows.remove(0).is_none() and rows.remove(-1).is_none(), "allocated empty removal").unwrap()
+            rows.clear()
+            rows.append(row(100)?).unwrap()
+            check(rows.copy_row(0).unwrap() == row(100)?, "append after clear").unwrap()
+            drop(rows)
+            check(saved == row(removed)?, "returned row outlives storage").unwrap()
+    print("ok").unwrap()
+    Ok(())
 "#,
         release,
     );

@@ -71,40 +71,40 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.log`](#stdlog): 2424-2491
 - [`std.markdown`](#stdmarkdown): 2493-2527
 - [`std.template`](#stdtemplate): 2529-2550
-- [`std.math`](#stdmath): 2552-2618
-- [`std.mime`](#stdmime): 2620-2646
-- [`std.net`](#stdnet): 2648-2730
-- [`std.path`](#stdpath): 2732-2749
-- [`std.process`](#stdprocess): 2751-2800
-- [`std.random`](#stdrandom): 2802-2823
-- [`std.ready`](#stdready): 2825-2856
-- [`std.regex`](#stdregex): 2858-2911
-- [`std.report`](#stdreport): 2913-2920
-- [`std.secrets`](#stdsecrets): 2922-2948
-- [`std.shlex`](#stdshlex): 2950-2959
-- [`std.sketch`](#stdsketch): 2961-2999
-- [`std.sketch.xor`](#stdsketchxor): 3001-3012
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3014-3029
-- [`std.signal`](#stdsignal): 3031-3048
-- [`std.simd`](#stdsimd): 3050-3151
-- [`std.stat`](#stdstat): 3153-3186
-- [`std.plot`](#stdplot): 3188-3277
-- [`std.linalg`](#stdlinalg): 3279-3320
-- [`std.sync`](#stdsync): 3322-3340
-- [`std.system`](#stdsystem): 3342-3400
-- [`std.tempfile`](#stdtempfile): 3402-3434
-- [`std.test`](#stdtest): 3436-3478
-- [`std.text`](#stdtext): 3480-3523
-- [`std.thread`](#stdthread): 3525-3529
-- [`std.time`](#stdtime): 3531-3575
-- [`std.tls`](#stdtls): 3577-3659
-- [`std.toml`](#stdtoml): 3661-3710
-- [`std.unicode`](#stdunicode): 3712-3724
-- [`std.units`](#stdunits): 3726-3962
-- [`std.units.catalogue`](#stdunitscatalogue): 3964-4742
-- [`std.url`](#stdurl): 4744-4772
-- [`std.uuid`](#stduuid): 4774-4797
-- [`std.xml`](#stdxml): 4799-4832
+- [`std.math`](#stdmath): 2552-2623
+- [`std.mime`](#stdmime): 2625-2651
+- [`std.net`](#stdnet): 2653-2735
+- [`std.path`](#stdpath): 2737-2754
+- [`std.process`](#stdprocess): 2756-2805
+- [`std.random`](#stdrandom): 2807-2828
+- [`std.ready`](#stdready): 2830-2861
+- [`std.regex`](#stdregex): 2863-2916
+- [`std.report`](#stdreport): 2918-2925
+- [`std.secrets`](#stdsecrets): 2927-2953
+- [`std.shlex`](#stdshlex): 2955-2964
+- [`std.sketch`](#stdsketch): 2966-3004
+- [`std.sketch.xor`](#stdsketchxor): 3006-3017
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3019-3034
+- [`std.signal`](#stdsignal): 3036-3053
+- [`std.simd`](#stdsimd): 3055-3156
+- [`std.stat`](#stdstat): 3158-3191
+- [`std.plot`](#stdplot): 3193-3282
+- [`std.linalg`](#stdlinalg): 3284-3325
+- [`std.sync`](#stdsync): 3327-3345
+- [`std.system`](#stdsystem): 3347-3405
+- [`std.tempfile`](#stdtempfile): 3407-3439
+- [`std.test`](#stdtest): 3441-3483
+- [`std.text`](#stdtext): 3485-3528
+- [`std.thread`](#stdthread): 3530-3534
+- [`std.time`](#stdtime): 3536-3580
+- [`std.tls`](#stdtls): 3582-3664
+- [`std.toml`](#stdtoml): 3666-3715
+- [`std.unicode`](#stdunicode): 3717-3729
+- [`std.units`](#stdunits): 3731-3968
+- [`std.units.catalogue`](#stdunitscatalogue): 3970-4748
+- [`std.url`](#stdurl): 4750-4778
+- [`std.uuid`](#stduuid): 4780-4803
+- [`std.xml`](#stdxml): 4805-4838
 
 ## `std.actor`
 
@@ -1148,8 +1148,8 @@ class Op
     old_end: i64
     new_start: i64
     new_end: i64
-    def old_len(self) -> i64
-    def new_len(self) -> i64
+    def old_len(self) -> Result[i64, OverflowError[i64]]
+    def new_len(self) -> Result[i64, OverflowError[i64]]
     def is_equal(self) -> bool
 def diff[T](old: &list[T], new: &list[T], algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[list[Op], AllocError]
 def diff_bytes(old: &[u8], new: &[u8], algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[list[Op], AllocError]
@@ -2551,7 +2551,7 @@ def engine(bounds: &Limits) -> Result[Engine, TemplateError]
 
 ## `std.math`
 
-Floating-point functions, checked rounding, integer algorithms, generic numeric helpers, and constants. Errors: `MathError`. [Reference](math.md).
+Floating-point functions, checked rounding, integer algorithms, integer and float helpers, and constants. Errors: `MathError`, `OverflowError[T]`. [Reference](math.md).
 
 ```text
 enum MathError
@@ -2606,15 +2606,20 @@ def lcm(a: u64, b: u64) -> Result[u64, MathError]
 def isqrt(n: u64) -> u64
 def perm(n: u64, k: u64) -> Result[u64, MathError]
 def comb(n: u64, k: u64) -> Result[u64, MathError]
-def abs[T](x: T) -> T
+def abs[T: IntType](x: T) -> Result[T, OverflowError[T]]
+def abs_float[T: FloatType](x: T) -> T
 def min[T](a: T, b: T) -> T
 def max[T](a: T, b: T) -> T
 def min_all[T](items: &list[T]) -> Option[T]
 def max_all[T](items: &list[T]) -> Option[T]
-def sum[T](items: &list[T], start: T) -> T
-def prod[T](items: &list[T], start: T) -> T
-def sum_iter[I, T](items: &I, start: T) -> T
-def prod_iter[I, T](items: &I, start: T) -> T
+def sum[T: IntType](items: &list[T], start: T) -> Result[T, OverflowError[T]]
+def prod[T: IntType](items: &list[T], start: T) -> Result[T, OverflowError[T]]
+def sum_iter[I, T: IntType](items: &I, start: T) -> Result[T, OverflowError[T]]
+def prod_iter[I, T: IntType](items: &I, start: T) -> Result[T, OverflowError[T]]
+def sum_float[T: FloatType](items: &list[T], start: T) -> T
+def prod_float[T: FloatType](items: &list[T], start: T) -> T
+def sum_iter_float[I, T: FloatType](items: &I, start: T) -> T
+def prod_iter_float[I, T: FloatType](items: &I, start: T) -> T
 ```
 
 ## `std.mime`
@@ -2878,7 +2883,7 @@ def limits() -> Limits
 class Match
     start: i64
     end: i64
-    def len(self) -> i64
+    def len(self) -> Result[i64, OverflowError[i64]]
     def is_empty(self) -> bool
     def text(self, haystack: &str) -> Result[str, RegexError]
     def bytes(self, data: &[u8]) -> Result[Bytes, RegexError]
@@ -3056,9 +3061,9 @@ enum i32x4
     Lanes(i32, i32, i32, i32)
     def lane(self, index: i64) -> Option[i32]
     def to_tuple(self) -> (i32, i32, i32, i32)
-    def add(self, other: &i32x4) -> i32x4
-    def sub(self, other: &i32x4) -> i32x4
-    def mul(self, other: &i32x4) -> i32x4
+    def add(self, other: &i32x4) -> Result[i32x4, OverflowError[i32]]
+    def sub(self, other: &i32x4) -> Result[i32x4, OverflowError[i32]]
+    def mul(self, other: &i32x4) -> Result[i32x4, OverflowError[i32]]
     def wrapping_add(self, other: &i32x4) -> i32x4
     def wrapping_sub(self, other: &i32x4) -> i32x4
     def wrapping_mul(self, other: &i32x4) -> i32x4
@@ -3076,9 +3081,9 @@ enum u32x4
     Lanes(u32, u32, u32, u32)
     def lane(self, index: i64) -> Option[u32]
     def to_tuple(self) -> (u32, u32, u32, u32)
-    def add(self, other: &u32x4) -> u32x4
-    def sub(self, other: &u32x4) -> u32x4
-    def mul(self, other: &u32x4) -> u32x4
+    def add(self, other: &u32x4) -> Result[u32x4, OverflowError[u32]]
+    def sub(self, other: &u32x4) -> Result[u32x4, OverflowError[u32]]
+    def mul(self, other: &u32x4) -> Result[u32x4, OverflowError[u32]]
     def wrapping_add(self, other: &u32x4) -> u32x4
     def wrapping_sub(self, other: &u32x4) -> u32x4
     def wrapping_mul(self, other: &u32x4) -> u32x4
@@ -3470,7 +3475,7 @@ class FakeStream
     output: Bytes
     def calls(self) -> i64
     def limit(self: &mut FakeStream, bytes: i64) -> ()
-    def fail_after(self: &mut FakeStream, after: i64, error: StreamError) -> ()
+    def fail_after(self: &mut FakeStream, after: i64, error: StreamError) -> Result[(), OverflowError[i64]]
     def read(self: &mut FakeStream, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]
     def write(self: &mut FakeStream, source: &[u8]) -> Result[i64, StreamError]
     def flush(self: &mut FakeStream) -> Result[(), StreamError]
@@ -3933,7 +3938,8 @@ const btu: Quantity[f64, Energy] = 1055.05585262 * J
 const horsepower: Quantity[f64, Power] = 550.0 * foot * pound_force / s
 const week: Quantity[f64, Time] = 7.0 * day
 const year: Quantity[f64, Time] = 365.0 * day
-def abs[Num, D: Dimension](x: Quantity[Num, D]) -> Quantity[Num, D]
+def abs[T: IntType, D: Dimension](x: Quantity[T, D]) -> Result[Quantity[T, D], OverflowError[T]]
+def abs_float[T: FloatType, D: Dimension](x: Quantity[T, D]) -> Quantity[T, D]
 def clamp[Num, D: Dimension](x: Quantity[Num, D], low: Quantity[Num, D], high: Quantity[Num, D]) -> Quantity[Num, D]
 def sum[D: Dimension](items: &list[Quantity[f64, D]]) -> Quantity[f64, D]
 def mean[D: Dimension](items: &list[Quantity[f64, D]]) -> Option[Quantity[f64, D]]

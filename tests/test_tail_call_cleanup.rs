@@ -20,7 +20,9 @@ def note(text: str, n: i64) -> i64:
     n
 def callee(a: i64, b: i64) -> i64:
     print("callee").unwrap()
-    a + b
+    # Scalar cleanup traces pass a in 0..4 and b in -1..2.
+    unchecked:
+        a + b
 def keep(g: Guard, n: i64) -> i64:
     print("keep").unwrap()
     n
@@ -169,10 +171,10 @@ def fail(stop: bool) -> Result[i64, AllocError]:
     if stop:
         return Err(AllocError.OutOfMemory)
     Ok(2)
-def sum(g: Guard, a: i64, b: i64) -> Result[i64, AllocError]:
+def sum(g: Guard, a: i64, b: i64) -> Result[i64, AllocError | OverflowError[i64]]:
     print("sum").unwrap()
     Ok(a + b)
-def caller(stop: bool) -> Result[i64, AllocError]:
+def caller(stop: bool) -> Result[i64, AllocError | OverflowError[i64]]:
     local = Guard("local")
     sum(make("moved"), note("left", 1), fail(stop)?)
 match caller({stop}):
@@ -252,8 +254,10 @@ class Scope:
     def __exit__(self: &mut Scope) -> ():
         print(self.name).unwrap()
 def increment(value: &mut i64) -> ():
-    *value = *value + 1
-def checked(a: i64, b: i64) -> Result[i64, AllocError]:
+    # This unit worker runs once, on the count initialized to 4 below.
+    unchecked:
+        *value = *value + 1
+def checked(a: i64, b: i64) -> Result[i64, AllocError | OverflowError[i64]]:
     print("checked").unwrap()
     Ok(a + b)
 def returns_inside() -> i64:
@@ -265,12 +269,12 @@ def ends_with_borrowed_manager() -> ():
     mut scope = Scope("exit borrowed")
     with &mut scope:
         print("body").unwrap()
-def returns_inside_worker_scope() -> Result[i64, AllocError | SpawnError[()]]:
+def returns_inside_worker_scope() -> Result[i64, AllocError | SpawnError[()] | OverflowError[i64]]:
     local = Guard("local")
     mut count = 4
     with spawn(increment, &mut count)?:
         return checked(3, 4)
-def main() -> Result[(), AllocError | SpawnError[()] | IoError]:
+def main() -> Result[(), AllocError | SpawnError[()] | IoError | OverflowError[i64]]:
     print(returns_inside())?
     ends_with_borrowed_manager()
     print(returns_inside_worker_scope()?)?
@@ -288,21 +292,21 @@ class Guard:
     id: i64
     def __del__(self: &mut Guard) -> ():
         self.id = 0
-def direct(n: i64, total: i64) -> i64:
+def direct(n: i64, total: i64) -> Result[i64, OverflowError[i64]]:
     guard = Guard(n)
     names = ["a", "b"].unwrap()
     if n == 0:
-        return total
+        return Ok(total)
     direct(n - 1, total + guard.id - n + 1)
-def indirect(n: i64, total: i64) -> i64:
+def indirect(n: i64, total: i64) -> Result[i64, OverflowError[i64]]:
     guard = Guard(n)
     if n == 0:
-        return total
+        return Ok(total)
     step = indirect
     step(n - 1, total + 1)
-def main() -> Result[(), IoError]:
-    print(direct(1000000, 0))?
-    print(indirect(1000000, 0))?
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(direct(1000000, 0)?)?
+    print(indirect(1000000, 0)?)?
     Ok(())
 "#;
     let workspace = tempfile::tempdir().unwrap();

@@ -38,7 +38,7 @@ use `?`, `match`, or `drop(result)`. See [entrypoint](../language/02-source/entr
 ```plenty
 import std.math as math
 
-def main() -> Result[(), IoError | ParseError]:
+def main() -> Result[(), IoError | ParseError | OverflowError[i64] | ZeroDivisionError]:
     mut count = 0
     count += 1
     small = 7u8
@@ -47,7 +47,7 @@ def main() -> Result[(), IoError | ParseError]:
     print(count, small, total)?
     print(7 // 2, -7 // 2, 7 % 2, 7.0 / 2.0)?
     base = 2
-    print(base.pow(10), (3).pow(2), math.abs(-4), math.max(3, 9))?
+    print(base.pow(10), (3).pow(2), math.abs(-4)?, math.max(3, 9))?
     print(i64.MAX, u8(200), i64.parse(" 12 ")?)?
     Ok(())
 ```
@@ -65,11 +65,14 @@ def main() -> Result[(), IoError | ParseError]:
 - Types never widen implicitly; cast with `f64(n)`, `u8(n)` (traps if out of
   range), `T.try_from(n)`, or `T.wrapping_from(n)`. `T.parse(text)` returns
   `Result[T, ParseError]`.
-- `//` floors, `%` is integer-only, overflow traps. No `**`: use `x.pow(n)`.
+- `//` floors and `%` is integer-only. Integer arithmetic returns errors from
+  the function: include `OverflowError[T]` and, for plain divisors,
+  `ZeroDivisionError` in its `Result` signature. Still write `Ok(...)` on
+  success; operators themselves return ordinary numbers. No `**`: use `x.pow(n)`.
 - `abs`, `min`, `max`, `sum` come from [`std.math`](../stdlib/math.md).
 
-A `checked:` block turns integer overflow and division by zero inside it into
-`Err`; its last line is the `Ok` value:
+Use `checked:` for local recovery instead of returning arithmetic errors from
+the function. Its last line is the `Ok` value:
 
 ```plenty
 def scaled(n: i64, d: i64) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
@@ -89,18 +92,19 @@ def main() -> Result[(), IoError]:
   or `NonNegative.try_from(n)?`. Read with `.get()`; widen a Positive with
   `NonZero.from(p)` or `NonNegative.from(p)`. See [integer domains](../language/03-types/numbers.md#positive-and-non-negative-integers).
 
-- Arithmetic written in the block and in closures defined there is checked.
-  Such closures must stay in the block; named functions, outside closures and
-  builtin `sum()` keep their own behavior.
-- Inside `checked:`, infer a closure's binding type, for example
-  `f = (def(x: i64) -> i64: x + 1)`. Helpers accept it through
-  `F: Callable[[i64], i64]` with `f: &F`; a thin `Callable[...]` annotation
-  would erase its checked error channel and is rejected.
+- Each function and closure has its own declared arithmetic contract,
+  independent of its definition or call site. There is no private callback
+  channel. Handle a callee's `Result` normally.
+- `unchecked:` asserts that its arithmetic cannot fail and yields an ordinary
+  suite value, not a `Result`. A violation currently terminates the process;
+  do not rely on that. Use wrapping operations for modular arithmetic. Keep
+  opt-outs small and document their bounds.
 - `?`, `return`, `break`, and `continue` inside it act on the function or loop.
-- Floats: `x.div_checked(y)` is `Result[F, ZeroDivisionError]`.
+- Float arithmetic stays IEEE: overflow may produce infinity and division by
+  zero may produce infinity or NaN. For recoverable zero division,
+  `x.div_checked(y)` is `Result[F, ZeroDivisionError]`.
 
 See [numbers](../language/03-types/numbers.md#checked-blocks) and
-
 [assignment](../language/04-expressions/assignment.md).
 
 ## Text
@@ -141,7 +145,7 @@ such as `name[1:]?` or `name[::-1]?` copies, so it needs `?`. See
 ## Collections
 
 ```plenty
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | ZeroDivisionError]:
     mut items = [3, 1, 2]?
     items.append(4)?
     items.sort()
@@ -190,14 +194,14 @@ Dictionaries have no indexed assignment: `insert` adds or replaces, and
 ## Tuples
 
 ```plenty
-def div_mod(a: i64, b: i64) -> (i64, i64):
-    (a // b, a % b)
+def div_mod(a: i64, b: i64) -> Result[(i64, i64), OverflowError[i64] | ZeroDivisionError]:
+    Ok((a // b, a % b))
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | ZeroDivisionError]:
     pair = (42, "cm")
     single: (i64,) = (7,)
     print(pair, pair[0], pair[-1], single[0])?
-    quotient, remainder = div_mod(7, 2)
+    quotient, remainder = div_mod(7, 2)?
     print(quotient, remainder, (1, "b") < (1, "c"))?
     mut point = (1, 2)
     x = &mut point[0]
@@ -236,7 +240,7 @@ def classify(n: i64) -> str:
         case _:
             "many"
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64] | ZeroDivisionError]:
     for i in range(0, 10, 4):
         print(i, classify(i))?
     mut n = 4
@@ -277,22 +281,22 @@ enum/class payloads and each other. See
 ## Functions and closures
 
 ```plenty
-def scale(value: i64, factor: i64 = 2) -> i64:
-    value * factor
+def scale(value: i64, factor: i64 = 2) -> Result[i64, OverflowError[i64]]:
+    Ok(value * factor)
 
-def increment(value: i64) -> i64:
-    value + 1
+def increment(value: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(value + 1)
 
-def apply[F: Callable[[i64], i64]](f: &F, value: i64) -> i64:
+def apply[F: Callable[[i64], Result[i64, OverflowError[i64]]]](f: &F, value: i64) -> Result[i64, OverflowError[i64]]:
     f(value)
 
-def main() -> Result[(), IoError]:
-    print(scale(5), scale(5, factor=10))?
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(scale(5)?, scale(5, factor=10)?)?
     offset = 100
-    shift = def [offset](value: i64) -> i64:
-        value + offset
-    print(apply(&increment, 1), apply(&shift, 1))?
-    print(apply(&(def(value: i64) -> i64: value * 3), 2))?
+    shift = def [offset](value: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(value + offset)
+    print(apply(&increment, 1)?, apply(&shift, 1)?)?
+    print(apply(&(def(value: i64) -> Result[i64, OverflowError[i64]]: Ok(value * 3)), 2)?)?
     Ok(())
 ```
 ```output
@@ -329,8 +333,9 @@ class Counter:
     name: str
     hits: i64
 
-    def bump(self: &mut Counter) -> ():
+    def bump(self: &mut Counter) -> Result[(), OverflowError[i64]]:
         self.hits += 1
+        Ok(())
 
     def report(self) -> i64:
         self.hits
@@ -356,10 +361,10 @@ def unused(counter: &Counter) -> bool:
         case Counter(name=_, hits=_):
             False
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut counter = Counter("clicks", 0)
-    counter.bump()
-    counter.bump()
+    counter.bump()?
+    counter.bump()?
     print(counter.report(), counter)?
     print(Shape.Rect(2.0, 3.0).area(), Shape.Dot)?
     origin = Point(0.0, 0.0)
@@ -377,7 +382,10 @@ False
 ```
 
 Classes have typed fields and a generated positional constructor; there is no
-inheritance. Bare `self` is a shared borrow; mutating methods declare
+inheritance. An explicit `__init__` returns `()` for a plain class result or
+`Result[(), E]` for precisely `Result[Class, E]`, with explicit `Ok(())` on
+success. Construction adds no allocation error; initializer operations and
+parameter defaults must declare or map their own errors. Bare `self` is a shared borrow; mutating methods declare
 `self: &mut Class`. Explicit `self: Class` transfers an owned receiver into the
 method, just like a by-value function parameter; the caller cannot reuse an
 affine receiver. `@copy` before `class` makes instances copy like integers; every
@@ -445,8 +453,9 @@ def parse_pair(text: str) -> Result[(i64, i64), AllocError | ParseError]:
     Ok((i64.parse(parts[0])?, i64.parse(parts[1])?))
 
 def first_even(values: &list[i64]) -> Option[i64]:
+    two: NonZero[i64] = 2
     for value in values:
-        if *value % 2 == 0:
+        if *value % two == 0:
             return Some(*value)
     Nothing
 
@@ -482,20 +491,21 @@ enum name, as in `Option[i64].Some(6)`. See
 ## Ownership and borrowing
 
 ```plenty
-def total(values: &list[i64]) -> i64:
+def total(values: &list[i64]) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     for value in values:
         sum += *value
-    sum
+    Ok(sum)
 
-def double_all(values: &mut list[i64]) -> ():
+def double_all(values: &mut list[i64]) -> Result[(), OverflowError[i64]]:
     for value in values:
         *value *= 2
+    Ok(())
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut values = [1, 2, 3]?
-    print(total(&values), total(values))?
-    double_all(&mut values)
+    print(total(&values)?, total(values)?)?
+    double_all(&mut values)?
     backup = copy(values)?
     moved = values
     print(moved, backup)?
@@ -527,7 +537,9 @@ def countdown(start: i64) -> Generator[i64]:
     mut n = start
     while n > 0:
         yield n
-        n -= 1
+        # The loop proves 1 <= n <= i64.MAX, so decrement cannot overflow.
+        unchecked:
+            n -= 1
 
 def main() -> Result[(), AllocError | IoError]:
     for n in countdown(3):
@@ -563,16 +575,19 @@ source `f` returns for each item. `filter_value(v)` keeps items equal to `v`
 (`True` by default) without a callback; borrowed items accept `v` or `&v`.
 
 ```plenty
-def add(total: i64, value: i64) -> i64:
-    total + value
+def add_square(total: i64, value: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(total + value * value)
 
-def squares(stop: i64) -> Generator[i64]:
-    iter(range(stop)).map(def(n: i64) -> i64: n * n).generator()
+def add_result(total: i64, value: Result[i64, OverflowError[i64]]) -> Result[i64, OverflowError[i64]]:
+    Ok(total + value?)
 
-def main() -> Result[(), IoError]:
-    values = iter(range(5)).map(def(n: i64) -> i64: n * n)
-    print(values.fold(0, add))?
-    print(squares(4).fold(0, add))?
+def squares(stop: i64) -> Generator[Result[i64, OverflowError[i64]]]:
+    iter(range(stop)).map(def(n: i64) -> Result[i64, OverflowError[i64]]: Ok(n * n)).generator()
+
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    values = iter(range(5))
+    print(values.try_fold(0, add_square)?)?
+    print(squares(4).try_fold(0, add_result)?)?
     Ok(())
 ```
 ```output
@@ -593,11 +608,11 @@ def main() -> Result[(), IoError]:
 | `"a" + b` | `("a" + b)?`, or an f-string with `?` |
 | `x ** n` | `x.pow(n)` |
 | `range(a, b, step)` with a computed step | `range(a, b, NonZero.try_from(step)?)`; a literal step converts |
-| `abs(x)`, `min`, `max`, `sum(xs)` | `std.math.abs`, `min`, `max`, `sum(&xs, 0)` |
+| `abs(x)`, `min`, `max`, `sum(xs)` | Integer `std.math.abs(x)?`, `min`, `max`, `sum(&xs, 0)?`; float `abs_float` / `sum_float` |
 | `if items:` | `if len(items) > 0:` |
 | `a < b < c` | `a < b and b < c` |
 | `xs[1:3]`, `s[1:3]` | `xs[1:3]?`, `s[1:3]?`: a slice allocates a copy; `&xs[1:3]` borrows a list view, and `&s[1:3]` a `&substr`, in place |
-| `lambda x: x + 1` | `def(x: i64) -> i64: x + 1` inside brackets |
+| `lambda x: x + 1` | `def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x + 1)` inside brackets |
 | `map(f, xs)`, `filter(p, xs)`, `reduce(f, xs, init)` | `iter(&xs).filter(p).map(f)`, `.fold(init, f)`; no import |
 | `any(flags)`, `all(p(x) for x in xs)` | `iter(&flags).any()`, `iter(&xs).all(p)` |
 | `d[k] = v` | `d.insert(k, v)?`, which adds or replaces |

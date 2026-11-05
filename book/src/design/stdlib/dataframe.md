@@ -176,7 +176,13 @@ assumed to return a recoverable error. Validate input ranges where needed.
 
 `DataFrameError` retains native messages in `Schema`, `Query`, `Io`,
 `NativePanic`, `Null`, and `Bounds`. Polars errors, including some file
-errors, use `Query`; direct filesystem errors use `Io`. Converting an
+errors, use `Query`; direct filesystem errors use `Io`.
+
+Offset-table lengths and packed string byte totals are checked on the Plenty
+side; an unrepresentable extent returns
+`DataFrameError.Allocation(AllocError.CapacityOverflow)` before allocating the
+affected table or advancing the total. This does not change the native engine's
+row limit or its allocation-failure policy. Copying a native
 error message can itself fail with `Allocation(AllocError)` or
 `Message(IoError)`. Plenty-side list allocation is recoverable.
 **Native Rust/Polars allocation failure can abort the process.**

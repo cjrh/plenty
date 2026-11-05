@@ -140,13 +140,15 @@ def digit(code: i64) -> bool:
     code >= 48 and code <= 57
 
 def hex_value(code: i64) -> i64:
-    if digit(code):
-        return code - 48
-    if code >= 65 and code <= 70:
-        return code - 55
-    if code >= 97 and code <= 102:
-        return code - 87
-    -1
+    # Each subtraction follows an ASCII digit/hex range check.
+    unchecked:
+        if digit(code):
+            return code - 48
+        if code >= 65 and code <= 70:
+            return code - 55
+        if code >= 97 and code <= 102:
+            return code - 87
+        -1
 
 # The end of the run of `start..stop` that `kind` accepts: 0 RFC 9110
 # tchar, 1 field content, 2 visible ASCII. Field content is visible ASCII,
@@ -155,27 +157,31 @@ def hex_value(code: i64) -> i64:
 # scan over a literal set, so nothing is allocated. Callers pass ranges
 # within `data`.
 def run(data: &[u8], start: i64, stop: i64, kind: i64) -> i64:
-    span = &data[start:stop]
-    found = match kind:
-        case 0:
-            __bytes_find_in(span, b"!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", 0u8)
-        case 1:
-            __bytes_find_in(span, b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\x7f", 1u8)
-        case _:
-            __bytes_find_in(span, b"!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~", 0u8)
-    if found < 0:
-        return stop
-    start + found
+    # Private callers pass 0 <= start <= stop <= len(data); found is within that span.
+    unchecked:
+        span = &data[start:stop]
+        found = match kind:
+            case 0:
+                __bytes_find_in(span, b"!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", 0u8)
+            case 1:
+                __bytes_find_in(span, b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\x7f", 1u8)
+            case _:
+                __bytes_find_in(span, b"!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~", 0u8)
+        if found < 0:
+            return stop
+        start + found
 
 def folded(scalar: &str) -> i64:
-    match ord(scalar):
-        case Ok(code):
-            value = i64(code)
-            if value >= 65 and value <= 90:
-                return value + 32
-            value
-        case Err(_):
-            -1
+    # Only ASCII A..Z reach the +32 case; all Unicode scalar values fit i64.
+    unchecked:
+        match ord(scalar):
+            case Ok(code):
+                value = i64(code)
+                if value >= 65 and value <= 90:
+                    return value + 32
+                value
+            case Err(_):
+                -1
 
 # Whether `left` and `right` are equal ignoring ASCII case. Never allocates;
 # non-ASCII text is never equal. One native comparison over both byte views.
@@ -185,25 +191,27 @@ pub def same_name(left: &str, right: &str) -> bool:
 # Whether any comma-separated element of `value` is `token`, ignoring ASCII
 # case. `token` is lowercase ASCII.
 def lists_token(value: &str, token: &str) -> bool:
-    size = token.byte_len()
-    mut matched = 0
-    mut ended = False
-    for scalar in value:
-        if scalar == ",":
-            if matched == size:
-                return True
-            matched = 0
-            ended = False
-        elif scalar == " " or scalar == "\t":
-            if matched != 0:
-                ended = True
-        elif ended or matched < 0 or matched >= size:
-            matched = -1
-        elif folded(scalar) == folded(token[matched]):
-            matched += 1
-        else:
-            matched = -1
-    matched == size
+    # matched advances only while 0 <= matched < the lowercase ASCII token length.
+    unchecked:
+        size = token.byte_len()
+        mut matched = 0
+        mut ended = False
+        for scalar in value:
+            if scalar == ",":
+                if matched == size:
+                    return True
+                matched = 0
+                ended = False
+            elif scalar == " " or scalar == "\t":
+                if matched != 0:
+                    ended = True
+            elif ended or matched < 0 or matched >= size:
+                matched = -1
+            elif folded(scalar) == folded(token[matched]):
+                matched += 1
+            else:
+                matched = -1
+        matched == size
 
 def connection_lists(headers: &list[Header], token: &str) -> bool:
     for index in range(len(headers)):
@@ -224,22 +232,24 @@ def text_of(data: &[u8], start: i64, stop: i64, invalid: HttpError) -> Result[st
 # most `limit` bytes including the CRLF; `overflow` names the limit reached.
 # Returns the length without the CRLF, or -1 when input ends before a byte.
 def read_line[R: Reader](conn: &mut BufReader[R], line: &mut Bytes, limit: i64, overflow: HttpError) -> Result[i64, HttpError]:
-    line.clear()
-    most = match Positive.try_from(limit):
-        case Ok(value):
-            value
-        case Err(_):
-            return Err(overflow)
-    count = streamed(conn.read_until(line_feed, line, most))?
-    if count == 0:
-        return Ok(-1)
-    if line[count - 1] != line_feed:
-        if count == limit:
-            return Err(overflow)
-        return Err(HttpError.Truncated)
-    if count < 2 or line[count - 2] != carriage_return:
-        return Err(HttpError.BareLineFeed)
-    Ok(count - 2)
+    # read_until bounds count by limit; the branches prove count >= 1 or >= 2 before subtracting.
+    unchecked:
+        line.clear()
+        most = match Positive.try_from(limit):
+            case Ok(value):
+                value
+            case Err(_):
+                return Err(overflow)
+        count = streamed(conn.read_until(line_feed, line, most))?
+        if count == 0:
+            return Ok(-1)
+        if line[count - 1] != line_feed:
+            if count == limit:
+                return Err(overflow)
+            return Err(HttpError.Truncated)
+        if count < 2 or line[count - 2] != carriage_return:
+            return Err(HttpError.BareLineFeed)
+        Ok(count - 2)
 
 # A head line under both the line limit and the bytes left in the head.
 def head_line[R: Reader](conn: &mut BufReader[R], line: &mut Bytes, max_line: i64, left: i64) -> Result[i64, HttpError]:
@@ -250,118 +260,132 @@ def head_line[R: Reader](conn: &mut BufReader[R], line: &mut Bytes, max_line: i6
 # The line parsers share validation between legacy and typed stream readers.
 # `line` excludes CRLF; callers pass a prefix view of their reusable line buffer.
 pub def parse_field(line: &[u8]) -> Result[Header, HttpError]:
-    size = len(line)
-    # A leading blank is an obsolete line fold, which RFC 9112 lets a
-    # recipient reject.
-    colon = run(line, 0, size, 0)
-    if colon == 0 or colon == size or line[colon] != 58u8:
-        return Err(HttpError.InvalidHeader)
-    mut start = colon + 1
-    while start < size and blank(line[start]):
-        start += 1
-    mut stop = size
-    while stop > start and blank(line[stop - 1]):
-        stop -= 1
-    if run(line, start, stop, 1) != stop:
-        return Err(HttpError.InvalidHeader)
-    name = text_of(line, 0, colon, HttpError.InvalidHeader)?
-    value = text_of(line, start, stop, HttpError.InvalidHeader)?
-    Ok(Header(name, value))
+    # The colon and whitespace cursors stay within the validated line length.
+    unchecked:
+        size = len(line)
+        # A leading blank is an obsolete line fold, which RFC 9112 lets a
+        # recipient reject.
+        colon = run(line, 0, size, 0)
+        if colon == 0 or colon == size or line[colon] != 58u8:
+            return Err(HttpError.InvalidHeader)
+        mut start = colon + 1
+        while start < size and blank(line[start]):
+            start += 1
+        mut stop = size
+        while stop > start and blank(line[stop - 1]):
+            stop -= 1
+        if run(line, start, stop, 1) != stop:
+            return Err(HttpError.InvalidHeader)
+        name = text_of(line, 0, colon, HttpError.InvalidHeader)?
+        value = text_of(line, start, stop, HttpError.InvalidHeader)?
+        Ok(Header(name, value))
 
 # Field lines up to the blank line that ends a head or trailer section.
 def read_fields[R: Reader](conn: &mut BufReader[R], line: &mut Bytes, max_line: i64, budget: i64, max_headers: i64, headers: &mut list[Header]) -> Result[(), HttpError]:
-    mut left = budget
-    while True:
-        size = head_line(conn, line, max_line, left)?
-        if size < 0:
-            return Err(HttpError.Truncated)
-        left -= size + 2
-        if size == 0:
-            return Ok(())
-        if len(headers) >= max_headers:
-            return Err(HttpError.TooManyHeaders)
-        listed(headers.append(parse_field(&line[:size])?))?
-    Ok(())
+    # A successful head_line consumes size + 2 <= left; the remaining budget stays nonnegative.
+    unchecked:
+        mut left = budget
+        while True:
+            size = head_line(conn, line, max_line, left)?
+            if size < 0:
+                return Err(HttpError.Truncated)
+            left -= size + 2
+            if size == 0:
+                return Ok(())
+            if len(headers) >= max_headers:
+                return Err(HttpError.TooManyHeaders)
+            listed(headers.append(parse_field(&line[:size])?))?
+        Ok(())
 
 # `HTTP/1.0` or `HTTP/1.1` at data[start:stop]; another well-formed
 # `HTTP/d.d` is unsupported, anything else is `invalid`.
 def version(data: &[u8], start: i64, stop: i64, invalid: HttpError) -> Result[i64, HttpError]:
-    if stop - start != 8 or not __bytes_matches_text(&data[start:], 0, "HTTP/"):
-        return Err(invalid)
-    major = i64(data[start + 5])
-    minor = i64(data[start + 7])
-    if not digit(major) or data[start + 6] != 46u8 or not digit(minor):
-        return Err(invalid)
-    if major != 49 or minor > 49:
-        return Err(HttpError.UnsupportedVersion)
-    Ok(minor - 48)
+    # Private callers pass endpoints within data; the eight-byte check bounds every offset.
+    unchecked:
+        if stop - start != 8 or not __bytes_matches_text(&data[start:], 0, "HTTP/"):
+            return Err(invalid)
+        major = i64(data[start + 5])
+        minor = i64(data[start + 7])
+        if not digit(major) or data[start + 6] != 46u8 or not digit(minor):
+            return Err(invalid)
+        if major != 49 or minor > 49:
+            return Err(HttpError.UnsupportedVersion)
+        Ok(minor - 48)
 
 pub def parse_request_line(line: &[u8]) -> Result[RequestHead, HttpError]:
-    size = len(line)
-    method_end = run(line, 0, size, 0)
-    if method_end == 0 or method_end == size or line[method_end] != space:
-        return Err(HttpError.InvalidRequestLine)
-    target_end = run(line, method_end + 1, size, 2)
-    if target_end == method_end + 1 or target_end == size or line[target_end] != space:
-        return Err(HttpError.InvalidRequestLine)
-    minor = version(line, target_end + 1, size, HttpError.InvalidRequestLine)?
-    method = text_of(line, 0, method_end, HttpError.InvalidRequestLine)?
-    target = text_of(line, method_end + 1, target_end, HttpError.InvalidRequestLine)?
-    Ok(RequestHead(method, target, minor, listed(list[Header].new())?))
+    # Each separator is found strictly below size before advancing past it.
+    unchecked:
+        size = len(line)
+        method_end = run(line, 0, size, 0)
+        if method_end == 0 or method_end == size or line[method_end] != space:
+            return Err(HttpError.InvalidRequestLine)
+        target_end = run(line, method_end + 1, size, 2)
+        if target_end == method_end + 1 or target_end == size or line[target_end] != space:
+            return Err(HttpError.InvalidRequestLine)
+        minor = version(line, target_end + 1, size, HttpError.InvalidRequestLine)?
+        method = text_of(line, 0, method_end, HttpError.InvalidRequestLine)?
+        target = text_of(line, method_end + 1, target_end, HttpError.InvalidRequestLine)?
+        Ok(RequestHead(method, target, minor, listed(list[Header].new())?))
 
 pub def parse_status_line(line: &[u8]) -> Result[ResponseHead, HttpError]:
-    size = len(line)
-    if size < 12 or line[8] != space:
-        return Err(HttpError.InvalidStatusLine)
-    minor = version(line, 0, 8, HttpError.InvalidStatusLine)?
-    mut status = 0
-    for index in range(9, 12):
-        code = i64(line[index])
-        if not digit(code):
+    # The twelve-byte check bounds offsets; exactly three digits produce status <= 999.
+    unchecked:
+        size = len(line)
+        if size < 12 or line[8] != space:
             return Err(HttpError.InvalidStatusLine)
-        status = status * 10 + code - 48
-    if status < 100:
-        return Err(HttpError.InvalidStatusLine)
-    mut reason_start = 12
-    if size > 12:
-        if line[12] != space or run(line, 13, size, 1) != size:
+        minor = version(line, 0, 8, HttpError.InvalidStatusLine)?
+        mut status = 0
+        for index in range(9, 12):
+            code = i64(line[index])
+            if not digit(code):
+                return Err(HttpError.InvalidStatusLine)
+            status = status * 10 + code - 48
+        if status < 100:
             return Err(HttpError.InvalidStatusLine)
-        reason_start = 13
-    reason = text_of(line, reason_start, size, HttpError.InvalidStatusLine)?
-    Ok(ResponseHead(minor, status, reason, listed(list[Header].new())?))
+        mut reason_start = 12
+        if size > 12:
+            if line[12] != space or run(line, 13, size, 1) != size:
+                return Err(HttpError.InvalidStatusLine)
+            reason_start = 13
+        reason = text_of(line, reason_start, size, HttpError.InvalidStatusLine)?
+        Ok(ResponseHead(minor, status, reason, listed(list[Header].new())?))
 
 # Reads the next request head. `Nothing` means the input ended cleanly before
 # a message began, as when a client closes an idle connection. Blank lines
 # before the request line are skipped, within `max_head`.
 pub def read_request[R: Reader](conn: &mut BufReader[R], limits: &Limits) -> Result[Option[RequestHead], HttpError]:
-    checked(limits)?
-    mut line = listed(std.bytes.empty())?
-    mut left = limits.max_head
-    mut size = 0
-    while size == 0:
-        size = head_line(conn, &mut line, limits.max_line, left)?
-        # Blank lines are not part of a message, so input that ends after
-        # them ends before one.
-        if size < 0:
-            return Ok(Nothing)
-        left -= size + 2
-    mut head = parse_request_line(&line[:size])?
-    read_fields(conn, &mut line, limits.max_line, left, limits.max_headers.get(), &mut head.headers)?
-    Ok(Some(head))
+    # A successful head_line consumes size + 2 <= the nonnegative remaining head budget.
+    unchecked:
+        checked(limits)?
+        mut line = listed(std.bytes.empty())?
+        mut left = limits.max_head
+        mut size = 0
+        while size == 0:
+            size = head_line(conn, &mut line, limits.max_line, left)?
+            # Blank lines are not part of a message, so input that ends after
+            # them ends before one.
+            if size < 0:
+                return Ok(Nothing)
+            left -= size + 2
+        mut head = parse_request_line(&line[:size])?
+        read_fields(conn, &mut line, limits.max_line, left, limits.max_headers.get(), &mut head.headers)?
+        Ok(Some(head))
 
 # Reads the next response head, or Nothing when the input ends before its
 # first byte, as when a server closes an idle connection. An interim (1xx)
 # response is returned like any other; the caller reads again for the final
 # one.
 pub def read_response[R: Reader](conn: &mut BufReader[R], limits: &Limits) -> Result[Option[ResponseHead], HttpError]:
-    checked(limits)?
-    mut line = listed(std.bytes.empty())?
-    size = head_line(conn, &mut line, limits.max_line, limits.max_head)?
-    if size < 0:
-        return Ok(Nothing)
-    mut head = parse_status_line(&line[:size])?
-    read_fields(conn, &mut line, limits.max_line, limits.max_head - size - 2, limits.max_headers.get(), &mut head.headers)?
-    Ok(Some(head))
+    # head_line proves size + 2 <= max_head before the remaining-budget subtraction.
+    unchecked:
+        checked(limits)?
+        mut line = listed(std.bytes.empty())?
+        size = head_line(conn, &mut line, limits.max_line, limits.max_head)?
+        if size < 0:
+            return Ok(Nothing)
+        mut head = parse_status_line(&line[:size])?
+        read_fields(conn, &mut line, limits.max_line, limits.max_head - size - 2, limits.max_headers.get(), &mut head.headers)?
+        Ok(Some(head))
 
 def content_length(value: &str) -> Result[i64, HttpError]:
     if value.byte_len() == 0:
@@ -371,37 +395,47 @@ def content_length(value: &str) -> Result[i64, HttpError]:
         code = folded(scalar)
         if not digit(code):
             return Err(HttpError.InvalidContentLength)
-        if total > (i64.MAX - (code - 48)) // 10:
-            return Err(HttpError.InvalidContentLength)
-        total = total * 10 + code - 48
+        # Subtract ASCII bias before accumulation: adding code first can
+        # overflow even when the decoded decimal fits (issue #703).
+        decimal = unchecked:
+            code - 48
+        next_total = checked:
+            total * 10 + decimal
+        match next_total:
+            case Ok(number):
+                total = number
+            case Err(_):
+                return Err(HttpError.InvalidContentLength)
     Ok(total)
 
 # The framing the fields declare, or `Nothing` when they declare none.
 # Repeated or combined framing fields are rejected even when they agree,
 # because intermediaries disagree on how to read them.
 def declared(headers: &list[Header], minor: i64) -> Result[Option[Framing], HttpError]:
-    mut length = 0
-    mut lengths = 0
-    mut encodings = 0
-    mut chunked = False
-    for index in range(len(headers)):
-        if same_name(headers[index].name, "content-length"):
-            lengths += 1
-            length = content_length(headers[index].value)?
-        elif same_name(headers[index].name, "transfer-encoding"):
-            encodings += 1
-            chunked = same_name(headers[index].value, "chunked")
-    if lengths > 1 or encodings > 1:
-        return Err(HttpError.DuplicateFraming)
-    if lengths == 1 and encodings == 1:
-        return Err(HttpError.ConflictingFraming)
-    if encodings == 1:
-        if minor == 0 or not chunked:
-            return Err(HttpError.UnsupportedTransferEncoding)
-        return Ok(Some(Framing.Chunked))
-    if lengths == 1:
-        return Ok(Some(Framing.Length(length)))
-    Ok(Nothing)
+    # Each counter counts a disjoint subset of the at-most-i64.MAX header entries.
+    unchecked:
+        mut length = 0
+        mut lengths = 0
+        mut encodings = 0
+        mut chunked = False
+        for index in range(len(headers)):
+            if same_name(headers[index].name, "content-length"):
+                lengths += 1
+                length = content_length(headers[index].value)?
+            elif same_name(headers[index].name, "transfer-encoding"):
+                encodings += 1
+                chunked = same_name(headers[index].value, "chunked")
+        if lengths > 1 or encodings > 1:
+            return Err(HttpError.DuplicateFraming)
+        if lengths == 1 and encodings == 1:
+            return Err(HttpError.ConflictingFraming)
+        if encodings == 1:
+            if minor == 0 or not chunked:
+                return Err(HttpError.UnsupportedTransferEncoding)
+            return Ok(Some(Framing.Chunked))
+        if lengths == 1:
+            return Ok(Some(Framing.Length(length)))
+        Ok(Nothing)
 
 # A request without Content-Length or Transfer-Encoding has no body.
 pub def request_framing(head: &RequestHead) -> Result[Framing, HttpError]:
@@ -456,72 +490,76 @@ def name_byte(code: i64) -> bool:
 # Whether `value` is `uri-host [ ":" port ]` (RFC 9110 section 7.2). An IPv6
 # literal is checked for its characters, not parsed as an address.
 def valid_authority(value: &str) -> bool:
-    # States: 0 reg-name, 1 IPv6 literal, 3 after `]`, 4 port. IPvFuture
-    # (`"v" 1*HEXDIG "." 1*(unreserved / sub-delims / ":")`) uses 2 after `v`,
-    # 5 in the version digits, 6 after `.` and 7 in the address. `escape`
-    # counts the hex digits a `%` still needs.
-    mut state = 0
-    mut escape = 0
-    mut first = True
-    mut inside = 0
-    for scalar in value:
-        code = folded(scalar)
-        if escape > 0:
-            if hex_value(code) < 0:
-                return False
-            escape -= 1
-        elif state == 0:
-            if code == 91 and first:
-                state = 1
-            elif code == 58:
+    # escape stays in 0..2; inside counts a subset of the representable string scalar length.
+    unchecked:
+        # States: 0 reg-name, 1 IPv6 literal, 3 after `]`, 4 port. IPvFuture
+        # (`"v" 1*HEXDIG "." 1*(unreserved / sub-delims / ":")`) uses 2 after `v`,
+        # 5 in the version digits, 6 after `.` and 7 in the address. `escape`
+        # counts the hex digits a `%` still needs.
+        mut state = 0
+        mut escape = 0
+        mut first = True
+        mut inside = 0
+        for scalar in value:
+            code = folded(scalar)
+            if escape > 0:
+                if hex_value(code) < 0:
+                    return False
+                escape -= 1
+            elif state == 0:
+                if code == 91 and first:
+                    state = 1
+                elif code == 58:
+                    state = 4
+                elif code == 37:
+                    escape = 2
+                elif not name_byte(code):
+                    return False
+            elif state == 1:
+                if code == 93 and inside > 0:
+                    state = 3
+                elif inside == 0 and code == 118:
+                    state = 2
+                elif hex_value(code) >= 0 or code == 58 or code == 46:
+                    inside += 1
+                else:
+                    return False
+            elif state == 2 or state == 5:
+                if hex_value(code) >= 0:
+                    state = 5
+                elif state == 5 and code == 46:
+                    state = 6
+                else:
+                    return False
+            elif state == 6 or state == 7:
+                if state == 7 and code == 93:
+                    state = 3
+                elif name_byte(code) or code == 58:
+                    state = 7
+                else:
+                    return False
+            elif state == 3:
+                if code != 58:
+                    return False
                 state = 4
-            elif code == 37:
-                escape = 2
-            elif not name_byte(code):
+            elif not digit(code):
                 return False
-        elif state == 1:
-            if code == 93 and inside > 0:
-                state = 3
-            elif inside == 0 and code == 118:
-                state = 2
-            elif hex_value(code) >= 0 or code == 58 or code == 46:
-                inside += 1
-            else:
-                return False
-        elif state == 2 or state == 5:
-            if hex_value(code) >= 0:
-                state = 5
-            elif state == 5 and code == 46:
-                state = 6
-            else:
-                return False
-        elif state == 6 or state == 7:
-            if state == 7 and code == 93:
-                state = 3
-            elif name_byte(code) or code == 58:
-                state = 7
-            else:
-                return False
-        elif state == 3:
-            if code != 58:
-                return False
-            state = 4
-        elif not digit(code):
-            return False
-        first = False
-    escape == 0 and (state == 0 or state == 3 or state == 4)
+            first = False
+        escape == 0 and (state == 0 or state == 3 or state == 4)
 
 # The scalar index after `http://` or `https://`, scheme in any case.
 def authority_start(target: &str) -> Result[i64, HttpError]:
-    match target.find("://"):
-        case Some(at):
-            if at <= 5:
-                scheme = listed(target.slice(0, at))?
-                if same_name(&scheme, "http") or same_name(&scheme, "https"):
-                    return Ok(at + 3)
-        case Nothing:
-            pass
-    Err(HttpError.InvalidTarget)
+    # find returns a nonnegative index; only indices <= 5 reach the +3 case.
+    unchecked:
+        match target.find("://"):
+            case Some(at):
+                if at <= 5:
+                    scheme = listed(target.slice(0, at))?
+                    if same_name(&scheme, "http") or same_name(&scheme, "https"):
+                        return Ok(at + 3)
+            case Nothing:
+                pass
+        Err(HttpError.InvalidTarget)
 
 # Checks the target and Host fields of a request (RFC 9112 section 3.2) and
 # splits the target. Any request with several Host fields or an invalid Host
@@ -532,41 +570,43 @@ def authority_start(target: &str) -> Result[i64, HttpError]:
 # schemes and an absolute-form authority with userinfo or an empty host are
 # `InvalidTarget`.
 pub def request_target(head: &RequestHead) -> Result[RequestTarget, HttpError]:
-    mut host = -1
-    for index in range(len(head.headers)):
-        if same_name(head.headers[index].name, "host"):
+    # All cursors advance strictly below target length; a query suffix requires stop < size.
+    unchecked:
+        mut host = -1
+        for index in range(len(head.headers)):
+            if same_name(head.headers[index].name, "host"):
+                if host >= 0:
+                    return Err(HttpError.DuplicateHost)
+                host = index
+        if host < 0 and head.minor == 1:
+            return Err(HttpError.MissingHost)
+        if host >= 0 and not valid_authority(head.headers[host].value):
+            return Err(HttpError.InvalidHost)
+        target = &head.target
+        size = len(target)
+        mut start = 0
+        mut authority = ""
+        if target.startswith("/"):
             if host >= 0:
-                return Err(HttpError.DuplicateHost)
-            host = index
-    if host < 0 and head.minor == 1:
-        return Err(HttpError.MissingHost)
-    if host >= 0 and not valid_authority(head.headers[host].value):
-        return Err(HttpError.InvalidHost)
-    target = &head.target
-    size = len(target)
-    mut start = 0
-    mut authority = ""
-    if target.startswith("/"):
-        if host >= 0:
-            authority = head.headers[host].value
-    else:
-        begin = authority_start(target)?
-        start = begin
-        while start < size and target[start] != "/" and target[start] != "?":
-            start += 1
-        authority = listed(target.slice(begin, start))?
-        if authority.byte_len() == 0 or authority.startswith(":") or not valid_authority(&authority):
-            return Err(HttpError.InvalidTarget)
-    mut stop = start
-    while stop < size and target[stop] != "?":
-        stop += 1
-    mut path = listed(target.slice(start, stop))?
-    if path.byte_len() == 0:
-        path = "/"
-    mut query = ""
-    if stop < size:
-        query = listed(target.slice(stop + 1, size))?
-    Ok(RequestTarget(authority, path, query))
+                authority = head.headers[host].value
+        else:
+            begin = authority_start(target)?
+            start = begin
+            while start < size and target[start] != "/" and target[start] != "?":
+                start += 1
+            authority = listed(target.slice(begin, start))?
+            if authority.byte_len() == 0 or authority.startswith(":") or not valid_authority(&authority):
+                return Err(HttpError.InvalidTarget)
+        mut stop = start
+        while stop < size and target[stop] != "?":
+            stop += 1
+        mut path = listed(target.slice(start, stop))?
+        if path.byte_len() == 0:
+            path = "/"
+        mut query = ""
+        if stop < size:
+            query = listed(target.slice(stop + 1, size))?
+        Ok(RequestTarget(authority, path, query))
 
 # As for requests; a close-delimited body also ends the connection.
 pub def response_keeps_alive(head: &ResponseHead, framing: &Framing) -> bool:
@@ -590,32 +630,38 @@ const failed: i64 = 6
 # InvalidChunk. Does not allocate. Like parse_request_line and parse_field,
 # this supports callers implementing their own framed reader.
 pub def parse_chunk_size(line: &[u8]) -> Result[i64, HttpError]:
-    size = len(line)
-    mut index = 0
-    mut value = 0
-    while index < size:
-        code = hex_value(i64(line[index]))
-        if code < 0:
-            break
-        if value > (i64.MAX - code) // 16:
-            return Err(HttpError.InvalidChunk)
-        value = value * 16 + code
-        index += 1
-    if index == 0:
-        return Err(HttpError.InvalidChunk)
-    if index < size:
-        # Extensions follow `;`; they are checked for control bytes and
-        # otherwise ignored.
-        while index < size and blank(line[index]):
-            index += 1
-        if index == size or line[index] != 59u8:
-            return Err(HttpError.InvalidChunk)
+    # Cursor increments stay below line length; numeric accumulation is checked separately.
+    unchecked:
+        size = len(line)
+        mut index = 0
+        mut value = 0
         while index < size:
-            byte = line[index]
-            if (byte < 32u8 and byte != 9u8) or byte == 127u8:
-                return Err(HttpError.InvalidChunk)
+            code = hex_value(i64(line[index]))
+            if code < 0:
+                break
+            next_value = checked:
+                value * 16 + code
+            match next_value:
+                case Ok(number):
+                    value = number
+                case Err(_):
+                    return Err(HttpError.InvalidChunk)
             index += 1
-    Ok(value)
+        if index == 0:
+            return Err(HttpError.InvalidChunk)
+        if index < size:
+            # Extensions follow `;`; they are checked for control bytes and
+            # otherwise ignored.
+            while index < size and blank(line[index]):
+                index += 1
+            if index == size or line[index] != 59u8:
+                return Err(HttpError.InvalidChunk)
+            while index < size:
+                byte = line[index]
+                if (byte < 32u8 and byte != 9u8) or byte == 127u8:
+                    return Err(HttpError.InvalidChunk)
+                index += 1
+        Ok(value)
 
 # Reads one body from a connection it owns until `finish` hands it back
 # positioned at the next message, or `release` hands it back after a failure.
@@ -647,20 +693,22 @@ pub class BodyReader[R]:
 
     # One inner read, repeated while interrupted.
     def pull(self: &mut BodyReader[R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, HttpError]:
-        match &mut self._conn:
-            case Some(conn):
-                while True:
-                    match conn.read(buffer, start, stop):
-                        case Ok(count):
-                            if count < 0 or count > stop - start:
-                                return Err(HttpError.Stream(StreamError.InvalidProgress))
-                            return Ok(count)
-                        case Err(cause):
-                            if not interrupted(&cause):
-                                return Err(from_stream(cause))
-                Ok(0)
-            case Nothing:
-                Err(HttpError.Broken)
+        # Only read_body's validated buffer ranges reach this method, so stop - start fits.
+        unchecked:
+            match &mut self._conn:
+                case Some(conn):
+                    while True:
+                        match conn.read(buffer, start, stop):
+                            case Ok(count):
+                                if count < 0 or count > stop - start:
+                                    return Err(HttpError.Stream(StreamError.InvalidProgress))
+                                return Ok(count)
+                            case Err(cause):
+                                if not interrupted(&cause):
+                                    return Err(from_stream(cause))
+                    Ok(0)
+                case Nothing:
+                    Err(HttpError.Broken)
 
     def line(self: &mut BodyReader[R], limit: i64, overflow: HttpError) -> Result[i64, HttpError]:
         match &mut self._conn:
@@ -677,66 +725,70 @@ pub class BodyReader[R]:
                 Err(HttpError.Broken)
 
     def next_chunk(self: &mut BodyReader[R]) -> Result[(), HttpError]:
-        size = self.line(self._max_line, HttpError.LineTooLong)?
-        if size < 0:
-            return Err(HttpError.Truncated)
-        value = parse_chunk_size(&self._line[:size])?
-        if value > self._max_body - self._total:
-            return Err(HttpError.BodyTooLarge)
-        if value == 0:
-            self.read_trailers()?
-            self._state = done
-        else:
-            self._remaining = value
-            self._state = chunk_data
-        Ok(())
+        # Private body invariants keep 0 <= total <= max_body.
+        unchecked:
+            size = self.line(self._max_line, HttpError.LineTooLong)?
+            if size < 0:
+                return Err(HttpError.Truncated)
+            value = parse_chunk_size(&self._line[:size])?
+            if value > self._max_body - self._total:
+                return Err(HttpError.BodyTooLarge)
+            if value == 0:
+                self.read_trailers()?
+                self._state = done
+            else:
+                self._remaining = value
+                self._state = chunk_data
+            Ok(())
 
     def step(self: &mut BodyReader[R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, HttpError]:
-        while True:
-            if self._state == done:
-                return Ok(0)
-            if self._state == failed:
-                return Err(HttpError.Broken)
-            if self._state == chunk_size:
-                self.next_chunk()?
-            elif self._state == chunk_end:
-                size = self.line(2, HttpError.InvalidChunk)?
-                if size < 0:
-                    return Err(HttpError.Truncated)
-                if size != 0:
-                    return Err(HttpError.InvalidChunk)
-                self._state = chunk_size
-            elif self._state == until_close:
-                mut want = stop - start
-                if want > self._max_body - self._total:
-                    # Probe one byte: input past the limit is an error.
-                    want = self._max_body - self._total
-                    if want == 0:
-                        want = 1
-                count = self.pull(buffer, start, start + want)?
-                if count == 0:
-                    self._state = done
+        # Validated ranges bound start + want; framing and body budgets bound every delivered count.
+        unchecked:
+            while True:
+                if self._state == done:
                     return Ok(0)
-                if count > self._max_body - self._total:
-                    return Err(HttpError.BodyTooLarge)
-                self._total += count
-                return Ok(count)
-            else:
-                mut want = stop - start
-                if want > self._remaining:
-                    want = self._remaining
-                count = self.pull(buffer, start, start + want)?
-                if count == 0:
-                    return Err(HttpError.Truncated)
-                self._remaining -= count
-                self._total += count
-                if self._remaining == 0:
-                    if self._state == sized:
+                if self._state == failed:
+                    return Err(HttpError.Broken)
+                if self._state == chunk_size:
+                    self.next_chunk()?
+                elif self._state == chunk_end:
+                    size = self.line(2, HttpError.InvalidChunk)?
+                    if size < 0:
+                        return Err(HttpError.Truncated)
+                    if size != 0:
+                        return Err(HttpError.InvalidChunk)
+                    self._state = chunk_size
+                elif self._state == until_close:
+                    mut want = stop - start
+                    if want > self._max_body - self._total:
+                        # Probe one byte: input past the limit is an error.
+                        want = self._max_body - self._total
+                        if want == 0:
+                            want = 1
+                    count = self.pull(buffer, start, start + want)?
+                    if count == 0:
                         self._state = done
-                    else:
-                        self._state = chunk_end
-                return Ok(count)
-        Ok(0)
+                        return Ok(0)
+                    if count > self._max_body - self._total:
+                        return Err(HttpError.BodyTooLarge)
+                    self._total += count
+                    return Ok(count)
+                else:
+                    mut want = stop - start
+                    if want > self._remaining:
+                        want = self._remaining
+                    count = self.pull(buffer, start, start + want)?
+                    if count == 0:
+                        return Err(HttpError.Truncated)
+                    self._remaining -= count
+                    self._total += count
+                    if self._remaining == 0:
+                        if self._state == sized:
+                            self._state = done
+                        else:
+                            self._state = chunk_end
+                    return Ok(count)
+            Ok(0)
 
     # Fills part of buffer[start:stop] with decoded body bytes; zero from a
     # non-empty range is the end of the body. An empty range returns zero
@@ -795,35 +847,50 @@ pub def body_reader[R: Reader](conn: BufReader[R], framing: &Framing, limits: &L
     line = listed(std.bytes.empty())?
     Ok(BodyReader(trailers, Some(conn), state, remaining, 0, limits.max_line, limits.max_head, limits.max_headers.get(), limits.max_body.get(), line, Nothing))
 
+# Checks the next output-buffer extent before allocation or consuming input.
+def body_extent(filled: i64) -> Result[i64, HttpError]:
+    extent = checked:
+        filled + 4096
+    match extent:
+        case Ok(end):
+            Ok(end)
+        case Err(_):
+            Err(HttpError.Allocation(AllocError.CapacityOverflow))
+
 # Appends the rest of the body to `out` and returns the count appended.
 pub def read_to_end[R: Reader](body: &mut BodyReader[R], out: &mut Bytes) -> Result[i64, HttpError]:
-    mut total = 0
-    while True:
-        filled = out.len()
-        listed(out.resize(filled + 4096, 0u8))?
-        outcome = body.read_body(out, filled, filled + 4096)
-        match outcome:
-            case Ok(count):
-                out.truncate(filled + count)
-                if count == 0:
-                    return Ok(total)
-                total += count
-            case Err(error):
-                out.truncate(filled)
-                return Err(error)
-    Ok(total)
+    # body bounds the delivered total by max_body; body_extent bounds every output cursor.
+    unchecked:
+        mut total = 0
+        while True:
+            filled = out.len()
+            end = body_extent(filled)?
+            listed(out.resize(end, 0u8))?
+            outcome = body.read_body(out, filled, end)
+            match outcome:
+                case Ok(count):
+                    out.truncate(filled + count)
+                    if count == 0:
+                        return Ok(total)
+                    total += count
+                case Err(error):
+                    out.truncate(filled)
+                    return Err(error)
+        Ok(total)
 
 # Reads and drops the rest of the body, still under `max_body`.
 pub def discard[R: Reader](body: &mut BodyReader[R]) -> Result[i64, HttpError]:
-    mut scratch = listed(std.bytes.with_capacity(4096))?
-    listed(scratch.resize(4096, 0u8))?
-    mut total = 0
-    while True:
-        count = body.read_body(&mut scratch, 0, 4096)?
-        if count == 0:
-            return Ok(total)
-        total += count
-    Ok(total)
+    # The sum of this call's decoded counts cannot exceed the body's max_body budget.
+    unchecked:
+        mut scratch = listed(std.bytes.with_capacity(4096))?
+        listed(scratch.resize(4096, 0u8))?
+        mut total = 0
+        while True:
+            count = body.read_body(&mut scratch, 0, 4096)?
+            if count == 0:
+                return Ok(total)
+            total += count
+        Ok(total)
 
 # Returns the connection once the whole body has been read, positioned at
 # the next message: pipelined input already buffered is kept. A body with
@@ -859,48 +926,54 @@ def put_number(out: &mut Bytes, value: i64) -> Result[(), HttpError]:
     put(out, &digits)
 
 def put_hex(out: &mut Bytes, value: i64) -> Result[(), HttpError]:
-    mut shift = 60
-    while shift > 0 and (value >> shift) & 15 == 0:
-        shift -= 4
-    while shift >= 0:
-        code = (value >> shift) & 15
-        if code < 10:
-            emit(out, u8(code + 48))?
-        else:
-            emit(out, u8(code + 87))?
-        shift -= 4
-    Ok(())
+    # shift runs from 60 to -4 in steps of four; each extracted nibble is in 0..15.
+    unchecked:
+        mut shift = 60
+        while shift > 0 and (value >> shift) & 15 == 0:
+            shift -= 4
+        while shift >= 0:
+            code = (value >> shift) & 15
+            if code < 10:
+                emit(out, u8(code + 48))?
+            else:
+                emit(out, u8(code + 87))?
+            shift -= 4
+        Ok(())
 
 def put_line_end(out: &mut Bytes) -> Result[(), HttpError]:
     emit(out, carriage_return)?
     emit(out, line_feed)
 
 def put_version(out: &mut Bytes, minor: i64) -> Result[(), HttpError]:
-    if minor != 0 and minor != 1:
-        return Err(HttpError.UnsupportedVersion)
-    put(out, "HTTP/1.")?
-    emit(out, u8(minor + 48))
+    # The version check restricts minor to 0 or 1 before adding its ASCII offset.
+    unchecked:
+        if minor != 0 and minor != 1:
+            return Err(HttpError.UnsupportedVersion)
+        put(out, "HTTP/1.")?
+        emit(out, u8(minor + 48))
 
 # Field lines with the same rules `read_*` applies, plus no surrounding
 # blanks, so that what is written parses back to equal fields.
 def put_fields(out: &mut Bytes, headers: &list[Header]) -> Result[(), HttpError]:
-    for index in range(len(headers)):
-        start = out.len()
-        put(out, headers[index].name)?
-        stop = out.len()
-        if stop == start or run(out, start, stop, 0) != stop:
-            return Err(HttpError.InvalidHeader)
-        emit(out, 58u8)?
-        emit(out, space)?
-        value_start = out.len()
-        put(out, headers[index].value)?
-        value_stop = out.len()
-        if run(out, value_start, value_stop, 1) != value_stop:
-            return Err(HttpError.InvalidHeader)
-        if value_stop > value_start and (blank(out[value_start]) or blank(out[value_stop - 1])):
-            return Err(HttpError.InvalidHeader)
-        put_line_end(out)?
-    put_line_end(out)
+    # The final-byte index is evaluated only for a nonempty successfully appended field value.
+    unchecked:
+        for index in range(len(headers)):
+            start = out.len()
+            put(out, headers[index].name)?
+            stop = out.len()
+            if stop == start or run(out, start, stop, 0) != stop:
+                return Err(HttpError.InvalidHeader)
+            emit(out, 58u8)?
+            emit(out, space)?
+            value_start = out.len()
+            put(out, headers[index].value)?
+            value_stop = out.len()
+            if run(out, value_start, value_stop, 1) != value_stop:
+                return Err(HttpError.InvalidHeader)
+            if value_stop > value_start and (blank(out[value_start]) or blank(out[value_stop - 1])):
+                return Err(HttpError.InvalidHeader)
+            put_line_end(out)?
+        put_line_end(out)
 
 def deliver[W: Writer](writer: &mut W, data: &[u8]) -> Result[(), HttpError]:
     match std.io.write_all(writer, data):
@@ -923,9 +996,10 @@ pub def encode_request(head: &RequestHead) -> Result[Bytes, HttpError]:
     if method_end == 0 or run(&out, 0, method_end, 0) != method_end:
         return Err(HttpError.InvalidRequestLine)
     emit(&mut out, space)?
+    target_start = out.len()
     put(&mut out, head.target)?
     target_end = out.len()
-    if target_end == method_end + 1 or run(&out, method_end + 1, target_end, 2) != target_end:
+    if target_end == target_start or run(&out, target_start, target_end, 2) != target_end:
         return Err(HttpError.InvalidRequestLine)
     emit(&mut out, space)?
     put_version(&mut out, head.minor)?
@@ -957,12 +1031,14 @@ pub def encode_response(head: &ResponseHead) -> Result[Bytes, HttpError]:
 # Sends `source` as one chunk of a chunked body. An empty view sends
 # nothing, because a zero-size chunk would end the body.
 pub def write_chunk[W: Writer](writer: &mut W, source: &[u8]) -> Result[(), HttpError]:
-    if len(source) == 0:
-        return Ok(())
-    line = chunk_size_line(len(source))?
-    deliver(writer, &line)?
-    deliver(writer, source)?
-    deliver(writer, &line[line.len() - 2:])
+    # chunk_size_line always includes two CRLF bytes before this suffix is selected.
+    unchecked:
+        if len(source) == 0:
+            return Ok(())
+        line = chunk_size_line(len(source))?
+        deliver(writer, &line)?
+        deliver(writer, source)?
+        deliver(writer, &line[line.len() - 2:])
 
 pub def encode_chunk_size(length: NonNegative[i64]) -> Result[Bytes, HttpError]:
     chunk_size_line(length.get())

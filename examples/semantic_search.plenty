@@ -29,7 +29,7 @@ def max_output_bytes() -> NonNegative[i64]:
 
 const max_value_bytes: i64 = 16 * 1024 * 1024
 
-type SearchFailure = SearchError | DbError | JsonError | AllocError | IoError | ParseError | CryptoError | EncodingError | BytesError | StreamError
+type SearchFailure = SearchError | DbError | JsonError | AllocError | IoError | ParseError | CryptoError | EncodingError | BytesError | StreamError | OverflowError[i64]
 
 class Chunk:
     text: str
@@ -50,7 +50,7 @@ def source_hash(title: &str, text: &str) -> Result[str, SearchFailure]:
     digest = crypto.sha256(&input.take()?)?
     Ok(encoding.hex_text(&digest)?)
 
-def split_text(text: &str) -> Result[list[str], AllocError]:
+def split_text(text: &str) -> Result[list[str], AllocError | OverflowError[i64]]:
     mut texts: list[str] = []?
     mut start = 0
     while start < len(text):

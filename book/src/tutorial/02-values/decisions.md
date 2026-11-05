@@ -41,7 +41,7 @@ adult
 `not` negates a boolean. All three require boolean operands:
 
 ```plenty
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | ZeroDivisionError | OverflowError[i64]]:
     divisor = 0
     safe = divisor != 0 and 10 // divisor > 1
     print(safe)?

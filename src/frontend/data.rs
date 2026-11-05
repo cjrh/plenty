@@ -200,7 +200,7 @@ impl DataTypes {
         ))
     }
 
-    pub(super) fn factories(&self) -> Vec<Function> {
+    pub(super) fn factories(&self, aliases: &TypeAliases) -> Result<Vec<Function>> {
         let mut classes: Vec<_> = self
             .classes
             .values()
@@ -236,7 +236,21 @@ impl DataTypes {
                         kind: Expression::Name(n.clone()),
                     })
                     .collect();
-                Function {
+                let instance = reference(class.name.clone(), types.clone());
+                let output = match class.methods.iter().find(|m| m.name == "__init__") {
+                    Some(init) if deferred_constructor_output(&init.output, &class.type_params) => {
+                        TypeRef {
+                            concrete: None,
+                            metadata: None,
+                            at: init.output.at.clone(),
+                            name: Some(classes::CONSTRUCTOR_RESULT.into()),
+                            args: vec![init.output.clone(), instance],
+                        }
+                    }
+                    Some(init) => classes::constructor_output(&init.output, instance, aliases)?,
+                    None => instance,
+                };
+                Ok(Function {
                     once: false,
                     captures: vec![],
                     foreign: None,
@@ -251,22 +265,7 @@ impl DataTypes {
                     type_params: class.type_params.clone(),
                     at: at.clone(),
                     inputs,
-                    // Only a fallible initializer makes construction fail.
-                    output: if class
-                        .methods
-                        .iter()
-                        .any(|m| m.name == "__init__" && m.output.name.is_some())
-                    {
-                        reference(
-                            "Result".into(),
-                            vec![
-                                reference(class.name.clone(), types.clone()),
-                                reference("AllocError".into(), vec![]),
-                            ],
-                        )
-                    } else {
-                        reference(class.name.clone(), types.clone())
-                    },
+                    output,
                     doc: String::new(),
                     doc_at: None,
                     body: vec![Stmt {
@@ -276,7 +275,7 @@ impl DataTypes {
                             kind: Expression::GenericCall(class.name.clone(), types, args),
                         }),
                     }],
-                }
+                })
             })
             .collect()
     }
@@ -863,6 +862,23 @@ fn instance_name(name: &str, args: &[Ty], f: impl Fn(&Ty) -> String) -> String {
     }
     let args = args.iter().map(f).collect::<Vec<_>>().join(", ");
     format!("{name}[{args}]")
+}
+
+/// Written Result[(), E] can retain E directly. A parameter that determines
+/// the whole output or its success shape must wait for concrete class arguments,
+/// including when a named/default wrapper copies the factory's output pattern.
+fn deferred_constructor_output(output: &TypeRef, parameters: &[(String, Option<TypeRef>)]) -> bool {
+    fn dependent(ty: &TypeRef, parameters: &[(String, Option<TypeRef>)]) -> bool {
+        ty.concrete.is_none()
+            && (parameters
+                .iter()
+                .any(|(name, _)| ty.name.as_ref() == Some(name))
+                || ty.args.iter().any(|arg| dependent(arg, parameters)))
+    }
+    dependent(output, parameters)
+        && !(output.name.as_deref() == Some("Result")
+            && output.args.len() == 2
+            && !dependent(&output.args[0], parameters))
 }
 
 fn substitute_method(method: &mut Function, substitutions: &generics::Substitution) -> Result<()> {

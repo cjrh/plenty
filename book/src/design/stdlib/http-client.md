@@ -308,7 +308,13 @@ never to an origin. Nothing is read from the environment: `HTTP_PROXY` and
 | `proxy` | `Option[Proxy]` | `Nothing` |
 
 Every wait ends at the earliest of the caller's deadline, its phase timeout
-and its per-operation timeout.
+and its per-operation timeout. Internal deadline addition saturates at
+`u64.MAX`; its bounds are explicit, and debug/optimized boundary tests verify
+it without allocations. Retry, redirect, response, upload and pool cursor
+arithmetic uses documented opt-outs justified by configuration, body budgets
+and validated progress. User connectors and transports retain independent
+declared arithmetic contracts; these implementation modes do not extend into
+their callbacks.
 
 ## Transports
 
@@ -394,7 +400,9 @@ reuse, the body was not read to its end, the exchange failed or was
 replayed, the connection was stale, expired, over a pool limit or had unread
 bytes buffered, or `close_idle` closed it. See
 [Sharing a client between threads](#sharing-a-client-between-threads) for the
-totals they keep.
+totals they keep. These counters retain [atomic](atomic.md) `fetch_add`'s
+wrapping behavior; checked-default arithmetic does not change that primitive's
+contract.
 
 ## Limits
 

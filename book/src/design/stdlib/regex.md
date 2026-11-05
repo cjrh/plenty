@@ -3,8 +3,9 @@
 `import std.regex` compiles regular expressions and searches `str` text and
 [`std.bytes`](bytes.md) buffers with them. A search runs in time linear in
 the input for a compiled pattern: there is no backtracking. Every resource a
-pattern or search can consume has an explicit limit. Errors are one type,
-`RegexError`.
+pattern or search can consume has an explicit limit. Pattern and search errors
+use `RegexError`; arithmetic on freely constructed `Match` offsets has the
+separate contract described below.
 
 The parser, compiler and matcher (a Pike VM) are Plenty code in the module.
 The runtime supplies only primitives: Unicode properties and single-scalar
@@ -73,6 +74,14 @@ literal converts where a field is expected; a computed value needs
 memory is `8 × (7n + 2ns + 2s + 8)` bytes for `n` instructions and `s`
 capture slots (two per group, counting the whole match); `compile` checks it
 for the largest `s` the regex can use, so no later search fails on memory.
+The estimate is checked before comparison: an unrepresentable word estimate
+also exceeds every representable byte budget and reports `Limit.Memory`.
+Actual unrepresentable allocation extents report
+`Allocation(AllocError.CapacityOverflow)` before any matcher array is allocated.
+Work is checked against its remaining budget before increment, including when
+`max_work` is `i64.MAX`; exhaustion remains `Limit.Work`, not an arithmetic
+error. Repetition-count overflow likewise remains `Limit.Repetition`.
+
 
 `RegexError` is:
 
@@ -138,14 +147,24 @@ remaining bytes invalid positions.
 ### Match, Captures and Cursor
 
 `Match` has public fields `start` and `end` (byte offsets, end exclusive) and
-methods `len()`, `is_empty()`, `text(haystack: &str)` and
-`bytes(data: &[u8])`; the last two copy the matched part and are
-`OutOfRange` for a haystack it does not fit.
+methods `len() -> Result[i64, OverflowError[i64]]`, `is_empty()`,
+`text(haystack: &str)` and `bytes(data: &[u8])`. `len()` checks `end - start`:
+public fields may contain arbitrary offsets, so representable negative lengths
+are retained and unrepresentable differences return an arithmetic error.
+The text and byte methods still copy the matched part and report `OutOfRange`
+for a haystack it does not fit. Matches returned by a successful search have
+ordered, nonnegative offsets and a representable length.
 
 `Captures` has `len()` (equal to `group_count()`), `get(index: i64)` and
 `name(name: &str)`, each `Option[Match]`. Group 0 is the whole match; a group
 outside the pattern or not taking part is `Nothing`. A group inside a
 repetition holds its last iteration.
+
+Capture indexing validates the group number before multiplying it by two;
+out-of-range indices, including `i64.MAX`, return `Nothing`. Internal opt-outs
+are bounded by validated scalar widths, pattern/input spans, configured nesting,
+successful instruction emission and preflighted matcher array extents. Unlimited
+replacement does not maintain a redundant total-replacements counter.
 
 A `Cursor` holds the matcher scratch and position, so a loop over
 `next_match` allocates only once. It works only with the regex that made it.

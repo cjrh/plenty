@@ -42,24 +42,25 @@ def main() -> Result[(), IoError]:
 #[test]
 fn long_elif_chain_without_else_assigns_returns_and_falls_through() {
     const ARMS: usize = 4_000;
-    let mut source =
-        String::from("def pick(x: i64) -> i64:\n    mut r = 5\n    if x == 0:\n        r = 0\n");
+    let mut source = String::from(
+        "def pick(x: i64) -> Result[i64, OverflowError[i64]]:\n    mut r = 5\n    if x == 0:\n        r = 0\n",
+    );
     for i in 1..ARMS {
         source.push_str(&format!("    elif x == {i}:\n"));
         source.push_str(&match i % 3 {
             0 => format!("        r = {i}\n"),
-            1 => format!("        return {i}\n"),
+            1 => format!("        return Ok({i})\n"),
             _ => format!("        r = r + {i}\n"),
         });
     }
     source.push_str(
-        "    r + 1
+        "    Ok(r + 1)
 
-def main() -> Result[(), IoError]:
-    print(pick(3000))?
-    print(pick(3001))?
-    print(pick(3002))?
-    print(pick(-1))?
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(pick(3000)?)?
+    print(pick(3001)?)?
+    print(pick(3002)?)?
+    print(pick(-1)?)?
     Ok(())
 ",
     );
@@ -74,7 +75,7 @@ fn elif_arms_keep_the_rules_of_nested_conditionals() {
 class Pair:
     x: i64
     y: i64
-    def __init__(self, x: i64, kind: i64) -> ():
+    def __init__(self, x: i64, kind: i64) -> Result[(), OverflowError[i64]]:
         if kind == 0:
             self.x = x
         elif kind == 1:
@@ -84,10 +85,11 @@ class Pair:
         else:
             self.x = 9
         self.y = self.x + 1
+        Ok(())
 
-def count(n: i64, total: i64) -> i64:
+def count(n: i64, total: i64) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
     if n == 0:
-        total
+        Ok(total)
     elif n % 2 == 0:
         count(n - 1, total + 2)
     elif n % 3 == 0:
@@ -99,7 +101,7 @@ def probe(label: i64, answer: bool) -> bool:
     print(label).unwrap()
     answer
 
-def loops(stop: i64) -> i64:
+def loops(stop: i64) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     mut i = 0
     while i < 10:
@@ -111,9 +113,9 @@ def loops(stop: i64) -> i64:
         elif i == 4:
             total = total + 100
         elif i == 9:
-            return -total
+            return Ok(-total)
         total = total + i
-    total
+    Ok(total)
 
 def keep(name: str, kind: i64) -> Result[i64, IoError]:
     if kind == 0:
@@ -125,11 +127,11 @@ def keep(name: str, kind: i64) -> Result[i64, IoError]:
         return Ok(2)
     Ok(len(&name))
 
-def main() -> Result[(), AllocError | IoError]:
-    print(Pair(3, 1))?
-    print(Pair(3, 5))?
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | ZeroDivisionError]:
+    print(Pair(3, 1)?)?
+    print(Pair(3, 5)?)?
     # A call in an arm is still a tail call: this depth would overflow otherwise.
-    print(count(1000000, 0))?
+    print(count(1000000, 0)?)?
     if probe(1, False):
         print(10)?
     elif probe(2, True):
@@ -138,8 +140,8 @@ def main() -> Result[(), AllocError | IoError]:
         print(30)?
     else:
         print(40)?
-    print(loops(6))?
-    print(loops(20))?
+    print(loops(6)?)?
+    print(loops(20)?)?
     print(keep("abc", 0)?)?
     print(keep("abc", 1)?)?
     print(keep("b", 2)?)?
@@ -223,14 +225,19 @@ fn value(ty: &str, expression: &str) -> String {
 }
 
 /// `pick` returns the value of a fallible `body`, which ends in `Ok(...)`.
-fn fallible(body: &str) -> String {
+fn fallible(body: &str, errors: &str) -> String {
     format!(
-        "def same(x: i64) -> Result[i64, AllocError]:\n    Ok(x)\n\ndef inner(x: i64) -> Result[i64, AllocError]:\n{body}\ndef pick(x: i64) -> i64:\n    match inner(x):\n        case Ok(v):\n            v\n        case Err(_):\n            -1\n{MAIN}"
+        "def same(x: i64) -> Result[i64, AllocError]:\n    Ok(x)\n\ndef inner(x: i64) -> Result[i64, {errors}]:\n{body}\ndef pick(x: i64) -> i64:\n    match inner(x):\n        case Ok(v):\n            v\n        case Err(_):\n            -1\n{MAIN}"
     )
 }
 
 fn sums(operators: usize) -> String {
-    value("i64", &format!("x{}", " + 1".repeat(operators)))
+    // A binding keeps the full expression at its original nesting depth;
+    // wrapping it directly in Ok would consume another level.
+    format!(
+        "def pick(x: i64) -> Result[i64, OverflowError[i64]]:\n    r = x{}\n    Ok(r)\ndef main() -> Result[(), IoError | OverflowError[i64]]:\n    print(pick(7)?)?\n    Ok(())\n",
+        " + 1".repeat(operators)
+    )
 }
 
 fn conjunctions(operators: usize) -> String {
@@ -277,19 +284,25 @@ fn methods(calls: usize) -> String {
 }
 
 fn indexes(depth: usize) -> String {
-    fallible(&format!(
-        "    xs = [0]?\n    y = {}0{}\n    Ok(y + x)\n",
-        "xs[".repeat(depth),
-        "]".repeat(depth)
-    ))
+    fallible(
+        &format!(
+            "    xs = [0]?\n    y = {}0{}\n    Ok(y + x)\n",
+            "xs[".repeat(depth),
+            "]".repeat(depth)
+        ),
+        "AllocError | OverflowError[i64]",
+    )
 }
 
 fn propagations(depth: usize) -> String {
-    fallible(&format!(
-        "    y = {}x{}\n    Ok(y)\n",
-        "same(".repeat(depth),
-        ")?".repeat(depth)
-    ))
+    fallible(
+        &format!(
+            "    y = {}x{}\n    Ok(y)\n",
+            "same(".repeat(depth),
+            ")?".repeat(depth)
+        ),
+        "AllocError",
+    )
 }
 
 fn tuples(depth: usize) -> String {
@@ -303,18 +316,24 @@ fn tuples(depth: usize) -> String {
 fn managers(count: usize) -> String {
     format!(
         "class Scope:\n    v: i64\n    def __enter__(self: &mut Scope) -> ():\n        ()\n    def __exit__(self: &mut Scope) -> ():\n        ()\n\n{}",
-        fallible(&format!(
-            "    mut y = 0\n    with {}:\n        y = x\n    Ok(y)\n",
-            vec!["Scope(x)"; count].join(", ")
-        ))
+        fallible(
+            &format!(
+                "    mut y = 0\n    with {}:\n        y = x\n    Ok(y)\n",
+                vec!["Scope(x)"; count].join(", ")
+            ),
+            "AllocError"
+        )
     )
 }
 
 fn clauses(conditions: usize) -> String {
-    fallible(&format!(
-        "    xs = [v for v in range(8){}]?\n    Ok(xs[0])\n",
-        " if v == x".repeat(conditions)
-    ))
+    fallible(
+        &format!(
+            "    xs = [v for v in range(8){}]?\n    Ok(xs[0])\n",
+            " if v == x".repeat(conditions)
+        ),
+        "AllocError",
+    )
 }
 
 /// The compiler as a process: on a test thread's 2 MB stack an unoptimized
@@ -346,7 +365,7 @@ fn compile_and_run(source: &str) -> (bool, String, String) {
 #[case::whiles(whiles, 62, "1\n", "66:261")]
 #[case::fors(fors, 62, "1\n", "66:268")]
 #[case::matches(matches, 62, "1\n", "252:508")]
-#[case::sums(sums, 62, "69\n", "2:255")]
+#[case::sums(sums, 62, "69\n", "2:259")]
 #[case::conjunctions(conjunctions, 61, "True\n", "2:683")]
 #[case::disjunctions(disjunctions, 61, "True\n", "2:622")]
 #[case::parentheses(parentheses, 62, "7\n", "2:68")]

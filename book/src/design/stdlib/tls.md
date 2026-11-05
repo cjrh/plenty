@@ -55,6 +55,11 @@ def main() -> Result[(), SpawnError[()] | IoError | AllocError | RangeError | Tl
 hello over TLS
 ```
 
+Ciphertext cursors are bounded by their fixed buffers, and each native TLS or
+TCP transfer advances by at most the remaining slice. Their small arithmetic
+opt-outs do not change `TlsError`, partial progress after a failed wait, or
+closing the TCP stream after a failed close-notify.
+
 ## Trust roots and configuration
 
 | Function | Result | Contract |

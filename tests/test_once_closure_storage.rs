@@ -36,20 +36,22 @@ class Resource:
     id: i64
     def __del__(self) -> ():
         print(self.id).unwrap()
-def numbers(resource: Resource) -> Generator[i64]:
-    yield resource.id
-    yield resource.id + 1
-def main() -> Result[(), IoError]:
+def numbers(resource: Resource) -> Generator[Result[i64, OverflowError[i64]]]:
+    yield Ok(resource.id)
+    result = checked:
+        resource.id + 1
+    yield result
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut source = numbers(Resource(4))
-    print(next(source).unwrap())?
-    take = def once [mut source]() -> i64:
+    print(next(source).unwrap()?)?
+    take = def once [mut source]() -> Result[i64, OverflowError[i64]]:
         next(source).unwrap()
     moved = Some(take)
     print(moved)?
-    result = moved.unwrap()()
+    result = moved.unwrap()()?
     print(result)?
     source = numbers(Resource(6))
-    unused = def once [mut source]() -> i64:
+    unused = def once [mut source]() -> Result[i64, OverflowError[i64]]:
         next(source).unwrap()
     drop(unused)
     Ok(())
@@ -80,7 +82,7 @@ def deferred() -> Generator[i64]:
         inner()
     yield 1
     yield outer()
-def main() -> ():
+def main() -> Result[(), OverflowError[i64]]:
     print("__test_begin_no_allocations__").unwrap()
     print("__test_fail_allocations_after_0__").unwrap()
     mut frame = deferred()
@@ -91,6 +93,7 @@ def main() -> ():
     print("__test_restore_allocations__").unwrap()
     print("__test_end_no_allocations__").unwrap()
     print(first + second).unwrap()
+    Ok(())
 "#);
     assert!(
         output.status.success(),

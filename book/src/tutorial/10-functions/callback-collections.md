@@ -4,15 +4,15 @@ A tuple can hold callbacks with different concrete types. Indexing invokes a
 callback in place; unpacking transfers ownership to new local bindings.
 
 ```plenty
-def add(offset: i64) -> Closure[[i64], i64]:
-    def [offset](n: i64) -> i64:
-        offset + n
+def add(offset: i64) -> Closure[[i64], Result[i64, OverflowError[i64]]]:
+    def [offset](n: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(offset + n)
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     pair = (add(10), add(100))
-    print(pair[0](2))?
+    print(pair[0](2)?)?
     first, second = pair
-    print(second(3))?
+    print(second(3)?)?
     Ok(())
 ```
 
@@ -24,22 +24,22 @@ def main() -> Result[(), IoError]:
 Calls to one factory also fit in a list. Each callback owns its own state.
 
 ```plenty
-def counter(total: i64) -> Closure[[], i64]:
-    def [mut total]() -> i64:
+def counter(total: i64) -> Closure[[], Result[i64, OverflowError[i64]]]:
+    def [mut total]() -> Result[i64, OverflowError[i64]]:
         total = total + 1
-        total
+        Ok(total)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut callbacks = [counter(n) for n in range(3)]?
     for callback in &mut callbacks:
-        print(callback())?
+        print(callback()?)?
     match callbacks.pop(0):
         case Some(callback):
             mut removed = callback
-            print(removed())?
+            print(removed()?)?
         case Nothing:
             print("no callback")?
-    print(callbacks[0]())?
+    print(callbacks[0]()?)?
     Ok(())
 ```
 

@@ -33,7 +33,9 @@ def word(out: &mut Bytes, value: u64) -> Result[(), AllocError]:
 def read_word(data: &[u8], offset: i64) -> u64:
     mut result = 0u64
     for index in range(8):
-        result = result | (u64(data[offset + index]) << u64(index * 8))
+        # Callers validate the full eight-byte word; index is 0..7, shift is 0..56.
+        unchecked:
+            result = result | (u64(data[offset + index]) << u64(index * 8))
     result
 
 pub class HyperLogLog:
@@ -46,11 +48,17 @@ pub class HyperLogLog:
 
     pub def add(self: &mut HyperLogLog, key: u64) -> ():
         value = hash_u64(key, self._seed)
-        index = i64(value & u64(self._registers.len() - 1))
+        # Precision is 4..18 and registers have 2^precision entries.
+        index = unchecked:
+            i64(value & u64(self._registers.len() - 1))
+        max_rank = unchecked:
+            u8(64 - self._precision)
         mut tail = value >> u64(self._precision)
         mut rank = 1u8
-        while tail & 1u64 == 0u64 and rank <= u8(64 - self._precision):
-            rank += 1u8
+        while tail & 1u64 == 0u64 and rank <= max_rank:
+            # max_rank <= 60, so rank never exceeds 61.
+            unchecked:
+                rank += 1u8
             tail = tail >> 1u64
         if rank > self._registers[index]:
             self._registers.set(index, rank)
@@ -63,7 +71,9 @@ pub class HyperLogLog:
             register = self._registers[index]
             harmonic += (2.0).pow(-f64(register))
             if register == 0u8:
-                zeros += 1
+                # At most 2^18 registers contribute, so zeros stays in 0..2^18.
+                unchecked:
+                    zeros += 1
         mut alpha = 0.7213 / (1.0 + 1.079 / size)
         if self._registers.len() == 16:
             alpha = 0.673
@@ -88,7 +98,9 @@ pub class HyperLogLog:
         Ok(())
 
     pub def to_bytes(self) -> Result[Bytes, AllocError]:
-        mut out = std.bytes.with_capacity(20 + self._registers.len())?
+        # Register count is at most 2^18, so the wire capacity fits i64.
+        mut out = unchecked:
+            std.bytes.with_capacity(20 + self._registers.len())?
         out.extend(&b"PSH1")?
         word(&mut out, u64(self._precision))?
         word(&mut out, self._seed)?
@@ -114,15 +126,32 @@ pub def hyperloglog_from_bytes(data: &[u8], max_precision: i64 = 18) -> Result[H
     if i64(precision) > max_precision:
         return Err(SketchError.Limit)
     size = 1 << i64(precision)
-    if len(data) != 20 + size:
+    # Precision was validated in 4..18; all following offsets are below 20 + 2^18.
+    expected = unchecked:
+        20 + size
+    if len(data) != expected:
         return Err(SketchError.InvalidData)
     for index in range(size):
-        if data[20 + index] > u8(65u64 - precision):
-            return Err(SketchError.InvalidData)
+        # index < size <= 2^18 and precision is 4..18.
+        unchecked:
+            if data[20 + index] > u8(65u64 - precision):
+                return Err(SketchError.InvalidData)
     mut result = hyperloglog(i64(precision), read_word(data, 12))?
     for index in range(size):
-        result._registers.set(index, data[20 + index])
+        # index < size <= 2^18.
+        unchecked:
+            result._registers.set(index, data[20 + index])
     Ok(result)
+
+# Numerical observation counts are exact; exhaustion rejects before mutation.
+def observation_count(count: u64) -> Result[u64, SketchError]:
+    next = checked:
+        count + 1u64
+    match next:
+        case Ok(value):
+            Ok(value)
+        case Err(_):
+            Err(SketchError.Limit)
 
 # Algorithm R keeps a uniform sample without replacement. Samples are kept
 # sorted, so quantile queries allocate nothing. Update is O(capacity).
@@ -143,9 +172,7 @@ pub class Quantiles:
     pub def add(self: &mut Quantiles, value: f64) -> Result[(), SketchError]:
         if not std.math.isfinite(value):
             return Err(SketchError.InvalidArgument)
-        if self._count == u64.MAX:
-            return Err(SketchError.Limit)
-        next_count = self._count + 1u64
+        next_count = observation_count(self._count)?
         mut slot = len(self._samples)
         if slot < self._capacity:
             self._samples.append(value).map_error(SketchError.Allocation)?
@@ -157,13 +184,15 @@ pub class Quantiles:
                         self._samples[slot] = value
                 case Err(_):
                     return Err(SketchError.InvalidArgument)
-        if slot < self._capacity:
-            while slot > 0 and self._samples[slot] < self._samples[slot - 1]:
-                self._samples.swap(slot, slot - 1)
-                slot -= 1
-            while slot + 1 < len(self._samples) and self._samples[slot] > self._samples[slot + 1]:
-                self._samples.swap(slot, slot + 1)
-                slot += 1
+        # slot and sample length are in 0..capacity <= 2^20; decrement requires slot > 0.
+        unchecked:
+            if slot < self._capacity:
+                while slot > 0 and self._samples[slot] < self._samples[slot - 1]:
+                    self._samples.swap(slot, slot - 1)
+                    slot -= 1
+                while slot + 1 < len(self._samples) and self._samples[slot] > self._samples[slot + 1]:
+                    self._samples.swap(slot, slot + 1)
+                    slot += 1
         if self._count == 0u64 or value < self._low:
             self._low = value
         if self._count == 0u64 or value > self._high:
@@ -181,11 +210,15 @@ pub class Quantiles:
             return Ok(self._low)
         if fraction == 1.0:
             return Ok(self._high)
-        index = i64((fraction * f64(len(self._samples))).ceil()) - 1
+        # For 0 < fraction < 1 and 1..2^20 samples, ceil is in 1..2^20.
+        index = unchecked:
+            i64((fraction * f64(len(self._samples))).ceil()) - 1
         Ok(self._samples[index])
 
     pub def to_bytes(self) -> Result[Bytes, AllocError]:
-        mut out = std.bytes.with_capacity(116 + 32 * len(self._samples))?
+        # At most 2^20 samples, so wire capacity is at most 116 + 32*2^20.
+        mut out = unchecked:
+            std.bytes.with_capacity(116 + 32 * len(self._samples))?
         out.extend(&b"PSQ1")?
         mut scratch = std.bytes.with_capacity(32)?
         scratch.resize(32, 32u8)?
@@ -211,7 +244,10 @@ def float_word(out: &mut Bytes, scratch: &mut Bytes, value: f64) -> Result[(), A
     out.extend(scratch)
 
 def read_float(data: &[u8], offset: i64) -> Result[f64, SketchError]:
-    text = match __bytes_to_text(&data[offset:offset + 32]).map_error(SketchError.Allocation)?:
+    # Callers validate a complete 32-byte slot within the bounded checkpoint.
+    stop = unchecked:
+        offset + 32
+    text = match __bytes_to_text(&data[offset:stop]).map_error(SketchError.Allocation)?:
         case Some(decoded):
             decoded
         case Nothing:
@@ -245,7 +281,10 @@ pub def quantiles_from_bytes(data: &[u8], max_capacity: Positive[i64] = 1048576)
     if i64(capacity) > max_capacity.get():
         return Err(SketchError.Limit)
     retained = i64(std.math.min(capacity, count))
-    if len(data) != 116 + 32 * retained:
+    # retained <= capacity <= 2^20.
+    expected = unchecked:
+        116 + 32 * retained
+    if len(data) != expected:
         return Err(SketchError.InvalidData)
     mut result = sampled(i64(capacity), 0u64)?
     match std.random.from_state(read_word(data, 20), read_word(data, 28), read_word(data, 36), read_word(data, 44)):
@@ -261,14 +300,18 @@ pub def quantiles_from_bytes(data: &[u8], max_capacity: Positive[i64] = 1048576)
         return Err(SketchError.InvalidData)
     mut previous = result._low
     for index in range(retained):
-        value = read_float(data, 116 + index * 32)?
+        # index < retained <= 2^20; the complete slot is within expected length.
+        value = unchecked:
+            read_float(data, 116 + index * 32)?
         if value < previous or value > result._high:
             return Err(SketchError.InvalidData)
         result._samples.append(value).map_error(SketchError.Allocation)?
         previous = value
     if count > 0u64 and count <= capacity:
-        if result._samples[0] != result._low or result._samples[retained - 1] != result._high:
-            return Err(SketchError.InvalidData)
+        # count > 0 and count <= capacity prove retained >= 1.
+        unchecked:
+            if result._samples[0] != result._low or result._samples[retained - 1] != result._high:
+                return Err(SketchError.InvalidData)
     result._count = count
     Ok(result)
 
@@ -291,24 +334,29 @@ pub class FrequentItems:
         self._decrements
 
     pub def add(self: &mut FrequentItems, key: u64) -> Result[(), SketchError]:
-        if self._total == u64.MAX:
-            return Err(SketchError.Limit)
+        next_total = observation_count(self._total)?
         mut empty = -1
         for index in range(self._capacity):
             if self._counts[index] == 0u64:
                 empty = index
             elif self._keys[index] == key:
-                self._counts[index] += 1u64
-                self._total += 1u64
+                # Each counter <= total < u64.MAX; observation_count checked total before any write.
+                unchecked:
+                    self._counts[index] += 1u64
+                    self._total = next_total
                 return Ok(())
         if empty >= 0:
             self._keys[empty] = key
             self._counts[empty] = 1u64
         else:
             for index in range(self._capacity):
-                self._counts[index] -= 1u64
-            self._decrements += 1u64
-        self._total += 1u64
+                # No empty slot was found, so every counter is positive.
+                unchecked:
+                    self._counts[index] -= 1u64
+            # (capacity+1)*decrements <= total < u64.MAX, with capacity >= 1.
+            unchecked:
+                self._decrements += 1u64
+        self._total = next_total
         Ok(())
 
     pub def frequency(self, key: u64) -> Frequency:
@@ -316,7 +364,9 @@ pub class FrequentItems:
         for index in range(self._capacity):
             if self._counts[index] > 0u64 and self._keys[index] == key:
                 lower = self._counts[index]
-        Frequency(key, lower, lower + self._decrements)
+        # lower + decrements <= sum(counts) + (capacity+1)*decrements == total.
+        unchecked:
+            Frequency(key, lower, lower + self._decrements)
 
     # Every key with true frequency > error_bound is among these candidates.
     pub def candidates(self) -> Result[list[Frequency], AllocError]:
@@ -324,11 +374,15 @@ pub class FrequentItems:
         for index in range(self._capacity):
             count = self._counts[index]
             if count > 0u64:
-                result.append(Frequency(self._keys[index], count, count + self._decrements))?
+                # count + decrements <= total by the Misra-Gries accounting invariant.
+                unchecked:
+                    result.append(Frequency(self._keys[index], count, count + self._decrements))?
         Ok(result)
 
     pub def to_bytes(self) -> Result[Bytes, AllocError]:
-        mut out = std.bytes.with_capacity(28 + self._capacity * 16)?
+        # capacity <= 65536, so serialized capacity fits i64.
+        mut out = unchecked:
+            std.bytes.with_capacity(28 + self._capacity * 16)?
         out.extend(&b"PSF1")?
         word(&mut out, u64(self._capacity))?
         word(&mut out, self._total)?
@@ -363,15 +417,26 @@ pub def frequent_items_from_bytes(data: &[u8], max_capacity: Positive[i64] = 655
         return Err(SketchError.InvalidData)
     if i64(capacity) > max_capacity.get():
         return Err(SketchError.Limit)
-    if len(data) != 28 + 16 * i64(capacity) or decrements > total // (capacity + 1u64):
+    # capacity is 1..65536, so wire length and the nonzero divisor fit.
+    invalid = unchecked:
+        len(data) != 28 + 16 * i64(capacity) or decrements > total // (capacity + 1u64)
+    if invalid:
         return Err(SketchError.InvalidData)
     mut result = counted(i64(capacity))?
-    mut sum = decrements * (capacity + 1u64)
+    # The preceding division check proves the product <= total <= u64.MAX.
+    mut sum = unchecked:
+        decrements * (capacity + 1u64)
     mut seen = set[u64]().map_error(SketchError.Allocation)?
     for index in range(i64(capacity)):
-        key = read_word(data, 28 + index * 16)
-        count = read_word(data, 36 + index * 16)
-        if count > total - sum or (count == 0u64 and key != 0u64):
+        # index < capacity <= 65536; both words are within the validated length.
+        key = unchecked:
+            read_word(data, 28 + index * 16)
+        count = unchecked:
+            read_word(data, 36 + index * 16)
+        # sum starts <= total and each accepted count maintains this invariant.
+        remaining = unchecked:
+            total - sum
+        if count > remaining or (count == 0u64 and key != 0u64):
             return Err(SketchError.InvalidData)
         if count > 0u64:
             if key in seen:
@@ -379,7 +444,9 @@ pub def frequent_items_from_bytes(data: &[u8], max_capacity: Positive[i64] = 655
             seen.add(key).map_error(SketchError.Allocation)?
         result._keys[index] = key
         result._counts[index] = count
-        sum += count
+        # count <= total - sum was checked before the mutation.
+        unchecked:
+            sum += count
     if sum != total:
         return Err(SketchError.InvalidData)
     result._total = total

@@ -70,7 +70,7 @@ print(d).unwrap()
     "[]\n"
 )]
 #[case(
-    "type Values = list[Count]\ntype Count = i64\ndef twice(xs: Values) -> Values:\n    [x * 2 for x in xs].unwrap()\nprint(twice([1, 2].unwrap())).unwrap()",
+    "type Values = list[Count]\ntype Count = i64\ndef twice(xs: Values) -> Result[Values, OverflowError[i64]]:\n    Ok([x * 2 for x in xs].unwrap())\ndef main() -> Result[(), OverflowError[i64]]:\n    print(twice([1, 2].unwrap())?).unwrap()\n    Ok(())\n",
     "[2, 4]\n"
 )]
 #[case(
@@ -86,11 +86,11 @@ print(d).unwrap()
     "[[], [1]]\n"
 )]
 #[case(
-    "print([x * x for x in range(6) if x > 2].unwrap()).unwrap()",
+    "\ndef main() -> Result[(), OverflowError[i64]]:\n    print([x * x for x in range(6) if x > 2].unwrap()).unwrap()\n    Ok(())\n",
     "[9, 16, 25]\n"
 )]
 #[case(
-    "print([x * 10 + y for x in range(3) for y in range(x) if y < 2].unwrap()).unwrap()",
+    "\ndef main() -> Result[(), OverflowError[i64]]:\n    print([x * 10 + y for x in range(3) for y in range(x) if y < 2].unwrap()).unwrap()\n    Ok(())\n",
     "[10, 20, 21]\n"
 )]
 #[case(
@@ -102,21 +102,27 @@ print(d).unwrap()
     "[0, 1]\n10\n"
 )]
 #[case(
-    "print({x: x * x for x in [3, 2, 3].unwrap()}.unwrap()).unwrap()",
+    "\ndef main() -> Result[(), OverflowError[i64]]:\n    print({x: x * x for x in [3, 2, 3].unwrap()}.unwrap()).unwrap()\n    Ok(())\n",
     "{3: 9, 2: 4}\n"
 )]
-#[case("print(len({x // 2 for x in range(10)}.unwrap())).unwrap()", "5\n")]
 #[case(
-    "print([[x + y for y in range(2)].unwrap() for x in range(3)].unwrap()).unwrap()",
+    "\ndef main() -> Result[(), OverflowError[i64] | ZeroDivisionError]:\n    print(len({x // 2 for x in range(10)}.unwrap())).unwrap()\n    Ok(())\n",
+    "5\n"
+)]
+#[case(
+    "\ndef main() -> Result[(), OverflowError[i64]]:\n    print([[x + y for y in range(2)].unwrap() for x in range(3)].unwrap()).unwrap()\n    Ok(())\n",
     "[[0, 1], [1, 2], [2, 3]]\n"
 )]
-#[case("print(100 + len([x for x in range(4)].unwrap())).unwrap()", "104\n")]
 #[case(
-    "mut total = 0\nfor n in range(5):\n    total = total + n\nprint(total).unwrap()",
+    "\ndef main() -> Result[(), OverflowError[i64]]:\n    print(100 + len([x for x in range(4)].unwrap())).unwrap()\n    Ok(())\n",
+    "104\n"
+)]
+#[case(
+    "\ndef main() -> Result[(), OverflowError[i64]]:\n    mut total = 0\n    for n in range(5):\n        total = total + n\n    print(total).unwrap()\n    Ok(())\n",
     "10\n"
 )]
 #[case(
-    "for x in [1, 2].unwrap():\n    for y in [3, 4].unwrap():\n        print(x + y).unwrap()",
+    "\ndef main() -> Result[(), OverflowError[i64]]:\n    for x in [1, 2].unwrap():\n        for y in [3, 4].unwrap():\n            print(x + y).unwrap()\n    Ok(())\n",
     "4\n5\n5\n6\n"
 )]
 #[case(
@@ -156,7 +162,7 @@ print(d).unwrap()
     "1\n2\n"
 )]
 #[case(
-    "mut xs = [1, 2].unwrap()\nfor x in copy(xs).unwrap():\n    xs.append(x + 10).unwrap()\nprint(xs).unwrap()",
+    "\ndef main() -> Result[(), OverflowError[i64]]:\n    mut xs = [1, 2].unwrap()\n    for x in copy(xs).unwrap():\n        xs.append(x + 10).unwrap()\n    print(xs).unwrap()\n    Ok(())\n",
     "[1, 2, 11, 12]\n"
 )]
 #[case(
@@ -180,7 +186,7 @@ print(d).unwrap()
     "3\n-1\n"
 )]
 #[case(
-    "def f(n: i64) -> i64:\n    for x in range(1):\n        if n > 0:\n            return f(n - 1)\n    42\nprint(f(100_000)).unwrap()",
+    "def f(n: i64) -> Result[i64, OverflowError[i64]]:\n    for x in range(1):\n        if n > 0:\n            return f(n - 1)\n    Ok(42)\ndef main() -> Result[(), OverflowError[i64]]:\n    print(f(100_000)?).unwrap()\n    Ok(())\n",
     "42\n"
 )]
 #[case(
@@ -295,7 +301,7 @@ fn ranges_that_cannot_exceed_i64_lengths() {
 #[test]
 fn large_builders_and_hash_tables() {
     let output = support::run(
-        "xs = [x for x in range(10_000)].unwrap()\nd = {*x: x + 1 for x in &xs}.unwrap()\ns = set(copy(xs).unwrap()).unwrap()\nprint(len(xs)).unwrap()\nprint(d[9999]).unwrap()\nprint(9999 in s).unwrap()",
+        "\ndef main() -> Result[(), OverflowError[i64]]:\n    xs = [x for x in range(10_000)].unwrap()\n    d = {*x: x + 1 for x in &xs}.unwrap()\n    s = set(copy(xs).unwrap()).unwrap()\n    print(len(xs)).unwrap()\n    print(d[9999]).unwrap()\n    print(9999 in s).unwrap()\n    Ok(())\n",
     );
     assert!(
         output.status.success(),
@@ -307,11 +313,11 @@ fn large_builders_and_hash_tables() {
 
 #[rstest]
 #[case(
-    "print([x for x in range(8) if x % 2 == 0].unwrap()).unwrap()",
+    "\ndef main() -> Result[(), ZeroDivisionError]:\n    print([x for x in range(8) if x % 2 == 0].unwrap()).unwrap()\n    Ok(())\n",
     "[0, 2, 4, 6]\n"
 )]
 #[case(
-    "print(-7 % 3).unwrap()\nprint(7 % -3).unwrap()\nprint(-7 % -3).unwrap()\nprint(-128i8 % -1i8).unwrap()\nprint(255u8 % 2u8).unwrap()",
+    "\ndef main() -> Result[(), ZeroDivisionError]:\n    print(-7 % 3).unwrap()\n    print(7 % -3).unwrap()\n    print(-7 % -3).unwrap()\n    print(-128i8 % -1i8).unwrap()\n    print(255u8 % 2u8).unwrap()\n    Ok(())\n",
     "2\n-2\n-1\n0\n1\n"
 )]
 #[case(
@@ -323,7 +329,7 @@ fn large_builders_and_hash_tables() {
     "1\n2\n2\n3\n"
 )]
 #[case(
-    "def f(xs: list[i64]) -> list[i64]:\n    if len(xs) == 0:\n        return [].unwrap()\n    [x * 2 for x in xs].unwrap()\nprint(f([].unwrap())).unwrap()\nprint(f([2].unwrap())).unwrap()",
+    "def f(xs: list[i64]) -> Result[list[i64], OverflowError[i64]]:\n    if len(xs) == 0:\n        return Ok([].unwrap())\n    Ok([x * 2 for x in xs].unwrap())\ndef main() -> Result[(), OverflowError[i64]]:\n    print(f([].unwrap())?).unwrap()\n    print(f([2].unwrap())?).unwrap()\n    Ok(())\n",
     "[]\n[4]\n"
 )]
 #[case(

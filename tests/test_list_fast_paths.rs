@@ -97,13 +97,14 @@ fn indexed_column_hot_loop_has_no_runtime_calls() {
     std::fs::write(
         &source,
         r#"
-def total(xs: &list[i64], ys: &list[i64]) -> i64:
+def total(xs: &list[i64], ys: &list[i64]) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     for i in range(len(xs)):
         total += xs[i] * ys[i]
-    total
-def main() -> ():
-    print(total(&[1, 2].unwrap(), &[3, 4].unwrap())).unwrap()
+    Ok(total)
+def main() -> Result[(), OverflowError[i64]]:
+    print(total(&[1, 2].unwrap(), &[3, 4].unwrap())?).unwrap()
+    Ok(())
 "#,
     )
     .unwrap();
@@ -150,28 +151,29 @@ def main() -> ():
 #[test]
 fn indexed_shared_columns_keep_bounds_bits_and_loop_control() {
     support::assert_visible_stdout(
-        r#"
-def total(xs: &list[i64], ys: &list[i64]) -> i64:
+        r#"def total(xs: &list[i64], ys: &list[i64]) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     for i in range(len(xs)):
         if i == 1:
             continue
         total += xs[i] * ys[-i - 1]
-    total
+    Ok(total)
 def floats(xs: &list[f32], flags: &list[bool], wide: &list[u64]) -> ():
     for i in range(len(xs)):
         print(xs[i], flags[i], wide[i]).unwrap()
-def local_columns(xs: &list[i64]) -> i64:
+def local_columns(xs: &list[i64]) -> Result[i64, OverflowError[i64]]:
     column = xs
     mut total = 0
     for i in range(2):
         for j in range(len(column)):
             total += column[j]
-    total
-xs = [1, 2, 3].unwrap()
-ys = [4, 5, 6].unwrap()
-print(total(&xs, &ys), local_columns(&xs)).unwrap()
-floats(&[-1.25f32].unwrap(), &[True].unwrap(), &[18446744073709551615u64].unwrap())
+    Ok(total)
+def main() -> Result[(), OverflowError[i64]]:
+    xs = [1, 2, 3].unwrap()
+    ys = [4, 5, 6].unwrap()
+    print(total(&xs, &ys)?, local_columns(&xs)?).unwrap()
+    floats(&[-1.25f32].unwrap(), &[True].unwrap(), &[18446744073709551615u64].unwrap())
+    Ok(())
 "#,
         "18 12\n-1.25 True 18446744073709551615",
     );
@@ -187,7 +189,7 @@ fn indexed_shared_columns_trap_at_each_columns_own_bound(
     #[case] values: &str,
 ) {
     let source = format!(
-        "def read(xs: &list[i64], ys: &list[i64]) -> i64:\n    mut result = 0\n    for i in range(len(xs)):\n        result += xs[i] + ys[{index}]\n    result\nprint(read(&[1].unwrap(), &{values})).unwrap()"
+        "def read(xs: &list[i64], ys: &list[i64]) -> Result[i64, OverflowError[i64]]:\n    mut result = 0\n    for i in range(len(xs)):\n        result += xs[i] + ys[{index}]\n    Ok(result)\ndef main() -> Result[(), OverflowError[i64]]:\n    print(read(&[1].unwrap(), &{values})?).unwrap()\n    Ok(())\n"
     );
     let output = support::run(&source);
     assert!(!output.status.success());
@@ -223,16 +225,17 @@ for i in range(3):
 #[test]
 fn cached_column_reads_preserve_index_effects_and_owner_loans() {
     support::assert_visible_stdout(
-        r#"
-def index(value: i64) -> i64:
+        r#"def index(value: i64) -> i64:
     print(value).unwrap()
     value
-def total(xs: &list[i64], ys: &list[i64]) -> i64:
+def total(xs: &list[i64], ys: &list[i64]) -> Result[i64, OverflowError[i64]]:
     mut result = 0
     for i in range(2):
         result += xs[index(i)] + ys[index(-i - 1)]
-    result
-print(total(&[1, 2].unwrap(), &[3, 4].unwrap())).unwrap()
+    Ok(result)
+def main() -> Result[(), OverflowError[i64]]:
+    print(total(&[1, 2].unwrap(), &[3, 4].unwrap())?).unwrap()
+    Ok(())
 "#,
         "0\n-1\n1\n-2\n10",
     );
@@ -258,7 +261,7 @@ fn immediate_literal_progressions_need_no_collection_storage() {
 def numbers() -> Generator[i64]:
     for n in [3, 2, 1].unwrap():
         yield n
-def total() -> Result[i64, AllocError]:
+def total() -> Result[i64, AllocError | OverflowError[i64]]:
     mut total = 0
     for n in [2, 4, 6]?:
         total += n
@@ -273,7 +276,7 @@ def total() -> Result[i64, AllocError]:
         total += n - 9223372036854775806
     for n in [-9223372036854775808]?:
         total += n - -9223372036854775808
-    total += iter([1, 2, 3]?).map(def(n: i64) -> i64: n * 2).fold(0, def(a: i64, b: i64) -> i64: a + b)
+    total += iter([1, 2, 3]?).map(def(n: i64) -> Result[i64, OverflowError[i64]]: Ok(n * 2)).try_fold(0, def(a: i64, b: Result[i64, OverflowError[i64]]) -> Result[i64, OverflowError[i64]]: Ok(a + b?))?
     for n in numbers():
         total += n
     Ok(total)
@@ -380,36 +383,37 @@ fn invalid_indices_keep_the_diagnostic(#[case] receiver: &str, #[case] index: &s
 #[test]
 fn evaluation_order_growth_and_managed_fallbacks() {
     let output = support::run(
-        r#"
-def receiver() -> list[i64]:
+        r#"def receiver() -> list[i64]:
     print("receiver").unwrap()
     [42].unwrap()
 def index() -> i64:
     print("index").unwrap()
     -1
-def read(xs: &list[i64]) -> i64:
-    xs[index()] + len(xs)
-print(receiver()[index()]).unwrap()
-print(len(receiver())).unwrap()
-mut xs = [1].unwrap()
-print(read(&xs)).unwrap()
-for i in range(100):
-    xs.append(i).unwrap()
-    if xs[-1] != i or len(xs) != i + 2:
-        print("wrong growth").unwrap()
-xs[0] = 9
-print(xs[0]).unwrap()
-print(xs.pop(-1).unwrap()).unwrap()
-print(len(xs)).unwrap()
-print(xs[-1]).unwrap()
-mut nested = [["a long managed string"].unwrap()].unwrap()
-print(len(nested[0])).unwrap()
-print(nested[0][0]).unwrap()
-nested[0].append("another managed string").unwrap()
-print(len(nested[0])).unwrap()
-drop(nested)
-drop(xs)
-print("__test_small_live_heap__").unwrap()
+def read(xs: &list[i64]) -> Result[i64, OverflowError[i64]]:
+    Ok(xs[index()] + len(xs))
+def main() -> Result[(), OverflowError[i64]]:
+    print(receiver()[index()]).unwrap()
+    print(len(receiver())).unwrap()
+    mut xs = [1].unwrap()
+    print(read(&xs)?).unwrap()
+    for i in range(100):
+        xs.append(i).unwrap()
+        if xs[-1] != i or len(xs) != i + 2:
+            print("wrong growth").unwrap()
+    xs[0] = 9
+    print(xs[0]).unwrap()
+    print(xs.pop(-1).unwrap()).unwrap()
+    print(len(xs)).unwrap()
+    print(xs[-1]).unwrap()
+    mut nested = [["a long managed string"].unwrap()].unwrap()
+    print(len(nested[0])).unwrap()
+    print(nested[0][0]).unwrap()
+    nested[0].append("another managed string").unwrap()
+    print(len(nested[0])).unwrap()
+    drop(nested)
+    drop(xs)
+    print("__test_small_live_heap__").unwrap()
+    Ok(())
 "#,
     );
     assert!(
@@ -436,7 +440,7 @@ fn borrowed_access_has_only_narrow_runtime_relocations() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("access.o");
     plenty::compile_source_to_object(
-        "def read(xs: &list[i64], i: i64) -> i64:\n    xs[i] + len(xs)\ndef main() -> ():\n    xs = [1].unwrap()\n    print(read(&xs, 0)).unwrap()\n",
+        "def read(xs: &list[i64], i: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(xs[i] + len(xs))\ndef main() -> Result[(), OverflowError[i64]]:\n    xs = [1].unwrap()\n    print(read(&xs, 0)?).unwrap()\n    Ok(())\n",
         &path,
     ).unwrap();
     let bytes = std::fs::read(path).unwrap();
@@ -487,7 +491,7 @@ fn borrowed_access_has_only_narrow_runtime_relocations() {
 fn row_caches_cover_exclusive_owned_and_while_loops() {
     support::assert_visible_stdout(
         r#"
-def reverse(xs: &mut list[i64]) -> ():
+def reverse(xs: &mut list[i64]) -> Result[(), OverflowError[i64]]:
     mut lo = 0
     mut hi = len(xs) - 1
     while lo < hi:
@@ -496,36 +500,41 @@ def reverse(xs: &mut list[i64]) -> ():
         xs[hi] = t
         lo += 1
         hi -= 1
-def bump(xs: &mut list[u8], times: i64) -> ():
+    Ok(())
+def bump(xs: &mut list[u8], times: i64) -> Result[(), OverflowError[u8] | OverflowError[i64]]:
     for _ in range(times):
         for i in range(len(xs)):
             xs[-i - 1] += 1u8
-def scan(xs: &list[i64]) -> i64:
+    Ok(())
+def scan(xs: &list[i64]) -> Result[i64, OverflowError[i64]]:
     mut i = 0
     while xs[i] != 0:
         i += 1
-    i
-def grow(xs: &mut list[i64]) -> ():
+    Ok(i)
+def grow(xs: &mut list[i64]) -> Result[(), OverflowError[i64]]:
     mut i = 0
     while i < 3:
         xs[0] = xs[-1] + 1
         xs.append(xs[0]).unwrap()
         i += 1
-mut xs = [1, 2, 3, 4, 5].unwrap()
-reverse(&mut xs)
-print(xs).unwrap()
-mut bytes = [1u8, 2u8].unwrap()
-bump(&mut bytes, 3)
-print(bytes).unwrap()
-print(scan(&[3, 2, 0, 1].unwrap())).unwrap()
-grow(&mut xs)
-print(xs).unwrap()
-mut owned = [0.5, 1.5, 2.5].unwrap()
-mut j = 0
-while j < len(owned):
-    owned[j] = owned[-j - 1] * 2.0
-    j += 1
-print(owned).unwrap()
+    Ok(())
+def main() -> Result[(), OverflowError[u8] | OverflowError[i64]]:
+    mut xs = [1, 2, 3, 4, 5].unwrap()
+    reverse(&mut xs)?
+    print(xs).unwrap()
+    mut bytes = [1u8, 2u8].unwrap()
+    bump(&mut bytes, 3)?
+    print(bytes).unwrap()
+    print(scan(&[3, 2, 0, 1].unwrap())?).unwrap()
+    grow(&mut xs)?
+    print(xs).unwrap()
+    mut owned = [0.5, 1.5, 2.5].unwrap()
+    mut j = 0
+    while j < len(owned):
+        owned[j] = owned[-j - 1] * 2.0
+        j += 1
+    print(owned).unwrap()
+    Ok(())
 "#,
         "[5, 4, 3, 2, 1]\n[4, 5]\n2\n[4, 4, 3, 2, 1, 2, 3, 4]\n[5.0, 3.0, 10.0]",
     );
@@ -540,14 +549,16 @@ print(owned).unwrap()
 fn cached_exclusive_and_owned_rows_trap_out_of_bounds(#[case] index: &str, #[case] values: &str) {
     for source in [
         format!(
-            "def read(xs: &mut list[i64]) -> i64:\n    mut result = 0\n    mut i = 0\n    while i < 2:\n        result += xs[{index}]\n        i += 1\n    result\nmut xs = {values}\nprint(read(&mut xs)).unwrap()"
+            "def read(xs: &mut list[i64]) -> Result[i64, OverflowError[i64]]:\n    mut result = 0\n    mut i = 0\n    while i < 2:\n        result += xs[{index}]\n        i += 1\n    Ok(result)\ndef main() -> Result[(), OverflowError[i64]]:\n    mut xs = {values}\n    print(read(&mut xs)?).unwrap()\n    Ok(())"
         ),
         format!(
             "def write(xs: &mut list[i64]) -> ():\n    for _ in range(2):\n        xs[{index}] = 1\nmut xs = {values}\nwrite(&mut xs)"
         ),
-        format!("mut xs = {values}\nfor _ in range(2):\n    xs[{index}] += 1"),
         format!(
-            "def size(xs: &[i64]) -> i64:\n    len(xs)\nmut xs = {values}\nmut n = 0\nfor _ in range(2):\n    n += size(&xs) + xs[{index}]\nprint(n).unwrap()"
+            "def main() -> Result[(), OverflowError[i64]]:\n    mut xs = {values}\n    for _ in range(2):\n        xs[{index}] += 1\n    Ok(())"
+        ),
+        format!(
+            "def size(xs: &[i64]) -> i64:\n    len(xs)\ndef main() -> Result[(), OverflowError[i64]]:\n    mut xs = {values}\n    mut n = 0\n    for _ in range(2):\n        n += size(&xs) + xs[{index}]\n    print(n).unwrap()\n    Ok(())"
         ),
     ] {
         let output = support::run(&source);
@@ -578,7 +589,7 @@ fn dump(kind: &str, filter: &str, source: &str) -> String {
 }
 
 const REVERSE: &str = r#"
-def reverse(xs: &mut list[i64]) -> ():
+def reverse(xs: &mut list[i64]) -> Result[(), OverflowError[i64]]:
     mut lo = 0
     mut hi = len(xs) - 1
     while lo < hi:
@@ -587,19 +598,22 @@ def reverse(xs: &mut list[i64]) -> ():
         xs[hi] = t
         lo += 1
         hi -= 1
+    Ok(())
 def grow(xs: &mut list[i64]) -> ():
     for i in range(2):
         xs[i] = 1
         xs.append(i).unwrap()
-def swap_bump(xs: &mut list[i64]) -> ():
+def swap_bump(xs: &mut list[i64]) -> Result[(), OverflowError[i64]]:
     for i in range(1):
         xs.swap(i, 1)
         xs[i] += 1
-def main() -> ():
+    Ok(())
+def main() -> Result[(), OverflowError[i64]]:
     mut xs = [1, 2].unwrap()
-    reverse(&mut xs)
+    reverse(&mut xs)?
     grow(&mut xs)
-    swap_bump(&mut xs)
+    swap_bump(&mut xs)?
+    Ok(())
 "#;
 
 /// A loop that cannot resize its list uses the cached accesses; one that can
@@ -728,90 +742,92 @@ class Bag:
 
 def peek(xs: &[i64], i: i64) -> i64:
     xs[i]
-def bump(xs: &mut [i64], i: i64) -> ():
+def bump(xs: &mut [i64], i: i64) -> Result[(), OverflowError[i64]]:
     xs[i] += 1
+    Ok(())
 def first(xs: &list[i64]) -> i64:
     xs[0]
 def extend(xs: &mut list[i64]) -> ():
     xs.append(xs[0]).unwrap()
 def refill(bag: &mut Bag) -> ():
     bag.items.append(9).unwrap()
-def viewed(xs: &mut list[i64]) -> i64:
+def viewed(xs: &mut list[i64]) -> Result[i64, OverflowError[i64]]:
     mut s = 0
     for i in range(len(xs)):
         s += xs[i] + peek(xs, i) + first(xs)
-        bump(xs, i)
-    s
-def others(xs: &mut list[i64]) -> i64:
+        bump(xs, i)?
+    Ok(s)
+def others(xs: &mut list[i64]) -> Result[i64, OverflowError[i64]]:
     mut zs = [5].unwrap()
     mut s = 0
     for i in range(len(xs)):
         s += xs[i]
         extend(&mut zs)
-    s + len(zs)
-def fields(bag: &mut Bag) -> i64:
+    Ok(s + len(zs))
+def fields(bag: &mut Bag) -> Result[i64, OverflowError[i64]]:
     mut s = 0
     for i in range(len(bag.items)):
         s += bag.items[i]
         bag.items[i] = peek(&bag.items, i) * 2
         bag.total += 1
-    s + bag.total
-def shared_fields(bag: &Bag) -> i64:
+    Ok(s + bag.total)
+def shared_fields(bag: &Bag) -> Result[i64, OverflowError[i64]]:
     mut s = 0
     for i in range(len(bag.items)):
         s += bag.items[i] + first(&bag.items)
-    s
-def extended(xs: &mut list[i64]) -> i64:
+    Ok(s)
+def extended(xs: &mut list[i64]) -> Result[i64, OverflowError[i64]]:
     mut s = 0
     for i in range(3):
         s += xs[i]
         extend(xs)
-    s
-def refilled(bag: &mut Bag) -> i64:
+    Ok(s)
+def refilled(bag: &mut Bag) -> Result[i64, OverflowError[i64]]:
     mut s = 0
     for i in range(3):
         s += bag.items[i]
         refill(bag)
-    s
-def added(bag: &mut Bag) -> i64:
+    Ok(s)
+def added(bag: &mut Bag) -> Result[i64, OverflowError[i64]]:
     mut s = 0
     mut i = 0
     while i < 3:
         s += bag.items[i]
         bag.add(i)
         i += 1
-    s
-def nested(xs: &mut list[i64]) -> i64:
+    Ok(s)
+def nested(xs: &mut list[i64]) -> Result[i64, OverflowError[i64]]:
     mut s = 0
     for i in range(3):
         s += xs[i]
         for _ in range(2):
             s += xs[0]
             extend(xs)
-    s
-def owned() -> i64:
+    Ok(s)
+def owned() -> Result[i64, OverflowError[i64]]:
     mut xs = [1, 2, 3].unwrap()
     mut s = 0
     for i in range(3):
         s += xs[i]
         extend(&mut xs)
-    s + len(xs)
-def main() -> ():
+    Ok(s + len(xs))
+def main() -> Result[(), OverflowError[i64]]:
     mut xs = [1, 2, 3].unwrap()
-    print(viewed(&mut xs)).unwrap()
-    print(others(&mut xs)).unwrap()
+    print(viewed(&mut xs)?).unwrap()
+    print(others(&mut xs)?).unwrap()
     mut bag = Bag([1, 2].unwrap(), 0)
-    print(fields(&mut bag)).unwrap()
-    print(shared_fields(&bag)).unwrap()
+    print(fields(&mut bag)?).unwrap()
+    print(shared_fields(&bag)?).unwrap()
     mut ys = [4].unwrap()
-    print(extended(&mut ys)).unwrap()
+    print(extended(&mut ys)?).unwrap()
     mut one = Bag([1].unwrap(), 0)
-    print(refilled(&mut one)).unwrap()
+    print(refilled(&mut one)?).unwrap()
     mut four = Bag([4].unwrap(), 0)
-    print(added(&mut four)).unwrap()
+    print(added(&mut four)?).unwrap()
     mut zs = [1].unwrap()
-    print(nested(&mut zs)).unwrap()
-    print(owned()).unwrap()
+    print(nested(&mut zs)?).unwrap()
+    print(owned()?).unwrap()
+    Ok(())
 "#;
 
 #[test]
@@ -854,18 +870,19 @@ fn cached_rows_across_a_call_read_the_header_before_the_loop() {
         "asm",
         "summed",
         r#"
-def first(xs: &list[i64], n: i64) -> i64:
+def first(xs: &list[i64], n: i64) -> Result[i64, OverflowError[i64]]:
     if n == 0:
-        return xs[0]
+        return Ok(xs[0])
     first(xs, n - 1)
-def summed(xs: &mut list[i64]) -> i64:
+def summed(xs: &mut list[i64]) -> Result[i64, OverflowError[i64]]:
     mut s = 0
     for i in range(len(xs)):
-        s += xs[i] + first(xs, 0)
-    s
-def main() -> ():
+        s += xs[i] + first(xs, 0)?
+    Ok(s)
+def main() -> Result[(), OverflowError[i64]]:
     mut xs = [1, 2, 3].unwrap()
-    print(summed(&mut xs)).unwrap()
+    print(summed(&mut xs)?).unwrap()
+    Ok(())
 "#,
     );
     let line = regex::Regex::new(r"(?m)^\s*([0-9a-f]+):\s+(\S+)\s+(\S+)").unwrap();
@@ -894,24 +911,27 @@ def main() -> ():
 /// and their results and traps match unshared checks: through lists and
 /// views, with constant, negative and computed indices.
 const REPEATED: &str = r#"
-def swap_ends(xs: &mut [i64], i: i64) -> ():
+def swap_ends(xs: &mut [i64], i: i64) -> Result[(), OverflowError[i64]]:
     j = -1 - i
     t = xs[i]
     xs[i] = xs[j]
     xs[j] = t
-def double(xs: &mut [i64], i: i64) -> ():
+    Ok(())
+def double(xs: &mut [i64], i: i64) -> Result[(), OverflowError[i64]]:
     xs[i] = xs[i] + xs[i]
-def sum_twice(xs: &[i64], i: i64) -> i64:
-    xs[i] + xs[i] + xs[-1] + xs[-1] + xs[0] + xs[0]
-def main() -> ():
+    Ok(())
+def sum_twice(xs: &[i64], i: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(xs[i] + xs[i] + xs[-1] + xs[-1] + xs[0] + xs[0])
+def main() -> Result[(), OverflowError[i64]]:
     mut xs = [1, 2, 3, 4, 5].unwrap()
-    swap_ends(&mut xs, 0)
-    swap_ends(&mut xs, -4)
-    double(&mut xs, 2)
-    double(&mut xs, -1)
+    swap_ends(&mut xs, 0)?
+    swap_ends(&mut xs, -4)?
+    double(&mut xs, 2)?
+    double(&mut xs, -1)?
     print(xs).unwrap()
-    print(sum_twice(&xs, 1)).unwrap()
-    print(sum_twice(&xs, -5)).unwrap()
+    print(sum_twice(&xs, 1)?).unwrap()
+    print(sum_twice(&xs, -5)?).unwrap()
+    Ok(())
 "#;
 
 #[test]
@@ -920,20 +940,20 @@ fn repeated_row_accesses_keep_their_results() {
 }
 
 #[rstest]
-#[case("swap_ends(&mut xs, 5)", "index 5, length 5")]
-#[case("swap_ends(&mut xs, -6)", "index -6, length 5")]
-#[case("double(&mut xs, 5)", "index 5, length 5")]
-#[case("double(&mut xs, -6)", "index -6, length 5")]
-#[case("print(sum_twice(&xs, 7)).unwrap()", "index 7, length 5")]
-#[case("print(sum_twice(&xs[5:], 0)).unwrap()", "index 0, length 0")]
-#[case("print(sum_twice(&xs[:1], -2)).unwrap()", "index -2, length 1")]
+#[case("swap_ends(&mut xs, 5)?", "index 5, length 5")]
+#[case("swap_ends(&mut xs, -6)?", "index -6, length 5")]
+#[case("double(&mut xs, 5)?", "index 5, length 5")]
+#[case("double(&mut xs, -6)?", "index -6, length 5")]
+#[case("print(sum_twice(&xs, 7)?).unwrap()", "index 7, length 5")]
+#[case("print(sum_twice(&xs[5:], 0)?).unwrap()", "index 0, length 0")]
+#[case("print(sum_twice(&xs[:1], -2)?).unwrap()", "index -2, length 1")]
 fn repeated_row_accesses_trap_with_the_first_failing_index(
     #[case] call: &str,
     #[case] message: &str,
 ) {
     let source = REPEATED.replace(
-        "    swap_ends(&mut xs, 0)\n",
-        &format!("    {call}\n    swap_ends(&mut xs, 0)\n"),
+        "    swap_ends(&mut xs, 0)?\n",
+        &format!("    {call}\n    swap_ends(&mut xs, 0)?\n"),
     );
     let output = support::run(&source);
     assert!(!output.status.success(), "{source}");

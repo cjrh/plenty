@@ -51,10 +51,10 @@ import limits as l
 from limits import top as most, width as other_width
 const width: i16 = -3
 
-def scaled(n: i64) -> i64:
-    n * other_width + l.width
+def scaled(n: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(n * other_width + l.width)
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64] | OverflowError[u64]]:
     print(most)?
     print(l.bottom)?
     print(l.small)?
@@ -62,7 +62,7 @@ def main() -> Result[(), IoError]:
     print(l.third)?
     print(l.cold)?
     print(width)?
-    print(scaled(5))?
+    print(scaled(5)?)?
     print(most - 1)?
     Ok(())
 ";
@@ -144,6 +144,8 @@ def main() -> Result[(), IoError]:
 
 /// `digit` and `blank` are leaf predicates; `bump` also substitutes its checked
 /// arithmetic in optimized native code. Recursive `countdown` stays a call.
+/// The narrow unchecked operations retain the scalar ABI and native trap checks;
+/// countdown subtraction is guarded by its nonnegative fixture input.
 const PREDICATES: &str = "\
 const space: u8 = 32
 const tab: u8 = 9
@@ -155,24 +157,32 @@ def blank(value: u8) -> bool:
     value == space or value == tab
 
 def bump(code: i64) -> i64:
-    code + 1
+    unchecked:
+        code + 1
 
 def countdown(n: i64) -> bool:
     if n == 0:
         return True
-    countdown(n - 1)
+    previous = unchecked:
+        n - 1
+    countdown(previous)
 
 def classify(code: i64, gap: u8) -> i64:
     mut kind = 0
     if digit(code):
         kind = 1
-    if blank(gap) and not digit(code + 1):
-        kind = kind + 2
+    if blank(gap):
+        next = unchecked:
+            code + 1
+        if not digit(next):
+            unchecked:
+                kind = kind + 2
     kind
 
 def check(code: i64, divisor: i64) -> i64:
     if digit(code):
-        return code // divisor
+        return unchecked:
+            code // divisor
     0
 
 def main() -> Result[(), IoError]:
@@ -194,16 +204,16 @@ fn leaf_predicates_run_in_the_caller_in_release_builds() {
         let mut args = mode.to_vec();
         args.push("p.plenty");
         let output = plenty(dir.path(), &args);
-        assert_eq!(output.status.code(), Some(1), "{mode:?}");
+        assert_eq!(output.status.code(), Some(1), "{mode:?}: {output:?}");
         assert_eq!(
             String::from_utf8_lossy(&output.stdout),
             "1\n3\n0\n2\nTrue\n25\n",
-            "{mode:?}"
+            "{mode:?}: {output:?}"
         );
         // The trap after an inlined call keeps the caller's position.
         assert_eq!(
             String::from_utf8_lossy(&output.stderr),
-            "error: p.plenty:28:16: division by zero\n",
+            "error: p.plenty:36:13: division by zero\n",
             "{mode:?}"
         );
     }

@@ -3,7 +3,13 @@ mod support;
 use rstest::rstest;
 
 fn native(source: &str, expected: &str) {
-    let output = support::run(source);
+    let mut program = support::program(source).replacen(
+        "def main() -> ():",
+        "def main() -> Result[(), OverflowError[i64] | ZeroDivisionError]:",
+        1,
+    );
+    program.push_str("    Ok(())\n");
+    let output = support::run(&program);
     assert!(
         output.status.success(),
         "{source}\n{}",
@@ -149,11 +155,11 @@ fn intrinsics_resolve_in_imported_generics_and_generator_bodies() {
     std::fs::write(
         dir.path().join("helpers.plenty"),
         r#"
-pub def backwards[T](values: &list[T]) -> i64:
+pub def backwards[T](values: &list[T]) -> Result[i64, OverflowError[i64]]:
     mut count = 0
     for x in reversed(values):
         count += 1
-    count
+    Ok(count)
 pub def reduce[T](unused: T, values: &list[bool]) -> bool:
     iter(values).any() and not iter(reversed(values)).all()
 pub def flags(values: list[bool]) -> Generator[bool]:
@@ -172,7 +178,7 @@ pub def summarize(values: list[bool]) -> Generator[bool]:
 import helpers
 def main() -> ():
     values = [False, True].unwrap()
-    print(helpers.backwards(&values)).unwrap()
+    print(helpers.backwards(&values).unwrap()).unwrap()
     print(helpers.reduce(0, &values)).unwrap()
     print(helpers.flags([False, True].unwrap()).any()).unwrap()
     for x in helpers.summarize(values):
@@ -260,13 +266,13 @@ for x in reversed(source()):
     );
     native(
         r#"
-def any(value: i64) -> i64:
-    value + 1
+def any(value: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(value + 1)
 def reversed(value: i64) -> range[i64]:
     range(value)
-print(any(7)).unwrap()
+print(any(7).unwrap()).unwrap()
 all = any
-print(all(9)).unwrap()
+print(all(9).unwrap()).unwrap()
 for x in reversed(2):
     print(x).unwrap()
 "#,
@@ -308,14 +314,20 @@ for x in methods.reversed():
 fn generator_bodies_consume_pipelines_with_terminals() {
     native(
         r#"
+def double(v: &i64) -> Result[i64, OverflowError[i64]]:
+    Ok(*v * 2)
+def add(a: i64, v: &i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a + *v)
 def stats(values: list[i64]) -> Generator[i64]:
+    # stats([1,2,3]) bounds doubled items by 6 and both sums by 6.
+    # Keep ordinary i64 items: this fixture tests terminals inside a frame.
     yield iter(&values).count()
-    yield iter(&values).sum()
-    doubled: list[i64] = iter(&values).map(def(v: &i64) -> i64: *v * 2).collect().unwrap()
+    yield iter(&values).sum().unwrap()
+    doubled: list[i64] = iter(&values).map(def(v: &i64) -> i64: double(v).unwrap()).collect().unwrap()
     yield doubled[1]
     flags = [False, True].unwrap()
     if iter(&flags).any() and not iter(&flags).all():
-        yield iter(&values).fold(0, def(a: i64, v: &i64) -> i64: a + *v)
+        yield iter(&values).try_fold(0, add).unwrap()
 for x in stats([1, 2, 3].unwrap()):
     print(x).unwrap()
 "#,

@@ -140,6 +140,68 @@ fn balanced_tree_allocation_failures_preserve_sets_and_removal_allocates_nothing
     );
 }
 
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn btree_capacity_is_checked_before_mutation_but_duplicates_still_succeed() {
+    let dir = workspace();
+    // Synthetic private state tests the representable key-count boundary without
+    // pretending to allocate MAX nodes or adding a production privacy bypass.
+    let instrumented = format!(
+        "{}{}",
+        include_str!("../book/src/design/examples/data-structures/balanced-trees/btree.plenty"),
+        r#"
+pub def capacity_probe() -> Result[(), AllocError | IoError]:
+    mut tree = create()?
+    drop(insert(&mut tree, 1)?)
+    root = tree.root
+    free = tree.free
+    available = tree.available
+    slots = len(tree.nodes)
+    before = ordered(&tree)?
+    tree.size = i64.MAX
+    print("__test_begin_no_allocations__")?
+    print("__test_fail_allocations_after_0__")?
+    duplicate = insert(&mut tree, 1)
+    failure = insert(&mut tree, 2)
+    unchanged = tree.size == i64.MAX and tree.root == root and tree.free == free and tree.available == available and len(tree.nodes) == slots
+    print("__test_restore_allocations__")?
+    print("__test_end_no_allocations__")?
+    print(str.repr(duplicate)?, str.repr(failure)?, unchanged)?
+    tree.size = 1
+    after = ordered(&tree)?
+    print(before == after, after, valid(&tree)?)?
+    Ok(())
+"#
+    );
+    support::write_file(&dir.path().join("btree.plenty"), &instrumented);
+    let executable = support::compile_file(
+        dir.path(),
+        "import btree\ndef main() -> Result[(), AllocError | IoError]:\n    btree.capacity_probe()\n",
+    );
+    assert_output(
+        std::process::Command::new(executable).output().unwrap(),
+        "Result[bool, AllocError].Ok(False) Result[bool, AllocError].Err(AllocError.CapacityOverflow) True\nTrue [1] True",
+    );
+}
+
+#[test]
+fn data_structure_counter_fields_are_private_not_merely_underscored() {
+    for (module, construction, field) in [
+        ("arena", "arena.Arena[i64](1)?", "_count"),
+        ("btree", "btree.create()?", "size"),
+        ("red_black", "red_black.create()?", "size"),
+        ("trie", "trie.create()?", "available"),
+    ] {
+        let dir = workspace();
+        let source = format!(
+            "import {module}\ndef main() -> Result[(), AllocError]:\n    mut tree = {construction}\n    tree.{field} = i64.MAX\n    Ok(())\n"
+        );
+        let path = support::write_main(dir.path(), &source);
+        let error = plenty::check_file(&path, None).unwrap_err().to_string();
+        assert!(error.contains("private"), "{module}.{field}: {error}");
+    }
+}
+
 #[test]
 fn arena_demo_runs() {
     runs(
@@ -208,19 +270,24 @@ fn arena_rejects_stale_foreign_and_duplicate_keys_and_retires_exhausted_slots() 
 from arena import Arena
 def value(x: &i64) -> i64:
     *x
-def increment(x: &mut i64) -> i64:
+def increment(x: &mut i64) -> Result[i64, OverflowError[i64]]:
     *x += 1
-    *x
-def add(left: &mut i64, right: &mut i64) -> bool:
+    Ok(*x)
+def add(left: &mut i64, right: &mut i64) -> Result[bool, OverflowError[i64]]:
     *left += *right
-    True
-def main() -> Result[(), AllocError | IoError]:
+    Ok(True)
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut arena = Arena[i64](10, generation_limit=1)?
     mut other = Arena[i64](11)?
     first = arena.insert(1)?
     foreign = other.insert(99)?
     print(arena.contains(&foreign))?
-    print(arena.update_two(&first, &first, add))?
+    unchanged: Option[bool] = match arena.update_two(&first, &first, add):
+        case Some(result):
+            Some(result?)
+        case Nothing:
+            Nothing
+    print(unchanged)?
     print(arena.remove(&first))?
     second = arena.insert(2)?
     print(arena.contains(&first))?
@@ -230,7 +297,12 @@ def main() -> Result[(), AllocError | IoError]:
     print(arena.contains(&first))?
     print(arena.contains(&second))?
     print(arena.read(&third, value))?
-    print(arena.update(&third, increment))?
+    updated: Option[i64] = match arena.update(&third, increment):
+        case Some(result):
+            Some(result?)
+        case Nothing:
+            Nothing
+    print(updated)?
     print(arena.len())?
     Ok(())
 "#,
@@ -249,7 +321,7 @@ class Item:
         print(self.value).unwrap()
 enum Stopped:
     Done
-def change(left: &mut Item, right: &mut Item) -> Result[bool, Stopped]:
+def change(left: &mut Item, right: &mut Item) -> Result[bool, Stopped | OverflowError[i64]]:
     left.value += 10
     right.value += 20
     Err(Stopped.Done)
@@ -264,7 +336,80 @@ def main() -> Result[(), AllocError | IoError]:
     drop(arena)
     Ok(())
 "#,
-        "Option[Result[bool, Stopped]].Some(Result[bool, Stopped].Err(Stopped.Done))\nTrue\nTrue\n11\n22",
+        "Option[Result[bool, OverflowError[i64] | Stopped]].Some(Result[bool, OverflowError[i64] | Stopped].Err(Stopped.Done))\nTrue\nTrue\n11\n22",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn linked_arithmetic_reports_first_overflow_and_bump_keeps_only_completed_increments() {
+    runs(
+        r#"
+from linked import Linked, push, total, bump, pop
+def main() -> Result[(), AllocError | IoError]:
+    mut positive = Linked(Nothing)
+    for value in [-1, 1, i64.MAX]?:
+        push(&mut positive, value)?
+    mut negative = Linked(Nothing)
+    for value in [1, -1, i64.MIN]?:
+        push(&mut negative, value)?
+    mut changing = Linked(Nothing)
+    for value in [7, i64.MAX, 1]?:
+        push(&mut changing, value)?
+    print("__test_begin_no_allocations__")?
+    print("__test_fail_allocations_after_0__")?
+    high = total(&positive)
+    low = total(&negative)
+    failure = bump(&mut changing)
+    first = pop(&mut changing)
+    second = pop(&mut changing)
+    third = pop(&mut changing)
+    drop(positive)
+    drop(negative)
+    drop(changing)
+    print("__test_restore_allocations__")?
+    print("__test_end_no_allocations__")?
+    print(str.repr(high)?, str.repr(low)?)?
+    print(str.repr(failure)?)?
+    print(first, second, third)?
+    Ok(())
+"#,
+        "Result[i64, OverflowError[i64]].Err(OverflowError[i64](wrapped=-9223372036854775808)) Result[i64, OverflowError[i64]].Err(OverflowError[i64](wrapped=9223372036854775807))\nResult[(), OverflowError[i64]].Err(OverflowError[i64](wrapped=-9223372036854775808))\nOption[i64].Some(2) Option[i64].Some(9223372036854775807) Option[i64].Some(7)",
+    );
+}
+
+#[test]
+fn arena_transfer_preflights_both_values_and_restores_payloads_after_arithmetic_error() {
+    let helpers = include_str!("../examples/arena/main.plenty")
+        .split("def main(")
+        .next()
+        .unwrap();
+    let source = format!(
+        "{helpers}{}",
+        r#"
+def main() -> Result[(), AllocError | IoError]:
+    mut nodes = Arena[i64](1)?
+    first = nodes.insert(10)?
+    second = nodes.insert(i64.MAX)?
+    print(nodes.update_two(&first, &second, transfer))?
+    print(nodes.read(&first, value), nodes.read(&second, value), nodes.len())?
+    print(nodes.update_two(&first, &first, transfer))?
+    drop(nodes.remove(&first))
+    print(nodes.update_two(&first, &second, transfer))?
+    mut left = i64.MIN
+    mut right = 20
+    print(str.repr(transfer(&mut left, &mut right))?)?
+    print(left, right)?
+    left = -9223372036854775805
+    right = 9223372036854775804
+    print(str.repr(transfer(&mut left, &mut right))?)?
+    print(left, right)?
+    Ok(())
+"#
+    );
+    runs(
+        &source,
+        "Option[Result[bool, OverflowError[i64]]].Some(Result[bool, OverflowError[i64]].Err(OverflowError[i64](wrapped=-9223372036854775806)))\nOption[i64].Some(10) Option[i64].Some(9223372036854775807) 2\nOption[Result[bool, OverflowError[i64]]].Nothing\nOption[Result[bool, OverflowError[i64]]].Nothing\nResult[bool, OverflowError[i64]].Err(OverflowError[i64](wrapped=9223372036854775805))\n-9223372036854775808 20\nResult[bool, OverflowError[i64]].Ok(True)\n-9223372036854775808 9223372036854775807",
     );
 }
 
@@ -275,14 +420,14 @@ fn failed_push_preserves_existing_chain_and_rotation_keeps_allocations() {
         r#"
 from linked import Linked, push, total, pop
 from tree import Tree, rotate_right
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut chain = Linked(Nothing)
     push(&mut chain, 1)?
     print("__test_fail_allocations_after_0__")?
     failure = push(&mut chain, 2)
     print("__test_restore_allocations__")?
     print(str.repr(failure)?)?
-    print(total(&chain))?
+    print(total(&chain)?)?
     print(pop(&mut chain))?
     print(pop(&mut chain))?
     root = Box(Tree(3, Some(Box(Tree(1, Nothing, Some(Box(Tree(2, Nothing, Nothing))?)))?), Nothing))?
@@ -320,11 +465,11 @@ class Item:
         # Only the original payloads report cleanup; filler count depends on capacity.
         if self.value != 99:
             print(self.value).unwrap()
-def increment(left: &mut Item, right: &mut Item) -> bool:
+def increment(left: &mut Item, right: &mut Item) -> Result[bool, OverflowError[i64]]:
     left.value += 1
     right.value += 1
-    True
-def main() -> Result[(), AllocError | IoError]:
+    Ok(True)
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut arena = Arena[Item](1)?
     first = arena.insert(Item(10))?
     second = arena.insert(Item(20))?
@@ -333,7 +478,11 @@ def main() -> Result[(), AllocError | IoError]:
     print("__test_fail_allocations_after_0__")?
     replacement = arena.insert(Item(30))?
     second_key = second.duplicate()
-    result = arena.update_two(&replacement, &second_key, increment)
+    result: Option[bool] = match arena.update_two(&replacement, &second_key, increment):
+        case Some(result):
+            Some(result?)
+        case Nothing:
+            Nothing
     print("__test_restore_allocations__")?
     print("__test_end_no_allocations__")?
     print(result)?
@@ -367,15 +516,15 @@ fn million_node_borrowed_walk_mutation_and_drop_use_a_small_stack_without_alloca
     let (_dir, executable) = compile(
         r#"
 from linked import Linked, push, total, bump
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut chain = Linked(Nothing)
     for n in range(1, 1000001):
         push(&mut chain, n)?
     print("__test_begin_no_allocations__")?
     print("__test_fail_allocations_after_0__")?
-    before = total(&chain)
-    bump(&mut chain)
-    after = total(&chain)
+    before = total(&chain)?
+    bump(&mut chain)?
+    after = total(&chain)?
     drop(chain)
     print("__test_restore_allocations__")?
     print("__test_end_no_allocations__")?

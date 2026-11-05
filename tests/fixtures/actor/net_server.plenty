@@ -22,7 +22,7 @@ const read_ms: u32 = 0u32
 def positive(value: i64) -> Positive[i64]:
     Positive.try_from(value).unwrap()
 
-type Fault = AllocError | NetError | BytesError | TimerError
+type Fault = AllocError | NetError | BytesError | TimerError | OverflowError[i64]
 
 pub enum Note:
     # A connection's heap use once its buffers are allocated.
@@ -141,7 +141,7 @@ pub enum Node:
             case Node.Serving(_):
                 Ok(Nothing)
 
-def main() -> Result[(), AllocError | IoError | StageError | WaitError | NetError | TimerError]:
+def main() -> Result[(), OverflowError[i64] | AllocError | IoError | StageError | WaitError | NetError | TimerError]:
     socket = listen(&loopback_v4(0u16), 128)?
     print(socket.local_address()?.port)?
     limits = Limits(positive(input_size), positive(output_size), milliseconds(idle_ms), milliseconds(stall_ms))

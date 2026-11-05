@@ -1,6 +1,18 @@
 //! Borrowed payloads refer to the owner's storage, including packed sum tags.
 mod support;
-use support::assert_stdout as runs;
+
+/// Arithmetic in fixture statements propagates from main; helper contracts stay explicit.
+fn arithmetic_program(source: &str) -> String {
+    support::program(source).replacen(
+        "def main() -> ():",
+        "def main() -> Result[(), OverflowError[i64]]:",
+        1,
+    ) + "    Ok(())\n"
+}
+
+fn runs(source: &str, expected: &str) {
+    support::assert_stdout(&arithmetic_program(source), expected);
+}
 
 #[test]
 fn shared_matches_preserve_recursive_owners() {
@@ -9,15 +21,15 @@ fn shared_matches_preserve_recursive_owners() {
 enum Chain:
     End
     Link(i64, Box[Chain])
-def total(chain: &Chain) -> i64:
+def total(chain: &Chain) -> Result[i64, OverflowError[i64]]:
     match chain:
         case Chain.End:
-            0
+            Ok(0)
         case Chain.Link(value, rest):
-            *value + total(rest)
+            Ok(*value + total(rest)?)
 chain = Chain.Link(3, Box(Chain.Link(7, Box(Chain.End).unwrap())).unwrap())
-print(total(&chain)).unwrap()
-print(total(&chain)).unwrap()
+print(total(&chain)?).unwrap()
+print(total(&chain)?).unwrap()
 "#,
         "10\n10\n",
     );
@@ -147,28 +159,28 @@ fn recursive_class_traversal_and_nested_mutation_do_not_allocate() {
 class Node:
     value: i64
     next: Option[Box[Node]]
-def total(node: &Node) -> i64:
+def total(node: &Node) -> Result[i64, OverflowError[i64]]:
     match &node.next:
         case Some(next):
-            node.value + total(next)
+            Ok(node.value + total(next)?)
         case Nothing:
-            node.value
-def bump(node: &mut Node) -> ():
+            Ok(node.value)
+def bump(node: &mut Node) -> Result[(), OverflowError[i64]]:
     node.value = node.value + 1
     match &mut node.next:
         case Some(next):
             bump(next)
         case Nothing:
-            pass
+            Ok(())
 mut root = Node(1, Some(Box(Node(2, Nothing)).unwrap()))
 print("__test_begin_no_allocations__").unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
-bump(&mut root)
-answer = total(&root)
+bump(&mut root)?
+answer = total(&root)?
 print("__test_restore_allocations__").unwrap()
 print("__test_end_no_allocations__").unwrap()
 print(answer).unwrap()
-print(total(&root)).unwrap()
+print(total(&root)?).unwrap()
 "#,
         "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n5\n5\n",
     );
@@ -191,10 +203,11 @@ print(value).unwrap()
 mut number: Result[i64, str] = Ok(7)
 match &mut number:
     case Ok(payload):
-        mut change = def [&mut payload]() -> ():
+        mut change = def [&mut payload]() -> Result[(), OverflowError[i64]]:
             payload = payload + 2
-        change()
-        change()
+            Ok(())
+        change()?
+        change()?
     case Err(_):
         pass
 print(str.repr(number).unwrap()).unwrap()
@@ -427,7 +440,7 @@ enum Shape:
 enum Holder:
     One(Counter)
     Many(list[Counter])
-def grow(shape: &mut Shape) -> ():
+def grow(shape: &mut Shape) -> Result[(), OverflowError[i64]]:
     match shape:
         case Shape.Circle(radius):
             *radius = *radius * 2
@@ -435,12 +448,14 @@ def grow(shape: &mut Shape) -> ():
             *name = "a replacement long enough to allocate"
         case Shape.Points(points):
             points.append(9).unwrap()
-def raise(holder: &mut Holder) -> ():
+    Ok(())
+def raise(holder: &mut Holder) -> Result[(), OverflowError[i64]]:
     match holder:
         case Holder.One(counter):
             counter.count = counter.count + 41
         case Holder.Many(counters):
             counters[0].count = 6
+    Ok(())
 def count(holder: &Holder) -> i64:
     match holder:
         case Holder.One(counter):
@@ -457,16 +472,16 @@ print(size).unwrap()
 mut circle = Shape.Circle(3)
 mut named = Shape.Named("an original long enough to allocate")
 mut points = Shape.Points([1, 2].unwrap())
-grow(&mut circle)
-grow(&mut named)
-grow(&mut points)
+grow(&mut circle)?
+grow(&mut named)?
+grow(&mut points)?
 print(circle).unwrap()
 print(named).unwrap()
 print(points).unwrap()
 mut one = Holder.One(Counter(1))
 mut many = Holder.Many([Counter(5)].unwrap())
-raise(&mut one)
-raise(&mut many)
+raise(&mut one)?
+raise(&mut many)?
 print(count(&one)).unwrap()
 print(count(&many)).unwrap()
 "#,
@@ -481,20 +496,21 @@ fn mutable_matches_write_generic_enum_payloads() {
 enum Maybe[T]:
     Just(T)
     Empty
-def bump(value: &mut Maybe[i64]) -> ():
+def bump(value: &mut Maybe[i64]) -> Result[(), OverflowError[i64]]:
     match value:
         case Maybe.Just(number):
             *number = *number + 1
         case Maybe.Empty:
             pass
+    Ok(())
 mut number = Maybe[i64].Just(1)
 number_copy = number
 mut text = Maybe[str].Just("a")
 text_copy = text
 mut items = Maybe[list[i64]].Just([1].unwrap())
 mut empty = Maybe[i64].Empty
-bump(&mut number)
-bump(&mut empty)
+bump(&mut number)?
+bump(&mut empty)?
 match &mut text:
     case Maybe.Just(value):
         *value = "b"

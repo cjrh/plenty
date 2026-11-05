@@ -1,54 +1,70 @@
 mod support;
 use support::assert_stdout as run;
 
+// This module owns these fragments; only their generated entrypoint gains arithmetic errors.
+fn run_checked(source: &str, expected: &str) {
+    let source = support::program(source);
+    let source = source.replacen(
+        "def main() -> ():",
+        "def main() -> Result[(), OverflowError[i64]]:",
+        1,
+    );
+    let source = source
+        .strip_suffix("    pass\n")
+        .expect("fragment entrypoint")
+        .to_owned()
+        + "    Ok(())\n";
+    run(&source, expected);
+}
+
 #[test]
 fn heterogeneous_handlers_and_branch_factories_share_a_structural_type() {
-    run(
+    run_checked(
         r#"
-def make(k: i64) -> Result[BoxedCallable[[i64], i64], AllocError]:
+def make(k: i64) -> Result[BoxedCallable[[i64], Result[i64, OverflowError[i64]]], AllocError]:
     if k > 0:
-        add = def [k](v: i64) -> i64:
-            k + v
+        add = def [k](v: i64) -> Result[i64, OverflowError[i64]]:
+            Ok(k + v)
         return BoxedCallable(add)
     span = range(10, 13)
-    mul = def [span](v: i64) -> i64:
-        span[1] * v
+    mul = def [span](v: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(span[1] * v)
     BoxedCallable(mul)
-def negate(n: i64) -> i64:
-    -n
-def invoke[F: Callable[[i64], i64]](callback: &F, n: i64) -> i64:
+def negate(n: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(-n)
+def invoke[F: Callable[[i64], Result[i64, OverflowError[i64]]]](callback: &F, n: i64) -> Result[i64, OverflowError[i64]]:
     callback(n)
-def typed[T](callback: &BoxedCallable[[T], T], value: T) -> T:
+def typed[T](callback: &BoxedCallable[[T], Result[T, OverflowError[T]]], value: T) -> Result[T, OverflowError[T]]:
     callback(value)
-def via_mut(callback: &mut BoxedCallable[[i64], i64], value: i64) -> i64:
+def via_mut(callback: &mut BoxedCallable[[i64], Result[i64, OverflowError[i64]]], value: i64) -> Result[i64, OverflowError[i64]]:
     callback(value)
 class Holder:
-    callback: BoxedCallable[[i64], i64]
+    callback: BoxedCallable[[i64], Result[i64, OverflowError[i64]]]
 enum Job:
-    Run(BoxedCallable[[i64], i64])
-mut handlers: dict[str, BoxedCallable[[i64], i64]] = {"add": make(3).unwrap(), "mul": make(0).unwrap()}.unwrap()
-print(handlers["add"](4)).unwrap()
-print(handlers["mul"](4)).unwrap()
+    Run(BoxedCallable[[i64], Result[i64, OverflowError[i64]]])
+mut handlers: dict[str, BoxedCallable[[i64], Result[i64, OverflowError[i64]]]] = {"add": make(3).unwrap(), "mul": make(0).unwrap()}.unwrap()
+print(handlers["add"](4)?).unwrap()
+print(handlers["mul"](4)?).unwrap()
 handlers.insert("add", BoxedCallable(negate).unwrap()).unwrap()
-print(handlers["add"](4)).unwrap()
-mut callbacks: list[BoxedCallable[[i64], i64]] = [make(2).unwrap(), make(0).unwrap()].unwrap()
+print(handlers["add"](4)?).unwrap()
+mut callbacks: list[BoxedCallable[[i64], Result[i64, OverflowError[i64]]]] = [make(2).unwrap(), make(0).unwrap()].unwrap()
 for n in range(50):
     callbacks.append(make(n + 1).unwrap()).unwrap()
 callbacks.reverse()
 removed = callbacks.pop(0).unwrap()
-print(invoke(&removed, 1)).unwrap()
-print(typed(&removed, 2)).unwrap()
+print(invoke(&removed, 1)?).unwrap()
+print(typed(&removed, 2)?).unwrap()
 mut mutable_binding = make(1).unwrap()
-print(via_mut(&mut mutable_binding, 2)).unwrap()
+print(via_mut(&mut mutable_binding, 2)?).unwrap()
 callback = &callbacks[0]
-print(callback(1)).unwrap()
+print(callback(1)?).unwrap()
 holder = Holder(make(7).unwrap())
-print(holder.callback(1)).unwrap()
+print(holder.callback(1)?).unwrap()
 job = Job.Run(make(8).unwrap())
 match &job:
     case Job.Run(callback):
-        print(callback(1)).unwrap()
-print(make(9).unwrap()(1)).unwrap()
+        print(callback(1)?).unwrap()
+print(make(9).unwrap()(1)?).unwrap()
 "#,
         "7\n44\n-4\n51\n52\n3\n50\n8\n9\n10\n",
     );
@@ -56,14 +72,14 @@ print(make(9).unwrap()(1)).unwrap()
 
 #[test]
 fn call_abi_supports_owned_arguments_unit_and_inline_results() {
-    run(
+    run_checked(
         r#"
 def consume(values: list[i64]) -> i64:
     values[0]
 def inspect(values: &list[i64]) -> i64:
     values[0]
-def pair(n: i64) -> tuple[i64, i64]:
-    (n, n + 1)
+def pair(n: i64) -> Result[tuple[i64, i64], OverflowError[i64]]:
+    Ok((n, n + 1))
 def noop() -> ():
     pass
 consume_box = BoxedCallable(consume).unwrap()
@@ -73,7 +89,7 @@ unit_box = BoxedCallable(noop).unwrap()
 print(consume_box([4].unwrap())).unwrap()
 values = [8].unwrap()
 print(read_box(&values)).unwrap()
-print(pair_box(10)).unwrap()
+print(pair_box(10)?).unwrap()
 unit_box()
 "#,
         "4\n8\n(10, 11)\n",
@@ -88,7 +104,7 @@ fn boxing_rejects_unsupported_modes_borrows_and_reference_outputs() {
             "borrowed captures",
         ),
         (
-            "n = 1\nf = def [mut n]() -> i64:\n    n = n + 1\n    n\nBoxedCallable(f)\n",
+            "n = 1\nf = def [mut n]() -> Result[i64, OverflowError[i64]]:\n    n = n + 1\n    Ok(n)\nBoxedCallable(f)\n",
             "shared-call",
         ),
         (
@@ -180,27 +196,27 @@ def main() -> Result[(), AllocError | SpawnError[()] | IoError]:
 
 #[test]
 fn heterogeneous_stored_environment_replacement_and_extraction_drop_once() {
-    run(
+    run_checked(
         r#"
 class Guard:
     id: i64
     def __del__(self) -> ():
         print(self.id).unwrap()
-def first(n: i64) -> Result[BoxedCallable[[], i64], AllocError]:
+def first(n: i64) -> Result[BoxedCallable[[], Result[i64, OverflowError[i64]]], AllocError]:
     guard = Guard(n)
-    callback = def [guard]() -> i64:
-        guard.id
+    callback = def [guard]() -> Result[i64, OverflowError[i64]]:
+        Ok(guard.id)
     BoxedCallable(callback)
-def second(n: i64) -> Result[BoxedCallable[[], i64], AllocError]:
+def second(n: i64) -> Result[BoxedCallable[[], Result[i64, OverflowError[i64]]], AllocError | OverflowError[i64]]:
     guard = Guard(n)
     span = range(n, n + 2)
-    callback = def [guard, span]() -> i64:
-        guard.id + span[1]
+    callback = def [guard, span]() -> Result[i64, OverflowError[i64]]:
+        Ok(guard.id + span[1])
     BoxedCallable(callback)
 mut callbacks = {"a": first(1).unwrap(), "b": second(2).unwrap()}.unwrap()
 callbacks.insert("a", second(3).unwrap()).unwrap()
 removed = callbacks.pop("b").unwrap()
-print(removed()).unwrap()
+print(removed()?).unwrap()
 drop(callbacks)
 drop(removed)
 "#,
@@ -211,20 +227,21 @@ drop(removed)
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn failed_boxing_drops_capture_and_calls_and_drops_allocate_nothing() {
-    run(
+    run_checked(
         r#"
 class Guard:
     id: i64
     def __del__(self) -> ():
         write_stdout("drop\n").unwrap()
         pass
-def make(n: i64) -> Closure[[], i64]:
+def make(n: i64) -> Result[Closure[[], Result[i64, OverflowError[i64]]], OverflowError[i64]]:
     guard = Guard(n)
     span = range(n, n + 2)
-    def [guard, span]() -> i64:
-        guard.id + span[1]
-held = BoxedCallable(make(2)).unwrap()
-pending = make(4)
+    callback = def [guard, span]() -> Result[i64, OverflowError[i64]]:
+        Ok(guard.id + span[1])
+    Ok(callback)
+held = BoxedCallable(make(2)?).unwrap()
+pending = make(4)?
 print("__test_fail_allocations_after_0__").unwrap()
 match BoxedCallable(pending):
     case Ok(unexpected):
@@ -232,7 +249,7 @@ match BoxedCallable(pending):
     case Err(_):
         write_stdout("failed\n").unwrap()
         pass
-value = held()
+value = held()?
 drop(held)
 print("__test_restore_allocations__").unwrap()
 print(value).unwrap()

@@ -79,13 +79,19 @@ pub class MarkdownError:
 | Fault | `offset` | `line` |
 |---|---|---|
 | `InvalidUtf8` | The first invalid input byte | 0 |
-| `InputTooLarge` | `max_input` | 0 |
+| `InputTooLarge` | `max_input` for the raw input limit; 0 (unavailable) for tab-expanded column exhaustion | 0 |
 | `DepthExceeded` | The start of the offending line in the input | That line, from 1 |
 | `OutputTooLarge`, `Stream` | Bytes the renderer had produced | 0 |
 | Others | 0, or bytes produced for a renderer | 0 |
 
-After any error, a `Parser` or `HtmlRenderer` returns `InvalidState` from
-every later call.
+After an error from `next` or `event`, later calls to that method return
+`InvalidState`. Renderer output already produced remains available through
+`take` or `write_pending`; a stream failure from `write_pending` can be retried.
+
+Tab-expanded columns remain exact. If advancing a column is unrepresentable,
+parsing returns `InputTooLarge` with offset and line both 0: a raw input
+location is unavailable, not known to be byte 0. Allocation extents that cannot
+be represented return `Allocation(AllocError.CapacityOverflow)`.
 
 ## Events
 
@@ -183,6 +189,13 @@ The output matches the specification's examples:
 Text and attributes escape `&`, `<`, `>`, and `"`. Destinations in `href` and
 `src` are percent-encoded except for ASCII letters, digits, and
 ``!#$%()*+,-./:;=?@_~^``, with `&` written as `&amp;` and `'` as `&#x27;`.
+Rewritten events must retain document order and valid tags. A heading level
+outside 1..6, or unrepresentable nested image depth, returns `InvalidState`
+without emitting bytes for that failing event. Earlier output and its exact
+`written` total remain intact; the renderer is then broken. Output-budget
+exhaustion, including unrepresentable byte totals, returns `OutputTooLarge`
+without wrapping or saturating the count.
+
 Each block starts on its own line, and the output ends with a line ending
 unless it is empty.
 

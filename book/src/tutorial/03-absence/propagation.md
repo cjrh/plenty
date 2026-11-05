@@ -55,12 +55,12 @@ ignore either outcome. The discard check does not cover unused bindings or
 def positive(n: i64) -> Option[i64]:
     Some(n) if n > 0 else Nothing
 
-def doubled(n: i64) -> Option[i64]:
-    Some(positive(n)? * 2)
+def same_positive(n: i64) -> Option[i64]:
+    Some(positive(n)?)
 
 def main() -> Result[(), IoError]:
-    print(doubled(21))?
-    print(doubled(-1))?
+    print(same_positive(42))?
+    print(same_positive(-1))?
     Ok(())
 ```
 
@@ -68,6 +68,11 @@ def main() -> Result[(), IoError]:
 Option[i64].Some(42)
 Option[i64].Nothing
 ```
+
+This example passes the positive value through unchanged to isolate optional
+propagation. Arithmetic that might overflow needs a `Result` contract or local
+[checked recovery](../02-values/numeric-operations.md#recover-from-overflow);
+`Option` does not silently convert arithmetic failure to absence.
 
 The enclosing function must return the same family: `Result` for a `Result`
 operand or `Option` for an `Option` operand. Success payload types can differ,

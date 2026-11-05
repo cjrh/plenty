@@ -132,6 +132,13 @@ relocated matching toolchain on x86_64 Linux GNU. See the
 See [word wrapping and indentation](text-wrapping.md) for `wrap`, `fill`,
 `shorten`, `dedent`, `indent`, `indent_with`, and reusable `TextWrapper`.
 
+Internal scalar and UTF-8 cursors use explicit arithmetic opt-outs justified
+by actual input spans and checked builder budgets. Hyphen scanning clamps
+lookahead to the input and adds an ASCII run's length to the byte cursor,
+rather than forming a potentially overflowing sum of unrelated offsets.
+Width/placeholder validation and input/output limits retain their existing
+`TextError` contracts; caller arithmetic modes do not change them.
+
 ## Acknowledgements
 
 - `Builder` is modelled on Go's [`strings.Builder`](https://pkg.go.dev/strings#Builder); `join` follows Python's [`str.join`](https://docs.python.org/3/library/stdtypes.html#str.join).

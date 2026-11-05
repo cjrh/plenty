@@ -1,5 +1,10 @@
 # `std.actor.tls`
 
+Plaintext space accounts for TLS record overhead without an overflowing
+round-up addition, including for `i64.MAX` free ciphertext bytes. Cursor updates
+are bounded by the offered slices and allocated plaintext/ciphertext buffers;
+the existing TLS, network and timer errors are unchanged.
+
 TLS for [`std.actor.net`](actor-net.md) connections. A `TlsConnection` runs a
 [`std.tls`](tls.md) session over a `Connection`: it moves ciphertext between
 the session and the connection's buffers, decrypts into a bounded plaintext

@@ -26,11 +26,17 @@ pub class Trickle:
         if mode == 2:
             return Err(StreamError.UnexpectedEof)
         if mode == 3:
-            return Ok(stop - start + 1)
-        count = min(min(self.step, stop - start), self.data.len() - self.at)
-        target.overwrite(start, &self.data[self.at:self.at + count])
-        self.at += count
-        Ok(count)
+            lie = checked:
+                stop - start + 1
+            return lie.map_error(def(e: OverflowError[i64]) -> StreamError: StreamError.OutOfRange)
+        if start < 0 or stop < start or stop > target.len() or self.at < 0 or self.at > self.data.len() or self.step < 0:
+            return Err(StreamError.InvalidProgress)
+        # Ordered endpoints; count <= remaining input and output span.
+        unchecked:
+            count = min(min(self.step, stop - start), self.data.len() - self.at)
+            target.overwrite(start, &self.data[self.at:self.at + count])
+            self.at += count
+            Ok(count)
 
 pub class Sink:
     data: Bytes
@@ -38,13 +44,17 @@ pub class Sink:
     fail_flush: bool
 
     pub def write(self: &mut Sink, source: &[u8]) -> Result[i64, StreamError]:
+        if self.room < 0:
+            return Err(StreamError.InvalidProgress)
         count = min(min(2, self.room), len(source))
         match self.data.extend(&source[:count]):
             case Err(cause):
                 return Err(StreamError.Allocation(cause))
             case Ok(_):
                 pass
-        self.room -= count
+        # count <= the nonnegative remaining room.
+        unchecked:
+            self.room -= count
         Ok(count)
 
     pub def flush(self: &mut Sink) -> Result[(), StreamError]:
@@ -53,7 +63,7 @@ pub class Sink:
         else:
             Ok(())
 
-def parse(text: str, step: i64, bounds: &Limits) -> Result[i64, AllocError | std.xml.XmlError]:
+def parse(text: str, step: i64, bounds: &Limits) -> Result[i64, AllocError | std.xml.XmlError | OverflowError[i64]]:
     mut reader = std.xml.reader(Trickle(std.bytes.from_text(&text)?, 0, step, 1), bounds)?
     mut count = 0
     while True:
@@ -82,13 +92,22 @@ fn native(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     let source = format!(
-        "{PRELUDE}\ndef main() -> Result[(), AllocError | IoError | std.xml.XmlError | std.bytes.BytesError]:\n{body}    Ok(())\n"
+        "{PRELUDE}\ndef main() -> Result[(), AllocError | IoError | std.xml.XmlError | std.bytes.BytesError | OverflowError[i64]]:\n{body}    Ok(())\n"
     );
+    output_with_optimization(&source, false)
+}
+
+fn output_with_optimization(source: &str, optimize: bool) -> String {
     let dir = tempfile::tempdir().unwrap();
     let input = dir.path().join("main.plenty");
     let executable = dir.path().join("program");
-    std::fs::write(&input, &source).unwrap();
-    plenty::compile_file_to_executable(&input, &executable, None)
+    std::fs::write(&input, source).unwrap();
+    let options = plenty::CompileOptions {
+        optimize,
+        test_hooks: true,
+        ..Default::default()
+    };
+    plenty::compile_file_to_executable_with_options(&input, &executable, None, &options)
         .unwrap_or_else(|error| panic!("{source}\n{error}"));
     let output = Command::new(executable).output().unwrap();
     assert!(
@@ -495,4 +514,109 @@ match w.write(&Event.Text("&&")):
 "#,
     );
     assert_eq!(result, "std.xml.Fault.TokenTooLarge 3 <a>");
+}
+
+#[test]
+fn reference_and_raw_preserve_scalar_token_and_input_faults_at_representation_limits() {
+    let library = include_str!("../stdlib/std/xml.plenty");
+    let helpers =
+        &library[library.find("def allocated[").unwrap()..library.find("def space(").unwrap()];
+    let xml_char =
+        &library[library.find("def xml_char(").unwrap()..library.find("def name_start(").unwrap()];
+    let reference =
+        &library[library.find("def reference(").unwrap()..library.find("def unescape(").unwrap()];
+    let reader = &library
+        [library.find("pub class Reader[").unwrap()..library.find("    def take(").unwrap()];
+    let constructor = &library
+        [library.find("pub def reader[").unwrap()..library.find("# The builder checks").unwrap()];
+    let emit = &library
+        [library.find("    def emit(").unwrap()..library.find("    pub def write(").unwrap()];
+    let sink =
+        &PRELUDE[PRELUDE.find("pub class Sink:").unwrap()..PRELUDE.find("def parse(").unwrap()];
+    let minimum =
+        &PRELUDE[PRELUDE.find("def min(").unwrap()..PRELUDE.find("pub class Trickle:").unwrap()];
+    let source = format!(
+        r##"import std.xml
+import std.bytes
+import std.io
+from std.xml import Limits, Fault, XmlError, Event
+from std.bytes import Bytes, BytesError
+from std.io import StreamError
+{helpers}
+{xml_char}
+{reference}
+{reader}
+def check_depth(bounds: &Limits) -> ():
+    pass
+{constructor}
+{minimum}
+{sink}
+class Writer[W]:
+    inner: W
+    _limits: Limits
+    _offset: i64
+
+    # Keep the actual production emit path, with a fixed two-byte encoded event.
+    def encode(self: &mut Writer[W], event: &Event) -> Result[Bytes, Fault]:
+        allocated(std.bytes.from_text("xx"))
+{emit}
+def main() -> Result[(), AllocError | IoError | XmlError]:
+    bounds = Limits(64, NonNegative.try_from(i64.MAX).unwrap(), NonNegative.try_from(i64.MAX).unwrap(), 1, 4)
+    mut input = reader(std.io.cursor(std.bytes.from_text("xy")?), &bounds)?
+    input._offset = 9223372036854775806
+    input._token_start = 9223372036854775806
+    mut token = reader(std.io.cursor(std.bytes.from_text("xy")?), &bounds)?
+    token._offset = 9223372036854775805
+    token._token_start = 9223372036854775805
+    print("__test_fail_allocations_after_0__")?
+    print("__test_begin_no_allocations__")?
+    first = input.raw().unwrap() == Some(120u8)
+    input_fault = match input.raw():
+        case Err(Fault.InputTooLarge):
+            True
+        case _:
+            False
+    exact = input.offset() == i64.MAX and input._pos == 1
+    one = token.raw().is_ok()
+    token_fault = match token.raw():
+        case Err(Fault.TokenTooLarge):
+            True
+        case _:
+            False
+    kept = token.offset() == 9223372036854775806 and token._pos == 1
+    print("__test_restore_allocations__")?
+    print("__test_end_no_allocations__")?
+    print(first, input_fault, exact, one, token_fault, kept)?
+    mut complete = Writer(Sink(std.bytes.empty()?, 8, False), copy(bounds)?, 9223372036854775805)
+    print(complete.emit(&Event.Text("")).is_ok(), complete._offset == i64.MAX)?
+    rejected = match complete.emit(&Event.Text("")):
+        case Err(Fault.OutputTooLarge):
+            True
+        case _:
+            False
+    print(rejected, complete.inner.data.len() == 2)?
+    mut partial = Writer(Sink(std.bytes.empty()?, 1, False), bounds, 9223372036854775805)
+    short = match partial.emit(&Event.Text("")):
+        case Err(Fault.Stream(StreamError.WriteZero)):
+            True
+        case _:
+            False
+    print(short, partial._offset == 9223372036854775806, partial.inner.data.len() == 1)?
+    print(reference("#x10FFFF").is_ok(), reference("#1114111").is_ok())?
+    for text in ["#x110000", "#1114112", "#9999999999999999999999999", "#xFFFFFFFF", "#xD800", "#0"]?:
+        invalid = match reference(text):
+            case Err(Fault.InvalidReference):
+                True
+            case _:
+                False
+        print(invalid)?
+    Ok(())
+"##
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            "True True True True True True\nTrue True\nTrue True\nTrue True True\nTrue True\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue"
+        );
+    }
 }

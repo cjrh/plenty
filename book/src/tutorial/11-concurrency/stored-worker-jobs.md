@@ -4,17 +4,17 @@ Stored reusable callbacks can run on scoped threads. Borrow them explicitly, jus
 as you would borrow a local closure. Distinct tuple slots have separate loans.
 
 ```plenty
-def counter(total: i64) -> Closure[[], i64]:
-    def [mut total]() -> i64:
+def counter(total: i64) -> Closure[[], Result[i64, OverflowError[i64]]]:
+    def [mut total]() -> Result[i64, OverflowError[i64]]:
         total = total + 1
-        total
+        Ok(total)
 
-def main() -> Result[(), SpawnError[()] | IoError]:
+def main() -> Result[(), SpawnError[()] | IoError | OverflowError[i64]]:
     mut jobs = (counter(10), counter(100))
     with spawn(&mut jobs[0])? as first, spawn(&mut jobs[1])? as second:
-        print(first.join())?
-        print(second.join())?
-    print(jobs[0]())?
+        print(first.join()?)?
+        print(second.join()?)?
+    print(jobs[0]()?)?
     Ok(())
 ```
 
@@ -30,14 +30,14 @@ successful start is joined.
 Workers can also return an owned callback through `join()`:
 
 ```plenty
-def make(offset: i64) -> Closure[[i64], i64]:
-    def [offset](n: i64) -> i64:
-        offset + n
+def make(offset: i64) -> Closure[[i64], Result[i64, OverflowError[i64]]]:
+    def [offset](n: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(offset + n)
 
-def main() -> Result[(), SpawnError[()] | IoError]:
+def main() -> Result[(), SpawnError[()] | IoError | OverflowError[i64]]:
     with spawn(make, 10).drop_job()? as task:
         callback = task.join()
-        print(callback(3))?
+        print(callback(3)?)?
     Ok(())
 ```
 

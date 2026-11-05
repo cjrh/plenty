@@ -1,5 +1,16 @@
 mod support;
 
+fn checked_native(source: &str, expected: &str) {
+    let program = support::program(source);
+    let body = program.strip_suffix("    pass\n").unwrap();
+    let program = body.replacen(
+        "def main() -> ():\n",
+        "def main() -> Result[(), OverflowError[i64] | ZeroDivisionError]:\n",
+        1,
+    ) + "    Ok(())\n";
+    native(&program, expected);
+}
+
 fn native(source: &str, expected: &str) {
     let output = support::run(source);
     assert!(
@@ -22,7 +33,9 @@ fn key_sort_handles_closures_fields_references_and_total_tuple_order() {
 def sort(items: &mut list[(i64, str)]) -> ():
     offset = 5
     key = def [offset](row: &(i64, str)) -> (str, i64):
-        (row[1], row[0] + offset)
+        # This fixture calls sort only on keys 1, 2, 3 with offset 5: 6..8.
+        unchecked:
+            (row[1], row[0] + offset)
     items.sort_by_key(key)
 class Rows:
     items: list[(i64, str)]
@@ -51,7 +64,7 @@ print(empty).unwrap()
 
 #[test]
 fn key_sort_preserves_owned_elements_and_scales_to_many_rows() {
-    native(
+    checked_native(
         r#"
 class Row:
     key: i64
@@ -150,11 +163,11 @@ print(rows).unwrap()
     "shared"
 )]
 #[case(
-    "mut items = [1].unwrap()\nkey = def [&items](x: &i64) -> i64:\n    len(items) + *x\nitems.sort_by_key(key)",
+    "mut items = [1].unwrap()\nkey = def [&items](x: &i64) -> i64:\n    # The sole list has length 1 and key 1; this sum is 2.\n    unchecked:\n        len(items) + *x\nitems.sort_by_key(key)",
     "borrow"
 )]
 #[case(
-    "mut items = [1].unwrap()\ncount = 0\nkey = def [mut count](x: &i64) -> i64:\n    count += 1\n    *x\nitems.sort_by_key(key)",
+    "mut items = [1].unwrap()\ncount = 0\nkey = def [mut count](x: &i64) -> i64:\n    # Deliberately trapping counter scaffolding: test mutable callability.\n    unchecked:\n        count += 1\n    *x\nitems.sort_by_key(key)",
     "mutable"
 )]
 fn invalid_key_sorting(#[case] source: &str, #[case] expected: &str) {
@@ -164,7 +177,7 @@ fn invalid_key_sorting(#[case] source: &str, #[case] expected: &str) {
 
 #[test]
 fn runtime_key_sort_orders_every_scalar_key_and_many_owned_rows() {
-    native(
+    checked_native(
         r#"
 class Item:
     name: str
@@ -173,7 +186,8 @@ class Item:
 def by_score(item: &Item) -> f64:
     item.score
 def by_pair(item: &Item) -> (i64, str):
-    (item.rank % 7, item.name)
+    seven: NonZero[i64] = 7
+    (item.rank % seven, item.name)
 mut items: list[Item] = [].unwrap()
 mut s = 7
 mut total = 0
@@ -200,7 +214,9 @@ for item in &items:
     sum += item.rank
 print(ok, sum == total).unwrap()
 def negated(x: &i64) -> i64:
-    0 - *x
+    # Only ints from s % 100 - 50 reach this callback: -50..49 -> -49..50.
+    unchecked:
+        0 - *x
 mut ints: list[i64] = [].unwrap()
 for i in range(2000):
     s = (s * 1103515245 + 12345) % 2147483648
@@ -239,8 +255,9 @@ fn inconsistent_key_keeps_every_row() {
 from std.time import monotonic_now, instant_at
 from std.fmt import FormatError
 def jitter(row: &(i64, str)) -> u64:
-    monotonic_now().saturating_duration_since(&instant_at(0)).as_nanoseconds() % 5u64
-def main() -> Result[(), AllocError | FormatError | IoError]:
+    five: NonZero[u64] = 5
+    monotonic_now().saturating_duration_since(&instant_at(0)).as_nanoseconds() % five
+def main() -> Result[(), AllocError | FormatError | IoError | OverflowError[i64]]:
     mut rows: list[(i64, str)] = []?
     for i in range(500):
         rows.append((i, f"r{i}"?))?

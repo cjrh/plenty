@@ -222,6 +222,13 @@ only through its own runtime entry symbols, so a program that does not use
 
 
 
+## Arithmetic and output bounds
+
+Finalization validates the caller offset before subtracting it from the target
+length or touching the digest state. Only that bounds-proven arithmetic opts out
+of recoverable integer errors; invalid offsets still trap, and allocation and
+finished-state errors keep their existing contracts.
+
 ## Acknowledgements
 
 - Wraps the BLAKE3 team's [`blake3`](https://github.com/BLAKE3-team/BLAKE3) 1.8.7 (CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception), with [dependency credits](crypto-blake3.md#acknowledgements).

@@ -154,7 +154,9 @@ def work(values: &mut list[i64], seen: &mut set[str], mapping: &mut dict[str, i6
         values.append(n)?
         numbers.add(n)?
         counts.insert(n, n)?
-        n = n + 1
+        # n starts at 0 and the loop requires n < 32; the increment fits.
+        unchecked:
+            n = n + 1
     Ok(())
 mut values: list[i64] = [].unwrap()
 mut seen = {"existing"}.unwrap()

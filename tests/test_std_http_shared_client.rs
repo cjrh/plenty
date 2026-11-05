@@ -40,7 +40,7 @@ def submitted[T, F](result: Result[Future[T], SubmitError[F]]) -> Result[Future[
             Err("submission failed")
 
 # `count` GETs of `url`; the sum of their statuses.
-def fetches[T, C](client: Shared[hc.Client[T, C]], url: str, count: i64) -> Result[i64, AllocError | hc.ClientError | RangeError]:
+def fetches[T, C](client: Shared[hc.Client[T, C]], url: str, count: i64) -> Result[i64, AllocError | hc.ClientError | RangeError | OverflowError[i64]]:
     never = CancellationToken()?
     mut total = 0
     for _ in range(count):
@@ -48,7 +48,7 @@ def fetches[T, C](client: Shared[hc.Client[T, C]], url: str, count: i64) -> Resu
     Ok(total)
 
 # `count` GETs of `url` as `send`, `read_all` and `finish`.
-def streams(client: Shared[hc.Client[hc.Plain, hc.TcpConnector]], url: str, count: i64) -> Result[i64, AllocError | std.bytes.BytesError | hc.ClientError | RangeError]:
+def streams(client: Shared[hc.Client[hc.Plain, hc.TcpConnector]], url: str, count: i64) -> Result[i64, AllocError | std.bytes.BytesError | hc.ClientError | RangeError | OverflowError[i64]]:
     never = CancellationToken()?
     mut total = 0
     for _ in range(count):
@@ -82,7 +82,7 @@ fn executor_jobs_share_one_client_and_its_connections() {
     runs(
         SHARED,
         r##"
-def main() -> Result[(), std.bytes.BytesError | hc.ClientError | FutureError | std.net.NetError | PoolError | RangeError | str | SpawnError[()] | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | FutureError | std.net.NetError | PoolError | RangeError | str | SpawnError[()] | AllocError | IoError | OverflowError[i64] | OverflowError[u64]]:
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
@@ -124,7 +124,7 @@ fn pool_limits_hold_under_concurrency() {
     runs(
         SHARED,
         r##"
-def bounded(url: &str, max_idle: i64, per_origin: i64) -> Result[(), std.bytes.BytesError | hc.ClientError | FutureError | PoolError | RangeError | str | AllocError | IoError]:
+def bounded(url: &str, max_idle: i64, per_origin: i64) -> Result[(), std.bytes.BytesError | hc.ClientError | FutureError | PoolError | RangeError | str | AllocError | IoError | OverflowError[i64] | OverflowError[u64]]:
     mut config = hc.config()?
     config.max_idle = max_idle
     config.max_idle_per_origin = per_origin
@@ -148,7 +148,7 @@ def bounded(url: &str, max_idle: i64, per_origin: i64) -> Result[(), std.bytes.B
     print("closed:", client.idle(), closed.opened == closed.discarded)?
     Ok(())
 
-def main() -> Result[(), std.bytes.BytesError | hc.ClientError | FutureError | std.net.NetError | PoolError | RangeError | str | SpawnError[()] | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | FutureError | std.net.NetError | PoolError | RangeError | str | SpawnError[()] | AllocError | IoError | OverflowError[i64] | OverflowError[u64]]:
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
@@ -177,7 +177,7 @@ fn expired_connections_are_closed_by_the_next_user_of_the_pool() {
     runs(
         SHARED,
         r##"
-def main() -> Result[(), hc.ClientError | FutureError | std.net.NetError | PoolError | RangeError | str | SpawnError[()] | AllocError | IoError]:
+def main() -> Result[(), hc.ClientError | FutureError | std.net.NetError | PoolError | RangeError | str | SpawnError[()] | AllocError | IoError | OverflowError[i64]]:
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
@@ -313,14 +313,14 @@ def blocked(client: Shared[hc.Client[Plain, Gate]], halt: CancellationToken) -> 
 
 # Once `blocked` is inside the connector, sends 20 requests. It cancels
 # `blocked` however it ends.
-def busy(client: Shared[hc.Client[Plain, Gate]], url: str, entered: CancellationToken, halt: CancellationToken) -> Result[i64, AllocError | ClientError | RangeError]:
-    mut total: Result[i64, AllocError | ClientError | RangeError] = Ok(0)
+def busy(client: Shared[hc.Client[Plain, Gate]], url: str, entered: CancellationToken, halt: CancellationToken) -> Result[i64, AllocError | ClientError | RangeError | OverflowError[i64]]:
+    mut total: Result[i64, AllocError | ClientError | RangeError | OverflowError[i64]] = Ok(0)
     if entered.wait_timeout(5000u64):
         total = fetches(client, url, 20)
     halt.cancel()
     total
 
-def run(url: &str) -> Result[(), hc.ClientError | FutureError | PoolError | RangeError | str | AllocError | IoError]:
+def run(url: &str) -> Result[(), hc.ClientError | FutureError | PoolError | RangeError | str | AllocError | IoError | OverflowError[i64]]:
     entered = CancellationToken()?
     client = Shared(hc.connector[Plain, Gate](Gate(entered.share()), hc.config()?)?)?
     halt = CancellationToken()?
@@ -331,7 +331,7 @@ def run(url: &str) -> Result[(), hc.ClientError | FutureError | PoolError | Rang
     print(line(&*client)?)?
     Ok(())
 
-def main() -> Result[(), hc.ClientError | FutureError | std.net.NetError | PoolError | RangeError | str | SpawnError[()] | AllocError | IoError]:
+def main() -> Result[(), hc.ClientError | FutureError | std.net.NetError | PoolError | RangeError | str | SpawnError[()] | AllocError | IoError | OverflowError[i64]]:
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
@@ -392,14 +392,14 @@ def stuck(client: Shared[hc.Client[hc.Plain, hc.TcpConnector]], url: str, halt: 
 
 # Once the stuck request has reached the server, sends 20 requests. It
 # cancels the stuck request however it ends.
-def then_halt(client: Shared[hc.Client[hc.Plain, hc.TcpConnector]], url: str, received: CancellationToken, halt: CancellationToken) -> Result[i64, AllocError | hc.ClientError | RangeError]:
-    mut total: Result[i64, AllocError | hc.ClientError | RangeError] = Ok(0)
+def then_halt(client: Shared[hc.Client[hc.Plain, hc.TcpConnector]], url: str, received: CancellationToken, halt: CancellationToken) -> Result[i64, AllocError | hc.ClientError | RangeError | OverflowError[i64]]:
+    mut total: Result[i64, AllocError | hc.ClientError | RangeError | OverflowError[i64]] = Ok(0)
     if received.wait_timeout(5000u64):
         total = fetches(client, url, 20)
     halt.cancel()
     total
 
-def run(url: &str, quiet_url: &str, received: &CancellationToken) -> Result[(), hc.ClientError | FutureError | PoolError | RangeError | str | AllocError | IoError]:
+def run(url: &str, quiet_url: &str, received: &CancellationToken) -> Result[(), hc.ClientError | FutureError | PoolError | RangeError | str | AllocError | IoError | OverflowError[i64]]:
     client = Shared(hc.client(hc.config()?)?)?
     halt = CancellationToken()?
     with ThreadPoolExecutor(2, 2)? as pool:
@@ -410,7 +410,7 @@ def run(url: &str, quiet_url: &str, received: &CancellationToken) -> Result[(), 
     print(line(&*client)?)?
     Ok(())
 
-def main() -> Result[(), hc.ClientError | FutureError | std.net.NetError | PoolError | RangeError | str | SpawnError[()] | AllocError | IoError]:
+def main() -> Result[(), hc.ClientError | FutureError | std.net.NetError | PoolError | RangeError | str | SpawnError[()] | AllocError | IoError | OverflowError[i64]]:
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     quiet = std.net.listen(&std.net.loopback_v4(0u16), 16)?
@@ -429,12 +429,9 @@ server saw 20 requests"##,
 }
 
 /// An `https` client shares like a plain one: its connector holds only a TLS
-/// configuration, which may be used from any worker. A connector that holds
-/// something that cannot cross threads is rejected when the client is shared,
-/// and one whose `open` borrows it exclusively is rejected where the client is
-/// made, not inside `std.http.client`.
+/// configuration, which may be used from any worker.
 #[test]
-fn https_clients_share_and_ineligible_connectors_are_rejected() {
+fn https_clients_share() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("main.plenty");
     std::fs::write(
@@ -453,6 +450,12 @@ def main() -> Result[(), hc.ClientError | std.tls.TlsError | AllocError | IoErro
     )
     .unwrap();
     plenty::check_file(&path, None).unwrap_or_else(|error| panic!("{error}"));
+}
+
+/// Reject thread-ineligible state and exclusive connector receivers at the
+/// caller, independently of the HTTPS dependency's compilation status.
+#[test]
+fn ineligible_connectors_are_rejected() {
     let error = rejected(
         r##"import std.http.client as hc
 from std.concurrent import ThreadPoolExecutor
@@ -482,7 +485,7 @@ pub class Counting:
     pub count: i64
 
     pub def open(self: &mut Counting, endpoint: &Endpoint, deadline: &Deadline, cancel: &CancellationToken) -> Result[Plain, ClientError]:
-        self.count += 1
+        self.count = 1
         TcpConnector().open(endpoint, deadline, cancel)
 
 def main() -> Result[(), ClientError | AllocError]:

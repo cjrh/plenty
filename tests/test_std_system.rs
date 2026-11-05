@@ -78,6 +78,8 @@ def main() -> Result[(), IoError | SystemError]:
             show(source.uptime(max_bytes=11))?
             show(source.block_devices(max_devices=0))?
             show(source.process_ids(max_entries=0))?
+        case "max-probe":
+            show(source.uptime(max_bytes=9223372036854775806))?
         case "unbounded":
             show(source.uptime(max_bytes=Positive.try_from(9223372036854775807).unwrap()))?
         case "pid0":
@@ -352,7 +354,7 @@ def allocation(error: &SystemError) -> bool:
         case _:
             False
 
-def descriptors() -> Result[i64, IoError]:
+def descriptors() -> Result[i64, IoError | OverflowError[i64]]:
     mut entries = std.fs.read_dir(&std.path.from_text("/proc/self/fd")?)?
     mut count = 0
     while entries.next()?.is_some():
@@ -368,7 +370,7 @@ def attempt(source: &std.system.Procfs, kind: i64) -> Result[(), SystemError]:
         drop(source.process_ids()?)
     Ok(())
 
-def main() -> Result[(), IoError | AllocError]:
+def main() -> Result[(), IoError | AllocError | OverflowError[i64]]:
     source = std.system.open_procfs(&std.path.from_text("proc")?)?
     mut markers = list[str]()?
     for count in range(500):
@@ -400,4 +402,49 @@ def main() -> Result[(), IoError | AllocError]:
         run(&executable, dir.path(), ""),
         "True True True\nTrue True True\nTrue True True\nTrue"
     );
+}
+
+#[test]
+fn system_scaling_and_probe_boundaries_in_both_modes() {
+    for optimize in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        fixture(dir.path());
+        let source = dir.path().join("main.plenty");
+        let executable = dir.path().join("program");
+        std::fs::write(&source, DRIVER).unwrap();
+        plenty::compile_file_to_executable_with_options(
+            &source,
+            &executable,
+            None,
+            &plenty::CompileOptions {
+                optimize,
+                test_hooks: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(run(&executable, dir.path(), "max-probe").starts_with("ok "));
+        for (file, operation, factor, field) in [
+            ("meminfo", "memory", 1024_u64, "MemTotal"),
+            ("diskstats", "disk", 512_u64, "diskstats bytes read"),
+        ] {
+            for value in [u64::MAX / factor, u64::MAX / factor + 1] {
+                let text = if file == "meminfo" {
+                    MEMORY.replace("1000 kB", &format!("{value} kB"))
+                } else {
+                    format!("1 2 x 0 0 {value} 0 0 0 0 0 0 0 0\n")
+                };
+                std::fs::write(dir.path().join("proc").join(file), text).unwrap();
+                let output = run(&executable, dir.path(), operation);
+                if value == u64::MAX / factor {
+                    assert!(output.contains(&(value * factor).to_string()), "{output}");
+                } else {
+                    assert_eq!(
+                        output,
+                        format!("error std.system.SystemError.Malformed(\"{field}\")")
+                    );
+                }
+            }
+        }
+    }
 }

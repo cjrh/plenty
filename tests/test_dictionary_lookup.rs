@@ -106,18 +106,27 @@ print(Custom().get(7)).unwrap()
 #[test]
 fn optional_lookup_composes_with_propagation() {
     native(
-        r#"
-def add(data: &dict[str, i64]) -> Option[i64]:
+        r#"def operands(data: &dict[str, i64]) -> Option[(i64, i64)]:
     first = data.get("first")?
     second = data.get("second")?
-    Some(first + second)
-complete = {"first": 20, "second": 22}.unwrap()
-missing = {"first": 20}.unwrap()
-print(add(&complete)).unwrap()
-print(add(&missing)).unwrap()
-print(missing).unwrap()
+    Some((first, second))
+def add(data: &dict[str, i64]) -> Result[Option[i64], OverflowError[i64]]:
+    match operands(data):
+        case Some((first, second)):
+            Ok(Some(first + second))
+        case Nothing:
+            Ok(Nothing)
+def main() -> Result[(), OverflowError[i64]]:
+    complete = {"first": 20, "second": 22}.unwrap()
+    missing = {"first": 20}.unwrap()
+    print(add(&complete)?).unwrap()
+    print(add(&missing)?).unwrap()
+    print(missing).unwrap()
+    print(add(&dict[str, i64]().unwrap())?).unwrap()
+    print(str.repr(add(&{"first": i64.MAX, "second": 1}.unwrap())).unwrap()).unwrap()
+    Ok(())
 "#,
-        "Option[i64].Some(42)\nOption[i64].Nothing\n{\"first\": 20}",
+        "Option[i64].Some(42)\nOption[i64].Nothing\n{\"first\": 20}\nOption[i64].Nothing\nResult[Option[i64], OverflowError[i64]].Err(OverflowError[i64](wrapped=-9223372036854775808))",
     );
 }
 
@@ -154,20 +163,22 @@ print(value).unwrap()
 fn lookup_uses_the_hash_index_after_growth_and_replacement() {
     native(
         r#"
-mut values = dict[i64, i64]().unwrap()
-for n in range(100):
-    values.insert(n, n * 2).unwrap()
-values.insert(50, 123).unwrap()
-mut valid = True
-for n in range(100):
-    match values.get(n):
-        case Some(value):
-            valid = valid and value == (123 if n == 50 else n * 2)
-        case Nothing:
-            valid = False
-print(valid).unwrap()
-print(values.get(100)).unwrap()
-print(len(values)).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    mut values = dict[i64, i64]().unwrap()
+    for n in range(100):
+        values.insert(n, n * 2).unwrap()
+    values.insert(50, 123).unwrap()
+    mut valid = True
+    for n in range(100):
+        match values.get(n):
+            case Some(value):
+                valid = valid and value == (123 if n == 50 else n * 2)
+            case Nothing:
+                valid = False
+    print(valid).unwrap()
+    print(values.get(100)).unwrap()
+    print(len(values)).unwrap()
+    Ok(())
 "#,
         "True\nOption[i64].Nothing\n100",
     );

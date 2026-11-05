@@ -8,12 +8,12 @@ const CHAIN: &str = r#"
 class Node:
     value: i64
     next: Option[Box[Node]]
-def build(n: i64) -> Result[Node, AllocError]:
+def build(n: i64) -> Result[Node, AllocError | OverflowError[i64]]:
     mut head = Node(1, Nothing)
     for i in range(2, n + 1):
         head = Node(i, Some(Box(head)?))
     Ok(head)
-def total(head: &Node) -> i64:
+def total(head: &Node) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     mut cur = head
     while True:
@@ -23,8 +23,8 @@ def total(head: &Node) -> i64:
                 cur = n
             case Nothing:
                 break
-    sum
-def bump(head: &mut Node) -> ():
+    Ok(sum)
+def bump(head: &mut Node) -> Result[(), OverflowError[i64]]:
     mut cur = head
     while True:
         cur.value = cur.value + 1
@@ -33,6 +33,7 @@ def bump(head: &mut Node) -> ():
                 cur = n
             case Nothing:
                 break
+    Ok(())
 "#;
 
 fn runs(source: &str, expected: &str) {
@@ -56,10 +57,10 @@ fn rejects(source: &str, expected: &str) {
 fn shared_cursor_walks_a_class_chain() {
     runs(
         r#"
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     head = build(10)?
-    print(total(&head))?
-    print(total(&head))?
+    print(total(&head)?)?
+    print(total(&head)?)?
     Ok(())
 "#,
         "55\n55\n",
@@ -70,10 +71,10 @@ def main() -> Result[(), AllocError | IoError]:
 fn exclusive_cursor_modifies_every_node() {
     runs(
         r#"
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut head = build(10)?
-    bump(&mut head)
-    print(total(&head))?
+    bump(&mut head)?
+    print(total(&head)?)?
     print(head.value)?
     Ok(())
 "#,
@@ -103,7 +104,7 @@ def last_mut(head: &mut Node) -> &mut Node:
             case Nothing:
                 break
     cur
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut head = build(4)?
     print(last(&head).value)?
     tail = last_mut(&mut head)
@@ -120,7 +121,7 @@ def main() -> Result[(), AllocError | IoError]:
 fn cursor_over_a_local_owner_ends_at_its_last_use() {
     runs(
         r#"
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut head = build(4)?
     mut cur = &head
     mut steps = 0
@@ -153,13 +154,14 @@ def leftmost(root: &Tree) -> i64:
     while len(cur.children) > 0:
         cur = &cur.children[0]
     cur.value
-def clear_left_spine(root: &mut Tree) -> ():
+def clear_left_spine(root: &mut Tree) -> Result[(), OverflowError[i64]]:
     mut cur = root
     while len(cur.children) > 0:
         cur.value = cur.value + 10
         cur = &mut cur.children[0]
     cur.value = 0
-def main() -> Result[(), AllocError | IoError]:
+    Ok(())
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     leaf = Tree(3, []?)
     mut kids: list[Tree] = []?
     kids.append(leaf)?
@@ -168,7 +170,7 @@ def main() -> Result[(), AllocError | IoError]:
     top.append(mid)?
     mut root = Tree(1, top)
     print(leftmost(&root))?
-    clear_left_spine(&mut root)
+    clear_left_spine(&mut root)?
     print(root.value)?
     print(leftmost(&root))?
     Ok(())
@@ -184,7 +186,7 @@ fn cursor_advances_through_enum_payloads() {
 enum Chain:
     End
     Link(i64, Box[Chain])
-def sum(chain: &Chain) -> i64:
+def sum(chain: &Chain) -> Result[i64, OverflowError[i64]]:
     mut result = 0
     mut cur = chain
     while True:
@@ -194,10 +196,10 @@ def sum(chain: &Chain) -> i64:
             case Chain.Link(value, rest):
                 result = result + *value
                 cur = rest
-    result
-def main() -> Result[(), AllocError | IoError]:
+    Ok(result)
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     chain = Chain.Link(3, Box(Chain.Link(7, Box(Chain.End)?))?)
-    print(sum(&chain))?
+    print(sum(&chain)?)?
     Ok(())
 "#,
         "10\n",
@@ -216,7 +218,7 @@ def step(node: &Node) -> &Node:
             node
 def pick(label: str, node: &Node) -> &Node:
     node
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     head = build(4)?
     mut cur = &head
     cur = step(cur)
@@ -234,7 +236,7 @@ def main() -> Result[(), AllocError | IoError]:
 fn an_exclusive_cursor_is_usable_again_after_a_reborrow_ends() {
     runs(
         r#"
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut head = build(2)?
     mut cur = &mut head
     first = cur
@@ -252,12 +254,12 @@ def main() -> Result[(), AllocError | IoError]:
 fn walking_a_chain_does_not_allocate() {
     runs(
         r#"
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut head = build(100)?
     print("__test_begin_no_allocations__")?
     print("__test_fail_allocations_after_0__")?
-    bump(&mut head)
-    answer = total(&head)
+    bump(&mut head)?
+    answer = total(&head)?
     print("__test_restore_allocations__")?
     print("__test_end_no_allocations__")?
     print(answer)?
@@ -272,11 +274,11 @@ def main() -> Result[(), AllocError | IoError]:
 fn a_million_node_chain_is_walked_and_dropped_on_a_small_stack() {
     let source = format!(
         r#"{CHAIN}
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut head = build(1000000)?
-    print(total(&head))?
-    bump(&mut head)
-    print(total(&head))?
+    print(total(&head)?)?
+    bump(&mut head)?
+    print(total(&head)?)?
     Ok(())
 "#
     );
@@ -304,7 +306,7 @@ def main() -> Result[(), AllocError | IoError]:
 fn a_cursor_cannot_move_to_another_owner() {
     rejects(
         r#"
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     head = build(4)?
     other = build(2)?
     mut cur = &head
@@ -335,7 +337,7 @@ def choose(head: &Node, other: &Node) -> i64:
 fn a_cursor_can_be_reset_through_its_owner() {
     runs(
         r#"
-def reset(head: &Node) -> i64:
+def reset(head: &Node) -> Result[i64, OverflowError[i64]]:
     mut cur = head
     match &cur.next:
         case Some(n):
@@ -344,7 +346,7 @@ def reset(head: &Node) -> i64:
             pass
     first = cur.value
     cur = head
-    first * 10 + cur.value
+    Ok(first * 10 + cur.value)
 def skip(head: &Node) -> i64:
     mut cur = head
     match &head.next:
@@ -353,9 +355,9 @@ def skip(head: &Node) -> i64:
         case Nothing:
             pass
     cur.value
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     head = build(3)?
-    print(reset(&head))?
+    print(reset(&head)?)?
     print(skip(&head))?
     Ok(())
 "#,
@@ -439,7 +441,7 @@ def first(head: &mut Node) -> i64:
 fn the_owner_stays_borrowed_while_the_cursor_is_live() {
     rejects(
         r#"
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut head = build(4)?
     mut cur = &head
     match &cur.next:
@@ -528,7 +530,7 @@ def split(head: &mut Node) -> ():
 fn an_exclusive_cursor_excludes_its_live_reborrow() {
     rejects(
         r#"
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut head = build(2)?
     mut cur = &mut head
     first = cur
@@ -550,7 +552,7 @@ class Bag:
     items: list[i64]
 def index(values: &list[i64]) -> i64:
     0
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut bag = Bag([1, 2]?)
     other = [7, 8]?
     view = &bag.items[index(&other)]
@@ -575,12 +577,13 @@ def longest(items: &list[str]) -> &str:
         if items[i].byte_len() > best.byte_len():
             best = &items[i]
     best
-def bump_all(values: &mut list[i64]) -> ():
+def bump_all(values: &mut list[i64]) -> Result[(), OverflowError[i64]]:
     mut cur = &mut values[0]
     for i in range(len(values)):
         cur = &mut values[i]
         *cur = *cur + 1
-def main() -> Result[(), AllocError | IoError]:
+    Ok(())
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     words = ["a", "abc", "ab"]?
     print(longest(&words))?
     mut xs = [1, 2, 3]?
@@ -589,7 +592,7 @@ def main() -> Result[(), AllocError | IoError]:
     xs.append(4)?
     cur = &mut xs[3]
     *cur = 40
-    bump_all(&mut xs)
+    bump_all(&mut xs)?
     print(xs)?
     mut ys = [1, 2, 3]?
     mut at = &mut ys[0]
@@ -640,6 +643,11 @@ fn retargeting_keeps_loans_sound() {
     ];
     for (body, expected) in cases {
         let source = format!("class Pair:\n    left: list[i64]\n    right: list[i64]\n{body}");
+        let source = support::program(&source).replacen(
+            "def main() -> ():",
+            "def main() -> Result[(), OverflowError[i64]]:",
+            1,
+        ) + "    Ok(())\n";
         let error = support::check_diagnostic(&source);
         assert!(error.contains(expected), "{source}\n{error}");
     }

@@ -82,15 +82,16 @@ class Account:
     owner: str
     balance: i64
 
-    def deposit(self: &mut Account, amount: i64) -> ():
+    def deposit(self: &mut Account, amount: i64) -> Result[(), OverflowError[i64]]:
         self.balance += amount
+        Ok(())
 
     def describe(self) -> Result[str, AllocError]:
         Ok(f"{self.owner}: {self.balance}"?)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut account = Account("Ada", 10)
-    account.deposit(5)
+    account.deposit(5)?
     print(account.describe()?)?
     Ok(())
 ```
@@ -110,13 +111,13 @@ comprehensions, `append`, `insert`, `add`, `reserve`, `copy`, string building
 `display`/`debug` method or a spec is computed). Reserve when the size is known:
 
 ```plenty
-def squares(count: i64) -> Result[list[i64], AllocError]:
+def squares(count: i64) -> Result[list[i64], AllocError | OverflowError[i64]]:
     mut values = list[i64].with_capacity(count)?
     for n in range(count):
         values.append(n * n)?
     Ok(values)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     print(squares(4)?)?
     Ok(())
 ```
@@ -135,7 +136,7 @@ error. Whole-file helpers `read_text(path)` and `write_text(path, text)` open
 and close for you.
 
 ```plenty
-def count_lines(path: &str) -> Result[i64, IoError]:
+def count_lines(path: &str) -> Result[i64, IoError | OverflowError[i64]]:
     mut count = 0
     with open(path)? as file:
         while True:
@@ -145,7 +146,7 @@ def count_lines(path: &str) -> Result[i64, IoError]:
             count += 1
     Ok(count)
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     write_text("lines.txt", "one\ntwo\n")?
     print(count_lines("lines.txt")?)?
     Ok(())

@@ -61,9 +61,12 @@ pub class Bytes:
         count = __bytes_len(self._owner)
         if count == 0:
             return Nothing
-        value = __bytes_get(self._owner, count - 1)
+        # A nonempty buffer has 1 <= count <= i64.MAX.
+        last = unchecked:
+            count - 1
+        value = __bytes_get(self._owner, last)
         # Shrinking never allocates, so this cannot fail.
-        drop(__bytes_resize(self._owner, count - 1, 0u8))
+        drop(__bytes_resize(self._owner, last, 0u8))
         Some(value)
 
     pub def reserve(self: &mut Bytes, additional: i64) -> Result[(), AllocError]:
@@ -96,7 +99,10 @@ pub class Bytes:
 
     # Writes `source` at `offset`; the buffer keeps its length.
     pub def overwrite(self: &mut Bytes, offset: i64, source: &[u8]) -> ():
-        if offset < 0 or offset > __bytes_len(self._owner) - len(source):
+        # Both lengths are in 0..=i64.MAX, so their signed difference fits.
+        available = unchecked:
+            __bytes_len(self._owner) - len(source)
+        if offset < 0 or offset > available:
             __trap("Bytes.overwrite: offset..offset + len(source) is outside 0..=len()")
         __bytes_overwrite(self._owner, offset, source)
         ()
@@ -108,7 +114,10 @@ pub class Bytes:
         count = __bytes_len(self._owner)
         if not within(start, stop, count):
             __trap("Bytes.copy_within: start..stop is outside 0..=len()")
-        if to < 0 or to > count - (stop - start):
+        # Validated bounds give 0 <= stop - start <= count <= i64.MAX.
+        available = unchecked:
+            count - (stop - start)
+        if to < 0 or to > available:
             __trap("Bytes.copy_within: the destination is outside 0..=len()")
         __bytes_copy_within(self._owner, start, stop, to)
         ()
@@ -116,7 +125,10 @@ pub class Bytes:
     pub def slice(self, start: i64, stop: i64) -> Result[Bytes, AllocError]:
         if not within(start, stop, __bytes_len(self._owner)):
             __trap("Bytes.slice: start..stop is outside 0..=len()")
-        mut owner = __bytes_new(stop - start)?
+        # Validated bounds make the width nonnegative and at most len().
+        width = unchecked:
+            stop - start
+        mut owner = __bytes_new(width)?
         __bytes_append(owner, &self[start:stop])?
         Ok(Bytes(owner))
 
@@ -172,14 +184,18 @@ pub class Bytes:
     pub def ascii_run(self, start: i64, stop: i64) -> i64:
         if not within(start, stop, __bytes_len(self._owner)):
             __trap("Bytes.ascii_run: start..stop is outside 0..=len()")
-        start + __bytes_run(&self[start:stop], 0u8)
+        # The native run length is at most stop - start, so the sum <= stop.
+        unchecked:
+            start + __bytes_run(&self[start:stop], 0u8)
 
     # The index after the longest valid UTF-8 that begins at `start`. A
     # sequence cut off by `stop` is not included.
     pub def utf8_run(self, start: i64, stop: i64) -> i64:
         if not within(start, stop, __bytes_len(self._owner)):
             __trap("Bytes.utf8_run: start..stop is outside 0..=len()")
-        start + __bytes_run(&self[start:stop], 1u8)
+        # The native run length is at most stop - start, so the sum <= stop.
+        unchecked:
+            start + __bytes_run(&self[start:stop], 1u8)
 
     pub def to_list(self) -> Result[list[u8], AllocError]:
         __bytes_to_list(self._owner)
@@ -213,7 +229,9 @@ pub class Bytes:
 def after(start: i64, index: i64) -> Option[i64]:
     if index < 0:
         return Nothing
-    Some(start + index)
+    # Callers scan validated start..stop; a found index is <= stop - start.
+    unchecked:
+        Some(start + index)
 
 # The one range rule: 0 <= start <= stop <= count. No clamping, no negatives.
 def within(start: i64, stop: i64, count: i64) -> bool:

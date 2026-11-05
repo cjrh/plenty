@@ -4,7 +4,7 @@ Assignments to an existing mutable binding survive a branch. New names declared
 inside a branch belong to that branch:
 
 ```plenty
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut price = 100
     discounted = True
     if discounted:
@@ -23,7 +23,7 @@ updated value. For a new selected value, bind an inline conditional when each
 branch is one expression. A block conditional also supports branch-local work:
 
 ```plenty
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     discounted = True
     price = if discounted:
         discount = 20

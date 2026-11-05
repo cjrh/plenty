@@ -23,14 +23,15 @@ class Path:
     second: Segment
     id: i64
 
-def bump(p: &mut Point, by: i64) -> ():
+def bump(p: &mut Point, by: i64) -> Result[(), OverflowError[i64]]:
     p.x += by
     p.y += by
+    Ok(())
 
-def total(s: &Segment) -> i64:
-    s.start.x + s.start.y + s.end.x + s.end.y
+def total(s: &Segment) -> Result[i64, OverflowError[i64]]:
+    Ok(s.start.x + s.start.y + s.end.x + s.end.y)
 
-def path(n: i64) -> Result[Path, AllocError]:
+def path(n: i64) -> Result[Path, AllocError | OverflowError[i64]]:
     a = Segment(Point(n, n + 1), Point(n + 2, n + 3), ("a" + str.from(n)?)?)
     b = Segment(Point(-n, 0), Point(0, -n), "b")
     Ok(Path(a, b, n))
@@ -38,13 +39,13 @@ def path(n: i64) -> Result[Path, AllocError]:
 def through(p: Path) -> Path:
     p
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut p = through(path(1)?)
     print(p)?
-    bump(&mut p.first.end, 10)
+    bump(&mut p.first.end, 10)?
     p.second.start = Point(7, 8)
     p.second.start.y = 9
-    print(p.first.end, p.second.start, total(&p.first), total(&p.second))?
+    print(p.first.end, p.second.start, total(&p.first)?, total(&p.second)?)?
     seg = p.first
     print(seg.label, seg.end.x)?
     end = seg.end
@@ -138,20 +139,27 @@ class Holder[T]:
     item: T
     count: i64
 
-def area(s: &Span) -> i64:
-    (s.hi.x - s.lo.x) * (s.hi.y - s.lo.y)
+def area(s: &Span) -> Result[i64, OverflowError[i64]]:
+    Ok((s.hi.x - s.lo.x) * (s.hi.y - s.lo.y))
 
 def spans(n: i64) -> Generator[Span]:
     for i in range(n):
-        yield Span(Point(0, 0), Point(i, i + 1))
+        # range(n) gives 0 <= i < n <= i64.MAX, so i + 1 fits even for arbitrary n.
+        hi = unchecked:
+            i + 1
+        yield Span(Point(0, 0), Point(i, hi))
 
 def worker(t: Tagged) -> Tagged:
     Tagged(Span(t.span.hi, t.span.lo), t.name)
 
 def width(t: &Tagged) -> i64:
-    t.span.hi.x - t.span.lo.x
+    # Scalar sort_by_key callback: its only callers are sorting tags and the
+    # following print loop. Both use tags built below with 0 <= i < 4,
+    # lo.x = i and hi.x = 10 - i * 3, so width is in -2..10.
+    unchecked:
+        t.span.hi.x - t.span.lo.x
 
-def main() -> Result[(), AllocError | IoError | SpawnError[()] | SendError[Tagged] | RecvError]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()] | SendError[Tagged] | RecvError | OverflowError[i64]]:
     mut tags: list[Tagged] = []?
     for i in range(4):
         tags.append(Tagged(Span(Point(i, 0), Point(10 - i * 3, 5)), ("t" + str.from(i)?)?))?
@@ -160,24 +168,24 @@ def main() -> Result[(), AllocError | IoError | SpawnError[()] | SendError[Tagge
         print(t.name, width(t))?
     mut by_name: dict[str, Span] = {}?
     for s in spans(3):
-        key = str.from(area(&s))?
+        key = str.from(area(&s)?)?
         by_name.insert(key, s)?
     print(len(by_name), by_name["2"], by_name["6"] == Span(Point(0, 0), Point(2, 3)))?
     shapes = [Shape.One(Span(Point(1, 1), Point(3, 4))), Shape.Two(Span(Point(0, 0), Point(5, 5)), 2), Shape.Empty]?
     for shape in &shapes:
         match shape:
             case Shape.One(s):
-                print(area(s))?
+                print(area(s)?)?
             case Shape.Two(s, k):
-                print(area(s) * *k)?
+                print(area(s)? * *k)?
             case Shape.Empty:
                 print("empty")?
     h = Holder[Span](Span(Point(1, 2), Point(3, 4)), 1)
     print(h, str.repr(Some(copy(&h.item)?))?)?
     origin = Point(5, 6)
-    shifted = def [origin](s: &Span) -> i64:
-        s.lo.x + origin.x
-    print(shifted(&h.item))?
+    shifted = def [origin](s: &Span) -> Result[i64, OverflowError[i64]]:
+        Ok(s.lo.x + origin.x)
+    print(shifted(&h.item)?)?
     sender, receiver = channel[Tagged](2)?
     sender.send(Tagged(Span(Point(1, 2), Point(3, 4)), "sent"))?
     got = receiver.recv()?
@@ -214,9 +222,16 @@ def repeated(count: i64) -> Result[str, AllocError]:
         text = (text + "x")?
     Ok(text)
 export def create(count: i64) -> Result[Outer, AllocError] = "calc_create":
-    Ok(Outer(Inner(repeated(count)?, count), count * 10))
+    # Keep the existing C error ABI, deliberately trapping tag overflow.
+    # All C/C++ calls create 4, 3 or 7; Plenty creates 4. Tags are 40, 30, 70.
+    # Keep allocation before multiplication as in the original constructor.
+    unchecked:
+        Ok(Outer(Inner(repeated(count)?, count), count * 10))
 export def length(a: &Outer, b: &Outer) -> i64 = "calc_length":
-    len(a.inner.text) + len(b.inner.text) + a.tag
+    # Intentional scalar C ABI trap policy, not an arbitrary-input safety claim.
+    # C/C++ create(4)/rename(2) and Plenty create(4)/rename(2) give 48 or 44.
+    unchecked:
+        len(a.inner.text) + len(b.inner.text) + a.tag
 export def rename(owner: &mut Outer, count: i64) -> Result[(), AllocError] = "calc_rename":
     owner.inner.text = repeated(count)?
     owner.inner.count = count
@@ -224,10 +239,16 @@ export def rename(owner: &mut Outer, count: i64) -> Result[(), AllocError] = "ca
 export def inner(owner: Outer) -> Result[Inner, AllocError] = "calc_inner":
     Ok(owner.inner)
 export def inner_count(inner: &Inner) -> i64 = "calc_inner_count":
-    inner.count + len(inner.text)
+    # Same scalar ABI policy: all C/C++ and Plenty callers use the renamed
+    # create(4) inner, count=2 and text length=2, giving 4.
+    unchecked:
+        inner.count + len(inner.text)
 export def consume(owner: Outer) -> i64 = "calc_consume":
     inner = owner.inner
-    len(inner.text) + owner.tag
+    # Same scalar ABI policy: only C/C++ create(3) reaches consume (3 + 30).
+    # create(7) is only destroyed; it reaches none of these scalar exports.
+    unchecked:
+        len(inner.text) + owner.tag
 export def identity(owner: Outer) -> Result[Outer, AllocError] = "calc_identity":
     Ok(owner)
 "#;

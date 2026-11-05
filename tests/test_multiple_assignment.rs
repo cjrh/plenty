@@ -8,24 +8,26 @@ use support::assert_visible_stdout as native;
 fn names_unpack_a_tuple_written_without_parentheses() {
     native(
         r#"
-a, b = 1, "one"
-print((a, b)).unwrap()
-mut x, y = 1, 2
-x, y = y, x
-print((x, y)).unwrap()
-x, y = (y, x + y)
-print((x, y)).unwrap()
-mut low: u8 = 1
-mut high: u8 = 2
-low, high = 250, 251
-print((low, high)).unwrap()
-mut left = [1].unwrap()
-mut right = [2, 3].unwrap()
-left, right = right, left
-print(left).unwrap()
-print(right).unwrap()
-_, kept = 1, 2
-print(kept).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    a, b = 1, "one"
+    print((a, b)).unwrap()
+    mut x, y = 1, 2
+    x, y = y, x
+    print((x, y)).unwrap()
+    x, y = (y, x + y)
+    print((x, y)).unwrap()
+    mut low: u8 = 1
+    mut high: u8 = 2
+    low, high = 250, 251
+    print((low, high)).unwrap()
+    mut left = [1].unwrap()
+    mut right = [2, 3].unwrap()
+    left, right = right, left
+    print(left).unwrap()
+    print(right).unwrap()
+    _, kept = 1, 2
+    print(kept).unwrap()
+    Ok(())
 "#,
         "(1, \"one\")\n(2, 1)\n(1, 3)\n(250, 251)\n[2, 3]\n[1]\n2",
     );
@@ -97,18 +99,20 @@ fn targets_are_assigned_from_left_to_right_after_the_right_side() {
 def index(label: str, value: i64) -> i64:
     print(label).unwrap()
     value
-mut items = [0, 0, 0].unwrap()
-mut i = 0
-i, items[i] = 2, 5
-print(i).unwrap()
-print(items).unwrap()
-items[index("first target", 0)], items[index("second target", 1)] = index("first value", 7), index("second value", 8)
-print(items).unwrap()
-items[0], items[0] = 1, 2
-print(items).unwrap()
-for step in range(2):
-    items[step], items[step + 1] = items[step + 1], items[step]
-print(items).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    mut items = [0, 0, 0].unwrap()
+    mut i = 0
+    i, items[i] = 2, 5
+    print(i).unwrap()
+    print(items).unwrap()
+    items[index("first target", 0)], items[index("second target", 1)] = index("first value", 7), index("second value", 8)
+    print(items).unwrap()
+    items[0], items[0] = 1, 2
+    print(items).unwrap()
+    for step in range(2):
+        items[step], items[step + 1] = items[step + 1], items[step]
+    print(items).unwrap()
+    Ok(())
 "#,
         concat!(
             "2\n",
@@ -203,26 +207,29 @@ fn unpacking_a_tuple_reference_borrows_each_field() {
 def show(p: &(i64, str)) -> ():
     n, s = p
     print(*n, s).unwrap()
-def bump(p: &mut (i64, str)) -> ():
+def bump(p: &mut (i64, str)) -> Result[(), OverflowError[i64]]:
     n, _ = p
     *n += 1
+    Ok(())
 def swap(a: &mut i64, b: &mut i64) -> ():
     t = *a
     *a = *b
     *b = t
-mut pair = (5, "five")
-a, b = &pair
-print(*a, b).unwrap()
-c, d = &mut pair
-*c += 1
-print(pair).unwrap()
-show(&pair)
-bump(&mut pair)
-print(pair).unwrap()
-mut both = (1, 2)
-x, y = &mut both
-swap(x, y)
-print(both).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    mut pair = (5, "five")
+    a, b = &pair
+    print(*a, b).unwrap()
+    c, d = &mut pair
+    *c += 1
+    print(pair).unwrap()
+    show(&pair)
+    bump(&mut pair)?
+    print(pair).unwrap()
+    mut both = (1, 2)
+    x, y = &mut both
+    swap(x, y)
+    print(both).unwrap()
+    Ok(())
 "#,
         "5 five\n(6, \"five\")\n6 five\n(7, \"five\")\n(2, 1)",
     );
@@ -279,7 +286,7 @@ const SETUP: &str = "mut items = [1, 2, 3].unwrap()\nmut rows = [[1].unwrap(), [
     "unpacking a tuple reference binds references that cannot be reassigned"
 )]
 #[case(
-    "mut pair = (1, 2)\nx, y = &mut pair\nprint(pair).unwrap()\n*x += 1",
+    "def conflict() -> Result[(), OverflowError[i64]]:\n    mut pair = (1, 2)\n    x, y = &mut pair\n    print(pair).unwrap()\n    *x += 1\n    Ok(())",
     "conflicting borrow"
 )]
 #[case(

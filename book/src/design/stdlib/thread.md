@@ -9,16 +9,16 @@ execution model. Supported target: x86_64 Linux GNU.
 ```plenty
 from std.thread import spawn, SpawnError
 
-def total(values: &list[i64], start: i64, stop: i64) -> i64:
+def total(values: &list[i64], start: i64, stop: i64) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     for i in range(start, stop):
         sum += values[i]
-    sum
+    Ok(sum)
 
-def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()] | OverflowError[i64]]:
     values = [n for n in range(1, 101)]?
     with spawn(total, &values, 0, 50)? as low, spawn(total, &values, 50, 100)? as high:
-        print(low.join() + high.join())?
+        print(low.join()? + high.join()?)?
     Ok(())
 ```
 ```output

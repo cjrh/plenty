@@ -53,7 +53,7 @@ def show(x: f64) -> Result[(), AllocError | IoError]:
 def show32(x: f32) -> Result[(), AllocError | IoError]:
     line32("F", x, fl32(x), ce32(x), tr32(x), ro32(x))
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     values = [0.0, 0.5, 1.5, 2.5, 0.49999999999999994, 1.0, 3.5, 0.7, 4503599627370495.5, 4503599627370496.0, 4503599627370497.0, 4503599627370494.5, 2251799813685247.5, 2251799813685248.5, 9007199254740991.0, 9007199254740992.0, 9007199254740994.0, 8388607.5, 8388608.5, 16777215.0, 1.7976931348623157e308, 5.0e-324, 2.2250738585072014e-308, f64.INF, f64.NAN]?
     for v in values:
         show(v)?

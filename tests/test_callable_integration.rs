@@ -11,7 +11,7 @@ def factory() -> Callable[[u8], u8]:
     small
 class Handler:
     callback: Callable[[u8], u8]
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[u8]]:
     f = small
     callbacks = [small]?
     index = 0
@@ -31,16 +31,16 @@ def main() -> Result[(), AllocError | IoError]:
 fn indirect_calls_evaluate_callee_then_arguments_once() {
     expect(
         r#"
-def add(a: i64, b: i64) -> i64:
-    a + b
-def select() -> Callable[[i64, i64], i64]:
+def add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a + b)
+def select() -> Callable[[i64, i64], Result[i64, OverflowError[i64]]]:
     print("callee").unwrap()
     add
 def argument(n: i64) -> i64:
     print(n).unwrap()
     n
-def main() -> Result[(), IoError]:
-    print(select()(argument(2), argument(3)))?
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(select()(argument(2), argument(3))?)?
     Ok(())
 "#,
         "callee\n2\n3\n5\n",
@@ -52,10 +52,10 @@ def main() -> Result[(), IoError]:
 fn callable_values_and_inline_results_need_no_heap_allocation() {
     expect(
         r#"
-def make() -> Callable[[u64], Result[Option[range[u64]], AllocError]]:
-    def(n: u64) -> Result[Option[range[u64]], AllocError]:
+def make() -> Callable[[u64], Result[Option[range[u64]], AllocError | OverflowError[u64]]]:
+    def(n: u64) -> Result[Option[range[u64]], AllocError | OverflowError[u64]]:
         Ok(Some(range[u64](n, n + 3)))
-def forward(f: Callable[[u64], Result[Option[range[u64]], AllocError]], n: u64) -> Result[Option[range[u64]], AllocError]:
+def forward(f: Callable[[u64], Result[Option[range[u64]], AllocError | OverflowError[u64]]], n: u64) -> Result[Option[range[u64]], AllocError | OverflowError[u64]]:
     f(n)
 def main() -> ():
     print("__test_begin_no_allocations__").unwrap()

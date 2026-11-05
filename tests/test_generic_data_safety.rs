@@ -128,7 +128,7 @@ def read[T, R: Readable[T]](source: &R) -> T:
     source.read()
 def values(cell: Cell[u8]) -> Generator[u8]:
     yield cell.read()
-def main() -> ():
+def main() -> Result[(), IoError | OverflowError[u16]]:
     cell = Cell(7u8)
     print("__test_begin_no_allocations__").unwrap()
     print("__test_fail_allocations_after_0__").unwrap()
@@ -141,7 +141,8 @@ def main() -> ():
         answer = answer + u16(n)
     print("__test_restore_allocations__").unwrap()
     print("__test_end_no_allocations__").unwrap()
-    print(answer).unwrap()
+    print(answer)?
+    Ok(())
 "#);
     assert!(
         output.status.success(),

@@ -4,9 +4,22 @@
 //! through `&mut`, returning an element, and nested and non-scalar rows.
 mod support;
 
+fn assert_visible_stdout(source: &str, expected: &str) {
+    support::assert_visible_stdout(&arithmetic_program(source), expected);
+}
+
+/// Arithmetic in fixture statements propagates from main; helper contracts stay explicit.
+fn arithmetic_program(source: &str) -> String {
+    support::program(source).replacen(
+        "def main() -> ():",
+        "def main() -> Result[(), OverflowError[i64]]:",
+        1,
+    ) + "    Ok(())\n"
+}
+
 #[test]
 fn returned_list_references_are_direct_iteration_sources() {
-    support::assert_visible_stdout(
+    assert_visible_stdout(
         r#"
 class Columns:
     values: list[i64]
@@ -25,7 +38,7 @@ for value in writable(&mut values):
 for value in reversed(column(&values)):
     print(*value).unwrap()
 items = Columns([4, 5].unwrap())
-print(iter(items.column()).fold(0, def(a: i64, b: &i64) -> i64: a + *b)).unwrap()
+print(iter(items.column()).try_fold(0, def(a: i64, b: &i64) -> Result[i64, OverflowError[i64]]: Ok(a + *b))?).unwrap()
 for a, b in zip(column(&values), items.column()):
     print(*a + *b).unwrap()
 for value in column(&make()):
@@ -51,7 +64,7 @@ print(pipeline.count()).unwrap()
         let error = support::check_source(&source).unwrap_err().to_string();
         assert!(error.contains("borrow"), "{error}");
     }
-    support::assert_visible_stdout(
+    assert_visible_stdout(
         r#"
 def column(values: &list[i64]) -> &list[i64]:
     values
@@ -71,41 +84,41 @@ const PROGRAM: &str = r#"class Point:
     x: i64
     y: i64
 
-def sum_i8(values: &list[i8]) -> i64:
+def sum_i8(values: &list[i8]) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     for value in values:
         total += i64(*value)
-    total
+    Ok(total)
 
-def sum_u8(values: &list[u8]) -> i64:
+def sum_u8(values: &list[u8]) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     for value in values:
         total += i64(*value)
-    total
+    Ok(total)
 
-def sum_i16(values: &list[i16]) -> i64:
+def sum_i16(values: &list[i16]) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     for value in reversed(values):
         total += i64(*value)
-    total
+    Ok(total)
 
-def sum_u16(values: &list[u16]) -> i64:
+def sum_u16(values: &list[u16]) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     for value in values:
         total += i64(*value)
-    total
+    Ok(total)
 
-def sum_i32(values: &list[i32]) -> i64:
+def sum_i32(values: &list[i32]) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     for value in values:
         total += i64(*value)
-    total
+    Ok(total)
 
-def sum_u32(values: &list[u32]) -> i64:
+def sum_u32(values: &list[u32]) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     for value in values:
         total += i64(*value)
-    total
+    Ok(total)
 
 def sum_u64(values: &list[u64]) -> u64:
     mut total = 0u64
@@ -125,12 +138,12 @@ def sum_f64(values: &list[f64]) -> f64:
         total += *value
     total
 
-def count_true(flags: &list[bool]) -> i64:
+def count_true(flags: &list[bool]) -> Result[i64, OverflowError[i64]]:
     mut count = 0
     for flag in flags:
         if *flag:
             count += 1
-    count
+    Ok(count)
 
 def find(values: &list[i64], wanted: i64) -> &i64:
     for value in values:
@@ -151,38 +164,38 @@ class Bag:
     xs: list[i64]
     seen: i64
 
-    def tally(self: &mut Bag) -> i64:
+    def tally(self: &mut Bag) -> Result[i64, OverflowError[i64]]:
         mut total = 0
         for x in &self.xs:
             self.seen += 1
             total += *x
-        total
+        Ok(total)
 
-def through(xs: &mut list[i64]) -> i64:
+def through(xs: &mut list[i64]) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     for x in xs:
         *x = *x + 1
     for x in &*xs:
         total += *x
-    total
+    Ok(total)
 
-def generic[T](xs: &list[T]) -> i64:
+def generic[T](xs: &list[T]) -> Result[i64, OverflowError[i64]]:
     mut n = 0
     for x in xs:
         n += 1
-    n
+    Ok(n)
 
-def main() -> Result[(), AllocError | IoError]:
-    print(sum_i8(&[-128i8, 127i8, -1i8, 5i8]?))?
-    print(sum_u8(&[255u8, 1u8, 0u8]?))?
-    print(sum_i16(&[-32768i16, 32767i16, -2i16]?))?
-    print(sum_u16(&[65535u16, 1u16]?))?
-    print(sum_i32(&[-2147483648i32, 2147483647i32, -3i32]?))?
-    print(sum_u32(&[4294967295u32, 1u32]?))?
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    print(sum_i8(&[-128i8, 127i8, -1i8, 5i8]?)?)?
+    print(sum_u8(&[255u8, 1u8, 0u8]?)?)?
+    print(sum_i16(&[-32768i16, 32767i16, -2i16]?)?)?
+    print(sum_u16(&[65535u16, 1u16]?)?)?
+    print(sum_i32(&[-2147483648i32, 2147483647i32, -3i32]?)?)?
+    print(sum_u32(&[4294967295u32, 1u32]?)?)?
     empty: list[u64] = []?
     print(sum_u64(&empty), sum_u64(&[u64.MAX, 1u64, 9u64]?))?
     print(sum_f32(&[1.5f32, -0.25f32]?), sum_f64(&[0.5, 0.25, -2.0]?))?
-    print(count_true(&[True, False, True, True]?))?
+    print(count_true(&[True, False, True, True]?)?)?
 
     mut numbers = [3, -7, 9, 1]?
     print(*find(&numbers, 9), *find(&numbers, 2), first_negative(&numbers))?
@@ -248,10 +261,10 @@ def main() -> Result[(), AllocError | IoError]:
     print(owned_total)?
 
     mut bag = Bag([1, 2, 3]?, 0)
-    print(bag.tally(), bag.seen)?
+    print(bag.tally()?, bag.seen)?
     mut ys = [10, 20]?
-    print(through(&mut ys), ys)?
-    print(generic(&ys), generic(&["a", "b", "c"]?))?
+    print(through(&mut ys)?, ys)?
+    print(generic(&ys)?, generic(&["a", "b", "c"]?)?)?
     print([*x * 2 for x in &ys]?)?
 
     # Growing an inner list does not move the outer list's rows.
@@ -393,7 +406,7 @@ fn borrowed_scalar_iteration_loads_rows_directly() {
 fn borrowed_temporary_lists_live_through_the_loop() {
     support::assert_stdout(
         r#"
-def make(n: i64) -> Result[list[i64], AllocError]:
+def make(n: i64) -> Result[list[i64], AllocError | OverflowError[i64]]:
     mut xs: list[i64] = []?
     for i in range(n):
         xs.append(i * i)?
@@ -402,7 +415,7 @@ def make(n: i64) -> Result[list[i64], AllocError]:
 def words() -> Result[list[str], AllocError]:
     ["x", "yy", "zzz"]
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut total = 0
     for x in &make(5)?:
         total += *x

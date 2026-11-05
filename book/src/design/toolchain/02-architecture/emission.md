@@ -535,7 +535,13 @@ All four adapter tests passed, including native-result verification.
 
 `examples/compile_bench.rs` generates units containing a protocol, class, enum,
 and three functions. It reports median checking time, optionally full AOT/linking,
-and a fourfold-input scaling ratio. `tests/test_compile_scaling.rs` guards against
+and a fourfold-input scaling ratio. Functions and methods independently declare
+precise arithmetic errors, use explicit successful `Ok` returns and propagate
+fallible callees without wrapping each operator. The current template generates
+40,003/160,003 lines for 1000/4000 units; see its
+[functional validation and controlled comparison](../../../completed-work/checked-default-validation.md).
+Historical measurements retain their original source shapes.
+`tests/test_compile_scaling.rs` guards against
 superlinear checking of classes, functions, protocols, enum variants, and
 `match` cases.
 

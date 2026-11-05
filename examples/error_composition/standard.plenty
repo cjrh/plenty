@@ -1,4 +1,4 @@
-# Run with: cargo run -- examples/error_composition/standard.plenty
+# Run with: cargo run --bin plenty -- examples/error_composition/standard.plenty
 import std.bytes
 from std.bytes import Bytes
 from std.io.typed import StepError, CopyFailure, ReadFailure, copy_all
@@ -9,6 +9,7 @@ pub enum TransportError:
 
 pub enum StoreError:
     Full
+    Overflow(OverflowError[i64])
 
 pub class Wire:
     delivered: bool
@@ -25,7 +26,13 @@ pub class Store:
     count: i64
 
     pub def write(self: &mut Store, buffer: &[u8]) -> Result[i64, StepError[StoreError]]:
-        self.count += len(buffer)
+        next = checked:
+            self.count + len(buffer)
+        match next:
+            case Ok(value):
+                self.count = value
+            case Err(error):
+                return Err(StepError[StoreError].Source(StoreError.Overflow(error)))
         Ok(len(buffer))
 
 def main() -> Result[(), AllocError | std.bytes.BytesError | FramingError[TransportError] | IoError]:

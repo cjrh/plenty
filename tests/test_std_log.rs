@@ -1,5 +1,26 @@
 mod support;
-use support::compile_file as compile;
+
+fn compile(dir: &std::path::Path, source: &str) -> std::path::PathBuf {
+    compile_mode(dir, source, false)
+}
+
+fn compile_mode(dir: &std::path::Path, source: &str, optimize: bool) -> std::path::PathBuf {
+    let input = dir.join("main.plenty");
+    let output = dir.join("program");
+    std::fs::write(&input, source).unwrap();
+    plenty::compile_file_to_executable_with_options(
+        &input,
+        &output,
+        None,
+        &plenty::CompileOptions {
+            optimize,
+            test_hooks: cfg!(feature = "runtime-checks"),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    output
+}
 
 fn output(source: &str) -> std::process::Output {
     let directory = tempfile::tempdir().unwrap();
@@ -151,12 +172,24 @@ pub class Flaky:
     calls: i64
     accepted: i64
     pub def write(self: &mut Flaky, source: &[u8]) -> Result[i64, StreamError]:
-        self.calls += 1
+        next = checked:
+            self.calls + 1
+        self.calls = match next:
+            case Ok(value):
+                value
+            case Err(_):
+                return Err(StreamError.OutOfRange)
         if self.calls == 1:
             return Err(StreamError.Interrupted)
         if self.calls >= 6:
             return Err(StreamError.OutOfRange)
-        self.accepted += 1
+        accepted = checked:
+            self.accepted + 1
+        self.accepted = match accepted:
+            case Ok(value):
+                value
+            case Err(_):
+                return Err(StreamError.OutOfRange)
         Ok(1)
     pub def flush(self: &mut Flaky) -> Result[(), StreamError]:
         Ok(())
@@ -238,7 +271,7 @@ def consume(receiver: Receiver[Event]) -> Result[(Drained, TextSink[Cursor]), Al
     mut sink = std.log.text_sink(std.io.cursor(std.bytes.empty()?), 64)?
     report = std.log.drain(&receiver, &mut sink)
     Ok((report, sink))
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[u64] | OverflowError[i64]]:
     (sender, receiver) = channel[Event](8)?
     first = std.log.channel_sink(sender)
     second = first.share()
@@ -358,5 +391,47 @@ fn out_of_domain_sink_sizes_are_compile_errors() {
         );
         let error = support::check_file_error(&source);
         assert!(error.contains(message), "{call}: {error}");
+    }
+}
+
+#[test]
+fn diagnostic_statistics_saturate_without_changing_sink_results() {
+    // The actual module is compiled as the entry module so this boundary probe
+    // can initialize private counters without exposing a public testing API.
+    let source = format!(
+        r#"{}
+class Failing:
+    pub def emit(self: &mut Failing, event: Event) -> Result[(), LogError]:
+        drop(event)
+        Err(LogError.Closed)
+
+def main() -> Result[(), AllocError | IoError | LogError]:
+    print(increment_stat(18446744073709551614u64), increment_stat(u64.MAX))?
+    mut success = logger(memory_sink(2)?, Level.Info, Clock.Off)
+    success._emitted = 18446744073709551614u64
+    success._filtered = u64.MAX
+    success.info("one", []?)?
+    success.info("two", []?)?
+    success.debug("filtered", []?)?
+    print(success.emitted(), success.filtered(), success.failed(), len(success.sink.events))?
+    mut failure = logger(Failing(), Level.Info, Clock.Off)
+    failure._failed = u64.MAX
+    match failure.info("failed", []?):
+        case Err(LogError.Closed):
+            print("closed", failure.failed())?
+        case _:
+            print("wrong result")?
+    Ok(())
+"#,
+        include_str!("../stdlib/std/log.plenty")
+    );
+    for optimize in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = compile_mode(dir.path(), &source, optimize);
+        let result = support::assert_success(std::process::Command::new(exe).output().unwrap());
+        assert_eq!(
+            String::from_utf8(result.stdout).unwrap(),
+            "18446744073709551615 18446744073709551615\n18446744073709551615 18446744073709551615 0 2\nclosed 18446744073709551615\n"
+        );
     }
 }

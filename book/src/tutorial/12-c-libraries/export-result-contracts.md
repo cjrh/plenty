@@ -42,9 +42,9 @@ export def checked(value: i32) -> Result[i32, CalcError] = "calc_checked":
     else:
         Ok(value)
 
-def main() -> Result[(), IoError | CalcError]:
+def main() -> Result[(), AllocError | IoError | CalcError]:
     print(checked(42)?)?
-    print(str.repr(checked(-1)).unwrap())?
+    print(str.repr(checked(-1))?)?
     Ok(())
 ```
 ```output

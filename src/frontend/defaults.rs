@@ -183,9 +183,9 @@ mod tests {
     #[test]
     fn anonymous_function_defaults_check_their_one_expression_body() {
         // The anonymous function's own parameter shadows the outer one.
-        compile("def f(a: i64, g: Callable[[i64], i64] = def(a: i64) -> i64: a + 1) -> i64:\n    g(a)\ndef main() -> ():\n    pass\n", &mut Heap::default()).unwrap();
+        compile("def f(a: i64, g: Callable[[i64], Result[i64, OverflowError[i64]]] = def(a: i64) -> Result[i64, OverflowError[i64]]: Ok(a + 1)) -> Result[i64, OverflowError[i64]]:\n    g(a)\ndef main() -> ():\n    pass\n", &mut Heap::default()).unwrap();
         assert!(diagnostic(
-            "def f(a: i64, g: Callable[[i64], i64] = def(x: i64) -> i64: x + a) -> i64:\n    g(a)\n"
+            "def f(a: i64, g: Callable[[i64], Result[i64, OverflowError[i64]]] = def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x + a)) -> Result[i64, OverflowError[i64]]:\n    g(a)\n"
         )
         .contains("default expressions cannot reference parameter"));
     }

@@ -123,15 +123,25 @@ impl Lower<'_> {
                 .at
                 .error(format!("sort_by_key callback must take &{element}")));
         }
-        let key = sig.output.clone().filter(Ty::is_orderable).ok_or_else(|| {
+        let output = sig.output.clone().ok_or_else(|| {
             args[0]
                 .at
-                .error("sort_by_key callback must return an integer, float, str, or tuple of those")
+                .error("sort_by_key callback must return an ordered key or Result[key, E]")
         })?;
+        let (key, error) = match &output {
+            Ty::Enum(result) if result.is_result() => (
+                result.get().variants[0].fields[0].clone(),
+                Some(result.get().variants[1].fields[0].clone()),
+            ),
+            _ => (output.clone(), None),
+        };
+        if !key.is_orderable() {
+            return Err(args[0].at.error("sort_by_key callback must return an integer, float, str, or tuple of those, optionally in Result[key, E]"));
+        }
         self.plenty_helper("__plenty_key_of", KEY_OF)?;
         let key_of = self.specialize(
             "__plenty_key_of",
-            vec![(*element).clone(), key.clone(), callback],
+            vec![(*element).clone(), output, callback],
             at,
         )?;
         // The runtime sorts the rows and calls back into the generated
@@ -146,7 +156,11 @@ impl Lower<'_> {
                     ("key".into(), callback.clone()),
                     ("descending".into(), Ty::Bool),
                 ],
-                outputs: vec![],
+                outputs: error
+                    .as_ref()
+                    .map(|error| crate::sum::result(Ty::Unit, error.clone()))
+                    .into_iter()
+                    .collect(),
             });
             let sort = crate::collection::KeySort {
                 adapter: format!("{key_of}_order"),
@@ -154,18 +168,9 @@ impl Lower<'_> {
                 list,
                 callback,
                 key,
+                error: error.clone(),
             };
             self.sigs.insert(sort_name.clone(), sig.clone());
-            let error = sort.callback.checked_error().cloned();
-            let native_sig = error.as_ref().map_or_else(
-                || sig.clone(),
-                |error| {
-                    Arc::new(FnSig {
-                        inputs: sig.inputs.clone(),
-                        outputs: vec![crate::sum::result(Ty::Unit, error.clone())],
-                    })
-                },
-            );
             let mut body = vec![
                 Op::LoadLocal(0),
                 Op::LoadLocal(1),
@@ -182,7 +187,7 @@ impl Lower<'_> {
                     location: None,
                     origins: Arc::default(),
                     generator: None,
-                    sig: native_sig,
+                    sig,
                     doc: "".into(),
                     locals: Arc::default(),
                     body: body.into(),

@@ -30,7 +30,7 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "{HEADER}\ndef main() -> Result[(), AllocError | IoError | GraphError]:\n{body}    Ok(())\n"
+        "{HEADER}\ndef main() -> Result[(), AllocError | IoError | GraphError | OverflowError[i64]]:\n{body}    Ok(())\n"
     )
 }
 
@@ -356,7 +356,7 @@ line.add_edge(0, 10, 1.0)?
 line.add_edge(10, 11, 1.0)?
 line.add_edge(2, 7, 2.0)?
 remaining = def(node: NodeId) -> f64:
-    0.0 if node >= 10 else f64(9 - node)
+    0.0 if node >= 10 else 9.0 - f64(node)
 print(line.astar(0, 9, &cost, &remaining)?)?
 "#,
         "Option[tuple[f64, list[i64]]].Some((6.0, [0, 1, 2, 7, 8, 9]))",
@@ -622,5 +622,170 @@ print(total, len(directed.strongly_connected_components()?))?
         let actual = support::run_file_stdout(&source);
         let expected = format!("{expected_distances}\n{tree_total:.1} {}", classes.len());
         assert_eq!(actual, expected, "{source}");
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn algorithm_allocation_sweeps_preserve_graph_and_allow_reuse() {
+    for operation in [
+        "graph.bfs(0)",
+        "graph.dfs(0)",
+        "graph.toposort()",
+        "graph.strongly_connected_components()",
+        "graph.dijkstra(0, &cost)",
+        "graph.astar(0, 2, &cost, &zero)",
+        "graph.bellman_ford(0, &cost)",
+        "forest.connected_components()",
+        "forest.minimum_spanning_tree(&cost)",
+    ] {
+        let receiver = if operation.starts_with("forest.") {
+            "forest"
+        } else {
+            "graph"
+        };
+        let body = format!(
+            r#"
+mut graph = nodes(3)?
+graph.add_edge(0, 1, 1.0)?
+graph.add_edge(1, 2, 2.0)?
+mut forest = points(3)?
+forest.add_edge(0, 1, 1.0)?
+forest.add_edge(1, 2, 2.0)?
+mut failures = 0
+mut successes = 0
+for limit in range(32):
+    marker = ("__test_fail_allocations_after_" + str.from(limit)?)?
+    print((marker + "__")?)?
+    result = {operation}
+    print("__test_restore_allocations__")?
+    match result:
+        case Ok(_):
+            successes += 1
+        case Err(error):
+            print(error)?
+            failures += 1
+print(failures > 0, successes > 0, {receiver}.node_count(), {receiver}.edge_count(), {receiver}.bfs(0)?)?
+drop({receiver}.remove_edge(0))
+print({receiver}.add_edge(0, 2, 3.0)?, {receiver}.bfs(0)?)?
+"#
+        );
+        let output = execute(&body);
+        assert!(
+            output.status.success(),
+            "{operation}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let text = String::from_utf8(output.stdout).unwrap();
+        let lines = text
+            .lines()
+            .filter(|line| !line.starts_with("__test_"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            lines[lines.len() - 2..],
+            [
+                "True True 3 2 [0, 1, 2]",
+                if receiver == "forest" {
+                    "2 [0, 2, 1]"
+                } else {
+                    "2 [0, 2]"
+                }
+            ],
+            "{operation}\n{text}"
+        );
+        let expected_error = if matches!(
+            operation,
+            "graph.bfs(0)"
+                | "graph.dfs(0)"
+                | "graph.strongly_connected_components()"
+                | "forest.connected_components()"
+        ) {
+            "AllocError.OutOfMemory"
+        } else {
+            "std.graph.GraphError.Allocation(AllocError.OutOfMemory)"
+        };
+        assert!(
+            lines[..lines.len() - 2]
+                .iter()
+                .all(|line| *line == expected_error),
+            "{operation}\n{text}"
+        );
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn failed_edge_append_drops_only_incoming_payload_and_keeps_handles() {
+    let source = r#"
+from std.graph import DiGraph
+class Quiet:
+    n: i64
+    def __del__(self) -> ():
+        print("dropped").unwrap()
+
+def main() -> Result[(), AllocError | IoError]:
+    for limit in range(2):
+        mut graph = DiGraph[Quiet, Quiet]()?
+        a = graph.add_node(Quiet(1))?
+        b = graph.add_node(Quiet(2))?
+        marker = ("__test_fail_allocations_after_" + str.from(limit)?)?
+        print((marker + "__")?)?
+        result = graph.add_edge(a, b, Quiet(3))
+        print("__test_restore_allocations__")?
+        match result:
+            case Err(error):
+                print(error, graph.node_count(), graph.edge_count(), graph.successors(a)?)?
+            case Ok(edge):
+                print(edge, graph.edge_count(), graph.successors(a)?)?
+                drop(graph.remove_edge(edge))
+        drop(graph.remove_node(b))
+        c = graph.add_node(Quiet(4))?
+        print(c, graph.node_count(), graph.node_bound(), graph.edge_count())?
+    Ok(())
+"#;
+    for optimize in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("main.plenty");
+        let executable = dir.path().join("program");
+        std::fs::write(&path, source).unwrap();
+        plenty::compile_file_to_executable_with_options(
+            &path,
+            &executable,
+            None,
+            &plenty::CompileOptions {
+                optimize,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let output = std::process::Command::new(executable).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let text = String::from_utf8(output.stdout).unwrap();
+        let lines = text
+            .lines()
+            .filter(|line| !line.starts_with("__test_"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            lines.iter().filter(|line| **line == "dropped").count(),
+            8,
+            "{text}"
+        );
+        let states = lines
+            .into_iter()
+            .filter(|line| *line != "dropped")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            states,
+            [
+                "AllocError.OutOfMemory 2 0 []",
+                "2 2 3 0",
+                "0 1 [1]",
+                "2 2 3 0"
+            ]
+        );
     }
 }

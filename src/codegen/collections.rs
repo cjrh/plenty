@@ -868,11 +868,13 @@ impl Lowerer<'_, '_> {
             let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(sort.list.clone()), true))?;
             let owner = self.reference_word(receiver);
             let checked = sort
-                .callback
-                .checked_error()
+                .error
+                .as_ref()
                 .map(|error| crate::sum::result(Ty::Unit, error.clone()));
-            let environment = if checked.is_some() {
-                let context = self.inline_storage(32);
+            let environment = if let Some(result) = &checked {
+                // Callback word followed by a full caller-owned result slot;
+                // inline errors must outlive each comparator invocation.
+                let context = self.inline_storage(16 + result.slot_bytes());
                 let flags = cranelift_codegen::ir::MemFlagsData::trusted();
                 self.bcx.ins().store(flags, callback, context, 0);
                 let zero = self.bcx.ins().iconst(types::I64, 0);

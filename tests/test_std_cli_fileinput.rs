@@ -19,7 +19,7 @@ from std.cli.fileinput import FileInputError
 from std.io import StreamError
 from std.bytes import BytesError
 
-def descriptors() -> Result[i64, IoError]:
+def descriptors() -> Result[i64, IoError | OverflowError[i64]]:
     mut count = 0
     for entry in fs.entries(fs.read_dir(&paths.from_text("/proc/self/fd")?)?):
         drop(entry?)
@@ -37,7 +37,7 @@ def return_early() -> Result[(), IoError | AllocError | FileInputError]:
         return Ok(())
     Ok(())
 
-def main() -> Result[(), AllocError | IoError | FileInputError | StreamError | BytesError]:
+def main() -> Result[(), AllocError | IoError | FileInputError | StreamError | BytesError | OverflowError[i64]]:
 {body}
     Ok(())
 "#
@@ -350,4 +350,59 @@ fn opening_and_buffering_failpoints_release_owned_descriptors() {
         })
         .collect();
     success(run(&exe, &[], b""), expected.as_bytes());
+}
+
+#[test]
+fn cli_parse_argument_counters_and_boundaries_in_both_modes() {
+    // Exercise the argument parser used by fileinput clients.
+    let source = r#"
+from std.cli import Spec, Kind, parse, CliError
+
+def main() -> Result[(), AllocError | IoError | CliError]:
+    schema = [
+        Spec("--flag", Kind.Flag, False, False, True, ""),
+        Spec("--count", Kind.Integer, False, False, False, ""),
+        Spec("FILE", Kind.Path, True, False, True, "")
+    ]?
+    arguments = [encode_utf8("program")?, encode_utf8("--flag")?, encode_utf8("--count")?, encode_utf8("-9223372036854775808")?, encode_utf8("--flag")?, encode_utf8("--")?, encode_utf8("--flag")?, encode_utf8("last")?]?
+    parsed = parse(&schema, &arguments, 1)?
+    print(len(parsed.entries))?
+    for entry in &parsed.entries:
+        print(entry.spec)?
+    print(str.repr(parse(&schema, &arguments, i64.MIN))?)?
+    print(str.repr(parse(&schema, &arguments, i64.MAX))?)?
+    print(len(parse(&schema, &arguments, len(arguments))?.entries))?
+    missing = [encode_utf8("--count")?]?
+    print(str.repr(parse(&schema, &missing, 0))?)?
+    terminated = [encode_utf8("--")?]?
+    print(len(parse(&schema, &terminated, 0)?.entries))?
+    huge = [encode_utf8("--count")?, encode_utf8("9223372036854775808")?]?
+    print(str.repr(parse(&schema, &huge, 0))?)?
+    Ok(())
+"#;
+    for optimize in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("cli_parse.plenty");
+        let executable = directory.path().join("cli_parse");
+        std::fs::write(&path, source).unwrap();
+        plenty::compile_file_to_executable_with_options(
+            &path,
+            &executable,
+            None,
+            &plenty::CompileOptions {
+                optimize,
+                test_hooks: true,
+                ..Default::default()
+            },
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        let output = Command::new(executable).output().unwrap();
+        assert!(output.status.success(), "{output:?}");
+        assert!(output.stderr.is_empty(), "{output:?}");
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            "5\n0\n1\n0\n2\n2\nResult[std.cli.Parsed, std.cli.CliError].Err(std.cli.CliError.UnexpectedArgument(-9223372036854775808))\nResult[std.cli.Parsed, std.cli.CliError].Err(std.cli.CliError.UnexpectedArgument(9223372036854775807))\n0\nResult[std.cli.Parsed, std.cli.CliError].Err(std.cli.CliError.MissingValue(1))\n0\nResult[std.cli.Parsed, std.cli.CliError].Err(std.cli.CliError.InvalidInteger(1))\n",
+            "optimize={optimize}"
+        );
+    }
 }

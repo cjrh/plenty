@@ -319,6 +319,16 @@ def allocated[T](result: Result[T, AllocError]) -> Result[T, DataFrameError]:
         case Err(error):
             Err(DataFrameError.Allocation(error))
 
+# Extents must fit before allocating offset tables or advancing packed totals.
+def extent_add(left: i64, right: i64) -> Result[i64, DataFrameError]:
+    size = checked:
+        left + right
+    match size:
+        case Ok(value):
+            Ok(value)
+        case Err(_):
+            Err(DataFrameError.Allocation(AllocError.CapacityOverflow))
+
 class BinaryValues:
     raw: RawBinaryValues
     def __init__(self) -> ():
@@ -330,7 +340,7 @@ class BinaryValues:
         mut count = 0
         checked(binary_values_meta(self.raw, &mut rows, &mut count))?
         mut data = allocated([0u8 for _ in range(count)])?
-        mut offsets = allocated([0 for _ in range(rows + 1)])?
+        mut offsets = allocated([0 for _ in range(extent_add(rows, 1)?)])?
         mut valid = allocated([0u8 for _ in range(rows)])?
         checked(binary_values_copy(self.raw, &mut data, &mut offsets, &mut valid))?
         packed = allocated(buffers.from_list(data))?
@@ -339,7 +349,10 @@ class BinaryValues:
             if valid[i] == 0u8:
                 allocated(result.append(Nothing))?
             else:
-                value = allocated(packed.slice(offsets[i], offsets[i + 1]))?
+                # 0 <= i < rows <= i64.MAX, so i + 1 <= rows.
+                next = unchecked:
+                    i + 1
+                value = allocated(packed.slice(offsets[i], offsets[next]))?
                 allocated(result.append(Some(value)))?
         Ok(result)
 
@@ -410,7 +423,7 @@ class Strings:
         mut count = 0
         checked(strings_meta(self.raw, &mut rows, &mut count))?
         mut bytes = allocated([0u8 for _ in range(count)])?
-        mut offsets = allocated([0 for _ in range(rows + 1)])?
+        mut offsets = allocated([0 for _ in range(extent_add(rows, 1)?)])?
         mut valid = allocated([0u8 for _ in range(rows)])?
         checked(strings_copy(self.raw, &mut bytes, &mut offsets, &mut valid))?
         mut out = allocated(list[Option[str]]())?
@@ -419,7 +432,10 @@ class Strings:
                 allocated(out.append(Nothing))?
             else:
                 # Byte ranges, not str.slice's Unicode-scalar offsets.
-                part = allocated(bytes.slice(offsets[i], offsets[i + 1]))?
+                # 0 <= i < rows <= i64.MAX, so i + 1 <= rows.
+                next = unchecked:
+                    i + 1
+                part = allocated(bytes.slice(offsets[i], offsets[next]))?
                 value = match decode_utf8(part):
                     case Ok(text):
                         text
@@ -446,7 +462,10 @@ def fields(strings: &Strings) -> Result[list[Field], DataFrameError]:
     mut out = allocated(list[Field]())?
     for i in range(0, len(entries), 2):
         name = entries[i].unwrap()
-        native = entries[i + 1].unwrap()
+        # Native schema entries are name/type pairs; the last i is len - 2.
+        next = unchecked:
+            i + 1
+        native = entries[next].unwrap()
         dtype = match native:
             case "Int8":
                 DType.I8
@@ -489,7 +508,7 @@ def string_offsets(values: &list[str]) -> Result[list[i64], DataFrameError]:
     mut offsets = allocated([0])?
     mut total = 0
     for value in values:
-        total += value.byte_len()
+        total = extent_add(total, value.byte_len())?
         allocated(offsets.append(total))?
     Ok(offsets)
 
@@ -510,7 +529,7 @@ pub class Column:
     pub def list_parts(self) -> Result[ListParts, DataFrameError]:
         count = self.len()?
         mut values = Column()
-        mut offsets = allocated([0 for _ in range(count + 1)])?
+        mut offsets = allocated([0 for _ in range(extent_add(count, 1)?)])?
         mut valid = allocated([0u8 for _ in range(count)])?
         checked(list_parts_raw(self.raw, &mut values.raw, &mut offsets, &mut valid))?
         present = allocated([*v != 0u8 for v in &valid])?
@@ -1069,7 +1088,11 @@ def expression_list(expressions: &list[Expr]) -> Result[Exprs, DataFrameError]:
     Ok(out)
 
 pub def column_list(name: &str, values: &Column, offsets: &list[i64]) -> Result[Column, DataFrameError]:
-    valid = allocated([True for _ in range(len(offsets) - 1)])?
+    # List lengths are nonnegative; an empty offsets list yields -1 (no flags).
+    # Keep validation of empty/malformed offsets in the native constructor.
+    count = unchecked:
+        len(offsets) - 1
+    valid = allocated([True for _ in range(count)])?
     column_list_nullable(name, values, offsets, valid)
 
 pub def column_list_nullable(name: &str, values: &Column, offsets: &list[i64], valid: &list[bool]) -> Result[Column, DataFrameError]:

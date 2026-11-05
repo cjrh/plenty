@@ -434,14 +434,15 @@ fn artifacts_are_reproducible_across_processes_and_paths() {
     }
     // Functions are checked and compiled in parallel, so a chain of them
     // gives every worker some.
-    let mut helper = String::from("pub def shift(x: i64) -> i64:\n    step_0(x)\n");
+    let mut helper =
+        String::from("pub def shift(x: i64) -> Result[i64, OverflowError[i64]]:\n    step_0(x)\n");
     for step in 0..63 {
         helper.push_str(&format!(
-            "def step_{step}(x: i64) -> i64:\n    step_{}(x + {step})\n",
+            "def step_{step}(x: i64) -> Result[i64, OverflowError[i64]]:\n    step_{}(x + {step})\n",
             step + 1
         ));
     }
-    helper.push_str("def step_63(x: i64) -> i64:\n    x * 9\n");
+    helper.push_str("def step_63(x: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(x * 9)\n");
     let temp = tempfile::tempdir().unwrap();
     let mut snapshots = Vec::new();
     for index in 0..3 {
@@ -455,7 +456,7 @@ fn artifacts_are_reproducible_across_processes_and_paths() {
         let source = dir.join("source.plenty");
         std::fs::write(
             &source,
-            "import helper\nexport def answer(x: i64) -> i64 = \"fixture_answer\":\n    helper.shift(x)\ndef main() -> i32:\n    i32(answer(4))\n",
+            "import helper\nexport def answer(x: i64) -> i64 = \"fixture_answer\":\n    # Sole scalar ABI fixture invocation: x=4, plus 0..62 gives 1957; times 9 is 17613.\n    helper.shift(x).unwrap()\ndef main() -> i32:\n    i32(answer(4))\n",
         ).unwrap();
         std::fs::write(dir.join("helper.plenty"), &helper).unwrap();
         let modified = match index {
@@ -561,7 +562,7 @@ fn outputs_are_stripped_unless_no_strip_is_given() {
     let source = temp.path().join("main.plenty");
     std::fs::write(
         &source,
-        "export def answer(x: i64) -> i64 = \"fixture_answer\":\n    x + 1\n\ndef main() -> Result[(), AllocError | IoError]:\n    big: i8 = 127\n    print(big + 1i8)?\n    Ok(())\n",
+        "export def answer(x: i64) -> i64 = \"fixture_answer\":\n    # Deliberate trap code retained in both stripped and unstripped libraries.\n    unchecked:\n        x + 1\n\ndef main() -> Result[(), AllocError | IoError]:\n    big: i8 = 127\n    # Test source-location tables for an intentional overflow after stripping.\n    unchecked:\n        print(big + 1i8)?\n    Ok(())\n",
     )
     .unwrap();
     let build = |args: &[&str], output: &str| {
@@ -586,7 +587,7 @@ fn outputs_are_stripped_unless_no_strip_is_given() {
         assert_eq!(output.status.code(), Some(1), "{args:?}");
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(
-            stderr.contains("6:11: integer overflow"),
+            stderr.contains("10:15: integer overflow"),
             "{args:?}: {stderr}"
         );
     }

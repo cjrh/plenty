@@ -72,13 +72,13 @@ fn ownership_subphases_are_measured_once_per_function_not_per_recursive_visit() 
 def read(value: &i64) -> i64:
     *value
 
-def main() -> i32:
+def main() -> Result[i32, OverflowError[i64]]:
     mut value = 1
     while value < 3:
         view = &value
         observed = read(view)
         value = observed + 1
-    0i32
+    Ok(0i32)
 ",
     );
     let report: serde_json::Value = serde_json::from_str(

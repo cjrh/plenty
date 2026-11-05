@@ -2,6 +2,15 @@ mod support;
 use rstest::rstest;
 use std::process::Command;
 
+/// Arithmetic in fixture statements propagates from main; helper contracts stay explicit.
+fn arithmetic_program(source: &str) -> String {
+    support::program(source).replacen(
+        "def main() -> ():",
+        "def main() -> Result[(), OverflowError[i64]]:",
+        1,
+    ) + "    Ok(())\n"
+}
+
 #[rstest]
 #[case(
     "mut a = [1, 2].unwrap()\nmut b = copy(a).unwrap()\nb.append(3).unwrap()\nprint(a).unwrap()\nprint(b).unwrap()",
@@ -56,7 +65,7 @@ use std::process::Command;
     "[7, 1, 2]\n"
 )]
 #[case(
-    "def count(xs: &list[i64]) -> i64:\n    mut n = 0\n    for x in xs:\n        n = n + x\n    n\na = [1, 2, 3].unwrap()\nprint(count(&a)).unwrap()\nprint(a).unwrap()",
+    "def count(xs: &list[i64]) -> Result[i64, OverflowError[i64]]:\n    mut n = 0\n    for x in xs:\n        n = n + x\n    Ok(n)\na = [1, 2, 3].unwrap()\nprint(count(&a)?).unwrap()\nprint(a).unwrap()",
     "6\n[1, 2, 3]\n"
 )]
 #[case(
@@ -99,7 +108,7 @@ use std::process::Command;
 fn native(#[case] source: &str, #[case] expected: &str) {
     let temp = tempfile::tempdir().unwrap();
     let executable = temp.path().join("program");
-    support::compile_source_to_executable(source, &executable)
+    support::compile_source_to_executable(&arithmetic_program(source), &executable)
         .unwrap_or_else(|e| panic!("{source}\n{e}"));
     let output = Command::new(executable).output().unwrap();
     assert!(
@@ -191,7 +200,7 @@ fn diagnostics(#[case] source: &str, #[case] expected: &str) {
     );
 }
 
-const POINT: &str = "class Point:\n    x: i64\n    y: i64\n    def shift(self: &mut Point, amount: i64) -> ():\n        self.x = self.x + amount\n\n";
+const POINT: &str = "class Point:\n    x: i64\n    y: i64\n    def shift(self: &mut Point, amount: i64) -> Result[(), OverflowError[i64]]:\n        self.x = self.x + amount\n        Ok(())\n\n";
 const TOTAL: &str = "def total(v: list[i64]) -> i64:\n    len(v)\n\n";
 
 /// Each program is complete, so every line and column below is the one a
@@ -260,9 +269,9 @@ const TOTAL: &str = "def total(v: list[i64]) -> i64:\n    len(v)\n\n";
 #[case::same_field(
     POINT,
     "    mut p = Point(1, 2)\n    r = &mut p.x\n    s = &p.x\n    print(r)?\n    print(s)?\n",
-    "10:10: conflicting borrow: cannot read or borrow `p.x` while it is exclusively borrowed
-  9:14: note: the exclusive borrow of `p.x` starts here
-  11:11: note: the borrow is used again here"
+    "11:10: conflicting borrow: cannot read or borrow `p.x` while it is exclusively borrowed
+  10:14: note: the exclusive borrow of `p.x` starts here
+  12:11: note: the borrow is used again here"
 )]
 #[case::overlapping_fields(
     "class Point:\n    x: i64\n    y: i64\n\nclass Outer:\n    point: Point\n    tag: i64\n\n",
@@ -281,10 +290,10 @@ const TOTAL: &str = "def total(v: list[i64]) -> i64:\n    len(v)\n\n";
 // A reborrow names both the owner it reaches and the reference written here.
 #[case::field_reborrow(
     POINT,
-    "    mut p = Point(1, 2)\n    r = &mut p\n    s = &mut r.x\n    r.shift(1)\n    print(s)?\n",
-    "11:5: conflicting borrow: cannot modify or exclusively borrow `p` (through `r`) while `p.x` is exclusively borrowed
-  10:14: note: the exclusive borrow of `p.x` starts here
-  12:11: note: the borrow is used again here"
+    "    mut p = Point(1, 2)\n    r = &mut p\n    s = &mut r.x\n    r.shift(1)?\n    print(s)?\n",
+    "12:5: conflicting borrow: cannot modify or exclusively borrow `p` (through `r`) while `p.x` is exclusively borrowed
+  11:14: note: the exclusive borrow of `p.x` starts here
+  13:11: note: the borrow is used again here"
 )]
 #[case::shared_reborrow(
     "",
@@ -295,10 +304,10 @@ const TOTAL: &str = "def total(v: list[i64]) -> i64:\n    len(v)\n\n";
 )]
 #[case::chained_reborrow(
     POINT,
-    "    mut p = Point(1, 2)\n    r = &mut p\n    alias = &mut r\n    s = &mut alias.x\n    alias.shift(1)\n    print(s)?\n",
-    "12:5: conflicting borrow: cannot modify or exclusively borrow `p` (through `alias`) while `p.x` is exclusively borrowed
-  11:14: note: the exclusive borrow of `p.x` starts here
-  13:11: note: the borrow is used again here"
+    "    mut p = Point(1, 2)\n    r = &mut p\n    alias = &mut r\n    s = &mut alias.x\n    alias.shift(1)?\n    print(s)?\n",
+    "13:5: conflicting borrow: cannot modify or exclusively borrow `p` (through `alias`) while `p.x` is exclusively borrowed
+  12:14: note: the exclusive borrow of `p.x` starts here
+  14:11: note: the borrow is used again here"
 )]
 #[case::scalar_reference_read(
     "",
@@ -317,10 +326,10 @@ const TOTAL: &str = "def total(v: list[i64]) -> i64:\n    len(v)\n\n";
 )]
 #[case::exclusive_capture(
     "",
-    "    mut count = 0\n    mut change = def [&mut count]() -> ():\n        count = count + 1\n    print(count)?\n    change()\n",
-    "5:11: conflicting borrow: cannot read `count` while it is exclusively borrowed
+    "    mut count = 0\n    mut change = def [&mut count]() -> Result[(), OverflowError[i64]]:\n        count = count + 1\n        Ok(())\n    print(count)?\n    change()?\n",
+    "6:11: conflicting borrow: cannot read `count` while it is exclusively borrowed
   3:18: note: the exclusive borrow of `count` starts here
-  6:5: note: the borrow is used again here"
+  7:5: note: the borrow is used again here"
 )]
 #[case::shared_capture_moved_with_closure(
     "",
@@ -368,8 +377,9 @@ const TOTAL: &str = "def total(v: list[i64]) -> i64:\n    len(v)\n\n";
     "7:21: `nums` is moved in a loop, so the next iteration would use a moved value; reinitialize it before continuing"
 )]
 fn located_diagnostics(#[case] items: &str, #[case] body: &str, #[case] expected: &str) {
-    let source =
-        format!("{items}def main() -> Result[(), AllocError | IoError]:\n{body}    Ok(())\n");
+    let source = format!(
+        "{items}def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:\n{body}    Ok(())\n"
+    );
     let error = support::check_source(&source).unwrap_err().to_string();
     assert_eq!(error, expected, "{source}");
 }
@@ -402,7 +412,7 @@ fn yield_diagnostic_names_the_borrow_and_its_later_use() {
 )]
 #[case::reborrow_ends_before_parent_use(
     POINT,
-    "    mut p = Point(1, 2)\n    r = &mut p\n    s = &mut r.x\n    *s = 4\n    r.shift(1)\n    print(p.x)?\n"
+    "    mut p = Point(1, 2)\n    r = &mut p\n    s = &mut r.x\n    *s = 4\n    r.shift(1)?\n    print(p.x)?\n"
 )]
 #[case::fresh_borrow_each_iteration(
     "",
@@ -410,15 +420,16 @@ fn yield_diagnostic_names_the_borrow_and_its_later_use() {
 )]
 #[case::capture_after_last_call(
     "",
-    "    mut count = 0\n    mut change = def [&mut count]() -> ():\n        count = count + 1\n    change()\n    print(count)?\n"
+    "    mut count = 0\n    mut change = def [&mut count]() -> Result[(), OverflowError[i64]]:\n        count = count + 1\n        Ok(())\n    change()?\n    print(count)?\n"
 )]
 #[case::move_on_one_branch_then_reassign(
     TOTAL,
     "    mut nums = [1, 2]?\n    if len(nums) > 1:\n        print(total(nums))?\n        nums = [3]?\n    print(len(nums))?\n"
 )]
 fn diagnostics_metadata_does_not_extend_borrows(#[case] items: &str, #[case] body: &str) {
-    let source =
-        format!("{items}def main() -> Result[(), AllocError | IoError]:\n{body}    Ok(())\n");
+    let source = format!(
+        "{items}def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:\n{body}    Ok(())\n"
+    );
     if let Err(error) = support::check_source(&source) {
         panic!("{source}\n{error}");
     }

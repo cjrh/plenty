@@ -838,3 +838,80 @@ def main() -> Result[(), AllocError | IoError | SpawnError[()] | std.bytes.Bytes
     );
     assert_eq!(output(&source), "True\nTrue True");
 }
+
+#[test]
+fn der_cursors_and_rsa_widths_reject_representation_limits_without_allocation() {
+    let library = include_str!("../stdlib/std/crypto.plenty");
+    let helpers = ["der_at", "rsa_size"].map(|name| {
+        library[library.find(&format!("def {name}(")).unwrap()..]
+            .split("\n\n")
+            .next()
+            .unwrap()
+    });
+    let source = format!(
+        r#"import std.bytes
+
+enum AdvancedError:
+    InvalidKey
+    WeakKey
+
+@copy
+class Der:
+    start: i64
+    stop: i64
+
+{}
+
+{}
+
+def main() -> Result[(), IoError]:
+    print("__test_begin_no_allocations__")?
+    negative = der_at(b"\x30\x00", i64.MIN, 2, 48u8).is_err()
+    huge_start = der_at(b"\x30\x00", i64.MAX, 2, 48u8).is_err()
+    huge_limit = der_at(b"\x30\x00", 0, i64.MAX, 48u8).is_err()
+    reversed = der_at(b"\x30\x00", 1, 0, 48u8).is_err()
+    empty = der_at(b"\x30\x00", 0, 2, 48u8).unwrap()
+    long_length = der_at(b"\x30\x83\xff\xff\xff", 0, 5, 48u8).is_err()
+    truncated = der_at(b"\x30\x82\x01", 0, 3, 48u8).is_err()
+    indefinite = der_at(b"\x30\x80", 0, 2, 48u8).is_err()
+    nonminimal = der_at(b"\x30\x81\x01\x00", 0, 4, 48u8).is_err()
+    huge_modulus = rsa_size(b"\x01", Der(0, i64.MAX), b"\x03", Der(0, 1)).is_err()
+    oversized = rsa_size(b"\x01", Der(0, 1025), b"\x03", Der(0, 1)).is_err()
+    huge_exponent = rsa_size(b"\x01", Der(0, 1), b"\x03", Der(0, i64.MAX)).is_err()
+    print("__test_end_no_allocations__")?
+    print(negative, huge_start, huge_limit, reversed, empty.start == 2 and empty.stop == 2)?
+    print(long_length, truncated, indefinite, nonminimal)?
+    print(huge_modulus, oversized, huge_exponent)?
+    Ok(())
+"#,
+        helpers[0], helpers[1]
+    );
+    for optimize in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("main.plenty");
+        let executable = dir.path().join("program");
+        std::fs::write(&path, &source).unwrap();
+        let options = plenty::CompileOptions {
+            optimize,
+            test_hooks: true,
+            ..Default::default()
+        };
+        plenty::compile_file_to_executable_with_options(&path, &executable, None, &options)
+            .unwrap_or_else(|error| panic!("{source}\n{error}"));
+        let output = std::process::Command::new(executable).output().unwrap();
+        assert!(
+            output.status.success(),
+            "optimize={optimize}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let actual = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter(|line| !line.starts_with("__test_"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(
+            actual, "True True True True True\nTrue True True True\nTrue True True",
+            "optimize={optimize}"
+        );
+    }
+}

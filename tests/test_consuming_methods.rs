@@ -7,12 +7,12 @@ class State:
     id: i64
     def advance(self: State) -> State:
         self
-    def finish(self: State, extra: i64 = 0) -> i64:
-        self.id + extra
+    def finish(self: State, extra: i64 = 0) -> Result[i64, OverflowError[i64]]:
+        Ok(self.id + extra)
     def give[T](self: State, value: T) -> T:
         value
-    def combine(self: State, a: i64 = 1, b: i64 = 2) -> i64:
-        self.id + a + b
+    def combine(self: State, a: i64 = 1, b: i64 = 2) -> Result[i64, OverflowError[i64]]:
+        Ok(self.id + a + b)
     def __del__(self) -> ():
         print("drop", self.id).unwrap()
 "#;
@@ -22,20 +22,22 @@ fn owned_receivers_transfer_cleanup_for_locals_temporaries_and_chains() {
     runs(
         &format!(
             r#"{STATE}
-first = State(1)
-second = first.advance()
-print(second.finish(extra=10)).unwrap()
-print(State(2).advance().finish()).unwrap()
-print(State(3).give("generic")).unwrap()
-print(State(4).give[i64](value=42)).unwrap()
 def argument(n: i64) -> i64:
     print("arg", n).unwrap()
     n
-print(State(5).combine(b=argument(4), a=argument(3))).unwrap()
-mut looped = State(6)
-for i in range(2):
-    looped = looped.advance()
-drop(looped)
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    first = State(1)
+    second = first.advance()
+    print(second.finish(extra=10)?)?
+    print(State(2).advance().finish()?)?
+    print(State(3).give("generic"))?
+    print(State(4).give[i64](value=42))?
+    print(State(5).combine(b=argument(4), a=argument(3))?)?
+    mut looped = State(6)
+    for i in range(2):
+        looped = looped.advance()
+    drop(looped)
+    Ok(())
 "#
         ),
         "drop 1\n11\ndrop 2\n2\ndrop 3\ngeneric\ndrop 4\n42\narg 4\narg 3\ndrop 5\n12\ndrop 6\n",
@@ -96,8 +98,8 @@ fn failures_clean_pending_owned_receivers_and_returned_retry_owners() {
             r#"{STATE}
 def fail() -> Result[i64, i64]:
     Err(7)
-def later_argument() -> Result[(), i64]:
-    drop(State(1).finish(extra=fail()?))
+def later_argument() -> Result[(), i64 | OverflowError[i64]]:
+    drop(State(1).finish(extra=fail()?)?)
     Ok(())
 def later_generic_argument() -> Result[(), i64]:
     drop(State(2).give(fail()?))
@@ -109,14 +111,16 @@ class Draft:
             return Err(self)
         mut owned = self
         Ok(replace(owned.state, Nothing).unwrap())
-drop(later_argument())
-drop(later_generic_argument())
-draft = Draft(Some(State(3)))
-match draft.prepare(False):
-    case Ok(state):
-        drop(state)
-    case Err(retry):
-        print(retry.prepare(True).unwrap().finish()).unwrap()
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    drop(later_argument())
+    drop(later_generic_argument())
+    draft = Draft(Some(State(3)))
+    match draft.prepare(False):
+        case Ok(state):
+            drop(state)
+        case Err(retry):
+            print(retry.prepare(True).unwrap().finish()?)?
+    Ok(())
 "#
         ),
         "drop 1\ndrop 2\ndrop 3\n3\n",
@@ -129,19 +133,21 @@ fn owned_receiver_can_move_into_mutable_local_and_generator_frame() {
         r#"
 class State:
     id: i64
-    def bump(self: State) -> State:
+    def bump(self: State) -> Result[State, OverflowError[i64]]:
         mut owned = self
         owned.id += 1
-        owned
+        Ok(owned)
     def values(self: State) -> Generator[i64]:
         yield self.id
     def __del__(self) -> ():
         print("drop", self.id).unwrap()
-state = State(1).bump()
-for value in state.values():
-    print(value).unwrap()
-unused = State(3).values()
-drop(unused)
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    state = State(1).bump()?
+    for value in state.values():
+        print(value)?
+    unused = State(3).values()
+    drop(unused)
+    Ok(())
 "#,
         "2\ndrop 2\ndrop 3\n",
     );
@@ -257,11 +263,13 @@ class Holder:
     state: State
     def take(self: Holder) -> State:
         self.state
-h = Holder(State(1))
-drop(h.take())
-g = Holder(State(2))
-print(g.state.finish()).unwrap()
-print("end").unwrap()
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    h = Holder(State(1))
+    drop(h.take())
+    g = Holder(State(2))
+    print(g.state.finish()?)?
+    print("end")?
+    Ok(())
 "#
         ),
         // `finish` consumes the moved field, so it drops before its result prints.

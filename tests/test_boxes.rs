@@ -9,22 +9,25 @@ fn boxes_move_borrow_and_reach_through_to_their_content() {
 class Point:
     x: i64
     y: i64
-    def sum(self) -> i64:
-        self.x + self.y
+    def sum(self) -> Result[i64, OverflowError[i64]]:
+        Ok(self.x + self.y)
 def read(point: &Point) -> i64:
     point.x
-def bump(point: &mut Point) -> ():
+def bump(point: &mut Point) -> Result[(), OverflowError[i64]]:
     point.x = point.x + 1
-mut b = Box(Point(1, 2)).unwrap()
-print(b.x).unwrap()
-print(b.sum()).unwrap()
-b.y = 5
-bump(&mut b)
-print(read(&b)).unwrap()
-borrowed = &*b
-print(borrowed.y).unwrap()
-point = *b
-print(point).unwrap()
+    Ok(())
+def main() -> Result[(), OverflowError[i64]]:
+    mut b = Box(Point(1, 2)).unwrap()
+    print(b.x).unwrap()
+    print(b.sum()?).unwrap()
+    b.y = 5
+    bump(&mut b)?
+    print(read(&b)).unwrap()
+    borrowed = &*b
+    print(borrowed.y).unwrap()
+    point = *b
+    print(point).unwrap()
+    Ok(())
 "#,
         "1\n3\n2\n5\nPoint(x=2, y=5)\n",
     );
@@ -41,8 +44,8 @@ class Holder:
     point: Point
     def set(self: &mut Holder, point: Point) -> ():
         self.point = point
-def sum(point: Point) -> i64:
-    point.x + point.y
+def sum(point: Point) -> Result[i64, OverflowError[i64]]:
+    Ok(point.x + point.y)
 def tail(b: Box[Point]) -> Point:
     b
 def early(b: Box[Point]) -> Point:
@@ -51,28 +54,30 @@ def wrapped(b: Box[Point]) -> Option[Point]:
     Some(b)
 def boxed(x: i64) -> Box[Point]:
     Box(Point(x, x)).unwrap()
-print(sum(boxed(1))).unwrap()
-print(tail(boxed(2))).unwrap()
-print(early(boxed(3))).unwrap()
-print(wrapped(boxed(4))).unwrap()
-annotated: Point = boxed(5)
-print(annotated).unwrap()
-mut holder = Holder(boxed(6))
-print(holder.point).unwrap()
-holder.point = boxed(7)
-print(holder.point).unwrap()
-holder.set(boxed(8))
-print(holder.point).unwrap()
-mut points: list[Point] = [boxed(9)].unwrap()
-points.append(boxed(10)).unwrap()
-points[0] = boxed(11)
-print(points).unwrap()
-pair: (Point, i64) = (boxed(12), 1)
-print(pair).unwrap()
-print(sum(Box(boxed(13)).unwrap())).unwrap()
-kept: Box[Point] = boxed(14)
-moved = kept
-print(moved).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    print(sum(boxed(1))?).unwrap()
+    print(tail(boxed(2))).unwrap()
+    print(early(boxed(3))).unwrap()
+    print(wrapped(boxed(4))).unwrap()
+    annotated: Point = boxed(5)
+    print(annotated).unwrap()
+    mut holder = Holder(boxed(6))
+    print(holder.point).unwrap()
+    holder.point = boxed(7)
+    print(holder.point).unwrap()
+    holder.set(boxed(8))
+    print(holder.point).unwrap()
+    mut points: list[Point] = [boxed(9)].unwrap()
+    points.append(boxed(10)).unwrap()
+    points[0] = boxed(11)
+    print(points).unwrap()
+    pair: (Point, i64) = (boxed(12), 1)
+    print(pair).unwrap()
+    print(sum(Box(boxed(13)).unwrap())?).unwrap()
+    kept: Box[Point] = boxed(14)
+    moved = kept
+    print(moved).unwrap()
+    Ok(())
 "#,
         "2
 Point(x=2, y=2)
@@ -125,24 +130,26 @@ fn matching_a_box_matches_its_content() {
 enum Shape:
     Circle(i64)
     Rect(i64, i64)
-def area(shape: &Shape) -> i64:
+def area(shape: &Shape) -> Result[i64, OverflowError[i64]]:
     match shape:
         case Shape.Circle(r):
-            3 * *r * *r
+            Ok(3 * *r * *r)
         case Shape.Rect(w, h):
-            *w * *h
-boxed = Box(Shape.Rect(2, 3)).unwrap()
-print(area(&boxed)).unwrap()
-match &boxed:
-    case Shape.Rect(w, _):
-        print(*w).unwrap()
-    case Shape.Circle(_):
-        pass
-match boxed:
-    case Shape.Rect(w, h):
-        print(w + h).unwrap()
-    case Shape.Circle(_):
-        pass
+            Ok(*w * *h)
+def main() -> Result[(), OverflowError[i64]]:
+    boxed = Box(Shape.Rect(2, 3)).unwrap()
+    print(area(&boxed)?).unwrap()
+    match &boxed:
+        case Shape.Rect(w, _):
+            print(*w).unwrap()
+        case Shape.Circle(_):
+            pass
+    match boxed:
+        case Shape.Rect(w, h):
+            print(w + h).unwrap()
+        case Shape.Circle(_):
+            pass
+    Ok(())
 "#,
         "6\n2\n5\n",
     );

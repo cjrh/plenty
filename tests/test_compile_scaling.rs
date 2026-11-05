@@ -98,14 +98,16 @@ fn assert_linear_checks(shape: &str, prepare: impl Fn(usize) -> Check) {
 #[test]
 fn checking_classes_is_linear() {
     assert_linear("classes", |i| {
-        format!("class Point{i}:\n    x: i64\n    def get(self) -> i64:\n        self.x + {i}\n\n")
+        format!(
+            "class Point{i}:\n    x: i64\n    def get(self) -> Result[i64, OverflowError[i64]]:\n        Ok(self.x + {i})\n\n"
+        )
     });
 }
 
 #[test]
 fn checking_functions_is_linear() {
     assert_linear("functions", |i| {
-        format!("def work{i}(x: i64) -> i64:\n    x + {i}\n\n")
+        format!("def work{i}(x: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(x + {i})\n\n")
     });
 }
 
@@ -120,7 +122,7 @@ fn checking_functions_with_imports_is_linear() {
             String::from("import std.json\nimport std.math\nimport std.collections\n\n");
         for i in 0..units {
             source.push_str(&format!(
-                "def work{i}(x: i64) -> i64:\n    if x > 0:\n        return work{i}(x - 1)\n    x + {i}\n\n"
+                "def work{i}(x: i64) -> Result[i64, OverflowError[i64]]:\n    if x > 0:\n        return work{i}(x - 1)\n    Ok(x + {i})\n\n"
             ));
         }
         source.push_str("def main() -> ():\n    pass\n");
@@ -160,12 +162,14 @@ fn checking_enum_variants_is_linear() {
 #[test]
 fn checking_variant_constructions_is_linear() {
     assert_linear_sources("variant constructions", |variants| {
-        let mut uses = String::from("def tag(k: Kind) -> i64:\n    0\ndef total() -> i64:\n");
+        let mut uses = String::from(
+            "def tag(k: Kind) -> i64:\n    0\ndef total() -> Result[i64, OverflowError[i64]]:\n",
+        );
         uses.push_str("    mut t = 0\n");
         for i in 0..variants * 2 {
             uses.push_str(&format!("    t = t + tag(Kind.V{i})\n"));
         }
-        uses.push_str("    t\n");
+        uses.push_str("    Ok(t)\n");
         kinds(variants * 2, &uses)
     });
 }

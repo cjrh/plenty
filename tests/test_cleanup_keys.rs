@@ -14,26 +14,28 @@ fn cleanup_keys_borrow_replace_and_remove() {
     native(
         &format!(
             r#"{KEY}
-mut data = {{Key(1): 10}}.unwrap()
-probe = Key(1)
-print(probe in data, data.get(&probe).unwrap()).unwrap()
-data.insert(Key(1), 20).unwrap()
-print(data[&probe]).unwrap()
-match data.get_mut(&probe):
-    case Some(value):
-        *value += 1
-    case Nothing:
-        pass
-for key, value in data.items():
-    print(key.id, *value).unwrap()
-print(data.pop(&probe).unwrap(), len(data)).unwrap()
-print("probe alive", probe.id).unwrap()
-drop(probe)
-mut keys = {{Key(2)}}.unwrap()
-keys.add(Key(2)).unwrap()
-probe2 = Key(2)
-print(keys.discard(&probe2), keys.discard(&probe2)).unwrap()
-drop(probe2)
+def main() -> Result[(), OverflowError[i64]]:
+    mut data = {{Key(1): 10}}.unwrap()
+    probe = Key(1)
+    print(probe in data, data.get(&probe).unwrap()).unwrap()
+    data.insert(Key(1), 20).unwrap()
+    print(data[&probe]).unwrap()
+    match data.get_mut(&probe):
+        case Some(value):
+            *value += 1
+        case Nothing:
+            pass
+    for key, value in data.items():
+        print(key.id, *value).unwrap()
+    print(data.pop(&probe).unwrap(), len(data)).unwrap()
+    print("probe alive", probe.id).unwrap()
+    drop(probe)
+    mut keys = {{Key(2)}}.unwrap()
+    keys.add(Key(2)).unwrap()
+    probe2 = Key(2)
+    print(keys.discard(&probe2), keys.discard(&probe2)).unwrap()
+    drop(probe2)
+    Ok(())
 "#
         ),
         "True 10\ndrop 1\n20\n1 21\ndrop 1\n21 0\nprobe alive 1\ndrop 1\ndrop 2\ndrop 2\nTrue False\ndrop 2",
@@ -231,15 +233,17 @@ fn cleanup_key_observations_keep_loans_and_temporary_owners() {
     native(
         &format!(
             r#"{KEY}
-mut keys = {{Key(1)}}.unwrap()
-print(keys.discard(Key(1))).unwrap()
-mut data = {{Key(2): 20}}.unwrap()
-match data.get_mut(Key(2)):
-    case Some(value):
-        *value += 1
-    case Nothing:
-        pass
-print(data.pop(Key(2)).unwrap()).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    mut keys = {{Key(1)}}.unwrap()
+    print(keys.discard(Key(1))).unwrap()
+    mut data = {{Key(2): 20}}.unwrap()
+    match data.get_mut(Key(2)):
+        case Some(value):
+            *value += 1
+        case Nothing:
+            pass
+    print(data.pop(Key(2)).unwrap()).unwrap()
+    Ok(())
 "#
         ),
         "drop 1\nTrue\ndrop 1\ndrop 2\ndrop 2\n21\ndrop 2",
@@ -313,25 +317,27 @@ class Wrapped:
     key: Key
     def __del__(self) -> ():
         print("outer", self.key.label).unwrap()
-mut keys = set[Wrapped]().unwrap()
-keys.add(Wrapped(Key(("account-" + "first").unwrap()))).unwrap()
-keys.reserve(100).unwrap()
-probe = Wrapped(Key(("account-" + "first").unwrap()))
-print(probe in keys).unwrap()
-for key in keys:
-    print(key.key.label).unwrap()
-drop(probe)
-mut data = {Key(("account-" + "second").unwrap()): 2}.unwrap()
-probe2 = Key(("account-" + "second").unwrap())
-match data.get_mut(&probe2):
-    case Some(value):
-        *value += 1
-    case Nothing:
-        pass
-owned = data.into_keys().unwrap()
-print(owned[0].label, probe2.label).unwrap()
-drop(owned)
-drop(probe2)
+def main() -> Result[(), OverflowError[i64]]:
+    mut keys = set[Wrapped]().unwrap()
+    keys.add(Wrapped(Key(("account-" + "first").unwrap()))).unwrap()
+    keys.reserve(100).unwrap()
+    probe = Wrapped(Key(("account-" + "first").unwrap()))
+    print(probe in keys).unwrap()
+    for key in keys:
+        print(key.key.label).unwrap()
+    drop(probe)
+    mut data = {Key(("account-" + "second").unwrap()): 2}.unwrap()
+    probe2 = Key(("account-" + "second").unwrap())
+    match data.get_mut(&probe2):
+        case Some(value):
+            *value += 1
+        case Nothing:
+            pass
+    owned = data.into_keys().unwrap()
+    print(owned[0].label, probe2.label).unwrap()
+    drop(owned)
+    drop(probe2)
+    Ok(())
 "#,
         "True\naccount-first\nouter account-first\ndrop account-first\nouter account-first\ndrop account-first\naccount-second account-second\ndrop account-second\ndrop account-second",
     );

@@ -254,11 +254,13 @@ def retry_transfer(error: StreamError, deadline: &Deadline, cancel: &Cancellatio
 # Address encoding shared with the runtime: family, port, address bytes and,
 # for IPv6, the scope id, all in network order.
 def put(out: &mut list[u8], value: u64, count: i64) -> Result[(), NetError]:
-    mut index = count - 1
-    while index >= 0:
-        allocated(out.append(u8.wrapping_from(value >> u64(8 * index))))?
-        index -= 1
-    Ok(())
+    # Private callers request 2, 4 or 8 bytes; index stays in -1..7 and shifts in 0..56.
+    unchecked:
+        mut index = count - 1
+        while index >= 0:
+            allocated(out.append(u8.wrapping_from(value >> u64(8 * index))))?
+            index -= 1
+        Ok(())
 
 def encoded(address: &SocketAddress) -> Result[list[u8], NetError]:
     mut out = allocated(list[u8].with_capacity(v6_size))?
@@ -276,24 +278,31 @@ def encoded(address: &SocketAddress) -> Result[list[u8], NetError]:
     Ok(out)
 
 def number(data: &list[u8], at: i64, count: i64) -> u64:
-    mut value = 0u64
-    for index in range(count):
-        value = (value << 8u64) | u64(data[at + index])
-    value
+    # Every private caller has validated the whole fixed-width record before selecting these bytes.
+    unchecked:
+        mut value = 0u64
+        for index in range(count):
+            value = (value << 8u64) | u64(data[at + index])
+        value
 
 # The address encoded at `at`, and the offset after it.
 def decoded(data: &list[u8], at: i64) -> Result[(SocketAddress, i64), NetError]:
-    # Every entry is at least v4_size bytes, so a shorter tail cannot hold the tag and port.
-    if at + v4_size <= len(data):
-        port = u16(number(data, at + 1, 2))
-        if data[at] == 4u8:
-            ip = IpAddress.V4(u32(number(data, at + 3, 4)))
-            return Ok((SocketAddress(ip, port, 0u32), at + v4_size))
-        if data[at] == 6u8 and at + v6_size <= len(data):
-            ip = IpAddress.V6(number(data, at + 3, 8), number(data, at + 11, 8))
-            scope = u32(number(data, at + 19, 4))
-            return Ok((SocketAddress(ip, port, scope), at + v6_size))
-    Err(NetError.InvalidAddress)
+    # The range guard bounds remaining; each family-width guard bounds all offsets and the returned endpoint.
+    unchecked:
+        if at < 0 or at > len(data):
+            return Err(NetError.InvalidAddress)
+        remaining = len(data) - at
+        # Every entry is at least v4_size bytes, so a shorter tail cannot hold the tag and port.
+        if remaining >= v4_size:
+            port = u16(number(data, at + 1, 2))
+            if data[at] == 4u8:
+                ip = IpAddress.V4(u32(number(data, at + 3, 4)))
+                return Ok((SocketAddress(ip, port, 0u32), at + v4_size))
+            if data[at] == 6u8 and remaining >= v6_size:
+                ip = IpAddress.V6(number(data, at + 3, 8), number(data, at + 11, 8))
+                scope = u32(number(data, at + 19, 4))
+                return Ok((SocketAddress(ip, port, scope), at + v6_size))
+        Err(NetError.InvalidAddress)
 
 def address_of(file: &File, which: u8) -> Result[SocketAddress, NetError]:
     match __net_address(file, which):
@@ -307,18 +316,22 @@ def emit(out: &mut Bytes, value: i64) -> Result[(), NetError]:
     allocated(out.push(u8(value)))
 
 def emit_decimal(out: &mut Bytes, value: i64) -> Result[(), NetError]:
-    if value >= 10:
-        emit_decimal(out, value // 10)?
-    emit(out, 48 + value % 10)
+    # Only nonnegative port/address values reach this helper; base ten bounds the ASCII digit.
+    unchecked:
+        if value >= 10:
+            emit_decimal(out, value // 10)?
+        emit(out, 48 + value % 10)
 
 def emit_hex(out: &mut Bytes, value: i64) -> Result[(), NetError]:
-    if value >= 16:
-        emit_hex(out, value // 16)?
-    digit = value % 16
-    if digit < 10:
-        emit(out, 48 + digit)
-    else:
-        emit(out, 87 + digit)
+    # Address groups are nonnegative; base sixteen bounds the ASCII digit and recursive quotient.
+    unchecked:
+        if value >= 16:
+            emit_hex(out, value // 16)?
+        digit = value % 16
+        if digit < 10:
+            emit(out, 48 + digit)
+        else:
+            emit(out, 87 + digit)
 
 def write_v4(out: &mut Bytes, bits: u32) -> Result[(), NetError]:
     value = i64(bits)
@@ -331,43 +344,47 @@ def write_v4(out: &mut Bytes, bits: u32) -> Result[(), NetError]:
     emit_decimal(out, value & 255)
 
 def group(high: u64, low: u64, index: i64) -> i64:
-    mut word = low
-    if index < 4:
-        word = high
-    i64((word >> u64(16 * (3 - index % 4))) & 65535u64)
+    # Private callers use indices in 0..7; the group shift is one of 0, 16, 32 or 48.
+    unchecked:
+        mut word = low
+        if index < 4:
+            word = high
+        i64((word >> u64(16 * (3 - index % 4))) & 65535u64)
 
 # RFC 5952: lowercase hex without leading zeros, the first longest run of two
 # or more zero groups as `::`, and IPv4-mapped addresses in dotted form.
 def write_v6(out: &mut Bytes, high: u64, low: u64) -> Result[(), NetError]:
-    if high == 0u64 and (low >> 32u64) == 65535u64:
-        emit(out, 58)?
-        emit(out, 58)?
-        emit_hex(out, 65535)?
-        emit(out, 58)?
-        return write_v4(out, u32(low & 4294967295u64))
-    mut best = -1
-    mut best_length = 1
-    mut index = 0
-    while index < 8:
-        mut length = 0
-        while index + length < 8 and group(high, low, index + length) == 0:
-            length += 1
-        if length > best_length:
-            best = index
-            best_length = length
-        index += length + 1
-    index = 0
-    while index < 8:
-        if index == best:
+    # Group cursors, zero-run lengths and their sums never exceed 9; groups themselves are 16-bit.
+    unchecked:
+        if high == 0u64 and (low >> 32u64) == 65535u64:
             emit(out, 58)?
             emit(out, 58)?
-            index += best_length
-            continue
-        if index > 0 and index != best + best_length:
+            emit_hex(out, 65535)?
             emit(out, 58)?
-        emit_hex(out, group(high, low, index))?
-        index += 1
-    Ok(())
+            return write_v4(out, u32(low & 4294967295u64))
+        mut best = -1
+        mut best_length = 1
+        mut index = 0
+        while index < 8:
+            mut length = 0
+            while index + length < 8 and group(high, low, index + length) == 0:
+                length += 1
+            if length > best_length:
+                best = index
+                best_length = length
+            index += length + 1
+        index = 0
+        while index < 8:
+            if index == best:
+                emit(out, 58)?
+                emit(out, 58)?
+                index += best_length
+                continue
+            if index > 0 and index != best + best_length:
+                emit(out, 58)?
+            emit_hex(out, group(high, low, index))?
+            index += 1
+        Ok(())
 
 def write_ip(out: &mut Bytes, ip: IpAddress) -> Result[(), NetError]:
     match ip:
@@ -383,16 +400,20 @@ pub def format_ip(ip: IpAddress) -> Result[str, NetError]:
     lifted(out.to_text())
 
 def digit(value: u8) -> i64:
-    if value >= 48u8 and value <= 57u8:
-        return i64(value) - 48
-    -1
+    # The subtraction follows the ASCII 0..9 range check.
+    unchecked:
+        if value >= 48u8 and value <= 57u8:
+            return i64(value) - 48
+        -1
 
 def hex(value: u8) -> i64:
-    if value >= 97u8 and value <= 102u8:
-        return i64(value) - 87
-    if value >= 65u8 and value <= 70u8:
-        return i64(value) - 55
-    digit(value)
+    # Both subtractions follow bounded ASCII hexadecimal range checks.
+    unchecked:
+        if value >= 97u8 and value <= 102u8:
+            return i64(value) - 87
+        if value >= 65u8 and value <= 70u8:
+            return i64(value) - 55
+        digit(value)
 
 def found(source: &Bytes, value: u8, start: i64, stop: i64) -> Result[i64, NetError]:
     match source.find(value, start, stop):
@@ -403,90 +424,96 @@ def found(source: &Bytes, value: u8, start: i64, stop: i64) -> Result[i64, NetEr
 
 # Decimal digits only, at most `limit`.
 def decimal(source: &Bytes, start: i64, stop: i64, limit: i64) -> Result[i64, NetError]:
-    if start >= stop or stop - start > 10:
-        return Err(NetError.InvalidAddress)
-    mut value = 0
-    for at in range(start, stop):
-        next = digit(source[at])
-        if next < 0:
+    # Private endpoints are within source; at most ten digits produce at most 9,999,999,999.
+    unchecked:
+        if start >= stop or stop - start > 10:
             return Err(NetError.InvalidAddress)
-        value = value * 10 + next
-    if value > limit:
-        return Err(NetError.InvalidAddress)
-    Ok(value)
+        mut value = 0
+        for at in range(start, stop):
+            next = digit(source[at])
+            if next < 0:
+                return Err(NetError.InvalidAddress)
+            value = value * 10 + next
+        if value > limit:
+            return Err(NetError.InvalidAddress)
+        Ok(value)
 
 # Four decimal parts of at most three digits, without leading zeros.
 def v4_in(source: &Bytes, start: i64, stop: i64) -> Result[u32, NetError]:
-    mut bits = 0
-    mut at = start
-    for part in range(4):
-        if part > 0:
-            if at >= stop or source[at] != 46u8:
+    # Cursors stay within source; at most four decimal octets produce at most u32.MAX in i64.
+    unchecked:
+        mut bits = 0
+        mut at = start
+        for part in range(4):
+            if part > 0:
+                if at >= stop or source[at] != 46u8:
+                    return Err(NetError.InvalidAddress)
+                at += 1
+            begin = at
+            while at < stop and at - begin < 4 and digit(source[at]) >= 0:
+                at += 1
+            if at - begin > 3 or (at - begin > 1 and source[begin] == 48u8):
                 return Err(NetError.InvalidAddress)
-            at += 1
-        begin = at
-        while at < stop and at - begin < 4 and digit(source[at]) >= 0:
-            at += 1
-        if at - begin > 3 or (at - begin > 1 and source[begin] == 48u8):
+            bits = bits * 256 + decimal(source, begin, at, 255)?
+        if at != stop:
             return Err(NetError.InvalidAddress)
-        bits = bits * 256 + decimal(source, begin, at, 255)?
-    if at != stop:
-        return Err(NetError.InvalidAddress)
-    Ok(u32(bits))
+        Ok(u32(bits))
 
 # Hex groups separated by `:`, at most one `::`, and optionally a dotted IPv4
 # tail in place of the last two groups.
 def v6_in(source: &Bytes, start: i64, stop: i64) -> Result[IpAddress, NetError]:
-    mut groups = allocated(list[i64].with_capacity(8))?
-    mut gap = -1
-    mut at = start
-    if stop - start >= 2 and source[start] == 58u8 and source[start + 1] == 58u8:
-        gap = 0
-        at = start + 2
-    while at < stop:
-        if found(source, 46u8, at, stop)? >= 0 and found(source, 58u8, at, stop)? < 0:
-            if len(groups) > 6:
+    # Cursors stay within source; five scanned hex digits fit 20 bits, and group indices stay bounded by 8.
+    unchecked:
+        mut groups = allocated(list[i64].with_capacity(8))?
+        mut gap = -1
+        mut at = start
+        if stop - start >= 2 and source[start] == 58u8 and source[start + 1] == 58u8:
+            gap = 0
+            at = start + 2
+        while at < stop:
+            if found(source, 46u8, at, stop)? >= 0 and found(source, 58u8, at, stop)? < 0:
+                if len(groups) > 6:
+                    return Err(NetError.InvalidAddress)
+                tail = i64(v4_in(source, at, stop)?)
+                allocated(groups.append(tail >> 16))?
+                allocated(groups.append(tail & 65535))?
+                break
+            begin = at
+            mut value = 0
+            while at < stop and at - begin < 5 and hex(source[at]) >= 0:
+                value = value * 16 + hex(source[at])
+                at += 1
+            if at == begin or at - begin > 4 or len(groups) == 8:
                 return Err(NetError.InvalidAddress)
-            tail = i64(v4_in(source, at, stop)?)
-            allocated(groups.append(tail >> 16))?
-            allocated(groups.append(tail & 65535))?
-            break
-        begin = at
-        mut value = 0
-        while at < stop and at - begin < 5 and hex(source[at]) >= 0:
-            value = value * 16 + hex(source[at])
-            at += 1
-        if at == begin or at - begin > 4 or len(groups) == 8:
-            return Err(NetError.InvalidAddress)
-        allocated(groups.append(value))?
-        if at == stop:
-            break
-        if source[at] != 58u8:
-            return Err(NetError.InvalidAddress)
-        at += 1
-        if at < stop and source[at] == 58u8:
-            if gap >= 0:
+            allocated(groups.append(value))?
+            if at == stop:
+                break
+            if source[at] != 58u8:
                 return Err(NetError.InvalidAddress)
-            gap = len(groups)
             at += 1
-        elif at == stop:
+            if at < stop and source[at] == 58u8:
+                if gap >= 0:
+                    return Err(NetError.InvalidAddress)
+                gap = len(groups)
+                at += 1
+            elif at == stop:
+                return Err(NetError.InvalidAddress)
+        count = len(groups)
+        if (gap < 0 and count != 8) or (gap >= 0 and count > 7):
             return Err(NetError.InvalidAddress)
-    count = len(groups)
-    if (gap < 0 and count != 8) or (gap >= 0 and count > 7):
-        return Err(NetError.InvalidAddress)
-    mut high = 0u64
-    mut low = 0u64
-    for index in range(8):
-        mut value = 0
-        if gap < 0 or index < gap:
-            value = groups[index]
-        elif index >= gap + 8 - count:
-            value = groups[index - 8 + count]
-        if index < 4:
-            high = (high << 16u64) | u64(value)
-        else:
-            low = (low << 16u64) | u64(value)
-    Ok(IpAddress.V6(high, low))
+        mut high = 0u64
+        mut low = 0u64
+        for index in range(8):
+            mut value = 0
+            if gap < 0 or index < gap:
+                value = groups[index]
+            elif index >= gap + 8 - count:
+                value = groups[index - 8 + count]
+            if index < 4:
+                high = (high << 16u64) | u64(value)
+            else:
+                low = (low << 16u64) | u64(value)
+        Ok(IpAddress.V6(high, low))
 
 def ip_in(source: &Bytes, start: i64, stop: i64) -> Result[IpAddress, NetError]:
     if found(source, 58u8, start, stop)? >= 0:
@@ -501,27 +528,29 @@ pub def parse_ip(text: &str) -> Result[IpAddress, NetError]:
 # `127.0.0.1:80`, `[::1]:80` or `[fe80::1%2]:80`, with a numeric port and
 # scope.
 pub def parse_address(text: &str) -> Result[SocketAddress, NetError]:
-    source = allocated(std.bytes.from_text(text))?
-    stop = source.len()
-    if stop > 0 and source[0] == 91u8:
-        close = found(&source, 93u8, 1, stop)?
-        if close < 0 or close + 1 >= stop or source[close + 1] != 58u8:
+    # A found separator is below stop; the second-byte checks precede all two-byte advances.
+    unchecked:
+        source = allocated(std.bytes.from_text(text))?
+        stop = source.len()
+        if stop > 0 and source[0] == 91u8:
+            close = found(&source, 93u8, 1, stop)?
+            if close < 0 or close + 1 >= stop or source[close + 1] != 58u8:
+                return Err(NetError.InvalidAddress)
+            mut end = close
+            mut scope = 0
+            percent = found(&source, 37u8, 1, close)?
+            if percent >= 0:
+                scope = decimal(&source, percent + 1, close, max_scope)?
+                end = percent
+            ip = v6_in(&source, 1, end)?
+            port = decimal(&source, close + 2, stop, max_port)?
+            return Ok(SocketAddress(ip, u16(port), u32(scope)))
+        colon = found(&source, 58u8, 0, stop)?
+        if colon < 0:
             return Err(NetError.InvalidAddress)
-        mut end = close
-        mut scope = 0
-        percent = found(&source, 37u8, 1, close)?
-        if percent >= 0:
-            scope = decimal(&source, percent + 1, close, max_scope)?
-            end = percent
-        ip = v6_in(&source, 1, end)?
-        port = decimal(&source, close + 2, stop, max_port)?
-        return Ok(SocketAddress(ip, u16(port), u32(scope)))
-    colon = found(&source, 58u8, 0, stop)?
-    if colon < 0:
-        return Err(NetError.InvalidAddress)
-    ip = IpAddress.V4(v4_in(&source, 0, colon)?)
-    port = decimal(&source, colon + 1, stop, max_port)?
-    Ok(SocketAddress(ip, u16(port), 0u32))
+        ip = IpAddress.V4(v4_in(&source, 0, colon)?)
+        port = decimal(&source, colon + 1, stop, max_port)?
+        Ok(SocketAddress(ip, u16(port), 0u32))
 
 # Lookup reply status bytes: a five-byte header of the status and a
 # big-endian native code, then for `resolved` the encoded addresses.
@@ -532,6 +561,16 @@ const no_memory: u8 = 3u8
 const system_failure: u8 = 4u8
 const reply_header: i64 = 5
 const lookup_chunk: i64 = 256
+
+# Representation failure is storage failure, before resizing or consuming reply bytes.
+def lookup_extent(filled: i64) -> Result[i64, NetError]:
+    extent = checked:
+        filled + lookup_chunk
+    match extent:
+        case Ok(end):
+            Ok(end)
+        case Err(_):
+            Err(NetError.Stream(StreamError.Allocation(AllocError.CapacityOverflow)))
 
 def started(result: Result[File, IoError]) -> Result[File, NetError]:
     match result:
@@ -582,28 +621,30 @@ pub def resolve(host: &str, port: u16, deadline: &Deadline, cancel: &Cancellatio
 
 # The addresses in a complete lookup reply, with `port` set.
 def addresses_in(data: &list[u8], port: u16) -> Result[list[SocketAddress], NetError]:
-    if len(data) < reply_header:
-        return Err(NetError.Stream(StreamError.Io(IoError.Other)))
-    status = data[0]
-    if status == no_address:
-        return Err(NetError.NameNotFound)
-    if status == try_again:
-        return Err(NetError.TryAgain)
-    if status == no_memory:
-        return Err(NetError.Stream(StreamError.Allocation(AllocError.OutOfMemory)))
-    if status == system_failure:
-        return Err(named(IoError.System(i32(number(data, 1, 4)))))
-    if status != resolved:
-        return Err(NetError.Stream(StreamError.Io(IoError.Other)))
-    mut addresses = allocated(list[SocketAddress].with_capacity(len(data) // v4_size))?
-    mut at = reply_header
-    while at < len(data):
-        (address, next) = decoded(data, at)?
-        allocated(addresses.append(SocketAddress(address.ip, port, address.scope)))?
-        at = next
-    if len(addresses) == 0:
-        return Err(NetError.NameNotFound)
-    Ok(addresses)
+    # v4_size is the positive fixed record width; decoded validates each subsequent endpoint.
+    unchecked:
+        if len(data) < reply_header:
+            return Err(NetError.Stream(StreamError.Io(IoError.Other)))
+        status = data[0]
+        if status == no_address:
+            return Err(NetError.NameNotFound)
+        if status == try_again:
+            return Err(NetError.TryAgain)
+        if status == no_memory:
+            return Err(NetError.Stream(StreamError.Allocation(AllocError.OutOfMemory)))
+        if status == system_failure:
+            return Err(named(IoError.System(i32(number(data, 1, 4)))))
+        if status != resolved:
+            return Err(NetError.Stream(StreamError.Io(IoError.Other)))
+        mut addresses = allocated(list[SocketAddress].with_capacity(len(data) // v4_size))?
+        mut at = reply_header
+        while at < len(data):
+            (address, next) = decoded(data, at)?
+            allocated(addresses.append(SocketAddress(address.ip, port, address.scope)))?
+            at = next
+        if len(addresses) == 0:
+            return Err(NetError.NameNotFound)
+        Ok(addresses)
 
 # A name lookup in progress on a helper thread, for an event loop that must
 # not block: watch it for readability, then call `finish_now`. Dropping it
@@ -626,27 +667,30 @@ pub class Lookup:
     # Reads what the helper has sent, without waiting. WouldBlock until the
     # reply is complete; then its addresses, or why there are none.
     pub def finish_now(self: &mut Lookup) -> Result[list[SocketAddress], NetError]:
-        while True:
-            match std.ready.wait_now(&self._reply.file, Interest.Read):
-                case Ok(_):
-                    pass
-                case Err(WaitError.TimedOut):
-                    return Err(NetError.WouldBlock)
-                case Err(error):
-                    return Err(waited(error))
-            at = self._data.len()
-            allocated(self._data.resize(at + lookup_chunk, 0u8))?
-            # Readable, so this read returns at once even though the reply
-            # end blocks.
-            match self._reply.read(&mut self._data, at, at + lookup_chunk):
-                case Ok(count):
-                    self._data.truncate(at + count)
-                    if count == 0:
-                        return addresses_in(&allocated(self._data.to_list())?, self._port)
-                case Err(error):
-                    self._data.truncate(at)
-                    return Err(streamed(error))
-        Err(NetError.WouldBlock)
+        # lookup_extent bounds the enlarged buffer; FileStream reads return at most the offered chunk.
+        unchecked:
+            while True:
+                match std.ready.wait_now(&self._reply.file, Interest.Read):
+                    case Ok(_):
+                        pass
+                    case Err(WaitError.TimedOut):
+                        return Err(NetError.WouldBlock)
+                    case Err(error):
+                        return Err(waited(error))
+                at = self._data.len()
+                end = lookup_extent(at)?
+                allocated(self._data.resize(end, 0u8))?
+                # Readable, so this read returns at once even though the reply
+                # end blocks.
+                match self._reply.read(&mut self._data, at, end):
+                    case Ok(count):
+                        self._data.truncate(at + count)
+                        if count == 0:
+                            return addresses_in(&allocated(self._data.to_list())?, self._port)
+                    case Err(error):
+                        self._data.truncate(at)
+                        return Err(streamed(error))
+            Err(NetError.WouldBlock)
 
 # Starts looking up `host` and returns at once. An IP literal needs no
 # lookup; `parse_ip` it first, as `resolve` does.
@@ -742,10 +786,12 @@ pub class TcpStream:
     # Writes all of source[start:stop]. On failure, an unknown prefix has
     # been sent.
     pub def write_all_before(self: &mut TcpStream, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), NetError]:
-        mut at = 0
-        while at < len(source):
-            at += self.write_before(&source[at:], deadline, cancel)?
-        Ok(())
+        # Native write_before returns a count within the offered suffix, so at never exceeds len(source).
+        unchecked:
+            mut at = 0
+            while at < len(source):
+                at += self.write_before(&source[at:], deadline, cancel)?
+            Ok(())
 
     pub def local_address(self) -> Result[SocketAddress, NetError]:
         address_of(&self._stream.file, 0u8)
@@ -946,21 +992,23 @@ pub class UdpSocket:
 
     # Receives one datagram into buffer[start:stop].
     pub def receive_from(self: &mut UdpSocket, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[Datagram, NetError]:
-        mut sender = allocated(std.bytes.with_capacity(v6_size))?
-        while True:
-            ready_for(&self._file, Interest.Read, deadline, cancel)?
-            match received_from(buffer, &mut self._file, start, stop, &mut sender):
-                case Ok(size):
-                    data = allocated(sender.to_list())?
-                    (source, _) = decoded(&data, 0)?
-                    mut stored = size
-                    if stored > stop - start:
-                        stored = stop - start
-                    return Ok(Datagram(size, stored, source))
-                case Err(error):
-                    if not transient(error):
-                        return Err(named(error))
-        Err(NetError.TimedOut)
+        # A successful received_from has validated 0 <= start <= stop <= len(buffer).
+        unchecked:
+            mut sender = allocated(std.bytes.with_capacity(v6_size))?
+            while True:
+                ready_for(&self._file, Interest.Read, deadline, cancel)?
+                match received_from(buffer, &mut self._file, start, stop, &mut sender):
+                    case Ok(size):
+                        data = allocated(sender.to_list())?
+                        (source, _) = decoded(&data, 0)?
+                        mut stored = size
+                        if stored > stop - start:
+                            stored = stop - start
+                        return Ok(Datagram(size, stored, source))
+                    case Err(error):
+                        if not transient(error):
+                            return Err(named(error))
+            Err(NetError.TimedOut)
 
     pub def close(self: &mut UdpSocket) -> Result[(), NetError]:
         match self._file.close():

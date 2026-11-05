@@ -24,20 +24,23 @@ def main() -> Result[(), IoError]:
 #[test]
 fn higher_order_borrowed_mutation_needs_no_allocation() {
     let output = run(r#"
-def visit[F: Callable[[i64], ()]](callback: &mut F, count: i64) -> ():
+def visit[F: Callable[[i64], Result[(), OverflowError[i64]]]](callback: &mut F, count: i64) -> Result[(), OverflowError[i64]]:
     for value in range(count):
-        callback(value)
-def main() -> ():
+        callback(value)?
+    Ok(())
+def main() -> Result[(), OverflowError[i64]]:
     mut sum = 0
     print("__test_begin_no_allocations__").unwrap()
     print("__test_fail_allocations_after_0__").unwrap()
-    mut callback = def [&mut sum](value: i64) -> ():
+    mut callback = def [&mut sum](value: i64) -> Result[(), OverflowError[i64]]:
         sum = sum + value
-    visit(&mut callback, 5)
+        Ok(())
+    visit(&mut callback, 5)?
     drop(callback)
     print("__test_restore_allocations__").unwrap()
     print("__test_end_no_allocations__").unwrap()
     print(sum).unwrap()
+    Ok(())
 "#);
     assert!(
         output.status.success(),
@@ -53,19 +56,19 @@ def main() -> ():
 #[test]
 fn constrained_borrowed_callbacks_keep_transitive_loans() {
     let output = run(r#"
-def twice[T, F: Callable[[], T]](f: &mut F) -> T:
+def twice[T, F: Callable[[], Result[T, OverflowError[i64]]]](f: &mut F) -> Result[T, OverflowError[i64]]:
+    f()?
     f()
-    f()
-def forward[T, F: Callable[[], T]](f: &mut F) -> T:
+def forward[T, F: Callable[[], Result[T, OverflowError[i64]]]](f: &mut F) -> Result[T, OverflowError[i64]]:
     twice(f)
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut value = 0
-    mut inner = def [&mut value]() -> i64:
+    mut inner = def [&mut value]() -> Result[i64, OverflowError[i64]]:
         value = value + 1
-        value
-    mut outer = def [&mut inner]() -> i64:
+        Ok(value)
+    mut outer = def [&mut inner]() -> Result[i64, OverflowError[i64]]:
         inner()
-    print(forward(&mut outer))?
+    print(forward(&mut outer)?)?
     print(value)?
     Ok(())
 "#);
@@ -85,7 +88,7 @@ fn constrained_callbacks_cannot_erase_loans_or_mutation_permissions() {
         ("f: &mut F, value: i64", "consume(&mut f, value)", "borrow"),
     ] {
         let source = format!(
-            "def consume[F: Callable[[], i64]]({parameters}) -> i64:\n    f()\ndef main() -> ():\n    mut value = 0\n    mut f = def [&mut value]() -> i64:\n        value = value + 1\n        value\n    {call}\n    pass\n"
+            "def consume[F: Callable[[], Result[i64, OverflowError[i64]]]]({parameters}) -> Result[i64, OverflowError[i64]]:\n    f()\ndef main() -> ():\n    mut value = 0\n    mut f = def [&mut value]() -> Result[i64, OverflowError[i64]]:\n        value = value + 1\n        Ok(value)\n    drop({call})\n    pass\n"
         );
         let error = check_source(&source).unwrap_err().to_string();
         assert!(error.contains(expected), "{error}");
@@ -129,17 +132,17 @@ fn callable_signature_evidence_must_agree_with_other_arguments() {
 #[test]
 fn callable_bounds_accept_functions_and_owned_environments() {
     let output = run(r#"
-def twice[F: Callable[[i64], i64]](f: &F, value: i64) -> i64:
-    f(f(value))
-def increment(value: i64) -> i64:
-    value + 1
-def main() -> Result[(), IoError]:
+def twice[F: Callable[[i64], Result[i64, OverflowError[i64]]]](f: &F, value: i64) -> Result[i64, OverflowError[i64]]:
+    f(f(value)?)
+def increment(value: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(value + 1)
+def main() -> Result[(), IoError | OverflowError[i64]]:
     function = increment
     offset = 3
-    closure = def [offset](value: i64) -> i64:
-        value + offset
-    print(twice(&function, 10))?
-    print(twice(&closure, 10))?
+    closure = def [offset](value: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(value + offset)
+    print(twice(&function, 10)?)?
+    print(twice(&closure, 10)?)?
     Ok(())
 "#);
     assert!(

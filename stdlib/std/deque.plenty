@@ -1,3 +1,22 @@
+# Internal ring coordinates satisfy 0 <= head, offset < capacity. Subtract
+# the wrap span first, rather than forming a potentially overflowing sum.
+def ring_position(capacity: i64, head: i64, offset: i64) -> i64:
+    unchecked:
+        remaining = capacity - head
+        if offset >= remaining:
+            offset - remaining
+        else:
+            head + offset
+
+def grown_capacity(old: i64) -> Result[i64, AllocError]:
+    two: Positive[i64] = 2
+    if old < 0 or old > i64.MAX // two:
+        return Err(AllocError.CapacityOverflow)
+    # The guard bounds doubling; an empty ring starts with eight slots.
+    capacity = unchecked:
+        8 if old == 0 else old * 2
+    Ok(capacity)
+
 # Vacant slots keep ownership explicit. End removals never shift elements;
 # growth reserves the entire replacement before moving any live payload.
 pub class Deque[T]:
@@ -18,20 +37,13 @@ pub class Deque[T]:
         self._count == 0
 
     def position(self, offset: i64) -> i64:
-        capacity = len(self._slots)
-        remaining = capacity - self._head
-        if offset >= remaining:
-            offset - remaining
-        else:
-            self._head + offset
+        ring_position(len(self._slots), self._head, offset)
 
     def grow(self: &mut Deque[T]) -> Result[(), AllocError]:
         if self._count < len(self._slots):
             return Ok(())
         old = len(self._slots)
-        if old > i64.MAX // 2:
-            return Err(AllocError.CapacityOverflow)
-        capacity = 8 if old == 0 else old * 2
+        capacity = grown_capacity(old)?
         mut slots = list[Option[T]].with_capacity(capacity)?
         for index in range(capacity):
             slots.append(Nothing)?
@@ -47,20 +59,28 @@ pub class Deque[T]:
         self.grow()?
         index = self.position(self._count)
         replace(self._slots[index], Some(value))
-        self._count += 1
+        # grow established count < the held slot span <= i64.MAX.
+        unchecked:
+            self._count += 1
         Ok(())
 
     pub def appendleft(self: &mut Deque[T], value: T) -> Result[(), AllocError]:
         self.grow()?
-        self._head = len(self._slots) - 1 if self._head == 0 else self._head - 1
+        # grow left a nonempty span; head is zero or a valid positive index.
+        unchecked:
+            self._head = len(self._slots) - 1 if self._head == 0 else self._head - 1
         replace(self._slots[self._head], Some(value))
-        self._count += 1
+        # grow established count < the held slot span <= i64.MAX.
+        unchecked:
+            self._count += 1
         Ok(())
 
     pub def pop(self: &mut Deque[T]) -> Option[T]:
         if self._count == 0:
             return Nothing
-        self._count -= 1
+        # The empty case returned above, so count is positive.
+        unchecked:
+            self._count -= 1
         index = self.position(self._count)
         replace(self._slots[index], Nothing)
 
@@ -68,8 +88,12 @@ pub class Deque[T]:
         if self._count == 0:
             return Nothing
         value = replace(self._slots[self._head], Nothing)
-        self._head = 0 if self._head == len(self._slots) - 1 else self._head + 1
-        self._count -= 1
+        # The last index wraps without computing capacity + head.
+        unchecked:
+            self._head = 0 if self._head == len(self._slots) - 1 else self._head + 1
+        # The empty case returned above, so count is positive.
+        unchecked:
+            self._count -= 1
         value
 
     pub def clear(self: &mut Deque[T]) -> ():

@@ -19,7 +19,7 @@ def ensure(condition: bool) -> ():
 fn fragmented_heads_bodies_trailers_and_pipelines() {
     support::assert_stdout(&format!(
         r#"{IMPORTS}
-def run(step: i64) -> ():
+def run(step: i64) -> Result[(), OverflowError[i64]]:
     input = std.bytes.from_text("\r\nPOST http://example.test/a?q=1 HTTP/1.1\r\nHost: ignored\r\nTransfer-Encoding: chunked\r\n\r\n3;ext=yes\r\nabc\r\n2\r\nde\r\n0\r\nX-End: done\r\n\r\nGET / HTTP/1.0\r\n\r\n").unwrap()
     mut parser = std.http.decoder.decoder(&std.http.limits()).unwrap()
     mut at = 0
@@ -49,11 +49,12 @@ def run(step: i64) -> ():
                 pass
     parser.finish().unwrap()
     print(bodies.to_text().unwrap(), ends).unwrap()
+    Ok(())
 
 def main() -> ():
-    run(1)
-    run(7)
-    run(65536)
+    run(1).unwrap()
+    run(7).unwrap()
+    run(65536).unwrap()
 "#
     ), &"POST example.test /a q=1 std.http.Framing.Chunked\n[std.http.Header(name=\"X-End\", value=\"done\")]\nGET  /  std.http.Framing.Empty\nabcde 2\n".repeat(3));
 }
@@ -85,7 +86,7 @@ def main() -> ():
 const PARITY: &str = r#"
 import std.encoding
 
-def reference(input: &Bytes, limits: &std.http.Limits) -> Result[(i64, i64), HttpError]:
+def reference(input: &Bytes, limits: &std.http.Limits) -> Result[(i64, i64), HttpError | OverflowError[i64]]:
     mut reader = std.io.buffered_reader(std.io.cursor(input.copy().unwrap()), 7).unwrap()
     mut requests = 0
     mut total = 0
@@ -109,7 +110,7 @@ def reference(input: &Bytes, limits: &std.http.Limits) -> Result[(i64, i64), Htt
                 reader = std.http.finish(&mut body)?
     Ok((requests, total))
 
-def incremental(input: &Bytes, limits: &std.http.Limits, step: i64) -> Result[(i64, i64), HttpError]:
+def incremental(input: &Bytes, limits: &std.http.Limits, step: i64) -> Result[(i64, i64), HttpError | OverflowError[i64]]:
     mut parser = std.http.decoder.decoder(limits)?
     mut at = 0
     mut requests = 0
@@ -302,7 +303,7 @@ fn literal_and_owned_views_share_the_decoder_contract() {
     support::assert_stdout(
         &format!(
             r#"{IMPORTS}
-def run(source: &[u8]) -> ():
+def run(source: &[u8]) -> Result[(), OverflowError[i64]]:
     mut parser = std.http.decoder.decoder(&std.http.limits()).unwrap()
     ensure(not parser.is_started() and not parser.has_head() and not parser.is_done())
     mut at = 0
@@ -322,12 +323,13 @@ def run(source: &[u8]) -> ():
     parser.reset().unwrap()
     ensure(not parser.is_started() and not parser.has_head() and not parser.is_done())
     ensure(not parser.is_started())
+    Ok(())
 
 def main() -> ():
     literal = b"POST / HTTP/1.1\r\nHost: x\r\nContent-Length: 3\r\n\r\nabc"
-    run(&literal)
+    run(&literal).unwrap()
     owned = std.bytes.from_bytes(&literal).unwrap()
-    run(&owned)
+    run(&owned).unwrap()
     ensure(std.http.parse_chunk_size(b"a;ext=yes").unwrap() == 10)
     ensure(std.http.parse_chunk_size(b"a;ext=\x7f").is_err())
     ensure(std.http.parse_chunk_size(b"").is_err())

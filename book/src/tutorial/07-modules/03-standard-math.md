@@ -9,7 +9,7 @@ from std.math import pi
 
 const half_turn: f64 = f64.PI
 
-def main() -> Result[(), AllocError | IoError | math.MathError]:
+def main() -> Result[(), AllocError | IoError | math.MathError | OverflowError[i64]]:
     print(math.sqrt(81.0)?)?
     print(math.factorial(5)?)?
     print(math.comb(5, 2)?)?
@@ -17,8 +17,8 @@ def main() -> Result[(), AllocError | IoError | math.MathError]:
     print(pi == half_turn)?
     print(math.sqrt(-1.0) == Result[f64, math.MathError].Err(math.MathError.Domain))?
     values = [2, 3, 4]?
-    print(math.sum(&values, 0))?
-    print(math.prod(&values, 1))?
+    print(math.sum(&values, 0)?)?
+    print(math.prod(&values, 1)?)?
     match math.min_all(&values):
         case Some(value):
             print(value)?
@@ -35,7 +35,7 @@ def main() -> Result[(), AllocError | IoError | math.MathError]:
     print(quotient)?
     print(remainder)?
     interval = range(1, 5)
-    print(math.sum_iter(&interval, 0))?
+    print(math.sum_iter(&interval, 0)?)?
     Ok(())
 ```
 
@@ -60,6 +60,9 @@ True
 `?` propagates mathematical errors just like I/O errors. Match on a result when
 you want to recover from `math.MathError.Domain` or `math.MathError.Overflow`.
 Integer combinatorics return `u64`, reporting overflow instead of wrapping.
+Integer `sum`, `sum_iter`, and `prod` return `OverflowError[T]`, where `T` is
+the integer type; their calls need `?` too. Floating-point variants such as
+`sum_float` keep IEEE behavior.
 `floor`, `ceil`, `trunc`, and `round` return checked `i64` results. `round`
 chooses the even integer at halfway values. `divmod` returns an integer floor
 quotient and remainder with the divisor's sign; use `divmod_float` for floats.

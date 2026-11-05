@@ -1,5 +1,23 @@
 mod support;
-use support::assert_stdout as native;
+
+/// Only the fixture entrypoint owns fragment arithmetic; declarations retain their own contracts.
+fn program(source: &str) -> String {
+    if source.lines().any(|line| line.starts_with("def main(")) {
+        return source.to_owned();
+    }
+    let source = support::program(source);
+    let source = source.replacen(
+        "def main() -> ():",
+        "def main() -> Result[(), OverflowError[i64] | OverflowError[i32] | ZeroDivisionError]:",
+        1,
+    );
+    let end = source.rfind("    pass\n").unwrap();
+    format!("{}    Ok(())\n", &source[..end])
+}
+
+fn native(source: &str, expected: &str) {
+    support::assert_stdout(&program(source), expected);
+}
 
 #[test]
 fn tuple_ordering_is_lexicographic_for_all_four_operators() {
@@ -121,11 +139,11 @@ print(a, b).unwrap()
 fn flat_and_nested_tuple_sorts_match_tuple_operators() {
     native(
         r#"
-def ordered(rows: &list[(u8, str, f64, i32)], descending: bool) -> bool:
+def ordered(rows: &list[(u8, str, f64, i32)], descending: bool) -> Result[bool, OverflowError[i64]]:
     for i in range(1, len(rows)):
         if (not descending and rows[i - 1] > rows[i]) or (descending and rows[i - 1] < rows[i]):
-            return False
-    True
+            return Ok(False)
+    Ok(True)
 mut rows: list[(u8, str, f64, i32)] = [].unwrap()
 mut nested: list[(i64, (str, i64))] = [].unwrap()
 mut s = 11
@@ -139,9 +157,9 @@ for i in range(2000):
     rows.append((u8(s % 3 + 250), f"k{s % 5}".unwrap(), score, i32(s % 9) - 4)).unwrap()
     nested.append((s % 4, (f"n{s % 6}".unwrap(), i))).unwrap()
 rows.sort()
-print(ordered(&rows, False)).unwrap()
+print(ordered(&rows, False)?).unwrap()
 rows.sort(True)
-print(ordered(&rows, True)).unwrap()
+print(ordered(&rows, True)?).unwrap()
 nested.sort()
 mut fine = True
 for i in range(1, len(nested)):

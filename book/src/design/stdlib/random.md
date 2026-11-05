@@ -119,6 +119,11 @@ pub enum RandomError:
 | `EmptyRange` | The requested range holds no value |
 | `ZeroState` | `from_state` was given the all-zero state, which never advances |
 
+Bounded draws validate `NonZero[u64]` before rejection sampling. Generator
+mixing still uses explicit wrapping operations; list/sample/fill cursors use
+documented bounds-proven arithmetic opt-outs. Neither changes the version-stable
+draw sequence, failure-state guarantees or public error types.
+
 ## Ownership and threads
 
 A generator is an ordinary owned value of four `u64` words stored inline.

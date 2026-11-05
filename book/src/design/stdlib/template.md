@@ -109,7 +109,11 @@ A literal converts where a field is expected; a computed value needs
 registering; a failure leaves the engine unchanged. Names cannot be empty or
 registered twice. A render failure returns no partial output and leaves the
 engine reusable. Limits bound sizes and work counts, not an exact heap-byte
-quota or wall-clock deadline. Text filters may allocate intermediate text.
+quota or wall-clock deadline. Budget totals remain exact: an unrepresentable
+source, token, context-byte or work total returns `TemplateError.LimitExceeded`,
+without wrapping or saturating. Registration commits its totals only after the
+compiled template is appended successfully. Text filters may allocate intermediate
+text.
 
 `TemplateError` distinguishes exceeded limits, syntax with a
 zero-based source location, missing/duplicate template names, missing values,

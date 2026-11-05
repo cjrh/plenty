@@ -260,14 +260,14 @@ import std.markdown
 from std.bytes import Bytes
 from std.markdown import MarkdownError
 
-def repeated(unit: &str, count: i64) -> Result[Bytes, AllocError | std.bytes.BytesError]:
+def repeated(unit: &str, count: i64) -> Result[Bytes, AllocError | std.bytes.BytesError | OverflowError[i64]]:
     piece = std.bytes.from_text(unit)?
     mut out = std.bytes.with_capacity(piece.len() * count)?
     for _ in range(count):
         out.extend(&piece)?
     Ok(out)
 
-def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | MarkdownError]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | MarkdownError | OverflowError[i64]]:
     bounds = std.markdown.limits()
     units = ["[a](", "*a [c](d) ", "[" , "a]", "`", "<!--", "<?", "<!A ", "<![CDATA[", "_a *", "[a\\]", "<a:", "&#"]?
     for unit in units:
@@ -291,4 +291,302 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | MarkdownE
 120008
 "##,
     );
+}
+
+fn output_with_optimization(source: &str, optimize: bool) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.plenty");
+    let executable = dir.path().join("program");
+    std::fs::write(&path, source).unwrap();
+    let options = plenty::CompileOptions {
+        optimize,
+        test_hooks: true,
+        ..Default::default()
+    };
+    plenty::compile_file_to_executable_with_options(&path, &executable, None, &options)
+        .unwrap_or_else(|error| panic!("{source}\n{error}"));
+    let output = std::process::Command::new(executable).output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .filter(|line| !line.starts_with("__test_"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn source_item<'a>(library: &'a str, declaration: &str) -> &'a str {
+    library[library.find(declaration).unwrap()..]
+        .split("\n\n")
+        .next()
+        .unwrap()
+}
+
+#[test]
+fn parser_columns_and_renderer_counters_preserve_state_at_representation_limits() {
+    let library = include_str!("../stdlib/std/markdown.plenty");
+    // Original production field layouts and selected production methods, not
+    // replacement state machines. Large positions need no enormous buffers.
+    let parser_fields = source_item(library, "pub class Parser:").replace("pub class", "class");
+    let renderer_fields =
+        source_item(library, "pub class HtmlRenderer:").replace("pub class", "class");
+    let classes = ["Block", "Refs", "Inline", "Delimiter", "Bracket"]
+        .map(|name| source_item(library, &format!("class {name}:")))
+        .join("\n\n");
+    let helpers = [
+        "span_size",
+        "peek",
+        "peek_ahead",
+        "column_after",
+        "tab_width",
+        "output_after",
+        "normalized_capacity",
+        "heading_byte",
+        "line_offset",
+        "block_error",
+    ]
+    .map(|name| source_item(library, &format!("def {name}(")))
+    .join("\n\n");
+    let parser_methods = ["at", "find_next_nonspace", "advance_offset"]
+        .map(|name| source_item(library, &format!("    def {name}(")))
+        .join("\n\n");
+    let renderer_methods = ["room", "nest_image", "event_result"]
+        .map(|name| source_item(library, &format!("    def {name}(")))
+        .join("\n\n");
+    let parser_arguments = parser_fields
+        .lines()
+        .filter_map(|line| line.trim().split_once(": "))
+        .map(|(name, ty)| match name {
+            "_text" => "std.bytes.from_bytes(b\"\\t \")?".to_owned(),
+            "_line_end" => "2".to_owned(),
+            "_column" => "column".to_owned(),
+            "_partial_tab" => "True".to_owned(),
+            "_next_nonspace" => "19".to_owned(),
+            "_next_nonspace_column" => "23".to_owned(),
+            "_indent" => "29".to_owned(),
+            "_refs" => "Refs(dict[str, i64]()?, []?, []?)".to_owned(),
+            _ if ty == "Bytes" => "std.bytes.empty()?".to_owned(),
+            _ if ty.starts_with("list[") => "[]?".to_owned(),
+            _ if ty == "bool" => "False".to_owned(),
+            _ if ty == "str" => "\"\"".to_owned(),
+            _ if ty == "i64" => "0".to_owned(),
+            _ => panic!("unexpected production field {name}: {ty}"),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let source = format!(
+        r#"import std.bytes
+from std.bytes import Bytes
+from std.markdown import MarkdownFault, MarkdownError, Event
+{classes}
+
+{helpers}
+
+{parser_fields}
+
+{parser_methods}
+
+{renderer_fields}
+
+{renderer_methods}
+
+def state(column: i64) -> Result[Parser, AllocError]:
+    Ok(Parser({parser_arguments}))
+
+def main() -> Result[(), AllocError | IoError]:
+    mut a = state(9223372036854775803)?
+    mut b = state(9223372036854775804)?
+    mut c = state(9223372036854775805)?
+    mut d = state(9223372036854775806)?
+    mut e = state(i64.MAX)?
+    mut scan = state(i64.MAX)?
+    mut progress = state(9223372036854775805)?
+    progress._text = std.bytes.from_bytes(b" \t")?
+    mut last_byte = state(9223372036854775806)?
+    last_byte._offset = 1
+    mut partial = state(9223372036854775806)?
+    mut renderer = HtmlRenderer(std.bytes.empty()?, 9223372036854775806, i64.MAX, 10, 9223372036854775806, False)
+    print("__test_fail_allocations_after_0__")?
+    print("__test_begin_no_allocations__")?
+    ra = a.advance_offset(1, False)
+    rb = b.advance_offset(1, False)
+    rc = c.advance_offset(1, False)
+    rd = d.advance_offset(1, False)
+    re = e.advance_offset(1, False)
+    rs = scan.find_next_nonspace()
+    progressed = progress.advance_offset(2, False)
+    last_byte_result = last_byte.advance_offset(1, False)
+    rp = partial.advance_offset(1, True)
+    last = renderer.room(1)
+    over = renderer.room(1)
+    nested = renderer.nest_image()
+    exhausted_outcome = renderer.nest_image()
+    exhausted = renderer.event_result(exhausted_outcome)
+    capacity = match normalized_capacity(i64.MAX):
+        case Err(MarkdownFault.Allocation(AllocError.CapacityOverflow)):
+            True
+        case _:
+            False
+    negative_distance = span_size(i64.MAX, -1)
+    absent = peek_ahead(b"", i64.MAX, 9, i64.MAX)
+    mapped = block_error(MarkdownFault.InputTooLarge, b"x", i64.MAX)
+    print("__test_restore_allocations__")?
+    print("__test_end_no_allocations__")?
+    print(ra.is_ok(), a._column, a._offset, tab_width(9223372036854775803), tab_width(9223372036854775804), tab_width(9223372036854775805), tab_width(9223372036854775806))?
+    print(rb.is_err(), rc.is_err(), rd.is_err(), re.is_err(), b._column, b._offset, b._partial_tab, e._column, e._offset)?
+    print(rs.is_err(), scan._column, scan._offset, scan._next_nonspace, scan._next_nonspace_column, scan._indent)?
+    print(progressed.is_err(), progress._column, progress._offset, progress._partial_tab, last_byte_result.is_ok(), last_byte._column, last_byte._offset)?
+    print(rp.is_ok(), partial._column, partial._offset, partial._partial_tab)?
+    print(last.is_ok(), over.is_err(), renderer._written, nested.is_ok(), exhausted.is_err(), renderer._image_depth, renderer._out.len(), renderer._broken)?
+    exact_output = match over:
+        case Err(MarkdownFault.OutputTooLarge):
+            True
+        case _:
+            False
+    exact_nesting = match exhausted:
+        case Err(error):
+            error.fault == MarkdownFault.InvalidState and error.offset == i64.MAX and error.line == 0
+        case _:
+            False
+    print(exact_output, exact_nesting)?
+    print(capacity, negative_distance == i64.MIN, absent == -1, mapped.fault, mapped.offset, mapped.line)?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            "True 9223372036854775804 1 1 4 3 2\nTrue True True True 9223372036854775804 0 True 9223372036854775807 0\nTrue 9223372036854775807 0 19 23 29\nTrue 9223372036854775806 1 False True 9223372036854775807 2\nTrue 9223372036854775807 0 True\nTrue True 9223372036854775807 True True 9223372036854775807 0 True\nTrue True\nTrue True True std.markdown.MarkdownFault.InputTooLarge 0 0"
+        );
+    }
+}
+
+#[test]
+fn synthetic_headings_validate_before_output_and_break_renderer() {
+    let source = r#"import std.bytes
+import std.markdown
+from std.markdown import Event, Tag, MarkdownError
+
+def main() -> Result[(), AllocError | IoError | MarkdownError | std.bytes.BytesError]:
+    bounds = std.markdown.limits()
+    for level in [i64.MIN, 0, 1, 6, 7, i64.MAX]?:
+        for closing in [False, True]?:
+            mut renderer = std.markdown.renderer(&bounds)?
+            renderer.event(&Event.Text("before"))?
+            event = Event.End(Tag.Heading(level)) if closing else Event.Start(Tag.Heading(level))
+            result = renderer.event(&event)
+            print(level, closing, result.is_ok(), renderer.pending(), renderer.written())?
+            if result.is_err():
+                print(renderer.event(&Event.Rule).is_err(), renderer.take()?.to_text()?)?
+    mut small = std.markdown.limits()
+    small.max_input = 1
+    match std.markdown.parser_text("xx", &small):
+        case Err(error):
+            print(error.fault, error.offset, error.line)?
+        case Ok(_):
+            print("wrong")?
+    Ok(())
+"#;
+    let expected = "-9223372036854775808 False False 6 6\nTrue before\n-9223372036854775808 True False 6 6\nTrue before\n0 False False 6 6\nTrue before\n0 True False 6 6\nTrue before\n1 False True 11 11\n1 True True 12 12\n6 False True 11 11\n6 True True 12 12\n7 False False 6 6\nTrue before\n7 True False 6 6\nTrue before\n9223372036854775807 False False 6 6\nTrue before\n9223372036854775807 True False 6 6\nTrue before\nstd.markdown.MarkdownFault.InputTooLarge 1 0";
+    for optimize in [false, true] {
+        assert_eq!(output_with_optimization(source, optimize), expected);
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn allocation_failures_preserve_precise_faults_and_cleanup() {
+    let source = r##"import std.markdown
+from std.markdown import MarkdownFault
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    bounds = std.markdown.limits()
+    mut failures = 0
+    mut success = False
+    for budget in range(300):
+        marker = ("__test_fail_allocations_after_" + str.from(budget)?)?
+        print((marker + "__")?)?
+        result = std.markdown.to_html("# Hé\n\n![a *b*](/café \"T\") &copy;\n\n> - x\n", &bounds)
+        print("__test_restore_allocations__")?
+        match result:
+            case Ok(html):
+                print(html == "<h1>Hé</h1>\n<p><img src=\"/caf%C3%A9\" alt=\"a b\" title=\"T\" /> ©</p>\n<blockquote>\n<ul>\n<li>x</li>\n</ul>\n</blockquote>\n")?
+                success = True
+                break
+            case Err(error):
+                match error.fault:
+                    case MarkdownFault.Allocation(AllocError.OutOfMemory):
+                        print("allocation")?
+                    case _:
+                        print("wrong", error.fault)?
+                failures += 1
+    print(success, failures > 10)?
+    Ok(())
+"##;
+    for optimize in [false, true] {
+        let output = output_with_optimization(source, optimize);
+        let lines = output.lines().collect::<Vec<_>>();
+        assert!(lines.len() > 12, "{output}");
+        assert_eq!(&lines[lines.len() - 2..], ["True", "True True"]);
+        assert!(
+            lines[..lines.len() - 2]
+                .iter()
+                .all(|line| *line == "allocation"),
+            "{output}"
+        );
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn failed_writer_compaction_and_retry_need_no_allocation() {
+    let source = r#"import std.bytes
+import std.markdown
+from std.bytes import Bytes
+from std.io import StreamError
+from std.markdown import Event, MarkdownError
+
+pub class Sink:
+    data: Bytes
+    room: i64
+
+    pub def write(self: &mut Sink, source: &[u8]) -> Result[i64, StreamError]:
+        if self.data.len() == self.room:
+            return Err(StreamError.Io(IoError.NotWritable))
+        if len(source) == 0:
+            return Ok(0)
+        self.data.push(source[0]).map_error(def(error: AllocError) -> StreamError: StreamError.Allocation(error))?
+        Ok(1)
+
+    pub def flush(self: &mut Sink) -> Result[(), StreamError]:
+        Ok(())
+
+def main() -> Result[(), AllocError | IoError | MarkdownError | std.bytes.BytesError]:
+    bounds = std.markdown.limits()
+    mut renderer = std.markdown.renderer(&bounds)?
+    renderer.event(&Event.Text("abcdefghijklmnop"))?
+    mut first = Sink(std.bytes.with_capacity(32)?, 5)
+    mut rest = Sink(std.bytes.with_capacity(32)?, 32)
+    print("__test_fail_allocations_after_0__")?
+    print("__test_begin_no_allocations__")?
+    failed = std.markdown.write_pending(&mut renderer, &mut first)
+    pending = renderer.pending()
+    retried = std.markdown.write_pending(&mut renderer, &mut rest)
+    print("__test_restore_allocations__")?
+    print("__test_end_no_allocations__")?
+    match failed:
+        case Err(error):
+            print(error.fault, error.offset)?
+        case _:
+            print("wrong")?
+    print(pending, retried.is_ok(), renderer.pending(), renderer.written())?
+    print(first.data.to_text()?, rest.data.to_text()?)?
+    Ok(())
+"#;
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(source, optimize),
+            "std.markdown.MarkdownFault.Stream(std.io.StreamError.Io(IoError.NotWritable)) 16\n11 True 0 16\nabcde fghijklmnop"
+        );
+    }
 }

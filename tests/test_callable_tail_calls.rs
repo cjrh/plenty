@@ -4,15 +4,15 @@ mod support;
 fn explicit_and_implicit_indirect_tail_recursion_use_bounded_stack() {
     let output = support::run(
         r#"
-def count(n: i64, total: i64) -> i64:
+def count(n: i64, total: i64) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
     if n == 0:
-        return total
+        return Ok(total)
     step = count
     if n % 2 == 0:
         return step(n - 1, total + 1)
     step(n - 1, total + 1)
-def main() -> Result[(), IoError]:
-    print(count(500000, 0))?
+def main() -> Result[(), IoError | OverflowError[i64] | ZeroDivisionError]:
+    print(count(500000, 0)?)?
     Ok(())
 "#,
     );

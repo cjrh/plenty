@@ -141,14 +141,14 @@ fn no_arguments_print_help_without_starting_an_interactive_session() {
 #[test]
 fn expression_statements_are_discarded_unless_printed() {
     let path = write_tempfile(
-        "def main() -> ():\n    40 + 2\n    pass\n",
+        "def main() -> Result[(), OverflowError[i64]]:\n    40 + 2\n    Ok(())\n",
         "discard-result",
     );
     let out = Command::new(plenty_bin()).arg(&path).output().unwrap();
     let _ = std::fs::remove_file(path);
-    assert!(out.status.success());
-    assert!(out.stdout.is_empty());
-    assert!(out.stderr.is_empty());
+    assert!(out.status.success(), "{out:?}");
+    assert!(out.stdout.is_empty(), "{out:?}");
+    assert!(out.stderr.is_empty(), "{out:?}");
 }
 
 /// Copy stdin to stdout through `std.io`.
@@ -224,10 +224,10 @@ fn run_command_cleans_temporary_files_after_success_and_failure() {
     for (program, code, stdout, diagnostic) in [
         ("def main() -> ():\n    print(42).unwrap()\n", 0, "42\n", ""),
         (
-            "def main() -> ():\n    print(42).unwrap()\n    1 // 0\n    pass\n",
+            "def main() -> ():\n    print(42).unwrap()\n    unchecked:\n        1 // 0\n    pass\n",
             1,
             "42\n",
-            "division by zero",
+            "error: program.plenty:4:9: division by zero\n",
         ),
         (
             "def main() -> ():\n    print('must not execute').unwrap()\n    missing()\n",
@@ -243,12 +243,17 @@ fn run_command_cleans_temporary_files_after_success_and_failure() {
             .env("TMPDIR", &scratch)
             .output()
             .unwrap();
-        assert_eq!(out.status.code(), Some(code));
-        assert_eq!(String::from_utf8_lossy(&out.stdout), stdout);
+        assert_eq!(out.status.code(), Some(code), "{out:?}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), stdout, "{out:?}");
         if diagnostic.is_empty() {
             assert!(out.stderr.is_empty());
+        } else if diagnostic.starts_with("error: program.plenty:") {
+            assert_eq!(String::from_utf8_lossy(&out.stderr), diagnostic, "{out:?}");
         } else {
-            assert!(String::from_utf8_lossy(&out.stderr).contains(diagnostic));
+            assert!(
+                String::from_utf8_lossy(&out.stderr).contains(diagnostic),
+                "{out:?}"
+            );
         }
         assert_eq!(std::fs::read_dir(&scratch).unwrap().count(), 0);
     }

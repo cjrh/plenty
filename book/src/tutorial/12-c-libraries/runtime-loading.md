@@ -5,6 +5,9 @@ function signatures ahead of time. Start with a small library, saved as
 `counter.plenty`:
 
 ```plenty-file counter.plenty
+enum CalcError:
+    Overflow
+
 class Counter:
     value: i64
     def __del__(self) -> ():
@@ -16,8 +19,11 @@ export def create(value: i64) -> Result[Counter, AllocError] = "counter_create":
 export def read(counter: &Counter) -> i64 = "counter_read":
     counter.value
 
-export def increment(counter: &mut Counter) -> () = "counter_increment":
-    counter.value = counter.value + 1
+export def increment(counter: &mut Counter) -> Result[(), CalcError] = "counter_increment":
+    result = checked:
+        counter.value + 1
+    counter.value = result.map_error(def(error: OverflowError[i64]) -> CalcError: CalcError.Overflow)?
+    Ok(())
 ```
 
 Build the shared library and its runtime-loading module:
@@ -33,12 +39,19 @@ containing `libcounter.so`. No library link arguments are needed.
 ```plenty
 import plugin
 
-def main() -> Result[(), AllocError | IoError | LoadError]:
+def main() -> Result[(), AllocError | IoError | LoadError | plugin.CalcError]:
     path = "./libcounter.so"
     library = plugin.load(&path)?
     mut counter = library.create(42)?
-    library.increment(&mut counter)
+    library.increment(&mut counter)?
     print(library.read(&counter))?
+    mut maximum = library.create(i64.MAX)?
+    match library.increment(&mut maximum):
+        case Err(plugin.CalcError.Overflow):
+            print("overflow", library.read(&maximum) == i64.MAX)?
+        case Ok(_):
+            print("unexpected success")?
+    drop(maximum)
     drop(library)
     drop(counter)
 
@@ -52,6 +65,8 @@ def main() -> Result[(), AllocError | IoError | LoadError]:
 ```
 ```output
 43
+overflow True
+released
 released
 LoadError.OpenFailed
 ```
@@ -73,3 +88,8 @@ The lifecycle trace uses `drop(print(...))` deliberately: cleanup cannot return
 an error, and a failed diagnostic write must not interrupt cleanup. For output
 that must succeed, provide an explicit fallible operation and propagate its
 result before leaving the scope.
+
+The maximum-value object exercises the loaded error-status path and is
+released separately. The fallible increment maps arithmetic overflow to the payload-free
+`CalcError.Overflow` at the ABI boundary. It leaves the object unchanged on
+failure; callers must handle its status before continuing.

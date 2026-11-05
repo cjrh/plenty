@@ -52,14 +52,15 @@ name = "shapes"
 version = "0.1.0"
 ```
 
-Items other packages use must be `pub`, including fields and methods:
+Items other packages use must be `pub`, including fields and methods.
+Arithmetic errors are part of that public contract too:
 
 ```plenty project-file shapes/src/lib.plenty
 pub class Square:
     pub side: i64
 
-    pub def area(self) -> i64:
-        self.side * self.side
+    pub def area(self) -> Result[i64, OverflowError[i64]]:
+        Ok(self.side * self.side)
 ```
 
 Each file directly in `tests/` is a test file. Functions named `test_*` take
@@ -70,8 +71,8 @@ package's library by the package name:
 import std.test
 from shapes import Square
 
-def test_area() -> Result[(), std.test.TestError]:
-    std.test.equal(&Square(3).area(), &9)?
+def test_area() -> Result[(), std.test.TestError | OverflowError[i64]]:
+    std.test.equal(&Square(3).area()?, &9)?
     Ok(())
 ```
 
@@ -112,9 +113,9 @@ pub def show(area: i64) -> Result[(), IoError]:
 import geometry
 from report import show
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     square = geometry.Square(4)
-    show(square.area())
+    show(square.area()?)
 ```
 
 ```sh plenty-project app

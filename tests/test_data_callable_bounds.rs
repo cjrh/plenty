@@ -4,14 +4,14 @@ mod support;
 fn generic_data_infers_callback_signature_parameters_and_checks_call_mode() {
     let output = support::run(
         r#"
-class Handler[T, F: Callable[[T], T]]:
+class Handler[T, F: Callable[[T], Result[T, OverflowError[T]]]]:
     callback: F
-    def call(self: &mut Handler[T, F], value: T) -> T:
+    def call(self: &mut Handler[T, F], value: T) -> Result[T, OverflowError[T]]:
         self.callback(value)
 enum Job[T, F: OnceCallable[[], T]]:
     Run(F)
-def named(n: u8) -> u8:
-    n + 1
+def named(n: u8) -> Result[u8, OverflowError[u8]]:
+    Ok(n + 1)
 def package[T, F: OnceCallable[[], T]](callback: F) -> Result[Job[T, F], AllocError]:
     Ok(Job[T, F].Run(callback))
 def consume[T, F: OnceCallable[[], T]](job: Job[T, F]) -> T:
@@ -19,17 +19,19 @@ def consume[T, F: OnceCallable[[], T]](job: Job[T, F]) -> T:
         case Job.Run(callback):
             mut owned = callback
             owned()
-mut first = Handler(named)
-print(first.call(2)).unwrap()
-offset = 10u8
-callback = def [offset](n: u8) -> u8:
-    offset + n
-mut second = Handler(callback)
-print(second.call(3)).unwrap()
-values = [42].unwrap()
-job = def once [values]() -> list[i64]:
-    values
-print(consume(package(job).unwrap())).unwrap()
+def main() -> Result[(), AllocError | IoError | OverflowError[u8]]:
+    mut first = Handler(named)
+    print(first.call(2)?)?
+    offset = 10u8
+    callback = def [offset](n: u8) -> Result[u8, OverflowError[u8]]:
+        Ok(offset + n)
+    mut second = Handler(callback)
+    print(second.call(3)?)?
+    values = [42]?
+    job = def once [values]() -> list[i64]:
+        values
+    print(consume(package(job)?))?
+    Ok(())
 "#,
     );
     assert!(

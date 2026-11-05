@@ -372,9 +372,9 @@ fn tail_sites(
                 }
                 tail_sites(otherwise, site, sites);
             }
-            Op::Try { cleanup, .. }
-            | Op::CheckedArith { cleanup, .. }
-            | Op::CheckedUnwrap { cleanup, .. } => tail_sites(cleanup, site, sites),
+            Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => {
+                tail_sites(cleanup, site, sites)
+            }
             Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
                 tail_sites(body, site, sites)
             }

@@ -29,7 +29,11 @@ def allocated[T](value: Result[T, AllocError]) -> Result[T, TextError]:
 # A caller-selected scalar bound covers input, full decomposition and output.
 # Stable insertion ordering follows UAX #15 D109; zero classes are boundaries.
 def normalized(text: &str, limit: i64, compatible: bool, compose: bool) -> Result[str, TextError]:
-    if limit > i64.MAX // 4:
+    # NonNegative public arguments supply limit; the positive constant divisor
+    # cannot fail, and the ceiling makes the final UTF-8 multiplication fit.
+    ceiling = unchecked:
+        i64.MAX // 4
+    if limit > ceiling:
         __trap("std.unicode: max_scalars is above i64.MAX // 4")
     if len(text) > limit:
         return Err(TextError.LimitExceeded)
@@ -43,15 +47,22 @@ def normalized(text: &str, limit: i64, compatible: bool, compose: bool) -> Resul
                 return Err(TextError.LimitExceeded)
             allocated(ordered.append(value))?
             class_value = __unicode_ccc(value)
-            mut index = len(ordered) - 1
+            # append succeeded, so 1 <= len(ordered) <= limit.
+            mut index = unchecked:
+                len(ordered) - 1
             if class_value != 0u32:
                 while index > 0:
-                    previous = __unicode_ccc(ordered[index - 1])
+                    # index > 0 and within the allocated ordered list.
+                    before = unchecked:
+                        index - 1
+                    previous = __unicode_ccc(ordered[before])
                     if previous == 0u32 or previous <= class_value:
                         break
-                    ordered.swap(index, index - 1)
-                    index -= 1
-            part += 1
+                    ordered.swap(index, before)
+                    index = before
+            # Each increment follows an append; part <= len(ordered) <= limit.
+            unchecked:
+                part += 1
             value = __unicode_decompose_at(code, compatible, part)
     mut result = allocated(list[u32].new())?
     mut starter = -1
@@ -69,7 +80,9 @@ def normalized(text: &str, limit: i64, compatible: bool, compose: bool) -> Resul
             allocated(result.append(code))?
             previous_class = class_value
     # The ceiling above keeps the UTF-8 byte bound nonnegative.
-    mut output = std.text.builder(NonNegative.try_from(limit * 4).unwrap())?
+    byte_limit = unchecked:
+        limit * 4
+    mut output = std.text.builder(NonNegative.try_from(byte_limit).unwrap())?
     for code in result:
         scalar = chr(code).unwrap()
         output.append(&scalar)?

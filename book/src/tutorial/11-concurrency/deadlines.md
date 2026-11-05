@@ -8,7 +8,7 @@ budget that every wait draws from.
 import std.sync
 from std.time import Deadline, monotonic_now, deadline_after, milliseconds
 
-def collect(inbox: &Receiver[i64], deadline: &Deadline, cancel: &CancellationToken) -> i64:
+def collect(inbox: &Receiver[i64], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     while True:
         match std.sync.recv_before(inbox, deadline, cancel):
@@ -18,16 +18,16 @@ def collect(inbox: &Receiver[i64], deadline: &Deadline, cancel: &CancellationTok
                 break
             case Err(std.sync.WaitError.Disconnected) | Err(std.sync.WaitError.Cancelled):
                 break
-    total
+    Ok(total)
 
-def main() -> Result[(), AllocError | IoError | RangeError | SendError[i64]]:
+def main() -> Result[(), AllocError | IoError | RangeError | SendError[i64] | OverflowError[i64]]:
     sender, receiver = channel[i64](4)?
     sender.send(1)?
     sender.send(2)?
     sender.send(3)?
     deadline = deadline_after(&monotonic_now(), &milliseconds(20))?
     cancel = CancellationToken()?
-    print(collect(&receiver, &deadline, &cancel))?
+    print(collect(&receiver, &deadline, &cancel)?)?
     print(deadline.expired(&monotonic_now()))?
     print(deadline.remaining(&monotonic_now()).as_timeout_ms())?
     Ok(())

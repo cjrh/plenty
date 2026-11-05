@@ -49,12 +49,13 @@ closure; the same rule protects all of their captured owners.
 Use `&mut` to modify an existing binding rather than moving it into private state:
 
 ```plenty
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut count = 0
-    mut increment = def [&mut count]() -> ():
+    mut increment = def [&mut count]() -> Result[(), OverflowError[i64]]:
         count = count + 1
-    increment()
-    increment()
+        Ok(())
+    increment()?
+    increment()?
     print(count)?
     Ok(())
 ```

@@ -1242,9 +1242,7 @@ impl Lower<'_> {
             return Ok(Callback::Value(callback.clone()));
         }
         let ty = if let Expression::Anonymous(function) = &ungroup(callback).kind {
-            if !self.lexical_checked()
-                && let Some(body) = splice::spliceable(function, &self.names)
-            {
+            if let Some(body) = splice::spliceable(function, &self.names) {
                 return self.splice_callback(function, body, &callback.at, ops);
             }
             self.closure_value(function, &callback.at, ops)?
@@ -1283,24 +1281,6 @@ impl Lower<'_> {
     }
 
     fn pipeline_call(
-        &mut self,
-        callback: &Callback,
-        args: &[Expr],
-        ops: &mut Vec<Op>,
-    ) -> Result<Type> {
-        let start = ops.len();
-        let result = self.pipeline_call_inner(callback, args, ops);
-        // A plan is reusable and may be lent. Its failure cleanup belongs to
-        // the eventual consumer, including locals created after this adapter.
-        for op in &mut ops[start..] {
-            if let Op::CheckedUnwrap { cleanup, .. } = op {
-                *cleanup = Arc::from([]);
-            }
-        }
-        result
-    }
-
-    fn pipeline_call_inner(
         &mut self,
         callback: &Callback,
         args: &[Expr],
@@ -1409,9 +1389,7 @@ impl Lower<'_> {
         // The step runs before leaving, so the next pull starts after this item.
         body.extend(plan.iteration.step.iter().cloned());
         body.push(Op::Break);
-        let mut condition = plan.iteration.condition.clone();
-        self.rebase_checked(&mut condition, at)?;
-        self.rebase_checked(&mut body, at)?;
+        let condition = plan.iteration.condition.clone();
         ops.push(Op::Loop {
             condition: condition.into(),
             body: body.into(),
@@ -1472,9 +1450,6 @@ impl Lower<'_> {
         self.finish_pipeline(&plan, &mut cleanup);
         let mut iteration = plan.iteration;
         iteration.cleanup = cleanup;
-        self.rebase_checked(&mut iteration.condition, &e.at)?;
-        self.rebase_checked(&mut iteration.body, &e.at)?;
-        self.rebase_checked(&mut iteration.step, &e.at)?;
         Ok(iteration)
     }
 
@@ -1504,20 +1479,6 @@ impl Lower<'_> {
         let result = consume(self);
         self.pipeline.consuming = outer;
         result
-    }
-
-    fn checked_pipeline_loop(
-        &mut self,
-        plan: &Pipeline,
-        mut body: Vec<Op>,
-        at: &Token,
-        ops: &mut Vec<Op>,
-    ) -> Result<()> {
-        let mut condition = plan.iteration.condition.clone();
-        self.rebase_checked(&mut condition, at)?;
-        self.rebase_checked(&mut body, at)?;
-        pipeline_loop(condition, plan.split, body, ops);
-        Ok(())
     }
 
     fn pipeline_consume(
@@ -1822,7 +1783,7 @@ impl Lower<'_> {
             }
         };
         body.extend(plan.iteration.step.clone());
-        self.checked_pipeline_loop(&plan, body, &base.at, ops)?;
+        pipeline_loop(plan.iteration.condition.clone(), plan.split, body, ops);
         if let Some((ty, slot)) = &output {
             ops.push(if ty.affine() {
                 Op::MoveLocal(*slot)
@@ -1923,6 +1884,17 @@ impl Lower<'_> {
             }
         };
         let output = if name == "sum" {
+            let body_start = ops.len();
+            // A terminal owns its arithmetic contract, independently of the
+            // caller's lexical mode. Source/callback construction stays outside.
+            if ty.is_int() {
+                self.checked.push(checked::Scope {
+                    start: self.locals.len(),
+                    function: false,
+                    arithmetic: true,
+                    failures: Vec::new(),
+                });
+            }
             let total = self.slot(ty.clone(), &base.at)?;
             ops.extend([zero(&ty), Op::StoreLocal(total)]);
             let sum = Expr {
@@ -1933,16 +1905,24 @@ impl Lower<'_> {
                     Box::new(value),
                 ),
             };
-            let checked = std::mem::take(&mut self.checked);
-            let actual = self.expr(&sum, &mut body);
-            self.checked = checked;
-            let actual = actual?;
+            let actual = self.expr(&sum, &mut body)?;
             self.same(actual, Some(ty.clone()), &base.at)?;
             body.push(Op::StoreLocal(total));
             body.extend(plan.iteration.step.clone());
-            self.checked_pipeline_loop(&plan, body, &base.at, ops)?;
+            pipeline_loop(plan.iteration.condition.clone(), plan.split, body, ops);
             ops.push(Op::LoadLocal(total));
-            ty.clone()
+            if ty.is_int() {
+                let scope = self.checked.pop().expect("sum arithmetic boundary");
+                let result = crate::sum::result(ty.clone(), crate::sum::anonymous(scope.failures));
+                let body = ops.drain(body_start..).collect();
+                ops.push(Op::CheckedBlock {
+                    body,
+                    result: result.clone(),
+                });
+                result
+            } else {
+                ty.clone()
+            }
         } else {
             // `best` is meaningful only once `seen` is set.
             let seen = self.slot(Ty::Bool, &base.at)?;
@@ -1980,7 +1960,7 @@ impl Lower<'_> {
                 ),
             ]);
             body.extend(plan.iteration.step.clone());
-            self.checked_pipeline_loop(&plan, body, &base.at, ops)?;
+            pipeline_loop(plan.iteration.condition.clone(), plan.split, body, ops);
             let option = crate::sum::option(ty.clone());
             let Ty::Enum(sum) = &option else {
                 unreachable!()

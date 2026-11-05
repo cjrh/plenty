@@ -1,3 +1,12 @@
+# put needs one spare slot to insert before eviction. Validate the extent
+# before any allocation, preserving CapacityOverflow for invalid capacities.
+def cache_slots(capacity: i64) -> Result[i64, AllocError]:
+    if capacity < 0 or capacity == i64.MAX:
+        return Err(AllocError.CapacityOverflow)
+    slots = unchecked:
+        capacity + 1
+    Ok(slots)
+
 # Entries live in dense parallel lists whose `_prev`/`_next` slots link them
 # from most to least recently used; the dictionary maps each key to its slot.
 # Removal moves the last slot into the gap, so every operation touches a
@@ -15,9 +24,7 @@ pub class LruCache[K, V]:
     _capacity: i64
 
     pub def __init__(self, capacity: i64) -> Result[(), AllocError]:
-        # A negative count makes `with_capacity` return CapacityOverflow; this
-        # also keeps `capacity + 1` from overflowing.
-        slots = capacity + 1 if capacity >= 0 and capacity < i64.MAX else -1
+        slots = cache_slots(capacity)?
         self._keys = list[K].with_capacity(slots)?
         self._values = list[V].with_capacity(slots)?
         self._prev = list[i64].with_capacity(slots)?
@@ -72,7 +79,9 @@ pub class LruCache[K, V]:
     # Unlinks `slot`, moves the last entry into it, and transfers the entry out.
     def take(self: &mut LruCache[K, V], slot: i64) -> (K, V):
         self.unlink(slot)
-        last = len(self._keys) - 1
+        # take is called only for a live slot in the private dense lists.
+        last = unchecked:
+            len(self._keys) - 1
         if slot != last:
             self._keys.swap(slot, last)
             self._values.swap(slot, last)

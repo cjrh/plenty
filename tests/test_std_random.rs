@@ -12,7 +12,7 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "{HEADER}def main() -> Result[(), AllocError | IoError | std.random.RandomError | std.bytes.BytesError]:\n{body}    Ok(())\n"
+        "{HEADER}def main() -> Result[(), AllocError | IoError | std.random.RandomError | std.bytes.BytesError | OverflowError[i64]]:\n{body}    Ok(())\n"
     )
 }
 

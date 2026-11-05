@@ -43,11 +43,11 @@ the pipeline has taken it, is an ownership error.
 `sum()`, `min()`, and `max()` are final methods that need no function either:
 
 ```plenty
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     rolls = [3, 6, 2, 6, 6, 1]?
-    print(iter(&rolls).sum(), iter(&rolls).min(), iter(&rolls).skip(4).max())?
+    print(iter(&rolls).sum()?, iter(&rolls).min(), iter(&rolls).skip(4).max())?
     none: list[i64] = []?
-    print(iter(&none).sum(), iter(&none).max().unwrap_or(0))?
+    print(iter(&none).sum()?, iter(&none).max().unwrap_or(0))?
     Ok(())
 ```
 
@@ -57,8 +57,9 @@ def main() -> Result[(), AllocError | IoError]:
 ```
 
 A borrowed item is read by value, so the results are `i64`, not references.
-`sum()` gives zero for no items, and integer overflow stops the program, as for
-`+`. `min()` and `max()` return an `Option`, `Nothing` for no items. They
+`sum()` gives zero for no items. Integer overflow returns `OverflowError[i64]`,
+handled with `?` here; floating-point sums retain IEEE behavior.
+`min()` and `max()` return an `Option`, `Nothing` for no items. They
 accept numbers and `str` and keep the first of equal items. Floats follow the
 IEEE 754 rules for NaN and signed zero, as `std.math.min_all` and `max_all` do;
 the [pipeline reference](../../design/language/09-iteration/06-pipelines.md#terminals)
@@ -241,7 +242,9 @@ def countdown(start: i64) -> Generator[i64]:
     mut remaining = start
     while remaining > 0:
         yield remaining
-        remaining -= 1
+        # The loop proves 1 <= remaining <= i64.MAX.
+        unchecked:
+            remaining -= 1
 
 def main() -> Result[(), AllocError | IoError]:
     last: list[i64] = countdown(10).skip(7).collect()?

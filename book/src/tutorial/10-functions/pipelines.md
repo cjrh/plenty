@@ -9,10 +9,10 @@ class Payment:
     name: str
     cents: i64
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     payments = [Payment("bob", 120), Payment("ada", 300), Payment("bob", 80)]?
     selected = iter(&payments).filter(def(p: &Payment) -> bool: p.name == "bob")
-    total = selected.map(def(p: &Payment) -> i64: p.cents).sum()
+    total = selected.map(def(p: &Payment) -> i64: p.cents).sum()?
     largest = iter(&payments).map(def(p: &Payment) -> i64: p.cents).max()
     refund = iter(&payments).any(def(p: &Payment) -> bool: p.cents < 0)
     print(total, largest, refund, len(payments))?
@@ -31,8 +31,8 @@ Trying to consume `selected` again is an ownership error.
 `sum` and `max` work as in [Chain iteration steps with
 `iter`](../05-iteration/pipelines.md#add-up-and-find-extremes); here they reduce
 mapped values, since a `Payment` is neither a number nor a `str`. Likewise,
-`any` and `all` take a predicate when the items are not `bool`. Use `fold` for
-any other accumulation.
+`any` and `all` take a predicate when the items are not `bool`. Use `try_fold` for
+a fallible accumulation, or `fold` for an infallible one.
 
 A method returning a borrowed list can be used directly as the source. Its
 owner remains borrowed while the pipeline is in use:
@@ -44,9 +44,9 @@ class Readings:
     def samples(self) -> &list[i64]:
         &self.values
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     readings = Readings([10, 20, 30]?)
-    product = iter(readings.samples()).fold(1, def(acc: i64, n: &i64) -> i64: acc * *n)
+    product = iter(readings.samples()).try_fold(1, def(acc: i64, n: &i64) -> Result[i64, OverflowError[i64]]: Ok(acc * *n))?
     print(product)?
     Ok(())
 ```
@@ -54,17 +54,18 @@ def main() -> Result[(), AllocError | IoError]:
 6000
 ```
 
-`fold` starts with its first argument and passes the accumulator and each item
-to the callback, which returns the next accumulator.
+`try_fold` starts with its first argument and passes the accumulator and each
+item to the callback. An `Ok` supplies the next accumulator; the first `Err`
+stops iteration and is returned to the caller.
 
 Predicates borrow each item; `map` receives whatever the source yields. A
 borrowed list yields references, so the map above takes `&Payment`. A range
 yields integers by value:
 
 ```plenty
-def main() -> Result[(), IoError]:
-    for square in iter(range(10)).skip(2).take(3).map(def(n: i64) -> i64: n * n):
-        print(square)?
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    for square in iter(range(10)).skip(2).take(3).map(def(n: i64) -> Result[i64, OverflowError[i64]]: Ok(n * n)):
+        print(square?)?
     Ok(())
 ```
 ```output
@@ -121,15 +122,15 @@ Use `chain` to continue with a second source of the same item type, and
 ```plenty
 class Batch:
     first: i64
-    count: i64
+    stop: i64
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     morning = [3, 1]?
     evening = [4]?
-    total = iter(&morning).chain(&evening).sum()
+    total = iter(&morning).chain(&evening).sum()?
     print(total)?
-    batches = [Batch(100, 2), Batch(200, 1)]?
-    for ticket in iter(&batches).flat_map(def(b: &Batch) -> range[i64]: range(b.first, b.first + b.count)):
+    batches = [Batch(100, 102), Batch(200, 201)]?
+    for ticket in iter(&batches).flat_map(def(b: &Batch) -> range[i64]: range(b.first, b.stop)):
         print(ticket)?
     Ok(())
 ```
@@ -142,8 +143,9 @@ def main() -> Result[(), AllocError | IoError]:
 
 Both lists stay borrowed until the sum ends. The `flat_map` callback runs
 once per batch, only after the previous batch's tickets are used up, and
-returns a range, so nothing is allocated. A callback may return any owned
-iterable, such as a list, range or generator; returning a list allocates one list
+returns a range, so nothing is allocated. `Batch` stores start and stop
+endpoints directly; constructing the range needs no endpoint arithmetic. A
+callback may return any owned iterable, such as a list, range or generator; returning a list allocates one list
 per item.
 
 ## Lend a pipeline whose callbacks borrow
@@ -195,7 +197,7 @@ lend, both forms work.
 
 Keep a plain loop for several statements or error propagation, and use a
 comprehension when building a list is the clearest form. Pipelines are local:
-the next lesson applies them to generators and shows how to
+[Transform a stream of values](streams.md) applies them to generators and shows how to
 [return a stream](streams.md#return-a-stream) from a function. See the
 [pipeline reference](../../design/language/09-iteration/06-pipelines.md)
 for terminals and the current limits.

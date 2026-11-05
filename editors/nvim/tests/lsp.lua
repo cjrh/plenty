@@ -25,17 +25,18 @@ vim.fn.writefile({
   'class Point:',
   '    pub x: i64',
   '',
-  '    def double(self) -> i64:',
+  '    def double(self) -> Result[i64, OverflowError[i64]]:',
   '        "Twice x."',
-  '        self.x * 2',
+  '        Ok(self.x * 2)',
   '',
   'def broken() -> i64:',
   '    "x"',
   '',
-  'def main() -> ():',
+  'def main() -> Result[(), OverflowError[i64]]:',
   '    p = Point(3)',
-  '    n = p.double()',
+  '    n = p.double()?',
   '    g = gcd(6u64, 4u64)',
+  '    Ok(())',
 }, file)
 vim.cmd('edit ' .. file)
 assert(vim.bo.filetype == 'plenty', 'filetype')
@@ -77,7 +78,7 @@ end
 
 -- Hover on the method call in `p.double()`.
 local hover = request('textDocument/hover', 14, 10)
-assert(hover.contents.value:find('def double%(self%) %-> i64'), vim.inspect(hover))
+assert(hover.contents.value:find('def double%(self%) %-> Result%[i64, OverflowError%[i64%]%]'), vim.inspect(hover))
 assert(hover.contents.value:find('Twice x.'), vim.inspect(hover))
 
 -- K opens the same hover in a floating window.
@@ -137,7 +138,7 @@ end
 assert(found, vim.inspect(hints))
 
 -- didSave: a new error written to disk is reported at its line.
-vim.api.nvim_buf_set_lines(buf, -1, -1, false, { '    k = p.double(1)' })
+vim.api.nvim_buf_set_lines(buf, -2, -2, false, { '    k = p.double(1)?' })
 vim.cmd('write')
 assert(sent['textDocument/didSave'], vim.inspect(sent))
 wait('diagnostics after the write', function()

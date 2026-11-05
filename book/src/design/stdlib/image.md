@@ -50,7 +50,8 @@ Width and height lie in 1 to 2³¹−1, the PNG maximum, so every image can be
 encoded. `new` and `from_pixels` trap on a dimension above 2³¹−1; convert a
 computed size with `Positive.try_from`, or check it first with
 `Limits.check`. An image whose size in bytes does not fit in `i64` is
-`LimitExceeded`. `from_pixels` needs a buffer of exactly
+`LimitExceeded`, including a colour conversion or mixed-dimension bilinear
+intermediate whose pixel extent is unrepresentable. `from_pixels` needs a buffer of exactly
 `width * height * channels` bytes, otherwise `OutOfRange`.
 
 `detect` recognises PNG, JPEG, GIF and WebP signatures and returns `Nothing`
@@ -137,7 +138,7 @@ import std.io
 from std.bytes import Bytes
 from std.image import ColorType, ImageError, Limits
 
-type Problem = AllocError | IoError | std.bytes.BytesError | std.io.StreamError | std.io.Partial | ImageError
+type Problem = AllocError | IoError | std.bytes.BytesError | std.io.StreamError | std.io.Partial | ImageError | OverflowError[i64]
 
 # The whole file, or LimitExceeded if it is longer than `limit` bytes.
 def load(path: &str, limit: NonNegative[i64]) -> Result[Bytes, Problem]:
@@ -223,7 +224,9 @@ the same checks, and allocates nothing.
 `encode_png` writes an 8-bit, non-interlaced PNG of the image's colour type:
 the signature, `IHDR`, the image data in `IDAT` chunks of about 64 KiB, and
 `IEND`, with no ancillary chunks. `level` is the zlib level, 0 to 9;
-anything else is `OutOfRange`. Level 0 stores rows unfiltered and
+anything else is `OutOfRange`. PNG filter differences and reconstruction use
+explicit modulo-256 byte arithmetic; cursor and filter-score arithmetic stays
+bounded by the validated dimensions and held buffers. Level 0 stores rows unfiltered and
 uncompressed. Above 0, each row is filtered all five ways and the one with
 the smallest sum of absolute differences is kept, the heuristic the PNG
 specification recommends. Equal images and levels give equal files.
@@ -280,7 +283,7 @@ pub enum ImageError:
 | `Checksum` | A chunk CRC or zlib Adler-32 mismatch |
 | `Truncated` | The input ended inside a chunk or before `IEND` |
 | `Unsupported` | A format other than PNG, or an unknown critical chunk |
-| `LimitExceeded` | An image outside the `Limits`, or too large to address |
+| `LimitExceeded` | An image outside the `Limits`, or an unrepresentable pixel or decompressed-pass extent |
 | `Allocation(cause)` | A buffer could not be allocated |
 
 ## Ownership and threads

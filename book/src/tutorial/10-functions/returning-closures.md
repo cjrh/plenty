@@ -4,20 +4,20 @@ Return an owned closure to keep its captured data after its creating function
 returns. `Closure` describes the returned call signature:
 
 ```plenty
-def counter(start: i64) -> Closure[[], i64]:
-    def [mut start]() -> i64:
+def counter(start: i64) -> Closure[[], Result[i64, OverflowError[i64]]]:
+    def [mut start]() -> Result[i64, OverflowError[i64]]:
         start = start + 1
-        start
+        Ok(start)
 
-def apply(f: &mut Closure[[], i64]) -> i64:
+def apply(f: &mut Closure[[], Result[i64, OverflowError[i64]]]) -> Result[i64, OverflowError[i64]]:
     f()
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut first = counter(10)
     mut second = counter(30)
-    print(apply(&mut first))?
-    print(second())?
-    print(first())?
+    print(apply(&mut first)?)?
+    print(second()?)?
+    print(first()?)?
     Ok(())
 ```
 ```output
@@ -27,7 +27,7 @@ def main() -> Result[(), IoError]:
 ```
 
 `apply` needs an exclusive borrow because calling the counter changes its state.
-For a read-only closure, use a shared parameter such as `&Closure[[i64], i64]`.
+For a read-only closure, use a shared parameter such as `&Closure[[i64], Result[i64, OverflowError[i64]]]`.
 
 Different anonymous expressions have different concrete environment types, even
 with identical signatures. A factory must return one concrete type on every path.
@@ -39,17 +39,17 @@ An owned closure can capture another closure or be wrapped in `Option` or
 `Result`:
 
 ```plenty
-def make(offset: i64) -> Option[Closure[[i64], i64]]:
-    inner = def [offset](value: i64) -> i64:
-        offset + value
-    outer = def [inner](value: i64) -> i64:
-        inner(value) * 2
+def make(offset: i64) -> Option[Closure[[i64], Result[i64, OverflowError[i64]]]]:
+    inner = def [offset](value: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(offset + value)
+    outer = def [inner](value: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(inner(value)? * 2)
     Some(outer)
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     match make(3):
         case Some(calculate):
-            print(calculate(4))?
+            print(calculate(4)?)?
         case Nothing:
             print("no callback")?
     Ok(())

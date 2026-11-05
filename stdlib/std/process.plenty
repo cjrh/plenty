@@ -41,6 +41,15 @@ def allocated[T](result: Result[T, AllocError]) -> Result[T, IoError]:
         case Err(cause):
             Err(IoError.Data(DataError.Allocation(cause)))
 
+def extent(first: i64, second: i64) -> Result[i64, IoError]:
+    size = checked:
+        first + second
+    match size:
+        case Ok(value):
+            Ok(value)
+        case Err(_):
+            Err(IoError.Data(DataError.Allocation(AllocError.CapacityOverflow)))
+
 def has_nul(piece: &list[u8]) -> bool:
     for byte in piece:
         if byte == 0u8:
@@ -52,7 +61,8 @@ def has_nul(piece: &list[u8]) -> bool:
 def terminated(target: &mut list[u8], piece: &list[u8]) -> Result[(), IoError]:
     if has_nul(piece):
         return Err(IoError.InvalidInput)
-    allocated(target.reserve(len(target) + len(piece) + 1))?
+    # reserve takes additional elements; held bytes must not be counted twice.
+    allocated(target.reserve(extent(len(piece), 1)?))?
     for index in range(len(piece)):
         allocated(target.append(piece[index]))?
     allocated(target.append(0u8))
@@ -74,7 +84,10 @@ pub class ExitStatus:
         if self._raw < 256:
             Nothing
         else:
-            Some(i32(self._raw - 256))
+            # The branch proves raw >= 256, so subtraction stays nonnegative.
+            signal = unchecked:
+                self._raw - 256
+            Some(i32(signal))
 
 pub class Output:
     pub status: ExitStatus
@@ -96,7 +109,9 @@ pub class Command:
 
     pub def arg_bytes(self: &mut Command, value: &list[u8]) -> Result[(), IoError]:
         terminated(&mut self._spec, value)?
-        self._argc += 1
+        # Each counted argument has a NUL byte in the successfully grown spec.
+        self._argc = unchecked:
+            self._argc + 1
         Ok(())
 
     pub def arg(self: &mut Command, value: &str) -> Result[(), IoError]:
@@ -109,7 +124,7 @@ pub class Command:
     pub def env_bytes(self: &mut Command, name: &list[u8], value: &list[u8]) -> Result[(), IoError]:
         if not valid_name(name):
             return Err(IoError.InvalidInput)
-        mut edit = allocated(list[u8].with_capacity(len(name) + len(value) + 1))?
+        mut edit = allocated(list[u8].with_capacity(extent(extent(len(name), len(value))?, 1)?))?
         for index in range(len(name)):
             allocated(edit.append(name[index]))?
         allocated(edit.append(61u8))?
@@ -156,16 +171,16 @@ pub class Command:
 
     # The command is reusable: each call starts another child.
     pub def spawn(self) -> Result[Child, IoError]:
-        mut spec = allocated(list[u8].with_capacity(len(self._spec) + len(self._dir) + len(self._env)))?
+        mut spec = allocated(list[u8].with_capacity(extent(extent(len(self._spec), len(self._dir))?, len(self._env))?))?
         for index in range(len(self._spec)):
             allocated(spec.append(self._spec[index]))?
-        mut flags = self._stdin + self._stdout * 4 + self._stderr * 16
+        mut flags = self._stdin | (self._stdout << 2) | (self._stderr << 4)
         if self._change_dir:
-            flags += 64
+            flags = flags | 64
             for index in range(len(self._dir)):
                 allocated(spec.append(self._dir[index]))?
         if self._clear_env:
-            flags += 128
+            flags = flags | 128
         for index in range(len(self._env)):
             allocated(spec.append(self._env[index]))?
         handle = __process_spawn(spec, self._argc, flags)?
@@ -254,19 +269,39 @@ def broken(error: &IoError) -> bool:
         case _:
             False
 
-# One read of at most a chunk, appended to `out`. True means end of input.
-# `out` may reach limit + 1 bytes, which is how an overflow is told apart from
-# an output of exactly `limit`.
+# Checked extent for a chunk or a one-byte probe past the output budget.
+def drain_extent(before: i64, limit: i64) -> Result[i64, StreamError]:
+    if before < 0 or limit < before:
+        return Err(StreamError.OutOfRange)
+    # Validated endpoints bound the difference; only a remainder < chunk is incremented.
+    wanted = unchecked:
+        remaining = limit - before
+        if remaining < chunk:
+            remaining + 1
+        else:
+            chunk
+    size = checked:
+        before + wanted
+    match size:
+        case Ok(end):
+            Ok(end)
+        case Err(_):
+            Err(StreamError.Allocation(AllocError.CapacityOverflow))
+
+# One read of at most a chunk, appended to out. True means end of input.
+# Reading one byte past limit distinguishes excess output from an exact fit.
+# Representation failure precedes growth or consuming input.
 def drained(file: &mut File, out: &mut Bytes, limit: i64) -> Result[bool, StreamError]:
     before = out.len()
-    mut wanted = chunk
-    if limit - before < chunk:
-        wanted = limit - before + 1
-    out.resize(before + wanted, 0u8).map_error(StreamError.Allocation)?
-    match out.read_file(file, before, before + wanted):
+    end = drain_extent(before, limit)?
+    out.resize(end, 0u8).map_error(StreamError.Allocation)?
+    match out.read_file(file, before, end):
         case Ok(count):
-            out.truncate(before + count)
-            if before + count > limit:
+            # Concrete native file progress is in 0..=end-before.
+            after = unchecked:
+                before + count
+            out.truncate(after)
+            if after > limit:
                 return Err(StreamError.OutOfRange)
             Ok(count == 0)
         case Err(error):
@@ -285,7 +320,7 @@ pub class Child:
     _stderr: Option[File]
 
     pub def id(self) -> i64:
-        self._handle % 4294967296
+        self._handle & 4294967295
 
     # The pipe ends, present once each when the command asked for Piped.
     pub def take_stdin(self: &mut Child) -> Option[File]:
@@ -363,24 +398,26 @@ pub class Child:
     # One page of `input` from `sent`; returns the new position. A child that
     # stopped reading ends the feed without an error: its status tells why.
     def feed(self: &mut Child, input: &[u8], sent: i64) -> Result[i64, StreamError]:
-        mut stop = len(input)
-        if stop - sent > pipe_page:
-            stop = sent + pipe_page
-        match &mut self._stdin:
-            case Some(file):
-                match write_file(file, &input[sent:stop]):
-                    case Ok(count):
-                        return Ok(sent + count)
-                    case Err(error):
-                        if not broken(&error):
-                            cause = classify(error)
-                            if interrupted(&cause):
-                                return Ok(sent)
-                            return Err(cause)
-            case Nothing:
-                return Ok(len(input))
-        self._stdin = Nothing
-        Ok(len(input))
+        # Private sent is within input; the page clamp and native write count bound its advance.
+        unchecked:
+            mut stop = len(input)
+            if stop - sent > pipe_page:
+                stop = sent + pipe_page
+            match &mut self._stdin:
+                case Some(file):
+                    match write_file(file, &input[sent:stop]):
+                        case Ok(count):
+                            return Ok(sent + count)
+                        case Err(error):
+                            if not broken(&error):
+                                cause = classify(error)
+                                if interrupted(&cause):
+                                    return Ok(sent)
+                                return Err(cause)
+                case Nothing:
+                    return Ok(len(input))
+            self._stdin = Nothing
+            Ok(len(input))
 
     # Writes `input` to a piped stdin while collecting piped stdout and stderr,
     # whichever is ready, so no pipe fills while another is being served. Then
@@ -396,11 +433,11 @@ pub class Child:
                 failed(self.close_stdin())?
             mut interest = 0
             if self._stdin.is_some():
-                interest += 1
+                interest = interest | 1
             if self._stdout.is_some():
-                interest += 2
+                interest = interest | 2
             if self._stderr.is_some():
-                interest += 4
+                interest = interest | 4
             if interest == 0:
                 break
             mut ready = 0
@@ -411,9 +448,9 @@ pub class Child:
                     cause = classify(error)
                     if not interrupted(&cause):
                         return Err(cause)
-            if ready % 2 == 1:
+            if ready & 1 != 0:
                 sent = self.feed(input, sent)?
-            if (ready // 2) % 2 == 1:
+            if ready & 2 != 0:
                 mut ended = False
                 match &mut self._stdout:
                     case Some(file):
@@ -422,7 +459,7 @@ pub class Child:
                         pass
                 if ended:
                     failed(closed_end(replace(self._stdout, Nothing)))?
-            if ready // 4 == 1:
+            if ready & 4 != 0:
                 mut ended = False
                 match &mut self._stderr:
                     case Some(file):

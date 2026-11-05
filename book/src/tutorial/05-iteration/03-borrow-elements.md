@@ -3,7 +3,7 @@
 An exclusive loop lends each element in turn for mutation:
 
 ```plenty
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut numbers = [10, 20]?
     for number in &mut numbers:
         *number = *number + 2

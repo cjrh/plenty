@@ -495,23 +495,25 @@ fn structural_class_keys_algebra_copies_independent_owners() {
 class Key:
     text: str
     n: i64
-mut left = {Key("same", 1), Key("left", 2)}.unwrap()
-right = {Key("same", 1), Key("right", 3)}.unwrap()
-union = left.union(&right).unwrap()
-intersection = left.intersection(&right).unwrap()
-difference = left.difference(&right).unwrap()
-symmetric = left.symmetric_difference(&right).unwrap()
-print(left.issubset(&union), left.isdisjoint(&difference), len(intersection), len(difference), len(symmetric)).unwrap()
-left.intersection_update(&right)
-print(len(left)).unwrap()
-drop(left)
-drop(right)
-print(Key("same", 1) in union, Key("right", 3) in union).unwrap()
-for item in union:
-    mut key = item
-    key.n += 10
-    print(key.text, key.n).unwrap()
-print(Key("same", 1) in intersection, Key("left", 2) in difference, Key("right", 3) in symmetric).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    mut left = {Key("same", 1), Key("left", 2)}.unwrap()
+    right = {Key("same", 1), Key("right", 3)}.unwrap()
+    union = left.union(&right).unwrap()
+    intersection = left.intersection(&right).unwrap()
+    difference = left.difference(&right).unwrap()
+    symmetric = left.symmetric_difference(&right).unwrap()
+    print(left.issubset(&union), left.isdisjoint(&difference), len(intersection), len(difference), len(symmetric)).unwrap()
+    left.intersection_update(&right)
+    print(len(left)).unwrap()
+    drop(left)
+    drop(right)
+    print(Key("same", 1) in union, Key("right", 3) in union).unwrap()
+    for item in union:
+        mut key = item
+        key.n += 10
+        print(key.text, key.n).unwrap()
+    print(Key("same", 1) in intersection, Key("left", 2) in difference, Key("right", 3) in symmetric).unwrap()
+    Ok(())
 "#,
         "True False 1 1 2\n1\nTrue True\nsame 11\nleft 12\nright 13\nTrue True True\n",
     );
@@ -712,16 +714,18 @@ def score(value: &E) -> i64:
             1
         case E.B:
             2
-original = [{E.B, E.A}.unwrap()].unwrap()
-mut total = 0
-for member in copy(original[0]).unwrap():
-    total += score(&member)
-print(total, len(original[0])).unwrap()
-cloned = copy(original).unwrap()
-drop(original)
-print(len(cloned[0]), cloned[0] == {E.A, E.B}.unwrap()).unwrap()
-collected = [*member for member in &cloned[0]].unwrap()
-print(len(collected)).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    original = [{E.B, E.A}.unwrap()].unwrap()
+    mut total = 0
+    for member in copy(original[0]).unwrap():
+        total += score(&member)
+    print(total, len(original[0])).unwrap()
+    cloned = copy(original).unwrap()
+    drop(original)
+    print(len(cloned[0]), cloned[0] == {E.A, E.B}.unwrap()).unwrap()
+    collected = [*member for member in &cloned[0]].unwrap()
+    print(len(collected)).unwrap()
+    Ok(())
 "#,
         "3 2\n2 True\n2",
     );
@@ -768,57 +772,59 @@ fn finite_enum_bitsets_preserve_all_payload_combinations_and_views() {
                 &format!(
                     r#"
 {declaration}
-values = [{}].unwrap()
-mut evens = {{*value for i, value in enumerate(&values) if i % 2 == 0}}.unwrap()
-thirds = {{*value for i, value in enumerate(&values) if i % 3 == 0}}.unwrap()
-u = evens.union(&thirds).unwrap()
-a = evens.intersection(&thirds).unwrap()
-d = evens.difference(&thirds).unwrap()
-x = evens.symmetric_difference(&thirds).unwrap()
-for i, value in enumerate(&values):
-    test.check((value in u) == (i % 2 == 0 or i % 3 == 0), "union").unwrap()
-    test.check((value in a) == (i % 2 == 0 and i % 3 == 0), "intersection").unwrap()
-    test.check((value in d) == (i % 2 == 0 and i % 3 != 0), "difference").unwrap()
-    test.check((value in x) == ((i % 2 == 0) != (i % 3 == 0)), "symmetric difference").unwrap()
-test.check(evens.issubset(&u) and u.issuperset(&thirds) and d.isdisjoint(&thirds), "relationships").unwrap()
-evens.intersection_update(&thirds)
-test.check(evens == a, "intersection update").unwrap()
-evens.update(copy(thirds).unwrap()).unwrap()
-test.check(evens == thirds, "update").unwrap()
-evens.difference_update(&thirds)
-test.check(len(evens) == 0, "difference update").unwrap()
-mut members = {{*value for value in &values}}.unwrap()
-print(len(members)).unwrap()
-for value in &values:
-    test.check(value in members, "finite set invariant").unwrap()
-    test.check(members.discard(value), "finite set invariant").unwrap()
-    test.check(value not in members, "finite set invariant").unwrap()
-    members.add(*value).unwrap()
-cloned = copy(members).unwrap()
-test.check(cloned == members, "finite set invariant").unwrap()
-map = {{*value: 1 for value in &values}}.unwrap()
-view = map.keys()
-test.check(view.to_set().unwrap() == members, "finite set invariant").unwrap()
-test.check(members.intersection(&view).unwrap() == members, "finite set invariant").unwrap()
-test.check(view.union(&members).unwrap() == members, "finite set invariant").unwrap()
-test.check(len(members.symmetric_difference(&view).unwrap()) == 0, "finite set invariant").unwrap()
-mut mixed = copy(members).unwrap()
-mixed.intersection_update(&view)
-test.check(mixed == members, "finite set invariant").unwrap()
-mixed.difference_update(&view)
-test.check(len(mixed) == 0, "finite set invariant").unwrap()
-collected = [*value for value in &members].unwrap()
-owned = [value for value in copy(members).unwrap()].unwrap()
-members.clear()
-drop(members)
-test.check(len(cloned) == {size}, "finite set invariant").unwrap()
-test.check(len(collected) == {size}, "finite set invariant").unwrap()
-test.check(len(owned) == {size}, "finite set invariant").unwrap()
-for value in &collected:
-    test.check(value in cloned, "finite set invariant").unwrap()
-for value in &owned:
-    test.check(value in cloned, "finite set invariant").unwrap()
-print(len(cloned), len(collected), len(owned)).unwrap()
+def main() -> Result[(), ZeroDivisionError]:
+    values = [{}].unwrap()
+    mut evens = {{*value for i, value in enumerate(&values) if i % 2 == 0}}.unwrap()
+    thirds = {{*value for i, value in enumerate(&values) if i % 3 == 0}}.unwrap()
+    u = evens.union(&thirds).unwrap()
+    a = evens.intersection(&thirds).unwrap()
+    d = evens.difference(&thirds).unwrap()
+    x = evens.symmetric_difference(&thirds).unwrap()
+    for i, value in enumerate(&values):
+        test.check((value in u) == (i % 2 == 0 or i % 3 == 0), "union").unwrap()
+        test.check((value in a) == (i % 2 == 0 and i % 3 == 0), "intersection").unwrap()
+        test.check((value in d) == (i % 2 == 0 and i % 3 != 0), "difference").unwrap()
+        test.check((value in x) == ((i % 2 == 0) != (i % 3 == 0)), "symmetric difference").unwrap()
+    test.check(evens.issubset(&u) and u.issuperset(&thirds) and d.isdisjoint(&thirds), "relationships").unwrap()
+    evens.intersection_update(&thirds)
+    test.check(evens == a, "intersection update").unwrap()
+    evens.update(copy(thirds).unwrap()).unwrap()
+    test.check(evens == thirds, "update").unwrap()
+    evens.difference_update(&thirds)
+    test.check(len(evens) == 0, "difference update").unwrap()
+    mut members = {{*value for value in &values}}.unwrap()
+    print(len(members)).unwrap()
+    for value in &values:
+        test.check(value in members, "finite set invariant").unwrap()
+        test.check(members.discard(value), "finite set invariant").unwrap()
+        test.check(value not in members, "finite set invariant").unwrap()
+        members.add(*value).unwrap()
+    cloned = copy(members).unwrap()
+    test.check(cloned == members, "finite set invariant").unwrap()
+    map = {{*value: 1 for value in &values}}.unwrap()
+    view = map.keys()
+    test.check(view.to_set().unwrap() == members, "finite set invariant").unwrap()
+    test.check(members.intersection(&view).unwrap() == members, "finite set invariant").unwrap()
+    test.check(view.union(&members).unwrap() == members, "finite set invariant").unwrap()
+    test.check(len(members.symmetric_difference(&view).unwrap()) == 0, "finite set invariant").unwrap()
+    mut mixed = copy(members).unwrap()
+    mixed.intersection_update(&view)
+    test.check(mixed == members, "finite set invariant").unwrap()
+    mixed.difference_update(&view)
+    test.check(len(mixed) == 0, "finite set invariant").unwrap()
+    collected = [*value for value in &members].unwrap()
+    owned = [value for value in copy(members).unwrap()].unwrap()
+    members.clear()
+    drop(members)
+    test.check(len(cloned) == {size}, "finite set invariant").unwrap()
+    test.check(len(collected) == {size}, "finite set invariant").unwrap()
+    test.check(len(owned) == {size}, "finite set invariant").unwrap()
+    for value in &collected:
+        test.check(value in cloned, "finite set invariant").unwrap()
+    for value in &owned:
+        test.check(value in cloned, "finite set invariant").unwrap()
+    print(len(cloned), len(collected), len(owned)).unwrap()
+    Ok(())
 "#,
                     values.join(", ")
                 ),
@@ -905,17 +911,19 @@ print(len(copy_of_members), E.Flag(Some(True)) in copy_of_members).unwrap()
 fn finite_tuple_bitsets_project_shared_fields_and_copy_values() {
     finite_native(
         r#"
-values = {(False, False), (True, False), (False, True), (True, True)}.unwrap()
-mut true_fields = 0
-for item in &values:
-    if item[0]:
-        true_fields += 1
-    if item[1]:
-        true_fields += 1
-collected = [*item for item in &values].unwrap()
-drop(values)
-print(true_fields, len(collected)).unwrap()
-test.check((True, False) in collected, "finite set invariant").unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    values = {(False, False), (True, False), (False, True), (True, True)}.unwrap()
+    mut true_fields = 0
+    for item in &values:
+        if item[0]:
+            true_fields += 1
+        if item[1]:
+            true_fields += 1
+    collected = [*item for item in &values].unwrap()
+    drop(values)
+    print(true_fields, len(collected)).unwrap()
+    test.check((True, False) in collected, "finite set invariant").unwrap()
+    Ok(())
 "#,
         "4 4",
     );

@@ -24,7 +24,7 @@ def connection_heap() -> Positive[i64]:
 pub enum Note:
     Hello
 
-type Fault = AllocError | NetError | BytesError | TimerError
+type Fault = AllocError | NetError | BytesError | TimerError | OverflowError[i64]
 
 pub class Acceptor:
     pub listener: Listener

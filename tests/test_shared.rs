@@ -15,11 +15,12 @@ class Point:
     y: i64
     tags: list[str]
 
-    def sum(self) -> i64:
-        return self.x + self.y
+    def sum(self) -> Result[i64, OverflowError[i64]]:
+        return Ok(self.x + self.y)
 
-    def shift(self: &mut Point) -> ():
+    def shift(self: &mut Point) -> Result[(), OverflowError[i64]]:
         self.x = self.x + 1
+        Ok(())
 
 class Noisy:
     label: str
@@ -44,7 +45,7 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "{HEADER}\ndef main() -> Result[(), AllocError | IoError | PoolError | FormatError]:\n{body}    Ok(())\n"
+        "{HEADER}\ndef main() -> Result[(), AllocError | IoError | PoolError | FormatError | OverflowError[i64]]:\n{body}    Ok(())\n"
     )
 }
 
@@ -107,12 +108,12 @@ fn fields_methods_and_references_borrow_through_the_handle() {
         r#"
 h = Shared(Point(3, 4, ["a", "b"]?))?
 print(h.x)?
-print(h.sum())?
+print(h.sum()?)?
 print(len(h.tags))?
 print(h.tags[1])?
 r = &*h
 print(r.y)?
-print(total(&*h))?
+print(total(&*h)?)?
 n = Shared[i64](7)?
 print(*n + 1)?
 boxed = Shared(Box(Point(1, 1, []?))?)?
@@ -121,7 +122,7 @@ print(boxed.x)?
     )
     .replace(
         "\ndef main()",
-        "\ndef total(p: &Point) -> i64:\n    return p.x * p.y\n\ndef main()",
+        "\ndef total(p: &Point) -> Result[i64, OverflowError[i64]]:\n    return Ok(p.x * p.y)\n\ndef main()",
     );
     assert_eq!(output(&source), "3\n7\n2\nb\n4\n12\n8\n1");
 }
@@ -133,17 +134,17 @@ fn a_borrowed_handle_converts_to_a_reference_to_its_content() {
     let source = program(
         r#"
 h = Shared(Point(3, 4, ["a"]?))?
-print(total(&h), through(&h), len_of(&h.tags))?
+print(total(&h)?, through(&h)?, len_of(&h.tags))?
 r: &Point = &h
 print(r.y)?
 nested = Shared(Box(Point(2, 5, []?))?)?
-print(total(&nested))?
+print(total(&nested)?)?
 "#,
     )
     .replace(
         "\ndef main()",
-        "\ndef total(p: &Point) -> i64:\n    return p.x * p.y\n\n\
-         def through(h: &Shared[Point]) -> i64:\n    return total(h)\n\n\
+        "\ndef total(p: &Point) -> Result[i64, OverflowError[i64]]:\n    return Ok(p.x * p.y)\n\n\
+         def through(h: &Shared[Point]) -> Result[i64, OverflowError[i64]]:\n    return total(h)\n\n\
          def len_of(xs: &list[str]) -> i64:\n    return len(xs)\n\ndef main()",
     );
     assert_eq!(output(&source), "12 12 1\n4\n10");
@@ -264,7 +265,7 @@ fn a_share_that_could_own_itself_is_rejected() {
     );
     // An immutable DAG cannot: each value exists before any share of it.
     let source = format!(
-        "{HEADER}\nclass Tree:\n    value: i64\n    kids: list[Shared[Tree]]\n\ndef main() -> Result[(), AllocError | IoError]:\n    leaf = Shared(Tree(1, []?))?\n    left = Shared(Tree(2, [leaf.share()]?))?\n    root = Tree(3, [left.share(), leaf.share()]?)\n    print(root.kids[0].kids[0].value + root.kids[1].value)?\n    Ok(())\n"
+        "{HEADER}\nclass Tree:\n    value: i64\n    kids: list[Shared[Tree]]\n\ndef main() -> Result[(), AllocError | IoError | OverflowError[i64]]:\n    leaf = Shared(Tree(1, []?))?\n    left = Shared(Tree(2, [leaf.share()]?))?\n    root = Tree(3, [left.share(), leaf.share()]?)\n    print(root.kids[0].kids[0].value + root.kids[1].value)?\n    Ok(())\n"
     );
     assert_eq!(output(&source), "2");
 }
@@ -277,25 +278,25 @@ class Stats:
     count: i64
     total: i64
 
-def work(hits: Shared[Atomic[u64]], stats: Shared[Mutex[Stats]], rounds: i64) -> i64:
+def work(hits: Shared[Atomic[u64]], stats: Shared[Mutex[Stats]], rounds: i64) -> Result[i64, OverflowError[i64]]:
     for i in range(rounds):
         hits.fetch_add(1, Ordering.Relaxed)
         with stats.lock() as data:
             data.count = data.count + 1
             data.total = data.total + i
-    rounds
+    Ok(rounds)
 
-def main() -> Result[(), AllocError | FutureError | IoError | PoolError | str]:
+def main() -> Result[(), AllocError | FutureError | IoError | PoolError | str | OverflowError[i64]]:
     hits = Shared[Atomic[u64]](Atomic(0))?
     stats = Shared[Mutex[Stats]](Mutex(Stats(0, 0)))?
     with ThreadPoolExecutor(4, 4)? as pool:
-        mut futures: list[Future[i64]] = []?
+        mut futures: list[Future[Result[i64, OverflowError[i64]]]] = []?
         for _ in range(4):
             futures.append(submitted(pool.submit(work, hits.share(), stats.share(), 20000))?)?
         while True:
             match futures.pop():
                 case Some(future):
-                    print(future.result()?)?
+                    print(future.result()??)?
                 case Nothing:
                     break
     print(hits.load(Ordering.Acquire))?
@@ -319,7 +320,7 @@ def hold(state: Shared[Noisy], stop: CancellationToken) -> i64:
     stop.wait()
     len(state.label)
 
-def main() -> Result[(), AllocError | FutureError | IoError | PoolError | str]:
+def main() -> Result[(), AllocError | FutureError | IoError | PoolError | str | OverflowError[i64]]:
     drops = Shared[Atomic[u64]](Atomic(0))?
     stop = CancellationToken()?
     state = Shared(Noisy("pooled", drops.share()))?
@@ -341,20 +342,23 @@ def main() -> Result[(), AllocError | FutureError | IoError | PoolError | str]:
 fn scoped_workers_take_shares_and_borrows() {
     let source = format!(
         r#"{HEADER}
-def bump(counter: Shared[Mutex[i64]], rounds: i64) -> ():
+def bump(counter: Shared[Mutex[i64]], rounds: i64) -> Result[(), OverflowError[i64]]:
     for _ in range(rounds):
         with counter.lock() as value:
             *value = *value + 1
+    Ok(())
 
-def peek(counter: &Shared[Mutex[i64]]) -> ():
+def peek(counter: &Shared[Mutex[i64]]) -> Result[(), OverflowError[i64]]:
     with counter.lock() as value:
         *value = *value + 100
+    Ok(())
 
-def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()] | OverflowError[i64]]:
     counter = Shared(Mutex(0))?
-    with spawn(bump, counter.share(), 10000).drop_job()?, spawn(bump, counter.share(), 10000).drop_job()?:
-        pass
-    peek(&counter)
+    with spawn(bump, counter.share(), 10000).drop_job()? as first, spawn(bump, counter.share(), 10000).drop_job()? as second:
+        first.join()?
+        second.join()?
+    peek(&counter)?
     with counter.lock() as value:
         print(*value)?
     Ok(())
@@ -372,7 +376,7 @@ fn a_nested_lock_of_the_same_type_is_rejected_when_it_could_alias() {
     );
     rejects(
         &format!(
-            "{HEADER}\ndef add(m: &Mutex[i64]) -> ():\n    n = Mutex(2)\n    with m.lock() as a:\n        with n.lock() as b:\n            *a = *a + *b\n\ndef main() -> ():\n    pass\n"
+            "{HEADER}\ndef add(m: &Mutex[i64]) -> Result[(), OverflowError[i64]]:\n    n = Mutex(2)\n    with m.lock() as a:\n        with n.lock() as b:\n            *a = *a + *b\n    Ok(())\n\ndef main() -> ():\n    pass\n"
         ),
         &format!("this locks `n` while an enclosing `with` block holds a lock on `m`; {alias}"),
     );
@@ -406,10 +410,10 @@ fn a_nested_lock_of_the_same_type_is_rejected_when_it_could_alias() {
 #[test]
 fn waits_while_holding_a_lock_a_job_can_take_are_rejected() {
     let job = "
-def bump(counter: Shared[Mutex[i64]]) -> i64:
+def bump(counter: Shared[Mutex[i64]]) -> Result[i64, OverflowError[i64]]:
     with counter.lock() as value:
         *value = *value + 1
-    0
+    Ok(0)
 ";
     let with_job = |body: &str| {
         let body = body
@@ -418,12 +422,12 @@ def bump(counter: Shared[Mutex[i64]]) -> i64:
             .map(|line| format!("    {line}\n"))
             .collect::<String>();
         format!(
-            "{HEADER}{job}\ndef main() -> Result[(), AllocError | FutureError | IoError | PoolError | SpawnError[()] | str]:\n{body}    Ok(())\n"
+            "{HEADER}{job}\ndef main() -> Result[(), AllocError | FutureError | IoError | PoolError | SpawnError[()] | str | OverflowError[i64]]:\n{body}    Ok(())\n"
         )
     };
     rejects(
         &with_job(
-            "counter = Shared(Mutex(0))?\nwith ThreadPoolExecutor(2, 2)? as pool:\n    match pool.submit(bump, counter.share()):\n        case Ok(future):\n            with counter.lock() as value:\n                print(future.result()?)?\n        case Err(_):\n            pass",
+            "counter = Shared(Mutex(0))?\nwith ThreadPoolExecutor(2, 2)? as pool:\n    match pool.submit(bump, counter.share()):\n        case Ok(future):\n            with counter.lock() as value:\n                print(future.result()??)?\n        case Err(_):\n            pass",
         ),
         "this result() waits for a job that can lock a `Mutex[i64]` while this function holds a lock on a `Mutex[i64]`",
     );
@@ -441,13 +445,13 @@ def bump(counter: Shared[Mutex[i64]]) -> i64:
     );
     rejects(
         &with_job(
-            "counter = Shared(Mutex(0))?\nwith counter.lock() as value:\n    with spawn(bump, counter.share()).drop_job()? as task:\n        print(task.join())?",
+            "counter = Shared(Mutex(0))?\nwith counter.lock() as value:\n    with spawn(bump, counter.share()).drop_job()? as task:\n        print(task.join()?)?",
         ),
         "this join waits for a task whose worker can lock a `Mutex[i64]` while this function holds a lock on a `Mutex[i64]`",
     );
     // Waiting after the lock's block ends is accepted.
     let source = with_job(
-        "counter = Shared(Mutex(0))?\nwith ThreadPoolExecutor(2, 2)? as pool:\n    future = submitted(pool.submit(bump, counter.share()))?\n    with counter.lock() as value:\n        *value = *value + 10\n    print(future.result()?)?\nwith counter.lock() as value:\n    print(*value)?",
+        "counter = Shared(Mutex(0))?\nwith ThreadPoolExecutor(2, 2)? as pool:\n    future = submitted(pool.submit(bump, counter.share()))?\n    with counter.lock() as value:\n        *value = *value + 10\n    print(future.result()??)?\nwith counter.lock() as value:\n    print(*value)?",
     );
     assert_eq!(output(&source), "0\n11");
 }

@@ -2,6 +2,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn compile(directory: &Path, body: &str) -> PathBuf {
+    compile_mode(directory, body, false)
+}
+
+fn compile_mode(directory: &Path, body: &str, optimize: bool) -> PathBuf {
     let source = directory.join("progress.plenty");
     let executable = directory.join("progress");
     std::fs::write(
@@ -14,15 +18,24 @@ import std.time as time
 import std.io as io
 from std.cli.progress import ProgressError
 from std.fmt import FormatError
-def main() -> Result[(), ProgressError | FormatError | IoError]:
+def main() -> Result[(), ProgressError | FormatError | IoError | AllocError]:
 {body}
     Ok(())
 "#
         ),
     )
     .unwrap();
-    plenty::compile_file_to_executable(&source, &executable, None)
-        .unwrap_or_else(|error| panic!("{error}"));
+    plenty::compile_file_to_executable_with_options(
+        &source,
+        &executable,
+        None,
+        &plenty::CompileOptions {
+            optimize,
+            test_hooks: true,
+            ..Default::default()
+        },
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
     executable
 }
 
@@ -95,15 +108,16 @@ fn invalid_positions_are_transactional_and_render_preserves_errors() {
 #[cfg(unix)]
 #[test]
 fn terminal_redraw_throttle_finish_and_output_failure() {
-    let directory = tempfile::tempdir().unwrap();
-    let executable = compile(
-        directory.path(),
-        r#"    mut bar = progress.bar_at(10u64, &time.instant_at(0u64))
+    for optimize in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = compile_mode(
+            directory.path(),
+            r#"    mut bar = progress.bar_at(10u64, &time.instant_at(0u64))
     match bar.set_position_at(1u64, &time.instant_at(0u64)):
         case Err(error):
             match error:
                 case ProgressError.Output(_):
-                    print("output failure", bar.is_finished())?
+                    print("output failure", bar.is_finished(), bar.position(), bar.advance().is_err())?
                     return Ok(())
                 case _ as other:
                     return Err(other)
@@ -117,9 +131,16 @@ fn terminal_redraw_throttle_finish_and_output_failure() {
     mut spin = progress.spinner_at(&time.instant_at(0u64))
     spin.set_position_at(0u64, &time.instant_at(0u64))?
     spin.set_position_at(0u64, &time.instant_at(100000000u64))?
-    spin.finish_at(&time.instant_at(100000001u64))?"#,
-    );
-    let output = Command::new("python3").args(["-c", r#"
+    spin.set_position_at(0u64, &time.instant_at(200000000u64))?
+    spin.set_position_at(0u64, &time.instant_at(300000000u64))?
+    spin.set_position_at(0u64, &time.instant_at(400000000u64))?
+    spin.finish_at(&time.instant_at(400000001u64))?"#,
+            optimize,
+        );
+        let output = Command::new("python3")
+            .args([
+                "-c",
+                r#"
 import errno, os, pty, subprocess, sys, termios
 master, slave = pty.openpty()
 try:
@@ -137,9 +158,10 @@ try:
     assert result.returncode == 0, (result, data)
     assert result.stdout == b'', result.stdout
     frames = data.split(b'\r\x1b[2K')[1:]
-    assert len(frames) == 6, data
+    assert len(frames) == 9, data
     assert b'1/10' in frames[0] and b'3/10' in frames[1] and b'4/10' in frames[2], data
-    assert frames[3].startswith(b'| ') and frames[4].startswith(b'/ ') and frames[5].startswith(b'done '), data
+    assert [frame[:2] for frame in frames[3:8]] == [b'| ', b'/ ', b'- ', b'\\ ', b'| '], data
+    assert frames[8].startswith(b'done '), data
     assert data.count(b'\n') == 2, data
 finally:
     os.close(master)
@@ -154,14 +176,81 @@ try:
         except BlockingIOError:
             break
     result = subprocess.run([sys.argv[1]], stderr=slave, stdout=subprocess.PIPE, timeout=20)
-    assert result.returncode == 0 and result.stdout == b'output failure True\n', result
+    assert result.returncode == 0 and result.stdout == b'output failure True 1 True\n', result
 finally:
     os.close(slave)
     os.close(master)
-"#]).arg(executable).output().unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+"#,
+            ])
+            .arg(executable)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[test]
+fn progress_u64_boundaries_preserve_exact_counts_in_both_modes() {
+    for optimize in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = compile_mode(
+            directory.path(),
+            r#"    now = time.instant_at(0u64)
+    mut spin = progress.spinner_at(&now)
+    spin.advance(u64.MAX)?
+    spin.advance(0u64)?
+    overflow = spin.advance(1u64)
+    print(str.repr(overflow)?, spin.position() == u64.MAX)?
+    spin.finish_at(&now)?
+    print(str.repr(spin.advance(u64.MAX))?)?
+    mut bar = progress.bar_at(u64.MAX, &now)
+    bar.advance(1u64)?
+    print(bar.eta(&time.instant_at(1000000000u64)).is_some())?
+    bar.set_position_at(u64.MAX, &now)?
+    print(bar.eta(&now), bar.advance(0u64).is_ok())?
+    mut small = progress.bar_at(1u64, &now)
+    print(str.repr(small.advance(u64.MAX))?, small.position())?"#,
+            optimize,
+        );
+        let output = Command::new(executable).output().unwrap();
+        assert!(output.status.success(), "{output:?}");
+        assert!(output.stderr.is_empty(), "{output:?}");
+        let text = String::from_utf8(output.stdout).unwrap();
+        assert_eq!(
+            text,
+            "Result[(), std.cli.progress.ProgressError].Err(std.cli.progress.ProgressError.InvalidPosition) True\nResult[(), std.cli.progress.ProgressError].Err(std.cli.progress.ProgressError.Finished)\nTrue\nOption[f64].Some(0.0) True\nResult[(), std.cli.progress.ProgressError].Err(std.cli.progress.ProgressError.InvalidPosition) 0\n",
+            "optimize={optimize}"
+        );
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn progress_hidden_boundary_updates_do_not_allocate_in_both_modes() {
+    for optimize in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = compile_mode(
+            directory.path(),
+            r#"    now = time.instant_at(0u64)
+    mut spin = progress.spinner_at(&now)
+    print("__test_begin_no_allocations__")?
+    accepted = spin.advance(u64.MAX)
+    rejected = spin.advance()
+    spin.finish_at(&now)?
+    print("__test_end_no_allocations__")?
+    print(accepted.is_ok(), rejected.is_err(), spin.position() == u64.MAX, spin.is_finished())?"#,
+            optimize,
+        );
+        let output = Command::new(executable).output().unwrap();
+        assert!(output.status.success(), "{output:?}");
+        assert!(output.stderr.is_empty(), "{output:?}");
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            "__test_begin_no_allocations__\n__test_end_no_allocations__\nTrue True True True\n"
+        );
+    }
 }

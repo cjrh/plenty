@@ -55,7 +55,7 @@ def show(result: Result[Duration, RangeError]) -> ():
         case Err(RangeError.OutOfRange):
             print("out of range").unwrap()
 
-def main() -> Result[(), AllocError | IoError | RangeError]:
+def main() -> Result[(), AllocError | IoError | RangeError | OverflowError[i64] | OverflowError[u64] | ZeroDivisionError]:
     span = seconds(2).checked_add(milliseconds(1500))?
     print(span.as_seconds(), span.as_milliseconds(), span.as_microseconds(), span.as_nanoseconds())?
     print(seconds(1) == milliseconds(1000), microseconds(1) == nanoseconds(1000), seconds(1) == seconds(2))?
@@ -123,7 +123,7 @@ def report(deadline: &Deadline, tick: u64) -> ():
     now = instant_at(tick)
     print(tick, deadline.expired(&now), deadline.remaining(&now).as_nanoseconds()).unwrap()
 
-def main() -> Result[(), AllocError | IoError | RangeError]:
+def main() -> Result[(), AllocError | IoError | RangeError | OverflowError[i64] | OverflowError[u64] | ZeroDivisionError]:
     start = instant_at(1000)
     deadline = deadline_after(&start, &nanoseconds(500))?
     for tick in [0u64, 1000u64, 1499u64, 1500u64, 1501u64, u64.MAX]?:
@@ -178,7 +178,7 @@ def since(later: &Timestamp, earlier: &Timestamp) -> ():
         case Err(RangeError.OutOfRange):
             print("out of range").unwrap()
 
-def main() -> Result[(), AllocError | IoError | RangeError]:
+def main() -> Result[(), AllocError | IoError | RangeError | OverflowError[i64] | OverflowError[u64] | ZeroDivisionError]:
     before = Timestamp(1700000000, 900000000)
     after = Timestamp(1700000002, 100000000)
     since(&after, &before)

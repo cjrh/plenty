@@ -36,6 +36,10 @@ returns independent text. The explicit scalar limit bounds the input, fully
 decomposed intermediate, and result. Exceeding any gives `LimitExceeded`. The
 limit is `NonNegative[i64]`, and a limit above `i64.MAX // 4` traps. An empty string
 fits a zero limit. Output UTF-8 is consequently at most four times the limit.
+Normalization's explicit arithmetic opt-outs rely on that validated ceiling,
+successfully appended scalar counts, and positive insertion-sort indices.
+They do not bypass scalar limits or allocation failures, and normalization adds
+no arithmetic error variants to `TextError`.
 The limit counts Unicode scalars, not bytes or grapheme clusters, and canonical
 composition does not let an oversized decomposition bypass it.
 

@@ -34,11 +34,12 @@ const POINT: &str = r#"
 class Point:
     x: i64
     y: i64
-    def magnitude_squared(self) -> i64:
-        self.x * self.x + self.y * self.y
-    def shift(self: &mut Point, amount: i64) -> ():
+    def magnitude_squared(self) -> Result[i64, OverflowError[i64]]:
+        Ok(self.x * self.x + self.y * self.y)
+    def shift(self: &mut Point, amount: i64) -> Result[(), OverflowError[i64]]:
         self.x = self.x + amount
         self.y = self.y + amount
+        Ok(())
 "#;
 const RESOURCE: &str = r#"
 class Resource:
@@ -51,7 +52,7 @@ class Resource:
 fn fields_constructors_methods_and_copy() {
     run(
         &format!(
-            "{POINT}\nmut p = Point(3, 4)\nprint(p.magnitude_squared()).unwrap()\np.shift(1)\nmut q = copy(p).unwrap()\nq.x = 20\nprint(p).unwrap()\nprint(q).unwrap()\nprint(p == q).unwrap()\nprint(Point(2, 3).magnitude_squared()).unwrap()"
+            "{POINT}\nmut p = Point(3, 4)\nprint(p.magnitude_squared().unwrap()).unwrap()\np.shift(1).unwrap()\nmut q = copy(p).unwrap()\nq.x = 20\nprint(p).unwrap()\nprint(q).unwrap()\nprint(p == q).unwrap()\nprint(Point(2, 3).magnitude_squared().unwrap()).unwrap()"
         ),
         "25\nPoint(x=4, y=5)\nPoint(x=20, y=5)\nFalse\n13\n",
     );
@@ -63,23 +64,23 @@ fn wrapping_method_names_use_class_signatures() {
         r#"
 class Counter:
     total: i64
-    def wrapping_add(self: &Counter, other: i64) -> i64:
-        self.total + other
-    def wrapping_sub(self: &Counter) -> i64:
-        self.total - 1
-    def wrapping_mul(self: &Counter, left: i64, right: i64) -> i64:
-        self.total * left * right
+    def wrapping_add(self: &Counter, other: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(self.total + other)
+    def wrapping_sub(self: &Counter) -> Result[i64, OverflowError[i64]]:
+        Ok(self.total - 1)
+    def wrapping_mul(self: &Counter, left: i64, right: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(self.total * left * right)
 c = Counter(3)
-print(c.wrapping_add(2)).unwrap()
-print(c.wrapping_sub()).unwrap()
-print(c.wrapping_mul(2, 4)).unwrap()
+print(c.wrapping_add(2).unwrap()).unwrap()
+print(c.wrapping_sub().unwrap()).unwrap()
+print(c.wrapping_mul(2, 4).unwrap()).unwrap()
 r = &c
-print(r.wrapping_add(2)).unwrap()
-print(r.wrapping_sub()).unwrap()
-print(r.wrapping_mul(2, 4)).unwrap()
-print(Counter(3).wrapping_add(2)).unwrap()
-print(Counter(3).wrapping_sub()).unwrap()
-print(Counter(3).wrapping_mul(2, 4)).unwrap()
+print(r.wrapping_add(2).unwrap()).unwrap()
+print(r.wrapping_sub().unwrap()).unwrap()
+print(r.wrapping_mul(2, 4).unwrap()).unwrap()
+print(Counter(3).wrapping_add(2).unwrap()).unwrap()
+print(Counter(3).wrapping_sub().unwrap()).unwrap()
+print(Counter(3).wrapping_mul(2, 4).unwrap()).unwrap()
 "#,
         "5\n2\n24\n5\n2\n24\n5\n2\n24\n",
     );
@@ -92,13 +93,14 @@ fn explicit_constructor_and_control_flow() {
 class Pair:
     x: i64
     y: i64
-    def __init__(self, x: i64, positive: bool) -> ():
+    def __init__(self, x: i64, positive: bool) -> Result[(), OverflowError[i64]]:
         if positive:
             self.x = x
         else:
             self.x = -x
         self.y = self.x + 1
-print(Pair(3, False)).unwrap()
+        Ok(())
+print(Pair(3, False).unwrap()).unwrap()
 "#,
         "Pair(x=-3, y=-2)\n",
     );
@@ -113,13 +115,13 @@ class Drawing:
     origin: Point
     values: list[i64]
 mut drawing = Drawing(Point(1, 2), [3].unwrap())
-drawing.origin.shift(2)
+drawing.origin.shift(2).unwrap()
 r = &mut drawing.origin.x
 *r = 8
 drawing.values.append(len(drawing.values)).unwrap()
 drawing.values[0] = 9
 v = &drawing.origin
-print(v.magnitude_squared()).unwrap()
+print(v.magnitude_squared().unwrap()).unwrap()
 print(drawing).unwrap()
 "#
         ),
@@ -345,7 +347,7 @@ fn owned_fields_and_copy_restrictions() {
 fn field_borrow_conflicts_and_mutability() {
     reject(&format!("{POINT}\np = Point(1, 2)\np.x = 3"), "mut binding");
     reject(
-        &format!("{POINT}\np = Point(1, 2)\np.shift(3)"),
+        &format!("{POINT}\np = Point(1, 2)\np.shift(3).unwrap()"),
         "mut binding",
     );
     run(
@@ -370,11 +372,11 @@ fn field_borrow_conflicts_and_mutability() {
 fn bare_self_mutation_names_the_supported_receiver_signature() {
     for body in [
         "self.value = self.value + 1",
-        "increment(&mut self.value)",
-        "self.increment()",
+        "increment(&mut self.value)?",
+        "self.increment()?",
     ] {
         let source = format!(
-            "def increment(value: &mut i64) -> ():\n    *value = *value + 1\nclass Counter:\n    value: i64\n    def increment(self: &mut Counter) -> ():\n        self.value = self.value + 1\n    def change(self) -> ():\n        {body}\nmut counter = Counter(1)\ncounter.change()\nprint(counter.value).unwrap()\n"
+            "def increment(value: &mut i64) -> Result[(), OverflowError[i64]]:\n    *value = *value + 1\n    Ok(())\nclass Counter:\n    value: i64\n    def increment(self: &mut Counter) -> Result[(), OverflowError[i64]]:\n        self.value = self.value + 1\n        Ok(())\n    def change(self) -> Result[(), OverflowError[i64]]:\n        {body}\n        Ok(())\nmut counter = Counter(1)\ncounter.change().unwrap()\nprint(counter.value).unwrap()\n"
         );
         reject(&source, "declare `self: &mut Counter`");
         run(
@@ -386,7 +388,7 @@ fn bare_self_mutation_names_the_supported_receiver_signature() {
 
 #[test]
 fn bare_self_hint_survives_generic_method_specialization() {
-    let source = "class Counter:\n    value: i64\n    def change[T: IntType](self, amount: T) -> ():\n        self.value = self.value + i64(amount)\nmut counter = Counter(1)\ncounter.change(2u8)\nprint(counter.value).unwrap()\n";
+    let source = "class Counter:\n    value: i64\n    def change[T: IntType](self, amount: T) -> Result[(), OverflowError[i64]]:\n        self.value = self.value + i64(amount)\n        Ok(())\nmut counter = Counter(1)\ncounter.change(2u8).unwrap()\nprint(counter.value).unwrap()\n";
     reject(source, "declare `self: &mut Counter`");
     run(&source.replace("(self,", "(self: &mut Counter,"), "3\n");
 }
@@ -429,25 +431,30 @@ fn method_reference_arguments_reborrow_for_the_whole_call() {
     let source = r#"
 class Counter:
     value: i64
-    def add_to(self, destination: &mut i64, source: &i64) -> ():
+    def add_to(self, destination: &mut i64, source: &i64) -> Result[(), OverflowError[i64]]:
         *destination = *destination + self.value + *source
+        Ok(())
 mut n = 1
 mut other = 2
 c = Counter(3)
 destination = &mut n
 source = &other
-c.add_to(destination, source)
+c.add_to(destination, source).unwrap()
 print(n).unwrap()
 print(other).unwrap()
 "#;
     run(source, "6\n2\n");
     // The argument's last shared use finishes before receiver activation.
     run(
-        &format!("{POINT}\nmut p = Point(1, 2)\nr = &p\np.shift(r.x)\nprint(p.x).unwrap()"),
+        &format!(
+            "{POINT}\nmut p = Point(1, 2)\nr = &p\np.shift(r.x).unwrap()\nprint(p.x).unwrap()"
+        ),
         "2\n",
     );
     reject(
-        &format!("{POINT}\nmut p = Point(1, 2)\nr = &p\np.shift(r.x)\nprint(r.x).unwrap()"),
+        &format!(
+            "{POINT}\nmut p = Point(1, 2)\nr = &p\np.shift(r.x).unwrap()\nprint(r.x).unwrap()"
+        ),
         "conflicting borrow",
     );
 }
@@ -464,9 +471,13 @@ mut pair = Pair(Point(1, 2), Point(3, 4))
 x = &mut pair.left.x
 y = &mut pair.left.y
 right = &mut pair.right
-*x = *x + 10
-*y = *y + 20
-right.shift(30)
+new_x = checked:
+    *x + 10
+*x = new_x.unwrap()
+new_y = checked:
+    *y + 20
+*y = new_y.unwrap()
+right.shift(30).unwrap()
 print(*x).unwrap()
 print(*y).unwrap()
 print(pair.right).unwrap()
@@ -480,8 +491,8 @@ print(pair.right).unwrap()
 fn projected_loans_still_reject_overlapping_places_and_parent_access() {
     for body in [
         "r = &mut p.x\ns = &p.x\nprint(r).unwrap()",
-        "r = &p.x\np.shift(1)\nprint(r).unwrap()",
-        "r = &mut p\ns = &mut r.x\nr.shift(1)\nprint(s).unwrap()",
+        "r = &p.x\np.shift(1).unwrap()\nprint(r).unwrap()",
+        "r = &mut p\ns = &mut r.x\nr.shift(1).unwrap()\nprint(s).unwrap()",
     ] {
         reject(
             &format!("{POINT}\nmut p = Point(1, 2)\n{body}"),
@@ -533,9 +544,9 @@ class Point:
     name: str
     def get(self) -> i64:
         self.x
-    def bump(self: &mut Point) -> i64:
+    def bump(self: &mut Point) -> Result[i64, OverflowError[i64]]:
         self.x += 1
-        self.x
+        Ok(self.x)
     def label(self) -> &str:
         &self.name
     def __del__(self: &mut Point) -> ():
@@ -549,7 +560,7 @@ class Holder:
 print([Point(1, "a")].unwrap()[0].x).unwrap()
 print([Point(2, "b")].unwrap()[0].get()).unwrap()
 print([Point(3, "c"), Point(4, "d")].unwrap()[1].get()).unwrap()
-print([Point(5, "e")].unwrap()[0].bump()).unwrap()
+print([Point(5, "e")].unwrap()[0].bump().unwrap()).unwrap()
 print([Point(6, "f")].unwrap()[0].label()).unwrap()
 print([[Point(7, "g")].unwrap()].unwrap()[0][0].get()).unwrap()
 print({"k": Point(8, "h")}.unwrap()["k"].get()).unwrap()
@@ -709,5 +720,67 @@ print("after call").unwrap()
 "#
         ),
         "payload\nafter item\nafter call\n",
+    );
+}
+
+#[test]
+fn initializer_closures_cannot_capture_partial_self_issue_709() {
+    for (output, success) in [
+        ("()", "pass"),
+        ("Result[(), AllocError]", "Ok(())"),
+        ("Result[(), str]", "Ok(())"),
+    ] {
+        for body in [
+            "read = def [&self]() -> i64:\n            self.second\n        self.second = read()",
+            "read = def [&self]() -> Callable[[], i64]:\n            (def [&self]() -> i64: self.second)\n        self.second = read()()",
+            "write = def [&mut self]() -> ():\n            self.second = 2\n        write()",
+        ] {
+            reject(
+                &format!(
+                    "class C:\n    first: i64\n    second: i64\n    def __init__(self) -> {output}:\n        self.first = 1\n        {body}\n        {success}\n"
+                ),
+                "fields not initialized: second",
+            );
+        }
+    }
+    // Closure-body writes never establish initialization, even if the
+    // closure is called immediately. A fully initialized self is capturable.
+    run(
+        r#"
+def read(value: &i64) -> i64:
+    *value
+class C:
+    first: i64
+    second: i64
+    def __init__(self) -> Result[(), str]:
+        self.first = 7
+        self.second = read(&self.first)
+        get = def [&self]() -> i64:
+            self.second
+        self.first = get()
+        Ok(())
+print(C().unwrap()).unwrap()
+"#,
+        "C(first=7, second=7)\n",
+    );
+}
+
+#[test]
+fn initializer_error_cannot_borrow_the_temporary_instance() {
+    let error = support::check_source(
+        r#"
+class C:
+    value: i64
+    def __init__(self) -> Result[(), &i64]:
+        self.value = 7
+        Err(&self.value)
+drop(C())
+"#,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("borrow") || error.contains("reference"),
+        "{error}"
     );
 }

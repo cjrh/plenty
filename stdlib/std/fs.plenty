@@ -219,32 +219,34 @@ pub enum CopyMetadata:
 
 # Copy contents to an existing unnamed target, with one caller-owned buffer.
 def transfer[R: Reader](source: &mut R, target: &mut FileStream, scratch: &mut Bytes, max_bytes: i64, cancel: &CancellationToken) -> Result[i64, FsError]:
-    mut total = 0
-    while True:
-        if cancel.is_cancelled():
-            return Err(FsError.Cancelled)
-        count = match source.read(scratch, 0, 8192):
-            case Ok(value):
-                value
-            case Err(StreamError.Interrupted):
-                continue
-            case Err(error):
-                return Err(FsError.Stream(error))
-        if cancel.is_cancelled():
-            return Err(FsError.Cancelled)
-        if count < 0 or count > 8192:
-            return Err(FsError.Stream(StreamError.InvalidProgress))
-        if count == 0:
-            fs_stream(target.flush())?
-            return Ok(total)
-        if count > max_bytes - total:
-            return Err(FsError.Limit)
-        match write_all(target, &scratch[:count]):
-            case Ok(_):
-                total += count
-            case Err(partial):
-                return Err(FsError.Stream(partial.cause))
-    Ok(total)
+    # Validated progress and the byte budget keep 0 <= total <= max_bytes.
+    unchecked:
+        mut total = 0
+        while True:
+            if cancel.is_cancelled():
+                return Err(FsError.Cancelled)
+            count = match source.read(scratch, 0, 8192):
+                case Ok(value):
+                    value
+                case Err(StreamError.Interrupted):
+                    continue
+                case Err(error):
+                    return Err(FsError.Stream(error))
+            if cancel.is_cancelled():
+                return Err(FsError.Cancelled)
+            if count < 0 or count > 8192:
+                return Err(FsError.Stream(StreamError.InvalidProgress))
+            if count == 0:
+                fs_stream(target.flush())?
+                return Ok(total)
+            if count > max_bytes - total:
+                return Err(FsError.Limit)
+            match write_all(target, &scratch[:count]):
+                case Ok(_):
+                    total += count
+                case Err(partial):
+                    return Err(FsError.Stream(partial.cause))
+        Ok(total)
 
 def copy_buffer() -> Result[Bytes, FsError]:
     mut scratch = fs_alloc(std.bytes.with_capacity(8192))?
@@ -316,10 +318,12 @@ class CopyBudget:
     destination_inode: u64
 
     def step(self: &mut CopyBudget) -> Result[(), FsError]:
-        if self.entries == 0:
-            return Err(FsError.Limit)
-        self.entries -= 1
-        Ok(())
+        # The validated initial entry budget is nonnegative; zero returns before decrement.
+        unchecked:
+            if self.entries == 0:
+                return Err(FsError.Limit)
+            self.entries -= 1
+            Ok(())
 
 def prepare_copy_directory(source: &Root, target: &Root, name: &Path) -> Result[(Root, Root), FsError]:
     child = fs_io(source.open_dir(name))?
@@ -328,92 +332,98 @@ def prepare_copy_directory(source: &Root, target: &Root, name: &Path) -> Result[
     Ok((child, output))
 
 def copy_directory(source: &Root, target: &Root, scratch: &mut Bytes, budget: &mut CopyBudget, limits: &CopyLimits, level: i64, cancel: &CancellationToken, preserve: CopyMetadata) -> Result[(), TreeCopyError]:
-    if cancel.is_cancelled():
-        return Err(TreeCopyError.Partial(FsError.Cancelled))
-    observation = observe_copy_metadata(source._handle, preserve).map_error(TreeCopyError.Partial)?
-    mut names = fs_io(source.names()).map_error(TreeCopyError.Partial)?
-    while True:
+    # Depth stays in 1..64 (reported child level <= 65); successful copies fit bytes remaining.
+    unchecked:
         if cancel.is_cancelled():
             return Err(TreeCopyError.Partial(FsError.Cancelled))
-        match fs_io(names.next()).map_error(TreeCopyError.Partial)?:
-            case Nothing:
-                break
-            case Some(name):
-                match budget.step():
-                    case Err(error):
-                        return Err(TreeCopyError.Entry(name, level + 1, error))
-                    case Ok(_):
-                        pass
-                metadata = match fs_io(__fs_child_metadata(source._handle, name.as_bytes())):
-                    case Ok(owner):
-                        Metadata(owner)
-                    case Err(error):
-                        return Err(TreeCopyError.Entry(name, level + 1, error))
-                if metadata.is_dir():
-                    # A bind mount can hide source ancestry from dot-dot walks.
-                    # Stop before entering the original destination parent.
-                    if metadata.unix_device() == budget.destination_device and metadata.unix_inode() == budget.destination_inode:
-                        return Err(TreeCopyError.Entry(name, level + 1, FsError.Overlap))
-                    if level == limits.max_depth or 3 * (level + 1) + 8 > limits.max_open_handles:
-                        return Err(TreeCopyError.Entry(name, level + 1, FsError.Limit))
-                    opened = match prepare_copy_directory(source, target, &name):
-                        case Ok(pair):
-                            pair
+        observation = observe_copy_metadata(source._handle, preserve).map_error(TreeCopyError.Partial)?
+        mut names = fs_io(source.names()).map_error(TreeCopyError.Partial)?
+        while True:
+            if cancel.is_cancelled():
+                return Err(TreeCopyError.Partial(FsError.Cancelled))
+            match fs_io(names.next()).map_error(TreeCopyError.Partial)?:
+                case Nothing:
+                    break
+                case Some(name):
+                    match budget.step():
                         case Err(error):
                             return Err(TreeCopyError.Entry(name, level + 1, error))
-                    child, output = opened
-                    match copy_directory(&child, &output, scratch, budget, limits, level + 1, cancel, preserve):
                         case Ok(_):
                             pass
-                        case Err(TreeCopyError.Partial(error)):
-                            return Err(TreeCopyError.Entry(name, level + 1, error))
-                        case Err(error):
-                            return Err(error)
-                elif metadata.is_file():
-                    mut input = match fs_io(source.read_file(&name)):
-                        case Ok(stream):
-                            stream
+                    metadata = match fs_io(__fs_child_metadata(source._handle, name.as_bytes())):
+                        case Ok(owner):
+                            Metadata(owner)
                         case Err(error):
                             return Err(TreeCopyError.Entry(name, level + 1, error))
-                    match copy_open_file(&mut input, target, &name, scratch, budget.bytes, cancel, preserve):
-                        case Ok(count):
-                            budget.bytes -= count
-                        case Err(error):
-                            return Err(TreeCopyError.Entry(name, level + 1, error))
-                else:
-                    return Err(TreeCopyError.Entry(name, level + 1, FsError.UnsupportedType))
-    fs_io(names.close()).map_error(TreeCopyError.Partial)?
-    apply_copy_metadata(target._handle, &observation).map_error(TreeCopyError.Partial)?
-    Ok(())
+                    if metadata.is_dir():
+                        # A bind mount can hide source ancestry from dot-dot walks.
+                        # Stop before entering the original destination parent.
+                        if metadata.unix_device() == budget.destination_device and metadata.unix_inode() == budget.destination_inode:
+                            return Err(TreeCopyError.Entry(name, level + 1, FsError.Overlap))
+                        if level == limits.max_depth or 3 * (level + 1) + 8 > limits.max_open_handles:
+                            return Err(TreeCopyError.Entry(name, level + 1, FsError.Limit))
+                        opened = match prepare_copy_directory(source, target, &name):
+                            case Ok(pair):
+                                pair
+                            case Err(error):
+                                return Err(TreeCopyError.Entry(name, level + 1, error))
+                        child, output = opened
+                        match copy_directory(&child, &output, scratch, budget, limits, level + 1, cancel, preserve):
+                            case Ok(_):
+                                pass
+                            case Err(TreeCopyError.Partial(error)):
+                                return Err(TreeCopyError.Entry(name, level + 1, error))
+                            case Err(error):
+                                return Err(error)
+                    elif metadata.is_file():
+                        mut input = match fs_io(source.read_file(&name)):
+                            case Ok(stream):
+                                stream
+                            case Err(error):
+                                return Err(TreeCopyError.Entry(name, level + 1, error))
+                        match copy_open_file(&mut input, target, &name, scratch, budget.bytes, cancel, preserve):
+                            case Ok(count):
+                                budget.bytes -= count
+                            case Err(error):
+                                return Err(TreeCopyError.Entry(name, level + 1, error))
+                    else:
+                        return Err(TreeCopyError.Entry(name, level + 1, FsError.UnsupportedType))
+        fs_io(names.close()).map_error(TreeCopyError.Partial)?
+        apply_copy_metadata(target._handle, &observation).map_error(TreeCopyError.Partial)?
+        Ok(())
 
 # Only newly-created destinations are accepted. No recursive rollback is hidden
 # in error handling: cleanup has its own budgets and can itself fail.
 pub def copy_tree(source_parent: &Root, source: &Path, destination_parent: &Root, destination: &Path, limits: &CopyLimits, cancel: &CancellationToken, preserve: CopyMetadata = CopyMetadata.ContentsOnly) -> Result[i64, TreeCopyError]:
-    if limits.max_entries < 1 or limits.max_depth < 1 or limits.max_depth > 64 or limits.max_bytes < 0 or limits.max_open_handles < 11:
-        return Err(TreeCopyError.Setup(FsError.InvalidLimits))
-    if cancel.is_cancelled():
-        return Err(TreeCopyError.Setup(FsError.Cancelled))
-    input = fs_io(source_parent.open_dir(source)).map_error(TreeCopyError.Setup)?
-    if fs_io(__fs_is_within(input._handle, destination_parent._handle)).map_error(TreeCopyError.Setup)?:
-        return Err(TreeCopyError.Setup(FsError.Overlap))
-    destination_metadata = Metadata(fs_io(__fs_file_metadata(destination_parent._handle)).map_error(TreeCopyError.Setup)?)
-    mut scratch = copy_buffer().map_error(TreeCopyError.Setup)?
-    fs_io(destination_parent.create_dir(destination)).map_error(TreeCopyError.Setup)?
-    output = fs_io(destination_parent.open_dir(destination)).map_error(TreeCopyError.Partial)?
-    mut budget = CopyBudget(limits.max_entries - 1, limits.max_bytes, destination_metadata.unix_device(), destination_metadata.unix_inode())
-    copy_directory(&input, &output, &mut scratch, &mut budget, limits, 1, cancel, preserve)?
-    if cancel.is_cancelled():
-        return Err(TreeCopyError.Partial(FsError.Cancelled))
-    Ok(limits.max_bytes - budget.bytes)
+    # Validated positive entries and the nonnegative consumed byte budget bound both differences.
+    unchecked:
+        if limits.max_entries < 1 or limits.max_depth < 1 or limits.max_depth > 64 or limits.max_bytes < 0 or limits.max_open_handles < 11:
+            return Err(TreeCopyError.Setup(FsError.InvalidLimits))
+        if cancel.is_cancelled():
+            return Err(TreeCopyError.Setup(FsError.Cancelled))
+        input = fs_io(source_parent.open_dir(source)).map_error(TreeCopyError.Setup)?
+        if fs_io(__fs_is_within(input._handle, destination_parent._handle)).map_error(TreeCopyError.Setup)?:
+            return Err(TreeCopyError.Setup(FsError.Overlap))
+        destination_metadata = Metadata(fs_io(__fs_file_metadata(destination_parent._handle)).map_error(TreeCopyError.Setup)?)
+        mut scratch = copy_buffer().map_error(TreeCopyError.Setup)?
+        fs_io(destination_parent.create_dir(destination)).map_error(TreeCopyError.Setup)?
+        output = fs_io(destination_parent.open_dir(destination)).map_error(TreeCopyError.Partial)?
+        mut budget = CopyBudget(limits.max_entries - 1, limits.max_bytes, destination_metadata.unix_device(), destination_metadata.unix_inode())
+        copy_directory(&input, &output, &mut scratch, &mut budget, limits, 1, cancel, preserve)?
+        if cancel.is_cancelled():
+            return Err(TreeCopyError.Partial(FsError.Cancelled))
+        Ok(limits.max_bytes - budget.bytes)
 
 class Budget:
     remaining: i64
 
     def step(self: &mut Budget) -> Result[(), FsError]:
-        if self.remaining <= 0:
-            return Err(FsError.Limit)
-        self.remaining -= 1
-        Ok(())
+        # Only strictly positive remaining budgets reach the decrement.
+        unchecked:
+            if self.remaining <= 0:
+                return Err(FsError.Limit)
+            self.remaining -= 1
+            Ok(())
 
 def delete_children(parent: &Root, name: &Path, budget: &mut Budget, depth: i64, cancel: &CancellationToken) -> Result[(), FsError]:
     if cancel.is_cancelled():
@@ -434,30 +444,32 @@ def delete_open_directory(parent: &Root, name: &Path, child: &Root, budget: &mut
     delete_directory_contents(parent, name, child, budget, depth, cancel)
 
 def delete_directory_contents(parent: &Root, name: &Path, child: &Root, budget: &mut Budget, depth: i64, cancel: &CancellationToken) -> Result[(), FsError]:
-    mut names = fs_io(child.names())?
-    while True:
-        if cancel.is_cancelled():
-            return Err(FsError.Cancelled)
-        match fs_io(names.next())?:
-            case Nothing:
-                break
-            case Some(leaf):
-                match child.open_dir(&leaf):
-                    case Ok(directory):
-                        drop(directory)
-                        delete_children(child, &leaf, budget, depth - 1, cancel)?
-                    case Err(error):
-                        match error:
-                            case IoError.System(code):
-                                if code != 20i32 and code != 40i32:
-                                    return Err(FsError.Io(IoError.System(code)))
-                            case _:
-                                return Err(FsError.Io(error))
-                        budget.step()?
-                        fs_io(child.remove_file(&leaf))?
-    if not fs_io(__fs_same_dir(child._handle, parent._handle, name.as_bytes()))?:
-        return Err(FsError.Replaced)
-    fs_io(parent.remove_dir(name))
+    # Private callers require depth in 1..64; recursion decrements at most to zero.
+    unchecked:
+        mut names = fs_io(child.names())?
+        while True:
+            if cancel.is_cancelled():
+                return Err(FsError.Cancelled)
+            match fs_io(names.next())?:
+                case Nothing:
+                    break
+                case Some(leaf):
+                    match child.open_dir(&leaf):
+                        case Ok(directory):
+                            drop(directory)
+                            delete_children(child, &leaf, budget, depth - 1, cancel)?
+                        case Err(error):
+                            match error:
+                                case IoError.System(code):
+                                    if code != 20i32 and code != 40i32:
+                                        return Err(FsError.Io(IoError.System(code)))
+                                case _:
+                                    return Err(FsError.Io(error))
+                            budget.step()?
+                            fs_io(child.remove_file(&leaf))?
+        if not fs_io(__fs_same_dir(child._handle, parent._handle, name.as_bytes()))?:
+            return Err(FsError.Replaced)
+        fs_io(parent.remove_dir(name))
 
 # Explicit recursive removal only: a budget/cancellation/error leaves already
 # removed entries removed. Symlinks are unlinked, never traversed.
@@ -470,29 +482,31 @@ pub def remove_tree(parent: &Root, name: &Path, max_entries: Positive[i64], max_
 # Byte matching (not Unicode): star matches any sequence and question-mark
 # exactly one byte. All other bytes are literal, including dot and brackets.
 def matches_name(pattern: &list[u8], name: &list[u8], budget: &mut Budget) -> Result[bool, FsError]:
-    mut p = 0
-    mut n = 0
-    mut star = -1
-    mut retry = 0
-    while n < len(name):
-        budget.step()?
-        if p < len(pattern) and pattern[p] == 42u8:
-            star = p
+    # Pattern/name cursors advance only below their lengths; retry never exceeds name length.
+    unchecked:
+        mut p = 0
+        mut n = 0
+        mut star = -1
+        mut retry = 0
+        while n < len(name):
+            budget.step()?
+            if p < len(pattern) and pattern[p] == 42u8:
+                star = p
+                p += 1
+                retry = n
+            elif p < len(pattern) and (pattern[p] == 63u8 or pattern[p] == name[n]):
+                p += 1
+                n += 1
+            elif star >= 0:
+                retry += 1
+                n = retry
+                p = star + 1
+            else:
+                return Ok(False)
+        while p < len(pattern) and pattern[p] == 42u8:
+            budget.step()?
             p += 1
-            retry = n
-        elif p < len(pattern) and (pattern[p] == 63u8 or pattern[p] == name[n]):
-            p += 1
-            n += 1
-        elif star >= 0:
-            retry += 1
-            n = retry
-            p = star + 1
-        else:
-            return Ok(False)
-    while p < len(pattern) and pattern[p] == 42u8:
-        budget.step()?
-        p += 1
-    Ok(p == len(pattern))
+        Ok(p == len(pattern))
 
 pub def glob(parent: &Root, pattern: &Path, max_entries: NonNegative[i64], max_matches: NonNegative[i64], max_steps: NonNegative[i64]) -> Result[list[Path], FsError]:
     if len(pattern.as_bytes()) > 4096:
@@ -559,9 +573,11 @@ pub class Metadata:
         Permissions(__fs_metadata_field(self._owner, 2) != 0u64, u32.wrapping_from(__fs_metadata_field(self._owner, 3)))
 
     def time(self, field: u8) -> Option[Timestamp]:
-        if __fs_metadata_field(self._owner, field) == 0u64:
-            return Nothing
-        Some(Timestamp(i64.wrapping_from(__fs_metadata_field(self._owner, field + 1u8)), u32.wrapping_from(__fs_metadata_field(self._owner, field + 2u8))))
+        # Only metadata slots 8, 11 or 14 are passed here, so field + 2 fits u8.
+        unchecked:
+            if __fs_metadata_field(self._owner, field) == 0u64:
+                return Nothing
+            Some(Timestamp(i64.wrapping_from(__fs_metadata_field(self._owner, field + 1u8)), u32.wrapping_from(__fs_metadata_field(self._owner, field + 2u8))))
 
     pub def modified(self) -> Option[Timestamp]:
         self.time(8)
@@ -738,7 +754,7 @@ pub class Walk:
         if self._top_down and self._started:
             # Reserve before consuming caller-edited directories. The caller
             # can remove/reorder these paths before any child is opened.
-            stored(self._pending.reserve(len(self._pending) + len(self.current.directories)))?
+            stored(self._pending.reserve(len(self.current.directories)))?
             while len(self.current.directories) > 0:
                 match self.current.directories.pop():
                     case Some(child):
@@ -763,7 +779,14 @@ pub class Walk:
                             if self._top_down:
                                 self.current = row
                                 return Ok(True)
-                            stored(self._pending.reserve(len(self._pending) + len(row.directories) + 1))?
+                            extent = checked:
+                                len(row.directories) + 1
+                            additional = match extent:
+                                case Ok(value):
+                                    value
+                                case Err(_):
+                                    return Err(WalkError.Allocation(AllocError.CapacityOverflow))
+                            stored(self._pending.reserve(additional))?
                             mut children = allocated(list[Frame].with_capacity(len(row.directories)))?
                             for child in &row.directories:
                                 stored(children.append(Frame.Pending(allocated(child.copy())?)))?

@@ -138,8 +138,8 @@ fn dense_enum_dispatch_keeps_nested_payload_order_borrows_and_tail_exits() {
         let fields = if i == 0 { "(list[i64], i64)" } else { "" };
         writeln!(source, "    V{i}{fields}").unwrap();
     }
-    source.push_str("enum Wrapped:\n    Of(Kind)\ndef finish(n: i64) -> i64:\n    n + 1\ndef pick(k: &Kind) -> i64:\n    match k:\n");
-    source.push_str("        case Kind.V0(_, 1):\n            return 1001\n        case Kind.V0(_, 2):\n            return 1002\n");
+    source.push_str("enum Wrapped:\n    Of(Kind)\ndef finish(n: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(n + 1)\ndef pick(k: &Kind) -> Result[i64, OverflowError[i64]]:\n    match k:\n");
+    source.push_str("        case Kind.V0(_, 1):\n            return Ok(1001)\n        case Kind.V0(_, 2):\n            return Ok(1002)\n");
     for i in (0..256).rev() {
         let (pattern, result) = if i == 0 {
             ("(xs, _)", "xs[0]")
@@ -152,7 +152,7 @@ fn dense_enum_dispatch_keeps_nested_payload_order_borrows_and_tail_exits() {
         )
         .unwrap();
     }
-    source.push_str("def consume(k: Kind) -> i64:\n    match k:\n");
+    source.push_str("def consume(k: Kind) -> Result[i64, OverflowError[i64]]:\n    match k:\n");
     for i in 0..256 {
         let fields = if i == 0 { "(_, _)" } else { "" };
         writeln!(
@@ -165,7 +165,11 @@ fn dense_enum_dispatch_keeps_nested_payload_order_borrows_and_tail_exits() {
     // Keep each function below the language's 256 parameter/local slot limit;
     // constructing owned payloads also introduces temporary cleanup slots.
     for group in 0..16 {
-        writeln!(source, "def check_{group}() -> Result[i32, AllocError]:").unwrap();
+        writeln!(
+            source,
+            "def check_{group}() -> Result[i32, AllocError | OverflowError[i64]]:"
+        )
+        .unwrap();
         for i in group * 16..(group + 1) * 16 {
             let value = if i == 0 {
                 "Kind.V0([10]?, 0)".to_string()
@@ -174,20 +178,20 @@ fn dense_enum_dispatch_keeps_nested_payload_order_borrows_and_tail_exits() {
             };
             writeln!(
                 source,
-                "    if pick(&{value}) != {}:\n        return Ok(1i32)",
+                "    if pick(&{value})? != {}:\n        return Ok(1i32)",
                 i + 11
             )
             .unwrap();
             writeln!(
                 source,
-                "    if consume({value}) != {}:\n        return Ok(2i32)",
+                "    if consume({value})? != {}:\n        return Ok(2i32)",
                 i + 1
             )
             .unwrap();
         }
         source.push_str("    Ok(0i32)\n");
     }
-    source.push_str("def main() -> Result[i32, AllocError | IoError]:\n");
+    source.push_str("def main() -> Result[i32, AllocError | IoError | OverflowError[i64]]:\n");
     for group in 0..16 {
         writeln!(
             source,
@@ -195,7 +199,7 @@ fn dense_enum_dispatch_keeps_nested_payload_order_borrows_and_tail_exits() {
         )
         .unwrap();
     }
-    source.push_str("    print(pick(&Kind.V0([10]?, 1)), pick(&Kind.V0([10]?, 2)))?\n    print(nested(Wrapped.Of(Kind.V0([42]?, 0))))?\n    print(nested(Wrapped.Of(Kind.V255)))?\n    Ok(0i32)\n");
+    source.push_str("    print(pick(&Kind.V0([10]?, 1))?, pick(&Kind.V0([10]?, 2))?)?\n    print(nested(Wrapped.Of(Kind.V0([42]?, 0))))?\n    print(nested(Wrapped.Of(Kind.V255)))?\n    Ok(0i32)\n");
     runs(&source, "1001 1002\n42\n-1\n");
     let dump = clif(&source);
     let consume = dump

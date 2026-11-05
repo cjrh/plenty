@@ -5,7 +5,7 @@ its value. An f-string builds a new `str`, which can fail to allocate, so it
 returns `Result[str, AllocError]` like a list literal does: write `?` after it.
 
 ```plenty
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     name = "Ada"
     year = 1843
     scores = [90, 85]?

@@ -224,6 +224,14 @@ are in `tests/fixtures/crypto/wycheproof`.
 - No RSA encryption.
 - One target, x86-64 Linux GNU.
 
+## Arithmetic bounds
+
+DER cursors stay within validated ordered buffer spans; length encodings use at
+most three bytes. RSA import rejects moduli longer than 1024 bytes before bit
+counting, and bounds exponents to five bytes. Consequently bit counts and DER
+output extents cannot overflow. Small arithmetic opt-outs preserve `InvalidKey`
+and `WeakKey` rather than exposing machine-arithmetic errors for malformed keys.
+
 ## Acknowledgements
 
 - Wraps [`ring`](https://github.com/briansmith/ring) 0.17.14 (Apache-2.0 AND ISC),

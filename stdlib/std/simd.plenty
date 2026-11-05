@@ -22,26 +22,26 @@ pub enum i32x4:
             case i32x4.Lanes(a0, a1, a2, a3):
                 (*a0, *a1, *a2, *a3)
 
-    pub def add(self, other: &i32x4) -> i32x4:
+    pub def add(self, other: &i32x4) -> Result[i32x4, OverflowError[i32]]:
         match self:
             case i32x4.Lanes(a0, a1, a2, a3):
                 match other:
                     case i32x4.Lanes(b0, b1, b2, b3):
-                        i32x4.Lanes(*a0 + *b0, *a1 + *b1, *a2 + *b2, *a3 + *b3)
+                        Ok(i32x4.Lanes(*a0 + *b0, *a1 + *b1, *a2 + *b2, *a3 + *b3))
 
-    pub def sub(self, other: &i32x4) -> i32x4:
+    pub def sub(self, other: &i32x4) -> Result[i32x4, OverflowError[i32]]:
         match self:
             case i32x4.Lanes(a0, a1, a2, a3):
                 match other:
                     case i32x4.Lanes(b0, b1, b2, b3):
-                        i32x4.Lanes(*a0 - *b0, *a1 - *b1, *a2 - *b2, *a3 - *b3)
+                        Ok(i32x4.Lanes(*a0 - *b0, *a1 - *b1, *a2 - *b2, *a3 - *b3))
 
-    pub def mul(self, other: &i32x4) -> i32x4:
+    pub def mul(self, other: &i32x4) -> Result[i32x4, OverflowError[i32]]:
         match self:
             case i32x4.Lanes(a0, a1, a2, a3):
                 match other:
                     case i32x4.Lanes(b0, b1, b2, b3):
-                        i32x4.Lanes(*a0 * *b0, *a1 * *b1, *a2 * *b2, *a3 * *b3)
+                        Ok(i32x4.Lanes(*a0 * *b0, *a1 * *b1, *a2 * *b2, *a3 * *b3))
 
     pub def wrapping_add(self, other: &i32x4) -> i32x4:
         match self:
@@ -121,23 +121,29 @@ pub enum i32x4:
                 (((*a0).wrapping_add(*a1)).wrapping_add(*a2)).wrapping_add(*a3)
 
     pub def store(self, values: &mut list[i32], offset: i64) -> bool:
-        if offset < 0 or offset > len(values) or len(values) - offset < 4:
-            return False
-        match self:
-            case i32x4.Lanes(a0, a1, a2, a3):
-                values[offset] = *a0
-                values[offset + 1] = *a1
-                values[offset + 2] = *a2
-                values[offset + 3] = *a3
-        True
+        # Short-circuit guards prove 0 <= offset <= len before subtraction;
+        # the full lane span fits before any offset addition or store.
+        unchecked:
+            if offset < 0 or offset > len(values) or len(values) - offset < 4:
+                return False
+            match self:
+                case i32x4.Lanes(a0, a1, a2, a3):
+                    values[offset] = *a0
+                    values[offset + 1] = *a1
+                    values[offset + 2] = *a2
+                    values[offset + 3] = *a3
+            True
 
 pub def splat_i32x4(value: i32) -> i32x4:
     i32x4.Lanes(value, value, value, value)
 
 pub def load_i32x4(values: &list[i32], offset: i64 = 0) -> Option[i32x4]:
-    if offset < 0 or offset > len(values) or len(values) - offset < 4:
-        return Nothing
-    Some(i32x4.Lanes(values[offset], values[offset + 1], values[offset + 2], values[offset + 3]))
+    # Short-circuit guards prove 0 <= offset <= len before subtraction;
+    # the full lane span fits before any offset addition or store.
+    unchecked:
+        if offset < 0 or offset > len(values) or len(values) - offset < 4:
+            return Nothing
+        Some(i32x4.Lanes(values[offset], values[offset + 1], values[offset + 2], values[offset + 3]))
 
 pub enum u32x4:
     Lanes(u32, u32, u32, u32)
@@ -160,26 +166,26 @@ pub enum u32x4:
             case u32x4.Lanes(a0, a1, a2, a3):
                 (*a0, *a1, *a2, *a3)
 
-    pub def add(self, other: &u32x4) -> u32x4:
+    pub def add(self, other: &u32x4) -> Result[u32x4, OverflowError[u32]]:
         match self:
             case u32x4.Lanes(a0, a1, a2, a3):
                 match other:
                     case u32x4.Lanes(b0, b1, b2, b3):
-                        u32x4.Lanes(*a0 + *b0, *a1 + *b1, *a2 + *b2, *a3 + *b3)
+                        Ok(u32x4.Lanes(*a0 + *b0, *a1 + *b1, *a2 + *b2, *a3 + *b3))
 
-    pub def sub(self, other: &u32x4) -> u32x4:
+    pub def sub(self, other: &u32x4) -> Result[u32x4, OverflowError[u32]]:
         match self:
             case u32x4.Lanes(a0, a1, a2, a3):
                 match other:
                     case u32x4.Lanes(b0, b1, b2, b3):
-                        u32x4.Lanes(*a0 - *b0, *a1 - *b1, *a2 - *b2, *a3 - *b3)
+                        Ok(u32x4.Lanes(*a0 - *b0, *a1 - *b1, *a2 - *b2, *a3 - *b3))
 
-    pub def mul(self, other: &u32x4) -> u32x4:
+    pub def mul(self, other: &u32x4) -> Result[u32x4, OverflowError[u32]]:
         match self:
             case u32x4.Lanes(a0, a1, a2, a3):
                 match other:
                     case u32x4.Lanes(b0, b1, b2, b3):
-                        u32x4.Lanes(*a0 * *b0, *a1 * *b1, *a2 * *b2, *a3 * *b3)
+                        Ok(u32x4.Lanes(*a0 * *b0, *a1 * *b1, *a2 * *b2, *a3 * *b3))
 
     pub def wrapping_add(self, other: &u32x4) -> u32x4:
         match self:
@@ -259,23 +265,29 @@ pub enum u32x4:
                 (((*a0).wrapping_add(*a1)).wrapping_add(*a2)).wrapping_add(*a3)
 
     pub def store(self, values: &mut list[u32], offset: i64) -> bool:
-        if offset < 0 or offset > len(values) or len(values) - offset < 4:
-            return False
-        match self:
-            case u32x4.Lanes(a0, a1, a2, a3):
-                values[offset] = *a0
-                values[offset + 1] = *a1
-                values[offset + 2] = *a2
-                values[offset + 3] = *a3
-        True
+        # Short-circuit guards prove 0 <= offset <= len before subtraction;
+        # the full lane span fits before any offset addition or store.
+        unchecked:
+            if offset < 0 or offset > len(values) or len(values) - offset < 4:
+                return False
+            match self:
+                case u32x4.Lanes(a0, a1, a2, a3):
+                    values[offset] = *a0
+                    values[offset + 1] = *a1
+                    values[offset + 2] = *a2
+                    values[offset + 3] = *a3
+            True
 
 pub def splat_u32x4(value: u32) -> u32x4:
     u32x4.Lanes(value, value, value, value)
 
 pub def load_u32x4(values: &list[u32], offset: i64 = 0) -> Option[u32x4]:
-    if offset < 0 or offset > len(values) or len(values) - offset < 4:
-        return Nothing
-    Some(u32x4.Lanes(values[offset], values[offset + 1], values[offset + 2], values[offset + 3]))
+    # Short-circuit guards prove 0 <= offset <= len before subtraction;
+    # the full lane span fits before any offset addition or store.
+    unchecked:
+        if offset < 0 or offset > len(values) or len(values) - offset < 4:
+            return Nothing
+        Some(u32x4.Lanes(values[offset], values[offset + 1], values[offset + 2], values[offset + 3]))
 
 pub enum f32x4:
     Lanes(f32, f32, f32, f32)
@@ -383,23 +395,29 @@ pub enum f32x4:
                 ((((initial + *a0) + *a1) + *a2) + *a3)
 
     pub def store(self, values: &mut list[f32], offset: i64) -> bool:
-        if offset < 0 or offset > len(values) or len(values) - offset < 4:
-            return False
-        match self:
-            case f32x4.Lanes(a0, a1, a2, a3):
-                values[offset] = *a0
-                values[offset + 1] = *a1
-                values[offset + 2] = *a2
-                values[offset + 3] = *a3
-        True
+        # Short-circuit guards prove 0 <= offset <= len before subtraction;
+        # the full lane span fits before any offset addition or store.
+        unchecked:
+            if offset < 0 or offset > len(values) or len(values) - offset < 4:
+                return False
+            match self:
+                case f32x4.Lanes(a0, a1, a2, a3):
+                    values[offset] = *a0
+                    values[offset + 1] = *a1
+                    values[offset + 2] = *a2
+                    values[offset + 3] = *a3
+            True
 
 pub def splat_f32x4(value: f32) -> f32x4:
     f32x4.Lanes(value, value, value, value)
 
 pub def load_f32x4(values: &list[f32], offset: i64 = 0) -> Option[f32x4]:
-    if offset < 0 or offset > len(values) or len(values) - offset < 4:
-        return Nothing
-    Some(f32x4.Lanes(values[offset], values[offset + 1], values[offset + 2], values[offset + 3]))
+    # Short-circuit guards prove 0 <= offset <= len before subtraction;
+    # the full lane span fits before any offset addition or store.
+    unchecked:
+        if offset < 0 or offset > len(values) or len(values) - offset < 4:
+            return Nothing
+        Some(f32x4.Lanes(values[offset], values[offset + 1], values[offset + 2], values[offset + 3]))
 
 pub enum f64x2:
     Lanes(f64, f64)
@@ -503,21 +521,27 @@ pub enum f64x2:
                 ((initial + *a0) + *a1)
 
     pub def store(self, values: &mut list[f64], offset: i64) -> bool:
-        if offset < 0 or offset > len(values) or len(values) - offset < 2:
-            return False
-        match self:
-            case f64x2.Lanes(a0, a1):
-                values[offset] = *a0
-                values[offset + 1] = *a1
-        True
+        # Short-circuit guards prove 0 <= offset <= len before subtraction;
+        # the full lane span fits before any offset addition or store.
+        unchecked:
+            if offset < 0 or offset > len(values) or len(values) - offset < 2:
+                return False
+            match self:
+                case f64x2.Lanes(a0, a1):
+                    values[offset] = *a0
+                    values[offset + 1] = *a1
+            True
 
 pub def splat_f64x2(value: f64) -> f64x2:
     f64x2.Lanes(value, value)
 
 pub def load_f64x2(values: &list[f64], offset: i64 = 0) -> Option[f64x2]:
-    if offset < 0 or offset > len(values) or len(values) - offset < 2:
-        return Nothing
-    Some(f64x2.Lanes(values[offset], values[offset + 1]))
+    # Short-circuit guards prove 0 <= offset <= len before subtraction;
+    # the full lane span fits before any offset addition or store.
+    unchecked:
+        if offset < 0 or offset > len(values) or len(values) - offset < 2:
+            return Nothing
+        Some(f64x2.Lanes(values[offset], values[offset + 1]))
 
 pub enum mask32x4:
     Lanes(bool, bool, bool, bool)
@@ -533,9 +557,11 @@ pub enum mask32x4:
                 *a0 and *a1 and *a2 and *a3
 
     pub def count(self) -> i64:
-        match self:
-            case mask32x4.Lanes(a0, a1, a2, a3):
-                (1 if *a0 else 0) + (1 if *a1 else 0) + (1 if *a2 else 0) + (1 if *a3 else 0)
+        # Each mask contributes 0 or 1; the total is at most four.
+        unchecked:
+            match self:
+                case mask32x4.Lanes(a0, a1, a2, a3):
+                    (1 if *a0 else 0) + (1 if *a1 else 0) + (1 if *a2 else 0) + (1 if *a3 else 0)
 
     pub def select[T](self, yes: &T, no: &T) -> T:
         yes.selected(self, no)
@@ -580,9 +606,11 @@ pub enum mask64x2:
                 *a0 and *a1
 
     pub def count(self) -> i64:
-        match self:
-            case mask64x2.Lanes(a0, a1):
-                (1 if *a0 else 0) + (1 if *a1 else 0)
+        # Each mask contributes 0 or 1; the total is at most four.
+        unchecked:
+            match self:
+                case mask64x2.Lanes(a0, a1):
+                    (1 if *a0 else 0) + (1 if *a1 else 0)
 
     pub def select[T](self, yes: &T, no: &T) -> T:
         yes.selected(self, no)

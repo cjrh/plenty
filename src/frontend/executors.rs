@@ -126,9 +126,6 @@ impl Lower<'_> {
                     "submit requires a concrete owned closure or a statically named function",
                 ));
             };
-            if input.checked_closure() {
-                return Err(worker.at.error("a closure defined in `checked:` cannot be submitted to an executor; define it outside the block instead"));
-            }
             if !input.heap_storable() || !closure.signature.inputs.is_empty() {
                 return Err(worker.at.error("executor jobs require wholly owned captures and no arguments, borrows, or generator frames"));
             }
@@ -195,9 +192,6 @@ impl Lower<'_> {
         let (_, worker) = take_call(ops, begin)
             .ok_or_else(|| at.error("submit requires a statically selected function"))?;
         let captures = self.sigs[&worker].inputs.clone();
-        if captures.iter().any(|(_, ty)| ty.checked_closure()) {
-            return Err(at.error("a closure defined in `checked:` cannot be submitted to an executor; define it outside the block instead"));
-        }
         if captures.iter().any(|(_, ty)| !ty.heap_storable()) {
             return Err(
                 at.error("executor arguments must be owned; borrowed work belongs in scoped spawn")
@@ -269,9 +263,6 @@ impl Lower<'_> {
                 let Ty::Closure(closure) = &ty else {
                     return Err(worker.at.error(format!("{method} requires a concrete reusable closure or statically named function; indirect Callable values lack worker eligibility evidence")));
                 };
-                if ty.checked_closure() {
-                    return Err(worker.at.error("a closure defined in `checked:` cannot be sent to executor workers; define it outside the block instead"));
-                }
                 if closure.once || closure.mutable {
                     return Err(worker.at.error(format!("{method} shares its worker across jobs; use a reusable immutable closure, not a mutable or one-shot closure")));
                 }
@@ -335,8 +326,11 @@ impl Lower<'_> {
                 "{method} results require a concrete wholly owned type"
             )));
         }
-        if reduce && output != **element {
-            return Err(worker.at.error("reduce_tree worker must take two values of the input element type and return that same type"));
+        if reduce
+            && output != **element
+            && !matches!(&output, Ty::Enum(result) if result.is_result() && result.get().variants[0].fields[0] == **element)
+        {
+            return Err(worker.at.error("reduce_tree worker must take two values of the input element type and return that same type or Result[T, E]"));
         }
         let fallible = method == "map_result";
         if fallible
@@ -390,7 +384,20 @@ impl Lower<'_> {
                     adapter,
                     worker,
                     input: Ty::Closure(closure.clone()),
-                    output,
+                    output: if output == **element {
+                        output
+                    } else {
+                        let Ty::Enum(result) = &output else {
+                            unreachable!()
+                        };
+                        crate::sum::result(
+                            (**element).clone(),
+                            crate::sum::anonymous(vec![
+                                crate::sum::pool_map_error(),
+                                result.get().variants[1].fields[0].clone(),
+                            ]),
+                        )
+                    },
                     closure: Some(closure),
                     shared: None,
                 }),

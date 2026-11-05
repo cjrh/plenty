@@ -33,19 +33,22 @@ pub class Script:
     pub def read_before(self: &mut Script, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         if cancel.is_cancelled():
             return Err(NetError.Cancelled)
-        left = self.input.len() - self.at
-        if left == 0:
-            if self.hang:
-                return Err(NetError.TimedOut)
-            return Ok(0)
-        mut count = stop - start
-        if count > self.step:
-            count = self.step
-        if count > left:
-            count = left
-        buffer.overwrite(start, &self.input[self.at:self.at + count])
-        self.at += count
-        Ok(count)
+        # at is a cursor in the scripted input; destination and step bound
+        # each count, so at + count never exceeds input.len().
+        unchecked:
+            left = self.input.len() - self.at
+            if left == 0:
+                if self.hang:
+                    return Err(NetError.TimedOut)
+                return Ok(0)
+            mut count = stop - start
+            if count > self.step:
+                count = self.step
+            if count > left:
+                count = left
+            buffer.overwrite(start, &self.input[self.at:self.at + count])
+            self.at += count
+            Ok(count)
 
     pub def shutdown(self: &mut Script, direction: Shutdown) -> Result[(), NetError]:
         Ok(())
@@ -265,9 +268,14 @@ pub def until(stream: &mut TcpStream, marker: &str) -> Result[str, NetError]:
     mut out = std.bytes.empty().unwrap()
     while True:
         at = out.len()
-        out.resize(at + 1, 0u8).unwrap()
-        count = stream.read_before(&mut out, at, at + 1, &deadline, &never)?
-        out.truncate(at + count)
+        extent = checked:
+            at + 1
+        end = extent.unwrap()
+        out.resize(end, 0u8).unwrap()
+        count = stream.read_before(&mut out, at, end, &deadline, &never)?
+        consumed = checked:
+            at + count
+        out.truncate(consumed.unwrap())
         if count == 0:
             break
         if marker.byte_len() > 0 and out.to_text().unwrap().endswith(marker):
@@ -827,13 +835,17 @@ def many(port: u16, stop: CancellationToken) -> ():
             ask(&mut streams[index])
         for index in range(10):
             if until(&mut streams[index], "home").unwrap().endswith("home"):
-                answered += 1
+                # At most 3 rounds of 10 scripted connections.
+                unchecked:
+                    answered += 1
     print(answered).unwrap()
     stop.cancel()
     mut closed = 0
     for index in range(10):
         if until(&mut streams[index], "").unwrap() == "":
-            closed += 1
+            # The list holds exactly 10 scripted connections.
+            unchecked:
+                closed += 1
     print(closed).unwrap()
 
 def capped(port: u16, stop: CancellationToken) -> ():
@@ -901,7 +913,8 @@ def send(stream: &mut TcpStream, raw: &str) -> ():
     stream.write_all_before(&request, &deadline, &never).unwrap()
 
 def millis_since(start: &std.time.Instant) -> u64:
-    std.time.monotonic_now().saturating_duration_since(start).as_nanoseconds() // 1000000u64
+    divisor = NonZero.try_from(1000000u64).unwrap()
+    std.time.monotonic_now().saturating_duration_since(start).as_nanoseconds() // divisor
 
 def pieces(port: u16, stop: CancellationToken) -> ():
     start = std.time.monotonic_now()
@@ -1007,9 +1020,14 @@ def ask(stream: &mut TlsStream) -> str:
     mut out = std.bytes.empty().unwrap()
     while not out.to_text().unwrap().endswith("secure"):
         at = out.len()
-        out.resize(at + 64, 0u8).unwrap()
-        count = stream.read_before(&mut out, at, at + 64, &deadline, &never).unwrap()
-        out.truncate(at + count)
+        extent = checked:
+            at + 64
+        end = extent.unwrap()
+        out.resize(end, 0u8).unwrap()
+        count = stream.read_before(&mut out, at, end, &deadline, &never).unwrap()
+        consumed = checked:
+            at + count
+        out.truncate(consumed.unwrap())
     out.to_text().unwrap().replace("\r\n", "|").unwrap()
 
 def secure(port: u16) -> TlsStream:
@@ -1118,9 +1136,14 @@ def ask(stream: &mut TlsStream, raw: &str, marker: &str) -> str:
     mut out = std.bytes.empty().unwrap()
     while marker.byte_len() > 0 and not out.to_text().unwrap().endswith(marker):
         at = out.len()
-        out.resize(at + 64, 0u8).unwrap()
-        count = stream.read_before(&mut out, at, at + 64, &deadline, &never).unwrap()
-        out.truncate(at + count)
+        extent = checked:
+            at + 64
+        end = extent.unwrap()
+        out.resize(end, 0u8).unwrap()
+        count = stream.read_before(&mut out, at, end, &deadline, &never).unwrap()
+        consumed = checked:
+            at + count
+        out.truncate(consumed.unwrap())
     out.to_text().unwrap().replace("\r\n", "|").unwrap()
 
 def secure(port: u16) -> TlsStream:
@@ -1161,7 +1184,8 @@ def client(port: u16, stop: CancellationToken) -> ():
     for round in range(2):
         print(ask(&mut first, "GET / HTTP/1.1\r\nHost: x\r\n\r\n", "secure")).unwrap()
         print(ask(&mut second, "GET / HTTP/1.1\r\nHost: x\r\n\r\n", "secure")).unwrap()
-    waited = std.time.monotonic_now().saturating_duration_since(&start).as_nanoseconds() // 1000000u64
+    divisor = NonZero.try_from(1000000u64).unwrap()
+    waited = std.time.monotonic_now().saturating_duration_since(&start).as_nanoseconds() // divisor
     print(waited < 700u64).unwrap()
     print(ask(&mut stalled, "", "Request Timeout\n")).unwrap()
     print(closes(&mut hello)).unwrap()
@@ -1237,7 +1261,7 @@ def needed(method: &str, pattern: &str, path: &str) -> Result[i64, std.http.serv
             return Ok(budget)
     Ok(-1)
 
-def main() -> Result[(), std.http.server.ServerError | AllocError | IoError]:
+def main() -> Result[(), std.http.server.ServerError | AllocError | IoError | OverflowError[i64]]:
     base = needed("GET", "/f/{name}", "/f/a")?
     print(needed("PROPFIND-BEYOND-INLINE", "/f/{name}", "/f/a")? - base)?
     print(needed("GET", "/f/{name}", "/f/a-name-beyond-inline")? - base)?
@@ -1499,9 +1523,14 @@ def ask(port: u16, path: &str, last: &str) -> str:
     mut out = std.bytes.empty().unwrap()
     while not out.to_text().unwrap().endswith(last):
         at = out.len()
-        out.resize(at + 64, 0u8).unwrap()
-        count = stream.read_before(&mut out, at, at + 64, &deadline, &never).unwrap()
-        out.truncate(at + count)
+        extent = checked:
+            at + 64
+        end = extent.unwrap()
+        out.resize(end, 0u8).unwrap()
+        count = stream.read_before(&mut out, at, end, &deadline, &never).unwrap()
+        consumed = checked:
+            at + count
+        out.truncate(consumed.unwrap())
     out.to_text().unwrap().replace("\r\n", "|").unwrap()
 
 def secure_client(port: u16, stop: CancellationToken) -> ():
@@ -1600,6 +1629,164 @@ def main() -> Result[(), std.net.NetError | std.http.server.ServerError | AllocE
                 "App does not satisfy std.http.server.Handler: signature of `handle` does not match"
             ),
             "{error}"
+        );
+    }
+}
+
+/// Test private representation boundaries without constructing enormous bodies
+/// or waiting for a server to process 2^64 requests.
+#[test]
+fn checked_server_extents_and_observation_counts_in_both_build_modes() {
+    let library = include_str!("../stdlib/std/http/server.plenty");
+    let helper = |name: &str| {
+        library[library.find(name).unwrap()..]
+            .split("\n\n")
+            .next()
+            .unwrap()
+    };
+    let report = helper("pub class Report:");
+    let counted = helper("def counted(");
+    let merge = helper("def merge(");
+    let unread = helper("def unread_extent(");
+    let sent = helper("def sent_extent(");
+    let after = helper("def after(");
+    let gathered = helper("class Gathered:");
+    let scanned = helper("def scanned(");
+    let send_all = helper("def send_all[");
+    let least = helper("def least(");
+    let deadline_of = helper("def deadline_of(");
+    let now_ns = helper("def now_ns(");
+    let write_start = library
+        .find("    pub def write(self: &mut Exchange[T]")
+        .unwrap();
+    let write = library[write_start..].split("\n\n").next().unwrap();
+    let write = write.replace("Exchange[T]", "Probe");
+    let source = format!(
+        r#"import std.http
+import std.bytes
+from std.bytes import Bytes
+from std.http import HttpError, Limits
+from std.net import NetError
+from std.io import StreamError
+from std.sync import CancellationToken
+from std.time import Deadline, deadline_at, instant_at, monotonic_now
+{report}
+{counted}
+{merge}
+{unread}
+{sent}
+{after}
+{least}
+{deadline_of}
+{now_ns}
+protocol Transport:
+    def write_before(self: &mut Transport, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+        pass
+class Writer:
+    count: i64
+
+    def write_before(self: &mut Writer, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+        Ok(self.count)
+
+{send_all}
+{gathered}
+const line_feed: u8 = 10u8
+const carriage_return: u8 = 13u8
+{scanned}
+const sized: i64 = 1
+const chunked: i64 = 2
+const closing: i64 = 3
+const broken: i64 = 4
+class Probe:
+    _state: i64
+    _remaining: i64
+    _sent: i64
+    _head_only: bool
+    called: bool
+
+    def put(self: &mut Probe, source: &[u8], framed: bool) -> Result[(), HttpError]:
+        self.called = True
+        Ok(())
+
+    def flush(self: &mut Probe) -> Result[(), HttpError]:
+        Ok(())
+
+{write}
+
+def main() -> Result[(), IoError | AllocError]:
+    never = CancellationToken()?
+    mut oversized = Writer(i64.MAX)
+    mut short = Writer(1)
+    mut zero = Writer(0)
+    limits = Limits(i64.MAX, i64.MAX, NonNegative.try_from(i64.MAX).unwrap(), 0)
+    mut input = Gathered(std.bytes.from_text("X: y\r\n\r\n")?, 0, 0, i64.MAX, 9223372036854775806)
+    mut total = Report(18446744073709551614u64, 0u64, u64.MAX, 1u64, 5u64, 6u64, 7u64, 8u64, 9u64)
+    part = Report(1u64, u64.MAX, 1u64, u64.MAX, 2u64, 3u64, 4u64, 5u64, 6u64)
+    mut stream = Probe(chunked, 0, i64.MAX, False, False)
+    mut head = Probe(closing, 0, i64.MAX, True, False)
+    mut exact_stream = Probe(sized, 1, 9223372036854775806, False, False)
+    print("__test_begin_no_allocations__")?
+    transport_range = match send_all(&mut oversized, b"xx", 0u64, 0u64, &never):
+        case Err(NetError.Stream(StreamError.OutOfRange)):
+            True
+        case _:
+            False
+    transport_zero = match send_all(&mut zero, b"xx", 0u64, 0u64, &never):
+        case Err(NetError.Stream(StreamError.WriteZero)):
+            True
+        case _:
+            False
+    transport_short = send_all(&mut short, b"xx", 0u64, 0u64, &never).is_ok()
+    scan = scanned(&mut input, &limits) and input.fields == i64.MAX and input.line == 8
+    increment = counted(u64.MAX, 1u64) == u64.MAX and counted(18446744073709551614u64, 1u64) == u64.MAX
+    merge(&mut total, &part)
+    merging = total.connections == u64.MAX and total.rejected == u64.MAX and total.requests == u64.MAX and total.handler_errors == u64.MAX and total.protocol_errors == 7u64 and total.timeouts == 9u64 and total.cancelled == 11u64 and total.accept_errors == 13u64 and total.dropped_events == 15u64
+    merge(&mut total, &part)
+    repeated = total.connections == u64.MAX and total.rejected == u64.MAX and total.requests == u64.MAX and total.handler_errors == u64.MAX
+    allocation = unread_extent(i64.MAX, 10, 10).unwrap() == i64.MAX and unread_extent(i64.MAX, 1, 0).is_err()
+    exact = sent_extent(9223372036854775806, 1).unwrap() == i64.MAX and sent_extent(i64.MAX, 0).unwrap() == i64.MAX
+    rejected = match stream.write(b"x"):
+        case Err(HttpError.BodyTooLarge):
+            True
+        case _:
+            False
+    preserved = not stream.called and stream._state == chunked and stream._sent == i64.MAX and stream._remaining == 0
+    head_ok = head.write(b"x").is_ok() and head._sent == i64.MAX and head._remaining == 0
+    exact_write = exact_stream.write(b"x").is_ok() and exact_stream._sent == i64.MAX and exact_stream._remaining == 0 and exact_stream._state == sized and exact_stream.called
+    deadlines = after(u64.MAX, 0u64) == u64.MAX and after(u64.MAX, 1u64) == u64.MAX and after(18446744073709551614u64, 1u64) == u64.MAX and after(18446744073709551614u64, 2u64) == u64.MAX and after(5u64, 7u64) == 12u64
+    print("__test_end_no_allocations__")?
+    print(transport_range, transport_zero, transport_short, scan, increment, merging, repeated, allocation, exact, rejected, preserved, head_ok, exact_write, deadlines)?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("main.plenty");
+        let binary = dir.path().join("program");
+        std::fs::write(&path, &source).unwrap();
+        let options = plenty::CompileOptions {
+            optimize,
+            test_hooks: true,
+            ..Default::default()
+        };
+        plenty::compile_file_to_executable_with_options(&path, &binary, None, &options)
+            .unwrap_or_else(|error| panic!("{source}\n{error}"));
+        let output = std::process::Command::new(binary).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let lines: Vec<_> = output
+            .stdout
+            .split(|byte| *byte == b'\n')
+            .filter(|line| !line.is_empty() && !line.starts_with(b"__test_"))
+            .collect();
+        assert_eq!(
+            lines,
+            vec![
+                b"True True True True True True True True True True True True True True".as_slice()
+            ]
         );
     }
 }

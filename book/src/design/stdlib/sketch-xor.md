@@ -27,7 +27,10 @@ input keys; the empty filter always returns false.
 
 Construction uses three disjoint blocks, graph peeling, and reverse XOR8
 fingerprint assignment. The persistent filter has `3 * (1 + unique_count // 2)`
-one-byte slots, plus metadata. Scratch memory is O(input entries + slots),
+one-byte slots, plus metadata. At the maximum key count, each block has
+8,388,609 slots. Position reduction multiplies a 32-bit hash fragment by this
+bounded block size without overflow; only the SplitMix64 mixer and attempt-seed
+schedule use explicit modular arithmetic. Scratch memory is O(input entries + slots),
 considerably larger than the final filter. Sorting is O(n log n), followed by
 up to 32 O(n) peeling attempts. Failure to peel returns
 `SketchError.ConstructionFailed`; allocation failures return

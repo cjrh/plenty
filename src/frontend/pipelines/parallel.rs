@@ -403,12 +403,15 @@ impl Lower<'_> {
         };
         let reducer = if name == "reduce" {
             match &ungroup(&args[0]).kind {
-                Expression::Name(f) if self.sigs.contains_key(f) && !self.names.contains_key(f) => {
+                Expression::Name(f)
+                    if (self.sigs.contains_key(f) || self.generics.templates.contains_key(f))
+                        && !self.names.contains_key(f) =>
+                {
                     Some(args[0].clone())
                 }
                 _ => {
                     return Err(args[0].at.error(
-                        "a parallel reduce takes a named function (T, T) -> T, the same as reduce_tree",
+                        "a parallel reduce takes a named function (T, T) -> T or Result[T, E], the same as reduce_tree",
                     ));
                 }
             }
@@ -503,17 +506,133 @@ impl Lower<'_> {
             chain = method(&at, chain, &step, arguments);
         }
         let mut extra = Vec::new();
-        // Statements that replace the chain as the worker's tail, when the
-        // chunk result needs mutable state rather than one terminal call.
-        let mut tail = None;
         let (output, template) = match name {
             "reduce" => {
                 // Each chunk folds its own items left to right; the template
                 // combines the chunk results in input order.
                 let reducer = reducer.clone().expect("reduce function");
-                chain = method(&at, chain, "reduce", vec![reducer.clone()]);
-                extra.push(reducer);
-                (crate::sum::option(item.clone()), "reduce_chunks")
+                let mut names = Vec::new();
+                let mut arguments = Vec::new();
+                for _ in 0..2 {
+                    let slot = self.slot(item.clone(), &at)?;
+                    let name = format!("__plenty_par_reduce_item_{slot}");
+                    self.bind(
+                        name.clone(),
+                        Local {
+                            slot,
+                            ty: item.clone(),
+                            mutable: false,
+                        },
+                    );
+                    arguments.push(name_expr(&at, &name));
+                    names.push(name);
+                }
+                let Expression::Name(function) = &ungroup(&reducer).kind else {
+                    unreachable!()
+                };
+                let mut probe = Vec::new();
+                let result = self.call_named(function, &arguments, &at, &mut probe);
+                for name in names {
+                    self.names.remove(&name);
+                }
+                let result = result?;
+                let selected = probe
+                    .iter()
+                    .rev()
+                    .find_map(|op| match op {
+                        Op::Call(name) => Some(name),
+                        _ => None,
+                    })
+                    .ok_or_else(|| {
+                        at.error("parallel reduce requires a statically selected function")
+                    })?;
+                let reducer = name_expr(&at, selected);
+                if result == Some(item.clone()) {
+                    chain = method(&at, chain, "reduce", vec![reducer.clone()]);
+                    extra.push(reducer);
+                    (crate::sum::option(item.clone()), "reduce_chunks")
+                } else {
+                    let Some(Ty::Enum(result)) = result else {
+                        return Err(
+                            at.error("parallel reduce worker must return T or Result[T, E]")
+                        );
+                    };
+                    if !result.is_result() || result.get().variants[0].fields[0] != item {
+                        return Err(
+                            at.error("parallel reduce worker must return T or Result[T, E]")
+                        );
+                    }
+                    let error = result.get().variants[1].fields[0].clone();
+                    let output = crate::sum::result(crate::sum::option(item.clone()), error);
+                    let helper = self.par_helper("reduce_step")?;
+                    let mut inputs = vec![(
+                        "__plenty_par_reduce_left".into(),
+                        typed(crate::sum::option(item.clone())),
+                    )];
+                    // Match pipeline_split_pair: only direct two-field tuples
+                    // arrive as separate callback arguments. Rebuild the owned
+                    // RHS for the public reducer, moving each field once.
+                    let right = if let Ty::Enum(tuple) = &item
+                        && tuple.tuple()
+                        && tuple.get().variants[0].fields.len() == 2
+                    {
+                        let mut fields = Vec::new();
+                        for (index, ty) in tuple.get().variants[0].fields.iter().enumerate() {
+                            let name = format!("__plenty_par_reduce_right_{index}");
+                            inputs.push((name.clone(), typed(ty.clone())));
+                            fields.push(name_expr(&at, &name));
+                        }
+                        Expr {
+                            at: at.clone(),
+                            kind: Expression::Tuple(fields),
+                        }
+                    } else {
+                        inputs.push(("__plenty_par_reduce_right".into(), typed(item.clone())));
+                        name_expr(&at, "__plenty_par_reduce_right")
+                    };
+                    let step = Function {
+                        once: false,
+                        captures: vec![],
+                        foreign: None,
+                        export: None,
+                        name: "par_reduce_step".into(),
+                        type_params: vec![],
+                        at: at.clone(),
+                        inputs,
+                        defaults: vec![],
+                        output: typed(output.clone()),
+                        doc: String::new(),
+                        doc_at: None,
+                        body: vec![expr_stmt(call(
+                            &at,
+                            &helper,
+                            vec![
+                                reducer.clone(),
+                                name_expr(&at, "__plenty_par_reduce_left"),
+                                right,
+                            ],
+                        ))],
+                    };
+                    let empty = self.par_helper("reduce_empty")?;
+                    let initial = Expr {
+                        at: at.clone(),
+                        kind: Expression::GenericCall(empty, vec![typed(item.clone())], vec![]),
+                    };
+                    chain = method(
+                        &at,
+                        chain,
+                        "try_fold",
+                        vec![
+                            initial,
+                            Expr {
+                                at: at.clone(),
+                                kind: Expression::Anonymous(Box::new(step)),
+                            },
+                        ],
+                    );
+                    extra.push(reducer);
+                    (output, "try_reduce_chunks")
+                }
             }
             "collect" => {
                 chain = method(&at, chain, "collect", vec![]);
@@ -549,6 +668,7 @@ impl Lower<'_> {
             }
             "sum" => {
                 // Serial sum, min, and max read through borrowed items.
+                let borrowed_number = matches!(item, Ty::Ref(..));
                 let item = deref(&item);
                 if !item.is_numeric() {
                     return Err(at.error(format!(
@@ -556,21 +676,54 @@ impl Lower<'_> {
                         type_name(Some(item.clone()))
                     )));
                 }
-                if item.is_int() && item.int_range().is_some_and(|(min, _)| min < 0) {
-                    // Exact prefix tracking: the combined result traps
-                    // exactly when the serial running total would overflow.
-                    tail = Some(signed_chunk(&chain, borrowed)?);
-                    extra.push(call(
-                        &at,
-                        &item.to_string(),
-                        vec![Expr {
+                if item.is_int() {
+                    // Keep mapped values, not chunk-local totals: a preceding
+                    // negative offset can rescue a chunk-relative overflow.
+                    // Copy borrowed numbers only, never replay user callbacks.
+                    if borrowed_number {
+                        let number = "__plenty_par_number";
+                        let copy = Function {
+                            once: false,
+                            captures: vec![],
+                            foreign: None,
+                            export: None,
+                            name: "par_copy_number".into(),
+                            type_params: vec![],
                             at: at.clone(),
-                            kind: Expression::Number("1".into()),
-                        }],
-                    ));
-                    let mut fields = vec![Ty::I64; 6];
-                    fields.push(Ty::Bool);
-                    (crate::sum::tuple(fields), "signed_sum")
+                            inputs: vec![(
+                                number.into(),
+                                typed(Ty::Ref(Arc::new(item.clone()), false)),
+                            )],
+                            defaults: vec![],
+                            output: typed(item.clone()),
+                            doc: String::new(),
+                            doc_at: None,
+                            body: vec![expr_stmt(Expr {
+                                at: at.clone(),
+                                kind: Expression::Unary(
+                                    "*".into(),
+                                    Box::new(name_expr(&at, number)),
+                                ),
+                            })],
+                        };
+                        chain = method(
+                            &at,
+                            chain,
+                            "map",
+                            vec![Expr {
+                                at: at.clone(),
+                                kind: Expression::Anonymous(Box::new(copy)),
+                            }],
+                        );
+                    }
+                    chain = method(&at, chain, "collect", vec![]);
+                    (
+                        crate::sum::result(
+                            Ty::List(Arc::new(item.clone())),
+                            crate::sum::alloc_error(),
+                        ),
+                        "integer_sum",
+                    )
                 } else {
                     chain = method(&at, chain, "sum", vec![]);
                     (item.clone(), "sum")
@@ -626,18 +779,10 @@ impl Lower<'_> {
                 },
             }]
             .into_iter()
-            .chain(tail.unwrap_or_else(|| {
-                vec![Stmt {
-                    at: at.clone(),
-                    kind: Statement::Expr(chain),
-                }]
-            }))
+            .chain([expr_stmt(chain)])
             .collect(),
         };
-        let checked = std::mem::take(&mut self.checked);
-        let worker_ty = self.closure_value(&worker, &par_at, ops);
-        self.checked = checked;
-        let worker_ty = worker_ty?;
+        let worker_ty = self.closure_value(&worker, &par_at, ops)?;
         let worker = self.par_hidden("worker", worker_ty, &at, hidden, ops)?;
         let template = self.par_helper(template)?;
         let mut call_args = vec![pool.clone(), chunks, worker];
@@ -653,52 +798,6 @@ impl Lower<'_> {
         // or a chunk never submitted) drop exactly once here.
         if let (Some(source), false) = (source_local, borrowed) {
             ops.extend([Op::MoveLocal(source), Op::Drop]);
-        }
-        if template.ends_with("signed_sum") {
-            // `(total, 0)`, or `(T.MAX, 1)` after an overflow, added here so
-            // the trap names the terminal as the serial sum does.
-            let pair = self.par_hidden("pair", ty.expect("sum result"), &at, hidden, ops)?;
-            let (left, right) = ("__plenty_par_left", "__plenty_par_right");
-            let add = Expr {
-                at: at.clone(),
-                kind: Expression::Binary(
-                    "+".into(),
-                    Box::new(name_expr(&at, left)),
-                    Box::new(name_expr(&at, right)),
-                ),
-            };
-            let cases = vec![
-                result_case(
-                    &at,
-                    "Ok",
-                    "__plenty_par_sums",
-                    vec![
-                        Stmt {
-                            at: at.clone(),
-                            kind: Statement::Unpack {
-                                targets: None,
-                                fresh: false,
-                                names: vec![left.into(), right.into()],
-                                mutable: false,
-                                value: name_expr(&at, "__plenty_par_sums"),
-                            },
-                        },
-                        expr_stmt(call(&at, "Ok", vec![add])),
-                    ],
-                ),
-                result_case(
-                    &at,
-                    "Err",
-                    "__plenty_par_failure",
-                    vec![expr_stmt(call(
-                        &at,
-                        "Err",
-                        vec![name_expr(&at, "__plenty_par_failure")],
-                    ))],
-                ),
-            ];
-            let expected = crate::sum::result(deref(&item), crate::sum::pool_map_error());
-            return self.match_value(&at, &pair, &cases, Some(expected), ops);
         }
         Ok(ty)
     }
@@ -806,9 +905,6 @@ impl Lower<'_> {
                 ));
             }
         };
-        if ty.checked_closure() {
-            return Err(callback.at.error("a closure defined in `checked:` cannot be sent to parallel workers; define it outside the block instead"));
-        }
         if closure.once {
             return Err(callback
                 .at
@@ -860,25 +956,6 @@ fn expr_stmt(e: Expr) -> Stmt {
     }
 }
 
-/// `case Ok(name):` or `case Err(name):` with `body`.
-fn result_case(at: &Token, variant: &str, name: &str, body: Vec<Stmt>) -> enums::Case {
-    enums::Case {
-        at: at.clone(),
-        pattern: patterns::Pat {
-            at: at.clone(),
-            kind: patterns::PatKind::Variant(
-                None,
-                variant.into(),
-                Some(vec![patterns::Pat {
-                    at: at.clone(),
-                    kind: patterns::PatKind::Binding(name.into()),
-                }]),
-            ),
-        },
-        body,
-    }
-}
-
 fn name_expr(at: &Token, name: &str) -> Expr {
     Expr {
         at: at.clone(),
@@ -910,36 +987,4 @@ fn internal_error(error: Box<dyn Error>, at: &Token) -> Box<dyn Error> {
     } else {
         error
     }
-}
-
-/// The signed-sum worker tail: `signed_chunk`'s statements with its `for` loop
-/// reading the chunk's fused pipeline. Locals stay in registers, where a
-/// tuple-state `fold` would copy the state through memory for every item.
-fn signed_chunk(chain: &Expr, borrowed: bool) -> Result<Vec<Stmt>> {
-    let mut body = modules::generated_interface(HELPERS)?
-        .functions
-        .into_iter()
-        .find(|f| f.name == "signed_chunk")
-        .expect("signed sum chunk helper")
-        .body;
-    for statement in &mut body {
-        if let Statement::For { iterable, body, .. } = &mut statement.kind {
-            *iterable = chain.clone();
-            // `value = i64(item)` reads through a borrowed item.
-            if borrowed
-                && let Some(Stmt {
-                    kind: Statement::Assign { value, .. },
-                    ..
-                }) = body.first_mut()
-                && let Expression::Call(_, args) = &mut value.kind
-                && let [item] = args.as_mut_slice()
-            {
-                *item = Expr {
-                    at: item.at.clone(),
-                    kind: Expression::Unary("*".into(), Box::new(item.clone())),
-                };
-            }
-        }
-    }
-    Ok(body)
 }

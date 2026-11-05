@@ -10,15 +10,15 @@ def numbers() -> Generator[i64]:
 def source() -> Generator[i64]:
     numbers()
 
-def total() -> i64:
+def total() -> Result[i64, OverflowError[i64]]:
     values = source()
     mut result = 0
     for n in values:
         result = result + n
-    result
+    Ok(result)
 
-def main() -> Result[(), IoError]:
-    print(total())?
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(total()?)?
     Ok(())
 ```
 ```output

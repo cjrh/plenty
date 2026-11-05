@@ -626,13 +626,7 @@ impl Lowerer<'_, '_> {
         // Earlier operands and locals still need normal early-return cleanup.
         let pending = self.stack.clone();
         self.release_stack();
-        let values = if self.checked_function.is_some() {
-            self.stack.push((residual, Ty::Enum(target.clone())));
-            self.wrap_checked_return()?;
-            vec![self.stack.pop().expect("wrapped return")]
-        } else {
-            vec![(residual, Ty::Enum(target.clone()))]
-        };
+        let values = vec![(residual, Ty::Enum(target.clone()))];
         self.leave(values, cleanup)?;
         self.stack = pending;
         self.bcx.switch_to_block(success);

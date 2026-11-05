@@ -156,6 +156,13 @@ impl TypeRef {
         let Some(name) = &self.name else {
             return Ok(None);
         };
+        if name == classes::CONSTRUCTOR_RESULT {
+            let [initializer, instance] = self.args.as_slice() else {
+                return Err(self.at.error("__init__ must return () or Result[(), E]"));
+            };
+            return classes::constructor_output(initializer, instance.clone(), aliases)?
+                .resolve(aliases);
+        }
         if name == "One" || dimensions::expression(name) {
             return self.dimension_expression(aliases);
         }
@@ -1093,6 +1100,17 @@ impl Lower<'_> {
             | Expression::GenericMethod(..) => self
                 .numeric_builtin_hint(e)
                 .or_else(|| self.expression_type_hint(e).filter(Ty::is_numeric)),
+            Expression::Try(inner) => match self.operator_hint(inner)? {
+                Ty::Enum(t) if t.is_result() || t.is_option() => {
+                    let success = usize::from(t.is_option());
+                    t.get().variants[success]
+                        .fields
+                        .first()
+                        .cloned()
+                        .filter(Ty::is_numeric)
+                }
+                _ => None,
+            },
             Expression::Unary(op, inner) if op == "+" || op == "-" || op == "~" => {
                 self.numeric_hint(inner)
             }
@@ -1522,7 +1540,7 @@ impl Lower<'_> {
                 return Err(e.at.error("named arguments require a statically resolved function, method, or class constructor"));
             }
             Expression::Anonymous(function) => {
-                if function.once || !function.captures.is_empty() || self.lexical_checked() {
+                if function.once || !function.captures.is_empty() {
                     return self.closure_value(function, &e.at, ops).map(Some);
                 }
                 let mut function = (**function).clone();
@@ -1818,7 +1836,7 @@ impl Lower<'_> {
                 }
             }
             Expression::Unary(op, value) => {
-                if let Some(result) = self.overloaded_unary(op, value, ops)? {
+                if let Some(result) = self.overloaded_unary(op, value, &e.at, ops)? {
                     return Ok(result);
                 }
                 if op == "&" || op == "&mut" {
@@ -2944,7 +2962,7 @@ impl Lower<'_> {
         call: Op,
         inputs: &[(String, Ty)],
         loans: &[usize],
-        at: &Token,
+        _at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
         if !self.indexed_lists.is_empty() {
@@ -2968,22 +2986,7 @@ impl Lower<'_> {
         {
             ops.push(Op::ForwardsReferences);
         }
-        // Most programs have no lexical callback failure channel. Preserve
-        // the ordinary call path without a name copy or extra signature walk.
-        if self.generics.checked_errors.is_empty() {
-            ops.push(call);
-            return Ok(());
-        }
-        let direct = if let Op::Call(name) = &call {
-            Some(name.clone())
-        } else {
-            None
-        };
         ops.push(call);
-        if let Some(name) = direct {
-            let sig = self.sigs[&name].clone();
-            self.checked_named_call(&name, &sig, at, ops)?;
-        }
         Ok(())
     }
     /// Records a direct call in every enclosing loop's list cache, with what
@@ -3084,11 +3087,7 @@ impl Lower<'_> {
         {
             returned.extend(returned_loan.map(Op::UseLoan));
             self.finish_tail_temporaries(temporary_start, &mut returned);
-            if self.checked.first().is_some_and(|scope| scope.function) {
-                returned.push(Op::Return);
-            } else {
-                finish_return(&mut returned);
-            }
+            finish_return(&mut returned);
         } else {
             self.finish_temporaries(temporary_start, &mut returned);
             self.leaving(0, &mut returned);
@@ -3352,6 +3351,13 @@ impl Lower<'_> {
                     self.trap_statement(args, at, ops)?;
                     return exited_block(body, i);
                 }
+                Statement::Expr(Expr {
+                    at,
+                    kind: Expression::Checked(suite),
+                }) if at.is("unchecked") => match self.unchecked_suite(at, suite, tail, ops)? {
+                    BlockResult::Continues(ty) => ty,
+                    BlockResult::Exits => return exited_block(body, i),
+                },
                 Statement::Expr(e) if matches!(tail, Tail::Return) => {
                     self.return_statement(Some(e), &e.at, temporary_start, ops)?;
                     return exited_block(body, i);
@@ -3368,12 +3374,6 @@ impl Lower<'_> {
                         ops,
                         last && self.yield_type.is_none(),
                     )?;
-                    if self.checked_value_tail
-                        && matches!(tail, Tail::Value(_))
-                        && ty.as_ref().is_some_and(Ty::checked_closure)
-                    {
-                        return Err(e.at.error("a closure defined in `checked:` cannot leave its block; define it outside the block instead"));
-                    }
                     if matches!(tail, Tail::Value(_))
                         && ty.as_ref().is_some_and(Ty::contains_reference)
                     {
@@ -3592,13 +3592,6 @@ impl Lower<'_> {
                         self.same(Some(ty.clone()), Some(expected), &stmt.at)?;
                     }
                     let slot = if let Some(local) = self.names.get(name) {
-                        if ty.checked_closure()
-                            && self.checked.last().is_some_and(|scope| {
-                                usize::from(local.slot) < self.parameters + scope.start
-                            })
-                        {
-                            return Err(stmt.at.error("a closure defined in `checked:` cannot be assigned outside its block; define it outside the block instead"));
-                        }
                         if *mutable || annotation.is_some() {
                             return Err(stmt.at.error(format!("duplicate binding `{name}`")));
                         }
@@ -4627,17 +4620,12 @@ fn lower_body(
             (sig, yield_type, lower, body, lent_exit)
         }
     );
-    let lexical = lower.generics.checked_closures.contains(&f.name);
-    let failures = checked::input_errors(&sig.inputs);
-    let effectful = lexical || !failures.is_empty();
-    if effectful {
-        lower.checked.push(checked::Scope {
-            start: 0,
-            function: true,
-            arithmetic: lexical,
-            failures,
-        });
-    }
+    lower.checked.push(checked::Scope {
+        start: 0,
+        function: true,
+        arithmetic: true,
+        failures: Vec::new(),
+    });
     let lowered = crate::profile_block!(
         "frontend::lower_function_body",
         lower.block(
@@ -4724,27 +4712,20 @@ fn lower_body(
             )
             .map_err(|message| f.at.error(message))?;
         }
-        if effectful {
-            let scope = lower.checked.pop().expect("function effect scope");
-            if !scope.failures.is_empty() {
-                let error = crate::sum::anonymous(scope.failures);
-                lower
-                    .generics
-                    .checked_errors
-                    .insert(f.name.clone(), error.clone());
-                let result =
-                    crate::sum::result(sig.outputs.first().cloned().unwrap_or(Ty::Unit), error);
-                sig = Arc::new(FnSig {
-                    inputs: sig.inputs.clone(),
-                    outputs: vec![result.clone()],
-                });
-                body = vec![Op::CheckedFunction {
-                    body: body.into(),
-                    result,
-                }];
-            }
-        } else if yield_type.is_none() {
+        if yield_type.is_none() {
             mark_tail_calls(&mut body);
+        }
+        let scope = lower.checked.pop().expect("function arithmetic scope");
+        if !scope.failures.is_empty() {
+            let result = sig
+                .outputs
+                .first()
+                .cloned()
+                .expect("validated Result return");
+            body = vec![Op::CheckedFunction {
+                body: body.into(),
+                result,
+            }];
         }
         // A declaration's borrowed address has one immutable slot per function.
         // Initialize it at entry so a first borrow inside a branch dominates later uses.

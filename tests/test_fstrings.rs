@@ -565,7 +565,7 @@ def tick(n: i64) -> Result[i64, AllocError | IoError | FormatError]:
     print(f"tick {n}"?)?
     Ok(n)
 
-def main() -> Result[(), AllocError | IoError | FormatError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | FormatError]:
     a = 3
     b = 4.5
     xs = [1, 2, 3]?
@@ -593,9 +593,10 @@ enum Problem:
     Format
 
 def half(n: i64) -> Result[i64, Problem]:
-    if n % 2 != 0:
+    two: Positive[i64] = 2
+    if n % two != 0:
         return Err(Problem.Odd)
-    Ok(n // 2)
+    Ok(n // two)
 
 def show(n: i64) -> Result[str, Problem]:
     match f"half of {n} is {half(n)?}":

@@ -46,15 +46,17 @@ fn mutable_enum_payload_match_works_inside_copyable_tuple() {
 enum Shape:
     Circle(i64)
     Square(i64)
-mut pair = (Shape.Circle(3), 1)
-saved = pair
-match &mut pair[0]:
-    case Shape.Circle(radius):
-        *radius += 1
-    case Shape.Square(side):
-        *side = 0
-print(pair).unwrap()
-print(saved).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    mut pair = (Shape.Circle(3), 1)
+    saved = pair
+    match &mut pair[0]:
+        case Shape.Circle(radius):
+            *radius += 1
+        case Shape.Square(side):
+            *side = 0
+    print(pair).unwrap()
+    print(saved).unwrap()
+    Ok(())
 "#,
     );
     assert!(

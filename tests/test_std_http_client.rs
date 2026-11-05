@@ -20,6 +20,15 @@ from std.net import NetError
 from std.sync import CancellationToken, Mutex
 from std.time import Deadline
 
+def script_extent(sent: i64, count: i64) -> Result[i64, ClientError]:
+    next = checked:
+        sent + count
+    match next:
+        case Ok(value):
+            Ok(value)
+        case Err(_):
+            Err(ClientError.Net(NetError.Stream(std.io.StreamError.OutOfRange)))
+
 # One scripted connection. `input` is cut at `ends` into replies; a write
 # releases the next reply once the previous one has been read. With every
 # reply released and read, a read reports end of input, or a timeout when
@@ -40,45 +49,50 @@ pub class Script:
     pub cancel_once: bool
 
     pub def read_before(self: &mut Script, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
-        if cancel.is_cancelled():
-            return Err(ClientError.Net(NetError.Cancelled))
-        mut end = 0
-        if self.released > 0:
-            end = self.ends[self.released - 1]
-        left = end - self.at
-        if left == 0:
-            if self.cancel_once:
-                self.cancel_once = False
+        # Script endpoints are within its finite input; consumers pass validated destination ranges.
+        unchecked:
+            if cancel.is_cancelled():
                 return Err(ClientError.Net(NetError.Cancelled))
-            if self.released == len(self.ends) and not self.hang:
-                return Ok(0)
-            return Err(ClientError.Net(NetError.TimedOut))
-        mut count = stop - start
-        if count > left:
-            count = left
-        buffer.overwrite(start, &self.input[self.at:self.at + count])
-        self.at += count
-        Ok(count)
+            mut end = 0
+            if self.released > 0:
+                end = self.ends[self.released - 1]
+            left = end - self.at
+            if left == 0:
+                if self.cancel_once:
+                    self.cancel_once = False
+                    return Err(ClientError.Net(NetError.Cancelled))
+                if self.released == len(self.ends) and not self.hang:
+                    return Ok(0)
+                return Err(ClientError.Net(NetError.TimedOut))
+            mut count = stop - start
+            if count > left:
+                count = left
+            buffer.overwrite(start, &self.input[self.at:self.at + count])
+            self.at += count
+            Ok(count)
 
     pub def write_before(self: &mut Script, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
-        if cancel.is_cancelled():
-            return Err(ClientError.Net(NetError.Cancelled))
-        mut count = len(source)
-        if self.fail_after >= 0:
-            if self.sent >= self.fail_after:
-                return Err(ClientError.Net(NetError.Reset))
-            if count > self.fail_after - self.sent:
-                count = self.fail_after - self.sent
-        if self.echo:
-            mut out = std.io.stdout()
-            out.write(&source[:count]).unwrap()
-        self.sent += count
-        mut end = 0
-        if self.released > 0:
-            end = self.ends[self.released - 1]
-        if self.at == end and self.released < len(self.ends):
-            self.released += 1
-        Ok(count)
+        # released is bounded by ends length; bounded sent advancement is preflighted separately.
+        unchecked:
+            if cancel.is_cancelled():
+                return Err(ClientError.Net(NetError.Cancelled))
+            mut count = len(source)
+            if self.fail_after >= 0:
+                if self.sent >= self.fail_after:
+                    return Err(ClientError.Net(NetError.Reset))
+                if count > self.fail_after - self.sent:
+                    count = self.fail_after - self.sent
+            next_sent = script_extent(self.sent, count)?
+            if self.echo:
+                mut out = std.io.stdout()
+                out.write(&source[:count]).unwrap()
+            self.sent = next_sent
+            mut end = 0
+            if self.released > 0:
+                end = self.ends[self.released - 1]
+            if self.at == end and self.released < len(self.ends):
+                self.released += 1
+            Ok(count)
 
 # Hands out scripted connections in order, printing each endpoint when
 # `echo` is set. A connector is borrowed shared, so the queue sits in a
@@ -143,6 +157,55 @@ def ok(body: &str) -> Result[str, AllocError]:
 /// One connection carries two requests; a connection the server closed while
 /// idle, an unfinished response, `max_idle = 0` and a closing response each
 /// lead to a new connection; the pool holds `max_idle_per_origin` per origin.
+#[test]
+fn deadline_addition_keeps_its_saturating_boundary_in_both_build_modes() {
+    let library = include_str!("../stdlib/std/http/client.plenty");
+    let helper = library[library.find("def after(").unwrap()..]
+        .split("\n\n")
+        .next()
+        .unwrap();
+    let source = format!(
+        r#"{helper}
+
+def main() -> Result[(), AllocError | IoError]:
+    print("__test_begin_no_allocations__")?
+    result_0 = after(0u64, 0u64) == 0u64
+    result_1 = after(u64.MAX, 0u64) == u64.MAX
+    result_2 = after(u64.MAX, 1u64) == u64.MAX
+    result_3 = after(18446744073709551614u64, 1u64) == u64.MAX
+    result_4 = after(18446744073709551614u64, 2u64) == u64.MAX
+    result_5 = after(5u64, 7u64) == 12u64
+    print("__test_end_no_allocations__")?
+    print(result_0, result_1, result_2, result_3, result_4, result_5)?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("main.plenty");
+        let binary = dir.path().join("program");
+        std::fs::write(&path, &source).unwrap();
+        let options = plenty::CompileOptions {
+            optimize,
+            test_hooks: true,
+            ..Default::default()
+        };
+        plenty::compile_file_to_executable_with_options(&path, &binary, None, &options).unwrap();
+        let output = std::process::Command::new(binary).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let lines: Vec<_> = output
+            .stdout
+            .split(|byte| *byte == b'\n')
+            .filter(|line| !line.is_empty() && !line.starts_with(b"__test_"))
+            .collect();
+        assert_eq!(lines, vec![b"True True True True True True".as_slice()]);
+    }
+}
+
 #[test]
 fn pooled_connections_are_reused_and_closed_ones_replaced() {
     runs(
@@ -412,19 +475,21 @@ pub class Pieces:
     pub fail: bool
 
     pub def read(self: &mut Pieces, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
-        left = self.data.len() - self.at
-        if left == 0:
-            if self.fail:
-                return Err(StreamError.Io(IoError.Other))
-            return Ok(0)
-        mut count = stop - start
-        if count > self.step:
-            count = self.step
-        if count > left:
-            count = left
-        buffer.overwrite(start, &self.data[self.at:self.at + count])
-        self.at += count
-        Ok(count)
+        # The fixture uses positive steps and finite data; validated ranges bound every cursor.
+        unchecked:
+            left = self.data.len() - self.at
+            if left == 0:
+                if self.fail:
+                    return Err(StreamError.Io(IoError.Other))
+                return Ok(0)
+            mut count = stop - start
+            if count > self.step:
+                count = self.step
+            if count > left:
+                count = left
+            buffer.overwrite(start, &self.data[self.at:self.at + count])
+            self.at += count
+            Ok(count)
 
 def pieces(text: &str) -> Result[Pieces, AllocError | std.bytes.BytesError]:
     Ok(Pieces(std.bytes.from_text(text)?, 0, 4, False))
@@ -962,7 +1027,7 @@ fn methods_must_be_tokens() {
     runs(
         SCRIPTED,
         r##"
-def main() -> Result[(), std.bytes.BytesError | hc.ClientError | RangeError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | RangeError | AllocError | IoError | OverflowError[i64]]:
     never = CancellationToken()?
     codes = [233u32, 8364u32, 128512u32, 128u32, 255u32]?
     mut marks = ""
@@ -1127,7 +1192,7 @@ def quiet(replies: list[str]) -> Result[Script, std.bytes.BytesError | AllocErro
     made.echo = False
     Ok(made)
 
-def main() -> Result[(), std.bytes.BytesError | hc.ClientError | RangeError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | hc.ClientError | RangeError | AllocError | IoError | OverflowError[u64]]:
     never = CancellationToken()?
     for attempt in range(300):
         first = quiet(["HTTP/1.1 307 Temporary Redirect\r\nLocation: /next/page-beyond-inline\r\nContent-Length: 0\r\n\r\n", "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nX-Field-Beyond-Inline: a-value-beyond-inline\r\n\r\n4\r\nbody\r\n0\r\n\r\n"]?)?
@@ -1432,7 +1497,7 @@ pub class Faulty:
 
     pub def write_before(self: &mut Faulty, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, ClientError]:
         if self.fail_write:
-            self.writes += 1
+            self.writes = script_extent(self.writes, 1)?
             if self.writes > 1:
                 return Err(self.cause)
             return Ok(1)

@@ -27,19 +27,21 @@ fn recursive_enum_and_generic_class_have_finite_native_layouts() {
 enum Tree:
     Leaf(i64)
     Branch(Box[Tree], Box[Tree])
-def total(tree: Tree) -> i64:
+def total(tree: Tree) -> Result[i64, OverflowError[i64]]:
     match tree:
         case Tree.Leaf(value):
-            value
+            Ok(value)
         case Tree.Branch(left, right):
-            total(left) + total(right)
+            Ok(total(left)? + total(right)?)
 class Node[T]:
     value: T
     next: Option[Box[Node[T]]]
-tree = Tree.Branch(Box(Tree.Leaf(3)).unwrap(), Box(Tree.Leaf(7)).unwrap())
-print(total(tree)).unwrap()
-node = Node[i64](42, Nothing)
-print(node.value).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    tree = Tree.Branch(Box(Tree.Leaf(3)).unwrap(), Box(Tree.Leaf(7)).unwrap())
+    print(total(tree)?).unwrap()
+    node = Node[i64](42, Nothing)
+    print(node.value).unwrap()
+    Ok(())
 "#,
         "10\n42\n",
     );
@@ -69,18 +71,20 @@ fn consuming_matches_can_walk_deep_values_iteratively() {
 enum Chain[T]:
     End
     Link(T, Box[Chain[T]])
-mut chain = Chain[i64].End
-for n in range(1000):
-    chain = Chain[i64].Link(n, Box(chain).unwrap())
-mut total = 0
-while True:
-    match chain:
-        case Chain.End:
-            break
-        case Chain.Link(value, rest):
-            total = total + value
-            chain = rest
-print(total).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    mut chain = Chain[i64].End
+    for n in range(1000):
+        chain = Chain[i64].Link(n, Box(chain).unwrap())
+    mut total = 0
+    while True:
+        match chain:
+            case Chain.End:
+                break
+            case Chain.Link(value, rest):
+                total = total + value
+                chain = rest
+    print(total).unwrap()
+    Ok(())
 "#,
         "499500\n",
     );

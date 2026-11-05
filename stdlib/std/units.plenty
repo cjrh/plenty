@@ -262,12 +262,17 @@ pub const week: Quantity[f64, Time] = 7.0 * day
 # The 365-day calendar year of SP 811, not the Julian year of light_year.
 pub const year: Quantity[f64, Time] = 365.0 * day
 
-# Functions. Storage is f64 for those built on std.math, which is f64-only;
-# abs and clamp accept every storage type. std.math.min, max, min_all and sum
-# already accept quantities, so they are not repeated here.
+# Functions. Storage is f64 for those built on std.math, which is f64-only.
+# abs and abs_float follow std.math's split: a signed integer minimum has no
+# magnitude, so integer storage returns its OverflowError. clamp accepts every
+# storage type. std.math.min, max, min_all and max_all already accept
+# quantities, so they are not repeated here.
 
-pub def abs[Num, D: Dimension](x: Quantity[Num, D]) -> Quantity[Num, D]:
-    Quantity[Num, D](math.abs(x.get()))
+pub def abs[T: IntType, D: Dimension](x: Quantity[T, D]) -> Result[Quantity[T, D], OverflowError[T]]:
+    Ok(Quantity[T, D](math.abs(x.get())?))
+
+pub def abs_float[T: FloatType, D: Dimension](x: Quantity[T, D]) -> Quantity[T, D]:
+    Quantity[T, D](math.abs_float(x.get()))
 
 # Keeps `low` when `x` is below it, then `high` when above; `low > high`
 # therefore returns `high`, as Python's `min(max(x, low), high)` does.
@@ -379,7 +384,9 @@ pub def to_fahrenheit(t: Quantity[f64, Temperature]) -> f64:
 # single nanoseconds.
 pub def from_duration(span: &Duration) -> Quantity[f64, Time]:
     nanos = span.as_nanoseconds()
-    Quantity[f64, Time](f64(nanos // 1_000_000_000) + f64(nanos % 1_000_000_000) * 1e-9)
+    # A nonzero unsigned divisor cannot fail, so the result needs no Result.
+    billion: NonZero[u64] = 1_000_000_000
+    Quantity[f64, Time](f64(nanos // billion) + f64(nanos % billion) * 1e-9)
 
 # Rounds to the nearest nanosecond. Negative, NaN and out-of-range spans are
 # a RangeError: Duration is an unsigned nanosecond count.

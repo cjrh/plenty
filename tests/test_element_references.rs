@@ -88,24 +88,27 @@ class Point:
     x: i64
     def __del__(self: &mut Point) -> ():
         print(self.x).unwrap()
-def bump(points: &mut list[Point]) -> ():
+def bump(points: &mut list[Point]) -> Result[(), OverflowError[i64]]:
     for point in points:
         point.x = point.x + 10
-mut points = [Point(1), Point(2)].unwrap()
-for point in &points:
-    print(point.x).unwrap()
-bump(&mut points)
-for point in &mut points:
-    if point.x == 11:
-        continue
-    point.x = 30
-    break
-print(points).unwrap()
-mut numbers = [1, 2].unwrap()
-for number in &mut numbers:
-    *number = *number + 3
-print(numbers).unwrap()
-print([point.x for point in &points].unwrap()).unwrap()
+    Ok(())
+def main() -> Result[(), OverflowError[i64]]:
+    mut points = [Point(1), Point(2)].unwrap()
+    for point in &points:
+        print(point.x).unwrap()
+    bump(&mut points)?
+    for point in &mut points:
+        if point.x == 11:
+            continue
+        point.x = 30
+        break
+    print(points).unwrap()
+    mut numbers = [1, 2].unwrap()
+    for number in &mut numbers:
+        *number = *number + 3
+    print(numbers).unwrap()
+    print([point.x for point in &points].unwrap()).unwrap()
+    Ok(())
 "#,
     );
     assert!(
@@ -142,12 +145,13 @@ def add_into(target: &mut list[i64], source: &list[i64]) -> Result[(), AllocErro
         target.append(*value)?
     Ok(())
 
-def first_two(values: &mut list[i64]) -> ():
+def first_two(values: &mut list[i64]) -> Result[(), OverflowError[i64]]:
     a = &mut values[0]
     b = &values[1]
     *a = *a + *b
+    Ok(())
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut buffers = [[1, 2]?, [3]?]?
     add_into(&mut buffers[1], &buffers[0])?
     front = &mut buffers[0]
@@ -166,7 +170,7 @@ def main() -> Result[(), AllocError | IoError]:
     print(xs[2])?
     *a = 5
     print(xs)?
-    first_two(&mut xs)
+    first_two(&mut xs)?
     print(xs)?
     for i in range(2):
         left = &mut xs[0]

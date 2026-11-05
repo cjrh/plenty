@@ -315,3 +315,98 @@ match count.add("a", ""):
         "é20000\ntokens\ndepth\nnodes\ntemplates"
     );
 }
+
+fn output_with_optimization(source: &str, optimize: bool) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.plenty");
+    let executable = dir.path().join("program");
+    std::fs::write(&path, source).unwrap();
+    let options = plenty::CompileOptions {
+        optimize,
+        test_hooks: true,
+        ..Default::default()
+    };
+    plenty::compile_file_to_executable_with_options(&path, &executable, None, &options)
+        .unwrap_or_else(|error| panic!("{source}\n{error}"));
+    let output = std::process::Command::new(executable).output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .filter(|line| !line.starts_with("__test_"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn exact_budgets_and_delimiter_endpoints_at_i64_limits() {
+    let library = include_str!("../stdlib/std/template.plenty");
+    let helpers = ["has_pair", "bounded_total"]
+        .map(|name| {
+            library[library.find(&format!("def {name}(")).unwrap()..]
+                .split("\n\n")
+                .next()
+                .unwrap()
+        })
+        .join("\n\n");
+    let source = format!(
+        r#"from std.template import TemplateError
+{helpers}
+
+def main() -> Result[(), IoError]:
+    print("__test_fail_allocations_after_0__")?
+    print("__test_begin_no_allocations__")?
+    last = bounded_total(9223372036854775806, 1, i64.MAX).unwrap()
+    full = bounded_total(i64.MAX, 0, i64.MAX).unwrap()
+    overflow = bounded_total(i64.MAX, 1, i64.MAX)
+    limit = bounded_total(8, 3, 10)
+    pair = has_pair(9223372036854775805, i64.MAX)
+    single = has_pair(9223372036854775806, i64.MAX)
+    end = has_pair(i64.MAX, i64.MAX)
+    empty = has_pair(0, 0)
+    print("__test_restore_allocations__")?
+    print("__test_end_no_allocations__")?
+    expected: Result[i64, TemplateError] = Err(TemplateError.LimitExceeded)
+    print(last == i64.MAX, full == i64.MAX, overflow == expected, limit == expected)?
+    print(pair, single, end, empty)?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            "True True True True\nTrue False False False"
+        );
+    }
+}
+
+#[test]
+fn maximum_budgets_keep_registration_and_rendering_exact() {
+    let source = program(
+        r#"
+mut bounds = std.template.limits()
+bounds.max_source = NonNegative.try_from(i64.MAX).unwrap()
+bounds.max_tokens = NonNegative.try_from(i64.MAX).unwrap()
+bounds.max_context_bytes = NonNegative.try_from(i64.MAX).unwrap()
+bounds.max_steps = NonNegative.try_from(i64.MAX).unwrap()
+bounds.max_output = NonNegative.try_from(i64.MAX).unwrap()
+mut templates = std.template.engine(&bounds)?
+templates.add("page", "{% for x in xs %}{{ loop.index }}={{ x }}{% else %}empty{% endfor %}!")?
+context = Json.Object([Member("xs", Json.Array([Json.Text("<&"), Json.Text("é")]?))]?)
+print(templates.render("page", &context)?)?
+match templates.add("bad", "{{"):
+    case Err(TemplateError.Syntax(at)):
+        print("syntax", at)?
+    case _:
+        print("wrong")?
+templates.add("bad", "ok")?
+print(templates.render("bad", &context)?)?
+"#,
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            "1=&lt;&amp;2=é!\nsyntax 0\nok"
+        );
+    }
+}

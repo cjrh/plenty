@@ -11,8 +11,9 @@ import std.math as math
 from std.math import pi, MathError
 ```
 
-Recoverable failures are `MathError.Domain` and `MathError.Overflow`. No
-function in this module allocates.
+Domain algorithms report `MathError.Domain` and `MathError.Overflow`.
+Integer magnitude and reduction helpers preserve `OverflowError[T]`, including
+its wrapped numeric payload. No function in this module allocates.
 
 ```plenty
 import std.math as math
@@ -23,7 +24,7 @@ def main() -> Result[(), AllocError | IoError | MathError]:
     print(str.repr(math.sqrt(-1.0))?)?
     print(math.isclose(0.1 + 0.2, 0.3, 1e-9, 0.0)?)?
     print(math.gcd(84u64, 36u64), math.comb(10u64, 3u64)?)?
-    print(math.max(3, 9), math.abs(-4.5), math.pi)?
+    print(math.max(3, 9), math.abs_float(-4.5), math.pi)?
     Ok(())
 ```
 ```output
@@ -62,7 +63,8 @@ infinity or a value outside `[-2**63, 2**63)` overflows. Floating primitives
 preserve signed zero; `fabs` clears its sign and `copysign` observes it.
 Predicates and angular conversions have no recoverable failure. Angular
 conversions follow IEEE arithmetic, including overflow to infinity. Integer
-`.pow` remains a distinct, exact, trapping operation.
+`.pow` remains a distinct exact operation with the language's recoverable
+integer arithmetic contract.
 
 `round` rounds to the nearest integer, choosing the even integer at a halfway
 value: `round(2.5)` is `Ok(2)` and `round(3.5)` is `Ok(4)`. It takes no decimal
@@ -97,20 +99,31 @@ individually. Numeric types retain `f64.PI`, `f64.E`, `f64.TAU`, `f64.INF`, and
 | `isqrt(n: u64) -> u64` | Exact floor square root over the entire `u64` range |
 | `perm(n: u64, k: u64) -> Result[u64, MathError]` | Ordered selections; `k > n` gives zero |
 | `comb(n: u64, k: u64) -> Result[u64, MathError]` | Unordered selections; `k > n` gives zero; cancels factors before multiplication |
-| `abs[T](x: T) -> T` | Numeric magnitude; normalizes floating zero; negating a signed minimum traps |
+| `abs[T: IntType](x: T) -> Result[T, OverflowError[T]]` | Integer magnitude; a signed minimum returns its wrapped overflow payload |
+| `abs_float[T: FloatType](x: T) -> T` | Floating magnitude; clears the sign of zero |
 | `min[T](a: T, b: T) -> T`, `max[T](a: T, b: T) -> T` | Compare two owned comparable values; equal values retain the first |
 | `min_all[T](items: &list[T]) -> Option[T]`, `max_all[T](items: &list[T]) -> Option[T]` | Copy the first extremum; `Nothing` for an empty list; elements must be copyable and comparable |
-| `sum[T](items: &list[T], start: T) -> T`, `prod[T](items: &list[T], start: T) -> T` | Sequential numeric fold; empty lists return the explicit start |
-| `sum_iter[I, T](items: &I, start: T) -> T`, `prod_iter[I, T](items: &I, start: T) -> T` | Borrowed list, set, range, or dictionary-key fold; numeric elements must match the start type |
+| `sum[T: IntType](items: &list[T], start: T) -> Result[T, OverflowError[T]]`, `prod[T: IntType](items: &list[T], start: T) -> Result[T, OverflowError[T]]` | Sequential integer fold; first overflow returns its wrapped payload; empty lists return `Ok(start)` |
+| `sum_float[T: FloatType](items: &list[T], start: T) -> T`, `prod_float[T: FloatType](items: &list[T], start: T) -> T` | Sequential IEEE floating fold; empty lists return the explicit start |
+| `sum_iter[I, T: IntType](items: &I, start: T) -> Result[T, OverflowError[T]]`, `prod_iter[I, T: IntType](items: &I, start: T) -> Result[T, OverflowError[T]]` | Borrowed list, set, range, or dictionary-key integer fold |
+| `sum_iter_float[I, T: FloatType](items: &I, start: T) -> T`, `prod_iter_float[I, T: FloatType](items: &I, start: T) -> T` | Borrowed floating fold; elements must match the start type |
 | `divmod[T: IntType](a: T, b: T) -> Result[(T, T), MathError]` | Same-type integer floor quotient and remainder; zero divisor is `Domain`, signed minimum divided by `-1` is `Overflow` |
 
 Integer combinatorics report `Overflow` when the result cannot fit `u64`.
 Unlike Python, Plenty has no arbitrary-precision integer type. `gcd` and `lcm`
 take two unsigned inputs; convert signed magnitudes explicitly. Generic helpers
 specialize against operations in their bodies, with normal language errors for
-unsupported types. They allocate nothing and retain ordinary arithmetic
-overflow traps. Floating `sum` uses sequential IEEE 754 addition, with no
-compensated summation guarantee; any NaN element makes the sum NaN.
+unsupported types. They allocate nothing. Integer helpers return ordinary
+public `Result` values even when called inside `unchecked:`; caller modes
+do not change a callee's contract. `sum_float` uses sequential IEEE 754
+addition, with no compensated summation guarantee; any NaN element makes the
+sum NaN, and overflow may produce infinity. The separate float names avoid
+requiring impossible integer error handling from float callers.
+
+Combinatorics and `divmod` handle local arithmetic results and preserve their
+established `MathError` contract. The infallible unsigned `gcd` remainder and
+`isqrt` loop use explicit `unchecked:` regions with bounds documented in
+source. These are proven-bounded operations, not wrapping arithmetic.
 
 Collection helpers borrow their inputs and preserve them. For `f32` and `f64`,
 `min`, `max`, `min_all`, and `max_all` follow IEEE 754-2019 `minimum` and

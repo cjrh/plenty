@@ -79,7 +79,7 @@ SQLite failures carry SQLite's own code and message:
 import std.db.sqlite
 from std.db.sqlite import Begin, Connection, DbError
 
-def transfer(db: &mut Connection, amount: i64) -> Result[(), DbError]:
+def transfer(db: &mut Connection, amount: i64) -> Result[(), DbError | OverflowError[i64]]:
     mut tx = db.begin(Begin.Immediate)?
     mut change = db.prepare("UPDATE accounts SET balance = balance + ? WHERE name = ?")?
     change.bind_integer(1, 0 - amount)?
@@ -90,7 +90,7 @@ def transfer(db: &mut Connection, amount: i64) -> Result[(), DbError]:
     change.run()?
     tx.commit()
 
-def main() -> Result[(), AllocError | IoError | DbError]:
+def main() -> Result[(), AllocError | IoError | DbError | OverflowError[i64]]:
     mut db = std.db.sqlite.memory(65536)?
     db.execute("CREATE TABLE accounts(name TEXT PRIMARY KEY, balance INTEGER CHECK (balance >= 0))")?
     db.execute("INSERT INTO accounts VALUES ('alice', 10), ('bob', 0)")?

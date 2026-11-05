@@ -199,16 +199,36 @@ def fill[R](reader: &mut R, data: &mut Bytes, count: i64) -> Result[(), ArchiveE
     while at < count:
         match reader.read(data, at, count):
             case Ok(got):
-                if got < 0 or got > count - at:
+                # 0 <= at <= count; successful reads cannot advance past count.
+                remaining = unchecked:
+                    count - at
+                if got < 0 or got > remaining:
                     return Err(ArchiveError.Stream(StreamError.InvalidProgress))
                 if got == 0:
                     return Err(ArchiveError.Truncated)
-                at += got
+                unchecked:
+                    at += got
             case Err(StreamError.Interrupted):
                 pass
             case Err(error):
                 return Err(ArchiveError.Stream(error))
     Ok(())
+
+# Exact extents are checked before their associated read, write or mutation.
+def read_extent(at: i64, amount: i64) -> Result[i64, ArchiveError]:
+    total = checked:
+        at + amount
+    total.map_error(def(_: OverflowError[i64]) -> ArchiveError: ArchiveError.Corrupt)
+
+def write_extent(at: i64, amount: i64) -> Result[i64, ArchiveError]:
+    total = checked:
+        at + amount
+    total.map_error(def(_: OverflowError[i64]) -> ArchiveError: ArchiveError.Stream(StreamError.OutOfRange))
+
+def allocation_extent(at: i64, amount: i64) -> Result[i64, ArchiveError]:
+    total = checked:
+        at + amount
+    total.map_error(def(_: OverflowError[i64]) -> ArchiveError: ArchiveError.Allocation(AllocError.CapacityOverflow))
 
 # Byte fields
 
@@ -217,19 +237,23 @@ def byte(data: &Bytes, at: i64) -> Result[i64, ArchiveError]:
 
 # A little-endian unsigned field; a value with the sign bit set is Corrupt.
 def le(data: &Bytes, at: i64, width: i64) -> Result[i64, ArchiveError]:
-    mut value = 0
-    mut index = width - 1
-    while index >= 0:
-        value = (value << 8) | byte(data, at + index)?
-        index -= 1
-    if value < 0:
-        return Err(ArchiveError.Corrupt)
-    Ok(value)
+    # Callers hold at..at+width in a buffer; width is 2, 4 or 8, index ends at -1.
+    unchecked:
+        mut value = 0
+        mut index = width - 1
+        while index >= 0:
+            value = (value << 8) | byte(data, at + index)?
+            index -= 1
+        if value < 0:
+            return Err(ArchiveError.Corrupt)
+        Ok(value)
 
 def put_le(out: &mut Bytes, value: i64, width: i64) -> Result[(), ArchiveError]:
-    for index in range(0, width):
-        owned(out.push(u8.wrapping_from((value >> (8 * index)) & 255)))?
-    Ok(())
+    # Widths are 2, 4 or 8, so 8*index is at most 56; byte extraction is explicit.
+    unchecked:
+        for index in range(0, width):
+            owned(out.push(u8.wrapping_from((value >> (8 * index)) & 255)))?
+        Ok(())
 
 def put_list(out: &mut Bytes, values: &list[u8]) -> Result[(), ArchiveError]:
     owned(out.reserve(len(values)))?
@@ -246,13 +270,15 @@ def field_list(data: &Bytes, start: i64, stop: i64) -> Result[list[u8], ArchiveE
 
 # A NUL-terminated field of at most `width` bytes.
 def text_field(data: &Bytes, at: i64, width: i64) -> Result[list[u8], ArchiveError]:
-    mut stop = at + width
-    match data.find(0u8, at, at + width):
-        case Some(index):
-            stop = index
-        case Nothing:
-            pass
-    field_list(data, at, stop)
+    # TAR callers supply fixed fields ending at or before byte 500 of a 512-byte block.
+    unchecked:
+        mut stop = at + width
+        match data.find(0u8, at, at + width):
+            case Some(index):
+                stop = index
+            case Nothing:
+                pass
+        field_list(data, at, stop)
 
 def smaller(a: i64, b: i64) -> i64:
     if a < b:
@@ -274,12 +300,17 @@ def components(name: &list[u8], max_name: i64, max_depth: i64) -> Result[list[Pa
         return Err(ArchiveError.UnsafePath)
     mut parts = owned(list[Path].new())?
     mut start = 0
-    for index in range(0, count + 1):
+    mut index = 0
+    while True:
         if index == count or name[index] == 47u8:
-            width = index - start
+            # 0 <= start <= index <= count; width==2 proves start+1 < count.
+            width = unchecked:
+                index - start
             dot = width == 1 and name[start] == 46u8
-            if width == 2 and name[start] == 46u8 and name[start + 1] == 46u8:
-                return Err(ArchiveError.UnsafePath)
+            if width == 2:
+                unchecked:
+                    if name[start] == 46u8 and name[start + 1] == 46u8:
+                        return Err(ArchiveError.UnsafePath)
             if width > 0 and not dot:
                 if len(parts) == max_depth:
                     return Err(ArchiveError.Limit)
@@ -287,9 +318,15 @@ def components(name: &list[u8], max_name: i64, max_depth: i64) -> Result[list[Pa
                 for at in range(start, index):
                     owned(part.append(name[at]))?
                 owned(parts.append(std.path.from_bytes(part)))?
-            start = index + 1
+            if index == count:
+                break
+            # Here index < count <= i64.MAX; no unrepresentable sentinel.
+            unchecked:
+                start = index + 1
         elif name[index] == 0u8 or name[index] == 92u8:
             return Err(ArchiveError.UnsafePath)
+        unchecked:
+            index += 1
     Ok(parts)
 
 # The name a writer stores: the checked components joined by slashes, with
@@ -317,57 +354,67 @@ def has_nul(values: &list[u8]) -> bool:
             return True
     False
 
+# TAR padding is always 0..511, including at the largest accepted content size.
+def padding(size: i64) -> i64:
+    # size >= 0; remainder is 0..511 and the divisor is the constant 512.
+    unchecked:
+        (block_size - size % block_size) % block_size
+
 # TAR reading
 
 # Numeric header field: octal digits padded by spaces or NULs, or GNU
 # base-256 when the high bit of the first byte is set.
 def tar_number(block: &Bytes, at: i64, width: i64) -> Result[i64, ArchiveError]:
-    first = byte(block, at)?
-    if first >= 128:
-        if first == 255:
-            return Err(ArchiveError.Corrupt)
-        mut value = first & 127
-        for index in range(at + 1, at + width):
-            if value > 36028797018963967:
+    # Fixed TAR field ends <= 512; octal guard gives value*8+(digit-48) <= i64.MAX; indices <= stop.
+    unchecked:
+        first = byte(block, at)?
+        if first >= 128:
+            if first == 255:
                 return Err(ArchiveError.Corrupt)
-            value = (value << 8) | byte(block, index)?
-        return Ok(value)
-    stop = at + width
-    mut index = at
-    while index < stop and byte(block, index)? == 32:
-        index += 1
-    mut value = 0
-    while index < stop:
-        digit = byte(block, index)?
-        if digit == 0 or digit == 32:
-            break
-        if digit < 48 or digit > 55 or value > 1152921504606846975:
-            return Err(ArchiveError.Corrupt)
-        value = value * 8 + digit - 48
-        index += 1
-    while index < stop:
-        rest = byte(block, index)?
-        if rest != 0 and rest != 32:
-            return Err(ArchiveError.Corrupt)
-        index += 1
-    Ok(value)
+            mut value = first & 127
+            for index in range(at + 1, at + width):
+                if value > 36028797018963967:
+                    return Err(ArchiveError.Corrupt)
+                value = (value << 8) | byte(block, index)?
+            return Ok(value)
+        stop = at + width
+        mut index = at
+        while index < stop and byte(block, index)? == 32:
+            index += 1
+        mut value = 0
+        while index < stop:
+            digit = byte(block, index)?
+            if digit == 0 or digit == 32:
+                break
+            if digit < 48 or digit > 55 or value > 1152921504606846975:
+                return Err(ArchiveError.Corrupt)
+            value = value * 8 + (digit - 48)
+            index += 1
+        while index < stop:
+            rest = byte(block, index)?
+            if rest != 0 and rest != 32:
+                return Err(ArchiveError.Corrupt)
+            index += 1
+        Ok(value)
 
 # The header checksum treats its own field as spaces. Old writers summed
 # signed bytes, so either sum is accepted.
 def tar_checksum_ok(block: &Bytes) -> Result[bool, ArchiveError]:
-    stored = tar_number(block, 148, 8)?
-    mut unsigned = 0
-    mut signed = 0
-    for index in range(0, block_size):
-        mut value = byte(block, index)?
-        if index >= 148 and index < 156:
-            value = 32
-        unsigned += value
-        if value >= 128:
-            signed += value - 256
-        else:
-            signed += value
-    Ok(stored == unsigned or stored == signed)
+    # Exactly 512 bytes: unsigned sum <= 512*255; signed sum lies in -512*128..512*127.
+    unchecked:
+        stored = tar_number(block, 148, 8)?
+        mut unsigned = 0
+        mut signed = 0
+        for index in range(0, block_size):
+            mut value = byte(block, index)?
+            if index >= 148 and index < 156:
+                value = 32
+            unsigned += value
+            if value >= 128:
+                signed += value - 256
+            else:
+                signed += value
+        Ok(stored == unsigned or stored == signed)
 
 def tar_kind(flag: i64) -> EntryKind:
     if flag == 48 or flag == 0 or flag == 55:
@@ -389,47 +436,51 @@ class Pending:
         self.size >= 0 or self.path.is_some() or self.link.is_some()
 
 def digits_value(data: &Bytes, start: i64, stop: i64) -> Result[i64, ArchiveError]:
-    if start == stop:
-        return Err(ArchiveError.Corrupt)
-    mut value = 0
-    for index in range(start, stop):
-        digit = byte(data, index)?
-        if digit < 48 or digit > 57 or value > 922337203685477579:
+    # Existing conservative guard bounds value*10+(digit-48) <= 9223372036854775799; digit is 0..9.
+    unchecked:
+        if start == stop:
             return Err(ArchiveError.Corrupt)
-        value = value * 10 + digit - 48
-    Ok(value)
+        mut value = 0
+        for index in range(start, stop):
+            digit = byte(data, index)?
+            if digit < 48 or digit > 57 or value > 922337203685477579:
+                return Err(ArchiveError.Corrupt)
+            value = value * 10 + (digit - 48)
+        Ok(value)
 
 # pax records are `LENGTH KEY=VALUE\n`, LENGTH counting the whole record.
 # Only path, linkpath and size change extraction; other keys are ignored.
 def pax_records(data: &Bytes, pending: &mut Pending) -> Result[(), ArchiveError]:
-    total = data.len()
-    mut at = 0
-    while at < total:
-        space = match data.find(32u8, at, total):
-            case Some(index):
-                index
-            case Nothing:
+    # Metadata len <= 65536; space is held, and length <= total-at is checked before end=at+length.
+    unchecked:
+        total = data.len()
+        mut at = 0
+        while at < total:
+            space = match data.find(32u8, at, total):
+                case Some(index):
+                    index
+                case Nothing:
+                    return Err(ArchiveError.Corrupt)
+            length = digits_value(data, at, space)?
+            if length > total - at or length < space - at + 3:
                 return Err(ArchiveError.Corrupt)
-        length = digits_value(data, at, space)?
-        if length > total - at or length < space - at + 3:
-            return Err(ArchiveError.Corrupt)
-        end = at + length
-        if byte(data, end - 1)? != 10:
-            return Err(ArchiveError.Corrupt)
-        equals = match data.find(61u8, space + 1, end - 1):
-            case Some(index):
-                index
-            case Nothing:
+            end = at + length
+            if byte(data, end - 1)? != 10:
                 return Err(ArchiveError.Corrupt)
-        key = equals - space - 1
-        if key == 4 and data.matches_text(space + 1, "path"):
-            pending.path = Some(field_list(data, equals + 1, end - 1)?)
-        elif key == 8 and data.matches_text(space + 1, "linkpath"):
-            pending.link = Some(field_list(data, equals + 1, end - 1)?)
-        elif key == 4 and data.matches_text(space + 1, "size"):
-            pending.size = digits_value(data, equals + 1, end - 1)?
-        at = end
-    Ok(())
+            equals = match data.find(61u8, space + 1, end - 1):
+                case Some(index):
+                    index
+                case Nothing:
+                    return Err(ArchiveError.Corrupt)
+            key = equals - space - 1
+            if key == 4 and data.matches_text(space + 1, "path"):
+                pending.path = Some(field_list(data, equals + 1, end - 1)?)
+            elif key == 8 and data.matches_text(space + 1, "linkpath"):
+                pending.link = Some(field_list(data, equals + 1, end - 1)?)
+            elif key == 4 and data.matches_text(space + 1, "size"):
+                pending.size = digits_value(data, equals + 1, end - 1)?
+            at = end
+        Ok(())
 
 # A streaming TAR reader. `next` moves to the following entry, skipping any
 # unread content; `read` returns the current entry's content. A malformed
@@ -454,7 +505,9 @@ pub class TarReader[R]:
         while left > 0:
             step = smaller(left, block_size)
             fill(&mut self.inner, &mut self._block, step)?
-            left -= step
+            # 0 < step <= left, so remaining progress stays nonnegative.
+            unchecked:
+                left -= step
         Ok(())
 
     # The content of a metadata entry of `size` bytes, followed by padding.
@@ -464,11 +517,14 @@ pub class TarReader[R]:
         mut data = owned(std.bytes.with_capacity(size))?
         owned(data.resize(size, 0u8))?
         fill(&mut self.inner, &mut data, size)?
-        self.skip((block_size - size % block_size) % block_size)?
+        self.skip(padding(size))?
         Ok(data)
 
     def advance(self: &mut TarReader[R]) -> Result[Option[Entry], ArchiveError]:
-        self.skip(self._remaining + self._padding)?
+        # Entry bounds give remaining <= 2^62 and padding <= 511.
+        unread = unchecked:
+            self._remaining + self._padding
+        self.skip(unread)?
         self._remaining = 0
         self._padding = 0
         mut pending = Pending(Nothing, Nothing, -1)
@@ -493,7 +549,10 @@ pub class TarReader[R]:
                 # Keeps the content and its padding representable.
                 if size > max_size:
                     return Err(ArchiveError.Corrupt)
-                self.skip(size + (block_size - size % block_size) % block_size)?
+                # The preceding max_size guard leaves at least 2^62-1 headroom.
+                extent = unchecked:
+                    size + padding(size)
+                self.skip(extent)?
             elif flag == 76 or flag == 75:
                 data = self.metadata(size)?
                 mut stop = data.len()
@@ -549,7 +608,7 @@ pub class TarReader[R]:
         if kind == EntryKind.File or kind == EntryKind.Other:
             content = size
         self._remaining = content
-        self._padding = (block_size - content % block_size) % block_size
+        self._padding = padding(content)
         Ok(Entry(std.path.from_bytes(name), kind, size, content, mode, mtime, std.path.from_bytes(link)))
 
     pub def next(self: &mut TarReader[R]) -> Result[Option[Entry], ArchiveError]:
@@ -570,13 +629,19 @@ pub class TarReader[R]:
     def pull(self: &mut TarReader[R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, ArchiveError]:
         if self._remaining == 0 or start == stop:
             return Ok(0)
-        want = smaller(stop - start, self._remaining)
-        count = moved(self.inner.read(buffer, start, start + want))?
+        # read validated 0 <= start <= stop <= buffer.len(); want <= stop-start.
+        want = unchecked:
+            smaller(stop - start, self._remaining)
+        end = unchecked:
+            start + want
+        count = moved(self.inner.read(buffer, start, end))?
         if count < 0 or count > want:
             return Err(ArchiveError.Stream(StreamError.InvalidProgress))
         if count == 0:
             return Err(ArchiveError.Truncated)
-        self._remaining -= count
+        # Valid progress is <= want <= remaining.
+        unchecked:
+            self._remaining -= count
         Ok(count)
 
     # Errors from `inner` leave the reader intact, so Interrupted and other
@@ -606,35 +671,47 @@ pub def tar_reader[R](inner: R) -> Result[TarReader[R], ArchiveError]:
 # TAR writing
 
 def put_octal(block: &mut Bytes, at: i64, width: i64, value: i64) -> Result[(), ArchiveError]:
-    mut rest = value
-    mut index = at + width - 2
-    while index >= at:
-        block.set(index, u8.wrapping_from(48 + rest % 8))
-        rest = rest // 8
-        index -= 1
-    if rest != 0:
-        return Err(ArchiveError.InvalidInput)
-    block.set(at + width - 1, 0u8)
-    Ok(())
+    # Fixed header fields: 0 <= at, 2 <= width, at+width <= 512; nonnegative rest, remainder <= 7.
+    unchecked:
+        mut rest = value
+        mut index = at + width - 2
+        while index >= at:
+            block.set(index, u8.wrapping_from(48 + rest % 8))
+            rest = rest // 8
+            index -= 1
+        if rest != 0:
+            return Err(ArchiveError.InvalidInput)
+        block.set(at + width - 1, 0u8)
+        Ok(())
 
 def put_field(block: &mut Bytes, at: i64, values: &list[u8], width: i64) -> Result[(), ArchiveError]:
-    for index in range(0, smaller(len(values), width)):
-        block.set(at + index, values[index])
-    Ok(())
+    # Fixed header spans end <= 512; index < min(values.len(), width).
+    unchecked:
+        for index in range(0, smaller(len(values), width)):
+            block.set(at + index, values[index])
+        Ok(())
 
 def decimal_width(value: i64) -> i64:
-    mut width = 1
-    mut rest = value
-    while rest >= 10:
-        rest = rest // 10
-        width += 1
-    width
+    # Nonnegative i64 needs at most 19 decimal digits; division by constant positive 10.
+    unchecked:
+        mut width = 1
+        mut rest = value
+        while rest >= 10:
+            rest = rest // 10
+            width += 1
+        width
+
+# Include the digit count in the record's own length before any output mutation.
+def pax_length(key_size: i64, value_size: i64) -> Result[i64, ArchiveError]:
+    base = allocation_extent(allocation_extent(key_size, value_size)?, 3)?
+    mut length = allocation_extent(base, decimal_width(base))?
+    if decimal_width(length) != decimal_width(base):
+        length = allocation_extent(base, decimal_width(length))?
+    Ok(length)
 
 def pax_record(out: &mut Bytes, key: &str, value: &list[u8]) -> Result[(), ArchiveError]:
-    base = len(key) + len(value) + 3
-    mut length = base + decimal_width(base)
-    if decimal_width(length) != decimal_width(base):
-        length = base + decimal_width(length)
+    length = pax_length(len(key), len(value))?
+    drop(allocation_extent(out.len(), length)?)
     put_text(out, &owned(str.from(length))?)?
     put_text(out, " ")?
     put_text(out, key)?
@@ -660,7 +737,7 @@ pub class TarWriter[W]:
         send(&mut self.inner, &self._block, 0, block_size)
 
     def pad(self: &mut TarWriter[W], size: i64) -> Result[(), ArchiveError]:
-        count = (block_size - size % block_size) % block_size
+        count = padding(size)
         self.zero()
         send(&mut self.inner, &self._block, 0, count)
 
@@ -698,7 +775,9 @@ pub class TarWriter[W]:
             # GNU base-256: a high-bit marker, then big-endian bytes.
             block.set(124, 128u8)
             for index in range(0, 8):
-                block.set(135 - index, u8.wrapping_from((size >> (8 * index)) & 255))
+                # index is 0..7: destination is 128..135 and shift is 0..56.
+                unchecked:
+                    block.set(135 - index, u8.wrapping_from((size >> (8 * index)) & 255))
         else:
             put_octal(block, 124, 12, size)?
         put_octal(block, 136, 12, mtime)?
@@ -712,7 +791,9 @@ pub class TarWriter[W]:
             block.set(index, 32u8)
         mut sum = 0
         for index in range(0, block_size):
-            sum += byte(block, index)?
+            # 512 unsigned bytes sum to at most 130560.
+            unchecked:
+                sum += byte(block, index)?
         put_octal(block, 148, 7, sum)?
         block.set(155, 32u8)
         Ok(())
@@ -735,7 +816,9 @@ pub class TarWriter[W]:
             step = smaller(left, block_size)
             fill(source, &mut self._block, step)?
             send(&mut self.inner, &self._block, 0, step)?
-            left -= step
+            # 0 < step <= left, so remaining progress stays nonnegative.
+            unchecked:
+                left -= step
         self.pad(size)?
         self._failed = False
         Ok(())
@@ -774,51 +857,57 @@ pub def tar_writer[W](inner: W) -> Result[TarWriter[W], ArchiveError]:
 # DOS dates
 
 def days_from_civil(year: i64, month: i64, day: i64) -> i64:
-    mut y = year
-    if month <= 2:
-        y -= 1
-    era = y // 400
-    yoe = y - era * 400
-    shifted = (month + 9) % 12
-    doy = (153 * shifted + 2) // 5 + day - 1
-    doe = yoe * 365 + yoe // 4 - yoe // 100 + doy
-    era * 146097 + doe - 719468
+    # Only ZIP years 1980..2107, months 1..12, days 1..31; eras <= 5 and day counts < 10^6.
+    unchecked:
+        mut y = year
+        if month <= 2:
+            y -= 1
+        era = y // 400
+        yoe = y - era * 400
+        shifted = (month + 9) % 12
+        doy = (153 * shifted + 2) // 5 + day - 1
+        doe = yoe * 365 + yoe // 4 - yoe // 100 + doy
+        era * 146097 + doe - 719468
 
 def from_dos(time: i64, date: i64) -> i64:
-    year = (date >> 9) + 1980
-    mut month = (date >> 5) & 15
-    mut day = date & 31
-    if month < 1 or month > 12:
-        month = 1
-    if day < 1:
-        day = 1
-    seconds = (time >> 11) * 3600 + ((time >> 5) & 63) * 60 + (time & 31) * 2
-    days_from_civil(year, month, day) * 86400 + seconds
+    # time/date are unsigned 16-bit wire fields; seconds < 120000, dates 1980..2107, result < 5*10^9.
+    unchecked:
+        year = (date >> 9) + 1980
+        mut month = (date >> 5) & 15
+        mut day = date & 31
+        if month < 1 or month > 12:
+            month = 1
+        if day < 1:
+            day = 1
+        seconds = (time >> 11) * 3600 + ((time >> 5) & 63) * 60 + (time & 31) * 2
+        days_from_civil(year, month, day) * 86400 + seconds
 
 # DOS time and date of a Unix time, clamped to 1980..2107.
 def to_dos(mtime: i64) -> (i64, i64):
-    mut at = mtime
-    if at < dos_epoch:
-        at = dos_epoch
-    if at > 4354819198:
-        at = 4354819198
-    z = at // 86400 + 719468
-    era = z // 146097
-    doe = z - era * 146097
-    yoe = (doe - doe // 1460 + doe // 36524 - doe // 146096) // 365
-    doy = doe - (365 * yoe + yoe // 4 - yoe // 100)
-    mp = (5 * doy + 2) // 153
-    day = doy - (153 * mp + 2) // 5 + 1
-    mut month = mp + 3
-    if mp >= 10:
-        month = mp - 9
-    mut year = yoe + era * 400
-    if month <= 2:
-        year += 1
-    second = at % 86400
-    time = ((second // 3600) << 11) | (((second // 60) % 60) << 5) | ((second % 60) // 2)
-    date = ((year - 1980) << 9) | (month << 5) | day
-    (time, date)
+    # Clamped at is 315532800..4354819198; civil intermediates < 10^6, years 1980..2107, seconds < 86400.
+    unchecked:
+        mut at = mtime
+        if at < dos_epoch:
+            at = dos_epoch
+        if at > 4354819198:
+            at = 4354819198
+        z = at // 86400 + 719468
+        era = z // 146097
+        doe = z - era * 146097
+        yoe = (doe - doe // 1460 + doe // 36524 - doe // 146096) // 365
+        doy = doe - (365 * yoe + yoe // 4 - yoe // 100)
+        mp = (5 * doy + 2) // 153
+        day = doy - (153 * mp + 2) // 5 + 1
+        mut month = mp + 3
+        if mp >= 10:
+            month = mp - 9
+        mut year = yoe + era * 400
+        if month <= 2:
+            year += 1
+        second = at % 86400
+        time = ((second // 3600) << 11) | (((second // 60) % 60) << 5) | ((second % 60) // 2)
+        date = ((year - 1980) << 9) | (month << 5) | day
+        (time, date)
 
 # ZIP reading
 
@@ -830,7 +919,9 @@ class Record:
 
 def zip_kind(made: i64, external: i64, name: &list[u8]) -> (EntryKind, i64):
     count = len(name)
-    trailing = count > 0 and name[count - 1] == 47u8
+    # Short circuit proves count >= 1 for the final-byte index.
+    trailing = unchecked:
+        count > 0 and name[count - 1] == 47u8
     if made >> 8 == 3:
         mode = external >> 16
         bits = mode & type_mask
@@ -892,36 +983,60 @@ pub class ZipReader[R]:
         tail_size = smaller(size, 65557)
         mut tail = owned(std.bytes.with_capacity(tail_size))?
         owned(tail.resize(tail_size, 0u8))?
-        self.at(size - tail_size)?
+        # 22 <= tail_size <= size, so seek stays in the input.
+        unchecked:
+            self.at(size - tail_size)?
         fill(&mut self.inner, &mut tail, tail_size)?
         # The last end record whose comment reaches exactly to the end.
-        mut found = tail_size - 22
-        while found >= 0:
-            if le(&tail, found, 4)? == end_signature and le(&tail, found + 20, 2)? == tail_size - found - 22:
-                break
-            found -= 1
+        # tail_size is in 22..65557.
+        mut found = unchecked:
+            tail_size - 22
+        # Search offsets stay in -1..tail_size-22; candidate fixed fields end <= tail_size.
+        unchecked:
+            while found >= 0:
+                if le(&tail, found, 4)? == end_signature and le(&tail, found + 20, 2)? == tail_size - found - 22:
+                    break
+                found -= 1
         if found < 0:
             return Err(ArchiveError.Corrupt)
-        end = size - tail_size + found
-        mut disk = le(&tail, found + 4, 2)?
-        mut directory_disk = le(&tail, found + 6, 2)?
-        mut on_disk = le(&tail, found + 8, 2)?
-        mut count = le(&tail, found + 10, 2)?
-        mut directory_size = le(&tail, found + 12, 4)?
-        mut directory_offset = le(&tail, found + 16, 4)?
+        # 0 <= found <= tail_size-22, hence end <= size-22.
+        end = unchecked:
+            size - tail_size + found
+        # The candidate end record holds all 22 fixed bytes.
+        mut disk = unchecked:
+            le(&tail, found + 4, 2)?
+        # The candidate end record holds all 22 fixed bytes.
+        mut directory_disk = unchecked:
+            le(&tail, found + 6, 2)?
+        # The candidate end record holds all 22 fixed bytes.
+        mut on_disk = unchecked:
+            le(&tail, found + 8, 2)?
+        # The candidate end record holds all 22 fixed bytes.
+        mut count = unchecked:
+            le(&tail, found + 10, 2)?
+        # The candidate end record holds all 22 fixed bytes.
+        mut directory_size = unchecked:
+            le(&tail, found + 12, 4)?
+        # The candidate end record holds all 22 fixed bytes.
+        mut directory_offset = unchecked:
+            le(&tail, found + 16, 4)?
         mut limit = end
         if count == u16_max or on_disk == u16_max or directory_size == u32_max or directory_offset == u32_max:
             if end < 76:
                 return Err(ArchiveError.Corrupt)
-            self.at(end - 20)?
+            # The preceding end >= 76 guard bounds the locator offset.
+            unchecked:
+                self.at(end - 20)?
             self.chunk_of(20)?
             if le(&self._input, 0, 4)? != locator_signature:
                 return Err(ArchiveError.Corrupt)
             if le(&self._input, 4, 4)? != 0 or le(&self._input, 16, 4)? != 1:
                 return Err(ArchiveError.Unsupported)
             record = le(&self._input, 8, 8)?
-            if record > end - 76:
-                return Err(ArchiveError.Corrupt)
+            # end >= 76, so the locator comparison is representable.
+            unchecked:
+                if record > end - 76:
+                    return Err(ArchiveError.Corrupt)
             self.at(record)?
             self.chunk_of(56)?
             if le(&self._input, 0, 4)? != end64_signature:
@@ -935,12 +1050,16 @@ pub class ZipReader[R]:
             limit = record
         if disk != 0 or directory_disk != 0 or on_disk != count:
             return Err(ArchiveError.Unsupported)
-        if directory_offset > limit or directory_size > limit - directory_offset:
-            return Err(ArchiveError.Corrupt)
+        # Unsigned parsed extents; short circuit ensures subtraction only when offset <= limit.
+        unchecked:
+            if directory_offset > limit or directory_size > limit - directory_offset:
+                return Err(ArchiveError.Corrupt)
         if count > max_entries:
             return Err(ArchiveError.Limit)
-        if count > directory_size // 46:
-            return Err(ArchiveError.Corrupt)
+        # Directory size is nonnegative and divisor is the constant 46.
+        unchecked:
+            if count > directory_size // 46:
+                return Err(ArchiveError.Corrupt)
         owned(self._entries.reserve(count))?
         owned(self._records.reserve(count))?
         self.at(directory_offset)?
@@ -962,7 +1081,10 @@ pub class ZipReader[R]:
             comment_size = le(&self._input, 32, 2)?
             external = le(&self._input, 38, 4)?
             mut offset = le(&self._input, 42, 4)?
-            consumed += 46 + name_size + extra_size + comment_size
+            # Three unsigned 16-bit lengths and a fixed 46-byte header.
+            extent = unchecked:
+                46 + name_size + extra_size + comment_size
+            consumed = read_extent(consumed, extent)?
             if consumed > directory_size:
                 return Err(ArchiveError.Corrupt)
             mut raw = owned(std.bytes.with_capacity(name_size))?
@@ -976,38 +1098,44 @@ pub class ZipReader[R]:
             while left > 0:
                 step = smaller(left, chunk)
                 self.chunk_of(step)?
-                left -= step
+                # 0 < step <= left, so remaining progress stays nonnegative.
+                unchecked:
+                    left -= step
             # ZIP64 extra: 8-byte values for exactly the saturated fields.
             mut wide = False
             mut at = 0
-            while at + 4 <= extra_size:
-                id = le(&extra, at, 2)?
-                width = le(&extra, at + 2, 2)?
-                stop = at + 4 + width
-                if stop > extra_size:
-                    return Err(ArchiveError.Corrupt)
-                if id == 1:
-                    wide = True
-                    mut field = at + 4
-                    if original == u32_max:
-                        if field + 8 > stop:
-                            return Err(ArchiveError.Corrupt)
-                        original = le(&extra, field, 8)?
-                        field += 8
-                    if compressed == u32_max:
-                        if field + 8 > stop:
-                            return Err(ArchiveError.Corrupt)
-                        compressed = le(&extra, field, 8)?
-                        field += 8
-                    if offset == u32_max:
-                        if field + 8 > stop:
-                            return Err(ArchiveError.Corrupt)
-                        offset = le(&extra, field, 8)?
-                at = stop
+            # extra_size <= 65535; at <= extra_size, width <= 65535, stop <= 131074; guarded fields stay held.
+            unchecked:
+                while at + 4 <= extra_size:
+                    id = le(&extra, at, 2)?
+                    width = le(&extra, at + 2, 2)?
+                    stop = at + 4 + width
+                    if stop > extra_size:
+                        return Err(ArchiveError.Corrupt)
+                    if id == 1:
+                        wide = True
+                        mut field = at + 4
+                        if original == u32_max:
+                            if field + 8 > stop:
+                                return Err(ArchiveError.Corrupt)
+                            original = le(&extra, field, 8)?
+                            field += 8
+                        if compressed == u32_max:
+                            if field + 8 > stop:
+                                return Err(ArchiveError.Corrupt)
+                            compressed = le(&extra, field, 8)?
+                            field += 8
+                        if offset == u32_max:
+                            if field + 8 > stop:
+                                return Err(ArchiveError.Corrupt)
+                            offset = le(&extra, field, 8)?
+                    at = stop
             if not wide and (original == u32_max or compressed == u32_max or offset == u32_max):
                 return Err(ArchiveError.Corrupt)
-            if offset > directory_offset - 30:
-                return Err(ArchiveError.Corrupt)
+            # Unsigned directory_offset makes offset-30 comparison safe even below 30; accepted offsets <= i64.MAX-30.
+            unchecked:
+                if offset > directory_offset - 30:
+                    return Err(ArchiveError.Corrupt)
             kind, mode = zip_kind(made, external, &name)
             entry = Entry(std.path.from_bytes(name), kind, original, compressed, mode, from_dos(time, date), empty_path()?)
             owned(self._entries.append(entry))?
@@ -1024,11 +1152,13 @@ pub class ZipReader[R]:
         for position in range(0, count):
             start, index = spans[position]
             mut next = directory_offset
-            if position + 1 < count:
-                following, _ = spans[position + 1]
-                next = following
-            if start + 30 > next:
-                return Err(ArchiveError.Corrupt)
+            # position < count, so position+1 <= count; accepted local offsets <= directory_offset-30 <= MAX-30.
+            unchecked:
+                if position + 1 < count:
+                    following, _ = spans[position + 1]
+                    next = following
+                if start + 30 > next:
+                    return Err(ArchiveError.Corrupt)
             bounds[index] = next
         self._bounds = bounds
         Ok(())
@@ -1060,16 +1190,20 @@ pub class ZipReader[R]:
             return Err(ArchiveError.Corrupt)
         # The local name must repeat the central one.
         mut compared = 0
-        while compared < name_size:
-            step = smaller(name_size - compared, chunk)
-            self.chunk_of(step)?
-            for position in range(0, step):
-                if self._input.get(position) != self._entries[index].name.as_bytes()[compared + position]:
-                    return Err(ArchiveError.Corrupt)
-            compared += step
-        start = offset + 30 + name_size + extra_size
-        if start > bound or compressed > bound - start:
-            return Err(ArchiveError.Corrupt)
+        # name_size <= 65535, compared+step <= name_size, and each compared+position < name_size.
+        unchecked:
+            while compared < name_size:
+                step = smaller(name_size - compared, chunk)
+                self.chunk_of(step)?
+                for position in range(0, step):
+                    if self._input.get(position) != self._entries[index].name.as_bytes()[compared + position]:
+                        return Err(ArchiveError.Corrupt)
+                compared += step
+        start = read_extent(read_extent(read_extent(offset, 30)?, name_size)?, extra_size)?
+        # Unsigned extents; short circuit ensures start <= bound before subtraction.
+        unchecked:
+            if start > bound or compressed > bound - start:
+                return Err(ArchiveError.Corrupt)
         self.at(start)?
         if method == 8:
             limit = match NonNegative.try_from(size):
@@ -1115,25 +1249,36 @@ pub class ZipReader[R]:
         if self._stored:
             if self._left == 0:
                 return self.verify()
-            want = smaller(stop - start, self._left)
-            count = moved(self.inner.read(buffer, start, start + want))?
+            # read validated the destination range; want <= stop-start and left.
+            want = unchecked:
+                smaller(stop - start, self._left)
+            # start+want <= stop <= buffer.len().
+            count = unchecked:
+                moved(self.inner.read(buffer, start, start + want))?
             if count < 0 or count > want:
                 return Err(ArchiveError.Stream(StreamError.InvalidProgress))
             if count == 0:
                 return Err(ArchiveError.Truncated)
-            self._crc = coded(std.compress.crc32(self._crc, &buffer[start:start + count]))?
-            self._left -= count
-            self._produced += count
+            # count <= want <= stop-start and left; stored produced+left=size <= MAX.
+            unchecked:
+                self._crc = coded(std.compress.crc32(self._crc, &buffer[start:start + count]))?
+                self._left -= count
+                self._produced += count
             return Ok(count)
         while True:
-            pending = self._decoder.output().len() - self._out_start
+            # 0 <= out_start <= decoder output length <= 16384.
+            pending = unchecked:
+                self._decoder.output().len() - self._out_start
             if pending > 0:
-                count = smaller(stop - start, pending)
-                output = self._decoder.output()
-                buffer.overwrite(start, &output[self._out_start:self._out_start + count])
-                self._crc = coded(std.compress.crc32(self._crc, &buffer[start:start + count]))?
-                self._produced += count
-                self._out_start += count
+                # Destination span is validated; count <= pending. Inflater bounds total decoded output by size, hence delivered produced+count <= size.
+                count = unchecked:
+                    smaller(stop - start, pending)
+                unchecked:
+                    output = self._decoder.output()
+                    buffer.overwrite(start, &output[self._out_start:self._out_start + count])
+                    self._crc = coded(std.compress.crc32(self._crc, &buffer[start:start + count]))?
+                    self._produced += count
+                    self._out_start += count
                 if self._out_start == self._decoder.output().len():
                     self._decoder.clear()
                     self._out_start = 0
@@ -1153,9 +1298,13 @@ pub class ZipReader[R]:
                     return Err(ArchiveError.Truncated)
                 self._in_start = 0
                 self._in_stop = count
-                self._left -= count
+                # Validated count <= want <= left.
+                unchecked:
+                    self._left -= count
             else:
-                self._in_start += coded(self._decoder.step(&self._input[self._in_start:self._in_stop]))?
+                # Native consumption <= in_stop-in_start; both cursors <= chunk.
+                unchecked:
+                    self._in_start += coded(self._decoder.step(&self._input[self._in_start:self._in_stop]))?
         Ok(0)
 
     # Errors from `inner` leave the entry intact, so Interrupted and other
@@ -1227,7 +1376,9 @@ pub class ZipWriter[W]:
             version = 45
         flags = utf8_flag(name)
         time, date = to_dos(mtime)
-        mut head = owned(std.bytes.with_capacity(30 + len(name) + 20))?
+        # stored_name limits len(name) <= 65535, so capacity <= 65585.
+        mut head = unchecked:
+            owned(std.bytes.with_capacity(30 + len(name) + 20))?
         put_le(&mut head, local_signature, 4)?
         put_le(&mut head, version, 2)?
         put_le(&mut head, flags, 2)?
@@ -1252,7 +1403,9 @@ pub class ZipWriter[W]:
             put_le(&mut head, 16, 2)?
             put_le(&mut head, size, 8)?
             put_le(&mut head, compressed, 8)?
-        mut entry = owned(std.bytes.with_capacity(46 + len(name) + 28))?
+        # stored_name limits len(name) <= 65535, so capacity <= 65609.
+        mut entry = unchecked:
+            owned(std.bytes.with_capacity(46 + len(name) + 28))?
         central = &mut entry
         put_le(central, central_signature, 4)?
         put_le(central, made_by, 2)?
@@ -1288,14 +1441,17 @@ pub class ZipWriter[W]:
             put_le(central, size, 8)?
             put_le(central, compressed, 8)?
             put_le(central, self._offset, 8)?
+        # Preflight exact counters before delivery, directory mutation or latch.
+        next_offset = write_extent(write_extent(self._offset, head.len())?, compressed)?
+        next_count = write_extent(self._count, 1)?
         # Latched until the entry is fully written and recorded, so an
         # error from inner or from growing the directory poisons the writer.
         self._failed = True
         send(&mut self.inner, &head, 0, head.len())?
         send(&mut self.inner, payload, 0, compressed)?
         owned(self._central.extend(&entry))?
-        self._offset += head.len() + compressed
-        self._count += 1
+        self._offset = next_offset
+        self._count = next_count
         self._failed = False
         Ok(())
 
@@ -1332,6 +1488,7 @@ pub class ZipWriter[W]:
             directory_offset = self._offset
             directory_size = self._central.len()
             count = self._count
+            directory_end = write_extent(directory_offset, directory_size)?
             mut tail = owned(std.bytes.with_capacity(98))?
             if count >= u16_max or directory_offset >= u32_max or directory_size >= u32_max:
                 put_le(&mut tail, end64_signature, 4)?
@@ -1346,7 +1503,7 @@ pub class ZipWriter[W]:
                 put_le(&mut tail, directory_offset, 8)?
                 put_le(&mut tail, locator_signature, 4)?
                 put_le(&mut tail, 0, 4)?
-                put_le(&mut tail, directory_offset + directory_size, 8)?
+                put_le(&mut tail, directory_end, 8)?
                 put_le(&mut tail, 1, 4)?
             put_le(&mut tail, end_signature, 4)?
             put_le(&mut tail, 0, 4)?
@@ -1355,6 +1512,7 @@ pub class ZipWriter[W]:
             put_le(&mut tail, smaller(directory_size, u32_max), 4)?
             put_le(&mut tail, smaller(directory_offset, u32_max), 4)?
             put_le(&mut tail, 0, 2)?
+            drop(write_extent(directory_end, tail.len())?)
             self._failed = True
             send(&mut self.inner, &self._central, 0, directory_size)?
             send(&mut self.inner, &tail, 0, tail.len())?
@@ -1401,7 +1559,7 @@ def begin(parent: &Root, destination: &Path, policy: &Policy) -> Result[Job, Arc
 
 # Opens directory `name` under `base`, creating it when missing. Returns the
 # handle and whether it was created.
-def ensure(base: &Root, name: &Path) -> Result[(Root, bool), ArchiveError]:
+def ensure(base: &Root, name: &Path, created: i64) -> Result[(Root, bool), ArchiveError]:
     match base.open_dir(name):
         case Ok(directory):
             return Ok((directory, False))
@@ -1413,18 +1571,35 @@ def ensure(base: &Root, name: &Path) -> Result[(Root, bool), ArchiveError]:
                 return Err(ArchiveError.Io(IoError.System(code)))
         case Err(error):
             return Err(io_failure(error))
+    drop(cleanup_capacity(created, 1)?)
     system(base.create_dir(name))?
     Ok((system(base.open_dir(name))?, True))
 
+# Leave the two existing cleanup traversal slots representable before creation.
+def cleanup_capacity(created: i64, additional: i64) -> Result[i64, ArchiveError]:
+    total = checked:
+        created + additional + 2
+    match total:
+        case Ok(value):
+            # Nonnegative resource counts and the two reserved slots prove this.
+            unchecked:
+                Ok(value - 2)
+        case Err(_):
+            Err(ArchiveError.Limit)
+
 def descend(job: &mut Job, parts: &list[Path], count: i64) -> Result[Root, ArchiveError]:
-    first, made = ensure(job.staging.root(), &parts[0])?
+    first, made = ensure(job.staging.root(), &parts[0], job.created)?
     if made:
-        job.created += 1
+        # ensure preflighted one creation plus two cleanup slots.
+        unchecked:
+            job.created += 1
     mut current = first
     for index in range(1, count):
-        next, made_next = ensure(&current, &parts[index])?
+        next, made_next = ensure(&current, &parts[index], job.created)?
         if made_next:
-            job.created += 1
+            # ensure preflighted one creation plus two cleanup slots.
+            unchecked:
+                job.created += 1
         current = next
     Ok(current)
 
@@ -1444,10 +1619,12 @@ def copied[S](source: &mut S, directory: &Root, leaf: &Path, size: NonNegative[i
 def exceeds_ratio(size: i64, compressed: i64, ratio: i64) -> bool:
     if size <= ratio_floor:
         return False
-    mut needed = size // ratio
-    if size % ratio != 0:
-        needed += 1
-    needed > compressed
+    # Policy validated ratio >= 1; nonzero remainder implies ratio >= 2 and needed+1 <= MAX.
+    unchecked:
+        mut needed = size // ratio
+        if size % ratio != 0:
+            needed += 1
+        needed > compressed
 
 # Writes one entry under the staging directory. The source must be
 # positioned at the entry's content.
@@ -1456,24 +1633,32 @@ def place[S](job: &mut Job, source: &mut S, name: &Path, kind: EntryKind, size: 
         return Err(ArchiveError.Cancelled)
     if job.entries == policy.max_entries:
         return Err(ArchiveError.Limit)
-    job.entries += 1
+    # entries < validated max_entries <= MAX.
+    unchecked:
+        job.entries += 1
     parts = components(name.as_bytes(), policy.max_name, policy.max_depth)?
     count = len(parts)
     match kind:
         case EntryKind.Symlink:
             if not policy.skip_links:
                 return Err(ArchiveError.Link)
-            job.skipped += 1
+            # This entry was counted once; skipped < entries <= MAX.
+            unchecked:
+                job.skipped += 1
             return Ok(())
         case EntryKind.Hardlink:
             if not policy.skip_links:
                 return Err(ArchiveError.Link)
-            job.skipped += 1
+            # This entry was counted once; skipped < entries <= MAX.
+            unchecked:
+                job.skipped += 1
             return Ok(())
         case EntryKind.Other:
             if not policy.skip_special:
                 return Err(ArchiveError.Special)
-            job.skipped += 1
+            # This entry was counted once; skipped < entries <= MAX.
+            unchecked:
+                job.skipped += 1
             return Ok(())
         case EntryKind.Directory:
             if count > 0:
@@ -1488,21 +1673,30 @@ def place[S](job: &mut Job, source: &mut S, name: &Path, kind: EntryKind, size: 
             value
         case Err(_):
             return Err(ArchiveError.Limit)
-    if size > policy.max_entry_size or size > policy.max_total_size - job.bytes:
-        return Err(ArchiveError.Limit)
+    # 0 <= job.bytes <= validated max_total_size <= MAX.
+    unchecked:
+        if size > policy.max_entry_size or size > policy.max_total_size - job.bytes:
+            return Err(ArchiveError.Limit)
     if exceeds_ratio(size, compressed, policy.max_ratio):
         return Err(ArchiveError.Limit)
     mut written = 0
     if count == 1:
+        drop(cleanup_capacity(job.created, 1)?)
         written = copied(source, job.staging.root(), &parts[0], bound, cancel)?
     else:
-        directory = descend(job, &parts, count - 1)?
-        written = copied(source, &directory, &parts[count - 1], bound, cancel)?
+        # count >= 2, hence count-1 is a valid component and parent count.
+        parents = unchecked:
+            count - 1
+        directory = descend(job, &parts, parents)?
+        drop(cleanup_capacity(job.created, 1)?)
+        written = copied(source, &directory, &parts[parents], bound, cancel)?
     if written != size:
         return Err(ArchiveError.Truncated)
-    job.created += 1
-    job.files += 1
-    job.bytes += written
+    # Creation was preflighted; files < entries; written==size <= total budget-bytes.
+    unchecked:
+        job.created += 1
+        job.files += 1
+        job.bytes += written
     Ok(())
 
 # Moves the staging directory to `destination`, or removes it and returns
@@ -1525,9 +1719,14 @@ def conclude(job: &mut Job, outcome: Result[(), ArchiveError], parent: &Root, de
     # `.plenty-extract-` name for the caller to find.
     # `created` counts up from zero and `max_depth` is checked to 1..=62, so
     # both bounds are positive and the depth stays within remove_tree's 64.
-    match Positive.try_from(job.created + 2):
+    # Every creation reserved both cleanup slots; max_depth is in 1..62.
+    entries_bound = unchecked:
+        job.created + 2
+    depth_bound = unchecked:
+        policy.max_depth + 2
+    match Positive.try_from(entries_bound):
         case Ok(entries):
-            match Positive.try_from(policy.max_depth + 2):
+            match Positive.try_from(depth_bound):
                 case Ok(depth):
                     drop(std.fs.remove_tree(parent, job.staging.name(), entries, depth, &job.cleanup))
                 case Err(_):

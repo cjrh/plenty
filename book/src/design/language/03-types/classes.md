@@ -8,8 +8,8 @@ class Point:
     x: i64
     y: i64
 
-    def squared_length(self) -> i64:
-        self.x * self.x + self.y * self.y
+    def squared_length(self) -> Result[i64, OverflowError[i64]]:
+        Ok(self.x * self.x + self.y * self.y)
 ```
 
 Without `__init__`, the generated constructor takes fields in declaration order.
@@ -26,8 +26,18 @@ and defaults belong to the statically resolved constructor call. Taking the
 value allocates nothing and preserves constructor visibility and fallibility.
 
 An explicit `__init__` overrides the generated constructor and returns either
-`()` or `Result[(), AllocError]`. The fallible form makes both constructor spellings
-return `Result[Class, AllocError]`. Other initializer error types are unsupported.
+`()` or `Result[(), E]`. The fallible form makes both constructor spellings
+and constructor function values return precisely `Result[Class, E]`. The declared
+error type is independent of the caller's arithmetic mode; successful fallible
+initializers write explicit `Ok(())`. Non-unit Result success types are rejected.
+Storage itself allocates nothing, so construction does not add `AllocError`.
+Initializer operations and parameter defaults must declare or explicitly map
+their actual errors into `E`, including allocation failures when applicable.
+`__del__` and `__exit__` still require `()`; cleanup cannot propagate failure.
+Class parameters in an initializer output, including a parameter naming the
+whole Result, are substituted before validating that output. Unit class type
+arguments remain unsupported; a concrete unit alias can still name an
+initializer output in an otherwise valid generic class.
 Fields may contain classes, enums, tuples, collections, and resolved owned
 closures, but not references, generators, or unit.
 

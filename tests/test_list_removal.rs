@@ -126,15 +126,17 @@ drop(last)
 fn scalar_and_inline_tail_drains_transfer_ownership_without_allocating() {
     native(
         r#"
-mut scalars = [n for n in range(128)].unwrap()
-print("__test_fail_allocations_after_0__").unwrap()
-print("__test_begin_no_allocations__").unwrap()
-mut total = 0
-while len(scalars) > 0:
-    total = total + scalars.pop().unwrap()
-print("__test_restore_allocations__").unwrap()
-print("__test_end_no_allocations__").unwrap()
-print(total).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    mut scalars = [n for n in range(128)].unwrap()
+    print("__test_fail_allocations_after_0__").unwrap()
+    print("__test_begin_no_allocations__").unwrap()
+    mut total = 0
+    while len(scalars) > 0:
+        total = total + scalars.pop().unwrap()
+    print("__test_restore_allocations__").unwrap()
+    print("__test_end_no_allocations__").unwrap()
+    print(total).unwrap()
+    Ok(())
 "#,
         "8128",
     );
@@ -146,19 +148,21 @@ class Guard:
     rows: list[i64]
     def __del__(self: &mut Guard) -> ():
         ()
-mut guards = [Guard(n, [n].unwrap()) for n in range(128)].unwrap()
-print("__test_fail_allocations_after_0__").unwrap()
-print("__test_begin_no_allocations__").unwrap()
-mut total = 0
-while len(guards) > 0:
-    guard = guards.pop().unwrap()
-    total = total + guard.rows[0]
-    guards.append(guard).unwrap()
-    drop(guards.pop().unwrap())
-print("__test_restore_allocations__").unwrap()
-print("__test_end_no_allocations__").unwrap()
-print(total).unwrap()
-drop(guards)
+def main() -> Result[(), OverflowError[i64]]:
+    mut guards = [Guard(n, [n].unwrap()) for n in range(128)].unwrap()
+    print("__test_fail_allocations_after_0__").unwrap()
+    print("__test_begin_no_allocations__").unwrap()
+    mut total = 0
+    while len(guards) > 0:
+        guard = guards.pop().unwrap()
+        total = total + guard.rows[0]
+        guards.append(guard).unwrap()
+        drop(guards.pop().unwrap())
+    print("__test_restore_allocations__").unwrap()
+    print("__test_end_no_allocations__").unwrap()
+    print(total).unwrap()
+    drop(guards)
+    Ok(())
 "#;
     native(source, "8128");
 }
@@ -178,13 +182,15 @@ def index(items: &mut list[i64]) -> i64:
 class Custom:
     def pop(self) -> i64:
         42
-mut storage = Storage([10, 20].unwrap())
-print(storage.items.pop(index(&mut storage.items))).unwrap()
-position = -1
-print(take(&mut storage.items, &position)).unwrap()
-print(storage.items.pop(len(storage.items) - 1)).unwrap()
-print(storage.items).unwrap()
-print(Custom().pop()).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    mut storage = Storage([10, 20].unwrap())
+    print(storage.items.pop(index(&mut storage.items))).unwrap()
+    position = -1
+    print(take(&mut storage.items, &position)).unwrap()
+    print(storage.items.pop(len(storage.items) - 1)).unwrap()
+    print(storage.items).unwrap()
+    print(Custom().pop()).unwrap()
+    Ok(())
 "#,
         "index\nOption[i64].Some(10)\nOption[i64].Some(30)\nOption[i64].Some(20)\n[]\n42",
     );

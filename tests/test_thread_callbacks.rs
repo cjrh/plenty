@@ -1,7 +1,17 @@
 mod support;
 
 fn run(source: &str, expected: &str) {
-    let output = support::run(source);
+    let source = if source.lines().any(|line| line.starts_with("def main(")) {
+        source.to_owned()
+    } else {
+        let source = support::program(source).replacen(
+            "def main() -> ():",
+            "def main() -> Result[(), OverflowError[i64]]:",
+            1,
+        );
+        format!("{}    Ok(())\n", source.strip_suffix("    pass\n").unwrap())
+    };
+    let output = support::run(&source);
     assert!(
         output.status.success(),
         "status {:?}; stdout {}; stderr {}",
@@ -16,23 +26,23 @@ fn run(source: &str, expected: &str) {
 fn stored_jobs_borrow_disjoint_tuple_slots_and_exclusive_collection_entries() {
     run(
         r#"
-def counter(n: i64) -> Closure[[], i64]:
-    def [mut n]() -> i64:
+def counter(n: i64) -> Closure[[], Result[i64, OverflowError[i64]]]:
+    def [mut n]() -> Result[i64, OverflowError[i64]]:
         n = n + 1
-        n
+        Ok(n)
 mut pair = (counter(1), counter(10))
 with spawn(&mut pair[0]).unwrap() as first, spawn(&mut pair[1]).unwrap() as second:
-    print(first.join()).unwrap()
-    print(second.join()).unwrap()
+    print(first.join()?).unwrap()
+    print(second.join()?).unwrap()
 mut callbacks = [counter(20)].unwrap()
 with spawn(&mut callbacks[0]).unwrap() as task:
-    print(task.join()).unwrap()
-print(callbacks[0]()).unwrap()
+    print(task.join()?).unwrap()
+print(callbacks[0]()?).unwrap()
 mut named = {0: counter(30)}.unwrap()
 match named.get_mut(0):
     case Some(callback):
         with spawn(&mut *callback).unwrap() as task:
-            print(task.join()).unwrap()
+            print(task.join()?).unwrap()
     case Nothing:
         pass
 "#,
@@ -44,10 +54,10 @@ match named.get_mut(0):
 fn worker_joins_transfer_concrete_closures_and_callback_containers() {
     run(
         r#"
-def make(n: i64) -> Closure[[], i64]:
+def make(n: i64) -> Result[Closure[[], i64], OverflowError[i64]]:
     span = range(n, n + 3)
-    def [span]() -> i64:
-        span[2]
+    Ok(def [span]() -> i64:
+        span[2])
 def take[F: Callable[[], i64]](jobs: &mut list[F]) -> Option[F]:
     jobs.pop(0)
 def transfer[F](jobs: &mut list[F]) -> Result[list[F], AllocError]:
@@ -61,12 +71,12 @@ def produce() -> Result[OnceClosure[[], list[i64]], AllocError]:
         values
     Ok(job)
 with spawn(make, 10).unwrap() as task:
-    callback = task.join()
+    callback = task.join()?
     print(callback()).unwrap()
 with spawn(produce).unwrap() as task:
     job = task.join().unwrap()
     print(job()).unwrap()
-mut jobs = [make(20), make(30)].unwrap()
+mut jobs = [make(20)?, make(30)?].unwrap()
 with spawn(take, &mut jobs).unwrap() as task:
     callback = task.join().unwrap()
     print(callback()).unwrap()
@@ -80,7 +90,7 @@ with spawn(transfer, &mut jobs).unwrap() as task:
 
 #[test]
 fn stored_callback_capture_and_body_effects_are_checked_transitively() {
-    let definitions = "def seven() -> i64:\n    path = std.env.current_dir().unwrap()\n    std.env.set_current_dir(&path).unwrap()\n    7\ndef unsafe_job(n: i64) -> Closure[[], i64]:\n    def [n]() -> i64:\n        callback: Callable[[], i64] = seven\n        n + callback()\n";
+    let definitions = "def seven() -> i64:\n    path = std.env.current_dir().unwrap()\n    std.env.set_current_dir(&path).unwrap()\n    7\ndef unsafe_job(n: i64) -> Closure[[], Result[i64, OverflowError[i64]]]:\n    def [n]() -> Result[i64, OverflowError[i64]]:\n        callback: Callable[[], i64] = seven\n        Ok(n + callback())\n";
     for body in [
         "callbacks = [unsafe_job(1)].unwrap()\nwith spawn(&callbacks[0]).unwrap():\n    pass",
         "class Holder[F]:\n    callback: F\nholder = Holder(unsafe_job(1))\nwith spawn(&holder.callback).unwrap():\n    pass",
@@ -99,14 +109,14 @@ fn stored_callback_capture_and_body_effects_are_checked_transitively() {
 
 #[test]
 fn worker_loans_prevent_callback_removal_replacement_and_repeated_consumption() {
-    let definitions = "def make(n: i64) -> Closure[[], i64]:\n    def [mut n]() -> i64:\n        n = n + 1\n        n\nmut jobs = [make(1)].unwrap()\n";
+    let definitions = "def make(n: i64) -> Closure[[], Result[i64, OverflowError[i64]]]:\n    def [mut n]() -> Result[i64, OverflowError[i64]]:\n        n = n + 1\n        Ok(n)\nmut jobs = [make(1)].unwrap()\n";
     for action in [
         "jobs.pop(0)",
         "jobs[0] = make(2)",
-        "jobs[0]()",
+        "drop(jobs[0]())",
         "drop(jobs)",
     ] {
-        let error = support::check_source(&format!("{definitions}with spawn(&mut jobs[0]).unwrap() as task:\n    task.join()\n    {action}\n")).unwrap_err().to_string();
+        let error = support::check_source(&format!("{definitions}with spawn(&mut jobs[0]).unwrap() as task:\n    drop(task.join())\n    {action}\n")).unwrap_err().to_string();
         assert!(error.contains("borrow"), "{error}");
     }
 }
@@ -116,16 +126,16 @@ fn worker_loans_prevent_callback_removal_replacement_and_repeated_consumption() 
 fn worker_closure_results_and_unclaimed_capture_cleanup_need_no_allocation() {
     run(
         r#"
-def make(n: i64) -> Closure[[], i64]:
+def make(n: i64) -> Result[Closure[[], i64], OverflowError[i64]]:
     span = range(n, n + 3)
     inner = def [span]() -> i64:
         span[1]
-    def [inner]() -> i64:
-        inner()
+    Ok(def [inner]() -> i64:
+        inner())
 print("__test_begin_no_allocations__").unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
 with spawn(make, 10).unwrap() as task:
-    callback = task.join()
+    callback = task.join()?
     value = callback()
     if value != 11:
         print("wrong").unwrap()
@@ -143,13 +153,13 @@ print("__test_end_no_allocations__").unwrap()
 fn failed_stored_job_start_preserves_state_and_unclaimed_outputs_drop_captures() {
     run(
         r#"
-def make(n: i64) -> Closure[[], i64]:
-    def [mut n]() -> i64:
+def make(n: i64) -> Closure[[], Result[i64, OverflowError[i64]]]:
+    def [mut n]() -> Result[i64, OverflowError[i64]]:
         n = n + 1
-        n
-def attempt[F: Callable[[], i64]](callback: &mut F) -> Result[i64, SpawnError[()]]:
+        Ok(n)
+def attempt[F: Callable[[], Result[i64, OverflowError[i64]]]](callback: &mut F) -> Result[i64, SpawnError[()] | OverflowError[i64]]:
     with spawn(&mut callback)? as task:
-        return Ok(task.join())
+        return Ok(task.join()?)
 class Guard:
     id: i64
     def __del__(self) -> ():
@@ -160,21 +170,23 @@ def owned_result() -> Result[OnceClosure[[], Guard], AllocError]:
     job = def once [guard]() -> Guard:
         guard
     Ok(job)
-mut jobs = [make(10)].unwrap()
-print("__test_fail_thread_starts__").unwrap()
-match attempt(&mut jobs[0]):
-    case Ok(_):
-        print("wrong").unwrap()
-    case Err(_):
-        print("failed").unwrap()
-print("__test_restore_thread_starts__").unwrap()
-print(attempt(&mut jobs[0]).unwrap()).unwrap()
-with spawn(owned_result).unwrap():
-    pass
-with spawn(owned_result).unwrap() as task:
-    job = task.join().unwrap()
-    guard = job()
-    drop(guard)
+def main() -> Result[(), OverflowError[i64] | SpawnError[()]]:
+    mut jobs = [make(10)].unwrap()
+    print("__test_fail_thread_starts__").unwrap()
+    match attempt(&mut jobs[0]):
+        case Ok(_):
+            print("wrong").unwrap()
+        case Err(_):
+            print("failed").unwrap()
+    print("__test_restore_thread_starts__").unwrap()
+    print(attempt(&mut jobs[0])?).unwrap()
+    with spawn(owned_result).unwrap():
+        pass
+    with spawn(owned_result).unwrap() as task:
+        job = task.join().unwrap()
+        guard = job()
+        drop(guard)
+    Ok(())
 "#,
         "__test_fail_thread_starts__\nfailed\n__test_restore_thread_starts__\n11\ndrop\ndrop\n",
     );
@@ -215,7 +227,7 @@ with spawn(make).unwrap():
     );
 }
 
-const COUNTER_AND_READER: &str = "def counter(n: i64) -> Closure[[], i64]:\n    def [mut n]() -> i64:\n        n = n + 1\n        n\ndef reader(n: i64) -> Closure[[], i64]:\n    def [n]() -> i64:\n        n * 2\n";
+const COUNTER_AND_READER: &str = "def counter(n: i64) -> Closure[[], Result[i64, OverflowError[i64]]]:\n    def [mut n]() -> Result[i64, OverflowError[i64]]:\n        n = n + 1\n        Ok(n)\ndef reader(n: i64) -> Closure[[], Result[i64, OverflowError[i64]]]:\n    def [n]() -> Result[i64, OverflowError[i64]]:\n        Ok(n * 2)\n";
 
 /// Issue #585: a binding that holds a closure reference reborrows its referent
 /// for the task's scope, without writing `&mut *callback`.
@@ -224,33 +236,33 @@ fn reference_bindings_reborrow_their_closure_for_the_task() {
     run(
         &format!(
             r#"{COUNTER_AND_READER}
-def run_mut(job: &mut Closure[[], i64]) -> Result[i64, SpawnError[()]]:
+def run_mut(job: &mut Closure[[], Result[i64, OverflowError[i64]]]) -> Result[i64, SpawnError[()] | OverflowError[i64]]:
     with spawn(job)? as task:
-        return Ok(task.join())
-def run_generic[F: Callable[[], i64]](job: &mut F) -> Result[i64, SpawnError[()]]:
+        return Ok(task.join()?)
+def run_generic[F: Callable[[], Result[i64, OverflowError[i64]]]](job: &mut F) -> Result[i64, SpawnError[()] | OverflowError[i64]]:
     with spawn(job)? as task:
-        return Ok(task.join())
-def run_shared(job: &Closure[[], i64]) -> Result[i64, SpawnError[()]]:
+        return Ok(task.join()?)
+def run_shared(job: &Closure[[], Result[i64, OverflowError[i64]]]) -> Result[i64, SpawnError[()] | OverflowError[i64]]:
     with spawn(job)? as first, spawn(job)? as second:
-        return Ok(first.join() + second.join())
-def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
+        return Ok(first.join()? + second.join()?)
+def main() -> Result[(), AllocError | IoError | SpawnError[()] | OverflowError[i64]]:
     mut named = {{0: counter(30)}}?
     match named.get_mut(0):
         case Some(callback):
             with spawn(callback)? as task:
-                print(task.join())?
+                print(task.join()?)?
         case Nothing:
             pass
     mut c = counter(40)
     print(run_mut(&mut c)?)?
     print(run_generic(&mut c)?)?
-    print(c())?
+    print(c()?)?
     r = reader(5)
     print(run_shared(&r)?)?
     shared = &r
     with spawn(shared)? as task:
-        print(r())?
-        print(task.join())?
+        print(r()?)?
+        print(task.join()?)?
     Ok(())
 "#
         ),
@@ -262,19 +274,19 @@ def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
 fn reference_binding_workers_keep_closure_and_loan_rules() {
     let cases = [
         (
-            "def run(job: &Closure[[], i64]) -> Result[i64, SpawnError[()]]:\n    with spawn(job)? as task:\n        return Ok(task.join())\ndef main() -> Result[(), SpawnError[()]]:\n    mut c = counter(1)\n    run(&c)?\n    Ok(())\n",
+            "def run(job: &Closure[[], Result[i64, OverflowError[i64]]]) -> Result[i64, SpawnError[()] | OverflowError[i64]]:\n    with spawn(job)? as task:\n        return Ok(task.join()?)\ndef main() -> Result[(), SpawnError[()] | OverflowError[i64]]:\n    mut c = counter(1)\n    run(&c)?\n    Ok(())\n",
             "this worker closure has mutable captures and needs exclusive access, but this binding is a shared reference; bind or pass it as `&mut`",
         ),
         (
-            "def run(job: &mut Closure[[], i64]) -> Result[i64, SpawnError[()]]:\n    with spawn(job)? as task:\n        x = job()\n        return Ok(task.join() + x)\ndef main() -> Result[(), SpawnError[()]]:\n    mut c = counter(1)\n    run(&mut c)?\n    Ok(())\n",
+            "def run(job: &mut Closure[[], Result[i64, OverflowError[i64]]]) -> Result[i64, SpawnError[()] | OverflowError[i64]]:\n    with spawn(job)? as task:\n        x = job()\n        return Ok(task.join()? + x?)\ndef main() -> Result[(), SpawnError[()] | OverflowError[i64]]:\n    mut c = counter(1)\n    run(&mut c)?\n    Ok(())\n",
             "conflicting borrow: cannot modify or exclusively borrow `job` while it is exclusively borrowed",
         ),
         (
-            "def main() -> Result[(), AllocError | SpawnError[()]]:\n    mut named = {0: counter(1)}?\n    match named.get_mut(0):\n        case Some(callback):\n            with spawn(callback)? as task:\n                named.clear()\n                task.join()\n        case Nothing:\n            pass\n    Ok(())\n",
+            "def main() -> Result[(), AllocError | SpawnError[()] | OverflowError[i64]]:\n    mut named = {0: counter(1)}?\n    match named.get_mut(0):\n        case Some(callback):\n            with spawn(callback)? as task:\n                named.clear()\n                drop(task.join())\n        case Nothing:\n            pass\n    Ok(())\n",
             "conflicting borrow: cannot modify or exclusively borrow `named` while it is exclusively borrowed",
         ),
         (
-            "def main() -> Result[(), SpawnError[()]]:\n    mut r = reader(1)\n    shared = &r\n    with spawn(shared)? as task:\n        r = reader(2)\n        task.join()\n    Ok(())\n",
+            "def main() -> Result[(), SpawnError[()] | OverflowError[i64]]:\n    mut r = reader(1)\n    shared = &r\n    with spawn(shared)? as task:\n        r = reader(2)\n        drop(task.join())\n    Ok(())\n",
             "borrow",
         ),
         (

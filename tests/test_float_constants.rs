@@ -48,7 +48,9 @@ def escape(cr: f64, ci: f64, limit: i64) -> i64:
             break
         zi = (2.0 * zr) * zi + ci
         zr = rr - ii + cr
-        iteration = iteration + 1
+        # 0 <= iteration < limit <= i64.MAX, so this increment fits.
+        unchecked:
+            iteration = iteration + 1
     iteration
 
 def escape_param(cr: f64, ci: f64, limit: i64, two: f64) -> i64:
@@ -62,13 +64,15 @@ def escape_param(cr: f64, ci: f64, limit: i64, two: f64) -> i64:
             break
         zi = (two * zr) * zi + ci
         zr = rr - ii + cr
-        iteration = iteration + 1
+        # 0 <= iteration < limit <= i64.MAX, so this increment fits.
+        unchecked:
+            iteration = iteration + 1
     iteration
 
 def sign(x: f64) -> f64:
     (1.0).copysign(x)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     values = [0.0, -0.0, 1.5, -1.5, 1.0e308, -1.0e308, 5.0e-324, -5.0e-324, f64.INF, -f64.INF, f64.NAN, -f64.NAN]?
     for x in values:
         a = dbl_l(x)

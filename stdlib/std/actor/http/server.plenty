@@ -115,10 +115,15 @@ pub class Response:
         self._state == 4
 
     pub def pending(self) -> i64:
-        self._output.len() - self._start
+        # The consumed prefix stays within the owned output buffer.
+        unchecked:
+            self._output.len() - self._start
 
     pub def space(self) -> i64:
-        mut room = self._limit - self.pending() - 64
+        # Both lengths are nonnegative; pending <= limit. The framing reserve
+        # can make room negative, but never smaller than -64.
+        mut room = unchecked:
+            self._limit - self.pending() - 64
         if room < 0:
             room = 0
         room
@@ -160,10 +165,14 @@ pub class Response:
         elif self._minor == 0:
             owned.add("Connection", "keep-alive")?
         encoded = std.http.encode_response(&owned)?
-        if encoded.len() > self._limit - self.pending() - 64:
-            return Err(HttpError.HeadTooLarge)
-        if reserve > self._limit - self.pending() - 64 - encoded.len():
-            return Err(HttpError.BodyTooLarge)
+        # Queue occupancy is bounded by limit. Subtracting the framing reserve
+        # gives at least -64; subtract encoded only after it fits that room.
+        unchecked:
+            room = self._limit - self.pending() - 64
+            if encoded.len() > room:
+                return Err(HttpError.HeadTooLarge)
+            if reserve > room - encoded.len():
+                return Err(HttpError.BodyTooLarge)
         self.compact()?
         self._output.extend(&encoded)?
         self._state = state
@@ -193,7 +202,10 @@ pub class Response:
         if self._state == 2:
             self._output.extend(b"\r\n")?
         elif self._state == 1:
-            self._remaining -= count
+            # Length mode rejects sources larger than remaining before writing;
+            # 0 <= count <= len(source) <= remaining.
+            unchecked:
+                self._remaining -= count
         Ok(count)
 
     def _finish(self: &mut Response) -> Result[(), AllocError | HttpError | BytesError]:
@@ -268,6 +280,21 @@ def configured(size: i64) -> Result[Positive[i64], ServerError]:
             Ok(value)
         case Err(_):
             Err(ServerError.InvalidConfig)
+
+# Observation-only report fields retain their maximum without affecting delivery.
+def diagnostic_next(value: u64) -> u64:
+    if value == u64.MAX:
+        return value
+    unchecked:
+        value + 1u64
+
+# Only the threshold predicate is observed, not the exact drained byte total.
+# Preconditions: 0 <= current <= 16777216 and count = wire.available() >= 0.
+# Preserve full transport consumption even after this threshold is reached.
+def lingering_after(current: i64, count: i64) -> i64:
+    unchecked:
+        remaining = 16777216 - current
+        current + (count if count < remaining else remaining)
 
 def response(limit: i64) -> Result[Response, BytesError]:
     Ok(Response(std.bytes.with_capacity(limit).map_error(BytesError.Allocation)?, 0, limit, 0, 0, False, 1, True, False, False, False))
@@ -416,7 +443,9 @@ class Acceptor[F]:
                         case Ok(_):
                             pass
                         case Err(std.actor.Undelivered.Full(_)):
-                            index += 1
+                            # The current index is strictly below the list length.
+                            unchecked:
+                                index += 1
                             continue
                         case Err(std.actor.Undelivered.Gone(_)):
                             pass
@@ -449,7 +478,7 @@ class Acceptor[F]:
                             pass
                     # Refusing never blocks or constructs TLS state.
                     drop(self.socket.accept_now())
-                    self.rejected += 1u64
+                    self.rejected = diagnostic_next(self.rejected)
             case Mail.Down(child, _, _):
                 match &mut self.children:
                     case Some(children):
@@ -462,9 +491,9 @@ class Acceptor[F]:
                     case Nothing:
                         pass
             case Mail.Message(Notice.Completed):
-                self.requests += 1u64
+                self.requests = diagnostic_next(self.requests)
             case Mail.Message(Notice.CompletedBy(child)):
-                self.requests += 1u64
+                self.requests = diagnostic_next(self.requests)
                 match &mut self.acknowledgements:
                     case Some(pending):
                         storage(pending.append(child))?
@@ -473,7 +502,7 @@ class Acceptor[F]:
             case Mail.Message(Notice.Resume):
                 self.resuming = False
             case Mail.Message(Notice.Rejected):
-                self.protocol_errors += 1u64
+                self.protocol_errors = diagnostic_next(self.protocol_errors)
             case Mail.Message(Notice.Drain):
                 if not self.draining:
                     self.draining = True
@@ -751,7 +780,7 @@ class Client[F, H]:
             self.set_deadline(context)?
         if self.phase == 5:
             count = wire.available()
-            self.lingering += count
+            self.lingering = lingering_after(self.lingering, count)
             wire.consume(count, context)?
             if (not wire.reading() or self.lingering >= 16777216) and wire.pending() == 0:
                 wire.close(context)?
@@ -785,7 +814,10 @@ class Client[F, H]:
                     progress = consumed > 0
                     match event:
                         case Some(std.http.decoder.Event.Head(head, target, framing)):
-                            self.requests += 1
+                            # Only one head per request; keep-alive resets the
+                            # decoder only while requests < max_requests <= MAX.
+                            unchecked:
+                                self.requests += 1
                             reply._head = head.method == "HEAD"
                             reply._minor = head.minor
                             reply._keep = not self.draining and self.requests < self.config.max_requests.get() and std.http.request_keeps_alive(&head)
@@ -837,10 +869,14 @@ class Client[F, H]:
         before = reply.pending()
         if before > 0:
             mut stop = reply._output.len()
-            if stop - reply._start > 16384:
-                stop = reply._start + 16384
+            # 0 <= start <= stop <= output.len(); the selected slice is at
+            # most 16384 bytes. write returns 0..slice.len(), even when short.
+            unchecked:
+                if stop - reply._start > 16384:
+                    stop = reply._start + 16384
             count = wire.write(&reply._output[reply._start:stop], context)?
-            reply._start += count
+            unchecked:
+                reply._start += count
             if reply._start == reply._output.len():
                 reply._output.clear()
                 reply._start = 0
@@ -1000,8 +1036,10 @@ class Whole[H, E]:
                 self.body.clear()
                 self.trailers.clear()
             case Event.Body(bytes):
-                if bytes.len() > self.limits.max_body.get() - self.body.len():
-                    return Err(HttpError.BodyTooLarge)
+                # The body starts empty and every append preserves body <= max.
+                unchecked:
+                    if bytes.len() > self.limits.max_body.get() - self.body.len():
+                        return Err(HttpError.BodyTooLarge)
                 self.body.extend(&bytes)?
             case Event.Trailers(fields):
                 self.trailers = std.http.encode_response(&ResponseHead(1, 200, "OK", fields))?
@@ -1051,8 +1089,12 @@ def run[F, H, M](listener: TcpListener, factory: F, tls: Option[ServerConfig], c
         return Err(ServerError.InvalidConfig)
     if config.limits.max_line < 1 or config.limits.max_head < 1 or config.limits.max_headers == 0:
         return Err(ServerError.InvalidConfig)
-    mut actors = std.actor.stage[Node[F, H], Notice[M], ServerError](config.capacity + 1, 16, 64)?
-    actors.add_timers(5 * config.capacity + 8)?
+    # Validated capacity is 1..1000, so slots <= 1001 and timers <= 5008.
+    sizes = unchecked:
+        (config.capacity + 1, 5 * config.capacity + 8)
+    slots, timers = sizes
+    mut actors = std.actor.stage[Node[F, H], Notice[M], ServerError](slots, 16, 64)?
+    actors.add_timers(timers)?
     acceptor = Acceptor(factory=factory, socket=listener, config=copy(config)?, tls=tls, children=Nothing, watch=Nothing, address=Nothing, draining=False, requests=0u64, rejected=0u64, protocol_errors=0u64, acknowledgements=Nothing, resuming=False)
     root = actors.start(Node[F, H](State[F, H].Accepting(acceptor)), 1048576)?
     never = CancellationToken()?

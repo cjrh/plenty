@@ -2,16 +2,17 @@
 
 Borrow mutable inputs explicitly. Shared readers can coexist; an exclusive
 borrow prevents the parent from accessing the same data until the block ends.
-Omit `as` when you only need the worker's effects:
+Join explicitly to propagate a worker's arithmetic error:
 
 ```plenty
-def increment(value: &mut i64) -> ():
+def increment(value: &mut i64) -> Result[(), OverflowError[i64]]:
     *value = *value + 1
+    Ok(())
 
-def main() -> Result[(), SpawnError[()] | IoError]:
+def main() -> Result[(), SpawnError[()] | IoError | OverflowError[i64]]:
     mut count = 4
-    with spawn(increment, &mut count)?:
-        pass
+    with spawn(increment, &mut count)? as task:
+        task.join()?
     print(count)?
     Ok(())
 ```
@@ -46,16 +47,16 @@ For immutable captures, `spawn(&job)` allows shared access. Scoped work may
 borrow or own its inputs, so a named worker can also receive an owned list:
 
 ```plenty
-def total(values: list[i64]) -> i64:
+def total(values: list[i64]) -> Result[i64, OverflowError[i64]]:
     mut result = 0
     for value in values:
         result = result + value
-    result
+    Ok(result)
 
-def main() -> Result[(), SpawnError[()] | IoError | AllocError]:
+def main() -> Result[(), SpawnError[()] | IoError | AllocError | OverflowError[i64]]:
     values = [2, 3, 4]?
     with spawn(total, values).drop_job()? as task:
-        print(task.join())?
+        print(task.join()?)?
     Ok(())
 ```
 ```output

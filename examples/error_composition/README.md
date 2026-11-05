@@ -3,7 +3,8 @@
 Run from the repository root:
 
 ```sh
-cargo run -- examples/error_composition/main.plenty
+cargo run --bin plenty -- examples/error_composition/main.plenty
+cargo run --bin plenty -- examples/error_composition/standard.plenty
 cargo test --locked --all-features --test integration -- test_error_composition:: test_typed_stream_prototype::
 ```
 
@@ -14,7 +15,11 @@ code). `Wire` is scripted; it performs no network I/O.
 from terminal failure. `http_body.plenty` implements only fixed-length HTTP
 body framing, after a caller has validated the head and response semantics.
 `copy_all` preserves the failing side and bytes delivered to the writer.
-There is no stored error to retrieve after a failed call.
+There is no stored error to retrieve after a failed call. Both examples handle
+store-counter arithmetic locally and preserve overflow in the store's error
+rather than borrowing an arithmetic mode from the copy helper. Cursor opt-outs
+state their range/progress bounds; copy-total representation failure is an
+`OutOfRange` read failure before delivery of the next chunk.
 
 Each transport attempt reports either successful progress or an error with no
 progress from that attempt. An interrupted attempt is retried; cancellation

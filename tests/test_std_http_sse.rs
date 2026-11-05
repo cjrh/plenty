@@ -400,3 +400,133 @@ fn disconnects_and_shutdown_end_waits() {
     assert_eq!(server.line(), "std.http.sse.SseError.Stopping");
     assert_eq!(server.finish(), "handler_errors=0");
 }
+
+fn sse_boundary_output(source: &str, optimize: bool) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.plenty");
+    let executable = dir.path().join("program");
+    std::fs::write(&path, source).unwrap();
+    plenty::compile_file_to_executable_with_options(
+        &path,
+        &executable,
+        None,
+        &plenty::CompileOptions {
+            optimize,
+            test_hooks: true,
+            ..Default::default()
+        },
+    )
+    .unwrap_or_else(|error| panic!("{source}\n{error}"));
+    let output = Command::new(executable).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{:?}\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .filter(|line| !line.starts_with("__test_"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn sse_line_positions_cover_representation_limit() {
+    let module = include_str!("../stdlib/std/http/sse.plenty");
+    let start = module.find("def break_positions(").unwrap();
+    let helper = module[start..].split("\n\n").next().unwrap();
+    let source = format!(
+        r#"{helper}
+
+def main() -> Result[(), IoError]:
+    print("__test_begin_no_allocations__")?
+    end, next = break_positions(9223372036854775806, 0)
+    last = end == 9223372036854775806 and next == i64.MAX
+    far_end, far_next = break_positions(0, 9223372036854775806)
+    far = far_end == 9223372036854775806 and far_next == i64.MAX
+    first_end, first_next = break_positions(0, 0)
+    first = first_end == 0 and first_next == 1
+    print("__test_end_no_allocations__")?
+    print(last, far, first)?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        assert_eq!(sse_boundary_output(&source, optimize), "True True True");
+    }
+}
+
+#[test]
+fn sse_partial_writes_keep_exact_fields_and_close_on_cancellation() {
+    let source = format!(
+        "{}\n{}",
+        include_str!("../stdlib/std/http/sse.plenty"),
+        r#"
+class Capture:
+    output: Bytes
+    caller: CancellationToken
+    fail: bool
+    closed: bool
+
+    pub def read_before(self: &mut Capture, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+        Err(NetError.TimedOut)
+
+    pub def write_before(self: &mut Capture, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+        if self.fail and self.output.len() > 0:
+            self.caller.cancel()
+            return Err(NetError.TimedOut)
+        mut count = len(source)
+        if count > 3:
+            count = 3
+        match self.output.extend(&source[:count]):
+            case Ok(_):
+                Ok(count)
+            case Err(error):
+                Err(NetError.Stream(StreamError.Allocation(error)))
+
+    pub def shutdown(self: &mut Capture, direction: Shutdown) -> Result[(), NetError]:
+        self.closed = True
+        Ok(())
+
+def main() -> Result[(), SseError | AllocError | std.bytes.BytesError | IoError | RangeError]:
+    never = CancellationToken()?
+    caller = CancellationToken()?
+    deadline = deadline_after(&monotonic_now(), &milliseconds(1000u32))?
+    mut stream = EventStream(Nothing, Some(Capture(std.bytes.empty()?, caller.share(), False, False)), std.bytes.empty()?, std.bytes.empty()?, never.share(), never.share(), True)
+    stream.send_bytes(b"a\r\nb", &deadline, &caller)?
+    stream.retry(&std.time.nanoseconds(u64.MAX), &deadline, &caller)?
+    invalid = match stream.send("x", &deadline, &caller, event="bad\n"):
+        case Err(SseError.InvalidField):
+            True
+        case _:
+            False
+    match &stream._stream:
+        case Some(capture):
+            print(capture.output.to_text()? == "data: a\ndata: b\n\nretry: 18446744073710\n\n", invalid, not capture.closed)?
+        case Nothing:
+            print("missing stream")?
+    active = CancellationToken()?
+    mut interrupted = EventStream(Nothing, Some(Capture(std.bytes.empty()?, active.share(), True, False)), std.bytes.empty()?, std.bytes.empty()?, never.share(), never.share(), True)
+    cancelled = match interrupted.send("hello", &deadline, &active):
+        case Err(SseError.Net(NetError.Cancelled)):
+            True
+        case _:
+            False
+    match &interrupted._stream:
+        case Some(capture):
+            print(cancelled, capture.output.to_text()? == "dat", capture.closed)?
+        case Nothing:
+            print("missing interrupted stream")?
+    print(not interrupted.is_open())?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            sse_boundary_output(&source, optimize),
+            "True True True\nTrue True True\nTrue"
+        );
+    }
+}

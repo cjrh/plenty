@@ -155,13 +155,22 @@ pub enum EncodingError:
 | `InvalidAlphabet` | A custom alphabet or padding symbol violates its construction rules |
 | `InvalidPem(index)` | The [PEM](encoding-codecs.md#pem) framing is malformed at `index` |
 | `PemLabel` | The PEM label is not the expected one, or the expected label is invalid |
-| `Allocation(cause)` | Storage for the result could not be allocated |
+| `Allocation(cause)` | Storage for the result could not be allocated, including an unrepresentable expanded size (`CapacityOverflow`) |
 
 An index is a position in the source view; for the
 `_from_text` forms it is a UTF-8 byte offset into the text. Every fallible
 operation returns `Result[T, EncodingError]`. A failed operation leaves its
 `target` unchanged and releases anything it allocated. Wrap a result with
 [`std.error.context`](error.md) to name the operation.
+
+Hex, base64, MIME and PEM expansion sizes are checked before allocating output.
+They return `Allocation(CapacityOverflow)` rather than trapping on integer
+overflow. Bounded decoder cursors, fixed-width packing and alphabet arithmetic
+use explicit `unchecked:` regions whose source comments state their bounds.
+PEM decoding records the validated body endpoint instead of reconstructing it
+with a potentially overflowing size formula. Invalid input keeps its existing
+codec error and source offset; callers' arithmetic modes do not change these
+contracts.
 
 ## Ownership and threads
 

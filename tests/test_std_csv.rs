@@ -23,38 +23,48 @@ pub class Fake:
     pub at: i64
     pub flushes: i64
 
-    def step(self: &mut Fake) -> i64:
+    def step(self: &mut Fake) -> Result[i64, StreamError]:
         index = self.calls
-        self.calls += 1
+        calls = checked:
+            self.calls + 1
+        self.calls = calls.map_error(def(e: OverflowError[i64]) -> StreamError: StreamError.OutOfRange)?
         if index < len(self.steps):
-            return self.steps[index]
-        self.rest
+            return Ok(self.steps[index])
+        Ok(self.rest)
 
     pub def read(self: &mut Fake, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
-        step = self.step()
+        step = self.step()?
         if step == -1:
             return Err(StreamError.Interrupted)
         if step == -2:
             return Err(StreamError.Io(IoError.Other))
         if step == -3:
-            return Ok(stop - start + 1)
-        mut count = stop - start
-        if count > step:
-            count = step
-        if count > self.data.len() - self.at:
-            count = self.data.len() - self.at
-        buffer.overwrite(start, &self.data[self.at:self.at + count])
-        self.at += count
-        Ok(count)
+            lie = checked:
+                stop - start + 1
+            return lie.map_error(def(e: OverflowError[i64]) -> StreamError: StreamError.OutOfRange)
+        if start < 0 or stop < start or stop > buffer.len() or self.at < 0 or self.at > self.data.len() or step < 0:
+            return Err(StreamError.InvalidProgress)
+        # Validated endpoints; count is capped by remaining input/output room.
+        unchecked:
+            mut count = stop - start
+            if count > step:
+                count = step
+            if count > self.data.len() - self.at:
+                count = self.data.len() - self.at
+            buffer.overwrite(start, &self.data[self.at:self.at + count])
+            self.at += count
+            Ok(count)
 
     pub def write(self: &mut Fake, source: &[u8]) -> Result[i64, StreamError]:
-        step = self.step()
+        step = self.step()?
         if step == -1:
             return Err(StreamError.Interrupted)
         if step == -2:
             return Err(StreamError.Io(IoError.Other))
         if step == -3:
-            return Ok(len(source) + 1)
+            lie = checked:
+                len(source) + 1
+            return lie.map_error(def(e: OverflowError[i64]) -> StreamError: StreamError.OutOfRange)
         mut count = len(source)
         if count > step:
             count = step
@@ -66,7 +76,9 @@ pub class Fake:
         Ok(count)
 
     pub def flush(self: &mut Fake) -> Result[(), StreamError]:
-        self.flushes += 1
+        flushes = checked:
+            self.flushes + 1
+        self.flushes = flushes.map_error(def(e: OverflowError[i64]) -> StreamError: StreamError.OutOfRange)?
         Ok(())
 
 def fake(text: &str, steps: list[i64], rest: i64) -> Result[Fake, AllocError | IoError | std.bytes.BytesError]:
@@ -148,16 +160,25 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "{PRELUDE}\ndef main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.StreamError | std.csv.CsvError | ParseError | RangeError]:\n{body}    Ok(())\n"
+        "{PRELUDE}\ndef main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.io.StreamError | std.csv.CsvError | ParseError | RangeError | OverflowError[i64] | ZeroDivisionError]:\n{body}    Ok(())\n"
     )
 }
 
 fn run(source: &str) -> String {
+    output_with_optimization(source, false)
+}
+
+fn output_with_optimization(source: &str, optimize: bool) -> String {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("main.plenty");
     let executable = dir.path().join("program");
     std::fs::write(&path, source).unwrap();
-    plenty::compile_file_to_executable(&path, &executable, None)
+    let options = plenty::CompileOptions {
+        optimize,
+        test_hooks: true,
+        ..Default::default()
+    };
+    plenty::compile_file_to_executable_with_options(&path, &executable, None, &options)
         .unwrap_or_else(|error| panic!("{source}\n{error}"));
     let output = Command::new(executable)
         .current_dir(dir.path())
@@ -992,4 +1013,185 @@ fn a_zero_capacity_is_a_compile_error() {
     );
     let error = support::check_file_error(&source);
     assert!(error.contains("must be greater than zero"), "{error}");
+}
+
+fn csv_state_source(body: &str) -> String {
+    let library = include_str!("../stdlib/std/csv.plenty");
+    let helpers = &library
+        [library.find("def valid(").unwrap()..library.find("# One record's fields").unwrap()];
+    let record_fields = &library[library.find("pub class Record:").unwrap()
+        ..library.find("    pub def len(self)").unwrap()];
+    let reader = &library
+        [library.find("pub def record(").unwrap()..library.find("# Encodes records for").unwrap()];
+    let writer_start = library.find("pub class Writer[").unwrap();
+    let encode_start = library[writer_start..].find("    def quoted(").unwrap() + writer_start;
+    let field_start = library[encode_start..].find("    # Adds `source`").unwrap() + encode_start;
+    let fake =
+        &PRELUDE[PRELUDE.find("pub class Fake:").unwrap()..PRELUDE.find("def readable(").unwrap()];
+    // The actual writer methods under test must reject exhausted record labels
+    // before encode. An unexpected encode call yields a distinct fault.
+    let writer = format!(
+        "{}    def encode(self: &mut Writer[W], source: &[u8]) -> Result[(), CsvError]:\n        Err(CsvError.Stream(StreamError.InvalidProgress))\n\n{}",
+        &library[writer_start..encode_start],
+        &library[field_start..]
+    );
+    format!(
+        r#"import std.bytes
+from std.bytes import Bytes, BytesError
+from std.io import StreamError
+from std.csv import CsvError, Fault, Position, Dialect, Width, Newline, Quoting
+import std.csv
+const line_feed: u8 = 10u8
+const carriage_return: u8 = 13u8
+{helpers}
+{record_fields}
+{reader}
+{writer}
+{fake}
+def is_range[T](result: Result[T, CsvError]) -> bool:
+    match result:
+        case Err(CsvError.Stream(StreamError.OutOfRange)):
+            True
+        case _:
+            False
+
+def is_stopped[T](result: Result[T, CsvError]) -> bool:
+    match result:
+        case Err(CsvError.Stopped):
+            True
+        case _:
+            False
+
+def main() -> Result[(), AllocError | IoError | CsvError | std.bytes.BytesError]:
+{body}
+    Ok(())
+"#,
+        body = body
+            .lines()
+            .map(|line| format!("    {line}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
+}
+
+#[test]
+fn position_after_read_span_and_scan_end_check_i64_boundaries_without_allocating() {
+    let library = include_str!("../stdlib/std/csv.plenty");
+    let helpers = &library[library.find("def position_after(").unwrap()
+        ..library.find("# Callers pass an index").unwrap()];
+    let source = format!(
+        r#"{PRELUDE}
+{helpers}
+def main() -> Result[(), IoError]:
+    print("__test_fail_allocations_after_0__")?
+    print("__test_begin_no_allocations__")?
+    last = position_after(9223372036854775806, 1).unwrap() == i64.MAX
+    overflow = position_after(i64.MAX, 1).is_err()
+    span = read_span(9223372036854775805, 1, 4096).unwrap()
+    exhausted = read_span(9223372036854775806, 1, 4096).is_err()
+    invalid = read_span(i64.MAX, 1, 4096).is_err()
+    small = scan_end(1, 4, i64.MAX) == 4
+    large = scan_end(9223372036854775806, i64.MAX, i64.MAX) == i64.MAX
+    print("__test_restore_allocations__")?
+    print("__test_end_no_allocations__")?
+    print(last, overflow, span, exhausted, invalid, small, large)?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            "True True (9223372036854775806, 1) True True True True"
+        );
+    }
+}
+
+#[test]
+fn reader_positions_exhaust_without_wrapping_or_losing_crlf_boundaries() {
+    let source = csv_state_source(
+        r#"
+dialect = std.csv.rfc4180()
+mut item = record()?
+mut r = reader(fake("a\nb", []?, 8)?, &dialect, 8)?
+r._records = 9223372036854775806
+print(r.read(&mut item)?, r.records(), item._number)?
+calls = r.inner.calls
+print(is_range(r.read(&mut item)), r.inner.calls == calls, item._data.len(), len(item._ends), is_stopped(r.read(&mut item)))?
+mut span = reader(fake("a\nb", []?, 8)?, &dialect, 8)?
+span._offset = 9223372036854775805
+print(span.read(&mut item)?, span.offset(), span.inner.at, span.inner.calls)?
+print(is_range(span.read(&mut item)), span.inner.calls, item._data.len())?
+mut zero = reader(fake("ab", []?, 8)?, &dialect, 8)?
+zero._offset = 9223372036854775806
+print(is_range(zero.read(&mut item)), zero.offset(), zero.inner.calls, item._data.len())?
+for capacity in [1, 8]?:
+    for text in ["\n", "\r", "\r\n", "\"x\r\ny\""]?:
+        mut lines = reader(fake(text, []?, 8)?, &dialect, Positive.try_from(capacity).unwrap())?
+        lines._line = 9223372036854775806
+        first = lines.read(&mut item)?
+        last_line = lines.line() == i64.MAX
+        eof = not lines.read(&mut item)?
+        print(first, last_line, eof, lines.line() == i64.MAX)?
+    for text in ["\n", "\r", "\r\n", "\"x\ny\"", "\"x\ry\"", "\"x\r\ny\""]?:
+        mut lines = reader(fake(text, []?, 8)?, &dialect, Positive.try_from(capacity).unwrap())?
+        lines._line = i64.MAX
+        failed = is_range(lines.read(&mut item))
+        at_newline = lines.offset() == (2 if text.startswith("\"") else 0)
+        print(failed, at_newline, lines.line() == i64.MAX, item._data.len() == 0, is_stopped(lines.read(&mut item)))?
+"#,
+    );
+    let mut expected = vec![
+        "True 9223372036854775807 9223372036854775807".to_string(),
+        "True True 0 0 True".to_string(),
+        "True 9223372036854775807 2 1".to_string(),
+        "True 1 0".to_string(),
+        "True 9223372036854775807 1 0".to_string(),
+    ];
+    for _ in 0..2 {
+        expected.extend(vec!["True True True True".to_string(); 4]);
+        expected.extend(vec!["True True True True True".to_string(); 6]);
+    }
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            expected.join("\n")
+        );
+    }
+}
+
+#[test]
+fn exhausted_writer_rejects_next_record_before_drain_but_explicit_flush_keeps_pending() {
+    let source = csv_state_source(
+        r#"
+dialect = std.csv.rfc4180()
+mut w = writer(fake("", [-2]?, 8)?, &dialect)?
+w._records = 9223372036854775806
+w._pending.extend(b"a")?
+w._fields = 1
+w._content = 1
+failed = match w.end_record():
+    case Err(CsvError.Stream(StreamError.Io(IoError.Other))):
+        True
+    case _:
+        False
+print(failed, w.records(), w.pending(), w.inner.calls)?
+print("__test_fail_allocations_after_0__")?
+print("__test_begin_no_allocations__")?
+field = is_range(w.field(b"x"))
+text = is_range(w.text("x"))
+end = is_range(w.end_record())
+untouched = w.inner.calls == 1 and w.pending() == 3
+print("__test_restore_allocations__")?
+print("__test_end_no_allocations__")?
+print(field, text, end, untouched)?
+w.flush()?
+print(w.records(), w.pending(), w.inner.calls, w.inner.flushes, w.inner.data.to_text()? == "a\r\n")?
+"#,
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            "True 9223372036854775807 3 1\nTrue True True True\n9223372036854775807 0 2 1 True"
+        );
+    }
 }

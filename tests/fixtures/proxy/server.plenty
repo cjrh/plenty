@@ -56,7 +56,9 @@ pub class App:
                 mut waited = 0
                 while not self.release.is_cancelled() and waited < 1000:
                     std.time.sleep(&std.time.milliseconds(10u32))
-                    waited += 1
+                    # The loop keeps 0 <= waited < 1000 before advancing.
+                    unchecked:
+                        waited += 1
                 second = std.bytes.from_text("second\n")?
                 exchange.write(&second)?
             case Route.Release:

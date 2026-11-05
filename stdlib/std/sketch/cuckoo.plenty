@@ -18,36 +18,50 @@ class Layer:
     buckets: i64
 
 def slot_value(current: &Layer, slot: i64) -> u16:
-    u16(current.slots[slot * 2]) | (u16(current.slots[slot * 2 + 1]) << 8u16)
+    # slot < 4*buckets <= 4*2^24, so both byte offsets are below 8*2^24.
+    unchecked:
+        u16(current.slots[slot * 2]) | (u16(current.slots[slot * 2 + 1]) << 8u16)
 
 def set_slot(current: &mut Layer, slot: i64, value: u16) -> ():
-    current.slots.set(slot * 2, u8(value & 255u16))
-    current.slots.set(slot * 2 + 1, u8(value >> 8u16))
+    # slot < 4*buckets <= 4*2^24, so both byte offsets are below 8*2^24.
+    unchecked:
+        current.slots.set(slot * 2, u8(value & 255u16))
+        current.slots.set(slot * 2 + 1, u8(value >> 8u16))
 
 def fingerprint(hash: u64) -> u16:
     value = u16((hash >> 32u64) & 65535u64)
     1u16 if value == 0u16 else value
 
 def alternate(bucket: i64, print: u16, buckets: i64) -> i64:
-    bucket ^ i64(hash_u64(u64(print)) & u64(buckets - 1))
+    # 1 <= buckets <= 2^24 is a power of two; bucket is within that mask.
+    unchecked:
+        bucket ^ i64(hash_u64(u64(print)) & u64(buckets - 1))
 
 def locate(layer: &Layer, first: i64, second: i64, print: u16) -> i64:
-    for offset in range(4):
-        if slot_value(layer, first * 4 + offset) == print:
-            return first * 4 + offset
-        if slot_value(layer, second * 4 + offset) == print:
-            return second * 4 + offset
-    -1
+    # first and second are below buckets <= 2^24; offsets are 0..3.
+    unchecked:
+        for offset in range(4):
+            if slot_value(layer, first * 4 + offset) == print:
+                return first * 4 + offset
+            if slot_value(layer, second * 4 + offset) == print:
+                return second * 4 + offset
+        -1
 
 def empty_slot(layer: &Layer, bucket: i64) -> i64:
-    for offset in range(4):
-        if slot_value(layer, bucket * 4 + offset) == 0u16:
-            return bucket * 4 + offset
-    -1
+    # bucket < buckets <= 2^24 and offset is 0..3.
+    unchecked:
+        for offset in range(4):
+            if slot_value(layer, bucket * 4 + offset) == 0u16:
+                return bucket * 4 + offset
+        -1
 
 def layer(buckets: i64) -> Result[Layer, SketchError]:
-    mut slots = std.bytes.with_capacity(buckets * 8).map_error(SketchError.Allocation)?
-    slots.resize(buckets * 8, 0u8).map_error(SketchError.Allocation)?
+    # buckets <= 2^24, so the layer byte capacity fits i64.
+    mut slots = unchecked:
+        std.bytes.with_capacity(buckets * 8).map_error(SketchError.Allocation)?
+    # buckets <= 2^24.
+    unchecked:
+        slots.resize(buckets * 8, 0u8).map_error(SketchError.Allocation)?
     Ok(Layer(slots, buckets))
 
 pub class CuckooFilter:
@@ -72,7 +86,9 @@ pub class CuckooFilter:
         hash = hash_u64(key, self._seed)
         print = fingerprint(hash)
         for current in &self._layers:
-            first = i64(hash & u64(current.buckets - 1))
+            # Each layer has 1..2^24 buckets.
+            first = unchecked:
+                i64(hash & u64(current.buckets - 1))
             second = alternate(first, print, current.buckets)
             if locate(current, first, second, print) >= 0:
                 return True
@@ -87,18 +103,30 @@ pub class CuckooFilter:
         print = fingerprint(hash)
         for index in range(len(self._layers)):
             if place(&mut self._layers[index], hash, print, &mut self._path, &mut self._old):
-                self._count += 1u64
+                # The preceding MAX guard proves this exact increment fits (also count <= 4*used_buckets).
+                unchecked:
+                    self._count += 1u64
                 return Ok(index)
-        next_buckets = self._layers[len(self._layers) - 1].buckets * 2
-        if next_buckets > self._max_buckets - self._used_buckets:
-            return Err(SketchError.Limit)
+        # There is at least one layer, at most 25; each has <= 2^24 buckets, doubling fits i64.
+        next_buckets = unchecked:
+            self._layers[len(self._layers) - 1].buckets * 2
+        # 0 < used_buckets <= max_buckets <= 2^24.
+        unchecked:
+            if next_buckets > self._max_buckets - self._used_buckets:
+                return Err(SketchError.Limit)
         mut next = layer(next_buckets)?
-        first = i64(hash & u64(next_buckets - 1))
-        set_slot(&mut next, first * 4, print)
+        # next_buckets is a positive power of two <= 2^24 after the budget check.
+        first = unchecked:
+            i64(hash & u64(next_buckets - 1))
+        # first < next_buckets <= 2^24.
+        unchecked:
+            set_slot(&mut next, first * 4, print)
         self._layers.append(next).map_error(SketchError.Allocation)?
-        self._used_buckets += next_buckets
-        self._count += 1u64
-        Ok(len(self._layers) - 1)
+        # Budget guard proves used_buckets sum <= 2^24; MAX guard bounds count; layers is nonempty and <= 25.
+        unchecked:
+            self._used_buckets += next_buckets
+            self._count += 1u64
+            Ok(len(self._layers) - 1)
 
     # Caller must know this occurrence was inserted and not yet removed.
     # A membership test cannot establish that precondition (false positives).
@@ -107,17 +135,23 @@ pub class CuckooFilter:
             return Err(SketchError.InvalidArgument)
         hash = hash_u64(key, self._seed)
         print = fingerprint(hash)
-        first = i64(hash & u64(self._layers[layer_index].buckets - 1))
+        # Each layer has 1..2^24 buckets.
+        first = unchecked:
+            i64(hash & u64(self._layers[layer_index].buckets - 1))
         second = alternate(first, print, self._layers[layer_index].buckets)
         slot = locate(&self._layers[layer_index], first, second, print)
         if slot >= 0:
             set_slot(&mut self._layers[layer_index], slot, 0u16)
-            self._count -= 1u64
+            # A matching occupied slot implies count >= 1, even before the caller deletion precondition.
+            unchecked:
+                self._count -= 1u64
             return Ok(True)
         Ok(False)
 
     pub def to_bytes(self) -> Result[Bytes, AllocError]:
-        mut out = std.bytes.with_capacity(44 + self._used_buckets * 8)?
+        # used_buckets <= 2^24, so the wire capacity fits i64.
+        mut out = unchecked:
+            std.bytes.with_capacity(44 + self._used_buckets * 8)?
         out.extend(&b"PSC1")?
         word(&mut out, self._seed)?
         word(&mut out, u64(self._max_buckets))?
@@ -131,7 +165,9 @@ pub class CuckooFilter:
 # Scratch storage is allocated at construction, so failed insertion can undo
 # all writes without allocating or retaining the evicted fingerprint.
 def place(current: &mut Layer, hash: u64, print: u16, path: &mut list[i64], old: &mut list[u16]) -> bool:
-    first = i64(hash & u64(current.buckets - 1))
+    # Every layer has 1..2^24 buckets.
+    first = unchecked:
+        i64(hash & u64(current.buckets - 1))
     second = alternate(first, print, current.buckets)
     mut slot = empty_slot(current, first)
     if slot < 0:
@@ -144,7 +180,9 @@ def place(current: &mut Layer, hash: u64, print: u16, path: &mut list[i64], old:
     mut state = hash
     for step in range(256):
         state = hash_u64(state, u64(step))
-        slot = bucket * 4 + i64(state & 3u64)
+        # bucket < current.buckets <= 2^24, with an offset in 0..3.
+        slot = unchecked:
+            bucket * 4 + i64(state & 3u64)
         displaced = slot_value(current, slot)
         path[step] = slot
         old[step] = displaced
@@ -157,7 +195,9 @@ def place(current: &mut Layer, hash: u64, print: u16, path: &mut list[i64], old:
             return True
     mut step = 256
     while step > 0:
-        step -= 1
+        # Rollback counts down from 256 and only decrements positive steps.
+        unchecked:
+            step -= 1
         set_slot(current, path[step], old[step])
     False
 
@@ -167,8 +207,10 @@ pub def cuckoo(initial_buckets: i64 = 64, max_buckets: Positive[i64] __max(16777
     layered(initial_buckets, max_buckets.get(), seed)
 
 def layered(initial_buckets: i64, max_buckets: i64, seed: u64) -> Result[CuckooFilter, SketchError]:
-    if initial_buckets < 1 or initial_buckets > initial_limit or initial_buckets & (initial_buckets - 1) != 0:
-        return Err(SketchError.InvalidArgument)
+    # Short-circuit proves 1 <= initial_buckets <= 2^20 before subtraction.
+    unchecked:
+        if initial_buckets < 1 or initial_buckets > initial_limit or initial_buckets & (initial_buckets - 1) != 0:
+            return Err(SketchError.InvalidArgument)
     if max_buckets < initial_buckets:
         return Err(SketchError.InvalidArgument)
     mut layers = list[Layer].with_capacity(layer_limit).map_error(SketchError.Allocation)?
@@ -188,7 +230,9 @@ def word(out: &mut Bytes, value: u64) -> Result[(), AllocError]:
 def read_word(data: &[u8], offset: i64) -> u64:
     mut result = 0u64
     for index in range(8):
-        result = result | (u64(data[offset + index]) << u64(index * 8))
+        # Callers validate a full eight-byte header word; index <= 7 and shift <= 56.
+        unchecked:
+            result = result | (u64(data[offset + index]) << u64(index * 8))
     result
 
 pub def from_bytes(data: &[u8], max_buckets: Positive[i64] __max(16777216)) -> Result[CuckooFilter, SketchError]:
@@ -202,31 +246,41 @@ pub def from_bytes(data: &[u8], max_buckets: Positive[i64] __max(16777216)) -> R
     initial = read_word(data, 20)
     layers = read_word(data, 28)
     count = read_word(data, 36)
-    if initial < 1u64 or initial > u64(initial_limit) or initial & (initial - 1u64) != 0u64 or layers < 1u64 or layers > u64(layer_limit):
-        return Err(SketchError.InvalidData)
+    # Short-circuit bounds initial in 1..2^20 before subtracting one.
+    unchecked:
+        if initial < 1u64 or initial > u64(initial_limit) or initial & (initial - 1u64) != 0u64 or layers < 1u64 or layers > u64(layer_limit):
+            return Err(SketchError.InvalidData)
     if limit < initial or limit > u64(bucket_limit):
         return Err(SketchError.InvalidData)
-    used = initial * ((1u64 << layers) - 1u64)
-    if used > limit or len(data) != 44 + i64(used) * 8:
-        return Err(SketchError.InvalidData)
+    # initial <= 2^20 and layers <= 25, so used < 2^45.
+    used = unchecked:
+        initial * ((1u64 << layers) - 1u64)
+    # Short-circuit checks used <= limit <= 2^24 before computing the length.
+    unchecked:
+        if used > limit or len(data) != 44 + i64(used) * 8:
+            return Err(SketchError.InvalidData)
     if limit > u64(max_buckets.get()):
         return Err(SketchError.Limit)
     mut occupied = 0u64
     for offset in range(44, len(data), 2):
-        if data[offset] != 0u8 or data[offset + 1] != 0u8:
-            occupied += 1u64
+        # Validated length is 44 + 8*used <= 44+8*2^24; even offsets have a following byte; occupied <= 4*used.
+        unchecked:
+            if data[offset] != 0u8 or data[offset + 1] != 0u8:
+                occupied += 1u64
     if occupied != count:
         return Err(SketchError.InvalidData)
     mut result = layered(i64(initial), i64(limit), read_word(data, 4))?
     mut offset = 44
     mut buckets = i64(initial)
-    for index in range(i64(layers)):
-        if index > 0:
-            result._layers.append(layer(buckets)?).map_error(SketchError.Allocation)?
-        for slot in range(buckets * 8):
-            result._layers[index].slots.set(slot, data[offset])
-            offset += 1
-        buckets *= 2
+    # Geometric layer sum is used <= 2^24; offset <= validated length, and the final unused doubling is <= 2^25.
+    unchecked:
+        for index in range(i64(layers)):
+            if index > 0:
+                result._layers.append(layer(buckets)?).map_error(SketchError.Allocation)?
+            for slot in range(buckets * 8):
+                result._layers[index].slots.set(slot, data[offset])
+                offset += 1
+            buckets *= 2
     result._used_buckets = i64(used)
     result._count = count
     Ok(result)

@@ -40,6 +40,9 @@ already full, but still needs `finish()` if it was drawn. Updates after finishin
 return `Finished`; invalid positions/overflow return `InvalidPosition` and leave
 the count unchanged. Output failure preserves the accepted count, stops further
 updates, and returns `Output(std.fmt.FormatError)` with its original cause.
+Counts never wrap or saturate: an advance beyond `u64.MAX` is
+`InvalidPosition`, even for a spinner. This check happens before changing the
+count or drawing; a finished progress object still returns `Finished` first.
 
 ## Display and metrics
 

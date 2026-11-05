@@ -55,7 +55,17 @@ See [workflow and packages](references/workflow.md).
   source's error or contain it in a union (`AllocError | IoError | ParseError`).
   `?` never turns an `Option` into a `Result`; use `.ok_or(error)?`.
 - No exceptions, `None`, `try`, `raise`, or `lambda`. Use `Result[T, E]`,
-  `Option[T]` (`Some(x)` / `Nothing`), and `def(x: i64) -> i64: x + 1`.
+  `Option[T]` (`Some(x)` / `Nothing`), and `def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x + 1)`.
+- Integer arithmetic returns errors from the enclosing function by default:
+  declare `OverflowError[T]` for `+`, `-`, `*`, unary `-`, and integer `pow`;
+  plain `//` and `%` also require `ZeroDivisionError` (signed `//` can overflow).
+  Write explicit `Ok(...)` on success. Use `checked:` for local recovery or a
+  small, justified `unchecked:` suite for deliberate termination. Functions and
+  closures keep independent declared contracts; a caller's mode never changes
+  them. Integer `std.math.abs`/`sum`/`prod` return `Result`; the `*_float`
+  helpers stay infallible, and float arithmetic keeps IEEE behavior. Serial
+  pipeline integer `.sum()` also returns a public `Result`. For fallible
+  accumulation callbacks use `try_fold`, as in [arithmetic and callbacks](references/errors.md#arithmetic-and-callbacks).
 - Types are explicit on every parameter and result. `i64` and `f64`, not `int`
   and `float`. No implicit numeric widening; cast with `f64(n)`.
 - `Positive[T]` (> 0) and `NonNegative[T]` (>= 0) are signed integer domains.
@@ -105,9 +115,10 @@ See [workflow and packages](references/workflow.md).
   list methods.
 - A plain integer `T` accepts a `NonZero[T]` or `Positive[T]` divisor directly: `n // step`,
   `n % step`, `n //= step`, `n %= step`. The result is `T`; no zero check
-  remains. Signed `MIN // -1` still overflows, or produces `OverflowError[T]`
-  inside `checked:` for a `NonZero` divisor; a `Positive` divisor cannot
-  cause either division failure. A domain dividend still needs `.get()`.
+  remains. Signed `MIN // -1` still requires `OverflowError[T]` in the
+  function's `Result` for a `NonZero` divisor, or local handling with
+  `checked:`; a `Positive` divisor cannot cause either division failure.
+  A domain dividend still needs `.get()`.
 - No `**`, truthiness, chained comparisons, or inheritance. Use
   `x.pow(n)`, `len(xs) > 0`, `a < b and b < c`, and composition or protocols.
 - `abs`, `min`, `max`, `sum` come from `std.math`. Standard modules need an

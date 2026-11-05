@@ -77,7 +77,9 @@ pub class Budget:
         if count > self.left:
             count = self.left
         written = self.inner.write(&source[:count])?
-        self.left -= written
+        # Cursor progress is in 0..count <= left.
+        unchecked:
+            self.left -= written
         Ok(written)
 
     pub def flush(self: &mut Budget) -> Result[(), io.StreamError]:
@@ -99,6 +101,10 @@ struct Program {
 
 impl Program {
     fn new(body: &str) -> Self {
+        Self::with_declarations(body, "", false)
+    }
+
+    fn with_declarations(body: &str, declarations: &str, optimize: bool) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let entry = directory.path().join("main.plenty");
         let executable = directory.path().join("program");
@@ -107,10 +113,15 @@ impl Program {
             .map(|line| format!("    {line}\n"))
             .collect::<String>();
         let source = format!(
-            "{PRELUDE}\ndef main() -> Result[(), AllocError | IoError | ArchiveError | std.bytes.BytesError | fs.FsError | io.Partial]:\n    argv = args_bytes()?\n    parent = fs.root(&path.from_bytes(copy(argv[1])?))?\n{body}    Ok(())\n"
+            "{PRELUDE}\n{declarations}\ndef main() -> Result[(), AllocError | IoError | ArchiveError | std.bytes.BytesError | fs.FsError | io.Partial]:\n    argv = args_bytes()?\n    parent = fs.root(&path.from_bytes(copy(argv[1])?))?\n{body}    Ok(())\n"
         );
         std::fs::write(&entry, &source).unwrap();
-        plenty::compile_file_to_executable(&entry, &executable, None)
+        let options = plenty::CompileOptions {
+            optimize,
+            test_hooks: true,
+            ..Default::default()
+        };
+        plenty::compile_file_to_executable_with_options(&entry, &executable, None, &options)
             .unwrap_or_else(|error| panic!("{error}\n{source}"));
         Self {
             _directory: directory,
@@ -1021,4 +1032,322 @@ fn negative_entry_limit_literal_is_rejected() {
     .unwrap();
     let error = plenty::check_file(&entry, None).unwrap_err().to_string();
     assert!(error.contains("NonNegative"), "{error}");
+}
+
+// Extract source-named private helpers without huge allocations or public hooks.
+fn archive_function(name: &str) -> String {
+    let source = include_str!("../stdlib/std/archive.plenty");
+    let start = source.find(&format!("\ndef {name}")).unwrap() + 1;
+    let function = &source[start..];
+    function.split("\n\n").next().unwrap().to_owned()
+}
+
+fn archive_probe(extra: &str, body: &str, optimize: bool) -> Program {
+    let module = include_str!("../stdlib/std/archive.plenty");
+    // This prefix has the real byte, extent and name helpers, with no std-only
+    // reader trap hooks. Extra declarations below are copied production code.
+    let prefix = module.split("# TAR reading").next().unwrap();
+    let body = body
+        .lines()
+        .map(|line| format!("    {line}\n"))
+        .collect::<String>();
+    let source = format!(
+        "{prefix}\n{extra}\ndef main() -> Result[(), AllocError | IoError | ArchiveError | std.bytes.BytesError]:\n{body}    Ok(())\n"
+    );
+    let directory = tempfile::tempdir().unwrap();
+    let entry = directory.path().join("main.plenty");
+    let executable = directory.path().join("program");
+    std::fs::write(&entry, &source).unwrap();
+    let options = plenty::CompileOptions {
+        optimize,
+        test_hooks: true,
+        ..Default::default()
+    };
+    plenty::compile_file_to_executable_with_options(&entry, &executable, None, &options)
+        .unwrap_or_else(|error| panic!("optimize={optimize}\n{error}\n{source}"));
+    Program {
+        _directory: directory,
+        executable,
+    }
+}
+
+#[test]
+fn archive_numeric_extents_and_padding_boundaries_in_both_modes() {
+    let helpers = [
+        "digits_value",
+        "tar_number",
+        "tar_checksum_ok",
+        "decimal_width",
+        "pax_length",
+        "cleanup_capacity",
+        "exceeds_ratio",
+    ]
+    .map(archive_function)
+    .join("\n\n");
+    let body = r#"
+decimal = std.bytes.from_text("9223372036854775799")?
+rejected = std.bytes.from_text("9223372036854775800")?
+maximum = std.bytes.from_text("9223372036854775807")?
+octal = std.bytes.from_text("777777777777777777777")?
+mut block = std.bytes.with_capacity(512)?
+block.resize(512, 255u8)?
+# Checksum field containing 6 octal digits, NUL and a space; signed sum = -248.
+block.overwrite(148, b"373410\0 ")
+mut signed = std.bytes.with_capacity(512)?
+signed.resize(512, 0u8)?
+signed.set(0, 255u8)
+signed.overwrite(148, b"000377\0 ")
+mut binary = std.bytes.with_capacity(12)?
+binary.resize(12, 255u8)?
+binary.set(0, 128u8)
+for index in range(1, 4):
+    binary.set(index, 0u8)
+binary.set(4, 127u8)
+mut too_large = binary.copy()?
+too_large.set(4, 128u8)
+print("__test_begin_no_allocations__")?
+a = digits_value(&decimal, 0, decimal.len())
+b = digits_value(&rejected, 0, rejected.len())
+c = digits_value(&maximum, 0, maximum.len())
+d = tar_number(&octal, 0, octal.len())
+r = read_extent(i64.MAX, 1)
+w = write_extent(i64.MAX, 1)
+p = pax_length(4, 9223372036854775800)
+last = cleanup_capacity(9223372036854775804, 1)
+full = cleanup_capacity(9223372036854775805, 1)
+ratio = exceeds_ratio(i64.MAX, 4611686018427387903, 2)
+binary_value = tar_number(&binary, 0, 12)
+binary_error = tar_number(&too_large, 0, 12)
+unsigned_ok = tar_checksum_ok(&block)
+signed_ok = tar_checksum_ok(&signed)
+print("__test_end_no_allocations__")?
+print(a.unwrap(), b.is_err(), c.is_err(), d.unwrap())?
+print(str.repr(r)?, str.repr(w)?, str.repr(p)?)?
+print(last.unwrap(), str.repr(full)?, ratio)?
+print(binary_value.unwrap(), binary_error.is_err())?
+print(padding(0), padding(1), padding(511), padding(512), padding(4611686018427387904))?
+print(pax_length(4, 1)?, pax_length(4, 90)?, pax_length(4, 91)?)?
+print(unsigned_ok?, signed_ok?)?
+"#;
+    let directory = tempfile::tempdir().unwrap();
+    for optimize in [false, true] {
+        let output = archive_probe(&helpers, body, optimize)
+            .run(directory.path())
+            .replace("ArchiveError.", "");
+        assert!(
+            output.starts_with("9223372036854775799 True True 9223372036854775807\n"),
+            "{output}"
+        );
+        assert!(output.contains(".Err(Corrupt)"), "{output}");
+        assert!(
+            output.contains(".Err(Stream(std.io.StreamError.OutOfRange))"),
+            "{output}"
+        );
+        assert!(
+            output.contains(".Err(Allocation(AllocError.CapacityOverflow))"),
+            "{output}"
+        );
+        assert!(
+            output.contains("9223372036854775805 Result[i64, ArchiveError].Err(Limit) True"),
+            "{output}"
+        );
+        assert!(
+            output.ends_with("0 511 1 0 0\n9 99 101\nTrue True"),
+            "{output}"
+        );
+    }
+}
+
+#[test]
+fn zip_writer_exhaustion_is_preflighted_without_io_or_latch_in_both_modes() {
+    let module = include_str!("../stdlib/std/archive.plenty");
+    let writer = module
+        .split("# ZIP writing")
+        .nth(1)
+        .unwrap()
+        .split("# Extraction")
+        .next()
+        .unwrap();
+    let dates = ["to_dos", "from_dos", "days_from_civil"]
+        .map(archive_function)
+        .join("\n\n");
+    let extra = format!("{dates}\n{writer}");
+    let body = r#"
+name = std.path.from_text("a")?
+mut writer = zip_writer(std.io.cursor(std.bytes.empty()?))?
+writer._offset = 9223372036854775806
+print(str.repr(writer.add_dir(&name, 493, 0))?)?
+print(writer.inner.data.len(), writer._offset, writer._count, writer._failed, writer._central.len())?
+writer._offset = 0
+writer._count = i64.MAX
+print(str.repr(writer.add_dir(&name, 493, 0))?)?
+print(writer.inner.data.len(), writer._offset, writer._count, writer._failed, writer._central.len())?
+writer._count = 0
+writer._offset = 9223372036854775710
+print(str.repr(writer.finish())?)?
+print(writer.inner.data.len(), writer._finished, writer._failed)?
+writer._offset = 9223372036854775709
+writer.finish()?
+print(writer.inner.data.len(), writer._finished, writer._failed)?
+mut exact = zip_writer(std.io.cursor(std.bytes.empty()?))?
+# Wide local header is 30 + 2 name bytes + 20 ZIP64 bytes.
+exact._offset = 9223372036854775755
+exact.add_dir(&name, 493, 0)?
+print(exact._offset, exact._count, exact.inner.data.len())?
+"#;
+    let directory = tempfile::tempdir().unwrap();
+    for optimize in [false, true] {
+        let output = archive_probe(&extra, body, optimize)
+            .run(directory.path())
+            .replace("ArchiveError.", "");
+        assert_eq!(
+            output
+                .matches(".Err(Stream(std.io.StreamError.OutOfRange))")
+                .count(),
+            3,
+            "{output}"
+        );
+        assert!(
+            output.contains("0 9223372036854775806 0 False 0"),
+            "{output}"
+        );
+        assert!(
+            output.contains("0 0 9223372036854775807 False 0"),
+            "{output}"
+        );
+        assert!(
+            output.ends_with("0 False False\n98 True False\n9223372036854775807 1 52"),
+            "{output}"
+        );
+    }
+}
+
+#[test]
+fn cleanup_preflight_and_terminal_names_in_both_modes() {
+    let module = include_str!("../stdlib/std/archive.plenty");
+    let extraction = module
+        .split("# The state of one extraction:")
+        .nth(1)
+        .unwrap();
+    let job = extraction.split("def checked_policy(").next().unwrap();
+    // Keep the original comment's first line syntactically a comment.
+    let job = format!("# The state of one extraction:{job}");
+    let helpers = [
+        "checked_policy",
+        "begin",
+        "ensure",
+        "cleanup_capacity",
+        "descend",
+        "copied",
+        "exceeds_ratio",
+        "place",
+        "conclude",
+    ]
+    .map(archive_function)
+    .join("\n\n");
+    let source = r#"
+pub class UnusedSource:
+    used: bool
+    pub def read(self: &mut UnusedSource, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        self.used = True
+        Ok(0)
+    pub def failure(self) -> Option[ArchiveError]:
+        Nothing
+"#;
+    let extra = format!("{job}\n{helpers}\n{source}");
+    let body = r#"
+argv = args_bytes()?
+parent = std.fs.root(&std.path.from_bytes(copy(argv[1])?))?
+config = policy()
+destination = std.path.from_text("out")?
+mut job = begin(&parent, &destination, &config)?
+job.created = 9223372036854775805
+child = std.path.from_text("child")?
+print(ensure(job.staging.root(), &child, job.created).is_err())?
+print(job.staging.root().open_dir(&child).is_err())?
+mut source = UnusedSource(False)
+cancel = CancellationToken()?
+print(place(&mut job, &mut source, &child, EntryKind.File, 0, 0, &config, &cancel).is_err(), source.used)?
+print(conclude(&mut job, Err(ArchiveError.Limit), &parent, &destination, &config).is_err())?
+for spelling in ["a", "a/", "a//./b/", ".", "a/.."]?:
+    raw = std.path.from_text(spelling)?
+    match components(raw.as_bytes(), i64.MAX, 62):
+        case Ok(parts):
+            print(len(parts))?
+        case Err(error):
+            print(error)?
+"#;
+    for optimize in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        assert_eq!(
+            archive_probe(&extra, body, optimize)
+                .run(directory.path())
+                .replace("ArchiveError.", ""),
+            "True\nTrue\nTrue False\nTrue\n1\n1\n2\n0\nUnsafePath"
+        );
+        assert!(
+            listing(directory.path()).is_empty(),
+            "cleanup left staging state"
+        );
+    }
+}
+
+#[test]
+fn real_archives_retry_one_byte_interrupted_streams_in_both_modes() {
+    let declarations = r#"
+pub class ShortReader:
+    inner: io.Cursor
+    pause: bool
+
+    pub def read(self: &mut ShortReader, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, io.StreamError]:
+        self.pause = not self.pause
+        if self.pause:
+            return Err(io.StreamError.Interrupted)
+        if start == stop:
+            return Ok(0)
+        # The adapter supplies a valid nonempty span: start+1 <= stop.
+        unchecked:
+            self.inner.read(buffer, start, start + 1)
+
+    pub def seek(self: &mut ShortReader, origin: io.SeekFrom) -> Result[i64, io.StreamError]:
+        self.inner.seek(origin)
+
+pub class ShortWriter:
+    inner: io.Cursor
+    pause: bool
+
+    pub def write(self: &mut ShortWriter, source: &[u8]) -> Result[i64, io.StreamError]:
+        self.pause = not self.pause
+        if self.pause:
+            return Err(io.StreamError.Interrupted)
+        self.inner.write(&source[:1])
+
+    pub def flush(self: &mut ShortWriter) -> Result[(), io.StreamError]:
+        self.inner.flush()
+"#;
+    let body = r#"
+mut tar = archive.tar_writer(ShortWriter(io.cursor(std.bytes.empty()?), False))?
+tar.add_file(&name("tiny")?, b"hello", 420, 0)?
+tar.finish()?
+mut reader = archive.tar_reader(ShortReader(io.cursor(tar.inner.inner.data.copy()?), False))?
+print(reader.next()?.unwrap().size)?
+mut out = std.bytes.empty()?
+print(io.read_up_to(&mut reader, &mut out, 20)?, out.to_text()?)?
+print(reader.next()?.is_none())?
+mut zip = archive.zip_writer(ShortWriter(io.cursor(std.bytes.empty()?), False))?
+zip.add_file(&name("tiny")?, b"hello", Method.Deflate, 420, 0)?
+zip.finish()?
+mut zipped = archive.zip_reader(ShortReader(io.cursor(zip.inner.inner.data.copy()?), False), 1)?
+zipped.open(0)?
+mut unzipped = std.bytes.empty()?
+print(io.read_up_to(&mut zipped, &mut unzipped, 20)?, unzipped.to_text()?)?
+print(zipped.failure().is_none())?
+"#;
+    let directory = tempfile::tempdir().unwrap();
+    for optimize in [false, true] {
+        assert_eq!(
+            Program::with_declarations(body, declarations, optimize).run(directory.path()),
+            "5\n5 hello\nTrue\n5 hello\nTrue"
+        );
+    }
 }

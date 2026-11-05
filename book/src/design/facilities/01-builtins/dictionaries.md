@@ -14,7 +14,7 @@ Writing through `dictionary[key].field` or calling a mutating method on
 `dictionary[key]` is rejected the same way; use `get_mut`.
 
 ```plenty
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut stock = {"apples": 3}?
     stock.insert("pears", 5)?
     match stock.get_mut("apples"):

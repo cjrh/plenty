@@ -8,7 +8,7 @@ protocol Readable:
     def read(self) -> str:
         pass
 protocol Incrementable:
-    def increment(self: &mut Incrementable, amount: i64) -> ():
+    def increment(self: &mut Incrementable, amount: i64) -> Result[(), OverflowError[i64]]:
         pass
     def view(self) -> &i64:
         pass
@@ -18,22 +18,26 @@ class Text:
         self.value
 class Counter:
     value: i64
-    def increment(self: &mut Counter, amount: i64) -> ():
+    def increment(self: &mut Counter, amount: i64) -> Result[(), OverflowError[i64]]:
         self.value = self.value + amount
+        Ok(())
     def view(self) -> &i64:
         &self.value
 def read[T: Readable](source: &T) -> str:
     source.read()
-def increment[T: Incrementable](source: &mut T) -> ():
-    source.increment(2)
-    print(source.view()).unwrap()
-text = Text("hello")
-print(read[Text](&text)).unwrap()
-print(read(&text)).unwrap()
-mut counter = Counter(3)
-increment[Counter](&mut counter)
-increment(&mut counter)
-print(counter.value).unwrap()
+def increment[T: Incrementable](source: &mut T) -> Result[(), IoError | OverflowError[i64]]:
+    source.increment(2)?
+    print(source.view())?
+    Ok(())
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    text = Text("hello")
+    print(read[Text](&text))?
+    print(read(&text))?
+    mut counter = Counter(3)
+    increment[Counter](&mut counter)?
+    increment(&mut counter)?
+    print(counter.value)?
+    Ok(())
 "#,
     );
     assert!(

@@ -35,21 +35,24 @@ pub class Script:
     pub cut: bool
 
     pub def read_before(self: &mut Script, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
-        if cancel.is_cancelled():
-            return Err(NetError.Cancelled)
-        left = self.input.len() - self.at
-        if left == 0:
-            if self.cut:
+        # Validated transport ranges and 0 <= at <= len(input); count is
+        # bounded by both remaining ranges, so advancing stays within input.
+        unchecked:
+            if cancel.is_cancelled():
                 return Err(NetError.Cancelled)
-            return Ok(0)
-        mut count = stop - start
-        if count > 7:
-            count = 7
-        if count > left:
-            count = left
-        buffer.overwrite(start, &self.input[self.at:self.at + count])
-        self.at += count
-        Ok(count)
+            left = self.input.len() - self.at
+            if left == 0:
+                if self.cut:
+                    return Err(NetError.Cancelled)
+                return Ok(0)
+            mut count = stop - start
+            if count > 7:
+                count = 7
+            if count > left:
+                count = left
+            buffer.overwrite(start, &self.input[self.at:self.at + count])
+            self.at += count
+            Ok(count)
 
     pub def shutdown(self: &mut Script, direction: Shutdown) -> Result[(), NetError]:
         Ok(())
@@ -75,7 +78,7 @@ pub class App:
     pub proxies: Proxies
     pub baseline_files: i64
 
-    pub def handle(self, route: &Route, exchange: &mut Exchange[Script]) -> Result[(), std.http.body.BodyError | std.bytes.BytesError | std.http.cookie.CookieError | std.http.HttpError | std.net.NetError | std.io.StreamError | AllocError | IoError]:
+    pub def handle(self, route: &Route, exchange: &mut Exchange[Script]) -> Result[(), std.http.body.BodyError | std.bytes.BytesError | std.http.cookie.CookieError | std.http.HttpError | std.net.NetError | std.io.StreamError | AllocError | IoError | OverflowError[i64]]:
         match route:
             case Route.Form:
                 match std.http.body.read_form(exchange, &self.form):
@@ -169,7 +172,7 @@ pub class App:
         Ok(())
 
 # Open file descriptors of this process.
-pub def open_files() -> Result[i64, IoError]:
+pub def open_files() -> Result[i64, IoError | OverflowError[i64]]:
     mut names = std.fs.root(&std.path.from_text("/proc/self/fd")?)?.names()?
     mut count = 0
     while True:
@@ -180,7 +183,7 @@ pub def open_files() -> Result[i64, IoError]:
                 break
     Ok(count)
 
-pub def file_delta(baseline: i64) -> Result[str, AllocError | IoError]:
+pub def file_delta(baseline: i64) -> Result[str, AllocError | IoError | OverflowError[i64]]:
     Ok("fds=".concat(str.from(open_files()? - baseline)?)?)
 
 pub def routes() -> Result[Router[Route], std.http.server.ServerError]:
@@ -193,17 +196,17 @@ pub def routes() -> Result[Router[Route], std.http.server.ServerError]:
     table.add("GET", "/search", Route.Search)?
     Ok(table)
 
-pub def app() -> Result[App, std.http.proxy.ProxyError | IoError]:
+pub def app() -> Result[App, std.http.proxy.ProxyError | IoError | OverflowError[i64]]:
     storage = std.fs.root(&std.path.from_text("$STORAGE")?)?
     # Keep the storage root live for both the baseline and request measurements.
     baseline = open_files()?
     Ok(App(std.http.body.form_limits(), std.http.body.multipart_limits(), std.json.limits(), storage, std.http.proxy.proxies(Forwarding.XForwardedFor)?, baseline))
 
 # Serves `input` as one connection from `peer` and prints what was written.
-pub def serve(app: &App, input: &str, peer: Option[SocketAddress]) -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError]:
+pub def serve(app: &App, input: &str, peer: Option[SocketAddress]) -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError | OverflowError[i64]]:
     play(app, input, peer, False)
 
-pub def play(app: &App, input: &str, peer: Option[SocketAddress], cut: bool) -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError]:
+pub def play(app: &App, input: &str, peer: Option[SocketAddress], cut: bool) -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError | OverflowError[i64]]:
     table = routes()?
     stop = CancellationToken()?
     cancel = CancellationToken()?
@@ -277,7 +280,7 @@ def form(body: &str) -> Result[str, AllocError]:
     text = text.concat(str.from(body.byte_len())?)?.concat("\r\n\r\n")?.concat(body)?
     Ok(text)
 
-def main() -> Result[(), std.bytes.BytesError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError | OverflowError[i64]]:
     mut app = app()?
     serve(&app, &form("a=1&b=two+words&&c&d=%C3%A9%26&e=%2B")?, Nothing)?
     serve(&app, &form("a=%zz")?, Nothing)?
@@ -308,7 +311,7 @@ HTTP/1.1 400 Bad Request||Bad Request
 fn form_limits_bound_bytes_and_fields() {
     runs(
         r##"
-def main() -> Result[(), std.bytes.BytesError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError | OverflowError[i64]]:
     mut app = app()?
     app.form.max_bytes = 4
     serve(&app, "POST /form HTTP/1.1\r\nHost: x\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 5\r\nConnection: close\r\n\r\na=123", Nothing)?
@@ -332,7 +335,7 @@ HTTP/1.1 200 OK||[a=][b=]
 fn json_bodies_are_typed_bounded_and_echoed() {
     runs(
         r##"
-def main() -> Result[(), std.bytes.BytesError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError | OverflowError[i64]]:
     mut app = app()?
     serve(&app, "POST /json HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 14\r\nConnection: close\r\n\r\n{\"a\": [1, 2]} ", Nothing)?
     serve(&app, "POST /json HTTP/1.1\r\nHost: x\r\nContent-Type: application/problem+json; charset=utf-8\r\nContent-Length: 4\r\nConnection: close\r\n\r\ntrue", Nothing)?
@@ -385,7 +388,7 @@ fn multipart_fields_and_files_are_parsed() {
     runs(
         &format!(
             r##"{UPLOAD}
-def main() -> Result[(), std.bytes.BytesError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError | OverflowError[i64]]:
     mut app = app()?
     print(file_delta(app.baseline_files)?)?
     serve(&app, "POST /upload HTTP/1.1\r\nHost: x\r\nContent-Type: multipart/form-data; boundary=\"XyZ\"\r\nContent-Length: 208\r\nConnection: close\r\n\r\npreamble\r\n--XyZ\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\nhello\r\n--XyZ  \r\ncontent-disposition: form-data; name=\"doc\"; filename=\"a b.txt\"\r\nContent-Type: text/csv\r\n\r\nx,y\r\n--XyXnot\r\n1,2\r\n--XyZ--\r\nepilogue", Nothing)?
@@ -395,8 +398,9 @@ def main() -> Result[(), std.bytes.BytesError | std.http.proxy.ProxyError | std.
     serve(&app, &upload(&body)?, Nothing)?
     serve(&app, &upload("--XyZ--")?, Nothing)?
     mut large = ""
+    ten: Positive[i64] = 10
     for index in range(5000):
-        large = large.concat("abcdefg")?.concat(str.from(index % 10)?)?
+        large = large.concat("abcdefg")?.concat(str.from(index % ten)?)?
     mut long_name = ""
     for index in range(300):
         long_name = long_name.concat("n123456789")?
@@ -427,7 +431,7 @@ fn multipart_limits_and_malformed_bodies_leave_no_files() {
     runs(
         &format!(
             r##"{UPLOAD}
-def main() -> Result[(), std.bytes.BytesError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError | OverflowError[i64]]:
     mut app = app()?
     big = "0123456789abcdef"
     app.multipart.max_file = 15
@@ -490,7 +494,7 @@ fn multipart_header_of_exactly_max_head_is_accepted_on_any_read_boundary() {
     runs(
         &format!(
             r##"{UPLOAD}
-def main() -> Result[(), std.bytes.BytesError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError | OverflowError[i64]]:
     mut app = app()?
     # `Content-Disposition: form-data; name="a"` is 40 bytes.
     app.multipart.max_head = 40
@@ -531,7 +535,7 @@ fn a_cancelled_upload_releases_its_file() {
     runs(
         &format!(
             r##"{UPLOAD}
-def main() -> Result[(), std.bytes.BytesError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError | OverflowError[i64]]:
     mut app = app()?
     print(file_delta(app.baseline_files)?)?
     mut text = "POST /upload HTTP/1.1\r\nHost: x\r\nContent-Type: multipart/form-data; boundary=XyZ\r\nContent-Length: 1000\r\n\r\n"
@@ -595,7 +599,7 @@ fn multipart_checks_allow_inherited_descriptors() {
 fn cookies_are_read_leniently_and_written_strictly() {
     runs(
         r##"
-def main() -> Result[(), std.bytes.BytesError | std.http.cookie.CookieError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | std.http.cookie.CookieError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError | OverflowError[i64]]:
     mut app = app()?
     serve(&app, "GET /cookies HTTP/1.1\r\nHost: x\r\nCookie: a=1; b=\"two\"; bad name=3; c=x,y; =4; d\r\nCookie: e=\r\nConnection: close\r\n\r\n", Nothing)?
     serve(&app, "GET /cookies HTTP/1.1\r\nHost: x\r\nCookie: a=1; b=2; c=3; d=4; e=5\r\nConnection: close\r\n\r\n", Nothing)?
@@ -670,7 +674,7 @@ x=y; Domain=a.example; SameSite=Strict
 fn forwarded_clients_need_trusted_proxies() {
     runs(
         r##"
-def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | std.net.NetError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError | OverflowError[i64]]:
     mut app = app()?
     get = "GET /client HTTP/1.1\r\nHost: x\r\nX-Forwarded-For: 6.6.6.6, 203.0.113.9, 10.0.0.7\r\nX-Forwarded-Proto: https\r\nForwarded: for=7.7.7.7\r\nConnection: close\r\n\r\n"
     serve(&app, get, Nothing)?
@@ -774,12 +778,15 @@ pub class Quiet:
     pub at: i64
 
     pub def read_before(self: &mut Quiet, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
-        mut count = stop - start
-        if count > self.input.len() - self.at:
-            count = self.input.len() - self.at
-        buffer.overwrite(start, &self.input[self.at:self.at + count])
-        self.at += count
-        Ok(count)
+        # Validated transport ranges and 0 <= at <= len(input); count is
+        # bounded by both remaining ranges, so advancing stays within input.
+        unchecked:
+            mut count = stop - start
+            if count > self.input.len() - self.at:
+                count = self.input.len() - self.at
+            buffer.overwrite(start, &self.input[self.at:self.at + count])
+            self.at += count
+            Ok(count)
 
     pub def shutdown(self: &mut Quiet, direction: Shutdown) -> Result[(), NetError]:
         Ok(())
@@ -834,7 +841,7 @@ def form_sweep(handler: &Probe, before: &str, after: &str) -> Result[(), std.byt
         probe(handler, &"POST /form HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\nContent-Type: ".concat(before)?, code, &after.concat("\r\n\r\n")?)?
     Ok(())
 
-def part_sweep(handler: &Probe, before: &str, after: &str) -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError]:
+def part_sweep(handler: &Probe, before: &str, after: &str) -> Result[(), std.bytes.BytesError | std.http.server.ServerError | AllocError | IoError | OverflowError[i64]]:
     for code in range(256):
         body_size = 21 + before.byte_len() + after.byte_len() + 1
         mut head = "POST /upload HTTP/1.1\r\nHost: x\r\nContent-Type: multipart/form-data; boundary=XyZ\r\nContent-Length: "
@@ -898,7 +905,7 @@ fn field_byte(byte: u8) -> bool {
 fn body_and_cookie_tokens_accept_exactly_the_rfc_sets() {
     let main = format!(
         r##"{PROBE}
-def main() -> Result[(), std.bytes.BytesError | std.http.cookie.CookieError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | std.http.cookie.CookieError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError | OverflowError[i64]]:
     handler = Probe(app()?)
     form_sweep(&handler, "application/x-www-form-urlencoded; a", "b=c")?
     form_sweep(&handler, "application/x-www-form-urlencoded; a=b", "c")?
@@ -1030,7 +1037,7 @@ def main() -> Result[(), std.bytes.BytesError | std.http.cookie.CookieError | st
 fn multipart_boundaries_accept_exactly_bchars() {
     let main = format!(
         r##"{PROBE}
-def main() -> Result[(), std.bytes.BytesError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | std.http.proxy.ProxyError | std.http.server.ServerError | AllocError | IoError | OverflowError[i64]]:
     boundary_sweep(&Probe(app()?))?
     Ok(())
 "##
@@ -1073,7 +1080,7 @@ def main() -> Result[(), std.bytes.BytesError | std.http.proxy.ProxyError | std.
 fn body_and_cookie_classes_are_bulk_scans() {
     let dir = tempfile::tempdir().unwrap();
     let source = format!(
-        "{}def main() -> Result[(), std.http.proxy.ProxyError | IoError]:\n    app()?\n    Ok(())\n",
+        "{}def main() -> Result[(), std.http.proxy.ProxyError | IoError | OverflowError[i64]]:\n    app()?\n    Ok(())\n",
         PRELUDE.replace("$STORAGE", "/tmp")
     );
     std::fs::write(dir.path().join("main.plenty"), source).unwrap();
@@ -1117,5 +1124,345 @@ fn body_and_cookie_classes_are_bulk_scans() {
         for call in absent {
             assert!(!body.contains(call), "{name} calls {call}:\n{body}");
         }
+    }
+}
+
+/// Compile boundary probes with explicit optimization and runtime test hooks.
+fn checked_consumer_output(source: &str, optimize: bool) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.plenty");
+    let executable = dir.path().join("program");
+    std::fs::write(&path, source).unwrap();
+    plenty::compile_file_to_executable_with_options(
+        &path,
+        &executable,
+        None,
+        &plenty::CompileOptions {
+            optimize,
+            test_hooks: true,
+            ..Default::default()
+        },
+    )
+    .unwrap_or_else(|error| panic!("{source}\n{error}"));
+    let output = std::process::Command::new(executable).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{:?}\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .filter(|line| !line.starts_with("__test_"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn body_size_helpers_preserve_too_large_at_representation_boundary() {
+    fn helper<'a>(source: &'a str, name: &str) -> &'a str {
+        let start = source.find(&format!("def {name}(")).unwrap();
+        source[start..].split("\n\n").next().unwrap()
+    }
+    let body = include_str!("../stdlib/std/http/body.plenty");
+    let source = format!(
+        r#"import std.http
+import std.bytes
+import std.fs
+import std.http.body
+from std.http import Header
+from std.http.body import BodyError, MultipartLimits
+from std.bytes import Bytes
+from std.fs import TempFile
+from std.io import StreamError
+import std.error
+import std.io
+{allocated}
+
+{storage_failure}
+
+{emit}
+
+{extent}
+
+{decimal}
+
+{digit}
+
+{declared}
+
+def main() -> Result[(), AllocError | IoError]:
+    print("__test_begin_no_allocations__")?
+    exact = body_extent(9223372036854775800, 7).unwrap() == i64.MAX
+    overflow = match body_extent(i64.MAX, 1):
+        case Err(BodyError.TooLarge):
+            True
+        case _:
+            False
+    decimal_exact = decimal_extent(922337203685477580, 55).unwrap() == i64.MAX
+    decimal_over = match decimal_extent(922337203685477580, 56):
+        case Err(BodyError.TooLarge):
+            True
+        case _:
+            False
+    print("__test_end_no_allocations__")?
+    print(exact, overflow, decimal_exact, decimal_over)?
+    headers = [Header("Content-Length", "9223372036854775807")]?
+    print(declared_within(&headers, i64.MAX).is_ok())?
+    too_long = [Header("Content-Length", "9223372036854775808")]?
+    rejected = match declared_within(&too_long, i64.MAX):
+        case Err(BodyError.TooLarge):
+            True
+        case _:
+            False
+    print(rejected)?
+    mut text = std.bytes.from_text("held").unwrap()
+    mut file: Option[TempFile] = Nothing
+    limits = std.http.body.MultipartLimits(1, 9223372036854775807, 9223372036854775807, 9223372036854775807, 9223372036854775807)
+    rejected_emit = match emit(b"x", 0, 1, &mut file, &mut text, i64.MAX, &limits):
+        case Err(BodyError.TooLarge):
+            True
+        case _:
+            False
+    print(rejected_emit, text.len() == 4)?
+    Ok(())
+"#,
+        allocated = helper(body, "allocated[T]"),
+        storage_failure = helper(body, "storage_failure"),
+        emit = helper(body, "emit"),
+        extent = helper(body, "body_extent"),
+        decimal = helper(body, "decimal_extent"),
+        digit = helper(body, "digit"),
+        declared = helper(body, "declared_within")
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            checked_consumer_output(&source, optimize),
+            "True True True True\nTrue\nTrue\nTrue True"
+        );
+    }
+}
+
+#[test]
+fn body_forms_and_cookie_extreme_age_and_signatures() {
+    let source = r#"import std.bytes
+import std.time
+import std.http
+import std.http.body
+import std.http.cookie
+from std.http import Header
+
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.http.body.BodyError | std.http.cookie.CookieError]:
+    limits = std.http.body.FormLimits(9223372036854775807, 9223372036854775807)
+    for text in ["", "a", "a=", "a=%", "a=%0", "a=%00&", "&&a=+%41&&"]?:
+        result = std.http.body.parse_form_text(text, &limits)
+        match result:
+            case Ok(pairs):
+                print(len(pairs))?
+            case Err(error):
+                print(std.http.body.status(&error))?
+    headers = [Header("Cookie", ""), Header("Cookie", "a=; b=\"\"; bad name=x;" )]?
+    print(len(std.http.cookie.cookies(&headers, 2)?))?
+    print(std.http.cookie.cookies(&headers, 1).is_err())?
+    mut cookie = std.http.cookie.set_cookie("id", "x")?
+    cookie.max_age = Some(std.time.nanoseconds(u64.MAX))
+    print("Max-Age=18446744074;" in cookie.to_string()?)?
+    keys = [std.bytes.from_text("01234567890123456789012345678901")?]?
+    signed = std.http.cookie.sign(&keys, "id", "value")?
+    print(std.http.cookie.verify(&keys, "id", &signed)?.unwrap())?
+    print(std.http.cookie.verify(&keys, "id", "")?.is_none())?
+    print(std.http.cookie.verify(&keys, "id", ".")?.is_none())?
+    print(std.http.cookie.verify(&keys, "other", &signed)?.is_none())?
+    Ok(())
+"#;
+    for optimize in [false, true] {
+        assert_eq!(
+            checked_consumer_output(source, optimize),
+            "0\n1\n1\n400\n400\n1\n1\n2\nTrue\nTrue\nvalue\nTrue\nTrue\nTrue"
+        );
+    }
+}
+
+#[test]
+fn body_multipart_reads_parts_and_rejects_limits_through_server() {
+    let storage = tempfile::tempdir().unwrap();
+    let source = r#"import std.bytes
+import std.fs
+import std.http
+import std.http.body
+import std.http.server
+import std.net
+import std.path
+from std.bytes import Bytes
+from std.net import NetError, Shutdown
+from std.sync import CancellationToken
+from std.time import Deadline
+
+pub class Input:
+    data: Bytes
+    at: i64
+
+    pub def read_before(self: &mut Input, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+        # Transport ranges are validated; 0 <= at <= len(data); take <= both
+        # remaining ranges, so subtraction and advancing cannot overflow.
+        unchecked:
+            mut take = stop - start
+            if take > 7:
+                take = 7
+            if take > self.data.len() - self.at:
+                take = self.data.len() - self.at
+            buffer.overwrite(start, &self.data[self.at:self.at + take])
+            self.at += take
+            Ok(take)
+
+    pub def write_before(self: &mut Input, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
+        Ok(len(source))
+
+    pub def shutdown(self: &mut Input, direction: Shutdown) -> Result[(), NetError]:
+        Ok(())
+
+pub class Handler:
+    root: std.fs.Root
+    limits: std.http.body.MultipartLimits
+
+    pub def handle(self, route: &i64, exchange: &mut std.http.server.Exchange[Input]) -> Result[(), std.http.HttpError | IoError]:
+        if *route == 1:
+            match std.http.body.read_form(exchange, &std.http.body.FormLimits(3, 2)):
+                case Ok(pairs):
+                    print(len(pairs))?
+                case Err(error):
+                    print(std.http.body.status(&error))?
+            return exchange.send_text(200, "done")
+        match std.http.body.read_multipart(exchange, &self.limits, &self.root):
+            case Ok(parts):
+                print(len(parts))?
+                for part in parts:
+                    print(part.name, part.size)?
+            case Err(error):
+                print(std.http.body.status(&error))?
+        exchange.send_text(200, "done")
+
+def main() -> Result[(), AllocError | IoError | std.http.server.ServerError]:
+    mut router = std.http.server.router[i64]()?
+    router.add("POST", "/", 0)?
+    router.add("POST", "/form", 1)?
+    mut handler = Handler(std.fs.root(&std.path.from_text("$STORAGE")?)?, std.http.body.multipart_limits())
+    handler.limits.max_head = 9223372036854775807
+    body = "--B\r\nContent-Disposition: form-data; name=field\r\n\r\nabc\r\n--B\r\nContent-Disposition: form-data; name=file; filename=x\r\n\r\ndef\r\n--B--"
+    head = "POST / HTTP/1.1\r\nHost: x\r\nConnection: close\r\nContent-Type: multipart/form-data; boundary=B\r\nContent-Length: ".concat(str.from(body.byte_len())?)?.concat("\r\n\r\n")?
+    request = head.concat(body)?
+    cancel = CancellationToken()?
+    stop = CancellationToken()?
+    config = std.http.server.config()
+    for limit in [3, 2]?:
+        handler.limits.max_file = NonNegative.try_from(limit).unwrap()
+        transport = Input(std.bytes.from_text(&request).unwrap(), 0)
+        report = std.http.server.serve_connection(transport, &router, &handler, &config, &stop, &cancel)
+        print(report.handler_errors)?
+    for form in ["Content-Length: 3\r\n\r\na=1", "Content-Length: 4\r\n\r\na=12", "Transfer-Encoding: chunked\r\n\r\n4\r\na=12\r\n0\r\n\r\n"]?:
+        form_request = "POST /form HTTP/1.1\r\nHost: x\r\nConnection: close\r\nContent-Type: application/x-www-form-urlencoded\r\n".concat(form)?
+        report = std.http.server.serve_connection(Input(std.bytes.from_text(&form_request).unwrap(), 0), &router, &handler, &config, &stop, &cancel)
+        print(report.handler_errors)?
+    Ok(())
+"#
+    .replace("$STORAGE", storage.path().to_str().unwrap());
+    for optimize in [false, true] {
+        assert_eq!(
+            checked_consumer_output(&source, optimize),
+            "2\nfield 3\nfile 3\n0\n413\n0\n1\n0\n413\n0\n413\n0"
+        );
+        assert_eq!(std::fs::read_dir(storage.path()).unwrap().count(), 0);
+    }
+}
+
+#[test]
+fn proxy_cursor_and_prefix_helpers_cover_integer_boundaries() {
+    fn helper<'a>(source: &'a str, name: &str) -> &'a str {
+        let start = source.find(&format!("def {name}(")).unwrap();
+        source[start..].split("\n\n").next().unwrap()
+    }
+    let proxy = include_str!("../stdlib/std/http/proxy.plenty");
+    let source = format!(
+        r#"from std.http.proxy import ProxyError
+{mask}
+
+{escape}
+
+def main() -> Result[(), IoError]:
+    print("__test_begin_no_allocations__")?
+    minimum = mask64(i64.MIN) == 0u64
+    maximum = mask64(i64.MAX) == u64.MAX
+    zero = mask64(0) == 0u64
+    one = mask64(1) == 9223372036854775808u64
+    almost_full = mask64(63) == 18446744073709551614u64
+    full = mask64(64) == u64.MAX
+    exact = escaped_end(9223372036854775805, i64.MAX).unwrap() == i64.MAX
+    dangling = match escaped_end(9223372036854775806, i64.MAX):
+        case Err(ProxyError.InvalidForwarded):
+            True
+        case _:
+            False
+    tiny = escaped_end(0, 1).is_err()
+    print("__test_end_no_allocations__")?
+    print(minimum, maximum, zero, one, almost_full, full, exact, dangling, tiny)?
+    Ok(())
+"#,
+        mask = helper(proxy, "mask64"),
+        escape = helper(proxy, "escaped_end")
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            checked_consumer_output(&source, optimize),
+            "True True True True True True True True True"
+        );
+    }
+}
+
+#[test]
+fn proxy_forwarding_boundaries_preserve_errors_and_trust() {
+    let source = r#"import std.http.proxy
+import std.net
+from std.http import Header
+from std.http.proxy import ProxyError, Forwarding
+
+def main() -> Result[(), ProxyError | std.net.NetError | AllocError | IoError]:
+    mut proxy = std.http.proxy.proxies(Forwarding.Forwarded)?
+    proxy.trust("0.0.0.0/0")?
+    proxy.trust("::/0")?
+    print(proxy.trust("0.0.0.0/999").is_err(), proxy.trust("0.0.0.0/0000").is_err())?
+    proxy.trust("255.255.255.255/32")?
+    proxy.trust("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128")?
+    peer = std.net.parse_address("10.0.0.1:443")?
+    for value in ["", ",,,", "for=192.0.2.1,", "for=\"192.0.2.1\"", "for=\"192.0.2.1\\\"", "for=\"192.0.2.1\\", "for=192.0.2.1;proto=HTTPS"]?:
+        headers = [Header("Forwarded", value)]?
+        match std.http.proxy.client(&peer, &headers, &proxy):
+            case Ok(client):
+                print(std.net.format_ip(client.address)?, client.scheme, client.proxied)?
+            case Err(ProxyError.InvalidForwarded):
+                print("invalid")?
+            case Err(_):
+                print("unexpected error")?
+    proxy.max_hops = 0
+    empty = [Header("Forwarded", ",,,")]?
+    print(std.http.proxy.client(&peer, &empty, &proxy)?.proxied)?
+    one = [Header("Forwarded", "for=192.0.2.1")]?
+    too_many = match std.http.proxy.client(&peer, &one, &proxy):
+        case Err(ProxyError.TooManyHops):
+            True
+        case _:
+            False
+    print(too_many)?
+    proxy.header = Forwarding.XForwardedFor
+    proxy.max_hops = 9223372036854775807
+    nodes = [Header("X-Forwarded-For", ", 192.0.2.1,,10.0.0.2, "), Header("X-Forwarded-Proto", ", https,")]?
+    print(std.net.format_ip(std.http.proxy.client(&peer, &nodes, &proxy)?.address)?)?
+    Ok(())
+"#;
+    for optimize in [false, true] {
+        assert_eq!(
+            checked_consumer_output(source, optimize),
+            "True True\n10.0.0.1 Option[str].Nothing False\n10.0.0.1 Option[str].Nothing False\n192.0.2.1 Option[str].Nothing True\n192.0.2.1 Option[str].Nothing True\ninvalid\ninvalid\n192.0.2.1 Option[str].Some(\"https\") True\nFalse\nTrue\n192.0.2.1"
+        );
     }
 }

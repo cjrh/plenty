@@ -74,6 +74,16 @@ Transport errors and invalid progress remain distinct; a zero write is
 be blindly replayed. Empty chunks write nothing; `write_last_chunk` ends a
 chunked body.
 
+Wire-progress extents are checked before delivery. In particular, a chunk's
+size line, payload and final CRLF must all fit `i64`; representation failure
+returns `Partial(0, FramingError.OutOfRange)` before writing any of that chunk.
+It is not invalid transport progress. Existing transport failures retain their
+payload and exact previously delivered count.
+
+Head, body and trailer cursor arithmetic uses explicit opt-outs justified by
+validated ranges, byte budgets and accepted progress. A caller's arithmetic
+mode does not change these public result contracts.
+
 ## From a parsed head
 
 `request_body(inner, head, limits)` and
@@ -106,7 +116,7 @@ after successful completion. `trailers()` borrows the chunked trailer list
 (empty for other modes); it is complete only once `is_done()` is true.
 Interruption preserves state; failures retain concrete transport causes and
 previously delivered progress through the typed stream helpers. Invalid ranges
-leave a healthy body readable. Other source/framing failures break it.
+trap before changing body state or accessing the transport. Other source/framing failures break it.
 
 `body.finish()` returns `Result[R, FramingError[E]]`. It returns the complete
 transport, with buffered bytes preserved, only after a persistent fixed-length,

@@ -415,7 +415,7 @@ def position_scale(components: &list[Component], vertical: bool) -> Result[Posit
         case Some(values):
             mut seen = allocated(list[f64]())?
             for value in values:
-                if transformed(*value, result._transform).is_none() or std.math.abs(*value) > 1.0e100 or *value in seen:
+                if transformed(*value, result._transform).is_none() or std.math.abs_float(*value) > 1.0e100 or *value in seen:
                     return Err(PlotError.InvalidSetting("breaks must be distinct finite values in the transform domain"))
                 allocated(seen.append(*value))?
             match &result._labels:
@@ -560,7 +560,7 @@ def check_limits(limits: Option[(f64, f64)]) -> Result[(), PlotError]:
     match limits:
         case Some(pair):
             low, high = pair
-            if not finite(low) or not finite(high) or low >= high or std.math.abs(low) > 1.0e100 or std.math.abs(high) > 1.0e100:
+            if not finite(low) or not finite(high) or low >= high or std.math.abs_float(low) > 1.0e100 or std.math.abs_float(high) > 1.0e100:
                 return Err(PlotError.InvalidSetting("limits must be finite, increasing, and within +/-1e100"))
         case Nothing:
             pass
@@ -652,9 +652,13 @@ def validate(data: &TableData, mapping: &Mapping, components: &list[Component]) 
             case Component.Cartesian(x, y):
                 check_limits(*x)?
                 check_limits(*y)?
-                coordinates += 1
+                # Each component contributes at most one; count <= len(components).
+                unchecked:
+                    coordinates += 1
             case Component.Flip:
-                coordinates += 1
+                # Each component contributes at most one; count <= len(components).
+                unchecked:
+                    coordinates += 1
             case _:
                 pass
     if coordinates > 1:
@@ -911,7 +915,12 @@ def facet_keys(resolved: &ResolvedPlot, facet: &Facet) -> Result[FacetKeys, Plot
         return Err(PlotError.InvalidSetting("at least one layer must contain all facet columns"))
     rows = facet_levels(resolved, facet._rows)?
     cols = facet_levels(resolved, facet._cols)?
-    if len(rows) > 1000 or len(cols) > 1000 or len(rows) * len(cols) > 1000:
+    if len(rows) > 1000 or len(cols) > 1000:
+        return Err(PlotError.InvalidSetting("at most 1000 facet panels are supported"))
+    # Both nonnegative lengths are <= 1000, so the product is <= 1,000,000.
+    panels = unchecked:
+        len(rows) * len(cols)
+    if panels > 1000:
         return Err(PlotError.InvalidSetting("at most 1000 facet panels are supported"))
     mut keys = allocated(list[PanelKey]())?
     for row in &rows:
@@ -927,18 +936,22 @@ def facet_keys(resolved: &ResolvedPlot, facet: &Facet) -> Result[FacetKeys, Plot
             allocated(keys.append(PanelKey(*row, *col, title)))?
     mut nrow = len(rows)
     mut ncol = len(cols)
-    if not facet._grid:
-        ncol = facet._ncol
-        if ncol == 0:
-            if facet._nrow > 0:
-                ncol = (len(keys) + facet._nrow - 1) // facet._nrow
-            else:
-                ncol = 1
-                while ncol * ncol < len(keys):
-                    ncol += 1
-        nrow = facet._nrow if facet._nrow > 0 else (len(keys) + ncol - 1) // ncol
-        if nrow * ncol < len(keys):
-            return Err(PlotError.InvalidSetting("facet nrow/ncol do not provide enough panels"))
+    # Validated row/column settings are in 0..1000 and 1 <= len(keys) <= 1000.
+    # Ceiling sums are <= 2000 (numerators <= 1999); divisors are positive. The automatic
+    # square search stops at 32, and the final dimensions/product are <= 1000/1e6.
+    unchecked:
+        if not facet._grid:
+            ncol = facet._ncol
+            if ncol == 0:
+                if facet._nrow > 0:
+                    ncol = (len(keys) + facet._nrow - 1) // facet._nrow
+                else:
+                    ncol = 1
+                    while ncol * ncol < len(keys):
+                        ncol += 1
+            nrow = facet._nrow if facet._nrow > 0 else (len(keys) + ncol - 1) // ncol
+            if nrow * ncol < len(keys):
+                return Err(PlotError.InvalidSetting("facet nrow/ncol do not provide enough panels"))
     Ok(FacetKeys(keys, nrow, ncol))
 
 def panel_matches(data: &TableData, row: i64, name: str, value: Option[str]) -> Result[bool, PlotError]:
@@ -1078,7 +1091,7 @@ def axis(data: &TableData, name: str, factor: bool) -> Result[Axis, PlotError]:
             match value:
                 case Some(number):
                     if finite(number):
-                        if std.math.abs(number) > 1.0e100:
+                        if std.math.abs_float(number) > 1.0e100:
                             return Err(PlotError.InvalidSetting("numeric data magnitude exceeds 1e100"))
                         allocated(values.append(Some(number)))?
                     else:
@@ -1203,7 +1216,9 @@ def train_axis(target: &mut Option[Axis], source: &Axis, present: bool) -> Resul
                         allocated(scale.levels.append(*level))?
                 sort_levels(scale)?
                 scale.low = 0.0
-                scale.high = f64(std.math.max(0, len(scale.levels) - 1))
+                # A nonnegative list length minus one is in -1..i64.MAX-1.
+                unchecked:
+                    scale.high = f64(std.math.max(0, len(scale.levels) - 1))
             elif observed_axis(source):
                 if len(scale.values) == 0:
                     scale.low = source.low
@@ -1224,7 +1239,9 @@ def order_levels(scale: &mut Axis, setting: &PositionScale) -> Result[(), PlotEr
             case _:
                 pass
         scale.low = 0.0
-        scale.high = f64(std.math.max(0, len(scale.levels) - 1))
+        # A nonnegative list length minus one is in -1..i64.MAX-1.
+        unchecked:
+            scale.high = f64(std.math.max(0, len(scale.levels) - 1))
         match &setting._labels:
             case Some(labels):
                 if len(labels) != len(scale.levels):
@@ -1283,10 +1300,13 @@ def colour_axis(data: &TableData, name: str, factor: bool, components: &list[Com
 
 def hex_channel(value: str, offset: i64) -> f64:
     mut result = 0
-    for index in range(offset, offset + 2):
-        digit = "0123456789abcdef".find(value[index]).unwrap_or(-1)
-        upper = "0123456789ABCDEF".find(value[index]).unwrap_or(0)
-        result = result * 16 + (digit if digit >= 0 else upper)
+    # Private callers use offsets 1, 3 or 5 in validated #RRGGBB endpoints.
+    # Two digits in 0..15 keep the accumulator in 0..255 (first step <= 15).
+    unchecked:
+        for index in range(offset, offset + 2):
+            digit = "0123456789abcdef".find(value[index]).unwrap_or(-1)
+            upper = "0123456789ABCDEF".find(value[index]).unwrap_or(0)
+            result = result * 16 + (digit if digit >= 0 else upper)
     f64(result)
 
 def gradient_colour(low: str, high: str, t: f64) -> Result[str, PlotError]:
@@ -1307,7 +1327,8 @@ def scale_colour(scale: &Axis, index: i64, t: f64) -> Result[str, PlotError]:
             gradient_colour("#132B43", "#56B1F7", t)
 
 def palette(index: i64) -> str:
-    match index % 8:
+    divisor: NonZero[i64] = 8
+    match index % divisor:
         case 0:
             "#F8766D"
         case 1:
@@ -1363,6 +1384,15 @@ def group_value(scale: &Axis, row: i64) -> i64:
         case Nothing:
             -1
 
+# Missing-row diagnostics can count two causes per source row. They saturate
+# independently of semantic row/group counts, preserving rendering and errors.
+def diagnostic_increment(value: i64) -> i64:
+    if value == i64.MAX:
+        return value
+    # Internal counters start at zero; value < MAX proves the increment fits.
+    unchecked:
+        value + 1
+
 def prepare(data: &TableData, mapping: &Mapping, geom: &Layer, x: &Axis, y: &Axis, lower: &Axis, colour: &Axis, fill: &Axis, groups: &Axis, ys: &PositionScale, notes: &mut list[str]) -> Result[LayerRows, PlotError]:
     mut result = allocated(list[Row]())?
     mut identities = allocated(dict[(i64, i64, i64, i64, i64), i64]())?
@@ -1375,11 +1405,11 @@ def prepare(data: &TableData, mapping: &Mapping, geom: &Layer, x: &Axis, y: &Axi
         fv = colour_at(fill, row, geom._fill, "#595959")?
         valid = xv.is_some() and yv.is_some() and bottom.is_some() and cv.is_some() and fv.is_some()
         if not valid:
-            dropped += 1
+            dropped = diagnostic_increment(dropped)
             if geom._kind != 1 and geom._kind != 2 and geom._kind != 8:
                 continue
         if len(groups.values) > 0 and groups.values[row].is_none():
-            dropped += 1
+            dropped = diagnostic_increment(dropped)
             continue
         explicit = len(groups.values) > 0
         # Discrete aesthetics define default groups; an explicit group replaces
@@ -1415,7 +1445,10 @@ def prepare(data: &TableData, mapping: &Mapping, geom: &Layer, x: &Axis, y: &Axi
             mut position = row.x
             mut width = geom._width
             if geom._kind == 5:
-                bin = std.math.min(geom._bins - 1, i64((row.x - origin) / binwidth))
+                # Validation proves 1 <= bins <= 10000.
+                last_bin = unchecked:
+                    geom._bins - 1
+                bin = std.math.min(last_bin, i64((row.x - origin) / binwidth))
                 position = origin + (f64(bin) + 0.5) * binwidth
                 width = binwidth
             key = (row.group, allocated(str.from(position if position != 0.0 else 0.0))?)
@@ -1441,9 +1474,13 @@ def prepare(data: &TableData, mapping: &Mapping, geom: &Layer, x: &Axis, y: &Axi
                     case Some(value):
                         allocated(result.append(Row(row.x, value, 0.0, row.width, row.colour, row.fill, row.group, row.source, row.valid)))?
                     case Nothing:
-                        removed += 1
+                        # At most one increment per computed row, bounded by len(counts).
+                        unchecked:
+                            removed += 1
             else:
-                removed += 1
+                # At most one increment per computed row, bounded by len(counts).
+                unchecked:
+                    removed += 1
         if removed > 0 and not geom._na_rm:
             allocated(notes.append(allocated(f"Removed {removed} computed rows outside scale limits or transform domain.")?))?
     if bars(geom._kind):
@@ -1455,7 +1492,11 @@ def prepare(data: &TableData, mapping: &Mapping, geom: &Layer, x: &Axis, y: &Axi
             mut previous = allocated(dict[(str, bool), f64]())?
             mut stack_order = allocated(list[(i64, i64)]())?
             for index, row in enumerate(&result):
-                allocated(stack_order.append((-row.group, index)))?
+                # Group IDs are enumerate indices in 0..len(ordered_groups)-1,
+                # never i64.MIN, so reversing their sort key cannot overflow.
+                reversed_group = unchecked:
+                    -row.group
+                allocated(stack_order.append((reversed_group, index)))?
             stack_order.sort()
             for entry in &stack_order:
                 row = &mut result[entry[1]]
@@ -1466,7 +1507,7 @@ def prepare(data: &TableData, mapping: &Mapping, geom: &Layer, x: &Axis, y: &Axi
                 row.y = top
                 allocated(previous.insert(key, top))?
                 if geom._position == Position.Fill:
-                    total = std.math.abs(totals[key])
+                    total = std.math.abs_float(totals[key])
                     if total > 0.0:
                         row.bottom /= total
                         row.y /= total
@@ -1656,7 +1697,10 @@ def legend_box(scale: &Axis, title: str, size: f64, width: f64) -> Result[Legend
     mut used_width = heading.width
     count = len(scale.levels) if scale.discrete else (1 if scale.low == scale.high else 5)
     for index in range(count):
-        t = 0.5 if count == 1 else f64(index) / f64(count - 1)
+        # The loop proves count >= 1, so count - 1 is nonnegative.
+        last = unchecked:
+            count - 1
+        t = 0.5 if count == 1 else f64(index) / f64(last)
         name = scale.levels[index] if scale.discrete else number_label(scale.low + (scale.high - scale.low) * t, (scale.high - scale.low) / 4.0)?
         text = text_block(name, size * 0.8, width - size - 6.0)?
         used_width = std.math.max(used_width, text.width + size + 6.0)
@@ -1715,7 +1759,7 @@ def rectangle[W: Writer](writer: &mut W, x: f64, y: f64, width: f64, height: f64
 
 def expand(low: f64, high: f64, discrete: bool) -> (f64, f64):
     span = high - low
-    padding = 0.6 if discrete else (span * 0.05 if span > 0.0 else std.math.max(0.5, std.math.abs(low) * 0.05))
+    padding = 0.6 if discrete else (span * 0.05 if span > 0.0 else std.math.max(0.5, std.math.abs_float(low) * 0.05))
     (low - padding, high + padding)
 
 def coordinate(value: f64, low: f64, high: f64, start: f64, length: f64) -> f64:
@@ -1738,7 +1782,7 @@ def tick_step(low: f64, high: f64) -> f64:
         power * 10.0
 
 def number_label(value: f64, step: f64) -> Result[str, PlotError]:
-    rounded = 0.0 if std.math.abs(value) < step * 1.0e-9 else value
+    rounded = 0.0 if std.math.abs_float(value) < step * 1.0e-9 else value
     short = allocated(f"{rounded:.6g}")?
     if step <= 0.0 or short != allocated(f"{rounded + step:.6g}")?:
         return Ok(short)
@@ -1868,7 +1912,7 @@ def scene_plan(scene: &Scene, w: f64, h: f64, margins: (f64, f64, f64, f64)) -> 
     y = &scene.y
     xmin, xmax, ymin, ymax = scene.bounds
     for ratio in allocated([(xmin - xlo) / (xhi - xlo), (xmax - xlo) / (xhi - xlo), (ymin - ylo) / (yhi - ylo), (ymax - ylo) / (yhi - ylo)])?:
-        if not finite(ratio) or std.math.abs(ratio) > 1.0e9:
+        if not finite(ratio) or std.math.abs_float(ratio) > 1.0e9:
             return Err(PlotError.InvalidSetting("coordinate magnification is too large"))
     legends = scene_legends(scene, w)?
     xticks = axis_ticks(x, &scene.xs, xlo, xhi)?
@@ -2057,7 +2101,7 @@ def draw_facets[W: Writer](plot: &Plot, resolved: &ResolvedPlot, facet: &Facet, 
             bottom = std.math.max(bottom, cell_height - plan.top - plan.height)
             allocated(plans.append(plan))?
         updated = (left, right, top, bottom)
-        if std.math.abs(left - margins[0]) < 1.0e-7 and std.math.abs(right - margins[1]) < 1.0e-7 and std.math.abs(top - margins[2]) < 1.0e-7 and std.math.abs(bottom - margins[3]) < 1.0e-7:
+        if std.math.abs_float(left - margins[0]) < 1.0e-7 and std.math.abs_float(right - margins[1]) < 1.0e-7 and std.math.abs_float(top - margins[2]) < 1.0e-7 and std.math.abs_float(bottom - margins[3]) < 1.0e-7:
             converged = True
             break
         margins = updated
@@ -2068,8 +2112,12 @@ def draw_facets[W: Writer](plot: &Plot, resolved: &ResolvedPlot, facet: &Facet, 
     rectangle(writer, 0.0, 0.0, w, h, "white")?
     draw_text(writer, &title, 12.0, 12.0, "start")?
     for index, scene in enumerate(&scenes):
-        x = f64(index % keys.ncol) * cell_width
-        y = start_y + f64(index // keys.ncol) * cell_height
+        # Facet layout supplies 1 <= ncol <= 1000; index is nonnegative.
+        position = unchecked:
+            (index % keys.ncol, index // keys.ncol)
+        column, row = position
+        x = f64(column) * cell_width
+        y = start_y + f64(row) * cell_height
         identifier = allocated(f"panel-{index}")?
         emit(writer, allocated(f"<g data-panel=\"{index}\" transform=\"translate({x:.2f},{y:.2f})\">\n")?)?
         render_scene(writer, scene, &plans[index], cell_width, cell_height, identifier)?
@@ -2232,36 +2280,52 @@ def draw_layer[W: Writer](writer: &mut W, layer: &LayerRows, xlo: f64, xhi: f64,
                 fx2 = coordinate(row.bottom, ylo, yhi, left, width)
                 fy1 = coordinate(row.x - row.width / 2.0, xlo, xhi, top + height, -height)
                 fy2 = coordinate(row.x + row.width / 2.0, xlo, xhi, top + height, -height)
-                rectangle(writer, std.math.min(fx1, fx2), std.math.min(fy1, fy2), std.math.abs(fx2 - fx1), std.math.abs(fy2 - fy1), row.fill, row.colour)?
+                rectangle(writer, std.math.min(fx1, fx2), std.math.min(fy1, fy2), std.math.abs_float(fx2 - fx1), std.math.abs_float(fy2 - fy1), row.fill, row.colour)?
             else:
-                rectangle(writer, x1, std.math.min(y1, y2), x2 - x1, std.math.abs(y2 - y1), row.fill, row.colour)?
+                rectangle(writer, x1, std.math.min(y1, y2), x2 - x1, std.math.abs_float(y2 - y1), row.fill, row.colour)?
     emit(writer, "</g>\n")
 
 def draw_ribbons[W: Writer](writer: &mut W, layer: &LayerRows, order: &list[(i64, f64, i64)], xlo: f64, xhi: f64, ylo: f64, yhi: f64, left: f64, top: f64, width: f64, height: f64, flip: bool) -> Result[(), PlotError]:
     mut start = 0
     while start < len(order):
         if not layer.rows[order[start][2]].valid:
-            start += 1
+            # start < len(order) <= i64.MAX.
+            unchecked:
+                start += 1
             continue
         first = &layer.rows[order[start][2]]
-        mut stop = start + 1
+        # start < len(order), hence start + 1 <= len(order).
+        mut stop = unchecked:
+            start + 1
         while stop < len(order):
             row = &layer.rows[order[stop][2]]
             if not row.valid or row.group != first.group:
                 break
             if row.colour != first.colour or row.fill != first.fill:
                 return Err(PlotError.Conflict("ribbon aesthetics must be constant within each group"))
-            if row.x == layer.rows[order[stop - 1][2]].x:
+            # 1 <= stop < len(order).
+            previous = unchecked:
+                stop - 1
+            if row.x == layer.rows[order[previous][2]].x:
                 return Err(PlotError.Conflict("ribbon x values must be distinct within each group"))
-            stop += 1
-        if stop - start >= 2:
+            # stop < len(order), hence stop + 1 <= len(order).
+            unchecked:
+                stop += 1
+        # 0 <= start < stop <= len(order), so the difference is representable.
+        length = unchecked:
+            stop - start
+        if length >= 2:
             mut points = allocated(list[str]())?
             for index in range(start, stop):
                 row = &layer.rows[order[index][2]]
                 px = coordinate(row.y, ylo, yhi, left, width) if flip else coordinate(row.x, xlo, xhi, left, width)
                 py = coordinate(row.x, xlo, xhi, top + height, -height) if flip else coordinate(row.y, ylo, yhi, top + height, -height)
                 allocated(points.append(allocated(f"{px:.2f},{py:.2f}")?))?
-            for index in range(stop - 1, start - 1, -1):
+            # 1 <= stop <= i64.MAX and 0 <= start < stop: endpoints >= -1.
+            endpoints = unchecked:
+                (stop - 1, start - 1)
+            last, before = endpoints
+            for index in range(last, before, -1):
                 row = &layer.rows[order[index][2]]
                 px = coordinate(row.bottom, ylo, yhi, left, width) if flip else coordinate(row.x, xlo, xhi, left, width)
                 py = coordinate(row.x, xlo, xhi, top + height, -height) if flip else coordinate(row.bottom, ylo, yhi, top + height, -height)

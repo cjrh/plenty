@@ -190,6 +190,13 @@ with the [key import functions](crypto-keys.md#import). It supports the project'
 x86-64 Linux GNU target. Runtime entry symbols keep unused primitive paths
 eligible for linker garbage collection; `ring` is also used by `std.tls`.
 
+## Arithmetic bounds
+
+AEAD validates protocol lengths before adding or removing its 16-byte tag.
+These bounded operations cannot overflow; existing invalid-length, allocation,
+and authentication errors remain unchanged, including validation and allocation
+before encryption mutates plaintext.
+
 ## Acknowledgements
 
 - Wraps [`ring`](https://github.com/briansmith/ring) 0.17.14 (Apache-2.0 AND ISC),

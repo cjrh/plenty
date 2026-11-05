@@ -202,7 +202,9 @@ pub class Procfs:
                     break
             if seen >= max_entries.get():
                 return Err(SystemError.Limit)
-            seen += 1
+            # 0 <= seen < max_entries <= i64.MAX, including non-PID entries.
+            unchecked:
+                seen += 1
             bytes = name.as_bytes()
             mut numeric = len(bytes) > 0
             for byte in bytes:
@@ -274,7 +276,11 @@ def read_proc(root: &Root, name: str, max_bytes: Positive[i64]) -> Result[str, S
     mut data = allocated(std.bytes.empty())?
     # One extra byte distinguishes exact-limit EOF from truncation. procfs
     # commonly reports st_size=0, so metadata is never used for this limit.
-    match std.io.read_up_to(&mut stream, &mut data, NonNegative.from(max_bytes) + 1):
+    # All callers reject i64.MAX before opening the file: the positive
+    # byte budget plus one is representable, including at i64.MAX - 1.
+    probe = unchecked:
+        NonNegative.from(max_bytes) + 1
+    match std.io.read_up_to(&mut stream, &mut data, probe):
         case Ok(count):
             if count > max_bytes.get():
                 return Err(SystemError.Limit)
@@ -306,9 +312,13 @@ def small_decimal(text: str, field: str) -> Result[u32, SystemError]:
     Ok(u32(value))
 
 def scaled(value: u64, factor: u64, field: str) -> Result[u64, SystemError]:
-    if value > u64.MAX // factor:
-        return Err(SystemError.Malformed(field))
-    Ok(value * factor)
+    product = checked:
+        value * factor
+    match product:
+        case Ok(bytes):
+            Ok(bytes)
+        case Err(_):
+            Err(SystemError.Malformed(field))
 
 def nonnegative_float(text: str, field: str) -> Result[f64, SystemError]:
     value = match f64.parse(text):
@@ -329,7 +339,11 @@ def field_value(text: str, key: str, trim: bool = True) -> Result[Option[str], S
                 if allocated(line.slice(0, at))? == key:
                     if found.is_some():
                         return Err(SystemError.Malformed(key))
-                    value = allocated(line.slice(at + 1, len(line)))?
+                    # find returned an existing scalar position, so
+                    # 0 <= at < len(line) <= i64.MAX; at + 1 fits.
+                    start = unchecked:
+                        at + 1
+                    value = allocated(line.slice(start, len(line)))?
                     found = Some(allocated(value.strip())? if trim else value)
             case Nothing:
                 pass

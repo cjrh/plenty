@@ -64,7 +64,10 @@ next calls. A row allocates one directory's lists. Top-down storage includes
 pending sibling paths along the active traversal depth and the current row;
 bottom-up additionally retains parent rows along that depth. It streams the
 tree rather than collecting the entire tree in advance; a very wide directory
-still needs fallible per-directory storage.
+still needs fallible per-directory storage. Pending-stack reservation counts
+only the frames about to be appended, not frames already held. An
+unrepresentable additional frame count returns
+`WalkError.Allocation(AllocError.CapacityOverflow)` before appending.
 
 Python `os.walk` supplies top-down/bottom-up and pruning precedent. Grouping
 directory symlinks with files follows `pathlib.Path.walk` with link following

@@ -22,7 +22,7 @@ fn runs(source: &str, expected: &str) {
 
 #[test]
 fn maps_share_owned_immutable_closures_including_generic_callable_workers() {
-    runs(
+    parallel_runs_in_both_modes(
         r#"
 class Capture:
     values: list[i64]
@@ -36,7 +36,10 @@ def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError]:
     with ThreadPoolExecutor(3, 1)? as pool:
         capture = Capture([2, 3]?)
         scale = def [capture](n: i64) -> i64:
-            n * len(capture.values)
+            # Fixed fixture: n is 0..3 and capture length is two.
+            result = checked:
+                n * len(capture.values)
+            result.unwrap()
         print(mapped(&pool, scale)?)?
         label = "error"
         work = def [label](n: i64) -> Result[i64, str]:
@@ -47,7 +50,10 @@ def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError]:
         print(str.repr(fallible(&pool, work))?)?
         offset = 10
         shift = def [offset](n: i64) -> i64:
-            n + offset
+            # Fixed fixture: n is 0..2 and offset is ten; retain map's i64 ABI.
+            result = checked:
+                n + offset
+            result.unwrap()
         print(pool.map(shift, range(3))?)?
     Ok(())
 "#,
@@ -57,21 +63,23 @@ def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError]:
 
 #[test]
 fn mapping_rejects_unsafe_callback_ownership_and_uncertified_effects() {
+    // Fixed n=0..2/value=2 fixtures retain their i64 ABI so arithmetic
+    // diagnostics cannot mask the intended ownership/eligibility rejection.
     for (worker, diagnostic) in [
         (
-            "job = def once [value](n: i64) -> i64:\n    n + value\n",
+            "job = def once [value](n: i64) -> i64:\n    result = checked:\n        n + value\n    result.unwrap()\n",
             "reusable immutable closure",
         ),
         (
-            "mut job = def [mut value](n: i64) -> i64:\n    value = value + n\n    value\n",
+            "mut job = def [mut value](n: i64) -> i64:\n    result = checked:\n        value + n\n    value = result.unwrap()\n    value\n",
             "reusable immutable closure",
         ),
         (
-            "job = def [&value](n: i64) -> i64:\n    n + value\n",
+            "job = def [&value](n: i64) -> i64:\n    result = checked:\n        n + value\n    result.unwrap()\n",
             "must own their captures",
         ),
         (
-            "def seven() -> i64:\n    path = std.env.current_dir().unwrap()\n    std.env.set_current_dir(&path).unwrap()\n    7\njob = def [value](n: i64) -> i64:\n    f: Callable[[], i64] = seven\n    n + value + f()\n",
+            "def seven() -> i64:\n    path = std.env.current_dir().unwrap()\n    std.env.set_current_dir(&path).unwrap()\n    7\njob = def [value](n: i64) -> i64:\n    f: Callable[[], i64] = seven\n    result = checked:\n        n + value + f()\n    result.unwrap()\n",
             "changing the working directory",
         ),
         (
@@ -79,7 +87,7 @@ fn mapping_rejects_unsafe_callback_ownership_and_uncertified_effects() {
             "lack worker eligibility evidence",
         ),
         (
-            "job = def [value](n: &i64) -> i64:\n    *n + value\n",
+            "job = def [value](n: &i64) -> i64:\n    result = checked:\n        *n + value\n    result.unwrap()\n",
             "one owned input",
         ),
     ] {
@@ -94,13 +102,13 @@ fn mapping_rejects_unsafe_callback_ownership_and_uncertified_effects() {
 
 #[test]
 fn fallible_map_drains_shared_callback_before_destroying_its_capture() {
-    runs(
+    parallel_runs_in_both_modes(
         r#"
 class Capture:
     sender: Sender[i64]
     def __del__(self) -> ():
         self.sender.send(99).unwrap()
-def main() -> Result[(), AllocError | IoError | PoolError | RecvError]:
+def main() -> Result[(), AllocError | IoError | PoolError | RecvError | OverflowError[i64]]:
     sender, receiver = channel[i64](16)?
     with ThreadPoolExecutor(3, 1)? as pool:
         capture = Capture(sender)
@@ -132,13 +140,16 @@ def main() -> Result[(), AllocError | IoError | PoolError | RecvError]:
 
 #[test]
 fn map_evaluates_the_callback_before_its_input_and_moves_inline_input_values() {
-    runs(
+    parallel_runs_in_both_modes(
         r#"
 def callback() -> Closure[[range[i64]], range[i64]]:
     print("callback").unwrap()
     offset = 1
     def [offset](value: range[i64]) -> range[i64]:
-        range(len(value) + offset)
+        # Fixed ranges have length three or two, and offset is one.
+        size = checked:
+            len(value) + offset
+        range(size.unwrap())
 def inputs() -> list[range[i64]]:
     print("inputs").unwrap()
     [range(3), range(4, 6)].unwrap()
@@ -153,7 +164,7 @@ with ThreadPoolExecutor(2, 1).unwrap() as pool:
 #[test]
 fn map_failure_and_shutdown_drop_shared_captures_once_and_drain_jobs() {
     for budget in 0..8 {
-        runs(
+        parallel_runs_in_both_modes(
             &format!(
                 r#"
 class Capture:
@@ -163,7 +174,10 @@ class Capture:
 with ThreadPoolExecutor(2, 1).unwrap() as pool:
     capture = Capture("dropped")
     work = def [capture](n: i64) -> i64:
-        n + len(capture.message)
+        # Fixed n=0..7 and seven-character capture; keep the infallible ABI.
+        result = checked:
+            n + len(capture.message)
+        result.unwrap()
     print("__test_fail_allocations_after_{budget}__").unwrap()
     result = pool.map(work, range(8))
     print("__test_restore_allocations__").unwrap()
@@ -184,11 +198,11 @@ with ThreadPoolExecutor(2, 1).unwrap() as pool:
 
 #[test]
 fn fallible_map_preserves_order_and_concrete_error() {
-    runs(
+    parallel_runs_in_both_modes(
         r#"
-def square[T: IntType](n: T) -> Result[T, str]:
+def square[T: IntType](n: T) -> Result[T, OverflowError[T]]:
     Ok(n * n)
-def fail(n: i64) -> Result[i64, range[i64]]:
+def fail(n: i64) -> Result[i64, range[i64] | OverflowError[i64]]:
     if n == 2 or n == 3:
         Err(range(n, n + 2))
     else:
@@ -201,7 +215,7 @@ def inspect[E](error: ParallelError[E]) -> E:
             fail_unreachable()
 def fail_unreachable() -> range[i64]:
     range(0)
-def main() -> Result[(), IoError | ParallelError[str] | PoolError]:
+def main() -> Result[(), IoError | ParallelError[OverflowError[u8]] | ParallelError[OverflowError[i64]] | PoolError]:
     with ThreadPoolExecutor(3, 1)? as pool:
         print(pool.map_result(square, range[u8](5))?)?
         print(pool.map_result(square, range(0))?)?
@@ -214,13 +228,13 @@ def main() -> Result[(), IoError | ParallelError[str] | PoolError]:
         print(str.repr(pool.map_result(square, range(0))).unwrap())?
     Ok(())
 "#,
-        "[0, 1, 4, 9, 16]\n[]\nrange(2, 4, 1)\nResult[list[i64], ParallelError[str]].Err(ParallelError[str].Shutdown)\n",
+        "[0, 1, 4, 9, 16]\n[]\nrange(2, 4, 1)\nResult[list[i64], ParallelError[OverflowError[i64]]].Err(ParallelError[OverflowError[i64]].Shutdown)\n",
     );
 }
 
 #[test]
 fn lowest_input_error_wins_even_when_a_later_failure_finishes_first() {
-    runs(
+    parallel_runs_in_both_modes(
         r#"
 class Input:
     index: i64
@@ -238,7 +252,7 @@ def work(value: Input) -> Result[Input, Input]:
         Err(value)
     else:
         Ok(value)
-def main() -> Result[(), AllocError | IoError | PoolError | RecvError]:
+def main() -> Result[(), AllocError | IoError | PoolError | RecvError | OverflowError[i64]]:
     signal, wait = channel[i64](1)?
     dropped, count = channel[i64](8)?
     with ThreadPoolExecutor(3, 1)? as pool:
@@ -292,7 +306,7 @@ fn tree_grouping_is_fixed_across_pool_sizes_and_not_a_left_fold() {
     runs(
         r#"
 def subtract[T: IntType](left: T, right: T) -> T:
-    left - right
+    left.wrapping_sub(right)
 def add(left: f64, right: f64) -> f64:
     left + right
 def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError]:
@@ -403,7 +417,7 @@ fn parallel_operations_reject_uncertified_workers_and_wrong_signatures() {
             "return that same type",
         ),
         (
-            "def work(a: i64, b: i64) -> i64:\n    pool = ThreadPoolExecutor(1, 1).unwrap()\n    a + b\nwith ThreadPoolExecutor(1, 1).unwrap() as pool:\n    drop(pool.reduce_tree(work, range(3)))\n",
+            "def work(a: i64, b: i64) -> i64:\n    pool = ThreadPoolExecutor(1, 1).unwrap()\n    a.wrapping_add(b)\nwith ThreadPoolExecutor(1, 1).unwrap() as pool:\n    drop(pool.reduce_tree(work, range(3)))\n",
             "executor",
         ),
         (
@@ -430,5 +444,384 @@ with ThreadPoolExecutor(2, 1).unwrap() as pool:
     print(str.repr(result).unwrap()).unwrap()
 "#,
         "__test_fail_allocations_after_4__\n__test_restore_allocations__\nResult[list[i64], ParallelError[i64]].Err(ParallelError[i64].Worker(0))\n",
+    );
+}
+
+/// Public callbacks and native slot ownership must work with either backend mode.
+fn parallel_runs_in_both_modes(source: &str, expected: &str) {
+    for optimize in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("reduce.plenty");
+        let executable = directory.path().join("reduce");
+        std::fs::write(&path, support::program(source)).unwrap();
+        plenty::compile_file_to_executable_with_options(
+            &path,
+            &executable,
+            None,
+            &plenty::CompileOptions {
+                optimize,
+                test_hooks: true,
+                ..Default::default()
+            },
+        )
+        .unwrap_or_else(|error| panic!("{source}\n{error}"));
+        let output = support::output_within(
+            &mut std::process::Command::new(executable),
+            b"",
+            std::time::Duration::from_secs(15),
+        );
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
+    }
+}
+
+#[test]
+fn fallible_tree_public_results_preserve_grouping_payloads_and_caller_modes() {
+    parallel_runs_in_both_modes(r#"
+def add[T: IntType](a: T, b: T) -> Result[T, OverflowError[T]]:
+    Ok(a + b)
+def shape(a: i64, b: i64) -> Result[i64, str]:
+    Ok(a.wrapping_sub(b))
+def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError | OverflowError[i64] | str]:
+    for workers in [1, 2, 3, 8]?:
+        with ThreadPoolExecutor(Positive.try_from(workers).unwrap(), 1)? as pool:
+            print(pool.reduce_tree(shape, range(1, 6))?)?
+            print(pool.reduce_tree(add, range(1, 6))?)?
+            print(pool.reduce_tree(add, range(0))?)?
+            print(pool.reduce_tree(add, range(9, 10))?)?
+            result = pool.reduce_tree(add, [100i8, 100i8]?)
+            match result:
+                case Err(error):
+                    match error:
+                        case overflow: OverflowError[i8]:
+                            print(overflow.wrapped)?
+                        case infrastructure: PoolMapError:
+                            print("unexpected infrastructure")?
+                case Ok(_):
+                    print("missed overflow")?
+            nested = checked:
+                # A checked suite must contain its own fallible arithmetic.
+                drop(workers + 1)
+                pool.reduce_tree(add, [100i8, 100i8]?)
+            print(nested?.is_err())?
+            unchecked:
+                unchecked_result = pool.reduce_tree(add, [100i8, 100i8]?)
+                print(unchecked_result.is_err())?
+    Ok(())
+"#, &"Option[i64].Some(-5)\nOption[i64].Some(15)\nOption[i64].Nothing\nOption[i64].Some(9)\n-56\nTrue\nTrue\n".repeat(4));
+}
+
+#[test]
+fn fallible_tree_selects_level_then_pair_and_accepts_overlapping_error_unions() {
+    parallel_runs_in_both_modes(
+        r#"
+def levels(a: i64, b: i64) -> Result[i64, str]:
+    if a == 4:
+        return Err("level zero")
+    if a == 0 and b == 2:
+        return Err("level one")
+    Ok(a)
+def overlap(a: i64, b: i64) -> Result[i64, PoolMapError]:
+    Err(PoolMapError.Shutdown)
+def union(a: i64, b: i64) -> Result[i64, PoolMapError | str]:
+    Err("union error")
+def main() -> Result[(), AllocError | IoError | PoolError]:
+    for workers in [1, 2, 3, 8]?:
+        with ThreadPoolExecutor(Positive.try_from(workers).unwrap(), 1)? as pool:
+            match pool.reduce_tree(levels, range(8)):
+                case Err(error):
+                    match error:
+                        case message: str:
+                            print(message)?
+                        case infrastructure: PoolMapError:
+                            print("unexpected infrastructure")?
+                case Ok(_):
+                    print("missed error")?
+            print(pool.reduce_tree(overlap, range(2)).is_err())?
+            print(pool.reduce_tree(union, range(2)).is_err())?
+            pool.shutdown()
+            print(pool.reduce_tree(union, range(0)).is_err())?
+    Ok(())
+"#,
+        &"level zero\nTrue\nTrue\nTrue\n".repeat(4),
+    );
+}
+
+#[test]
+fn fallible_tree_moves_managed_errors_and_drops_unused_inputs_and_errors_once() {
+    parallel_runs_in_both_modes(
+        r#"
+class Item:
+    events: Sender[i64]
+    def __del__(self) -> ():
+        self.events.send(1).unwrap()
+class ReduceFailure:
+    payload: list[Option[range[i64]]]
+    events: Sender[i64]
+    def __del__(self) -> ():
+        self.events.send(100).unwrap()
+def fail(a: Item, b: Item) -> Result[Item, ReduceFailure | AllocError]:
+    Err(ReduceFailure([Some(range(3))]?, a.events.share()))
+def main() -> Result[(), AllocError | IoError | PoolError]:
+    events, received = channel[i64](32)?
+    with ThreadPoolExecutor(2, 1)? as pool:
+        inputs = [Item(events.share()), Item(events.share()), Item(events.share()), Item(events.share()), Item(events.share()), Item(events.share()), Item(events.share()), Item(events.share())]?
+        result = pool.reduce_tree(fail, inputs)
+        match result:
+            case Err(error):
+                match error:
+                    case failure: ReduceFailure:
+                        print(len(failure.payload))?
+                    case allocation: AllocError:
+                        print("unexpected allocation")?
+                    case infrastructure: PoolMapError:
+                        print("unexpected infrastructure")?
+            case Ok(_):
+                print("missed error")?
+        mut total = 0
+        for _ in range(11):
+            total = total.wrapping_add(received.recv().unwrap())
+        print(total)?
+    Ok(())
+"#,
+        "1\n308\n",
+    );
+}
+
+#[test]
+fn fallible_tree_tutorial_example_runs_in_both_modes() {
+    let page = include_str!("../book/src/tutorial/11-concurrency/parallel-reduction.md");
+    let source = page
+        .split_once("```plenty\n")
+        .unwrap()
+        .1
+        .split_once("```")
+        .unwrap()
+        .0;
+    let expected = page
+        .split_once("```output\n")
+        .unwrap()
+        .1
+        .split_once("```")
+        .unwrap()
+        .0;
+    parallel_runs_in_both_modes(source, expected);
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn fallible_tree_allocation_failures_preserve_errors_and_pool_reuse() {
+    for budget in 0..18 {
+        parallel_runs_in_both_modes(
+            &format!(
+                r#"
+def left[T](a: T, b: T) -> Result[T, str]:
+    Ok(a)
+def reject(a: i64, b: i64) -> Result[i64, str]:
+    Err("first callback")
+def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError | str]:
+    with ThreadPoolExecutor(2, 1)? as pool:
+        values = [[Some(range(3))]?, [Some(range(4))]?, [Some(range(5))]?, [Some(range(6))]?, [Some(range(7))]?]?
+        print("__test_fail_allocations_after_{budget}__").unwrap()
+        result = pool.reduce_tree(left, values)
+        print("__test_restore_allocations__").unwrap()
+        drop(result)
+        print(pool.reduce_tree(left, range(2))?)?
+    Ok(())
+"#
+            ),
+            &format!(
+                "__test_fail_allocations_after_{budget}__\n__test_restore_allocations__\nOption[i64].Some(0)\n"
+            ),
+        );
+    }
+    // Values scratch + Pending + first job succeed; the next job fails.
+    parallel_runs_in_both_modes(
+        r#"
+def reject(a: i64, b: i64) -> Result[i64, str]:
+    Err("first callback")
+def main() -> Result[(), IoError | PoolError]:
+    with ThreadPoolExecutor(2, 1)? as pool:
+        values = range(8)
+        print("__test_fail_allocations_after_3__").unwrap()
+        result = pool.reduce_tree(reject, values)
+        print("__test_restore_allocations__").unwrap()
+        match result:
+            case Err(error):
+                match error:
+                    case text: str:
+                        print(text)?
+                    case infrastructure: PoolMapError:
+                        print("unexpected infrastructure")?
+            case Ok(_):
+                print("missed error")?
+    Ok(())
+"#,
+        "__test_fail_allocations_after_3__\n__test_restore_allocations__\nfirst callback\n",
+    );
+}
+
+#[test]
+fn fallible_tree_matches_ordinary_fixed_tree_for_odd_and_large_lengths() {
+    parallel_runs_in_both_modes(
+        r#"
+def shape(a: i64, b: i64) -> i64:
+    a.wrapping_mul(1000003).wrapping_add(b.wrapping_mul(31)).wrapping_add(17)
+def fallible(a: i64, b: i64) -> Result[i64, str]:
+    Ok(shape(a, b))
+def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError | str]:
+    mut lengths = [127, 128, 129, 1000, 1025]?
+    for n in range(71):
+        lengths.append(n)?
+    mut comparisons = 0
+    for workers in [1, 2, 3, 8]?:
+        with ThreadPoolExecutor(Positive.try_from(workers).unwrap(), 2)? as pool:
+            for n in &lengths:
+                if pool.reduce_tree(fallible, range(*n))? != pool.reduce_tree(shape, range(*n))?:
+                    print("wrong tree")?
+                comparisons = comparisons.wrapping_add(1)
+    print(comparisons)?
+    Ok(())
+"#,
+        "304\n",
+    );
+}
+
+#[test]
+fn fallible_tree_drains_gated_accepted_pairs_before_unused_source_drops() {
+    parallel_runs_in_both_modes(
+        r#"
+class Row:
+    index: i64
+    ready: Sender[i64]
+    gate: Receiver[i64]
+    deaths: Sender[i64]
+    def __del__(self) -> ():
+        self.deaths.send(1).unwrap()
+def reject(a: Row, b: Row) -> Result[Row, i64]:
+    if a.index == 2:
+        a.ready.send(1).unwrap()
+        a.gate.recv().unwrap()
+    Err(a.index)
+def release(ready: Receiver[i64], gate: Sender[i64]) -> ():
+    ready.recv().unwrap()
+    gate.send(1).unwrap()
+def main() -> Result[(), AllocError | IoError | PoolError | SpawnError[()]]:
+    ready, started = channel[i64](1)?
+    signal, gate = channel[i64](1)?
+    deaths, dead = channel[i64](16)?
+    with ThreadPoolExecutor(2, 1)? as pool:
+        mut rows: list[Row] = []?
+        for n in range(8):
+            rows.append(Row(n, ready.share(), gate.share(), deaths.share()))?
+        drop(ready)
+        drop(deaths)
+        with spawn(release, started, signal).drop_job()?, gate as held_gate, dead as received:
+            match pool.reduce_tree(reject, rows):
+                case Err(error):
+                    match error:
+                        case index: i64:
+                            print(index)?
+                        case infrastructure: PoolMapError:
+                            print("unexpected infrastructure")?
+                case Ok(_):
+                    print("missed error")?
+            mut count = 0
+            for _ in range(8):
+                count = count.wrapping_add(received.recv().unwrap())
+            print(count)?
+    Ok(())
+"#,
+        "0\n8\n",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn fallible_tree_empty_singleton_never_call_or_allocate() {
+    parallel_runs_in_both_modes(
+        r#"
+def reject[T](a: T, b: T) -> Result[T, str]:
+    Err("must not run")
+def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError | str]:
+    with ThreadPoolExecutor(2, 1)? as pool:
+        values = [Some(range(4, 8))]?
+        print("__test_fail_allocations_after_0__").unwrap()
+        empty = pool.reduce_tree(reject, range(0))?
+        single = pool.reduce_tree(reject, values)?
+        print("__test_restore_allocations__").unwrap()
+        print(empty, single)?
+    Ok(())
+"#,
+        "__test_fail_allocations_after_0__\n__test_restore_allocations__\nOption[i64].Nothing Option[Option[range]].Some(Option[range].Some(range(4, 8, 1)))\n",
+    );
+}
+
+#[test]
+fn fallible_tree_success_calls_each_pair_once_and_returns_owned_payload() {
+    parallel_runs_in_both_modes(
+        r#"
+class Row:
+    value: list[Option[range[i64]]]
+    events: Sender[i64]
+def left(a: Row, b: Row) -> Result[Row, str]:
+    a.events.send(1).unwrap()
+    Ok(a)
+def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError | str]:
+    events, received = channel[i64](32)?
+    with ThreadPoolExecutor(3, 1)? as pool:
+        mut rows: list[Row] = []?
+        for n in range(7):
+            rows.append(Row([Some(range(n))]?, events.share()))?
+        drop(events)
+        result = pool.reduce_tree(left, rows)?
+        match result:
+            case Some(row):
+                print(row.value)?
+            case Nothing:
+                print("missing row")?
+        mut calls = 0
+        while True:
+            match received.recv():
+                case Ok(value):
+                    calls = calls.wrapping_add(value)
+                case Err(_):
+                    break
+        print(calls)?
+    Ok(())
+"#,
+        "[Option[range].Some(range(0, 0, 1))]\n6\n",
+    );
+}
+
+#[test]
+fn fallible_tree_and_pipeline_relocate_inline_error_payloads() {
+    parallel_runs_in_both_modes(
+        r#"
+def span(a: i64, b: i64) -> Result[i64, range[i64]]:
+    Err(range(a, b))
+def show(result: Result[Option[i64], PoolMapError | range[i64]]) -> Result[(), IoError]:
+    match result:
+        case Err(error):
+            match error:
+                case interval: range[i64]:
+                    print(interval)?
+                case infrastructure: PoolMapError:
+                    print("unexpected infrastructure")?
+        case Ok(_):
+            print("missed error")?
+    Ok(())
+def main() -> Result[(), IoError | PoolError]:
+    with ThreadPoolExecutor(2, 1)? as pool:
+        show(pool.reduce_tree(span, range(4)))?
+        result = iter(range(4)).par(&pool, chunks=2).reduce(span)
+        show(result)?
+    Ok(())
+"#,
+        "range(0, 1, 1)\nrange(0, 1, 1)\n",
     );
 }

@@ -2,6 +2,10 @@
 mod support;
 
 fn native(body: &str, expected: &str) {
+    native_mode(body, expected, false);
+}
+
+fn native_mode(body: &str, expected: &str, optimize: bool) {
     let body = body
         .trim_matches('\n')
         .lines()
@@ -10,7 +14,23 @@ fn native(body: &str, expected: &str) {
     let source = format!(
         "import std.stat as stat\nimport std.random as random\nimport std.math as math\n\ndef close(a: f64, b: f64) -> bool:\n    (a-b).fabs() <= 2e-13 * math.max(1e-300, b.fabs())\n\ndef main() -> Result[(), AllocError | IoError | stat.StatError]:\n{body}    Ok(())\n"
     );
-    let actual = support::run_file_stdout(&source);
+    let directory = tempfile::tempdir().unwrap();
+    let input = directory.path().join("main.plenty");
+    let output = directory.path().join("program");
+    std::fs::write(&input, &source).unwrap();
+    plenty::compile_file_to_executable_with_options(
+        &input,
+        &output,
+        None,
+        &plenty::CompileOptions {
+            optimize,
+            test_hooks: cfg!(feature = "runtime-checks"),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let result = support::assert_success(std::process::Command::new(output).output().unwrap());
+    let actual = String::from_utf8(result.stdout).unwrap();
     let actual = actual
         .lines()
         .filter(|line| !line.starts_with("__test_"))
@@ -156,8 +176,9 @@ print((normal_sum / 20000.0).fabs() < 0.05, (normal_squares / 20000.0 - 1.0).fab
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn scalar_statistics_allocate_nothing_and_sorting_is_fallible() {
-    native(
-        r#"
+    for optimize in [false, true] {
+        native_mode(
+            r#"
 data = [1.0, 2.0, 3.0]?
 mut rng = random.seeded(7u64)
 n = stat.normal()?
@@ -176,6 +197,23 @@ match middle:
     case Ok(_):
         print("unexpected success")?
 "#,
-        "2.0 1.0 True\nstd.stat.StatError.Allocation(AllocError.OutOfMemory)",
-    );
+            "2.0 1.0 True\nstd.stat.StatError.Allocation(AllocError.OutOfMemory)",
+            optimize,
+        );
+    }
+}
+
+#[test]
+fn quantile_count_extent_preserves_capacity_overflow_cause() {
+    for optimize in [false, true] {
+        native_mode(
+            r#"
+data = [1.0, 2.0]?
+print(str.repr(stat.quantiles(&data, 9223372036854775807))?)?
+print(stat.quantile(&data, 0.0)?, stat.quantile(&data, 1.0)?, stat.quantile(&data, 0.5)?)?
+"#,
+            "Result[list[f64], std.stat.StatError].Err(std.stat.StatError.Allocation(AllocError.CapacityOverflow))\n1.0 2.0 1.5",
+            optimize,
+        );
+    }
 }

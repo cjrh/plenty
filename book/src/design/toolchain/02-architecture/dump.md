@@ -39,7 +39,8 @@ own debug form and change with it; they are for comparison, not parsing.
 Every stage file holds one section per function, in the order the compiler
 places functions in the object, which does not depend on the worker count:
 
-For example, an x86-64 dump can contain:
+For example, an x86-64 dump of a function with explicit `unchecked:`
+arithmetic can contain:
 
 ```text
 ==== twice  symbol=__plenty_fn_twice  kind=function  source=app.plenty:1

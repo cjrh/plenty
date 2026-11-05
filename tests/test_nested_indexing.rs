@@ -18,7 +18,7 @@ fn stdout(source: &str) -> String {
 fn an_indexed_name_indexes_a_local() {
     let output = stdout(
         r#"
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut a = [2, 0, 1]?
     b = [1, 2, 0]?
     c = [0, 2, 1]?
@@ -84,20 +84,20 @@ fn indexed_callables_take_arguments() {
     let output = stdout(
         r#"
 class Holder:
-    callbacks: list[Callable[[i64], i64]]
-def double(x: i64) -> i64:
-    x * 2
-def triple(x: i64) -> i64:
-    x * 3
-def main() -> Result[(), AllocError | IoError]:
+    callbacks: list[Callable[[i64], Result[i64, OverflowError[i64]]]]
+def double(x: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(x * 2)
+def triple(x: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(x * 3)
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     handlers = [double, triple]?
     holder = Holder([double, triple]?)
     indices = [1, 0]?
     i = 0
-    print(handlers[indices[i]](5))?
-    print(holder.callbacks[indices[i]](5))?
-    print(holder.callbacks[indices[indices[i]]](5))?
-    print(holder.callbacks[i](5))?
+    print(handlers[indices[i]](5)?)?
+    print(holder.callbacks[indices[i]](5)?)?
+    print(holder.callbacks[indices[indices[i]]](5)?)?
+    print(holder.callbacks[i](5)?)?
     Ok(())
 "#,
     );
@@ -110,18 +110,18 @@ fn nested_index_expressions_evaluate_once() {
         r#"
 class Counter:
     value: i64
-    def next(self: &mut Counter) -> i64:
+    def next(self: &mut Counter) -> Result[i64, OverflowError[i64]]:
         self.value = self.value + 1
-        self.value - 1
-def main() -> Result[(), AllocError | IoError]:
+        Ok(self.value - 1)
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut a = [0, 0, 0]?
     b = [2, 1, 0]?
     mut counter = Counter(0)
-    a[b[counter.next()]] = 5
+    a[b[counter.next()?]] = 5
     print(counter.value)?
-    print(a[b[counter.next()]])?
+    print(a[b[counter.next()?]])?
     print(counter.value)?
-    a[b[b[counter.next()]]] = 9
+    a[b[b[counter.next()?]]] = 9
     print(counter.value)?
     print(a)?
     Ok(())

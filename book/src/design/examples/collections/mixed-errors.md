@@ -4,11 +4,11 @@ Declare a sum of the errors an operation can return. Each `?` injects its
 original error into that sum, preserving the variant and its payload:
 
 ```plenty
-type BuildError = ParseError | AllocError | IoError
+type BuildError = ParseError | AllocError | IoError | OverflowError[u8]
 
 def work(text: str) -> Result[list[u8], BuildError]:
     n = u8.parse(text)?               # ParseError
-    values = [n, n + 1u8]?           # AllocError
+    values = [n, n + 1u8]?           # AllocError and OverflowError[u8]
     print("built values")?          # IoError
     Ok(values)
 
@@ -25,12 +25,14 @@ def main() -> Result[(), AllocError | IoError]:
                     print(cause)?
                 case cause: IoError:
                     print(cause)?
+                case cause: OverflowError[u8]:
+                    print(cause)?
     Ok(())
 
 ```
 ```output
 built values
-Result[list[u8], AllocError | IoError | ParseError].Ok([41, 42])
+Result[list[u8], AllocError | IoError | OverflowError[u8] | ParseError].Ok([41, 42])
 True
 ```
 

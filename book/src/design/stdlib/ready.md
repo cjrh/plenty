@@ -153,6 +153,10 @@ each connection with an expired deadline. Mean round trip in nanoseconds over
 The selector's cost does not grow with idle connections; the polling loop's
 grows linearly.
 
+Readiness flags are tested with bit masks, not integer division. Selector
+storage and event offsets use documented bounded arithmetic: at most 64
+records of 16 bytes. Caller arithmetic modes do not alter these contracts.
+
 ## Cancellation descriptors
 
 A token's first cancellable wait creates its wake descriptor, an `eventfd`
@@ -169,7 +173,7 @@ from std.ready import WaitError, read_before
 from std.sync import CancellationToken
 from std.time import deadline_after, milliseconds, monotonic_now
 
-def drain(stream: FileStream, cancel: CancellationToken) -> Result[i64, WaitError]:
+def drain(stream: FileStream, cancel: CancellationToken) -> Result[i64, WaitError | OverflowError[i64]]:
     mut owned = stream
     mut buffer = std.bytes.with_capacity(64).unwrap()
     buffer.resize(64, 0u8).unwrap()

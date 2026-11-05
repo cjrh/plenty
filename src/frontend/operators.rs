@@ -771,6 +771,7 @@ impl Lower<'_> {
         &mut self,
         op: &str,
         value: &Expr,
+        at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Option<Type>> {
         let Some(hook) = unary(op) else {
@@ -793,7 +794,7 @@ impl Lower<'_> {
             self.release_operator_operand(&held, loan, ops);
             return Ok(Some(result));
         };
-        if let Some(result) = self.quantity_unary(op, value, &ty, ops)? {
+        if let Some(result) = self.quantity_unary(op, value, &ty, at, ops)? {
             return Ok(Some(result));
         }
         let Some(name) = self.operator_symbol(&ty, hook, &value.at)? else {
@@ -804,20 +805,36 @@ impl Lower<'_> {
                 return Err(value.at.error(nonzero::unsupported(op, unreferenced(&ty))));
             }
             let (held, loan) = self.hold_operator_operand(value, ops)?;
+            // A field read carries its declaration's token; report failures
+            // at the user's operator instead.
             let inner = Expr {
-                at: value.at.clone(),
+                at: at.clone(),
                 kind: Expression::Unary(
                     op.into(),
                     Box::new(Self::forwarded_field(&class, &declared, &held)),
                 ),
             };
-            let result = self.expr(&inner, ops)?;
-            self.release_operator_operand(&held, loan, ops);
-            if op == "-"
+            let nonnegative = op == "-"
                 && unreferenced(&ty)
                     .integer_domain()
-                    .is_some_and(|(domain, _)| domain != crate::op::IntegerDomain::NonZero)
-            {
+                    .is_some_and(|(domain, _)| domain != crate::op::IntegerDomain::NonZero);
+            // Negating a Positive or NonNegative value cannot overflow, so it
+            // adds no OverflowError to the enclosing contract.
+            let result = if nonnegative {
+                self.checked.push(checked::Scope {
+                    start: self.locals.len(),
+                    function: false,
+                    arithmetic: false,
+                    failures: Vec::new(),
+                });
+                let result = self.expr(&inner, ops);
+                self.checked.pop().expect("pushed above");
+                result?
+            } else {
+                self.expr(&inner, ops)?
+            };
+            self.release_operator_operand(&held, loan, ops);
+            if nonnegative {
                 return Ok(Some(result));
             }
             return self.rewrap(&class, &declared, result, ops).map(Some);

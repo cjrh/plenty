@@ -25,9 +25,7 @@ fn sequences<'a>(ops: &'a [Op], visit: &mut impl FnMut(&'a [Op])) {
     visit(ops);
     for op in ops {
         match op {
-            Op::Try { cleanup, .. }
-            | Op::CheckedArith { cleanup, .. }
-            | Op::CheckedUnwrap { cleanup, .. } => sequences(cleanup, visit),
+            Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => sequences(cleanup, visit),
             Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
                 sequences(body, visit)
             }
@@ -284,9 +282,9 @@ fn number<'a>(
         *counter += 1;
         visit(op, ops, index, site, *counter);
         match op {
-            Op::Try { cleanup, .. }
-            | Op::CheckedArith { cleanup, .. }
-            | Op::CheckedUnwrap { cleanup, .. } => number(cleanup, site, counter, visit),
+            Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => {
+                number(cleanup, site, counter, visit)
+            }
             Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
                 number(body, site, counter, visit)
             }
@@ -590,7 +588,7 @@ impl Walk<'_, '_, '_> {
                     }
                     add(&mut path.pending, accepted.drain(..));
                 }
-                Op::CheckedArith { cleanup, .. } | Op::CheckedUnwrap { cleanup, .. } => {
+                Op::CheckedArith { cleanup, .. } => {
                     let mut failed = path.clone();
                     if let Some(end) =
                         self.sequence(cleanup, &mut failed, &mut Vec::new(), site, None)?

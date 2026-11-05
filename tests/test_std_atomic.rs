@@ -12,7 +12,7 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "{HEADER}def main() -> Result[(), AllocError | FormatError | IoError]:\n{body}    Ok(())\n"
+        "{HEADER}def main() -> Result[(), AllocError | FormatError | IoError | OverflowError[i32]]:\n{body}    Ok(())\n"
     )
 }
 
@@ -270,7 +270,7 @@ def mark(slot: &Option[Atomic[u8]]) -> ():
         case Nothing:
             pass
 
-def main() -> Result[(), AllocError | IoError | RecvError | SendError[Atomic[u64]] | SpawnError[()]]:
+def main() -> Result[(), AllocError | IoError | RecvError | SendError[Atomic[u64]] | SpawnError[()] | OverflowError[u64]]:
     flags = [Atomic(False), Atomic(False), Atomic(False)]?
     with spawn(flip, &flags, 1)?:
         pass
@@ -350,14 +350,17 @@ class Stats:
         self.largest.fetch_max(value, Ordering.Relaxed)
         self.seen.store(True, Ordering.Release)
 
-def work(stats: &Stats, base: i64) -> ():
+def work(stats: &Stats, base: i64) -> Result[(), OverflowError[i64]]:
     for i in range(50000):
         stats.record(base + i)
+    Ok(())
 
-def main() -> Result[(), IoError | SpawnError[()]]:
+def main() -> Result[(), IoError | SpawnError[()] | OverflowError[i64]]:
     stats = Stats(hits=Atomic[u32](0), largest=Atomic(i64.MIN), seen=Atomic(False))
-    with spawn(work, &stats, 0)?, spawn(work, &stats, 1000000)?, spawn(work, &stats, -5)?:
-        pass
+    with spawn(work, &stats, 0)? as a, spawn(work, &stats, 1000000)? as b, spawn(work, &stats, -5)? as c:
+        c.join()?
+        b.join()?
+        a.join()?
     print(stats.hits.load(Ordering.Acquire))?
     print(stats.largest.load(Ordering.Acquire))?
     print(stats.seen.load(Ordering.Acquire))?
@@ -426,7 +429,7 @@ from std.atomic import Atomic as Cell, Ordering as Order, fence as barrier
 def bump(value: &atomic.Atomic[i32]) -> i32:
     value.fetch_add(2, atomic.Ordering.SeqCst)
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i32]]:
     x = atomic.Atomic[i32](-3)
     print(bump(&x))?
     y: Cell[i32] = Cell(1)

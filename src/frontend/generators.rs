@@ -18,7 +18,8 @@ pub(super) fn yields(body: &[Stmt]) -> bool {
         Statement::Match { cases, .. } => cases.iter().any(|case| yields(&case.body)),
         Statement::Assign { value, .. }
         | Statement::SetIndex { value, .. }
-        | Statement::Return(Some(value)) => match &value.kind {
+        | Statement::Return(Some(value))
+        | Statement::Expr(value) => match &value.kind {
             Expression::Match(_, cases) => cases.iter().any(|case| yields(&case.body)),
             Expression::Checked(body) | Expression::If(body) => yields(body),
             _ => false,
@@ -203,9 +204,6 @@ impl Lower<'_> {
     }
 
     pub(super) fn refine_return(&mut self, actual: Type, at: &Token) -> Result<()> {
-        if actual.as_ref().is_some_and(Ty::checked_closure) {
-            return Err(at.error("a closure defined in `checked:` cannot leave its block; define it outside the block instead"));
-        }
         if actual
             .as_ref()
             .is_some_and(|t| !t.carries_loan() && t.contains_reference())

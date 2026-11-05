@@ -27,9 +27,7 @@ fn exclusive(ops: &[Op], slot: u8) -> bool {
                     .any(|a| exclusive(&a.condition, slot) || exclusive(&a.body, slot))
         }
         Op::Match(arms) => arms.iter().any(|a| exclusive(&a.body, slot)),
-        Op::Try { cleanup, .. }
-        | Op::CheckedArith { cleanup, .. }
-        | Op::CheckedUnwrap { cleanup, .. } => exclusive(cleanup, slot),
+        Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => exclusive(cleanup, slot),
         Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => exclusive(body, slot),
 
         _ => false,

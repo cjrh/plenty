@@ -376,7 +376,7 @@ fn step(
                             .map(|(_, t)| t)
                             .eq([&sort.callback, &item])
                             && key_of.outputs
-                                == [sort.callback.checked_error().map_or_else(
+                                == [sort.error.as_ref().map_or_else(
                                     || sort.key.clone(),
                                     |error| crate::sum::result(sort.key.clone(), error.clone()),
                                 )]
@@ -568,32 +568,14 @@ fn step(
             }
             operation.check(ty, stack)?;
         }
-        Op::CheckedUnwrap { result, cleanup } => {
-            let Ty::Enum(sum) = result else {
-                return Err("checked call must return Result".into());
-            };
-            let mut empty = Vec::new();
-            check_sequence(
-                cleanup, &mut empty, locals, sigs, returns, loop_stack, yield_ty,
-            )?;
-            if !sum.is_result() || !empty.is_empty() || stack.pop().as_ref() != Some(result) {
-                return Err("invalid checked call result".into());
-            }
-            let output = sum.get().variants[0].fields[0].clone();
-            if output != Ty::Unit {
-                stack.push(output);
-            }
-        }
         Op::CheckedFunction { body, result } => {
             let Ty::Enum(sum) = result else {
                 return Err("checked function must return Result".into());
             };
-            let output = sum.get().variants[0].fields[0].clone();
-            let logical = if output == Ty::Unit {
-                Vec::new()
-            } else {
-                vec![output.clone()]
-            };
+            if !sum.is_result() {
+                return Err("checked function must return Result".into());
+            }
+            let logical = vec![result.clone()];
             let base = stack.len();
             let flow = check_sequence(
                 body,
@@ -607,8 +589,8 @@ fn step(
             if flow == Flow::Exits {
                 stack.truncate(base);
             }
-            if flow == Flow::Continues && output != Ty::Unit && stack.pop() != Some(output) {
-                return Err("checked function must leave its success value".into());
+            if flow == Flow::Continues && stack.pop().as_ref() != Some(result) {
+                return Err("checked function must leave its declared Result".into());
             }
             stack.push(result.clone());
         }
@@ -619,9 +601,21 @@ fn step(
             if !sum.is_result() {
                 return Err("a checked block must produce a Result".into());
             }
+            let definition = sum.get();
+            let success = definition
+                .variants
+                .first()
+                .and_then(|variant| variant.fields.first())
+                .ok_or("a checked block must leave its success value")?;
+            // Unit expressions leave no operand; codegen materializes Unit
+            // only when wrapping Ok. Preserve every pending entry operand.
+            let entry = (*success == Ty::Unit).then(|| stack.clone());
             if check_sequence(body, stack, locals, sigs, returns, loop_stack, yield_ty)?
                 != Flow::Continues
-                || stack.pop().as_ref() != Some(&sum.get().variants[0].fields[0])
+                || match entry {
+                    Some(entry) => *stack != entry,
+                    None => stack.pop().as_ref() != Some(success),
+                }
             {
                 return Err("a checked block must leave its success value".into());
             }
@@ -705,7 +699,7 @@ fn step(
                     .map(|(i, (n, _))| (n.clone(), t.parameter(i)))
                     .chain(t.signature.function().inputs)
                     .collect(),
-                outputs: t.native_output().into_iter().collect(),
+                outputs: t.signature.output.clone().into_iter().collect(),
             };
             let actual = sigs.get(t.name.as_str()).ok_or("undefined closure body")?;
             if actual
@@ -733,7 +727,7 @@ fn step(
             if stack.pop() != Some(expected) {
                 return Err("closure call environment ownership mismatch".into());
             }
-            stack.extend(t.native_output());
+            stack.extend(t.signature.output.clone());
         }
         Op::ProtocolBoxNew(source, adapters, protocol) => {
             if (!matches!(source.as_ref(), Ty::Class(_) | Ty::ByteStr)
@@ -1313,6 +1307,107 @@ fn fmt_types(tys: &[Ty]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn checked_block_step(body: Vec<Op>, result: Ty, stack: &mut Vec<Ty>) -> Result<Flow> {
+        step(
+            &Op::CheckedBlock {
+                body: body.into(),
+                result,
+            },
+            stack,
+            &[],
+            &Sigs::default(),
+            Some(&[]),
+            Some(&[]),
+            None,
+        )
+    }
+
+    #[test]
+    fn checked_unit_preserves_empty_and_pending_entry_operands() {
+        let result = crate::sum::result(Ty::Unit, Ty::I64);
+        for entry in [vec![], vec![Ty::I64, Ty::Bool], vec![Ty::Unit]] {
+            let mut stack = entry.clone();
+            assert!(matches!(
+                checked_block_step(vec![], result.clone(), &mut stack).unwrap(),
+                Flow::Continues
+            ));
+            assert_eq!(stack, [entry, vec![result.clone()]].concat());
+        }
+    }
+
+    #[test]
+    fn checked_unit_rejects_extra_missing_and_replaced_entry_operands() {
+        for (entry, body) in [
+            (vec![], vec![Op::PushUnit]),
+            (vec![], vec![Op::PushBool(true)]),
+            (vec![Ty::I64], vec![Op::Drop]),
+            (vec![Ty::I64], vec![Op::Drop, Op::PushBool(true)]),
+            (vec![Ty::I64, Ty::Bool], vec![Op::Swap]),
+        ] {
+            let error = checked_block_step(
+                body,
+                crate::sum::result(Ty::Unit, Ty::I64),
+                &mut entry.clone(),
+            )
+            .err()
+            .expect("malformed Unit success must fail");
+            assert_eq!(
+                error.to_string(),
+                "a checked block must leave its success value"
+            );
+        }
+    }
+
+    #[test]
+    fn checked_blocks_reject_terminating_and_unreachable_success_paths() {
+        for success in [Ty::Unit, Ty::I64] {
+            for body in [
+                vec![Op::Return],
+                vec![Op::Break],
+                vec![Op::Continue],
+                vec![Op::Unreachable],
+                vec![Op::Return, Op::PushUnit],
+            ] {
+                assert!(
+                    checked_block_step(
+                        body,
+                        crate::sum::result(success.clone(), Ty::I64),
+                        &mut vec![],
+                    )
+                    .is_err()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn checked_nonunit_still_requires_its_success_type() {
+        let result = crate::sum::result(Ty::I64, Ty::Bool);
+        for body in [vec![], vec![Op::PushUnit], vec![Op::PushBool(true)]] {
+            let error = checked_block_step(body, result.clone(), &mut vec![])
+                .err()
+                .expect("missing or mistyped nonunit success must fail");
+            assert_eq!(
+                error.to_string(),
+                "a checked block must leave its success value"
+            );
+        }
+        let mut stack = vec![Ty::Bool, Ty::I64];
+        assert!(checked_block_step(vec![], result.clone(), &mut stack).is_ok());
+        assert_eq!(stack, vec![Ty::Bool, result]);
+    }
+
+    #[test]
+    fn checked_blocks_reject_empty_success_fields() {
+        let Ty::Enum(sum) = crate::sum::result(Ty::Unit, Ty::I64) else {
+            unreachable!()
+        };
+        let mut malformed = (*sum.get()).clone();
+        malformed.variants[0].fields.clear();
+        let result = Ty::Enum(crate::nominal::Nominal::new(malformed));
+        assert!(checked_block_step(vec![], result, &mut vec![]).is_err());
+    }
 
     #[test]
     fn protocol_calls_validate_index_arguments_identity_and_exclusivity() {

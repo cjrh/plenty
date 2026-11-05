@@ -197,20 +197,27 @@ drop(queue)
 #[test]
 fn generator_expressions_stream_to_calls_and_short_circuit() {
     native(
-        r#"
+        r#"def product(x: i64, y: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(x * y)
+
+def square(n: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(n * n)
+
 def mark(n: i64) -> bool:
     print("visit", n).unwrap()
     n == 2
-print((mark(n) for n in range(10)).any()).unwrap()
-def total(source: Generator[i64]) -> i64:
+def total(source: Generator[Result[i64, OverflowError[i64]]]) -> Result[i64, OverflowError[i64]]:
     mut result = 0
     for value in source:
-        result += value
-    result
-print(total(x * y for x in range(1, 4) for y in range(1, 3) if x != 2)).unwrap()
-mut values = (n * n for n in range(4))
-print(next(values).unwrap(), next(values).unwrap()).unwrap()
-print([n for n in values].unwrap()).unwrap()
+        result += value?
+    Ok(result)
+def main() -> Result[(), OverflowError[i64]]:
+    print((mark(n) for n in range(10)).any()).unwrap()
+    print(total(product(x, y) for x in range(1, 4) for y in range(1, 3) if x != 2)?).unwrap()
+    mut values = (square(n) for n in range(4))
+    print(next(values).unwrap()?, next(values).unwrap()?).unwrap()
+    print([n? for n in values].unwrap()).unwrap()
+    Ok(())
 "#,
         "visit 0\nvisit 1\nvisit 2\nTrue\n12\n0 1\n[4, 9]",
     );
@@ -219,19 +226,20 @@ print([n for n in values].unwrap()).unwrap()
 #[test]
 fn generator_expressions_evaluate_outer_source_at_creation_and_capture_values() {
     native(
-        r#"
-def source() -> list[i64]:
+        r#"def source() -> list[i64]:
     print("source").unwrap()
     [1, 2, 3].unwrap()
-def item(n: i64, offset: i64) -> i64:
+def item(n: i64, offset: i64) -> Result[i64, OverflowError[i64]]:
     print("item", n).unwrap()
-    n + offset
-mut offset = 10
-values = (item(n, offset) for n in source())
-offset = 20
-print("created", offset).unwrap()
-for value in values:
-    print(value).unwrap()
+    Ok(n + offset)
+def main() -> Result[(), OverflowError[i64]]:
+    mut offset = 10
+    values = (item(n, offset) for n in source())
+    offset = 20
+    print("created", offset).unwrap()
+    for value in values:
+        print(value?).unwrap()
+    Ok(())
 "#,
         "source\ncreated 20\nitem 1\n11\nitem 2\n12\nitem 3\n13",
     );
@@ -240,16 +248,19 @@ for value in values:
 #[test]
 fn generator_expressions_release_owned_captures_on_early_exit() {
     native(
-        r#"
+        r#"def offset_value(base: i64, n: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(base + n)
+
 class Guard:
     n: i64
     def __del__(self) -> ():
         print("drop", self.n).unwrap()
-guards = [Guard(1), Guard(2), Guard(3)].unwrap()
-print((value.n == 1 for value in guards).any()).unwrap()
-guard = Guard(4)
-values = (guard.n + n for n in range(3))
-drop(values)
+def main() -> ():
+    guards = [Guard(1), Guard(2), Guard(3)].unwrap()
+    print((value.n == 1 for value in guards).any()).unwrap()
+    guard = Guard(4)
+    values = (offset_value(guard.n, n) for n in range(3))
+    drop(values)
 "#,
         "drop 1\ndrop 2\ndrop 3\nTrue\ndrop 4",
     );
@@ -258,10 +269,14 @@ drop(values)
 #[test]
 fn generator_expressions_compose_adapters_and_generic_consumers() {
     native(
-        r#"
-def collect[T](source: Generator[T]) -> list[T]:
-    list[T].from(source).unwrap()
-print(collect(x * x for x in range[u8](4))).unwrap()
+        r#"def square(x: u8) -> Result[u8, OverflowError[u8]]:
+    Ok(x * x)
+
+def collect[T](source: Generator[Result[T, OverflowError[T]]]) -> Result[list[T], AllocError | OverflowError[T]]:
+    iter(source).try_collect()
+def main() -> Result[(), AllocError | OverflowError[u8]]:
+    print(collect(square(x) for x in range[u8](4))?).unwrap()
+    Ok(())
 "#,
         "[0, 1, 4, 9]",
     );
@@ -270,16 +285,23 @@ print(collect(x * x for x in range[u8](4))).unwrap()
 #[test]
 fn generator_expression_parenthesized_arguments_and_adapters() {
     native(
-        r#"
-def total[T: IntType](source: Generator[T], zero: T) -> T:
+        r#"def square(x: u8) -> Result[u8, OverflowError[u8]]:
+    Ok(x * x)
+
+def indexed_value(i: i64, x: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(i + x)
+
+def total[T: IntType](source: Generator[Result[T, OverflowError[T]]], zero: T) -> Result[T, OverflowError[T]]:
     mut result = zero
     for value in source:
-        result += value
-    result
-print(total((x * x for x in range[u8](4)), 0u8)).unwrap()
-print([i + x + y for i, pair in enumerate(zip(range(3), range(5)), 10) for x, y in [pair].unwrap()].unwrap()).unwrap()
-for value in (i + x for i, x in enumerate(reversed(range(3)), 10)):
-    print(value).unwrap()
+        result += value?
+    Ok(result)
+def main() -> Result[(), OverflowError[u8] | OverflowError[i64]]:
+    print(total((square(x) for x in range[u8](4)), 0u8)?).unwrap()
+    print([i + x + y for i, pair in enumerate(zip(range(3), range(5)), 10) for x, y in [pair].unwrap()].unwrap()).unwrap()
+    for value in (indexed_value(i, x) for i, x in enumerate(reversed(range(3)), 10)):
+        print(value?).unwrap()
+    Ok(())
 "#,
         "14\n[10, 13, 16]\n12\n12\n12",
     );
@@ -510,14 +532,15 @@ print((u64.MAX,) in single, (1u64,) in single).unwrap()
 #[test]
 fn named_and_temporary_class_methods_keep_into_values_dispatch() {
     native(
-        r#"
-class Value:
+        r#"class Value:
     n: i64
-    def into_values(self, extra: i64) -> i64:
-        self.n + extra
-value = Value(1)
-print(value.into_values(2), Value(3).into_values(4)).unwrap()
-print(Box(Value(5)).unwrap().into_values(6)).unwrap()
+    def into_values(self, extra: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(self.n + extra)
+def main() -> Result[(), OverflowError[i64]]:
+    value = Value(1)
+    print(value.into_values(2)?, Value(3).into_values(4)?).unwrap()
+    print(Box(Value(5)).unwrap().into_values(6)?).unwrap()
+    Ok(())
 "#,
         "3 7\n11",
     );
@@ -558,9 +581,11 @@ fn imported_generic_factories_can_return_generator_expressions() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
         dir.path().join("helper.plenty"),
-        r#"
-pub def squares[T: IntType](stop: T) -> Generator[T]:
-    (n * n for n in range[T](stop))
+        r#"def square[T: IntType](n: T) -> Result[T, OverflowError[T]]:
+    Ok(n * n)
+
+pub def squares[T: IntType](stop: T) -> Generator[Result[T, OverflowError[T]]]:
+    (square(n) for n in range[T](stop))
 "#,
     )
     .unwrap();
@@ -569,8 +594,9 @@ pub def squares[T: IntType](stop: T) -> Generator[T]:
         &path,
         r#"
 from helper import squares
-def main() -> Result[(), AllocError | IoError]:
-    print(list[u8].from(squares(4u8))?)?
+def main() -> Result[(), AllocError | IoError | OverflowError[u8]]:
+    values: list[u8] = iter(squares(4u8)).try_collect()?
+    print(values)?
     Ok(())
 "#,
     )

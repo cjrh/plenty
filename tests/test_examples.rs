@@ -7,6 +7,8 @@
 //! the same directory (`--check-module`).
 use std::path::{Path, PathBuf};
 
+mod support;
+
 fn plenty_files(directory: &Path, found: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(directory).unwrap() {
         let path = entry.unwrap().path();
@@ -23,6 +25,59 @@ fn plenty_files(directory: &Path, found: &mut Vec<PathBuf>) {
 
 fn defines_main(source: &str) -> bool {
     source.lines().any(|line| line.starts_with("def main("))
+}
+
+#[test]
+fn classes_arithmetic_preserves_the_point_on_failed_shift() {
+    let helpers = include_str!("../examples/classes.plenty")
+        .split("def main(")
+        .next()
+        .unwrap();
+    let source = format!(
+        "{helpers}{}",
+        r#"
+def main() -> Result[(), AllocError | IoError]:
+    mut point = Point(1, i64.MAX)
+    print(str.repr(point.shift(1))?)?
+    print(point)?
+    mut low = Point(i64.MIN, 2)
+    print(str.repr(low.shift(-1))?)?
+    print(low)?
+    print(str.repr(point.squared_length())?)?
+    mut edge = Point(0, i64.MAX)
+    print(str.repr(edge.shift(0))?)?
+    print(edge)?
+    Ok(())
+"#
+    );
+    assert_eq!(
+        support::run_file_stdout(&source),
+        "Result[(), OverflowError[i64]].Err(OverflowError[i64](wrapped=-9223372036854775808))\nPoint(x=1, y=9223372036854775807)\nResult[(), OverflowError[i64]].Err(OverflowError[i64](wrapped=9223372036854775807))\nPoint(x=-9223372036854775808, y=2)\nResult[i64, OverflowError[i64]].Err(OverflowError[i64](wrapped=1))\nResult[(), OverflowError[i64]].Ok(())\nPoint(x=0, y=9223372036854775807)"
+    );
+}
+
+#[test]
+fn cpu_codegen_audit_kernels_keep_scalar_boundary_results() {
+    let helpers = include_str!("../examples/cpu_codegen_audit/kernels.plenty")
+        .split("def main(")
+        .next()
+        .unwrap();
+    let source = format!(
+        "{helpers}{}",
+        r#"
+def main() -> Result[(), AllocError | IoError]:
+    print(div10(u64.MAX), rem10(u64.MAX))?
+    print(escape(0.0, 0.0, -1), escape(0.0, 0.0, 0), escape(3.0, 0.0, i64.MAX))?
+    values = [u64.MAX, 1u64, 9u64]?
+    print(sum_words(&values), sum_indexed(&values))?
+    print(mix(u64.MAX, 0u64))?
+    Ok(())
+"#
+    );
+    assert_eq!(
+        support::run_file_stdout(&source),
+        "1844674407370955161 5\n0 0 1\n9 9\n18446744073709551615"
+    );
 }
 
 #[test]

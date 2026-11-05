@@ -1068,3 +1068,140 @@ fn actor_http_acknowledgements_retry_a_full_mailbox() {
         "pending 1\nacknowledged 16\nretried True\nlost 0\nheaps 0\nheap_bytes 0\n"
     );
 }
+
+fn arithmetic_probe(source: &str, optimize: bool) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("main.plenty");
+    let executable = dir.path().join("program");
+    std::fs::write(&input, source).unwrap();
+    let options = plenty::CompileOptions {
+        optimize,
+        test_hooks: true,
+        ..Default::default()
+    };
+    plenty::compile_file_to_executable_with_options(&input, &executable, None, &options)
+        .unwrap_or_else(|error| panic!("{source}\n{error}"));
+    let output = support::output_within(&mut Command::new(executable), b"", WAIT);
+    let output = support::assert_success(output);
+    String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .filter(|line| !line.starts_with("__test_"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn actor_http_server_arithmetic_representation_boundaries() {
+    let source = format!(
+        "{}\n{}",
+        include_str!("../stdlib/std/actor/http/server.plenty"),
+        include_str!("fixtures/actor_http/arithmetic.plenty"),
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            arithmetic_probe(&source, optimize),
+            "1 18446744073709551615 18446744073709551615\n16777215 16777216 16777216 16777216 16777216\n0 448 9223372036854775743 0"
+        );
+    }
+}
+
+#[test]
+fn actor_http_lingering_preserves_consumption_and_close_order() {
+    let server = include_str!("../stdlib/std/actor/http/server.plenty");
+    let helper = server
+        .split("def lingering_after(")
+        .nth(1)
+        .unwrap()
+        .split("def response(")
+        .next()
+        .unwrap();
+    // Extract the production phase branch, keeping consumption/error/close
+    // ordering intact. Only transport and lifecycle callbacks are modelled.
+    let branch = server
+        .split("        if self.phase == 5:\n")
+        .nth(1)
+        .unwrap()
+        .split("        if self.phase == 1 ")
+        .next()
+        .unwrap();
+    let branch = branch
+        .lines()
+        .map(|line| line.strip_prefix("    ").unwrap_or(line))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let source = format!(
+        r#"
+def lingering_after({helper}
+enum ConsumeError:
+    Consume
+
+class WireProbe:
+    count: i64
+    output: i64
+    reads: bool
+    fail: bool
+    consumed: i64
+    closed: bool
+    def available(self) -> i64:
+        self.count
+    def reading(self) -> bool:
+        self.reads
+    def pending(self) -> i64:
+        self.output
+    def consume(self: &mut WireProbe, count: i64, context: i64) -> Result[(), ConsumeError]:
+        if self.fail:
+            return Err(ConsumeError.Consume)
+        self.consumed = count
+        self.count = 0
+        Ok(())
+    def close(self: &mut WireProbe, context: i64) -> Result[(), ConsumeError]:
+        self.closed = True
+        Ok(())
+
+class ClientProbe:
+    lingering: i64
+    stopped: bool
+    resumed: bool
+    def stop(self: &mut ClientProbe, context: i64) -> Result[(), ConsumeError]:
+        self.stopped = True
+        Ok(())
+    def resume(self: &mut ClientProbe, context: i64) -> Result[(), ConsumeError]:
+        self.resumed = True
+        Ok(())
+    def advance(self: &mut ClientProbe, wire: &mut WireProbe, context: i64) -> Result[(), ConsumeError]:
+{branch}
+
+def run(current: i64, count: i64, pending: i64, reading: bool, fail: bool) -> Result[(), IoError | AllocError]:
+    mut client = ClientProbe(current, False, False)
+    mut wire = WireProbe(count, pending, reading, fail, 0, False)
+    print("__test_begin_no_allocations__")?
+    result = client.advance(&mut wire, 0)
+    print("__test_end_no_allocations__")?
+    print(result.is_err(), client.lingering, wire.consumed, wire.closed, client.stopped, client.resumed)?
+    Ok(())
+
+def main() -> Result[(), IoError | AllocError]:
+    run(16777215, 0, 0, True, False)?
+    run(16777215, 1, 0, True, False)?
+    run(16777215, i64.MAX, 1, True, False)?
+    run(16777216, i64.MAX, 0, True, False)?
+    run(0, 1, 0, False, False)?
+    run(16777215, i64.MAX, 0, True, True)?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            arithmetic_probe(&source, optimize),
+            concat!(
+                "False 16777215 0 False False False\n",
+                "False 16777216 1 True True False\n",
+                "False 16777216 9223372036854775807 False False False\n",
+                "False 16777216 9223372036854775807 True True False\n",
+                "False 1 1 True True False\n",
+                "True 16777216 0 False False False"
+            )
+        );
+    }
+}

@@ -6,55 +6,84 @@ use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 #[rstest]
-#[case("1 + 2 * 3", "i64", "7\n")]
-#[case("(1 + 2) * 3", "i64", "9\n")]
-#[case("(1 < 2) == True", "bool", "True\n")]
-#[case("not (1 > 2)", "bool", "True\n")]
-#[case("10 - 3 - 2", "i64", "5\n")]
-#[case("-7 // 3", "i64", "-3\n")]
-#[case("7 // -3", "i64", "-3\n")]
-#[case("-7 // -3", "i64", "2\n")]
-#[case("-6 // 3", "i64", "-2\n")]
-#[case("-128i8 // 3i8", "i8", "-43\n")]
-#[case("18446744073709551615u64 // 2u64", "u64", "9223372036854775807\n")]
-#[case("-9223372036854775808", "i64", "-9223372036854775808\n")]
-#[case("i8.wrapping_from(257)", "i8", "1\n")]
-#[case("i64(-2i8)", "i64", "-2\n")]
-#[case("not 1 == 2 and True", "bool", "True\n")]
-#[case("True or False and False", "bool", "True\n")]
-#[case("False and 1 // 0 == 0", "bool", "False\n")]
-#[case("True or 1 // 0 == 0", "bool", "True\n")]
-#[case("42 if True else 1 // 0", "i64", "42\n")]
-#[case("0 if False else 42 if True else 3", "i64", "42\n")]
-#[case("('hello' + \" world\").unwrap()", "str", "hello world\n")]
-#[case("contains('héllo', 'é')", "bool", "True\n")]
-#[case("1_000 + 20", "i64", "1020\n")]
-#[case("()", "()", "")]
-#[case("# a comment\n\n42 # trailing comment", "i64", "42\n")]
-#[case("(1 +\n    # ignored indentation\n 2)", "i64", "3\n")]
-#[case("x: i64 = 40\nx + 2", "i64", "42\n")]
-#[case("mut x = 1\nx = x + 2\nx", "i64", "3\n")]
-#[case("mut x = 0\nif True:\n    x = 42\nelse:\n    x = 7\nx", "i64", "42\n")]
-#[case("if False:\n    1\nelif True:\n    42\nelse:\n    3", "i64", "42\n")]
+#[case("Ok(1 + 2 * 3)", "i64", "7\n")]
+#[case("Ok((1 + 2) * 3)", "i64", "9\n")]
+#[case("Ok((1 < 2) == True)", "bool", "True\n")]
+#[case("Ok(not (1 > 2))", "bool", "True\n")]
+#[case("Ok(10 - 3 - 2)", "i64", "5\n")]
+#[case("Ok(-7 // 3)", "i64", "-3\n")]
+#[case("Ok(7 // -3)", "i64", "-3\n")]
+#[case("Ok(-7 // -3)", "i64", "2\n")]
+#[case("Ok(-6 // 3)", "i64", "-2\n")]
+#[case("Ok(-128i8 // 3i8)", "i8", "-43\n")]
+#[case("Ok(18446744073709551615u64 // 2u64)", "u64", "9223372036854775807\n")]
+#[case("Ok(-9223372036854775808)", "i64", "-9223372036854775808\n")]
+#[case("Ok(i8.wrapping_from(257))", "i8", "1\n")]
+#[case("Ok(i64(-2i8))", "i64", "-2\n")]
+#[case("Ok(not 1 == 2 and True)", "bool", "True\n")]
+#[case("Ok(True or False and False)", "bool", "True\n")]
+#[case("Ok(False and 1 // 0 == 0)", "bool", "False\n")]
+#[case("Ok(True or 1 // 0 == 0)", "bool", "True\n")]
+#[case("Ok(42 if True else 1 // 0)", "i64", "42\n")]
+#[case("Ok(0 if False else 42 if True else 3)", "i64", "42\n")]
+#[case("Ok(('hello' + \" world\").unwrap())", "str", "hello world\n")]
+#[case("Ok(contains('héllo', 'é'))", "bool", "True\n")]
+#[case("Ok(1_000 + 20)", "i64", "1020\n")]
+#[case("Ok(())", "()", "")]
+#[case("# a comment\n\nOk(42) # trailing comment", "i64", "42\n")]
+#[case("Ok((1 +\n    # ignored indentation\n 2))", "i64", "3\n")]
+#[case("x: i64 = 40\nOk(x + 2)", "i64", "42\n")]
+#[case("mut x = 1\nx = x + 2\nOk(x)", "i64", "3\n")]
 #[case(
-    "if True:\n    x = 40\n    x + 2\nelse:\n    x = 1\n    x",
+    "mut x = 0\nif True:\n    x = 42\nelse:\n    x = 7\nOk(x)",
     "i64",
     "42\n"
 )]
-#[case("if True:\n    pass", "()", "")]
-#[case("if True:\n    99\n42", "i64", "42\n")]
-#[case("def double(x: i64) -> i64:\n    x * 2\ndouble(21)", "i64", "42\n")]
 #[case(
-    "double(21)\ndef double(x: i64) -> i64:\n    return x * 2",
+    "if False:\n    Ok(1)\nelif True:\n    Ok(42)\nelse:\n    Ok(3)",
     "i64",
     "42\n"
 )]
-#[case("def unit() -> ():\n    return\nunit()", "()", "")]
-#[case("def text() -> str:\n    return 'hello'\ntext()", "str", "hello\n")]
-#[case("def f(\n    x: i64,\n) -> i64:\n    x\nf(42,)", "i64", "42\n")]
-#[case("def f(x: i64) -> i64:\r\n    x + 1\r\nf(41)\r\n", "i64", "42\n")]
+#[case(
+    "if True:\n    x = 40\n    Ok(x + 2)\nelse:\n    x = 1\n    Ok(x)",
+    "i64",
+    "42\n"
+)]
+#[case("if True:\n    pass\nOk(())", "()", "")]
+#[case("if True:\n    99\nOk(42)", "i64", "42\n")]
+#[case(
+    "def double(x: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(x * 2)\nOk(double(21)?)",
+    "i64",
+    "42\n"
+)]
+#[case(
+    "Ok(double(21)?)\ndef double(x: i64) -> Result[i64, OverflowError[i64]]:\n    return Ok(x * 2)",
+    "i64",
+    "42\n"
+)]
+#[case("def unit() -> ():\n    return\nunit()\nOk(())", "()", "")]
+#[case("def text() -> str:\n    return 'hello'\nOk(text())", "str", "hello\n")]
+#[case("def f(\n    x: i64,\n) -> i64:\n    x\nOk(f(42,))", "i64", "42\n")]
+#[case(
+    "def f(x: i64) -> Result[i64, OverflowError[i64]]:\r\n    Ok(x + 1)\r\nOk(f(41)?)\r\n",
+    "i64",
+    "42\n"
+)]
 fn expressions(#[case] source: &str, #[case] ty: &str, #[case] expected: &str) {
-    support::assert_value(source, ty, expected);
+    // Only the value fixture's function gains an arithmetic Result; helpers
+    // keep independent contracts and every case spells its successful Ok.
+    let program = support::program(source);
+    let (declarations, statements) = program.rsplit_once("\ndef main() -> ():\n").unwrap();
+    let statements = statements.strip_suffix("    pass\n").unwrap();
+    let call = if ty == "()" {
+        "test_result()?"
+    } else {
+        "print(test_result()?).unwrap()"
+    };
+    let source = format!(
+        "{declarations}\ndef test_result() -> Result[{ty}, OverflowError[i64] | OverflowError[i8] | ZeroDivisionError]:\n{statements}\ndef main() -> Result[(), OverflowError[i64] | OverflowError[i8] | ZeroDivisionError]:\n    {call}\n    Ok(())\n"
+    );
+    support::assert_stdout(&source, expected);
 }
 
 #[rstest]
@@ -195,6 +224,18 @@ fn local_slot_limit_is_a_diagnostic() {
     );
 }
 
+// Entry fragments may propagate arithmetic failures without changing any
+// independently declared helper or closure contract.
+fn arithmetic_program(source: &str) -> String {
+    if source.lines().any(|line| line.starts_with("def main(")) {
+        return source.into();
+    }
+    support::program(source).replace(
+        "def main() -> ():",
+        "def main() -> Result[(), OverflowError[i64] | OverflowError[i8] | ZeroDivisionError]:",
+    ) + "    Ok(())\n"
+}
+
 struct Artifact {
     source: PathBuf,
     executable: PathBuf,
@@ -211,7 +252,7 @@ impl Artifact {
             source: base.with_extension("plenty"),
             executable: base.with_extension("exe"),
         };
-        std::fs::write(&artifact.source, support::program(source)).unwrap();
+        std::fs::write(&artifact.source, arithmetic_program(source)).unwrap();
         artifact
     }
     fn run_file(&self) -> Output {
@@ -237,6 +278,15 @@ impl Drop for Artifact {
     }
 }
 
+fn sum_example_boundary_program() -> String {
+    let (helper, _) = include_str!("../examples/sum.plenty")
+        .split_once("\ndef main(")
+        .expect("sum example entrypoint");
+    format!(
+        "{helper}\ndef main() -> Result[(), AllocError | IoError]:\n    print(str.repr(sum_to(1, i64.MAX))?)?\n    print(str.repr(sum_to(0, i64.MAX))?)?\n    print(str.repr(sum_to(100_000, 0))?)?\n    Ok(())\n"
+    )
+}
+
 #[rstest]
 #[case(include_str!("../examples/sum.plenty"), "5051\n")]
 #[case(
@@ -260,19 +310,19 @@ impl Drop for Artifact {
     "42\n7\n"
 )]
 #[case(
-    "def count(n: i64, total: i64) -> i64:\n    if n == 0:\n        total\n    else:\n        x = total + 1\n        count(n - 1, x)\nprint(count(100_000, 0)).unwrap()",
+    "def count(n: i64, total: i64) -> Result[i64, OverflowError[i64]]:\n    if n == 0:\n        Ok(total)\n    else:\n        x = total + 1\n        count(n - 1, x)\nprint(count(100_000, 0)?).unwrap()",
     "100000\n"
 )]
 #[case(
-    "def even(n: i64) -> bool:\n    True if n == 0 else odd(n - 1)\ndef odd(n: i64) -> bool:\n    False if n == 0 else even(n - 1)\nprint(even(100_000)).unwrap()",
+    "def even(n: i64) -> Result[bool, OverflowError[i64]]:\n    Ok(True) if n == 0 else odd(n - 1)\ndef odd(n: i64) -> Result[bool, OverflowError[i64]]:\n    Ok(False) if n == 0 else even(n - 1)\nprint(even(100_000)?).unwrap()",
     "True\n"
 )]
 #[case(
-    "def unit(n: i64) -> ():\n    if n == 0:\n        pass\n    else:\n        unit(n - 1)\nunit(100_000)\nprint(42).unwrap()",
+    "def unit(n: i64) -> Result[(), OverflowError[i64]]:\n    if n == 0:\n        Ok(())\n    else:\n        unit(n - 1)\nunit(100_000)?\nprint(42).unwrap()",
     "42\n"
 )]
 #[case(
-    "def f(n: i64) -> i64:\n    if n == 0:\n        0\n    else:\n        1 + f(n - 1)\nprint(f(30)).unwrap()",
+    "def f(n: i64) -> Result[i64, OverflowError[i64]]:\n    if n == 0:\n        Ok(0)\n    else:\n        Ok(1 + f(n - 1)?)\nprint(f(30)?).unwrap()",
     "30\n"
 )]
 #[case(
@@ -290,6 +340,10 @@ impl Drop for Artifact {
 #[case(
     "print(42 if True else 1 // 0).unwrap()\nprint(False and 1 // 0 == 0).unwrap()",
     "42\nFalse\n"
+)]
+#[case::sum_example_boundaries(
+    &sum_example_boundary_program(),
+    "Result[i64, OverflowError[i64]].Err(OverflowError[i64](wrapped=-9223372036854775808))\nResult[i64, OverflowError[i64]].Ok(9223372036854775807)\nResult[i64, OverflowError[i64]].Ok(5000050000)\n"
 )]
 fn run_command_matches_explicit_compilation(#[case] source: &str, #[case] expected: &str) {
     let artifact = Artifact::new(source);
@@ -316,10 +370,20 @@ fn run_command_matches_explicit_compilation(#[case] source: &str, #[case] expect
 }
 
 #[rstest]
-#[case("print(127i8 + 1i8).unwrap()", "integer overflow")]
-#[case("print(-128i8 // -1i8).unwrap()", "integer overflow")]
-#[case("print(1 // 0).unwrap()", "division by zero")]
+#[case(
+    "value = unchecked:\n    127i8 + 1i8\nprint(value).unwrap()",
+    "integer overflow"
+)]
+#[case(
+    "value = unchecked:\n    -128i8 // -1i8\nprint(value).unwrap()",
+    "integer overflow"
+)]
+#[case(
+    "value = unchecked:\n    1 // 0\nprint(value).unwrap()",
+    "division by zero"
+)]
 #[case("x = 300\nprint(u8(x)).unwrap()", "integer cast out of range")]
+// Arithmetic cases opt out at exactly the operation whose native trap is tested.
 fn runtime_errors_agree(#[case] source: &str, #[case] expected: &str) {
     let artifact = Artifact::new(source);
     let run_output = artifact.run_file();
@@ -351,7 +415,11 @@ fn rejected_program_has_no_effects_or_output_artifact() {
 #[test]
 fn modern_library_aot_entry_point_uses_modern_syntax() {
     let artifact = Artifact::new("");
-    support::compile_source_to_executable("print(40 + 2).unwrap()", &artifact.executable).unwrap();
+    support::compile_source_to_executable(
+        &arithmetic_program("print(40 + 2).unwrap()"),
+        &artifact.executable,
+    )
+    .unwrap();
     let output = Command::new(&artifact.executable).output().unwrap();
     assert_eq!(output.stdout, b"42\n");
 }
@@ -359,7 +427,7 @@ fn modern_library_aot_entry_point_uses_modern_syntax() {
 #[test]
 fn check_mode_does_not_execute_valid_programs() {
     let source = "print('must not print').unwrap()\n1 // 0";
-    support::check_source(source).unwrap();
+    support::check_source(&arithmetic_program(source)).unwrap();
     let artifact = Artifact::new(source);
     let checked = Command::new(env!("CARGO_BIN_EXE_plenty"))
         .arg("--check")

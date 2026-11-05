@@ -3,7 +3,7 @@
 Save this as `hello.plenty`:
 
 ```plenty
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     print("Hello, Plenty!")?
     print(6 * 7)?
     Ok(())
@@ -42,8 +42,10 @@ Execution begins at `main`. Indentation groups its statements; use four spaces.
 functions.
 
 Printing can fail. The `?` after each call continues when printing succeeds and
-returns an output error when it fails. `Ok(())` reports that the program
-finished successfully. Keep this pattern for printing;
+returns an output error when it fails. Integer multiplication can overflow too,
+so the signature includes `OverflowError[i64]`. Its operands fit here, but the
+function still declares the arithmetic error contract. `Ok(())` reports that the
+program finished successfully. Keep this pattern for printing;
 [Absence and failure](../03-absence/index.md) explains how to handle errors.
 
 Each example is a complete program. Run it in a new file, along with any

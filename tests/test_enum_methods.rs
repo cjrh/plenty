@@ -14,19 +14,21 @@ enum Count:
                 *n
             case Count.Empty:
                 0
-    def increment(self: &mut Count, amount: i64) -> ():
+    def increment(self: &mut Count, amount: i64) -> Result[(), OverflowError[i64]]:
         match self:
             case Count.Value(n):
                 *n = *n + amount
             case Count.Empty:
                 pass
-def main() -> ():
+        Ok(())
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut count = Count.Value(3)
-    count.increment(4)
-    print(count.read()).unwrap()
-    print(Count.Value(9).read()).unwrap()
+    count.increment(4)?
+    print(count.read())?
+    print(Count.Value(9).read())?
     reference = &count
-    print(reference.read()).unwrap()
+    print(reference.read())?
+    Ok(())
 "#,
         "7\n9\n7\n",
     );
@@ -40,13 +42,14 @@ enum Value[T]:
     Present(T)
     def echo[U](self, value: U) -> U:
         value
-    def answer(self, extra: i64 = 2) -> i64:
-        self.echo(40 + extra)
-def main() -> ():
+    def answer(self, extra: i64 = 2) -> Result[i64, OverflowError[i64]]:
+        Ok(self.echo(40 + extra))
+def main() -> Result[(), IoError | OverflowError[i64]]:
     value = Value[i64].Present(8)
-    print(value.echo[str]("yes")).unwrap()
-    print(value.answer()).unwrap()
-    print(Value[str].Present("x").answer(extra=3)).unwrap()
+    print(value.echo[str]("yes"))?
+    print(value.answer()?)?
+    print(Value[str].Present("x").answer(extra=3)?)?
+    Ok(())
 "#,
         "yes\n42\n43\n",
     );

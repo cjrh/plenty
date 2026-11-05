@@ -209,6 +209,14 @@ escapes, delimiters and padding, not input characters. Direct writes through the
 public `writer` field are outside the counter/budget contract. Callers must not
 alter its position or contents during a formatting operation.
 
+Formatting internals use explicit `unchecked:` regions for arithmetic already
+bounded by validated output budgets, scratch positions, radix digit counts,
+format widths/precision or recursion limits. Unrepresentable user input does
+not acquire a hidden arithmetic trap: existing `InvalidSpec`, `LimitExceeded`,
+allocation and output errors retain their contracts. User display/debug methods
+still have their own declared arithmetic boundaries, independent of formatter
+implementation modes.
+
 ## Cost and availability
 
 After construction, formatting scalars performs **no allocation** when the

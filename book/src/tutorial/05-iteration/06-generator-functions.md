@@ -13,15 +13,15 @@ def pair() -> Generator[i64]:
 def source(n: i64) -> Generator[i64]:
     once(n)
 
-def total(values: Generator[i64]) -> i64:
+def total(values: Generator[i64]) -> Result[i64, OverflowError[i64]]:
     mut result = 0
     for value in values:
         result = result + value
-    result
+    Ok(result)
 
-def main() -> Result[(), IoError]:
-    print(total(source(7)))?
-    print(total(pair()))?
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(total(source(7))?)?
+    print(total(pair())?)?
     Ok(())
 ```
 ```output

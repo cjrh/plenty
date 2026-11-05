@@ -93,6 +93,12 @@ function takes `&Limits`; `decoder` and `encoder` trap when `max_depth` is above
 The depth limit also bounds the encoder's recursion over a `Json` tree, so a
 tree built by hand cannot overflow the stack.
 
+Input and output counters are bounded by the remaining declared budget before
+addition. Taking or writing output does not reset that budget. Bounded cursor,
+hex-digit, surrogate and UTF-8 state arithmetic uses explicit, locally justified
+`unchecked:` scopes; malformed values still return the JSON faults below,
+not arithmetic errors. No public arithmetic error type is added.
+
 ## Errors
 
 ```text
@@ -107,7 +113,12 @@ For decoding, `offset` is the byte offset from 0, and `line` and `column` start
 at 1. Only `\n` ends a line. A column is one Unicode scalar, not one byte. A
 syntax fault points at the offending byte; a fault found after a token was read
 (`DuplicateKey`, `NumberOutOfRange`) points at the token's first byte.
-`UnexpectedEnd` points one past the last byte.
+`UnexpectedEnd` points one past the last byte. Position arithmetic is checked:
+if the next byte or ASCII run would make an offset, line, or column
+unrepresentable as `i64`, decoding returns `InputTooLarge` at the current
+position without consuming that byte or run. This also applies when
+`max_input` itself is `i64.MAX`; the one-based line and column need their own
+representation checks.
 
 For encoding, `offset` is the number of bytes produced when the call failed and
 `line` and `column` are 0. A failed constructor reports 0, 0, 0.
@@ -126,7 +137,7 @@ For encoding, `offset` is the number of bytes produced when the call failed and
 | `InvalidUtf8` | Malformed, overlong, surrogate, or out-of-range UTF-8 in a string |
 | `DuplicateKey` | A repeated key under `DuplicateKeys.Reject` |
 | `DepthExceeded` | Nesting beyond `max_depth` |
-| `InputTooLarge`, `OutputTooLarge` | A size limit was reached |
+| `InputTooLarge`, `OutputTooLarge` | A size limit was reached; `InputTooLarge` also covers an unrepresentable input position |
 | `NonFiniteNumber` | A NaN or infinite `f64` given to the encoder |
 | `InvalidState` | A call that the decoder's or encoder's state does not allow |
 | `Stream(StreamError)` | A reader or writer failed; `InvalidProgress` if it reported an impossible count |

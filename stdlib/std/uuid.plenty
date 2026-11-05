@@ -48,12 +48,15 @@ pub class Uuid:
     # the entire span before changing any byte, using subtraction to avoid
     # overflow for an untrusted offset.
     pub def write_bytes(self, target: &mut Bytes, offset: i64) -> ():
-        if offset < 0 or offset > target.len() or target.len() - offset < 16:
-            __trap("Uuid.write_bytes: offset outside target buffer")
-        for index in range(8):
-            shift = u64((7 - index) * 8)
-            target.set(offset + index, u8((self._high >> shift) & 255u64))
-            target.set(offset + index + 8, u8((self._low >> shift) & 255u64))
+        # Short-circuit guards establish offset within target before subtraction;
+        # the full 16-byte span bounds both writes. index is 0..7, so shifts are 0..56.
+        unchecked:
+            if offset < 0 or offset > target.len() or target.len() - offset < 16:
+                __trap("Uuid.write_bytes: offset outside target buffer")
+            for index in range(8):
+                shift = u64((7 - index) * 8)
+                target.set(offset + index, u8((self._high >> shift) & 255u64))
+                target.set(offset + index + 8, u8((self._low >> shift) & 255u64))
 
     pub def to_bytes(self) -> Result[Bytes, BytesError]:
         mut result = std.bytes.with_capacity(16).map_error(BytesError.Allocation)?
@@ -62,15 +65,17 @@ pub class Uuid:
         Ok(result)
 
     pub def to_string(self) -> Result[str, BytesError]:
-        mut text = std.bytes.with_capacity(36).map_error(BytesError.Allocation)?
-        digits = b"0123456789abcdef"
-        for index in range(32):
-            if index == 8 or index == 12 or index == 16 or index == 20:
-                text.push(45u8).map_error(BytesError.Allocation)?
-            word = self._high if index < 16 else self._low
-            shift = u64((15 - index % 16) * 4)
-            text.push(digits[i64((word >> shift) & 15u64)]).map_error(BytesError.Allocation)?
-        text.to_text()
+        # index is 0..31; index % 16 is 0..15, so each shift is 0..60.
+        unchecked:
+            mut text = std.bytes.with_capacity(36).map_error(BytesError.Allocation)?
+            digits = b"0123456789abcdef"
+            for index in range(32):
+                if index == 8 or index == 12 or index == 16 or index == 20:
+                    text.push(45u8).map_error(BytesError.Allocation)?
+                word = self._high if index < 16 else self._low
+                shift = u64((15 - index % 16) * 4)
+                text.push(digits[i64((word >> shift) & 15u64)]).map_error(BytesError.Allocation)?
+            text.to_text()
 
 pub def nil() -> Uuid:
     Uuid(0u64, 0u64)
@@ -81,43 +86,48 @@ pub def from_u64_pair(high: u64, low: u64) -> Uuid:
 # Parsing preserves all 128 bits, including unknown versions and variants.
 # The one accepted spelling is 8-4-4-4-12 ASCII hex digits, either case.
 pub def parse(text: &str) -> Result[Uuid, ParseError]:
-    if text.byte_len() != 36:
-        return Err(ParseError.Invalid)
-    mut high = 0u64
-    mut low = 0u64
-    mut position = 0
-    mut digit = 0
-    for scalar in text:
-        if position == 8 or position == 13 or position == 18 or position == 23:
-            if scalar != "-":
-                return Err(ParseError.Invalid)
-        else:
-            code = ord(scalar)?
-            mut value = 0u64
-            if code >= 48u32 and code <= 57u32:
-                value = u64(code - 48u32)
-            elif code >= 65u32 and code <= 70u32:
-                value = u64(code - 65u32) + 10u64
-            elif code >= 97u32 and code <= 102u32:
-                value = u64(code - 97u32) + 10u64
+    # The 36-byte input has at most 36 scalars; position/digit stay <=36.
+    # ASCII guards bound each digit subtraction and addition to 0..15.
+    unchecked:
+        if text.byte_len() != 36:
+            return Err(ParseError.Invalid)
+        mut high = 0u64
+        mut low = 0u64
+        mut position = 0
+        mut digit = 0
+        for scalar in text:
+            if position == 8 or position == 13 or position == 18 or position == 23:
+                if scalar != "-":
+                    return Err(ParseError.Invalid)
             else:
-                return Err(ParseError.Invalid)
-            if digit < 16:
-                high = (high << 4u64) | value
-            else:
-                low = (low << 4u64) | value
-            digit += 1
-        position += 1
-    Ok(Uuid(high, low))
+                code = ord(scalar)?
+                mut value = 0u64
+                if code >= 48u32 and code <= 57u32:
+                    value = u64(code - 48u32)
+                elif code >= 65u32 and code <= 70u32:
+                    value = u64(code - 65u32) + 10u64
+                elif code >= 97u32 and code <= 102u32:
+                    value = u64(code - 97u32) + 10u64
+                else:
+                    return Err(ParseError.Invalid)
+                if digit < 16:
+                    high = (high << 4u64) | value
+                else:
+                    low = (low << 4u64) | value
+                digit += 1
+            position += 1
+        Ok(Uuid(high, low))
 
 # The caller has checked the length; indexing cannot leave the source.
 def decoded(source: &[u8]) -> Uuid:
-    mut high = 0u64
-    mut low = 0u64
-    for index in range(8):
-        high = (high << 8u64) | u64(source[index])
-        low = (low << 8u64) | u64(source[index + 8])
-    Uuid(high, low)
+    # index is 0..7 and the caller provides at least 16 bytes.
+    unchecked:
+        mut high = 0u64
+        mut low = 0u64
+        for index in range(8):
+            high = (high << 8u64) | u64(source[index])
+            low = (low << 8u64) | u64(source[index + 8])
+        Uuid(high, low)
 
 pub def from_bytes(source: &[u8]) -> Result[Uuid, ParseError]:
     if len(source) != 16:
@@ -138,14 +148,17 @@ pub def v4() -> Result[Uuid, SecretsError]:
     v4_from(&mut source)
 
 def milliseconds(at: &Timestamp) -> Result[u64, RangeError]:
-    if at.seconds < 0 or at.nanoseconds >= 1000000000u32:
-        return Err(RangeError.OutOfRange)
-    if u64(at.seconds) > max_milliseconds // 1000u64:
-        return Err(RangeError.OutOfRange)
-    value = u64(at.seconds) * 1000u64 + u64(at.nanoseconds) // 1000000u64
-    if value > max_milliseconds:
-        return Err(RangeError.OutOfRange)
-    Ok(value)
+    # Validated seconds are nonnegative and <= max_milliseconds // 1000;
+    # the nanosecond fraction contributes at most 999, far below u64.MAX.
+    unchecked:
+        if at.seconds < 0 or at.nanoseconds >= 1000000000u32:
+            return Err(RangeError.OutOfRange)
+        if u64(at.seconds) > max_milliseconds // 1000u64:
+            return Err(RangeError.OutOfRange)
+        value = u64(at.seconds) * 1000u64 + u64(at.nanoseconds) // 1000000u64
+        if value > max_milliseconds:
+            return Err(RangeError.OutOfRange)
+        Ok(value)
 
 pub def v7_from[R: Reader](at: &Timestamp, source: &mut Source[R]) -> Result[Uuid, RangeError | SecretsError]:
     time = milliseconds(at)?

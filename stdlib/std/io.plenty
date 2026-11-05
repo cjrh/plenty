@@ -121,46 +121,55 @@ def finished(result: Result[(), IoError]) -> Result[(), StreamError]:
 
 # `base` is a nonnegative position, so only the upper bound can overflow.
 def displaced(base: i64, offset: i64) -> Result[i64, StreamError]:
-    if offset > i64.MAX - base:
-        return Err(StreamError.OutOfRange)
-    if base + offset < 0:
-        return Err(StreamError.OutOfRange)
-    Ok(base + offset)
+    result = checked:
+        base + offset
+    match result:
+        case Ok(position):
+            if position < 0:
+                Err(StreamError.OutOfRange)
+            else:
+                Ok(position)
+        case Err(_):
+            Err(StreamError.OutOfRange)
 
 # Fills buffer[start:stop] completely, retrying interrupted and short reads.
 pub def read_exact[R: Reader](reader: &mut R, buffer: &mut Bytes, start: i64, stop: i64) -> Result[(), Partial]:
-    if not within(start, stop, buffer.len()):
-        __trap("read_exact: start/stop outside buffer")
-    mut at = start
-    while at < stop:
-        match reader.read(buffer, at, stop):
-            case Ok(count):
-                if count == 0:
-                    return Err(Partial(at - start, StreamError.UnexpectedEof))
-                if count < 0 or count > stop - at:
-                    return Err(Partial(at - start, StreamError.InvalidProgress))
-                at += count
-            case Err(cause):
-                if not interrupted(&cause):
-                    return Err(Partial(at - start, cause))
-    Ok(())
+    # Validated ranges and progress keep start <= at <= stop <= len(buffer).
+    unchecked:
+        if not within(start, stop, buffer.len()):
+            __trap("read_exact: start/stop outside buffer")
+        mut at = start
+        while at < stop:
+            match reader.read(buffer, at, stop):
+                case Ok(count):
+                    if count == 0:
+                        return Err(Partial(at - start, StreamError.UnexpectedEof))
+                    if count < 0 or count > stop - at:
+                        return Err(Partial(at - start, StreamError.InvalidProgress))
+                    at += count
+                case Err(cause):
+                    if not interrupted(&cause):
+                        return Err(Partial(at - start, cause))
+        Ok(())
 
 # Delivers all of `source`, retrying interrupted and short writes.
 pub def write_all[W: Writer](writer: &mut W, source: &[u8]) -> Result[(), Partial]:
-    stop = len(source)
-    mut at = 0
-    while at < stop:
-        match writer.write(&source[at:]):
-            case Ok(count):
-                if count == 0:
-                    return Err(Partial(at, StreamError.WriteZero))
-                if count < 0 or count > stop - at:
-                    return Err(Partial(at, StreamError.InvalidProgress))
-                at += count
-            case Err(cause):
-                if not interrupted(&cause):
-                    return Err(Partial(at, cause))
-    Ok(())
+    # Progress is checked before advancing, so 0 <= at <= len(source).
+    unchecked:
+        stop = len(source)
+        mut at = 0
+        while at < stop:
+            match writer.write(&source[at:]):
+                case Ok(count):
+                    if count == 0:
+                        return Err(Partial(at, StreamError.WriteZero))
+                    if count < 0 or count > stop - at:
+                        return Err(Partial(at, StreamError.InvalidProgress))
+                    at += count
+                case Err(cause):
+                    if not interrupted(&cause):
+                        return Err(Partial(at, cause))
+        Ok(())
 
 # Appends at most `limit` bytes to `out`, stopping early only at end of input.
 # `out` grows one bounded step at a time and never holds unread filler.
@@ -168,32 +177,41 @@ pub def read_up_to[R: Reader](reader: &mut R, out: &mut Bytes, limit: NonNegativ
     up_to(reader, out, limit.get())
 
 def up_to[R: Reader](reader: &mut R, out: &mut Bytes, limit: i64) -> Result[i64, Partial]:
-    mut total = 0
-    while total < limit:
-        mut step = limit - total
-        if step > chunk:
-            step = chunk
-        filled = out.len()
-        match out.resize(filled + step, 0u8).map_error(StreamError.Allocation):
-            case Ok(_):
-                pass
-            case Err(cause):
-                return Err(Partial(total, cause))
-        outcome = reader.read(out, filled, filled + step)
-        match outcome:
-            case Ok(count):
-                if count < 0 or count > step:
-                    out.truncate(filled)
-                    return Err(Partial(total, StreamError.InvalidProgress))
-                out.truncate(filled + count)
-                if count == 0:
-                    return Ok(total)
-                total += count
-            case Err(cause):
-                out.truncate(filled)
-                if not interrupted(&cause):
+    # total <= limit; checked extent bounds filled + count, and step <= limit - total.
+    unchecked:
+        mut total = 0
+        while total < limit:
+            mut step = limit - total
+            if step > chunk:
+                step = chunk
+            filled = out.len()
+            extent = checked:
+                filled + step
+            end = match extent:
+                case Ok(value):
+                    value
+                case Err(_):
+                    return Err(Partial(total, StreamError.Allocation(AllocError.CapacityOverflow)))
+            match out.resize(end, 0u8).map_error(StreamError.Allocation):
+                case Ok(_):
+                    pass
+                case Err(cause):
                     return Err(Partial(total, cause))
-    Ok(total)
+            outcome = reader.read(out, filled, end)
+            match outcome:
+                case Ok(count):
+                    if count < 0 or count > step:
+                        out.truncate(filled)
+                        return Err(Partial(total, StreamError.InvalidProgress))
+                    out.truncate(filled + count)
+                    if count == 0:
+                        return Ok(total)
+                    total += count
+                case Err(cause):
+                    out.truncate(filled)
+                    if not interrupted(&cause):
+                        return Err(Partial(total, cause))
+        Ok(total)
 
 # Moves bytes until the reader reports end of input, using the whole of the
 # caller's `scratch` as the transfer buffer. Nothing is allocated or flushed.
@@ -210,11 +228,19 @@ pub def copy_all[R: Reader, W: Writer](reader: &mut R, writer: &mut W, scratch: 
                     return Ok(total)
                 if count < 0 or count > size:
                     return Err(CopyError.Read(total, StreamError.InvalidProgress))
+                next_total = match displaced(total, count):
+                    case Ok(value):
+                        value
+                    case Err(cause):
+                        return Err(CopyError.Read(total, cause))
                 match write_all(writer, &scratch[0:count]):
                     case Ok(_):
-                        total += count
+                        total = next_total
                     case Err(partial):
-                        return Err(CopyError.Write(total + partial.completed, partial.cause))
+                        # write_all validates partial.completed <= count; next_total fits.
+                        completed = unchecked:
+                            total + partial.completed
+                        return Err(CopyError.Write(completed, partial.cause))
             case Err(cause):
                 if not interrupted(&cause):
                     return Err(CopyError.Read(total, cause))
@@ -233,7 +259,9 @@ pub class BufReader[R]:
         self._buffer.len()
 
     pub def buffered(self) -> i64:
-        self._stop - self._start
+        # Private cursors satisfy 0 <= start <= stop <= buffer capacity.
+        unchecked:
+            self._stop - self._start
 
     # One inner read into the empty buffer. An error leaves it empty.
     def fill(self: &mut BufReader[R]) -> Result[i64, StreamError]:
@@ -245,56 +273,60 @@ pub class BufReader[R]:
         Ok(count)
 
     pub def read(self: &mut BufReader[R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
-        if not (0 <= start and start <= stop and stop <= buffer.len()):
-            __trap("read: start/stop outside buffer")
-        if start == stop:
-            return Ok(0)
-        if self._start == self._stop:
-            # A request at least as large as the buffer gains nothing from it.
-            if stop - start >= self._buffer.len():
-                return progressed(self.inner.read(buffer, start, stop)?, stop - start)
-            if self.fill()? == 0:
+        # Validated destination bounds and progress bound every cursor by its buffer.
+        unchecked:
+            if not (0 <= start and start <= stop and stop <= buffer.len()):
+                __trap("read: start/stop outside buffer")
+            if start == stop:
                 return Ok(0)
-        mut count = stop - start
-        if count > self._stop - self._start:
-            count = self._stop - self._start
-        buffer.overwrite(start, &self._buffer[self._start:self._start + count])
-        self._start += count
-        Ok(count)
+            if self._start == self._stop:
+                # A request at least as large as the buffer gains nothing from it.
+                if stop - start >= self._buffer.len():
+                    return progressed(self.inner.read(buffer, start, stop)?, stop - start)
+                if self.fill()? == 0:
+                    return Ok(0)
+            mut count = stop - start
+            if count > self._stop - self._start:
+                count = self._stop - self._start
+            buffer.overwrite(start, &self._buffer[self._start:self._start + count])
+            self._start += count
+            Ok(count)
 
     # Appends to `out` through the first `delimiter`, at most `limit` bytes.
     # Returns the count appended; zero is end of input. A nonzero count whose
     # last byte is not the delimiter means the limit or end of input came first.
     # After an error, `out` keeps the bytes already appended.
     pub def read_until(self: &mut BufReader[R], delimiter: u8, out: &mut Bytes, limit: Positive[i64]) -> Result[i64, StreamError]:
-        most = limit.get()
-        mut total = 0
-        while total < most:
-            if self._start == self._stop:
-                match self.fill():
-                    case Ok(count):
-                        if count == 0:
-                            return Ok(total)
-                    case Err(cause):
-                        if not interrupted(&cause):
-                            return Err(cause)
-            else:
-                mut stop = self._stop
-                if stop - self._start > most - total:
-                    stop = self._start + (most - total)
-                mut found = False
-                match self._buffer.find(delimiter, self._start, stop):
-                    case Some(index):
-                        stop = index + 1
-                        found = True
-                    case Nothing:
-                        pass
-                out.extend(&self._buffer[self._start:stop]).map_error(StreamError.Allocation)?
-                total += stop - self._start
-                self._start = stop
-                if found:
-                    return Ok(total)
-        Ok(total)
+        # The scan clamps each step to most - total and the buffer's validated cursors.
+        unchecked:
+            most = limit.get()
+            mut total = 0
+            while total < most:
+                if self._start == self._stop:
+                    match self.fill():
+                        case Ok(count):
+                            if count == 0:
+                                return Ok(total)
+                        case Err(cause):
+                            if not interrupted(&cause):
+                                return Err(cause)
+                else:
+                    mut stop = self._stop
+                    if stop - self._start > most - total:
+                        stop = self._start + (most - total)
+                    mut found = False
+                    match self._buffer.find(delimiter, self._start, stop):
+                        case Some(index):
+                            stop = index + 1
+                            found = True
+                        case Nothing:
+                            pass
+                    out.extend(&self._buffer[self._start:stop]).map_error(StreamError.Allocation)?
+                    total += stop - self._start
+                    self._start = stop
+                    if found:
+                        return Ok(total)
+            Ok(total)
 
 pub def buffered_reader[R](inner: R, capacity: Positive[i64]) -> Result[BufReader[R], StreamError]:
     size = capacity.get()
@@ -305,13 +337,19 @@ pub def buffered_reader[R](inner: R, capacity: Positive[i64]) -> Result[BufReade
 # Repositions the inner stream and discards buffered input. A relative target
 # is measured from the position the program has consumed up to.
 pub def seek_reader[R: Seeker](reader: &mut BufReader[R], target: SeekFrom) -> Result[i64, StreamError]:
-    held = reader._stop - reader._start
+    # Private cursors satisfy 0 <= start <= stop <= buffer length.
+    held = unchecked:
+        reader._stop - reader._start
     mut adjusted = target
     match target:
         case SeekFrom.Current(offset):
-            if offset < i64.MIN + held:
-                return Err(StreamError.OutOfRange)
-            adjusted = SeekFrom.Current(offset - held)
+            result = checked:
+                offset - held
+            match result:
+                case Ok(position):
+                    adjusted = SeekFrom.Current(position)
+                case Err(_):
+                    return Err(StreamError.OutOfRange)
         case _:
             pass
     position = reader.inner.seek(adjusted)?
@@ -332,38 +370,44 @@ pub class BufWriter[W]:
         self._capacity
 
     pub def pending(self) -> i64:
-        self._buffer.len() - self._start
+        # The private drain cursor stays in 0..=len(buffer).
+        unchecked:
+            self._buffer.len() - self._start
 
     # Delivers every pending byte. A failure keeps the undelivered tail, so a
     # later drain resumes exactly where this one stopped.
     def drain(self: &mut BufWriter[W]) -> Result[(), StreamError]:
-        total = self._buffer.len()
-        while self._start < total:
-            match self.inner.write(&self._buffer[self._start:total]):
-                case Ok(count):
-                    if count == 0:
-                        return Err(StreamError.WriteZero)
-                    if count < 0 or count > total - self._start:
-                        return Err(StreamError.InvalidProgress)
-                    self._start += count
-                case Err(cause):
-                    if not interrupted(&cause):
-                        return Err(cause)
-        self._buffer.clear()
-        self._start = 0
-        Ok(())
+        # Positive progress is bounded by the undelivered suffix before advancing.
+        unchecked:
+            total = self._buffer.len()
+            while self._start < total:
+                match self.inner.write(&self._buffer[self._start:total]):
+                    case Ok(count):
+                        if count == 0:
+                            return Err(StreamError.WriteZero)
+                        if count < 0 or count > total - self._start:
+                            return Err(StreamError.InvalidProgress)
+                        self._start += count
+                    case Err(cause):
+                        if not interrupted(&cause):
+                            return Err(cause)
+            self._buffer.clear()
+            self._start = 0
+            Ok(())
 
     pub def write(self: &mut BufWriter[W], source: &[u8]) -> Result[i64, StreamError]:
-        count = len(source)
-        if count == 0:
-            return Ok(0)
-        if count > self._capacity - self._buffer.len():
-            self.drain()?
-        # A write at least as large as the buffer goes straight through.
-        if count >= self._capacity:
-            return progressed(self.inner.write(source)?, count)
-        self._buffer.extend(source).map_error(StreamError.Allocation)?
-        Ok(count)
+        # Pending bytes never exceed the fixed capacity; subtraction is nonnegative.
+        unchecked:
+            count = len(source)
+            if count == 0:
+                return Ok(0)
+            if count > self._capacity - self._buffer.len():
+                self.drain()?
+            # A write at least as large as the buffer goes straight through.
+            if count >= self._capacity:
+                return progressed(self.inner.write(source)?, count)
+            self._buffer.extend(source).map_error(StreamError.Allocation)?
+            Ok(count)
 
     pub def flush(self: &mut BufWriter[W]) -> Result[(), StreamError]:
         self.drain()?
@@ -407,9 +451,11 @@ pub class Cursor:
         self._position
 
     pub def remaining(self) -> i64:
-        if self._position >= self.data.len():
-            return 0
-        self.data.len() - self._position
+        # Position is nonnegative; the branch excludes positions past the data end.
+        unchecked:
+            if self._position >= self.data.len():
+                return 0
+            self.data.len() - self._position
 
     pub def require_end(self) -> Result[(), BinaryError]:
         if self.remaining() > 0:
@@ -417,16 +463,24 @@ pub class Cursor:
         Ok(())
 
     def field_end(self, count: i64) -> Result[i64, BinaryError]:
-        if count < 0:
-            return Err(BinaryError.OutOfRange)
-        if count > self.remaining():
-            return Err(BinaryError.Truncated(self._position, count, self.remaining()))
-        Ok(self._position + count)
+        # count is nonnegative and <= remaining; zero preserves an arbitrary valid seek.
+        unchecked:
+            if count < 0:
+                return Err(BinaryError.OutOfRange)
+            if count > self.remaining():
+                return Err(BinaryError.Truncated(self._position, count, self.remaining()))
+            Ok(self._position + count)
 
     def prepare_field(self: &mut Cursor, count: i64, max_bytes: i64) -> Result[i64, BinaryError]:
-        if max_bytes < 0 or count < 0 or count > i64.MAX - self._position:
+        if max_bytes < 0 or count < 0:
             return Err(BinaryError.OutOfRange)
-        end = self._position + count
+        result = checked:
+            self._position + count
+        end = match result:
+            case Ok(value):
+                value
+            case Err(_):
+                return Err(BinaryError.OutOfRange)
         if end > max_bytes or self.data.len() > max_bytes:
             return Err(BinaryError.LimitExceeded)
         if end > self.data.len():
@@ -580,17 +634,19 @@ pub class Cursor:
         Ok(())
 
     pub def read(self: &mut Cursor, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
-        if not (0 <= start and start <= stop and stop <= buffer.len()):
-            __trap("read: start/stop outside buffer")
-        size = self.data.len()
-        if self._position >= size:
-            return Ok(0)
-        mut count = stop - start
-        if count > size - self._position:
-            count = size - self._position
-        buffer.overwrite(start, &self.data[self._position:self._position + count])
-        self._position += count
-        Ok(count)
+        # Validated ranges and min(remaining, offered) bound every cursor update.
+        unchecked:
+            if not (0 <= start and start <= stop and stop <= buffer.len()):
+                __trap("read: start/stop outside buffer")
+            size = self.data.len()
+            if self._position >= size:
+                return Ok(0)
+            mut count = stop - start
+            if count > size - self._position:
+                count = size - self._position
+            buffer.overwrite(start, &self.data[self._position:self._position + count])
+            self._position += count
+            Ok(count)
 
     pub def write(self: &mut Cursor, source: &[u8]) -> Result[i64, StreamError]:
         count = len(source)
@@ -599,7 +655,10 @@ pub class Cursor:
         end = displaced(self._position, count)?
         # Reserve the entire extent before changing a seek gap or existing data.
         if end > self.data.len():
-            self.data.reserve(end - self.data.len()).map_error(StreamError.Allocation)?
+            # This branch proves 0 <= len(data) < end <= i64.MAX.
+            additional = unchecked:
+                end - self.data.len()
+            self.data.reserve(additional).map_error(StreamError.Allocation)?
             self.data.resize(end, 0u8).map_error(StreamError.Allocation)?
         self.data.overwrite(self._position, source)
         self._position = end
