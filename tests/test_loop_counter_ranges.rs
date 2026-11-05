@@ -441,9 +441,48 @@ def offset_range_mod(stop: i64) -> i64:
             total = total.wrapping_add(i % 7 + i // 5)
     total
 
-def main() -> Result[(), OverflowError[i64]]:
+# Result-contract counterparts: the same steps as `CheckedArith` operations.
+def result_counter_step(limit: i64) -> Result[i64, OverflowError[i64]]:
+    mut i = 0
+    mut total = 0
+    while i < limit:
+        total = total + i
+        i = i + 1
+    Ok(total)
+
+def result_step_by_two(limit: i64) -> Result[i64, OverflowError[i64]]:
+    mut i = 0
+    while i < limit:
+        i = i + 2
+    Ok(i)
+
+def result_counter_mod(limit: i64) -> Result[i64, ZeroDivisionError | OverflowError[i64]]:
+    mut i = 0
+    mut total = 0
+    while i < limit:
+        total = total.wrapping_add(i % 7)
+        i += 1
+    Ok(total)
+
+def result_two_ends(lo: i64, hi: i64) -> Result[i64, OverflowError[i64]]:
+    mut i = lo
+    mut j = hi
+    while i < j:
+        i += 1
+        j -= 1
+    Ok(i - j)
+
+def result_range_next(stop: i64) -> Result[i64, OverflowError[i64]]:
+    mut total = 0
+    for i in range(stop):
+        total = total + (i + 1)
+    Ok(total)
+
+def main() -> Result[(), OverflowError[i64] | ZeroDivisionError]:
     x = bounded_step(3) + wide_step(3) + nonnegative_mod(3) + signed_mod(3) + both_ends(0, 3)
     y = range_step(3) + natural_range_mod(3) + offset_range_mod(3)
+    z = result_counter_step(3)? + result_step_by_two(3)? + result_counter_mod(3)?
+    w = result_two_ends(0, 3)? + result_range_next(3)?
     Ok(())
 "#;
 
@@ -534,5 +573,57 @@ fn nonnegative_counters_use_unsigned_division() {
     let signed = clif(dir.path(), "signed_mod");
     for expected in ["srem", "sdiv"] {
         assert!(signed.contains(expected), "{signed}");
+    }
+}
+
+/// In functions with Result contracts the steps are `CheckedArith`
+/// operations. Proven ones lower to plain arithmetic as the trapping steps
+/// above do; the accumulators, the step of two and the final difference keep
+/// their checks, and the nonnegative counter is divided unsigned.
+#[test]
+fn result_counter_steps_lower_to_plain_arithmetic() {
+    let dir = write(SHAPES);
+    let step = clif(dir.path(), "result_counter_step");
+    assert_eq!(step.matches("sadd_overflow").count(), 1, "{step}");
+    let wide = clif(dir.path(), "result_step_by_two");
+    assert_eq!(wide.matches("sadd_overflow").count(), 1, "{wide}");
+    let both = clif(dir.path(), "result_two_ends");
+    assert_eq!(both.matches("sadd_overflow").count(), 0, "{both}");
+    assert_eq!(both.matches("ssub_overflow").count(), 1, "{both}");
+    let range = clif(dir.path(), "result_range_next");
+    assert_eq!(range.matches("sadd_overflow").count(), 1, "{range}");
+    let modulo = clif(dir.path(), "result_counter_mod");
+    assert!(modulo.contains("urem"), "{modulo}");
+    assert!(!modulo.contains("srem"), "{modulo}");
+}
+
+/// Unproven Result-contract steps still return `OverflowError`.
+#[rstest]
+#[case::wide_step_variable_bound(
+    "def f(limit: i64) -> Result[i64, OverflowError[i64]]:\n    mut i = limit - 1\n    while i < limit:\n        i += 2\n    Ok(i)\n"
+)]
+#[case::inclusive_variable_bound(
+    "def f(limit: i64) -> Result[i64, OverflowError[i64]]:\n    mut i = limit - 2\n    while i <= limit:\n        i += 1\n    Ok(i)\n"
+)]
+#[case::earlier_conditional_write(
+    "def f(limit: i64) -> Result[i64, OverflowError[i64]]:\n    mut i = limit - 1\n    while i < limit:\n        if limit > 0:\n            i += 1\n        i += 1\n    Ok(i)\n"
+)]
+#[case::range_wide_increment(
+    "def f(top: i64) -> Result[i64, OverflowError[i64]]:\n    mut total = 0\n    for i in range(top - 1, top):\n        total = i + 2\n    Ok(total)\n"
+)]
+fn unproven_result_steps_still_return_errors(#[case] function: &str) {
+    let source = format!(
+        "{function}\ndef main() -> Result[(), IoError]:\n    match f(i64.MAX):\n        case Ok(value):\n            print(value)?\n        case Err(error):\n            print(error.wrapped)?\n    Ok(())\n"
+    );
+    let dir = write(&source);
+    for args in [
+        &["--fast-compile", "counters.plenty"][..],
+        &["--release", "counters.plenty"][..],
+    ] {
+        assert_eq!(
+            plenty(dir.path(), args),
+            format!("{}\n", i64::MIN),
+            "{args:?}\n{source}"
+        );
     }
 }

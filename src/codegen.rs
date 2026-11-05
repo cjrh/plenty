@@ -2956,8 +2956,16 @@ impl Lowerer<'_, '_> {
     fn lower_proven_step(&mut self, op: &Op) -> Result<()> {
         let (a, b, ty) = self.pop_int_pair()?;
         let result = match op {
-            Op::Add => self.bcx.ins().iadd(a, b),
-            Op::Sub => self.bcx.ins().isub(a, b),
+            Op::Add
+            | Op::CheckedArith {
+                operation: crate::numeric::Checked::Add,
+                ..
+            } => self.bcx.ins().iadd(a, b),
+            Op::Sub
+            | Op::CheckedArith {
+                operation: crate::numeric::Checked::Sub,
+                ..
+            } => self.bcx.ins().isub(a, b),
             _ => return Err("AOT: proven loop step is not an add or subtract".into()),
         };
         self.stack.push((result, ty));
