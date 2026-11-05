@@ -87,11 +87,14 @@ scalar list, or of a scalar-list field of a named class value
 (`self.items[i]`), defined before it (issues #429, #715 and #717). The frontend
 emits the header reads before the loop and lowers `xs[i]` in the loop to
 `ListScalarGetView` or `ListScalarSetView`, which take the cached values as
-operands. An immutable shared reference cannot change during the loop. For an
+operands. A list of any other element type gets the same cache for the row
+references that field access and element references take (`bodies[i].x`,
+`&mut bodies[i]`): `ElementRefView` takes the cached values and computes the
+row address inline (issue #739). An immutable shared reference cannot change during the loop. For an
 owned list or owner, an exclusive reference, or a retargetable binding, the
 frontend checks the finished loop's operations against a list that cannot
 resize or replace any list (arithmetic, control flow, loan bookkeeping, `?`,
-scalar row access, length queries, view construction, calls, and no write to
+scalar row access, row references, length queries, view construction, calls, and no write to
 the binding). A direct call is allowed when none of its arguments can resize
 the list: Plenty has no globals, so a callee reaches a list only through its
 arguments. Shared borrows and `&mut` passed to a slice view cannot resize it,
@@ -99,14 +102,16 @@ nor can `&mut` to an unrelated owned local. The loop falls back for a `&mut`
 list or class argument, including a method receiver, that reaches the cached
 list or its owner or that is borrowed from a reference parameter; for a
 by-value argument that holds references; for indirect and closure calls; and
-for any other operation. The fallback rewrites those accesses to `ListScalarGetRef` and
-`ListScalarSetRef`, which read the header at each access. The cache is held in
+for any other operation. The fallback rewrites those accesses to `ListScalarGetRef`,
+`ListScalarSetRef` and `ElementRef`, which read the header at each access. The cache is held in
 ordinary locals rather than in loads marked `readonly`: Cranelift treats a
 `readonly` load as valid for the whole function, which a later `append` would
 violate.
 
-The length of other lists and of owned temporaries uses `plenty_list_len`, and
-indexing an owned temporary scalar list or iterating one by value uses
+The length of a borrowed list of any element type is read from the header
+inline: the stored byte count divided by the constant row size, a shift when
+it is a power of two, minus the popped-row flag. The length of an owned
+temporary uses `plenty_list_len`, and indexing an owned temporary scalar list or iterating one by value uses
 `plenty_list_scalar_get`, bypassing the argument block of a
 [runtime operation](runtime.md#entry-symbols). These helpers take a live owner
 pointer and an `i64` index. Named receivers are borrowed without temporary
@@ -146,19 +151,19 @@ and compare structurally) and release or replace no stored value. Operations
 that can, such as `pop`, `discard`, and inserts, keep the copy's count, because
 a stored value they release may be the copy's source.
 
-An explicit element reference (`&xs[i]`, `&mut xs[i]`, `&mut grid[i][j]`) of any
-element type calls `plenty_list_row(list, index, site)`, which checks the index
-like the scalar helpers and returns the row's address. That address is the
-reference; reads and writes through it are direct loads and stores. Dictionary
+An element reference (`&xs[i]`, `&mut xs[i]`, `&mut grid[i][j]`, and the
+implicit one under `bodies[i].x`) of any element type checks the index inline
+like scalar access and computes the row's address, `rows + index * row_bytes`,
+where `row_bytes` is the element's constant row size (issue #739). An index
+out of bounds calls `plenty_trap_list_index` with the same message as other
+list indexing. That address is the reference; reads and writes through it are direct loads and stores. Dictionary
 element references still use a runtime operation.
 
 A borrowed list loop (`for x in &xs`, `for x in &mut xs`, `reversed(&xs)`, or a
 loop over a list reference) iterates through the reference without copying the
-list's owner. Before the first iteration it reads the length with
-`plenty_list_len`, the first row's address with `plenty_list_rows`, and the
-distance between rows with `plenty_list_row_bytes`; for a scalar list, codegen
-reads the address from the header and uses the element width instead of
-calling these helpers. Each element reference is
+list's owner. Before the first iteration it reads the length and the
+first row's address from the header and uses the element's constant row size
+as the distance between rows. Each element reference is
 then `rows + index * row_bytes`, the slot a generic element reference names, so
 a scalar read is one load with no call. The loop holds the list's loan from its
 first condition to its last body use; no mutation can grow, shrink, or move the
