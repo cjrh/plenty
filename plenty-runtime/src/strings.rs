@@ -1,4 +1,5 @@
 use crate::memory::{self, AllocError, Header};
+use std::mem::MaybeUninit;
 use std::{ptr, slice, str};
 
 #[repr(C)]
@@ -24,10 +25,17 @@ pub(crate) fn is_inline(text: *const Text) -> bool {
 
 pub(crate) fn pack(data: &[u8]) -> *mut Text {
     debug_assert!(data.len() <= INLINE_MAX);
-    let mut word = [0u8; 8];
-    word[0] = (data.len() as u8) << 1 | 1;
-    word[1..=data.len()].copy_from_slice(data);
-    usize::from_le_bytes(word) as *mut Text
+    // Shifting each byte into place avoids a variable-length memcpy call.
+    let mut word = (data.len() as u64) << 1 | 1;
+    for (index, byte) in data.iter().enumerate() {
+        word |= (*byte as u64) << (8 * (index + 1));
+    }
+    word as usize as *mut Text
+}
+
+/// Whether every data byte of an inline word is ASCII; the tag byte always is.
+fn inline_ascii(word: *mut Text) -> bool {
+    word as usize as u64 & 0x8080_8080_8080_8080 == 0
 }
 
 pub(crate) unsafe fn byte_len(text: *const Text) -> u64 {
@@ -62,7 +70,9 @@ pub(crate) unsafe fn try_c_string(text: *const Text) -> Result<*mut Text, CStrEr
             return Err(CStrError::EmbeddedNul);
         }
         let size = add_length(byte_len(text), 1).map_err(CStrError::Allocation)?;
-        let out = memory::try_allocate::<Text, u8>(size as usize).map_err(CStrError::Allocation)?;
+        // The header, the copied bytes and the terminator fill the whole object.
+        let out = memory::try_allocate_uninit::<Text, u8>(size as usize)
+            .map_err(CStrError::Allocation)?;
         out.write(Text {
             header: Header::new(destroy),
             byte_len: size,
@@ -126,12 +136,48 @@ pub(crate) fn new(bytes: &[u8]) -> *mut Text {
 
 pub(crate) fn try_new(text: &str) -> Result<*mut Text, AllocError> {
     let bytes = text.as_bytes();
+    if bytes.len() <= INLINE_MAX {
+        return Ok(pack(bytes));
+    }
+    // An ASCII check reads a word at a time and gives the count directly.
+    let scalars = if bytes.is_ascii() {
+        bytes.len()
+    } else {
+        text.chars().count()
+    };
+    try_copy(bytes, scalars)
+}
+
+/// A new string holding `bytes`, or None when they are not strictly valid
+/// UTF-8. ASCII, the common case, needs neither full validation nor a separate
+/// scalar count.
+pub(crate) fn try_from_utf8(bytes: &[u8]) -> Option<Result<*mut Text, AllocError>> {
+    if bytes.len() <= INLINE_MAX {
+        let word = pack(bytes);
+        return (inline_ascii(word) || str::from_utf8(bytes).is_ok()).then_some(Ok(word));
+    }
+    if bytes.is_ascii() {
+        return Some(try_copy(bytes, bytes.len()));
+    }
+    let text = str::from_utf8(bytes).ok()?;
+    Some(try_copy(bytes, text.chars().count()))
+}
+
+/// Copy UTF-8 `bytes` holding `scalars` scalars into a new string.
+fn try_copy(bytes: &[u8], scalars: usize) -> Result<*mut Text, AllocError> {
     if bytes.len() > i64::MAX as usize {
         return Err(AllocError::CapacityOverflow);
     }
-    try_build(bytes.len() as u64, text.chars().count() as u64, |out| {
-        out.copy_from_slice(bytes)
+    try_build(bytes.len() as u64, scalars as u64, |out| {
+        out.write_copy_of_slice(bytes);
     })
+}
+
+/// Copy `data` into `out` at `offset` and return the offset after it.
+fn put(out: &mut [MaybeUninit<u8>], offset: usize, data: &[u8]) -> usize {
+    let end = offset + data.len();
+    out[offset..end].write_copy_of_slice(data);
+    end
 }
 
 pub(crate) fn from_codepoint(code: u32) -> Option<*mut Text> {
@@ -161,26 +207,27 @@ fn try_characters(characters: impl Iterator<Item = char> + Clone) -> Result<*mut
     try_build(bytes, scalars, |out| {
         let mut offset = 0;
         for character in characters {
-            let length = character.len_utf8();
-            character.encode_utf8(&mut out[offset..offset + length]);
-            offset += length;
+            offset = put(out, offset, character.encode_utf8(&mut [0; 4]).as_bytes());
         }
     })
 }
 
 /// Produce a string of known checked size. Short results are packed inline and
-/// cannot fail; longer ones allocate once. `fill` writes exactly byte_len bytes.
+/// cannot fail; longer ones allocate once, without zeroing. `fill` must
+/// initialize every one of the byte_len bytes: the result reads them all.
 fn try_build(
     byte_len: u64,
     scalar_len: u64,
-    fill: impl FnOnce(&mut [u8]),
+    fill: impl FnOnce(&mut [MaybeUninit<u8>]),
 ) -> Result<*mut Text, AllocError> {
     if byte_len as usize <= INLINE_MAX {
-        let mut data = [0u8; INLINE_MAX];
+        let mut data = [MaybeUninit::new(0u8); INLINE_MAX];
         fill(&mut data[..byte_len as usize]);
+        // SAFETY: the buffer starts zeroed and `fill` stores only bytes.
+        let data = data.map(|byte| unsafe { byte.assume_init() });
         return Ok(pack(&data[..byte_len as usize]));
     }
-    let out = memory::try_allocate::<Text, u8>(byte_len as usize)?;
+    let out = memory::try_allocate_uninit::<Text, u8>(byte_len as usize)?;
     // SAFETY: the allocation has a header followed by exactly byte_len bytes.
     unsafe {
         out.write(Text {
@@ -190,7 +237,7 @@ fn try_build(
             data: [],
         });
         fill(slice::from_raw_parts_mut(
-            ptr::addr_of_mut!((*out).data).cast::<u8>(),
+            ptr::addr_of_mut!((*out).data).cast::<MaybeUninit<u8>>(),
             byte_len as usize,
         ));
     }
@@ -203,7 +250,7 @@ pub(crate) unsafe fn try_duplicate(text: *const Text) -> Result<*mut Text, Alloc
     unsafe {
         let source = bytes(&text);
         try_build(byte_len(text), scalar_len(text), |out| {
-            out.copy_from_slice(source)
+            out.write_copy_of_slice(source);
         })
     }
 }
@@ -267,10 +314,7 @@ pub(crate) unsafe fn try_replace(
         let replacement = bytes(&new);
         try_build(total, scalars, |out| {
             let mut offset = 0;
-            let mut append = |data: &[u8]| {
-                out[offset..offset + data.len()].copy_from_slice(data);
-                offset += data.len();
-            };
+            let mut append = |data: &[u8]| offset = put(out, offset, data);
             let mut previous = 0;
             for (index, matched) in matches {
                 append(&source.as_bytes()[previous..index]);
@@ -304,11 +348,7 @@ pub(crate) unsafe fn try_join(
         }
         try_build(total, scalars, |out| {
             let mut offset = 0;
-            let mut append = |text: *const Text| {
-                let data = bytes(&text);
-                out[offset..offset + data.len()].copy_from_slice(data);
-                offset += data.len();
-            };
+            let mut append = |text: *const Text| offset = put(out, offset, bytes(&text));
             let mut first = true;
             for piece in pieces {
                 if !first && let Some(separator) = separator {
@@ -338,13 +378,10 @@ pub(crate) unsafe fn try_join_scalars(
             let mut offset = 0;
             for (index, character) in source.char_indices() {
                 if index != 0 {
-                    out[offset..offset + between.len()].copy_from_slice(between);
-                    offset += between.len();
+                    offset = put(out, offset, between);
                 }
                 let length = character.len_utf8();
-                out[offset..offset + length]
-                    .copy_from_slice(&source.as_bytes()[index..index + length]);
-                offset += length;
+                offset = put(out, offset, &source.as_bytes()[index..index + length]);
             }
             debug_assert_eq!(offset, total as usize);
         })
@@ -387,7 +424,9 @@ pub(crate) unsafe fn try_join_generator(
             appended?;
             first = false;
         }
-        try_build(total, scalars, |out| out.copy_from_slice(&buffer))
+        try_build(total, scalars, |out| {
+            out.write_copy_of_slice(&buffer);
+        })
     }
 }
 
@@ -615,8 +654,7 @@ pub(crate) unsafe fn try_repeat(text: *const Text, count: i64) -> Result<*mut Te
             if out.is_empty() {
                 return;
             }
-            out[..source.len()].copy_from_slice(source);
-            let mut filled = source.len();
+            let mut filled = put(out, 0, source);
             while filled < out.len() {
                 // Doubling the initialized prefix avoids one copy per repeat.
                 let count = filled.min(out.len() - filled);
@@ -695,7 +733,7 @@ pub(crate) unsafe fn try_stepped_slice(
             let source = bytes(&text);
             return try_build(count as u64, count as u64, |out| {
                 for (k, byte) in out.iter_mut().enumerate() {
-                    *byte = source[slice_position(first, step, k)];
+                    byte.write(source[slice_position(first, step, k)]);
                 }
             });
         }
@@ -723,7 +761,7 @@ pub(crate) unsafe fn try_stepped_slice(
                 if step < 0 {
                     offset -= length;
                 }
-                character.encode_utf8(&mut out[offset..offset + length]);
+                put(out, offset, character.encode_utf8(&mut [0; 4]).as_bytes());
                 if step > 0 {
                     offset += length;
                 }
@@ -810,6 +848,41 @@ mod tests {
             repeated_length(u64::MAX, 3),
             Err(AllocError::CapacityOverflow)
         );
+    }
+
+    #[test]
+    fn utf8_copies_match_the_standard_validator_at_every_length() {
+        // Issue #749: ASCII and inline fast paths must accept exactly what
+        // str::from_utf8 accepts and keep the scalar count it implies.
+        let source = "abcdefgé🙂hijklmnopqrstuvwxyz".as_bytes();
+        let mut cases: Vec<Vec<u8>> = Vec::new();
+        for start in 0..source.len() {
+            for stop in start..=source.len().min(start + 20) {
+                cases.push(source[start..stop].to_vec());
+            }
+        }
+        for length in 0..=20 {
+            for at in 0..length {
+                for bad in [0x80, 0xc3, 0xff] {
+                    let mut case = vec![b'x'; length];
+                    case[at] = bad;
+                    cases.push(case);
+                }
+            }
+        }
+        for case in cases {
+            let made = try_from_utf8(&case).map(|made| made.unwrap());
+            match (str::from_utf8(&case), made) {
+                (Ok(expected), Some(made)) => unsafe {
+                    assert_eq!(bytes(&(made as *const Text)), case);
+                    assert_eq!(is_inline(made), case.len() <= INLINE_MAX);
+                    assert_eq!(scalar_len(made), expected.chars().count() as u64);
+                    release_leaf(made);
+                },
+                (Err(_), None) => {}
+                (expected, made) => panic!("{case:?}: {expected:?} but {made:?}"),
+            }
+        }
     }
 
     #[test]

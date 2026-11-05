@@ -290,6 +290,12 @@ a conservative security margin. The collection benchmarks quantify the cost:
 short-key lookup is more expensive, especially for integers. Hashing remains
 a runtime policy, so callers need no new API or manual mixing.
 
+> **Superseded 2026-11-05 (issue #747):** the runtime now uses SipHash-1-3,
+> the schedule of Rust's `HashMap`, CPython and Swift, and hashes top-level
+> `str`, `bytes`, integer and `bool` keys directly without the descriptor
+> walk. Nested keys keep the framed encoding. See the
+> [collection contract](../design/facilities/01-builtins/collections.md).
+
 ## Costs
 
 | Cost | Recommended design |

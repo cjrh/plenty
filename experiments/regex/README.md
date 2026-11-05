@@ -58,8 +58,8 @@ were not used to select these standard-library algorithms.
 `prefix.plenty` and `prefix.c` implement the same bit-parallel prefix scan over
 borrowed bytes with an explicit work budget. They do not model the production
 text-byte runtime call. C relies on the listed preconditions. The Plenty probe
-keeps bounds checks; its `--unchecked assume` arithmetic matches the standard
-library's internal arithmetic policy. The ordinary trapping build also remains
+keeps bounds checks; its `--unchecked assume` arithmetic is a diagnostic comparison under the
+listed preconditions. Default builds retain arithmetic traps, including in std. The ordinary trapping build also remains
 valid and prints `(2, 4)`.
 
 | Build | Hot-path instructions per byte |
@@ -132,3 +132,102 @@ not from changing the generated instructions for a VM operation.
   preventing stale transitions when equal-size programs differ.
 - B48 retains broader Unicode/assertion acceleration and Unicode feature work.
   Native/bulk literal scanning and the remaining generated-code costs are #753.
+
+
+## Issue #753: borrowed scans and DFA restart filtering
+
+Baseline is merged `main` at `95d4c667`; candidate is the issue #753 branch.
+Both were rebuilt with `cargo build --locked --release --bin plenty` and use
+optimized default builds, including arithmetic traps. The unchanged full
+regex-redux input, patterns, single-threaded counting and output comparison
+are the same as above. Do not reuse an old compiler executable: it embeds its
+standard-library sources. Preserve each rebuilt compiler and benchmark binary.
+
+| Full regex-redux | Run 1 | Run 2 | Run 3 |
+|---|---:|---:|---:|
+| Merged baseline | 114,121,635,608 | 114,121,635,832 | 114,121,632,508 |
+| Borrowed scans + filtered DFA + indexed accounting | 63,497,711,754 | 63,497,724,772 | 63,497,712,450 |
+
+The median drops **44.36% (1.80× fewer instructions)**, with a 13,018-instruction
+candidate spread. Every output equals both the baseline and pinned Rust
+reference byte-for-byte. The earlier validated #742 executable cross-checks
+at 114,065,898,573 instructions; the rebuilt baseline above includes intervening
+main changes. Intermediate prototypes measured 90,799,814,586 with borrowed
+reads alone and 68,553,702,455 with DFA restart filtering and slice iteration.
+These remain instruction comparisons, not elapsed-time speedups.
+
+The compiler's argument-only `__regex_text_bytes` operation borrows a substring
+and forwards its loan to the consuming byte-view parameter. Its conversion is
+a representation-preserving retag: substring views already contain a byte
+address and byte count. It cannot escape into a local binding, be returned,
+or produce mutable bytes. Inline text, heap text, substrings and temporaries
+use the existing view lifetime rules. No runtime ABI or dependency changes.
+The matching engines and prefix extraction remain Plenty.
+
+The lazy DFA uses the conservative prefix filter whenever its state returns
+to its initial subset. The filter reads a borrowed byte slice directly. Its
+iterator index counts consumed bytes; work and output positions are calculated
+only on return. Budget exhaustion, empty input and counters near `i64.MAX` have
+regression coverage. No compiler bounds/overflow-check rule changed.
+
+### Kernels and IR shapes
+
+Use the dump/normalization commands above for each kernel, with the default
+arithmetic policy unless the column explicitly says `--unchecked assume`.
+`text-before.plenty` preserves the old native-byte-read loop; `text-view.plenty`
+passes the borrowed text view to the final kernel. `prefix.plenty` preserves
+the original indexed byte-view kernel; the `-iter` and `-index` variants isolate
+the two source/IR shape changes. All print `(2, 4)`.
+
+| Kernel / IR shape | Default checked | Diagnostic assume |
+|---|---:|---:|
+| C `scan`, GCC 16.2.1 `-O2` | 11 | — |
+| Original indexed byte view (`prefix.plenty`) | 29 | 23 |
+| Slice iteration (`prefix-iter.plenty`) | 25 | 19 |
+| Iterator index accounting (`prefix-index.plenty`) | 19 | 17 |
+| Old text-native loop (`text-before.plenty`) | 61 + callees | 53 + callees |
+
+Counts refer to the standalone `scan` body. Inlining can change registers and
+counts: the final checked `main` loop is 17 instructions. The old text kernel's
+53 excludes work in its native callees. This table must not be read as the
+full matcher's per-byte cost. The final production `prefix_candidate` loop
+measures 17 instructions with default checks (use `--dump-std --dump-filter
+prefix_candidate` on regex-redux to inspect it).
+
+Relative to the original 23-instruction assume kernel, slice iteration removes
+the byte bounds check (2), one address construction and two register moves,
+while adding an iterator counter increment: net −4. Index accounting removes
+per-byte offset/work increments and their default arithmetic checks, but changes
+register allocation. The final checked kernel's eight extras over C are a mask
+bounds check (2), redundant byte extension (1), separate mask-address creation
+(1), mask load (1), separate shift/or rather than LEA (1), loop-back jump (1),
+and mask-length spill/reload (2), offset by one fewer induction update (−1).
+The last accounting is specific to the dumped standalone function.
+
+These variants reuse existing slice/iterator lowering. There is no hand-edited
+CLIF replacement or new loop-lowering optimization: the only codegen addition
+retags an already validated view without emitting instructions. Further check
+proofs and backend experiments belong to issue #758, together with selective
+bulk multi-literal filtering. No pinned backend was patched.
+
+### Application compilation
+
+With `PLENTY_CACHE=off`, retired instructions for compiling the unchanged
+regex-redux source (not compiling regex patterns at runtime):
+
+| Compiler | Run 1 | Run 2 | Run 3 |
+|---|---:|---:|---:|
+| Merged baseline | 1,025,322,867 | 1,029,191,058 | 1,026,913,367 |
+| Candidate | 1,038,055,465 | 1,036,895,478 | 1,040,810,769 |
+
+The median increases 1.09%. The source gains a shared scan helper and the
+borrowed-view entry path. Runtime regex compilation is already included in
+whole-program measurements. B48 still retains Unicode/assertion acceleration
+and Unicode feature expansion; issue #758 narrows the remaining scan work.
+
+
+The general `compile_bench 1000 10 --workload aot` qualification, with
+`PLENTY_CACHE=off` and its normal warm-up, retired 134,152,140,279;
+134,161,518,172; and 134,153,425,719 instructions (spread 9,377,893).
+These candidate-only runs establish a reproducible current result; the
+before/after compilation comparison is the application table above.

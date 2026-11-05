@@ -712,6 +712,13 @@ impl Lowerer<'_, '_> {
         if let CollectionOp::Clist(op) = operation {
             return self.lower_clist(op);
         }
+        if let CollectionOp::Regex(crate::regex::RegexOp::TextBytes) = operation {
+            // Substrings already carry a byte address and byte count. Their
+            // owner's loan (including inline-string storage) covers the call.
+            let (view, _) = self.pop_typed(crate::frontend::text_view())?;
+            self.stack.push((view, crate::bytes::byte_view()));
+            return Ok(());
+        }
         if self.lower_view(operation)? {
             return Ok(());
         }

@@ -47,7 +47,13 @@
       "variant": "idiomatic",
       "file": "plenty/knucleotide.plenty",
       "threads": 1
+    },
+    {
+      "variant": "parallel",
+      "file": "plenty/knucleotide_parallel.plenty",
+      "threads": 7,
+      "note": "7 pool workers, one per frame length; each job owns a Shared[Bytes] handle to the sequence and returns its dictionary through a future."
     }
   ],
-  "notes": "The site links futures and indexmap, but this program uses only std, so the local build omits them. The reference counts the 7 frame lengths on 7 threads; the Plenty program counts them in turn."
+  "notes": "The site links futures and indexmap, but this program uses only std, so the local build omits them. The reference counts the 7 frame lengths on 7 threads; the idiomatic Plenty program counts them in turn, and the parallel variant counts them on 7 pool workers."
 }

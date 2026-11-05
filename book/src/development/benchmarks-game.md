@@ -17,7 +17,7 @@ Each benchmark directory contains:
 | `benchmark.json` | Provenance, site build and command lines, local build command, thread count, sizes, Plenty variants, and `status` (`ready` or `blocked` with `blocked_reason`) |
 | `reference/` | The reference program, copied verbatim from its site page |
 | `expected/` | Output at the small check size, from the site's downloadable output files |
-| `plenty/` | The idiomatic Plenty program |
+| `plenty/` | The Plenty programs: the idiomatic one, and any parallel variant |
 
 The reference programs are distributed under the Benchmarks Game's revised
 BSD license, reproduced in `benchmarks/game/LICENSE-benchmarks-game.txt`.
@@ -30,7 +30,7 @@ Each manifest names the program's page and contributors.
 | spectral-norm | C #8 | 1 | idiomatic | ready |
 | mandelbrot | C #8 | 1 | idiomatic | ready |
 | fasta | Rust #3 | 1 | idiomatic | ready |
-| k-nucleotide | Rust #1 | 7 | idiomatic (1 thread) | ready |
+| k-nucleotide | Rust #1 | 7 | idiomatic (1 thread); parallel (7 pool workers) | ready |
 | reverse-complement | C #5 | 1 | idiomatic | ready |
 | binary-trees | C #1 | 1 | idiomatic | ready |
 | pidigits | C #1 (GMP) | 1 | none | blocked: no arbitrary-precision integers (backlog B38, issue #481) |
@@ -113,8 +113,16 @@ laptop (AMD Ryzen 7 7840HS, performance governor):
 | spectral-norm | 5,500 | 1.26 s | 3.78 s | 3.00 |
 
 Times are median wall-clock seconds. The k-nucleotide and regex-redux
-references are multithreaded while Plenty runs one thread; `user_s` in the JSON
-gives CPU time (36.2 s for the k-nucleotide reference, 0.65 s for regex-redux).
+references are multithreaded while the idiomatic Plenty programs run one
+thread; `user_s` in the JSON gives CPU time (36.2 s for the k-nucleotide
+reference, 0.65 s for regex-redux).
+
+k-nucleotide's parallel variant postdates this baseline and has no entry in it
+yet; record it with the next full run. It counts the seven frame lengths on
+seven pool workers, as the reference does, and is the suite's threaded workload
+for reference-count changes (issue #751): each job owns a `Shared` handle to the
+sequence, and its dictionary, with heap-string keys for the 12- and 18-byte
+frames, returns through a future and is released on the main thread.
 
 ## Blocked benchmarks
 

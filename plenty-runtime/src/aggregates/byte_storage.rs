@@ -280,9 +280,9 @@ pub(super) unsafe fn call(
                 }))
             }
             182 => result(from_slice(strings::bytes(&(a as *const strings::Text)))),
-            183 => result(match std::str::from_utf8(view_bytes(a)) {
-                Ok(text) => strings::try_new(text).map(|text| wrap(text as u128, 1)),
-                Err(_) => Ok(wrap(0, 0)),
+            183 => result(match strings::try_from_utf8(view_bytes(a)) {
+                Some(text) => text.map(|text| wrap(text as u128, 1)),
+                None => Ok(wrap(0, 0)),
             }),
             188 => {
                 let bytes = storage(a);

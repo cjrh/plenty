@@ -1,7 +1,12 @@
 //! Key the complete structural input, rather than an unkeyed prehash whose
 //! collisions would survive any finalizer or secret suffix.
+//!
+//! SipHash-1-3 is the schedule Rust's `HashMap`, CPython and Swift use for
+//! keyed hash tables. Bucket hashes are never revealed to programs, so an
+//! attacker must find collisions without the per-process key; no published
+//! attack on SipHash-1-3 does that.
 use super::{Text, Type, strings};
-use siphasher::sip::SipHasher24;
+use siphasher::sip::SipHasher13;
 use std::hash::Hasher;
 use std::io;
 use std::sync::OnceLock;
@@ -37,13 +42,76 @@ pub(super) unsafe fn hash(value: u128, ty: &Type) -> u64 {
 }
 
 pub(super) unsafe fn hash_with_key(value: u128, ty: &Type, key: &[u8; 16]) -> u64 {
-    let mut state = SipHasher24::new_with_key(key);
-    // SAFETY: forwarded from the typed collection operation.
-    unsafe { write_key(&mut state, value, ty) };
-    state.finish()
+    // Every key in one collection has the same descriptor, so a top-level key
+    // needs no kind byte. SipHash pads its one message injectively (the final
+    // block holds the length), so a lone string needs no length prefix either.
+    // Keys nested in tuples, classes and enums keep the framed encoding below.
+    match ty.kind {
+        b's' | b'y' => {
+            let text = value as *const Text;
+            // SAFETY: str/bytes keys hold a live Text pointer. Inline and heap
+            // texts with equal contents yield equal byte views.
+            SipHasher13::new_with_key(key).hash(unsafe { strings::bytes(&text) })
+        }
+        b'1'..=b'8' | b'b' => sip13_word(key, scalar(value, ty.kind)),
+        _ => {
+            let mut state = SipHasher13::new_with_key(key);
+            // SAFETY: forwarded from the typed collection operation.
+            unsafe { write_key(&mut state, value, ty) };
+            state.finish()
+        }
+    }
 }
 
-unsafe fn write_key(state: &mut SipHasher24, value: u128, ty: &Type) {
+/// `SipHasher13::hash(&word.to_le_bytes())` without the general tail
+/// handling: one message block and the length-8 final block.
+fn sip13_word(key: &[u8; 16], word: u64) -> u64 {
+    let k0 = u64::from_le_bytes(key[..8].try_into().unwrap());
+    let k1 = u64::from_le_bytes(key[8..].try_into().unwrap());
+    let mut v = [
+        k0 ^ 0x736f6d6570736575,
+        k1 ^ 0x646f72616e646f6d,
+        k0 ^ 0x6c7967656e657261,
+        k1 ^ 0x7465646279746573,
+    ];
+    for block in [word, 8 << 56] {
+        v[3] ^= block;
+        sip_round(&mut v);
+        v[0] ^= block;
+    }
+    v[2] ^= 0xff;
+    for _ in 0..3 {
+        sip_round(&mut v);
+    }
+    v[0] ^ v[1] ^ v[2] ^ v[3]
+}
+
+#[inline(always)]
+fn sip_round(v: &mut [u64; 4]) {
+    v[0] = v[0].wrapping_add(v[1]);
+    v[1] = v[1].rotate_left(13) ^ v[0];
+    v[0] = v[0].rotate_left(32);
+    v[2] = v[2].wrapping_add(v[3]);
+    v[3] = v[3].rotate_left(16) ^ v[2];
+    v[0] = v[0].wrapping_add(v[3]);
+    v[3] = v[3].rotate_left(21) ^ v[0];
+    v[2] = v[2].wrapping_add(v[1]);
+    v[1] = v[1].rotate_left(17) ^ v[2];
+    v[2] = v[2].rotate_left(32);
+}
+
+/// Scalar writes through references update the declared width only; padding
+/// in a record or projected sum slot is not part of its value.
+fn scalar(value: u128, kind: u8) -> u64 {
+    match kind {
+        b'1' | b'5' | b'b' => value as u8 as u64,
+        b'2' | b'6' => value as u16 as u64,
+        b'3' | b'7' => value as u32 as u64,
+        _ => value as u64,
+    }
+}
+
+unsafe fn write_key(state: &mut SipHasher13, value: u128, ty: &Type) {
     state.write_u8(ty.kind);
     if ty.kind == b'C' {
         if let Some(record) = ty.record(value) {
@@ -78,15 +146,7 @@ unsafe fn write_key(state: &mut SipHasher24, value: u128, ty: &Type) {
         state.write_usize(bytes.len());
         state.write(bytes);
     } else {
-        // Scalar writes through references update the declared width only;
-        // padding in a record or projected sum slot is not part of its value.
-        let value = match ty.kind {
-            b'1' | b'5' | b'b' => value as u8 as u64,
-            b'2' | b'6' => value as u16 as u64,
-            b'3' | b'7' => value as u32 as u64,
-            _ => value as u64,
-        };
-        state.write_u64(value);
+        state.write_u64(scalar(value, ty.kind));
     }
 }
 
@@ -95,9 +155,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn siphash24_matches_the_empty_message_reference_vector() {
+    fn siphash13_matches_the_reference_vectors() {
+        // Vectors 0, 8 and 15 of the SipHash-1-3 reference suite: key 00..0f,
+        // message 00..(n-1).
         let key = std::array::from_fn(|i| i as u8);
-        assert_eq!(SipHasher24::new_with_key(&key).finish(), 0x726fdb47dd0e0e31);
+        let message: [u8; 15] = std::array::from_fn(|i| i as u8);
+        let hasher = SipHasher13::new_with_key(&key);
+        assert_eq!(hasher.hash(&[]), 0xabac0158050fc4dc);
+        assert_eq!(hasher.hash(&message[..8]), 0x369095118d299a8e);
+        assert_eq!(hasher.hash(&message), 0xd320d86d2a519956);
+    }
+
+    #[test]
+    fn word_hash_matches_the_general_implementation() {
+        let mut x = 0x9e3779b97f4a7c15u64;
+        let mut next = || {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            x
+        };
+        for _ in 0..1000 {
+            let mut key = [0; 16];
+            key[..8].copy_from_slice(&next().to_le_bytes());
+            key[8..].copy_from_slice(&next().to_le_bytes());
+            for word in [0, 1, u64::MAX, next()] {
+                assert_eq!(
+                    sip13_word(&key, word),
+                    SipHasher13::new_with_key(&key).hash(&word.to_le_bytes())
+                );
+            }
+        }
     }
 
     #[test]
