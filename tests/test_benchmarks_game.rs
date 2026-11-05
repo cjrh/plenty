@@ -72,8 +72,18 @@ fn check_benchmark(name: &str) {
         let source = dir.join(text(variant, "file"));
         let built = workspace.path().join(format!("{label}.built"));
         let executable = workspace.path().join(label);
+        let flags: Vec<&str> = variant["flags"]
+            .as_array()
+            .map(|flags| flags.iter().map(|flag| flag.as_str().unwrap()).collect())
+            .unwrap_or_default();
+        let unchecked = match flags.as_slice() {
+            [] => plenty::UncheckedMode::Trap,
+            ["--unchecked", "assume"] => plenty::UncheckedMode::Assume,
+            other => panic!("{name} {label}: unsupported flags {other:?}"),
+        };
         let options = plenty::CompileOptions {
             optimize: false,
+            unchecked,
             ..Default::default()
         };
         plenty::compile_file_to_executable_with_options(&source, &built, None, &options)
