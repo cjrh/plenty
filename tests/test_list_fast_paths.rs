@@ -1563,3 +1563,84 @@ def main() -> Result[(), AllocError | IoError]:
         "False\nTrue\nFalse\n3\n4\n",
     );
 }
+
+const SAVED_LENGTHS: &str = r#"
+def saved(xs: &list[i64]) -> Result[i64, OverflowError[i64]]:
+    n = len(xs)
+    mut t = 0
+    for i in range(n):
+        t += xs[i]
+    Ok(t)
+
+def saved_view(v: &[i64]) -> Result[i64, OverflowError[i64]]:
+    n = len(v)
+    mut t = 0
+    for i in range(1, n):
+        t += v[i]
+    Ok(t)
+
+def unchanged(xs: &list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut n = len(xs)
+    mut t = 0
+    for i in range(n):
+        t += xs[i]
+    Ok(t)
+
+def grown(xs: &list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut n = len(xs)
+    n += 1
+    mut t = 0
+    for i in range(n):
+        t += xs[i]
+    Ok(t)
+
+def other(xs: &list[i64], ys: &list[i64]) -> Result[i64, OverflowError[i64]]:
+    n = len(ys)
+    mut t = 0
+    for i in range(n):
+        t += xs[i]
+    Ok(t)
+
+def owned(xs: list[i64]) -> Result[i64, OverflowError[i64]]:
+    n = len(xs)
+    mut t = 0
+    for i in range(n):
+        t += xs[i]
+    Ok(t)
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    xs = [1, 2, 3]?
+    short = [1, 2]?
+    print(saved(&xs)?, saved_view(&xs[0:3])?, unchanged(&xs)?, other(&xs, &short)?, owned(copy(xs)?)?)?
+    print(grown(&xs)?)?
+    Ok(())
+"#;
+
+#[test]
+fn saved_lengths_of_borrowed_lists_bound_their_counters() {
+    // A borrowed list's length cannot change, so a stop saved from it is the
+    // hoisted length (issue #728). Owned lists keep the check until the
+    // frontend proves nothing resizes them between the read and the loop.
+    let output = support::run(SAVED_LENGTHS);
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "6 5 6 3 6\n");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("index 3, length 3"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    for (name, checked) in [
+        ("saved", false),
+        ("saved_view", false),
+        ("unchanged", false),
+        ("grown", true),
+        ("other", true),
+        ("owned", true),
+    ] {
+        let clif = dump("clif-opt", &format!("__plenty_fn_{name}"), SAVED_LENGTHS);
+        assert_eq!(
+            clif.contains("plenty_trap_list_index"),
+            checked,
+            "{name}\n{clif}"
+        );
+    }
+}
