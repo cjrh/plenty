@@ -1069,3 +1069,72 @@ fn range_counters_below_a_shared_length_skip_the_check() {
         assert_eq!(traps > 0, checks > 0, "{name}\n{clif}");
     }
 }
+
+/// A shared reborrow of an exclusive reference has the same native value as
+/// its source. Once it ends, the source may clear or replace the list, so a
+/// length read through the reborrow, or through an inlined shared-parameter
+/// helper, says nothing about later accesses (issue #736).
+const ENDED_LOANS: &str = r#"
+def length(xs: &list[i64]) -> i64:
+    len(xs)
+def read(xs: &mut list[i64]) -> i64:
+    shared = &xs
+    n = len(shared)
+    xs.clear()
+    mut t = 0
+    for i in range(n):
+        t = t ^ xs[i]
+    t
+def write(xs: &mut list[i64]) -> ():
+    shared = &xs
+    n = len(shared)
+    xs.clear()
+    for i in range(n):
+        xs[i] = 99
+def replace(xs: &mut list[i64]) -> i64:
+    shared = &xs
+    n = len(shared)
+    *xs = list[i64].with_capacity(0).unwrap()
+    mut t = 0
+    for i in range(n):
+        t = t ^ xs[i]
+    t
+def inlined(xs: &mut list[i64]) -> i64:
+    n = length(&xs)
+    xs.clear()
+    mut t = 0
+    for i in range(n):
+        t = t ^ xs[i]
+    t
+def main() -> ():
+    mut xs = [10, 20, 30].unwrap()
+    CALL
+"#;
+
+#[rstest]
+fn range_counters_trap_after_their_length_loan_ends(
+    #[values(
+        "print(read(&mut xs)).unwrap()",
+        "write(&mut xs)",
+        "print(replace(&mut xs)).unwrap()",
+        "print(inlined(&mut xs)).unwrap()"
+    )]
+    call: &str,
+    #[values("--fast-compile", "--release")] mode: &str,
+) {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("loans.plenty");
+    std::fs::write(&source, ENDED_LOANS.replace("CALL", call)).unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"))
+        .env("PLENTY_CACHE", "off")
+        .arg(mode)
+        .arg(&source)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{call} {mode}\n{stderr}");
+    assert!(
+        stderr.contains("index out of bounds: index 0, length 0"),
+        "{call} {mode}\n{stderr}"
+    );
+}

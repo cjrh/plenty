@@ -385,6 +385,7 @@ impl Lowerer<'_, '_> {
 
     /// Lower an inlined body as [`build_user_function`] lowers a function's.
     fn lower_body(&mut self, body: &[Op], inputs: usize) -> Result<()> {
+        self.note_stable_inputs(inputs);
         // Argument addresses belong to the caller: snapshot inline values.
         for (i, (_, ty)) in self.locals.iter().enumerate().take(inputs) {
             if ty.has_inline_storage() {

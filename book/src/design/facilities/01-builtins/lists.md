@@ -17,10 +17,11 @@ lengths. Generator bodies and other loops keep ordinary indexed access.
 
 An access that cannot fail has no bounds check. In
 `for i in range(start, len(xs))` with a nonnegative constant `start` and
-step 1, `xs[i]` cannot fail when `xs` is an immutable shared reference or a
+step 1, `xs[i]` cannot fail when `xs` is a `&list[T]` parameter or a
 [slice view](../../language/04-expressions/slices.md#slice-views): its
-length cannot change while the loop runs. Indexing any other list with `i`,
-or a range with any other stop, keeps the check.
+length cannot change while the function runs. Indexing any other list with
+`i`, including through a shared reference made inside the function, or a
+range with any other stop, keeps the check.
 
 ## Storage costs
 

@@ -62,13 +62,17 @@ pub(super) struct Facts {
 /// Facts that prove a scalar list index in bounds, so its check is dead
 /// (issue #728).
 ///
-/// The referent of a shared list reference cannot change while the reference
-/// is live, so every length read through one reference value is the same
-/// number. An access through that reference keeps it live from each length
-/// read to the access. A slice view's count is part of the view's value. Two
-/// length values read through the same reference or view are therefore equal,
-/// and an index known to be nonnegative and below one of them is in bounds
-/// for the other.
+/// The referent of a shared list parameter cannot change while the function
+/// runs: the caller's loan outlives the call. Every length read through the
+/// parameter's entry value, or a copy of it, is therefore the same number.
+/// Other shared references are not stable this way. A reborrow of an
+/// exclusive reference has the same native value as its source, and once the
+/// reborrow ends the source may clear or replace the list (issue #736). An
+/// inlined body lowers with its own facts, so its parameters' stability ends
+/// with the call. A slice view's count is part of the view's value. Two
+/// length values read through the same stable reference or view are
+/// therefore equal, and an index known to be nonnegative and below one of
+/// them is in bounds for the other.
 ///
 /// Values are compared by their canonical value: inside a loop, a local the
 /// loop never writes has a fresh SSA value at each read (its header block is
@@ -79,8 +83,8 @@ pub(super) struct Bounds {
     /// Locals the loops being lowered never write, with their entry values.
     pub invariant_locals: Vec<(u8, Value)>,
     pub canonical: HashMap<Value, Value>,
-    /// Canonical shared list references read from locals.
-    pub shared_lists: HashSet<Value>,
+    /// Entry values of the shared list parameters.
+    pub stable_lists: HashSet<Value>,
     /// Canonical length values and the reference or view each was read from.
     pub lengths: HashMap<Value, Value>,
     /// Counter locals of the loops being lowered and the value every one of

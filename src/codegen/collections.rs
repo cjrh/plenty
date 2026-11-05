@@ -799,7 +799,7 @@ impl Lowerer<'_, '_> {
             let length = self.scalar_list_len(owner, &ty.element().unwrap());
             let bounds = &mut self.counters.bounds;
             let list = bounds.canonical(&self.bcx.func.dfg, receiver);
-            if bounds.shared_lists.contains(&list) {
+            if bounds.stable_lists.contains(&list) {
                 bounds.lengths.insert(length, list);
             }
             self.stack.push((length, Ty::I64));
@@ -1428,7 +1428,7 @@ impl Lowerer<'_, '_> {
         self.bcx.ins().select(any, nan_order, order)
     }
 
-    /// Records the shared list references, views and lengths that `condition` and
+    /// Records the stable shared list references, views and lengths that `condition` and
     /// `body` read but never write, with their values on entry; see
     /// [`super::induction::Bounds`].
     fn enter_invariant_locals(&mut self, condition: &[Op], body: &[Op]) {
@@ -1449,9 +1449,12 @@ impl Lowerer<'_, '_> {
             let entry = self.read_local(local);
             let bounds = &mut self.counters.bounds;
             let entry = bounds.canonical(&self.bcx.func.dfg, entry);
-            if shared_list {
-                bounds.shared_lists.insert(entry);
-            } else if !view && !bounds.lengths.contains_key(&entry) {
+            let stable = if shared_list {
+                bounds.stable_lists.contains(&entry)
+            } else {
+                view || bounds.lengths.contains_key(&entry)
+            };
+            if !stable {
                 continue;
             }
             bounds.invariant_locals.push((local, entry));
