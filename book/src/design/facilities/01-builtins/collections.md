@@ -20,8 +20,10 @@ key-view `to_set()` reject these keys. Borrowing and ownership transfers work no
 Unit elements are rejected. Sets of supported finite enums or tuples with at most 256 possible values
 use [bitsets](sets.md#small-enum-bitsets) instead; they do not hash or request entropy.
 
-Dictionary and hash-backed set bucket selection uses SipHash-2-4 over the complete key,
-including framed tuple fields and string lengths. One secret 128-bit key is
+Dictionary and hash-backed set bucket selection uses SipHash-1-3 over the complete key,
+the schedule Rust's `HashMap`, CPython and Swift use. A `str`, `bytes`,
+integer or `bool` key is hashed as its contents alone; keys nested in tuples, classes and
+enums are framed by field count, variant tag and string length. One secret 128-bit key is
 obtained from OS entropy on the process's first hash operation and shared across
 worker threads. Initialization and hashing allocate no runtime storage.
 Constructing or reserving an empty collection does not need entropy. The first
