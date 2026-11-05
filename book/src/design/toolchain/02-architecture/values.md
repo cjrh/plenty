@@ -132,6 +132,8 @@ Scalar/pointer sums use 16-byte addressable slots. Inline payload bytes follow t
 value word; slots grow only when the payload requires it. Native results use
 caller-owned storage, and relocation preserves sum tags. Runtime aggregate helpers
 receive aligned slot pointers instead of relying on a C `u128` calling convention.
+A one-word operand is stored as its word and a zero word, so no two-word zero
+stays live across the call (issue #757).
 These layouts are private and are not the public FFI ABI.
 
 ## Ranges

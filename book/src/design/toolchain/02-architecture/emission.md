@@ -189,6 +189,26 @@ arm block, with `n` going to the wildcard. The scrutinee is released once
 before the branch. Other `str` matches keep their `plenty_str_eq` chain; see
 the [string match measurements](../../../development/profiling-match-results.md#string-match-dispatch).
 
+A match on a [standard sum](values.md#standard-sums) whose arms test only tags
+0 and 1, with any other arm a wildcard, reads a one-bit tag field. It tests
+that bit and branches, with no compare against each tag and no invalid-tag
+trap (issue #757).
+
+When the scrutinee of a sum match is a local held in a register, each tag arm
+records the local's tag for its body:
+
+- An arm that rebuilds the matched variant around its own payload, in a sum
+  of the same width, reuses the matched value instead of splitting and
+  re-tagging it. `case Ok(value): Ok(value)` in a generic helper that changes
+  only the error type is the common case.
+- In the arm of a managed sum's field-free variant 0, such as `Nothing`, the
+  local holds zero, so lowering writes the shared empty slot and the local's
+  later release emits nothing.
+
+Splitting a sum built from two words, or widened from one, reuses those words
+instead of emitting `isplit`, which Cranelift's optimizer does not look
+through, so a tag shifted out and back in folds away.
+
 ## Symbol references
 
 Code is compiled position-independent (Cranelift's `is_pic`), so the object

@@ -1942,6 +1942,7 @@ fn build_user_function(
             return_types: &decl.sig.outputs,
             collection_scratch: None,
             fresh_load: None,
+            tags: Default::default(),
             scalar_captures,
             portable_simd,
             slot_copies: Vec::new(),
@@ -2068,6 +2069,7 @@ fn build_main(
             return_types: &[],
             collection_scratch: None,
             fresh_load: None,
+            tags: Default::default(),
             scalar_captures: Default::default(),
             portable_simd: Default::default(),
             slot_copies: Vec::new(),
@@ -2250,6 +2252,8 @@ struct Lowerer<'a, 'b> {
     position: sites::Position,
     /// The copy the op just lowered with a `LoadLocal`, if it was counted.
     fresh_load: Option<FreshLoad>,
+    /// What a `Match` on a local's tag tells each arm; see [`enums::TagFacts`].
+    tags: enums::TagFacts,
     scalar_captures: scalar_captures::Captures,
     portable_simd: portable_simd::State,
     /// Counted one-word copies pushed since the last op that could run code
@@ -2740,6 +2744,7 @@ impl Lowerer<'_, '_> {
             Op::RangeParts(element) => self.lower_range_parts(element)?,
             Op::LoadLocal(i) => {
                 self.lower_load_local(*i)?;
+                self.tags.loaded = self.stack.last().map(|&(value, _)| (value, *i));
                 if let Some(FreshLoad {
                     value,
                     retain: Some(retain),
@@ -2819,6 +2824,12 @@ impl Lowerer<'_, '_> {
         // the op right after its own load.
         if !matches!(op, Op::LoadLocal(_)) {
             self.fresh_load = None;
+        }
+        if !matches!(op, Op::LoadLocal(_)) {
+            self.tags.loaded = None;
+        }
+        if !matches!(op, Op::Enum(crate::sum::EnumOp::Tag(_))) {
+            self.tags.matched = None;
         }
         if let Op::PushStr(_) = op {
             let (literal, _) = *self.stack.last().ok_or("empty stack after a literal")?;
@@ -3973,6 +3984,60 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
+    /// Whether `scrut` is a one-bit tag, `band x, 1`, and every integer
+    /// pattern is 0 or 1. Such a match dispatches as on a `bool`: one branch
+    /// on the bit, with no compare and no impossible-case trap (issue #757).
+    fn one_bit_tag(&self, scrut: cranelift_codegen::ir::Value, arms: &[MatchArm]) -> bool {
+        let dfg = &self.bcx.func.dfg;
+        let cranelift_codegen::ir::ValueDef::Result(inst, _) =
+            dfg.value_def(dfg.resolve_aliases(scrut))
+        else {
+            return false;
+        };
+        let cranelift_codegen::ir::InstructionData::Binary {
+            opcode: cranelift_codegen::ir::Opcode::Band,
+            args: [a, b],
+        } = dfg.insts[inst]
+        else {
+            return false;
+        };
+        let masked = known::known_int(dfg, a) == Some(1) || known::known_int(dfg, b) == Some(1);
+        masked
+            && arms.iter().all(|arm| match arm.pattern {
+                Pattern::Int { value, .. } => matches!(int_value_bits(value), 0 | 1),
+                _ => matches!(arm.pattern, Pattern::Wildcard),
+            })
+    }
+
+    /// Starts a match arm entered only when local `local` holds variant
+    /// `tag`. The arm's body knows that tag of the local's value; see
+    /// [`enums::TagFacts`]. The first variant of a sum with no fields is the
+    /// value zero and owns nothing, so in its arm the local is rewritten as an
+    /// empty slot. Each value then reaching the local's release may be the
+    /// same empty-slot constant, as on a path that moved the payload out, and
+    /// [`Lowerer::release`] emits nothing there (issue #757). A value the
+    /// runtime builds may leave payload bits in that variant; zero is the same
+    /// variant without them.
+    fn enter_matched_arm(&mut self, local: u8, tag: i64) {
+        let ty = self.locals[local as usize].1.clone();
+        let Ty::Enum(t) = &ty else { return };
+        if self.local_address(local).is_some() {
+            return;
+        }
+        let value = self.read_local(local);
+        self.tags.known.push((value, tag as u64));
+        if tag == 0
+            && ty.managed()
+            && t.get()
+                .variants
+                .first()
+                .is_some_and(|v| v.fields.is_empty())
+        {
+            let zero = self.empty_slot(&ty);
+            self.write_local(local, zero);
+        }
+    }
+
     /// Lower `Op::Match`: one CLIF block per arm, a bounded jump table or
     /// linear `brif` chain for dispatch, and a join block whose params carry the
     /// agreed stack shape every arm leaves (§11.8). The type checker
@@ -3988,6 +4053,11 @@ impl Lowerer<'_, '_> {
     /// accepts the function, so we emit a defensive `trap` there.
     fn lower_match(&mut self, arms: &[MatchArm]) -> Result<()> {
         let (scrut, scrut_ty) = self.stack.pop().ok_or("AOT: stack underflow on match")?;
+        let matched = self
+            .tags
+            .matched
+            .take()
+            .and_then(|(tag, local)| (tag == scrut).then_some(local));
         // The state every arm starts from — the data stack at the
         // point `match` consumes its scrutinee.
         let entry_stack = self.stack.clone();
@@ -4009,11 +4079,16 @@ impl Lowerer<'_, '_> {
         let mut chain_terminated = dense || released;
         // Indexed by `bool as usize`: the values earlier `Bool` arms tested.
         let mut bool_covered = [false; 2];
+        let one_bit = self.one_bit_tag(scrut, arms);
         for (i, arm) in arms.iter().enumerate() {
             if chain_terminated {
                 break;
             }
-            match arm.pattern {
+            let pattern = match arm.pattern {
+                Pattern::Int { value, .. } if one_bit => Pattern::Bool(int_value_bits(value) == 1),
+                pattern => pattern,
+            };
+            match pattern {
                 Pattern::Wildcard => {
                     self.bcx.ins().jump(arm_blocks[i], &[]);
                     chain_terminated = true;
@@ -4109,12 +4184,18 @@ impl Lowerer<'_, '_> {
             if !released {
                 self.release(scrut, &scrut_ty);
             }
+            let known = (self.tags.known.len(), self.tags.projections.len());
+            if let (Some(local), Pattern::Int { value, .. }) = (matched, &arm.pattern) {
+                self.enter_matched_arm(local, int_value_bits(*value));
+            }
             for op in arm.body.iter() {
                 if self.terminated {
                     break;
                 }
                 self.lower(op)?;
             }
+            self.tags.known.truncate(known.0);
+            self.tags.projections.truncate(known.1);
             if self.terminated {
                 continue;
             }

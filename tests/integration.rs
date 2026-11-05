@@ -610,6 +610,8 @@ mod test_storage_diagnostics;
 mod test_stored_closures;
 #[path = "test_str_views.rs"]
 mod test_str_views;
+#[path = "test_sum_retag.rs"]
+mod test_sum_retag;
 #[path = "test_symbol_references.rs"]
 mod test_symbol_references;
 #[path = "test_tail_abi.rs"]
