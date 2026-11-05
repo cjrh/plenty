@@ -4022,6 +4022,9 @@ impl Lower<'_> {
         if name == "get_mut" && matches!(collection, Some(Ty::Dict(..))) {
             return self.dict_get_mut(base, args, ops);
         }
+        if name == "get_or_insert" && matches!(collection, Some(Ty::Dict(..))) {
+            return self.dict_get_or_insert(base, args, ops);
+        }
         if name == "reverse" && matches!(collection, Some(Ty::List(_))) {
             return self.collection_unit_mutation(base, name, args, ops);
         }
@@ -4765,6 +4768,48 @@ impl Lower<'_> {
         ops.push(Op::Swap);
         ops.push(Op::Collection(operation));
         Self::end_reads(reads, ops);
+        let id = self.new_loan(self.loans[loan].root, true, Some(loan), ops);
+        self.loans[id].precise = false;
+        if let Some(Op::Loan(fact)) = ops.last_mut() {
+            *fact = self.loans[id].clone();
+        }
+        ops.push(Op::UseLoan(loan));
+        Ok(Some(result))
+    }
+
+    /// `dictionary.get_or_insert(key, default)`: one lookup that lends the
+    /// stored value, inserting the owned key and default on a miss. The
+    /// result's loan is `get_mut`'s; the arguments move as `insert`'s do.
+    fn dict_get_or_insert(
+        &mut self,
+        base: &Expr,
+        args: &[Expr],
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let [key_arg, default_arg] = args else {
+            return Err(base
+                .at
+                .error("get_or_insert requires a key and a default value"));
+        };
+        let ty = classes::unbox(self.place_type(base).expect("dictionary place"));
+        let operation = CollectionOp::DictGetOrInsert(ty);
+        let (inputs, result) = operation.signature();
+        // Evaluate both arguments before borrowing the receiver, as `insert`
+        // does; hidden locals own the key if the default exits early.
+        let mut slots = Vec::new();
+        for (arg, expected) in [key_arg, default_arg].into_iter().zip(&inputs[1..]) {
+            let actual = self.expr_expected(arg, Some(expected.clone()), ops)?;
+            self.same(actual, Some(expected.clone()), &arg.at)?;
+            let slot = self.slot(expected.clone(), &arg.at)?;
+            ops.push(Op::StoreLocal(slot));
+            slots.push(slot);
+        }
+        let (reference, loan) = self.borrow(base, true, ops)?;
+        self.unbox_reference(reference, ops);
+        for slot in slots {
+            ops.push(Op::MoveLocal(slot));
+        }
+        ops.push(Op::Collection(operation));
         let id = self.new_loan(self.loans[loan].root, true, Some(loan), ops);
         self.loans[id].precise = false;
         if let Some(Op::Loan(fact)) = ops.last_mut() {
@@ -5911,7 +5956,9 @@ fn receiver_requirement(name: &str, ty: &Ty) -> Option<&'static str> {
             "a mutable list binding or class field"
         }
         "update" => "a mutable dictionary or set binding or class field",
-        "get_mut" if matches!(ty, Ty::Dict(..)) => "a mutable dictionary binding or class field",
+        "get_mut" | "get_or_insert" if matches!(ty, Ty::Dict(..)) => {
+            "a mutable dictionary binding or class field"
+        }
         "clear" => "a mutable list, dictionary, or set binding or class field",
         _ => return None,
     })

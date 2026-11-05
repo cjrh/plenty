@@ -95,8 +95,7 @@ enum Label:
 def frequencies[K: KeyType](values: list[K]) -> Result[dict[K, i64], AllocError | OverflowError[i64]]:
     mut counts: dict[K, i64] = {}?
     for value in values:
-        count = counts.get(&value, 0) + 1
-        counts.insert(value, count)?
+        *counts.get_or_insert(value, 0)? += 1
     Ok(counts)
 
 def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
@@ -109,7 +108,8 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
 2 1
 ```
 
-The loop consumes the list and transfers each key after borrowing it for
-lookup. This also works for keys with custom cleanup, which cannot be copied.
-Dictionary insertion and the count's addition remain fallible. Floats do not satisfy `KeyType`; see the
+The loop consumes the list and moves each key into `get_or_insert`, which
+drops it when the key is already present. This also works for keys with custom
+cleanup, which cannot be copied. Dictionary insertion and the count's addition
+remain fallible. Floats do not satisfy `KeyType`; see the
 [constraint reference](../../design/language/07-generics/index.md#keytype).

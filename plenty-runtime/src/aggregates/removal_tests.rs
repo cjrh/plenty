@@ -297,3 +297,29 @@ fn insert_hashes_each_key_once() {
         assert_model(c, &model);
     }
 }
+
+#[test]
+fn get_or_insert_hashes_once_and_keeps_existing_values() {
+    let owner = owned(4);
+    // SAFETY: the guard owns the collection throughout all raw ABI access.
+    unsafe {
+        let c = &mut *(owner.value as *mut Collection);
+        for key in 0..12 {
+            let before = hashes();
+            let stored = c.len();
+            let table = c.table.len();
+            let row = c.try_get_or_insert(key, key + 1).unwrap();
+            let rebuilt = if c.table.len() == table { 0 } else { stored };
+            assert_eq!(hashes() - before, 1 + rebuilt, "new key {key}");
+            assert_eq!(c.entries.get(row).value, key + 1);
+        }
+        for key in 0..12 {
+            let before = hashes();
+            let row = c.try_get_or_insert(key, 99).unwrap();
+            assert_eq!(hashes() - before, 1, "present key {key}");
+            assert_eq!(c.entries.get(row).value, key + 1);
+        }
+        let model: Vec<_> = (0..12).map(|k| (k, k + 1)).collect();
+        assert_model(c, &model);
+    }
+}
