@@ -10,6 +10,15 @@ It draws inspiration from:
 - Go (interfaces)
 - D (fast compilation)
 
+## Documentation
+
+- [Install Plenty](book/src/design/toolchain/01-building/installing.md) and [Learn Plenty](book/src/tutorial/index.md)
+- [Language and standard library reference](book/src/design/index.md)
+- [Development workflow](book/src/development/workflow.md) and [backlog](book/src/backlog.md)
+- [Online documentation](https://cjrh.info/plenty/) and [current development documentation](https://cjrh.info/plenty/dev/)
+
+## Demo
+
 Here's a small word counter:
 
 ```python
@@ -55,13 +64,6 @@ chmod +x main.plenty
 ```
 
 Edit and run again; Plenty recompiles when needed.
-
-## Documentation
-
-- [Install Plenty](book/src/design/toolchain/01-building/installing.md) and [Learn Plenty](book/src/tutorial/index.md)
-- [Language and standard library reference](book/src/design/index.md)
-- [Development workflow](book/src/development/workflow.md) and [backlog](book/src/backlog.md)
-- [Online documentation](https://cjrh.info/plenty/) and [current development documentation](https://cjrh.info/plenty/dev/)
 
 ## License
 

@@ -4,7 +4,7 @@
 The `plenty` skill is developed in `.agents/skills/plenty/`, where its links
 point at book pages in this checkout. Publishing copies it to
 `skills/plenty/` with copies of the book pages it relies on (the syntax cheat
-sheet, the signature index, every std module page, builtins, I/O and packages)
+sheet, language reference, signature index, every std module page, builtins, I/O and packages)
 under `references/`, so the published tree is self-contained and matches one
 compiler version. The marketplace and plugin manifests and the README exist
 only in the published repository; their sources are in
@@ -39,6 +39,7 @@ BUNDLE = {
     "book/src/design/examples/cheatsheet.md": f"{REFERENCES}/cheatsheet.md",
     "book/src/design/toolchain/01-building/packages.md": f"{REFERENCES}/packages.md",
     "book/src/design/toolchain/01-building/scripts.md": f"{REFERENCES}/scripts.md",
+    "book/src/design/language": f"{REFERENCES}/language",
     "book/src/design/stdlib": f"{REFERENCES}/std",
     "book/src/design/facilities/01-builtins": f"{REFERENCES}/builtins",
     "book/src/design/facilities/02-io": f"{REFERENCES}/io",
@@ -164,6 +165,29 @@ def strip_contributor_notes(markdown, page):
     return CONTRIBUTOR_BLOCK.sub("", markdown)
 
 
+def refresh_signature_ranges(markdown):
+    """Measure module sections in the final published text, using 1-based lines."""
+    lines = markdown.splitlines(keepends=True)
+    sections = []
+    for index, line in enumerate(lines):
+        heading = re.fullmatch(r"## `(std\.[^`]+)`\n?", line)
+        if heading:
+            sections.append((heading[1], index))
+    ranges = {}
+    for position, (name, start) in enumerate(sections):
+        end = sections[position + 1][1] if position + 1 < len(sections) else len(lines)
+        while end > start and not lines[end - 1].strip():
+            end -= 1
+        ranges[name] = (start + 1, end)
+
+    def replace(match):
+        start, end = ranges[match[2]]
+        return f"{match[1]}{start}-{end}"
+
+    # Replacing digits leaves all line positions unchanged.
+    return re.sub(r"(?m)^(- \[`(std\.[^`]+)`\]\(#[^)]+\): )\d+-\d+$", replace, markdown)
+
+
 def published_page(page, pages, version, repo=REPO):
     markdown = (repo / page).read_text()
     markdown = strip_contributor_notes(markdown, page)
@@ -179,7 +203,10 @@ def published_page(page, pages, version, repo=REPO):
         f"<!-- Copied from the Plenty {version} book page {page}. "
         "Edit the book, not this copy. -->\n\n"
     )
-    return header + rewrite_links(markdown, page, pages)
+    published = header + rewrite_links(markdown, page, pages)
+    if page == "book/src/design/stdlib/signatures.md":
+        published = refresh_signature_ranges(published)
+    return published
 
 
 def build(out_dir, version, repo=REPO):
