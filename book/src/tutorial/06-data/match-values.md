@@ -10,20 +10,20 @@ enum Shape:
     Square(i64)
     Rect(i64, i64)
 
-def paint_cost(shape: Shape) -> i64:
+def paint_cost(shape: Shape) -> Result[i64, OverflowError[i64]]:
     area = match shape:
         case Shape.Dot:
-            return 1
+            return Ok(1)
         case Shape.Square(side):
             side * side
         case Shape.Rect(width, height):
             width * height
-    area * 10
+    Ok(area * 10)
 
-def main() -> Result[(), IoError]:
-    print(paint_cost(Shape.Dot))?
-    print(paint_cost(Shape.Square(3)))?
-    print(paint_cost(Shape.Rect(2, 5)))?
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(paint_cost(Shape.Dot)?)?
+    print(paint_cost(Shape.Square(3))?)?
+    print(paint_cost(Shape.Rect(2, 5))?)?
     Ok(())
 ```
 
@@ -43,9 +43,10 @@ expected type, which `Nothing` needs:
 
 ```plenty
 def half(number: i64) -> Option[i64]:
-    return match number % 2:
+    two: Positive[i64] = 2
+    return match number % two:
         case 0:
-            Some(number // 2)
+            Some(number // two)
         case _:
             Nothing
 

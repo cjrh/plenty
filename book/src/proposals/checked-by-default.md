@@ -1,10 +1,15 @@
 # Checked arithmetic by default
 
-> **Status: Not implemented; proposed for discussion.** Today arithmetic outside
-> [`checked:`](../design/language/03-types/numbers.md#checked-blocks) traps.
-> This proposal makes its recoverable arithmetic behavior the function default
-> and introduces `unchecked:` as an explicit opt-out. Implementation remains under **B14** in the [backlog](../backlog.md).
-> All examples here describe proposed behavior.
+> **Status: Core and repository adoption implemented; bounded validation complete.**
+> Function-level arithmetic boundaries, lexical `unchecked:`, independent closure
+> contracts, std/callback APIs, fixtures, shipped examples, compiler benchmark
+> templates and teaching/reference changes are implemented on this branch.
+> [Validation evidence](../completed-work/checked-default-validation.md) records the
+> isolated post-repair host gate, controlled timings/profiles, representative
+> optimized code and native/export audit, with explicit source and observation
+> limits. Neither local PR #886 nor its proxy-fixture dependency #918 is merged.
+> This is not whole-proposal performance or merge acceptance. Remaining B14
+> conveniences stay in the [backlog](../backlog.md).
 
 ## Recommendation
 
@@ -16,13 +21,14 @@ operation. There is no `?` after each arithmetic operator.
 
 Keep `checked:` as an explicit, value-producing local recovery boundary, both
 in ordinary code and inside `unchecked:`. Give `unchecked:` the value of its
-suite, without adding a `Result` wrapper. Inside it, affected arithmetic failures
-terminate the process using today's arithmetic traps.
+suite, without adding a `Result` wrapper. Inside it, the programmer guarantees
+that affected arithmetic does not fail. This proposal validates that
+precondition with today's arithmetic traps.
 
 This improves recoverability by default and makes deliberate arithmetic traps
-searchable. It does **not** remove all machine checks: guaranteeing termination
-on overflow requires detecting it. “Unchecked” means unchecked by the typed
-arithmetic error mechanism, not undefined behavior or silent wrapping.
+searchable. It does **not** remove machine checks yet: terminating on overflow
+requires detecting it. “Unchecked” means unchecked by the typed arithmetic
+error mechanism, never silent wrapping.
 
 Plenty has no external users or dependent systems to preserve. Adopt this as a
 coordinated breaking change across the compiler, standard library, tests and
@@ -84,15 +90,21 @@ that all runtime failures become recoverable.
 ## The opt-out block
 
 ```text
-def scale_or_terminate(value: i64, factor: i64) -> i64:
+def scale_in_bounds(value: i64, factor: i64) -> i64:
     unchecked:
         value * factor
 ```
 
-On success this returns an `i64`. Overflow terminates the process. It cannot
-reach an outer checked boundary as an `Err`; there is no unwinding or rollback.
-Required guards remain in debug and optimized builds alike. No build flag may
-silently change this contract to wrapping or undefined behavior.
+On success this returns an `i64`. As implemented here, overflow terminates the
+process in debug and optimized builds alike. It cannot reach an outer checked
+boundary as an `Err`; there is no unwinding or rollback.
+
+Termination is the first implementation of the precondition, not its permanent
+meaning. A dependent follow-up will add a compiler mode that assumes the
+precondition and omits the checks, so a violation becomes undefined behavior,
+not wrapping. Trapping stays the default, and a separate `unchecked trap:`
+form will always check and trap. Code that uses traps to reject invalid input
+must move to that form or validate explicitly before the mode can apply.
 
 `unchecked` is contextual, like `checked`: only `unchecked:` followed by a
 newline opens a suite; an existing typed binding `unchecked: i64 = 0` remains
@@ -150,9 +162,9 @@ locally and let `mixed` return a plain `i64`.
 | --- | --- |
 | Function body, without a nearer explicit mode | Function's declared `Result` |
 | Explicit `checked:` | That block's `Result` |
-| Explicit `unchecked:` | Process termination |
+| Explicit `unchecked:` | Precondition violation; currently process termination |
 | `checked:` inside `unchecked:` | Inner block's `Result` |
-| `unchecked:` inside `checked:` | Process termination |
+| `unchecked:` inside `checked:` | Precondition violation; currently process termination |
 
 Nested `unchecked:` is redundant but legal. Leaving any suite restores its
 outer mode. A failure in an explicit checked block releases that block's locals;
@@ -167,12 +179,12 @@ function boundary: ordinary infallible and all-returning functions remain valid.
 
 ## Auditability and cost
 
-Search for `unchecked:` to locate explicit arithmetic opt-outs, then review the
-reason each region accepts process termination and whether its extent is minimal.
+Search for `unchecked:` to locate explicit arithmetic opt-outs, then review why
+each region cannot fail and whether its extent is minimal.
 Use a source-aware search to distinguish syntax from comments and text. Prefer
 comments explaining bounds or measured hot paths over generic “faster” claims.
-Real-world confidence in bounds is useful evidence, but a check still traps if
-that confidence proves wrong.
+Real-world confidence in bounds is useful evidence, but today's check traps if
+that confidence proves wrong, and an assumed-valid build would not.
 
 This search is not a complete trap audit: indexing, `unwrap()`, negative powers,
 foreign code and existing runtime primitives remain separate trap sources. Std

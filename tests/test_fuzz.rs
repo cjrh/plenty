@@ -275,7 +275,7 @@ fn compared_strings_reach_an_error() {
         r#"import fuzz_input
 import std.bytes
 
-def main() -> Result[(), AllocError | std.bytes.BytesError]:
+def main() -> Result[(), AllocError | std.bytes.BytesError | OverflowError[u64]]:
     mut data = std.bytes.empty()?
     mut i = 0u64
     while i < fuzz_input.size():
@@ -307,14 +307,15 @@ fn stack_exhaustion_is_reported() {
         dir.path(),
         r#"import fuzz_input
 
-def down(n: i64) -> i64:
+def down(n: i64) -> Result[i64, OverflowError[i64]]:
     if n == 0:
-        return 0
-    1 + down(n - 1)
+        return Ok(0)
+    Ok(1 + down(n - 1)?)
 
-def main() -> ():
+def main() -> Result[(), OverflowError[i64]]:
     if fuzz_input.size() > 0u64 and fuzz_input.byte(0u64) == 33u8:
-        depth = down(100000000)
+        depth = down(100000000)?
+    Ok(())
 "#,
         &libfuzzer,
     );
@@ -499,7 +500,7 @@ fn release_counters_count_every_iteration() {
         dir.path(),
         r#"import fuzz_input
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[u64]]:
     mut total = 0u64
     for i in range(200):
         if fuzz_input.byte(0u64) == 120u8:

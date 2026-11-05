@@ -1,6 +1,8 @@
 # Calculate with numbers
 
-Arithmetic requires matching types:
+Arithmetic requires matching types. Integer failures are recoverable by default:
+list their error types in the function's `Result` return, and use `Ok(...)`
+for success. Operators themselves still produce ordinary numbers.
 
 ```plenty-error
 def main() -> Result[(), IoError]:
@@ -16,7 +18,7 @@ cannot combine u8 with i64; convert with `i64(small)`
 Choose a matching literal or explicitly convert a value:
 
 ```plenty
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[u8] | OverflowError[i64]]:
     small = 7u8
     print(small + 1u8)?
     print(i64(small) + 1)?
@@ -35,7 +37,7 @@ returns a `Result`: `Ok` with the converted value, or
 this one variant; parsing text uses the separate `ParseError` type.
 
 ```plenty
-def main() -> Result[(), RangeError | IoError]:
+def main() -> Result[(), RangeError | IoError | OverflowError[u8]]:
     wide = 200
     small = u8.try_from(wide)?
     print(small + 1u8)?
@@ -64,8 +66,8 @@ def main() -> ():
 ```
 
 A value known only when the program runs is checked then. With `wide = 300`,
-`u8(wide)` stops the program with `error: integer cast out of range`, as
-arithmetic overflow does. The same applies to a negative value cast to an
+`u8(wide)` stops the program with `error: integer cast out of range`.
+Casts retain this trapping behavior; arithmetic errors use typed returns. The same applies to a negative value cast to an
 unsigned type, such as `u64(-1)`, and to an unsigned value above the signed
 maximum, such as `i8(200u8)`. Cast when the value is known to fit, and use
 `try_from` when it might not.
@@ -89,8 +91,9 @@ def main() -> Result[(), IoError]:
 -56
 ```
 
-Integer arithmetic overflow is a runtime error. An unsigned type has no negative
-values, so unary minus requires a signed integer or a float:
+Integer overflow returns `OverflowError[T]`, where `T` is the operand type.
+An unsigned type has no negative values, so unary minus requires a signed
+integer or a float:
 
 ```plenty-error
 def main() -> Result[(), IoError]:
@@ -120,7 +123,7 @@ unary minus is not defined for unsigned type u8
 and rounds down, including for negative values:
 
 ```plenty
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64] | ZeroDivisionError]:
     print(1 + 2 * 3)?
     print((1 + 2) * 3)?
     print(-7 // 3)?
@@ -133,9 +136,10 @@ def main() -> Result[(), IoError]:
 -3
 ```
 
-Integer division by zero is a runtime error. The program stops and reports where
-it happened: `error: main.plenty:2:11: division by zero` names the
-file, line, and column. Use `/` for floating-point division.
+Integer division by zero returns `ZeroDivisionError`. Signed division also
+requires `OverflowError[T]` for `T.MIN // -1`. The contract follows the
+operators and operand types, even with a known nonzero divisor such as `3`.
+Use `/` for floating-point division.
 
 Integers also support bitwise operations and shifts. A shift count must be
 nonnegative and smaller than the integer width. Signed right shifts preserve
@@ -170,7 +174,7 @@ def main() -> Result[(), IoError]:
 
 Use `wrapping_add`, `wrapping_sub`, or `wrapping_mul` when a calculation
 deliberately wraps at the integer width, as in a hash or a random-number
-generator. Ordinary arithmetic still traps on overflow. Parenthesize mixed
+generator. Ordinary arithmetic returns a typed overflow error. Parenthesize mixed
 bitwise expressions when that makes the intended grouping easier to read.
 
 `rotate_left` and `rotate_right` move bits around the ends of an integer
@@ -200,7 +204,7 @@ def main() -> Result[(), IoError]:
 one type, and the result has that type:
 
 ```plenty
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64] | OverflowError[u8]]:
     change = -7
     small = 200u8
     print(change.pow(2))?
@@ -220,24 +224,20 @@ def main() -> Result[(), IoError]:
 There is no `**` operator. An integer literal receiver needs parentheses, as in
 `(2).pow(10)`.
 
-A result that does not fit is the same runtime error as arithmetic overflow:
-`small.pow(2)` stops the program with `integer overflow`. An integer power with
-a negative exponent stops with `negative integer exponent`; convert to a float
-for that.
+A result that does not fit returns the same typed overflow error as the
+operators. An integer power with a negative exponent still stops with
+`negative integer exponent`; convert to a float for that.
 
 ## Recover from overflow
 
-Stopping the program is the right default when overflow means a bug. When a
-calculation can legitimately go out of range, for example on input from a
-user, write it inside a `checked:` block. The block's last line is its value,
-and the block returns a `Result`: `Ok` with the value, or `Err` as soon as an
-operation inside it overflows or divides by zero.
+Declare the errors a calculation can produce and propagate them to its caller.
+An arithmetic failure returns `Err` immediately; otherwise explicitly return
+`Ok` with the successful value.
 
 ```plenty
 def average(total: u8, count: u8) -> Result[u8, OverflowError[u8] | ZeroDivisionError]:
-    checked:
-        rounded = total + count // 2
-        rounded // count
+    rounded = total + count // 2
+    Ok(rounded // count)
 
 def main() -> Result[(), OverflowError[u8] | ZeroDivisionError | IoError]:
     print(average(200, 4)?)?
@@ -252,7 +252,7 @@ True
 True
 ```
 
-The error type lists what the block's operators can produce:
+The error type lists what the function's operators can produce:
 `OverflowError[u8]` for `+` on `u8`, and `ZeroDivisionError` for `//`.
 Unsigned `//` cannot overflow, so it adds only `ZeroDivisionError`. `?` passes
 either error to the caller, as with `try_from`. An `OverflowError` holds the
@@ -261,13 +261,41 @@ wrapped result in its `wrapped` field: `250 + 10` on a `u8` wraps to 4.
 handle each error instead of passing it on.
 
 
-Arithmetic written inside the block is checked, including the bodies of
-closures defined there. Such a closure must stay in the block; it can be called
-locally or passed to a synchronous helper. A named function or a closure
-defined elsewhere keeps its own behavior. Builtin reductions such as `sum()`
-also keep trapping: use a `fold` callback defined inside the block to check an
-accumulation. See [checked blocks](../../design/language/03-types/numbers.md#checked-blocks)
-for closure lifetime rules. Arithmetic after the block traps as before.
+For local recovery, use `checked:`. Its final expression becomes the
+successful value of the block's `Result`; no explicit `Ok` is needed there:
+
+```plenty
+def increment_or_zero(value: i64) -> i64:
+    result = checked:
+        value + 1
+    match result:
+        case Ok(incremented):
+            incremented
+        case Err(_):
+            0
+
+def main() -> Result[(), IoError]:
+    print(increment_or_zero(4), increment_or_zero(i64.MAX))?
+    Ok(())
+```
+```output
+5 0
+```
+
+Every named function and closure keeps its own declared error contract,
+including when defined inside `checked:`. Calls returning `Result` still
+need explicit handling.
+
+Use `unchecked:` only where you can show the arithmetic cannot fail. It
+yields an ordinary value, not a `Result`. Today a failure inside it still
+terminates the process rather than wrapping, but that check is not part of the
+promise, so do not use the suite to reject bad input. Keep it small and explain
+why its bounds are safe. See
+[arithmetic modes](../../design/language/03-types/numbers.md#unchecked-blocks).
+Integer [`std.math` helpers](../../design/stdlib/math.md) return ordinary
+overflow results; their float variants remain infallible. Remaining std
+implementations and parallel reductions still need the coordinated adoption
+described in [B14](../../backlog.md). Calls never inherit a caller's mode.
 
 ## Validate a divisor once
 
@@ -276,13 +304,13 @@ the resulting value to repeated divisions. A plain integer accepts that divisor
 directly; the compiler omits its zero check.
 
 ```plenty
-def per_group(total: i64, groups: NonZero[i64]) -> i64:
-    total // groups
+def per_group(total: i64, groups: NonZero[i64]) -> Result[i64, OverflowError[i64]]:
+    Ok(total // groups)
 
-def main() -> Result[(), IoError | RangeError]:
+def main() -> Result[(), IoError | RangeError | OverflowError[i64]]:
     count = 3
     groups = NonZero.try_from(count)?
-    print(per_group(14, groups), 14 % groups)?
+    print(per_group(14, groups)?, 14 % groups)?
     Ok(())
 ```
 ```output
@@ -290,7 +318,8 @@ def main() -> Result[(), IoError | RangeError]:
 ```
 
 The quotient and remainder are ordinary integers and can be zero. Signed
-`i64.MIN // -1` can still overflow, so use a
-[`checked:` block](#recover-from-overflow) when overflow should be returned.
+`i64.MIN // -1` can still overflow, so the function's error type includes
+`OverflowError[i64]`. A locally handled [checked block](#recover-from-overflow)
+can instead keep this error out of the function signature.
 See [nonzero integers](../../design/language/03-types/numbers.md#nonzero-integers)
 for construction and arithmetic rules.

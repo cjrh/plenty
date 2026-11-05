@@ -77,6 +77,9 @@ fields to relax them; `to_string` checks the result each time:
 | A `__Secure-` name needs `secure` | `InvalidAttribute` |
 | A `__Host-` name needs `secure`, path `/` and no domain | `InvalidAttribute` |
 
+Rounding `max_age` is representable even for the largest `Duration`
+(`u64.MAX` nanoseconds becomes `18446744074` seconds).
+
 Empty `path` and `domain` are left out. `CookieError` also has
 `TooManyCookies`, `Http(HttpError)` from `add`, `Crypto(CryptoError)` from
 the HMAC in the signing functions, and `Allocation`.

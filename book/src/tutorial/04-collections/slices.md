@@ -74,7 +74,7 @@ the [element borrowing lesson](element-borrows.md#borrow-part-of-a-list)
 introduces. A loop over their positions also avoids the copy:
 
 ```plenty
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     scores = [70, 85, 90, 65, 88]?
     mut total = 0
     for i in range(1, len(scores)):

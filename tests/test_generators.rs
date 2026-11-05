@@ -3,7 +3,7 @@ mod support;
 use rstest::rstest;
 use support::run;
 
-const COUNT: &str = "def count(n: i64) -> Generator[i64]:\n    mut i = 0\n    while i < n:\n        yield i\n        i = i + 1\n";
+const COUNT: &str = "def count(n: i64) -> Generator[i64]:\n    mut i = 0\n    while i < n:\n        yield i\n        # 0 <= i < n <= i64.MAX, so the resumed increment fits.\n        unchecked:\n            i = i + 1\n";
 
 #[test]
 fn explicit_next_reborrows_a_mutable_generator_without_consuming_it() {
@@ -79,12 +79,14 @@ fn explicit_next_reborrows_a_mutable_generator_without_consuming_it() {
     "def g() -> Generator[i64]:\n    for n in range(5):\n        if n == 1:\n            continue\n        if n == 3:\n            break\n        yield n\n    yield 99\nprint(list(g()).unwrap()).unwrap()",
     "[0, 2, 99]\n"
 )]
+// count(3) x count(2) bounds each encoded pair by 21.
 #[case(
-    "def g() -> Generator[i64]:\n    for a in count(3):\n        for b in count(2):\n            yield a * 10 + b\nprint(list(g()).unwrap()).unwrap()",
+    "def g() -> Generator[i64]:\n    for a in count(3):\n        for b in count(2):\n            value = checked:\n                a * 10 + b\n            yield value.unwrap()\nprint(list(g()).unwrap()).unwrap()",
     "[0, 1, 10, 11, 20, 21]\n"
 )]
+// Only E.A(2) reaches the asserted increment.
 #[case(
-    "enum E:\n    A(i64)\n    B\ndef g(e: E) -> Generator[i64]:\n    match e:\n        case E.A(n):\n            yield n\n            yield n + 1\n        case E.B:\n            return\n    yield 9\nprint(list(g(E.A(2))).unwrap()).unwrap()\nprint(list(g(E.B)).unwrap()).unwrap()",
+    "enum E:\n    A(i64)\n    B\ndef g(e: E) -> Generator[i64]:\n    match e:\n        case E.A(n):\n            yield n\n            value = checked:\n                n + 1\n            yield value.unwrap()\n        case E.B:\n            return\n    yield 9\nprint(list(g(E.A(2))).unwrap()).unwrap()\nprint(list(g(E.B)).unwrap()).unwrap()",
     "[2, 3, 9]\n[]\n"
 )]
 #[case(
@@ -123,8 +125,9 @@ fn explicit_next_reborrows_a_mutable_generator_without_consuming_it() {
     "def chars() -> Generator[str]:\n    for c in 'é\\0😀':\n        yield c\nprint(list(chars()).unwrap()).unwrap()",
     "[\"é\", \"\\0\", \"😀\"]\n"
 )]
+// The narrow-integer frame is resumed with x=-128, so x+1 fits i8.
 #[case(
-    "def g(x: i8, y: u64, flag: bool) -> Generator[i8]:\n    if flag and y > 0u64:\n        yield x\n        yield x + 1i8\nprint(list(g(-128i8, 18446744073709551615u64, True)).unwrap()).unwrap()",
+    "def g(x: i8, y: u64, flag: bool) -> Generator[i8]:\n    if flag and y > 0u64:\n        yield x\n        value = checked:\n            x + 1i8\n        yield value.unwrap()\nprint(list(g(-128i8, 18446744073709551615u64, True)).unwrap()).unwrap()",
     "[-128, -127]\n"
 )]
 #[case(
@@ -132,7 +135,13 @@ fn explicit_next_reborrows_a_mutable_generator_without_consuming_it() {
     "[0, 1]\n"
 )]
 fn native_generators(#[case] source: &str, #[case] expected: &str) {
-    let output = run(&format!("{COUNT}{source}"));
+    let mut program = support::program(&format!("{COUNT}{source}")).replacen(
+        "def main() -> ():",
+        "def main() -> Result[(), OverflowError[i64] | ZeroDivisionError]:",
+        1,
+    );
+    program.push_str("    Ok(())\n");
+    let output = run(&program);
     assert!(
         output.status.success(),
         "{source}\n{}",
@@ -242,7 +251,7 @@ fn one_consumer_accepts_more_than_256_generator_functions() {
         writeln!(source, "def g{i}() -> Generator[i64]:\n    yield {i}").unwrap();
     }
     source.push_str(
-        "def total(values: Generator[i64]) -> i64:\n    mut result = 0\n    for value in values:\n        result = result + value\n    result\ndef main() -> ():\n",
+        "def total(values: Generator[i64]) -> Result[i64, OverflowError[i64]]:\n    mut result = 0\n    for value in values:\n        result = result + value\n    Ok(result)\ndef main() -> ():\n",
     );
     for i in 0..257 {
         writeln!(source, "    drop(total(g{i}()))").unwrap();
@@ -256,40 +265,84 @@ fn a_chain_of_300_distinct_generator_consumers_runs() {
     // dependency level deeper; no consumer repeats (issue #435).
     use std::fmt::Write;
     let mut source = format!(
-        "{COUNT}def c0(values: Generator[i64]) -> i64:\n    mut result = 0\n    for value in values:\n        result = result + value\n    result\n"
+        "{COUNT}def c0(values: Generator[i64]) -> Result[i64, OverflowError[i64]]:\n    mut result = 0\n    for value in values:\n        result = result + value\n    Ok(result)\n"
     );
     for i in 1..300 {
         writeln!(
             source,
-            "def c{i}(values: Generator[i64]) -> i64:\n    c{}(values)",
+            "def c{i}(values: Generator[i64]) -> Result[i64, OverflowError[i64]]:\n    c{}(values)",
             i - 1
         )
         .unwrap();
     }
-    source.push_str("def main() -> i32:\n    i32(c299(count(5)))\n");
+    source.push_str("def main() -> i32:\n    i32(c299(count(5)).unwrap())\n");
     let output = run(&source);
     assert_eq!(output.status.code(), Some(10), "{output:?}");
 }
 
 #[test]
 fn expanding_generator_consumers_are_bounded() {
+    // Runtime seeds [1, 2, 3] and three expansions bound items by 24.
+    // The frontend must still reject unbounded specialization, not arithmetic.
     for (call, expected) in [
         // Each frame requires a deeper one: the dependency depth stops it.
         // The limit counts `total` and the three builtin integer-domain `get` methods.
         (
-            "total((v + 1 for v in values), n - 1)",
+            "total((increment(v).unwrap() for v in values), n - 1)?",
             "dependency depth limit of 260 (256 plus one per generic function or generator consumer) exceeded",
         ),
         // Two per frame reach the consumer's limit within that depth.
         (
-            "total((v + 1 for v in values), n - 1) + total((v * 2 for v in values), n - 1)",
+            "total((increment(v).unwrap() for v in values), n - 1)? + total((double(v).unwrap() for v in values), n - 1)?",
             "generator specialization limit of 16384 frames of `total` exceeded",
         ),
     ] {
         let source = format!(
-            "def total(values: Generator[i64], n: i64) -> i64:\n    if n == 0:\n        return 0\n    {call}\ndef main() -> ():\n    drop(total((v for v in [1, 2, 3].unwrap()), 3))\n"
+            "def increment(v: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(v + 1)\ndef double(v: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(v * 2)\ndef total(values: Generator[i64], n: i64) -> Result[i64, OverflowError[i64]]:\n    if n == 0:\n        return Ok(0)\n    Ok({call})\ndef main() -> ():\n    drop(total((v for v in [1, 2, 3].unwrap()), 3))\n"
         );
         let error = support::check_source(&source).unwrap_err().to_string();
         assert!(error.contains(expected), "{error}");
+    }
+}
+
+#[test]
+fn local_arithmetic_results_survive_suspension_in_both_modes() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("results.plenty");
+    std::fs::write(
+        &source,
+        r#"
+def increment(n: i8) -> Result[i8, OverflowError[i8]]:
+    Ok(n + 1i8)
+def values() -> Generator[Result[i8, OverflowError[i8]]]:
+    yield increment(i8.MAX)
+    yield increment(-1i8)
+def main() -> Result[(), AllocError | IoError]:
+    mut stream = values()
+    print(str.repr(next(stream).unwrap())?)?
+    print(str.repr(next(stream).unwrap())?)?
+    print(next(stream).is_none(), next(stream).is_none())?
+    Ok(())
+"#,
+    )
+    .unwrap();
+    for optimize in [false, true] {
+        let executable = dir.path().join("program");
+        let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"));
+        if !optimize {
+            command.arg("--fast-compile");
+        }
+        let compiled = command
+            .args(["--no-cache", "--compile"])
+            .arg(&source)
+            .arg("-o")
+            .arg(&executable)
+            .output()
+            .unwrap();
+        assert!(compiled.status.success(), "{compiled:?}");
+        let result = std::process::Command::new(&executable).output().unwrap();
+        assert!(result.status.success(), "{result:?}");
+        assert_eq!(result.stdout,
+            b"Result[i8, OverflowError[i8]].Err(OverflowError[i8](wrapped=-128))\nResult[i8, OverflowError[i8]].Ok(0)\nTrue True\n");
     }
 }

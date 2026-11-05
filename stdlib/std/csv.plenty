@@ -109,6 +109,37 @@ def interrupted(cause: &StreamError) -> bool:
         case _:
             False
 
+# Semantic positions have no finite lifetime budget. Exhaustion is a stream
+# range failure, never saturation or wrapping of a record/line/byte position.
+def position_after(position: i64, count: i64) -> Result[i64, CsvError]:
+    next = checked:
+        position + count
+    match next:
+        case Ok(value):
+            Ok(value)
+        case Err(_):
+            Err(CsvError.Stream(StreamError.OutOfRange))
+
+# Fill only the remaining representable stream span. At zero room, refuse
+# before another transport read, even if that read might have reported EOF.
+def read_span(offset: i64, held: i64, capacity: i64) -> Result[(i64, i64), CsvError]:
+    base = position_after(offset, held)?
+    # Positions and held lengths are nonnegative; checked addition proved base
+    # representable. Capacity is the positive allocated input-buffer length.
+    remaining = unchecked:
+        i64.MAX - base
+    size = capacity if capacity < remaining else remaining
+    if size == 0:
+        return Err(CsvError.Stream(StreamError.OutOfRange))
+    Ok((base, size))
+
+# start <= stop are allocated-buffer offsets, room is positive. Clamp before
+# adding: a huge field budget must not overflow a small buffer cursor.
+def scan_end(start: i64, stop: i64, room: i64) -> i64:
+    unchecked:
+        remaining = stop - start
+        start + (room if room < remaining else remaining)
+
 # Callers pass an index they have already bounded.
 def at(buffer: &Bytes, index: i64) -> u8:
     buffer.get(index)
@@ -176,7 +207,9 @@ pub class Record:
             __trap("Record.start: index outside record")
         if index == 0:
             return 0
-        self._ends[index - 1]
+        # The validated nonzero index is within _ends.
+        unchecked:
+            self._ends[index - 1]
 
     pub def stop(self, index: i64) -> i64:
         if index < 0 or index >= len(self._ends):
@@ -245,17 +278,21 @@ pub class Reader[R]:
         self._line
 
     pub def offset(self) -> i64:
-        self._offset + self._start
+        # fill preflights the entire held span; 0 <= start <= stop.
+        unchecked:
+            self._offset + self._start
 
     def fault(self, fault: Fault, record: &Record) -> CsvError:
-        CsvError.Invalid(fault, Position(self._records + 1, len(record._ends), self._line, self._offset + self._start))
+        # read preflighted the next record label; fill bounded the held span.
+        unchecked:
+            CsvError.Invalid(fault, Position(self._records + 1, len(record._ends), self._line, self.offset()))
 
     # One inner read into the empty buffer, repeated while interrupted.
     def fill(self: &mut Reader[R]) -> Result[i64, CsvError]:
-        self._offset += self._stop
+        base, size = read_span(self._offset, self._stop, self._buffer.len())?
+        self._offset = base
         self._start = 0
         self._stop = 0
-        size = self._buffer.len()
         while True:
             match self.inner.read(&mut self._buffer, 0, size):
                 case Ok(count):
@@ -271,14 +308,17 @@ pub class Reader[R]:
     # Bytes the open field, which began at `begin`, can still take. None is
     # the limit fault, reported at the byte that does not fit.
     def room(self, record: &Record, begin: i64) -> Result[i64, CsvError]:
-        held = record._data.len()
-        if held - begin >= self._max_field:
-            return Err(self.fault(Fault.FieldTooLong, record))
-        if held >= self._max_record:
-            return Err(self.fault(Fault.RecordTooLong, record))
-        if self._max_field - (held - begin) < self._max_record - held:
-            return Ok(self._max_field - (held - begin))
-        Ok(self._max_record - held)
+        # 0 <= begin <= held <= max_record; field/record guards leave
+        # nonnegative remaining budgets, each within i64.
+        unchecked:
+            held = record._data.len()
+            if held - begin >= self._max_field:
+                return Err(self.fault(Fault.FieldTooLong, record))
+            if held >= self._max_record:
+                return Err(self.fault(Fault.RecordTooLong, record))
+            if self._max_field - (held - begin) < self._max_record - held:
+                return Ok(self._max_field - (held - begin))
+            Ok(self._max_record - held)
 
     def keep_byte(self, record: &mut Record, begin: i64, value: u8) -> Result[(), CsvError]:
         drop(self.room(record, begin)?)
@@ -300,6 +340,9 @@ pub class Reader[R]:
     # States: 0 at the start of a field, 1 in an unquoted field, 2 in a quoted
     # field, 3 after a quote that either closes the field or starts `""`.
     def scan(self: &mut Reader[R], record: &mut Record) -> Result[bool, CsvError]:
+        # Buffer cursors advance only over observed bytes; scan endpoints are
+        # clamped before adding. BOM progress is at most 3. Line positions use
+        # local recovery instead of these held-buffer arithmetic opt-outs.
         mut state = 0
         mut started = False
         mut begin = 0
@@ -319,8 +362,10 @@ pub class Reader[R]:
             byte = at(&self._buffer, self._start)
             if self._mark < 3:
                 if byte == mark(self._mark):
-                    self._mark += 1
-                    self._start += 1
+                    unchecked:
+                        self._mark += 1
+                    unchecked:
+                        self._start += 1
                     continue
                 if self.unmarked(record)?:
                     started = True
@@ -329,23 +374,32 @@ pub class Reader[R]:
                 if byte == self._quote:
                     self._after_return = False
                     state = 3
-                    self._start += 1
+                    unchecked:
+                        self._start += 1
                     continue
-                mut limit = self._start + self.room(record, begin)?
-                if limit > self._stop:
-                    limit = self._stop
+                limit = scan_end(self._start, self._stop, self.room(record, begin)?)
                 end = first(&self._buffer, self._quote, self._start, limit)
                 # Count lines by visiting only the line breaks in the run.
                 mut cursor = first_in(&self._buffer, &self._breaks, self._start, end)
                 while cursor < end:
                     mut after_return = self._after_return
                     if cursor > self._start:
-                        after_return = at(&self._buffer, cursor - 1) == carriage_return
+                        after_return = unchecked:
+                            at(&self._buffer, cursor - 1) == carriage_return
                     if at(&self._buffer, cursor) == carriage_return or not after_return:
-                        self._line += 1
-                    cursor = first_in(&self._buffer, &self._breaks, cursor + 1, end)
+                        match position_after(self._line, 1):
+                            case Ok(line):
+                                self._line = line
+                            case Err(cause):
+                                # Parser progress stops before this newline;
+                                # the transport may already have prefetched it.
+                                self._start = cursor
+                                return Err(cause)
+                    cursor = unchecked:
+                        first_in(&self._buffer, &self._breaks, cursor + 1, end)
                 if end > self._start:
-                    self._after_return = at(&self._buffer, end - 1) == carriage_return
+                    unchecked:
+                        self._after_return = at(&self._buffer, end - 1) == carriage_return
                 listed(record._data.extend(&self._buffer[self._start:end]))?
                 self._start = end
                 continue
@@ -353,25 +407,29 @@ pub class Reader[R]:
                 # The line feed of a CRLF that ended the previous record.
                 self._after_return = False
                 if byte == line_feed:
-                    self._start += 1
+                    unchecked:
+                        self._start += 1
                     continue
             if state == 3 and byte == self._quote:
                 self.keep_byte(record, begin, byte)?
                 state = 2
-                self._start += 1
+                unchecked:
+                    self._start += 1
                 continue
             if byte == self._delimiter:
                 self.close(record)?
                 begin = record._data.len()
                 state = 0
                 started = True
-                self._start += 1
+                unchecked:
+                    self._start += 1
                 continue
             if byte == line_feed or byte == carriage_return:
                 self.close(record)?
-                self._line += 1
+                self._line = position_after(self._line, 1)?
                 self._after_return = byte == carriage_return
-                self._start += 1
+                unchecked:
+                    self._start += 1
                 return Ok(True)
             if state == 3:
                 return Err(self.fault(Fault.AfterQuote, record))
@@ -380,12 +438,12 @@ pub class Reader[R]:
                     return Err(self.fault(Fault.BareQuote, record))
                 state = 2
                 started = True
-                self._start += 1
+                unchecked:
+                    self._start += 1
                 continue
-            mut limit = self._start + self.room(record, begin)?
-            if limit > self._stop:
-                limit = self._stop
-            end = first_in(&self._buffer, &self._special, self._start + 1, limit)
+            limit = scan_end(self._start, self._stop, self.room(record, begin)?)
+            end = unchecked:
+                first_in(&self._buffer, &self._special, self._start + 1, limit)
             listed(record._data.extend(&self._buffer[self._start:end]))?
             self._start = end
             state = 1
@@ -402,6 +460,12 @@ pub class Reader[R]:
         record._ends.clear()
         if self._ended:
             return Ok(False)
+        next = match position_after(self._records, 1):
+            case Ok(number):
+                number
+            case Err(cause):
+                self._stopped = True
+                return Err(cause)
         record._line = self._line
         match self.scan(record):
             case Ok(found):
@@ -412,7 +476,7 @@ pub class Reader[R]:
                 record._data.clear()
                 record._ends.clear()
                 return Err(cause)
-        self._records += 1
+        self._records = next
         record._number = self._records
         count = len(record._ends)
         if self._expected == -1:
@@ -461,25 +525,30 @@ pub class Writer[W]:
 
     # Bytes of finished records the stream has not yet accepted.
     pub def pending(self) -> i64:
-        self._ready - self._sent
+        # 0 <= sent <= ready <= pending.len().
+        unchecked:
+            self._ready - self._sent
 
     def drain(self: &mut Writer[W]) -> Result[(), CsvError]:
-        while self._sent < self._ready:
-            match self.inner.write(&self._pending[self._sent:self._ready]):
-                case Ok(count):
-                    if count == 0:
-                        return Err(CsvError.Stream(StreamError.WriteZero))
-                    if count < 0 or count > self._ready - self._sent:
-                        return Err(CsvError.Stream(StreamError.InvalidProgress))
-                    self._sent += count
-                case Err(cause):
-                    if not interrupted(&cause):
-                        return Err(CsvError.Stream(cause))
-        if self._ready == self._pending.len():
-            self._pending.clear()
-            self._sent = 0
-            self._ready = 0
-        Ok(())
+        # 0 <= sent <= ready <= pending.len(). A positive validated count
+        # is at most ready - sent, so each progress sum is at most ready.
+        unchecked:
+            while self._sent < self._ready:
+                match self.inner.write(&self._pending[self._sent:self._ready]):
+                    case Ok(count):
+                        if count == 0:
+                            return Err(CsvError.Stream(StreamError.WriteZero))
+                        if count < 0 or count > self._ready - self._sent:
+                            return Err(CsvError.Stream(StreamError.InvalidProgress))
+                        self._sent += count
+                    case Err(cause):
+                        if not interrupted(&cause):
+                            return Err(CsvError.Stream(cause))
+            if self._ready == self._pending.len():
+                self._pending.clear()
+                self._sent = 0
+                self._ready = 0
+            Ok(())
 
     def quoted(self, source: &[u8]) -> bool:
         if self._always:
@@ -487,42 +556,52 @@ pub class Writer[W]:
         __bytes_find_in(source, &self._special[:], 1u8) >= 0
 
     def encode(self: &mut Writer[W], source: &[u8]) -> Result[(), CsvError]:
-        if self._fields > 0:
-            listed(self._pending.push(self._delimiter))?
-        if not self.quoted(source):
-            return listed(self._pending.extend(source))
-        listed(self._pending.push(self._quote))?
-        mut copied = 0
-        mut found = __bytes_find(source, self._quote)
-        while found >= 0:
-            index = copied + found
-            listed(self._pending.extend(&source[copied:index + 1]))?
+        # find returns a relative offset inside source[copied:]; thus
+        # copied + found < len(source) and index + 1 <= len(source).
+        unchecked:
+            if self._fields > 0:
+                listed(self._pending.push(self._delimiter))?
+            if not self.quoted(source):
+                return listed(self._pending.extend(source))
             listed(self._pending.push(self._quote))?
-            copied = index + 1
-            found = __bytes_find(&source[copied:], self._quote)
-        listed(self._pending.extend(&source[copied:]))?
-        listed(self._pending.push(self._quote))
+            mut copied = 0
+            mut found = __bytes_find(source, self._quote)
+            while found >= 0:
+                index = copied + found
+                listed(self._pending.extend(&source[copied:index + 1]))?
+                listed(self._pending.push(self._quote))?
+                copied = index + 1
+                found = __bytes_find(&source[copied:], self._quote)
+            listed(self._pending.extend(&source[copied:]))?
+            listed(self._pending.push(self._quote))
 
     # Adds `source` as the next field of the record in progress.
     pub def field(self: &mut Writer[W], source: &[u8]) -> Result[(), CsvError]:
+        next = position_after(self._records, 1)?
         self.drain()?
         if self._fields >= self._max_fields:
-            return Err(CsvError.Rejected(Fault.TooManyFields, self._records + 1, self._fields))
+            return Err(CsvError.Rejected(Fault.TooManyFields, next, self._fields))
         if len(source) > self._max_field:
-            return Err(CsvError.Rejected(Fault.FieldTooLong, self._records + 1, self._fields))
-        if len(source) > self._max_record - self._content:
-            return Err(CsvError.Rejected(Fault.RecordTooLong, self._records + 1, self._fields))
+            return Err(CsvError.Rejected(Fault.FieldTooLong, next, self._fields))
+        # Successful fields keep content <= max_record.
+        remaining = unchecked:
+            self._max_record - self._content
+        if len(source) > remaining:
+            return Err(CsvError.Rejected(Fault.RecordTooLong, next, self._fields))
         held = self._pending.len()
         match self.encode(source):
             case Ok(_):
-                self._fields += 1
-                self._content += len(source)
+                # The field/count and remaining-content preflights bound both sums.
+                unchecked:
+                    self._fields += 1
+                    self._content += len(source)
                 Ok(())
             case Err(cause):
                 self._pending.truncate(held)
                 Err(cause)
 
     pub def text(self: &mut Writer[W], value: &str) -> Result[(), CsvError]:
+        drop(position_after(self._records, 1)?)
         encoded = listed(std.bytes.from_text(value))?
         self.field(&encoded)
 
@@ -543,13 +622,14 @@ pub class Writer[W]:
 
     # Finishes the record in progress and delivers it.
     pub def end_record(self: &mut Writer[W]) -> Result[(), CsvError]:
+        next = position_after(self._records, 1)?
         self.drain()?
         if self._fields == 0:
-            return Err(CsvError.EmptyRecord(self._records + 1))
+            return Err(CsvError.EmptyRecord(next))
         if self._expected > 0 and self._fields != self._expected:
             found = self._fields
             self.discard()
-            return Err(CsvError.Width(self._records + 1, self._expected, found))
+            return Err(CsvError.Width(next, self._expected, found))
         held = self._pending.len()
         match self.terminate():
             case Ok(_):
@@ -560,7 +640,7 @@ pub class Writer[W]:
         if self._expected == -1:
             self._expected = self._fields
         self._ready = self._pending.len()
-        self._records += 1
+        self._records = next
         self._fields = 0
         self._content = 0
         self.drain()

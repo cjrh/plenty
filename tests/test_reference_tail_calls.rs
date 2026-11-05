@@ -226,15 +226,15 @@ fn conflicting_arguments_of_a_tail_call_are_rejected(#[case] parameter: &str, #[
 class Node:
     value: i64
     items: list[i64]
-def two(a: &mut Node, b: &Node) -> i64:
-    a.value + b.value
-def pair(a: &mut Node, b: &mut Node) -> i64:
-    a.value + b.value
-def part(a: &mut Node, b: &list[i64]) -> i64:
-    a.value + len(b)
-def take(a: &Node, b: Node) -> i64:
-    a.value + b.value
-def caller({parameter}) -> i64:
+def two(a: &mut Node, b: &Node) -> Result[i64, OverflowError[i64]]:
+    Ok(a.value + b.value)
+def pair(a: &mut Node, b: &mut Node) -> Result[i64, OverflowError[i64]]:
+    Ok(a.value + b.value)
+def part(a: &mut Node, b: &list[i64]) -> Result[i64, OverflowError[i64]]:
+    Ok(a.value + len(b))
+def take(a: &Node, b: Node) -> Result[i64, OverflowError[i64]]:
+    Ok(a.value + b.value)
+def caller({parameter}) -> Result[i64, OverflowError[i64]]:
     {tail}
 "#
     );
@@ -302,51 +302,63 @@ class Inner:
 class Node:
     value: i64
     inner: Inner
-def shared(node: &Node, n: i64, acc: i64) -> i64:
+def shared(node: &Node, n: i64, acc: i64) -> Result[i64, OverflowError[i64]]:
     scratch = Guard(n)
     if n == 0:
-        return acc
+        return Ok(acc)
     shared(node, n - 1, acc + node.value)
-def exclusive(node: &mut Node, n: i64) -> i64:
+def exclusive(node: &mut Node, n: i64) -> Result[i64, OverflowError[i64]]:
     scratch = [n].unwrap()
     if n == 0:
-        return node.value
+        return Ok(node.value)
     node.value = node.value + 1
     return exclusive(node, n - 1)
-def alias(node: &Node, n: i64, acc: i64) -> i64:
+def alias(node: &Node, n: i64, acc: i64) -> Result[i64, OverflowError[i64]]:
     if n == 0:
-        return acc
+        return Ok(acc)
     same = &node
     alias(same, n - 1, acc + same.value)
-def two(a: &Node, b: &mut Inner, n: i64) -> i64:
+def two(a: &Node, b: &mut Inner, n: i64) -> Result[i64, OverflowError[i64]]:
     if n == 0:
-        return b.hits
+        return Ok(b.hits)
     b.hits = b.hits + a.value
     two(a, b, n - 1)
 def even(node: &Node, n: i64) -> bool:
     if n == 0:
         return True
-    odd(node, n - 1)
+    # Preserve the bool ABI: main starts at 1000001, and n stays nonnegative.
+    next_n = unchecked:
+        n - 1
+    odd(node, next_n)
 def odd(node: &Node, n: i64) -> bool:
     if n == 0:
         return False
-    even(node, n - 1)
+    # The mutual countdown reaches this subtraction only with n > 0.
+    next_n = unchecked:
+        n - 1
+    even(node, next_n)
 def generic[T](item: &T, n: i64) -> i64:
     if n == 0:
         return 0
-    generic(item, n - 1)
+    # Preserve the scalar generic ABI: main counts down from 1000000 to zero.
+    next_n = unchecked:
+        n - 1
+    generic(item, next_n)
 def invoke(f: &Closure[[], i64], n: i64) -> i64:
     if n == 0:
         return f()
-    invoke(f, n - 1)
-def main() -> Result[(), IoError]:
+    # Preserve the callback's scalar result: main starts at 1000000.
+    next_n = unchecked:
+        n - 1
+    invoke(f, next_n)
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut head = Node(1, Inner(0))
-    print(shared(&head, 1000000, 0))?
-    print(exclusive(&mut head, 1000000))?
+    print(shared(&head, 1000000, 0)?)?
+    print(exclusive(&mut head, 1000000)?)?
     print(head.value)?
-    print(alias(&head, 1000000, 0))?
+    print(alias(&head, 1000000, 0)?)?
     mut tally = Inner(0)
-    print(two(&head, &mut tally, 1000000))?
+    print(two(&head, &mut tally, 1000000)?)?
     print(tally.hits)?
     print(even(&head, 1000001))?
     print(generic(&head, 1000000))?
@@ -373,57 +385,59 @@ class Node:
 class Tree:
     child: Option[Box[Node]]
     items: list[Node]
-def field(node: &mut Node, n: i64) -> i64:
+def field(node: &mut Node, n: i64) -> Result[i64, OverflowError[i64]]:
     if n == 0:
-        return node.inner.hits
-    count(&mut node.inner, n)
+        return Ok(node.inner.hits)
+    count(&mut node.inner, n)?
     field(node, n - 1)
-def count(inner: &mut Inner, n: i64) -> ():
+def count(inner: &mut Inner, n: i64) -> Result[(), OverflowError[i64]]:
     inner.hits = inner.hits + 1
-def nested(inner: &mut Inner, n: i64) -> i64:
+    Ok(())
+def nested(inner: &mut Inner, n: i64) -> Result[i64, OverflowError[i64]]:
     if n == 0:
-        return inner.hits
+        return Ok(inner.hits)
     inner.hits = inner.hits + 1
     nested(inner, n - 1)
-def project(node: &mut Node, n: i64) -> i64:
+def project(node: &mut Node, n: i64) -> Result[i64, OverflowError[i64]]:
     nested(&mut node.inner, n)
-def payload(tree: &Tree, n: i64) -> i64:
+def payload(tree: &Tree, n: i64) -> Result[i64, OverflowError[i64]]:
     match &tree.child:
         case Some(child):
             back(child, tree, n - 1)
         case Nothing:
-            0
-def back(child: &Node, tree: &Tree, n: i64) -> i64:
+            Ok(0)
+def back(child: &Node, tree: &Tree, n: i64) -> Result[i64, OverflowError[i64]]:
     if n == 0:
-        return child.value
+        return Ok(child.value)
     payload(tree, n)
-def element(tree: &Tree, n: i64, acc: i64) -> i64:
+def element(tree: &Tree, n: i64, acc: i64) -> Result[i64, OverflowError[i64]]:
     if n == 0:
-        return acc
-    item(&tree.items[n % 2], tree, n, acc)
-def item(node: &Node, tree: &Tree, n: i64, acc: i64) -> i64:
+        return Ok(acc)
+    two: NonZero[i64] = 2
+    item(&tree.items[n % two], tree, n, acc)
+def item(node: &Node, tree: &Tree, n: i64, acc: i64) -> Result[i64, OverflowError[i64]]:
     element(tree, n - 1, acc + node.value)
-def each(tree: &Tree, n: i64, acc: i64) -> i64:
+def each(tree: &Tree, n: i64, acc: i64) -> Result[i64, OverflowError[i64]]:
     if n == 0:
-        return acc
+        return Ok(acc)
     for node in &tree.items:
         if node.value > 0:
             return visit(node, tree, n, acc)
-    acc
-def visit(node: &Node, tree: &Tree, n: i64, acc: i64) -> i64:
+    Ok(acc)
+def visit(node: &Node, tree: &Tree, n: i64, acc: i64) -> Result[i64, OverflowError[i64]]:
     each(tree, n - 1, acc + node.value)
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut head = Node(1, Inner(0))
-    print(field(&mut head, 1000000))?
-    print(project(&mut head, 1000000))?
+    print(field(&mut head, 1000000)?)?
+    print(project(&mut head, 1000000)?)?
     print(head.inner.hits)?
     tree = Tree(
         Some(Box(Node(7, Inner(0))).unwrap()),
         [Node(1, Inner(0)), Node(2, Inner(0))].unwrap(),
     )
-    print(payload(&tree, 1000000))?
-    print(element(&tree, 1000000, 0))?
-    print(each(&tree, 1000000, 0))?
+    print(payload(&tree, 1000000)?)?
+    print(element(&tree, 1000000, 0)?)?
+    print(each(&tree, 1000000, 0)?)?
     Ok(())
 "#,
         "1000000\n2000000\n2000000\n7\n1500000\n1000000\n",
@@ -437,35 +451,41 @@ fn methods_indirect_calls_and_reference_results_recurse_on_a_small_stack() {
         r#"
 class Node:
     value: i64
-    def spin(self, n: i64, acc: i64) -> i64:
+    def spin(self, n: i64, acc: i64) -> Result[i64, OverflowError[i64]]:
         if n == 0:
-            return acc
+            return Ok(acc)
         self.spin(n - 1, acc + self.value)
-    def bump(self: &mut Node, n: i64) -> ():
+    def bump(self: &mut Node, n: i64) -> Result[(), OverflowError[i64]]:
         if n == 0:
-            return
+            return Ok(())
         self.value = self.value + 1
         self.bump(n - 1)
-def indirect(step: Callable[[&Node, i64, i64], i64], node: &Node, n: i64, acc: i64) -> i64:
+def indirect(step: Callable[[&Node, i64, i64], Result[i64, OverflowError[i64]]], node: &Node, n: i64, acc: i64) -> Result[i64, OverflowError[i64]]:
     if n == 0:
-        return acc
+        return Ok(acc)
     step(node, n, acc)
-def bounce(node: &Node, n: i64, acc: i64) -> i64:
+def bounce(node: &Node, n: i64, acc: i64) -> Result[i64, OverflowError[i64]]:
     indirect(bounce, node, n - 1, acc + node.value)
 def last(node: &Node, n: i64) -> &Node:
     if n == 0:
         return node
-    return last(node, n - 1)
+    # Reference ABI: main passes 1000000, decremented only above zero.
+    next_n = unchecked:
+        n - 1
+    return last(node, next_n)
 def last_expression(node: &mut Node, n: i64) -> &mut Node:
     if n == 0:
         return node
-    last_expression(node, n - 1)
-def main() -> Result[(), IoError]:
+    # Reference ABI: main passes 1000000, decremented only above zero.
+    next_n = unchecked:
+        n - 1
+    last_expression(node, next_n)
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut head = Node(1)
-    print(head.spin(1000000, 0))?
-    head.bump(1000000)
+    print(head.spin(1000000, 0)?)?
+    head.bump(1000000)?
     print(head.value)?
-    print(bounce(&head, 500000, 0))?
+    print(bounce(&head, 500000, 0)?)?
     print(last(&head, 1000000).value)?
     found = last_expression(&mut head, 1000000)
     found.value = 5
@@ -486,24 +506,24 @@ fn a_boxed_chain_is_walked_through_its_payloads_on_a_small_stack() {
 class Node:
     value: i64
     next: Option[Box[Node]]
-def increment(node: &mut Node) -> ():
+def increment(node: &mut Node) -> Result[(), OverflowError[i64]]:
     node.value = node.value + 1
     match &mut node.next:
         case Some(next):
             increment(next)
         case Nothing:
-            pass
+            Ok(())
 def last(node: &Node) -> i64:
     match &node.next:
         case Some(next):
             last(next)
         case Nothing:
             node.value
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut head = Node(0, Nothing)
     for n in range(100000):
         head = Node(n + 1, Some(Box(head).unwrap()))
-    increment(&mut head)
+    increment(&mut head)?
     print(head.value)?
     print(last(&head))?
     Ok(())
@@ -575,7 +595,10 @@ def walk(node: &Node, n: i64) -> i64:
             pass
     if n == 0:
         return cursor.value
-    walk(cursor, n - 1)
+    # The fixed main input counts down from 1000000 to zero.
+    next_n = unchecked:
+        n - 1
+    walk(cursor, next_n)
 def scan(node: &Node, n: i64) -> i64:
     mut cursor = node
     while True:
@@ -586,11 +609,20 @@ def scan(node: &Node, n: i64) -> i64:
                 break
     if n == 0:
         return cursor.value
-    scan(node, n - 1)
+    # The fixed main input counts down from 1000000 to zero.
+    next_n = unchecked:
+        n - 1
+    scan(node, next_n)
 def build(node: &Node, n: i64, total: i64) -> Sum:
     if n == 0:
         return Sum(total, node.value)
-    build(node, n - 1, total + node.value)
+    # Preserve the plain Sum ABI. Main holds node.value == 3, with
+    # 0 <= n <= 1000000 and 0 <= total <= 3000000 throughout.
+    next_n = unchecked:
+        n - 1
+    next_total = unchecked:
+        total + node.value
+    build(node, next_n, next_total)
 def main() -> Result[(), IoError]:
     head = Node(3, Some(Box(Node(2, Some(Box(Node(1, Nothing)).unwrap()))).unwrap()))
     print(walk(&head, 1000000))?

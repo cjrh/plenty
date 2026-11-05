@@ -80,12 +80,14 @@ fn arms(count: usize, fallback: &str) -> String {
 
 #[test]
 fn string_tables_keep_first_match_alternatives_captures_nesting_and_cleanup() {
-    let mut source = String::from("def pick(s: &str) -> i64:\n    match s:\n");
+    let mut source = String::from(
+        "def pick(s: &str) -> Result[i64, OverflowError[i64]]:\n    value = match s:\n",
+    );
     // An alternative and a capture fallback around the table's literals.
     source.push_str("        case \"x\" | \"xy\":\n            -7\n");
     source.push_str(&arms(
         LITERALS.len(),
-        "        case _ as other:\n            -100 - other.byte_len()\n",
+        "        case _ as other:\n            -100 - other.byte_len()\n    Ok(value)\n",
     ));
     // Fifteen literals stay a chain.
     source.push_str("def small(s: &str) -> i64:\n    match s:\n");
@@ -93,7 +95,7 @@ fn string_tables_keep_first_match_alternatives_captures_nesting_and_cleanup() {
     // An owned scrutinee is released exactly once on every path, including
     // an arm that returns early and the fallback.
     source.push_str(
-        "def finish(n: i64) -> i64:\n    n + 1\ndef owned(s: str) -> i64:\n    match s:\n",
+        "def finish(n: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(n + 1)\ndef owned(s: str) -> Result[i64, OverflowError[i64]]:\n    match s:\n",
     );
     for (i, literal) in LITERALS.iter().enumerate() {
         writeln!(
@@ -103,7 +105,7 @@ fn string_tables_keep_first_match_alternatives_captures_nesting_and_cleanup() {
         )
         .unwrap();
     }
-    source.push_str("        case _:\n            -1\n");
+    source.push_str("        case _:\n            Ok(-1)\n");
     // A nested pattern compares the payload's text, then its integer.
     source.push_str("enum Key:\n    Named(str, i64)\ndef nested(k: &Key) -> i64:\n    match k:\n        case Key.Named(\"ab\", 1):\n            1000\n");
     for (i, literal) in LITERALS.iter().enumerate() {
@@ -124,7 +126,7 @@ fn string_tables_keep_first_match_alternatives_captures_nesting_and_cleanup() {
     ];
     writeln!(
         source,
-        "def main() -> Result[i32, AllocError | IoError]:\n    names = \"{joined},{}\".split(\",\")?",
+        "def main() -> Result[i32, AllocError | IoError | OverflowError[i64]]:\n    names = \"{joined},{}\".split(\",\")?",
         probes.join(",")
     )
     .unwrap();
@@ -149,13 +151,13 @@ fn string_tables_keep_first_match_alternatives_captures_nesting_and_cleanup() {
         let nested_input = if *literal == "ab" { 1 } else { 2 };
         writeln!(
             source,
-            "    print(pick(&names[{i}]), small(&names[{i}]), owned(names[{i}]), nested(&Key.Named(names[{i}], {nested_input})))?"
+            "    print(pick(&names[{i}])?, small(&names[{i}]), owned(names[{i}])?, nested(&Key.Named(names[{i}], {nested_input})))?"
         )
         .unwrap();
     }
     // Literal arguments take the same paths.
     source.push_str(
-        "    print(pick(\"\"), pick(\"é\"), pick(\"e\"), owned(\"🦀\"))?\n    Ok(0i32)\n",
+        "    print(pick(\"\")?, pick(\"é\")?, pick(\"e\")?, owned(\"🦀\")?)?\n    Ok(0i32)\n",
     );
     expected.push(format!("{} {} -101 {}", value(1), value(8), value(11) + 1));
     runs(&source, &(expected.join("\n") + "\n"));

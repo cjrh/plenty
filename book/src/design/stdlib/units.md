@@ -129,9 +129,10 @@ only programs importing it pay for its 768 constants.
 
 | Function | Result | Contract |
 |---|---|---|
-| `abs[Num, D](x)` | `Quantity[Num, D]` | `std.math.abs` of the stored value; any storage |
+| `abs[T: IntType, D](x)` | `Result[Quantity[T, D], OverflowError[T]]` | `std.math.abs` of integer storage; a signed minimum returns its overflow |
+| `abs_float[T: FloatType, D](x)` | `Quantity[T, D]` | `std.math.abs_float` of floating storage |
 | `clamp[Num, D](x, low, high)` | `Quantity[Num, D]` | `math.min(math.max(x, low), high)`, so `low > high` gives `high`; any storage |
-| `sum[D](items: &list[Quantity[f64, D]])` | `Quantity[f64, D]` | Neumaier compensated sum; an empty list gives zero. `math.sum(&items, 0.0 * u.m)` adds without compensation |
+| `sum[D](items: &list[Quantity[f64, D]])` | `Quantity[f64, D]` | Neumaier compensated sum; an empty list gives zero |
 | `mean[D](items: &list[Quantity[f64, D]])` | `Option[Quantity[f64, D]]` | `sum(items) / len(items)`; `Nothing` for an empty list |
 | `sqrt[D](x: Quantity[f64, D])` | `Result[Quantity[f64, Root[D, 2]], MathError]` | `std.math.sqrt`, with its errors |
 | `cbrt[D](x: Quantity[f64, D])` | `Result[Quantity[f64, Root[D, 3]], MathError]` | `std.math.cbrt`, with its errors |
@@ -143,11 +144,12 @@ only programs importing it pay for its 768 constants.
 
 Every argument is a copied quantity, except `sum` and `mean`, which borrow the
 list. Functions built on `std.math` take `f64` storage, as `std.math` does.
-`abs` and `clamp` accept integer and domain storage too. The generic
-[`std.math`](math.md) functions `min`, `max`, `min_all`, `max_all`, `sum` and
-`prod` already accept quantities, so this module does not repeat them;
-`math.abs` does not, because it compares with a plain zero. A square or cube root whose dimension is not
-whole is a compile error at the call that needs it:
+`abs` takes integer storage and `abs_float` floating storage, as in
+`std.math`; `clamp` accepts any storage. The generic [`std.math`](math.md)
+functions `min`, `max`, `min_all` and `max_all` already accept quantities, so
+this module does not repeat them. `math.sum` and `math.prod` take plain
+integers and `math.abs` a plain integer, so they do not accept quantities.
+A square or cube root whose dimension is not whole is a compile error at the call that needs it:
 
 ```plenty-error
 import std.units as u

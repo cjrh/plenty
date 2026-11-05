@@ -101,7 +101,10 @@ def drain_from(start: BufReader[Cursor]) -> Result[i64, HttpError]:
             case Some(head):
                 framing = std.http.request_framing(&head)?
                 mut body = std.http.body_reader(conn, &framing, &limits)?
-                count += std.http.discard(&mut body)?
+                consumed = std.http.discard(&mut body)?
+                # This Cursor owns finite wire bytes; decoded bodies are disjoint subsets.
+                count = unchecked:
+                    count + consumed
                 conn = std.http.finish(&mut body)?
     Ok(count)
 
@@ -138,16 +141,25 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "{HEADER}{HELPERS}\ndef main() -> Result[(), std.bytes.BytesError | std.encoding.EncodingError | std.io.StreamError | AllocError | IoError]:\n{body}    Ok(())\n"
+        "{HEADER}{HELPERS}\ndef main() -> Result[(), std.bytes.BytesError | std.encoding.EncodingError | std.io.StreamError | AllocError | IoError | OverflowError[i64]]:\n{body}    Ok(())\n"
     )
 }
 
 fn output(source: &str) -> String {
+    output_with_optimization(source, false)
+}
+
+fn output_with_optimization(source: &str, optimize: bool) -> String {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("main.plenty");
     let executable = dir.path().join("program");
     std::fs::write(&path, source).unwrap();
-    plenty::compile_file_to_executable(&path, &executable, None)
+    let options = plenty::CompileOptions {
+        optimize,
+        test_hooks: true,
+        ..Default::default()
+    };
+    plenty::compile_file_to_executable_with_options(&path, &executable, None, &options)
         .unwrap_or_else(|error| panic!("{source}\n{error}"));
     let output = std::process::Command::new(executable)
         .stdin(std::process::Stdio::null())
@@ -216,6 +228,154 @@ fn rejected(helper: &str, cases: &[(&[u8], &str)]) {
             format!("err {expected}"),
             "{:?}",
             String::from_utf8_lossy(input)
+        );
+    }
+}
+
+#[test]
+fn upper_range_content_lengths_do_not_overflow_the_ascii_intermediate() {
+    // Issue #703: the final value fit, but adding the ASCII digit before
+    // subtracting 48 trapped for the top 48 representable values.
+    let mut source = format!(
+        r#"{HEADER}
+def same_length(framing: Framing, expected: i64) -> bool:
+    match framing:
+        case Framing.Length(value):
+            value == expected
+        case _:
+            False
+
+def verify(text: str, expected: i64) -> Result[bool, HttpError]:
+    mut request = std.http.request("POST", "/")?
+    request.add("Content-Length", text)?
+    request_matches = same_length(std.http.request_framing(&request)?, expected)
+    mut response = std.http.response(200, "OK")?
+    response.add("Content-Length", text)?
+    response_matches = same_length(std.http.response_framing(&response, "GET")?, expected)
+    response.status = 204
+    empty = match std.http.response_framing(&response, "GET")?:
+        case Framing.Empty:
+            True
+        case _:
+            False
+    conn = std.io.buffered_reader(std.io.cursor(std.bytes.empty().unwrap()), 1).unwrap()
+    bounded = match std.http.body_reader(conn, &std.http.request_framing(&request)?, &std.http.limits()):
+        case Err(HttpError.BodyTooLarge):
+            True
+        case _:
+            False
+    Ok(request_matches and response_matches and empty and bounded)
+
+def main() -> Result[(), AllocError | IoError | HttpError]:
+"#
+    );
+    let values = [
+        i64::MAX - 49,
+        i64::MAX - 48,
+        i64::MAX - 47,
+        i64::MAX - 1,
+        i64::MAX,
+    ];
+    for value in values {
+        source.push_str(&format!("    print(verify(\"{value}\", {value})?)?\n"));
+    }
+    source.push_str(&format!(
+        "    print(verify(\"000{}\", {})?)?\n    Ok(())\n",
+        i64::MAX,
+        i64::MAX
+    ));
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            ["True"; 6].join("\n")
+        );
+    }
+}
+
+#[test]
+fn unrepresentable_decimal_and_hex_lengths_are_protocol_errors() {
+    native(
+        r#"
+mut head = std.http.request("POST", "/").unwrap()
+head.add("Content-Length", "9223372036854775808").unwrap()
+boundary_result_0 = match std.http.request_framing(&head):
+    case Err(HttpError.InvalidContentLength):
+        True
+    case _:
+        False
+print(boundary_result_0)?
+head.headers.clear()
+head.add("Content-Length", "9999999999999999999999999999999999999999").unwrap()
+boundary_result_1 = match std.http.request_framing(&head):
+    case Err(HttpError.InvalidContentLength):
+        True
+    case _:
+        False
+print(boundary_result_1)?
+print(std.http.parse_chunk_size(b"7fffffffffffffff").unwrap() == i64.MAX)?
+print(std.http.parse_chunk_size(b"0007fffffffffffffff;name=value").unwrap() == i64.MAX)?
+boundary_result_2 = match std.http.parse_chunk_size(b"8000000000000000"):
+    case Err(HttpError.InvalidChunk):
+        True
+    case _:
+        False
+print(boundary_result_2)?
+boundary_result_3 = match std.http.parse_chunk_size(b"ffffffffffffffffffffffffffffffff"):
+    case Err(HttpError.InvalidChunk):
+        True
+    case _:
+        False
+print(boundary_result_3)?
+"#,
+        &["True"; 6].join("\n"),
+    );
+}
+
+#[test]
+fn actual_private_buffer_extent_helpers_check_representation_limits() {
+    // Compile the actual pure helpers without constructing enormous buffers.
+    fn helper<'a>(source: &'a str, name: &str) -> &'a str {
+        let start = source.find(&format!("def {name}(")).unwrap();
+        source[start..].split("\n\n").next().unwrap()
+    }
+    let http = include_str!("../stdlib/std/http.plenty");
+    let net = include_str!("../stdlib/std/net.plenty");
+    let chunk = net
+        .lines()
+        .find(|line| line.starts_with("const lookup_chunk:"))
+        .unwrap();
+    let source = format!(
+        r#"{HEADER}
+from std.net import NetError
+{chunk}
+{body_extent}
+
+{lookup_extent}
+
+def main() -> Result[(), AllocError | IoError]:
+    print(body_extent(9223372036854771711).unwrap() == i64.MAX)?
+    boundary_result_4 = match body_extent(9223372036854771712):
+        case Err(HttpError.Allocation(AllocError.CapacityOverflow)):
+            True
+        case _:
+            False
+    print(boundary_result_4)?
+    print(lookup_extent(9223372036854775551).unwrap() == i64.MAX)?
+    boundary_result_5 = match lookup_extent(9223372036854775552):
+        case Err(NetError.Stream(StreamError.Allocation(AllocError.CapacityOverflow))):
+            True
+        case _:
+            False
+    print(boundary_result_5)?
+    Ok(())
+"#,
+        body_extent = helper(http, "body_extent"),
+        lookup_extent = helper(net, "lookup_extent"),
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            ["True"; 4].join("\n")
         );
     }
 }
@@ -672,7 +832,9 @@ pub class Trickle:
         if self.pending:
             return Err(StreamError.Interrupted)
         buffer[start] = self.data[self.position]
-        self.position += 1
+        # A successful indexed read proves position < len(data).
+        self.position = unchecked:
+            self.position + 1
         Ok(1)
 "#;
 
@@ -809,7 +971,7 @@ from std.time import Deadline, deadline_after, milliseconds, monotonic_now
 
 # Serves requests on one connection until the client asks to close; each
 # reply echoes the request body with Content-Length framing.
-def serve(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, HttpError]:
+def serve(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, HttpError | OverflowError[i64]]:
     stream = listener.accept(deadline, cancel).unwrap()
     limits = std.http.limits()
     mut conn = std.io.buffered_reader(stream, 64).unwrap()

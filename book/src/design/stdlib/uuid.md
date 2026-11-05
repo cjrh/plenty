@@ -114,6 +114,14 @@ Plenty deliberately accepts fewer text spellings than either reference and
 does not adopt Python's v7 counter or Rust's stateful `now_v7` ordering policy.
 Name-based v3/v5 and v1/v6/v8 generators are not implemented.
 
+## Arithmetic bounds
+
+Parsing and formatting use fixed 36-byte text and 16-byte wire layouts. Output
+offsets are validated before subtraction or mutation, and UUIDv7 validates the
+48-bit millisecond range before requesting entropy. Bounds-proven arithmetic
+opt-outs preserve existing parse, range, entropy, and allocation errors without
+adding arithmetic errors to the public API.
+
 ## Acknowledgements
 
 - API modelled on [Python's `uuid`](https://docs.python.org/3/library/uuid.html) and Rust's [`uuid::Uuid`](https://docs.rs/uuid/latest/uuid/struct.Uuid.html).

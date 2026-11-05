@@ -74,8 +74,10 @@ def updated(state: &mut Bytes, data: &[u8]) -> Result[(), CryptoError]:
 # algorithm's output size.
 def finished(state: &mut Bytes, target: &mut Bytes, offset: i64, size: i64) -> Result[(), CryptoError]:
     count = target.len()
-    if offset < 0 or offset > count or size > count - offset:
-        __trap("finish_into: offset outside target buffer")
+    # Short-circuit guards prove 0 <= offset <= count before subtraction.
+    unchecked:
+        if offset < 0 or offset > count or size > count - offset:
+            __trap("finish_into: offset outside target buffer")
     absorbed(__crypto_finish(state, target, offset))
 
 def output(state: &mut Bytes, size: i64) -> Result[Bytes, CryptoError]:
@@ -299,7 +301,9 @@ def advanced_output(size: i64) -> Result[Bytes, AdvancedError]:
 pub def seal_in_place(algorithm: AeadAlgorithm, key: &[u8], nonce: &[u8], aad: &[u8], data: &mut Bytes) -> Result[(), AdvancedError]:
     if len(key) != 32 or len(nonce) != 12 or data.len() > 68719476704:
         return Err(AdvancedError.InvalidLength)
-    data.resize(data.len() + 16, 0u8).map_error(AdvancedError.Allocation)?
+    # The protocol length guard bounds this sum by 68719476720.
+    unchecked:
+        data.resize(data.len() + 16, 0u8).map_error(AdvancedError.Allocation)?
     status = match algorithm:
         case AeadAlgorithm.Aes256Gcm:
             __crypto_aes_seal(key, nonce, aad, data)
@@ -318,7 +322,9 @@ pub def open_in_place(algorithm: AeadAlgorithm, key: &[u8], nonce: &[u8], aad: &
         case AeadAlgorithm.ChaCha20Poly1305:
             __crypto_chacha_open(key, nonce, aad, data)
     advanced_status(status)?
-    data.truncate(data.len() - 16)
+    # The length guard establishes at least the 16-byte tag.
+    unchecked:
+        data.truncate(data.len() - 16)
     Ok(())
 
 # The seed must contain 32 cryptographically random bytes. Signatures are
@@ -507,29 +513,34 @@ class Der:
 
 # The element with `tag` at der[at:limit].
 def der_at(der: &[u8], at: i64, limit: i64, tag: u8) -> Result[Der, AdvancedError]:
-    if limit - at < 2 or der[at] != tag:
-        return Err(AdvancedError.InvalidKey)
-    first = i64(der[at + 1])
-    mut start = at + 2
-    mut size = first
-    if first > 127:
-        count = first - 128
-        # Three length bytes cover every supported key. 0x80 is BER's
-        # indefinite length; a leading zero or a short length in long form
-        # is not minimal.
-        if count < 1 or count > 3 or limit - start < count:
+    # Validated 0 <= at <= limit <= len(der); header/cursor advances fit
+    # the remaining span, and at most three bytes encode the content length.
+    unchecked:
+        if at < 0 or limit < at or limit > len(der):
             return Err(AdvancedError.InvalidKey)
-        if der[start] == 0u8:
+        if limit - at < 2 or der[at] != tag:
             return Err(AdvancedError.InvalidKey)
-        size = 0
-        for index in range(count):
-            size = size << 8 | i64(der[start + index])
-        if size < 128:
+        first = i64(der[at + 1])
+        mut start = at + 2
+        mut size = first
+        if first > 127:
+            count = first - 128
+            # Three length bytes cover every supported key. 0x80 is BER's
+            # indefinite length; a leading zero or a short length in long form
+            # is not minimal.
+            if count < 1 or count > 3 or limit - start < count:
+                return Err(AdvancedError.InvalidKey)
+            if der[start] == 0u8:
+                return Err(AdvancedError.InvalidKey)
+            size = 0
+            for index in range(count):
+                size = size << 8 | i64(der[start + index])
+            if size < 128:
+                return Err(AdvancedError.InvalidKey)
+            start += count
+        if size > limit - start:
             return Err(AdvancedError.InvalidKey)
-        start += count
-    if size > limit - start:
-        return Err(AdvancedError.InvalidKey)
-    Ok(Der(start, start + size))
+        Ok(Der(start, start + size))
 
 # The outermost SEQUENCE, which must end the buffer.
 def der_whole(der: &[u8]) -> Result[Der, AdvancedError]:
@@ -539,61 +550,70 @@ def der_whole(der: &[u8]) -> Result[Der, AdvancedError]:
     Ok(outer)
 
 def der_same(der: &[u8], element: Der, expected: &[u8]) -> Result[bool, AdvancedError]:
-    if element.stop - element.start != len(expected):
-        return Ok(False)
-    Ok(__bytes_matches(&der[element.start:], 0, expected))
+    # Der spans come from der_at: 0 <= start <= stop <= len(der).
+    unchecked:
+        if element.stop - element.start != len(expected):
+            return Ok(False)
+        Ok(__bytes_matches(&der[element.start:], 0, expected))
 
 # SubjectPublicKeyInfo (RFC 5280): SEQUENCE { AlgorithmIdentifier, BIT
 # STRING }. Comparing the identifier with one fixed encoding rejects every
 # other algorithm, curve and parameter form. Returns the key bits.
 def spki(der: &[u8], algorithm: &[u8]) -> Result[Der, AdvancedError]:
-    outer = der_whole(der)?
-    identifier = der_at(der, outer.start, outer.stop, 48u8)?
-    if not der_same(der, identifier, algorithm)?:
-        return Err(AdvancedError.InvalidKey)
-    bits = der_at(der, identifier.stop, outer.stop, 3u8)?
-    if bits.stop != outer.stop or bits.stop == bits.start or der[bits.start] != 0u8:
-        return Err(AdvancedError.InvalidKey)
-    Ok(Der(bits.start + 1, bits.stop))
+    # der_at returns ordered spans; the nonempty bit string bounds start + 1.
+    unchecked:
+        outer = der_whole(der)?
+        identifier = der_at(der, outer.start, outer.stop, 48u8)?
+        if not der_same(der, identifier, algorithm)?:
+            return Err(AdvancedError.InvalidKey)
+        bits = der_at(der, identifier.stop, outer.stop, 3u8)?
+        if bits.stop != outer.stop or bits.stop == bits.start or der[bits.start] != 0u8:
+            return Err(AdvancedError.InvalidKey)
+        Ok(Der(bits.start + 1, bits.stop))
 
 # A positive DER INTEGER's magnitude, without its sign byte. `stop` is the
 # element's end, where the next element starts.
 def der_unsigned(der: &[u8], at: i64, limit: i64) -> Result[Der, AdvancedError]:
-    value = der_at(der, at, limit, 2u8)?
-    if value.stop == value.start or der[value.start] > 127u8:
-        return Err(AdvancedError.InvalidKey)
-    if der[value.start] == 0u8:
-        if value.stop - value.start == 1 or der[value.start + 1] < 128u8:
+    # der_at returns ordered spans; nonempty and length guards bound +1.
+    unchecked:
+        value = der_at(der, at, limit, 2u8)?
+        if value.stop == value.start or der[value.start] > 127u8:
             return Err(AdvancedError.InvalidKey)
-        return Ok(Der(value.start + 1, value.stop))
-    Ok(value)
+        if der[value.start] == 0u8:
+            if value.stop - value.start == 1 or der[value.start + 1] < 128u8:
+                return Err(AdvancedError.InvalidKey)
+            return Ok(Der(value.start + 1, value.stop))
+        Ok(value)
 
 # ring's RSA public-key rules, checked at import so that verification never
 # meets a key ring would reject: the modulus has 2048..8192 bits, no leading
 # zero byte, and is odd; the exponent is odd, 3 <= e < 2**33, with no leading
 # zero byte. Returns the modulus length in bytes.
 def rsa_size(modulus: &[u8], n: Der, exponent: &[u8], e: Der) -> Result[i64, AdvancedError]:
-    size = n.stop - n.start
-    width = e.stop - e.start
-    if size == 0 or width == 0 or width > 5:
-        return Err(AdvancedError.InvalidKey)
-    if modulus[n.start] == 0u8 or exponent[e.start] == 0u8:
-        return Err(AdvancedError.InvalidKey)
-    mut bits = (size - 1) * 8
-    mut top = i64(modulus[n.start])
-    while top > 0:
-        bits += 1
-        top = top >> 1
-    if bits < 2048:
-        return Err(AdvancedError.WeakKey)
-    if bits > 8192 or modulus[n.stop - 1] & 1u8 == 0u8:
-        return Err(AdvancedError.InvalidKey)
-    mut value = 0
-    for index in range(e.start, e.stop):
-        value = value << 8 | i64(exponent[index])
-    if value < 3 or value > 8589934591 or value & 1 == 0:
-        return Err(AdvancedError.InvalidKey)
-    Ok(size)
+    # Der spans are ordered buffer offsets. Reject sizes above 1024 before
+    # bit counting: (size - 1) * 8 plus at most eight bits fits in 8192.
+    unchecked:
+        size = n.stop - n.start
+        width = e.stop - e.start
+        if size == 0 or width == 0 or width > 5 or size > 1024:
+            return Err(AdvancedError.InvalidKey)
+        if modulus[n.start] == 0u8 or exponent[e.start] == 0u8:
+            return Err(AdvancedError.InvalidKey)
+        mut bits = (size - 1) * 8
+        mut top = i64(modulus[n.start])
+        while top > 0:
+            bits += 1
+            top = top >> 1
+        if bits < 2048:
+            return Err(AdvancedError.WeakKey)
+        if bits > 8192 or modulus[n.stop - 1] & 1u8 == 0u8:
+            return Err(AdvancedError.InvalidKey)
+        mut value = 0
+        for index in range(e.start, e.stop):
+            value = value << 8 | i64(exponent[index])
+        if value < 3 or value > 8589934591 or value & 1 == 0:
+            return Err(AdvancedError.InvalidKey)
+        Ok(size)
 
 # A DER RSAPublicKey: SEQUENCE { INTEGER n, INTEGER e }.
 def rsa_public(der: &[u8], start: i64, stop: i64) -> Result[RsaPublicKey, AdvancedError]:
@@ -625,16 +645,22 @@ def der_header(target: &mut Bytes, tag: u8, size: i64) -> Result[(), AdvancedErr
     target.push(u8(size & 255)).map_error(AdvancedError.Allocation)
 
 def der_integer(target: &mut Bytes, magnitude: &[u8]) -> Result[(), AdvancedError]:
-    signed = magnitude[0] > 127u8
-    size = len(magnitude) + (1 if signed else 0)
-    der_header(target, 2u8, size)?
-    if signed:
-        target.push(0u8).map_error(AdvancedError.Allocation)?
-    target.extend(magnitude).map_error(AdvancedError.Allocation)
+    # Only called after rsa_size accepts 1..1024 modulus bytes and
+    # 1..5 exponent bytes; the optional sign byte fits in 1025.
+    unchecked:
+        signed = magnitude[0] > 127u8
+        size = len(magnitude) + (1 if signed else 0)
+        der_header(target, 2u8, size)?
+        if signed:
+            target.push(0u8).map_error(AdvancedError.Allocation)?
+        target.extend(magnitude).map_error(AdvancedError.Allocation)
 
 def integer_size(magnitude: &[u8]) -> i64:
-    size = len(magnitude) + (1 if magnitude[0] > 127u8 else 0)
-    der_length_size(size) + size
+    # Only called after rsa_size accepts at most 1024 bytes; adding a
+    # sign byte and the at-most-four-byte DER header fits in 1029.
+    unchecked:
+        size = len(magnitude) + (1 if magnitude[0] > 127u8 else 0)
+        der_length_size(size) + size
 
 # SubjectPublicKeyInfo DER with the rsaEncryption algorithm and NULL
 # parameters, as `openssl pkey -pubout` writes it.
@@ -645,13 +671,16 @@ pub def rsa_public_key_from_spki(der: &[u8]) -> Result[RsaPublicKey, AdvancedErr
 # Big-endian unsigned modulus and exponent without leading zero bytes, as in
 # a JWK's decoded `n` and `e`.
 pub def rsa_public_key_from_components(n: &[u8], e: &[u8]) -> Result[RsaPublicKey, AdvancedError]:
-    size = rsa_size(n, Der(0, len(n)), e, Der(0, len(e)))?
-    body = integer_size(n) + integer_size(e)
-    mut key = std.bytes.with_capacity(der_length_size(body) + body).map_error(AdvancedError.Allocation)?
-    der_header(&mut key, 48u8, body)?
-    der_integer(&mut key, n)?
-    der_integer(&mut key, e)?
-    Ok(RsaPublicKey(key, size))
+    # rsa_size bounds n to 1024 bytes and e to 5. Each integer includes
+    # at most one sign byte and four header bytes; the sequence fits in 1043.
+    unchecked:
+        size = rsa_size(n, Der(0, len(n)), e, Der(0, len(e)))?
+        body = integer_size(n) + integer_size(e)
+        mut key = std.bytes.with_capacity(der_length_size(body) + body).map_error(AdvancedError.Allocation)?
+        der_header(&mut key, 48u8, body)?
+        der_integer(&mut key, n)?
+        der_integer(&mut key, e)?
+        Ok(RsaPublicKey(key, size))
 
 # Unencrypted PKCS #8 v1 (RFC 5208) holding a two-prime RSAPrivateKey, as
 # `openssl genpkey -algorithm RSA` writes it.
@@ -685,10 +714,12 @@ pub def p256_public_key_from_coordinates(x: &[u8], y: &[u8]) -> Result[P256Publi
 # prime256v1. Other curves, explicit curve parameters and compressed points
 # are rejected.
 pub def p256_public_key_from_spki(der: &[u8]) -> Result[P256PublicKey, AdvancedError]:
-    bits = spki(der, b"\x06\x07\x2a\x86\x48\xce\x3d\x02\x01\x06\x08\x2a\x86\x48\xce\x3d\x03\x01\x07")?
-    if bits.stop - bits.start != 65 or der[bits.start] != 4u8:
-        return Err(AdvancedError.InvalidKey)
-    p256_checked(std.bytes.from_bytes(&der[bits.start:bits.stop]).map_error(AdvancedError.Allocation)?)
+    # spki returns an ordered span within der, so its length fits i64.
+    unchecked:
+        bits = spki(der, b"\x06\x07\x2a\x86\x48\xce\x3d\x02\x01\x06\x08\x2a\x86\x48\xce\x3d\x03\x01\x07")?
+        if bits.stop - bits.start != 65 or der[bits.start] != 4u8:
+            return Err(AdvancedError.InvalidKey)
+        p256_checked(std.bytes.from_bytes(&der[bits.start:bits.stop]).map_error(AdvancedError.Allocation)?)
 
 # Unencrypted PKCS #8 v1 holding a P-256 ECPrivateKey (RFC 5915) that
 # includes its public key, as `openssl genpkey` writes it. The public key
@@ -701,12 +732,14 @@ pub def p256_private_key_from_pkcs8(der: &[u8]) -> Result[P256PrivateKey, Advanc
 # SubjectPublicKeyInfo DER with id-Ed25519 (RFC 8410). Returns the 32-byte
 # public key that ed25519_verify takes.
 pub def ed25519_public_key_from_spki(der: &[u8]) -> Result[Bytes, AdvancedError]:
-    bits = spki(der, b"\x06\x03\x2b\x65\x70")?
-    if bits.stop - bits.start != 32:
-        return Err(AdvancedError.InvalidKey)
-    if ed25519_small_order(der, bits.start)?:
-        return Err(AdvancedError.SmallOrderKey)
-    std.bytes.from_bytes(&der[bits.start:bits.stop]).map_error(AdvancedError.Allocation)
+    # spki returns an ordered span within der, so its length fits i64.
+    unchecked:
+        bits = spki(der, b"\x06\x03\x2b\x65\x70")?
+        if bits.stop - bits.start != 32:
+            return Err(AdvancedError.InvalidKey)
+        if ed25519_small_order(der, bits.start)?:
+            return Err(AdvancedError.SmallOrderKey)
+        std.bytes.from_bytes(&der[bits.start:bits.stop]).map_error(AdvancedError.Allocation)
 
 # Whether data[at:at + 32] encodes a point of order 1, 2, 4 or 8. For such
 # a key A, the signature (R, S) = ([r]B, r) verifies whenever [k]A is the
@@ -717,19 +750,22 @@ pub def ed25519_public_key_from_spki(der: &[u8]) -> Result[Bytes, AdvancedError]
 # remaining encodings: 14 in all. Mixed-order keys are accepted; see
 # crypto-advanced.md.
 def ed25519_small_order(data: &[u8], at: i64) -> Result[bool, AdvancedError]:
-    if at < 0 or at + 32 > len(data):
-        return Ok(False)
-    match data[at + 31] & 127u8:
-        case 0u8:
-            Ok(ed25519_y(data, at, b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")? or ed25519_y(data, at, b"\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")?)
-        case 5u8:
-            ed25519_y(data, at, b"\x26\xe8\x95\x8f\xc2\xb2\x27\xb0\x45\xc3\xf4\x89\xf2\xef\x98\xf0\xd5\xdf\xac\x05\xd3\xc6\x33\x39\xb1\x38\x02\x88\x6d\x53\xfc")
-        case 122u8:
-            ed25519_y(data, at, b"\xc7\x17\x6a\x70\x3d\x4d\xd8\x4f\xba\x3c\x0b\x76\x0d\x10\x67\x0f\x2a\x20\x53\xfa\x2c\x39\xcc\xc6\x4e\xc7\xfd\x77\x92\xac\x03")
-        case 127u8:
-            Ok(ed25519_y(data, at, b"\xec\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff")? or ed25519_y(data, at, b"\xed\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff")? or ed25519_y(data, at, b"\xee\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff")?)
-        case _:
-            Ok(False)
+    # Short-circuit guards validate at within data before subtraction;
+    # a remaining span of at least 32 bounds the subsequent at + 31.
+    unchecked:
+        if at < 0 or at > len(data) or len(data) - at < 32:
+            return Ok(False)
+        match data[at + 31] & 127u8:
+            case 0u8:
+                Ok(ed25519_y(data, at, b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")? or ed25519_y(data, at, b"\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")?)
+            case 5u8:
+                ed25519_y(data, at, b"\x26\xe8\x95\x8f\xc2\xb2\x27\xb0\x45\xc3\xf4\x89\xf2\xef\x98\xf0\xd5\xdf\xac\x05\xd3\xc6\x33\x39\xb1\x38\x02\x88\x6d\x53\xfc")
+            case 122u8:
+                ed25519_y(data, at, b"\xc7\x17\x6a\x70\x3d\x4d\xd8\x4f\xba\x3c\x0b\x76\x0d\x10\x67\x0f\x2a\x20\x53\xfa\x2c\x39\xcc\xc6\x4e\xc7\xfd\x77\x92\xac\x03")
+            case 127u8:
+                Ok(ed25519_y(data, at, b"\xec\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff")? or ed25519_y(data, at, b"\xed\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff")? or ed25519_y(data, at, b"\xee\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff")?)
+            case _:
+                Ok(False)
 
 # Whether data[at:at + 31] equals a small-order y's low 31 bytes.
 def ed25519_y(data: &[u8], at: i64, low: &[u8]) -> Result[bool, AdvancedError]:
@@ -739,49 +775,53 @@ def ed25519_y(data: &[u8], at: i64, low: &[u8]) -> Result[bool, AdvancedError]:
 # seed that ed25519_sign takes. Version 1 may include the public key, which
 # must match the seed; attributes are ignored.
 pub def ed25519_seed_from_pkcs8(der: &[u8]) -> Result[Bytes, AdvancedError]:
-    outer = der_whole(der)?
-    version = der_at(der, outer.start, outer.stop, 2u8)?
-    if version.stop - version.start != 1 or der[version.start] > 1u8:
-        return Err(AdvancedError.InvalidKey)
-    identifier = der_at(der, version.stop, outer.stop, 48u8)?
-    if not der_same(der, identifier, b"\x06\x03\x2b\x65\x70")?:
-        return Err(AdvancedError.InvalidKey)
-    wrapped = der_at(der, identifier.stop, outer.stop, 4u8)?
-    inner = der_at(der, wrapped.start, wrapped.stop, 4u8)?
-    if inner.stop != wrapped.stop or inner.stop - inner.start != 32:
-        return Err(AdvancedError.InvalidKey)
-    mut at = wrapped.stop
-    if at < outer.stop and der[at] == 160u8:
-        at = der_at(der, at, outer.stop, 160u8)?.stop
-    mut seed = std.bytes.from_bytes(&der[inner.start:inner.stop]).map_error(AdvancedError.Allocation)?
-    if at == outer.stop:
-        return Ok(seed)
-    mut outcome: Result[bool, AdvancedError] = Ok(False)
-    if der[version.start] == 1u8:
-        outcome = ed25519_matches(der, at, outer.stop, &seed)
-    match outcome:
-        case Ok(True):
+    # All differences are lengths of ordered der_at spans inside der.
+    unchecked:
+        outer = der_whole(der)?
+        version = der_at(der, outer.start, outer.stop, 2u8)?
+        if version.stop - version.start != 1 or der[version.start] > 1u8:
+            return Err(AdvancedError.InvalidKey)
+        identifier = der_at(der, version.stop, outer.stop, 48u8)?
+        if not der_same(der, identifier, b"\x06\x03\x2b\x65\x70")?:
+            return Err(AdvancedError.InvalidKey)
+        wrapped = der_at(der, identifier.stop, outer.stop, 4u8)?
+        inner = der_at(der, wrapped.start, wrapped.stop, 4u8)?
+        if inner.stop != wrapped.stop or inner.stop - inner.start != 32:
+            return Err(AdvancedError.InvalidKey)
+        mut at = wrapped.stop
+        if at < outer.stop and der[at] == 160u8:
+            at = der_at(der, at, outer.stop, 160u8)?.stop
+        mut seed = std.bytes.from_bytes(&der[inner.start:inner.stop]).map_error(AdvancedError.Allocation)?
+        if at == outer.stop:
             return Ok(seed)
-        case Ok(False):
-            outcome = Err(AdvancedError.InvalidKey)
-        case Err(_):
-            pass
-    # The seed is secret; do not leave a copy in freed memory.
-    seed.fill(0, 32, 0u8)
-    match outcome:
-        case Err(error):
-            Err(error)
-        case Ok(_):
-            Err(AdvancedError.InvalidKey)
+        mut outcome: Result[bool, AdvancedError] = Ok(False)
+        if der[version.start] == 1u8:
+            outcome = ed25519_matches(der, at, outer.stop, &seed)
+        match outcome:
+            case Ok(True):
+                return Ok(seed)
+            case Ok(False):
+                outcome = Err(AdvancedError.InvalidKey)
+            case Err(_):
+                pass
+        # The seed is secret; do not leave a copy in freed memory.
+        seed.fill(0, 32, 0u8)
+        match outcome:
+            case Err(error):
+                Err(error)
+            case Ok(_):
+                Err(AdvancedError.InvalidKey)
 
 # Whether der[at:stop] is exactly a [1] public key matching the seed's.
 def ed25519_matches(der: &[u8], at: i64, stop: i64, seed: &[u8]) -> Result[bool, AdvancedError]:
-    public = match der_at(der, at, stop, 129u8):
-        case Ok(element):
-            element
-        case Err(_):
+    # der_at returns an ordered span; length 33 bounds public.start + 1.
+    unchecked:
+        public = match der_at(der, at, stop, 129u8):
+            case Ok(element):
+                element
+            case Err(_):
+                return Ok(False)
+        if public.stop != stop or public.stop - public.start != 33 or der[public.start] != 0u8:
             return Ok(False)
-    if public.stop != stop or public.stop - public.start != 33 or der[public.start] != 0u8:
-        return Ok(False)
-    derived = ed25519_public_key(seed)?
-    Ok(__bytes_matches(&der[public.start + 1:], 0, &derived[0:32]))
+        derived = ed25519_public_key(seed)?
+        Ok(__bytes_matches(&der[public.start + 1:], 0, &derived[0:32]))

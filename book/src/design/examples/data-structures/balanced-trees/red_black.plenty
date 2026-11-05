@@ -110,7 +110,9 @@ pub def insert(tree: &mut Tree, key: i64) -> Result[bool, AllocError]:
     root = put(&mut tree, old, node, key)
     tree.root = root
     tree.nodes[root].red = False
-    tree.size += 1
+    # One distinct key per live node; allocate appended or consumed a free slot.
+    unchecked:
+        tree.size += 1
     Ok(True)
 
 # Give the left child a red link before descending into a 2-node.
@@ -193,7 +195,9 @@ pub def remove(tree: &mut Tree, key: i64) -> bool:
     tree.root = root
     if root != -1:
         tree.nodes[root].red = False
-    tree.size -= 1
+    # The membership check proved at least one key exists.
+    unchecked:
+        tree.size -= 1
     True
 
 def walk(tree: &Tree, id: i64, out: &mut list[i64]) -> Result[(), AllocError]:
@@ -241,7 +245,11 @@ def audit(tree: &Tree, id: i64, low: Option[i64], high: Option[i64], parent_red:
     # Checked children are now known valid IDs or -1.
     if red(&tree, tree.nodes[id].right):
         return (-1, 0)
-    (left_height + (0 if color else 1), left_count + right_count + 1)
+    # Seen marks make the subtrees disjoint: their count plus this node fits
+    # len(nodes). Equal black heights require exponentially many nodes, so
+    # adding this level cannot approach i64.MAX either.
+    unchecked:
+        (left_height + (0 if color else 1), left_count + right_count + 1)
 
 pub def valid(tree: &Tree) -> Result[bool, AllocError]:
     mut seen = [False for _ in range(len(tree.nodes))]?

@@ -8,7 +8,10 @@ def scalar_count(rows: &clist[Row], limit: i32, high: i32) -> i64:
     mut count = 0
     for value in rows.column(Row.value):
         if value > limit:
-            count += 1
+            # At most one increment per visited row: count <= visited <= clist length.
+            # Keep the scalar i64 ABI used directly by the C guard-page harness.
+            unchecked:
+                count += 1
     count
 
 # The guard-page harness calls both counts from C, so each keeps its own

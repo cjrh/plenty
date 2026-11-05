@@ -220,6 +220,14 @@ see [RSA and ECDSA keys](crypto-keys.md).
 - No HS384, ES384, ES512 or `ES256K`.
 - Header nesting is limited to 4 levels and claims to 32.
 
+## Arithmetic bounds
+
+Dot offsets refer to found bytes inside the size-limited token. Time comparisons
+validate a nonnegative clock and at most `max_leeway` seconds of leeway before
+subtracting or scaling; large future dates are rejected before nanosecond
+multiplication. These bounds-proven arithmetic opt-outs keep the existing JWT
+validation errors, including fractional-second comparisons at integer limits.
+
 ## Acknowledgements
 
 - Token format, claims and algorithms follow

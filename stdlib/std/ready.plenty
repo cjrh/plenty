@@ -45,7 +45,8 @@ def mask(interest: &Interest) -> u8:
             3u8
 
 def bit(bits: i64, value: i64) -> bool:
-    (bits // value) % 2 == 1
+    # Private callers pass single-bit masks (1, 2, 4, 8 or 16).
+    bits & value != 0
 
 # One native wait's outcome. An interrupted wait reports nothing ready; the
 # caller's loop then rechecks its deadline and token.
@@ -172,11 +173,13 @@ pub class Selector:
     pub def event(self, index: i64) -> Result[Event, WaitError]:
         if index < 0 or index >= self._count:
             return Err(WaitError.Stream(StreamError.OutOfRange))
-        at = index * event_size
-        mut key = 0u64
-        for offset in range(8):
-            key = (key << 8u64) | u64(self._events[at + 7 - offset])
-        Ok(Event(key, ready(i64(self._events[at + 8]))))
+        # Native select returns at most 64 records of 16 bytes each.
+        unchecked:
+            at = index * event_size
+            mut key = 0u64
+            for offset in range(8):
+                key = (key << 8u64) | u64(self._events[at + 7 - offset])
+            Ok(Event(key, ready(i64(self._events[at + 8]))))
 
     pub def close(self: &mut Selector) -> Result[(), WaitError]:
         self._count = 0
@@ -195,12 +198,15 @@ pub def selector(capacity: i64) -> Result[Selector, WaitError]:
         size = 1
     if size > most_events:
         size = most_events
-    mut events = match std.bytes.with_capacity(size * event_size):
+    # The clamp bounds the product by 64 * 16 = 1024.
+    extent = unchecked:
+        size * event_size
+    mut events = match std.bytes.with_capacity(extent):
         case Ok(value):
             value
         case Err(cause):
             return Err(WaitError.Stream(StreamError.Allocation(cause)))
-    events.resize(size * event_size, 0u8).map_error(StreamError.Allocation).map_error(WaitError.Stream)?
+    events.resize(extent, 0u8).map_error(StreamError.Allocation).map_error(WaitError.Stream)?
     match __ready_selector():
         case Ok(file):
             Ok(Selector(file, events, 0))

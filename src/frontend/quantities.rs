@@ -160,6 +160,7 @@ impl Lower<'_> {
         op: &str,
         value: &Expr,
         ty: &Ty,
+        at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Option<Type>> {
         let Some((_, dimension, declared)) = self.aliases.quantity(ty) else {
@@ -168,12 +169,14 @@ impl Lower<'_> {
         if !matches!(op, "+" | "-") {
             return Err(value.at.error(format!("quantities do not support `{op}`")));
         }
+        // Failures of the storage operation belong to the user's operator,
+        // as for plain integers.
         let inner = Expr {
-            at: value.at.clone(),
+            at: at.clone(),
             kind: Expression::Unary(op.into(), Box::new(field(value, &declared))),
         };
         let result = self.expr(&inner, ops)?;
-        self.quantity_wrap(result, (*dimension).clone(), &value.at, ops)
+        self.quantity_wrap(result, (*dimension).clone(), at, ops)
             .map(Some)
     }
 

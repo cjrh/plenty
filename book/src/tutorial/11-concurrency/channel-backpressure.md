@@ -6,7 +6,7 @@ Use `send_nowait` when a full queue should return control to the caller. Its
 ```plenty
 type MessageError = RecvError | SendError[list[i64]] | AllocError
 
-def main() -> Result[(), AllocError | IoError | MessageError]:
+def main() -> Result[(), AllocError | IoError | MessageError | OverflowError[i64]]:
     sender, receiver = channel[list[i64]](1)?
     sender.send([10]?)?
     match sender.send_nowait([20, 30]?):
@@ -35,7 +35,7 @@ state, though both synchronize access to the queue.
 If you need only part of a stream, the receiver guard handles shutdown:
 
 ```plenty
-def produce(sender: Sender[i64]) -> Result[(), AllocError | IoError | SendError[i64]]:
+def produce(sender: Sender[i64]) -> Result[(), AllocError | IoError | SendError[i64] | OverflowError[i64]]:
     for n in range(10, 100):
         sender.send(n * n)?
     Ok(())
@@ -45,7 +45,7 @@ def first_square() -> Result[i64, SpawnError[()] | AllocError | RecvError]:
     with spawn(produce, sender).drop_job()?, receiver as inbox:
         return Ok(inbox.recv()?)
 
-def main() -> Result[(), SpawnError[()] | AllocError | RecvError | IoError]:
+def main() -> Result[(), SpawnError[()] | AllocError | RecvError | IoError | OverflowError[i64]]:
     print(first_square()?)?
     Ok(())
 ```

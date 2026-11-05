@@ -19,7 +19,7 @@ the whole class:
 7. **Cancel a token on every exit** when a worker waits for it:
    `with spawn(serve, stop.share()).drop_job()?, stop.cancel_on_exit():`.
 
-The [previous lesson](channels-and-shutdown.md) showed habits 1 to 3, and
+The [channel shutdown lesson](channels-and-shutdown.md) showed habits 1 to 3, and
 [the mutex lesson](shared-mutex.md) showed habit 6.
 [Cooperative cancellation](cooperative-cancellation.md#cancel-on-every-exit)
 shows habit 7. Executor pools follow the
@@ -33,12 +33,12 @@ One guard after several `?` starts is not enough: when a later start fails, `?`
 joins the earlier producers before the guard exists.
 
 ```plenty-error
-def produce(sender: Sender[i64]) -> Result[(), SendError[i64]]:
+def produce(sender: Sender[i64]) -> Result[(), SendError[i64] | OverflowError[i64]]:
     for n in range(5):
         sender.send(n * n)?
     Ok(())
 
-def drain(inbox: &Receiver[i64]) -> i64:
+def drain(inbox: &Receiver[i64]) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     while True:
         match inbox.recv():
@@ -46,13 +46,13 @@ def drain(inbox: &Receiver[i64]) -> i64:
                 total = total + value
             case Err(_):
                 break
-    total
+    Ok(total)
 
-def main() -> Result[(), SpawnError[()] | AllocError | IoError]:
+def main() -> Result[(), SpawnError[()] | AllocError | IoError | OverflowError[i64]]:
     sender, receiver = channel[i64](2)?
     second = sender.share()
     with spawn(produce, sender).drop_job()?, spawn(produce, second).drop_job()?, receiver as inbox:
-        print(drain(inbox))?
+        print(drain(inbox)?)?
     Ok(())
 ```
 
@@ -65,12 +65,12 @@ Give the receiver to a consuming worker instead, and start it first. Then guard
 the sender and hand each producer a share of it:
 
 ```plenty
-def produce(sender: Sender[i64]) -> Result[(), SendError[i64]]:
+def produce(sender: Sender[i64]) -> Result[(), SendError[i64] | OverflowError[i64]]:
     for n in range(5):
         sender.send(n * n)?
     Ok(())
 
-def total(receiver: Receiver[i64]) -> i64:
+def total(receiver: Receiver[i64]) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     while True:
         match receiver.recv():
@@ -78,14 +78,14 @@ def total(receiver: Receiver[i64]) -> i64:
                 sum = sum + value
             case Err(_):
                 break
-    sum
+    Ok(sum)
 
-def main() -> Result[(), SpawnError[()] | AllocError | IoError]:
+def main() -> Result[(), SpawnError[()] | AllocError | IoError | OverflowError[i64]]:
     sender, receiver = channel[i64](2)?
     with spawn(total, receiver).drop_job()? as consumer:
         with sender as outbox, spawn(produce, outbox.share()).drop_job()?, spawn(produce, outbox.share()).drop_job()?:
             pass
-        print(consumer.join())?
+        print(consumer.join()?)?
     Ok(())
 ```
 
@@ -106,7 +106,7 @@ captured. `?` keeps that error until the function returns, which is after the
 block's joins:
 
 ```plenty-error
-def report(receiver: Receiver[i64]) -> Result[(), IoError]:
+def report(receiver: Receiver[i64]) -> Result[(), IoError | OverflowError[i64]]:
     mut total = 0
     while True:
         match receiver.recv():
@@ -116,17 +116,17 @@ def report(receiver: Receiver[i64]) -> Result[(), IoError]:
                 break
     print(total)
 
-def produce(sender: Sender[i64], count: i64) -> Result[(), SendError[i64]]:
+def produce(sender: Sender[i64], count: i64) -> Result[(), SendError[i64] | OverflowError[i64]]:
     for n in range(count):
         sender.send(n * n)?
     Ok(())
 
-type Errors = AllocError | SpawnError[()] | SpawnError[OnceClosure[[], Result[(), SendError[i64]]]]
+type Errors = AllocError | SpawnError[()] | SpawnError[OnceClosure[[], Result[(), SendError[i64] | OverflowError[i64]]]]
 
 def main() -> Result[(), Errors]:
     sender, receiver = channel[i64](2)?
     count = 5
-    job = def once [sender, count]() -> Result[(), SendError[i64]]:
+    job = def once [sender, count]() -> Result[(), SendError[i64] | OverflowError[i64]]:
         produce(sender, count)
     with spawn(report, receiver).drop_job()?, spawn(job)?:
         pass
@@ -142,7 +142,7 @@ When you will not retry the job, call `drop_job()` on the start. It drops the
 job, and its sender, before `?` leaves, and the error becomes `SpawnError[()]`:
 
 ```plenty
-def report(receiver: Receiver[i64]) -> Result[(), IoError]:
+def report(receiver: Receiver[i64]) -> Result[(), IoError | OverflowError[i64]]:
     mut total = 0
     while True:
         match receiver.recv():
@@ -152,7 +152,7 @@ def report(receiver: Receiver[i64]) -> Result[(), IoError]:
                 break
     print(total)
 
-def produce(sender: Sender[i64], count: i64) -> Result[(), SendError[i64]]:
+def produce(sender: Sender[i64], count: i64) -> Result[(), SendError[i64] | OverflowError[i64]]:
     for n in range(count):
         sender.send(n * n)?
     Ok(())
@@ -162,7 +162,7 @@ type Errors = AllocError | SpawnError[()]
 def main() -> Result[(), Errors]:
     sender, receiver = channel[i64](2)?
     count = 5
-    job = def once [sender, count]() -> Result[(), SendError[i64]]:
+    job = def once [sender, count]() -> Result[(), SendError[i64] | OverflowError[i64]]:
         produce(sender, count)
     with spawn(report, receiver).drop_job()?, spawn(job).drop_job()?:
         pass

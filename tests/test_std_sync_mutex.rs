@@ -56,24 +56,31 @@ class Stats:
     total: i64
     torn: bool
 
-def record(stats: &Mutex[Stats], value: i64) -> ():
+def record(stats: &Mutex[Stats], value: i64) -> Result[(), OverflowError[i64]]:
     for _ in range(100000):
         with stats.lock() as data:
             data.count = data.count + 1
             data.total = data.total + value
+    Ok(())
 
-def check(stats: &Mutex[Stats], rounds: i64) -> ():
+def check(stats: &Mutex[Stats], rounds: i64) -> Result[(), OverflowError[i64]]:
     for _ in range(rounds):
         with stats.lock() as data:
             # Every worker adds 3 or 4 per count; the sum of both always
             # lies between those bounds when observed under the lock.
             if data.total < 3 * data.count or data.total > 4 * data.count:
                 data.torn = True
+    Ok(())
 
-def main() -> Result[(), IoError | SpawnError[()]]:
+def main() -> Result[(), IoError | SpawnError[()] | OverflowError[i64]]:
     stats = Mutex[Stats](Stats(0, 0, False))
-    with spawn(record, &stats, 3)?, spawn(record, &stats, 4)?, spawn(record, &stats, 3)?, spawn(record, &stats, 4)?, spawn(check, &stats, 50000)?:
-        check(&stats, 50000)
+    with spawn(record, &stats, 3)? as a, spawn(record, &stats, 4)? as b, spawn(record, &stats, 3)? as c, spawn(record, &stats, 4)? as d, spawn(check, &stats, 50000)? as observer:
+        check(&stats, 50000)?
+        observer.join()?
+        d.join()?
+        c.join()?
+        b.join()?
+        a.join()?
     final = stats.into_inner()
     print(final.count)?
     print(final.total)?
@@ -88,28 +95,32 @@ def main() -> Result[(), IoError | SpawnError[()]]:
 fn every_exit_unlocks() {
     let source = format!(
         r#"{HEADER}
-def early(m: &Mutex[i64]) -> i64:
+def early(m: &Mutex[i64]) -> Result[i64, OverflowError[i64]]:
     with m.lock() as v:
         *v = *v + 1
         if *v > 0:
-            return *v
-    0
+            return Ok(*v)
+    Ok(0)
 
-def failing(m: &Mutex[i64]) -> Result[i64, str]:
+def failing(m: &Mutex[i64]) -> Result[i64, str | OverflowError[i64]]:
     with m.lock() as v:
         *v = *v + 1
         bad: Result[i64, str] = Err("stopped")
         bad?
     Ok(0)
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     m = Mutex(0)
-    print(early(&m))?
+    print(early(&m)?)?
     match failing(&m):
         case Ok(_):
             pass
         case Err(error):
-            print(error)?
+            match error:
+                case stopped: str:
+                    print(stopped)?
+                case overflow: OverflowError[i64]:
+                    return Err(overflow)
     for i in range(5):
         with m.lock() as v:
             *v = *v + 1
@@ -156,7 +167,7 @@ def put[T](m: &Mutex[list[T]], value: T) -> Result[(), AllocError]:
         values.append(value)?
     Ok(())
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     shared = Pair(Mutex([1]?), Mutex(0))
     put(&shared.items, 5)?
     with shared.items.lock() as items, shared.size.lock() as size:
@@ -190,17 +201,18 @@ def main() -> Result[(), AllocError | IoError]:
 fn borrowed_mutexes_lock_through_references() {
     let source = format!(
         r#"{HEADER}
-def bump(m: &mut Mutex[i64]) -> ():
+def bump(m: &mut Mutex[i64]) -> Result[(), OverflowError[i64]]:
     with m.lock() as v:
         *v = *v + 1
     with (*m).lock() as v:
         *v = *v + 1
+    Ok(())
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut m = Mutex(1)
-    bump(&mut m)
+    bump(&mut m)?
     m = Mutex(10)
-    bump(&mut m)
+    bump(&mut m)?
     print(m.into_inner())?
     Ok(())
 "#
@@ -212,16 +224,17 @@ def main() -> Result[(), IoError]:
 fn spawning_outside_the_lock_is_accepted() {
     let source = format!(
         r#"{HEADER}
-def work(m: &Mutex[i64]) -> ():
+def work(m: &Mutex[i64]) -> Result[(), OverflowError[i64]]:
     with m.lock() as v:
         *v = *v + 1
+    Ok(())
 
-def main() -> Result[(), IoError | SpawnError[()]]:
+def main() -> Result[(), IoError | SpawnError[()] | OverflowError[i64]]:
     m = Mutex(1)
     with spawn(work, &m)? as task:
         with m.lock() as v:
             *v = *v + 1
-        task.join()
+        task.join()?
     print(m.into_inner())?
     Ok(())
 "#
@@ -233,10 +246,10 @@ def main() -> Result[(), IoError | SpawnError[()]]:
 fn locks_nest_and_workers_start_inside_them() {
     let source = format!(
         r#"{HEADER}
-def double(value: i64) -> i64:
-    value * 2
+def double(value: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(value * 2)
 
-def main() -> Result[(), IoError | SpawnError[()]]:
+def main() -> Result[(), IoError | SpawnError[()] | OverflowError[i64]]:
     nested = Mutex(Mutex(3))
     with nested.lock() as inner:
         with inner.lock() as value:
@@ -244,7 +257,7 @@ def main() -> Result[(), IoError | SpawnError[()]]:
     counter = Mutex(5)
     with counter.lock() as value:
         with spawn(double, *value).drop_job()? as task:
-            *value = task.join()
+            *value = task.join()?
     print(nested.into_inner().into_inner())?
     print(counter.into_inner())?
     Ok(())
@@ -286,7 +299,7 @@ fn import_aliases_name_the_same_type() {
     let source = r#"import std.sync as sync
 from std.sync import Mutex as Guarded
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     a = sync.Mutex[i64](1)
     b: Guarded[i64] = Guarded(2)
     with a.lock() as x, b.lock() as y:
@@ -322,8 +335,7 @@ fn relocking_in_the_same_block_is_rejected() {
 
 #[test]
 fn joining_while_holding_a_reachable_lock_is_rejected() {
-    let worker =
-        "def work(m: &Mutex[i64]) -> ():\n    with m.lock() as v:\n        *v = *v + 1\n\n";
+    let worker = "def work(m: &Mutex[i64]) -> Result[(), OverflowError[i64]]:\n    with m.lock() as v:\n        *v = *v + 1\n    Ok(())\n\n";
     let hang = "a task whose worker can lock a `Mutex[i64]` while this function holds a lock on a `Mutex[i64]`: the worker could wait for that lock, and this join, forever";
     rejects(
         &format!(
@@ -333,7 +345,7 @@ fn joining_while_holding_a_reachable_lock_is_rejected() {
     );
     rejects(
         &format!(
-            "{HEADER}{worker}def main() -> Result[(), SpawnError[()]]:\n    m = Mutex(1)\n    with spawn(work, &m)? as task:\n        with m.lock() as a:\n            task.join()\n    Ok(())\n"
+            "{HEADER}{worker}def main() -> Result[(), SpawnError[()]]:\n    m = Mutex(1)\n    with spawn(work, &m)? as task:\n        with m.lock() as a:\n            drop(task.join())\n    Ok(())\n"
         ),
         &format!("this join waits for {hang}"),
     );

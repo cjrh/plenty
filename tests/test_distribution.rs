@@ -49,7 +49,7 @@ fn dynamic(executable: &Path) -> String {
 fn source(root: &Path, calls: &str) -> PathBuf {
     std::fs::write(root.join("native.plentyi"), "extern def dataframe_raw() -> i64 = \"pldf_v1_fixture\"\nextern def linalg_raw() -> i64 = \"plla_v1_fixture\"\npub def dataframe() -> i64:\n    dataframe_raw()\npub def linalg() -> i64:\n    linalg_raw()\n").unwrap();
     let source = root.join("analysis file.plenty");
-    std::fs::write(&source, format!("import native\ndef unused() -> i64:\n    native.linalg()\ndef main() -> Result[(), IoError]:\n    print({calls})?\n    Ok(())\n")).unwrap();
+    std::fs::write(&source, format!("import native\ndef unused() -> i64:\n    native.linalg()\ndef main() -> Result[(), IoError | OverflowError[i64]]:\n    print({calls})?\n    Ok(())\n")).unwrap();
     source
 }
 

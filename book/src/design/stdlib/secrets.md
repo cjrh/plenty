@@ -24,7 +24,7 @@ for compiler qualification; an entropy backend alone does not qualify a port.
 import std.secrets
 from std.secrets import SecretsError
 
-def main() -> Result[(), IoError | SecretsError]:
+def main() -> Result[(), IoError | SecretsError | OverflowError[u64]]:
     session = std.secrets.token_urlsafe(32)?
     reset_code = std.secrets.token_hex(16)?
     roll = std.secrets.below(6u64)? + 1u64
@@ -124,6 +124,11 @@ closing. The module has no global state, passes the ordinary worker-effect
 checks, and may be used from any thread. Each request goes to the kernel, so
 threads never share generator state in the process, and a forked child cannot
 repeat its parent's values.
+
+`below` validates its bound into `NonZero[u64]` before rejection sampling, so
+its remainder operations are statically infallible. Reading an eight-byte word
+uses one documented bounded shift-offset opt-out. Neither changes the entropy
+source, retry policy, zeroization or public error type.
 
 ## Costs
 

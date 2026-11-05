@@ -7,11 +7,12 @@ start with `error: FILE:LINE:COLUMN:`.
 |---|---|---|
 | `executable statements are not allowed at module scope` | Code outside a function | Move it into `main` |
 | `cannot implicitly discard a Result` | `print(x)` or another fallible call used as a statement | `print(x)?`, `match`, or `drop(result)` |
-| `print cannot print a Result directly` | Printing an unhandled literal, `a + b`, or f-string | Add `?`: `xs = [1]?`, `(a + b)?`, `f"..."?` |
+| `print cannot print a Result directly` | Printing an unhandled collection literal, string concatenation, or f-string | Add `?`: `xs = [1]?`, `(a + b)?`, `f"..."?` |
 | `` `?` operand error E cannot propagate as F `` | The function's error type lacks the operand's error | Add it to the union: `Result[(), AllocError \| IoError]` |
 | `` `?` on an Option cannot propagate from a function returning Result `` | `?` on an `Option` in a `Result` function | `.ok_or(error)?` |
 | `` immutable binding: `x` is immutable `` | Reassigning a plain binding | Declare `mut x = ...` |
-| `` `lambda` is not supported `` | Python lambdas | `def(x: i64) -> i64: x + 1` |
+| `` `lambda` is not supported `` | Python lambdas | `def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x + 1)` |
+| `arithmetic can fail with OverflowError[i64]` | Integer arithmetic lacks a declared error channel | Declare `Result[T, OverflowError[i64]]` and return `Ok(value)`, or handle a local `checked:` result |
 | ``expected `->` `` | Missing result type | Every `def` declares `-> T`; `-> ()` for none |
 | `expected bool, got list[i64]` | Truthiness | `len(xs) > 0` |
 | `expected i64, got &i64` | Using a borrowed loop item as a value | `*item` |
@@ -28,6 +29,17 @@ start with `error: FILE:LINE:COLUMN:`.
 | `expected Result[...], got ()` at the end of `main` | Missing final value | End with `Ok(())` |
 
 ## Examples
+
+```plenty-error
+def increment(value: i64) -> i64:
+    value + 1
+
+def main() -> ():
+    return
+```
+```error
+arithmetic can fail with OverflowError[i64], which is not included in this function's return type i64
+```
 
 ```plenty-error
 def main() -> Result[(), IoError]:
@@ -52,11 +64,11 @@ def main() -> ():
 ```
 
 ```plenty-error
-def total(xs: &list[i64]) -> i64:
+def total(xs: &list[i64]) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     for x in xs:
         sum += x
-    sum
+    Ok(sum)
 
 def main() -> ():
     return
@@ -69,8 +81,9 @@ expected i64, got &i64
 class Counter:
     hits: i64
 
-    def bump(self) -> ():
+    def bump(self) -> Result[(), OverflowError[i64]]:
         self.hits += 1
+        Ok(())
 
 def main() -> ():
     return

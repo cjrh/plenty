@@ -60,7 +60,11 @@ An entry is `192.0.2.1`, `192.0.2.1:8080`, `2001:db8::1` or
 `[2001:db8::1]:8080`; the port is dropped. An entry that must be read but is
 none of these, such as `unknown` or an obfuscated `_name`, fails with
 `InvalidForwarded`, as does a malformed `Forwarded` element. More than
-`max_hops` entries is `TooManyHops`. An IPv4-mapped IPv6 address, as a
+`max_hops` entries is `TooManyHops`. Empty comma-separated pieces are skipped.
+Quoted escapes must have a following byte; a trailing backslash is
+`InvalidForwarded`. Scanners stop at the end of a field without advancing
+an index beyond its length, including at the `i64` representation limit.
+An IPv4-mapped IPv6 address, as a
 dual-stack listener reports IPv4 peers, is treated as the IPv4 address.
 
 `scheme` is `http` or `https`, lowercased, when a trusted proxy reported it:

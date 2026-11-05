@@ -269,6 +269,13 @@ as above.
 The [tutorial lesson](../../tutorial/11-concurrency/tcp-sockets.md) serves an
 echo connection on a worker and handles a refused connection.
 
+Address arithmetic is bounded by validated record ranges, fixed-width words
+and decimal/hexadecimal digit counts. Resolver reply-buffer growth checks its
+next extent before allocation or consuming input; an unrepresentable extent is
+`Stream(StreamError.Allocation(AllocError.CapacityOverflow))`. These internal
+checks preserve the public `NetError` and stream contracts regardless of the
+caller's arithmetic mode.
+
 ## Limits
 
 - x86_64 Linux GNU only; elsewhere every operation reports

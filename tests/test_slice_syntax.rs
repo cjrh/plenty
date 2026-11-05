@@ -84,7 +84,7 @@ fn slices_match_python_for_lists_text_and_bytes() {
 fn omitted_bounds_steps_and_extreme_values() {
     native(
         r#"
-def main() -> Result[(), AllocError | IoError | RangeError]:
+def main() -> Result[(), AllocError | IoError | RangeError | OverflowError[i64]]:
     xs = [0, 1, 2, 3, 4, 5]?
     print(xs[:]?)?
     print(xs[::-1]?)?

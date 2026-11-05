@@ -34,9 +34,9 @@ def early() -> str:
         return value
     "empty"
 
-def tail(n: i64, text: str) -> str:
+def tail(n: i64, text: str) -> Result[str, OverflowError[i64]]:
     if n == 0:
-        return text
+        return Ok(text)
     tail(n - 1, (text + "").unwrap())
 def wrapper(child: Generator[str]) -> Generator[str]:
     for value in child:
@@ -53,7 +53,7 @@ def buffers(a: Buffer, b: Buffer) -> Generator[Buffer]:
     yield a
     yield b
 
-def main() -> ():
+def main() -> Result[(), OverflowError[i64]]:
     mut it = suspended()
     next(it)
     print("__test_small_live_heap__").unwrap()
@@ -80,7 +80,7 @@ def main() -> ():
         values.insert(text, [('new' + ' value').unwrap()].unwrap()).unwrap()
         len(saved[text])
 
-    print(len(tail(10_000, text))).unwrap()
+    print(len(tail(10_000, text)?)).unwrap()
 
     wrapper(captured([('nested' + ' frame').unwrap()].unwrap()))
     mut finished = wrapper(captured([('one' + ' value').unwrap()].unwrap()))
@@ -101,6 +101,7 @@ def main() -> ():
                 drop(value)
             case Nothing:
                 pass
+    Ok(())
 "#,
     )
     .unwrap();

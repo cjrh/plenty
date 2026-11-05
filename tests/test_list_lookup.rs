@@ -68,19 +68,50 @@ print(storage.items).unwrap()
     );
 }
 
+const SUM_TWO: &str = r#"
+def operands(items: &list[i64]) -> Option[(i64, i64)]:
+    Some((items.get(0)?, items.get(1)?))
+def sum_two(items: &list[i64]) -> Result[Option[i64], OverflowError[i64]]:
+    match operands(items):
+        case Some((first, second)):
+            Ok(Some(first + second))
+        case Nothing:
+            Ok(Nothing)
+"#;
+
 #[test]
 fn lookup_propagates_absence_without_consuming_the_source() {
     native(
-        r#"
-def sum_two(items: &list[i64]) -> Option[i64]:
-    Some(items.get(0)? + items.get(1)?)
-items = [20, 22].unwrap()
-short = [20].unwrap()
-print(sum_two(&items)).unwrap()
-print(sum_two(&short)).unwrap()
-print(short).unwrap()
-"#,
+        &format!(
+            r#"{SUM_TWO}
+def main() -> Result[(), OverflowError[i64]]:
+    items = [20, 22].unwrap()
+    short = [20].unwrap()
+    print(sum_two(&items)?).unwrap()
+    print(sum_two(&short)?).unwrap()
+    print(short).unwrap()
+    Ok(())
+"#
+        ),
         "Option[i64].Some(42)\nOption[i64].Nothing\n[20]",
+    );
+}
+
+#[test]
+fn sum_two_distinguishes_overflow_from_absence_and_preserves_the_source() {
+    native(
+        &format!(
+            r#"{SUM_TWO}
+def main() -> Result[(), OverflowError[i64]]:
+    items = [i64.MAX, 1].unwrap()
+    short = [i64.MAX].unwrap()
+    print(sum_two(&items).is_err()).unwrap()
+    print(sum_two(&short)?).unwrap()
+    print(items, short).unwrap()
+    Ok(())
+"#
+        ),
+        "True\nOption[i64].Nothing\n[9223372036854775807, 1] [9223372036854775807]",
     );
 }
 

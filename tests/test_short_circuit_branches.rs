@@ -64,40 +64,46 @@ def matched_manual(x: bool, y: bool, z: bool) -> Result[i64, IoError]:
         return Ok(2)
     Ok(1)
 
+# Both loops stop once n > 40; from i=n=0, i never exceeds 10.
+# These narrow operations retain the scalar branch-shape oracle.
 def looped(limit: i64, stop: i64) -> i64:
     mut i = 0
     mut n = 0
-    while i < limit and not (i % 7 == stop or n > 40):
-        n += i
-        i += 1
+    seven: Positive[i64] = 7
+    while i < limit and not (i % seven == stop or n > 40):
+        unchecked:
+            n += i
+            i += 1
     n
 
 def looped_manual(limit: i64, stop: i64) -> i64:
+    seven: Positive[i64] = 7
     mut i = 0
     mut n = 0
     while True:
         if i >= limit:
             break
-        if i % 7 == stop:
+        if i % seven == stop:
             break
         if n > 40:
             break
-        n += i
-        i += 1
+        unchecked:
+            n += i
+            i += 1
     n
 
-def nonzero_quotient(d: i64) -> bool:
-    d != 0 and 10 // d > 2
+def nonzero_quotient(d: i64) -> Result[bool, OverflowError[i64] | ZeroDivisionError]:
+    Ok(d != 0 and 10 // d > 2)
 
-def zero_or_quotient(d: i64) -> bool:
-    d == 0 or 10 // d > 2
+def zero_or_quotient(d: i64) -> Result[bool, OverflowError[i64] | ZeroDivisionError]:
+    Ok(d == 0 or 10 // d > 2)
 
 def propagated(x: bool, y: bool) -> Result[bool, IoError | ParseError]:
     if say("s", x)? or fails("f", y)?:
         return Ok(True)
     Ok(False)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | ZeroDivisionError]:
     for manual in [False, True]?:
         print("manual", manual)?
         for bits in range(8):
@@ -114,7 +120,7 @@ def main() -> Result[(), AllocError | IoError]:
             else:
                 print(looped(12, stop))?
     for d in [0, 1, 4, -1]?:
-        print(nonzero_quotient(d), zero_or_quotient(d))?
+        print(nonzero_quotient(d)?, zero_or_quotient(d)?)?
     for bits in range(4):
         match propagated(bits % 2 == 1, bits // 2 == 1):
             case Ok(value):
@@ -126,7 +132,8 @@ def main() -> Result[(), AllocError | IoError]:
 
 /// `pick(False, 0)` runs the division its short circuit guards.
 const TRAP: &str = r#"def pick(flag: bool, d: i64) -> bool:
-    flag or 10 // d > 2
+    unchecked:
+        flag or 10 // d > 2
 
 def main() -> Result[(), AllocError | IoError]:
     print(pick(True, 0))?
@@ -189,11 +196,15 @@ fn skipped_operand_cannot_trap_and_evaluated_operand_does() {
         let mut args = mode.to_vec();
         args.push("trap.plenty");
         let output = plenty(dir.path(), &args);
-        assert_eq!(output.status.code(), Some(1), "{mode:?}");
-        assert_eq!(String::from_utf8_lossy(&output.stdout), "True\n");
+        assert_eq!(output.status.code(), Some(1), "{mode:?}: {output:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "True\n",
+            "{mode:?}: {output:?}"
+        );
         let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(
-            stderr.contains("error: trap.plenty:2:13: division by zero"),
+        assert_eq!(
+            stderr, "error: trap.plenty:3:17: division by zero\n",
             "{mode:?}: {stderr}"
         );
     }

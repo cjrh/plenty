@@ -188,9 +188,10 @@ enum Shape:
     Seg(Point, Point)
     Named(Label, i64, Point)
 
-def bump(p: &mut Point, by: i64) -> ():
+def bump(p: &mut Point, by: i64) -> Result[(), OverflowError[i64]]:
     p.x += by
     p.y += by
+    Ok(())
 
 def keep(t: (Point, Label)) -> (Point, Label):
     t
@@ -199,16 +200,16 @@ def swap(t: (Point, Point)) -> (Point, Point):
     a, b = t
     (b, a)
 
-def measure(s: &Shape) -> i64:
+def measure(s: &Shape) -> Result[i64, OverflowError[i64]]:
     match s:
         case Shape.Seg(a, b):
-            b.x - a.x + b.y - a.y
+            Ok(b.x - a.x + b.y - a.y)
         case Shape.Named(l, n, p):
-            l.point.x + *n + p.y
+            Ok(l.point.x + *n + p.y)
         case Shape.Empty:
-            0
+            Ok(0)
 
-def consume(s: Shape) -> Result[str, AllocError]:
+def consume(s: Shape) -> Result[str, AllocError | OverflowError[i64]]:
     match s:
         case Shape.Seg(a, b):
             Ok(str.from(a.x + b.x)?)
@@ -217,22 +218,23 @@ def consume(s: Shape) -> Result[str, AllocError]:
         case Shape.Empty:
             Ok("empty")
 
-def grow(s: &mut Shape) -> ():
+def grow(s: &mut Shape) -> Result[(), OverflowError[i64]]:
     match s:
         case Shape.Seg(a, b):
-            bump(a, 1)
+            bump(a, 1)?
             b.y = 100
         case Shape.Named(l, _, p):
             l.point = Point(-1, -2)
-            bump(p, 5)
+            bump(p, 5)?
         case Shape.Empty:
             pass
+    Ok(())
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     t = keep((Point(1, 2), Label("one", Point(3, 4))))
     print(t)?
     mut u = swap((Point(1, 2), Point(3, 4)))
-    bump(&mut u[0], 10)
+    bump(&mut u[0], 10)?
     r = &mut u[1]
     r.x = 7
     r.y = 9
@@ -241,9 +243,9 @@ def main() -> Result[(), AllocError | IoError]:
     print(first, label.text, label.point)?
     mut shapes: list[Shape] = [Shape.Seg(Point(0, 0), Point(3, 4)), Shape.Named(Label("n", Point(5, 6)), 7, Point(8, 9)), Shape.Empty]?
     for s in &shapes:
-        print(measure(s))?
+        print(measure(s)?)?
     for s in &mut shapes:
-        grow(s)
+        grow(s)?
     print(shapes)?
     copied = copy(&shapes)?
     print(copied == shapes, str.repr(copied[1])?)?
@@ -300,13 +302,17 @@ def left_of(e: Event) -> Result[str, AllocError]:
 
 def points(n: i64) -> Generator[(Point, Point)]:
     for i in range(n):
-        yield (Point(i, i), Point(-i, i * 2))
+        # The sole caller below uses points(4): i is 0..3, -i is -3..0,
+        # and i * 2 is 0..6. Keep the generator's tuple payload contract.
+        pair = unchecked:
+            (Point(i, i), Point(-i, i * 2))
+        yield pair
 
-def worker(t: (Point, Point, i64)) -> (Point, Point, i64):
+def worker(t: (Point, Point, i64)) -> Result[(Point, Point, i64), OverflowError[i64]]:
     a, b, n = t
-    (b, a, n * 2)
+    Ok((b, a, n * 2))
 
-def main() -> Result[(), AllocError | IoError | SpawnError[()] | SendError[(Pair, Point)] | RecvError]:
+def main() -> Result[(), AllocError | IoError | SpawnError[()] | SendError[(Pair, Point)] | RecvError | OverflowError[i64]]:
     print(left_of(Event.Two(Guard("a"), Point(1, 2), Guard("b")))?)?
     print(left_of(Event.Nested(Pair(Guard("pl"), Guard("pr")), Guard("g")))?)?
     t = (Guard("t1"), Guard("t2"))
@@ -322,15 +328,15 @@ def main() -> Result[(), AllocError | IoError | SpawnError[()] | SendError[(Pair
         total += a.x + b.y
     print(total)?
     offset = (Point(10, 20), Point(1, 1))
-    shift = def [offset](p: &Point) -> i64:
-        p.x + offset[0].x + offset[1].y
-    print(shift(&Point(1, 0)))?
+    shift = def [offset](p: &Point) -> Result[i64, OverflowError[i64]]:
+        Ok(p.x + offset[0].x + offset[1].y)
+    print(shift(&Point(1, 0))?)?
     sender, receiver = channel[(Pair, Point)](1)?
     sender.send((Pair(Guard("c1"), Guard("c2")), Point(7, 8)))?
     got, at = receiver.recv()?
     print(got.left.name, at)?
     with spawn(worker, (Point(1, 2), Point(3, 4), 21)).drop_job()? as task:
-        print(task.join())?
+        print(task.join()?)?
     print("end")?
     Ok(())
 "#,

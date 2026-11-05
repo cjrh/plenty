@@ -4,22 +4,24 @@ mod support;
 fn typed_ranges_infer_literals_and_contextual_comprehensions() {
     let out = support::run(
         r#"
-def squares() -> list[u8]:
-    [n * n for n in range(8) if n % 2 == 0].unwrap()
-x: u8 = 2
-y: f32 = 3.5
-print(x + 1).unwrap()
-print(1 + x).unwrap()
-print(y * 2).unwrap()
-print([n * n for n in range[u8](8) if n % 2 == 0].unwrap()).unwrap()
-values: list[u16] = [n + 1 for n in range(3)].unwrap()
-print(values).unwrap()
-print(squares()).unwrap()
-print(list(range[u8](5, 0, -2)).unwrap()).unwrap()
-print(list(range[u64](18446744073709551612, 18446744073709551615)).unwrap()).unwrap()
-print(list(range[i8](-128, -125)).unwrap()).unwrap()
-print(range[u64](18446744073709551612, 18446744073709551615)[1]).unwrap()
-print(18446744073709551614u64 in range[u64](18446744073709551612, 18446744073709551615)).unwrap()
+def squares() -> Result[list[u8], AllocError | OverflowError[u8] | ZeroDivisionError]:
+    Ok([n * n for n in range(8) if n % 2 == 0]?)
+def main() -> Result[(), AllocError | IoError | OverflowError[u8] | OverflowError[u16] | ZeroDivisionError]:
+    x: u8 = 2
+    y: f32 = 3.5
+    print(x + 1)?
+    print(1 + x)?
+    print(y * 2)?
+    print([n * n for n in range[u8](8) if n % 2 == 0]?)?
+    values: list[u16] = [n + 1 for n in range(3)]?
+    print(values)?
+    print(squares()?)?
+    print(list(range[u8](5, 0, -2))?)?
+    print(list(range[u64](18446744073709551612, 18446744073709551615))?)?
+    print(list(range[i8](-128, -125))?)?
+    print(range[u64](18446744073709551612, 18446744073709551615)[1])?
+    print(18446744073709551614u64 in range[u64](18446744073709551612, 18446744073709551615))?
+    Ok(())
 "#,
     );
     assert!(

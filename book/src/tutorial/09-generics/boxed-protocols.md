@@ -9,7 +9,7 @@ protocol Counter:
     def current(self) -> i64:
         pass
 
-    def increment(self: &mut Counter) -> ():
+    def increment(self: &mut Counter) -> Result[(), OverflowError[i64]]:
         pass
 
 class Count:
@@ -18,8 +18,9 @@ class Count:
     def current(self) -> i64:
         self.value
 
-    def increment(self: &mut Count) -> ():
+    def increment(self: &mut Count) -> Result[(), OverflowError[i64]]:
         self.value += 1
+        Ok(())
 
 enum Flag:
     Off
@@ -32,15 +33,16 @@ enum Flag:
             case Flag.On:
                 1
 
-    def increment(self: &mut Flag) -> ():
+    def increment(self: &mut Flag) -> Result[(), OverflowError[i64]]:
         *self = Flag.On
+        Ok(())
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut items: list[Box[Counter]] = []?
     items.append(Box[Counter](Count(10))?)?
     items.append(Box[Counter](Flag.Off)?)?
     for item in &mut items:
-        item.increment()
+        item.increment()?
         print(item.current())?
     Ok(())
 ```
@@ -53,6 +55,10 @@ Each `Box[Counter](value)?` moves its input into one heap allocation. The list
 stores owners with a common interface. Its mutable loop borrows each owner, so
 `increment` and `current` operate on the same instance. No match or cast is
 needed. Use `&items` for a loop that only calls shared methods.
+
+The protocol fixes each method's contract. `Count.increment` can overflow, so
+`increment` returns `Result[(), OverflowError[i64]]`, and `Flag` declares the
+same result even though it never fails.
 
 The `Box` boundary is explicit: `list[Counter]` is not a stored value type, and
 `Box(Count(10))?` preserves the concrete `Count` type. Allocation failure drops

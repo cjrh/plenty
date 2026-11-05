@@ -158,7 +158,9 @@ combines different mapped colours in one output bar, rendering reports a conflic
 instead of selecting one arbitrarily.
 
 Rows with missing or non-finite mapped values are omitted and counted in returned
-notes; `na_rm=True` suppresses the note. A missing y interrupts a line/path
+notes; `na_rm=True` suppresses the note. These observation-only diagnostic
+counts saturate at `i64.MAX`; semantic row counts, groups, and numerical
+aggregates do not saturate. A missing y interrupts a line/path
 within its group. Numeric data magnitudes above `1e100` are rejected during construction.
 
 ## Labels, coordinates, and themes

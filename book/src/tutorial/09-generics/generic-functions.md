@@ -27,7 +27,7 @@ argument and result types the same.
 def identity[T](value: T) -> T:
     value
 
-def sum_to[T: IntType](stop: T) -> Result[T, AllocError]:
+def sum_to[T: IntType](stop: T) -> Result[T, OverflowError[T]]:
     mut total: T = 0
     for n in range[T](stop):
         total = total + n
@@ -36,7 +36,7 @@ def sum_to[T: IntType](stop: T) -> Result[T, AllocError]:
 def first[T](values: &list[T]) -> &T:
     &values[0]
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[u16]]:
     print(sum_to(5u16)?)?
     values = identity([3, 4]?)
     print(first(&values))?
@@ -92,14 +92,14 @@ enum Label:
     Id(i64)
     Name(str)
 
-def frequencies[K: KeyType](values: list[K]) -> Result[dict[K, i64], AllocError]:
+def frequencies[K: KeyType](values: list[K]) -> Result[dict[K, i64], AllocError | OverflowError[i64]]:
     mut counts: dict[K, i64] = {}?
     for value in values:
         count = counts.get(&value, 0) + 1
         counts.insert(value, count)?
     Ok(counts)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     values = [Label.Id(7), Label.Name("7"), Label.Id(7)]?
     counts = frequencies(values)?
     print(counts[Label.Id(7)], counts[Label.Name("7")])?
@@ -111,5 +111,5 @@ def main() -> Result[(), AllocError | IoError]:
 
 The loop consumes the list and transfers each key after borrowing it for
 lookup. This also works for keys with custom cleanup, which cannot be copied.
-Dictionary insertion remains fallible. Floats do not satisfy `KeyType`; see the
+Dictionary insertion and the count's addition remain fallible. Floats do not satisfy `KeyType`; see the
 [constraint reference](../../design/language/07-generics/index.md#keytype).

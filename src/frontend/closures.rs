@@ -95,7 +95,7 @@ impl Lower<'_> {
                 at.error("capturing or one-shot closures cannot return references or yield yet")
             );
         }
-        let mut closure = ClosureType::new(
+        let closure = ClosureType::new(
             function.name.clone(),
             Some(at.location().into()),
             signature,
@@ -111,34 +111,7 @@ impl Lower<'_> {
             self.generics
                 .inherit_requirement(self.sigs, &self.function_name, &function.name);
             self.generics.declare(function.clone(), self.sigs);
-            if self.lexical_checked() {
-                self.generics.checked_closures.insert(function.name.clone());
-                let symbol = self
-                    .sigs
-                    .symbol(&function.name)
-                    .expect("registered closure");
-                lower_function(
-                    symbol,
-                    Arc::new(function),
-                    self.heap,
-                    self.sigs,
-                    self.generics,
-                    self.aliases,
-                    self.access,
-                )?;
-            }
         }
-        closure.checked =
-            self.lexical_checked() || closure.captures.iter().any(|(_, ty)| ty.checked_closure());
-        closure.checked_error = self
-            .generics
-            .checked_errors
-            .get(&closure.name)
-            .cloned()
-            .or_else(|| {
-                let errors = checked::input_errors(&closure.captures);
-                (!errors.is_empty()).then(|| crate::sum::anonymous(errors))
-            });
         let closure = Arc::new(closure);
         self.closure_loans
             .insert(closure.name.clone(), loans.clone());
@@ -241,9 +214,6 @@ impl Lower<'_> {
         self.mark_call(at, ops);
         self.passes(start, &inputs, closure.signature.output.as_ref(), ops);
         ops.push(Op::ClosureCall(closure.clone()));
-        if let Some(error) = &closure.checked_error {
-            self.checked_call(error, closure.signature.output.clone(), at, ops)?;
-        }
         Self::end_reads(loans, ops);
         if let Some(loans) = self.closure_loans.get(&closure.name) {
             ops.extend(loans.iter().copied().map(Op::UseLoan));
@@ -265,9 +235,6 @@ impl Lower<'_> {
         self.mark_call(at, ops);
         self.passes(start, &inputs, closure.signature.output.as_ref(), ops);
         ops.push(Op::ClosureCall(closure.clone()));
-        if let Some(error) = &closure.checked_error {
-            self.checked_call(error, closure.signature.output.clone(), at, ops)?;
-        }
         Self::end_reads(loans, ops);
         ops.push(Op::UseLoan(loan));
         if let Some(loans) = self.closure_loans.get(&closure.name) {

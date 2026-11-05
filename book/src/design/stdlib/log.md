@@ -61,6 +61,9 @@ another thread. Fields keep the order the caller gave.
 | `debug`, `info`, `warn`, `error` `(message, fields)` | `Result[(), LogError]` | `log` at that level |
 | `emitted()`, `filtered()`, `failed()` | `u64` | Events delivered, below the threshold, and rejected by the sink |
 
+The diagnostic `u64` event counters saturate at `u64.MAX`; exhaustion never
+changes filtering, delivery, or the sink error returned to the caller.
+
 An event below the threshold is dropped and counted as filtered; that is
 `Ok(())`, not an error. The fields of a filtered event have already been
 built, so guard expensive fields with `enabled` first.
@@ -141,6 +144,9 @@ inspect `sink.events` directly.
 full queue returns `Full` and drops the event, so a slow consumer never blocks
 the logging thread. A queue with no receiver returns `Closed`. `share()`
 returns another handle on the same queue for another thread's logger.
+
+`Drained.delivered` and `Drained.failed` also saturate at `u64.MAX`, without
+stopping the consumer or replacing a sink result.
 
 `drain(receiver: &Receiver[Event], sink: &mut S) -> Drained` delivers queued
 events to `sink` until every sender is gone. It waits for events. A sink

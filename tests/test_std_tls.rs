@@ -29,7 +29,7 @@ def handshake(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline
             Err(TlsError.Net(error))
 
 # Reads until close_notify, returning the byte count.
-def drain(stream: &mut TlsStream, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError]:
+def drain(stream: &mut TlsStream, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError | OverflowError[i64]]:
     mut buffer = std.bytes.with_capacity(4096).unwrap()
     buffer.resize(4096, 0u8).unwrap()
     mut total = 0
@@ -49,25 +49,39 @@ fn program(declarations: &str, body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "{}{declarations}\ndef main() -> Result[(), std.bytes.BytesError | RangeError | SpawnError[()] | AllocError | IoError]:\n    cancel = CancellationToken()?\n    deadline = deadline_after(&monotonic_now(), &milliseconds(10000))?\n    listener = listen(&loopback_v4(0u16), 8).unwrap()\n    address = listener.local_address().unwrap()\n{body}    Ok(())\n",
+        "{}{declarations}\ndef main() -> Result[(), std.bytes.BytesError | RangeError | SpawnError[()] | AllocError | IoError | OverflowError[i64]]:\n    cancel = CancellationToken()?\n    deadline = deadline_after(&monotonic_now(), &milliseconds(10000))?\n    listener = listen(&loopback_v4(0u16), 8).unwrap()\n    address = listener.local_address().unwrap()\n{body}    Ok(())\n",
         HEADER.replace("FIXTURES", &fixtures())
     )
 }
 
-fn compile(source: &str, dir: &std::path::Path) -> std::path::PathBuf {
+fn compile_with_optimization(
+    source: &str,
+    dir: &std::path::Path,
+    optimize: bool,
+) -> std::path::PathBuf {
     let path = dir.join("main.plenty");
     let executable = dir.join("program");
     std::fs::write(&path, source).unwrap();
-    plenty::compile_file_to_executable(&path, &executable, None)
+    let options = plenty::CompileOptions {
+        optimize,
+        test_hooks: true,
+        ..Default::default()
+    };
+    plenty::compile_file_to_executable_with_options(&path, &executable, None, &options)
         .unwrap_or_else(|error| panic!("{source}\n{error}"));
     executable
 }
 
 fn output(source: &str) -> String {
+    output_with_optimization(source, false)
+}
+
+fn output_with_optimization(source: &str, optimize: bool) -> String {
     let dir = tempfile::tempdir().unwrap();
-    let output = std::process::Command::new(compile(source, dir.path()))
-        .output()
-        .unwrap();
+    let output =
+        std::process::Command::new(compile_with_optimization(source, dir.path(), optimize))
+            .output()
+            .unwrap();
     assert!(
         output.status.success(),
         "{source}\n{}",
@@ -91,7 +105,7 @@ fn native(declarations: &str, body: &str, expected: &str) {
 }
 
 const ECHO: &str = r#"
-def echo(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError]:
+def echo(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError | OverflowError[i64]]:
     mut stream = handshake(listener, config, deadline, cancel)?
     mut buffer = std.bytes.with_capacity(64).unwrap()
     buffer.resize(64, 0u8).unwrap()
@@ -299,7 +313,7 @@ fn a_failed_close_notify_still_closes_the_tcp_stream() {
     // leaving the server waiting until its deadline instead of seeing EOF.
     native(
         r#"
-def wait_for_close(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError]:
+def wait_for_close(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError | OverflowError[i64]]:
     mut stream = handshake(listener, config, deadline, cancel)?
     soon = deadline_after(&monotonic_now(), &milliseconds(2000)).unwrap()
     drain(&mut stream, &soon, cancel)
@@ -334,7 +348,7 @@ fn large_transfers_cross_many_records_through_both_interfaces() {
     // the std.io Writer and Reader methods.
     native(
         r#"
-def count(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError]:
+def count(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError | OverflowError[i64]]:
     mut stream = handshake(listener, config, deadline, cancel)?
     total = drain(&mut stream, deadline, cancel)?
     stream.close_before(deadline, cancel)?
@@ -464,7 +478,7 @@ def report(stream: &TlsStream) -> Result[(), IoError]:
 
 # Reports the session, then echoes until close_notify. The report is printed
 # before the echo, so before the client prints anything.
-def serve(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError]:
+def serve(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError | OverflowError[i64]]:
     mut stream = handshake(listener, config, deadline, cancel)?
     match report(&stream):
         case _:
@@ -787,7 +801,7 @@ import std.ready
 
 # Echoes with the `try_` methods, waiting only in the selector: each time,
 # everything that can be done without waiting is done first.
-def nonblocking_echo(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError]:
+def nonblocking_echo(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, TlsError | OverflowError[i64]]:
     tcp = listener.accept(deadline, cancel).unwrap()
     mut stream = std.tls.start_accept(tcp, config)?
     mut selector = std.ready.selector(4).unwrap()
@@ -858,7 +872,7 @@ with spawn(nonblocking_echo, &listener, &server, &deadline, &cancel)? as worker:
 /// Moves ciphertext between two sessions through a buffer of `size` bytes,
 /// as a caller-owned socket buffer would, until neither has more to send.
 const SHUTTLE: &str = r#"
-def shuttle(source: &mut std.tls.Session, target: &mut std.tls.Session, size: i64) -> Result[i64, TlsError]:
+def shuttle(source: &mut std.tls.Session, target: &mut std.tls.Session, size: i64) -> Result[i64, TlsError | OverflowError[i64]]:
     mut buffer = std.bytes.with_capacity(size).unwrap()
     buffer.resize(size, 0u8).unwrap()
     mut moved = 0
@@ -870,7 +884,7 @@ def shuttle(source: &mut std.tls.Session, target: &mut std.tls.Session, size: i6
         moved += count
     Ok(moved)
 
-def settle(client: &mut std.tls.Session, server: &mut std.tls.Session) -> Result[(), TlsError]:
+def settle(client: &mut std.tls.Session, server: &mut std.tls.Session) -> Result[(), TlsError | OverflowError[i64]]:
     mut moving = True
     while moving:
         moving = shuttle(client, server, 7)? + shuttle(server, client, 7)? > 0
@@ -921,7 +935,7 @@ mut other = std.tls.server_session(&config).unwrap()
 mut wrong = std.tls.client_session(&client_for("ca.pem")?, "example.com").unwrap()
 print(str.repr(settle(&mut wrong, &mut other))?)?
 "#,
-        "Result[Option[i64], TlsError].Err(TlsError.Truncated)\nResult[(), TlsError].Err(TlsError.WrongHost)",
+        "Result[Option[i64], TlsError].Err(TlsError.Truncated)\nResult[(), OverflowError[i64] | TlsError].Err(TlsError.WrongHost)",
     );
 }
 
@@ -949,5 +963,42 @@ drop(session.{operation}(&mut buffer, {start}, {stop}))
                 "{source}\n{stderr}"
             );
         }
+    }
+}
+
+#[test]
+fn session_cursors_cross_record_boundaries_with_optimized_and_unoptimized_code() {
+    let source = program(
+        SHUTTLE,
+        r#"
+mut server = std.tls.server_session(&server_for("leaf.pem")?).unwrap()
+mut client = std.tls.client_session(&client_for("ca.pem")?, "localhost").unwrap()
+settle(&mut client, &mut server).unwrap()
+mut data = std.bytes.with_capacity(65537)?
+data.resize(65537, 42u8)?
+mut reply = std.bytes.with_capacity(65537)?
+reply.resize(65537, 0u8)?
+mut sent = 0
+mut received = 0
+while sent < data.len():
+    sent += client.write(&data[sent:]).unwrap()
+    settle(&mut client, &mut server).unwrap()
+    while True:
+        match server.read(&mut reply, received, 65537).unwrap():
+            case Some(count):
+                if count == 0:
+                    break
+                received += count
+            case Nothing:
+                break
+print(sent, received, data.to_list()? == reply.to_list()?)?
+"#,
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            "65537 65537 True",
+            "optimize={optimize}"
+        );
     }
 }

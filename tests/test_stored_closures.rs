@@ -12,28 +12,47 @@ fn run(source: &str, expected: &str) {
     assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
 }
 
+// This module owns these fragments; only their generated entrypoint gains arithmetic errors.
+fn checked_program(source: &str) -> String {
+    let source = support::program(source);
+    let source = source.replacen(
+        "def main() -> ():",
+        "def main() -> Result[(), OverflowError[i64]]:",
+        1,
+    );
+    source
+        .strip_suffix("    pass\n")
+        .expect("fragment entrypoint")
+        .to_owned()
+        + "    Ok(())\n"
+}
+
+fn run_checked(source: &str, expected: &str) {
+    run(&checked_program(source), expected);
+}
+
 #[test]
 fn generic_records_embed_distinct_owned_closure_layouts() {
-    run(
+    run_checked(
         r#"
 class Handler[F]:
     callback: F
-    def call(self: &mut Handler[F], n: i64) -> i64:
+    def call(self: &mut Handler[F], n: i64) -> Result[i64, OverflowError[i64]]:
         self.callback(n)
-def counter(total: i64) -> Closure[[i64], i64]:
-    def [mut total](n: i64) -> i64:
+def counter(total: i64) -> Closure[[i64], Result[i64, OverflowError[i64]]]:
+    def [mut total](n: i64) -> Result[i64, OverflowError[i64]]:
         total = total + n
-        total
+        Ok(total)
 mut first = Handler(counter(10))
 mut second = Handler(counter(100))
 bias = 1000
-subtract = def [bias](n: i64) -> i64:
-    bias - n
+subtract = def [bias](n: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(bias - n)
 third = Handler(subtract)
-print(first.call(3)).unwrap()
-print(second.call(7)).unwrap()
-print(first.callback(2)).unwrap()
-print(third.callback(4)).unwrap()
+print(first.call(3)?).unwrap()
+print(second.call(7)?).unwrap()
+print(first.callback(2)?).unwrap()
+print(third.callback(4)?).unwrap()
 "#,
         "13\n107\n15\n996\n",
     );
@@ -41,23 +60,24 @@ print(third.callback(4)).unwrap()
 
 #[test]
 fn tuple_closures_preserve_distinct_layouts_and_transfer_on_unpack() {
-    run(
+    run_checked(
         r#"
-def add(n: i64) -> Closure[[i64], i64]:
-    def [n](x: i64) -> i64:
-        n + x
-def subtract(n: i64) -> Closure[[i64], i64]:
+def add(n: i64) -> Closure[[i64], Result[i64, OverflowError[i64]]]:
+    def [n](x: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(n + x)
+def subtract(n: i64) -> Result[Closure[[i64], Result[i64, OverflowError[i64]]], OverflowError[i64]]:
     span = range(n, n + 3)
-    def [span](x: i64) -> i64:
-        span[1] - x
+    callback = def [span](x: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(span[1] - x)
+    Ok(callback)
 def pack[A, B](a: A, b: B) -> Result[tuple[A, B], AllocError]:
     Ok((a, b))
-pair = pack(add(10), subtract(30)).unwrap()
-print(pair[0](2)).unwrap()
-print(pair[1](3)).unwrap()
+pair = pack(add(10), subtract(30)?).unwrap()
+print(pair[0](2)?).unwrap()
+print(pair[1](3)?).unwrap()
 first, second = pair
-print(first(4)).unwrap()
-print(second(5)).unwrap()
+print(first(4)?).unwrap()
+print(second(5)?).unwrap()
 "#,
         "12\n28\n14\n26\n",
     );
@@ -65,59 +85,62 @@ print(second(5)).unwrap()
 
 #[test]
 fn tuple_callback_loans_are_disjoint_and_do_not_allow_owner_invalidation() {
-    run(
+    run_checked(
         r#"
-def counter(n: i64) -> Closure[[], i64]:
-    def [mut n]() -> i64:
+def counter(n: i64) -> Closure[[], Result[i64, OverflowError[i64]]]:
+    def [mut n]() -> Result[i64, OverflowError[i64]]:
         n = n + 1
-        n
+        Ok(n)
 mut pair = (counter(1), counter(10))
 first = &mut pair[0]
 second = &mut pair[1]
-print(first()).unwrap()
-print(second()).unwrap()
-print(pair[0]()).unwrap()
+print(first()?).unwrap()
+print(second()?).unwrap()
+print(pair[0]()?).unwrap()
 "#,
         "2\n11\n3\n",
     );
     for tail in [
-        "drop(pair)\nprint(callback()).unwrap()",
-        "print(pair[0]()).unwrap()\nprint(callback()).unwrap()",
+        "drop(pair)\nprint(callback()?).unwrap()",
+        "print(pair[0]()?).unwrap()\nprint(callback()?).unwrap()",
     ] {
         let source = format!(
-            "def counter(n: i64) -> Closure[[], i64]:\n    def [mut n]() -> i64:\n        n = n + 1\n        n\nmut pair = (counter(1), counter(2))\ncallback = &mut pair[0]\n{tail}\n"
+            "def counter(n: i64) -> Closure[[], Result[i64, OverflowError[i64]]]:\n    def [mut n]() -> Result[i64, OverflowError[i64]]:\n        n = n + 1\n        Ok(n)\nmut pair = (counter(1), counter(2))\ncallback = &mut pair[0]\n{tail}\n"
         );
-        let error = support::check_source(&source).unwrap_err().to_string();
+        let error = support::check_source(&checked_program(&source))
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("borrow"), "{error}");
     }
 }
 
 #[test]
 fn closure_lists_relocate_nested_environments_during_growth_reverse_and_pop() {
-    run(
+    run_checked(
         r#"
-def counter(n: i64) -> Closure[[], i64]:
+def counter(n: i64) -> Result[Closure[[], Result[i64, OverflowError[i64]]], OverflowError[i64]]:
     span = range(n, n + 3)
     inner = def [span]() -> i64:
         span[1]
     total = 0
-    def [inner, mut total]() -> i64:
+    callback = def [inner, mut total]() -> Result[i64, OverflowError[i64]]:
         total = total + 1
-        inner() + total
-mut callbacks = [counter(1)].unwrap()
+        Ok(inner() + total)
+    Ok(callback)
+mut callbacks = [counter(1)?].unwrap()
 for n in range(2, 60):
-    callbacks.append(counter(n)).unwrap()
+    callbacks.append(counter(n)?).unwrap()
 callbacks.reverse()
-print(callbacks[0]()).unwrap()
+print(callbacks[0]()?).unwrap()
 mut removed = callbacks.pop(0).unwrap()
-print(removed()).unwrap()
-print(callbacks[0]()).unwrap()
+print(removed()?).unwrap()
+print(callbacks[0]()?).unwrap()
 for callback in &mut callbacks:
-    callback()
-print(callbacks[0]()).unwrap()
-more = [counter(100), counter(200)].unwrap()
+    callback()?
+print(callbacks[0]()?).unwrap()
+more = [counter(100)?, counter(200)?].unwrap()
 callbacks.extend(more).unwrap()
-print(callbacks[-1]()).unwrap()
+print(callbacks[-1]()?).unwrap()
 "#,
         "61\n62\n60\n62\n202\n",
     );
@@ -155,28 +178,29 @@ for callback in owned:
 
 #[test]
 fn dictionary_callbacks_survive_growth_replacement_removal_and_update() {
-    run(
+    run_checked(
         r#"
-def make(n: i64) -> Closure[[], i64]:
+def make(n: i64) -> Result[Closure[[], i64], OverflowError[i64]]:
     span = range(n, n + 3)
-    def [span]() -> i64:
+    callback = def [span]() -> i64:
         span[1]
+    Ok(callback)
 def single[F](callback: F) -> Result[dict[i64, F], AllocError]:
     {0: callback}
-mut callbacks = single(make(10)).unwrap()
+mut callbacks = single(make(10)?).unwrap()
 for n in range(1, 60):
-    callbacks.insert(n, make(n)).unwrap()
+    callbacks.insert(n, make(n)?).unwrap()
 print(callbacks[59]()).unwrap()
-callbacks.insert(0, make(100)).unwrap()
+callbacks.insert(0, make(100)?).unwrap()
 removed = callbacks.pop(0).unwrap()
-callbacks.insert(0, make(200)).unwrap()
+callbacks.insert(0, make(200)?).unwrap()
 print(removed()).unwrap()
 print(callbacks[0]()).unwrap()
-replacement = {0: make(300), 70: make(400)}.unwrap()
+replacement = {0: make(300)?, 70: make(400)?}.unwrap()
 callbacks.update(replacement).unwrap()
 print(callbacks[0]()).unwrap()
 print(callbacks[70]()).unwrap()
-small = {n: make(n) for n in range(2)}.unwrap()
+small = {n: make(n)? for n in range(2)}.unwrap()
 for key, callback in small.items():
     print(callback()).unwrap()
 "#,
@@ -186,35 +210,36 @@ for key, callback in small.items():
 
 #[test]
 fn enum_callback_payloads_support_borrowed_invocation_and_owned_extraction() {
-    run(
+    run_checked(
         r#"
 enum Job[F]:
     Run(F)
     Empty
-def make(n: i64) -> Closure[[], i64]:
+def make(n: i64) -> Result[Closure[[], Result[i64, OverflowError[i64]]], OverflowError[i64]]:
     span = range(n, n + 3)
     total = 0
-    def [span, mut total]() -> i64:
+    callback = def [span, mut total]() -> Result[i64, OverflowError[i64]]:
         total = total + 1
-        span[1] + total
+        Ok(span[1] + total)
+    Ok(callback)
 def pack[F](callback: F) -> Result[Job[F], AllocError]:
     Ok(Job[F].Run(callback))
-def invoke[F](job: &mut Job[F]) -> i64:
+def invoke[F](job: &mut Job[F]) -> Result[i64, OverflowError[i64]]:
     match &mut job:
         case Job.Run(callback):
             callback()
         case Job.Empty:
-            0
-def consume[F](job: Job[F]) -> i64:
+            Ok(0)
+def consume[F](job: Job[F]) -> Result[i64, OverflowError[i64]]:
     match job:
         case Job.Run(callback):
             mut owned = callback
             owned()
         case Job.Empty:
-            0
-mut job = pack(make(10)).unwrap()
-print(invoke(&mut job)).unwrap()
-print(consume(job)).unwrap()
+            Ok(0)
+mut job = pack(make(10)?).unwrap()
+print(invoke(&mut job)?).unwrap()
+print(consume(job)?).unwrap()
 "#,
         "12\n13\n",
     );
@@ -252,32 +277,33 @@ print("__test_restore_allocations__").unwrap()
 
 #[test]
 fn finite_enum_registry_keeps_different_callback_layouts() {
-    run(
+    run_checked(
         r#"
 enum Choice[A, B]:
     Left(A)
     Right(B)
-def add(n: i64) -> Closure[[], i64]:
-    def [n]() -> i64:
-        n + 1
-def ranged(n: i64) -> Closure[[], i64]:
+def add(n: i64) -> Closure[[], Result[i64, OverflowError[i64]]]:
+    def [n]() -> Result[i64, OverflowError[i64]]:
+        Ok(n + 1)
+def ranged(n: i64) -> Result[Closure[[], i64], OverflowError[i64]]:
     span = range(n, n + 3)
-    def [span]() -> i64:
+    callback = def [span]() -> i64:
         span[2]
+    Ok(callback)
 def choose[A, B](a: A, b: B, left: bool) -> Result[Choice[A, B], AllocError]:
     if left:
         Ok(Choice[A, B].Left(a))
     else:
         Ok(Choice[A, B].Right(b))
-def invoke[A, B](job: &Choice[A, B]) -> i64:
+def invoke[A, B](job: &Choice[A, B]) -> Result[i64, OverflowError[i64]]:
     match &job:
         case Choice.Left(callback):
             callback()
         case Choice.Right(callback):
-            callback()
-jobs = [choose(add(10), ranged(20), True).unwrap(), choose(add(30), ranged(40), False).unwrap()].unwrap()
+            Ok(callback())
+jobs = [choose(add(10), ranged(20)?, True).unwrap(), choose(add(30), ranged(40)?, False).unwrap()].unwrap()
 for job in &jobs:
-    print(invoke(job)).unwrap()
+    print(invoke(job)?).unwrap()
 "#,
         "11\n42\n",
     );
@@ -407,14 +433,15 @@ print(value).unwrap()
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn pop_append_and_call_of_inline_list_callbacks_reuse_capacity() {
-    run(
+    run_checked(
         r#"
-def make(n: i64) -> Closure[[], i64]:
+def make(n: i64) -> Result[Closure[[], i64], OverflowError[i64]]:
     span = range(n, n + 3)
-    def [span]() -> i64:
+    callback = def [span]() -> i64:
         span[1]
-mut callbacks = [make(10), make(20)].unwrap()
-next_callback = make(30)
+    Ok(callback)
+mut callbacks = [make(10)?, make(20)?].unwrap()
+next_callback = make(30)?
 print("__test_begin_no_allocations__").unwrap()
 print("__test_fail_allocations_after_0__").unwrap()
 removed = callbacks.pop(0).unwrap()
@@ -462,7 +489,7 @@ fn stored_closures_retain_ownership_borrowing_and_comparison_limits() {
             "reference",
         ),
         (
-            "class Holder[T]:\n    item: T\nn = 1\nf = def [mut n]() -> i64:\n    n = n + 1\n    n\nh = Holder(f)\nh.item()\n",
+            "class Holder[T]:\n    item: T\nn = 1\nf = def [mut n]() -> Result[i64, OverflowError[i64]]:\n    n = n + 1\n    Ok(n)\nh = Holder(f)\nh.item()\n",
             "immutable",
         ),
         (

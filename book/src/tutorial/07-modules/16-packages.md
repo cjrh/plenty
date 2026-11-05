@@ -18,8 +18,8 @@ version = "0.1.0"
 pub class Square:
     pub side: i64
 
-    pub def area(self) -> i64:
-        self.side * self.side
+    pub def area(self) -> Result[i64, OverflowError[i64]]:
+        Ok(self.side * self.side)
 ```
 
 An application beside it declares the library as a dependency. The key under
@@ -43,9 +43,9 @@ geometry = { path = "../shapes" }
 import geometry
 from report import show
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     square = geometry.Square(4)
-    show(square.area())
+    show(square.area()?)
 ```
 
 Other files under `src/` are the package's own modules, imported as before:
@@ -120,11 +120,11 @@ under the package name, and passes when `main` returns exit status zero:
 ```plenty project-file shapes/tests/area.plenty
 from shapes import Square
 
-def main() -> i32:
-    if Square(3).area() == 9:
-        0
+def main() -> Result[i32, OverflowError[i64]]:
+    if Square(3).area()? == 9:
+        Ok(0i32)
     else:
-        1
+        Ok(1i32)
 ```
 
 ```sh plenty-project shapes

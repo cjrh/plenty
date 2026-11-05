@@ -23,14 +23,18 @@ pub class Trickle:
     pub step: i64
 
     pub def read(self: &mut Trickle, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
-        mut count = stop - start
-        if count > self.step:
-            count = self.step
-        if count > self.data.len() - self.at:
-            count = self.data.len() - self.at
-        buffer.overwrite(start, &self.data[self.at:self.at + count])
-        self.at += count
-        Ok(count)
+        if start < 0 or stop < start or stop > buffer.len() or self.at < 0 or self.at > self.data.len() or self.step < 1:
+            return Err(StreamError.InvalidProgress)
+        # Validated view endpoints; count <= remaining input and output room.
+        unchecked:
+            mut count = stop - start
+            if count > self.step:
+                count = self.step
+            if count > self.data.len() - self.at:
+                count = self.data.len() - self.at
+            buffer.overwrite(start, &self.data[self.at:self.at + count])
+            self.at += count
+            Ok(count)
 
 def unhex(digits: &str) -> Result[Bytes, AllocError | IoError | std.encoding.EncodingError]:
     Ok(std.encoding.hex_from_text(digits)?)
@@ -116,17 +120,26 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "{HEADER}\ndef main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.encoding.EncodingError | std.json.JsonError | ParseError | std.io.StreamError]:\n{body}    Ok(())\n"
+        "{HEADER}\ndef main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.encoding.EncodingError | std.json.JsonError | ParseError | std.io.StreamError | OverflowError[i64]]:\n{body}    Ok(())\n"
     )
 }
 
 /// Runs a program and shortens the qualified names in rendered values.
 fn output(source: &str) -> String {
+    output_with_optimization(source, false)
+}
+
+fn output_with_optimization(source: &str, optimize: bool) -> String {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("main.plenty");
     let executable = dir.path().join("program");
     std::fs::write(&path, source).unwrap();
-    plenty::compile_file_to_executable(&path, &executable, None)
+    let options = plenty::CompileOptions {
+        optimize,
+        test_hooks: true,
+        ..Default::default()
+    };
+    plenty::compile_file_to_executable_with_options(&path, &executable, None, &options)
         .unwrap_or_else(|error| panic!("{source}\n{error}"));
     let output = std::process::Command::new(executable).output().unwrap();
     assert!(
@@ -1013,17 +1026,23 @@ pub class Flaky:
     pub calls: i64
 
     pub def read(self: &mut Flaky, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
-        self.calls += 1
-        if self.calls % 2 == 1:
+        calls = checked:
+            self.calls + 1
+        self.calls = calls.map_error(def(e: OverflowError[i64]) -> StreamError: StreamError.OutOfRange)?
+        if self.calls & 1 == 1:
             return Err(StreamError.Interrupted)
         if self.at >= self.good:
             if self.lie:
-                return Ok(stop - start + 1)
+                lie = checked:
+                    stop - start + 1
+                return lie.map_error(def(e: OverflowError[i64]) -> StreamError: StreamError.OutOfRange)
             return Err(StreamError.Io(IoError.Closed))
         if self.at >= self.data.len():
             return Ok(0)
-        buffer.overwrite(start, &self.data[self.at:self.at + 1])
-        self.at += 1
+        # The fixture starts at zero and the end check bounds its next byte.
+        unchecked:
+            buffer.overwrite(start, &self.data[self.at:self.at + 1])
+            self.at += 1
         Ok(1)
 
 # Accepts one byte per call and fails once `room` bytes have arrived.
@@ -1312,7 +1331,7 @@ def encode_point(encoder: &mut std.json.Encoder, point: &Point) -> Result[(), Js
     encoder.integer(point.y)?
     encoder.end_array()
 
-def attempt(text: &str) -> Result[(), AllocError | IoError | std.bytes.BytesError | std.json.JsonError]:
+def attempt(text: &str) -> Result[(), AllocError | IoError | std.bytes.BytesError | std.json.JsonError | OverflowError[i64]]:
     bounds = std.json.limits()
     source = std.bytes.from_text(text)?
     mut decoder = std.json.decoder(&bounds)?
@@ -1327,7 +1346,7 @@ def attempt(text: &str) -> Result[(), AllocError | IoError | std.bytes.BytesErro
             print(placed(&error)?)?
     Ok(())
 
-def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.json.JsonError]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.json.JsonError | OverflowError[i64]]:
     attempt(" [3, -4]")?
     attempt("[3, 4.5]")?
     attempt("[3, \"4\"]")?
@@ -1639,4 +1658,75 @@ fn the_regression_corpus_keeps_its_verdicts() {
     }
     assert!(inputs.len() >= 60, "corpus shrank to {}", inputs.len());
     agrees_with_reference(&inputs);
+}
+
+#[test]
+fn advanced_position_preserves_json_faults_at_representation_limits_without_allocating() {
+    let library = include_str!("../stdlib/std/json.plenty");
+    let helper = library[library.find("def advanced_position(").unwrap()..]
+        .split("\n\n")
+        .next()
+        .unwrap();
+    let source = format!(
+        r#"{HEADER}
+{helper}
+
+def input_too_large(result: Result[(i64, i64, i64), JsonFault]) -> bool:
+    match result:
+        case Err(JsonFault.InputTooLarge):
+            True
+        case _:
+            False
+
+def main() -> Result[(), IoError]:
+    print("__test_fail_allocations_after_0__")?
+    print("__test_begin_no_allocations__")?
+    last = advanced_position(9223372036854775806, 1, 9223372036854775806, 1, True, False).unwrap()
+    offset = input_too_large(advanced_position(i64.MAX, 1, 1, 1, True, False))
+    column = input_too_large(advanced_position(0, 1, i64.MAX, 1, True, False))
+    line = input_too_large(advanced_position(0, i64.MAX, 1, 1, True, True))
+    run = input_too_large(advanced_position(0, 1, 9223372036854775806, 2, True, False))
+    continuation = advanced_position(0, i64.MAX, i64.MAX, 1, False, False).unwrap()
+    newline = advanced_position(0, 9223372036854775806, i64.MAX, 1, True, True).unwrap()
+    print("__test_restore_allocations__")?
+    print("__test_end_no_allocations__")?
+    print(last, offset, column, line, run)?
+    print(continuation, newline)?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            "(9223372036854775807, 1, 9223372036854775807) True True True True\n(1, 9223372036854775807, 9223372036854775807) (1, 9223372036854775807, 1)"
+        );
+    }
+}
+
+#[test]
+fn maximum_json_budgets_keep_utf8_and_surrogate_diagnostics() {
+    let source = program(
+        r#"
+mut bounds = std.json.limits()
+bounds.max_input = NonNegative.try_from(i64.MAX).unwrap()
+bounds.max_output = NonNegative.try_from(i64.MAX).unwrap()
+check("225c75303030305c75643830305c75646330305c75646266665c756466666622", &bounds)?
+check("225c75643830305c756462666622", &bounds)?
+check("22f490808022", &bounds)?
+mut encoder = std.json.encoder(&bounds)?
+encoder.start_array()?
+encoder.integer(i64.MIN)?
+first = encoder.take()?
+encoder.unsigned(u64.MAX)?
+encoder.end_array()?
+second = encoder.take()?
+print(first.to_text()?, second.to_text()?, encoder.written(), encoder.pending())?
+"#,
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            "\"\\u0000\u{10000}\u{10ffff}\"\nInvalidSurrogate 12 1 13\nInvalidUtf8 2 1 3\n[-9223372036854775808 ,18446744073709551615] 43 0"
+        );
+    }
 }

@@ -324,3 +324,55 @@ fn rotation_source(source: &str, settings: &[(&str, &str)]) {
         }
     }
 }
+
+#[test]
+fn plaintext_room_does_not_overflow_when_rounding_record_counts() {
+    let tls = include_str!("../stdlib/std/actor/tls.plenty");
+    let constants = tls
+        .split("const record_overhead:")
+        .nth(1)
+        .unwrap()
+        .split("# One TLS connection")
+        .next()
+        .unwrap();
+    let helper = &tls[tls.find("def plaintext_room(").unwrap()..];
+    let source = format!(
+        r#"const record_overhead:{constants}
+{helper}
+def main() -> Result[(), IoError]:
+    print("__test_begin_no_allocations__")?
+    a = plaintext_room(0)
+    b = plaintext_room(31)
+    c = plaintext_room(32)
+    d = plaintext_room(33)
+    e = plaintext_room(16384)
+    f = plaintext_room(16385)
+    g = plaintext_room(i64.MAX)
+    print("__test_end_no_allocations__")?
+    print(a, b, c, d, e, f, g)?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("main.plenty");
+        let executable = dir.path().join("program");
+        std::fs::write(&input, &source).unwrap();
+        let options = plenty::CompileOptions {
+            optimize,
+            test_hooks: true,
+            ..Default::default()
+        };
+        plenty::compile_file_to_executable_with_options(&input, &executable, None, &options)
+            .unwrap_or_else(|error| panic!("{source}\n{error}"));
+        let output = Command::new(executable).output().unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let actual = stdout
+            .lines()
+            .filter(|line| !line.starts_with("__test_"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(actual, "0 0 0 1 16352 16321 9205357638345293823");
+    }
+}

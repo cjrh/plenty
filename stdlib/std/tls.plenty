@@ -456,7 +456,9 @@ pub class TlsStream:
     # once the last batch is sent.
     def outgoing(self: &mut TlsStream) -> Result[i64, TlsError]:
         if self._out_start < self._out_stop:
-            return Ok(self._out_stop - self._out_start)
+            # Both cursors are ordered offsets in the fixed ciphertext buffer.
+            unchecked:
+                return Ok(self._out_stop - self._out_start)
         self._out_start = 0
         self._out_stop = 0
         if (__tls_state(self._session) & wants_write) == 0:
@@ -468,7 +470,10 @@ pub class TlsStream:
         while True:
             if self.outgoing()? == 0:
                 return Ok(())
-            self._out_start += net(self._tcp.write_before(&self._outgoing[self._out_start:self._out_stop], deadline, cancel))?
+            written = net(self._tcp.write_before(&self._outgoing[self._out_start:self._out_stop], deadline, cancel))?
+            # TCP consumes at most the remaining ciphertext buffer.
+            unchecked:
+                self._out_start += written
         Ok(())
 
     def flush_blocking(self: &mut TlsStream) -> Result[(), StreamError]:
@@ -478,7 +483,9 @@ pub class TlsStream:
             written = self._tcp.write(&self._outgoing[self._out_start:self._out_stop])?
             if written == 0:
                 return Err(StreamError.WriteZero)
-            self._out_start += written
+            # TCP consumes at most the remaining ciphertext buffer.
+            unchecked:
+                self._out_start += written
         Ok(())
 
     # Feeds buffered ciphertext; false when none is buffered.
@@ -486,7 +493,9 @@ pub class TlsStream:
         if self._in_start == self._in_stop:
             return Ok(False)
         used = counted(fed(&self._session, &self._incoming[self._in_start:self._in_stop]))?
-        self._in_start += used
+        # rustls consumes at most the pending input slice.
+        unchecked:
+            self._in_start += used
         if self._acknowledge_handshake:
             self.acknowledge_handshake()
         Ok(True)
@@ -599,7 +608,9 @@ pub class TlsStream:
                 return Ok(True)
             match self._tcp.write_now(&self._outgoing[self._out_start:self._out_stop]):
                 case Ok(count):
-                    self._out_start += count
+                    # TCP consumes at most the remaining ciphertext buffer.
+                    unchecked:
+                        self._out_start += count
                 case Err(NetError.WouldBlock) | Err(NetError.Stream(StreamError.Interrupted)):
                     return Ok(False)
                 case Err(error):
@@ -683,7 +694,10 @@ pub class TlsStream:
     pub def write_all_before(self: &mut TlsStream, source: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), TlsError]:
         mut at = 0
         while at < len(source):
-            at += self.write_before(&source[at:], deadline, cancel)?
+            count = self.write_before(&source[at:], deadline, cancel)?
+            # Encryption consumes at most the remaining source slice.
+            unchecked:
+                at += count
         Ok(())
 
     # Sends close_notify, then closes the TCP stream. The peer's own

@@ -5,7 +5,7 @@ length is known; the list must contain exactly as many elements as targets.
 The statement moves its elements, and `_` discards an element.
 
 ```plenty
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     first, second = "north east".split(" ")?
     print(first, second, 2)?
     mut visits = dict[(i64, i64), i64].new()?

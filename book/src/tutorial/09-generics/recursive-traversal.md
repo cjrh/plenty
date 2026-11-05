@@ -13,26 +13,27 @@ pub class Node[T]:
 ```plenty
 import links
 
-def total(node: &links.Node[i64]) -> i64:
+def total(node: &links.Node[i64]) -> Result[i64, OverflowError[i64]]:
     match &node.next:
         case Some(next):
-            node.value + total(next)
+            Ok(node.value + total(next)?)
         case Nothing:
-            node.value
+            Ok(node.value)
 
-def increment(node: &mut links.Node[i64]) -> ():
+def increment(node: &mut links.Node[i64]) -> Result[(), OverflowError[i64]]:
     node.value = node.value + 1
     match &mut node.next:
         case Some(next):
-            increment(next)
+            return increment(next)
         case Nothing:
             pass
+    Ok(())
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut chain = links.Node[i64](3, Some(Box(links.Node[i64](6, Nothing))?))
-    print(total(&chain))?
-    increment(&mut chain)
-    print(total(&chain))?
+    print(total(&chain)?)?
+    increment(&mut chain)?
+    print(total(&chain)?)?
     print(chain.value)?
     Ok(())
 ```
@@ -59,7 +60,7 @@ class Node:
     value: i64
     next: Option[Box[Node]]
 
-def total(head: &Node) -> i64:
+def total(head: &Node) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     mut node = head
     while True:
@@ -69,9 +70,9 @@ def total(head: &Node) -> i64:
                 node = next
             case Nothing:
                 break
-    sum
+    Ok(sum)
 
-def increment(head: &mut Node) -> ():
+def increment(head: &mut Node) -> Result[(), OverflowError[i64]]:
     mut node = head
     while True:
         node.value = node.value + 1
@@ -80,11 +81,12 @@ def increment(head: &mut Node) -> ():
                 node = next
             case Nothing:
                 break
+    Ok(())
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut chain = Node(3, Some(Box(Node(6, Nothing))?))
-    increment(&mut chain)
-    print(total(&chain))?
+    increment(&mut chain)?
+    print(total(&chain)?)?
     Ok(())
 ```
 

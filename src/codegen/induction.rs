@@ -14,12 +14,16 @@
 //! A counted `for i in range(...)` loop gets the same two facts by a different
 //! argument; see [`RangeLoop`].
 //!
+//! A step is a trapping `Add`/`Sub` or, in a function with a Result
+//! contract, the same `CheckedArith`; the proofs hold for both.
+//!
 //! The analysis matches operations structurally and gives up on anything it
 //! does not recognize. It applies only to counters held in CLIF variables, so
 //! no reference can write them behind the operations' back.
 use cranelift_codegen::ir::{DataFlowGraph, Value};
 
 use crate::hash::HashSet;
+use crate::numeric::Checked as Arith;
 use crate::op::{Op, Ty};
 
 /// What the analysis proved about one loop's counter.
@@ -218,9 +222,9 @@ pub(super) fn analyze_range(condition: &[Op], body: &[Op]) -> Option<RangeLoop> 
         .filter(|&index| {
             let mut before = body[..index].iter().rev().filter(|op| !transparent(op));
             matches!(
-                (&body[index], before.next(), before.next()),
-                (Op::Add, Some(Op::PushInt(k)), Some(Op::LoadLocal(i)))
-                    | (Op::Add, Some(Op::LoadLocal(i)), Some(Op::PushInt(k)))
+                (arith_kind(&body[index]), before.next(), before.next()),
+                (Some(Arith::Add), Some(Op::PushInt(k)), Some(Op::LoadLocal(i)))
+                    | (Some(Arith::Add), Some(Op::LoadLocal(i)), Some(Op::PushInt(k)))
                     if *i == target && literal(*k) == 1
             )
         })
@@ -268,9 +272,7 @@ fn only_steps(ops: &[Op], slots: &[u8], step: &[Op]) -> bool {
                     && nested(otherwise)
             }
             Op::Match(arms) => arms.iter().all(|arm| nested(&arm.body)),
-            Op::Try { cleanup, .. }
-            | Op::CheckedArith { cleanup, .. }
-            | Op::CheckedUnwrap { cleanup, .. } => nested(cleanup),
+            Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => nested(cleanup),
             Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => nested(body),
             _ => true,
         };
@@ -433,9 +435,9 @@ fn writes_are_steps(ops: &[Op], local: u8, only_grows: &mut bool) -> bool {
             Op::Match(arms) => arms
                 .iter()
                 .all(|arm| writes_are_steps(&arm.body, local, only_grows)),
-            Op::Try { cleanup, .. }
-            | Op::CheckedArith { cleanup, .. }
-            | Op::CheckedUnwrap { cleanup, .. } => writes_are_steps(cleanup, local, only_grows),
+            Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => {
+                writes_are_steps(cleanup, local, only_grows)
+            }
             Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
                 writes_are_steps(body, local, only_grows)
             }
@@ -478,9 +480,7 @@ fn writes_nested(op: &Op, local: u8) -> bool {
                     .any(|arm| any(&arm.condition) || any(&arm.body))
         }
         Op::Match(arms) => arms.iter().any(|arm| any(&arm.body)),
-        Op::Try { cleanup, .. }
-        | Op::CheckedArith { cleanup, .. }
-        | Op::CheckedUnwrap { cleanup, .. } => any(cleanup),
+        Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => any(cleanup),
         Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => any(body),
         _ => false,
     }
@@ -502,17 +502,30 @@ fn step(ops: &[Op], store: usize, local: u8) -> Option<(usize, i128)> {
     let (arith, operation) = before.next()?;
     let (_, second) = before.next()?;
     let (_, first) = before.next()?;
-    let delta = match (operation, first, second) {
-        (Op::Add, Op::LoadLocal(i), Op::PushInt(k))
-        | (Op::Add, Op::PushInt(k), Op::LoadLocal(i))
+    let delta = match (arith_kind(operation)?, first, second) {
+        (Arith::Add, Op::LoadLocal(i), Op::PushInt(k))
+        | (Arith::Add, Op::PushInt(k), Op::LoadLocal(i))
             if *i == local =>
         {
             literal(*k)
         }
-        (Op::Sub, Op::LoadLocal(i), Op::PushInt(k)) if *i == local => -literal(*k),
+        (Arith::Sub, Op::LoadLocal(i), Op::PushInt(k)) if *i == local => -literal(*k),
         _ => return None,
     };
     Some((arith, delta))
+}
+
+/// The addition or subtraction `op` performs, trapping or Result-checked.
+/// A proven step cannot fail, so both lower to a plain add or subtract.
+fn arith_kind(op: &Op) -> Option<Arith> {
+    match op {
+        Op::Add => Some(Arith::Add),
+        Op::Sub => Some(Arith::Sub),
+        Op::CheckedArith { operation, .. } if matches!(operation, Arith::Add | Arith::Sub) => {
+            Some(*operation)
+        }
+        _ => None,
+    }
 }
 
 /// Whether `value` is computed from constants and nonnegative at its width.

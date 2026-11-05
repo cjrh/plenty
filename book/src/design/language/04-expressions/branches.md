@@ -45,16 +45,16 @@ assignment, or follow `return`. Its selected suite's final expression supplies
 the value:
 
 ```plenty
-def classify(flag: bool) -> i64:
+def classify(flag: bool) -> Result[i64, OverflowError[i64]]:
     result = if flag:
         base = 10
         base + 1
     else:
         2
-    result * 2
+    Ok(result * 2)
 
-def main() -> Result[(), IoError]:
-    print(classify(True), classify(False))?
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(classify(True)?, classify(False)?)?
     Ok(())
 ```
 ```output

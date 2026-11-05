@@ -5,6 +5,8 @@ Delivery history and retired backlog entries live here, separate from the
 
 - [Language and tooling](completed-work/language-and-tooling.md): language
   foundations, ownership, calls, project tooling and concurrency.
+- [Checked-default validation](completed-work/checked-default-validation.md):
+  branch-scoped semantic/native qualification, controlled measurements and limits.
 - [Libraries and applications](completed-work/libraries.md): shipped library
   slices, HTTP acceptance, dataframes, plotting and actors.
 - [Compiler performance and SIMD](completed-work/performance.md): delivered

@@ -15,7 +15,7 @@ python3 -B examples/finder/check.py -v
 
 The program processes one UTF-8 path per line. It borrows strings while matching,
 avoids allocating basename slices, and preserves concrete I/O errors through
-`Result[i32, IoError]`. `?` in a glob matches one Unicode scalar. Matching is
+`Result[i32, IoError | OverflowError[i64]]`. `?` in a glob matches one Unicode scalar. Matching is
 case-sensitive; omitted patterns match all nonempty visible paths.
 
 Without `--paths`, the finder searches `[PATTERN [ROOT]]`, defaulting to `.`.

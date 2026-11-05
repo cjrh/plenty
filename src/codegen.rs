@@ -1556,8 +1556,7 @@ fn collect_str_ids<'a>(
             }
             Op::CheckedBlock { body, .. }
             | Op::CheckedFunction { body, .. }
-            | Op::CheckedArith { cleanup: body, .. }
-            | Op::CheckedUnwrap { cleanup: body, .. } => {
+            | Op::CheckedArith { cleanup: body, .. } => {
                 collect_str_ids(body, out, seen, matches);
             }
             Op::PushStr(id) | Op::PushBytes(id) if seen.insert(*id, ()).is_none() => out.push(*id),
@@ -1773,9 +1772,9 @@ fn mark_borrowed_locals(ops: &[Op], addressed: &mut [bool]) {
                 }
                 mark_borrowed_locals(otherwise, addressed);
             }
-            Op::Try { cleanup, .. }
-            | Op::CheckedArith { cleanup, .. }
-            | Op::CheckedUnwrap { cleanup, .. } => mark_borrowed_locals(cleanup, addressed),
+            Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => {
+                mark_borrowed_locals(cleanup, addressed)
+            }
             Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
                 mark_borrowed_locals(body, addressed)
             }
@@ -1925,7 +1924,6 @@ fn build_user_function(
             terminated: false,
             loop_targets: Vec::new(),
             checked_targets: Vec::new(),
-            checked_function: None,
             generator: None,
             local_frame,
             return_storage,
@@ -2051,7 +2049,6 @@ fn build_main(
             terminated: false,
             loop_targets: Vec::new(),
             checked_targets: Vec::new(),
-            checked_function: None,
             generator: None,
             local_frame: None,
             return_storage: None,
@@ -2224,7 +2221,6 @@ struct Lowerer<'a, 'b> {
     /// The last entry is the innermost `checked:` block: its exit, which
     /// takes the block's `Result`, and the stack depth at its start.
     checked_targets: Vec<checked::Target>,
-    checked_function: Option<Ty>,
     generator: Option<GeneratorContext>,
     local_frame: Option<LocalFrame>,
     return_storage: Option<cranelift_codegen::ir::Value>,
@@ -2481,13 +2477,8 @@ impl Lowerer<'_, '_> {
                 target,
                 cleanup,
             } => self.lower_try(source, target, cleanup)?,
-            Op::CheckedBlock { body, result } => self.lower_checked_block(body, result)?,
-            Op::CheckedFunction { body, result } => {
-                let outer = self.checked_function.replace(result.clone());
-                self.lower_checked_block(body, result)?;
-                self.checked_function = outer;
-            }
-            Op::CheckedUnwrap { result, cleanup } => self.lower_checked_unwrap(result, cleanup)?,
+            Op::CheckedBlock { body, result } => self.lower_checked_block(body, result, false)?,
+            Op::CheckedFunction { body, result } => self.lower_checked_block(body, result, true)?,
             Op::CheckedArith {
                 operation,
                 ty,
@@ -2785,7 +2776,6 @@ impl Lowerer<'_, '_> {
                     self.complete_generator();
                     return Ok(());
                 }
-                self.wrap_checked_return()?;
                 self.leave(self.stack.clone(), &Arc::from([]))?;
                 self.terminated = true;
             }
@@ -2966,8 +2956,16 @@ impl Lowerer<'_, '_> {
     fn lower_proven_step(&mut self, op: &Op) -> Result<()> {
         let (a, b, ty) = self.pop_int_pair()?;
         let result = match op {
-            Op::Add => self.bcx.ins().iadd(a, b),
-            Op::Sub => self.bcx.ins().isub(a, b),
+            Op::Add
+            | Op::CheckedArith {
+                operation: crate::numeric::Checked::Add,
+                ..
+            } => self.bcx.ins().iadd(a, b),
+            Op::Sub
+            | Op::CheckedArith {
+                operation: crate::numeric::Checked::Sub,
+                ..
+            } => self.bcx.ins().isub(a, b),
             _ => return Err("AOT: proven loop step is not an add or subtract".into()),
         };
         self.stack.push((result, ty));
@@ -4175,7 +4173,11 @@ mod native_target_tests {
         // carries those words through pointers, including callback results.
         let source = r#"
 def key(value: &i64) -> i64:
-    -*value
+    # Keep the plain native callback ABI. The fixture sorts MAX-1, 42 and -7,
+    # never MIN; assert that their negations succeed locally.
+    result = checked:
+        -*value
+    result.unwrap()
 
 def count(stop: i64) -> Generator[i64]:
     for value in range(stop):

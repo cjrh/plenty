@@ -6,7 +6,10 @@ parts. They take the same listener, factory, configuration and stop token as
 the complete-request entry points, and return `Result[Report, ServerError]`.
 The TLS form additionally owns a `std.tls.ServerConfig`.
 
-The factory creates one mutable `Handler[M, E]` per connection:
+The factory creates one mutable `Handler[M, E]` per connection. Its callbacks
+and helper functions retain their own arithmetic contracts: include escaping
+integer arithmetic errors in their declared result errors, independently of the
+server's `ServerError` contract.
 
 ```text
 def receive(self: &mut H, event: Event[M], response: &mut Response,
@@ -69,8 +72,11 @@ All whole-response operations return `Result[(), ServerError]`. `start` and
 `respond` consume their heads; a failed call does not return the head for retry.
 Byte inputs are borrowed and accepted bytes are copied into the bounded queue.
 
-A short successful `write` is back-pressure. Retain the suffix and resume it
-on `Writable`; do not call `finish` until every intended byte was accepted.
+A successful `write` returns `0 <= count <= len(source)`. A short successful
+write is back-pressure. Retain the suffix and resume it on `Writable`; do not
+call `finish` until every intended byte was accepted. For an output offset
+with `0 <= offset <= body.len()`, adding the accepted count from `body[offset:]`
+stays within that same bound. Update the offset only after a successful write.
 Do not spin on a zero-byte write. Transport progress drives subsequent events,
 and request decoding pauses when response capacity is exhausted. Application
 state needs its own bound too: a callback must not keep appending to a separate

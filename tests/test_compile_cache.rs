@@ -19,15 +19,15 @@ fn plenty() -> Command {
 
 const PROGRAM: &str = "import std.json
 
-def total(items: &list[i64]) -> i64:
+def total(items: &list[i64]) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     for item in items:
         sum = sum + item
-    sum
+    Ok(sum)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     items = [1, 2, 3]?
-    print(total(&items))?
+    print(total(&items)?)?
     table: dict[str, i64] = {}?
     print(table)?
     Ok(())
@@ -1058,19 +1058,19 @@ fn native_mold_lld_and_gnu_linkers_still_reuse_executables() {
 const MAIN: &str = "import util
 import std.json
 
-def main() -> Result[(), IoError]:
-    print(util.double(21))?
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(util.double(21)?)?
     Ok(())
 ";
 
 const UTIL: &str = "import helpers
 
-pub def double(n: i64) -> i64:
+pub def double(n: i64) -> Result[i64, OverflowError[i64]]:
     helpers.twice(n)
 ";
 
-const HELPERS: &str = "pub def twice(n: i64) -> i64:
-    n + n
+const HELPERS: &str = "pub def twice(n: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(n + n)
 ";
 
 /// A three-module program in a directory of its own.
@@ -1199,8 +1199,8 @@ fn editing_any_module_rebuilds_the_program() {
         // An interface edit, with the caller changed to match.
         (
             "util.plenty",
-            "pub def double(n: i64) -> i64:\n    helpers.twice(n)",
-            "pub def double(n: i64, m: i64) -> i64:\n    helpers.twice(n) + m",
+            "pub def double(n: i64) -> Result[i64, OverflowError[i64]]:\n    helpers.twice(n)",
+            "pub def double(n: i64, m: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(helpers.twice(n)? + m)",
         ),
         ("main.plenty", "util.double(21)", "util.double(21, 0)"),
         // An edit to the entry that adds an import.

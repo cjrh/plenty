@@ -128,7 +128,7 @@ import std.bytes
 
 def ends_line(line: &[u8]) -> bool:
     count = len(line)
-    count >= 2 and line[count - 2] == 13u8 and line[count - 1] == 10u8
+    count >= 2 and line[-2] == 13u8 and line[-1] == 10u8
 
 def main() -> Result[(), AllocError | std.bytes.BytesError | IoError]:
     mut head = std.bytes.from_text("Host: example")?
@@ -208,6 +208,13 @@ without a `get` call per byte.
   sequence that `stop` cuts short.
 
 ## The range rule
+
+Internal index arithmetic uses small explicit `unchecked:` regions only where
+validated ranges or native scan bounds prove the result fits in `i64`.
+Growable sizes remain native allocation results, and invalid ranges still trap
+before native access. This does not make caller arithmetic
+unchecked: index updates such as `buffer[i] += 1u8` follow the caller's ordinary
+arithmetic contract.
 
 Every range must satisfy `0 <= start <= stop <= len`, and every index passed to
 a method `0 <= index < len`. Methods have no negative indexing and no clamping,

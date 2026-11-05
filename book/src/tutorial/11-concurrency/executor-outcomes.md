@@ -5,9 +5,10 @@ failure or cancellation. Retrieve its result, then handle the application result
 
 ```plenty
 def divide(value: i64) -> Result[i64, str]:
-    if value == 0:
-        return Err("zero divisor")
-    Ok(24 // value)
+    divisor = NonZero.try_from(value).map_error(def(error: RangeError) -> str: "zero divisor")?
+    # 24 // a nonzero i64 cannot overflow: the dividend is not i64.MIN.
+    unchecked:
+        Ok(24 // divisor)
 
 type PoolJobError = PoolMapError | FutureError | SubmitError[()] | PoolError
 

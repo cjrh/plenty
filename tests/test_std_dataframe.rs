@@ -458,3 +458,76 @@ def main() -> Result[(), df.DataFrameError | AllocError | IoError]:
             .unwrap(),
     );
 }
+
+#[test]
+fn extent_add_checks_representation_limits_without_engine_or_allocation() {
+    let library = include_str!("../stdlib/std/dataframe.plentyi");
+    let helper = library[library.find("def extent_add(").unwrap()..]
+        .split("\n\n")
+        .next()
+        .unwrap();
+    let source = format!(
+        r#"
+enum DataFrameError:
+    Allocation(AllocError)
+
+{helper}
+
+def capacity_error(value: Result[i64, DataFrameError]) -> bool:
+    match value:
+        case Err(DataFrameError.Allocation(AllocError.CapacityOverflow)):
+            True
+        case _:
+            False
+
+def main() -> Result[(), IoError]:
+    print("__test_begin_no_allocations__")?
+    empty = extent_add(0, 1).unwrap() == 1
+    last = extent_add(i64.MAX, 0).unwrap() == i64.MAX
+    boundary = extent_add(9223372036854775806, 1).unwrap() == i64.MAX
+    overflow = capacity_error(extent_add(i64.MAX, 1))
+    packed = capacity_error(extent_add(9223372036854775806, 2))
+    print("__test_end_no_allocations__")?
+    print(empty, last, boundary, overflow, packed)?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let input = temp.path().join("main.plenty");
+        let binary = temp.path().join("program");
+        std::fs::write(&input, &source).unwrap();
+        let options = plenty::CompileOptions {
+            optimize,
+            test_hooks: true,
+            ..Default::default()
+        };
+        plenty::compile_file_to_executable_with_options(&input, &binary, None, &options).unwrap();
+        let output = assert_success(Command::new(binary).output().unwrap());
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(stdout.contains("True True True True True\n"), "{stdout}");
+    }
+}
+
+#[test]
+fn dataframe_fixtures_typecheck_without_optional_engine() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let mut paths = std::fs::read_dir(root)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.extension().is_some_and(|ext| ext == "plenty")
+                && path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("dataframe")
+        })
+        .collect::<Vec<_>>();
+    paths.sort();
+    assert!(!paths.is_empty());
+    for path in paths {
+        plenty::check_file(&path, None)
+            .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+    }
+}

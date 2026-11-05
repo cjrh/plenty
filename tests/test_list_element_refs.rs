@@ -12,9 +12,10 @@ const PROGRAM: &str = r#"class Point:
     x: i64
     y: i64
 
-def bump(xs: &mut list[i64], i: i64) -> ():
+def bump(xs: &mut list[i64], i: i64) -> Result[(), OverflowError[i64]]:
     r = &mut xs[i]
     *r = *r + 1
+    Ok(())
 
 def pick(xs: &list[str], i: i64) -> &str:
     &xs[i]
@@ -23,9 +24,10 @@ def rename(xs: &mut list[str], i: i64, name: str) -> ():
     r = &mut xs[i]
     *r = name
 
-def shift(points: &mut list[Point], i: i64) -> ():
+def shift(points: &mut list[Point], i: i64) -> Result[(), OverflowError[i64]]:
     p = &mut points[i]
     p.x = p.x + p.y
+    Ok(())
 
 def toggle(flags: &mut list[bool], i: i64) -> ():
     f = &mut flags[i]
@@ -39,9 +41,10 @@ def halve(values: &mut list[f32], i: i64) -> ():
     v = &mut values[i]
     *v = *v / 2.0f32
 
-def scale(grid: &mut list[list[i64]], i: i64, j: i64) -> ():
+def scale(grid: &mut list[list[i64]], i: i64, j: i64) -> Result[(), OverflowError[i64]]:
     c = &mut grid[i][j]
     *c = *c * 100
+    Ok(())
 
 def element(xs: &list[i64], i: i64) -> &i64:
     &xs[i]
@@ -49,10 +52,10 @@ def element(xs: &list[i64], i: i64) -> &i64:
 def read(value: &i64) -> i64:
     *value
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut xs = [1, 2, 3]?
-    bump(&mut xs, 0)
-    bump(&mut xs, -1)
+    bump(&mut xs, 0)?
+    bump(&mut xs, -1)?
     print(xs, read(element(&xs, 1)), *element(&xs, -3))?
     r = &xs[2]
     print(*r)?
@@ -65,7 +68,7 @@ def main() -> Result[(), AllocError | IoError]:
     print(names, len(*pick(&names, 1)))?
 
     mut points = [Point(1, 2), Point(3, 4)]?
-    shift(&mut points, -1)
+    shift(&mut points, -1)?
     print(points[0].x, points[1].x)?
 
     mut flags = [True, False]?
@@ -80,8 +83,8 @@ def main() -> Result[(), AllocError | IoError]:
 
     # Growing an inner list does not move the outer list's rows.
     mut grid = [[1, 2]?, [3]?]?
-    scale(&mut grid, 0, 1)
-    scale(&mut grid, -1, -1)
+    scale(&mut grid, 0, 1)?
+    scale(&mut grid, -1, -1)?
     inner = &mut grid[1]
     for i in range(100):
         inner.append(i)?

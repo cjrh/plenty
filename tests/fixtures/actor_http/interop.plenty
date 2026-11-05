@@ -12,7 +12,7 @@ from std.http import HttpError
 from std.sync import CancellationToken
 from std.thread import spawn
 
-type Error = ServerError | BytesError | HttpError | AllocError
+type Error = ServerError | BytesError | HttpError | AllocError | OverflowError[i64]
 
 pub class App:
     pub route: i64
@@ -23,7 +23,10 @@ pub class App:
     pub def pump(self: &mut App, response: &mut Response) -> Result[(), Error]:
         while self.at < self.body.len():
             count = response.write(&self.body[self.at:])?
-            self.at += count
+            # write returns 0..source.len(); source is body[at:], so the
+            # consumed prefix stays in 0..body.len(), including short writes.
+            unchecked:
+                self.at += count
             if count == 0:
                 return Ok(())
         response.finish()?

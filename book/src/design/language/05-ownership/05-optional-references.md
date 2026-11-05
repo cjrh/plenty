@@ -19,7 +19,7 @@ def find(items: &mut list[Item], name: &str) -> Option[&mut Item]:
             return Some(item)
     Nothing
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut items = [Item("ada", 1)]?
     match find(&mut items, "bob"):
         case Some(item):

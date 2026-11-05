@@ -78,6 +78,15 @@ fn plain(e: &Expr, bound: &HashSet<String>, enclosing: &HashMap<String, Local>) 
     let free = |name: &String| bound.contains(name) || !enclosing.contains_key(name);
     let all = |values: &[Expr]| values.iter().all(|v| plain(v, bound, enclosing));
     match &e.kind {
+        // Arithmetic must validate and leave the callback's own boundary,
+        // never the lexical mode at the consumer.
+        Expression::Unary(operator, _) if operator == "-" => false,
+        Expression::Binary(operator, _, _)
+            if matches!(operator.as_str(), "+" | "-" | "*" | "//" | "%") =>
+        {
+            false
+        }
+        Expression::Method(_, name, _, _) if name == "pow" => false,
         Expression::Try(_)
         | Expression::Anonymous(_)
         | Expression::Match(..)
@@ -255,7 +264,7 @@ impl Lower<'_> {
         match callback {
             Callback::Value(e) => self
                 .expression_type_hint(e)
-                .is_some_and(|ty| ty.contains_reference() || ty.checked_closure()),
+                .is_some_and(|ty| ty.contains_reference()),
             Callback::Spliced(splice) => splice
                 .environment
                 .iter()
@@ -338,9 +347,7 @@ impl Lower<'_> {
             };
             self.bind(env.name.clone(), local);
         }
-        let checked = std::mem::take(&mut self.checked);
         let result = self.expr_expected(&splice.body, splice.output.clone(), ops);
-        self.checked = checked;
         self.names = names;
         self.captures = captures;
         self.source_tail = tail;

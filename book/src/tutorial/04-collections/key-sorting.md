@@ -12,14 +12,14 @@ class Point:
 def horizontal(point: &Point) -> i64:
     point.x
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut points = [Point(3, 1), Point(1, 2), Point(2, 4)]?
     points.sort_by_key(horizontal)
     for point in &points:
         print(point.x)?
     points.sort_by_key(horizontal, True)
     print(points[0].x)?
-    points.sort_by_key(def(point: &Point) -> i64: -point.y)
+    points.sort_by_key(def(point: &Point) -> Result[i64, OverflowError[i64]]: Ok(-point.y))?
     print(points[0].x)?
     Ok(())
 ```
@@ -57,5 +57,6 @@ def main() -> Result[(), AllocError | IoError]:
 ```
 
 For a copy ordered by a key, explicitly copy into a `mut` binding, then call
-`sort_by_key`. Callbacks must return their key directly; `Result` keys and
-one-shot or mutable-call closures are not supported.
+`sort_by_key`. Keys may return `Result`; handle the sorting call with `?` and include its error
+in the enclosing signature. On failure, elements may already be reordered.
+One-shot or mutable-call closures are not supported.

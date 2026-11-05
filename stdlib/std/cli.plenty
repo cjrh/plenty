@@ -139,7 +139,9 @@ pub def parse(schema: &list[Spec], arguments: &list[list[u8]], start: i64) -> Re
         mut chosen = -1
         if not terminated and len(bytes) == 2 and bytes[0] == 45u8 and bytes[1] == 45u8:
             terminated = True
-            index += 1
+            # The loop proves 0 <= index < len(arguments) <= i64.MAX.
+            unchecked:
+                index += 1
             continue
         if not terminated and option_token(bytes):
             name = decoded(bytes, index)?
@@ -154,7 +156,9 @@ pub def parse(schema: &list[Spec], arguments: &list[list[u8]], start: i64) -> Re
             if not schema[chosen].repeatable and counts[chosen] > 0:
                 return Err(CliError.Duplicate(chosen))
             if schema[chosen].kind != Kind.Flag:
-                index += 1
+                # The option token is still within the argument list.
+                unchecked:
+                    index += 1
                 if index == len(arguments):
                     return Err(CliError.MissingValue(chosen))
         else:
@@ -166,8 +170,12 @@ pub def parse(schema: &list[Spec], arguments: &list[list[u8]], start: i64) -> Re
                 return Err(CliError.UnexpectedArgument(index))
         value = converted(schema[chosen].kind, &arguments[index], index)?
         allocated(entries.append(Entry(chosen, value)))?
-        counts[chosen] += 1
-        index += 1
+        # Each entry consumes at least one distinct argument. Before these
+        # increments counts[chosen] <= index - start <= index < len(arguments),
+        # so both results fit i64, including when the input length is i64.MAX.
+        unchecked:
+            counts[chosen] += 1
+            index += 1
     for candidate in range(len(schema)):
         if schema[candidate].required and counts[candidate] == 0:
             return Err(CliError.Missing(candidate))

@@ -2064,7 +2064,7 @@ pub fn init(directory: &Path, name: Option<&str>, template: Template) -> Result<
         ),
         Template::Library => (
             "src/lib.plenty",
-            "pub def add(left: i64, right: i64) -> i64:\n    left + right\n".to_string(),
+            "pub def add(left: i64, right: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(left + right)\n".to_string(),
         ),
     };
     let source_path = directory.join(file);

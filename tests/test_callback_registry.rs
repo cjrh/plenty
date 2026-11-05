@@ -23,19 +23,22 @@ class State:
         print(self.value).unwrap()
 class Handler[S]:
     state: S
-    callback: Callable[[&mut S], ()]
-    def call(self: &mut Handler[S]) -> ():
+    callback: Callable[[&mut S], Result[(), OverflowError[i64]]]
+    def call(self: &mut Handler[S]) -> Result[(), OverflowError[i64]]:
         self.callback(&mut self.state)
-def bump(state: &mut State) -> ():
+def bump(state: &mut State) -> Result[(), OverflowError[i64]]:
     state.value = state.value + 1
-mut handlers = [Handler(State(10), bump)].unwrap()
-print("__test_begin_no_allocations__").unwrap()
-print("__test_fail_allocations_after_0__").unwrap()
-handlers[0].call()
-handlers[0].call()
-print("__test_restore_allocations__").unwrap()
-print("__test_end_no_allocations__").unwrap()
-drop(handlers)
+    Ok(())
+def main() -> Result[(), OverflowError[i64]]:
+    mut handlers = [Handler(State(10), bump)].unwrap()
+    print("__test_begin_no_allocations__").unwrap()
+    print("__test_fail_allocations_after_0__").unwrap()
+    handlers[0].call()?
+    handlers[0].call()?
+    print("__test_restore_allocations__").unwrap()
+    print("__test_end_no_allocations__").unwrap()
+    drop(handlers)
+    Ok(())
 "#,
     );
     assert!(

@@ -7,8 +7,9 @@ fn mixed_errors_and_contextual_success_types() {
     native(
         r#"
 type AppFailure = Failure
-def build() -> Result[list[u8], AppFailure]:
-    Ok([n * n for n in range(4)]?)
+def build() -> Result[list[u8], AppFailure | OverflowError[u8]]:
+    values: Result[list[u8], AllocError] = [n * n for n in range(4)]
+    Ok(values.map_error(def(error: AllocError) -> Failure: Failure.Unspecified)?)
 def main() -> Result[(), Failure]:
     values: list[u8] = build()?
     print(values)?
@@ -22,6 +23,62 @@ def main() -> Result[(), Failure]:
     Ok(())
 "#,
         "[0, 1, 4, 9]\n{}\n(7, \"seven\")\n42\né\n",
+    );
+}
+
+#[test]
+fn return_context_keeps_comprehension_arithmetic_at_u8_width() {
+    native(
+        r#"
+def build(stop: u8) -> Result[list[u8], AllocError | OverflowError[u8]]:
+    Ok([n * n for n in range(stop)]?)
+def main() -> Result[(), AllocError | IoError | OverflowError[u8]]:
+    print(build(4)?)?
+    match build(17):
+        case Err(error):
+            match error:
+                case overflow: OverflowError[u8]:
+                    print(overflow.wrapped)?
+                case allocation: AllocError:
+                    print("unexpected allocation failure")?
+        case Ok(_):
+            print("unexpected success")?
+    Ok(())
+"#,
+        "[0, 1, 4, 9]\n0\n",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn allocation_erasure_does_not_erase_comprehension_overflow() {
+    native(
+        r#"
+type AppFailure = Failure
+def build(stop: u8) -> Result[list[u8], AppFailure | OverflowError[u8]]:
+    values: Result[list[u8], AllocError] = [n * n for n in range(stop)]
+    Ok(values.map_error(def(error: AllocError) -> Failure: Failure.Unspecified)?)
+def main() -> Result[(), IoError]:
+    print("__test_fail_allocations_after_0__")?
+    allocation = build(4)
+    print("__test_restore_allocations__")?
+    match allocation:
+        case Err(Failure.Unspecified):
+            print("allocation erased")?
+        case _:
+            print("unexpected allocation result")?
+    match build(17):
+        case Err(error):
+            match error:
+                case overflow: OverflowError[u8]:
+                    print(overflow.wrapped)?
+                case erased: Failure:
+                    print("unexpected erasure")?
+        case Ok(_):
+            print("unexpected success")?
+    Ok(())
+"#,
+        "__test_fail_allocations_after_0__\n__test_restore_allocations__\nallocation erased\n0\n",
     );
 }
 
@@ -69,13 +126,13 @@ def fail() -> Result[i64, Option[Guard]]:
 def later() -> i64:
     print("unreachable").unwrap()
     0
-def consume(g: Guard, a: i64, b: i64) -> i64:
-    a + b
+def consume(g: Guard, a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(a + b)
 def work() -> Result[i64, Failure]:
     first = Guard("first")
     with Context() as context:
         second = Guard("second")
-        return Ok(consume(Guard("argument"), fail()?, later()))
+        return Ok(consume(Guard("argument"), fail()?, later())?)
 def main() -> Result[(), IoError]:
     print(str.repr(work()).unwrap())?
     Ok(())

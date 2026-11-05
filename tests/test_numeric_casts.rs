@@ -312,7 +312,7 @@ fn out_of_range_literal_casts_are_rejected(#[case] source: &str, #[case] expecte
     "44\n18446744073709551615\n-56\n"
 )]
 #[case(
-    "type Byte = u8\nx = 257\nprint(Byte.wrapping_from(x)).unwrap()\nprint(u8.wrapping_from(x) + 1u8).unwrap()",
+    "type Byte = u8\ndef main() -> Result[(), OverflowError[u8]]:\n    x = 257\n    print(Byte.wrapping_from(x)).unwrap()\n    print(u8.wrapping_from(x) + 1u8).unwrap()\n    Ok(())",
     "1\n2\n"
 )]
 fn wrapping_conversions_keep_the_low_bits(#[case] source: &str, #[case] expected: &str) {

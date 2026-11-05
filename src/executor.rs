@@ -7,6 +7,8 @@ pub struct Job {
     pub adapter: String,
     pub worker: String,
     pub input: Ty,
+    /// Adapter transport type; fallible reductions widen the declared Result
+    /// error to include PoolMapError without changing the callback signature.
     pub output: Ty,
     pub closure: Option<Arc<crate::closure::ClosureType>>,
     /// One caller-owned immutable environment shared until the map drains.
@@ -67,8 +69,19 @@ impl ExecutorOp {
             Self::Reduce(job, input) => (
                 vec![Ty::Executor, input.clone()],
                 crate::sum::result(
-                    crate::sum::option(job.output.clone()),
-                    crate::sum::pool_map_error(),
+                    crate::sum::option(match input {
+                        Ty::List(element) | Ty::Range(element) => (**element).clone(),
+                        _ => unreachable!(),
+                    }),
+                    match input {
+                        Ty::List(element) | Ty::Range(element) if job.output != **element => {
+                            let Ty::Enum(result) = &job.output else {
+                                unreachable!()
+                            };
+                            result.get().variants[1].fields[0].clone()
+                        }
+                        _ => crate::sum::pool_map_error(),
+                    },
                 ),
             ),
             Self::Result(t) => (

@@ -12,7 +12,7 @@ import std.time
 enum BenchmarkError:
     InvalidArguments
 
-def main() -> Result[(), AllocError | IoError | ParseError | std.text.TextError | BenchmarkError]:
+def main() -> Result[(), AllocError | IoError | ParseError | std.text.TextError | BenchmarkError | OverflowError[i64] | ZeroDivisionError]:
     options = args()?
     mut mode = "prose"
     mut size = 262144

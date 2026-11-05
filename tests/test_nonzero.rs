@@ -3,17 +3,36 @@
 //! See book/src/design/language/03-types/numbers.md#nonzero-integers.
 mod support;
 use rstest::rstest;
-use support::{assert_stdout as runs, check_error};
+use support::check_error;
+
+fn runs(source: &str, expected: &str) {
+    runs_with_errors(source, expected, "OverflowError[i64] | ZeroDivisionError");
+}
+
+fn runs_with_errors(source: &str, expected: &str, errors: &str) {
+    if source.lines().any(|line| line.starts_with("def main(")) {
+        support::assert_stdout(source, expected);
+        return;
+    }
+    let source = support::program(source);
+    let source = source.replacen(
+        "def main() -> ():",
+        &format!("def main() -> Result[(), {errors}]:"),
+        1,
+    );
+    let end = source.rfind("    pass\n").unwrap();
+    support::assert_stdout(&format!("{}    Ok(())\n", &source[..end]), expected);
+}
 
 #[test]
 fn literals_convert_where_expected() {
     runs(
-        "def scale(n: i64, by: NonZero[i64]) -> i64:\n    n * by.get()\n\
+        "def scale(n: i64, by: NonZero[i64]) -> Result[i64, OverflowError[i64]]:\n    Ok(n * by.get())\n\
          a: NonZero[i64] = 3\n\
          b: NonZero[u8] = 200\n\
          c: NonZero[i32] = -7\n\
          print(a, b, c).unwrap()\n\
-         print(scale(5, -2)).unwrap()\n",
+         print(scale(5, -2)?).unwrap()\n",
         "3 200 -7\n-10\n",
     );
 }
@@ -175,20 +194,27 @@ fn rejected(#[case] source: &str, #[case] diagnostic: &str) {
 fn domain_divisors_keep_floor_semantics_and_augmented_destinations() {
     for ty in ["i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64"] {
         let signed = ty.starts_with('i');
+        let quotient_type = if signed {
+            format!("Result[{ty}, OverflowError[{ty}]]")
+        } else {
+            ty.to_owned()
+        };
+        let quotient_body = if signed { "Ok(a // d)" } else { "a // d" };
+        let quotient_use = if signed { "?" } else { "" };
         let mut source = format!(
-            "def quot(a: {ty}, d: NonZero[{ty}]) -> {ty}:\n    a // d\n\ndef rem(a: {ty}, d: NonZero[{ty}]) -> {ty}:\n    a % d\n\n"
+            "def quot(a: {ty}, d: NonZero[{ty}]) -> {quotient_type}:\n    {quotient_body}\n\ndef rem(a: {ty}, d: NonZero[{ty}]) -> {ty}:\n    a % d\n\n"
         );
         source += &format!(
-            "d = NonZero.try_from(3{ty}).unwrap()\nprint(quot(7{ty}, d), rem(7{ty}, d)).unwrap()\nmut n = 7{ty}\nn //= d\nprint(n).unwrap()\nn %= d\nprint(n).unwrap()\nmut xs = [7{ty}].unwrap()\nxs[0] //= d\nprint(xs[0]).unwrap()\nr = &mut xs[0]\n*r %= d\nprint(*r).unwrap()\n"
+            "d = NonZero.try_from(3{ty}).unwrap()\nprint(quot(7{ty}, d){quotient_use}, rem(7{ty}, d)).unwrap()\nmut n = 7{ty}\nn //= d\nprint(n).unwrap()\nn %= d\nprint(n).unwrap()\nmut xs = [7{ty}].unwrap()\nxs[0] //= d\nprint(xs[0]).unwrap()\nr = &mut xs[0]\n*r %= d\nprint(*r).unwrap()\n"
         );
         let mut expected = "2 1\n2\n2\n2\n2\n".to_string();
         if signed {
             source += &format!(
-                "minus: NonZero[{ty}] = -3\nprint(quot(-7{ty}, d), rem(-7{ty}, d), quot(7{ty}, minus), rem(7{ty}, minus)).unwrap()\nnegative_one: NonZero[{ty}] = -1\nprint(rem({ty}.MIN, negative_one)).unwrap()\n"
+                "minus: NonZero[{ty}] = -3\nprint(quot(-7{ty}, d)?, rem(-7{ty}, d), quot(7{ty}, minus)?, rem(7{ty}, minus)).unwrap()\nnegative_one: NonZero[{ty}] = -1\nprint(rem({ty}.MIN, negative_one)).unwrap()\n"
             );
             expected += "-3 2 -3 -2\n0\n";
         }
-        runs(&source, &expected);
+        runs_with_errors(&source, &expected, &format!("OverflowError[{ty}]"));
     }
 }
 
@@ -228,7 +254,7 @@ print(result.is_err(), n).unwrap()
 #[test]
 fn nonzero_division_still_traps_signed_overflow() {
     let output = support::run_file(
-        "def quot(n: i64, d: NonZero[i64]) -> i64:\n    n // d\n\ndef main() -> ():\n    drop(quot(i64.MIN, -1))\n",
+        "def quot(n: i64, d: NonZero[i64]) -> i64:\n    # This test deliberately requests MIN // -1 termination.\n    unchecked:\n        n // d\n\ndef main() -> ():\n    drop(quot(i64.MIN, -1))\n",
     );
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -297,7 +323,7 @@ def divisor() -> NonZero[i64]:
     print("divisor").unwrap()
     3
 
-def main() -> ():
+def main() -> Result[(), OverflowError[i64]]:
     mut xs = [14].unwrap()
     *first(&mut xs) //= divisor()
     print(xs[0]).unwrap()
@@ -312,6 +338,7 @@ def main() -> ():
     data[0] %= d
     print(data[0]).unwrap()
     print(14 // &p, 14 % &p).unwrap()
+    Ok(())
 "#,
         "divisor\n4\n1\n2\n4 2\n",
     );

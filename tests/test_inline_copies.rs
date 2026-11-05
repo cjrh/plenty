@@ -57,8 +57,8 @@ enum Shape:
 def lift[T](result: Result[T, AllocError]) -> Result[T, Problem]:
     std.error.map_error(result, def once (cause: AllocError) -> Problem: Problem.Wrapped(cause))
 
-def scaled(factor: i64) -> Option[Closure[[i64], i64]]:
-    Some(def [factor](value: i64) -> i64: value * factor)
+def scaled(factor: i64) -> Option[Closure[[i64], Result[i64, OverflowError[i64]]]]:
+    Some(def [factor](value: i64) -> Result[i64, OverflowError[i64]]: Ok(value * factor))
 
 def labelled(label: str) -> Result[OnceClosure[[i64], str], Problem]:
     Ok(def once [label](value: i64) -> str: (label + str.from(value).unwrap()).unwrap())
@@ -74,14 +74,14 @@ def span(n: i64) -> Option[range[i64]]:
         return Some(range(n))
     Nothing
 
-def shapes(n: i64) -> Result[list[Shape], AllocError]:
+def shapes(n: i64) -> Result[list[Shape], AllocError | OverflowError[i64]]:
     mut out: list[Shape] = []?
     out.append(Shape.Empty)?
     out.append(Shape.Box(n, n + 1))?
     out.append(Shape.Named(("shape" + str.from(n)?)?, n))?
     Ok(out)
 
-def main() -> Result[(), AllocError | IoError | BytesError | Problem]:
+def main() -> Result[(), AllocError | IoError | BytesError | Problem | OverflowError[i64]]:
     mut total = 0
     for i in range(1000):
         step: Result[i64, AllocError] = Ok(i)
@@ -95,7 +95,7 @@ def main() -> Result[(), AllocError | IoError | BytesError | Problem]:
             print("unexpected")?
     match scaled(3):
         case Some(f):
-            print(f(14))?
+            print(f(14)?)?
         case Nothing:
             print("none")?
     for i in range(200):
@@ -213,29 +213,29 @@ class Shelf:
     slot: Slot
     count: i64
 
-def shelf(name: str, n: i64) -> Result[Shelf, AllocError]:
+def shelf(name: str, n: i64) -> Result[Shelf, AllocError | OverflowError[i64] | ZeroDivisionError]:
     second = Label((name + "/2")?, range(n, n + 2))
     mut slot = Slot.Pair(Label((name + "/p")?, range(1)), n)
     if n % 2 == 0:
         slot = Slot.Held(Label((name + "/h")?, range(n)))
     Ok(Shelf(Label(name, range(n)), Some(second), slot, n))
 
-def total_of(span: &range[i64]) -> i64:
+def total_of(span: &range[i64]) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     for i in span:
         total += *i
-    total
+    Ok(total)
 
-def describe(s: &Shelf) -> Result[(), AllocError | IoError]:
-    print(s.first.text, total_of(&s.first.span))?
+def describe(s: &Shelf) -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    print(s.first.text, total_of(&s.first.span)?)?
     match &s.second:
         case Some(l):
-            print(l.text, total_of(&l.span))?
+            print(l.text, total_of(&l.span)?)?
         case Nothing:
             print("none")?
     match &s.slot:
         case Slot.Held(l):
-            print(l.text, total_of(&l.span))?
+            print(l.text, total_of(&l.span)?)?
         case Slot.Pair(l, n):
             print(l.text, n)?
         case Slot.Empty:
@@ -245,7 +245,7 @@ def describe(s: &Shelf) -> Result[(), AllocError | IoError]:
 def keep(s: Shelf) -> Shelf:
     s
 
-def main() -> Result[(), AllocError | IoError | StreamError]:
+def main() -> Result[(), AllocError | IoError | StreamError | OverflowError[i64] | ZeroDivisionError]:
     mut stream = open_file("/dev/null", "r")?
     mut file = stream.file
     for i in range(3):

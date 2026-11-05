@@ -98,7 +98,9 @@ always reserve another heap or descriptor.
 At capacity or when admission cannot reserve a child, the server closes a newly
 accepted connection. It does not promise an HTTP `503` response for overload.
 HTTP parse refusals use bounded lingering close so unread request bytes do not
-immediately turn a completed response into a TCP reset.
+immediately turn a completed response into a TCP reset. Its private lingering
+state records only whether the 16 MiB drain threshold has been reached, not an
+unbounded byte total; transport consumption still uses the full available input.
 
 ## Errors, reports and shutdown
 
@@ -118,7 +120,9 @@ It does not retry a partially handled request.
 `Report.actors` is the underlying actor `Stats`; it includes the acceptor and
 admitted construction attempts. `requests` counts completed responses,
 `rejected` counts admission refusals, and `protocol_errors` counts reported
-parse failures. A selector or setup failure returns `Err` instead of a report.
+parse failures. These observation-only counters saturate at `u64.MAX`;
+completion credit, admission and shutdown still progress normally at that limit.
+A selector or setup failure returns `Err` instead of a report.
 
 A connection submits one completion at a time and waits for admission to
 acknowledge it before starting another request. A full admission mailbox uses

@@ -11,12 +11,12 @@ from std.error import map_error
 enum Domain:
     Allocation(AllocError)
     Parse(ParseError)
-def worker() -> Result[i64, Domain]:
+def worker() -> Result[i64, Domain | OverflowError[i64]]:
     buffer = std.bytes.empty().map_error(Domain.Allocation)?
     drop(buffer)
     value = map_error(i64.parse("41"), Domain.Parse)?
     Ok(value + 1)
-def main() -> Result[(), IoError | Domain | SpawnError[()]]:
+def main() -> Result[(), IoError | Domain | OverflowError[i64] | SpawnError[()]]:
     with spawn(worker).drop_job()? as task:
         print(task.join()?)?
     Ok(())
@@ -30,28 +30,28 @@ fn callable_targets_survive_branches_aggregates_forwarders_and_worker_results() 
     assert_stdout(
         r#"
 class Handler:
-    callback: Callable[[i64], i64]
-def add(value: i64) -> i64:
-    value + 1
-def twice(value: i64) -> i64:
-    value * 2
-def choose(flag: bool) -> Callable[[i64], i64]:
+    callback: Callable[[i64], Result[i64, OverflowError[i64]]]
+def add(value: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(value + 1)
+def twice(value: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(value * 2)
+def choose(flag: bool) -> Callable[[i64], Result[i64, OverflowError[i64]]]:
     add if flag else twice
-def forward(callback: Callable[[i64], i64]) -> Callable[[i64], i64]:
+def forward(callback: Callable[[i64], Result[i64, OverflowError[i64]]]) -> Callable[[i64], Result[i64, OverflowError[i64]]]:
     callback
-def worker(handler: &Handler) -> i64:
+def worker(handler: &Handler) -> Result[i64, OverflowError[i64]]:
     forward(handler.callback)(20)
-def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | SpawnError[()]]:
     callbacks = [choose(True), choose(False)]?
     for callback in &callbacks:
         handler = Handler(*callback)
         with spawn(worker, &handler).drop_job()? as task:
-            print(task.join())?
+            print(task.join()?)?
     with spawn(choose, False).drop_job()? as task:
-        print(task.join()(7))?
-    sender, receiver = channel[Callable[[i64], i64]](1)?
+        print(task.join()(7)?)?
+    sender, receiver = channel[Callable[[i64], Result[i64, OverflowError[i64]]]](1)?
     sender.send(add).unwrap()
-    print(receiver.recv().unwrap()(9))?
+    print(receiver.recv().unwrap()(9)?)?
     Ok(())
 "#,
         "21\n40\n14\n10\n",

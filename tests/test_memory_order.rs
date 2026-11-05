@@ -15,62 +15,63 @@ class Pair:
     left: i64
     right: i64
 
-def step(particles: &mut list[Particle]) -> ():
+def step(particles: &mut list[Particle]) -> Result[(), OverflowError[i64]]:
     for p in particles:
         p.x += p.vx
         if p.x < 0.0 or p.x > 10.0:
             p.vx = 0.0 - p.vx
             p.hits += 1
+    Ok(())
 
-def bump(slot: &mut i64, by: i64) -> i64:
+def bump(slot: &mut i64, by: i64) -> Result[i64, OverflowError[i64]]:
     before = *slot
     *slot = before + by
-    *slot * 10 + before
+    Ok(*slot * 10 + before)
 
-def swap(pair: &mut Pair) -> i64:
+def swap(pair: &mut Pair) -> Result[i64, OverflowError[i64]]:
     left = pair.left
     pair.left = pair.right
     pair.right = left
-    pair.left * 100 + pair.right
+    Ok(pair.left * 100 + pair.right)
 
-def nested(value: &mut Option[Option[i64]], by: i64) -> i64:
+def nested(value: &mut Option[Option[i64]], by: i64) -> Result[i64, OverflowError[i64]]:
     match value:
         case Some(inner):
             match inner:
                 case Some(number):
                     *number = *number + by
-                    *number
+                    Ok(*number)
                 case Nothing:
                     *inner = Some(by)
-                    0
+                    Ok(0)
         case Nothing:
-            -1
+            Ok(-1)
 
-def rows(values: &mut list[i64]) -> i64:
+def rows(values: &mut list[i64]) -> Result[i64, OverflowError[i64]]:
     values[0] = values[1] + 1
     values[1] = values[0] + 1
     first = &mut values[2]
     *first = values[0] + values[1]
-    values[2]
+    Ok(values[2])
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut particles: list[Particle] = []?
     for i in range(4):
         particles.append(Particle(f64(i * 3), f64(i) - 1.5, 0))?
     for _ in range(9):
-        step(&mut particles)
+        step(&mut particles)?
     for p in &particles:
         print(p.x, p.vx, p.hits)?
     mut count = 5
-    print(bump(&mut count, 2), bump(&mut count, 3), count)?
+    print(bump(&mut count, 2)?, bump(&mut count, 3)?, count)?
     mut pair = Pair(1, 2)
-    print(swap(&mut pair), swap(&mut pair), pair.left, pair.right)?
+    print(swap(&mut pair)?, swap(&mut pair)?, pair.left, pair.right)?
     mut value: Option[Option[i64]] = Some(Some(4))
-    print(nested(&mut value, 3), nested(&mut value, 5))?
+    print(nested(&mut value, 3)?, nested(&mut value, 5)?)?
     mut empty: Option[Option[i64]] = Some(Nothing)
-    print(nested(&mut empty, 7), nested(&mut empty, 1))?
+    print(nested(&mut empty, 7)?, nested(&mut empty, 1)?)?
     mut values = [1, 2, 3]?
-    print(rows(&mut values), values[0], values[1], values[2])?
+    print(rows(&mut values)?, values[0], values[1], values[2])?
     Ok(())
 "#;
 

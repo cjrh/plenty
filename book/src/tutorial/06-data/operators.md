@@ -12,26 +12,27 @@ dimensions of products and quotients, which these wrappers do not.
 class Distance:
     metres: i64
 
-    def __add__(self, other: &Distance) -> Distance:
-        Distance(self.metres + other.metres)
+    def __add__(self, other: &Distance) -> Result[Distance, OverflowError[i64]]:
+        Ok(Distance(self.metres + other.metres))
 
-    def __neg__(self) -> Distance:
-        Distance(-self.metres)
+    def __neg__(self) -> Result[Distance, OverflowError[i64]]:
+        Ok(Distance(-self.metres))
 
-    def __mul__(self, scale: i64) -> Distance:
-        Distance(self.metres * scale)
+    def __mul__(self, scale: i64) -> Result[Distance, OverflowError[i64]]:
+        Ok(Distance(self.metres * scale))
 
-    def __rmul__(self, scale: i64) -> Distance:
+    def __rmul__(self, scale: i64) -> Result[Distance, OverflowError[i64]]:
         self * scale
 
-    def __iadd__(self: &mut Distance, other: &Distance) -> ():
+    def add(self: &mut Distance, other: &Distance) -> Result[(), OverflowError[i64]]:
         self.metres += other.metres
+        Ok(())
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut walk = Distance(10)
     extra = Distance(5)
-    print(walk + extra, -extra, 3 * extra)?
-    walk += extra
+    print((walk + extra)?, (-extra)?, (3 * extra)?)?
+    walk.add(&extra)?
     print(walk, extra)?
     Ok(())
 ```
@@ -41,24 +42,24 @@ Distance(metres=15) Distance(metres=5)
 ```
 
 The ordinary hooks borrow their operands, so `extra` stays usable. The reflected
-hook `__rmul__` handles a distance on the right of `3 * extra`. `__iadd__` takes
-exclusive access and updates `walk` in place. It returns `()`, and the binding
-must be mutable.
+hook `__rmul__` handles a distance on the right of `3 * extra`. The named `add`
+method takes exclusive access and updates `walk` in place. Its integer addition
+can fail, so it returns a `Result`; the binding must be mutable.
 
-For operations that may fail, return `Result` and handle it at the call site.
-Here a domain check prevents negative combined stock:
+Integer hooks declare overflow just like ordinary functions. A hook can also
+report a domain error; here the extra check prevents negative combined stock:
 
 ```plenty
 class Stock:
     amount: i64
 
-    def __add__(self, other: &Stock) -> Result[Stock, str]:
+    def __add__(self, other: &Stock) -> Result[Stock, str | OverflowError[i64]]:
         total = self.amount + other.amount
         if total < 0:
             return Err("negative stock")
         Ok(Stock(total))
 
-def main() -> Result[(), IoError | str]:
+def main() -> Result[(), IoError | str | OverflowError[i64]]:
     a = Stock(5)
     b = Stock(3)
     combined = (a + b)?
@@ -86,7 +87,7 @@ class Metres:
 class Seconds:
     value: i64
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     run = Metres(400)
     mut total = run + run
     total += Metres(100)

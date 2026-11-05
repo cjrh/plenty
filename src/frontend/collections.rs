@@ -5341,7 +5341,7 @@ impl Lower<'_> {
         use crate::sum::EnumOp;
         let start = self.locals.len();
         let Iteration {
-            mut condition,
+            condition,
             mut body,
             step,
             target,
@@ -5464,8 +5464,6 @@ impl Lower<'_> {
             body.push(Op::DropLocal(target));
         }
         body.extend(step);
-        self.rebase_checked(&mut condition, at)?;
-        self.rebase_checked(&mut body, at)?;
         ops.push(branch(
             vec![Op::Loop {
                 condition: condition.into(),

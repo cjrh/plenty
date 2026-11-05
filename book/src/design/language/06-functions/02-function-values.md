@@ -46,14 +46,14 @@ position fixes the form of the body: outside brackets the body is an indented
 block; inside `()`, `[]`, or `{}` it is one expression, whose value is returned.
 
 ```plenty
-def apply[F: Callable[[i64], i64]](f: &F, value: i64) -> i64:
+def apply[F: Callable[[i64], Result[i64, OverflowError[i64]]]](f: &F, value: i64) -> Result[i64, OverflowError[i64]]:
     f(value)
 
-def main() -> Result[(), IoError]:
-    twice = def(value: i64) -> i64:
-        value * 2
-    print(twice(3))?
-    print(apply(&(def(value: i64) -> i64: value + 1), 3))?
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    twice = def(value: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(value * 2)
+    print(twice(3)?)?
+    print(apply(&(def(value: i64) -> Result[i64, OverflowError[i64]]: Ok(value + 1)), 3)?)?
     Ok(())
 ```
 ```output
@@ -72,12 +72,12 @@ Only the layout differs:
   bind it to a name first.
 - A string body is the returned value, not documentation.
 - Outside brackets a body on the `def` line is rejected. Parentheses are
-  brackets: `twice = (def(value: i64) -> i64: value * 2)`.
+  brackets: `twice = (def(value: i64) -> Result[i64, OverflowError[i64]]: Ok(value * 2))`.
 
 In both forms an anonymous function must be a complete expression: a bound or
 returned value, an argument, an element, or the contents of parentheses. As the
 operand of an operator, including `&` and `&mut`, it needs parentheses:
-`&(def [offset](value: i64) -> i64: value + offset)`. Parameter and result types
+`&(def [offset](value: i64) -> Result[i64, OverflowError[i64]]: Ok(value + offset))`. Parameter and result types
 are always written. `lambda` is reserved and rejected with the `def` spelling.
 
 Capture-free anonymous functions have ordinary `Callable` types, can nest, and

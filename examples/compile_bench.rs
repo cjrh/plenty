@@ -155,39 +155,40 @@ fn workload(units: usize) -> String {
     for i in 0..units {
         source.push_str(&format!(
             "protocol Measured{i}:
-    def squared_length(self) -> i64:
+    def squared_length(self) -> Result[i64, OverflowError[i64]]:
         pass
 
 class Point{i}:
     x: i64
     y: i64
 
-    def squared_length(self) -> i64:
-        self.x * self.x + self.y * self.y + {i}
+    def squared_length(self) -> Result[i64, OverflowError[i64]]:
+        Ok(self.x * self.x + self.y * self.y + {i})
 
-    def shift(self: &mut Point{i}, amount: i64) -> ():
+    def shift(self: &mut Point{i}, amount: i64) -> Result[(), OverflowError[i64]]:
         self.x = self.x + amount
         self.y = self.y + amount
+        Ok(())
 
 enum Reading{i}:
     Missing
     Value(i64)
 
-def describe{i}(reading: Reading{i}) -> i64:
+def describe{i}(reading: Reading{i}) -> Result[i64, OverflowError[i64]]:
     match reading:
         case Reading{i}.Missing:
-            0
+            Ok(0)
         case Reading{i}.Value(value):
-            value + {i}
+            Ok(value + {i})
 
-def squares{i}(limit: i64) -> Result[list[i64], AllocError]:
-    [n * n + {i} for n in range(limit) if n % 2 == 0]
+def squares{i}(limit: i64) -> Result[list[i64], AllocError | OverflowError[i64] | ZeroDivisionError]:
+    Ok([n * n + {i} for n in range(limit) if n % 2 == 0]?)
 
-def work{i}(a: i64) -> Result[i64, Failure]:
+def work{i}(a: i64) -> Result[i64, AllocError | OverflowError[i64] | ZeroDivisionError]:
     mut point = Point{i}(a, {i})
-    point.shift(1)
+    point.shift(1)?
     values = squares{i}(a)?
-    mut total = point.squared_length() + describe{i}(Reading{i}.Value(a))
+    mut total = point.squared_length()? + describe{i}(Reading{i}.Value(a))?
     for v in &values:
         if v > {i}:
             total = total + v
@@ -197,7 +198,7 @@ def work{i}(a: i64) -> Result[i64, Failure]:
         ));
     }
     source.push_str(&format!(
-        "def main() -> Result[(), Failure]:\n    print(work{}(5)?)?\n    Ok(())\n",
+        "def main() -> Result[(), IoError | AllocError | OverflowError[i64] | ZeroDivisionError]:\n    print(work{}(5)?)?\n    Ok(())\n",
         units - 1
     ));
     source
@@ -395,5 +396,180 @@ mod tests {
             );
             assert_eq!(calls, 1);
         }
+    }
+
+    #[test]
+    fn generated_unit_keeps_its_shape_and_precise_contracts() {
+        assert_eq!(
+            workload(1),
+            "protocol Measured0:
+    def squared_length(self) -> Result[i64, OverflowError[i64]]:
+        pass
+
+class Point0:
+    x: i64
+    y: i64
+
+    def squared_length(self) -> Result[i64, OverflowError[i64]]:
+        Ok(self.x * self.x + self.y * self.y + 0)
+
+    def shift(self: &mut Point0, amount: i64) -> Result[(), OverflowError[i64]]:
+        self.x = self.x + amount
+        self.y = self.y + amount
+        Ok(())
+
+enum Reading0:
+    Missing
+    Value(i64)
+
+def describe0(reading: Reading0) -> Result[i64, OverflowError[i64]]:
+    match reading:
+        case Reading0.Missing:
+            Ok(0)
+        case Reading0.Value(value):
+            Ok(value + 0)
+
+def squares0(limit: i64) -> Result[list[i64], AllocError | OverflowError[i64] | ZeroDivisionError]:
+    Ok([n * n + 0 for n in range(limit) if n % 2 == 0]?)
+
+def work0(a: i64) -> Result[i64, AllocError | OverflowError[i64] | ZeroDivisionError]:
+    mut point = Point0(a, 0)
+    point.shift(1)?
+    values = squares0(a)?
+    mut total = point.squared_length()? + describe0(Reading0.Value(a))?
+    for v in &values:
+        if v > 0:
+            total = total + v
+    Ok(total)
+
+def main() -> Result[(), IoError | AllocError | OverflowError[i64] | ZeroDivisionError]:
+    print(work0(5)?)?
+    Ok(())
+"
+        );
+    }
+
+    #[test]
+    fn generated_functions_require_their_own_arithmetic_contracts() {
+        let source = workload(2);
+        plenty::check_source(&source).unwrap();
+        // Keep callers valid when a callee's overflow error is replaced with IoError,
+        // so rejection must come from that callee's own arithmetic boundary.
+        let wider_callers = source.replace(
+            "-> Result[i64, AllocError | OverflowError[i64] | ZeroDivisionError]:",
+            "-> Result[i64, IoError | AllocError | OverflowError[i64] | ZeroDivisionError]:",
+        );
+        for (signature, error) in [
+            (
+                "def squared_length(self) -> Result[i64, OverflowError[i64]]:",
+                "OverflowError[i64]",
+            ),
+            (
+                "def shift(self: &mut Point1, amount: i64) -> Result[(), OverflowError[i64]]:",
+                "OverflowError[i64]",
+            ),
+            (
+                "def describe1(reading: Reading1) -> Result[i64, OverflowError[i64]]:",
+                "OverflowError[i64]",
+            ),
+            (
+                "def squares1(limit: i64) -> Result[list[i64], AllocError | OverflowError[i64] | ZeroDivisionError]:",
+                "OverflowError[i64]",
+            ),
+            (
+                "def squares1(limit: i64) -> Result[list[i64], AllocError | OverflowError[i64] | ZeroDivisionError]:",
+                "ZeroDivisionError",
+            ),
+        ] {
+            // A caller's wider contract must not supply a callee's missing error.
+            let narrowed = wider_callers.replace(signature, &signature.replace(error, "IoError"));
+            let diagnostic = plenty::check_source(&narrowed).unwrap_err().to_string();
+            assert!(
+                diagnostic.contains("arithmetic can fail with"),
+                "{diagnostic}"
+            );
+            assert!(diagnostic.contains(error), "{diagnostic}");
+        }
+        for error in [
+            "IoError",
+            "AllocError",
+            "OverflowError[i64]",
+            "ZeroDivisionError",
+        ] {
+            let signature = "def main() -> Result[(), IoError | AllocError | OverflowError[i64] | ZeroDivisionError]:";
+            let narrowed = source.replace(signature, &signature.replace(error, "ParseError"));
+            let diagnostic = plenty::check_source(&narrowed).unwrap_err().to_string();
+            assert!(diagnostic.contains(error), "{diagnostic}");
+        }
+    }
+
+    fn native_stdout(source: &str) -> String {
+        let directory = tempfile::tempdir().unwrap();
+        let output = directory.path().join("program");
+        let compile = plenty::CompileOptions {
+            cache: plenty::cache::CacheMode::Off,
+            program_cache: false,
+            ..Default::default()
+        };
+        plenty::compile_source_to_executable_with_options(source, &output, &compile).unwrap();
+        let result = std::process::Command::new(&output).output().unwrap();
+        assert!(result.status.success(), "{result:?}");
+        assert!(result.stderr.is_empty(), "{result:?}");
+        String::from_utf8(result.stdout).unwrap()
+    }
+
+    #[test]
+    fn generated_full_workloads_check_and_run_with_original_checksums() {
+        for (units, checksum) in [(1000, 1_004_057), (4000, 16_016_057)] {
+            let source = workload(units);
+            assert_eq!(source.lines().count(), units * 40 + 3);
+            for prefix in ["protocol Measured", "class Point", "enum Reading"] {
+                assert_eq!(source.matches(prefix).count(), units);
+            }
+            assert_eq!(
+                source
+                    .lines()
+                    .filter(|line| line.starts_with("def "))
+                    .count(),
+                units * 3 + 1
+            );
+            assert_eq!(source.matches("    def ").count(), units * 3);
+            assert_eq!(source.matches("    x: i64\n    y: i64\n").count(), units);
+            plenty::check_source(&source).unwrap();
+            assert_eq!(native_stdout(&source), format!("{checksum}\n"));
+        }
+    }
+
+    #[test]
+    fn generated_arithmetic_errors_preserve_earlier_mutations() {
+        let source = workload(2);
+        let (declarations, _) = source.split_once("def main()").unwrap();
+        let source = format!(
+            "{declarations}{}",
+            r#"def main() -> Result[(), IoError | AllocError | OverflowError[i64] | ZeroDivisionError]:
+    mut first = Point1(i64.MAX, 0)
+    print(first.shift(1).is_err(), first.x, first.y)?
+    mut second = Point1(0, i64.MAX)
+    print(second.shift(1).is_err(), second.x, second.y)?
+    mut success = Point1(2, 3)
+    success.shift(1)?
+    print(success.x, success.y, success.squared_length()?)?
+    large = Point1(i64.MAX, 0)
+    print(large.squared_length().is_err())?
+    sum_overflow = Point1(2147483648, 2147483648)
+    print(sum_overflow.squared_length().is_err())?
+    print(describe1(Reading1.Missing)?, describe1(Reading1.Value(5))?)?
+    print(describe1(Reading1.Value(i64.MAX)).is_err())?
+    print(squares1(5)?, squares1(0)?)?
+    print(work1(i64.MAX).is_err())?
+    print(work0(-1)?, work0(5)?, work1(5)?)?
+    Ok(())
+"#
+        );
+        plenty::check_source(&source).unwrap();
+        assert_eq!(
+            native_stdout(&source),
+            "True 9223372036854775807 0\nTrue 1 9223372036854775807\n3 4 26\nTrue\nTrue\n0 6\nTrue\n[1, 5, 17] []\nTrue\n0 62 69\n"
+        );
     }
 }

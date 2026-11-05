@@ -129,7 +129,9 @@ The result is `Content-Type` text, ready for a response header; pass it to
 `parse` copies the text once into a byte buffer and allocates the names,
 values and parameter list of the result. `new`, `set_param`, `essence`,
 `suffix` and `to_string` allocate their results. Every allocation failure
-returns `AllocError` and leaves existing values unchanged. Accessors,
+returns `AllocError` and leaves existing values unchanged. `to_string` checks
+its fragment-list capacity before allocating; an unrepresentable capacity
+returns `AllocError.CapacityOverflow`. Accessors,
 `param`, `matches`, `is_wildcard`, `remove_param` and the extension lookups
 allocate nothing.
 

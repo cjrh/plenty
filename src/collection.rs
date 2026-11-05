@@ -67,12 +67,14 @@ impl FormatHook {
 #[derive(Clone, Debug, PartialEq)]
 pub struct KeySort {
     pub adapter: String,
-    /// `key_of(callback: &F, item: &T) -> K`, specialized for this sort.
+    /// `key_of(callback: &F, item: &T) -> K` or `Result[K, E]` for this sort.
     pub key_of: String,
     pub list: Ty,
     /// `&F`, the callback reference the adapter receives as its environment.
     pub callback: Ty,
     pub key: Ty,
+    /// Public key callback error, if it returns Result[K, E].
+    pub error: Option<Ty>,
 }
 
 /// A read-only scalar query that a narrow runtime helper answers without
@@ -265,7 +267,7 @@ pub enum CollectionOp {
     ListSwap(Ty),     // exclusive list, two indices -> retained internal alias
     ListSort(Ty),     // exclusive list, descending bool -> retained internal alias
     OrderCompare(Ty), // two ordered keys -> i64
-    /// Exclusive list reference, key callback reference, descending bool -> ().
+    /// Exclusive list, callback reference, descending -> () or public Result[(), E].
     ListSortBy(Arc<KeySort>),
     Clear(Ty), // exclusive list/dict/set -> retained internal alias
     Len(Ty),
@@ -918,7 +920,7 @@ impl CollectionOp {
                     sort.callback.clone(),
                     Ty::Bool,
                 ],
-                sort.callback.checked_error().map_or(Ty::Unit, |error| {
+                sort.error.as_ref().map_or(Ty::Unit, |error| {
                     crate::sum::result(Ty::Unit, error.clone())
                 }),
             ),

@@ -140,6 +140,16 @@ fn run_program(
     remaining: &[&str],
     setup: impl FnOnce(&std::path::Path),
 ) {
+    run_program_mode(prelude, body, remaining, setup, false);
+}
+
+fn run_program_mode(
+    prelude: &str,
+    body: &str,
+    remaining: &[&str],
+    setup: impl FnOnce(&std::path::Path),
+    optimize: bool,
+) {
     let build = tempfile::tempdir().unwrap();
     let resources = tempfile::tempdir().unwrap();
     setup(resources.path());
@@ -150,7 +160,17 @@ fn run_program(
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     std::fs::write(&source, format!("import std.tempfile\nimport std.path\nimport std.fs\nimport std.io\nimport std.bytes\nimport std.test\nimport std.env\n{prelude}def main() -> Result[(), AllocError | IoError | std.fs.FsError | std.io.StreamError | std.io.Partial | std.bytes.BytesError | std.test.TestError]:\n{indented}    Ok(())\n")).unwrap();
-    plenty::compile_file_to_executable(&source, &executable, None).unwrap();
+    plenty::compile_file_to_executable_with_options(
+        &source,
+        &executable,
+        None,
+        &plenty::CompileOptions {
+            optimize,
+            test_hooks: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
     let output = Command::new(executable)
         .env("TMPDIR", resources.path())
         .output()
@@ -413,4 +433,38 @@ drop(scratch)
         &[],
         |_| {},
     );
+}
+
+#[test]
+fn named_file_utf8_byte_budget_boundaries_in_both_modes() {
+    for optimize in [false, true] {
+        run_program_mode(
+            r#"
+def invalid(prefix: &str, suffix: &str) -> Result[(), std.test.TestError]:
+    match std.tempfile.named_file(prefix=prefix, suffix=suffix):
+        case Err(std.fs.FsError.InvalidInput):
+            Ok(())
+        case _:
+            std.test.check(False, "expected InvalidInput")
+"#,
+            r#"
+hundred = "x".repeat(100)?
+hundred_one = "x".repeat(101)?
+two_hundred = "é".repeat(100)?
+too_long = "x".repeat(201)?
+invalid(&hundred_one, &hundred)?
+invalid(&two_hundred, "x")?
+invalid(&two_hundred, &two_hundred)?
+invalid(&too_long, "")?
+invalid("", &too_long)?
+invalid("a\0b", "")?
+invalid("", "a/b")?
+drop(std.tempfile.named_file(prefix=&hundred, suffix=&hundred)?)
+drop(std.tempfile.named_file(prefix=&two_hundred)?)
+"#,
+            &[],
+            |_| {},
+            optimize,
+        );
+    }
 }

@@ -208,34 +208,36 @@ fn invalid_clear(#[case] source: &str, #[case] expected: &str) {
 fn sparse_dictionary_traversal_snapshots_copy_and_update_preserve_order() {
     native(
         r#"
-mut data = {"a": 1, "b": 2, "c": 3, "d": 4}.unwrap()
-drop(data.pop("a"))
-drop(data.pop("c"))
-data.insert("b", 20).unwrap()
-data.insert("a", 10).unwrap()
-print(data).unwrap()
-print(data.keys_snapshot().unwrap()).unwrap()
-print(data.values_snapshot().unwrap()).unwrap()
-print(copy(data).unwrap() == data).unwrap()
-print([*k for k in &data].unwrap()).unwrap()
-for key, value in data.items():
-    print(key).unwrap()
-    print(value).unwrap()
-mut total = 0
-for key in &data:
-    for inner in &data:
-        if inner == "d":
-            continue
-        total = total + data[key]
-print(total).unwrap()
-mut source = {"a": 100, "discard": 0, "z": 26}.unwrap()
-drop(source.pop("discard"))
-data.update(source).unwrap()
-print(data).unwrap()
-data.clear()
-print(len(data)).unwrap()
-data.insert("fresh", 7).unwrap()
-print(data).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    mut data = {"a": 1, "b": 2, "c": 3, "d": 4}.unwrap()
+    drop(data.pop("a"))
+    drop(data.pop("c"))
+    data.insert("b", 20).unwrap()
+    data.insert("a", 10).unwrap()
+    print(data).unwrap()
+    print(data.keys_snapshot().unwrap()).unwrap()
+    print(data.values_snapshot().unwrap()).unwrap()
+    print(copy(data).unwrap() == data).unwrap()
+    print([*k for k in &data].unwrap()).unwrap()
+    for key, value in data.items():
+        print(key).unwrap()
+        print(value).unwrap()
+    mut total = 0
+    for key in &data:
+        for inner in &data:
+            if inner == "d":
+                continue
+            total = total + data[key]
+    print(total).unwrap()
+    mut source = {"a": 100, "discard": 0, "z": 26}.unwrap()
+    drop(source.pop("discard"))
+    data.update(source).unwrap()
+    print(data).unwrap()
+    data.clear()
+    print(len(data)).unwrap()
+    data.insert("fresh", 7).unwrap()
+    print(data).unwrap()
+    Ok(())
 "#,
         "{\"b\": 20, \"d\": 4, \"a\": 10}\n[\"b\", \"d\", \"a\"]\n[20, 4, 10]\nTrue\n[\"b\", \"d\", \"a\"]\nb\n20\nd\n4\na\n10\n68\n{\"b\": 20, \"d\": 4, \"a\": 100, \"z\": 26}\n0\n{\"fresh\": 7}",
     );
@@ -245,27 +247,29 @@ print(data).unwrap()
 fn sparse_sets_support_iteration_bulk_operations_and_equality() {
     native(
         r#"
-mut values = {0, 1, 2, 3, 4, 5}.unwrap()
-values.discard(0)
-values.discard(2)
-values.discard(4)
-values.add(0).unwrap()
-mut total = 0
-for value in &values:
-    total = total + value
-print(total).unwrap()
-print(values == {0, 1, 3, 5}.unwrap()).unwrap()
-print(copy(values).unwrap() == values).unwrap()
-values.intersection_update({0, 1, 5}.unwrap())
-print(values == {0, 1, 5}.unwrap()).unwrap()
-values.difference_update({1}.unwrap())
-values.update({7, 0}.unwrap()).unwrap()
-print(values == {0, 5, 7}.unwrap()).unwrap()
-print(len(values.union({7, 8}.unwrap()).unwrap())).unwrap()
-values.clear()
-print(len(values)).unwrap()
-values.add(0).unwrap()
-print(0 in values).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    mut values = {0, 1, 2, 3, 4, 5}.unwrap()
+    values.discard(0)
+    values.discard(2)
+    values.discard(4)
+    values.add(0).unwrap()
+    mut total = 0
+    for value in &values:
+        total = total + value
+    print(total).unwrap()
+    print(values == {0, 1, 3, 5}.unwrap()).unwrap()
+    print(copy(values).unwrap() == values).unwrap()
+    values.intersection_update({0, 1, 5}.unwrap())
+    print(values == {0, 1, 5}.unwrap()).unwrap()
+    values.difference_update({1}.unwrap())
+    values.update({7, 0}.unwrap()).unwrap()
+    print(values == {0, 5, 7}.unwrap()).unwrap()
+    print(len(values.union({7, 8}.unwrap()).unwrap())).unwrap()
+    values.clear()
+    print(len(values)).unwrap()
+    values.add(0).unwrap()
+    print(0 in values).unwrap()
+    Ok(())
 "#,
         "9\nTrue\nTrue\nTrue\nTrue\n4\n0\nTrue",
     );

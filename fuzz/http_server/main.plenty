@@ -29,16 +29,27 @@ pub class Script:
     pub def read_before(self: &mut Script, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[i64, NetError]:
         if cancel.is_cancelled():
             return Err(NetError.Cancelled)
-        left = self.input.len() - self.at
+        # Closed harness: only main constructs Script (at=0, step=1..64).
+        # Input never changes; each read advances by at most its unread suffix.
+        left = unchecked:
+            self.input.len() - self.at
         if left == 0:
             return Ok(0)
-        mut count = stop - start
+        # server.read_ahead resizes to stop; Conn.read validates the range;
+        # discard and answer pass 0..buffer.len(). Thus 0 <= start <= stop.
+        mut count = unchecked:
+            stop - start
         if count > self.step:
             count = self.step
         if count > left:
             count = left
-        buffer.overwrite(start, &self.input[self.at:self.at + count])
-        self.at += count
+        # 0 <= count <= left, so both additions are <= input.len().
+        # Keep invariant failures as traps/findings, not swallowed NetErrors.
+        end = unchecked:
+            self.at + count
+        buffer.overwrite(start, &self.input[self.at:end])
+        unchecked:
+            self.at += count
         Ok(count)
 
     pub def shutdown(self: &mut Script, direction: Shutdown) -> Result[(), NetError]:
@@ -95,7 +106,7 @@ def documented(status: i64) -> bool:
             return True
     False
 
-def digit(output: &Bytes, at: i64) -> Result[i64, BytesError | HarnessError]:
+def digit(output: &Bytes, at: i64) -> Result[i64, BytesError | HarnessError | OverflowError[i64]]:
     value = i64.wrapping_from(output.get(at)) - 48
     if value < 0 or value > 9:
         return Err(HarnessError.NotADigit)
@@ -104,7 +115,7 @@ def digit(output: &Bytes, at: i64) -> Result[i64, BytesError | HarnessError]:
 # Checks the status of every response head in `output` from `at`, and
 # returns where the next check starts: at a head whose status has not all
 # been written yet, or near the end.
-def check(output: &Bytes, at: i64) -> Result[i64, AllocError | BytesError | HarnessError]:
+def check(output: &Bytes, at: i64) -> Result[i64, AllocError | BytesError | HarnessError | OverflowError[i64]]:
     marker = std.bytes.from_text("HTTP/1.")?
     mut next = at
     while True:
@@ -124,7 +135,7 @@ def check(output: &Bytes, at: i64) -> Result[i64, AllocError | BytesError | Harn
                 return Ok(next)
     Ok(next)
 
-def main() -> Result[(), AllocError | BytesError | ServerError]:
+def main() -> Result[(), AllocError | BytesError | ServerError | OverflowError[i64] | ZeroDivisionError]:
     size = i64.wrapping_from(fuzz_input.size())
     if size == 0:
         return Ok(())

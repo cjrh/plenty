@@ -61,7 +61,7 @@ fn power_operator_with_a_reference_operand_is_rejected() {
 fn multiplying_by_a_dereference_needs_a_space() {
     assert_eq!(
         output(
-            "def main() -> Result[(), IoError]:\n    n = 3\n    r = &n\n    print(n * *r)?\n    print(n * * r)?\n    Ok(())\n"
+            "def main() -> Result[(), IoError | OverflowError[i64]]:\n    n = 3\n    r = &n\n    print(n * *r)?\n    print(n * * r)?\n    Ok(())\n"
         ),
         "9\n9\n"
     );
@@ -138,7 +138,8 @@ fn mixed_numeric_operands_name_the_conversion() {
             "3:14: cannot combine i64 with f64; convert with `f64(n)`",
         ),
     ] {
-        let source = format!("def main() -> ():\n    {body}\n");
+        let source =
+            format!("def main() -> Result[(), OverflowError[i64]]:\n    {body}\n    Ok(())\n");
         assert_eq!(diagnostic(&source), expected, "{body}");
     }
 }
@@ -394,14 +395,16 @@ fn other_missing_results_keep_the_plain_diagnostic() {
 
 #[test]
 fn named_arguments_are_accepted_for_user_defined_signatures() {
-    let declarations = "class Lcg:\n    state: i64\n    def next(self, step: i64) -> i64:\n        self.state + step\ndef add(a: i64, b: i64) -> i64:\n    a + b\n";
+    let declarations = "class Lcg:\n    state: i64\n    def next(self, step: i64) -> Result[i64, OverflowError[i64]]:\n        Ok(self.state + step)\ndef add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(a + b)\n";
     for body in [
         "g = Lcg(state=1)",
         "g = Lcg(state = 1)",
-        "n = add(1, b=2)",
-        "g = Lcg(1)\n    n = g.next(step=2)",
+        "n = add(1, b=2)?",
+        "g = Lcg(1)\n    n = g.next(step=2)?",
     ] {
-        let source = format!("{declarations}def main() -> ():\n    {body}\n");
+        let source = format!(
+            "{declarations}def main() -> Result[(), OverflowError[i64]]:\n    {body}\n    Ok(())\n"
+        );
         support::check_source(&source).unwrap_or_else(|error| panic!("{body}: {error}"));
     }
 }
@@ -485,7 +488,7 @@ fn exception_statements_name_result_and_propagation() {
     }
     // Only `try` is reserved; the other words remain ordinary names.
     support::check_source(
-        "def raise(n: i64) -> i64:\n    n\ndef main() -> ():\n    finally = 2\n    except = raise(1)\n    x = raise(finally) + except\n",
+        "def raise(n: i64) -> i64:\n    n\ndef main() -> Result[(), OverflowError[i64]]:\n    finally = 2\n    except = raise(1)\n    x = raise(finally) + except\n    Ok(())\n",
     )
     .unwrap();
 }
@@ -568,7 +571,7 @@ fn python_builtins_name_the_plenty_spelling() {
     );
     assert_eq!(
         output(
-            "import std.math as math\ndef main() -> Result[(), AllocError | IoError | ParseError | math.MathError]:\n    xs = [3, 1]?\n    print(math.max(1, 2), math.max_all(&xs), math.sum(&xs, 0), math.round(2.5)?, i64.parse(\"3\")?)?\n    Ok(())\n"
+            "import std.math as math\ndef main() -> Result[(), AllocError | IoError | ParseError | math.MathError | OverflowError[i64]]:\n    xs = [3, 1]?\n    print(math.max(1, 2), math.max_all(&xs), math.sum(&xs, 0)?, math.round(2.5)?, i64.parse(\"3\")?)?\n    Ok(())\n"
         ),
         "2 Option[i64].Some(3) 4 2 3\n"
     );

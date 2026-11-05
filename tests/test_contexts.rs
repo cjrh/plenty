@@ -77,13 +77,15 @@ def work() -> Option[i64]:
         counter.count = 8
         n: Option[i64] = Nothing
         return Some(n?)
-print(work()).unwrap()
-for n in range(2):
-    with Counter(n) as counter:
-        counter.count = counter.count + 10
-        if n == 0:
-            continue
-        break
+def main() -> Result[(), OverflowError[i64]]:
+    print(work()).unwrap()
+    for n in range(2):
+        with Counter(n) as counter:
+            counter.count = counter.count + 10
+            if n == 0:
+                continue
+            break
+    Ok(())
 "#
         ),
         "8\ndrop\nOption[i64].Nothing\n10\ndrop\n11\ndrop\n",
@@ -177,11 +179,15 @@ fn borrowed_manager_survives_scope_and_retains_mutations() {
         r#"
 class Counter:
     count: i64
+    # Only Counter(0) below, with exactly two unchanged scopes:
+    # 0 -> 1 -> 11 -> 12 -> 22. Both hook additions fit i64.
     def __enter__(self: &mut Counter) -> i64:
-        self.count = self.count + 1
+        unchecked:
+            self.count = self.count + 1
         self.count
     def __exit__(self: &mut Counter) -> ():
-        self.count = self.count + 10
+        unchecked:
+            self.count = self.count + 10
     def __del__(self) -> ():
         print(self.count).unwrap()
 def use(counter: &mut Counter) -> ():

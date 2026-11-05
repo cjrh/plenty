@@ -4,9 +4,15 @@ A generator expression evaluates one element at a time, when its consumer
 asks for the next one:
 
 ```plenty
-def main() -> Result[(), AllocError | IoError]:
-    squares = (n * n for n in range(4) if n != 2)
-    print(list[i64].from(squares)?)?
+def square(n: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(n * n)
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    squares = (square(n) for n in range(4) if n != 2)
+    mut values: list[i64] = []?
+    for outcome in squares:
+        values.append(outcome?)?
+    print(values)?
     words = ["tea", "", "café"]?
     print(", ".join(w for w in words if w != "")?)?
     Ok(())
@@ -15,6 +21,11 @@ def main() -> Result[(), AllocError | IoError]:
 [0, 1, 9]
 tea, café
 ```
+
+The square helper returns a `Result` because arbitrary `i64` squares can
+overflow. The generator yields those results without unwrapping them; the loop
+uses `?` in `main` before appending each value. A caller's arithmetic mode never
+changes a producer's declared contract.
 
 `separator.join` accepts any iterable of `str`, so the selected words are
 joined without first collecting them into a list. A generator cannot be

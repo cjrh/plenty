@@ -31,15 +31,17 @@ enum Domain:
 def classify(error: ParseError) -> Domain:
     print("mapped").unwrap()
     Domain.Parse(error)
-def parsed(text: &str) -> Result[i64, Domain]:
+def parsed(text: &str) -> Result[i64, Domain | OverflowError[i64]]:
     Ok(map_error(i64.parse(text), classify)? + 1)
-def main() -> Result[(), AllocError | IoError | Domain]:
+def main() -> Result[(), AllocError | IoError | Domain | OverflowError[i64]]:
     print(parsed("41")?)?
     match parsed("bad"):
         case Ok(_):
             print("unexpected")?
         case Err(Domain.Parse(cause)):
             print(cause == ParseError.Invalid)?
+        case Err(error):
+            return Err(error)
     kept: Result[list[i64], ParseError] = Ok([7, 8]?)
     print(map_error(kept, classify)?)?
     unit: Result[(), ParseError] = Ok(())
@@ -87,12 +89,12 @@ fn accepts_mutable_reusable_callbacks_and_does_not_flatten_results() {
     assert_output(
         r#"
 from std.error import map_error
-def main() -> Result[(), IoError | ParseError]:
+def main() -> Result[(), IoError | ParseError | OverflowError[i64]]:
     count = 10
-    mapper = def [mut count](error: ParseError) -> Result[i64, ParseError]:
+    mapper = def [mut count](error: ParseError) -> Result[i64, ParseError | OverflowError[i64]]:
         count += 1
         Ok(count)
-    result: Result[i64, Result[i64, ParseError]] = map_error(i64.parse("bad"), mapper)
+    result: Result[i64, Result[i64, ParseError | OverflowError[i64]]] = map_error(i64.parse("bad"), mapper)
     match result:
         case Ok(_):
             print("unexpected")?
@@ -226,9 +228,9 @@ enum AppError:
     Parse(ParseError)
 enum Wrapped[T]:
     One(T)
-def parsed(text: &str) -> Result[i64, AppError]:
+def parsed(text: &str) -> Result[i64, AppError | OverflowError[i64]]:
     Ok(i64.parse(text).map_error(AppError.Parse)? + 1)
-def main() -> Result[(), AppError | IoError | AllocError]:
+def main() -> Result[(), AppError | IoError | AllocError | OverflowError[i64]]:
     print("hello").map_error(AppError.Io)?
     print(parsed("41")?)?
     failed = i64.parse("bad")
@@ -368,13 +370,13 @@ fn inherent_map_error_methods_still_take_precedence() {
         r#"
 class Counter:
     count: i64
-    def map_error(self, extra: i64) -> i64:
-        self.count + extra
+    def map_error(self, extra: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(self.count + extra)
 def make() -> Counter:
     Counter(1)
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     counter = Counter(2)
-    print(counter.map_error(1), make().map_error(3))?
+    print(counter.map_error(1)?, make().map_error(3)?)?
     Ok(())
 "#,
         "3 4\n",

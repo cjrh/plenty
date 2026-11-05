@@ -18,25 +18,26 @@ fn split_views_of_one_list_are_disjoint() {
         r#"
 import std.bytes as bytes_mod
 
-def total(v: &[i64]) -> i64:
+def total(v: &[i64]) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     for x in v:
         sum += *x
-    sum
+    Ok(sum)
 
-def halves(xs: &mut list[i64]) -> ():
+def halves(xs: &mut list[i64]) -> Result[(), OverflowError[i64] | ZeroDivisionError]:
     m = len(xs) // 2
     left = &mut xs[:m]
     right = &mut xs[m:]
     for x in left:
         *x += right[0]
+    Ok(())
 
-def main() -> Result[(), AllocError | IoError | bytes_mod.BytesError]:
+def main() -> Result[(), AllocError | IoError | bytes_mod.BytesError | OverflowError[i64] | ZeroDivisionError]:
     mut xs = [1, 2, 3, 4, 5, 6]?
     m = 2
     left = &mut xs[:m]
     right = &mut xs[m:]
-    left[0] = total(right)
+    left[0] = total(right)?
     right[0] = left[1]
     print(xs)?
     low = &mut xs[0:2]
@@ -46,7 +47,7 @@ def main() -> Result[(), AllocError | IoError | bytes_mod.BytesError]:
     start = &mut xs[:-2]
     end[0] = start[0]
     print(xs)?
-    halves(&mut xs)
+    halves(&mut xs)?
     print(xs)?
     tail = &mut xs[m:]
     a = &mut tail[:1]
@@ -114,11 +115,18 @@ def main() -> Result[(), AllocError | IoError]:
 #[case("a = &mut xs[:3]\nb = &mut xs[2:]\na[0] = b[0]")]
 #[case("a = &mut xs[:-2]\nb = &mut xs[2:]\na[0] = b[0]")]
 #[case("m = 2\nk = 2\na = &mut xs[:m]\nb = &mut xs[k:]\na[0] = b[0]")]
-#[case("m = 2\na = &mut xs[:m + 0]\nb = &mut xs[m:]\na[0] = b[0]")]
+#[case(
+    "def main() -> Result[(), OverflowError[i64]]:\n    mut xs = [1, 2, 3, 4].unwrap()\n    m = 2\n    a = &mut xs[:m + 0]\n    b = &mut xs[m:]\n    a[0] = b[0]\n    Ok(())"
+)]
 #[case("mut m = 2\na = &mut xs[:m]\nb = &mut xs[m:]\na[0] = b[0]")]
 #[case("m = 3\nright = &mut xs[m:]\na = &mut right[:2]\nb = &mut right[1:]\na[0] = b[0]")]
 fn overlapping_views_are_rejected(#[case] body: &str) {
-    let error = support::check_diagnostic(&format!("mut xs = [1, 2, 3, 4].unwrap()\n{body}"));
+    let source = if body.starts_with("def main(") {
+        body.to_owned()
+    } else {
+        format!("mut xs = [1, 2, 3, 4].unwrap()\n{body}")
+    };
+    let error = support::check_diagnostic(&source);
     assert!(error.contains("conflicting borrow"), "{body}\n{error}");
     assert!(
         error.contains("views of one owner are disjoint when one stops where the other starts"),
@@ -148,7 +156,7 @@ fn overlapping_views_are_rejected(#[case] body: &str) {
     "conflicting borrow"
 )]
 #[case(
-    "mut pairs = [(1, 2)].unwrap()\nfor n, s in &mut pairs:\n    first = &mut pairs[0]\n    *n += 1",
+    "def main() -> Result[(), OverflowError[i64]]:\n    mut pairs = [(1, 2)].unwrap()\n    for n, s in &mut pairs:\n        first = &mut pairs[0]\n        *n += 1\n    Ok(())",
     "conflicting borrow"
 )]
 fn overlapping_element_borrows_are_rejected(#[case] source: &str, #[case] expected: &str) {

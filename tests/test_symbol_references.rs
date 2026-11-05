@@ -11,12 +11,12 @@ const INTERFACE: &str = "pub extern def labs(value: i64) -> i64 = \"labs\"\n";
 
 const PROGRAM: &str = r#"import native
 
-def twice(v: i64) -> i64:
-    v * 2
+def twice(v: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(v * 2)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     words = ["a", "bc"]?
-    print(twice(native.labs(-4)), words)?
+    print(twice(native.labs(-4))?, words)?
     Ok(())
 "#;
 

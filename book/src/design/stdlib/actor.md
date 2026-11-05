@@ -21,7 +21,7 @@ from std.ready import WaitError
 from std.sync import CancellationToken
 from std.time import deadline_after, monotonic_now, seconds
 
-type Fault = AllocError | IoError
+type Fault = AllocError | IoError | OverflowError[i64]
 
 pub enum Job:
     Square(i64)
@@ -296,6 +296,25 @@ watching allocates nothing. A closed handle's number can be reused by a later
 handle, which then has the same key; readiness already queued for the closed
 one can reach the new one, and its nonblocking calls return `WouldBlock`.
 
+## Arithmetic limits
+
+Observation-only `Stats` totals saturate at `i64.MAX`; saturation never changes
+mail delivery, admission, errors or cleanup. Slot and timer/request generations
+never wrap: after an identity with generation `u32.MAX` ends, its slot or record
+is permanently retired. A pending `Down` still retains its payload and is
+delivered (or dropped during parent cleanup) before the exhausted slot is
+forgotten. Later admission uses the existing capacity errors when no reusable
+slot or record remains. Timer-record table sizes beyond their 32-bit key index
+range return `AllocError.CapacityOverflow` before appending.
+
+Mailbox ordering counters are not lifetime totals. Before their representation
+would overflow, the stage subtracts the delivered prefix from both counters and
+all of that mailbox's pending `Down` fences, clamping only already-passed fences
+to zero. Ready exits stay ready and future exits retain their exact remaining
+prefix distance. No callback or allocation runs during rebasing. Clearing an
+actor drains its queued messages and child exits before counters are reset on
+slot reuse; restarting also clears those queues.
+
 ## Timers, requests and restart
 
 A lead actor asks a counting service for its count, crashes it, and asks
@@ -309,7 +328,7 @@ from std.ready import WaitError
 from std.sync import CancellationToken
 from std.time import deadline_after, milliseconds, monotonic_now, seconds
 
-type Fault = AllocError | IoError
+type Fault = AllocError | IoError | OverflowError[i64]
 
 pub enum Job:
     Get
@@ -388,7 +407,7 @@ def main() -> Result[(), AllocError | IoError | StageError | WaitError]:
 count 1
 gone
 count 1
-service std.actor.Exit[AllocError | IoError].Stopped
+service std.actor.Exit[AllocError | IoError | OverflowError[i64]].Stopped
 1 1
 ```
 
@@ -407,6 +426,12 @@ actor heap; a stage starts with none, and `after`, `every` and `request` return
 `Capacity` when every record is in use. Starting, firing and cancelling a
 timer allocate nothing. `Stage.run` waits on the selector until the earlier of
 its deadline and the next due timer; the timer's wake-up is not a timeout.
+
+An unrepresentable `now + delay` returns `TimerError.Range` before reserving
+or scheduling a record. Repeating timers skip missed ticks and clamp their
+next deadline to the last representable instant. Mailbox/runnable ring indices
+and timer-heap indices use bounded arithmetic, including at representation
+limits, rather than relying on a potentially overflowing index sum.
 
 ### Request and reply
 
@@ -427,6 +452,10 @@ A late or second `reply`, a `reply` to a request sent to another actor, and a
 request holds a timer record until its reply. Handlers do not block, so the
 requester handles other mail while it waits. Compare `request.key()` to match
 replies when several requests are pending.
+
+A request timeout beyond the representable clock range is clamped to the last
+instant, rather than returning an arithmetic error or consuming its message on
+an overflow path.
 
 ### Restart
 
@@ -466,7 +495,7 @@ from std.ready import WaitError
 from std.sync import CancellationToken
 from std.time import deadline_after, monotonic_now, seconds
 
-type Fault = AllocError | IoError
+type Fault = AllocError | IoError | OverflowError[i64]
 
 pub class Greedy:
     pub size: i64

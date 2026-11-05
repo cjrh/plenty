@@ -468,8 +468,9 @@ def session() -> Result[(), WebSocketError | std.bytes.BytesError | RangeError |
     print(socket.receive(&mut buffer, &later()?, &wait_cancel)?)?
     print(buffer.to_text()?)?
     mut data = std.bytes.with_capacity(70000)?
+    modulus: Positive[i64] = 251
     for index in range(70000):
-        data.push(u8(index % 251))?
+        data.push(u8(index % modulus))?
     socket.send(Kind.Binary, &data, &later()?, &wait_cancel)?
     buffer.clear()
     print(socket.receive(&mut buffer, &later()?, &wait_cancel)?)?
@@ -902,8 +903,97 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | RangeErro
     Ok(())
 "#
     );
-    assert_eq!(
-        output(&source),
-        "True False kept\nTrue False kept\nTrue True\nTrue False"
+    for optimize in [false, true] {
+        assert_eq!(
+            boundary_output(&source, optimize),
+            "True False kept\nTrue False kept\nTrue True\nTrue False"
+        );
+    }
+}
+
+fn boundary_output(source: &str, optimize: bool) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.plenty");
+    let executable = dir.path().join("program");
+    std::fs::write(&path, source).unwrap();
+    plenty::compile_file_to_executable_with_options(
+        &path,
+        &executable,
+        None,
+        &plenty::CompileOptions {
+            optimize,
+            test_hooks: true,
+            ..Default::default()
+        },
+    )
+    .unwrap_or_else(|error| panic!("{source}\n{error}"));
+    let output = Command::new(executable).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{:?}\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
     );
+    String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .filter(|line| !line.starts_with("__test_"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn websocket_extent_deadline_and_frame_bounds_cover_representation_limits() {
+    fn helper<'a>(source: &'a str, name: &str) -> &'a str {
+        let start = source.find(&format!("def {name}(")).unwrap();
+        source[start..].split("\n\n").next().unwrap()
+    }
+    let module = include_str!("../stdlib/std/http/websocket.plenty");
+    let source = format!(
+        r#"{deadline}
+
+{piece}
+
+{extent}
+
+def main() -> Result[(), IoError]:
+    print("__test_begin_no_allocations__")?
+    deadline_zero = deadline_extent(0u64, u64.MAX) == u64.MAX
+    deadline_exact = deadline_extent(18446744073709551611u64, 4u64) == u64.MAX
+    deadline_over = deadline_extent(18446744073709551611u64, 5u64) == u64.MAX
+    deadline_full = deadline_extent(u64.MAX, 1u64) == u64.MAX
+    deadline_small = deadline_extent(5u64, 9u64) == 14u64
+    last = piece_end(9223372036854775806, i64.MAX, i64.MAX) == i64.MAX
+    split = piece_end(9223372036854775805, i64.MAX, 1) == 9223372036854775806
+    empty = piece_end(i64.MAX, i64.MAX, 1) == i64.MAX
+    whole = piece_end(0, i64.MAX, i64.MAX) == i64.MAX
+    chunk = piece_end(0, i64.MAX, 4096) == 4096
+    exact = payload_extent(9223372036854775806, 1).unwrap() == i64.MAX
+    prefix_overflow = match payload_extent(i64.MAX, 1):
+        case Err(AllocError.CapacityOverflow):
+            True
+        case _:
+            False
+    control_overflow = match payload_extent(9223372036854775683, 125):
+        case Err(AllocError.CapacityOverflow):
+            True
+        case _:
+            False
+    full = payload_extent(0, i64.MAX).unwrap() == i64.MAX
+    print("__test_end_no_allocations__")?
+    print(deadline_zero, deadline_exact, deadline_over, deadline_full, deadline_small)?
+    print(last, split, empty, whole, chunk)?
+    print(exact, prefix_overflow, control_overflow, full)?
+    Ok(())
+"#,
+        deadline = helper(module, "deadline_extent"),
+        piece = helper(module, "piece_end"),
+        extent = helper(module, "payload_extent")
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            boundary_output(&source, optimize),
+            "True True True True True\nTrue True True True True\nTrue True True True"
+        );
+    }
 }

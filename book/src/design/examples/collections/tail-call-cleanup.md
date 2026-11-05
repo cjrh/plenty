@@ -11,16 +11,16 @@ class Resource:
     def __del__(self) -> ():
         print(("release " + self.name).unwrap()).unwrap()
 
-def finish(total: i64) -> i64:
-    print("finish").unwrap()
-    total
+def finish(total: i64) -> Result[i64, IoError | OverflowError[i64]]:
+    print("finish")?
+    Ok(total)
 
-def step(total: i64) -> i64:
+def step(total: i64) -> Result[i64, IoError | OverflowError[i64]]:
     scratch = Resource("scratch")
     finish(total + 1)
 
-def main() -> Result[(), AllocError | IoError]:
-    print(step(41))?
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    print(step(41)?)?
     Ok(())
 ```
 
@@ -30,6 +30,8 @@ finish
 42
 ```
 
+`step` and `finish` deliberately share a Result type, including the arithmetic
+error that can originate in `step`, so forwarding the result remains a tail call.
 `scratch` is released before `finish` runs. A value passed as an argument moves
 to the called function, which cleans it up instead. Tail recursion therefore
 keeps its constant stack use when each step owns a resource. A call that borrows
@@ -37,3 +39,7 @@ one of the function's values, such as `inspect(&scratch)` or a method call on it
 cannot release that value first: it runs as an ordinary call and cleanup follows.
 A reference the function received as a parameter refers to a value outside the
 function, so passing it on is still a tail call.
+
+The destructor's printing is only an observation aid for this cleanup example;
+its explicit `unwrap()` terminates if that diagnostic output fails. Ordinary
+work, including `finish`, propagates its errors instead.

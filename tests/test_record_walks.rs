@@ -42,10 +42,10 @@ class Path:
     second: Segment
     id: i64
 
-def total(s: &Segment) -> i64:
-    s.start.x + s.start.y + s.end.x + s.end.y
+def total(s: &Segment) -> Result[i64, OverflowError[i64]]:
+    Ok(s.start.x + s.start.y + s.end.x + s.end.y)
 
-def path(n: i64) -> Result[Path, AllocError]:
+def path(n: i64) -> Result[Path, AllocError | OverflowError[i64]]:
     a = Segment(Point(n, n + 1), Point(n + 2, n + 3), ("a" + str.from(n)?)?)
     b = Segment(Point(-n, 0), Point(0, -n), "b")
     Ok(Path(a, b, n))
@@ -53,23 +53,23 @@ def path(n: i64) -> Result[Path, AllocError]:
 def keep(p: Path) -> Path:
     p
 
-def weight(p: Path) -> i64:
-    total(&p.first) + total(&p.second) + p.id
+def weight(p: Path) -> Result[i64, OverflowError[i64]]:
+    Ok(total(&p.first)? + total(&p.second)? + p.id)
 
-def relay(n: i64) -> Result[i64, AllocError]:
+def relay(n: i64) -> Result[i64, AllocError | OverflowError[i64]]:
     p = path(n)?
     q = path(n + 1)?
     # `p` moves in place while `q` is still live, and `q` after another call.
-    first = weight(p)
-    Ok(first + weight(keep(q)))
+    first = weight(p)?
+    Ok(first + weight(keep(q))?)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut rows: list[Path] = []?
     for i in range(5):
         rows.append(keep(path(i)?))?
     mut sum = 0
     for r in &rows:
-        sum += total(&r.first) + total(&r.second)
+        sum += total(&r.first)? + total(&r.second)?
     print(sum, relay(3)?)?
     last = rows.pop()
     match last:

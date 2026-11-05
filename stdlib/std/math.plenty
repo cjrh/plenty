@@ -178,9 +178,14 @@ pub def round(x: f64) -> Result[i64, MathError]:
 pub def divmod[T: IntType](a: T, b: T) -> Result[(T, T), MathError]:
     if b == 0:
         return Err(MathError.Domain)
-    if a < 0 and b < 0 and b + 1 == 0 and a == T.MIN:
-        return Err(MathError.Overflow)
-    Ok((a // b, a % b))
+    result = checked:
+        (a // b, a % b)
+    match result:
+        case Ok(pair):
+            Ok(pair)
+        case Err(_):
+            # Zero was rejected above; only the signed quotient can overflow.
+            Err(MathError.Overflow)
 
 # Derive both outputs from one remainder, preserving the divisor's sign.
 pub def divmod_float(a: f64, b: f64) -> Result[(f64, f64), MathError]:
@@ -208,18 +213,26 @@ pub def divmod_float(a: f64, b: f64) -> Result[(f64, f64), MathError]:
 pub def factorial(n: NonNegative[i64]) -> Result[u64, MathError]:
     if n > 20:
         return Err(MathError.Overflow)
-    mut result = 1u64
-    mut i = 2i64
-    while i <= n.get():
-        result *= u64(i)
-        i += 1
-    Ok(result)
+    result = checked:
+        mut product = 1u64
+        mut i = 2i64
+        while i <= n.get():
+            product *= u64(i)
+            i += 1
+        product
+    match result:
+        case Ok(product):
+            Ok(product)
+        case Err(_):
+            Err(MathError.Overflow)
 
 pub def gcd(a: u64, b: u64) -> u64:
     mut x = a
     mut y = b
     while y != 0:
-        remainder = x % y
+        # The loop condition proves the unsigned divisor is nonzero.
+        remainder = unchecked:
+            x % y
         x = y
         y = remainder
     x
@@ -227,61 +240,80 @@ pub def gcd(a: u64, b: u64) -> u64:
 pub def lcm(a: u64, b: u64) -> Result[u64, MathError]:
     if a == 0 or b == 0:
         return Ok(0u64)
-    quotient = a // gcd(a, b)
-    if quotient > u64.MAX // b:
-        return Err(MathError.Overflow)
-    Ok(quotient * b)
+    result = checked:
+        quotient = a // gcd(a, b)
+        quotient * b
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(_):
+            # Nonzero inputs imply gcd(a, b) > 0; division cannot fail.
+            Err(MathError.Overflow)
 
 pub def isqrt(n: u64) -> u64:
-    mut low = 0u64
-    mut high = 4294967296u64
-    while high - low > 1:
-        middle = low + (high - low) // 2
-        if middle <= n // middle:
-            low = middle
-        else:
-            high = middle
-    low
+    # 0 <= low < high <= 2**32; the loop gives 1 <= middle < high.
+    # Differences, midpoint addition and both unsigned divisions are safe.
+    unchecked:
+        mut low = 0u64
+        mut high = 4294967296u64
+        while high - low > 1:
+            middle = low + (high - low) // 2
+            if middle <= n // middle:
+                low = middle
+            else:
+                high = middle
+        low
 
 pub def perm(n: u64, k: u64) -> Result[u64, MathError]:
     if k > n:
         return Ok(0u64)
-    mut result = 1u64
-    mut i = 0u64
-    while i < k:
-        factor = n - i
-        if result > u64.MAX // factor:
-            return Err(MathError.Overflow)
-        result *= factor
-        i += 1
-    Ok(result)
+    result = checked:
+        mut product = 1u64
+        mut i = 0u64
+        while i < k:
+            product *= n - i
+            i += 1
+        product
+    match result:
+        case Ok(product):
+            Ok(product)
+        case Err(_):
+            Err(MathError.Overflow)
 
 pub def comb(n: u64, k: u64) -> Result[u64, MathError]:
     if k > n:
         return Ok(0u64)
-    mut count = k
-    if n - k < count:
-        count = n - k
-    mut result = 1u64
-    mut i = 1u64
-    while i <= count:
-        numerator = n - count + i
-        divisor = gcd(numerator, i)
-        factor = numerator // divisor
-        partial = result // (i // divisor)
-        if partial > u64.MAX // factor:
-            return Err(MathError.Overflow)
-        result = partial * factor
-        i += 1
-    Ok(result)
+    result = checked:
+        mut count = k
+        if n - k < count:
+            count = n - k
+        mut product = 1u64
+        mut i = 1u64
+        while i <= count:
+            numerator = n - count + i
+            divisor = gcd(numerator, i)
+            factor = numerator // divisor
+            partial = product // (i // divisor)
+            product = partial * factor
+            i += 1
+        product
+    match result:
+        case Ok(product):
+            Ok(product)
+        case Err(_):
+            # i >= 1 and gcd(numerator, i) divides i, so divisors are nonzero.
+            Err(MathError.Overflow)
 
-# These helpers specialize normally and preserve Plenty's arithmetic traps.
-pub def abs[T](x: T) -> T:
+# Signed minimum magnitudes are unrepresentable; preserve the wrapped payload.
+pub def abs[T: IntType](x: T) -> Result[T, OverflowError[T]]:
     if x == 0:
-        return 0
+        return Ok(0)
     if x < 0:
-        return 0 - x
-    x
+        return Ok(0 - x)
+    Ok(x)
+
+pub def abs_float[T: FloatType](x: T) -> T:
+    x.fabs()
 
 # Floats follow IEEE 754-2019 minimum/maximum: -0.0 orders below 0.0 and NaN
 # propagates (the first NaN). Other types keep their ordering; ties keep the
@@ -315,20 +347,38 @@ pub def max_all[T](items: &list[T]) -> Option[T]:
             best = *item
     Some(best)
 
-pub def sum[T](items: &list[T], start: T) -> T:
+pub def sum[T: IntType](items: &list[T], start: T) -> Result[T, OverflowError[T]]:
     sum_iter(items, start)
 
-pub def prod[T](items: &list[T], start: T) -> T:
+pub def prod[T: IntType](items: &list[T], start: T) -> Result[T, OverflowError[T]]:
     prod_iter(items, start)
 
-# I specializes to any supported borrowed iterable with numeric elements T.
-pub def sum_iter[I, T](items: &I, start: T) -> T:
+# I specializes to any supported borrowed iterable with integer elements T.
+pub def sum_iter[I, T: IntType](items: &I, start: T) -> Result[T, OverflowError[T]]:
+    mut total = start
+    for item in items:
+        total += *item
+    Ok(total)
+
+pub def prod_iter[I, T: IntType](items: &I, start: T) -> Result[T, OverflowError[T]]:
+    mut total = start
+    for item in items:
+        total *= *item
+    Ok(total)
+
+pub def sum_float[T: FloatType](items: &list[T], start: T) -> T:
+    sum_iter_float(items, start)
+
+pub def prod_float[T: FloatType](items: &list[T], start: T) -> T:
+    prod_iter_float(items, start)
+
+pub def sum_iter_float[I, T: FloatType](items: &I, start: T) -> T:
     mut total = start
     for item in items:
         total += *item
     total
 
-pub def prod_iter[I, T](items: &I, start: T) -> T:
+pub def prod_iter_float[I, T: FloatType](items: &I, start: T) -> T:
     mut total = start
     for item in items:
         total *= *item

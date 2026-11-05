@@ -29,7 +29,8 @@ fn run(source: &str, args: &[&str]) -> (Option<i32>, String, String) {
 
 /// Each inlined function is also reached another way: through a generator,
 /// a function value, a protocol table, a recursive caller, or a `?` failure
-/// and a trap inside it.
+/// and a trap inside it. The bodies select trapping arithmetic with
+/// `unchecked:` so the division trap stays observable.
 const PROGRAM: &str = r#"protocol Sized:
     def size(self) -> i64:
         pass
@@ -38,16 +39,19 @@ class Square:
     side: i64
 
     def size(self) -> i64:
-        self.side * self.side
+        unchecked:
+            self.side * self.side
 
 def twice(x: i64) -> i64:
-    x + x
+    unchecked:
+        x + x
 
 def numbers(stop: i64) -> Generator[i64]:
     mut n = 0
     while n < stop:
         yield twice(n)
-        n += 1
+        unchecked:
+            n += 1
 
 def apply(f: Callable[[i64], i64], x: i64) -> i64:
     f(x)
@@ -55,17 +59,20 @@ def apply(f: Callable[[i64], i64], x: i64) -> i64:
 def checked(xs: &[i64], i: i64) -> Result[i64, AllocError]:
     if i < 0:
         return Err(AllocError.CapacityOverflow)
-    Ok(xs[i] + twice(i))
+    unchecked:
+        Ok(xs[i] + twice(i))
 
 def depth(n: i64) -> i64:
     if n == 0:
         return 0
-    depth(n - 1) + 1
+    unchecked:
+        depth(n - 1) + 1
 
 def ratio(a: i64, b: i64) -> i64:
     mut total = 0
     for i in range(3):
-        total += a // (b - i)
+        unchecked:
+            total += a // (b - i)
     total
 
 def main() -> Result[(), AllocError | IoError]:
@@ -94,7 +101,7 @@ fn inlined_functions_keep_results_failures_and_traps() {
     assert_eq!(debug.1, EXPECTED, "{}", debug.2);
     assert_eq!(debug.0, Some(1));
     assert!(
-        debug.2.contains("p.plenty:36:18: division by zero"),
+        debug.2.contains("p.plenty:42:22: division by zero"),
         "{}",
         debug.2
     );
@@ -103,40 +110,46 @@ fn inlined_functions_keep_results_failures_and_traps() {
 
 /// A function called once and a small one called from several places are
 /// lowered in their callers; a large one with several callers and a
-/// recursive one stay calls.
+/// recursive one stay calls. Bodies use trapping arithmetic so the shapes
+/// match the inliner's size limits without overflow results.
 const SHAPES: &str = r#"def once(xs: &mut [i64], n: i64) -> i64:
-    mut lo = 0
-    mut hi = n - 1
-    mut swaps = 0
-    while lo < hi:
-        t = xs[lo]
-        xs[lo] = xs[hi]
-        xs[hi] = t
-        lo += 1
-        hi -= 1
-        swaps += 1
-    swaps
+    unchecked:
+        mut lo = 0
+        mut hi = n - 1
+        mut swaps = 0
+        while lo < hi:
+            t = xs[lo]
+            xs[lo] = xs[hi]
+            xs[hi] = t
+            lo += 1
+            hi -= 1
+            swaps += 1
+        swaps
 
 def small(x: i64) -> i64:
-    x * 3
+    unchecked:
+        x * 3
 
 def shared(xs: &[i64]) -> i64:
-    mut total = 0
-    for i in range(len(xs)):
-        total += xs[i] * xs[i] + small(i)
-    if total > 1000:
-        total = total // 2
-    total
+    unchecked:
+        mut total = 0
+        for i in range(len(xs)):
+            total += xs[i] * xs[i] + small(i)
+        if total > 1000:
+            total = total // 2
+        total
 
 def depth(n: i64) -> i64:
     if n == 0:
         return 0
-    depth(n - 1) + 1
+    unchecked:
+        depth(n - 1) + 1
 
 def caller(xs: &mut [i64]) -> i64:
-    n = len(xs)
-    swaps = once(xs, n)
-    swaps + small(2) + shared(xs) + shared(xs) + depth(2)
+    unchecked:
+        n = len(xs)
+        swaps = once(xs, n)
+        swaps + small(2) + shared(xs) + shared(xs) + depth(2)
 
 def main() -> Result[(), AllocError | IoError]:
     mut xs = [1, 2, 3, 4]?
@@ -184,7 +197,7 @@ fn unreferenced_inlined_functions_trap_if_called() {
     // The loop keeps call substitution, which keeps the callee's body, from
     // taking `helper` first.
     let source = "def helper(n: i64) -> i64:\n    mut total = 0\n    for i in range(n):\n        \
-                  total += i\n    total\n\n\
+                  unchecked:\n            total += i\n    total\n\n\
                   def main() -> Result[(), IoError]:\n    print(helper(5))?\n    Ok(())\n";
     std::fs::write(dir.path().join("p.plenty"), source).unwrap();
     // The linker receives the program object first; keep a copy of it.

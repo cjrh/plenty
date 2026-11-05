@@ -64,7 +64,7 @@ after clamping. A shared bound name reads one value for both views: assigning
 it while a view bounded by it is live is rejected.
 
 ```plenty
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | ZeroDivisionError]:
     mut xs = [1, 2, 3, 4, 5]?
     m = len(xs) // 2
     left = &mut xs[:m]

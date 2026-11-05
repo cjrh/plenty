@@ -1,0 +1,27 @@
+# Appended to server.plenty to inspect private bounded arithmetic without
+# changing the public API or allocating representation-sized buffers.
+def main() -> Result[(), BytesError | IoError | AllocError]:
+    mut reply = response(512)?
+    mut filled = response(512)?
+    filled._output.resize(512, 0u8)?
+    print("__test_begin_no_allocations__")?
+    a = diagnostic_next(0u64)
+    b = diagnostic_next(18446744073709551614u64)
+    c = diagnostic_next(u64.MAX)
+    d = lingering_after(16777215, 0)
+    e = lingering_after(16777215, 1)
+    f = lingering_after(16777215, 2)
+    g = lingering_after(0, i64.MAX)
+    h = lingering_after(16777216, i64.MAX)
+    empty = reply.pending()
+    room = reply.space()
+    reply._limit = i64.MAX
+    huge = reply.space()
+    # The framing reserve is deliberately subtracted after occupancy, so a
+    # full queue yields zero space rather than a negative public result.
+    full = filled.space()
+    print("__test_end_no_allocations__")?
+    print(a, b, c)?
+    print(d, e, f, g, h)?
+    print(empty, room, huge, full)?
+    Ok(())

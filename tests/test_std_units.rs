@@ -7,7 +7,7 @@ const PRELUDE: &str = "import std.units as u\nfrom std.units import Length, Time
 
 fn run(body: &str) -> String {
     let source_text = format!(
-        "{PRELUDE}def main() -> Result[(), AllocError | IoError | FormatError | math.MathError | RangeError]:\n{body}    Ok(())\n"
+        "{PRELUDE}def main() -> Result[(), AllocError | IoError | FormatError | math.MathError | RangeError | OverflowError[i64]]:\n{body}    Ok(())\n"
     );
     let dir = tempfile::tempdir().unwrap();
     let source = dir.path().join("main.plenty");
@@ -92,7 +92,7 @@ fn functions_keep_and_derive_dimensions() {
     empty: list[Quantity[f64, Length]] = []?
     print(u.sum(&xs), u.mean(&xs).unwrap(), u.mean(&empty).is_none())?
     print(math.min(2.0 * s, 1.0 * s), math.max(2.0 * s, 1.0 * s), u.clamp(5.0 * m, 0.0 * m, 3.0 * m), u.clamp(-1.0 * m, 0.0 * m, 3.0 * m))?
-    print(u.abs(-3.0 * u.kW).to(u.W), u.abs(Quantity[i64, Length](-3)), u.clamp(Quantity[i64, Length](3), Quantity[i64, Length](0), Quantity[i64, Length](2)))?
+    print(u.abs_float(-3.0 * u.kW).to(u.W), u.abs(Quantity[i64, Length](-3))?, u.abs(Quantity[i64, Length](i64.MIN)).is_err(), u.clamp(Quantity[i64, Length](3), Quantity[i64, Length](0), Quantity[i64, Length](2)))?
     print(f"{u.sin(30.0 * u.degree)?.get():.12f} {u.cos(u.rad * 0.0)?} {u.atan2(1.0 * m, 1.0 * m)?.to(u.degree)}"?)?
     print(u.exp(0.0 * u.rad)?, u.log(1.0 * u.rad)?, u.log10(100.0 * u.rad)?, u.log2(8.0 * u.rad)?, u.asin(1.0 * u.rad)?.to(u.degree))?
     print(u.sqrt(-1.0 * m * m).is_err(), u.log(0.0 * u.rad).is_err())?
@@ -104,7 +104,7 @@ fn functions_keep_and_derive_dimensions() {
          5.000000000000e+200 0.0 m inf m\n\
          2.0 m 0.5 m True\n\
          1.0 s 2.0 s 3.0 m 0.0 m\n\
-         3000.0 3 m 2 m\n\
+         3000.0 3 m True 2 m\n\
          0.500000000000 1.0 45.0\n\
          1.0 0.0 2.0 3.0 90.0\n\
          True True\n"

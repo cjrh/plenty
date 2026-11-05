@@ -67,7 +67,7 @@ fn binding_forms_accept_a_match_block() {
     run(
         &format!(
             r#"{SHAPE}
-def size(shape: Shape) -> i64:
+def size(shape: Shape) -> Result[i64, OverflowError[i64]]:
     total: i64 = match shape:
         case Shape.Dot:
             0
@@ -78,14 +78,14 @@ def size(shape: Shape) -> i64:
             for value in values:
                 sum += value
             sum
-    total + 1
+    Ok(total + 1)
 
-def main() -> Result[(), AllocError | IoError]:
-    print(size(Shape.Dot))?
-    print(size(Shape.Circle(4)))?
-    print(size(Shape.Named("abc", [1, 2]?)))?
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    print(size(Shape.Dot)?)?
+    print(size(Shape.Circle(4))?)?
+    print(size(Shape.Named("abc", [1, 2]?))?)?
     mut label = "unset"
-    label = match size(Shape.Dot):
+    label = match size(Shape.Dot)?:
         case 1:
             "one"
         case _:
@@ -157,10 +157,10 @@ fn return_match_makes_each_case_a_return() {
     // case is a tail call, as a call in any other `return` is.
     run(
         r#"
-def count(n: i64, total: i64) -> i64:
+def count(n: i64, total: i64) -> Result[i64, OverflowError[i64]]:
     return match n:
         case 0:
-            total
+            Ok(total)
         case _:
             count(n - 1, total + 1)
 
@@ -174,8 +174,8 @@ def report(n: i64) -> ():
         case _:
             unused = n
 
-def main() -> Result[(), IoError]:
-    print(count(5000000, 0))?
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(count(5000000, 0)?)?
     report(0)
     report(1)
     report(2)
@@ -300,7 +300,7 @@ class Scope:
     def __exit__(self: &mut Scope) -> ():
         print("exit").unwrap()
 
-def scoped(flag: bool) -> i64:
+def scoped(flag: bool) -> Result[i64, OverflowError[i64]]:
     with Scope("scope") as base:
         value = match flag:
             case True:
@@ -310,18 +310,19 @@ def scoped(flag: bool) -> i64:
                     case 3:
                         moved
                     case _:
-                        return -1
+                        return Ok(-1)
                 print("inner bound").unwrap()
                 base + len(kept.name)
             case False:
-                return 0
+                return Ok(0)
         print(value).unwrap()
-    1
+    Ok(1)
 
-def main() -> ():
-    print(scoped(True)).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    print(scoped(True)?).unwrap()
     print("--").unwrap()
-    print(scoped(False)).unwrap()
+    print(scoped(False)?).unwrap()
+    Ok(())
 "#
         ),
         "enter\ninner bound\nmoved\nlocal\n8\nexit\n1\n--\nenter\nexit\n0\n",
@@ -343,14 +344,15 @@ class Counter:
                 seed
         self.label = "new"
 
-def bump(target: &mut i64, by: bool) -> ():
+def bump(target: &mut i64, by: bool) -> Result[(), OverflowError[i64]]:
     *target = match by:
         case True:
             *target + 1
         case False:
             *target
+    Ok(())
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut items = [1, 2]?
     items[0] = match items[1]:
         case 2:
@@ -367,8 +369,8 @@ def main() -> Result[(), AllocError | IoError]:
     print(counter.count)?
     print(counter.label)?
     mut n = 4
-    bump(&mut n, True)
-    bump(&mut n, False)
+    bump(&mut n, True)?
+    bump(&mut n, False)?
     print(n)?
     Ok(())
 "#,
@@ -390,7 +392,7 @@ def parse(text: str) -> Result[i64, str]:
         case _:
             Err("unknown")
 
-def doubled(shape: Shape, text: str) -> Result[i64, str]:
+def doubled(shape: Shape, text: str) -> Result[i64, str | OverflowError[i64]]:
     base = match shape:
         case Shape.Dot:
             return Ok(-1)
@@ -400,15 +402,19 @@ def doubled(shape: Shape, text: str) -> Result[i64, str]:
             parse(text)?
     Ok(base * 2)
 
-def show(result: Result[i64, str]) -> Result[(), IoError]:
+def show(result: Result[i64, str | OverflowError[i64]]) -> Result[(), IoError | OverflowError[i64]]:
     match result:
         case Ok(value):
             print(value)?
-        case Err(message):
-            print(message)?
+        case Err(error):
+            match error:
+                case message: str:
+                    print(message)?
+                case overflow: OverflowError[i64]:
+                    return Err(overflow)
     Ok(())
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     show(doubled(Shape.Dot, "one"))?
     show(doubled(Shape.Circle(3), "one"))?
     show(doubled(Shape.Named("n", []?), "two"))?
@@ -500,7 +506,7 @@ fn borrowed_match_leaves_the_scrutinee_usable() {
     run(
         &format!(
             r#"{SHAPE}
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     shape = Shape.Circle(6)
     radius = match &shape:
         case Shape.Circle(radius):
@@ -672,18 +678,19 @@ def steps(limit: i64) -> Generator[i64]:
                 n
         yield scaled
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     print(choose(True, 1, 2))?
     print(choose(False, "a", "b"))?
     mut total = 0
-    mut add = def[&mut total](n: i64) -> ():
+    mut add = def[&mut total](n: i64) -> Result[(), OverflowError[i64]]:
         total = match n:
             case 0:
                 total
             case _:
                 total + n
-    add(0)
-    add(5)
+        Ok(())
+    add(0)?
+    add(5)?
     print(total)?
     for value in steps(3):
         print(value)?
@@ -905,19 +912,19 @@ def selected(flag: bool, pair: &Pair) -> &i64:
     else:
         &pair.right
 
-def count(n: i64) -> i64:
+def count(n: i64) -> Result[i64, OverflowError[i64]]:
     return if n < 0:
-        return 10
+        return Ok(10)
     elif n == 0:
         base = 20
-        base + 1
+        Ok(base + 1)
     else:
-        30
+        Ok(30)
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     pair = Pair(1, 2)
     print(*selected(True, &pair), *selected(False, &pair))?
-    print(count(-1), count(0), count(1))?
+    print(count(-1)?, count(0)?, count(1)?)?
     Ok(())
 "#,
         "1 2\n10 21 30\n",
@@ -996,7 +1003,7 @@ def main() -> Result[(), AllocError | IoError]:
 fn block_if_exits_keep_the_enclosing_loop_and_function() {
     run(
         r#"
-def values() -> Result[i64, ParseError]:
+def values() -> Result[i64, ParseError | OverflowError[i64]]:
     mut total = 0
     for n in range(5):
         chosen = if n == 0:
@@ -1042,14 +1049,14 @@ def numbers() -> Generator[i64]:
         3
     yield selected
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     offset = 10
-    f = def [offset](flag: bool) -> i64:
+    f = def [offset](flag: bool) -> Result[i64, OverflowError[i64]]:
         return if flag:
-            offset + 1
+            Ok(offset + 1)
         else:
-            offset + 2
-    print(choose(True, 5, 6), f(False))?
+            Ok(offset + 2)
+    print(choose(True, 5, 6), f(False)?)?
     for value in numbers():
         print(value)?
     Ok(())
@@ -1181,16 +1188,16 @@ def main() -> ():
 fn return_if_recursive_arms_are_tail_calls() {
     run(
         r#"
-def count(n: i64, total: i64) -> i64:
+def count(n: i64, total: i64) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
     return if n == 0:
-        total
+        Ok(total)
     elif n % 2 == 0:
         count(n - 1, total + 1)
     else:
         count(n - 1, total + 1)
 
-def main() -> Result[(), IoError]:
-    print(count(5000000, 0))?
+def main() -> Result[(), IoError | OverflowError[i64] | ZeroDivisionError]:
+    print(count(5000000, 0)?)?
     Ok(())
 "#,
         "5000000\n",

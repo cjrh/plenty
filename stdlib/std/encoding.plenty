@@ -43,33 +43,35 @@ pub class Encoding:
         self.decode(&source)
 
 pub def custom(symbols: &str, padding: Option[u8] = Some(61u8)) -> Result[Encoding, EncodingError]:
-    count = len(symbols)
-    if count < 2 or count > 64 or count & (count - 1) != 0:
-        return Err(EncodingError.InvalidAlphabet)
-    alphabet = std.bytes.from_text(symbols).map_error(EncodingError.Allocation)?
-    if alphabet.len() != count:
-        return Err(EncodingError.InvalidAlphabet)
-    mut pad = -1
-    match padding:
-        case Some(value):
-            pad = i64(value)
-            if pad < 33 or pad > 126:
+    # Alphabet length is 2..64 before subtraction; the bit count stays in 1..6.
+    unchecked:
+        count = len(symbols)
+        if count < 2 or count > 64 or count & (count - 1) != 0:
+            return Err(EncodingError.InvalidAlphabet)
+        alphabet = std.bytes.from_text(symbols).map_error(EncodingError.Allocation)?
+        if alphabet.len() != count:
+            return Err(EncodingError.InvalidAlphabet)
+        mut pad = -1
+        match padding:
+            case Some(value):
+                pad = i64(value)
+                if pad < 33 or pad > 126:
+                    return Err(EncodingError.InvalidAlphabet)
+            case Nothing:
+                pass
+        mut values = std.bytes.with_capacity(128).map_error(EncodingError.Allocation)?
+        values.resize(128, 255u8).map_error(EncodingError.Allocation)?
+        for index in range(count):
+            code = i64(alphabet[index])
+            if code < 33 or code > 126 or code == pad:
                 return Err(EncodingError.InvalidAlphabet)
-        case Nothing:
-            pass
-    mut values = std.bytes.with_capacity(128).map_error(EncodingError.Allocation)?
-    values.resize(128, 255u8).map_error(EncodingError.Allocation)?
-    for index in range(count):
-        code = i64(alphabet[index])
-        if code < 33 or code > 126 or code == pad:
-            return Err(EncodingError.InvalidAlphabet)
-        if values[code] != 255u8:
-            return Err(EncodingError.InvalidAlphabet)
-        values[code] = u8(index)
-    mut bits = 1
-    while 1 << bits < count:
-        bits += 1
-    Ok(Encoding(alphabet, values, bits, pad))
+            if values[code] != 255u8:
+                return Err(EncodingError.InvalidAlphabet)
+            values[code] = u8(index)
+        mut bits = 1
+        while 1 << bits < count:
+            bits += 1
+        Ok(Encoding(alphabet, values, bits, pad))
 
 pub def base32_encode(source: &[u8]) -> Result[Bytes, EncodingError]:
     encode_radix(source, b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567", 5, 61)
@@ -100,24 +102,25 @@ pub def base32hex_from_text(text: &str) -> Result[Bytes, EncodingError]:
 # MIME's 76-column layout, CRLF between lines, no final line terminator.
 pub def base64mime_encode(source: &[u8]) -> Result[Bytes, EncodingError]:
     encoded = base64_encode(source)?
-    mut breaks = 0
-    if encoded.len() > 0:
-        breaks = (encoded.len() - 1) // 76
-    mut wrapped = std.bytes.with_capacity(encoded.len() + breaks * 2).map_error(EncodingError.Allocation)?
-    for index in range(encoded.len()):
-        if index > 0 and index % 76 == 0:
-            emit(&mut wrapped, 13)?
-            emit(&mut wrapped, 10)?
-        emit(&mut wrapped, i64(encoded[index]))?
+    mut wrapped = std.bytes.with_capacity(mime_capacity(encoded.len())?).map_error(EncodingError.Allocation)?
+    # The cursor is bounded by encoded.len(); 76 is a nonzero constant.
+    unchecked:
+        for index in range(encoded.len()):
+            if index > 0 and index % 76 == 0:
+                emit(&mut wrapped, 13)?
+                emit(&mut wrapped, 10)?
+            emit(&mut wrapped, i64(encoded[index]))?
     Ok(wrapped)
 
 # Deliberately narrower than MIME's liberal recovery: skip SP/HT/CR/LF only,
 # and retain the strict base64 alphabet, padding and trailing-bit checks.
 pub def base64mime_decode(source: &[u8]) -> Result[Bytes, EncodingError]:
     mut size = 0
-    for index in range(len(source)):
-        if not mime_space(source[index]):
-            size += 1
+    # Count only source bytes; size <= len(source) even at the representation limit.
+    unchecked:
+        for index in range(len(source)):
+            if not mime_space(source[index]):
+                size += 1
     mut compact = std.bytes.with_capacity(size).map_error(EncodingError.Allocation)?
     for index in range(len(source)):
         if not mime_space(source[index]):
@@ -151,13 +154,14 @@ pub def pem_encode(source: &[u8], label: &[u8]) -> Result[Bytes, EncodingError]:
     if len(source) == 0:
         return Err(EncodingError.InvalidLength)
     encoded = base64_encode(source)?
-    lines = (encoded.len() + 63) // 64
-    mut text = std.bytes.with_capacity(encoded.len() + lines + 2 * len(label) + 32).map_error(EncodingError.Allocation)?
+    mut text = std.bytes.with_capacity(pem_capacity(encoded.len(), len(label))?).map_error(EncodingError.Allocation)?
     pem_boundary(&mut text, b"-----BEGIN ", label)?
-    for index in range(encoded.len()):
-        emit(&mut text, i64(encoded[index]))?
-        if index % 64 == 63 or index == encoded.len() - 1:
-            emit(&mut text, 10)?
+    # Nonempty input produces nonempty base64; the cursor never exceeds its length.
+    unchecked:
+        for index in range(encoded.len()):
+            emit(&mut text, i64(encoded[index]))?
+            if index % 64 == 63 or index == encoded.len() - 1:
+                emit(&mut text, 10)?
     pem_boundary(&mut text, b"-----END ", label)?
     Ok(text)
 
@@ -169,62 +173,65 @@ pub def pem_text(source: &[u8], label: &[u8]) -> Result[str, EncodingError]:
 # the BEGIN label differs from `label` or `label` is not an RFC 7468 label;
 # `InvalidPem` and the base64 errors give an offset into `source`.
 pub def pem_decode(source: &[u8], label: &[u8]) -> Result[Bytes, EncodingError]:
-    pem_label(label)?
-    mut at = pem_expect(source, 0, b"-----BEGIN ")?
-    if not pem_matches(source, at, label) or not pem_matches(source, at + len(label), b"-----"):
-        return Err(EncodingError.PemLabel)
-    at += len(label) + 5
-    mut eol = 0
-    if at < len(source) and source[at] == 10u8:
-        eol = 1
-    elif at + 1 < len(source) and source[at] == 13u8 and source[at + 1] == 10u8:
-        eol = 2
-    else:
-        return Err(EncodingError.InvalidPem(at))
-    at += eol
-    body = at
-    mut count = 0
-    mut short = False
-    while at < len(source) and source[at] != 45u8:
-        if short:
+    # Matched delimiters and guarded advances keep every cursor/count within source.
+    unchecked:
+        pem_label(label)?
+        mut at = pem_expect(source, 0, b"-----BEGIN ")?
+        if not pem_matches(source, at, label) or not pem_matches(source, at + len(label), b"-----"):
+            return Err(EncodingError.PemLabel)
+        at += len(label) + 5
+        mut eol = 0
+        if at < len(source) and source[at] == 10u8:
+            eol = 1
+        elif len(source) - at >= 2 and source[at] == 13u8 and source[at + 1] == 10u8:
+            eol = 2
+        else:
             return Err(EncodingError.InvalidPem(at))
-        mut end = at
-        while end < len(source) and source[end] != 10u8 and source[end] != 13u8:
-            if end - at == 64:
-                return Err(EncodingError.InvalidPem(end))
-            end += 1
-        if end == at:
+        at += eol
+        body = at
+        mut count = 0
+        mut short = False
+        while at < len(source) and source[at] != 45u8:
+            if short:
+                return Err(EncodingError.InvalidPem(at))
+            mut end = at
+            while end < len(source) and source[end] != 10u8 and source[end] != 13u8:
+                if end - at == 64:
+                    return Err(EncodingError.InvalidPem(end))
+                end += 1
+            if end == at:
+                return Err(EncodingError.InvalidPem(at))
+            short = end - at < 64
+            count += end - at
+            at = pem_line_end(source, end, eol)?
+        body_end = at
+        if count == 0:
             return Err(EncodingError.InvalidPem(at))
-        short = end - at < 64
-        count += end - at
-        at = pem_line_end(source, end, eol)?
-    if count == 0:
-        return Err(EncodingError.InvalidPem(at))
-    at = pem_expect(source, at, b"-----END ")?
-    at = pem_expect(source, at, label)?
-    at = pem_expect(source, at, b"-----")?
-    if at < len(source):
-        at = pem_line_end(source, at, eol)?
+        at = pem_expect(source, at, b"-----END ")?
+        at = pem_expect(source, at, label)?
+        at = pem_expect(source, at, b"-----")?
         if at < len(source):
-            return Err(EncodingError.InvalidPem(at))
-    mut compact = std.bytes.with_capacity(count).map_error(EncodingError.Allocation)?
-    for index in range(body, body + count + (count + 63) // 64 * eol):
-        code = source[index]
-        if code != 10u8 and code != 13u8:
-            emit(&mut compact, i64(code))?
-    match base64_decode(&compact[:count]):
-        case Ok(decoded):
-            Ok(decoded)
-        case Err(error):
-            match error:
-                case EncodingError.InvalidByte(index):
-                    Err(EncodingError.InvalidByte(pem_index(body, eol, index)))
-                case EncodingError.InvalidPadding(index):
-                    Err(EncodingError.InvalidPadding(pem_index(body, eol, index)))
-                case EncodingError.NonCanonical(index):
-                    Err(EncodingError.NonCanonical(pem_index(body, eol, index)))
-                case _:
-                    Err(error)
+            at = pem_line_end(source, at, eol)?
+            if at < len(source):
+                return Err(EncodingError.InvalidPem(at))
+        mut compact = std.bytes.with_capacity(count).map_error(EncodingError.Allocation)?
+        for index in range(body, body_end):
+            code = source[index]
+            if code != 10u8 and code != 13u8:
+                emit(&mut compact, i64(code))?
+        match base64_decode(&compact[:count]):
+            case Ok(decoded):
+                Ok(decoded)
+            case Err(error):
+                match error:
+                    case EncodingError.InvalidByte(index):
+                        Err(EncodingError.InvalidByte(pem_index(body, eol, index)))
+                    case EncodingError.InvalidPadding(index):
+                        Err(EncodingError.InvalidPadding(pem_index(body, eol, index)))
+                    case EncodingError.NonCanonical(index):
+                        Err(EncodingError.NonCanonical(pem_index(body, eol, index)))
+                    case _:
+                        Err(error)
 
 pub def pem_from_text(text: &str, label: &[u8]) -> Result[Bytes, EncodingError]:
     source = std.bytes.from_text(text).map_error(EncodingError.Allocation)?
@@ -234,17 +241,19 @@ pub def pem_from_text(text: &str, label: &[u8]) -> Result[Bytes, EncodingError]:
 # hyphens only between such characters. The empty label is rejected because
 # no key or certificate format uses it.
 def pem_label(label: &[u8]) -> Result[(), EncodingError]:
-    count = len(label)
-    if count == 0:
-        return Err(EncodingError.PemLabel)
-    for index in range(count):
-        code = label[index]
-        if code == 32u8 or code == 45u8:
-            if index == 0 or index == count - 1 or label[index - 1] == 32u8 or label[index - 1] == 45u8:
-                return Err(EncodingError.PemLabel)
-        elif code < 33u8 or code > 126u8:
+    # count > 0; short-circuit guards make each previous-byte index valid.
+    unchecked:
+        count = len(label)
+        if count == 0:
             return Err(EncodingError.PemLabel)
-    Ok(())
+        for index in range(count):
+            code = label[index]
+            if code == 32u8 or code == 45u8:
+                if index == 0 or index == count - 1 or label[index - 1] == 32u8 or label[index - 1] == 45u8:
+                    return Err(EncodingError.PemLabel)
+            elif code < 33u8 or code > 126u8:
+                return Err(EncodingError.PemLabel)
+        Ok(())
 
 def pem_boundary(text: &mut Bytes, kind: &[u8], label: &[u8]) -> Result[(), EncodingError]:
     for index in range(len(kind)):
@@ -256,136 +265,156 @@ def pem_boundary(text: &mut Bytes, kind: &[u8], label: &[u8]) -> Result[(), Enco
     emit(text, 10)
 
 def pem_matches(source: &[u8], at: i64, expected: &[u8]) -> bool:
-    if len(source) - at < len(expected):
-        return False
-    for index in range(len(expected)):
-        if source[at + index] != expected[index]:
+    # Range checks bound at + index by len(source), including empty suffixes.
+    unchecked:
+        if at < 0 or at > len(source):
             return False
-    True
+        if len(source) - at < len(expected):
+            return False
+        for index in range(len(expected)):
+            if source[at + index] != expected[index]:
+                return False
+        True
 
 # The position after `expected`, or an error at the first byte that differs.
 def pem_expect(source: &[u8], at: i64, expected: &[u8]) -> Result[i64, EncodingError]:
-    for index in range(len(expected)):
-        if at + index >= len(source) or source[at + index] != expected[index]:
-            return Err(EncodingError.InvalidPem(at + index))
-    Ok(at + len(expected))
+    # at is in 0..len(source); the loop returns as soon as the cursor reaches len().
+    unchecked:
+        for index in range(len(expected)):
+            if at + index >= len(source) or source[at + index] != expected[index]:
+                return Err(EncodingError.InvalidPem(at + index))
+        Ok(at + len(expected))
 
 def pem_line_end(source: &[u8], at: i64, eol: i64) -> Result[i64, EncodingError]:
-    if eol == 2:
-        if at + 1 < len(source) and source[at] == 13u8 and source[at + 1] == 10u8:
-            return Ok(at + 2)
-    elif at < len(source) and source[at] == 10u8:
-        return Ok(at + 1)
-    Err(EncodingError.InvalidPem(at))
+    # at is in 0..len(source); advance only over a validated one/two-byte terminator.
+    unchecked:
+        if eol == 2:
+            if len(source) - at >= 2 and source[at] == 13u8 and source[at + 1] == 10u8:
+                return Ok(at + 2)
+        elif at < len(source) and source[at] == 10u8:
+            return Ok(at + 1)
+        Err(EncodingError.InvalidPem(at))
 
 # Every body line but the last holds 64 symbols, so a compact index maps
 # directly back to its offset in the source.
 def pem_index(body: i64, eol: i64, compact_index: i64) -> i64:
-    body + compact_index // 64 * (64 + eol) + compact_index % 64
+    # The validated body contains this compact index plus its preceding line endings.
+    unchecked:
+        body + compact_index // 64 * (64 + eol) + compact_index % 64
 
 def mime_space(code: u8) -> bool:
     code == 32u8 or code == 9u8 or code == 13u8 or code == 10u8
 
 def mime_index(source: &[u8], compact_index: i64) -> i64:
-    mut seen = 0
-    for index in range(len(source)):
-        if not mime_space(source[index]):
-            if seen == compact_index:
-                return index
-            seen += 1
-    len(source)
+    # seen counts a subset of the source's bytes, so it cannot exceed len(source).
+    unchecked:
+        mut seen = 0
+        for index in range(len(source)):
+            if not mime_space(source[index]):
+                if seen == compact_index:
+                    return index
+                seen += 1
+        len(source)
 
 # The smallest number of symbols encoding a whole number of bytes.
 def quantum(bits: i64) -> i64:
-    mut count = 1
-    while count * bits % 8 != 0:
-        count += 1
-    count
+    # Private callers supply bits in 1..6; the first integral-byte quantum is <= 8.
+    unchecked:
+        mut count = 1
+        while count * bits % 8 != 0:
+            count += 1
+        count
 
 def encode_radix(source: &[u8], symbols: &[u8], bits: i64, padding: i64) -> Result[Bytes, EncodingError]:
-    count = len(source)
-    if count > (i64.MAX - 7) // 8:
-        return Err(EncodingError.InvalidLength)
-    mut size = (count * 8 + bits - 1) // bits
-    if padding >= 0:
-        group = quantum(bits)
-        size += (group - size % group) % group
-    mut encoded = std.bytes.with_capacity(size).map_error(EncodingError.Allocation)?
-    mask = (1 << bits) - 1
-    mut pending = 0
-    mut available = 0
-    for index in range(len(source)):
-        pending = pending << 8 | i64(source[index])
-        available += 8
-        while available >= bits:
-            available -= bits
-            emit(&mut encoded, i64(symbols[(pending >> available) & mask]))?
-        pending = pending & ((1 << available) - 1)
-    if available > 0:
-        emit(&mut encoded, i64(symbols[(pending << (bits - available)) & mask]))?
-    while encoded.len() < size:
-        emit(&mut encoded, padding)?
-    Ok(encoded)
+    # bits is 1..6; the length guard bounds padded size by MAX and pending bits by 13.
+    unchecked:
+        count = len(source)
+        if count > (i64.MAX - 7) // 8:
+            return Err(EncodingError.InvalidLength)
+        mut size = (count * 8 + bits - 1) // bits
+        if padding >= 0:
+            group = quantum(bits)
+            size += (group - size % group) % group
+        mut encoded = std.bytes.with_capacity(size).map_error(EncodingError.Allocation)?
+        mask = (1 << bits) - 1
+        mut pending = 0
+        mut available = 0
+        for index in range(len(source)):
+            pending = pending << 8 | i64(source[index])
+            available += 8
+            while available >= bits:
+                available -= bits
+                emit(&mut encoded, i64(symbols[(pending >> available) & mask]))?
+            pending = pending & ((1 << available) - 1)
+        if available > 0:
+            emit(&mut encoded, i64(symbols[(pending << (bits - available)) & mask]))?
+        while encoded.len() < size:
+            emit(&mut encoded, padding)?
+        Ok(encoded)
 
 # Fixed alphabets avoid allocating a lookup table on every call; a custom
 # Encoding pays for its 128-byte table once and reuses it.
 def radix_value(code: i64, values: &[u8], kind: i64) -> i64:
-    if kind == 1:
-        if code >= 65 and code <= 90:
-            return code - 65
-        if code >= 50 and code <= 55:
-            return code - 24
-    elif kind == 2:
-        if code >= 48 and code <= 57:
-            return code - 48
-        if code >= 65 and code <= 86:
-            return code - 55
-    elif code < 128:
-        value = i64(values[code])
-        if value != 255:
-            return value
-    -1
+    # code comes from u8; guarded ASCII differences produce values in 0..31.
+    unchecked:
+        if kind == 1:
+            if code >= 65 and code <= 90:
+                return code - 65
+            if code >= 50 and code <= 55:
+                return code - 24
+        elif kind == 2:
+            if code >= 48 and code <= 57:
+                return code - 48
+            if code >= 65 and code <= 86:
+                return code - 55
+        elif code < 128:
+            value = i64(values[code])
+            if value != 255:
+                return value
+        -1
 
 def decode_radix(source: &[u8], values: &[u8], kind: i64, bits: i64, padding: i64) -> Result[Bytes, EncodingError]:
-    group = quantum(bits)
-    if padding >= 0 and len(source) % group != 0:
-        return Err(EncodingError.InvalidLength)
-    mut end = len(source)
-    if padding >= 0:
-        while end > 0 and i64(source[end - 1]) == padding:
-            end -= 1
-    count = end
-    # An incomplete byte needs fewer unused bits than one whole symbol.
-    trailing = (count % 8) * bits % 8
-    if trailing >= bits:
-        return Err(EncodingError.InvalidLength)
-    if padding >= 0 and len(source) - end != (group - count % group) % group:
-        return Err(EncodingError.InvalidPadding(end))
-    size = (count // 8) * bits + (count % 8) * bits // 8
-    mut decoded = std.bytes.with_capacity(size).map_error(EncodingError.Allocation)?
-    mut pending = 0
-    mut available = 0
-    for index in range(end):
-        code = i64(source[index])
-        value = radix_value(code, values, kind)
-        if value < 0:
-            if code == padding:
-                return Err(EncodingError.InvalidPadding(index))
-            return Err(EncodingError.InvalidByte(index))
-        pending = pending << bits | value
-        available += bits
-        if available >= 8:
-            available -= 8
-            emit(&mut decoded, pending >> available)?
-            pending = pending & ((1 << available) - 1)
-    if pending != 0:
-        return Err(EncodingError.NonCanonical(end - 1))
-    Ok(decoded)
+    # bits is 1..6; decoded size <= source length, pending bits <= 13, and end stays >= 0.
+    unchecked:
+        group = quantum(bits)
+        if padding >= 0 and len(source) % group != 0:
+            return Err(EncodingError.InvalidLength)
+        mut end = len(source)
+        if padding >= 0:
+            while end > 0 and i64(source[end - 1]) == padding:
+                end -= 1
+        count = end
+        # An incomplete byte needs fewer unused bits than one whole symbol.
+        trailing = (count % 8) * bits % 8
+        if trailing >= bits:
+            return Err(EncodingError.InvalidLength)
+        if padding >= 0 and len(source) - end != (group - count % group) % group:
+            return Err(EncodingError.InvalidPadding(end))
+        size = (count // 8) * bits + (count % 8) * bits // 8
+        mut decoded = std.bytes.with_capacity(size).map_error(EncodingError.Allocation)?
+        mut pending = 0
+        mut available = 0
+        for index in range(end):
+            code = i64(source[index])
+            value = radix_value(code, values, kind)
+            if value < 0:
+                if code == padding:
+                    return Err(EncodingError.InvalidPadding(index))
+                return Err(EncodingError.InvalidByte(index))
+            pending = pending << bits | value
+            available += bits
+            if available >= 8:
+                available -= 8
+                emit(&mut decoded, pending >> available)?
+                pending = pending & ((1 << available) - 1)
+        if pending != 0:
+            return Err(EncodingError.NonCanonical(end - 1))
+        Ok(decoded)
 
-# Lowercase digits. Sizes below cannot overflow: a buffer large enough to make
-# them wrap cannot have been allocated.
+# Lowercase digits. Check expansion before allocating; source allocation does
+# not by itself prove that the encoded size is representable.
 pub def hex_encode(source: &[u8]) -> Result[Bytes, EncodingError]:
-    mut encoded = std.bytes.with_capacity(len(source) * 2).map_error(EncodingError.Allocation)?
+    mut encoded = std.bytes.with_capacity(hex_capacity(len(source))?).map_error(EncodingError.Allocation)?
     for index in range(len(source)):
         value = i64(source[index])
         emit(&mut encoded, hex_digit(value >> 4))?
@@ -394,19 +423,21 @@ pub def hex_encode(source: &[u8]) -> Result[Bytes, EncodingError]:
 
 # Accepts either digit case; the length must be even.
 pub def hex_decode(source: &[u8]) -> Result[Bytes, EncodingError]:
-    if len(source) % 2 != 0:
-        return Err(EncodingError.InvalidLength)
-    mut decoded = std.bytes.with_capacity(len(source) // 2).map_error(EncodingError.Allocation)?
-    for pair in range(len(source) // 2):
-        index = pair * 2
-        high = hex_value(i64(source[index]))
-        if high < 0:
-            return Err(EncodingError.InvalidByte(index))
-        low = hex_value(i64(source[index + 1]))
-        if low < 0:
-            return Err(EncodingError.InvalidByte(index + 1))
-        emit(&mut decoded, high * 16 + low)?
-    Ok(decoded)
+    # Even length bounds pair * 2 + 1; decoded nibbles are checked before combining.
+    unchecked:
+        if len(source) % 2 != 0:
+            return Err(EncodingError.InvalidLength)
+        mut decoded = std.bytes.with_capacity(len(source) // 2).map_error(EncodingError.Allocation)?
+        for pair in range(len(source) // 2):
+            index = pair * 2
+            high = hex_value(i64(source[index]))
+            if high < 0:
+                return Err(EncodingError.InvalidByte(index))
+            low = hex_value(i64(source[index + 1]))
+            if low < 0:
+                return Err(EncodingError.InvalidByte(index + 1))
+            emit(&mut decoded, high * 16 + low)?
+        Ok(decoded)
 
 pub def hex_text(source: &[u8]) -> Result[str, EncodingError]:
     lifted(hex_encode(source)?.to_text())
@@ -522,6 +553,49 @@ pub def unpack_f64(source: &[u8], offset: i64, order: Endian) -> f64:
 
 # Ranges are validated before any `Bytes` call and encoder output is ASCII, so
 # only `Allocation` reaches here in practice.
+# Checked output-size expressions use positive divisors and nonnegative lengths.
+# A size that cannot fit the representation is an allocation capacity failure.
+def sized[E](result: Result[i64, E]) -> Result[i64, EncodingError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(_):
+            Err(EncodingError.Allocation(AllocError.CapacityOverflow))
+
+# Pure capacity checks also make representation-limit behavior testable without
+# constructing a source buffer large enough to exhaust address space.
+def hex_capacity(count: i64) -> Result[i64, EncodingError]:
+    result = checked:
+        count * 2
+    sized(result)
+
+def base64_capacity(count: i64, url: bool) -> Result[i64, EncodingError]:
+    result = checked:
+        groups = count // 3
+        tail = count % 3
+        mut size = groups * 4
+        if tail > 0:
+            if url:
+                size += tail + 1
+            else:
+                size += 4
+        size
+    sized(result)
+
+def mime_capacity(count: i64) -> Result[i64, EncodingError]:
+    result = checked:
+        mut breaks = 0
+        if count > 0:
+            breaks = (count - 1) // 76
+        count + breaks * 2
+    sized(result)
+
+def pem_capacity(count: i64, label: i64) -> Result[i64, EncodingError]:
+    result = checked:
+        lines = (count + 63) // 64
+        count + lines + 2 * label + 32
+    sized(result)
+
 def lifted[T](result: Result[T, BytesError]) -> Result[T, EncodingError]:
     match result:
         case Ok(value):
@@ -539,85 +613,91 @@ def emit(target: &mut Bytes, value: i64) -> Result[(), EncodingError]:
     target.push(u8(value)).map_error(EncodingError.Allocation)
 
 def hex_digit(value: i64) -> i64:
-    if value < 10:
-        return 48 + value
-    87 + value
+    # Callers pass a nibble in 0..15, so the ASCII sum is <= 102.
+    unchecked:
+        if value < 10:
+            return 48 + value
+        87 + value
 
 def hex_value(code: i64) -> i64:
-    if code >= 48 and code <= 57:
-        return code - 48
-    if code >= 97 and code <= 102:
-        return code - 87
-    if code >= 65 and code <= 70:
-        return code - 55
-    -1
+    # Only guarded ASCII ranges are subtracted, giving a nibble or -1.
+    unchecked:
+        if code >= 48 and code <= 57:
+            return code - 48
+        if code >= 97 and code <= 102:
+            return code - 87
+        if code >= 65 and code <= 70:
+            return code - 55
+        -1
 
 def symbol(value: i64, url: bool) -> i64:
-    if value < 26:
-        return 65 + value
-    if value < 52:
-        return 71 + value
-    if value < 62:
-        return value - 4
-    if value == 62:
+    # Callers pass a sextet in 0..63; every ASCII result is in 43..122.
+    unchecked:
+        if value < 26:
+            return 65 + value
+        if value < 52:
+            return 71 + value
+        if value < 62:
+            return value - 4
+        if value == 62:
+            if url:
+                return 45
+            return 43
         if url:
-            return 45
-        return 43
-    if url:
-        return 95
-    47
+            return 95
+        47
 
 def sextet(code: i64, url: bool) -> i64:
-    if code >= 65 and code <= 90:
-        return code - 65
-    if code >= 97 and code <= 122:
-        return code - 71
-    if code >= 48 and code <= 57:
-        return code + 4
-    if url:
-        if code == 45:
+    # code comes from u8; branch bounds make each ASCII offset representable.
+    unchecked:
+        if code >= 65 and code <= 90:
+            return code - 65
+        if code >= 97 and code <= 122:
+            return code - 71
+        if code >= 48 and code <= 57:
+            return code + 4
+        if url:
+            if code == 45:
+                return 62
+            if code == 95:
+                return 63
+            return -1
+        if code == 43:
             return 62
-        if code == 95:
+        if code == 47:
             return 63
-        return -1
-    if code == 43:
-        return 62
-    if code == 47:
-        return 63
-    -1
+        -1
 
 def encode64(source: &[u8], url: bool) -> Result[Bytes, EncodingError]:
-    groups = len(source) // 3
-    tail = len(source) % 3
-    mut size = groups * 4
-    if tail > 0:
-        if url:
-            size += tail + 1
-        else:
-            size += 4
-    mut encoded = std.bytes.with_capacity(size).map_error(EncodingError.Allocation)?
-    for group in range(groups):
-        index = group * 3
-        first = i64(source[index])
-        second = i64(source[index + 1])
-        third = i64(source[index + 2])
-        emit(&mut encoded, symbol(first >> 2, url))?
-        emit(&mut encoded, symbol((first & 3) << 4 | second >> 4, url))?
-        emit(&mut encoded, symbol((second & 15) << 2 | third >> 6, url))?
-        emit(&mut encoded, symbol(third & 63, url))?
-    if tail > 0:
-        index = len(source) - tail
-        first = i64(source[index])
-        emit(&mut encoded, symbol(first >> 2, url))?
-        if tail == 1:
-            emit(&mut encoded, symbol((first & 3) << 4, url))?
-        else:
+    # Splitting a nonnegative length by a positive constant is infallible.
+    split = unchecked:
+        (len(source) // 3, len(source) % 3)
+    groups, tail = split
+    mut encoded = std.bytes.with_capacity(base64_capacity(len(source), url)?).map_error(EncodingError.Allocation)?
+    # Complete groups bound index + 2; the remaining tail is 1 or 2 bytes.
+    unchecked:
+        for group in range(groups):
+            index = group * 3
+            first = i64(source[index])
             second = i64(source[index + 1])
+            third = i64(source[index + 2])
+            emit(&mut encoded, symbol(first >> 2, url))?
             emit(&mut encoded, symbol((first & 3) << 4 | second >> 4, url))?
-            emit(&mut encoded, symbol((second & 15) << 2, url))?
-        if not url:
-            for _ in range(3 - tail):
-                emit(&mut encoded, 61)?
+            emit(&mut encoded, symbol((second & 15) << 2 | third >> 6, url))?
+            emit(&mut encoded, symbol(third & 63, url))?
+        if tail > 0:
+            index = len(source) - tail
+            first = i64(source[index])
+            emit(&mut encoded, symbol(first >> 2, url))?
+            if tail == 1:
+                emit(&mut encoded, symbol((first & 3) << 4, url))?
+            else:
+                second = i64(source[index + 1])
+                emit(&mut encoded, symbol((first & 3) << 4 | second >> 4, url))?
+                emit(&mut encoded, symbol((second & 15) << 2, url))?
+            if not url:
+                for _ in range(3 - tail):
+                    emit(&mut encoded, 61)?
     Ok(encoded)
 
 # One symbol, or the error naming its index. `=` is a padding error wherever
@@ -632,50 +712,52 @@ def symbol_at(source: &[u8], index: i64, url: bool) -> Result[i64, EncodingError
     Err(EncodingError.InvalidByte(index))
 
 def decode64(source: &[u8], url: bool) -> Result[Bytes, EncodingError]:
-    mut end = len(source)
-    if url:
-        if len(source) % 4 == 1:
-            return Err(EncodingError.InvalidLength)
-    else:
-        if len(source) % 4 != 0:
-            return Err(EncodingError.InvalidLength)
-        # At most two trailing `=` are padding. Any other `=` is reported by
-        # `symbol_at`.
-        if end > 0:
-            if i64(source[end - 1]) == 61:
-                end -= 1
+    # Padding guards bound end; groups/tails and every byte cursor stay within source.
+    unchecked:
+        mut end = len(source)
+        if url:
+            if len(source) % 4 == 1:
+                return Err(EncodingError.InvalidLength)
+        else:
+            if len(source) % 4 != 0:
+                return Err(EncodingError.InvalidLength)
+            # At most two trailing `=` are padding. Any other `=` is reported by
+            # `symbol_at`.
+            if end > 0:
                 if i64(source[end - 1]) == 61:
                     end -= 1
-    groups = end // 4
-    tail = end % 4
-    mut size = groups * 3
-    if tail > 0:
-        size += tail - 1
-    mut decoded = std.bytes.with_capacity(size).map_error(EncodingError.Allocation)?
-    for group in range(groups):
-        index = group * 4
-        first = symbol_at(source, index, url)?
-        second = symbol_at(source, index + 1, url)?
-        third = symbol_at(source, index + 2, url)?
-        fourth = symbol_at(source, index + 3, url)?
-        emit(&mut decoded, first << 2 | second >> 4)?
-        emit(&mut decoded, (second & 15) << 4 | third >> 2)?
-        emit(&mut decoded, (third & 3) << 6 | fourth)?
-    if tail > 0:
-        index = end - tail
-        first = symbol_at(source, index, url)?
-        second = symbol_at(source, index + 1, url)?
-        emit(&mut decoded, first << 2 | second >> 4)?
-        if tail == 2:
-            # Bits that encode no byte must be zero, so each value has one text.
-            if second & 15 != 0:
-                return Err(EncodingError.NonCanonical(index + 1))
-        else:
+                    if i64(source[end - 1]) == 61:
+                        end -= 1
+        groups = end // 4
+        tail = end % 4
+        mut size = groups * 3
+        if tail > 0:
+            size += tail - 1
+        mut decoded = std.bytes.with_capacity(size).map_error(EncodingError.Allocation)?
+        for group in range(groups):
+            index = group * 4
+            first = symbol_at(source, index, url)?
+            second = symbol_at(source, index + 1, url)?
             third = symbol_at(source, index + 2, url)?
-            if third & 3 != 0:
-                return Err(EncodingError.NonCanonical(index + 2))
+            fourth = symbol_at(source, index + 3, url)?
+            emit(&mut decoded, first << 2 | second >> 4)?
             emit(&mut decoded, (second & 15) << 4 | third >> 2)?
-    Ok(decoded)
+            emit(&mut decoded, (third & 3) << 6 | fourth)?
+        if tail > 0:
+            index = end - tail
+            first = symbol_at(source, index, url)?
+            second = symbol_at(source, index + 1, url)?
+            emit(&mut decoded, first << 2 | second >> 4)?
+            if tail == 2:
+                # Bits that encode no byte must be zero, so each value has one text.
+                if second & 15 != 0:
+                    return Err(EncodingError.NonCanonical(index + 1))
+            else:
+                third = symbol_at(source, index + 2, url)?
+                if third & 3 != 0:
+                    return Err(EncodingError.NonCanonical(index + 2))
+                emit(&mut decoded, (second & 15) << 4 | third >> 2)?
+        Ok(decoded)
 
 def big(order: Endian) -> bool:
     match order:
@@ -685,34 +767,42 @@ def big(order: Endian) -> bool:
             False
 
 def place(target: &mut Bytes, offset: i64, bits: u64, width: i64, order: Endian) -> ():
-    forward = big(order)
-    for index in range(width):
-        mut shift = index
-        if forward:
-            shift = width - 1 - index
-        target[offset + index] = u8.wrapping_from(bits >> u64(shift * 8))
+    # width is 2/4/8 and callers validate offset + width; shifts are in 0..56.
+    unchecked:
+        forward = big(order)
+        for index in range(width):
+            mut shift = index
+            if forward:
+                shift = width - 1 - index
+            target[offset + index] = u8.wrapping_from(bits >> u64(shift * 8))
 
 def store(target: &mut Bytes, offset: i64, bits: u64, width: i64, order: Endian) -> ():
-    if offset < 0 or offset > target.len() - width:
-        __trap("pack: offset outside target buffer")
-    place(target, offset, bits, width, order)
+    # width is 2/4/8; length - width fits even for a short buffer; reject bad offsets.
+    unchecked:
+        if offset < 0 or offset > target.len() - width:
+            __trap("pack: offset outside target buffer")
+        place(target, offset, bits, width, order)
 
 def grow(target: &mut Bytes, bits: u64, width: i64, order: Endian) -> Result[(), EncodingError]:
-    offset = target.len()
-    if offset > i64.MAX - width:
-        return Err(EncodingError.Allocation(AllocError.CapacityOverflow))
-    target.resize(offset + width, 0u8).map_error(EncodingError.Allocation)?
-    place(target, offset, bits, width, order)
-    Ok(())
+    # width is 2/4/8; the capacity guard proves offset + width fits before resize.
+    unchecked:
+        offset = target.len()
+        if offset > i64.MAX - width:
+            return Err(EncodingError.Allocation(AllocError.CapacityOverflow))
+        target.resize(offset + width, 0u8).map_error(EncodingError.Allocation)?
+        place(target, offset, bits, width, order)
+        Ok(())
 
 def load(source: &[u8], offset: i64, width: i64, order: Endian) -> u64:
-    if offset < 0 or offset > len(source) - width:
-        __trap("unpack: offset outside source buffer")
-    forward = big(order)
-    mut bits = 0u64
-    for index in range(width):
-        mut position = width - 1 - index
-        if forward:
-            position = index
-        bits = bits << 8 | u64(source[offset + position])
-    bits
+    # width is 2/4/8; validated offsets bound every position and shift count.
+    unchecked:
+        if offset < 0 or offset > len(source) - width:
+            __trap("unpack: offset outside source buffer")
+        forward = big(order)
+        mut bits = 0u64
+        for index in range(width):
+            mut position = width - 1 - index
+            if forward:
+                position = index
+            bits = bits << 8 | u64(source[offset + position])
+        bits

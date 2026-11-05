@@ -842,9 +842,7 @@ fn in_body(ops: &[Op], visit: &mut impl FnMut(&Op)) {
                 }
                 in_body(otherwise, visit);
             }
-            Op::Try { cleanup, .. }
-            | Op::CheckedArith { cleanup, .. }
-            | Op::CheckedUnwrap { cleanup, .. } => in_body(cleanup, visit),
+            Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => in_body(cleanup, visit),
             Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
                 in_body(body, visit)
             }
@@ -1075,7 +1073,7 @@ fn graph<'a>(
                 next = header;
                 continue;
             }
-            Op::CheckedArith { cleanup, .. } | Op::CheckedUnwrap { cleanup, .. } => {
+            Op::CheckedArith { cleanup, .. } => {
                 let escape = escape.expect("checked arithmetic outside a checked block");
                 let failure = graph(cleanup, site, escape, None, None, nodes);
                 nodes.push(Node {
@@ -1954,7 +1952,7 @@ impl Checker<'_, '_> {
                     checked.map_err(|error| leaving(error, site, Some("`?`")))?;
                     self.submit(accepted.drain(..));
                 }
-                Op::CheckedArith { cleanup, .. } | Op::CheckedUnwrap { cleanup, .. } => {
+                Op::CheckedArith { cleanup, .. } => {
                     let mut failed = state.clone();
                     // As for `?`, the operands already evaluated are dropped,
                     // so a value under construction is gone before cleanup.
@@ -2173,9 +2171,7 @@ impl Checker<'_, '_> {
         }
         fn has_loans(ops: &[Op]) -> bool {
             ops.iter().any(|op| match op {
-                Op::Try { cleanup, .. }
-                | Op::CheckedArith { cleanup, .. }
-                | Op::CheckedUnwrap { cleanup, .. } => has_loans(cleanup),
+                Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => has_loans(cleanup),
                 Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => has_loans(body),
 
                 Op::Loan(_) => true,

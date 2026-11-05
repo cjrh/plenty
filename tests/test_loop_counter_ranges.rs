@@ -1,71 +1,72 @@
 //! Loop counter ranges (issue #369): a `while` counter's step that cannot
 //! overflow lowers to a plain add, and floor modulo or division of a counter
 //! that only grows from a nonnegative start needs no sign correction. Every
-//! other check stays, and results match the language's checked, floored
-//! semantics in debug and release builds. A `for i in range(start, stop)`
-//! loop with step 1 gets the same two facts: `i + 1` is at most `stop`, and
-//! `i` is nonnegative when `start` is.
+//! other check stays. Ordinary helpers expose public overflow/zero Results;
+//! deliberately trapping fixtures select `unchecked:` only at the operations
+//! whose guards are under test. Both retain floored numeric semantics. A
+//! `for i in range(start, stop)` loop with step 1 gets the same two facts:
+//! `i + 1` is at most `stop`, and `i` is nonnegative when `start` is.
 use rstest::rstest;
 use std::path::Path;
 use std::process::{Command, Output};
 
-const PROGRAM: &str = r#"def up_to(start: i64, limit: i64) -> i64:
+const PROGRAM: &str = r#"def up_to(start: i64, limit: i64) -> Result[i64, OverflowError[i64]]:
     mut i = start
     while i < limit:
         i = i + 1
-    i
+    Ok(i)
 
-def up_to_i8(start: i8, limit: i8) -> i8:
+def up_to_i8(start: i8, limit: i8) -> Result[i8, OverflowError[i8]]:
     mut i = start
     while i < limit:
         i += 1i8
-    i
+    Ok(i)
 
-def up_to_u8(start: u8, limit: u8) -> u8:
+def up_to_u8(start: u8, limit: u8) -> Result[u8, OverflowError[u8]]:
     mut i = start
     while limit > i:
         i = 1u8 + i
-    i
+    Ok(i)
 
-def through_const_i16(start: i16) -> i16:
+def through_const_i16(start: i16) -> Result[i16, OverflowError[i16]]:
     mut i = start
     while i <= 32766i16:
         i += 1i16
-    i
+    Ok(i)
 
-def by_three_const_i32(start: i32) -> i32:
+def by_three_const_i32(start: i32) -> Result[i32, OverflowError[i32]]:
     mut i = start
     while i < 2147483645i32:
         i += 3i32
-    i
+    Ok(i)
 
-def down_to_i8(start: i8, floor: i8) -> i8:
+def down_to_i8(start: i8, floor: i8) -> Result[i8, OverflowError[i8]]:
     mut i = start
     while i > floor:
         i -= 1i8
-    i
+    Ok(i)
 
-def down_to_u16(start: u16) -> u16:
+def down_to_u16(start: u16) -> Result[u16, OverflowError[u16]]:
     mut i = start
     while i > 0u16:
         i = i - 1u16
-    i
+    Ok(i)
 
-def down_through_const_u32(start: u32) -> u32:
+def down_through_const_u32(start: u32) -> Result[u32, OverflowError[u32]]:
     mut i = start
     while i >= 2u32:
         i -= 2u32
-    i
+    Ok(i)
 
-def moving_limit(start: i64, limit: i64) -> i64:
+def moving_limit(start: i64, limit: i64) -> Result[i64, OverflowError[i64]]:
     mut i = start
     mut n = limit
     while i < n:
         n = n - 1
         i += 1
-    (i - start) * 10 + (limit - n)
+    Ok((i - start) * 10 + (limit - n))
 
-def steps_and_skips(limit: i64) -> i64:
+def steps_and_skips(limit: i64) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
     mut i = 0
     mut total = 0
     while i < limit:
@@ -75,9 +76,9 @@ def steps_and_skips(limit: i64) -> i64:
         if i > 9:
             break
         total += i
-    total * 100 + i
+    Ok(total * 100 + i)
 
-def nested_mod(rows: i64, cols: i64) -> i64:
+def nested_mod(rows: i64, cols: i64) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
     mut total = 0
     mut r = 0
     while r < rows:
@@ -86,9 +87,9 @@ def nested_mod(rows: i64, cols: i64) -> i64:
             total += (r * 10 + c) % 7 + c % 3 + c // 2
             c += 1
         r += 1
-    total
+    Ok(total)
 
-def mod_widths() -> i64:
+def mod_widths() -> Result[i64, OverflowError[i8] | OverflowError[i16] | OverflowError[i32] | OverflowError[i64] | OverflowError[u64] | ZeroDivisionError]:
     mut total = 0
     mut a = 0i8
     while a < 127i8:
@@ -106,41 +107,41 @@ def mod_widths() -> i64:
     while d < 50u64:
         total += i64(d % 6u64)
         d += 1u64
-    total
+    Ok(total)
 
-def mod_negative_divisor(limit: i64) -> i64:
+def mod_negative_divisor(limit: i64) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
     mut total = 0
     mut i = 0
     while i < limit:
         total = total * 3 + i % -4 + i // -3
         i += 1
-    total
+    Ok(total)
 
-def mod_variable_divisor(limit: i64, d: i64) -> i64:
+def mod_variable_divisor(limit: i64, d: i64) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
     mut total = 0
     mut i = 0
     while i < limit:
         total = total * 3 + i % d + i // d
         i += 1
-    total
+    Ok(total)
 
-def mod_negative_start() -> i64:
+def mod_negative_start() -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
     mut total = 0
     mut i = -7
     while i < 7:
         total = total * 3 + i % 4 + i // 4
         i += 1
-    total
+    Ok(total)
 
-def mod_after_decrease() -> i64:
+def mod_after_decrease() -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
     mut total = 0
     mut i = 5
     while i > -6:
         total = total * 3 + i % 4 + i // 4
         i -= 1
-    total
+    Ok(total)
 
-def mod_variable_step(step: i64) -> i64:
+def mod_variable_step(step: i64) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
     mut total = 0
     mut i = 5
     mut n = 0
@@ -148,17 +149,17 @@ def mod_variable_step(step: i64) -> i64:
         total = total * 3 + i % 4
         i = i + step
         n += 1
-    total
+    Ok(total)
 
-def mod_parameter_start(start: i64) -> i64:
+def mod_parameter_start(start: i64) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
     mut total = 0
     mut i = start
     while i < 5:
         total = total * 3 + i % 4
         i += 1
-    total
+    Ok(total)
 
-def mod_after_reset() -> i64:
+def mod_after_reset() -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
     mut total = 0
     mut i = 0
     mut reset = True
@@ -168,52 +169,52 @@ def mod_after_reset() -> i64:
         if i == 3 and reset:
             i = -9
             reset = False
-    total
+    Ok(total)
 
-def both_ends(lo: i64, hi: i64) -> i64:
+def both_ends(lo: i64, hi: i64) -> Result[i64, OverflowError[i64]]:
     mut i = lo
     mut j = hi
     while i < j:
         i += 1
         j -= 1
-    i - j
+    Ok(i - j)
 
-def range_next(start: i64, stop: i64) -> i64:
+def range_next(start: i64, stop: i64) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
     mut total = 0
     for i in range(start, stop):
         if i % 2 == 0:
             continue
         total = total.wrapping_add(i + 1)
-    total
+    Ok(total)
 
-def range_mod(stop: i64) -> i64:
+def range_mod(stop: i64) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
     mut total = 0
     for i in range(stop):
         total = total * 3 + i % 4 + i // 3
-    total
+    Ok(total)
 
-def range_mod_negative_start() -> i64:
+def range_mod_negative_start() -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
     mut total = 0
     for i in range(-7, 7):
         total = total * 3 + i % 4 + i // 4
-    total
+    Ok(total)
 
-def main() -> Result[(), AllocError | IoError]:
-    print(up_to(0, 0), up_to(0, -5), up_to(0, 1), up_to(-3, 4), up_to(9223372036854775804, i64.MAX))?
-    print(up_to_i8(0i8, i8.MIN), up_to_i8(120i8, i8.MAX), up_to_i8(-128i8, -125i8))?
-    print(up_to_u8(250u8, u8.MAX), up_to_u8(7u8, 0u8))?
-    print(through_const_i16(32760i16), by_three_const_i32(2147483640i32))?
-    print(down_to_i8(-125i8, i8.MIN), down_to_i8(3i8, 5i8), down_to_u16(5u16), down_through_const_u32(7u32))?
-    print(moving_limit(0, 10), moving_limit(9223372036854775806, i64.MAX))?
-    print(steps_and_skips(100), steps_and_skips(4))?
-    print(nested_mod(5, 6), mod_widths())?
-    print(mod_negative_divisor(8), mod_variable_divisor(8, -3), mod_variable_divisor(8, 5))?
-    print(mod_negative_start(), mod_after_decrease())?
-    print(mod_variable_step(-1), mod_variable_step(2), mod_parameter_start(-6))?
-    print(mod_after_reset())?
-    print(both_ends(i64.MAX - 1, i64.MAX), both_ends(i64.MIN, i64.MIN + 1), both_ends(5, 2))?
-    print(range_next(0, 10), range_next(i64.MAX - 3, i64.MAX), range_next(-5, -1))?
-    print(range_mod(9), range_mod_negative_start())?
+def main() -> Result[(), AllocError | IoError | OverflowError[i8] | OverflowError[i16] | OverflowError[i32] | OverflowError[i64] | OverflowError[u8] | OverflowError[u16] | OverflowError[u32] | OverflowError[u64] | ZeroDivisionError]:
+    print(up_to(0, 0)?, up_to(0, -5)?, up_to(0, 1)?, up_to(-3, 4)?, up_to(9223372036854775804, i64.MAX)?)?
+    print(up_to_i8(0i8, i8.MIN)?, up_to_i8(120i8, i8.MAX)?, up_to_i8(-128i8, -125i8)?)?
+    print(up_to_u8(250u8, u8.MAX)?, up_to_u8(7u8, 0u8)?)?
+    print(through_const_i16(32760i16)?, by_three_const_i32(2147483640i32)?)?
+    print(down_to_i8(-125i8, i8.MIN)?, down_to_i8(3i8, 5i8)?, down_to_u16(5u16)?, down_through_const_u32(7u32)?)?
+    print(moving_limit(0, 10)?, moving_limit(9223372036854775806, i64.MAX)?)?
+    print(steps_and_skips(100)?, steps_and_skips(4)?)?
+    print(nested_mod(5, 6)?, mod_widths()?)?
+    print(mod_negative_divisor(8)?, mod_variable_divisor(8, -3)?, mod_variable_divisor(8, 5)?)?
+    print(mod_negative_start()?, mod_after_decrease()?)?
+    print(mod_variable_step(-1)?, mod_variable_step(2)?, mod_parameter_start(-6)?)?
+    print(mod_after_reset()?)?
+    print(both_ends(i64.MAX - 1, i64.MAX)?, both_ends(i64.MIN, i64.MIN + 1)?, both_ends(5, 2)?)?
+    print(range_next(0, 10)?, range_next(i64.MAX - 3, i64.MAX)?, range_next(-5, -1)?)?
+    print(range_mod(9)?, range_mod_negative_start()?)?
     Ok(())
 "#;
 
@@ -269,77 +270,79 @@ fn loop_counters_keep_checked_and_floored_semantics() {
     );
 }
 
-/// Steps the analysis cannot prove keep their trap, at the same site.
+/// Deliberate primitive traps, not the public Result default. Setup and other
+/// arithmetic keep ordinary error propagation; only the failing operation opts
+/// out. Updated sites still identify that exact operation in both modes.
 #[rstest]
 #[case::inclusive_variable_bound(
-    "def f(limit: i64) -> i64:\n    mut i = limit - 2\n    while i <= limit:\n        i += 1\n    i\n",
-    "f(i64.MAX)",
-    "4:9: integer overflow"
+    "def f(limit: i64) -> Result[i64, OverflowError[i64]]:\n    mut i = limit - 2\n    while i <= limit:\n        unchecked:\n            i += 1\n    Ok(i)\n",
+    "f(i64.MAX)?",
+    "5:13: integer overflow"
 )]
 #[case::wide_step_variable_bound(
-    "def f(limit: i64) -> i64:\n    mut i = limit - 1\n    while i < limit:\n        i += 2\n    i\n",
-    "f(i64.MAX)",
-    "4:9: integer overflow"
+    "def f(limit: i64) -> Result[i64, OverflowError[i64]]:\n    mut i = limit - 1\n    while i < limit:\n        unchecked:\n            i += 2\n    Ok(i)\n",
+    "f(i64.MAX)?",
+    "5:13: integer overflow"
 )]
 #[case::wide_step_constant_bound(
-    "def f(start: i8) -> i8:\n    mut i = start\n    while i < 127i8:\n        i += 2i8\n    i\n",
+    "def f(start: i8) -> i8:\n    mut i = start\n    while i < 127i8:\n        unchecked:\n            i += 2i8\n    i\n",
     "i64(f(126i8))",
-    "4:9: integer overflow"
+    "5:13: integer overflow"
 )]
 #[case::inclusive_constant_maximum(
-    "def f(start: u8) -> u8:\n    mut i = start\n    while i <= 255u8:\n        i += 1u8\n    i\n",
+    "def f(start: u8) -> u8:\n    mut i = start\n    while i <= 255u8:\n        unchecked:\n            i += 1u8\n    i\n",
     "i64(f(250u8))",
-    "4:9: integer overflow"
+    "5:13: integer overflow"
 )]
 #[case::earlier_conditional_write(
-    "def f(limit: i64, bump: bool) -> i64:\n    mut i = limit - 1\n    while i < limit:\n        if bump:\n            i += 1\n        i += 1\n    i\n",
-    "f(i64.MAX, True)",
-    "6:9: integer overflow"
+    "def f(limit: i64, bump: bool) -> Result[i64, OverflowError[i64]]:\n    mut i = limit - 1\n    while i < limit:\n        if bump:\n            i += 1\n        unchecked:\n            i += 1\n    Ok(i)\n",
+    "f(i64.MAX, True)?",
+    "7:13: integer overflow"
 )]
 #[case::second_step(
-    "def f(limit: i64) -> i64:\n    mut i = limit - 1\n    while i < limit:\n        i += 1\n        i += 1\n    i\n",
-    "f(i64.MAX)",
-    "5:9: integer overflow"
+    "def f(limit: i64) -> Result[i64, OverflowError[i64]]:\n    mut i = limit - 1\n    while i < limit:\n        i += 1\n        unchecked:\n            i += 1\n    Ok(i)\n",
+    "f(i64.MAX)?",
+    "6:13: integer overflow"
 )]
 #[case::inclusive_lower_bound(
-    "def f(floor: i8) -> i8:\n    mut i = floor + 2i8\n    while i >= floor:\n        i -= 1i8\n    i\n",
-    "i64(f(i8.MIN))",
-    "4:9: integer overflow"
+    "def f(floor: i8) -> Result[i8, OverflowError[i8]]:\n    mut i = floor + 2i8\n    while i >= floor:\n        unchecked:\n            i -= 1i8\n    Ok(i)\n",
+    "i64(f(i8.MIN)?)",
+    "5:13: integer overflow"
 )]
 #[case::nested_loop_step(
-    "def f(limit: i64) -> i64:\n    mut i = limit - 1\n    while i < limit:\n        mut j = 0\n        while j < 2:\n            i = i + 1\n            j += 1\n    i\n",
-    "f(i64.MAX)",
-    "6:17: integer overflow"
+    "def f(limit: i64) -> Result[i64, OverflowError[i64]]:\n    mut i = limit - 1\n    while i < limit:\n        mut j = 0\n        while j < 2:\n            unchecked:\n                i = i + 1\n            j += 1\n    Ok(i)\n",
+    "f(i64.MAX)?",
+    "7:21: integer overflow"
 )]
 #[case::inclusive_bound_step(
-    "def f(lo: i64) -> i64:\n    mut hi = lo\n    while lo <= hi:\n        hi -= 1\n    hi\n",
+    "def f(lo: i64) -> i64:\n    mut hi = lo\n    while lo <= hi:\n        unchecked:\n            hi -= 1\n    hi\n",
     "f(i64.MIN)",
-    "4:9: integer overflow"
+    "5:13: integer overflow"
 )]
 #[case::bound_written_before_its_step(
-    "def f(lo: i64) -> i64:\n    mut hi = lo + 1\n    while lo < hi:\n        hi = lo\n        hi -= 1\n    hi\n",
-    "f(i64.MIN)",
-    "5:9: integer overflow"
+    "def f(lo: i64) -> Result[i64, OverflowError[i64]]:\n    mut hi = lo + 1\n    while lo < hi:\n        hi = lo\n        unchecked:\n            hi -= 1\n    Ok(hi)\n",
+    "f(i64.MIN)?",
+    "6:13: integer overflow"
 )]
 #[case::descending_range(
-    "def f(top: i64) -> i64:\n    mut total = 0\n    for i in range(top, top - 2, -1):\n        total = i + 1\n    total\n",
-    "f(i64.MAX)",
-    "4:17: integer overflow"
+    "def f(top: i64) -> Result[i64, OverflowError[i64]]:\n    mut total = 0\n    for i in range(top, top - 2, -1):\n        unchecked:\n            total = i + 1\n    Ok(total)\n",
+    "f(i64.MAX)?",
+    "5:21: integer overflow"
 )]
 #[case::reversed_descending_range(
-    "def f(top: i64) -> i64:\n    mut total = 0\n    for i in reversed(range(top, top - 2, -1)):\n        total = i + 1\n    total\n",
-    "f(i64.MAX)",
-    "4:17: integer overflow"
+    "def f(top: i64) -> Result[i64, OverflowError[i64]]:\n    mut total = 0\n    for i in reversed(range(top, top - 2, -1)):\n        unchecked:\n            total = i + 1\n    Ok(total)\n",
+    "f(i64.MAX)?",
+    "5:21: integer overflow"
 )]
 #[case::range_wide_increment(
-    "def f(top: i64) -> i64:\n    mut total = 0\n    for i in range(top - 1, top):\n        total = i + 2\n    total\n",
-    "f(i64.MAX)",
-    "4:17: integer overflow"
+    "def f(top: i64) -> Result[i64, OverflowError[i64]]:\n    mut total = 0\n    for i in range(top - 1, top):\n        unchecked:\n            total = i + 2\n    Ok(total)\n",
+    "f(i64.MAX)?",
+    "5:21: integer overflow"
 )]
 #[case::zero_divisor(
-    "def f(divisor: i64) -> i64:\n    mut i = 0\n    mut total = 0\n    while i < 3:\n        total += i % divisor\n        i += 1\n    total\n",
-    "f(0)",
-    "5:18: division by zero"
+    "def f(divisor: i64) -> Result[i64, OverflowError[i64]]:\n    mut i = 0\n    mut total = 0\n    while i < 3:\n        remainder = unchecked:\n            i % divisor\n        total += remainder\n        i += 1\n    Ok(total)\n",
+    "f(0)?",
+    "6:13: division by zero"
 )]
 fn unproven_loop_checks_still_trap(
     #[case] function: &str,
@@ -347,7 +350,7 @@ fn unproven_loop_checks_still_trap(
     #[case] message: &str,
 ) {
     let source = format!(
-        "{function}\ndef main() -> Result[(), AllocError | IoError]:\n    print({call})?\n    Ok(())\n"
+        "{function}\ndef main() -> Result[(), AllocError | IoError | OverflowError[i64] | OverflowError[i8]]:\n    print({call})?\n    Ok(())\n"
     );
     let dir = write(&source);
     for args in [
@@ -356,70 +359,131 @@ fn unproven_loop_checks_still_trap(
     ] {
         let output = plenty_output(dir.path(), args);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(!output.status.success(), "{args:?}\n{source}");
-        assert!(stderr.contains(message), "{args:?}: {stderr}\n{source}");
+        assert_eq!(output.status.code(), Some(1), "{args:?}\n{source}");
+        assert_eq!(
+            stderr,
+            format!("error: counters.plenty:{message}\n"),
+            "{args:?}\n{source}"
+        );
     }
 }
 
+// These code-shape fixtures deliberately test primitive trap guards, not
+// public Result construction. Keep each opt-out at the operation whose guard
+// or signed/floored lowering is being inspected; wrapping accumulators below
+// are original test semantics, not substitutes for fallible arithmetic.
 const SHAPES: &str = r#"def bounded_step(limit: i64) -> i64:
     mut i = 0
     mut total = 0
     while i < limit:
-        total = total + i
-        i = i + 1
+        unchecked:
+            total = total + i
+        unchecked:
+            i = i + 1
     total
 
 def wide_step(limit: i64) -> i64:
     mut i = 0
     while i < limit:
-        i = i + 2
+        unchecked:
+            i = i + 2
     i
 
 def nonnegative_mod(limit: i64) -> i64:
     mut i = 0
     mut total = 0
     while i < limit:
-        total = total.wrapping_add(i % 7 + i // 5)
-        i += 1
+        unchecked:
+            total = total.wrapping_add(i % 7 + i // 5)
+        unchecked:
+            i += 1
     total
 
 def signed_mod(limit: i64) -> i64:
     mut i = -1
     mut total = 0
     while i < limit:
-        total = total.wrapping_add(i % 7 + i // 5)
-        i += 1
+        unchecked:
+            total = total.wrapping_add(i % 7 + i // 5)
+        unchecked:
+            i += 1
     total
 
 def both_ends(lo: i64, hi: i64) -> i64:
     mut i = lo
     mut j = hi
     while i < j:
-        i += 1
-        j -= 1
-    i - j
+        unchecked:
+            i += 1
+        unchecked:
+            j -= 1
+    unchecked:
+        i - j
 
 def range_step(stop: i64) -> i64:
     mut total = 0
     for i in range(stop):
-        total = total + (i + 1)
+        unchecked:
+            total = total + (i + 1)
     total
 
 def natural_range_mod(stop: i64) -> i64:
     mut total = 0
     for i in range(stop):
-        total = total.wrapping_add(i % 7 + i // 5)
+        unchecked:
+            total = total.wrapping_add(i % 7 + i // 5)
     total
 
 def offset_range_mod(stop: i64) -> i64:
     mut total = 0
     for i in range(-1, stop):
-        total = total.wrapping_add(i % 7 + i // 5)
+        unchecked:
+            total = total.wrapping_add(i % 7 + i // 5)
     total
 
-def main() -> ():
+# Result-contract counterparts: the same steps as `CheckedArith` operations.
+def result_counter_step(limit: i64) -> Result[i64, OverflowError[i64]]:
+    mut i = 0
+    mut total = 0
+    while i < limit:
+        total = total + i
+        i = i + 1
+    Ok(total)
+
+def result_step_by_two(limit: i64) -> Result[i64, OverflowError[i64]]:
+    mut i = 0
+    while i < limit:
+        i = i + 2
+    Ok(i)
+
+def result_counter_mod(limit: i64) -> Result[i64, ZeroDivisionError | OverflowError[i64]]:
+    mut i = 0
+    mut total = 0
+    while i < limit:
+        total = total.wrapping_add(i % 7)
+        i += 1
+    Ok(total)
+
+def result_two_ends(lo: i64, hi: i64) -> Result[i64, OverflowError[i64]]:
+    mut i = lo
+    mut j = hi
+    while i < j:
+        i += 1
+        j -= 1
+    Ok(i - j)
+
+def result_range_next(stop: i64) -> Result[i64, OverflowError[i64]]:
+    mut total = 0
+    for i in range(stop):
+        total = total + (i + 1)
+    Ok(total)
+
+def main() -> Result[(), OverflowError[i64] | ZeroDivisionError]:
     x = bounded_step(3) + wide_step(3) + nonnegative_mod(3) + signed_mod(3) + both_ends(0, 3)
     y = range_step(3) + natural_range_mod(3) + offset_range_mod(3)
+    z = result_counter_step(3)? + result_step_by_two(3)? + result_counter_mod(3)?
+    w = result_two_ends(0, 3)? + result_range_next(3)?
+    Ok(())
 "#;
 
 fn clif(dir: &Path, function: &str) -> String {
@@ -509,5 +573,57 @@ fn nonnegative_counters_use_unsigned_division() {
     let signed = clif(dir.path(), "signed_mod");
     for expected in ["srem", "sdiv"] {
         assert!(signed.contains(expected), "{signed}");
+    }
+}
+
+/// In functions with Result contracts the steps are `CheckedArith`
+/// operations. Proven ones lower to plain arithmetic as the trapping steps
+/// above do; the accumulators, the step of two and the final difference keep
+/// their checks, and the nonnegative counter is divided unsigned.
+#[test]
+fn result_counter_steps_lower_to_plain_arithmetic() {
+    let dir = write(SHAPES);
+    let step = clif(dir.path(), "result_counter_step");
+    assert_eq!(step.matches("sadd_overflow").count(), 1, "{step}");
+    let wide = clif(dir.path(), "result_step_by_two");
+    assert_eq!(wide.matches("sadd_overflow").count(), 1, "{wide}");
+    let both = clif(dir.path(), "result_two_ends");
+    assert_eq!(both.matches("sadd_overflow").count(), 0, "{both}");
+    assert_eq!(both.matches("ssub_overflow").count(), 1, "{both}");
+    let range = clif(dir.path(), "result_range_next");
+    assert_eq!(range.matches("sadd_overflow").count(), 1, "{range}");
+    let modulo = clif(dir.path(), "result_counter_mod");
+    assert!(modulo.contains("urem"), "{modulo}");
+    assert!(!modulo.contains("srem"), "{modulo}");
+}
+
+/// Unproven Result-contract steps still return `OverflowError`.
+#[rstest]
+#[case::wide_step_variable_bound(
+    "def f(limit: i64) -> Result[i64, OverflowError[i64]]:\n    mut i = limit - 1\n    while i < limit:\n        i += 2\n    Ok(i)\n"
+)]
+#[case::inclusive_variable_bound(
+    "def f(limit: i64) -> Result[i64, OverflowError[i64]]:\n    mut i = limit - 2\n    while i <= limit:\n        i += 1\n    Ok(i)\n"
+)]
+#[case::earlier_conditional_write(
+    "def f(limit: i64) -> Result[i64, OverflowError[i64]]:\n    mut i = limit - 1\n    while i < limit:\n        if limit > 0:\n            i += 1\n        i += 1\n    Ok(i)\n"
+)]
+#[case::range_wide_increment(
+    "def f(top: i64) -> Result[i64, OverflowError[i64]]:\n    mut total = 0\n    for i in range(top - 1, top):\n        total = i + 2\n    Ok(total)\n"
+)]
+fn unproven_result_steps_still_return_errors(#[case] function: &str) {
+    let source = format!(
+        "{function}\ndef main() -> Result[(), IoError]:\n    match f(i64.MAX):\n        case Ok(value):\n            print(value)?\n        case Err(error):\n            print(error.wrapped)?\n    Ok(())\n"
+    );
+    let dir = write(&source);
+    for args in [
+        &["--fast-compile", "counters.plenty"][..],
+        &["--release", "counters.plenty"][..],
+    ] {
+        assert_eq!(
+            plenty(dir.path(), args),
+            format!("{}\n", i64::MIN),
+            "{args:?}\n{source}"
+        );
     }
 }

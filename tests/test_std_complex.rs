@@ -5,7 +5,7 @@ use std::process::Command;
 fn run_mode(body: &str, optimize: bool) -> String {
     run_program(
         &format!(
-            "from std.complex import Complex, from_polar\nimport std.math as math\nimport std.fmt\nfrom std.fmt import FormatError\ndef main() -> Result[(), AllocError | IoError | FormatError | math.MathError]:\n{body}    Ok(())\n"
+            "from std.complex import Complex, from_polar\nimport std.math as math\nimport std.fmt\nfrom std.fmt import FormatError\ndef main() -> Result[(), AllocError | IoError | FormatError | math.MathError | OverflowError[i64]]:\n{body}    Ok(())\n"
         ),
         optimize,
     )
@@ -242,4 +242,21 @@ def main() -> Result[(), AllocError | IoError | FormatError]:
         "1.0+2.0i 5.0+2.0i 1.0-2.0i\n\
          9.0 True True\n"
     );
+}
+
+#[test]
+fn powi_handles_the_complete_i64_exponent_range() {
+    let body = r#"    one = Complex(1.0, 0.0)
+    minus_one = Complex(-1.0, 0.0)
+    i = Complex(0.0, 1.0)
+    print(one.powi(i64.MIN) == one, one.powi(i64.MAX) == one)?
+    print(minus_one.powi(i64.MIN) == one, minus_one.powi(-1) == minus_one)?
+    print(i.powi(i64.MIN) == one, i.powi(i64.MAX) == Complex(0.0, -1.0))?
+"#;
+    for optimize in [false, true] {
+        assert_eq!(
+            run_mode(body, optimize),
+            "True True\nTrue True\nTrue True\n"
+        );
+    }
 }

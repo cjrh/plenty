@@ -33,11 +33,11 @@ pub class Op:
     pub new_start: i64
     pub new_end: i64
 
-    pub def old_len(self) -> i64:
-        self.old_end - self.old_start
+    pub def old_len(self) -> Result[i64, OverflowError[i64]]:
+        Ok(self.old_end - self.old_start)
 
-    pub def new_len(self) -> i64:
-        self.new_end - self.new_start
+    pub def new_len(self) -> Result[i64, OverflowError[i64]]:
+        Ok(self.new_end - self.new_start)
 
     pub def is_equal(self) -> bool:
         match self.kind:
@@ -55,17 +55,25 @@ class Script:
     joined: bool
 
     def equal(self: &mut Script, old: i64, new: i64, count: i64) -> Result[(), AllocError]:
+        # All coordinates/counts come from matched subranges: old+count and new+count are
+        # sequence endpoints. joined implies a nonempty ops list.
         if count == 0:
             return Ok(())
         self.gap(old, new)?
         if self.joined:
-            last = len(self.ops) - 1
-            self.ops[last].old_end = old + count
-            self.ops[last].new_end = new + count
+            last = unchecked:
+                len(self.ops) - 1
+            unchecked:
+                self.ops[last].old_end = old + count
+                self.ops[last].new_end = new + count
         else:
-            self.ops.append(Op(Kind.Equal, old, old + count, new, new + count))?
-        self.old_at = old + count
-        self.new_at = new + count
+            ends = unchecked:
+                (old + count, new + count)
+            old_end, new_end = ends
+            self.ops.append(Op(Kind.Equal, old, old_end, new, new_end))?
+        unchecked:
+            self.old_at = old + count
+            self.new_at = new + count
         self.joined = True
         Ok(())
 
@@ -82,21 +90,30 @@ def script() -> Result[Script, AllocError]:
     Ok(Script(list[Op]()?, 0, 0, False))
 
 def common_prefix(old: &list[i64], old_start: i64, old_end: i64, new: &list[i64], new_start: i64, new_end: i64) -> i64:
-    mut count = 0
-    while old_start + count < old_end and new_start + count < new_end and old[old_start + count] == new[new_start + count]:
-        count += 1
-    count
+    # The count never exceeds either remaining range; start+count stays at most end, and an
+    # increment occurs only below both ends.
+    unchecked:
+        mut count = 0
+        while old_start + count < old_end and new_start + count < new_end and old[old_start + count] == new[new_start + count]:
+            count += 1
+        count
 
 def common_suffix(old: &list[i64], old_start: i64, old_end: i64, new: &list[i64], new_start: i64, new_end: i64) -> i64:
-    mut count = 0
-    while old_end - count > old_start and new_end - count > new_start and old[old_end - count - 1] == new[new_end - count - 1]:
-        count += 1
-    count
+    # The count never exceeds either range length. The indexed end-count-1 is nonnegative only
+    # after the loop guards.
+    unchecked:
+        mut count = 0
+        while old_end - count > old_start and new_end - count > new_start and old[old_end - count - 1] == new[new_end - count - 1]:
+            count += 1
+        count
 
 def distance(value: i64) -> i64:
-    if value < 0:
-        return -value
-    value
+    # Only diagonal differences are passed here: their magnitude is at most twice N+M, bounded
+    # by frontier_shape, never i64.MIN.
+    unchecked:
+        if value < 0:
+            return -value
+        value
 
 # Forward and backward furthest-reaching x per diagonal k, stored at
 # `offset + k`. One pair serves every recursive search: each search writes
@@ -106,9 +123,24 @@ class Frontier:
     backward: list[i64]
     offset: i64
 
+# Both lengths are nonnegative. Preflight the i64 frontier storage as well as
+# its slot count: every search then has N+M < i64.MAX/8. This bounds diagonal
+# coordinates (including off-grid paths) and their sums, not just indices.
+def frontier_shape(old_len: i64, new_len: i64) -> Result[(i64, i64), AllocError]:
+    shape = checked:
+        offset = (old_len + new_len + 1) // 2 + 1
+        slots = 2 * offset + 1
+        storage_bytes = slots * 8
+        (offset, slots)
+    match shape:
+        case Ok(value):
+            Ok(value)
+        case Err(_):
+            Err(AllocError.CapacityOverflow)
+
 def frontier(old_len: i64, new_len: i64) -> Result[Frontier, AllocError]:
-    offset = (old_len + new_len + 1) // 2 + 1
-    Ok(Frontier([0 for _ in range(2 * offset + 1)]?, [0 for _ in range(2 * offset + 1)]?, offset))
+    offset, slots = frontier_shape(old_len, new_len)?
+    Ok(Frontier([0 for _ in range(slots)]?, [0 for _ in range(slots)]?, offset))
 
 # Myers' middle snake over nonempty ranges with no common prefix or suffix.
 # Returns a point on a shortest edit path that splits it into two smaller
@@ -116,51 +148,56 @@ def frontier(old_len: i64, new_len: i64) -> Result[Frontier, AllocError]:
 # and backward paths by one edit; a range whose shortest script has at most
 # `2 * half` edits is always split on a shortest path.
 def middle_snake(old: &list[i64], old_start: i64, old_end: i64, new: &list[i64], new_start: i64, new_end: i64, v: &mut Frontier, half: i64) -> (i64, i64):
-    n = old_end - old_start
-    m = new_end - new_start
-    delta = n - m
-    odd = delta % 2 != 0
-    at = v.offset
-    v.forward[at + 1] = 0
-    v.backward[at + 1] = 0
-    mut last = (n + m + 1) // 2
-    if half < last:
-        last = half
-    for d in range(last + 1):
-        mut k = d
-        while k >= -d:
-            mut x = 0
-            if k == -d or (k != d and v.forward[at + k - 1] < v.forward[at + k + 1]):
-                x = v.forward[at + k + 1]
-            else:
-                x = v.forward[at + k - 1] + 1
-            start_x = x
-            start_y = x - k
-            if x < n and start_y < m:
-                x += common_prefix(old, old_start + x, old_end, new, new_start + start_y, new_end)
-            v.forward[at + k] = x
-            if odd and distance(k - delta) <= d - 1:
-                if x + v.backward[at - (k - delta)] >= n:
-                    return (old_start + start_x, new_start + start_y)
-            k -= 2
-        k = d
-        while k >= -d:
-            mut x = 0
-            if k == -d or (k != d and v.backward[at + k - 1] < v.backward[at + k + 1]):
-                x = v.backward[at + k + 1]
-            else:
-                x = v.backward[at + k - 1] + 1
-            mut y = x - k
-            if x < n and y < m:
-                advance = common_suffix(old, old_start, old_end - x, new, new_start, new_end - y)
-                x += advance
-                y += advance
-            v.backward[at + k] = x
-            if not odd and distance(k - delta) <= d:
-                if x + v.forward[at - (k - delta)] >= n:
-                    return (old_end - x, new_end - y)
-            k -= 2
-    furthest(n, m, v, last, old_start, old_end, new_start, new_end)
+    # frontier_shape bounds the ORIGINAL total B below MAX/8; n+m<=B.
+    # d<=ceil(B/2), |k|<=d, |delta|<=B, and path coordinates<=B+1.
+    # Endpoints<=B too, so all arithmetic has magnitude<=4*B+4; indexed
+    # diagonals are within offset +/- d (overlap guards bound k-delta).
+    unchecked:
+        n = old_end - old_start
+        m = new_end - new_start
+        delta = n - m
+        odd = delta % 2 != 0
+        at = v.offset
+        v.forward[at + 1] = 0
+        v.backward[at + 1] = 0
+        mut last = (n + m + 1) // 2
+        if half < last:
+            last = half
+        for d in range(last + 1):
+            mut k = d
+            while k >= -d:
+                mut x = 0
+                if k == -d or (k != d and v.forward[at + k - 1] < v.forward[at + k + 1]):
+                    x = v.forward[at + k + 1]
+                else:
+                    x = v.forward[at + k - 1] + 1
+                start_x = x
+                start_y = x - k
+                if x < n and start_y < m:
+                    x += common_prefix(old, old_start + x, old_end, new, new_start + start_y, new_end)
+                v.forward[at + k] = x
+                if odd and distance(k - delta) <= d - 1:
+                    if x + v.backward[at - (k - delta)] >= n:
+                        return (old_start + start_x, new_start + start_y)
+                k -= 2
+            k = d
+            while k >= -d:
+                mut x = 0
+                if k == -d or (k != d and v.backward[at + k - 1] < v.backward[at + k + 1]):
+                    x = v.backward[at + k + 1]
+                else:
+                    x = v.backward[at + k - 1] + 1
+                mut y = x - k
+                if x < n and y < m:
+                    advance = common_suffix(old, old_start, old_end - x, new, new_start, new_end - y)
+                    x += advance
+                    y += advance
+                v.backward[at + k] = x
+                if not odd and distance(k - delta) <= d:
+                    if x + v.forward[at - (k - delta)] >= n:
+                        return (old_end - x, new_end - y)
+                k -= 2
+        furthest(n, m, v, last, old_start, old_end, new_start, new_end)
 
 # The cost limit stopped the search after `d` rounds. As git's xdiff does
 # without --minimal, split at the in-range end of a forward or backward path
@@ -169,38 +206,46 @@ def middle_snake(old: &list[i64], old_start: i64, old_end: i64, new: &list[i64],
 # `(old_start, new_start)`, which callers treat as no split, only if no point
 # qualifies.
 def furthest(n: i64, m: i64, v: &Frontier, d: i64, old_start: i64, old_end: i64, new_start: i64, new_end: i64) -> (i64, i64):
-    at = v.offset
-    mut best = 0
-    mut split_old = old_start
-    mut split_new = new_start
-    mut k = -d
-    while k <= d:
-        x = v.forward[at + k]
-        y = x - k
-        if x >= 0 and x <= n and y >= 0 and y <= m and x + y > best and x + y < n + m:
-            best = x + y
-            split_old = old_start + x
-            split_new = new_start + y
-        k += 2
-    k = -d
-    while k <= d:
-        x = v.backward[at + k]
-        y = x - k
-        if x >= 0 and x <= n and y >= 0 and y <= m and x + y > best and x + y < n + m:
-            best = x + y
-            split_old = old_end - x
-            split_new = new_end - y
-        k += 2
-    (split_old, split_new)
+    # With the original total B<MAX/8 from frontier_shape, d<=ceil(B/2)
+    # and path coordinates/diagonal differences have magnitude<=2*B+2.
+    # Accepted split coordinates stay inside the supplied sequence ranges.
+    unchecked:
+        at = v.offset
+        mut best = 0
+        mut split_old = old_start
+        mut split_new = new_start
+        mut k = -d
+        while k <= d:
+            x = v.forward[at + k]
+            y = x - k
+            if x >= 0 and x <= n and y >= 0 and y <= m and x + y > best and x + y < n + m:
+                best = x + y
+                split_old = old_start + x
+                split_new = new_start + y
+            k += 2
+        k = -d
+        while k <= d:
+            x = v.backward[at + k]
+            y = x - k
+            if x >= 0 and x <= n and y >= 0 and y <= m and x + y > best and x + y < n + m:
+                best = x + y
+                split_old = old_end - x
+                split_new = new_end - y
+            k += 2
+        (split_old, split_new)
 
 def conquer(out: &mut Script, old: &list[i64], old_start: i64, old_end: i64, new: &list[i64], new_start: i64, new_end: i64, v: &mut Frontier, half: i64) -> Result[(), AllocError]:
+    # Prefix/suffix counts and split points stay within the supplied sequence ranges, so every
+    # adjusted endpoint remains in 0..len(sequence).
     prefix = common_prefix(old, old_start, old_end, new, new_start, new_end)
     out.equal(old_start, new_start, prefix)?
-    first_old = old_start + prefix
-    first_new = new_start + prefix
+    first = unchecked:
+        (old_start + prefix, new_start + prefix)
+    first_old, first_new = first
     suffix = common_suffix(old, first_old, old_end, new, first_new, new_end)
-    last_old = old_end - suffix
-    last_new = new_end - suffix
+    last = unchecked:
+        (old_end - suffix, new_end - suffix)
+    last_old, last_new = last
     if first_old < last_old and first_new < last_new:
         split_old, split_new = middle_snake(old, first_old, last_old, new, first_new, last_new, v, half)
         # No split leaves the range unmatched: `Script.gap` turns it into a
@@ -215,9 +260,12 @@ def myers(out: &mut Script, old: &list[i64], new: &list[i64], half: i64) -> Resu
     conquer(out, old, 0, len(old), new, 0, len(new), &mut v, half)
 
 def counts(ids: &list[i64], distinct: i64) -> Result[list[i64], AllocError]:
+    # Each id occurs at most len(ids) times. Incrementing a count while visiting one element
+    # cannot exceed that representable length.
     mut seen = [0 for _ in range(distinct)]?
     for id in ids:
-        seen[*id] += 1
+        unchecked:
+            seen[*id] += 1
     Ok(seen)
 
 # Positions of the elements that occur exactly once on each side, in order.
@@ -230,6 +278,8 @@ def unique(ids: &list[i64], mine: &list[i64], theirs: &list[i64]) -> Result[list
     Ok(positions)
 
 def patience(out: &mut Script, old: &list[i64], new: &list[i64], distinct: i64, half: i64) -> Result[(), AllocError]:
+    # Anchor operations index the unique-position lists; step is below their equal-run length.
+    # Each anchor+1 is at most the corresponding sequence length.
     old_counts = counts(old, distinct)?
     new_counts = counts(new, distinct)?
     old_unique = unique(old, &old_counts, &new_counts)?
@@ -247,25 +297,32 @@ def patience(out: &mut Script, old: &list[i64], new: &list[i64], distinct: i64, 
     mut new_at = 0
     for op in &anchors.ops:
         if op.is_equal():
-            for step in range(op.old_len()):
-                old_anchor = old_unique[op.old_start + step]
-                new_anchor = new_unique[op.new_start + step]
+            for step in range(op.old_len().unwrap()):
+                indices = unchecked:
+                    (op.old_start + step, op.new_start + step)
+                old_index, new_index = indices
+                old_anchor = old_unique[old_index]
+                new_anchor = new_unique[new_index]
                 conquer(out, old, old_at, old_anchor, new, new_at, new_anchor, &mut v, half)?
                 out.equal(old_anchor, new_anchor, 1)?
-                old_at = old_anchor + 1
-                new_at = new_anchor + 1
+                unchecked:
+                    old_at = old_anchor + 1
+                    new_at = new_anchor + 1
     conquer(out, old, old_at, len(old), new, new_at, len(new), &mut v, half)
 
 # Middle-snake rounds allowed by `max_cost`: half the edits, rounded up, and
 # at least one so that a stopped search always has a split point.
 def rounds(max_cost: Option[i64]) -> i64:
-    match max_cost:
-        case Some(cost):
-            if cost <= 2:
-                return 1
-            cost // 2 + cost % 2
-        case Nothing:
-            i64.MAX
+    # Costs <=2 return first; otherwise division by 2 and remainder are defined and their sum is
+    # ceil(cost/2)<=MAX/2+1.
+    unchecked:
+        match max_cost:
+            case Some(cost):
+                if cost <= 2:
+                    return 1
+                cost // 2 + cost % 2
+            case Nothing:
+                i64.MAX
 
 def run(old: &list[i64], new: &list[i64], distinct: i64, algorithm: Algorithm, max_cost: Option[i64]) -> Result[list[Op], AllocError]:
     mut out = script()?
@@ -372,7 +429,10 @@ pub class TextDiff:
 
     def hunk(self, pieces: &mut list[str], ops: &list[Op]) -> Result[(), AllocError]:
         first = &ops[0]
-        last = &ops[len(ops) - 1]
+        # Hunk groups are nonempty, so their final index is representable.
+        last_index = unchecked:
+            len(ops) - 1
+        last = &ops[last_index]
         pieces.append("@@ -")?
         range_text(pieces, first.old_start, last.old_end)?
         pieces.append(" +")?
@@ -391,10 +451,16 @@ pub class TextDiff:
 # `start,count` from one-based line numbers; a count of one is omitted, and an
 # empty range names the line before it, as `diff -u` writes them.
 def range_text(pieces: &mut list[str], start: i64, end: i64) -> Result[(), AllocError]:
-    count = end - start
+    # Only generated operations reach rendering: 0<=start<=end. A nonempty range has
+    # start<end<=MAX, so its one-based start fits.
+    count = unchecked:
+        end - start
     if count == 1:
-        return pieces.append(str.from(start + 1)?)
-    first = start if count == 0 else start + 1
+        first = unchecked:
+            start + 1
+        return pieces.append(str.from(first)?)
+    first = unchecked:
+        start if count == 0 else start + 1
     pieces.append(str.from(first)?)?
     pieces.append(",")?
     pieces.append(str.from(count)?)
@@ -409,10 +475,19 @@ def write_tokens(pieces: &mut list[str], prefix: &str, tokens: &list[str], start
     Ok(())
 
 def trimmed(op: &Op, start: i64, end: i64) -> Op:
-    Op(Kind.Equal, op.old_start + start, op.old_start + end, op.new_start + start, op.new_start + end)
+    # Only generated equal runs are trimmed, with 0<=start<=end<=run length; every adjusted
+    # coordinate remains within the original run.
+    unchecked:
+        Op(Kind.Equal, op.old_start + start, op.old_start + end, op.new_start + start, op.new_start + end)
 
 def min(a: i64, b: i64) -> i64:
     a if a < b else b
+
+# Nonnegative size/context: compare size > 2*context without forming the
+# potentially unrepresentable doubled radius.
+def separated_context(size: i64, context: i64) -> bool:
+    unchecked:
+        size > context and size - context > context
 
 # Groups operations into hunks with up to `context` equal elements on each
 # side of every change. Changes separated by at most twice that are merged.
@@ -420,26 +495,35 @@ def hunks(ops: &list[Op], context: i64) -> Result[list[list[Op]], AllocError]:
     mut groups = list[list[Op]]()?
     mut group = list[Op]()?
     count = len(ops)
+    # count>=0, including an empty list whose loop never executes.
+    last_index = unchecked:
+        count - 1
     for index in range(count):
         op = &ops[index]
         if not op.is_equal():
             group.append(Op(op.kind, op.old_start, op.old_end, op.new_start, op.new_end))?
             continue
-        size = op.old_len()
+        size = op.old_len().unwrap()
         leading = index == 0
-        trailing = index == count - 1
+        trailing = index == last_index
         if leading and trailing:
             continue
         if leading:
             keep = min(size, context)
-            group.append(trimmed(op, size - keep, size))?
+            # 0<=keep<=size for generated runs.
+            start = unchecked:
+                size - keep
+            group.append(trimmed(op, start, size))?
         elif trailing:
             group.append(trimmed(op, 0, min(size, context)))?
-        elif size > 2 * context:
+        elif separated_context(size, context):
             group.append(trimmed(op, 0, context))?
             groups.append(group)?
             group = list[Op]()?
-            group.append(trimmed(op, size - context, size))?
+            # separated_context implies 0<=context<size.
+            start = unchecked:
+                size - context
+            group.append(trimmed(op, start, size))?
         else:
             group.append(trimmed(op, 0, size))?
     if len(group) > 0:
@@ -452,6 +536,7 @@ def text_diff(old: list[str], new: list[str], algorithm: Algorithm, max_cost: Op
 
 # Lines, each keeping its LF; a final line without one is its own token.
 def split_lines(text: &str) -> Result[list[str], AllocError]:
+    # find returns an index below size; found+1 remains at most the byte-buffer length.
     data = std.bytes.from_text(text)?
     mut out = list[str]()?
     mut start = 0
@@ -460,7 +545,8 @@ def split_lines(text: &str) -> Result[list[str], AllocError]:
         mut end = size
         match data.find(10u8, start, size):
             case Some(found):
-                end = found + 1
+                unchecked:
+                    end = found + 1
             case Nothing:
                 pass
         out.append(allocated(data.to_text_range(start, end))?)?
@@ -469,6 +555,8 @@ def split_lines(text: &str) -> Result[list[str], AllocError]:
 
 # Alternating runs of Unicode White_Space and of other scalars.
 def split_words(text: &str) -> Result[list[str], AllocError]:
+    # Each scalar advances at by its own UTF-8 byte length, so at never exceeds the already held
+    # text byte length.
     data = std.bytes.from_text(text)?
     mut out = list[str]()?
     mut start = 0
@@ -480,7 +568,8 @@ def split_words(text: &str) -> Result[list[str], AllocError]:
             out.append(allocated(data.to_text_range(start, at))?)?
             start = at
         space = current
-        at += scalar.byte_len()
+        unchecked:
+            at += scalar.byte_len()
     if at > start:
         out.append(allocated(data.to_text_range(start, at))?)?
     Ok(out)

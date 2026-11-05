@@ -1,5 +1,16 @@
 mod support;
 
+fn run(source: &str, errors: &str) -> std::process::Output {
+    let source = support::program(source);
+    let source = source.replacen(
+        "def main() -> ():",
+        &format!("def main() -> Result[(), {errors}]:"),
+        1,
+    );
+    let end = source.rfind("    pass\n").unwrap();
+    support::run(&format!("{}    Ok(())\n", &source[..end]))
+}
+
 #[test]
 fn integer_bits_and_wrapping_work_at_every_width() {
     for ty in ["i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64"] {
@@ -26,8 +37,9 @@ fn integer_bits_and_wrapping_work_at_every_width() {
 
 #[test]
 fn precedence_borrows_and_overflow_boundaries() {
-    let output = support::run(
+    let output = run(
         "x = 12\nprint(*(&x) & 5).unwrap()\nprint(1 | 2 ^ 3 & 4 << 1 + 1).unwrap()\nprint(-8 >> 2).unwrap()\nprint(128u8 >> 7).unwrap()\nprint(1u8 << 7).unwrap()\nprint(127i8.wrapping_add(1)).unwrap()\nprint(0u8.wrapping_sub(1)).unwrap()\nprint(64u8.wrapping_mul(4)).unwrap()\nprint(18446744073709551615u64.wrapping_mul(6364136223846793005)).unwrap()\n",
+        "OverflowError[i64]",
     );
     assert!(output.status.success());
     assert_eq!(
@@ -38,8 +50,9 @@ fn precedence_borrows_and_overflow_boundaries() {
 
 #[test]
 fn wrapping_receiver_reads_end_after_the_call() {
-    let output = support::run(
+    let output = run(
         "mut n = 127i8\nprint(n.wrapping_add(1)).unwrap()\nn = 2\nprint(n.wrapping_mul(3)).unwrap()\nprint((n + 1).wrapping_sub(2)).unwrap()\n",
+        "OverflowError[i8]",
     );
     assert!(output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout), "-128\n6\n1\n");

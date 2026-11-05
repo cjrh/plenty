@@ -169,7 +169,7 @@ fn allocation_failure_returns_alloc_error() {
     value.set_param("note", "two words")?
     Ok(value.to_string()?)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut failures = 0
     mut limit = 0
     while True:
@@ -204,4 +204,53 @@ def main() -> Result[(), AllocError | IoError]:
         lines[failures],
         r#"multipart/form-data; boundary="a \"b"; charset=utf-8; x=y; note="two words""#
     );
+}
+
+#[test]
+fn format_parts_checks_representation_boundary_before_allocation() {
+    let library = include_str!("../stdlib/std/mime.plenty");
+    let helper = library[library.find("def format_parts(").unwrap()..]
+        .split("\n\n")
+        .next()
+        .unwrap();
+    let source = format!(
+        r#"{helper}
+
+def main() -> Result[(), IoError]:
+    print("__test_fail_allocations_after_0__")?
+    print("__test_begin_no_allocations__")?
+    empty = format_parts(0).unwrap()
+    last = format_parts(2305843009213693951).unwrap()
+    first_error = format_parts(2305843009213693952)
+    largest_error = format_parts(i64.MAX)
+    print("__test_restore_allocations__")?
+    print("__test_end_no_allocations__")?
+    expected: Result[i64, AllocError] = Err(AllocError.CapacityOverflow)
+    print(empty == 3, last == i64.MAX, first_error == expected, largest_error == expected)?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("main.plenty");
+        let executable = dir.path().join("program");
+        std::fs::write(&path, &source).unwrap();
+        let options = plenty::CompileOptions {
+            optimize,
+            test_hooks: true,
+            ..Default::default()
+        };
+        plenty::compile_file_to_executable_with_options(&path, &executable, None, &options)
+            .unwrap_or_else(|error| panic!("{source}\n{error}"));
+        let output = std::process::Command::new(executable).output().unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert_eq!(
+            stdout
+                .lines()
+                .filter(|line| !line.starts_with("__test_"))
+                .collect::<Vec<_>>(),
+            ["True True True True"]
+        );
+    }
 }

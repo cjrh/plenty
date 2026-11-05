@@ -78,14 +78,18 @@ pub class TlsConnection:
 
     # Decrypted bytes not yet consumed.
     pub def available(self) -> i64:
-        self._input_stop - self._input_start
+        # Input cursors are ordered within the allocated plaintext buffer.
+        unchecked:
+            self._input_stop - self._input_start
 
     # Releases the first `count` decrypted bytes and decrypts what waited
     # for the room, so `available` may grow.
     pub def consume[M, E](self: &mut TlsConnection, count: i64, context: &mut Context[M, E]) -> Result[(), TlsError | TimerError]:
         if count < 0 or count > self.available():
             return Err(TlsError.Net(invalid()))
-        self._input_start += count
+        # The validated count is at most the available input.
+        unchecked:
+            self._input_start += count
         if self._input_start == self._input_stop:
             self._input_start = 0
             self._input_stop = 0
@@ -103,12 +107,7 @@ pub class TlsConnection:
     pub def space(self) -> i64:
         if self._handshaking or self._closing or self._session.wants_write():
             return 0
-        free = self._net.space()
-        records = (free + record_size - 1) // record_size
-        room = free - records * record_overhead
-        if room < 0:
-            return 0
-        room
+        plaintext_room(self._net.space())
 
     # Encrypts as much of `source` as `space` allows into the
     # output, sends what the socket takes at once, and returns how many
@@ -125,12 +124,19 @@ pub class TlsConnection:
             if room == 0:
                 break
             mut end = stop
-            if end - at > room:
-                end = at + room
+            remaining = unchecked:
+                # 0 <= at <= end <= len(source).
+                end - at
+            if remaining > room:
+                # This branch proves room < end - at, so the sum is below end.
+                unchecked:
+                    end = at + room
             taken = self._session.write(&source[at:end])?
             if taken == 0:
                 break
-            at += taken
+            # Session.write accepts at most the offered source extent.
+            unchecked:
+                at += taken
             self.send(context)?
         if at < stop:
             self._refused = True
@@ -144,20 +150,31 @@ pub class TlsConnection:
             return Err(TlsError.Net(invalid()))
         if self._closing or self._net.closed():
             return Err(TlsError.Closed)
-        stop = self._input_start + count
+        # count was validated against available input.
+        stop = unchecked:
+            self._input_start + count
         mut moved = 0
         while self._input_start < stop:
             room = self.space()
             if room == 0:
                 break
             mut end = stop
-            if end - self._input_start > room:
-                end = self._input_start + room
+            remaining = unchecked:
+                # 0 <= input_start <= end <= input_stop.
+                end - self._input_start
+            if remaining > room:
+                # This branch proves room < end - input_start.
+                unchecked:
+                    end = self._input_start + room
             taken = self._session.write(&self._input[self._input_start:end])?
             if taken == 0:
                 break
-            self._input_start += taken
-            moved += taken
+            # Session.write accepts at most the offered plaintext extent.
+            unchecked:
+                self._input_start += taken
+            # The total moved is bounded by the original validated count.
+            unchecked:
+                moved += taken
             self.send(context)?
         if self._input_start < stop:
             self._refused = True
@@ -249,7 +266,9 @@ pub class TlsConnection:
         size = self._input.len()
         if self._input_stop == size and self._input_start > 0:
             shift(&mut self._input, self._input_start, self._input_stop)
-            self._input_stop -= self._input_start
+            # Input cursors are ordered within the allocated plaintext buffer.
+            unchecked:
+                self._input_stop -= self._input_start
             self._input_start = 0
         if self._input_stop == size:
             return Ok(False)
@@ -260,8 +279,12 @@ pub class TlsConnection:
                 events.ended = True
                 Ok(False)
             case Some(count):
-                self._input_stop += count
-                events.received += count
+                # Session.read returns at most the offered input-buffer extent.
+                unchecked:
+                    self._input_stop += count
+                # One pump only appends input: total received fits the free buffer extent.
+                unchecked:
+                    events.received += count
                 Ok(True)
             case Nothing:
                 Ok(False)
@@ -278,7 +301,9 @@ pub class TlsConnection:
                 break
             stop = self._net.output_stop()
             target = self._net.output()
-            count = self._session.take(target, stop, stop + room)?
+            # reserve bounded room by the output buffer extent remaining after stop.
+            count = unchecked:
+                self._session.take(target, stop, stop + room)?
             if count == 0:
                 break
             lifted(self._net.commit(count, context))?
@@ -342,3 +367,16 @@ def lifted[T](result: Result[T, NetError | TimerError]) -> Result[T, TlsError | 
                     Err(TlsError.Net(net))
                 case timer: TimerError:
                     Err(timer)
+
+# free is nonnegative buffer space. Avoid rounding up with free + size - 1.
+def plaintext_room(free: i64) -> i64:
+    # records <= i64.MAX // 16384 + 1, so records * 32 fits; room >= -32.
+    # Both divisors are the positive fixed record_size (16384).
+    unchecked:
+        mut records = free // record_size
+        if free % record_size != 0:
+            records += 1
+        room = free - records * record_overhead
+        if room < 0:
+            return 0
+        room

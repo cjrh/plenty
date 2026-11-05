@@ -7,11 +7,15 @@ use std::process::Command;
 const PROGRAM: &str = "def total(n: i64) -> i64:
     mut sum = 0
     for i in range(n):
-        sum += i
+        # Deliberately retain the trapping primitive for the CLIF/asm oracle.
+        unchecked:
+            sum += i
     sum
 
 def twice(v: i64) -> i64:
-    v * 2
+    # This dump subject intentionally uses the scalar ABI and trapping multiply.
+    unchecked:
+        v * 2
 
 def main() -> Result[(), AllocError | IoError]:
     print(total(10))?

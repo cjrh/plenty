@@ -1,9 +1,335 @@
 # Checked defaults: implementation and validation
 
 > Companion to [checked arithmetic by default](../checked-by-default.md).
-> **Not implemented.** This is a feasibility assessment and proposed acceptance
-> contract, not benchmark evidence. Scheduling stays in **B14** in the
-> [backlog](../../backlog.md).
+> **Repository adoption and bounded validation complete.**
+> [Collected results and limits](../../completed-work/checked-default-validation.md)
+> cover the isolated host gate, all controlled timing/profile jobs, representative
+> optimized code, native/export audit and compiler benchmark-template adoption.
+> This is not universal performance/ABI or merge acceptance. Remaining **B14**
+> conveniences stay in the [backlog](../../backlog.md).
+
+## Current implementation
+
+Function bodies collect arithmetic failures against their declared public
+`Result` type, without changing successful return rules. `unchecked:` selects
+trapping operators and leaves suite values unwrapped. Nested functions no
+longer inherit a private callback effect. Generator arithmetic receives a
+targeted diagnostic; ordinary native tail returns remain supported.
+
+`tests/test_checked_defaults.rs` exercises the new contracts, all eight
+integer widths, nesting, mutable and stored callbacks, worker error transport,
+fallible key sorting, cleanup, skipped compound writes, generators and tail
+recursion. The private callback error channel and its lifetime restrictions
+are removed; its tests are replaced by public-contract coverage. The retained
+local arithmetic suite passes.
+
+The initial library migration covers `std.math`, `std.bytes`, `std.time`,
+`std.encoding`, `std.io`, `std.io.typed`, `std.fmt`, `std.fs`, `std.env`,
+`std.secrets`, core `std.http`, `std.net`, `std.ready`, `std.text`, `std.random`,
+`std.test`, `std.url`, `std.process`, `std.http.decoder`, `std.http.typed`
+and `std.http.client`, plus `std.json`, `std.unicode`, `std.complex`, `std.stat`,
+`std.linalg`, `std.simd`, `std.log`, `std.crypto`, `std.tls`, `std.uuid`,
+`std.jwt`, `std.http.server`, `std.toml`, `std.regex`, `std.cli`, CLI progress,
+`std.dataframe`, `std.plot`, HTTP body/cookie/proxy helpers, `std.xml`,
+`std.csv`, `std.tempfile`, `std.system`, `std.fs.watch`, SQLite/KV wrappers,
+`std.compress`, and actor core/TCP/TLS/HTTP-server adapters.
+Integer math magnitude/reductions return `Result[T, OverflowError[T]]`;
+separate `*_float` helpers retain IEEE float values. Serial pipeline `sum()`
+returns a public result for integer items. Sorting accepts `Result[K, E]`
+key callbacks and returns `Result[(), E]`. Bounds-proven byte/time operations
+use small documented opt-outs; fallible size and time calculations retain
+their existing error contracts. Encoding expansion sizes are checked before
+allocation, stream position/total limits return their declared errors, and
+filesystem walk reservation no longer counts pending frames twice (issue #702).
+Pure capacity helpers are tested at representation limits without allocating
+huge buffers. The HTTP decimal accumulator subtracts ASCII bias before checked
+multiply/add (issue #703), accepting the complete i64 range while mapping larger
+lengths to protocol errors. `FakeStream.fail_after` returns a public
+`Result[(), OverflowError[i64]]`; failures preserve its pending schedule.
+Counter exhaustion in the stream protocol maps to OutOfRange before mutation.
+URL expansion and process extents check representation limits before allocating
+or consuming another chunk. Process argument encoding reserves additional bytes
+without counting held bytes twice (issue #704). Incremental decoder counters are
+bounded by its per-feed, line, head and body limits. Typed chunk writers
+preflight the complete wire extent before delivery, preserving progress and
+transport causes. Client callbacks retain their own contracts; deadline
+saturation and bounded pool/retry/body arithmetic are explicit. No blanket `unchecked:`
+conversion was applied.
+
+JSON retains its input/output budgets and maps one-based position exhaustion
+to `JsonFault.InputTooLarge` before advancing the failing cursor. Partial output
+compaction preserves delivered progress without allocating. Unicode normalization
+uses explicit scalar-ceiling, successful-append and positive-index bounds. The
+JSON/Unicode component passed 35 isolated-target runtime-check tests, including
+debug/optimized representation boundaries and the Unicode normalization corpus,
+and received an independent source review. A separately reviewed TOML/regex
+checkpoint preserves parser faults, edit atomicity, regex work/memory limits
+and replacement validation order. Public mutable regex matches expose length
+subtraction as `Result[i64, OverflowError[i64]]`; unavailable TOML coordinates
+report InputTooLarge at the valid offset with zero line/column, following the
+user's explicit choices. Its 40 isolated-target tests pass, with six added
+boundary tests in both optimization modes. A separately reviewed XML/CSV
+checkpoint preserves parser faults and stream ownership. CSV position exhaustion
+returns the existing stream OutOfRange error; preflight keeps offsets exact,
+record MAX valid and explicit flushing of already-finished bytes available.
+
+The reviewed numerical checkpoint preserves complex powers at `i64.MIN`, matrix
+shape/index invariants and statistical capacity causes. Ordinary integer SIMD
+arithmetic returns lane-typed overflow results; explicit wrapping and IEEE float
+APIs remain unchanged. The SIMD tutorial and generated declarations match.
+Observation-only logger, server-report and actor statistics saturate at their
+existing maximum, following the user's explicit policy; semantic progress stays
+exact and fallible. Server output and unread extents preflight before delivery
+or buffer growth. TLS/crypto/UUID/JWT retain their existing public errors with
+source-visible buffer, DER, timestamp and time/leeway bounds.
+
+Actor slots and timer/request records retire rather than wrap exhausted identity
+generations. Mailbox counters rebase all linked target-owned exit fences while
+preserving message-prefix ordering. An affine arithmetic error reaches its
+parent with both actor heaps reclaimed. Complete actor TLS, crypto, JWT, HTTPS
+and server/client tests pass after dependency integration. Combined targeted
+validation has 733 passes, two failures in unmigrated HTTP body/cookie, and one
+pre-existing ignored test. The two native-engine linalg bodies were still unrun at that checkpoint;
+the follow-up native-engine results are recorded below.
+At that checkpoint the registry still reported 29 failing module analyses; broad tutorial validation
+remains incomplete. These results are not all-features or performance acceptance.
+
+A later reviewed checkpoint adds bounded CLI parsing/progress, checked dataframe
+extents, plot arithmetic and body/cookie byte budgets. Actor HTTP keeps exact
+response accounting and equivalent bounded lingering-threshold state; complete
+TCP/TLS/control/error tests pass. Initial optional-engine self-skips were followed by actual local-engine runs:
+all 17 dataframe and nine linalg tests pass, including relocation and allocation
+cleanup after fixture-only arithmetic fixes. This does not replace the native
+arithmetic audit. Reviewed proxy/helper fixtures restore descriptor, cancellation,
+RFC and bulk-scan checks; actor HTTP interop retains real curl and 600-mutation
+corpus behavior. Temporary/system/watch/SQLite wrappers and compression preserve
+existing errors and resource/progress contracts. Compression's live gzip/Brotli
+interop runs; SQLite's optional vector extension and Docker cases remain unrun.
+At that checkpoint the registry had 13 failing module analyses. The final
+reviewed std checkpoints now cover archive, diff/image, HTTP files/SSE/WebSocket,
+MIME/template/markdown and sketches. The registry/index passes both tests with
+no diagnosed modules; public mutable diff lengths return overflow Results.
+Focused HTTP files tests now execute all 11 filesystem/conditional/stream cases,
+not merely extracted size helpers. Oversized metadata returns InvalidContentLength
+before validators, following the user's explicit policy (issue #706).
+Image and Markdown preserve format/domain errors, checked extents, exact parser
+and output progress, and cleanup. Their 23 and 10 tests pass respectively;
+representation-limit probes supplement, not replace, actual codec/parser tests.
+
+The reviewed parallel integer sum now returns an ordinary overflow/pool Result,
+retaining serial-prefix semantics, the precise first wrapped payload and one
+callback invocation per item. Mapping drains before ordered addition and source
+cleanup; O(n) mapped storage and a serial combination pass are deliberate,
+unbenchmarked costs. Floats retain chunk grouping. Enumerate index overflow keeps
+its explicitly documented trapping contract. All 30 pipeline tests and both owned
+tutorial examples pass after integration.
+
+Reviewed tutorial, reference and skill adoption uses independent public callback
+Results, explicit joins and precise propagation. Full executable documentation
+improves from 3 passing / 17 failing tests to 19 passing / 1 failing after the
+reviewed generic deque/heap/graph/LRU checkpoint (49 targeted passes). Its std
+public declarations, allocation causes and ownership contracts stay unchanged.
+Reviewed fallible fixed-tree and pipeline reducers now accept ordinary Result
+callbacks, including reconstructed pair items with exactly-once affine cleanup.
+Their public error unions retain pool failures and callback errors; deterministic
+tree-level/pair selection and chunk-fold policies remain distinct from integer
+sum's serial prefixes. All 20 tutorial/skill tests, 24 parallel tests and 37
+parallel-pipeline tests pass after integration. Registry analysis does not
+instantiate all generic bodies; executable coverage was needed in addition to
+its two passing tests. Reviewed native export/FFI fixtures restore 23 tests
+without widening C scalar/fieldless-error signatures or weakening native oracles.
+
+Adoption remains incomplete. Repository fixtures/examples, full-suite/native
+arithmetic audits and performance measurements remain.
+A complete earlier all-features baseline compiled, including experimental emitter
+and profiling features, but reported 4,465 passes, 1,109 failures and eight ignores.
+The passes include 27 confirmed optional self-skips. Most failures reject old
+fixture arithmetic contracts; some hit the generic std bodies adapted since that
+snapshot. A newer complete gate at `ff52bd7e` compiled successfully and reported
+4,813 passes, 813 failures and eight ignores, again including 27 optional
+self-skips. It has no newly failing outer name relative to that baseline and no
+remaining std-source diagnostic. Subsequently reviewed borrowing, tail/stack,
+control/trap and flow/shared batches pass all 568 parent-run tests, including
+258 identical failed names from that newer snapshot. This is scoped evidence,
+not a measured current-head whole-suite result or acceptance. Public Result
+adoption also exposed the pre-existing contextual numeric-literal defect in issue
+#710. A reviewed non-evaluating success-payload hint fixes it without changing the
+original unsuffixed-call-result oracle. A rebuilt main baseline rejects that
+source; native normal/release regressions now pass, and all 109 callable fixtures
+and ten literal-form tests pass after parent integration. The user approved deterministic fallible-tree
+errors by level then left-to-right pair, accepting level-by-level scheduling while
+infallible reducers retain their optimization. Ordinary Result[(), E] initializers now produce exactly Result[Class, E], without
+adding AllocError unless declared. Reviewed generic-output deferral preserves
+whole-result parameters, aliases, defaults and constructor values. All 114
+constructor/checked-default tests pass after integration, including partial-field,
+affine-error, default-failure and native inline/noninline cleanup. Issue #709's
+partial-self capture guard is integrated; captures are checked when created,
+without crediting deferred closure-body writes. Infallible destructor/context-exit
+protocols and existing C-export error-layout restrictions remain unchanged.
+The tuple-adapter review correction is integrated with owned/enumerated/mapped
+pair, cardinality, managed-error and allocation-failure regressions. Earlier
+scalar-only passes did not establish that case; the correction received separate
+review before integration. Further reviewed concurrency and collection batches
+pass 183 and 428 parent-run cases while retaining actual worker, guard-page,
+allocation and ownership oracles. The user explicitly approved updating one
+unoptimized range-generator oracle to require the exact bounded helper and
+caller-provenance calls. It retains counted-source/no-iterator-allocation checks
+and native output, not a zero-call or performance-equivalence claim.
+The historical gate at `af8aa15d` had 5,375 reported passes, 259 failures and
+eight ignores, including 27 optional self-skips. After the reviewed final fixture
+and example adoption, the complete host gate at `2ef36dce` passes: 5,650 passed,
+zero failed and eight existing ignores. Every one of those 259 failed names now
+passes; sixteen additional outer tests pass separately. All 27 known optional
+self-skips execute their bodies, including the selected dataframe/linalg engines,
+tutorial engine jobs and ten Docker cases. The real libFuzzer and Neovim bodies
+also execute. Two explicitly selected ignored trials pass afterward and are not
+folded into the whole-gate totals. External engines are compatible existing
+artifacts, not newly source-built engines; transient host-tool conditionals are
+not exhaustively traced. This is host test acceptance, not performance acceptance.
+Reviewed shipped-example and companion adoption subsequently passes all 20
+structure tests and all three exhaustive-example tests, with the original stress,
+allocation and ownership oracles intact. An explicitly run sqlite-vec trial passes
+its real transactional example using deterministic test inference; this does not
+qualify a real embedding model. A local release-skill assembly passes 19 sync tests
+and checks 152 Markdown pages/837 local targets without missing links; no remote
+publication or agent trial is implied. The bounded native/generated-adapter
+audit's inline sort-error ownership hazard (issue #711) is repaired with a
+caller-owned typed result slot. Relocation precedes comparator return, without
+heap allocation or restricting the public error type. Independent review and
+21 parent-run checked-default tests cover range/nested managed errors, first and
+second-key failure, skipped callbacks, exact payload/drop counts and normal/release
+storage-layout checks. The pre-repair native probes happened to print correctly;
+the discriminating failure was structural, so no reproduced crash is claimed.
+The integrated whole gate is green at that immutable snapshot. Measurements
+remain pending. The independently reviewed #712 repair is integrated. The fresh
+post-repair gate was safety-aborted by an external Docker evidence-wrapper regex
+error before any container launch: 4,089 passed, two wrapper-caused failures and
+one ignore were observed; 1,575 registered tests were unobserved. All 25
+checked-default tests and the five new verifier tests passed, but this partial
+run is not a complete gate. A second independently reviewed external harness
+attempt also stopped before container launch because the installed Docker emits
+lowercase absence diagnostics: 3,691 passes, no completed failure rows and one
+ignore were observed; 1,975 registered tests remained unobserved. Its corrected
+process monitor fully waited owned descendants, but that does not make the run
+green. Both failed attempts remain intact. Live diagnostic compatibility must be
+prevalidated before another complete attempt.
+
+Untimed native execution of the initial acceptance harness completed 110 builds
+and 260 exact-oracle runtime cases, but ten source checks failed and sixteen
+planned cases remained blocked. Reviewed harness corrections fix the corpus
+error union and add honest mode selection. The reviewed shared Unit checked-suite
+repair (issue #712) now preserves the exact entry type stack for Unit success,
+without changing nonunit behavior or codegen. Five verifier and four native
+normal/release regressions cover strict stack checking, ordered mutations,
+destruction/propagation and floating division. The same reviewed production hunk
+is committed on a new baseline fork, labelled “main + #712 fix”; original pins
+and failed-probe records remain unchanged.
+
+Reviewed call-heavy probes now name the live multiplication result before adding
+the bias, preserving operations and error payloads while retaining a genuine leaf
+call. All four optimized modes and both recovery variants pass actual native
+call-site extraction on the historical syntax pair. The controller fails closed
+when extraction cannot qualify a call; an additional I-side cleanup case proves
+no rollback after an earlier successful mutation. These historical results are now supplemented by independently reviewed final-pin
+untimed validation on the common-fix baseline and candidate: all 124 source/profile
+configurations pass checks and native builds, all 284 runtime cases pass their
+exact oracles, and all six optimized executable call-retention gates pass. Both
+full corpus sizes execute their designated checksum entrypoints in all four modes
+and both generated profiles. All 24 cleanup cases pass, including C's formerly
+blocked Unit/no-rollback cases. Four C/I allocation-free intervals and four real
+allocating controls prove active calling-thread successful-allocation checks,
+not a process-wide allocation census. No timing or size acceptance is inferred.
+Both matching perf/check build pairs and the genuine allocation-profiling build
+pair also pass preparation.
+The new baseline also executes the previously rejected original C cleanup source
+in both native modes. Profiling will report exact allocation counts and clearly
+label formatted byte totals approximate; no profiling or timing samples have yet
+been collected. The guarded measurement controller and separate profiling adapter
+are now independently reviewed and integrated. The combined Python suite passes
+311 tests with three existing skips; their execution paths remain mock-validated,
+not measured. Runtime timings will be whole-process costs; compiler costs cover
+checks, debug objects and AOT builds. Optimized linked-ELF sizes are distinct from
+optimized object bytes, and profiling timings are not uninstrumented latency.
+
+Checkpointed validation retains exact target/test identities on the unchanged
+verified build. After reviewed external-wrapper corrections, all 5,667 registered
+pairs have observed outcomes across stages: 5,659 passes and eight normal ignores,
+including all 27 required optional bodies. Passed prefixes were not replayed to
+complete that checkpoint. Cross-stage coverage is not an uninterrupted gate.
+
+The separate final uninterrupted command completed all targets and both actual
+zero-test doctest packages, but **failed**: 5,658 passed, one failed and eight
+normally ignored; Cargo returned 101, with full wait and no wrapper STOP. Two
+concurrent Caddy fixtures selected the same HTTP port, and readiness correctly
+rejected the other fixture's identity. Issue #719 tracks this pre-existing
+fixture race in a separately authorized fixing task. No compiler/arithmetic
+regression is established by that failure. All ten observed containers had
+completed exact-ID removals; foreign container and image identities were unchanged.
+Missing final wrapper classifications remain unknown, not Docker success.
+
+The user then approved applying only the reviewed Rust fixture patch to an
+isolated validation fork. Its entire proxy-test file equals the separately
+reviewed fix; all compiler, runtime, std, Cargo and native Plenty fixture files
+remain byte-identical to production revision `830763c9`. On validation revision
+`8ca6fc5a`, one uninterrupted gate passes **5,669 tests, zero failures and eight
+normal ignores**, including all 27 required optional bodies and ten new fixture
+helpers. Both actual zero-test doctest packages complete. Independent evidence
+review accepts this isolated host-gate result, not either unchanged PR branch or
+a merge. The earlier failed run remains failed evidence.
+
+All ten real proxy containers have authenticated same-ID removals and subsequent
+absence; foreign container and image identities are unchanged. Missing wrapper
+classifications stay unknown. Critical compiler/runtime/test build freshness is
+verified; ten non-test example paths' pre-clean absence remains unobserved.
+Existing external engines remain older compatible builds, not fresh source builds.
+Process sampling is not exhaustive tracing or a controlled performance baseline.
+
+Exploratory collection passed 16 runtime samples, 32 compiler samples and
+12 code reports, with no warmups and one sample per selected case. These smokes
+qualified collection contracts, not speedups or acceptance-quality distributions.
+The first separate two-job profile attempt remains stopped before either producer
+ran: its identity guard rejected a packaged GCC hard link (issue #731).
+
+The reviewed correction authenticates recorded native-tool identities, binds
+fresh link-count/ctime observations and preserves strict nonalias rules for
+inputs, proofs, frozen binaries and outputs. It consumes the exact authenticated
+record bytes, with deterministic record-swap regressions. All 102 profile and 182
+combined controller mock tests pass. A new external driver then passes independent
+review and 58 synthetic methods, followed by a fresh successful two-job smoke.
+These do not relabel the original blocked attempt.
+
+The full approved general schedule completes once: 2466 timed jobs, comprising
+366 warmups and 2100 samples, plus qualification and code inspection. All 86
+groups, 75 available paired distributions and 22 code reports retain their raw
+streams, resources and artifacts. No outlier or failure was dropped. All 350
+required arithmetic traps correctly exit 1. The official full allocation-profile
+schedule separately completes all 16 jobs and retains 1248 phase rows; exact
+attributed request counts and approximate binary-unit byte displays are distinct
+from process allocation totals or retained heap. Independent evidence review
+finds no issues with these bounded collection components, not whole-proposal
+performance acceptance. The helper's packet/acceptance-complete flags remain false.
+
+Representative optimized-IR/native analysis accounts for arithmetic guards,
+Result construction/tests, cleanup and return carriers in 20 selected symbols.
+Trapping and recoverable pairs preserve their intended contracts. The C→I corpus
+has an additional Result widening/tag test, one fewer cleanup call site and a
+smaller local frame; this is not a measured speedup or universal ABI conclusion.
+The separate bounded native/export source audit finds no defect in changed typed
+storage, entry stacks, executor operands, partial mutation or explicit C adapters.
+
+The repository compiler benchmark template is now mechanically adopted with
+independent precise errors and unchanged workload/measurement controls. Nine
+example tests, including full 1000/4000-unit type-check/native checksum cases and
+partial-mutation failures, pass alongside 15 arithmetic tests, formatting and
+strict workspace/all-target Clippy. These functional checks are not new timing
+samples. Frozen comparison inputs remain unchanged.
+
+The [validation record](../../completed-work/checked-default-validation.md) gives
+paired timing distributions, attributed allocation values, static code counts,
+source bridging and observation limits. Neither PR is merged; the proxy fixture
+patch remains only in the explicitly approved isolated validation fork.
+Independent pre-existing archive-decimal and PNG-framing limits are recorded as
+issues #705 and #707, not silently changed by arithmetic migration.
 
 ## Reuse and limits
 
@@ -25,7 +351,7 @@ tail calls need auditing.
 The whole change is **not** a small default toggle. Most arithmetic-bearing
 functions currently declare plain returns, and generic/protocol bodies,
 callbacks, generators, runtime helpers and std signatures depend on that.
-No implementation or timing experiment has been performed for this proposal.
+The core implementation reuses these paths; no timing experiment has been performed.
 
 ## Functions and callbacks
 
@@ -51,8 +377,8 @@ def make_incrementer() -> Callable[[i64], Result[i64, OverflowError[i64]]]:
 This closure needs no surrounding checked block or private error channel. Its
 arithmetic contract does not tie its lifetime to its definition scope; ordinary
 capture ownership and borrow rules still apply. A closure defined inside
-`unchecked:` likewise defaults to recoverable arithmetic. To make its arithmetic
-trap, put `unchecked:` inside the closure body, where the opt-out is visible.
+`unchecked:` likewise defaults to recoverable arithmetic. To opt its
+arithmetic out, put `unchecked:` inside the closure body, where it is visible.
 
 Calls returning `Result` still require explicit handling, even within `checked:`.
 Using `?` there exits the function as usual; it does not turn the call's error
@@ -110,7 +436,7 @@ Implementation still needs to update arithmetic-bearing functions, callback
 consumers, std implementations, examples and tests. This is ordinary work to
 make the repository obey the new contract, not a reason to preserve an inferior
 API. Diagnostics should explain missing arithmetic errors and the choices of
-propagation, local recovery or deliberate termination. Do not insert unchecked
+propagation, local recovery or an explicit `unchecked:` precondition. Do not insert unchecked
 blocks throughout the repository merely to make the build pass.
 
 Explicit checked expressions remain useful for local recovery. Recovery

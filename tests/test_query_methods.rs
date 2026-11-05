@@ -201,13 +201,15 @@ fn rotation_counts_wrap_and_receivers_stay_readable() {
     assert_eq!(
         output(
             r#"
-mut n = -2i8
-print(n.rotate_left(-1), n.rotate_right(-1)).unwrap()
-print(n.rotate_left(1).rotate_right(1)).unwrap()
-n = 1
-print((n + 1).rotate_left(2)).unwrap()
-wide = 1u64
-print(wide.rotate_left(200), wide.rotate_right(1)).unwrap()
+def main() -> Result[(), OverflowError[i8]]:
+    mut n = -2i8
+    print(n.rotate_left(-1), n.rotate_right(-1)).unwrap()
+    print(n.rotate_left(1).rotate_right(1)).unwrap()
+    n = 1
+    print((n + 1).rotate_left(2)).unwrap()
+    wide = 1u64
+    print(wide.rotate_left(200), wide.rotate_right(1)).unwrap()
+    Ok(())
 "#
         ),
         "127 -3\n-2\n8\n256 9223372036854775808\n"

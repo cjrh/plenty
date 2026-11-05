@@ -18,15 +18,15 @@ borrowed mutable source must be. Captures cannot be redeclared or shadowed by
 loop, comprehension, unpacking, or match bindings inside the body.
 
 ```plenty
-def counter(start: i64) -> Closure[[], i64]:
-    def [mut start]() -> i64:
+def counter(start: i64) -> Closure[[], Result[i64, OverflowError[i64]]]:
+    def [mut start]() -> Result[i64, OverflowError[i64]]:
         start = start + 1
-        start
+        Ok(start)
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut count = counter(2)
-    print(count())?
-    print(count())?
+    print(count()?)?
+    print(count()?)?
     Ok(())
 ```
 ```output
@@ -34,11 +34,12 @@ def main() -> Result[(), IoError]:
 4
 ```
 
-A closure defined inside a [`checked:` block](../03-types/numbers.md#checked-blocks)
-checks its own integer arithmetic even when stored or passed through a generic
-callback helper. It cannot escape that block; `&f` and `&mut f` may be passed to
-synchronous helpers within it. A closure defined outside keeps its normal
-behavior when called from a block.
+Every closure has its own declared arithmetic contract, independent of where
+it is defined or called. A [`checked:` block](../03-types/numbers.md#checked-blocks)
+or `unchecked:` suite around its definition does not change its body. There is
+no private callback error channel or checked-block lifetime restriction; normal
+capture ownership and borrow rules still apply. Callers handle a closure's
+`Result` explicitly, just as they handle a named function's result.
 
 Calls borrow the environment and may repeat. Mutable captures require an
 exclusive environment borrow and a mutable closure binding or owner. Captured

@@ -68,12 +68,14 @@ errors listing the supported constants.
 `base.pow(exponent)` is defined on every numeric type and takes one exponent of
 the receiver's type. There is no `**` operator.
 
-For integers the result is exact. A result outside the type is the
-`integer overflow` runtime error, and a negative exponent is the runtime error
-`negative integer exponent`. Inside a
-[`checked:` block](../../language/03-types/numbers.md#checked-blocks), an
-out-of-range result exits the block with `Err(OverflowError[T])`; a negative
-exponent still traps. `x.pow(0)` is `1` for every `x`, including zero.
+For integers the result is exact. A result outside the type returns
+`Err(OverflowError[T])` from the enclosing function by default; its declared
+Result must include that error. Inside a
+[`checked:` block](../../language/03-types/numbers.md#checked-blocks), it exits
+that block instead. Inside an
+[`unchecked:` suite](../../language/03-types/numbers.md#unchecked-blocks), it
+traps with `integer overflow`. A negative exponent always traps with
+`negative integer exponent`, since it has no integer result. `x.pow(0)` is `1` for every `x`, including zero.
 Convert to a float for a fractional or negative power.
 
 For floats `pow` is the platform math library's `pow`: `(2.0).pow(0.5)` is the

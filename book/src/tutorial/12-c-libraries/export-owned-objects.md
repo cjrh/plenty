@@ -4,6 +4,9 @@ C receives an exported class as an opaque handle. The generated header names
 its destroy function and ownership rules.
 
 ```plenty-file counter.plenty
+pub enum CalcError:
+    Overflow
+
 pub class Counter:
     value: i64
     def __del__(self) -> ():
@@ -15,8 +18,11 @@ pub export def create(value: i64) -> Result[Counter, AllocError] = "counter_crea
 pub export def read(owner: &Counter) -> i64 = "counter_read":
     owner.value
 
-pub export def increment(owner: &mut Counter) -> () = "counter_increment":
-    owner.value = owner.value + 1
+pub export def increment(owner: &mut Counter) -> Result[(), CalcError] = "counter_increment":
+    result = checked:
+        owner.value + 1
+    owner.value = result.map_error(def(error: OverflowError[i64]) -> CalcError: CalcError.Overflow)?
+    Ok(())
 
 pub export def finish(owner: Counter) -> () = "counter_finish":
     drop(owner)
@@ -25,9 +31,9 @@ pub export def finish(owner: Counter) -> () = "counter_finish":
 ```plenty
 import counter
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | counter.CalcError]:
     mut owner = counter.create(42)?
-    counter.increment(&mut owner)
+    counter.increment(&mut owner)?
     print(counter.read(&owner))?
     print("ready")?
     counter.finish(owner)
@@ -60,3 +66,7 @@ The lifecycle trace uses `drop(print(...))` deliberately: cleanup cannot return
 an error, and a failed diagnostic write must not interrupt cleanup. For output
 that must succeed, provide an explicit fallible operation and propagate its
 result before leaving the scope.
+
+The fallible increment maps arithmetic overflow to the payload-free
+`CalcError.Overflow` at the ABI boundary. It leaves the object unchanged on
+failure; callers must handle its status before continuing.

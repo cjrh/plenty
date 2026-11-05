@@ -37,23 +37,25 @@ fn matched_lookups_borrow_until_the_payload_is_last_used() {
     assert_stdout(
         &with_find(
             r#"
-mut items = [Item("ada", 1)].unwrap()
-match find(&items, "ada"):
-    case Some(item):
-        print(item.count).unwrap()
-    case Nothing:
-        pass
-match find(&items, "bob"):
-    case Some(item):
-        print(item.count).unwrap()
-    case Nothing:
-        items.append(Item("bob", 2)).unwrap()
-match find_mut(&mut items, "bob"):
-    case Some(item):
-        item.count += 40
-    case Nothing:
-        pass
-print(items[1].count).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    mut items = [Item("ada", 1)].unwrap()
+    match find(&items, "ada"):
+        case Some(item):
+            print(item.count).unwrap()
+        case Nothing:
+            pass
+    match find(&items, "bob"):
+        case Some(item):
+            print(item.count).unwrap()
+        case Nothing:
+            items.append(Item("bob", 2)).unwrap()
+    match find_mut(&mut items, "bob"):
+        case Some(item):
+            item.count += 40
+        case Nothing:
+            pass
+    print(items[1].count).unwrap()
+    Ok(())
 "#,
         ),
         "1\n42\n",

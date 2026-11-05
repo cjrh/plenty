@@ -38,14 +38,12 @@ class Scores:
     points: list[i64]
 
     def points_of(self: &mut Scores, name: &str) -> &mut i64:
-        mut i = 0
-        while i < len(self.names) - 1:
-            if self.names[i] == name:
+        for i, candidate in enumerate(&self.names):
+            if candidate == name:
                 return &mut self.points[i]
-            i = i + 1
-        &mut self.points[len(self.points) - 1]
+        &mut self.points[-1]
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut scores = Scores(["ada", "bob"]?, [3, 5]?)
     mut name = "bob"
     points = scores.points_of(&name)
@@ -59,6 +57,11 @@ def main() -> Result[(), AllocError | IoError]:
 [3, 15]
 eve
 ```
+
+This small lookup assumes equally sized, nonempty lists and uses the last
+score as its fallback. Enumeration avoids manual index arithmetic while
+keeping the reference-returning method infallible. A general lookup can return
+an [optional reference](05-optional-references.md) instead.
 
 To return a borrow of a different argument, make it the first reference
 parameter. A function cannot choose between two arguments; that relationship
@@ -81,7 +84,7 @@ borrow. Read the value into a local first.
 def head(xs: &mut [i64]) -> &mut i64:
     &mut xs[0]
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut xs = [1, 2, 3]?
     *head(&mut xs[:]) = 9
     *head(&mut xs[1:]) += 10

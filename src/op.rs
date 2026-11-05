@@ -139,7 +139,6 @@ pub enum StorageBarrier {
     /// A `Closure`/`OnceClosure` annotation that no producer has resolved.
     UnresolvedClosure,
     BorrowedClosure,
-    CheckedClosure,
     GeneratorClosure,
     /// An `Option`/`Result` whose success payload is a reference.
     CarriedReference,
@@ -161,7 +160,6 @@ impl StorageBarrier {
             Self::Reference => "references",
             Self::Generator => "generators",
             Self::ScopedTask => "scoped tasks",
-            Self::CheckedClosure => "closures defined in `checked:` blocks",
             Self::BorrowedClosure => "closures with borrowed captures",
             Self::GeneratorClosure => "closures that capture generators",
             Self::CarriedReference => {
@@ -383,30 +381,6 @@ impl Ty {
             _ => false,
         }
     }
-    pub fn checked_error(&self) -> Option<&Ty> {
-        match self {
-            Self::Ref(inner, _) => inner.checked_error(),
-            Self::Closure(closure) => closure.checked_error.as_ref(),
-            _ => None,
-        }
-    }
-
-    pub fn checked_closure(&self) -> bool {
-        match self {
-            Self::Closure(closure) => {
-                closure.checked || closure.captures.iter().any(|(_, ty)| ty.checked_closure())
-            }
-            Self::Ref(inner, _) => inner.checked_closure(),
-            Self::Enum(t) if t.try_get().is_some_and(|t| t.restricted_storage) => t
-                .get()
-                .variants
-                .iter()
-                .flat_map(|v| &v.fields)
-                .any(Self::checked_closure),
-            _ => false,
-        }
-    }
-
     /// The first reason a heap owner cannot embed this type.
     pub fn storage_barrier(&self) -> Option<StorageBarrier> {
         match self {
@@ -419,7 +393,6 @@ impl Ty {
             Self::Generator(_) => Some(StorageBarrier::Generator),
             Self::Task(_) => Some(StorageBarrier::ScopedTask),
             Self::Closure(t) if t.name.is_empty() => Some(StorageBarrier::UnresolvedClosure),
-            Self::Closure(_) if self.checked_closure() => Some(StorageBarrier::CheckedClosure),
             Self::Closure(t) if t.borrowed => Some(StorageBarrier::BorrowedClosure),
             Self::Closure(_) if self.contains_generator_frame() => {
                 Some(StorageBarrier::GeneratorClosure)
@@ -1140,16 +1113,11 @@ pub enum Op {
         body: Arc<[Op]>,
         result: Ty,
     },
-    /// Internal Result ABI for a specialization using a lexically checked
-    /// callback. Source returns still return the declared (logical) type.
+    /// Function arithmetic boundary using its declared public Result ABI.
+    /// Success values and explicit returns are already ordinary Results.
     CheckedFunction {
         body: Arc<[Op]>,
         result: Ty,
-    },
-    /// Unwrap a call's private failure channel into the innermost block.
-    CheckedUnwrap {
-        result: Ty,
-        cleanup: Arc<[Op]>,
     },
     /// Pop `T T`; push the result of `operation`. On overflow or a zero
     /// divisor, release the operands pending above the innermost
@@ -1423,24 +1391,24 @@ mod tests {
     #[test]
     fn lifetime_fact_directly_precedes_only_forwarding_calls() {
         let source = r#"
-def read(value: &i64, n: i64) -> i64:
-    *value + n
+def read(value: &i64, n: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(*value + n)
 def view(value: &i64) -> &i64:
     value
-def forwards(value: &i64) -> i64:
+def forwards(value: &i64) -> Result[i64, OverflowError[i64]]:
     read(value, 1)
 def forwards_result(value: &i64) -> &i64:
     return view(value)
-def forwards_indirectly(value: &i64) -> i64:
+def forwards_indirectly(value: &i64) -> Result[i64, OverflowError[i64]]:
     operation = read
     operation(value, 1)
-def lends_local(value: &i64) -> i64:
+def lends_local(value: &i64) -> Result[i64, OverflowError[i64]]:
     local = 2
     read(&local, 1)
-def lends_owned(value: i64) -> i64:
+def lends_owned(value: i64) -> Result[i64, OverflowError[i64]]:
     read(&value, 1)
-def lends_one(value: &i64, other: i64) -> i64:
-    read(value, read(&other, 1))
+def lends_one(value: &i64, other: i64) -> Result[i64, OverflowError[i64]]:
+    read(value, read(&other, 1)?)
 def main() -> ():
     pass
 "#;

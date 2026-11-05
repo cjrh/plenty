@@ -34,7 +34,7 @@ def serve(listener: TcpListener, stop: CancellationToken) -> Result[(), AllocErr
     drop(std.http.server.serve(listener, &routes, &Site(), &std.http.server.config(), &stop)?)
     Ok(())
 
-def fetch_all(client: Shared[Client[Plain, TcpConnector]], url: str, count: i64) -> Result[i64, AllocError | ClientError | RangeError]:
+def fetch_all(client: Shared[Client[Plain, TcpConnector]], url: str, count: i64) -> Result[i64, AllocError | ClientError | RangeError | OverflowError[i64]]:
     never = CancellationToken()?
     mut ok = 0
     for _ in range(count):
@@ -44,7 +44,7 @@ def fetch_all(client: Shared[Client[Plain, TcpConnector]], url: str, count: i64)
     Ok(ok)
 
 type PoolJobError = PoolError | FutureError | SubmitError[()]
-type ClientRunError = AllocError | IoError | SpawnError[()] | RangeError | ClientError | std.net.NetError | PoolJobError
+type ClientRunError = OverflowError[i64] | OverflowError[u64] | AllocError | IoError | SpawnError[()] | RangeError | ClientError | std.net.NetError | std.http.server.ServerError | PoolJobError
 
 def main() -> Result[(), ClientRunError]:
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
@@ -62,6 +62,8 @@ def main() -> Result[(), ClientRunError]:
         stats = client.stats()
         print(answered, stats.opened + stats.reused, stats.opened <= 3)?
         print(stats.opened == u64(client.idle()) + stats.discarded)?
+        stop.cancel()
+        server.join()?
     Ok(())
 ```
 ```output
@@ -70,7 +72,8 @@ True
 ```
 
 `stop.cancel_on_exit()` stops the server however the block ends, so a failed
-request cannot leave the block's join waiting for it.
+request cannot leave the block's join waiting for it. On success, `stop.cancel()`
+ends the server before `server.join()?` checks its result.
 
 `Shared(client(config)?)?` moves the client into one shared allocation;
 `client.share()` gives each job its own owner, and `client.get` reaches the
@@ -85,8 +88,8 @@ one back. Connecting, sending, and waiting for a response happen with the lock
 released, so a job stuck on a slow server does not delay the others. Each
 request still has its own deadline and cancellation token.
 
-`stats()` and `idle()` work through the handle too. The counts are exact however
-many jobs run. Every connection the client opened is idle, in use, or counted
+`stats()` and `idle()` work through the handle too. These observation counters saturate at `u64.MAX`; the small fixed workload
+here stays far below that limit. Before saturation, every connection the client opened is idle, in use, or counted
 as `discarded` once it has closed, whatever closed it; with no request or
 response holding one, `opened` is `idle()` plus `discarded`, as the last line
 shows. The pool limits `max_idle` and `max_idle_per_origin` and the

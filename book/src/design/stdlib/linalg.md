@@ -105,7 +105,11 @@ fallible. Errors carry no dynamically allocated diagnostic message.
 
 `LinalgError` distinguishes `Shape`, `Bounds`, `NonFinite`, `Singular`,
 `NotSymmetric`, `NotPositiveDefinite`, `NoConvergence`, `Overflow`,
-`NativePanic`, and `Allocation(AllocError)`. Dimension/product bounds are checked before allocation.
+`NativePanic`, and `Allocation(AllocError)`. Nonpositive dimensions and products
+above `i64.MAX // 16` return `Shape` before allocation; these checks do not
+expose primitive arithmetic errors. Internal index arithmetic is bounded by
+that validated extent. Invalid indices return `Bounds` before reading or
+mutating storage.
 Constructors/setters reject NaN and infinity; numerical results containing
 NaN or infinity report `Overflow`. Symmetry is checked with exact `f64` equality
 between the two triangles; symmetrize deliberately if your data is approximate.

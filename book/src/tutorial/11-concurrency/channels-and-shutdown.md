@@ -5,12 +5,12 @@ capacity to bound queued memory: a sender waits when the queue is full, and a
 receiver waits when it is empty.
 
 ```plenty
-def produce(sender: Sender[i64]) -> Result[(), SendError[i64]]:
+def produce(sender: Sender[i64]) -> Result[(), SendError[i64] | OverflowError[i64]]:
     for n in range(5):
         sender.send(n * n)?
     Ok(())
 
-def drain(inbox: &Receiver[i64]) -> i64:
+def drain(inbox: &Receiver[i64]) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     while True:
         match inbox.recv():
@@ -18,18 +18,23 @@ def drain(inbox: &Receiver[i64]) -> i64:
                 total = total + value
             case Err(_):
                 break
-    total
+    Ok(total)
 
-def main() -> Result[(), SpawnError[()] | AllocError | IoError]:
+def main() -> Result[(), SpawnError[()] | AllocError | IoError | OverflowError[i64]]:
     sender, receiver = channel[i64](2)?
     with spawn(produce, sender).drop_job()?, receiver as inbox:
-        print(drain(inbox))?
+        print(drain(inbox)?)?
     Ok(())
 ```
 
 ```output
 30
 ```
+
+This introductory example deliberately leaves the producer result unclaimed
+to focus on endpoint guards; use the [explicit join pattern](#wait-for-the-producers-result)
+when worker errors affect the outcome. The receiver's accumulation error is
+still propagated.
 
 `spawn(produce, sender)` moves the only sender into the producer. When the
 producer returns, its sender drops; the receiver drains the queue, then reports
@@ -45,12 +50,12 @@ Plenty requires this. A join reached while `receiver` is still alive could wait
 forever for a producer blocked on a full queue, so the compiler rejects it:
 
 ```plenty-error
-def produce(sender: Sender[i64]) -> Result[(), SendError[i64]]:
+def produce(sender: Sender[i64]) -> Result[(), SendError[i64] | OverflowError[i64]]:
     for n in range(5):
         sender.send(n * n)?
     Ok(())
 
-def main() -> Result[(), SpawnError[()] | AllocError | RecvError | IoError]:
+def main() -> Result[(), SpawnError[()] | AllocError | RecvError | IoError | OverflowError[i64]]:
     sender, receiver = channel[i64](2)?
     with spawn(produce, sender).drop_job()?:
         print(receiver.recv()?)?
@@ -73,12 +78,12 @@ block, before any statement that can leave the block, and join after the guard
 ends.
 
 ```plenty
-def produce(sender: Sender[i64]) -> Result[(), SendError[i64]]:
+def produce(sender: Sender[i64]) -> Result[(), SendError[i64] | OverflowError[i64]]:
     for n in range(5):
         sender.send(n * n)?
     Ok(())
 
-def drain(inbox: &Receiver[i64]) -> i64:
+def drain(inbox: &Receiver[i64]) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     while True:
         match inbox.recv():
@@ -86,14 +91,14 @@ def drain(inbox: &Receiver[i64]) -> i64:
                 total = total + value
             case Err(_):
                 break
-    total
+    Ok(total)
 
-def main() -> Result[(), SpawnError[()] | AllocError | IoError | SendError[i64]]:
+def main() -> Result[(), SpawnError[()] | AllocError | IoError | SendError[i64] | OverflowError[i64]]:
     sender, receiver = channel[i64](2)?
     with spawn(produce, sender).drop_job()? as task:
         mut total = 0
         with receiver as inbox:
-            total = drain(inbox)
+            total = drain(inbox)?
         task.join()?
         print(total)?
     Ok(())
@@ -105,18 +110,18 @@ def main() -> Result[(), SpawnError[()] | AllocError | IoError | SendError[i64]]
 
 `total` is declared before the inner guard because a binding made inside a
 block ends with that block. `task.join()?` propagates the producer's
-`SendError[i64]`, if any.
+`SendError[i64]` or `OverflowError[i64]`, if any.
 
 A `?` before the guard leaves the block with the receiver still alive, so this
 version is rejected:
 
 ```plenty-error
-def produce(sender: Sender[i64]) -> Result[(), SendError[i64]]:
+def produce(sender: Sender[i64]) -> Result[(), SendError[i64] | OverflowError[i64]]:
     for n in range(5):
         sender.send(n * n)?
     Ok(())
 
-def drain(inbox: &Receiver[i64]) -> i64:
+def drain(inbox: &Receiver[i64]) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     while True:
         match inbox.recv():
@@ -124,15 +129,15 @@ def drain(inbox: &Receiver[i64]) -> i64:
                 total = total + value
             case Err(_):
                 break
-    total
+    Ok(total)
 
-def main() -> Result[(), SpawnError[()] | AllocError | IoError | SendError[i64]]:
+def main() -> Result[(), SpawnError[()] | AllocError | IoError | SendError[i64] | OverflowError[i64]]:
     sender, receiver = channel[i64](2)?
     with spawn(produce, sender).drop_job()? as task:
         print("receiving")?
         mut total = 0
         with receiver as inbox:
-            total = drain(inbox)
+            total = drain(inbox)?
         task.join()?
         print(total)?
     Ok(())
@@ -180,7 +185,7 @@ Create additional handles explicitly with `sender.share()` or `receiver.share()`
 Multiple receivers compete for messages on the same queue: each message is
 delivered to one of them. Disconnection occurs only after the last handle on
 that side drops, so every handle you keep needs a guard or a drop. The
-[next lesson](wait-habits.md) shows how to start several producers.
+[wait habits lesson](wait-habits.md) shows how to start several producers.
 
 Channel construction can fail. Its positive capacity fixes the queue's storage
 up front; sending and receiving introduce no further allocations. Messages still

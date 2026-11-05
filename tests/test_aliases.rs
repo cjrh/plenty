@@ -7,12 +7,12 @@ use support::{check_source, compile_source_to_executable};
 #[rstest]
 #[case("type int = i32\nx: int = 42i32\nx", "i32", "42\n")]
 #[case(
-    "type int = i64\ndef f(x: int) -> int:\n    x + 1\nf(41)",
+    "type int = i64\ndef f(x: int) -> Result[int, OverflowError[int]]:\n    Ok(x + 1)\ndef main() -> Result[(), IoError | OverflowError[int]]:\n    value: i64 = f(41)?\n    print(value)?\n    Ok(())",
     "i64",
     "42\n"
 )]
 #[case(
-    "type int = i32\ndef f(x: int) -> int:\n    x + int(1)\nf(int(41))",
+    "type int = i32\ndef f(x: int) -> Result[int, OverflowError[int]]:\n    Ok(x + int(1))\ndef main() -> Result[(), IoError | OverflowError[int]]:\n    value: i32 = f(int(41))?\n    print(value)?\n    Ok(())",
     "i32",
     "42\n"
 )]
@@ -52,7 +52,7 @@ use support::{check_source, compile_source_to_executable};
     "42\n"
 )]
 #[case(
-    "type Metres = i64\ntype Seconds = i64\nx: Metres = 20\ny: Seconds = 22\nx + y",
+    "type Metres = i64\ntype Seconds = i64\ndef main() -> Result[(), IoError | OverflowError[Metres]]:\n    x: Metres = 20\n    y: Seconds = 22\n    value: i64 = x + y\n    print(value)?\n    Ok(())",
     "i64",
     "42\n"
 )]
@@ -62,7 +62,11 @@ use support::{check_source, compile_source_to_executable};
     "42\n"
 )]
 fn aliases_are_transparent(#[case] source: &str, #[case] ty: &str, #[case] expected: &str) {
-    support::assert_value(source, ty, expected);
+    if source.lines().any(|line| line.starts_with("def main(")) {
+        support::assert_stdout(source, expected);
+    } else {
+        support::assert_value(source, ty, expected);
+    }
 }
 
 #[rstest]
@@ -122,7 +126,7 @@ fn long_forward_alias_chains_do_not_require_recursive_resolution() {
 
 #[test]
 fn native_aliases_have_the_same_abi_and_cast_behavior_as_their_targets() {
-    let source = "type int = i32\ntype Byte = u8\ntype Count = int\ntype Text = str\ntype Flag = bool\ntype Done = ()\ndef bump(x: Count) -> int:\n    if x < 0i32:\n        return int(0)\n    x + 1i32\ndef done() -> Done:\n    return\ndef message() -> Text:\n    return 'hello'\ndef yes() -> Flag:\n    True\ndone()\nprint(bump(int(41))).unwrap()\nprint(Byte.wrapping_from(257)).unwrap()\nprint(message()).unwrap()\nprint(yes()).unwrap()";
+    let source = "type int = i32\ntype Byte = u8\ntype Count = int\ntype Text = str\ntype Flag = bool\ntype Done = ()\ndef bump(x: Count) -> Result[int, OverflowError[int]]:\n    if x < 0i32:\n        return Ok(int(0))\n    Ok(x + 1i32)\ndef done() -> Done:\n    return\ndef message() -> Text:\n    return 'hello'\ndef yes() -> Flag:\n    True\ndef main() -> Result[(), IoError | OverflowError[Count]]:\n    done()\n    print(bump(int(41))?)?\n    print(Byte.wrapping_from(257))?\n    print(message())?\n    print(yes())?\n    Ok(())";
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let base = std::env::temp_dir().join(format!(
         "plenty-alias-{}-{}",

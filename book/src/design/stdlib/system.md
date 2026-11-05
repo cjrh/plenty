@@ -114,6 +114,9 @@ Allocation errors can also occur inside the existing `Io`/`Stream` envelopes.
 Invalid UTF-8, missing required fields, duplicate selected keys, invalid numbers
 and unit-conversion overflow return `Malformed(field_or_source)`. Unknown
 meminfo/status keys are ignored. Numeric conversions never truncate or wrap.
+Scaling checks the full `u64` product and preserves the field-specific
+`Malformed` error on overflow; counts and byte-limit probe offsets are bounded
+by their validated limits rather than saturated.
 
 Enumerating PIDs does not read each process's status or silently skip failures.
 Call `process(pid)` for the records wanted, choosing how to handle disappearance

@@ -36,7 +36,7 @@ fn value(value: &serde_json::Value) -> String {
 fn run(body: &str) -> String {
     let dir = tempfile::tempdir().unwrap();
     let source = format!(
-        "import std.text\nimport std.test\ndef main() -> Result[(), IoError | AllocError | std.text.TextError | std.test.TestError]:\n{}\n    Ok(())\n",
+        "import std.text\nimport std.test\ndef main() -> Result[(), IoError | AllocError | std.text.TextError | std.test.TestError | OverflowError[i64]]:\n{}\n    Ok(())\n",
         body.lines()
             .map(|line| format!("    {line}"))
             .collect::<Vec<_>>()

@@ -234,7 +234,7 @@ fn build(root: &Path, checked_trap: bool, optimize: bool) -> std::path::PathBuf 
     } else {
         ""
     };
-    std::fs::write(&main, format!("import native\ndef add(value: i8) -> i8:\n    value + 1i8\ndef main() -> Result[(), IoError]:\n    print(native.exercise())?\n{check}    Ok(())\n")).unwrap();
+    std::fs::write(&main, format!("import native\ndef add(value: i8) -> i8:\n    unchecked:\n        value + 1i8\ndef main() -> Result[(), IoError]:\n    print(native.exercise())?\n{check}    Ok(())\n")).unwrap();
     let executable = root.join("program");
     let options = plenty::CompileOptions {
         optimize,
@@ -285,7 +285,8 @@ fn previous_handlers_keep_later_checked_traps_and_native_contexts() {
                 "{mode}"
             );
             assert!(
-                String::from_utf8_lossy(&output.stderr).contains("integer overflow"),
+                String::from_utf8_lossy(&output.stderr)
+                    == "error: main.plenty:4:9: integer overflow\n",
                 "{mode}: {output:?}"
             );
         }
@@ -309,7 +310,8 @@ fn restart_contract_survives_signals_before_read_entry() {
                 assert_eq!(output.status.code(), Some(1), "{mode}: {output:?}");
                 assert_eq!(output.stdout, b"1\n", "{mode}: {output:?}");
                 assert!(
-                    String::from_utf8_lossy(&output.stderr).contains("integer overflow"),
+                    String::from_utf8_lossy(&output.stderr)
+                        == "error: main.plenty:4:9: integer overflow\n",
                     "{mode}: {output:?}"
                 );
             }

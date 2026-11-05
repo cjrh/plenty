@@ -2,8 +2,23 @@
 mod support;
 use rstest::rstest;
 
+/// Only the fixture entrypoint owns fragment arithmetic; declarations retain their own contracts.
+fn program(source: &str) -> String {
+    if source.lines().any(|line| line.starts_with("def main(")) {
+        return source.to_owned();
+    }
+    let source = support::program(source);
+    let source = source.replacen(
+        "def main() -> ():",
+        "def main() -> Result[(), OverflowError[i64] | ZeroDivisionError]:",
+        1,
+    );
+    let end = source.rfind("    pass\n").unwrap();
+    format!("{}    Ok(())\n", &source[..end])
+}
+
 fn native(source: &str, expected: &str) {
-    let output = support::run(source);
+    let output = support::run(&program(source));
     assert!(
         output.status.success(),
         "{source}\n{}",
@@ -71,7 +86,7 @@ fn ok_or_preserves_typed_errors_and_composes_with_propagation() {
         r#"
 enum Missing:
     Key(str)
-def find(data: &dict[str, i64]) -> Result[i64, Missing]:
+def find(data: &dict[str, i64]) -> Result[i64, Missing | OverflowError[i64]]:
     value = data.get("answer").ok_or(Missing.Key("answer"))?
     Ok(value + 1)
 print(str.repr(find(&{"answer": 41}.unwrap())).unwrap()).unwrap()
@@ -80,7 +95,7 @@ result: Result[u8, str] = Nothing.ok_or("absent")
 print(str.repr(result).unwrap()).unwrap()
 print(str.repr(Some(()).ok_or(())).unwrap()).unwrap()
 "#,
-        "Result[i64, Missing].Ok(42)\nResult[i64, Missing].Err(Missing.Key(\"answer\"))\nResult[u8, str].Err(\"absent\")\nResult[(), ()].Ok(())",
+        "Result[i64, Missing | OverflowError[i64]].Ok(42)\nResult[i64, Missing | OverflowError[i64]].Err(Missing.Key(\"answer\"))\nResult[u8, str].Err(\"absent\")\nResult[(), ()].Ok(())",
     );
 }
 
@@ -207,23 +222,23 @@ fn custom_methods_and_functions_keep_their_names() {
     native(
         r#"
 class Custom:
-    def unwrap_or(self, value: i64, extra: i64) -> i64:
-        value + extra
-    def ok_or(self, value: i64) -> i64:
-        value + 1
-    def get(self, key: i64, default: i64) -> i64:
-        key + default
+    def unwrap_or(self, value: i64, extra: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(value + extra)
+    def ok_or(self, value: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(value + 1)
+    def get(self, key: i64, default: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(key + default)
 def enumerate(value: i64) -> range[i64]:
     range(value)
 def zip(value: i64) -> range[i64]:
     range(value)
-print(Custom().unwrap_or(1, 2)).unwrap()
-print(Custom().ok_or(3)).unwrap()
-print(Custom().get(3, 4)).unwrap()
+print(Custom().unwrap_or(1, 2)?).unwrap()
+print(Custom().ok_or(3)?).unwrap()
+print(Custom().get(3, 4)?).unwrap()
 boxed = Box(Custom()).unwrap()
-print(boxed.unwrap_or(1, 2)).unwrap()
-print(boxed.ok_or(3)).unwrap()
-print(Box(Custom()).unwrap().ok_or(3)).unwrap()
+print(boxed.unwrap_or(1, 2)?).unwrap()
+print(boxed.ok_or(3)?).unwrap()
+print(Box(Custom()).unwrap().ok_or(3)?).unwrap()
 for value in enumerate(1):
     print(value).unwrap()
 for value in zip(1):
@@ -313,14 +328,16 @@ fn adapters_resolve_in_imported_generic_functions_and_generators() {
     std::fs::write(
         dir.path().join("helpers.plenty"),
         r#"
-pub def counted[T](values: &list[T]) -> i64:
+pub def counted[T](values: &list[T]) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     for index, value in enumerate(values):
         total += index
-    total
-pub def paired() -> Generator[i64]:
+    Ok(total)
+pub def paired() -> Generator[Result[i64, OverflowError[i64]]]:
+    add = def(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(a + b)
     for a, b in zip(range(2), range(10, 12)):
-        yield a + b
+        yield add(a, b)
 "#,
     )
     .unwrap();
@@ -329,13 +346,15 @@ pub def paired() -> Generator[i64]:
         &source,
         r#"
 import helpers
-def main() -> ():
+def main() -> Result[(), OverflowError[i64]]:
     values = ["a", "b", "c"].unwrap()
-    print(helpers.counted(&values)).unwrap()
+    print(helpers.counted(&values)?).unwrap()
     for index, value in enumerate(helpers.paired()):
-        print((index, value)).unwrap()
+        print((index, value?)).unwrap()
     for a, b in zip(helpers.paired(), zip(helpers.paired(), helpers.paired())):
-        print((a, b)).unwrap()
+        left, right = b
+        print((a?, (left?, right?))).unwrap()
+    Ok(())
 "#,
     )
     .unwrap();

@@ -6,22 +6,22 @@ a callback that changes its captured state needs a mutable borrow: use
 or `pop` to take ownership.
 
 ```plenty
-def counter(total: i64) -> Closure[[], i64]:
-    def [mut total]() -> i64:
+def counter(total: i64) -> Closure[[], Result[i64, OverflowError[i64]]]:
+    def [mut total]() -> Result[i64, OverflowError[i64]]:
         total = total + 1
-        total
+        Ok(total)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut callbacks = {"open": counter(10), "close": counter(100)}?
     match callbacks.get_mut("open"):
         case Some(callback):
-            print(callback())?
+            print(callback()?)?
         case Nothing:
             print("no open handler")?
     match callbacks.pop("close"):
         case Some(callback):
             mut owned = callback
-            print(owned())?
+            print(owned()?)?
         case Nothing:
             print("no close handler")?
     print(len(callbacks))?
@@ -41,5 +41,5 @@ protects the dictionary against replacement, removal, and growth.
 The callback itself cannot be a dictionary key or a set element: closures do not
 define equality or hashing. The dictionary's value type preserves its concrete
 factory identity, rather than accepting every callback with the same signature.
-The next lesson uses [explicit boxing](boxed-callbacks.md) to store different
+Use [explicit boxing](boxed-callbacks.md) to store different
 shared-call environments behind one signature.

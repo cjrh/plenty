@@ -253,7 +253,9 @@ class Store[N, E]:
     def add_node(self: &mut Store[N, E], data: N) -> Result[NodeId, AllocError]:
         id = len(self.nodes)
         self.nodes.append(NodeSlot[N](Some(data), -1, -1, -1, -1))?
-        self.node_count += 1
+        # A successful append bounds the live count by the held node span.
+        unchecked:
+            self.node_count += 1
         Ok(id)
 
     def add_edge(self: &mut Store[N, E], source: NodeId, target: NodeId, data: E) -> Result[EdgeId, AllocError]:
@@ -265,7 +267,9 @@ class Store[N, E]:
         chain = self.target_chain(id)
         if chain >= 0:
             self.attach(id, target, chain)
-        self.edge_count += 1
+        # A successful append bounds the live count by the held edge span.
+        unchecked:
+            self.edge_count += 1
         Ok(id)
 
     def remove_edge(self: &mut Store[N, E], id: EdgeId) -> Option[E]:
@@ -277,7 +281,9 @@ class Store[N, E]:
         chain = self.target_chain(id)
         if chain >= 0:
             self.detach(id, target, chain)
-        self.edge_count -= 1
+        # contains_edge proved a live edge, so the private count is positive.
+        unchecked:
+            self.edge_count -= 1
         replace(self.edges[id].data, Nothing)
 
     def remove_node(self: &mut Store[N, E], id: NodeId) -> Option[N]:
@@ -287,7 +293,9 @@ class Store[N, E]:
             drop(self.remove_edge(self.nodes[id].out_first))
         while self.nodes[id].in_first >= 0:
             drop(self.remove_edge(self.nodes[id].in_first))
-        self.node_count -= 1
+        # contains_node proved a live node, so the private count is positive.
+        unchecked:
+            self.node_count -= 1
         replace(self.nodes[id].data, Nothing)
 
     def opposite(self, edge: EdgeId, node: NodeId) -> NodeId:
@@ -352,7 +360,9 @@ class Store[N, E]:
         mut head = 0
         while head < len(order):
             node = order[head]
-            head += 1
+            # head < len(order) <= the node span, with no repeated nodes.
+            unchecked:
+                head += 1
             mut edge = self.nodes[node].out_first
             while edge >= 0:
                 other = self.opposite(edge, node)
@@ -375,7 +385,9 @@ class Store[N, E]:
         stack_node.append(start)?
         stack_edge.append(self.nodes[start].out_first)?
         while len(stack_node) > 0:
-            top = len(stack_node) - 1
+            # The loop holds a nonempty stack.
+            top = unchecked:
+                len(stack_node) - 1
             node = stack_node[top]
             edge = stack_edge[top]
             if edge < 0:
@@ -411,7 +423,9 @@ class Store[N, E]:
         mut pending = ([0 for _ in range(bound)]).map_error(GraphError.Allocation)?
         for edge in range(len(self.edges)):
             if self.edges[edge].data.is_some():
-                pending[self.edges[edge].target] += 1
+                # Each live edge contributes once; indegree <= len(edges).
+                unchecked:
+                    pending[self.edges[edge].target] += 1
         mut order = list[NodeId].with_capacity(self.node_count).map_error(GraphError.Allocation)?
         for node in range(bound):
             if self.nodes[node].data.is_some() and pending[node] == 0:
@@ -419,11 +433,15 @@ class Store[N, E]:
         mut head = 0
         while head < len(order):
             node = order[head]
-            head += 1
+            # head < len(order) <= the node span, with no repeated nodes.
+            unchecked:
+                head += 1
             mut edge = self.nodes[node].out_first
             while edge >= 0:
                 target = self.edges[edge].target
-                pending[target] -= 1
+                # Each incoming edge is removed once from its positive count.
+                unchecked:
+                    pending[target] -= 1
                 if pending[target] == 0:
                     order.append(target).map_error(GraphError.Allocation)?
                 edge = self.edges[edge].next_out
@@ -431,7 +449,9 @@ class Store[N, E]:
             return Ok(order)
         mut start = 0
         while self.nodes[start].data.is_none() or pending[start] == 0:
-            start += 1
+            # An unsorted live node exists below bound, since order is short.
+            unchecked:
+                start += 1
         # pending[node] now marks the walk: -1 for visited.
         mut node = start
         while pending[node] >= 0:
@@ -471,13 +491,17 @@ class Store[N, E]:
                 continue
             index[root] = counter
             low[root] = counter
-            counter += 1
+            # Each node is indexed once, so counter < bound before increment.
+            unchecked:
+                counter += 1
             stack.append(root)?
             on_stack[root] = True
             call_node.append(root)?
             call_edge.append(self.nodes[root].out_first)?
             while len(call_node) > 0:
-                top = len(call_node) - 1
+                # The loop holds a nonempty call stack.
+                top = unchecked:
+                    len(call_node) - 1
                 node = call_node[top]
                 edge = call_edge[top]
                 if edge >= 0:
@@ -486,7 +510,9 @@ class Store[N, E]:
                     if index[target] < 0:
                         index[target] = counter
                         low[target] = counter
-                        counter += 1
+                        # An unindexed target adds one of at most bound nodes.
+                        unchecked:
+                            counter += 1
                         stack.append(target)?
                         on_stack[target] = True
                         call_node.append(target)?
@@ -497,7 +523,10 @@ class Store[N, E]:
                 drop(call_node.pop())
                 drop(call_edge.pop())
                 if top > 0:
-                    parent = call_node[top - 1]
+                    # top > 0 and the child was just popped.
+                    parent_index = unchecked:
+                        top - 1
+                    parent = call_node[parent_index]
                     if low[node] < low[parent]:
                         low[parent] = low[node]
                 if low[node] == index[node]:
@@ -627,7 +656,9 @@ class Store[N, E]:
             if size[a] < size[b]:
                 a, b = b, a
             parent[b] = a
-            size[a] += size[b]
+            # Distinct roots represent disjoint subsets of bound nodes.
+            unchecked:
+                size[a] += size[b]
             tree.append(edge).map_error(GraphError.Allocation)?
         Ok(tree)
 

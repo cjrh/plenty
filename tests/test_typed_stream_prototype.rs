@@ -9,8 +9,12 @@ pub enum Transport:
     Tls(i64, str)
     Cancelled
     Allocation(AllocError)
+    Overflow(OverflowError[i64])
 pub enum Storage:
     Full(i64)
+    Overflow(OverflowError[i64])
+def advanced(value: i64, amount: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(value + amount)
 def scratch() -> Result[Bytes, AllocError | std.bytes.BytesError]:
     mut buffer = std.bytes.with_capacity(4)?
     buffer.resize(4, 0u8)?
@@ -19,24 +23,36 @@ pub class Source:
     mode: i64
     calls: i64
     pub def read(self: &mut Source, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[Transport]]:
-        self.calls += 1
+        self.calls = match advanced(self.calls, 1):
+            case Ok(value):
+                value
+            case Err(error):
+                return Err(StepError[Transport].Source(Transport.Overflow(error)))
         if self.calls == 1:
             return Err(StepError[Transport].Interrupted)
         if self.calls == 2:
-            mut count = stop - start
-            if count > 2:
-                count = 2
-            mut at = start
-            while at < start + count:
-                buffer.set(at, 65u8)
-                at += 1
-            return Ok(count)
+            # Consumers validate ranges; clipping progress to two bounds every cursor.
+            unchecked:
+                mut count = stop - start
+                if count > 2:
+                    count = 2
+                mut at = start
+                while at < start + count:
+                    buffer.set(at, 65u8)
+                    at += 1
+                return Ok(count)
         if self.mode == 1:
             return Err(StepError[Transport].Source(Transport.Tls(47, "handshake")))
         if self.mode == 2:
             return Err(StepError[Transport].Source(Transport.Cancelled))
         if self.mode == 3:
-            return Ok(stop - start + 1)
+            oversized = checked:
+                stop - start + 1
+            match oversized:
+                case Ok(value):
+                    return Ok(value)
+                case Err(error):
+                    return Err(StepError[Transport].Source(Transport.Overflow(error)))
         if self.mode == 4:
             return Ok(-1)
         if self.mode == 5:
@@ -47,7 +63,11 @@ pub class Sink:
     calls: i64
     delivered: i64
     pub def write(self: &mut Sink, buffer: &[u8]) -> Result[i64, StepError[Storage]]:
-        self.calls += 1
+        self.calls = match advanced(self.calls, 1):
+            case Ok(value):
+                value
+            case Err(error):
+                return Err(StepError[Storage].Source(Storage.Overflow(error)))
         if self.calls == 1:
             return Err(StepError[Storage].Interrupted)
         if self.calls > 2 and self.mode == 1:
@@ -57,8 +77,16 @@ pub class Sink:
         if self.mode == 3:
             return Ok(-1)
         if self.mode == 4:
-            return Ok(len(buffer) + 1)
-        self.delivered += 1
+            match advanced(len(buffer), 1):
+                case Ok(value):
+                    return Ok(value)
+                case Err(error):
+                    return Err(StepError[Storage].Source(Storage.Overflow(error)))
+        self.delivered = match advanced(self.delivered, 1):
+            case Ok(value):
+                value
+            case Err(error):
+                return Err(StepError[Storage].Source(Storage.Overflow(error)))
         Ok(1)
 "#;
 
@@ -85,6 +113,10 @@ fn execute(body: &str, expected: &str) {
 }
 
 fn execute_modules(body: &str, expected: &str, standard: bool) {
+    execute_modules_with_options(body, expected, standard, false);
+}
+
+fn execute_modules_with_options(body: &str, expected: &str, standard: bool, optimize: bool) {
     let source = format!("{FIXTURES}\n{body}");
     let source = if standard {
         source
@@ -96,7 +128,12 @@ fn execute_modules(body: &str, expected: &str, standard: bool) {
     let workspace = fixture(&source);
     let file = workspace.path().join("main.plenty");
     let binary = workspace.path().join("program");
-    plenty::compile_file_to_executable(&file, &binary, None).unwrap();
+    let options = plenty::CompileOptions {
+        optimize,
+        test_hooks: true,
+        ..Default::default()
+    };
+    plenty::compile_file_to_executable_with_options(&file, &binary, None, &options).unwrap();
     let output = Command::new(binary).output().unwrap();
     assert!(
         output.status.success(),
@@ -109,6 +146,89 @@ fn execute_modules(body: &str, expected: &str, standard: bool) {
         .map(|line| format!("{line}\n"))
         .collect();
     assert_eq!(visible, expected);
+}
+
+#[test]
+fn typed_wire_extents_check_full_frames_without_allocating_large_buffers() {
+    let library = include_str!("../stdlib/std/http/typed.plenty");
+    let helpers = ["wire_extent", "chunk_extent"]
+        .map(|name| {
+            let marker = format!("def {name}[");
+            library[library.find(&marker).unwrap()..]
+                .split("\n\n")
+                .next()
+                .unwrap()
+        })
+        .join("\n\n");
+    let body = format!(
+        r#"
+pub class OwnedCause:
+    bytes: Bytes
+
+{helpers}
+
+def out_of_range(value: Result[i64, FramingError[OwnedCause]]) -> bool:
+    match value:
+        case Err(FramingError.OutOfRange):
+            True
+        case _:
+            False
+
+def main() -> Result[(), AllocError | IoError]:
+    print("__test_begin_no_allocations__")?
+    result_0 = wire_extent[OwnedCause](i64.MAX, 0).unwrap() == i64.MAX
+    result_1 = out_of_range(wire_extent[OwnedCause](i64.MAX, 1))
+    result_2 = out_of_range(wire_extent[OwnedCause](-1, 1))
+    result_3 = chunk_extent[OwnedCause](9223372036854775787, 18).unwrap() == 9223372036854775805
+    result_4 = out_of_range(chunk_extent[OwnedCause](9223372036854775788, 18))
+    result_5 = out_of_range(chunk_extent[OwnedCause](i64.MAX, 18))
+    print("__test_end_no_allocations__")?
+    print(result_0, result_1, result_2, result_3, result_4, result_5)?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        execute_modules_with_options(&body, "True True True True True True\n", true, optimize);
+    }
+}
+
+#[test]
+fn typed_chunk_writes_preserve_affine_errors_and_exact_header_progress() {
+    execute_modules(
+        r#"
+import std.http.typed
+
+pub class OwnedError:
+    pub data: Bytes
+
+pub class FailingWriter:
+    calls: i64
+
+    pub def write(self: &mut FailingWriter, source: &[u8]) -> Result[i64, StepError[OwnedError]]:
+        if self.calls == 0:
+            self.calls = 1
+            return Ok(1)
+        self.calls = 2
+        Err(StepError[OwnedError].Source(OwnedError(std.bytes.from_text("retained").unwrap())))
+
+def main() -> Result[(), AllocError | IoError]:
+    mut writer = FailingWriter(0)
+    match std.http.typed.write_chunk[OwnedError, FailingWriter](&mut writer, b"abc"):
+        case Err(partial):
+            print(partial.completed)?
+            match partial.cause:
+                case FramingError.Transport(error):
+                    print(error.data.to_text().unwrap())?
+                case _:
+                    print("wrong cause")?
+        case Ok(_):
+            print("unexpected success")?
+    print(writer.calls)?
+    Ok(())
+"#,
+        "1\nretained\n2\n",
+        true,
+    );
 }
 
 #[test]
@@ -206,7 +326,11 @@ from std.http.typed import close_body
 pub class Ends:
     calls: i64
     pub def read(self: &mut Ends, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[Transport]]:
-        self.calls += 1
+        self.calls = match advanced(self.calls, 1):
+            case Ok(value):
+                value
+            case Err(error):
+                return Err(StepError[Transport].Source(Transport.Overflow(error)))
         print(self.calls).unwrap()
         if self.calls == 1:
             return Ok(0)
@@ -246,7 +370,13 @@ pub class Wire:
             if self.mode == 3:
                 return Ok(-1)
             if self.mode == 4:
-                return Ok(stop - start + 1)
+                oversized = checked:
+                    stop - start + 1
+                match oversized:
+                    case Ok(value):
+                        return Ok(value)
+                    case Err(error):
+                        return Err(StepError[Transport].Source(Transport.Overflow(error)))
             return Err(StepError[Transport].Source(Transport.Allocation(AllocError.OutOfMemory)))
         if self.position == self.data.len():
             return Ok(0)
@@ -254,7 +384,9 @@ pub class Wire:
         if code == 64u8:
             print("overread").unwrap()
         buffer.set(start, code)
-        self.position += 1
+        # The successful indexed read proves position < len(data).
+        self.position = unchecked:
+            self.position + 1
         Ok(1)
 def wire(text: str) -> Result[Wire, AllocError | std.bytes.BytesError]:
     Ok(Wire(std.bytes.from_text(text)?, 0, False, -1, 0))
@@ -915,7 +1047,13 @@ import std.io.typed
 pub class Legacy:
     calls: i64
     pub def read(self: &mut Legacy, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, std.io.StreamError]:
-        self.calls += 1
+        next = checked:
+            self.calls + 1
+        self.calls = match next:
+            case Ok(value):
+                value
+            case Err(_):
+                return Err(std.io.StreamError.OutOfRange)
         if self.calls == 1:
             return Err(std.io.StreamError.Interrupted)
         if self.calls == 2:
@@ -962,18 +1100,21 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | Partial[R
 
 #[test]
 fn standalone_example_keeps_the_original_transport_code() {
-    let workspace = tempfile::tempdir().unwrap();
-    let binary = workspace.path().join("program");
-    let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("examples/error_composition/main.plenty");
-    plenty::compile_file_to_executable(&file, &binary, None).unwrap();
-    let output = Command::new(binary).output().unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(output.stdout, b"1\n104\n");
+    for name in ["main.plenty", "standard.plenty"] {
+        let workspace = tempfile::tempdir().unwrap();
+        let binary = workspace.path().join("program");
+        let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("examples/error_composition")
+            .join(name);
+        plenty::compile_file_to_executable(&file, &binary, None).unwrap();
+        let output = Command::new(binary).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(output.stdout, b"1\n104\n", "{name}");
+    }
 }
 
 #[test]
@@ -1077,6 +1218,8 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
                 match reason:
                     case WriteFailure.Source(Storage.Full(code)):
                         print(code)?
+                    case WriteFailure.Source(Storage.Overflow(_)):
+                        print("counter overflow")?
                     case WriteFailure.WriteZero:
                         print("zero")?
                     case WriteFailure.InvalidProgress:

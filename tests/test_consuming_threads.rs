@@ -1,7 +1,17 @@
 mod support;
 
 fn runs(source: &str, expected: &str) {
-    let output = support::run(source);
+    let source = if source.lines().any(|line| line.starts_with("def main(")) {
+        source.to_owned()
+    } else {
+        let source = support::program(source).replacen(
+            "def main() -> ():",
+            "def main() -> Result[(), OverflowError[i64]]:",
+            1,
+        );
+        format!("{}    Ok(())\n", source.strip_suffix("    pass\n").unwrap())
+    };
+    let output = support::run(&source);
     assert!(
         output.status.success(),
         "status {:?}; {}",
@@ -44,7 +54,7 @@ fn consuming_submission_rejects_moved_jobs_borrowed_environments_and_effects() {
             "wholly owned",
         ),
         (
-            "def seven() -> i64:\n    path = std.env.current_dir().unwrap()\n    std.env.set_current_dir(&path).unwrap()\n    7\nn = 1\njob = def [n]() -> i64:\n    f: Callable[[], i64] = seven\n    n + f()\nwith spawn(job).unwrap():\n    pass\n",
+            "def seven() -> i64:\n    path = std.env.current_dir().unwrap()\n    std.env.set_current_dir(&path).unwrap()\n    7\nn = 1\njob = def [n]() -> Result[i64, OverflowError[i64]]:\n    f: Callable[[], i64] = seven\n    Ok(n + f())\nwith spawn(job).unwrap():\n    pass\n",
             "changing the working directory",
         ),
     ] {
@@ -199,14 +209,16 @@ print(str.repr(attempt(make())).unwrap()).unwrap()
 fn owned_start_error_widens_into_declared_error_sum() {
     runs(
         r#"
-def submit[F: OnceCallable[[], i64]](job: F) -> Result[i64, SpawnError[F] | IoError]:
+def submit[F: OnceCallable[[], Result[i64, OverflowError[i64]]]](job: F) -> Result[i64, SpawnError[F] | IoError | OverflowError[i64]]:
     with spawn(job)? as task:
         print("started")?
-        return Ok(task.join())
-n = 4
-job = def once [n]() -> i64:
-    n + 1
-print(submit(job).unwrap()).unwrap()
+        return Ok(task.join()?)
+def main() -> Result[(), IoError | OverflowError[i64] | SpawnError[OnceClosure[[], Result[i64, OverflowError[i64]]]]]:
+    n = 4
+    job = def once [n]() -> Result[i64, OverflowError[i64]]:
+        Ok(n + 1)
+    print(submit(job)?).unwrap()
+    Ok(())
 "#,
         "started\n5\n",
     );
@@ -259,19 +271,25 @@ fn failed_named_start_with_owned_arguments_returns_them_with_the_code() {
     // retry the start or run the job locally; the error keeps the native code.
     runs(
         r#"
-def total(values: list[i64], scale: i64) -> i64:
-    values[0] * scale + values[1] * scale
-def attempt(values: list[i64]) -> Result[i64, SpawnError[OnceClosure[[], i64]]]:
+def total(values: list[i64], scale: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(values[0] * scale + values[1] * scale)
+def attempt(values: list[i64]) -> Result[i64, SpawnError[OnceClosure[[], Result[i64, OverflowError[i64]]]] | OverflowError[i64]]:
     with spawn(total, values, 10)? as task:
-        return Ok(task.join())
+        return Ok(task.join()?)
 print("__test_fail_thread_starts__").unwrap()
 match attempt([1, 2].unwrap()):
     case Ok(value):
         print(value).unwrap()
-    case Err(SpawnError.Unavailable(job, code)):
-        print("__test_restore_thread_starts__").unwrap()
-        print(code).unwrap()
-        print(job()).unwrap()
+    case Err(error):
+        match error:
+            case failed: SpawnError[OnceClosure[[], Result[i64, OverflowError[i64]]]]:
+                match failed:
+                    case SpawnError.Unavailable(job, code):
+                        print("__test_restore_thread_starts__").unwrap()
+                        print(code).unwrap()
+                        print(job()?).unwrap()
+            case overflow: OverflowError[i64]:
+                return Err(overflow)
 "#,
         "__test_fail_thread_starts__\n__test_restore_thread_starts__\n11\n30\n",
     );
@@ -284,18 +302,20 @@ fn failed_borrowing_named_start_reports_job_free_spawn_error() {
     // reports the job-free `SpawnError[()]`.
     runs(
         r#"
-def total(values: &list[i64], scale: i64) -> i64:
-    values[0] * scale
-def attempt(values: &list[i64]) -> Result[i64, SpawnError[()]]:
+def total(values: &list[i64], scale: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(values[0] * scale)
+def attempt(values: &list[i64]) -> Result[i64, OverflowError[i64] | SpawnError[()]]:
     with spawn(total, values, 10)? as task:
-        return Ok(task.join())
-values = [4, 5].unwrap()
-print("__test_fail_thread_starts__").unwrap()
-print(str.repr(attempt(&values)).unwrap()).unwrap()
-print("__test_restore_thread_starts__").unwrap()
-print(attempt(&values).unwrap()).unwrap()
+        return Ok(task.join()?)
+def main() -> Result[(), OverflowError[i64] | SpawnError[()]]:
+    values = [4, 5].unwrap()
+    print("__test_fail_thread_starts__").unwrap()
+    print(str.repr(attempt(&values)).unwrap()).unwrap()
+    print("__test_restore_thread_starts__").unwrap()
+    print(attempt(&values)?).unwrap()
+    Ok(())
 "#,
-        "__test_fail_thread_starts__\nResult[i64, SpawnError[()]].Err(SpawnError[()].Unavailable((), 11))\n__test_restore_thread_starts__\n40\n",
+        "__test_fail_thread_starts__\nResult[i64, OverflowError[i64] | SpawnError[()]].Err(SpawnError[()].Unavailable((), 11))\n__test_restore_thread_starts__\n40\n",
     );
 }
 

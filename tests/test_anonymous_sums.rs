@@ -107,19 +107,20 @@ enum Inner:
     Right(i64)
 enum Other:
     Value
-def read(value: Inner | Other) -> i64:
+def read(value: Inner | Other) -> Result[i64, OverflowError[i64]]:
     match value:
         case inner: Inner:
             match inner:
                 case Inner.Left(n):
-                    n
+                    Ok(n)
                 case Inner.Right(n):
-                    n + 1
+                    Ok(n + 1)
         case other: Other:
-            0
-def main() -> ():
-    print(read(Inner.Left(4))).unwrap()
-    print(read(Inner.Right(4))).unwrap()
+            Ok(0)
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(read(Inner.Left(4))?)?
+    print(read(Inner.Right(4))?)?
+    Ok(())
 "#,
         "4\n5\n",
     );
@@ -183,7 +184,7 @@ enum C:
     Value
 def widen(value: Result[i64, Result[i64, A] | B]) -> Result[i64, C | B | Result[i64, A]]:
     value
-def inspect(value: Result[i64, C | B | Result[i64, A]]) -> ():
+def inspect(value: Result[i64, C | B | Result[i64, A]]) -> Result[(), OverflowError[i64]]:
     match value:
         case Ok(number):
             print(number).unwrap()
@@ -203,13 +204,14 @@ def inspect(value: Result[i64, C | B | Result[i64, A]]) -> ():
                     print("B").unwrap()
                 case c: C:
                     print("C").unwrap()
-def main() -> ():
+    Ok(())
+def main() -> Result[(), OverflowError[i64]]:
     nested_ok: Result[i64, A] = Ok(10)
     first: Result[i64, Result[i64, A] | B] = Err(nested_ok)
     nested_error: Result[i64, A] = Err(A.Right(20))
     second: Result[i64, Result[i64, A] | B] = Err(nested_error)
-    inspect(widen(first))
-    inspect(widen(second))
+    inspect(widen(first))?
+    inspect(widen(second))?
     only: A | A = A.Right(30)
     match only:
         case a: A:
@@ -218,6 +220,7 @@ def main() -> ():
                     print(n).unwrap()
                 case A.Right(n):
                     print(n + 1).unwrap()
+    Ok(())
 "#,
         "10\n21\n31\n",
     );
@@ -435,13 +438,13 @@ def result(value: Result[i64, A] | str) -> i64:
                     -2
         case text: str:
             -1
-def pair(value: (i64, i64) | str) -> i64:
+def pair(value: (i64, i64) | str) -> Result[i64, OverflowError[i64]]:
     match value:
         case numbers: (i64, i64):
-            numbers[0] + numbers[1]
+            Ok(numbers[0] + numbers[1])
         case text: str:
-            -1
-def main() -> ():
+            Ok(-1)
+def main() -> Result[(), OverflowError[i64]]:
     present: Option[i64] | str = Some(7)
     absent: Option[i64] | str = Nothing
     success: Result[i64, A] | str = Ok(8)
@@ -451,10 +454,11 @@ def main() -> ():
     print(option(absent)).unwrap()
     print(result(success)).unwrap()
     print(result(failed)).unwrap()
-    print(pair(tuple)).unwrap()
+    print(pair(tuple)?).unwrap()
     print(option(Some(11))).unwrap()
     print(result(Ok(12))).unwrap()
-    print(pair((13, 14))).unwrap()
+    print(pair((13, 14))?).unwrap()
+    Ok(())
 "#,
         "7\n0\n8\n-2\n19\n11\n12\n27\n",
     );
@@ -812,7 +816,7 @@ def consume(value: A | B) -> ():
             print("keep", kept.id).unwrap()
         case A.Empty:
             pass
-def change(value: &mut (A | B)) -> ():
+def change(value: &mut (A | B)) -> Result[(), OverflowError[i64]]:
     match value:
         case A.Pair(first, second):
             first.id += 10
@@ -821,6 +825,7 @@ def change(value: &mut (A | B)) -> ():
             item.id += 30
         case A.Empty:
             pass
+    Ok(())
 def inspect(value: &(A | B)) -> ():
     match value:
         case A.Pair(first, second):
@@ -829,15 +834,16 @@ def inspect(value: &(A | B)) -> ():
             print("borrow", item.id).unwrap()
         case A.Empty:
             pass
-def main() -> ():
+def main() -> Result[(), OverflowError[i64]]:
     mut pair: A | B = A.Pair(Item(1), Item(2))
-    change(&mut pair)
+    change(&mut pair)?
     inspect(&pair)
     consume(pair)
     mut single: A | B = B.Item(Item(3))
-    change(&mut single)
+    change(&mut single)?
     inspect(&single)
     consume(single)
+    Ok(())
 "#,
         "borrow 11 22\ndrop 22\nkeep 11\ndrop 11\nborrow 33\nkeep 33\ndrop 33\n",
     );

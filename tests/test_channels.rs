@@ -1,9 +1,19 @@
 mod support;
 
 fn runs(source: &str, expected: &str) {
+    let source = if source.lines().any(|line| line.starts_with("def main(")) {
+        source.to_owned()
+    } else {
+        let source = support::program(source).replacen(
+            "def main() -> ():",
+            "def main() -> Result[(), OverflowError[i64] | SendError[i64]]:",
+            1,
+        );
+        format!("{}    Ok(())\n", source.strip_suffix("    pass\n").unwrap())
+    };
     let directory = tempfile::tempdir().unwrap();
     let executable = directory.path().join("channel-test");
-    support::compile_source_to_executable(source, &executable)
+    support::compile_source_to_executable(&source, &executable)
         .unwrap_or_else(|e| panic!("{source}\n{e}"));
     let output = support::output_within(
         &mut std::process::Command::new(executable),
@@ -54,33 +64,33 @@ print(str.repr(other.send_nowait(43)).unwrap()).unwrap()
 fn consuming_producer_and_shared_receivers_transfer_all_messages() {
     runs(
         r#"
-def produce(sender: Sender[i64], start: i64) -> Result[(), SendError[i64]]:
+def produce(sender: Sender[i64], start: i64) -> Result[(), SendError[i64] | OverflowError[i64]]:
     for i in range(start, start + 100):
         sender.send(i)?
     Ok(())
-def collect(receiver: Receiver[i64]) -> i64:
+def collect(receiver: Receiver[i64]) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     while True:
         match receiver.recv():
             case Ok(n):
                 total = total + n
             case Err(_):
-                return total
-    total
+                return Ok(total)
+    Ok(total)
 sender, receiver = channel[i64](2).unwrap()
 second_sender = sender.share()
 second_receiver = receiver.share()
-first = def once [sender]() -> Result[(), SendError[i64]]:
+first = def once [sender]() -> Result[(), SendError[i64] | OverflowError[i64]]:
     produce(sender, 0)
-second = def once [second_sender]() -> Result[(), SendError[i64]]:
+second = def once [second_sender]() -> Result[(), SendError[i64] | OverflowError[i64]]:
     produce(second_sender, 100)
-consumer = def once [second_receiver]() -> i64:
+consumer = def once [second_receiver]() -> Result[i64, OverflowError[i64]]:
     collect(second_receiver)
 with spawn(first).unwrap() as a, spawn(second).unwrap() as b, spawn(consumer).unwrap() as c:
-    total = collect(receiver)
-    a.join().unwrap()
-    b.join().unwrap()
-    print(total + c.join()).unwrap()
+    total = collect(receiver)?
+    a.join()?
+    b.join()?
+    print(total + c.join()?).unwrap()
 "#,
         "19900\n",
     );
@@ -230,7 +240,7 @@ print(str.repr(report.recv()).unwrap()).unwrap()
 fn large_closure_messages_relocate_and_failed_sends_return_the_original_job() {
     runs(
         r#"
-def exercise[F: OnceCallable[[], i64]](first: F, second: F) -> i64:
+def exercise[F: OnceCallable[[], Result[i64, OverflowError[i64]]]](first: F, second: F) -> Result[i64, OverflowError[i64]]:
     sender, receiver = channel[F](1).unwrap()
     print("__test_begin_no_allocations__").unwrap()
     print("__test_fail_allocations_after_0__").unwrap()
@@ -242,22 +252,22 @@ def exercise[F: OnceCallable[[], i64]](first: F, second: F) -> i64:
         case Err(error):
             match error:
                 case SendError.Full(job):
-                    answer = job()
+                    answer = job()?
                 case SendError.Disconnected(job):
-                    answer = job()
+                    answer = job()?
     job = receiver.recv().unwrap()
     drop(sender)
     drop(receiver)
-    answer = answer + job()
+    answer = answer + job()?
     print("__test_restore_allocations__").unwrap()
     print("__test_end_no_allocations__").unwrap()
-    answer
-def make(n: i64) -> OnceClosure[[], i64]:
+    Ok(answer)
+def make(n: i64) -> Result[OnceClosure[[], Result[i64, OverflowError[i64]]], OverflowError[i64]]:
     a = range(n, n + 5)
     b = range(n + 10, n + 15)
-    def once [a, b]() -> i64:
-        a[2] + b[2]
-print(exercise(make(0), make(100))).unwrap()
+    Ok(def once [a, b]() -> Result[i64, OverflowError[i64]]:
+        Ok(a[2] + b[2]))
+print(exercise(make(0)?, make(100)?)?).unwrap()
 "#,
         "__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n228\n",
     );
@@ -288,9 +298,9 @@ def seven() -> i64:
     std.env.set_current_dir(&path).unwrap()
     7
 n = 1
-job = def [n]() -> i64:
+job = def [n]() -> Result[i64, OverflowError[i64]]:
     callback: Callable[[], i64] = seven
-    n + callback()
+    Ok(n + callback())
 queue(job)
 "#,
     ] {
@@ -1185,22 +1195,22 @@ def main() -> Result[(), AllocError | IoError | RecvError | SpawnError[()]]:
 fn joins_without_a_matching_live_receiver_are_accepted() {
     runs(
         &format!(
-            "{PRODUCE}def consume(receiver: Receiver[i64]) -> i64:
+            "{PRODUCE}def consume(receiver: Receiver[i64]) -> Result[i64, OverflowError[i64]]:
     mut count = 0
     while True:
         match receiver.recv():
             case Ok(_):
                 count = count + 1
             case Err(_):
-                return count
-    count
-def idle(n: i64) -> i64:
-    n + 1
+                return Ok(count)
+    Ok(count)
+def idle(n: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(n + 1)
 def drain(sender: Sender[i64], receiver: Receiver[i64]) -> Result[(), IoError | RecvError | SpawnError[()]]:
     with spawn(produce, sender).drop_job()?, receiver as inbox:
         print(inbox.recv()?)?
     Ok(())
-def main() -> Result[(), AllocError | IoError | RecvError | SendError[str] | SpawnError[()]]:
+def main() -> Result[(), AllocError | IoError | RecvError | SendError[str] | SpawnError[()] | OverflowError[i64]]:
     # A receiver for another message type cannot release this worker.
     sender, receiver = channel[i64](1)?
     names, labels = channel[str](1)?
@@ -1211,13 +1221,13 @@ def main() -> Result[(), AllocError | IoError | RecvError | SendError[str] | Spa
     # This worker holds no sender.
     with spawn(idle, 1).drop_job()? as task:
         names.send(\"idle\")?
-        print(task.join())?
+        print(task.join()?)?
     # The receiver belongs to another worker, which ends at disconnection.
     first, queued = channel[i64](1)?
     second = first.share()
     # A failed first producer start must not join while second is still alive.
     with spawn(consume, queued).drop_job()? as consumer, spawn(produce, first).unwrap(), spawn(produce, second).drop_job()?:
-        print(consumer.join())?
+        print(consumer.join()?)?
     # A helper that owns the receiver ends it before the outer join.
     outer, handed = channel[i64](1)?
     inner = outer.share()

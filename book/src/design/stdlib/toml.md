@@ -185,6 +185,14 @@ adjust a copy. A literal converts on assignment; a computed value needs
 The depth limit also bounds the parser's and writer's recursion, so neither a
 document nor a tree built by hand can overflow the stack.
 
+Input cursor advances consume validated bytes, and lookahead beyond the integer
+representation is treated as beyond the input. Bounded cursor, digit and
+calendar arithmetic uses explicit opt-outs with local range proofs. Stream
+reads check the full allocation extent, including the extra byte used to detect
+oversize input, before resizing or invoking the reader; an unrepresentable
+extent reports `Allocation(AllocError.CapacityOverflow)`. Existing parser,
+output-size and atomic document-edit errors remain unchanged.
+
 ## Errors
 
 ```text
@@ -196,7 +204,10 @@ pub class TomlError:
 ```
 
 For parsing, `offset` is the byte offset from 0, and `line` and `column` start
-at 1. Only `\n` ends a line. A column is one Unicode scalar, not one byte. A
+at 1. Only `\n` ends a line. A column is one Unicode scalar, not one byte.
+If a one-based line or column cannot fit in `i64`, the fault is
+`InputTooLarge` at the still-valid byte offset, with both line and column `0`
+meaning unavailable. Coordinates are not saturated or wrapped. A
 syntax fault points at the offending byte. A fault about a whole key or header
 (`DuplicateKey`, `DuplicateTable`, `KeyConflict`, and a `DepthExceeded` that a
 key or header causes) points at the first byte of its key or `[`. A

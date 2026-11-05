@@ -114,6 +114,15 @@ Helpers that take several steps keep the progress made before a failure:
 | `CloseError.Close(cause)` | Flushing succeeded; closing failed |
 | `CloseError.FlushAndClose(flush, close)` | Both failed |
 
+Seek and binary-field extent calculations handle checked arithmetic through
+these declared errors. `read_up_to` reports an unrepresentable buffer extent
+as `Partial(completed, Allocation(CapacityOverflow))` before growing the buffer.
+If another copy chunk would make the delivered total exceed `i64.MAX`,
+`copy_all` returns `CopyError.Read(completed, OutOfRange)` before delivering
+that chunk. The reader may already have consumed it; copying is not
+transactional or resumable. Internal cursor arithmetic uses explicit opt-outs
+only after validating ranges, progress and the applicable byte budget.
+
 These types do not convert to each other. Match the result, or use `?` in a
 function whose error sum lists each of them.
 

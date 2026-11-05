@@ -25,7 +25,7 @@ const read_ms: u32 = 0u32
 def positive(value: i64) -> Positive[i64]:
     Positive.try_from(value).unwrap()
 
-type Fault = AllocError | NetError | BytesError | TimerError | TlsError
+type Fault = AllocError | NetError | BytesError | TimerError | TlsError | OverflowError[i64]
 
 pub enum Note:
     # A connection's heap use once its handshake completed.
@@ -149,7 +149,7 @@ pub enum Node:
             case Node.Serving(_):
                 Ok(Nothing)
 
-def main() -> Result[(), AllocError | IoError | StageError | WaitError | NetError | TimerError | TlsError]:
+def main() -> Result[(), OverflowError[i64] | AllocError | IoError | StageError | WaitError | NetError | TimerError | TlsError]:
     config = server_config(&read_text("FIXTURES/leaf.pem")?, &read_text("FIXTURES/leaf.key")?)?
     socket = listen(&loopback_v4(0u16), 128)?
     print(socket.local_address()?.port)?

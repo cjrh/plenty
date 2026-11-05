@@ -58,7 +58,7 @@ def repeated(word: str, n: i64) -> Result[str, AllocError]:
         out = (out + word)?
     Ok(out)
 
-def looped(word: str) -> Result[str, AllocError]:
+def looped(word: str) -> Result[str, AllocError | OverflowError[i64]]:
     mut out = ""
     mut i = 0
     while True:
@@ -113,7 +113,7 @@ def kept(result: Result[str, AllocError]) -> Result[str, AllocError]:
             pass
     result
 
-def main() -> Result[(), AllocError | IoError | Problem]:
+def main() -> Result[(), AllocError | IoError | Problem | OverflowError[i64]]:
     mut n = 0
     for i in range(1000):
         text = passed(("a" + str.from(i)?))?
@@ -189,11 +189,11 @@ def consume_opt(o: Option[str]) -> i64:
 def starts(word: str) -> bool:
     word.startswith("ab")
 
-def both(word: str, flag: bool) -> i64:
+def both(word: str, flag: bool) -> Result[i64, OverflowError[i64]]:
     if flag:
-        consume(word) + 1
+        Ok(consume(word) + 1)
     else:
-        consume(word) + 2
+        Ok(consume(word) + 2)
 
 def partial_join(word: str, flag: bool) -> i64:
     mut n = 0
@@ -204,17 +204,17 @@ def partial_join(word: str, flag: bool) -> i64:
 def wide(o: Option[str]) -> i64:
     consume_opt(o)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | ZeroDivisionError]:
     mut total = 0
     for i in range(1000):
         word = ("ab" + str.from(i)?)?
         flag = i % 2 == 0
         if starts(word):
-            total += both(word, flag) + partial_join(word, flag)
+            total += both(word, flag)? + partial_join(word, flag)
         total += wide(Some(word)) + wide(Nothing)
     print(total)?
-    print(both("abc", True))?
-    print(both("abc", False))?
+    print(both("abc", True)?)?
+    print(both("abc", False)?)?
     print(partial_join("abc", True))?
     print(partial_join("abc", False))?
     print(wide(Some("xb")))?

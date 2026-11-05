@@ -23,9 +23,11 @@ print(str.repr(nested()).unwrap()).unwrap()
 fn comprehensions_support_nested_loops_filters_and_all_collection_kinds() {
     native(
         r#"
-print(str.repr([a * b for a in range(3) for b in range(3) if b != 1]).unwrap()).unwrap()
-print(str.repr({a % 2 for a in range(5)}).unwrap()).unwrap()
-print(str.repr({a: a * a for a in range(3)}).unwrap()).unwrap()
+def main() -> Result[(), OverflowError[i64] | ZeroDivisionError]:
+    print(str.repr([a * b for a in range(3) for b in range(3) if b != 1]).unwrap()).unwrap()
+    print(str.repr({a % 2 for a in range(5)}).unwrap()).unwrap()
+    print(str.repr({a: a * a for a in range(3)}).unwrap()).unwrap()
+    Ok(())
 "#,
         "Result[list[i64], AllocError].Ok([0, 0, 0, 2, 0, 4])\nResult[set[i64], AllocError].Ok({0, 1})\nResult[dict[i64, i64], AllocError].Ok({0: 0, 1: 1, 2: 4})",
     );
@@ -58,12 +60,14 @@ fn nested_failure_stops_both_loops() {
 def mark(n: i64) -> i64:
     print("entry").unwrap()
     n
-outer = [1, 2].unwrap()
-inner = [3, 4].unwrap()
-print("__test_fail_allocations_after_1__").unwrap()
-result = [mark(a + b) for a in outer for b in &inner]
-print("__test_restore_allocations__").unwrap()
-print(str.repr(result).unwrap()).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    outer = [1, 2].unwrap()
+    inner = [3, 4].unwrap()
+    print("__test_fail_allocations_after_1__").unwrap()
+    result = [mark(a + b) for a in outer for b in &inner]
+    print("__test_restore_allocations__").unwrap()
+    print(str.repr(result).unwrap()).unwrap()
+    Ok(())
 "#,
         "entry\nResult[list[i64], AllocError].Err(AllocError.OutOfMemory)",
     );

@@ -10,7 +10,7 @@ such as `unwrap_or`, or an explicit `drop(result)`.
 the same type or a union containing it. Name the union once with an alias:
 
 ```plenty
-type AppError = AllocError | IoError | ParseError
+type AppError = AllocError | IoError | ParseError | OverflowError[i64]
 
 def total(path: &str) -> Result[i64, AppError]:
     text = read_text(path)?
@@ -31,7 +31,36 @@ def main() -> Result[(), AppError]:
 ```
 
 List only the errors the function can actually produce. Unions are flat and
-allocation-free: `AppError | UsageError` is one larger union.
+allocation-free: `AppError | UsageError` is one larger union. The addition in
+`total` produces an ordinary `i64`; overflow returns `Err` from `total` through
+its declared `Result`. The successful path still needs `Ok(sum)`.
+
+## Arithmetic and callbacks
+
+Each function and closure declares its own errors, independent of its caller.
+Use a fallible callback consumer such as `try_fold` when accumulating integers:
+
+```plenty
+def add_square(total: i64, value: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(total + value * value)
+
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(iter(range(5)).try_fold(0, add_square)?)?
+    print(add_square(i64.MAX, 1).is_err())?
+    Ok(())
+```
+```output
+30
+True
+```
+
+An integer pipeline `.sum()` also returns `Result`; handle it with `?` or
+`match`. Float arithmetic retains IEEE behavior. Use `checked:` to recover
+locally from integer arithmetic rather than returning its error; its final
+expression becomes the success value. Neither `checked:` nor `unchecked:`
+changes a called function's declared contract. See
+[checked arithmetic](../../../../book/src/design/language/03-types/numbers.md#checked-blocks)
+and [local pipelines](../../../../book/src/design/language/09-iteration/06-pipelines.md).
 
 ## Exit status
 

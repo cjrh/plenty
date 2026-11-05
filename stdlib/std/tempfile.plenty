@@ -142,8 +142,11 @@ pub def named_file(parent: &Path = io_error(default_dir())?, prefix: &str = "ple
     suffix_size = valid_part(suffix)?
     if prefix_size > 200 or suffix_size > 200:
         return Err(FsError.InvalidInput)
-    if prefix_size + suffix_size > 200:
-        return Err(FsError.InvalidInput)
+    # valid_part returns byte lengths; both were checked within 0..200,
+    # so their sum is at most 400 and cannot overflow i64.
+    unchecked:
+        if prefix_size + suffix_size > 200:
+            return Err(FsError.InvalidInput)
     base = io_error(absolute(parent))?
     root = io_error(std.fs.root(&base))?
     mut owner = io_error(std.fs.temporary_file(&root))?

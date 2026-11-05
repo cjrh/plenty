@@ -45,15 +45,15 @@ fn dimensions_in_generic_arguments_are_inferred_and_erased() {
             "{BASES}{TAG}
 def value[D: Dimension](x: Tagged[D]) -> i64:
     x.value
-def square[D: Dimension](x: Tagged[D]) -> Tagged[Pow[D, 2]]:
-    Tagged[Pow[D, 2]](x.value * x.value)
+def square[D: Dimension](x: Tagged[D]) -> Result[Tagged[Pow[D, 2]], OverflowError[i64]]:
+    Ok(Tagged[Pow[D, 2]](x.value * x.value))
 def root[D: Dimension](x: Tagged[D]) -> Tagged[Root[D, 2]]:
     Tagged[Root[D, 2]](x.value)
 def label[D: Dimension]() -> i64:
     7
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     x = Tagged[Length](3)
-    squared: Tagged[Length * Length] = square(x)
+    squared: Tagged[Length * Length] = square(x)?
     original: Tagged[Length] = root(squared)
     print(value(x), value(squared), value(original), label[Length / Length]())?
     print(value[Length](x))?

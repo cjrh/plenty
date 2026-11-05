@@ -193,7 +193,7 @@ pub enum StartError:
     # The mailbox could not be allocated.
     Mailbox
 
-# Counts since the stage was created.
+# Observation-only counts since creation, saturating at i64.MAX.
 @copy
 pub class Stats:
     # Includes isolated construction attempts, even if their hook fails
@@ -235,7 +235,7 @@ pub def heap_bytes_committed() -> i64:
 # A slot's mailbox and bookkeeping. Allocated outside every actor heap.
 class Mailbox[M, E]:
     generation: u32
-    # The slot's heap, or -1 when the slot is free.
+    # Heap handle, -1 when reusable, -2 when its identity is exhausted.
     heap: i64
     parent: u64
     has_parent: bool
@@ -288,6 +288,7 @@ class Mailbox[M, E]:
 # them without allocating.
 class Clock:
     generation: u32
+    # Actor slot, -1 when reusable, -2 when its identity is exhausted.
     owner: i64
     owner_prev: i64
     # Also links the free list.
@@ -354,10 +355,10 @@ pub class Context[M, E]:
     pub def send(self: &mut Context[M, E], to: Address, message: M) -> Result[(), Undelivered[M]]:
         index = slot_of(to._key)
         if not self.accepts(to._key):
-            self._stats.gone += 1
+            self._stats.gone = count_event(self._stats.gone)
             return Err(Undelivered[M].Gone(message))
         if self._boxes[index].count == len(self._boxes[index].items):
-            self._stats.full += 1
+            self._stats.full = count_event(self._stats.full)
             return Err(Undelivered[M].Full(message))
         match self.copy_into(index, &message):
             case Some(copied):
@@ -365,7 +366,7 @@ pub class Context[M, E]:
                 drop(message)
                 Ok(())
             case Nothing:
-                self._stats.full += 1
+                self._stats.full = count_event(self._stats.full)
                 Err(Undelivered[M].Full(message))
 
     # Asks the actor at `to` to stop. False when it has stopped or its
@@ -399,7 +400,9 @@ pub class Context[M, E]:
         self._boxes[index].tag = tag
         self._spawn_slots[self._spawn_count] = index
         self._spawn_tags[self._spawn_count] = tag
-        self._spawn_count += 1
+        # Admission above bounds this count by max_spawns (16).
+        unchecked:
+            self._spawn_count += 1
         Ok(address(index, self._boxes[index].generation))
 
     # Construction belongs to the child: a hook error, trap or Nothing
@@ -458,20 +461,17 @@ pub class Context[M, E]:
     pub def request(self: &mut Context[M, E], to: Address, message: M, timeout: &Duration) -> Result[Request, RequestError[M]]:
         index = slot_of(to._key)
         if not self.accepts(to._key):
-            self._stats.gone += 1
+            self._stats.gone = count_event(self._stats.gone)
             return Err(RequestError[M].Gone(message))
         if self._clock_free < 0:
             return Err(RequestError[M].Capacity(message))
-        mut span = timeout.as_nanoseconds()
-        now = clock_now()
-        if span > u64.MAX - now:
-            span = u64.MAX - now
+        due = request_due(clock_now(), timeout.as_nanoseconds())
         if self._boxes[index].count == len(self._boxes[index].items):
-            self._stats.full += 1
+            self._stats.full = count_event(self._stats.full)
             return Err(RequestError[M].Full(message))
         match self.copy_into(index, &message):
             case Some(copied):
-                record = self.take_clock(now + span, 0u64, 0)
+                record = self.take_clock(due, 0u64, 0)
                 self._clocks[record].request = True
                 self._clocks[record].target = index
                 head = self._boxes[index].incoming_head
@@ -484,7 +484,7 @@ pub class Context[M, E]:
                 drop(message)
                 Ok(request)
             case Nothing:
-                self._stats.full += 1
+                self._stats.full = count_event(self._stats.full)
                 Err(RequestError[M].Full(message))
 
     # Answers a request this actor received: copies `message` into the
@@ -494,11 +494,11 @@ pub class Context[M, E]:
     pub def reply(self: &mut Context[M, E], request: Request, message: M) -> Result[(), Undelivered[M]]:
         record = self.clock(request._key)
         if record < 0 or not self._clocks[record].request or self._clocks[record].target != slot_of(self._self):
-            self._stats.gone += 1
+            self._stats.gone = count_event(self._stats.gone)
             return Err(Undelivered[M].Gone(message))
         owner = self._clocks[record].owner
         if self._boxes[owner].count == len(self._boxes[owner].items):
-            self._stats.full += 1
+            self._stats.full = count_event(self._stats.full)
             return Err(Undelivered[M].Full(message))
         match self.copy_into(owner, &message):
             case Some(copied):
@@ -507,7 +507,7 @@ pub class Context[M, E]:
                 drop(message)
                 Ok(())
             case Nothing:
-                self._stats.full += 1
+                self._stats.full = count_event(self._stats.full)
                 Err(Undelivered[M].Full(message))
 
     # Delivers the handle's readiness for `interest` to the running actor as
@@ -539,7 +539,7 @@ pub class Context[M, E]:
             return False
         size = len(box.items)
         for offset in range(box.count):
-            match &box.items[(box.head + offset) % size]:
+            match &box.items[ring_at(box.head, offset, size)]:
                 case Some(Mail.Ready(watch, _)):
                     if watch._key == key:
                         return True
@@ -562,10 +562,8 @@ pub class Context[M, E]:
     def start_timer(self: &mut Context[M, E], delay: u64, period: u64, tag: i64) -> Result[Timer, TimerError]:
         if self._clock_free < 0:
             return Err(TimerError.Capacity)
-        now = clock_now()
-        if delay > u64.MAX - now:
-            return Err(TimerError.Range)
-        record = self.take_clock(now + delay, period, tag)
+        due = timer_due(clock_now(), delay)?
+        record = self.take_clock(due, period, tag)
         Ok(Timer(address(record, self._clocks[record].generation)._key, tag))
 
     # Takes a free record for the running actor and schedules it.
@@ -622,9 +620,14 @@ pub class Context[M, E]:
             self._clocks[next].owner_prev = previous
         clock = &mut self._clocks[record]
         clock.owner = -1
-        clock.generation += 1u32
-        clock.owner_next = self._clock_free
-        self._clock_free = record
+        match next_generation(clock.generation):
+            case Some(generation):
+                clock.generation = generation
+                clock.owner_next = self._clock_free
+                self._clock_free = record
+            case Nothing:
+                # Never admit another identity for this exhausted record.
+                clock.owner = -2
 
     # Removes a request from its receiver's list of pending requests.
     def unlink_target(self: &mut Context[M, E], record: i64) -> ():
@@ -686,27 +689,23 @@ pub class Context[M, E]:
                     self.link_notice(record)
                 period = self._clocks[record].period
                 if period > 0u64:
-                    due = self._clocks[record].due
-                    mut next = now
-                    if due <= u64.MAX - period and due + period > now:
-                        next = due + period
-                    elif now <= u64.MAX - period:
-                        next = now + period
-                    else:
-                        next = u64.MAX
-                    self._clocks[record].due = next
+                    self._clocks[record].due = repeat_due(self._clocks[record].due, period, now)
                     self.order_insert(record)
 
     def order_insert(self: &mut Context[M, E], record: i64) -> ():
         at = self._order_count
         self._order[at] = record
         self._clocks[record].position = at
-        self._order_count += 1
+        # A free record has no heap entry: insertion stays within _order.
+        unchecked:
+            self._order_count += 1
         self.order_up(at)
 
     def order_remove(self: &mut Context[M, E], record: i64) -> ():
         at = self._clocks[record].position
-        last = self._order_count - 1
+        # Removing a scheduled record implies a nonempty heap.
+        last = unchecked:
+            self._order_count - 1
         self._order_count = last
         self._clocks[record].position = -1
         if at != last:
@@ -730,7 +729,9 @@ pub class Context[M, E]:
     def order_up(self: &mut Context[M, E], start: i64) -> ():
         mut at = start
         while at > 0:
-            parent = (at - 1) // 2
+            # 0 < at < _order_count; division is by positive two.
+            parent = unchecked:
+                (at - 1) // 2
             if self.order_due(at) >= self.order_due(parent):
                 break
             self.order_swap(at, parent)
@@ -739,12 +740,20 @@ pub class Context[M, E]:
     def order_down(self: &mut Context[M, E], start: i64) -> ():
         mut at = start
         while True:
-            left = 2 * at + 1
-            if left >= self._order_count:
+            # Leaves have no children. Test before doubling so even an
+            # i64-sized table cannot overflow the child index calculation.
+            leaf = unchecked:
+                self._order_count // 2
+            if at >= leaf:
                 break
+            left = unchecked:
+                2 * at + 1
             mut least = left
-            if left + 1 < self._order_count and self.order_due(left + 1) < self.order_due(left):
-                least = left + 1
+            # left < _order_count <= i64.MAX, so its successor fits.
+            right = unchecked:
+                left + 1
+            if right < self._order_count and self.order_due(right) < self.order_due(left):
+                least = right
             if self.order_due(least) >= self.order_due(at):
                 break
             self.order_swap(at, least)
@@ -759,20 +768,44 @@ pub class Context[M, E]:
 
     # Queues `mail` for slot `index`, which has room.
     def push(self: &mut Context[M, E], index: i64, mail: Option[Mail[M, E]]) -> ():
+        if self._boxes[index].mail_written == u64.MAX:
+            self.rebase_mail(index)
         size = len(self._boxes[index].items)
-        at = (self._boxes[index].head + self._boxes[index].count) % size
+        at = ring_at(self._boxes[index].head, self._boxes[index].count, size)
         self._boxes[index].items[at] = mail
-        self._boxes[index].count += 1
-        self._boxes[index].mail_written += 1u64
+        # push is called only with room in the allocated mailbox.
+        unchecked:
+            self._boxes[index].count += 1
+        # On entry written - read equals the queued count. Rebasing at MAX
+        # makes written the prior count; push had room, so written + 1 <= size.
+        unchecked:
+            self._boxes[index].mail_written += 1u64
         self.enqueue(index)
+
+    # Rebase every fence owned by this mailbox, with no callbacks or
+    # allocations. Ready fences stay ready; future fences retain their exact
+    # remaining prefix distance. clear drains this list before slot reuse.
+    def rebase_mail(self: &mut Context[M, E], index: i64) -> ():
+        base = self._boxes[index].mail_read
+        # written >= read, and their difference is the queued count.
+        unchecked:
+            self._boxes[index].mail_written -= base
+        self._boxes[index].mail_read = 0u64
+        mut child = self._boxes[index].down_head
+        while child >= 0:
+            fence = self._boxes[child].down_after
+            self._boxes[child].down_after = rebase_fence(fence, base)
+            child = self._boxes[child].down_next
 
     def enqueue(self: &mut Context[M, E], index: i64) -> ():
         if self._queued[index] or self._boxes[index].pending:
             return
         self._queued[index] = True
-        at = (self._run_head + self._run_count) % len(self._runnable)
+        at = ring_at(self._run_head, self._run_count, len(self._runnable))
         self._runnable[at] = index
-        self._run_count += 1
+        # At most one ticket per slot; this slot had no ticket.
+        unchecked:
+            self._run_count += 1
 
     # Takes a free slot with a new heap and mailbox. Runs with System current.
     # The public callers have checked `limit` against 1..max_heap_limit.
@@ -845,7 +878,7 @@ pub class Stage[N, M, E]:
         for index in range(len(self._context._boxes)):
             if self._context._boxes[index].heap >= 0:
                 self.finish(index)
-                self._context._stats.stopped += 1
+                self._context._stats.stopped = count_event(self._context._stats.stopped)
                 self.retire(index, Exit[E].Stopped)
         self._context._run_head = 0
         self._context._run_count = 0
@@ -861,8 +894,10 @@ pub class Stage[N, M, E]:
             __trap("std.actor.Stage.start: limit is above max_heap_limit")
         index = self._context.reserve(limit.get())?
         self._nodes[index] = Some(node)
-        self._live += 1
-        self._context._stats.started += 1
+        # A reserved free slot bounds live actors by stage capacity.
+        unchecked:
+            self._live += 1
+        self._context._stats.started = count_event(self._context._stats.started)
         self.begin(index)
         Ok(address(index, self._context._boxes[index].generation))
 
@@ -879,6 +914,16 @@ pub class Stage[N, M, E]:
     pub def add_timers(self: &mut Stage[N, M, E], count: i64) -> Result[(), AllocError]:
         context = &mut self._context
         start = len(context._clocks)
+        if count > 0:
+            total = checked:
+                start + count
+            match total:
+                case Ok(value):
+                    # Timer/request keys have a 32-bit record index.
+                    if value > 4294967296:
+                        return Err(AllocError.CapacityOverflow)
+                case Err(_):
+                    return Err(AllocError.CapacityOverflow)
         for _ in range(count):
             context._order.append(-1)?
         for _ in range(count):
@@ -956,13 +1001,15 @@ pub class Stage[N, M, E]:
             key = event.key
             index = watch_slot(key)
             if index >= len(self._context._boxes) or self._context._boxes[index].heap < 0 or (self._context._boxes[index].generation & 4095u32) != watch_generation(key):
-                self._context._stats.gone += 1
+                self._context._stats.gone = count_event(self._context._stats.gone)
             elif not self._context.ready_queued(index, key):
                 if self._context._boxes[index].count == len(self._context._boxes[index].items):
                     # Level-triggered readiness is reported again later.
-                    self._context._stats.full += 1
+                    self._context._stats.full = count_event(self._context._stats.full)
                 else:
-                    self._context._boxes[index].ready += 1
+                    # The non-full mailbox bounds queued readiness.
+                    unchecked:
+                        self._context._boxes[index].ready += 1
                     self._context.push(index, Some(Mail[M, E].Ready(Watch(key), Readiness(event.readiness.readable, event.readiness.writable, event.readiness.hangup, event.readiness.error))))
         Ok(())
 
@@ -970,8 +1017,10 @@ pub class Stage[N, M, E]:
     def round(self: &mut Stage[N, M, E]) -> ():
         for _ in range(self._context._run_count):
             index = self._context._runnable[self._context._run_head]
-            self._context._run_head = (self._context._run_head + 1) % len(self._context._runnable)
-            self._context._run_count -= 1
+            self._context._run_head = ring_at(self._context._run_head, 1, len(self._context._runnable))
+            # The round consumes only tickets present at its start.
+            unchecked:
+                self._context._run_count -= 1
             self._context._queued[index] = False
             self.deliver(index)
 
@@ -1000,19 +1049,25 @@ pub class Stage[N, M, E]:
         if box.count == 0:
             return
         mail = replace(box.items[box.head], Nothing)
-        box.head = (box.head + 1) % len(box.items)
-        box.count -= 1
-        box.mail_read += 1u64
+        box.head = ring_at(box.head, 1, len(box.items))
+        # The empty-mailbox branch returned above.
+        unchecked:
+            box.count -= 1
+        # A nonempty mailbox has read < written <= u64.MAX.
+        unchecked:
+            box.mail_read += 1u64
         match &mail:
             case Some(Mail.Ready(_, _)):
-                box.ready -= 1
+                # A queued Ready contributes one to box.ready.
+                unchecked:
+                    box.ready -= 1
             case Some(Mail.Stop):
                 box.stopping = True
             case _:
                 pass
         heap = box.heap
         self.prepare(index)
-        self._context._stats.delivered += 1
+        self._context._stats.delivered = count_event(self._context._stats.delivered)
         match mail:
             case Some(next):
                 outcome = __actor_run(heap, run_receive, &mut self._nodes[index], next, &mut self._context)
@@ -1038,7 +1093,7 @@ pub class Stage[N, M, E]:
             self._context.free_clock(record)
         heap = self._context._boxes[index].heap
         self.prepare(index)
-        self._context._stats.delivered += 1
+        self._context._stats.delivered = count_event(self._context._stats.delivered)
         outcome = __actor_run(heap, run_receive, &mut self._nodes[index], mail, &mut self._context)
         self.settle(index, outcome_of(outcome))
 
@@ -1051,7 +1106,7 @@ pub class Stage[N, M, E]:
         self.bury(zombie)
         heap = self._context._boxes[index].heap
         self.prepare(index)
-        self._context._stats.delivered += 1
+        self._context._stats.delivered = count_event(self._context._stats.delivered)
         match exit:
             case Some(value):
                 outcome = __actor_run(heap, run_receive, &mut self._nodes[index], Mail[M, E].Down(child, tag, value), &mut self._context)
@@ -1071,7 +1126,8 @@ pub class Stage[N, M, E]:
     def bury(self: &mut Stage[N, M, E], zombie: i64) -> ():
         self._context._boxes[zombie].zombie = False
         self._context._boxes[zombie].down_next = -1
-        self._context._free.append(zombie).unwrap()
+        if self._context._boxes[zombie].heap != -2:
+            self._context._free.append(zombie).unwrap()
 
     def prepare(self: &mut Stage[N, M, E], index: i64) -> ():
         self._context._self = address(index, self._context._boxes[index].generation)._key
@@ -1088,20 +1144,23 @@ pub class Stage[N, M, E]:
     def settle(self: &mut Stage[N, M, E], index: i64, outcome: Outcome[E]) -> ():
         count = self._context._spawn_count
         self._context._spawn_count = 0
-        match outcome:
+        match &outcome:
             case Outcome.Done:
                 stopping = self._context._stopping or self._context._boxes[index].stopping
                 for position in range(count):
                     hook = self.build(index, position)
-                    match hook:
+                    match &hook:
                         case Outcome.Done:
                             pass
                         case _:
-                            self.release_spawns(position + 1, count)
+                            # position < count <= max_spawns.
+                            next = unchecked:
+                                position + 1
+                            self.release_spawns(next, count)
                             self.end(index, hook)
                             return
                 if stopping:
-                    self._context._stats.stopped += 1
+                    self._context._stats.stopped = count_event(self._context._stats.stopped)
                     self.finish(index)
                     self.retire(index, Exit[E].Stopped)
                 elif self._context._boxes[index].count > 0 or self._context._boxes[index].down_head >= 0 or self._context._boxes[index].notice_head >= 0:
@@ -1126,12 +1185,14 @@ pub class Stage[N, M, E]:
         child = self._context._spawn_slots[position]
         outcome = self.hook(parent, child, self._context._spawn_tags[position])
         if self._context._boxes[child].isolated_spawn:
-            self._live += 1
-            self._context._stats.started += 1
-            match outcome:
+            # A reserved free slot bounds live actors by stage capacity.
+            unchecked:
+                self._live += 1
+            self._context._stats.started = count_event(self._context._stats.started)
+            match &outcome:
                 case Outcome.Done:
                     if self._nodes[child].is_none():
-                        self._context._stats.stopped += 1
+                        self._context._stats.stopped = count_event(self._context._stats.stopped)
                         self.retire(child, Exit[E].Stopped)
                 case _:
                     # A failed constructor has no runnable node to restart.
@@ -1141,8 +1202,10 @@ pub class Stage[N, M, E]:
         match &outcome:
             case Outcome.Done:
                 if self._nodes[child].is_some():
-                    self._live += 1
-                    self._context._stats.started += 1
+                    # A reserved free slot bounds live actors by stage capacity.
+                    unchecked:
+                        self._live += 1
+                    self._context._stats.started = count_event(self._context._stats.started)
                     return outcome
             case _:
                 pass
@@ -1201,7 +1264,7 @@ pub class Stage[N, M, E]:
                 pass
 
     def fail(self: &mut Stage[N, M, E], index: i64, error: E) -> ():
-        self._context._stats.failed += 1
+        self._context._stats.failed = count_event(self._context._stats.failed)
         exit = self.exit_for(index, error)
         self.finish(index)
         self.retire(index, exit)
@@ -1239,7 +1302,7 @@ pub class Stage[N, M, E]:
     # forgotten and its heap discarded, which frees its memory and closes
     # its files.
     def contain(self: &mut Stage[N, M, E], index: i64, kind: TrapKind) -> ():
-        self._context._stats.trapped += 1
+        self._context._stats.trapped = count_event(self._context._stats.trapped)
         match replace(self._nodes[index], Nothing):
             case Some(node):
                 __actor_forget(node)
@@ -1266,15 +1329,15 @@ pub class Stage[N, M, E]:
                 parent = slot_of(box.parent)
                 tag = box.tag
                 outcome = self.hook(parent, index, tag)
-                match outcome:
+                match &outcome:
                     case Outcome.Done:
                         if self._nodes[index].is_some():
-                            self._context._stats.restarted += 1
+                            self._context._stats.restarted = count_event(self._context._stats.restarted)
                             drop(exit)
                             return
                         if self._context._boxes[index].isolated_spawn:
                             drop(exit)
-                            self._context._stats.stopped += 1
+                            self._context._stats.stopped = count_event(self._context._stats.stopped)
                             self.retire(index, Exit[E].Stopped)
                             return
                     case _:
@@ -1286,16 +1349,20 @@ pub class Stage[N, M, E]:
                         # The hook's error or trap ends the parent, which
                         # would receive this exit.
                         drop(exit)
-                        self._context._stats.lost += 1
+                        self._context._stats.lost = count_event(self._context._stats.lost)
                         __actor_heap(op_discard, self._context._boxes[index].heap)
                         self.free(index)
-                        self._live -= 1
+                        # Retiring a live actor, once.
+                        unchecked:
+                            self._live -= 1
                         self.end(parent, outcome)
                         return
         self.notify(index, exit)
         __actor_heap(op_discard, self._context._boxes[index].heap)
         self.free(index)
-        self._live -= 1
+        # Retiring a live actor, once.
+        unchecked:
+            self._live -= 1
 
     # Whether the actor at `index` is restarted after `exit`, counting the
     # restart against its window.
@@ -1310,12 +1377,17 @@ pub class Stage[N, M, E]:
             return False
         now = clock_now()
         policy = &mut self._context._boxes[index]
-        if policy.restart_count == 0 or now - policy.restart_start >= policy.restart_window:
+        # Monotonic time cannot precede the saved window start.
+        elapsed = unchecked:
+            now - policy.restart_start
+        if policy.restart_count == 0 or elapsed >= policy.restart_window:
             policy.restart_start = now
             policy.restart_count = 0
         if policy.restart_count == policy.restart_limit:
             return False
-        policy.restart_count += 1
+        # 0 <= count < limit <= i64.MAX after the equality check.
+        unchecked:
+            policy.restart_count += 1
         True
 
     # The children of a restarting actor lose their parent: the new actor
@@ -1354,7 +1426,7 @@ pub class Stage[N, M, E]:
         parent = box.parent
         child = address(index, box.generation)
         if not self._context.accepts(parent):
-            self._context._stats.lost += 1
+            self._context._stats.lost = count_event(self._context._stats.lost)
             return
         target = slot_of(parent)
         after = self._context._boxes[target].mail_written
@@ -1379,21 +1451,29 @@ pub class Stage[N, M, E]:
         box = &mut self._context._boxes[index]
         while box.count > 0:
             drop(replace(box.items[box.head], Nothing))
-            box.head = (box.head + 1) % len(box.items)
-            box.count -= 1
+            box.head = ring_at(box.head, 1, len(box.items))
+            # The loop consumes an existing queued message.
+            unchecked:
+                box.count -= 1
         box.ready = 0
         box.mail_read = box.mail_written
         while self._context._boxes[index].down_head >= 0:
             zombie = self.unlink_down(index)
             drop(replace(self._context._boxes[zombie].exit, Nothing))
-            self._context._stats.lost += 1
+            self._context._stats.lost = count_event(self._context._stats.lost)
             self.bury(zombie)
 
     def free(self: &mut Stage[N, M, E], index: i64) -> ():
         zombie = self._context._boxes[index].zombie
         box = &mut self._context._boxes[index]
-        box.heap = -1
-        box.generation += 1u32
+        match next_generation(box.generation):
+            case Some(generation):
+                box.heap = -1
+                box.generation = generation
+            case Nothing:
+                # -2 marks a permanently retired identity, including zombies
+                # whose Down payload must still be delivered before burial.
+                box.heap = -2
         box.pending = False
         # An empty list owns no storage, so this releases the mailbox.
         match list[Option[Mail[M, E]]]():
@@ -1404,7 +1484,7 @@ pub class Stage[N, M, E]:
         # A callback may have queued its own slot before stopping or trapping.
         # Keep that ticket until round consumes it, even if the slot is reused:
         # clearing the flag here would let reuse overflow the bounded ring.
-        if not zombie:
+        if not zombie and box.heap != -2:
             self._context._free.append(index).unwrap()
 
 # Allocates a stage for at most `capacity` live actors, each with a mailbox
@@ -1432,7 +1512,9 @@ def stage_with[N, M, E](capacity: i64, mailbox: i64, ready: Selector) -> Result[
     for _ in range(capacity):
         boxes.append(Mailbox[M, E](0u32, -1, 0u64, False, False, False, 0, False, []?, 0, 0, False, Nothing, 0u64, -1, -1, -1, -1, -1, -1, -1, False, 0, 0, 0, 0u64, 0u64, 0, False, 0u64, 0u64, 0u64))?
     # Popped from the end, so slot 0 is used first.
-    free: list[i64] = [capacity - 1 - index for index in range(capacity)]?
+    # stage validated 0 <= capacity <= max_capacity; index < capacity.
+    free: list[i64] = unchecked:
+        [capacity - 1 - index for index in range(capacity)]?
     runnable: list[i64] = [0 for _ in range(capacity)]?
     queued: list[bool] = [False for _ in range(capacity)]?
     spawn_slots: list[i64] = [0 for _ in range(max_spawns)]?
@@ -1483,3 +1565,64 @@ def run_spawn[N, M, E](slot: &Option[N], tag: i64, child: Address, context: &mut
 
 def run_drop[N](node: Option[N]) -> ():
     drop(node)
+
+# Ring callers maintain 0 <= head < size and 0 <= offset <= size.
+# Subtract the tail room before adding: head + offset itself need not fit.
+def ring_at(head: i64, offset: i64, size: i64) -> i64:
+    unchecked:
+        tail = size - head
+        if offset >= tail:
+            offset - tail
+        else:
+            head + offset
+
+# Reject unrepresentable timer deadlines before taking a record.
+def timer_due(now: u64, delay: u64) -> Result[u64, TimerError]:
+    due = checked:
+        now + delay
+    match due:
+        case Ok(value):
+            Ok(value)
+        case Err(_):
+            Err(TimerError.Range)
+
+# Requests already promise a deadline clamped to the last instant.
+def request_due(now: u64, delay: u64) -> u64:
+    match timer_due(now, delay):
+        case Ok(value):
+            value
+        case Err(_):
+            u64.MAX
+
+# Keep an unmissed tick, otherwise skip elapsed ticks and clamp at MAX.
+def repeat_due(due: u64, period: u64, now: u64) -> u64:
+    # Unsigned subtraction from MAX always fits; each addition is guarded.
+    unchecked:
+        if due <= u64.MAX - period and due + period > now:
+            due + period
+        elif now <= u64.MAX - period:
+            now + period
+        else:
+            u64.MAX
+
+# Observation-only totals saturate; they never affect admission or ordering.
+def count_event(value: i64) -> i64:
+    if value == i64.MAX:
+        return value
+    # Stats start at zero and this is their only update, so 0 <= value < MAX.
+    unchecked:
+        value + 1
+
+# None means permanent retirement, not generation wrap or stale-handle reuse.
+def next_generation(value: u32) -> Option[u32]:
+    if value == u32.MAX:
+        return Nothing
+    unchecked:
+        Some(value + 1u32)
+
+def rebase_fence(fence: u64, base: u64) -> u64:
+    if fence <= base:
+        return 0u64
+    # The guard proves fence > base.
+    unchecked:
+        fence - base

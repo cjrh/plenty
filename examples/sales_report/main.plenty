@@ -1,7 +1,7 @@
 import report
 import std.dataframe as df
 
-def main() -> Result[i32, df.DataFrameError | AllocError | IoError]:
+def main() -> Result[i32, df.DataFrameError | AllocError | IoError | OverflowError[i64]]:
     argv = args()?
     if len(argv) == 2 and argv[1] == "--help":
         print("Usage: sales-report csv|parquet ORDERS PRODUCTS.csv OUTPUT_DIRECTORY")?

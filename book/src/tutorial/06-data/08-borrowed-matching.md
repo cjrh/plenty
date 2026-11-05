@@ -36,7 +36,7 @@ Assign through a mutable payload reference to change the original slot, keeping
 its enclosing variants:
 
 ```plenty
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut nested: Option[Result[i64, str]] = Some(Ok(4))
     match &mut nested:
         case Some(Ok(number)):
@@ -59,7 +59,7 @@ enum Shape:
     Circle(i64)
     Square(i64)
 
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut shape = Shape.Circle(3)
     before = shape
     match &mut shape:

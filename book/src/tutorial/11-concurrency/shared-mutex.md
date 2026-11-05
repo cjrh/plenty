@@ -11,16 +11,20 @@ class Stats:
     count: i64
     total: i64
 
-def record(stats: &Mutex[Stats], value: i64, rounds: i64) -> ():
+def record(stats: &Mutex[Stats], value: i64, rounds: i64) -> Result[(), OverflowError[i64]]:
     for _ in range(rounds):
         with stats.lock() as data:
-            data.count = data.count + 1
-            data.total = data.total + value
+            count = data.count + 1
+            total = data.total + value
+            data.count = count
+            data.total = total
+    Ok(())
 
-def main() -> Result[(), SpawnError[()] | IoError]:
+def main() -> Result[(), SpawnError[()] | IoError | OverflowError[i64]]:
     stats = Mutex[Stats](Stats(0, 0))
-    with spawn(record, &stats, 3, 10000)?, spawn(record, &stats, 4, 10000)?:
-        pass
+    with spawn(record, &stats, 3, 10000)? as first, spawn(record, &stats, 4, 10000)? as second:
+        first.join()?
+        second.join()?
     final = stats.into_inner()
     print(final.count)?
     print(final.total)?
@@ -33,7 +37,8 @@ def main() -> Result[(), SpawnError[()] | IoError]:
 
 `stats.lock()` waits until no other thread holds the lock, then binds `data`, a
 `&mut Stats`, for the block. Leaving the block unlocks, whether by reaching its
-end, `return`, `?`, `break`, or `continue`. Workers share `&stats` without `mut`,
+end, `return`, `?`, `break`, or `continue`. Both new fields are computed before
+either is stored, so arithmetic failure cannot leave a half-updated pair. Workers share `&stats` without `mut`,
 because the lock, not the borrow, makes the access exclusive. After the workers
 finish, `into_inner()` takes the value back without locking. Nothing here
 allocates.
@@ -49,9 +54,10 @@ one; joining a worker that can lock the same kind of mutex is another:
 ```plenty-error
 from std.sync import Mutex
 
-def bump(counter: &Mutex[i64]) -> ():
+def bump(counter: &Mutex[i64]) -> Result[(), OverflowError[i64]]:
     with counter.lock() as value:
         *value = *value + 1
+    Ok(())
 
 def main() -> Result[(), SpawnError[()]]:
     counter = Mutex(0)
@@ -72,15 +78,17 @@ unlocks, before the task is joined.
 ```plenty
 from std.sync import Mutex
 
-def bump(counter: &Mutex[i64]) -> ():
+def bump(counter: &Mutex[i64]) -> Result[(), OverflowError[i64]]:
     with counter.lock() as value:
         *value = *value + 1
+    Ok(())
 
-def main() -> Result[(), SpawnError[()] | IoError]:
+def main() -> Result[(), SpawnError[()] | IoError | OverflowError[i64]]:
     counter = Mutex(0)
-    with spawn(bump, &counter)?:
+    with spawn(bump, &counter)? as task:
         with counter.lock() as value:
             *value = *value + 10
+        task.join()?
     print(counter.into_inner())?
     Ok(())
 ```

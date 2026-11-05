@@ -22,7 +22,7 @@ class Node:
     value: i64
     next: Option[Box[Node]]
 
-def total(head: &Node) -> i64:
+def total(head: &Node) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     mut cur = head
     while True:
@@ -32,11 +32,11 @@ def total(head: &Node) -> i64:
                 cur = next
             case Nothing:
                 break
-    sum
+    Ok(sum)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     chain = Node(1, Some(Box(Node(2, Nothing))?))
-    print(total(&chain))?
+    print(total(&chain)?)?
     Ok(())
 ```
 ```output

@@ -10,14 +10,15 @@ const TYPES: &str = r#"
 protocol Counter:
     def current(self) -> i64:
         pass
-    def increment(self: &mut Counter) -> ():
+    def increment(self: &mut Counter) -> Result[(), OverflowError[i64]]:
         pass
 class Count:
     value: i64
     def current(self) -> i64:
         self.value
-    def increment(self: &mut Count) -> ():
+    def increment(self: &mut Count) -> Result[(), OverflowError[i64]]:
         self.value += 1
+        Ok(())
 enum Flag:
     Off
     On
@@ -27,8 +28,9 @@ enum Flag:
                 0
             case Flag.On:
                 1
-    def increment(self: &mut Flag) -> ():
+    def increment(self: &mut Flag) -> Result[(), OverflowError[i64]]:
         *self = Flag.On
+        Ok(())
 "#;
 
 #[test]
@@ -40,7 +42,7 @@ def read[T: Counter](value: &T) -> i64:
     value.current()
 mut values: list[Box[Counter]] = [Box[Counter](Count(10)).unwrap(), Box[Counter](Flag.Off).unwrap()].unwrap()
 for value in &mut values:
-    value.increment()
+    value.increment().unwrap()
     print(value.current(), read(value)).unwrap()
 values.reverse()
 value = values.pop().unwrap()
@@ -57,7 +59,7 @@ fn reject_mutation_through_shared_owner() {
         &format!(
             r#"{TYPES}
 value = Box[Counter](Count(0)).unwrap()
-value.increment()
+value.increment().unwrap()
 "#
         ),
         "mutable",
@@ -107,7 +109,7 @@ protocol Operations:
         pass
     def view(self, values: &[i64]) -> i64:
         pass
-    def pair(self, n: i64) -> (i64, i64):
+    def pair(self, n: i64, m: i64) -> (i64, i64):
         pass
     def fallible(self, n: i64) -> Result[i64, AllocError]:
         pass
@@ -116,13 +118,13 @@ class Worker:
         values[0]
     def view(self, values: &[i64]) -> i64:
         values[0]
-    def pair(self, n: i64) -> (i64, i64):
-        (n, n + 1)
+    def pair(self, n: i64, m: i64) -> (i64, i64):
+        (n, m)
     def fallible(self, n: i64) -> Result[i64, AllocError]:
         Ok(n)
 worker = Box[Operations](Worker()).unwrap()
 values = [7, 8].unwrap()
-print(worker.take([4].unwrap()), worker.view(&values[:]), worker.pair(10), worker.fallible(12).unwrap()).unwrap()
+print(worker.take([4].unwrap()), worker.view(&values[:]), worker.pair(10, 11), worker.fallible(12).unwrap()).unwrap()
 protocol Sized:
     def len(self) -> i64:
         pass
@@ -277,7 +279,7 @@ fn mutable_dictionary_projection_and_receiver_reservation() {
 mut values = {{"a": Box[Counter](Count(1)).unwrap()}}.unwrap()
 match values.get_mut("a"):
     case Some(value):
-        value.increment()
+        value.increment().unwrap()
         print(value.current()).unwrap()
     case Nothing:
         pass
@@ -403,9 +405,12 @@ enum Value[T]:
                 *n
     def set(self: &mut Value[T], n: T) -> ():
         *self = Value[T].Stored(n)
-mut value = Box[Cell](Value[i64].Stored(20)).unwrap()
-value.set(value.get() + 1)
-print(value.get()).unwrap()
+def main() -> Result[(), OverflowError[i64]]:
+    mut value = Box[Cell](Value[i64].Stored(20)).unwrap()
+    # The checked argument is evaluated while the receiver is reserved.
+    value.set(value.get() + 1)
+    print(value.get()).unwrap()
+    Ok(())
 "#,
         "21\n",
     );

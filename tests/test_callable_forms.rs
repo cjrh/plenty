@@ -9,11 +9,20 @@ use support::{assert_stdout, check_diagnostic};
 fn pipelines_accept_stored_capture_free_closures() {
     assert_stdout(
         r#"
+# Only tenfold calls this with list values 1..3; products are 10..30.
+def bounded_tenfold(x: i64) -> i64:
+    unchecked:
+        x * 10
+# Only the fold/reduce below call this: all positive prefixes are at most 60.
+def bounded_add(a: i64, b: i64) -> i64:
+    unchecked:
+        a + b
+
 def main() -> Result[(), AllocError | IoError]:
     xs = [1, 2, 3]?
     big = (def(x: &i64) -> bool: *x > 1)
-    tenfold = (def(x: &i64) -> i64: *x * 10)
-    add = (def(a: i64, b: i64) -> i64: a + b)
+    tenfold = (def(x: &i64) -> i64: bounded_tenfold(*x))
+    add = (def(a: i64, b: i64) -> i64: bounded_add(a, b))
     print(iter(&xs).filter(big).count(), iter(&xs).filter(big).count())?
     print(iter(&xs).map(tenfold).fold(0, add), iter(&xs).map(tenfold).reduce(add))?
     print(iter(&xs).any(big), iter(&xs).all(big), iter(&xs).find(big))?
@@ -68,12 +77,22 @@ fn pipeline_callback_rejections_name_the_form() {
 fn sort_by_key_accepts_closure_literals() {
     assert_stdout(
         r#"
+# The two sorts below only pass 1, 3, 5, so negation is -5..-1.
+def bounded_negate(x: i64) -> i64:
+    unchecked:
+        -x
+# Those same elements and immutable pivot 6 give differences -5..-1,
+# whose squares are 1..25. No other callback calls this fixture helper.
+def bounded_distance(x: i64, pivot: i64) -> i64:
+    unchecked:
+        (x - pivot) * (x - pivot)
+
 def main() -> Result[(), AllocError | IoError]:
     mut xs = [1, 5, 3]?
-    xs.sort_by_key(def(x: &i64) -> i64: -*x)
+    xs.sort_by_key(def(x: &i64) -> i64: bounded_negate(*x))
     print(xs)?
     pivot = 6
-    xs.sort_by_key(def [pivot](x: &i64) -> i64: (*x - pivot) * (*x - pivot), True)
+    xs.sort_by_key(def [pivot](x: &i64) -> i64: bounded_distance(*x, pivot), True)
     print(xs)?
     Ok(())
 "#,
@@ -85,22 +104,22 @@ def main() -> Result[(), AllocError | IoError]:
 fn mut_borrows_of_named_functions_pass_to_mut_callback_parameters() {
     assert_stdout(
         r#"
-def apply[F: Callable[[i64], i64]](f: &mut F, value: i64) -> i64:
+def apply[F: Callable[[i64], Result[i64, OverflowError[i64]]]](f: &mut F, value: i64) -> Result[i64, OverflowError[i64]]:
     f(value)
 
-def inc(x: i64) -> i64:
-    x + 1
+def inc(x: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(x + 1)
 
-def main() -> Result[(), IoError]:
-    print(apply(&mut inc, 1), apply(&mut inc, 2))?
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(apply(&mut inc, 1)?, apply(&mut inc, 2)?)?
     first = &mut inc
     second = &mut inc
-    print(first(10), second(20))?
+    print(first(10)?, second(20)?)?
     mut total = 0
-    mut running = def [mut total](x: i64) -> i64:
+    mut running = def [mut total](x: i64) -> Result[i64, OverflowError[i64]]:
         total += x
-        total
-    print(apply(&mut running, 2), apply(&mut running, 3))?
+        Ok(total)
+    print(apply(&mut running, 2)?, apply(&mut running, 3)?)?
     Ok(())
 "#,
         "2 3\n11 21\n2 5\n",
@@ -110,7 +129,7 @@ def main() -> Result[(), IoError]:
 #[test]
 fn shared_callback_diagnostic_names_the_mut_capture() {
     let error = check_diagnostic(
-        "def apply[F: Callable[[i64], i64]](f: &F, value: i64) -> i64:\n    f(value)\nmut total = 0\nrunning = def [mut total](x: i64) -> i64:\n    total += x\n    total\nprint(apply(&running, 2)).unwrap()",
+        "def apply[F: Callable[[i64], Result[i64, OverflowError[i64]]]](f: &F, value: i64) -> Result[i64, OverflowError[i64]]:\n    f(value)\ndef main() -> Result[(), OverflowError[i64]]:\n    mut total = 0\n    running = def [mut total](x: i64) -> Result[i64, OverflowError[i64]]:\n        total += x\n        Ok(total)\n    print(apply(&running, 2)?).unwrap()\n    Ok(())",
     );
     assert!(
         error.contains("cannot call this mutable closure through a shared reference: it writes its capture `total`"),
@@ -125,8 +144,11 @@ fn find_and_reduce_copy_copyable_borrowed_items() {
 def big(x: &i64) -> bool:
     *x > 1
 
+# Only serial reductions of [1, 2, 3], [], and [4, 5] call this:
+# every positive prefix is at most 9. These reductions test borrowed copies.
 def add(a: i64, b: i64) -> i64:
-    a + b
+    unchecked:
+        a + b
 
 def longer(a: str, b: str) -> str:
     if len(b) > len(a):
@@ -168,7 +190,7 @@ fn borrowed_scalar_diagnostics_suggest_dereferencing() {
         "{error}"
     );
     let error = check_diagnostic(
-        "def inc(x: i64) -> i64:\n    x + 1\nxs = [1, 2].unwrap()\nfor x in &xs:\n    inc(x)",
+        "def inc(x: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(x + 1)\nxs = [1, 2].unwrap()\nfor x in &xs:\n    inc(x)",
     );
     assert!(
         error.contains("expected i64, got &i64; copy the value with `*`"),

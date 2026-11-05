@@ -12,7 +12,7 @@ class Number:
         &self.value
 def convert[T: IntType](number: &Number) -> T:
     number.convert[T]()
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[u8]]:
     number = Number(7)
     value: u8 = number.convert[u8]() + 1
     print(value)?
@@ -33,7 +33,7 @@ def main() -> Result[(), IoError]:
 #[test]
 fn method_type_arguments_do_not_change_callable_field_indexing() {
     let output = run(
-        "class Table:\n    callbacks: list[Callable[[i64], i64]]\ndef double(x: i64) -> i64:\n    x * 2\ndef main() -> Result[(), AllocError | IoError]:\n    table = Table([double]?)\n    index = 0\n    print(table.callbacks[index](7))?\n    Ok(())\n",
+        "class Table:\n    callbacks: list[Callable[[i64], Result[i64, OverflowError[i64]]]]\ndef double(x: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(x * 2)\ndef main() -> Result[(), AllocError | IoError | OverflowError[i64]]:\n    table = Table([double]?)\n    index = 0\n    print(table.callbacks[index](7)?)?\n    Ok(())\n",
     );
     assert!(output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout), "14\n");
@@ -50,21 +50,22 @@ fn methods_infer_parameters_and_callback_bounds() {
     let output = run(r#"
 class Cell[T]:
     value: T
-    def map[U, F: Callable[[T], U]](self, f: &F) -> Result[Cell[U], AllocError]:
-        Ok(Cell(f(self.value)))
+    def map[U, E, F: Callable[[T], Result[U, E]]](self, f: &F) -> Result[Cell[U], AllocError | E]:
+        Ok(Cell(f(self.value)?))
 class Counter:
     value: i64
-    def add[T: IntType](self: &mut Counter, value: T) -> ():
+    def add[T: IntType](self: &mut Counter, value: T) -> Result[(), OverflowError[i64]]:
         self.value = self.value + i64(value)
-def double(value: u8) -> u16:
-    u16(value) * 2
-def main() -> Result[(), AllocError | IoError]:
+        Ok(())
+def double(value: u8) -> Result[u16, OverflowError[u16]]:
+    Ok(u16(value) * 2)
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | OverflowError[u16]]:
     cell = Cell(7u8)
     callback = double
     print(cell.map(&callback)?)?
     mut counter = Counter(1)
-    counter.add(2u8)
-    counter.add(3u16)
+    counter.add(2u8)?
+    counter.add(3u16)?
     print(counter.value)?
     print((Cell(4u8)).map(&callback)?)?
     Ok(())
@@ -96,7 +97,7 @@ fn method_generics_preserve_borrow_and_declaration_rules() {
             "temporary cannot be stored",
         ),
         (
-            "class Cell:\n    value: i64\n    def add[T: IntType](self: &mut Cell, x: T) -> ():\n        self.value = self.value + i64(x)\ndef main() -> ():\n    cell = Cell(1)\n    cell.add(2u8)\n",
+            "class Cell:\n    value: i64\n    def add[T: IntType](self: &mut Cell, x: T) -> Result[(), OverflowError[i64]]:\n        self.value = self.value + i64(x)\n        Ok(())\ndef main() -> Result[(), OverflowError[i64]]:\n    cell = Cell(1)\n    cell.add(2u8)?\n    Ok(())\n",
             "mutable",
         ),
     ] {

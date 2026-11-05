@@ -42,7 +42,10 @@ pub class MediaType:
     pub def suffix(self) -> Result[Option[str], AllocError]:
         match self._subtype.rfind("+"):
             case Some(plus):
-                Ok(Some(self._subtype.slice(plus + 1, len(self._subtype))?))
+                # rfind returns a scalar index strictly below the subtype length.
+                start = unchecked:
+                    plus + 1
+                Ok(Some(self._subtype.slice(start, len(self._subtype))?))
             case Nothing:
                 Ok(Nothing)
 
@@ -96,7 +99,7 @@ pub class MediaType:
     # Canonical text: lowercase names, `; ` before each parameter, and a
     # quoted-string for a value that is not a token.
     pub def to_string(self) -> Result[str, AllocError]:
-        mut parts = list[str].with_capacity(3 + 4 * len(self._params))?
+        mut parts = list[str].with_capacity(format_parts(len(self._params))?)?
         parts.append(self._type)?
         parts.append("/")?
         parts.append(self._subtype)?
@@ -106,6 +109,17 @@ pub class MediaType:
             parts.append("=")?
             parts.append(quoted(&item.value)?)?
         "".join(&parts)
+
+# Three essence fragments and four fragments per parameter. Overflow is an
+# unrepresentable allocation request, before any formatting allocation.
+def format_parts(params: i64) -> Result[i64, AllocError]:
+    size = checked:
+        3 + 4 * params
+    match size:
+        case Ok(value):
+            Ok(value)
+        case Err(_):
+            Err(AllocError.CapacityOverflow)
 
 def lifted[T](result: Result[T, BytesError]) -> Result[T, MimeError]:
     match result:
@@ -154,7 +168,9 @@ def value_text(text: &str) -> bool:
 
 def ascii_folded(code: i64) -> i64:
     if code >= 65 and code <= 90:
-        code + 32
+        # ASCII uppercase is 65..90, hence folded is 97..122.
+        unchecked:
+            code + 32
     else:
         code
 
@@ -178,13 +194,17 @@ def quoted(value: &str) -> Result[str, AllocError]:
 def token_end(data: &Bytes, start: i64, stop: i64) -> i64:
     mut index = start
     while index < stop and tchar(i64(data[index])):
-        index += 1
+        # 0 <= index < stop <= data.len() <= i64.MAX.
+        unchecked:
+            index += 1
     index
 
 def ows_end(data: &Bytes, start: i64, stop: i64) -> i64:
     mut index = start
     while index < stop and ows(i64(data[index])):
-        index += 1
+        # 0 <= index < stop <= data.len() <= i64.MAX.
+        unchecked:
+            index += 1
     index
 
 def lowered(data: &Bytes, start: i64, stop: i64) -> Result[str, MimeError]:
@@ -198,39 +218,58 @@ def lowered(data: &Bytes, start: i64, stop: i64) -> Result[str, MimeError]:
 pub def parse(text: &str) -> Result[MediaType, MimeError]:
     data = std.bytes.from_text(text).map_error(MimeError.Allocation)?
     mut stop = data.len()
-    while stop > 0 and ows(i64(data[stop - 1])):
-        stop -= 1
+    while stop > 0:
+        # stop is a positive buffer endpoint.
+        last = unchecked:
+            stop - 1
+        if not ows(i64(data[last])):
+            break
+        stop = last
     start = ows_end(&data, 0, stop)
     slash = token_end(&data, start, stop)
     if slash == start or slash == stop or data[slash] != 47u8:
         return Err(MimeError.Invalid)
-    subtype_end = token_end(&data, slash + 1, stop)
-    if subtype_end == slash + 1:
+    # The slash check proves slash < stop <= i64.MAX.
+    subtype_start = unchecked:
+        slash + 1
+    subtype_end = token_end(&data, subtype_start, stop)
+    if subtype_end == subtype_start:
         return Err(MimeError.Invalid)
     type_name = lowered(&data, start, slash)?
-    subtype = lowered(&data, slash + 1, subtype_end)?
+    subtype = lowered(&data, subtype_start, subtype_end)?
     mut params = list[Param]().map_error(MimeError.Allocation)?
     mut index = subtype_end
     while index < stop:
         index = ows_end(&data, index, stop)
         if data[index] != 59u8:
             return Err(MimeError.Invalid)
-        index = ows_end(&data, index + 1, stop)
+        # index points at a semicolon before stop.
+        after_separator = unchecked:
+            index + 1
+        index = ows_end(&data, after_separator, stop)
         if index == stop or data[index] == 59u8:
             continue
         name_end = token_end(&data, index, stop)
         if name_end == index or name_end == stop or data[name_end] != 61u8:
             return Err(MimeError.Invalid)
         name = lowered(&data, index, name_end)?
-        index = name_end + 1
+        # name_end points at an equals sign before stop.
+        unchecked:
+            index = name_end + 1
         mut value = ""
         if index < stop and data[index] == 34u8:
-            mut unquoted = std.bytes.with_capacity(stop - index).map_error(MimeError.Allocation)?
-            index += 1
+            # 0 <= index < stop; reserve only the remaining input.
+            remaining = unchecked:
+                stop - index
+            mut unquoted = std.bytes.with_capacity(remaining).map_error(MimeError.Allocation)?
+            unchecked:
+                index += 1
             mut closed = False
             while index < stop:
                 byte = data[index]
-                index += 1
+                # The loop guard proves index < stop.
+                unchecked:
+                    index += 1
                 if byte == 34u8:
                     closed = True
                     break
@@ -238,7 +277,9 @@ pub def parse(text: &str) -> Result[MediaType, MimeError]:
                     if index == stop or not text_byte(i64(data[index])):
                         return Err(MimeError.Invalid)
                     unquoted.push(data[index]).map_error(MimeError.Allocation)?
-                    index += 1
+                    # The preceding escape validation proves index < stop.
+                    unchecked:
+                        index += 1
                 elif text_byte(i64(byte)):
                     unquoted.push(byte).map_error(MimeError.Allocation)?
                 else:
@@ -273,10 +314,16 @@ pub def new(type_name: &str, subtype: &str) -> Result[MediaType, MimeError]:
 # `expected`, compared without ASCII case.
 def extension_at(text: &str, start: i64, expected: &str) -> bool:
     count = expected.byte_len()
-    if len(text) - start != count:
+    # Callers pass 0 or one past a found dot: 0 <= start <= len(text).
+    remaining = unchecked:
+        len(text) - start
+    if remaining != count:
         return False
     for index in range(count):
-        if ascii_folded(scalar_code(&text[start + index])) != scalar_code(&expected[index]):
+        # index < count == len(text) - start, so the sum is below len(text).
+        at = unchecked:
+            start + index
+        if ascii_folded(scalar_code(&text[at])) != scalar_code(&expected[index]):
             return False
     True
 
@@ -340,7 +387,9 @@ def lookup(text: &str, start: i64) -> Option[str]:
                     return Some(row[1])
             case Nothing:
                 return Nothing
-        index += 1
+        # table returns Nothing at 20, before the counter can grow further.
+        unchecked:
+            index += 1
     Nothing
 
 # The Content-Type for the extension of the file name or path `name`, or
@@ -348,7 +397,10 @@ def lookup(text: &str, start: i64) -> Option[str]:
 pub def from_file_name(name: &str) -> str:
     match name.rfind("."):
         case Some(dot):
-            match lookup(name, dot + 1):
+            # rfind returns a scalar position strictly below len(name).
+            start = unchecked:
+                dot + 1
+            match lookup(name, start):
                 case Some(found):
                     found
                 case Nothing:

@@ -5,7 +5,7 @@ or range backward. Borrow a list to keep it afterward. Text yields Unicode
 scalars, so a multibyte character stays intact.
 
 ```plenty
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | ZeroDivisionError]:
     values = [10, 20, 30]?
     for index, value in enumerate(reversed(&values)):
         print((index, *value))?

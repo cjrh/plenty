@@ -21,6 +21,9 @@ fn calls(ops: &[Op]) -> Vec<String> {
         match op {
             Op::Call(name) | Op::TailCall(name) => names.push(name.clone()),
             Op::Match(arms) => arms.iter().for_each(|arm| names.extend(calls(&arm.body))),
+            Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
+                names.extend(calls(body));
+            }
             Op::If {
                 then,
                 elifs,
@@ -140,21 +143,25 @@ def blank(value: u8) -> bool:
 def digit(code: i64) -> bool:
     code >= 48 and code <= 57
 def bump(code: i64) -> i64:
-    code + 1
+    # Deliberately retain a trapping non-predicate leaf for substitution tests.
+    unchecked:
+        code + 1
 def forever(code: i64) -> bool:
     if code > 0:
-        return forever(code - 1)
+        # code > 0 proves subtraction stays in [0, MAX-1].
+        unchecked:
+            return forever(code - 1)
     False
-def count(text: i64, other: u8) -> bool:
-    digit(text) and blank(other) or digit(text + 1)
+def count(text: i64, other: u8) -> Result[bool, OverflowError[i64]]:
+    Ok(digit(text) and blank(other) or digit(text + 1))
 def last(code: i64) -> bool:
     digit(code)
-def main() -> ():
-    count(1, 2)
+def main() -> Result[(), OverflowError[i64]]:
+    count(1, 2)?
     bump(1)
     forever(3)
     last(4)
-    ()
+    Ok(())
 ";
 
 #[test]

@@ -226,11 +226,11 @@ fn callable_data_constraints_preserve_imports_and_public_type_visibility() {
         &[
             (
                 "handlers.plenty",
-                "pub class Handler[T, F: Callable[[T], T]]:\n    pub callback: F\n    pub def call(self, value: T) -> T:\n        self.callback(value)\n",
+                "pub class Handler[T, R, F: Callable[[T], R]]:\n    pub callback: F\n    pub def call(self, value: T) -> R:\n        self.callback(value)\n",
             ),
             (
                 "main.plenty",
-                "from handlers import Handler\ndef main() -> Result[(), IoError]:\n    offset = 5u8\n    callback = def [offset](n: u8) -> u8:\n        n + offset\n    handler = Handler(callback)\n    print(handler.call(3))?\n    Ok(())\n",
+                "from handlers import Handler\ndef main() -> Result[(), IoError | OverflowError[u8]]:\n    offset = 5u8\n    callback = def [offset](n: u8) -> Result[u8, OverflowError[u8]]:\n        Ok(n + offset)\n    handler = Handler(callback)\n    print(handler.call(3)?)?\n    Ok(())\n",
             ),
         ],
         "main.plenty",
@@ -264,15 +264,15 @@ fn recursive_enum_instances_keep_identity_through_import_aliases() {
                 "main.plenty",
                 r#"
 from forest import Tree as Expr
-def total(tree: Expr[i64]) -> i64:
+def total(tree: Expr[i64]) -> Result[i64, OverflowError[i64]]:
     match tree:
         case Expr.Leaf(value):
-            value
+            Ok(value)
         case Expr.Branch(left, right):
-            total(*left) + total(*right)
-def main() -> Result[(), AllocError | IoError]:
+            Ok(total(*left)? + total(*right)?)
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     tree = Expr[i64].Branch(Box(Expr[i64].Leaf(3))?, Box(Expr[i64].Leaf(7))?)
-    print(total(tree))?
+    print(total(tree)?)?
     Ok(())
 "#,
             ),
@@ -387,11 +387,11 @@ fn function_values_keep_import_visibility_and_definition_scope() {
         &[
             (
                 "api.plenty",
-                "def hidden(x: i64) -> i64:\n    x + 1\npub def identity[T](x: T) -> T:\n    x\npub def make() -> Callable[[i64], i64]:\n    def(x: i64) -> i64:\n        hidden(x)\n",
+                "def hidden(x: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(x + 1)\npub def identity[T](x: T) -> T:\n    x\npub def make() -> Callable[[i64], Result[i64, OverflowError[i64]]]:\n    def(x: i64) -> Result[i64, OverflowError[i64]]:\n        hidden(x)\n",
             ),
             (
                 "main.plenty",
-                "import api\nfrom api import identity as keep\ndef main() -> Result[(), IoError]:\n    f = keep[u8]\n    print(f(7))?\n    print(api.make()(8))?\n    Ok(())\n",
+                "import api\nfrom api import identity as keep\ndef main() -> Result[(), IoError | OverflowError[i64]]:\n    f = keep[u8]\n    print(f(7))?\n    print(api.make()(8)?)?\n    Ok(())\n",
             ),
         ],
         "main.plenty",
@@ -418,11 +418,11 @@ fn explicit_generics_resolve_imports_aliases_and_definition_scope() {
         &[
             (
                 "maths.plenty",
-                "def helper(x: i64) -> i64:\n    x + 1\npub def identity[T](x: T) -> T:\n    x\npub def bumped[T: IntType](x: T) -> i64:\n    helper(i64(x))\n",
+                "def helper(x: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(x + 1)\npub def identity[T](x: T) -> T:\n    x\npub def bumped[T: IntType](x: T) -> Result[i64, OverflowError[i64]]:\n    helper(i64(x))\n",
             ),
             (
                 "main.plenty",
-                "import maths\nfrom maths import identity as keep\ntype Count = u8\ndef main() -> ():\n    print(keep[Count](7)).unwrap()\n    print(maths.identity[list[i64]]([1, 2].unwrap())).unwrap()\n    print(maths.bumped[u16](4)).unwrap()\n",
+                "import maths\nfrom maths import identity as keep\ntype Count = u8\ndef main() -> Result[(), OverflowError[i64]]:\n    print(keep[Count](7)).unwrap()\n    print(maths.identity[list[i64]]([1, 2].unwrap())).unwrap()\n    print(maths.bumped[u16](4)?).unwrap()\n    Ok(())\n",
             ),
         ],
         "main.plenty",
@@ -606,11 +606,11 @@ fn absolute_imports_aliases_forward_calls_and_private_helpers() {
         &[
             (
                 "app/main.plenty",
-                "import math.arithmetic\nfrom math.arithmetic import twice as double\nimport math.arithmetic as numbers\ndef main() -> ():\n    print(math.arithmetic.twice(10)).unwrap()\n    print(double(11)).unwrap()\n    print(numbers.twice(12)).unwrap()\n",
+                "import math.arithmetic\nfrom math.arithmetic import twice as double\nimport math.arithmetic as numbers\ndef main() -> Result[(), OverflowError[i64]]:\n    print(math.arithmetic.twice(10)?).unwrap()\n    print(double(11)?).unwrap()\n    print(numbers.twice(12)?).unwrap()\n    Ok(())\n",
             ),
             (
                 "math/arithmetic.plenty",
-                "pub def twice(n: i64) -> i64:\n    helper(n)\ndef helper(n: i64) -> i64:\n    n * 2\ndef main() -> ():\n    print('not an entrypoint').unwrap()\n",
+                "pub def twice(n: i64) -> Result[i64, OverflowError[i64]]:\n    helper(n)\ndef helper(n: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(n * 2)\ndef main() -> ():\n    print('not an entrypoint').unwrap()\n",
             ),
         ],
         "app/main.plenty",
@@ -620,7 +620,10 @@ fn absolute_imports_aliases_forward_calls_and_private_helpers() {
 
 #[test]
 fn imported_main_is_an_ordinary_function_and_library_check_needs_no_entry() {
-    let dir = workspace(&[("lib.plenty", "pub def main(n: i64) -> i64:\n    n + 1\n")]);
+    let dir = workspace(&[(
+        "lib.plenty",
+        "pub def main(n: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(n + 1)\n",
+    )]);
     plenty::check_module_file(&dir.path().join("lib.plenty"), None).unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_plenty"))
         .arg("--check-module")
@@ -633,9 +636,12 @@ fn imported_main_is_an_ordinary_function_and_library_check_needs_no_entry() {
         &[
             (
                 "main.plenty",
-                "import lib\ndef main() -> ():\n    print(lib.main(41)).unwrap()\n",
+                "import lib\ndef main() -> Result[(), OverflowError[i64]]:\n    print(lib.main(41)?).unwrap()\n    Ok(())\n",
             ),
-            ("lib.plenty", "pub def main(n: i64) -> i64:\n    n + 1\n"),
+            (
+                "lib.plenty",
+                "pub def main(n: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(n + 1)\n",
+            ),
         ],
         "main.plenty",
         "42\n",
@@ -645,7 +651,7 @@ fn imported_main_is_an_ordinary_function_and_library_check_needs_no_entry() {
     assert!(plenty::check_file(&dir.path().join("empty.plenty"), None).is_err());
 }
 
-const MODEL: &str = "pub class Counter:\n    value: i64\n    pub def __init__(self, value: i64) -> ():\n        self.value = value\n    pub def get(self) -> i64:\n        self.value\n    pub def increment(self: &mut Counter) -> ():\n        self.value = self.value + 1\n    def hidden(self) -> i64:\n        self.value\n    def __del__(self) -> ():\n        print(self.value).unwrap()\npub def peek(x: &Counter) -> i64:\n    x.value\n";
+const MODEL: &str = "pub class Counter:\n    value: i64\n    pub def __init__(self, value: i64) -> ():\n        self.value = value\n    pub def get(self) -> i64:\n        self.value\n    pub def increment(self: &mut Counter) -> Result[(), OverflowError[i64]]:\n        self.value = self.value + 1\n        Ok(())\n    def hidden(self) -> i64:\n        self.value\n    def __del__(self) -> ():\n        print(self.value).unwrap()\npub def peek(x: &Counter) -> i64:\n    x.value\n";
 
 #[test]
 fn public_methods_construction_and_private_drop_work_across_modules() {
@@ -653,7 +659,7 @@ fn public_methods_construction_and_private_drop_work_across_modules() {
         &[
             (
                 "main.plenty",
-                "from model import Counter, peek\ndef main() -> ():\n    mut counter = Counter(40)\n    counter.increment()\n    print(counter.get()).unwrap()\n    print(peek(&counter)).unwrap()\n",
+                "from model import Counter, peek\ndef main() -> Result[(), OverflowError[i64]]:\n    mut counter = Counter(40)\n    counter.increment()?\n    print(counter.get()).unwrap()\n    print(peek(&counter)).unwrap()\n    Ok(())\n",
             ),
             ("model.plenty", MODEL),
         ],
@@ -914,7 +920,7 @@ fn an_alias_cannot_enclose_a_module_path() {
             b,
             (
                 "main.plenty",
-                "import x as p\nimport p.b as b\ndef main() -> Result[(), IoError]:\n    print(p.f() * 10 + b.f())?\n    Ok(())\n",
+                "import x as p\nimport p.b as b\ndef main() -> Result[(), IoError | OverflowError[i64]]:\n    print(p.f() * 10 + b.f())?\n    Ok(())\n",
             ),
         ],
         "main.plenty",
@@ -1044,11 +1050,11 @@ fn imported_generators_enums_and_tail_recursion_keep_their_identities() {
         &[
             (
                 "main.plenty",
-                "import data\ndef main() -> ():\n    for value in data.values():\n        match value:\n            case data.Reading.Value(n):\n                print(n).unwrap()\n            case data.Reading.Empty:\n                pass\n    print(data.count(100_000)).unwrap()\n",
+                "import data\ndef main() -> Result[(), OverflowError[i64]]:\n    for value in data.values():\n        match value:\n            case data.Reading.Value(n):\n                print(n).unwrap()\n            case data.Reading.Empty:\n                pass\n    print(data.count(100_000)?).unwrap()\n    Ok(())\n",
             ),
             (
                 "data.plenty",
-                "pub enum Reading:\n    Value(i64)\n    Empty\npub def values() -> Generator[Reading]:\n    yield Reading.Value(42)\n    yield Reading.Empty\npub def count(n: i64) -> i64:\n    if n == 0:\n        0\n    else:\n        count(n - 1)\n",
+                "pub enum Reading:\n    Value(i64)\n    Empty\npub def values() -> Generator[Reading]:\n    yield Reading.Value(42)\n    yield Reading.Empty\npub def count(n: i64) -> Result[i64, OverflowError[i64]]:\n    if n == 0:\n        Ok(0)\n    else:\n        count(n - 1)\n",
             ),
         ],
         "main.plenty",
@@ -1073,7 +1079,7 @@ fn namespace_roots_and_locals_do_not_implicitly_import_names() {
         &[
             (
                 "main.plenty",
-                "import pkg.a, pkg.b\ndef main() -> ():\n    print(pkg.a.f() + pkg.b.f()).unwrap()\n",
+                "import pkg.a, pkg.b\ndef main() -> Result[(), OverflowError[i64]]:\n    print(pkg.a.f() + pkg.b.f()).unwrap()\n    Ok(())\n",
             ),
             ("pkg/a.plenty", "pub def f() -> i64:\n    1\n"),
             ("pkg/b.plenty", "pub def f() -> i64:\n    2\n"),

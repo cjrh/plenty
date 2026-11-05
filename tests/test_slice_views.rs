@@ -37,15 +37,16 @@ fn owners_convert_to_whole_views() {
         r#"
 import std.bytes
 
-def total(values: &[i64]) -> i64:
+def total(values: &[i64]) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     for x in values:
         sum += *x
-    sum
+    Ok(sum)
 
-def double(values: &mut [i64]) -> ():
+def double(values: &mut [i64]) -> Result[(), OverflowError[i64]]:
     for x in values:
         *x *= 2
+    Ok(())
 
 def count(t: &[u8]) -> i64:
     len(t)
@@ -53,13 +54,13 @@ def count(t: &[u8]) -> i64:
 def width[T](xs: &[T]) -> i64:
     len(xs)
 
-def through(xs: &list[i64]) -> i64:
+def through(xs: &list[i64]) -> Result[i64, OverflowError[i64]]:
     total(xs)
 
-def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | OverflowError[i64]]:
     mut xs = [1, 2, 3]?
-    print(total(&xs), total(&xs[:]), through(&xs), width(&xs))?
-    double(&mut xs)
+    print(total(&xs)?, total(&xs[:])?, through(&xs)?, width(&xs))?
+    double(&mut xs)?
     print(xs)?
     buffer = std.bytes.from_text("abcd")?
     data = b"xyz"
@@ -69,9 +70,9 @@ def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     print(count(&buffer), count(&data), count(b""), width(b"pq"), n)?
     boxed = Box([4, 5]?)?
     shared = Shared([6, 7, 8]?)?
-    print(total(&boxed), total(&shared))?
+    print(total(&boxed)?, total(&shared)?)?
     mut v: &[i64] = &xs
-    print(total(v))?
+    print(total(v)?)?
     v = &xs
     bytes_view: &[u8] = b"hi"
     print(v, bytes_view)?
@@ -90,21 +91,26 @@ fn views_are_pipeline_sources() {
 import std.bytes as bytes_mod
 
 def even(x: &i64) -> bool:
-    return *x % 2 == 0
+    two: NonZero[i64] = 2
+    return *x % two == 0
 
-def ten(x: &i64) -> i64:
-    return *x * 10
+def ten(x: &i64) -> Result[i64, OverflowError[i64]]:
+    return Ok(*x * 10)
 
-def bump(x: &mut i64) -> ():
+def bump(x: &mut i64) -> Result[(), OverflowError[i64]]:
     *x += 100
+    Ok(())
 
-def main() -> Result[(), AllocError | IoError | bytes_mod.BytesError]:
+def add_ten(total: i64, value: Result[i64, OverflowError[i64]]) -> Result[i64, OverflowError[i64]]:
+    Ok(total + value?)
+
+def main() -> Result[(), AllocError | IoError | bytes_mod.BytesError | OverflowError[i64]]:
     mut xs = [1, 2, 3, 4, 5, 6]?
     view = &xs[1:5]
-    print(iter(view).filter(even).count(), iter(&xs[1:5]).map(ten).sum())?
-    tens: list[i64] = iter(&xs[:3]).map(ten).collect()?
-    print(tens, iter(reversed(&xs[:])).take(2).map(ten).sum())?
-    iter(&mut xs[4:]).for_each(bump)
+    print(iter(view).filter(even).count(), iter(&xs[1:5]).map(ten).try_fold(0, add_ten)?)?
+    tens: list[i64] = iter(&xs[:3]).map(ten).try_collect()?
+    print(tens, iter(reversed(&xs[:])).take(2).map(ten).try_fold(0, add_ten)?)?
+    iter(&mut xs[4:]).try_for_each(bump)?
     print(xs)?
     buffer = bytes_mod.from_text("abc")?
     print(iter(&buffer[1:]).count())?
@@ -221,7 +227,7 @@ def main() -> Result[(), AllocError | IoError]:
 fn exclusive_views_write_elements_in_place() {
     support::assert_stdout(
         r#"
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut xs = [1, 2, 3, 4]?
     m = &mut xs[1:]
     m[0] = 20
@@ -255,17 +261,18 @@ class Guard:
     def __del__(self) -> ():
         print(self.id).unwrap()
 
-def reverse(v: &mut [i64]) -> ():
+def reverse(v: &mut [i64]) -> Result[(), OverflowError[i64]]:
     mut lo = 0
     mut hi = len(v) - 1
     while lo < hi:
         v.swap(lo, hi)
         lo += 1
         hi -= 1
+    Ok(())
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut xs = [1, 2, 3, 4, 5, 6]?
-    reverse(&mut xs[1:5])
+    reverse(&mut xs[1:5])?
     v = &mut xs[:]
     v.swap(0, -1)
     v.swap(-3, -3)
@@ -332,17 +339,17 @@ fn byte_views_share_one_element_type() {
         r#"
 import std.bytes as bytes_mod
 
-def checksum(v: &[u8]) -> i64:
+def checksum(v: &[u8]) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     for b in v:
         sum += i64(*b)
-    return sum
+    return Ok(sum)
 
-def main() -> Result[(), AllocError | IoError | bytes_mod.BytesError]:
+def main() -> Result[(), AllocError | IoError | bytes_mod.BytesError | OverflowError[i64]]:
     raw = [104u8, 105u8]?
     mut buffer = bytes_mod.from_text("hi there")?
     literal = b"hi"
-    print(checksum(&raw[:]), checksum(&buffer[:2]), checksum(&literal[:]))?
+    print(checksum(&raw[:])?, checksum(&buffer[:2])?, checksum(&literal[:])?)?
     print(&raw[:] == &buffer[:2], &buffer[3:] != &literal[:])?
     upper = &mut buffer[:2]
     upper[0] = 72
@@ -386,18 +393,19 @@ fn view_parameters_take_part_of_an_owner() {
 class Bag:
     items: list[i64]
 
-    def head_total(self, n: i64) -> i64:
+    def head_total(self, n: i64) -> Result[i64, OverflowError[i64]]:
         return total(&self.items[:n])
 
-def total(v: &[i64]) -> i64:
+def total(v: &[i64]) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     for x in v:
         sum += *x
-    return sum
+    return Ok(sum)
 
-def bump(v: &mut [i64]) -> ():
+def bump(v: &mut [i64]) -> Result[(), OverflowError[i64]]:
     for x in v:
         *x += 1
+    Ok(())
 
 def count[T](v: &[T]) -> i64:
     return len(v)
@@ -406,20 +414,25 @@ def first(v: &[i64]) -> &i64:
     return &v[0]
 
 def last_mut(v: &mut [i64]) -> &mut i64:
-    return &mut v[len(v) - 1]
+    if len(v) == 0:
+        return &mut v[-1]
+    last = unchecked:
+        # A nonempty view has 1 <= len(v) <= i64.MAX; preserve the reference ABI.
+        len(v) - 1
+    return &mut v[last]
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut xs = [1, 2, 3, 4]?
-    print(total(&xs[1:3]), total(&xs[:]), count(&xs[2:]))?
-    bump(&mut xs[2:])
+    print(total(&xs[1:3])?, total(&xs[:])?, count(&xs[2:]))?
+    bump(&mut xs[2:])?
     print(xs)?
     view = &xs[1:]
-    print(total(view), *first(view))?
+    print(total(view)?, *first(view))?
     slot = last_mut(&mut xs[:2])
     *slot = 9
     print(xs)?
     bag = Bag([5, 6, 7]?)
-    print(bag.head_total(2))?
+    print(bag.head_total(2)?)?
     Ok(())
 "#,
         "5 10 2\n[1, 2, 4, 5]\n11 2\n[1, 9, 4, 5]\n11\n",
@@ -430,22 +443,23 @@ def main() -> Result[(), AllocError | IoError]:
 fn scoped_threads_borrow_views() {
     support::assert_stdout(
         r#"
-def total(v: &[i64]) -> i64:
+def total(v: &[i64]) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     for x in v:
         sum += *x
-    return sum
+    return Ok(sum)
 
-def bump(v: &mut [i64]) -> ():
+def bump(v: &mut [i64]) -> Result[(), OverflowError[i64]]:
     for x in v:
         *x += 1
+    Ok(())
 
-def main() -> Result[(), SpawnError[()] | AllocError | IoError]:
+def main() -> Result[(), SpawnError[()] | AllocError | IoError | OverflowError[i64]]:
     mut xs = [1, 2, 3, 4]?
     with spawn(total, &xs[:2])? as a, spawn(total, &xs[2:])? as b:
-        print(a.join(), b.join())?
+        print(a.join()?, b.join()?)?
     with spawn(bump, &mut xs[1:])? as job:
-        job.join()
+        job.join()?
     print(xs)?
     Ok(())
 "#,
@@ -457,7 +471,7 @@ def main() -> Result[(), SpawnError[()] | AllocError | IoError]:
 fn view_index_is_checked_against_the_view() {
     let output = support::run(
         r#"
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     xs = [1, 2, 3, 4]?
     v = &xs[1:3]
     i = len(xs) - 2
@@ -635,24 +649,28 @@ fn views_add_no_allocations() {
         r#"
 import std.bytes as bytes_mod
 
-def total(v: &[i64]) -> i64:
+def total(v: &[i64]) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     for x in v:
         sum += *x
-    return sum
+    return Ok(sum)
 
 def even(x: &i64) -> bool:
-    return *x % 2 == 0
+    two: NonZero[i64] = 2
+    return *x % two == 0
 
-def ten(x: &i64) -> i64:
-    return *x * 10
+def ten(x: &i64) -> Result[i64, OverflowError[i64]]:
+    return Ok(*x * 10)
 
-def main() -> Result[(), AllocError | IoError | bytes_mod.BytesError]:
+def add_ten(total: i64, value: Result[i64, OverflowError[i64]]) -> Result[i64, OverflowError[i64]]:
+    Ok(total + value?)
+
+def main() -> Result[(), AllocError | IoError | bytes_mod.BytesError | OverflowError[i64]]:
     mut xs = [1, 2, 3, 4, 5]?
     mut buffer = bytes_mod.from_text("abc")?
     mut sum = 0
     print("__test_begin_no_allocations__")?
-    sum += total(&xs[1:4])
+    sum += total(&xs[1:4])?
     for x in &mut xs[:2]:
         *x += 1
     view = &xs[-2:]
@@ -665,7 +683,7 @@ def main() -> Result[(), AllocError | IoError | bytes_mod.BytesError]:
     (&mut xs[2:]).swap(0, -1)
     (&mut xs[2:]).swap(-1, 0)
     sum += i64(tail[1])
-    sum += iter(&xs[1:4]).filter(even).count() + iter(&xs[:]).map(ten).sum()
+    sum += iter(&xs[1:4]).filter(even).count() + iter(&xs[:]).map(ten).try_fold(0, add_ten)?
     for b in &buffer:
         sum += i64(*b)
     print("__test_end_no_allocations__")?
@@ -733,18 +751,18 @@ fn view_arguments_hold_call_results_and_slice_literals() {
         r#"
 import std.bytes
 
-def total(xs: &[u8]) -> i64:
+def total(xs: &[u8]) -> Result[i64, OverflowError[i64]]:
     mut sum = 0
     for x in xs:
         sum += i64(*x)
-    sum
+    Ok(sum)
 
-def main() -> Result[(), std.bytes.BytesError | AllocError | IoError]:
+def main() -> Result[(), std.bytes.BytesError | AllocError | IoError | OverflowError[i64]]:
     mut buffer = std.bytes.empty()?
     for word in ["ab", "cd"]?:
         buffer.extend(&std.bytes.from_text(word)?[1:])?
     buffer.extend(&b"GET /"[:3])?
-    print(buffer, total(&[1u8, 2u8]?), total(&std.bytes.from_text("ab")?))?
+    print(buffer, total(&[1u8, 2u8]?)?, total(&std.bytes.from_text("ab")?)?)?
     Ok(())
 "#,
     );

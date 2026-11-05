@@ -11,7 +11,7 @@ import std.io
 
 type CsvInputError = ParseError | std.csv.CsvError | std.bytes.BytesError
 
-def main() -> Result[(), AllocError | IoError | CsvInputError]:
+def main() -> Result[(), AllocError | IoError | CsvInputError | OverflowError[i64]]:
     text = "item,price,note\r\npen,3,\"blue, fine\"\r\nbook,12,\"says \"\"read me\"\"\"\r\ncard,2,\"two\nlines\"\r\n"
     mut input = std.csv.reader(std.io.cursor(std.bytes.from_text(text)?), &std.csv.rfc4180(), 16)?
     mut record = std.csv.record()?

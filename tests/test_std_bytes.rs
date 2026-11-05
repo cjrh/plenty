@@ -11,7 +11,7 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "{HEADER}def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | RangeError]:\n{body}    Ok(())\n"
+        "{HEADER}def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | RangeError | OverflowError[i64] | OverflowError[u8] | ZeroDivisionError]:\n{body}    Ok(())\n"
     )
 }
 
@@ -330,24 +330,24 @@ fn shared_views_read_ranges_and_exclusive_views_write_in_place() {
     let source = format!(
         "{HEADER}{}",
         r#"
-def checksum(view: &Bytes, start: i64, stop: i64) -> i64:
+def checksum(view: &Bytes, start: i64, stop: i64) -> Result[i64, OverflowError[i64]]:
     mut total = 0
     for index in range(start, stop):
         total += i64(view.get(index))
-    total
+    Ok(total)
 
-def upper(view: &mut Bytes, start: i64, stop: i64) -> ():
+def upper(view: &mut Bytes, start: i64, stop: i64) -> Result[(), OverflowError[u8]]:
     for index in range(start, stop):
         value = view.get(index)
         if value >= 97u8 and value <= 122u8:
             view.set(index, value - 32u8)
-    ()
+    Ok(())
 
-def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
+def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | OverflowError[i64] | OverflowError[u8]]:
     mut buffer = std.bytes.from_text("abc def")?
     view = &buffer
-    print(checksum(view, 0, 3), checksum(view, 3, 3))?
-    upper(&mut buffer, 4, 7)
+    print(checksum(view, 0, 3)?, checksum(view, 3, 3)?)?
+    upper(&mut buffer, 4, 7)?
     print(buffer.to_text()?)?
     Ok(())
 "#
@@ -454,13 +454,14 @@ def poke(frame: &mut Frame, index: i64, value: u8) -> ():
 def first(buffer: &Bytes) -> u8:
     buffer[0]
 
-def bump(buffer: &mut Bytes) -> ():
+def bump(buffer: &mut Bytes) -> Result[(), OverflowError[u8]]:
     buffer[-1] += 1u8
+    Ok(())
 
 def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     mut frame = Frame(std.bytes.from_text("xyz")?)
     poke(&mut frame, -2, 65u8)
-    bump(&mut frame.data)
+    bump(&mut frame.data).unwrap()
     print(first(&frame.data), frame.data[1], frame.data[2])?
     Ok(())
 "#
@@ -506,7 +507,7 @@ for value in &buffer:
 for value in reversed(&buffer):
     seen.append(*value)?
 print(seen)?
-shout(&mut buffer)
+shout(&mut buffer)?
 print(buffer.to_text()?)?
 mut total = 0
 for value in buffer:
@@ -515,7 +516,7 @@ print(total)?
 "#,
     );
     let source = format!(
-        "{source}\ndef shout(text: &mut Bytes) -> ():\n    for value in text:\n        *value -= 32u8\n"
+        "{source}\ndef shout(text: &mut Bytes) -> Result[(), OverflowError[u8]]:\n    for value in text:\n        *value -= 32u8\n    Ok(())\n"
     );
     assert_eq!(output(&source), "[98, 99, 100, 100, 99, 98]\nBCD\n201");
 }

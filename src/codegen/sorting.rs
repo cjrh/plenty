@@ -78,7 +78,6 @@ pub(super) fn build_adapter(
         terminated: false,
         loop_targets: vec![],
         checked_targets: vec![],
-        checked_function: None,
         generator: None,
         local_frame: None,
         return_storage: None,
@@ -97,8 +96,11 @@ pub(super) fn build_adapter(
     };
     // References are slot addresses: the runtime passes each row's value word
     // through a slot it owns for the duration of the call.
-    let checked = sort.callback.checked_error().is_some();
-    let callback = if checked {
+    let checked = sort
+        .error
+        .as_ref()
+        .map(|error| crate::sum::result(Ty::Unit, error.clone()));
+    let callback = if checked.is_some() {
         let flags = MemFlagsData::trusted();
         let previous = lower.bcx.ins().load(types::I128, flags, params[0], 16);
         let tag = lower.sum_tag(previous);
@@ -136,8 +138,8 @@ pub(super) fn build_adapter(
         lower.stack.push((callback, sort.callback.clone()));
         lower.stack.push((row, item.clone()));
         lower.lower_call(&sort.key_of)?;
-        if checked {
-            lower.checked_sort_key(params[0], &sort.key)?;
+        if let Some(result) = &checked {
+            lower.checked_sort_key(params[0], &sort.key, result)?;
         }
     }
     lower.lower_collection(&CollectionOp::OrderCompare(sort.key.clone()))?;
@@ -152,9 +154,14 @@ pub(super) fn build_adapter(
 impl Lowerer<'_, '_> {
     /// The runtime keeps moving rows after a failure, but the adapter stops
     /// evaluating user keys. The caller reads this cell once sorting returns.
-    fn checked_sort_key(&mut self, context: cranelift_codegen::ir::Value, key: &Ty) -> Result<()> {
-        let (value, result) = self.stack.pop().ok_or("missing checked sort key")?;
-        let Ty::Enum(_) = result else {
+    fn checked_sort_key(
+        &mut self,
+        context: cranelift_codegen::ir::Value,
+        key: &Ty,
+        result: &Ty,
+    ) -> Result<()> {
+        let (value, key_result) = self.stack.pop().ok_or("missing checked sort key")?;
+        let Ty::Enum(_) = key_result else {
             return Err("checked key must return Result".into());
         };
         let tag = self.sum_tag(value);
@@ -168,9 +175,10 @@ impl Lowerer<'_, '_> {
         let pending = self.stack.clone();
         self.release_stack();
         let error = self.wrap_sum(payload, 1);
-        self.bcx
-            .ins()
-            .store(MemFlagsData::trusted(), error, context, 16);
+        // The key's inline return storage belongs to this comparator frame.
+        // Relocate into the sort caller's typed slot before returning.
+        let slot = self.bcx.ins().iadd_imm_s(context, 16);
+        self.store_slot(slot, error, result);
         let equal = self.bcx.ins().iconst(types::I64, 0);
         self.bcx.ins().return_(&[equal]);
         self.stack = pending;

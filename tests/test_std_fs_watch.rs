@@ -21,17 +21,30 @@ from std.time import deadline_at, monotonic_now
 fn run(body: &str) -> String {
     let lines: String = body.lines().map(|line| format!("    {line}\n")).collect();
     let source = format!(
-        "{HEADER}\ndef main() -> Result[(), IoError | AllocError | WatchError | WaitError]:\n{lines}    Ok(())\n"
+        "{HEADER}\ndef main() -> Result[(), IoError | AllocError | WatchError | WaitError | OverflowError[i64]]:\n{lines}    Ok(())\n"
     );
     run_source(&source)
 }
 
 fn run_source(source: &str) -> String {
+    run_source_mode(source, false)
+}
+
+fn run_source_mode(source: &str, optimize: bool) -> String {
     let dir = tempfile::tempdir().unwrap();
     let source_path = support::write_main(dir.path(), source);
     let executable = dir.path().join("program");
-    plenty::compile_file_to_executable(&source_path, &executable, None)
-        .unwrap_or_else(|error| panic!("{source}\n{error}"));
+    plenty::compile_file_to_executable_with_options(
+        &source_path,
+        &executable,
+        None,
+        &plenty::CompileOptions {
+            optimize,
+            test_hooks: true,
+            ..Default::default()
+        },
+    )
+    .unwrap_or_else(|error| panic!("{source}\n{error}"));
     let output = Command::new(executable)
         .current_dir(dir.path())
         .output()
@@ -53,7 +66,7 @@ fn run_source(source: &str) -> String {
 fn worker_ownership_and_drop_release_descriptors() {
     let source = format!(
         r#"{HEADER}
-def descriptors() -> Result[i64, IoError]:
+def descriptors() -> Result[i64, IoError | OverflowError[i64]]:
     mut entries = std.fs.read_dir(&std.path.from_text("/proc/self/fd")?)?
     mut count = 0
     while entries.next()?.is_some():
@@ -66,7 +79,7 @@ def observe(watcher: std.fs.watch.Watcher, path: std.path.Path) -> bool:
     second = owned.add(&path).unwrap()
     owned.poll().unwrap() == 0 and first == second
 
-def main() -> Result[(), IoError | AllocError | WatchError | SpawnError[()]]:
+def main() -> Result[(), IoError | AllocError | WatchError | SpawnError[()] | OverflowError[i64]]:
     before = descriptors()?
     for index in range(20):
         watcher = std.fs.watch.watcher()?
@@ -359,4 +372,39 @@ def main() -> Result[(), IoError | WatchError]:
         String::from_utf8_lossy(&output.stderr)
     );
     assert_eq!(line, "True\n");
+}
+
+#[test]
+fn watcher_batch_and_longest_name_boundaries_in_both_modes() {
+    let source = format!(
+        r#"{HEADER}
+def main() -> Result[(), IoError | AllocError | WatchError]:
+    for size in [i64.MIN, 271, 65537, i64.MAX]?:
+        match std.fs.watch.watcher(size):
+            case Err(WatchError.OutOfRange):
+                pass
+            case _:
+                print("wrong range error")?
+    name = "x".repeat(255)?
+    root = std.fs.root(&std.path.from_text(".")?)?
+    path = std.path.from_text(&name)?
+    for size in [272, 65536]?:
+        mut watcher = std.fs.watch.watcher(size)?
+        watcher.add(&std.path.from_text(".")?)?
+        root.create_dir(&path)?
+        count = watcher.poll()?
+        event = watcher.event(0)?
+        print(count == 1, event.created(), event.name.as_bytes() == path.as_bytes())?
+        print(watcher.event(i64.MIN).is_err(), watcher.event(i64.MAX).is_err())?
+        watcher.close()?
+        root.remove_dir(&path)?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            run_source_mode(&source, optimize),
+            "True True True\nTrue True\nTrue True True\nTrue True"
+        );
+    }
 }

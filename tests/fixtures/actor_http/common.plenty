@@ -25,7 +25,7 @@ const signal_stop: bool = False
 const max_line: i64 = 8192
 const max_head: i64 = 32768
 
-type AppError = ServerError | HttpError | BytesError | AllocError | std.fmt.FormatError
+type AppError = ServerError | HttpError | BytesError | AllocError | std.fmt.FormatError | OverflowError[i64]
 
 # Blocking stdin is confined to a separate ordinary thread. It lets the
 # harness cancel even when every factory fails, without an HTTP control route.

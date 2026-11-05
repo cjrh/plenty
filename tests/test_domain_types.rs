@@ -27,26 +27,28 @@ print(NonZero[i64].from(p), NonNegative[i64].from(p)).unwrap()
 fn arithmetic_keeps_only_valid_guarantees() {
     runs(
         r#"
-a: Positive[i8] = 3
-b: Positive[i8] = 2
-sum: Positive[i8] = a + b
-product: Positive[i8] = a * b
-difference: i8 = a - b
-negative: i8 = -a
-mut n: NonNegative[i8] = 0
-n += 2
-n *= 3
-mut p = a
-p += b
-p *= 2
-print(sum, product, difference, negative, n, p).unwrap()
-print(a == 3, a > b, n >= 0).unwrap()
-overflow = checked:
-    a * 100
-print(overflow.is_err()).unwrap()
-addition = checked:
-    p + 120
-print(addition.is_err()).unwrap()
+def main() -> Result[(), IoError | OverflowError[i8]]:
+    a: Positive[i8] = 3
+    b: Positive[i8] = 2
+    sum: Positive[i8] = a + b
+    product: Positive[i8] = a * b
+    difference: i8 = a - b
+    negative: i8 = -a
+    mut n: NonNegative[i8] = 0
+    n += 2
+    n *= 3
+    mut p = a
+    p += b
+    p *= 2
+    print(sum, product, difference, negative, n, p)?
+    print(a == 3, a > b, n >= 0)?
+    overflow = checked:
+        a * 100
+    print(overflow.is_err())?
+    addition = checked:
+        p + 120
+    print(addition.is_err())?
+    Ok(())
 "#,
         "5 6 1 -3 6 10\nTrue True True\nTrue\nTrue\n",
     );
@@ -73,21 +75,23 @@ print(keys[p], n in seen, values, p).unwrap()
 fn borrowed_domains_and_checked_error_payloads() {
     runs(
         r#"
-def negate(value: &Positive[i8]) -> i8:
-    -value
-def increment(value: &NonNegative[i8]) -> NonNegative[i8]:
-    value + 1
+def negate(value: &Positive[i8]) -> Result[i8, OverflowError[i8]]:
+    Ok(-value)
+def increment(value: &NonNegative[i8]) -> Result[NonNegative[i8], OverflowError[i8]]:
+    Ok(value + 1)
 def overflow(value: Positive[i8]) -> Result[Positive[i8], OverflowError[i8]]:
     checked:
         value * 2
-p: Positive[i8] = 100
-n: NonNegative[i8] = 0
-print(negate(&p), increment(&n)).unwrap()
-match overflow(p):
-    case Ok(_):
-        print("unexpected").unwrap()
-    case Err(OverflowError(wrapped)):
-        print(wrapped).unwrap()
+def main() -> Result[(), IoError | OverflowError[i8]]:
+    p: Positive[i8] = 100
+    n: NonNegative[i8] = 0
+    print(negate(&p)?, increment(&n)?)?
+    match overflow(p):
+        case Ok(_):
+            print("unexpected")?
+        case Err(OverflowError(wrapped)):
+            print(wrapped)?
+    Ok(())
 "#,
         "-100 1\n-56\n",
     );

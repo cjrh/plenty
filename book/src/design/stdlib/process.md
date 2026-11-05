@@ -70,7 +70,12 @@ input. Pass such data as an argument or a variable instead.
   name that is empty or contains `=` are `IoError.InvalidInput`. A failed
   method leaves the command exactly as it was.
 - An empty argument is valid and is passed as an empty argument.
-- Allocation failure is `IoError.Data(DataError.Allocation(...))`.
+- Allocation failure is `IoError.Data(DataError.Allocation(...))`. Unrepresentable
+  argument, environment and combined request sizes preserve
+  `AllocError.CapacityOverflow` in that cause, before mutation or starting a child.
+- Appending a terminated byte string reserves only its new bytes and NUL, not
+  bytes already held. Existing capacity can satisfy the operation without an
+  allocation; failed growth leaves the original command unchanged.
 
 `Stdio` selects each standard stream:
 
@@ -191,7 +196,14 @@ to two new buffers as data arrives, closes each stream at its end, then waits.
 - Interrupted calls are retried. Other failures are the
   [`StreamError`](io.md) of the failing transfer.
 - Memory is the two outputs, grown in 8 KiB steps. Input is written in 4 KiB
-  pieces and is not copied.
+  pieces and is not copied. A next-buffer extent that cannot fit `i64` returns
+  `StreamError.Allocation(AllocError.CapacityOverflow)` before growing or reading
+  that chunk, including when the extra limit-probe byte is unrepresentable.
+
+Readiness flags and process identifiers use bit masks. Argument counts, status
+subtraction and pipe cursors use explicit arithmetic opt-outs justified by
+successful storage growth, validated statuses and concrete file progress.
+Caller arithmetic modes do not change these boundaries.
 
 ## Ownership and reaping
 

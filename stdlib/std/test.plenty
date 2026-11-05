@@ -284,13 +284,20 @@ pub class FakeStream:
     # The call `after` calls from now fails with `error` and moves nothing;
     # 0 fails the next call. One failure is pending at a time; a later
     # request replaces it.
-    pub def fail_after(self: &mut FakeStream, after: i64, error: StreamError) -> ():
+    pub def fail_after(self: &mut FakeStream, after: i64, error: StreamError) -> Result[(), OverflowError[i64]]:
         self._fault_at = self._calls + after
         drop(replace(self._fault, Some(error)))
+        Ok(())
 
     def begin(self: &mut FakeStream) -> Result[(), StreamError]:
         call = self._calls
-        self._calls += 1
+        advanced = checked:
+            self._calls + 1
+        match advanced:
+            case Ok(count):
+                self._calls = count
+            case Err(_):
+                return Err(StreamError.OutOfRange)
         if call != self._fault_at:
             return Ok(())
         self._fault_at = -1
@@ -309,15 +316,19 @@ pub class FakeStream:
         if not (0 <= start and start <= stop and stop <= buffer.len()):
             __trap("read: start/stop outside buffer")
         self.begin()?
-        mut count = self.allowed(stop - start)
-        left = self.input.len() - self._read
-        if count > left:
-            count = left
-        if count <= 0:
-            return Ok(0)
-        buffer.overwrite(start, &self.input[self._read:self._read + count])
-        self._read += count
-        Ok(count)
+        # Endpoints and the private cursor are nonnegative i64 values. A public
+        # input replacement may make left negative; positive count is then
+        # rejected before addition, otherwise the new cursor fits input.len().
+        unchecked:
+            mut count = self.allowed(stop - start)
+            left = self.input.len() - self._read
+            if count > left:
+                count = left
+            if count <= 0:
+                return Ok(0)
+            buffer.overwrite(start, &self.input[self._read:self._read + count])
+            self._read += count
+            Ok(count)
 
     pub def write(self: &mut FakeStream, source: &[u8]) -> Result[i64, StreamError]:
         self.begin()?

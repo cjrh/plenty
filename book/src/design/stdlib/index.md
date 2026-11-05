@@ -68,7 +68,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.log`](log.md) | Leveled events with typed fields, delivered to caller-chosen sinks: logfmt lines, bounded memory, or a nonblocking channel | `LogError` |
 | [`std.markdown`](markdown.md) | CommonMark 0.31.2 parsing into events and HTML rendering, under input, depth, and output limits | `MarkdownError` |
 | [`std.template`](template.md) | Bounded Jinja-style text templates with explicit JSON values, HTML escaping, conditions, loops and named inheritance | `TemplateError` |
-| [`std.math`](math.md) | Floating-point functions, checked rounding, integer algorithms, generic numeric helpers, and constants | `MathError` |
+| [`std.math`](math.md) | Floating-point functions, checked rounding, integer algorithms, integer and float helpers, and constants | `MathError`, `OverflowError[T]` |
 | [`std.mime`](mime.md) | Media types: RFC 9110 parsing and formatting with parameters, media-range matching, and the file-extension table | `ParseError`, `AllocError` |
 | [`std.net`](net.md) | TCP listeners and streams, UDP sockets, IP addresses and name lookup, with deadlines and cancellation | `NetError` |
 | [`std.path`](path.md) | Lossless Linux paths, lexical operations, checked text conversion and escaped display | `IoError`, `AllocError` |

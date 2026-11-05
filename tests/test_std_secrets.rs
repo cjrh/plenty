@@ -19,22 +19,32 @@ pub class Script:
     pub value: u8
 
     pub def read(self: &mut Script, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
-        mut step = stop - start
-        if self.at < len(self.steps):
-            step = self.steps[self.at]
-        self.at += 1
-        if step == -1:
-            return Err(StreamError.Interrupted)
-        if step == -2:
-            return Err(StreamError.Io(IoError.System(5)))
-        if step == -3:
-            return Ok(stop - start + 1)
-        if step > stop - start:
-            step = stop - start
-        for offset in range(step):
-            buffer.set(start + offset, self.value)
-            self.value = self.value.wrapping_add(1u8)
-        Ok(step)
+        # fill/read_exact validate the offered range; each byte cursor stays below stop.
+        unchecked:
+            mut step = stop - start
+            if self.at < len(self.steps):
+                step = self.steps[self.at]
+            self.at = advanced(self.at)?
+            if step == -1:
+                return Err(StreamError.Interrupted)
+            if step == -2:
+                return Err(StreamError.Io(IoError.System(5)))
+            if step == -3:
+                return advanced(stop - start)
+            if step > stop - start:
+                step = stop - start
+            for offset in range(step):
+                buffer.set(start + offset, self.value)
+                self.value = self.value.wrapping_add(1u8)
+            Ok(step)
+def advanced(count: i64) -> Result[i64, StreamError]:
+    result = checked:
+        count + 1
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(_):
+            Err(StreamError.OutOfRange)
 
 "#;
 
@@ -45,7 +55,7 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "{HEADER}def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | std.secrets.SecretsError]:\n{body}    Ok(())\n"
+        "{HEADER}def main() -> Result[(), AllocError | IoError | std.bytes.BytesError | OverflowError[i64] | std.secrets.SecretsError]:\n{body}    Ok(())\n"
     )
 }
 

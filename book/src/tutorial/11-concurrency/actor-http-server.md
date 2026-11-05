@@ -19,7 +19,7 @@ import std.time
 from std.actor.http.server import Request, Response, ServerError
 from std.sync import CancellationToken
 
-type HandlerError = AllocError | std.http.HttpError | ServerError
+type HandlerError = OverflowError[i64] | AllocError | std.http.HttpError | ServerError
 
 pub class Counter:
     pub requests: i64

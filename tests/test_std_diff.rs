@@ -28,7 +28,7 @@ fn program(body: &str) -> String {
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
     format!(
-        "{HEADER}{DECLARATIONS}\ndef main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:\n{body}    Ok(())\n"
+        "{HEADER}{DECLARATIONS}\ndef main() -> Result[(), AllocError | IoError | std.bytes.BytesError | OverflowError[i64] | ZeroDivisionError]:\n{body}    Ok(())\n"
     )
 }
 
@@ -285,7 +285,7 @@ empty: list[i64] = []?
 show(&std.diff.diff(&empty, &empty)?)?
 show(&std.diff.diff_bytes(&std.bytes.from_text("abc")?, &std.bytes.from_text("abd")?)?)?
 ops = std.diff.diff(&["x", "y"]?, &["x", "z"]?)?
-print(ops[0].is_equal(), ops[1].old_len(), ops[2].new_len())?
+print(ops[0].is_equal(), ops[1].old_len()?, ops[2].new_len()?)?
 "#,
         r#"
 - 0 1 0 0
@@ -650,4 +650,178 @@ print(failures > 10, failures == after - 1)?
 "#,
         "True True",
     );
+}
+
+fn output_with_optimization(source: &str, optimize: bool) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.plenty");
+    let executable = dir.path().join("program");
+    std::fs::write(&path, source).unwrap();
+    let options = plenty::CompileOptions {
+        optimize,
+        test_hooks: true,
+        ..Default::default()
+    };
+    plenty::compile_file_to_executable_with_options(&path, &executable, None, &options)
+        .unwrap_or_else(|error| panic!("{source}\n{error}"));
+    let output = std::process::Command::new(executable).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{source}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|line| !line.starts_with("__test_"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn op_lengths_preserve_negative_values_and_report_precise_overflow_in_every_caller_mode() {
+    let source = format!(
+        r#"{HEADER}
+def wrapped(result: Result[i64, OverflowError[i64]], expected: i64) -> bool:
+    match result:
+        case Err(error):
+            error.wrapped == expected
+        case Ok(_):
+            False
+
+def main() -> Result[(), IoError]:
+    print("__test_fail_allocations_after_0__")?
+    print("__test_begin_no_allocations__")?
+    maximum = Op(Kind.Equal, 0, i64.MAX, 0, i64.MAX)
+    minimum = Op(Kind.Equal, 0, i64.MIN, 0, i64.MIN)
+    negative = Op(Kind.Equal, 1, 0, i64.MAX, 0)
+    above = Op(Kind.Equal, i64.MIN, i64.MAX, i64.MIN, 0)
+    below = Op(Kind.Equal, i64.MAX, i64.MIN, 1, i64.MIN)
+    a = maximum.old_len().unwrap() == i64.MAX and maximum.new_len().unwrap() == i64.MAX
+    b = minimum.old_len().unwrap() == i64.MIN and minimum.new_len().unwrap() == i64.MIN
+    c = negative.old_len().unwrap() == -1 and negative.new_len().unwrap() == -9223372036854775807
+    d = wrapped(above.old_len(), -1) and wrapped(above.new_len(), i64.MIN)
+    e = wrapped(below.old_len(), 1) and wrapped(below.new_len(), i64.MAX)
+    f = unchecked:
+        wrapped(above.old_len(), -1) and wrapped(below.new_len(), i64.MAX)
+    through_checked = checked:
+        zero = 0 + 0
+        above.old_len()
+    g = wrapped(through_checked.unwrap(), -1)
+    mut changed = Op(Kind.Delete, 0, 0, 0, 0)
+    changed.old_start = i64.MIN
+    h = wrapped(changed.old_len(), i64.MIN)
+    print("__test_end_no_allocations__")?
+    print("__test_restore_allocations__")?
+    print(a, b, c, d, e, f, g, h)?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            "True True True True True True True True"
+        );
+    }
+}
+
+#[test]
+fn diff_production_shape_rounds_and_context_helpers_cover_representation_limits() {
+    let library = include_str!("../stdlib/std/diff.plenty");
+    let shape = &library
+        [library.find("def frontier_shape(").unwrap()..library.find("def frontier(").unwrap()];
+    let rounds = &library[library.find("def rounds(").unwrap()..library.find("def run(").unwrap()];
+    let context = &library[library.find("def separated_context(").unwrap()
+        ..library.find("# Groups operations into hunks").unwrap()];
+    let source = format!(
+        r#"{shape}
+{rounds}
+{context}
+def capacity(result: Result[(i64, i64), AllocError]) -> bool:
+    match result:
+        case Err(AllocError.CapacityOverflow):
+            True
+        case _:
+            False
+
+def main() -> Result[(), IoError]:
+    print("__test_fail_allocations_after_0__")?
+    print("__test_begin_no_allocations__")?
+    empty = frontier_shape(0, 0).unwrap() == (1, 3)
+    edge = frontier_shape(1152921504606846972, 0).unwrap() == (576460752303423487, 1152921504606846975)
+    next = capacity(frontier_shape(1152921504606846973, 0))
+    sum = capacity(frontier_shape(i64.MAX, 1)) and capacity(frontier_shape(0, i64.MAX))
+    split = frontier_shape(576460752303423486, 576460752303423486).unwrap() == (576460752303423487, 1152921504606846975)
+    costs = rounds(Some(i64.MIN)) == 1 and rounds(Some(i64.MAX)) == 4611686018427387904 and rounds(Nothing) == i64.MAX
+    parity = rounds(Some(3)) == 2 and rounds(Some(4)) == 2
+    contexts = not separated_context(i64.MAX, i64.MAX) and separated_context(i64.MAX, 4611686018427387903) and not separated_context(i64.MAX, 4611686018427387904)
+    zero = not separated_context(0, 0) and separated_context(1, 0)
+    print("__test_end_no_allocations__")?
+    print("__test_restore_allocations__")?
+    print(empty, edge, next, sum, split, costs, parity, contexts, zero)?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            "True True True True True True True True True"
+        );
+    }
+}
+
+#[test]
+fn maximal_context_and_costs_keep_real_diff_scripts_and_hunks_valid() {
+    let source = program(
+        r#"
+old = "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n"
+new = "A\nb\nc\nd\ne\nf\ng\nh\ni\nJ\n"
+for algorithm in [Algorithm.Myers, Algorithm.Patience]?:
+    diff = std.diff.lines(old, new, algorithm, Some(i64.MAX))?
+    print(diff.unified(i64.MAX, "a", "b")? == diff.unified(100, "a", "b")?)?
+    print(diff.unified(4611686018427387904, "a", "b")? == diff.unified(100, "a", "b")?)?
+    limited = std.diff.lines(old, new, algorithm, Some(i64.MIN))?
+    print(limited.unified(0, "a", "b")? == limited.unified(i64.MIN, "a", "b")?)?
+    print(diff.old_tokens(), diff.new_tokens())?
+"#,
+    );
+    let expected = concat!(
+        "True\nTrue\nTrue\n",
+        "[\"a\\n\", \"b\\n\", \"c\\n\", \"d\\n\", \"e\\n\", \"f\\n\", \"g\\n\", \"h\\n\", \"i\\n\", \"j\\n\"] ",
+        "[\"A\\n\", \"b\\n\", \"c\\n\", \"d\\n\", \"e\\n\", \"f\\n\", \"g\\n\", \"h\\n\", \"i\\n\", \"J\\n\"]"
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            format!("{expected}\n{expected}")
+        );
+    }
+}
+
+#[test]
+fn diff_reference_and_tutorial_examples_keep_their_documented_output() {
+    let pages = [
+        include_str!("../book/src/design/stdlib/diff.md"),
+        include_str!("../book/src/tutorial/07-modules/20-standard-diff.md"),
+    ];
+    let mut examples = 0;
+    for page in pages {
+        for fence in page.split("```plenty\n").skip(1) {
+            let (source, rest) = fence.split_once("```").unwrap();
+            let expected = rest
+                .strip_prefix("\n```output\n")
+                .unwrap()
+                .split_once("```")
+                .unwrap()
+                .0
+                .trim_end();
+            for optimize in [false, true] {
+                assert_eq!(
+                    output_with_optimization(source, optimize).trim_end(),
+                    expected
+                );
+            }
+            examples += 1;
+        }
+    }
+    assert_eq!(examples, 3);
 }

@@ -65,11 +65,15 @@ pub class Limits:
     # OutOfRange for a dimension outside 1..2147483647; LimitExceeded for an
     # image wider, taller or larger than allowed.
     pub def check(self, width: i64, height: i64, color: ColorType) -> Result[(), ImageError]:
+        # size validated positive height and channels in 1..4 before division; max_bytes is
+        # nonnegative, so both quotients fit and neither divisor is zero.
         size(width, height, color)?
         if width > self.max_width.get() or height > self.max_height.get():
             return Err(ImageError.LimitExceeded)
         # Division keeps the product from overflowing.
-        if width > self.max_bytes.get() // color.channels() // height:
+        oversized = unchecked:
+            width > self.max_bytes.get() // color.channels() // height
+        if oversized:
             return Err(ImageError.LimitExceeded)
         Ok(())
 
@@ -127,22 +131,29 @@ pub class Image:
         Ok(())
 
     def offset(self, x: i64, y: i64, channel: i64) -> Result[i64, ImageError]:
-        channels = self._color.channels()
-        if x < 0 or x >= self._width or y < 0 or y >= self._height or channel < 0 or channel >= channels:
-            return Err(ImageError.OutOfRange)
-        Ok((y * self._width + x) * channels + channel)
+        # After the coordinate guard, the computed byte index is below the held pixel length,
+        # validated by size at construction.
+        unchecked:
+            channels = self._color.channels()
+            if x < 0 or x >= self._width or y < 0 or y >= self._height or channel < 0 or channel >= channels:
+                return Err(ImageError.OutOfRange)
+            Ok((y * self._width + x) * channels + channel)
 
     # A copy of the width x height rectangle whose top-left pixel is (x, y).
     pub def crop(self, x: i64, y: i64, width: i64, height: i64) -> Result[Image, ImageError]:
-        if x < 0 or y < 0 or width < 1 or height < 1 or width > self._width - x or height > self._height - y:
-            return Err(ImageError.OutOfRange)
-        channels = self._color.channels()
-        row = width * channels
-        mut pixels = listed(std.bytes.with_capacity(row * height))?
-        for line in range(y, y + height):
-            at = (line * self._width + x) * channels
-            listed(pixels.extend(&self._pixels[at:at + row]))?
-        Ok(Image(width, height, self._color, pixels))
+        # Negative coordinates return before subtraction. For nonnegative x/y, dimension-
+        # coordinate fits i64 even at MAX. Accepted rectangles are inside the source; row,
+        # allocation size, loop endpoints and byte spans never exceed its held extent.
+        unchecked:
+            if x < 0 or y < 0 or width < 1 or height < 1 or width > self._width - x or height > self._height - y:
+                return Err(ImageError.OutOfRange)
+            channels = self._color.channels()
+            row = width * channels
+            mut pixels = listed(std.bytes.with_capacity(row * height))?
+            for line in range(y, y + height):
+                at = (line * self._width + x) * channels
+                listed(pixels.extend(&self._pixels[at:at + row]))?
+            Ok(Image(width, height, self._color, pixels))
 
     # Gray from colour is BT.709 luma of the stored values; dropping alpha
     # discards it, and added alpha is opaque.
@@ -151,33 +162,39 @@ pub class Image:
         target = color.channels()
         if source == target:
             return self.copy()
-        count = self._width * self._height
-        mut pixels = listed(std.bytes.with_capacity(count * target))?
-        listed(pixels.resize(count * target, 0u8))?
-        gray = source < 3
-        alpha = self._color.has_alpha()
-        mut at = 0
-        mut to = 0
-        for _ in range(0, count):
-            red = i64(self._pixels[at])
-            mut green = red
-            mut blue = red
-            mut opacity = 255
-            if not gray:
-                green = i64(self._pixels[at + 1])
-                blue = i64(self._pixels[at + 2])
-            if alpha:
-                opacity = i64(self._pixels[at + source - 1])
-            if target < 3:
-                pixels[to] = u8((2126 * red + 7152 * green + 722 * blue + 5000) // 10000)
-            else:
-                pixels[to] = u8(red)
-                pixels[to + 1] = u8(green)
-                pixels[to + 2] = u8(blue)
-            if color.has_alpha():
-                pixels[to + target - 1] = u8(opacity)
-            at += source
-            to += target
+        total = size(self._width, self._height, color)?
+        count = unchecked:
+            # The source size was validated, with at least one channel.
+            self._width * self._height
+        mut pixels = listed(std.bytes.with_capacity(total))?
+        listed(pixels.resize(total, 0u8))?
+        # Both pixel buffers have checked extents; channel steps stay inside
+        # them. Luma's numerator is at most 255*10000+5000; divisor=10000.
+        unchecked:
+            gray = source < 3
+            alpha = self._color.has_alpha()
+            mut at = 0
+            mut to = 0
+            for _ in range(0, count):
+                red = i64(self._pixels[at])
+                mut green = red
+                mut blue = red
+                mut opacity = 255
+                if not gray:
+                    green = i64(self._pixels[at + 1])
+                    blue = i64(self._pixels[at + 2])
+                if alpha:
+                    opacity = i64(self._pixels[at + source - 1])
+                if target < 3:
+                    pixels[to] = u8((2126 * red + 7152 * green + 722 * blue + 5000) // 10000)
+                else:
+                    pixels[to] = u8(red)
+                    pixels[to + 1] = u8(green)
+                    pixels[to + 2] = u8(blue)
+                if color.has_alpha():
+                    pixels[to + target - 1] = u8(opacity)
+                at += source
+                to += target
         Ok(Image(self._width, self._height, color, pixels))
 
     # Nearest takes the source pixel under each target pixel's centre.
@@ -199,10 +216,19 @@ pub class Image:
 def size(width: i64, height: i64, color: ColorType) -> Result[i64, ImageError]:
     if width < 1 or height < 1 or width > 2147483647 or height > 2147483647:
         return Err(ImageError.OutOfRange)
-    channels = color.channels()
-    if width > i64.MAX // channels // height:
-        return Err(ImageError.LimitExceeded)
-    Ok(width * height * channels)
+    pixel_extent(width, height, color.channels())
+
+# Positive dimensions/channels at every call, including the mixed source/target
+# dimensions of the bilinear intermediate. No unrepresentable pixel buffer is
+# allocated, even when both endpoint images separately fit.
+def pixel_extent(width: i64, height: i64, channels: i64) -> Result[i64, ImageError]:
+    extent = checked:
+        width * height * channels
+    match extent:
+        case Ok(value):
+            Ok(value)
+        case Err(_):
+            Err(ImageError.LimitExceeded)
 
 # A zeroed image: black, and transparent if it has alpha.
 pub def new(width: Positive[i64] __max(2147483647), height: Positive[i64] __max(2147483647), color: ColorType) -> Result[Image, ImageError]:
@@ -315,10 +341,16 @@ const signature_size: i64 = 8
 const chunk_overhead: i64 = 12
 
 def be32(data: &[u8], at: i64) -> i64:
-    (i64(data[at]) << 24) | (i64(data[at + 1]) << 16) | (i64(data[at + 2]) << 8) | i64(data[at + 3])
+    # Every caller has checked a four-byte held span at at; at+1..at+3 cannot exceed the input
+    # length. u8 samples shifted by 0/8/16/24 bits fit positive i64.
+    unchecked:
+        (i64(data[at]) << 24) | (i64(data[at + 1]) << 16) | (i64(data[at + 2]) << 8) | i64(data[at + 3])
 
 def be16(data: &[u8], at: i64) -> i64:
-    (i64(data[at]) << 8) | i64(data[at + 1])
+    # Every caller has checked a two-byte held span at at; at+1 is inside it and the unsigned
+    # 16-bit result fits i64.
+    unchecked:
+        (i64(data[at]) << 8) | i64(data[at + 1])
 
 def letter(value: u8) -> bool:
     (value >= 65u8 and value <= 90u8) or (value >= 97u8 and value <= 122u8)
@@ -331,34 +363,48 @@ class Chunk:
     stop: i64
 
     def size(self) -> i64:
-        self.stop - self.start
+        # Chunks are constructed only from checked input spans: 0<=start<=stop<=len(input).
+        unchecked:
+            self.stop - self.start
 
     # Where the next chunk begins.
     def next(self) -> i64:
-        self.stop + 4
+        # chunk_at checked four CRC bytes after stop: stop+4<=len(input).
+        unchecked:
+            self.stop + 4
 
     # Bit 5 of the first type byte clear: a decoder must understand it.
     def critical(self) -> bool:
         (self.kind >> 24) & 32 == 0
 
 def chunk_at(data: &[u8], at: i64) -> Result[Chunk, ImageError]:
-    total = len(data)
-    if total - at < 8:
-        return Err(ImageError.Truncated)
-    length = be32(data, at)
-    if length > 2147483647:
-        return Err(ImageError.Corrupt)
-    for index in range(at + 4, at + 8):
-        if not letter(data[index]):
+    # at is signature_size or a previous checked Chunk.next, hence 0<=at<=total. The eight-byte
+    # header guard proves at+4/at+8 fit before reads; length is at most 2^31-1. chunk_end proves
+    # the payload and CRC spans before further reads.
+    unchecked:
+        total = len(data)
+        if total - at < 8:
+            return Err(ImageError.Truncated)
+        length = be32(data, at)
+        if length > 2147483647:
             return Err(ImageError.Corrupt)
-    start = at + 8
-    if total - start < length + 4:
-        return Err(ImageError.Truncated)
-    stop = start + length
-    crc = coded(std.compress.crc32(0, &data[at + 4:stop]))?
-    if crc != be32(data, stop):
-        return Err(ImageError.Checksum)
-    Ok(Chunk(be32(data, at + 4), start, stop))
+        for index in range(at + 4, at + 8):
+            if not letter(data[index]):
+                return Err(ImageError.Corrupt)
+        start = at + 8
+        stop = chunk_end(total, start, length)?
+        crc = coded(std.compress.crc32(0, &data[at + 4:stop]))?
+        if crc != be32(data, stop):
+            return Err(ImageError.Checksum)
+        Ok(Chunk(be32(data, at + 4), start, stop))
+
+# start is already inside the held input and length is a PNG 31-bit length.
+# Compare the remaining span before forming the endpoint or CRC endpoint.
+def chunk_end(total: i64, start: i64, length: i64) -> Result[i64, ImageError]:
+    unchecked:
+        if total - start < length + 4:
+            return Err(ImageError.Truncated)
+        Ok(start + length)
 
 # The header and the chunks before the image data. `kind` is the PNG colour
 # type: 0 gray, 2 RGB, 3 palette, 4 gray and alpha, 6 RGBA. Palette entries
@@ -413,15 +459,20 @@ class Scan:
 
     # Bytes in a scanline of `columns` pixels, without its filter byte.
     def row_bytes(self, columns: i64) -> i64:
-        (columns * self.samples() * self.depth + 7) >> 3
+        # Validated PNG columns<=2^31-1, samples<=4, depth<=16: the rounded bit count is at most
+        # 64*(2^31-1)+7, well inside i64.
+        unchecked:
+            (columns * self.samples() * self.depth + 7) >> 3
 
     # The distance between corresponding bytes of neighbouring pixels, used
     # by the filters; 1 below 8 bits per pixel.
     def pixel_bytes(self) -> i64:
-        bits = self.samples() * self.depth
-        if bits < 8:
-            return 1
-        bits >> 3
+        # Validated PNG samples<=4 and depth<=16: bits<=64.
+        unchecked:
+            bits = self.samples() * self.depth
+            if bits < 8:
+                return 1
+            bits >> 3
 
 def depth_allowed(kind: i64, depth: i64) -> bool:
     match kind:
@@ -442,85 +493,94 @@ def depth_allowed(kind: i64, depth: i64) -> bool:
 # ancillary chunks are skipped once their CRC is checked; an unknown critical
 # chunk is Unsupported.
 def scanned(data: &[u8]) -> Result[Scan, ImageError]:
-    if len(data) < signature_size or not matched(data, 1, "PNG\r\n\u{1a}\n") or data[0] != 137u8:
-        return Err(ImageError.Corrupt)
-    header = chunk_at(data, signature_size)?
-    if header.kind != ihdr or header.size() != 13:
-        return Err(ImageError.Corrupt)
-    h = header.start
-    width = be32(data, h)
-    height = be32(data, h + 4)
-    depth = i64(data[h + 8])
-    kind = i64(data[h + 9])
-    if width < 1 or height < 1 or width > 2147483647 or height > 2147483647:
-        return Err(ImageError.Corrupt)
-    if not depth_allowed(kind, depth):
-        return Err(ImageError.Corrupt)
-    # Compression method 0 and filter method 0 are the only ones defined.
-    if data[h + 10] != 0u8 or data[h + 11] != 0u8 or data[h + 12] > 1u8:
-        return Err(ImageError.Corrupt)
-    mut scan = Scan(width, height, depth, kind, data[h + 12] == 1u8, 0, 0, 0, 0, False, 0, 0, 0, 0)
-    mut at = header.next()
-    mut transparency = False
-    while True:
-        chunk = chunk_at(data, at)?
-        if chunk.kind == idat:
-            break
-        if chunk.kind == ihdr or chunk.kind == iend:
+    # The checked IHDR has exactly 13 bytes: h+4..h+12 are held offsets. Subsequent cursors come
+    # only from CRC-checked chunks, whose next endpoint is inside the input.
+    unchecked:
+        if len(data) < signature_size or not matched(data, 1, "PNG\r\n\u{1a}\n") or data[0] != 137u8:
             return Err(ImageError.Corrupt)
-        if chunk.kind == plte:
-            if scan.entries > 0 or transparency:
+        header = chunk_at(data, signature_size)?
+        if header.kind != ihdr or header.size() != 13:
+            return Err(ImageError.Corrupt)
+        h = header.start
+        width = be32(data, h)
+        height = be32(data, h + 4)
+        depth = i64(data[h + 8])
+        kind = i64(data[h + 9])
+        if width < 1 or height < 1 or width > 2147483647 or height > 2147483647:
+            return Err(ImageError.Corrupt)
+        if not depth_allowed(kind, depth):
+            return Err(ImageError.Corrupt)
+        # Compression method 0 and filter method 0 are the only ones defined.
+        if data[h + 10] != 0u8 or data[h + 11] != 0u8 or data[h + 12] > 1u8:
+            return Err(ImageError.Corrupt)
+        mut scan = Scan(width, height, depth, kind, data[h + 12] == 1u8, 0, 0, 0, 0, False, 0, 0, 0, 0)
+        mut at = header.next()
+        mut transparency = False
+        while True:
+            chunk = chunk_at(data, at)?
+            if chunk.kind == idat:
+                break
+            if chunk.kind == ihdr or chunk.kind == iend:
                 return Err(ImageError.Corrupt)
-            palette(chunk, &mut scan)?
-        elif chunk.kind == trns:
-            if transparency:
-                return Err(ImageError.Corrupt)
-            transparency = True
-            keyed(data, chunk, &mut scan)?
-        elif chunk.critical():
-            return Err(ImageError.Unsupported)
-        at = chunk.next()
-    if kind == 3 and scan.entries == 0:
-        return Err(ImageError.Corrupt)
-    scan.at = at
-    Ok(scan)
+            if chunk.kind == plte:
+                if scan.entries > 0 or transparency:
+                    return Err(ImageError.Corrupt)
+                palette(chunk, &mut scan)?
+            elif chunk.kind == trns:
+                if transparency:
+                    return Err(ImageError.Corrupt)
+                transparency = True
+                keyed(data, chunk, &mut scan)?
+            elif chunk.critical():
+                return Err(ImageError.Unsupported)
+            at = chunk.next()
+        if kind == 3 and scan.entries == 0:
+            return Err(ImageError.Corrupt)
+        scan.at = at
+        Ok(scan)
 
 # Truecolour images may carry a suggested palette, which is not needed here.
 def palette(chunk: Chunk, scan: &mut Scan) -> Result[(), ImageError]:
-    size = chunk.size()
-    entries = size // 3
-    if size % 3 != 0 or entries < 1 or entries > 256 or scan.kind == 0 or scan.kind == 4:
-        return Err(ImageError.Corrupt)
-    if scan.kind == 3 and entries > (1 << scan.depth):
-        return Err(ImageError.Corrupt)
-    if scan.kind == 3:
-        scan.palette_at = chunk.start
-        scan.entries = entries
-    Ok(())
+    # Chunk length is nonnegative and at most 2^31-1; division/remainder use positive 3.
+    # Validated palette depth is 1/2/4/8, so 1<<depth fits.
+    unchecked:
+        size = chunk.size()
+        entries = size // 3
+        if size % 3 != 0 or entries < 1 or entries > 256 or scan.kind == 0 or scan.kind == 4:
+            return Err(ImageError.Corrupt)
+        if scan.kind == 3 and entries > (1 << scan.depth):
+            return Err(ImageError.Corrupt)
+        if scan.kind == 3:
+            scan.palette_at = chunk.start
+            scan.entries = entries
+        Ok(())
 
 def keyed(data: &[u8], chunk: Chunk, scan: &mut Scan) -> Result[(), ImageError]:
-    size = chunk.size()
-    s = chunk.start
-    match scan.kind:
-        case 0:
-            if size != 2:
+    # The gray/RGB chunk sizes are checked before reading: s+2/s+4 stay inside the held two/six-
+    # byte payload. Other kinds perform no arithmetic.
+    unchecked:
+        size = chunk.size()
+        s = chunk.start
+        match scan.kind:
+            case 0:
+                if size != 2:
+                    return Err(ImageError.Corrupt)
+                scan.key_red = be16(data, s)
+            case 2:
+                if size != 6:
+                    return Err(ImageError.Corrupt)
+                scan.key_red = be16(data, s)
+                scan.key_green = be16(data, s + 2)
+                scan.key_blue = be16(data, s + 4)
+            case 3:
+                if scan.entries == 0 or size > scan.entries:
+                    return Err(ImageError.Corrupt)
+                scan.alpha_at = s
+                scan.alphas = size
+            case _:
                 return Err(ImageError.Corrupt)
-            scan.key_red = be16(data, s)
-        case 2:
-            if size != 6:
-                return Err(ImageError.Corrupt)
-            scan.key_red = be16(data, s)
-            scan.key_green = be16(data, s + 2)
-            scan.key_blue = be16(data, s + 4)
-        case 3:
-            if scan.entries == 0 or size > scan.entries:
-                return Err(ImageError.Corrupt)
-            scan.alpha_at = s
-            scan.alphas = size
-        case _:
-            return Err(ImageError.Corrupt)
-    scan.keyed = True
-    Ok(())
+        scan.keyed = True
+        Ok(())
 
 # The Adam7 passes as (first column, first row, column step, row step); a
 # non-interlaced image is one pass over every pixel.
@@ -553,9 +613,12 @@ def geometry(scan: &Scan, stage: i64) -> (i64, i64, i64, i64):
 
 # Pixels in a pass along one axis of `extent` pixels.
 def spanned(extent: i64, first: i64, step: i64) -> i64:
-    if extent <= first:
-        return 0
-    (extent - first + step - 1) // step
+    # Validated PNG extent<=2^31-1, Adam7 first in 0..7 and positive step in {1,2,4,8}; the
+    # positive numerator is at most 2^31+6.
+    unchecked:
+        if extent <= first:
+            return 0
+        (extent - first + step - 1) // step
 
 # The decompressed size: one filter byte and one scanline per row of every
 # pass. Too large for i64 is LimitExceeded.
@@ -566,95 +629,119 @@ def raw_size(scan: &Scan) -> Result[i64, ImageError]:
         columns = spanned(scan.width, x0, dx)
         rows = spanned(scan.height, y0, dy)
         if columns > 0:
-            line = 1 + scan.row_bytes(columns)
-            grown = checked:
-                total + rows * line
-            match grown:
-                case Ok(value):
-                    total = value
-                case Err(_):
-                    return Err(ImageError.LimitExceeded)
+            line = unchecked:
+                # row_bytes<=8*(2^31-1), independently of total pass size.
+                1 + scan.row_bytes(columns)
+            total = raw_total(total, rows, line)?
     Ok(total)
 
+# Exact decompressed progress over nonnegative pass extents.
+def raw_total(total: i64, rows: i64, line: i64) -> Result[i64, ImageError]:
+    grown = checked:
+        total + rows * line
+    match grown:
+        case Ok(value):
+            Ok(value)
+        case Err(_):
+            Err(ImageError.LimitExceeded)
+
 def paeth(a: i64, b: i64, c: i64) -> i64:
-    p = a + b - c
-    pa = p - a if p >= a else a - p
-    pb = p - b if p >= b else b - p
-    pc = p - c if p >= c else c - p
-    if pa <= pb and pa <= pc:
-        return a
-    if pb <= pc:
-        return b
-    c
+    # Inputs are decoded u8 neighbours in 0..255. p is in -255..510 and every absolute distance
+    # is at most 510; the returned predictor is one of the original bytes.
+    unchecked:
+        p = a + b - c
+        pa = p - a if p >= a else a - p
+        pb = p - b if p >= b else b - p
+        pc = p - c if p >= c else c - p
+        if pa <= pb and pa <= pc:
+            return a
+        if pb <= pc:
+            return b
+        c
 
 # Reverses one scanline's filter in place. `line[at:at + count]` is the
 # filtered scanline and `line[above:above + count]` the decoded one before it,
 # zero for a pass's first row.
 def unfiltered(line: &mut Bytes, at: i64, above: i64, count: i64, step: i64, filter: u8) -> Result[(), ImageError]:
-    lead = step if step < count else count
-    match filter:
-        case 0u8:
-            pass
-        case 1u8:
-            for i in range(at + step, at + count):
-                line[i] = u8.wrapping_from(i64(line[i]) + i64(line[i - step]))
-        case 2u8:
-            for i in range(0, count):
-                line[at + i] = u8.wrapping_from(i64(line[at + i]) + i64(line[above + i]))
-        case 3u8:
-            for i in range(0, lead):
-                line[at + i] = u8.wrapping_from(i64(line[at + i]) + (i64(line[above + i]) >> 1))
-            for i in range(lead, count):
-                left = i64(line[at + i - step])
-                line[at + i] = u8.wrapping_from(i64(line[at + i]) + ((left + i64(line[above + i])) >> 1))
-        case 4u8:
-            # With no left neighbour the predictor is the byte above.
-            for i in range(0, lead):
-                line[at + i] = u8.wrapping_from(i64(line[at + i]) + i64(line[above + i]))
-            for i in range(lead, count):
-                predictor = paeth(i64(line[at + i - step]), i64(line[above + i]), i64(line[above + i - step]))
-                line[at + i] = u8.wrapping_from(i64(line[at + i]) + predictor)
-        case _:
-            return Err(ImageError.Corrupt)
-    Ok(())
+    # Both count-byte rows are held in lines; at/above<=widest+1<=8*(2^31-1)+2
+    # and step is in 1..8, so even an empty Sub loop's at+step fits. Loop guards
+    # bound left-neighbour differences; predictor averaging adds at most 510.
+    # Reconstruction itself uses explicit modulo-256 wrapping_add.
+    unchecked:
+        lead = step if step < count else count
+        match filter:
+            case 0u8:
+                pass
+            case 1u8:
+                for i in range(at + step, at + count):
+                    line[i] = line[i].wrapping_add(line[i - step])
+            case 2u8:
+                for i in range(0, count):
+                    line[at + i] = line[at + i].wrapping_add(line[above + i])
+            case 3u8:
+                for i in range(0, lead):
+                    line[at + i] = line[at + i].wrapping_add(line[above + i] >> 1)
+                for i in range(lead, count):
+                    left = i64(line[at + i - step])
+                    line[at + i] = line[at + i].wrapping_add(u8((left + i64(line[above + i])) >> 1))
+            case 4u8:
+                # With no left neighbour the predictor is the byte above.
+                for i in range(0, lead):
+                    line[at + i] = line[at + i].wrapping_add(line[above + i])
+                for i in range(lead, count):
+                    predictor = paeth(i64(line[at + i - step]), i64(line[above + i]), i64(line[above + i - step]))
+                    line[at + i] = line[at + i].wrapping_add(u8(predictor))
+            case _:
+                return Err(ImageError.Corrupt)
+        Ok(())
 
 # Sample `index` of a decoded scanline starting at `at`. Samples narrower than
 # a byte are packed from the most significant bit.
 def sample(line: &[u8], at: i64, index: i64, depth: i64) -> i64:
-    match depth:
-        case 8:
-            i64(line[at + index])
-        case 16:
-            be16(line, at + 2 * index)
-        case _:
-            bit = index * depth
-            (i64(line[at + (bit >> 3)]) >> (8 - depth - (bit & 7))) & ((1 << depth) - 1)
+    # Validated sample index<columns*samples<=4*(2^31-1), depth in {1,2,4,8,16}. Products fit
+    # i64 and byte offsets stay in the held row. Packed depths divide 8, so the extraction shift
+    # is in 0..7 and masks fit.
+    unchecked:
+        match depth:
+            case 8:
+                i64(line[at + index])
+            case 16:
+                be16(line, at + 2 * index)
+            case _:
+                bit = index * depth
+                (i64(line[at + (bit >> 3)]) >> (8 - depth - (bit & 7))) & ((1 << depth) - 1)
 
 # A stored sample as 8 bits. 16-bit samples round to the nearest level;
 # narrower ones scale exactly, since 1, 3 and 15 divide 255.
 def scaled(value: i64, depth: i64) -> u8:
-    match depth:
-        case 8:
-            u8(value)
-        case 16:
-            u8((value + 128) // 257)
-        case 4:
-            u8(value * 17)
-        case 2:
-            u8(value * 85)
-        case _:
-            u8(value * 255)
+    # value is a sample of the selected depth: <=65535 at depth 16, <=15/3/1 at depth 4/2/1.
+    # Rounding and scaling yield 0..255 without overflow.
+    unchecked:
+        match depth:
+            case 8:
+                u8(value)
+            case 16:
+                u8((value + 128) // 257)
+            case 4:
+                u8(value * 17)
+            case 2:
+                u8(value * 85)
+            case _:
+                u8(value * 255)
 
 # The palette as four bytes per entry, RGBA, with alpha from tRNS or 255;
 # empty for other colour types.
 def table(data: &[u8], scan: &Scan) -> Result[Bytes, ImageError]:
-    mut colors = listed(std.bytes.with_capacity(4 * scan.entries))?
-    for entry in range(0, scan.entries):
-        at = scan.palette_at + 3 * entry
-        listed(colors.extend(&data[at:at + 3]))?
-        alpha = data[scan.alpha_at + entry] if entry < scan.alphas else 255u8
-        listed(colors.push(alpha))?
-    Ok(colors)
+    # entries<=256, each three-byte RGB entry is inside its checked PLTE span; alpha offsets are
+    # used only below the checked tRNS length. Output is at most 1024 bytes.
+    unchecked:
+        mut colors = listed(std.bytes.with_capacity(4 * scan.entries))?
+        for entry in range(0, scan.entries):
+            at = scan.palette_at + 3 * entry
+            listed(colors.extend(&data[at:at + 3]))?
+            alpha = data[scan.alpha_at + entry] if entry < scan.alphas else 255u8
+            listed(colors.push(alpha))?
+        Ok(colors)
 
 # Streams decompressed image data into decoded pixels: collects each
 # scanline, reverses its filter against the previous one, and writes its
@@ -679,106 +766,128 @@ class Decoder:
 
     # Moves to the first pass at or after `stage` that holds pixels.
     def begin(self: &mut Decoder, stage: i64) -> Result[(), ImageError]:
-        self.stage = stage
-        while not self.done():
-            x0, y0, dx, dy = geometry(&self.scan, self.stage)
-            self.columns = spanned(self.scan.width, x0, dx)
-            self.rows = spanned(self.scan.height, y0, dy)
-            if self.columns > 0 and self.rows > 0:
-                self.stride = 1 + self.scan.row_bytes(self.columns)
-                self.row = 0
-                self.filled = 0
-                self.lines.fill(self.previous, self.previous + self.stride, 0u8)
-                return Ok(())
-            self.stage += 1
-        Ok(())
+        # stage advances only to stages(scan)<=7. Row bytes<=8*(2^31-1), stride<=widest and
+        # previous is 0 or widest; both scanline spans fit the allocated 2*widest buffer.
+        unchecked:
+            self.stage = stage
+            while not self.done():
+                x0, y0, dx, dy = geometry(&self.scan, self.stage)
+                self.columns = spanned(self.scan.width, x0, dx)
+                self.rows = spanned(self.scan.height, y0, dy)
+                if self.columns > 0 and self.rows > 0:
+                    self.stride = 1 + self.scan.row_bytes(self.columns)
+                    self.row = 0
+                    self.filled = 0
+                    self.lines.fill(self.previous, self.previous + self.stride, 0u8)
+                    return Ok(())
+                self.stage += 1
+            Ok(())
 
     def take(self: &mut Decoder, source: &[u8]) -> Result[(), ImageError]:
-        total = len(source)
-        mut at = 0
-        while at < total:
-            if self.done():
-                return Err(ImageError.Corrupt)
-            mut count = self.stride - self.filled
-            if count > total - at:
-                count = total - at
-            self.lines.overwrite(self.current + self.filled, &source[at:at + count])
-            self.filled += count
-            at += count
-            if self.filled == self.stride:
-                self.finish_row()?
-        Ok(())
+        # 0<=filled<=stride, 0<=at<=total. count is the minimum remaining row/input span, so all
+        # additions and writes stay inside those held extents before either cursor advances.
+        unchecked:
+            total = len(source)
+            mut at = 0
+            while at < total:
+                if self.done():
+                    return Err(ImageError.Corrupt)
+                mut count = self.stride - self.filled
+                if count > total - at:
+                    count = total - at
+                self.lines.overwrite(self.current + self.filled, &source[at:at + count])
+                self.filled += count
+                at += count
+                if self.filled == self.stride:
+                    self.finish_row()?
+            Ok(())
 
     def finish_row(self: &mut Decoder) -> Result[(), ImageError]:
-        at = self.current + 1
-        count = self.stride - 1
-        filter = self.lines[self.current]
-        unfiltered(&mut self.lines, at, self.previous + 1, count, self.scan.pixel_bytes(), filter)?
-        self.emit(at, count)?
-        swap = self.current
-        self.current = self.previous
-        self.previous = swap
-        self.filled = 0
-        self.row += 1
-        if self.row == self.rows:
-            self.begin(self.stage + 1)?
-        Ok(())
+        # current/previous are 0 or widest with stride<=widest; both rows are held. row
+        # increments only up to rows<=2^31-1 and stage only up to 7.
+        unchecked:
+            at = self.current + 1
+            count = self.stride - 1
+            filter = self.lines[self.current]
+            unfiltered(&mut self.lines, at, self.previous + 1, count, self.scan.pixel_bytes(), filter)?
+            self.emit(at, count)?
+            swap = self.current
+            self.current = self.previous
+            self.previous = swap
+            self.filled = 0
+            self.row += 1
+            if self.row == self.rows:
+                self.begin(self.stage + 1)?
+            Ok(())
 
     def emit(self: &mut Decoder, at: i64, count: i64) -> Result[(), ImageError]:
-        scan = &self.scan
-        channels = scan.color().channels()
-        x0, y0, dx, dy = geometry(scan, self.stage)
-        y = y0 + self.row * dy
-        if not scan.interlaced:
-            # Rows arrive in order, so the buffer grows with the data and a
-            # short file never touches the rest of its reservation.
-            if scan.depth == 8 and scan.kind != 3 and not scan.keyed:
-                return listed(self.out.extend(&self.lines[at:at + count]))
-            listed(self.out.resize(self.out.len() + scan.width * channels, 0u8))?
-        mut to = (y * scan.width + x0) * channels
-        step = dx * channels
-        depth = scan.depth
-        line = &self.lines
-        match scan.kind:
-            case 0:
-                for k in range(0, self.columns):
-                    value = sample(line, at, k, depth)
-                    self.out[to] = scaled(value, depth)
-                    if scan.keyed:
-                        self.out[to + 1] = 0u8 if value == scan.key_red else 255u8
-                    to += step
-            case 2:
-                for k in range(0, self.columns):
-                    red = sample(line, at, 3 * k, depth)
-                    green = sample(line, at, 3 * k + 1, depth)
-                    blue = sample(line, at, 3 * k + 2, depth)
-                    self.out[to] = scaled(red, depth)
-                    self.out[to + 1] = scaled(green, depth)
-                    self.out[to + 2] = scaled(blue, depth)
-                    if scan.keyed:
-                        clear = red == scan.key_red and green == scan.key_green and blue == scan.key_blue
-                        self.out[to + 3] = 0u8 if clear else 255u8
-                    to += step
-            case 3:
-                for k in range(0, self.columns):
-                    entry = sample(line, at, k, depth)
-                    if entry >= scan.entries:
-                        return Err(ImageError.Corrupt)
-                    self.out.overwrite(to, &self.palette[entry * 4:entry * 4 + channels])
-                    to += step
-            case 4:
-                for k in range(0, self.columns):
-                    self.out[to] = scaled(sample(line, at, 2 * k, depth), depth)
-                    self.out[to + 1] = scaled(sample(line, at, 2 * k + 1, depth), depth)
-                    to += step
-            case _:
-                for k in range(0, self.columns):
-                    for c in range(0, 4):
-                        self.out[to + c] = scaled(sample(line, at, 4 * k + c, depth), depth)
-                    to += step
-        Ok(())
+        # Adam7 samples satisfy x0+k*dx<width and y0+row*dy<height; channel offsets are inside
+        # the validated pixel extent. Noninterlaced growth is one remaining full row. The final
+        # unused pixel cursor increment is omitted, so no off-image endpoint is formed. Sample
+        # indices<=4*width and palette spans<=1024 fit.
+        unchecked:
+            scan = &self.scan
+            channels = scan.color().channels()
+            x0, y0, dx, dy = geometry(scan, self.stage)
+            y = y0 + self.row * dy
+            if not scan.interlaced:
+                # Rows arrive in order, so the buffer grows with the data and a
+                # short file never touches the rest of its reservation.
+                if scan.depth == 8 and scan.kind != 3 and not scan.keyed:
+                    return listed(self.out.extend(&self.lines[at:at + count]))
+                listed(self.out.resize(self.out.len() + scan.width * channels, 0u8))?
+            mut to = (y * scan.width + x0) * channels
+            step = dx * channels
+            depth = scan.depth
+            line = &self.lines
+            match scan.kind:
+                case 0:
+                    for k in range(0, self.columns):
+                        value = sample(line, at, k, depth)
+                        self.out[to] = scaled(value, depth)
+                        if scan.keyed:
+                            self.out[to + 1] = 0u8 if value == scan.key_red else 255u8
+                        if k + 1 < self.columns:
+                            to += step
+                case 2:
+                    for k in range(0, self.columns):
+                        red = sample(line, at, 3 * k, depth)
+                        green = sample(line, at, 3 * k + 1, depth)
+                        blue = sample(line, at, 3 * k + 2, depth)
+                        self.out[to] = scaled(red, depth)
+                        self.out[to + 1] = scaled(green, depth)
+                        self.out[to + 2] = scaled(blue, depth)
+                        if scan.keyed:
+                            clear = red == scan.key_red and green == scan.key_green and blue == scan.key_blue
+                            self.out[to + 3] = 0u8 if clear else 255u8
+                        if k + 1 < self.columns:
+                            to += step
+                case 3:
+                    for k in range(0, self.columns):
+                        entry = sample(line, at, k, depth)
+                        if entry >= scan.entries:
+                            return Err(ImageError.Corrupt)
+                        self.out.overwrite(to, &self.palette[entry * 4:entry * 4 + channels])
+                        if k + 1 < self.columns:
+                            to += step
+                case 4:
+                    for k in range(0, self.columns):
+                        self.out[to] = scaled(sample(line, at, 2 * k, depth), depth)
+                        self.out[to + 1] = scaled(sample(line, at, 2 * k + 1, depth), depth)
+                        if k + 1 < self.columns:
+                            to += step
+                case _:
+                    for k in range(0, self.columns):
+                        for c in range(0, 4):
+                            self.out[to + c] = scaled(sample(line, at, 4 * k + c, depth), depth)
+                        if k + 1 < self.columns:
+                            to += step
+            Ok(())
 
 def decode_png(data: &[u8], limits: &Limits) -> Result[Image, ImageError]:
+    # Validated dimensions bound widest<=8*(2^31-1)+1 and 2*widest fits i64. Pixel/raw extents
+    # were checked separately. Inflater consumption is bounded by the offered chunk span, so
+    # position+consumed<=chunk.stop; every next chunk cursor is inside the input.
     scan = scanned(data)?
     color = scan.color()
     limits.check(scan.width, scan.height, color)?
@@ -788,13 +897,16 @@ def decode_png(data: &[u8], limits: &Limits) -> Result[Image, ImageError]:
             value
         case Err(_):
             return Err(ImageError.LimitExceeded)
-    total = scan.width * scan.height * color.channels()
+    total = pixel_extent(scan.width, scan.height, color.channels())?
     mut out = listed(std.bytes.with_capacity(total))?
     if scan.interlaced:
         listed(out.resize(total, 0u8))?
-    widest = 1 + scan.row_bytes(scan.width)
-    mut lines = listed(std.bytes.with_capacity(2 * widest))?
-    listed(lines.resize(2 * widest, 0u8))?
+    widest = unchecked:
+        1 + scan.row_bytes(scan.width)
+    line_capacity = unchecked:
+        2 * widest
+    mut lines = listed(std.bytes.with_capacity(line_capacity))?
+    listed(lines.resize(line_capacity, 0u8))?
     colors = table(data, &scan)?
     mut inflater = coded(std.compress.inflater(std.compress.Format.Zlib, raw))?
     mut at = scan.at
@@ -809,7 +921,8 @@ def decode_png(data: &[u8], limits: &Limits) -> Result[Image, ImageError]:
         while True:
             inflater.clear()
             consumed = coded(inflater.step(&data[position:chunk.stop]))?
-            position += consumed
+            unchecked:
+                position += consumed
             output = inflater.output()
             produced = output.len()
             decoder.take(&output)?
@@ -843,7 +956,11 @@ def put32(out: &mut Bytes, value: i64) -> Result[(), ImageError]:
     Ok(())
 
 def framed(out: &mut Bytes, kind: i64, data: &[u8], start: i64, stop: i64) -> Result[(), ImageError]:
-    put32(out, stop - start)?
+    # Internal callers provide 0<=start<=stop<=len(data), so stop-start fits. Bytes handles
+    # output growth and allocation-capacity errors itself.
+    length = unchecked:
+        stop - start
+    put32(out, length)?
     at = out.len()
     put32(out, kind)?
     listed(out.extend(&data[start:stop]))?
@@ -852,7 +969,10 @@ def framed(out: &mut Bytes, kind: i64, data: &[u8], start: i64, stop: i64) -> Re
 
 # The sum of absolute differences of a filtered byte, read as signed.
 def cost(value: i64) -> i64:
-    value if value < 128 else 256 - value
+    # value is a byte-ring difference in 0..255, hence 256-value is in 1..128 on the upper
+    # branch.
+    unchecked:
+        value if value < 128 else 256 - value
 
 # Filters one row of `count` bytes at `pixels[at:]` all five ways into `rows`,
 # filter type t at `rows[t * (count + 1):]` after its type byte, and returns
@@ -860,48 +980,52 @@ def cost(value: i64) -> i64:
 # PNG specification recommends and libpng uses. `above[top:]` is the
 # previous row, or zeros for the first.
 def filtered(rows: &mut Bytes, pixels: &[u8], at: i64, above: &[u8], top: i64, count: i64, step: i64) -> i64:
-    line = count + 1
-    mut none = 0
-    mut sub = 0
-    mut up = 0
-    mut average = 0
-    mut predicted = 0
-    for i in range(0, count):
-        x = i64(pixels[at + i])
-        b = i64(above[top + i])
-        mut a = 0
-        mut c = 0
-        if i >= step:
-            a = i64(pixels[at + i - step])
-            c = i64(above[top + i - step])
-        left = (x - a) & 255
-        upper = (x - b) & 255
-        mean = (x - ((a + b) >> 1)) & 255
-        guess = (x - paeth(a, b, c)) & 255
-        rows[1 + i] = u8(x)
-        rows[line + 1 + i] = u8(left)
-        rows[2 * line + 1 + i] = u8(upper)
-        rows[3 * line + 1 + i] = u8(mean)
-        rows[4 * line + 1 + i] = u8(guess)
-        none += cost(x)
-        sub += cost(left)
-        up += cost(upper)
-        average += cost(mean)
-        predicted += cost(guess)
-    mut best = 0
-    mut lowest = none
-    if sub < lowest:
-        best = 1
-        lowest = sub
-    if up < lowest:
-        best = 2
-        lowest = up
-    if average < lowest:
-        best = 3
-        lowest = average
-    if predicted < lowest:
-        best = 4
-    best
+    # count=width*channels<=4*(2^31-1); rows holds 5*(count+1) bytes and both source spans hold
+    # count bytes. Indices fit these spans. Bytes/predictors are 0..255, their average is
+    # bounded by 255; differences use wrapping_sub. Scores are at most 128*count<2^40.
+    unchecked:
+        line = count + 1
+        mut none = 0
+        mut sub = 0
+        mut up = 0
+        mut average = 0
+        mut predicted = 0
+        for i in range(0, count):
+            x = i64(pixels[at + i])
+            b = i64(above[top + i])
+            mut a = 0
+            mut c = 0
+            if i >= step:
+                a = i64(pixels[at + i - step])
+                c = i64(above[top + i - step])
+            left = i64(u8(x).wrapping_sub(u8(a)))
+            upper = i64(u8(x).wrapping_sub(u8(b)))
+            mean = i64(u8(x).wrapping_sub(u8((a + b) >> 1)))
+            guess = i64(u8(x).wrapping_sub(u8(paeth(a, b, c))))
+            rows[1 + i] = u8(x)
+            rows[line + 1 + i] = u8(left)
+            rows[2 * line + 1 + i] = u8(upper)
+            rows[3 * line + 1 + i] = u8(mean)
+            rows[4 * line + 1 + i] = u8(guess)
+            none += cost(x)
+            sub += cost(left)
+            up += cost(upper)
+            average += cost(mean)
+            predicted += cost(guess)
+        mut best = 0
+        mut lowest = none
+        if sub < lowest:
+            best = 1
+            lowest = sub
+        if up < lowest:
+            best = 2
+            lowest = up
+        if average < lowest:
+            best = 3
+            lowest = average
+        if predicted < lowest:
+            best = 4
+        best
 
 def color_kind(color: ColorType) -> u8:
     match color:
@@ -917,76 +1041,85 @@ def color_kind(color: ColorType) -> u8:
 # Writes an 8-bit, non-interlaced PNG. `level` is the zlib level, 0-9; above 0,
 # each row uses the filter that predicts it best.
 pub def encode_png(image: &Image, level: i64 = 6) -> Result[Bytes, ImageError]:
-    if level < 0 or level > 9:
-        return Err(ImageError.OutOfRange)
-    width = image.width()
-    height = image.height()
-    step = image.color().channels()
-    count = width * step
-    mut out = listed(std.bytes.empty())?
-    # The signature: 0x89, "PNG", CR LF, Ctrl-Z, LF.
-    put32(&mut out, 0x89504E47)?
-    put32(&mut out, 0x0D0A1A0A)?
-    mut header = listed(std.bytes.with_capacity(13))?
-    put32(&mut header, width)?
-    put32(&mut header, height)?
-    listed(header.push(8u8))?
-    listed(header.push(color_kind(image.color())))?
-    listed(header.resize(13, 0u8))?
-    framed(&mut out, ihdr, &header, 0, 13)?
-    line = count + 1
-    # Level 0 stores rows unfiltered; otherwise each row is filtered five ways
-    # and the best kept, with a zero row standing above the first.
-    kinds = 1 if level == 0 else 5
-    mut rows = listed(std.bytes.with_capacity(kinds * line))?
-    listed(rows.resize(kinds * line, 0u8))?
-    for kind in range(0, kinds):
-        rows[kind * line] = u8(kind)
-    mut zero = listed(std.bytes.with_capacity(count))?
-    if level > 0:
-        listed(zero.resize(count, 0u8))?
-    sink = std.io.cursor(listed(std.bytes.empty())?)
-    mut zlib = coded(std.compress.compressor(std.compress.Format.Zlib, sink, level))?
-    pixels = image.pixels()
-    for y in range(0, height):
-        at = y * count
-        mut best = 0
-        if level == 0:
-            rows.overwrite(1, &pixels[at:at + count])
-        elif y == 0:
-            best = filtered(&mut rows, pixels, at, &zero, 0, count, step)
-        else:
-            best = filtered(&mut rows, pixels, at, pixels, at - count, count, step)
-        start = best * line
-        mut fed = start
-        while fed < start + line:
-            fed += streamed(zlib.write(&rows[fed:start + line]))?
-        if zlib.inner.data.len() >= idat_size:
-            framed(&mut out, idat, &zlib.inner.data, 0, zlib.inner.data.len())?
-            zlib.inner.data.clear()
-            streamed(zlib.inner.seek(std.io.SeekFrom.Start(0)))?
-    streamed(zlib.finish())?
-    sunk = zlib.inner
-    rest = sunk.data
-    if rest.len() > 0:
-        framed(&mut out, idat, &rest, 0, rest.len())?
-    framed(&mut out, iend, &rest, 0, 0)?
-    Ok(out)
+    # Image dimensions<=2^31-1 and channels<=4 bound count, line and 5*line below 2^36.
+    # Row/source/filter offsets stay inside held buffers. best<=4 and compressor writes consume
+    # at most the offered view, so fed never exceeds start+line. Bytes performs all unbounded
+    # output growth checks.
+    unchecked:
+        if level < 0 or level > 9:
+            return Err(ImageError.OutOfRange)
+        width = image.width()
+        height = image.height()
+        step = image.color().channels()
+        count = width * step
+        mut out = listed(std.bytes.empty())?
+        # The signature: 0x89, "PNG", CR LF, Ctrl-Z, LF.
+        put32(&mut out, 0x89504E47)?
+        put32(&mut out, 0x0D0A1A0A)?
+        mut header = listed(std.bytes.with_capacity(13))?
+        put32(&mut header, width)?
+        put32(&mut header, height)?
+        listed(header.push(8u8))?
+        listed(header.push(color_kind(image.color())))?
+        listed(header.resize(13, 0u8))?
+        framed(&mut out, ihdr, &header, 0, 13)?
+        line = count + 1
+        # Level 0 stores rows unfiltered; otherwise each row is filtered five ways
+        # and the best kept, with a zero row standing above the first.
+        kinds = 1 if level == 0 else 5
+        mut rows = listed(std.bytes.with_capacity(kinds * line))?
+        listed(rows.resize(kinds * line, 0u8))?
+        for kind in range(0, kinds):
+            rows[kind * line] = u8(kind)
+        mut zero = listed(std.bytes.with_capacity(count))?
+        if level > 0:
+            listed(zero.resize(count, 0u8))?
+        sink = std.io.cursor(listed(std.bytes.empty())?)
+        mut zlib = coded(std.compress.compressor(std.compress.Format.Zlib, sink, level))?
+        pixels = image.pixels()
+        for y in range(0, height):
+            at = y * count
+            mut best = 0
+            if level == 0:
+                rows.overwrite(1, &pixels[at:at + count])
+            elif y == 0:
+                best = filtered(&mut rows, pixels, at, &zero, 0, count, step)
+            else:
+                best = filtered(&mut rows, pixels, at, pixels, at - count, count, step)
+            start = best * line
+            mut fed = start
+            while fed < start + line:
+                fed += streamed(zlib.write(&rows[fed:start + line]))?
+            if zlib.inner.data.len() >= idat_size:
+                framed(&mut out, idat, &zlib.inner.data, 0, zlib.inner.data.len())?
+                zlib.inner.data.clear()
+                streamed(zlib.inner.seek(std.io.SeekFrom.Start(0)))?
+        streamed(zlib.finish())?
+        sunk = zlib.inner
+        rest = sunk.data
+        if rest.len() > 0:
+            framed(&mut out, idat, &rest, 0, rest.len())?
+        framed(&mut out, iend, &rest, 0, 0)?
+        Ok(out)
 
 # ---- Resizing ----
 
 def nearest(image: &Image, width: i64, height: i64, total: i64) -> Result[Image, ImageError]:
-    channels = image.color().channels()
-    source = image.pixels()
-    mut pixels = listed(std.bytes.with_capacity(total))?
-    for y in range(0, height):
-        # Doubled coordinates put each sample at a pixel centre; dimensions
-        # below 2^31 keep the products in range.
-        row = ((2 * y + 1) * image.height()) // (2 * height) * image.width()
-        for x in range(0, width):
-            at = (row + ((2 * x + 1) * image.width()) // (2 * width)) * channels
-            listed(pixels.extend(&source[at:at + channels]))?
-    Ok(Image(width, height, image.color(), pixels))
+    # All dimensions are in 1..2^31-1. The largest doubled-centre product is
+    # (2*(2^31-1)-1)*(2^31-1)<MAX. Selected source coordinates are in range; their byte spans
+    # fit the validated source extent.
+    unchecked:
+        channels = image.color().channels()
+        source = image.pixels()
+        mut pixels = listed(std.bytes.with_capacity(total))?
+        for y in range(0, height):
+            # Doubled coordinates put each sample at a pixel centre; dimensions
+            # below 2^31 keep the products in range.
+            row = ((2 * y + 1) * image.height()) // (2 * height) * image.width()
+            for x in range(0, width):
+                at = (row + ((2 * x + 1) * image.width()) // (2 * width)) * channels
+                listed(pixels.extend(&source[at:at + channels]))?
+        Ok(Image(width, height, image.color(), pixels))
 
 # Fixed-point bits in filter weights, as in Pillow's resampling.
 const precision: i64 = 22
@@ -1001,33 +1134,38 @@ class Taps:
     span: i64
 
 def taps(source: i64, target: i64) -> Result[Taps, ImageError]:
-    scale = f64(source) / f64(target)
-    # Shrinking widens the filter so every source pixel is weighed.
-    widen = scale if scale > 1.0 else 1.0
-    support = widen
-    span = i64(2.0 * support) + 2
-    mut starts = listed(list[i64].with_capacity(target))?
-    mut counts = listed(list[i64].with_capacity(target))?
-    mut weights = listed(list[i64].with_capacity(target * span))?
-    for i in range(0, target):
-        centre = (f64(i) + 0.5) * scale
-        mut low = i64(centre - support + 0.5)
-        if low < 0:
-            low = 0
-        mut high = i64(centre + support + 0.5)
-        if high > source:
-            high = source
-        mut sum = 0.0
-        for k in range(low, high):
-            sum += triangle((f64(k) - centre + 0.5) / widen)
-        listed(starts.append(low))?
-        listed(counts.append(high - low))?
-        for k in range(0, span):
-            mut weight = 0
-            if k < high - low and sum > 0.0:
-                weight = i64(triangle((f64(low + k) - centre + 0.5) / widen) / sum * f64(1 << precision) + 0.5)
-            listed(weights.append(weight))?
-    Ok(Taps(starts, counts, weights, span))
+    # source/target are in 1..2^31-1. span=floor(2*max(source/target,1))+2;
+    # target*span<=2*source+4*target<6*2^31. Clipped low/high are in 0..source and
+    # counts<=source. Normalized nonnegative weights round into 0..2^22; all indices/products
+    # fit the reserved tap extents.
+    unchecked:
+        scale = f64(source) / f64(target)
+        # Shrinking widens the filter so every source pixel is weighed.
+        widen = scale if scale > 1.0 else 1.0
+        support = widen
+        span = i64(2.0 * support) + 2
+        mut starts = listed(list[i64].with_capacity(target))?
+        mut counts = listed(list[i64].with_capacity(target))?
+        mut weights = listed(list[i64].with_capacity(target * span))?
+        for i in range(0, target):
+            centre = (f64(i) + 0.5) * scale
+            mut low = i64(centre - support + 0.5)
+            if low < 0:
+                low = 0
+            mut high = i64(centre + support + 0.5)
+            if high > source:
+                high = source
+            mut sum = 0.0
+            for k in range(low, high):
+                sum += triangle((f64(k) - centre + 0.5) / widen)
+            listed(starts.append(low))?
+            listed(counts.append(high - low))?
+            for k in range(0, span):
+                mut weight = 0
+                if k < high - low and sum > 0.0:
+                    weight = i64(triangle((f64(low + k) - centre + 0.5) / widen) / sum * f64(1 << precision) + 0.5)
+                listed(weights.append(weight))?
+        Ok(Taps(starts, counts, weights, span))
 
 def triangle(x: f64) -> f64:
     distance = x if x >= 0.0 else -x
@@ -1036,110 +1174,131 @@ def triangle(x: f64) -> f64:
     0.0
 
 def clamped(sum: i64) -> u8:
-    value = (sum + (1 << (precision - 1))) >> precision
-    if value < 0:
-        return 0u8
-    if value > 255:
-        return 255u8
-    u8(value)
+    # Only channel sums from taps reach here: 0<=sum<=(2^31-1)*255*2^22<2^61. Adding the
+    # rounding bias 2^21 remains inside i64.
+    unchecked:
+        value = (sum + (1 << (precision - 1))) >> precision
+        if value < 0:
+            return 0u8
+        if value > 255:
+            return 255u8
+        u8(value)
 
 # A colour channel weighted by its pixel's alpha, rounded to nearest.
 def premultiplied(value: i64, alpha: i64) -> i64:
-    (2 * value * alpha + 255) // 510
+    # value and alpha are byte samples in 0..255, so the numerator is at most 130305 and divisor
+    # is positive 510.
+    unchecked:
+        (2 * value * alpha + 255) // 510
 
 # Resamples each row of `source`: `rows` rows of `from_width` pixels become
 # rows of `taps`' target width. Colour channels of an alpha image, which has
 # 2 or 4 channels, are premultiplied as they are read.
 def horizontal(source: &[u8], from_width: i64, rows: i64, channels: i64, weights: &Taps) -> Result[Bytes, ImageError]:
-    to_width = len(&weights.starts)
-    total = rows * to_width * channels
-    mut out = listed(std.bytes.with_capacity(total))?
-    listed(out.resize(total, 0u8))?
-    mut to = 0
-    for y in range(0, rows):
-        row = y * from_width * channels
-        for x in range(0, to_width):
-            first = x * weights.span
-            mut at = row + weights.starts[x] * channels
-            mut s0 = 0
-            mut s1 = 0
-            mut s2 = 0
-            mut s3 = 0
-            for k in range(0, weights.counts[x]):
-                weight = weights.weights[first + k]
-                match channels:
-                    case 1:
-                        s0 += weight * i64(source[at])
-                    case 2:
-                        alpha = i64(source[at + 1])
-                        s0 += weight * premultiplied(i64(source[at]), alpha)
-                        s1 += weight * alpha
-                    case 3:
-                        s0 += weight * i64(source[at])
-                        s1 += weight * i64(source[at + 1])
-                        s2 += weight * i64(source[at + 2])
-                    case _:
-                        alpha = i64(source[at + 3])
-                        s0 += weight * premultiplied(i64(source[at]), alpha)
-                        s1 += weight * premultiplied(i64(source[at + 1]), alpha)
-                        s2 += weight * premultiplied(i64(source[at + 2]), alpha)
-                        s3 += weight * alpha
-                at += channels
-            out[to] = clamped(s0)
-            if channels > 1:
-                out[to + 1] = clamped(s1)
-            if channels > 2:
-                out[to + 2] = clamped(s2)
-            if channels > 3:
-                out[to + 3] = clamped(s3)
-            to += channels
-    Ok(out)
+    # pixel_extent checked the mixed-dimension output. All source and destination indices/cursor
+    # increments stay in held pixel spans; tap indices stay in the reserved table. At most
+    # 2^31-1 taps, each <=2^22 times a byte<=255, bound every partial channel sum below 2^61.
+    unchecked:
+        to_width = len(&weights.starts)
+        total = pixel_extent(to_width, rows, channels)?
+        mut out = listed(std.bytes.with_capacity(total))?
+        listed(out.resize(total, 0u8))?
+        mut to = 0
+        for y in range(0, rows):
+            row = y * from_width * channels
+            for x in range(0, to_width):
+                first = x * weights.span
+                mut at = row + weights.starts[x] * channels
+                mut s0 = 0
+                mut s1 = 0
+                mut s2 = 0
+                mut s3 = 0
+                for k in range(0, weights.counts[x]):
+                    weight = weights.weights[first + k]
+                    match channels:
+                        case 1:
+                            s0 += weight * i64(source[at])
+                        case 2:
+                            alpha = i64(source[at + 1])
+                            s0 += weight * premultiplied(i64(source[at]), alpha)
+                            s1 += weight * alpha
+                        case 3:
+                            s0 += weight * i64(source[at])
+                            s1 += weight * i64(source[at + 1])
+                            s2 += weight * i64(source[at + 2])
+                        case _:
+                            alpha = i64(source[at + 3])
+                            s0 += weight * premultiplied(i64(source[at]), alpha)
+                            s1 += weight * premultiplied(i64(source[at + 1]), alpha)
+                            s2 += weight * premultiplied(i64(source[at + 2]), alpha)
+                            s3 += weight * alpha
+                    at += channels
+                out[to] = clamped(s0)
+                if channels > 1:
+                    out[to + 1] = clamped(s1)
+                if channels > 2:
+                    out[to + 2] = clamped(s2)
+                if channels > 3:
+                    out[to + 3] = clamped(s3)
+                to += channels
+        Ok(out)
 
 # Resamples each column of `source`, whose rows are `stride` bytes.
 def vertical(source: &[u8], stride: i64, weights: &Taps) -> Result[Bytes, ImageError]:
-    to_height = len(&weights.starts)
-    total = to_height * stride
-    mut out = listed(std.bytes.with_capacity(total))?
-    listed(out.resize(total, 0u8))?
-    mut to = 0
-    for y in range(0, to_height):
-        start = weights.starts[y]
-        count = weights.counts[y]
-        first = y * weights.span
-        for i in range(0, stride):
-            mut sum = 0
-            for k in range(0, count):
-                sum += weights.weights[first + k] * i64(source[(start + k) * stride + i])
-            out[to] = clamped(sum)
-            to += 1
-    Ok(out)
+    # pixel_extent checked the target output. Tap starts/counts select held source rows and
+    # table entries; to increments only to total. At most 2^31-1 nonnegative weighted bytes,
+    # each <=255*2^22, bound every partial sum below 2^61.
+    unchecked:
+        to_height = len(&weights.starts)
+        total = pixel_extent(stride, to_height, 1)?
+        mut out = listed(std.bytes.with_capacity(total))?
+        listed(out.resize(total, 0u8))?
+        mut to = 0
+        for y in range(0, to_height):
+            start = weights.starts[y]
+            count = weights.counts[y]
+            first = y * weights.span
+            for i in range(0, stride):
+                mut sum = 0
+                for k in range(0, count):
+                    sum += weights.weights[first + k] * i64(source[(start + k) * stride + i])
+                out[to] = clamped(sum)
+                to += 1
+        Ok(out)
 
 def unpremultiplied(pixels: &mut Bytes, channels: i64) -> ():
-    last = channels - 1
-    mut at = 0
-    total = pixels.len()
-    while at < total:
-        alpha = i64(pixels[at + last])
-        for c in range(0, last):
-            if alpha == 0:
-                pixels[at + c] = 0u8
-            else:
-                value = (i64(pixels[at + c]) * 255 + alpha // 2) // alpha
-                pixels[at + c] = 255u8 if value > 255 else u8(value)
-        at += channels
+    # channels is 2 or 4 and pixels holds whole pixels; at+c and the final at+channels stay
+    # inside its held extent. Samples<=255 bound numerator<=65152; the division branch has alpha
+    # in 1..255.
+    unchecked:
+        last = channels - 1
+        mut at = 0
+        total = pixels.len()
+        while at < total:
+            alpha = i64(pixels[at + last])
+            for c in range(0, last):
+                if alpha == 0:
+                    pixels[at + c] = 0u8
+                else:
+                    value = (i64(pixels[at + c]) * 255 + alpha // 2) // alpha
+                    pixels[at + c] = 255u8 if value > 255 else u8(value)
+            at += channels
 
 # Filters rows, then columns, skipping a pass whose size is unchanged. An
 # alpha image always takes the row pass, which premultiplies.
 def resampled(image: &Image, width: i64, height: i64) -> Result[Bytes, ImageError]:
-    channels = image.color().channels()
-    stride = width * channels
-    pixels = image.pixels()
-    if width == image.width() and not image.color().has_alpha():
-        return vertical(&pixels, stride, &taps(image.height(), height)?)
-    across = horizontal(&pixels, image.width(), image.height(), channels, &taps(image.width(), width)?)?
-    if height == image.height():
-        return Ok(across)
-    vertical(&across, stride, &taps(image.height(), height)?)
+    # Validated target width<=2^31-1 and channels<=4 bound stride. Horizontal/vertical helpers
+    # separately check potentially unrepresentable mixed pixel extents.
+    unchecked:
+        channels = image.color().channels()
+        stride = width * channels
+        pixels = image.pixels()
+        if width == image.width() and not image.color().has_alpha():
+            return vertical(&pixels, stride, &taps(image.height(), height)?)
+        across = horizontal(&pixels, image.width(), image.height(), channels, &taps(image.width(), width)?)?
+        if height == image.height():
+            return Ok(across)
+        vertical(&across, stride, &taps(image.height(), height)?)
 
 def bilinear(image: &Image, width: i64, height: i64) -> Result[Image, ImageError]:
     color = image.color()

@@ -4,7 +4,8 @@
 turn the old one into the new one. It diffs generic lists, bytes, and text split
 into lines, words, or Unicode scalars, and formats text differences as unified
 diffs. It is ordinary embedded Plenty code: every allocation failure is reported
-as `AllocError`.
+as `AllocError`. Unrepresentable frontier storage sizes return
+`AllocError.CapacityOverflow` before frontier allocation.
 
 | Operation | Result | Contract |
 |---|---|---|
@@ -50,7 +51,11 @@ True 5
 
 An `Op` has public `kind`, `old_start`, `old_end`, `new_start`, and `new_end`
 fields. It says that `old[old_start:old_end]` becomes `new[new_start:new_end]`.
-`op.old_len()`, `op.new_len()`, and `op.is_equal()` are shorthands.
+`op.old_len()` and `op.new_len()` return
+`Result[i64, OverflowError[i64]]`. They subtract the public endpoints as given,
+including representable negative lengths; an unrepresentable difference returns
+the precise wrapped overflow value. `op.is_equal()` returns `bool`.
+Operations produced by the diff algorithms have nonnegative, representable lengths.
 
 | `kind` | Old range | New range |
 |---|---|---|
@@ -137,7 +142,7 @@ Each side's tokens concatenate to its original text.
   `\ No newline at end of file`.
 - `context` unchanged tokens surround each change. Changes separated by at most
   `2 * context` unchanged tokens share a hunk. A negative context counts as
-  zero.
+  zero. Even `i64.MAX` context is accepted without overflowing the hunk comparison.
 
 `unified` is meant for `lines`. For word or scalar diffs, every token still
 becomes its own output line.

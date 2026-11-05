@@ -4,25 +4,29 @@ To keep a manager after the block, borrow it explicitly. The original binding
 is exclusively borrowed until exit completes.
 
 ```plenty
-class Counter:
-    count: i64
-    def __enter__(self: &mut Counter) -> i64:
-        self.count = self.count + 1
-        self.count
-    def __exit__(self: &mut Counter) -> ():
-        self.count = self.count + 10
+class Stage:
+    marker: i64
+    def __enter__(self: &mut Stage) -> i64:
+        self.marker = 1
+        self.marker
+    def __exit__(self: &mut Stage) -> ():
+        self.marker = 11
 
 def main() -> Result[(), IoError]:
-    mut counter = Counter(0)
-    with &mut counter as n:
+    mut stage = Stage(0)
+    with &mut stage as n:
         print(n)?
-    print(counter.count)?
+    print(stage.marker)?
     Ok(())
 ```
 ```output
 1
 11
 ```
+
+`Stage` records lifecycle markers, not an accumulating counter: enter assigns
+`1` and exit assigns `11`, including on repeated uses. Cleanup performs no
+fallible arithmetic.
 
 Several managers can share one `with` statement. They enter from left to right
 and exit from right to left, just like nested blocks. Later manager expressions

@@ -7,19 +7,19 @@ fn consuming_api_accepts_every_callable_ownership_mode() {
 def invoke[T, U, F: OnceCallable[[T], U]](f: F, value: T) -> U:
     mut callback = f
     callback(value)
-def double(value: i64) -> i64:
-    value * 2
-def main() -> Result[(), AllocError | IoError]:
-    print(invoke(double, 5))?
+def double(value: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(value * 2)
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    print(invoke(double, 5)?)?
     offset = 3
-    add = def [offset](value: i64) -> i64:
-        offset + value
-    print(invoke(add, 5))?
+    add = def [offset](value: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(offset + value)
+    print(invoke(add, 5)?)?
     total = 4
-    change = def [mut total](value: i64) -> i64:
+    change = def [mut total](value: i64) -> Result[i64, OverflowError[i64]]:
         total = total + value
-        total
-    print(invoke(change, 5))?
+        Ok(total)
+    print(invoke(change, 5)?)?
     values = [7]?
     take = def once [values](value: i64) -> list[i64]:
         values
@@ -36,7 +36,7 @@ def main() -> Result[(), AllocError | IoError]:
 
 #[test]
 fn one_shot_constraints_do_not_silence_move_checking() {
-    let source = "def twice[F: OnceCallable[[], i64]](f: F) -> i64:\n    f() + f()\ndef main() -> ():\n    f = def once () -> i64:\n        1\n    twice(f)\n    pass\n";
+    let source = "def twice[F: OnceCallable[[], i64]](f: F) -> Result[i64, OverflowError[i64]]:\n    Ok(f() + f())\ndef main() -> Result[(), OverflowError[i64]]:\n    f = def once () -> i64:\n        1\n    twice(f)?\n    Ok(())\n";
     let error = check_source(source).unwrap_err().to_string();
     assert!(error.contains("moved"), "{error}");
     let source = "def ignore[F: Callable[[], i64]](f: F) -> ():\n    pass\ndef main() -> ():\n    f = def once () -> i64:\n        1\n    ignore(f)\n";

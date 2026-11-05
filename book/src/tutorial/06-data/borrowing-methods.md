@@ -67,7 +67,7 @@ def find(items: &mut list[Item], name: &str) -> Option[&mut Item]:
             return Some(item)
     Nothing
 
-def add(items: &mut list[Item], name: str) -> Result[(), AllocError]:
+def add(items: &mut list[Item], name: str) -> Result[(), AllocError | OverflowError[i64]]:
     match find(items, &name):
         case Some(item):
             item.count += 1
@@ -75,7 +75,7 @@ def add(items: &mut list[Item], name: str) -> Result[(), AllocError]:
             items.append(Item(name, 1))?
     Ok(())
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | AllocError | OverflowError[i64]]:
     mut items: list[Item] = []?
     add(&mut items, "ada")?
     add(&mut items, "bob")?

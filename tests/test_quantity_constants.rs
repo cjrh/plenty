@@ -72,7 +72,7 @@ const scaled: Quantity[{width}, L] = 2 * a + a * 2
 const positive: Quantity[{width}, L] = +a
 const divisor: Quantity[NonZero[{width}], T] = Quantity[NonZero[{width}], T](5)
 const proven: Quantity[{width}, L / T] = a // divisor
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[{width}] | ZeroDivisionError]:
     print(sum == a + a, difference == a - a, product == a * b, quotient == a // b)?
     print(remainder == a % c, scaled == 2 * a + a * 2, positive == +a, proven == a // divisor)?
     print(sum.get(), difference.get(), product.get(), quotient.get(), remainder.get(), scaled.get())?
@@ -100,7 +100,7 @@ const square: Quantity[{domain}[{width}], Pow[L, 2]] = q * q
 const difference: Quantity[{width}, L] = q - q
 const scaled: Quantity[{domain}[{width}], L] = 2 * q
 const amount: {width} = square.get().get()
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[{width}]]:
     print(doubled == q + q, square == q * q, difference == q - q, scaled == 2 * q)?
     print(amount)?
     Ok(())
@@ -325,7 +325,7 @@ const delta: Quantity[i8, L] = (p.get() - p.get()) * Quantity[i8, L](1)
 const negative: Quantity[i8, L] = (-p.get()) * Quantity[i8, L](1)
 const reconstructed: Quantity[Positive[i8], L] = Quantity[Positive[i8], L](p.get() + 2i8)
 assert scaled == p * 2i8
-def main() -> Result[(), IoError]:
+def main() -> Result[(), IoError | OverflowError[i8]]:
     print(scaled == 2i8 * p, delta == (p.get() - p.get()) * Quantity[i8, L](1))?
     print(negative, reconstructed)?
     Ok(())

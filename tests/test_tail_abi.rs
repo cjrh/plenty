@@ -8,9 +8,12 @@ fn native_inline_result_recursion_emits_a_jump_instead_of_a_call() {
     plenty::compile_source_to_object(
         r#"
 def countdown(n: i64) -> range[i64]:
-    if n == 0:
+    if n <= 0:
         return range(4)
-    countdown(n - 1)
+    # Preserve the plain range ABI; this branch proves 1 <= n <= i64.MAX.
+    next_n = unchecked:
+        n - 1
+    countdown(next_n)
 def main() -> ():
     pass
 "#,
@@ -78,12 +81,18 @@ fn direct_and_indirect_inline_results_forward_the_incoming_area() {
 def direct(n: i64) -> range[i64]:
     if n == 0:
         return range(7, 10)
-    direct(n - 1)
+    # Preserve the inline result ABI: main counts down from 300000 to zero.
+    next_n = unchecked:
+        n - 1
+    direct(next_n)
 def indirect(n: i64) -> Option[range[i64]]:
     if n == 0:
         return Some(range(20, 23))
     call = indirect
-    call(n - 1)
+    # Preserve the inline result ABI: main counts down from 300000 to zero.
+    next_n = unchecked:
+        n - 1
+    call(next_n)
 def main() -> Result[(), IoError]:
     print(direct(300000))?
     print(indirect(300000))?
@@ -105,7 +114,10 @@ class Parcel:
 def short(n: i64, a: i64, b: i64) -> Result[Parcel, i64]:
     if n == 0:
         return Ok(Parcel(a, Some(range(a, b)), b))
-    long(n - 1, b, a, 1, 2, 3, 4, 5, 6, 7, 8)
+    # Preserve the inline result ABI: main counts down from 300000 to zero.
+    next_n = unchecked:
+        n - 1
+    long(next_n, b, a, 1, 2, 3, 4, 5, 6, 7, 8)
 def long(n: i64, b: i64, a: i64, x: i64, y: i64, z: i64, p: i64, q: i64, r: i64, s: i64, t: i64) -> Result[Parcel, i64]:
     short(n, a, b)
 def main() -> Result[(), IoError]:
@@ -157,7 +169,10 @@ def make() -> Closure[[], i64]:
     guard = Guard("closure cleanup")
     values = Some(range(3, 8))
     def [guard, values]() -> i64:
-        len(values.unwrap()) + len(guard.value)
+        # Preserve the scalar closure ABI: these captures always have lengths
+        # 5 (range(3, 8)) and 15 ("closure cleanup"), so the sum fits.
+        unchecked:
+            len(values.unwrap()) + len(guard.value)
 def forward() -> Closure[[], i64]:
     make()
 def outer() -> Closure[[], i64]:
@@ -186,7 +201,10 @@ fn inline_result_transfer_needs_no_heap_allocation() {
 def recurse(n: i64) -> Option[range[i64]]:
     if n == 0:
         return Some(range(4, 7))
-    recurse(n - 1)
+    # Preserve the inline result ABI: main counts down from 300000 to zero.
+    next_n = unchecked:
+        n - 1
+    recurse(next_n)
 def main() -> Result[(), IoError]:
     print("__test_begin_no_allocations__")?
     print("__test_fail_allocations_after_0__")?

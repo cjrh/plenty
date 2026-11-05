@@ -8,6 +8,16 @@ allocates nothing. A trap in a connection actor closes that connection only.
 
 Supported target: x86-64 Linux, as for [`std.actor`](actor.md).
 
+Connection cursor arithmetic is bounded by the allocated input/output buffers;
+invalid consume/commit/forward counts retain their existing `NetError` causes.
+Output reservation compares the requested count with remaining space without
+first adding it to the cursor, so even an `i64.MAX` request cannot overflow that
+comparison. Deadlines beyond the clock range clamp to the last instant.
+`Listener.refused()` is an observation-only total and saturates at `i64.MAX`;
+the live-child count remains an exact admission count. A matching `Down` when
+no child is live returns `NetError.Stream(StreamError.Io(IoError.InvalidInput))`
+before changing that count.
+
 A server echoes one connection. It also starts a client as its own child,
 under a different tag, which dials it, sends a request and prints the reply:
 
@@ -20,7 +30,7 @@ from std.ready import WaitError
 from std.sync import CancellationToken
 from std.time import deadline_after, monotonic_now, seconds
 
-type Fault = AllocError | NetError | BytesError | TimerError | StartError | IoError
+type Fault = AllocError | NetError | BytesError | TimerError | StartError | IoError | OverflowError[i64]
 
 # Spawn tags: the listener's connections and the client.
 const connection_tag: i64 = 0

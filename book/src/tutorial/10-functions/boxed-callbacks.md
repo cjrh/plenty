@@ -5,25 +5,25 @@ behind one signature, explicitly allocate a `BoxedCallable`. Its constructor
 consumes the callback and returns `Result`, so `?` handles allocation failure.
 
 ```plenty
-def choose(k: i64) -> Result[BoxedCallable[[i64], i64], AllocError]:
+def choose(k: i64) -> Result[BoxedCallable[[i64], Result[i64, OverflowError[i64]]], AllocError]:
     if k > 0:
-        add = def [k](value: i64) -> i64:
-            k + value
+        add = def [k](value: i64) -> Result[i64, OverflowError[i64]]:
+            Ok(k + value)
         return BoxedCallable(add)
     span = range(10, 13)
-    multiply = def [span](value: i64) -> i64:
-        span[1] * value
+    multiply = def [span](value: i64) -> Result[i64, OverflowError[i64]]:
+        Ok(span[1] * value)
     BoxedCallable(multiply)
 
-def main() -> Result[(), AllocError | IoError]:
-    callbacks: dict[str, BoxedCallable[[i64], i64]] = {
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    callbacks: dict[str, BoxedCallable[[i64], Result[i64, OverflowError[i64]]]] = {
         "add": choose(3)?,
         "multiply": choose(0)?,
     }?
-    print(callbacks["add"](4))?
-    print(callbacks["multiply"](4))?
+    print(callbacks["add"](4)?)?
+    print(callbacks["multiply"](4)?)?
     borrowed = &callbacks["add"]
-    print(borrowed(5))?
+    print(borrowed(5)?)?
     Ok(())
 ```
 
