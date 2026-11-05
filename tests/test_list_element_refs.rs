@@ -437,7 +437,8 @@ fn record_row_loops_call_nothing_and_read_the_header_once() {
     );
     assert!(!asm.lines().any(support::native_call), "{asm}");
     // One read of the popped-row flag: `len(bodies)` and the cache share it.
-    let removed = regex::Regex::new(r"movzb\S*\s+0x30\(").unwrap();
+    // x86-64 uses movzb*, while AArch64 uses ldrb for the byte load.
+    let removed = regex::Regex::new(r"movzb\S*\s+0x30\(|ldrb\s+w\d+,\s+\[x\d+,\s+#0x30\]").unwrap();
     assert_eq!(removed.find_iter(&asm).count(), 1, "{asm}");
 }
 
