@@ -1086,7 +1086,7 @@ fn archive_numeric_extents_and_padding_boundaries_in_both_modes() {
     .join("\n\n");
     let body = r#"
 decimal = std.bytes.from_text("9223372036854775799")?
-rejected = std.bytes.from_text("9223372036854775800")?
+rejected = std.bytes.from_text("9223372036854775808")?
 maximum = std.bytes.from_text("9223372036854775807")?
 octal = std.bytes.from_text("777777777777777777777")?
 mut block = std.bytes.with_capacity(512)?
@@ -1121,7 +1121,7 @@ binary_error = tar_number(&too_large, 0, 12)
 unsigned_ok = tar_checksum_ok(&block)
 signed_ok = tar_checksum_ok(&signed)
 print("__test_end_no_allocations__")?
-print(a.unwrap(), b.is_err(), c.is_err(), d.unwrap())?
+print(a.unwrap(), b.is_err(), c.unwrap(), d.unwrap())?
 print(str.repr(r)?, str.repr(w)?, str.repr(p)?)?
 print(last.unwrap(), str.repr(full)?, ratio)?
 print(binary_value.unwrap(), binary_error.is_err())?
@@ -1135,7 +1135,8 @@ print(unsigned_ok?, signed_ok?)?
             .run(directory.path())
             .replace("ArchiveError.", "");
         assert!(
-            output.starts_with("9223372036854775799 True True 9223372036854775807\n"),
+            output
+                .starts_with("9223372036854775799 True 9223372036854775807 9223372036854775807\n"),
             "{output}"
         );
         assert!(output.contains(".Err(Corrupt)"), "{output}");
@@ -1348,6 +1349,48 @@ print(zipped.failure().is_none())?
         assert_eq!(
             Program::with_declarations(body, declarations, optimize).run(directory.path()),
             "5\n5 hello\nTrue\n5 hello\nTrue"
+        );
+    }
+}
+
+#[test]
+fn archive_pax_decimal_i64_boundaries_in_both_modes() {
+    let helper = archive_function("digits_value");
+    let mut body = String::from("mut data = std.bytes.empty()?\n");
+    let mut expected = String::new();
+    for value in [0, 1, 9223372036854775799]
+        .into_iter()
+        .chain(9223372036854775800..=i64::MAX)
+    {
+        body.push_str(&format!(
+            "data = std.bytes.from_text(\"{value}\")?\nprint(digits_value(&data, 0, data.len())?)?\n"
+        ));
+        expected.push_str(&format!("{value}\n"));
+    }
+    for text in [
+        "9223372036854775808",
+        "9223372036854775809",
+        "9223372036854775810",
+        "99999999999999999999",
+        "",
+        "-1",
+        "1x",
+        "/",
+        ":",
+    ] {
+        body.push_str(&format!(
+            "data = std.bytes.from_text(\"{text}\")?\nprint(str.repr(digits_value(&data, 0, data.len()))?)?\n"
+        ));
+        expected.push_str("Result[i64, ArchiveError].Err(ArchiveError.Corrupt)\n");
+    }
+    body.push_str("data = std.bytes.from_text(\"x0009223372036854775807y\")?\nprint(digits_value(&data, 1, 23)?)?\n");
+    expected.push_str("9223372036854775807\n");
+    let directory = tempfile::tempdir().unwrap();
+    for optimize in [false, true] {
+        assert_eq!(
+            archive_probe(&helper, &body, optimize).run(directory.path()),
+            expected.trim(),
+            "optimize={optimize}"
         );
     }
 }

@@ -349,10 +349,11 @@ the central directory and once per opened entry.
 - No ZIP encryption, and no methods other than stored and DEFLATE.
 - No sparse TAR files, and no TAR archives split across volumes.
 - TAR reader content lengths are at most 2⁶² bytes, keeping block padding
-  representable. PAX decimal fields retain a conservative parsing ceiling of
-  9223372036854775799; larger values are `Corrupt`, even the final eight
-  representable nonnegative `i64` values. Octal accumulation subtracts ASCII
-  bias before adding a digit; fixed-block checksums do not wrap.
+  representable. PAX decimal fields accept nonnegative values through
+  `i64.MAX` (9223372036854775807); larger values and invalid digits are
+  `Corrupt`. This numeric range does not raise the content-length limit.
+  Octal accumulation subtracts ASCII bias before adding a digit; fixed-block
+  checksums do not wrap.
 - An unrepresentable PAX output record length is
   `Allocation(AllocError.CapacityOverflow)` before appending the record.
 - One target, x86-64 Linux GNU.

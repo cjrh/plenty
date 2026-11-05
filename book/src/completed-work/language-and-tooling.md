@@ -475,8 +475,9 @@ native checksums and mutation/failure paths. Fifteen arithmetic integration test
 formatting and strict workspace/all-target Clippy pass. Frozen comparison inputs
 remain unchanged. See [collected results and limits](checked-default-validation.md)
 for distributions, attribution, source bridging and bounded code analysis.
-Separate pre-existing archive-decimal and PNG-framing limits are recorded
-as issues #705 and #707, open and outside these arithmetic checkpoints.
+Separate pre-existing archive-decimal and PNG-framing limits were recorded
+as issues #705 and #707, outside these arithmetic checkpoints. The
+[archive decimal boundary fix](libraries.md#b38-library-breadth) addresses #705.
 
 Class match patterns shipped with issue #558.
 Outstanding conveniences stay **B14/B71** in the [backlog](../backlog.md).
