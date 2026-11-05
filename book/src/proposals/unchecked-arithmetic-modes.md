@@ -36,6 +36,29 @@ source expression's result. Use explicit wrapping operations for modular
 arithmetic; explicit wrapping, saturating and checked methods retain their
 own contracts in either mode.
 
+## Overflow obligations
+
+The no-overflow obligation applies uniformly to signed and unsigned integers.
+Every intermediate result of ordinary integer arithmetic must be representable
+in that operation's type, not merely the final result of the expression.
+For example, `a * b // c` violates the contract if `a * b` overflows even when
+the final mathematical quotient fits. Use a wider type, an algorithm that avoids
+the overflowing intermediate, or explicit wrapping when modular arithmetic is
+appropriate to the algorithm.
+
+| Arithmetic contract | Overflow detection required? | May assume overflow never occurs? |
+| --- | --- | --- |
+| Explicit wrapping operation | No | No |
+| Ordinary arithmetic in assumed-valid `unchecked:` | No | Yes |
+| Ordinary arithmetic in trapping `unchecked:` or `unchecked trap:` | Yes, unless proven unnecessary | Only on paths where checking or proof establishes it |
+
+Wrapping already permits arithmetic without overflow checks. Undefined overflow
+adds optimization freedom: for example, the compiler may treat `x + 1 > x` as
+true when the addition carries the no-overflow obligation. This is not a valid
+way to detect overflow after the operation. The benefit beyond check omission
+depends on the backend and workload; the source contract does not guarantee a
+speed improvement over wrapping.
+
 ## Arithmetic scope and boundaries
 
 The operation contract must specify which preconditions a block transfers:
@@ -83,6 +106,9 @@ validated inputs and maintained invariants establish its preconditions. If a
 block intentionally rejects invalid input by trapping, express that guarantee
 with `unchecked trap:` or explicit validation. Merely enclosing existing code
 in an unchecked suite does not establish a bound.
+Classify each audited operation by intent: established bounds permit plain
+`unchecked:`, intentional modular arithmetic requires explicit wrapping, and
+invalid-input rejection requires `unchecked trap:` or explicit validation.
 
 Review arithmetic opt-outs already introduced by checked-default adoption before
 enabling assumed-valid mode for the stdlib. Preserve resource-failure mapping,
@@ -99,6 +125,10 @@ Never execute undefined arithmetic in assumed-valid mode to assert a particular
 crash, wrapped value or output. Its runtime tests use valid boundary inputs;
 static IR/native inspection establishes check omission and supported assumptions.
 Explicit trapping suites need invalid-input tests in both global modes.
+Cover signed and unsigned overflow obligations, including an overflowing
+intermediate with a representable final mathematical result, in trapping tests.
+Test explicit wrapping operations at overflowing inputs in both global modes
+and both unchecked block forms: those operations remain defined.
 
 Check nested modes, callbacks, generators, compound writes, short-circuit paths,
 integer widths, divisors, shifts, conversions, powers and mode-sensitive cache
