@@ -82,9 +82,24 @@ impl Types {
     }
 }
 
+/// Folding owns a reference index over its mutable function list; value
+/// arguments borrow the compilation's already indexed constant definitions.
+enum Getters<'a> {
+    References(HashMap<&'a str, &'a Function>),
+    Shared(&'a HashMap<String, Function>),
+}
+impl<'a> Getters<'a> {
+    fn get(&self, name: &str) -> Option<&'a Function> {
+        match self {
+            Self::References(getters) => getters.get(name).copied(),
+            Self::Shared(getters) => getters.get(name),
+        }
+    }
+}
+
 struct Folder<'a> {
     aliases: &'a TypeAliases,
-    getters: HashMap<&'a str, &'a Function>,
+    getters: Getters<'a>,
     values: HashMap<String, Value>,
     active: Vec<String>,
     /// Depth of branches that run time would not take: the unselected arm of
@@ -110,11 +125,13 @@ pub(super) fn fold(functions: &mut Vec<Function>, aliases: &TypeAliases) -> Resu
     {
         let mut folder = Folder {
             aliases,
-            getters: functions
-                .iter()
-                .filter(|f| f.name.starts_with(GETTER))
-                .map(|f| (f.name.as_str(), f))
-                .collect(),
+            getters: Getters::References(
+                functions
+                    .iter()
+                    .filter(|f| f.name.starts_with(GETTER))
+                    .map(|f| (f.name.as_str(), f))
+                    .collect(),
+            ),
             values: HashMap::default(),
             active: vec![],
             unselected: 0,
@@ -174,10 +191,12 @@ pub(super) fn known_integer(
     }
     let mut folder = Folder {
         aliases,
-        getters: constants
-            .iter()
-            .map(|(n, f)| (n.as_str(), f.as_ref()))
-            .collect(),
+        getters: Getters::References(
+            constants
+                .iter()
+                .map(|(n, f)| (n.as_str(), f.as_ref()))
+                .collect(),
+        ),
         values: HashMap::default(),
         active: Vec::new(),
         unselected: 0,
@@ -370,7 +389,7 @@ impl<'a> Folder<'a> {
     fn domain_read(&self, e: &Expr) -> Option<&'a Function> {
         match &ungroup(e).kind {
             Expression::Call(name, args) if args.is_empty() && name.starts_with(GETTER) => {
-                self.getters.get(name.as_str()).copied().filter(|f| {
+                self.getters.get(name.as_str()).filter(|f| {
                     f.output
                         .name
                         .as_deref()
@@ -520,7 +539,7 @@ impl<'a> Folder<'a> {
             Expression::Bytes(b) => Ok(Value::Bytes(b.as_slice().into())),
             Expression::Bool(b) => Ok(Value::Bool(*b)),
             Expression::Call(name, args) if args.is_empty() && name.starts_with(GETTER) => {
-                let Some(f) = self.getters.get(name.as_str()).copied() else {
+                let Some(f) = self.getters.get(name.as_str()) else {
                     return Err(e.at.error(format!("unknown constant `{}`", display(name))));
                 };
                 if let (ty, Some(domain)) = declared(f, self.aliases)?
@@ -969,11 +988,7 @@ pub(super) fn generic_value(
 ) -> Result<value_generics::Constant> {
     let mut folder = Folder {
         aliases,
-        getters: aliases
-            .constants
-            .iter()
-            .map(|(n, f)| (n.as_str(), f))
-            .collect(),
+        getters: Getters::Shared(&aliases.constants),
         values: HashMap::default(),
         active: vec![],
         unselected: 0,

@@ -352,3 +352,55 @@ fn constant_type_dependencies_are_bounded_and_invalid_storage_is_rejected() {
         "constant expression",
     );
 }
+
+#[test]
+fn module_constants_cannot_take_arguments_in_generic_positions() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("limits.plenty"),
+        "pub const limit: i64 = 10\n",
+    )
+    .unwrap();
+    let main = dir.path().join("main.plenty");
+    for constant in ["limit", "cap", "l.limit"] {
+        for argument in ["1", "i64", "limit[1]"] {
+            for usage in [
+                format!("x: Bounded[i64, 0, {constant}[{argument}]] = 9"),
+                format!("drop(value[{constant}[{argument}]]())"),
+                format!("f = value[{constant}[{argument}]]"),
+            ] {
+                let source = format!(
+                    "import limits as l\nfrom limits import limit as cap\nconst limit: i64 = 10\ndef value[const N: i64]() -> i64:\n    N\ndef main() -> ():\n    {usage}\n"
+                );
+                std::fs::write(&main, &source).unwrap();
+                let error = plenty::check_file(&main, None).unwrap_err().to_string();
+                assert!(error.contains("cannot take arguments"), "{source}\n{error}");
+            }
+        }
+    }
+}
+
+/// Run with `cargo test --test integration value_generic_checking_scale -- --ignored --nocapture`.
+/// Report compiler checking cost without turning shared-machine timing into a
+/// pass/fail contract. Literal bounds must not traverse unrelated constants.
+#[test]
+#[ignore = "compiler scaling probe; reports timings for 250 through 4000 constants and bounded functions"]
+fn value_generic_checking_scale() {
+    use std::fmt::Write;
+    for count in [250, 500, 1000, 2000, 4000] {
+        let mut source = String::new();
+        for i in 0..count {
+            writeln!(source, "const c{i}: i64 = {i}").unwrap();
+        }
+        for i in 0..count {
+            writeln!(source, "def sample{i}() -> Bounded[i64, 1, 2]:\n    1").unwrap();
+        }
+        source.push_str("def main() -> ():\n    pass\n");
+        let start = std::time::Instant::now();
+        plenty::check_source(&source).unwrap();
+        eprintln!(
+            "{count} constants and bounded functions: {:?}",
+            start.elapsed()
+        );
+    }
+}

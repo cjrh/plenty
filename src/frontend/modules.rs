@@ -1712,6 +1712,11 @@ impl Scope {
                     super::ide::refer(&ty.at, Find::At(written), super::ide::global(&symbol));
                 }
                 if let Some(getter) = self.constants.get(&symbol) {
+                    if !ty.args.is_empty() {
+                        return Err(ty.at.error(format!(
+                            "module constant `{name}` cannot take arguments; use its bare name as a value argument"
+                        )));
+                    }
                     *ty = TypeRef::value(Expr {
                         at: ty.at.clone(),
                         kind: Expression::Call(getter.clone(), vec![]),
