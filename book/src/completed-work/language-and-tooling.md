@@ -12,6 +12,8 @@ trapping and assumed unchecked arithmetic, routes readers to boxed protocols,
 structural collection keys and quantities, and uses the signature index's
 module navigation. Published skill assemblies include the language reference
 so those contracts remain accessible outside the compiler checkout.
+Issue #738 recalculates signature-index module ranges after publication transforms,
+so line-based reads select complete sections in the installed skill too.
 
 ## Experiment arithmetic migration
 
