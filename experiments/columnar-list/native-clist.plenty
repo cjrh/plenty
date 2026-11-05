@@ -1,4 +1,4 @@
-# Expected rejection: clist is proposed, not an implemented builtin.
+# Native clist is now implemented; retain this former rejection as a smoke test.
 class Point:
     x: i64
     y: i64

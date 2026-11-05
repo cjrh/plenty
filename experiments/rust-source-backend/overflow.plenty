@@ -1,3 +1,4 @@
+# Keep the scalar ABI and fatal arithmetic semantics of the Rust comparison.
 class Trace:
     tag: i64
 
@@ -5,7 +6,8 @@ class Trace:
         print(self.tag).unwrap()
 
 def add(left: i64, right: i64) -> i64:
-    left + right
+    unchecked:
+        left + right
 
 def main() -> ():
     must_not_unwind = Trace(99)

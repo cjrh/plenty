@@ -60,8 +60,10 @@ def program(rows, repeats, samples, native=False, skip_generated=False):
                     lines += ["        row = &items[index]"]
                 expr = {"one": "row.x", "two": "row.y if row.x % 2 == 0 else 0"}.get(kind, full)
                 lines += [f"        total += {expr}", "    total"]
+            # Preserve the original scalar ABI and trapping arithmetic.
+            lines = [lines[0], "    unchecked:", *("    " + line for line in lines[1:])]
             kernels += ["\n".join(lines)]
-            kernels += [f"""def measure_{layout}_{kind}(items: &{ty}, sample: i64) -> Result[(), IoError]:
+            kernels += [f"""def measure_{layout}_{kind}(items: &{ty}, sample: i64) -> Result[(), IoError | OverflowError[i64]]:
     begin = monotonic_now()
     mut checksum = 0
     for repeat in range({repeats}):
@@ -73,22 +75,26 @@ def program(rows, repeats, samples, native=False, skip_generated=False):
 from std.time import monotonic_now
 
 def add(total: i64, value: &i64) -> i64:
-    total + *value
+    unchecked:
+        total + *value
 
 def filtered(total: i64, x: &i64, y: &i64) -> i64:
-    total + *y if *x % 2 == 0 else total
+    unchecked:
+        total + *y if *x % 2 == 0 else total
 
 def add_value(total: i64, value: i64) -> i64:
-    total + value
+    unchecked:
+        total + value
 
 def filtered_value(total: i64, x: i64, y: i64) -> i64:
-    total + y if x % 2 == 0 else total
+    unchecked:
+        total + y if x % 2 == 0 else total
 
 """ + "\n\n".join(kernels)
     extra_error = " | AppendError[Particle]" if native else ""
     source += f"""
 
-def main() -> Result[(), AllocError | IoError | AppendParticleError{extra_error}]:
+def main() -> Result[(), AllocError | IoError | AppendParticleError{extra_error} | OverflowError[i64] | ZeroDivisionError]:
     start_aos = monotonic_now()
     mut aos = list[Particle].with_capacity({rows})?
     for i in range({rows}):

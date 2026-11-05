@@ -35,16 +35,16 @@ def frequencies():
 def program(functions, repetitions=100):
     pieces = []
     for i in range(functions):
-        pieces.append(f"def kernel_{i}(x: i64) -> i64:\n")
-        pieces.append(f"    mut value = x + {i + 1}\n")
+        pieces.append(f"def kernel_{i}(x: i64) -> i64:\n    unchecked:\n")
+        pieces.append(f"        mut value = x + {i + 1}\n")
         for j in range(12):
-            pieces.append(f"    value = (value * 3 + {i + j + 1}) % 1000003\n")
-        pieces.append("    value\n\n")
-    pieces.append("def run(seed: i64, count: i64) -> i64:\n    mut n = 0\n    mut result = 0\n    while n < count:\n")
+            pieces.append(f"        value = (value * 3 + {i + j + 1}) % 1000003\n")
+        pieces.append("        value\n\n")
+    pieces.append("def run(seed: i64, count: i64) -> i64:\n    unchecked:\n        mut n = 0\n        mut result = 0\n        while n < count:\n")
     for i in range(functions):
-        pieces.append(f"        result = (result + kernel_{i}(seed + n)) % 1000003\n")
-    pieces.append("        n += 1\n    result\n\ndef main() -> i32:\n")
-    pieces.append(f"    i32(run(7, {repetitions}) % 200)\n")
+        pieces.append(f"            result = (result + kernel_{i}(seed + n)) % 1000003\n")
+    pieces.append("            n += 1\n        result\n\ndef main() -> i32:\n    unchecked:\n")
+    pieces.append(f"        i32(run(7, {repetitions}) % 200)\n")
     return "".join(pieces)
 
 

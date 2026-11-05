@@ -22,7 +22,7 @@ From the repository root, after `cargo build --release --locked --bin plenty`:
 gcc -O2 -fno-tree-loop-distribute-patterns -c experiments/kernels/kernels.c -o /tmp/kc.o
 objdump -d --no-show-raw-insn /tmp/kc.o | python3 experiments/kernels/loops.py
 
-target/release/plenty --release --dump asm experiments/kernels/kernels.plenty -o /tmp/k
+target/release/plenty --dump asm experiments/kernels/kernels.plenty -o /tmp/k
 # Lowercase, unpad hex (0x0000001d -> 0x1d), and turn `==== name` into `==== x name`:
 python3 -c 'import re,sys
 for l in sys.stdin:
@@ -41,6 +41,11 @@ gcc 16.2.1 gives the same counts at `-O1` and `-O2`. At `-O2`, gcc turns
 given.
 
 ## Results
+
+The tables below record the named historical revisions. The current kernels
+propagate `OverflowError[i64]` through `Result`, matching the arithmetic
+contracts in `examples/fannkuch_redux.plenty`. Re-run the dump commands to
+compare current code; these tables are not measurements of the migrated ABI.
 
 Instructions per pass:
 

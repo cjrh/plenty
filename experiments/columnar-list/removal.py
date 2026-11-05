@@ -24,7 +24,7 @@ class Row:
 {schema}
 def row(n: i64) -> Row:
     Row({values})
-def main() -> Result[(), AllocError | AppendError[Row] | IoError]:
+def main() -> Result[(), AllocError | AppendError[Row] | IoError | OverflowError[i64]]:
 """
     for name, index in [("front", "0"), ("middle", str(rows // 2)), ("last", "-1")]:
         source += f"""    for sample in range({samples + 1}):

@@ -27,15 +27,15 @@ def fixtures(root, count, functions, variant):
         body = "x + step" if extra else f"x + {2 if i == 0 and variant == 'body' else 1}"
         declaration = f'def value(x: i64{extra}) -> i64 = "m{i}_value"'
         interfaces[f"m{i}"] = f"pub extern {declaration}\n"
-        text = f"export {declaration}:\n    {body}\n"
+        text = f"export {declaration}:\n    unchecked:\n        {body}\n"
         for f in range(functions):
-            text += f"\ndef f_{f}(x: i64) -> i64:\n    x + {f}\n"
+            text += f"\ndef f_{f}(x: i64) -> i64:\n    unchecked:\n        x + {f}\n"
         (root / f"m{i}.plenty").write_text(text)
         (root / f"api{i}.plentyi").write_text(interfaces[f"m{i}"])
     arg = "40, 3" if variant == "interface" else "40"
     (root / "caller.plenty").write_text(
         'import api0\nexport def answer() -> i64 = "caller_answer":\n'
-        f"    api0.value({arg}) + 1\n")
+        f"    unchecked:\n        api0.value({arg}) + 1\n")
     interfaces["caller"] = 'pub extern def answer() -> i64 = "caller_answer"\n'
     (root / "answer.plentyi").write_text(interfaces["caller"])
     (root / "main.plenty").write_text(

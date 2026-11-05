@@ -2,7 +2,7 @@
 # its own body can be compared with kernels.c. See README.md.
 
 # The reversal loop in `flips`: reverse s[1..first-1].
-def reverse(s: &mut [i64], first: i64) -> ():
+def reverse(s: &mut [i64], first: i64) -> Result[(), OverflowError[i64]]:
     mut lo = 1
     mut hi = first - 1
     while lo < hi:
@@ -11,22 +11,25 @@ def reverse(s: &mut [i64], first: i64) -> ():
         s[hi] = t
         lo += 1
         hi -= 1
+    Ok(())
 
 # `reverse` with `s.swap`, as `flips` writes it since issue #729.
-def reverse_swap(s: &mut [i64], first: i64) -> ():
+def reverse_swap(s: &mut [i64], first: i64) -> Result[(), OverflowError[i64]]:
     mut lo = 1
     mut hi = first - 1
     while lo < hi:
         s.swap(lo, hi)
         lo += 1
         hi -= 1
+    Ok(())
 
 # Rotate perm[0..=last] left by one place.
-def rotate_left(perm: &mut [i64], last: i64) -> ():
+def rotate_left(perm: &mut [i64], last: i64) -> Result[(), OverflowError[i64]]:
     head = perm[0]
     for i in range(last):
         perm[i] = perm[i + 1]
     perm[last] = head
+    Ok(())
 
 # The permutation copy at the start of `flips`.
 def copy_row(perm: &[i64], scratch: &mut [i64]) -> ():
@@ -34,7 +37,7 @@ def copy_row(perm: &[i64], scratch: &mut [i64]) -> ():
         scratch[i] = perm[i]
 
 # The flip-count loop of `flips`, without the copy.
-def count_flips(s: &mut [i64]) -> i64:
+def count_flips(s: &mut [i64]) -> Result[i64, OverflowError[i64]]:
     mut first = s[0]
     mut count = 0
     while first != 0:
@@ -48,16 +51,16 @@ def count_flips(s: &mut [i64]) -> i64:
         s[first] = first
         first = next
         count += 1
-    count
+    Ok(count)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut a = [0, 3, 1, 4, 2, 5]?
     mut b = [0, 0, 0, 0, 0, 0]?
-    reverse(&mut a, 5)
-    reverse_swap(&mut a, 5)
-    reverse(&mut a, 5)
-    rotate_left(&mut a, 4)
+    reverse(&mut a, 5)?
+    reverse_swap(&mut a, 5)?
+    reverse(&mut a, 5)?
+    rotate_left(&mut a, 4)?
     copy_row(&a, &mut b)
-    flips = count_flips(&mut b)
+    flips = count_flips(&mut b)?
     print(a, b, flips)?
     Ok(())

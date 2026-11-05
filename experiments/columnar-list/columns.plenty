@@ -10,12 +10,12 @@ class Columns:
         self.y.append(y)?
         Ok(())
 
-def accumulate(total: i64, x: &i64, y: &i64) -> i64:
-    total + *y if *x >= 2 else total
+def accumulate(total: i64, x: &i64, y: &i64) -> Result[i64, OverflowError[i64]]:
+    Ok(total + *y if *x >= 2 else total)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut values = Columns([]?, []?)
     for i in range(5):
         values.append(i, i * 10)?
-    print(iter(&values.x).zip(&values.y).fold(0, accumulate))?
+    print(iter(&values.x).zip(&values.y).try_fold(0, accumulate)?)?
     Ok(())
