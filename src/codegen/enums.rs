@@ -89,6 +89,12 @@ pub(super) fn split(
 /// tag bits, the new value has the source's exact bits, so the construction
 /// is the source value itself. The ownership the projection took over passes
 /// on unchanged.
+///
+/// `known` and `projections` hold only facts of the arms enclosing the op
+/// being lowered, since each arm truncates them on exit. A single-field
+/// `Field` or `Take` scans `known`; a single-field `New` scans the
+/// projections, and each matching candidate scans `known`. Both lists grow
+/// with the enclosing arms and their field reads, not with function size.
 #[derive(Default)]
 pub(super) struct TagFacts {
     /// The copy the op just lowered with a `LoadLocal`, and that local.

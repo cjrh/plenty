@@ -1,0 +1,92 @@
+function u0:60(i128) -> i128 tail {
+    ss0 = explicit_slot 96, align = 16
+    gv0 = symbol colocated userextname0 ; .Ldata2 (metadata Result[Option[str], AllocError])
+    gv1 = symbol colocated userextname0 ; .Ldata2 (metadata Result[Option[str], AllocError])
+    gv2 = symbol colocated userextname3 ; .Ldata5 (metadata Option[str])
+    sig0 = (i64, i64, i64) system_v
+    sig1 = (i64, i64, i64) system_v
+    sig2 = (i64, i64, i64) system_v
+    fn0 = colocated u2:1 sig0 ; plenty_op_183
+    fn1 = colocated u2:2 sig1 ; plenty_op_26
+    fn2 = colocated u2:2 sig2 ; plenty_op_26
+
+block0(v0: i128):
+    ; line 241
+    v6 = stack_addr.i64 ss0
+    store notrap aligned v0, v6
+    v1 = iconst.i64 0
+    store notrap aligned v1, v6+16  ; v1 = 0
+    store notrap aligned v1, v6+24  ; v1 = 0
+    store notrap aligned v1, v6+32  ; v1 = 0
+    store notrap aligned v1, v6+40  ; v1 = 0
+    v5 = symbol_value.i64 gv0
+    call fn0(v6, v5, v1)  ; v1 = 0
+    v7 = load.i128 notrap aligned v6+48
+    ; line 248
+    v14, v15 = isplit v7
+    v16 = iconst.i64 1
+    v17 = band v15, v16  ; v16 = 1
+    brif v17, block6, block2
+
+block6:
+    jump block3
+
+block2:
+    v18, v19 = isplit.i128 v7
+    ; line 250
+    jump block5(v7)
+
+block3:
+    v24, v25 = isplit.i128 v7
+    ; line 252
+    v29, v30 = isplit.i128 v7
+    v109 = iconst.i64 1
+    v110 = ishl v30, v109  ; v109 = 1
+    v111 = bor v110, v109  ; v109 = 1
+    v35 = iconcat v29, v111
+    jump block5(v35)
+
+block5(v23: i128):
+    jump block1(v23)
+
+block1(v9: i128):
+    ; line 241
+    v39, v40 = isplit v9
+    v43, v44 = isplit v9
+    v112 = iconst.i64 1
+    v113 = band v40, v112  ; v112 = 1
+    v114 = iconst.i64 0
+    v115 = icmp eq v113, v114  ; v114 = 0
+    brif v115, block7, block8
+
+block8:
+    v116 = iconst.i64 1
+    v117 = bor.i64 v44, v116  ; v116 = 1
+    v54 = iconcat.i64 v43, v117
+    return v54
+
+block7:
+    v118 = iconst.i64 1
+    v119 = ushr.i64 v44, v118  ; v118 = 1
+    v120 = band v119, v118  ; v118 = 1
+    brif v120, block9, block13
+
+block13:
+    jump block10
+
+block9:
+    ; line 243
+    v66 = uextend.i128 v43
+    jump block12(v66)
+
+block10:
+    v121 = iconst.i64 0
+    v122 = iconst.i64 1
+    v123 = iconcat v121, v122  ; v121 = 0, v122 = 1
+    ; line 245
+    jump block12(v123)
+
+block12(v73: i128):
+    return v73
+}
+

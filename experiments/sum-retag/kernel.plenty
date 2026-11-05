@@ -1,0 +1,19 @@
+# std.bytes.text_in on its Ok(Some) path: 4-byte windows of a 4,096-byte
+# buffer, each converted with Bytes.to_text_range. The `to_text` call gives
+# text_in a second call site, so it is not inlined. See README.md.
+import std.bytes
+
+def count(sequence: &std.bytes.Bytes, length: i64) -> Result[i64, AllocError | OverflowError[i64] | std.bytes.BytesError]:
+    mut total = 0
+    for i in range(sequence.len() - length + 1):
+        key = sequence.to_text_range(i, i + length)?
+        total = total ^ len(key)
+    Ok(total)
+
+def main() -> Result[(), AllocError | OverflowError[i64] | std.bytes.BytesError | IoError]:
+    mut b = std.bytes.with_capacity(4096)?
+    for i in range(4096):
+        b.push(65u8)?
+    print(count(&b, 4)?)?
+    print(len(b.to_text()?))?
+    Ok(())
