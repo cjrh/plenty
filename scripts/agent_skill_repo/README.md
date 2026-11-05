@@ -10,7 +10,7 @@ tag here, `v@VERSION@`; install the tag that matches `plenty --version`.
 
 Everything here is copied from the Plenty repository at that release: the
 skill from `.agents/skills/plenty/`, and the cheat sheet, standard library,
-builtins, I/O and packages pages under `skills/plenty/references/` from the
+language, builtins, I/O and packages pages under `skills/plenty/references/` from the
 Plenty book. Report problems against Plenty; changes made here are replaced by
 the next release.
 

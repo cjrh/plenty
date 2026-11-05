@@ -32,6 +32,22 @@ When a skill passage works around a local issue, an HTML comment names it, for
 example `<!-- issue #575 -->`. Remove the workaround when the issue is closed.
 The published copy drops these comments.
 
+## Keeping the guidance current
+
+When a language or toolchain change lands, review `SKILL.md` and its handwritten
+references alongside the cheat sheet. Correct obsolete advice and remove
+workarounds for resolved issues. Keep common error-prevention rules in the
+entrypoint; link to reference contracts for specialized features instead of
+copying their full specification.
+
+Check both the checkout skill and the assembled tree: a working book link can
+lose its destination when publishing if that page is not bundled. The language
+reference is bundled so agents can follow arithmetic, ownership, generic and
+protocol contracts without this checkout. Run the sync tests and documentation
+checks; run the executable skill examples when changing code fences. These
+checks validate examples and packaging; the [trial runs](#trial-runs) separately
+measure how agents use the guidance.
+
 ## Publishing
 
 The published repository, `plentylang/skills`, has one tag per Plenty release,
@@ -46,7 +62,7 @@ The script refuses to replace a directory that is not a skills tree, keeps
 
 - copies `.agents/skills/plenty/` to `skills/plenty/`, naming the compiler
   version from `Cargo.toml` (`--version` overrides it);
-- copies the cheat sheet, the packages page, every standard library page, and
+- copies the cheat sheet, language reference, package and script pages, every standard library page, and
   the builtins and I/O pages into `skills/plenty/references/`;
 - rewrites links between copied pages, and reduces links to other pages to
   their text, until the book has a published URL;

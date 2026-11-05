@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import re
 import tempfile
@@ -77,6 +78,24 @@ class BuildTests(unittest.TestCase):
         self.assertIn("plenty script", reference.read_text())
         workflow = (self.out / "skills/plenty/references/workflow.md").read_text()
         self.assertIn("[script contracts](scripts.md)", workflow)
+
+    def test_language_contract_links_survive_publication(self):
+        # A self-contained tree can still silently strip links to omitted pages.
+        pages = sync_agent_skill.published_pages()
+        for source in (".agents/skills/plenty/SKILL.md",
+                       ".agents/skills/plenty/references/errors.md"):
+            markdown = (sync_agent_skill.REPO / source).read_text()
+            targets = re.findall(r"\]\(([^)]*book/src/design/language/[^)]*)\)", markdown)
+            self.assertTrue(targets)
+            published = (self.out / pages[source]).read_text()
+            for target in targets:
+                destination = (sync_agent_skill.REPO / source).parent / target.split("#")[0]
+                relative = destination.resolve().relative_to(sync_agent_skill.REPO).as_posix()
+                self.assertIn(relative, pages)
+                output = self.out / pages[relative]
+                self.assertTrue(output.is_file())
+                rewritten = os.path.relpath(output, (self.out / pages[source]).parent)
+                self.assertIn(rewritten, published)
 
     def test_version_is_stamped_everywhere(self):
         for path in self.out.rglob("*"):

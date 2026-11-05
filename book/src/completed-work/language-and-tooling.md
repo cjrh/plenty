@@ -5,6 +5,14 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## Agent skill refresh
+
+The [Plenty agent skill](../development/agent-skill.md) now distinguishes
+trapping and assumed unchecked arithmetic, routes readers to boxed protocols,
+structural collection keys and quantities, and uses the signature index's
+module navigation. Published skill assemblies include the language reference
+so those contracts remain accessible outside the compiler checkout.
+
 ## Experiment arithmetic migration
 
 Local issue #737 updates stored and generated experiment inputs for checked
