@@ -19,12 +19,15 @@ An access that cannot fail has no bounds check. In
 `for i in range(start, len(xs))` with a nonnegative constant `start` and
 step 1, `xs[i]` cannot fail when `xs` is a `&list[T]` parameter or a
 [slice view](../../language/04-expressions/slices.md#slice-views): its
-length cannot change while the function runs. With the stop written as
+length cannot change while the function runs. The stop may also be a
+local set from `len(xs)` earlier and not changed since, as in
+`n = len(xs)` followed by `for i in range(n)`. With the stop written as
 `len(xs)` for the same list `xs`, an owned list, an exclusive reference, or a
 shared reference made inside the function also qualifies when the loop uses
 the row cache described above: the loop cannot change the list, so the cache
-takes its length from the range's stop. Indexing any other list with `i`, a
-range with any other stop, or a loop that can resize the list keeps the
+takes its length from the range's stop; a length saved in a local before
+the loop does not qualify for these lists. Indexing any other list with `i`,
+a range with any other stop, or a loop that can resize the list keeps the
 check, so a length read before a `clear()` still traps. The counter of
 `for i, x in enumerate(xs)` over such a list or view qualifies the same way,
 when the call has no start; indexing another list with it still checks the
