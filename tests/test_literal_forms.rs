@@ -31,8 +31,8 @@ fn native_output(source: &str, release: bool) -> std::process::Output {
     std::fs::write(&path, source).unwrap();
     let mut compiler = std::process::Command::new(support::plenty_bin());
     compiler.env("PLENTY_CACHE", "off");
-    if release {
-        compiler.arg("--release");
+    if !release {
+        compiler.arg("--fast-compile");
     }
     let output = compiler
         .arg("--compile")

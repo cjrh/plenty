@@ -149,6 +149,14 @@ allocates its box, and returns `Result`; failure drops the concrete content.
 Erased descriptors use kind `J` for managed ownership and opaque formatting, while
 the heap prefix retains the concrete box descriptor for relocation and cleanup.
 
+Protocol objects reuse this prefix with a static method-table address at byte
+24 and descriptor kind `j`. Each table entry is an adapter receiving a reference
+to the same concrete payload slot. Mutable signatures preserve exclusive loans
+in typed IR. Symbol requests intern tables by their ordered adapters, with native
+function relocations resolved in deterministic emission order. Reachability
+includes every adapter and its concrete method. Concrete descriptors retain
+relocation and destructor behavior independently of the erased public type.
+
 ## Stack overflow
 
 An executable exhausting its stack reports `error: stack overflow` on standard

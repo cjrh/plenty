@@ -84,6 +84,7 @@ mod enums;
 mod executors;
 mod exits;
 mod exports;
+mod folding;
 mod foreign;
 mod formatting;
 mod generators;
@@ -770,6 +771,13 @@ fn object_module(
     let mut user_fns: HashMap<String, UserFn> = HashMap::default();
     let mut bodies = Vec::new();
     collect_user_fns(&ops, &mut out.module, &mut user_fns, &mut bodies)?;
+    crate::threading::walk(&ops, &mut |op| {
+        if let Op::FunctionAddress(name, _) = op
+            && let Some(function) = user_fns.get(name)
+        {
+            out.address_taken(function.id);
+        }
+    });
     if build.optimize {
         leaf_calls::prepare(&bodies, &mut user_fns);
         inline_calls::prepare(&bodies, &mut user_fns);
@@ -841,6 +849,15 @@ fn object_module(
         plan.set_entry_ops(id, &ops, heap);
     }
     out.dump = dump.map(Arc::new);
+    // Optimized builds lower these functions where they are called, so their
+    // own bodies are built only if something still refers to them.
+    let mut bodies = bodies;
+    let deferred = inline_calls::Deferred::take(
+        &mut bodies,
+        &user_fns,
+        exports,
+        build.optimize && out.dump.is_none(),
+    );
     let mut jobs: Vec<Job> = threads
         .into_iter()
         .map(|(task, id)| Job::Thread(task, id))
@@ -861,7 +878,7 @@ fn object_module(
         jobs.push(Job::Main(ops, returns_status, id));
     }
     let (fns, str_data) = (&user_fns, &str_data);
-    out.build(jobs, workers, &runtime, |job, worker| {
+    let build_job = |job, worker: &mut Worker| {
         let runtime = &runtime;
         match job {
             Job::Thread(task, id) => {
@@ -883,7 +900,9 @@ fn object_module(
                 build_main(&ops, returns_status, id, fns, str_data, runtime, worker)
             }
         }
-    })?;
+    };
+    out.build(jobs, workers, &runtime, build_job)?;
+    deferred.finish(&mut out, workers, &runtime, fns, &build_job)?;
     exports::emit(exports, interface, &user_fns, &runtime, &mut out)?;
     Ok(out)
 }
@@ -1008,6 +1027,10 @@ struct Runtime {
     /// object declares symbols; the lock lets threads building IR share the
     /// rest of `Runtime`.
     type_data: std::sync::Mutex<HashMap<Ty, DataId>>,
+    protocol_tables: std::sync::Mutex<HashMap<Vec<FuncId>, DataId>>,
+    /// Functions that placed code or data refers to; see
+    /// [`inline_calls::Deferred`].
+    referenced: std::sync::Mutex<crate::hash::HashSet<FuncId>>,
     /// `__del__` adapters by method name, linked into class descriptors.
     drop_hooks: HashMap<String, FuncId>,
     list_len: FuncId,
@@ -1025,6 +1048,9 @@ struct Runtime {
     order_compare: FuncId,
     /// `plenty_view_equal(a_rows, a_len, b_rows, b_len, descriptor) -> bool`.
     view_equal: FuncId,
+    /// `plenty_view_swap(first_row, second_row, descriptor)`, for rows of
+    /// non-scalar views whose indices were already checked.
+    view_swap: FuncId,
     /// `plenty_byte_view_rows(owner) -> first byte address` and
     /// `plenty_byte_view_len(owner) -> byte count`, for slice views of a
     /// buffer or `bytes` literal.
@@ -1092,7 +1118,7 @@ struct Runtime {
     /// from the range-check branch of a bare numeric cast.
     trap_cast_range: FuncId,
     trap_clist_index: FuncId,
-    /// `plenty_trap_list_index(index, length, site) -> !`: an inline scalar
+    /// `plenty_trap_list_index(&[index, length], site) -> !`: an inline scalar
     /// list row index out of bounds.
     trap_list_index: FuncId,
     /// `plenty_trap_message(text, site) -> !`: std's `__trap(message)`.
@@ -1211,6 +1237,8 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         },
         generator_finish: one_arg(module, "plenty_generator_finish", PTR_TY)?,
         type_data: Default::default(),
+        protocol_tables: Default::default(),
+        referenced: Default::default(),
         drop_hooks: HashMap::default(),
         retain: one_arg(module, "plenty_retain", PTR_TY)?,
         release: one_arg(module, "plenty_release", PTR_TY)?,
@@ -1284,6 +1312,7 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             &[PTR_TY, types::I64, PTR_TY, types::I64, PTR_TY],
             Some(types::I64),
         )?,
+        view_swap: helper(module, "plenty_view_swap", &[PTR_TY, PTR_TY, PTR_TY], None)?,
         byte_view_rows: helper(module, "plenty_byte_view_rows", &[PTR_TY], Some(PTR_TY))?,
         byte_view_len: helper(module, "plenty_byte_view_len", &[PTR_TY], Some(types::I64))?,
         // Owner or text word, then index and trap site where the query has them.
@@ -1407,12 +1436,10 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         trap_list_index: {
             let mut sig = module.make_signature();
             sig.call_conv = crate::target::native_call_conv();
-            // Index as written, length, trap site.
-            sig.params.extend([
-                AbiParam::new(types::I64),
-                AbiParam::new(types::I64),
-                AbiParam::new(PTR_TY),
-            ]);
+            // The index as written and the length, stored in that order,
+            // then the trap site.
+            sig.params
+                .extend([AbiParam::new(PTR_TY), AbiParam::new(PTR_TY)]);
             module.declare_function("plenty_trap_list_index", Linkage::Import, &sig)?
         },
         trap_message: {
@@ -1907,7 +1934,7 @@ fn build_user_function(
             portable_simd,
             slot_copies: Vec::new(),
             empty_slot: Some((empty_word, empty_double)),
-            exits: Some(Default::default()),
+            exits: Some(exits::Exits::for_body(body)),
             counters: Default::default(),
             position: sites::Position::in_file(decl.source.clone(), decl.standard_library),
             trap_blocks: HashMap::default(),
@@ -2550,6 +2577,12 @@ impl Lowerer<'_, '_> {
                 self.lower_boxed_callable_new(source, adapter, sig)?
             }
             Op::BoxedCallableCall(sig) => self.lower_boxed_callable_call(sig)?,
+            Op::ProtocolBoxNew(source, adapters, protocol) => {
+                self.lower_protocol_box_new(source, adapters, protocol)?
+            }
+            Op::ProtocolBoxCall(protocol, index) => {
+                self.lower_protocol_box_call(protocol, *index)?
+            }
             Op::Class(operation) => self.lower_class(operation)?,
             Op::Enum(operation) => {
                 self.fresh_load = fresh_load;
@@ -3095,6 +3128,7 @@ impl Lowerer<'_, '_> {
         // A site read from a shared exit's variable differs by predecessor,
         // so its trap block is not shared.
         let key = self.trap_site_offset().ok().map(|offset| (kind, offset));
+        let before = self.bcx.current_block();
         let after = self.bcx.create_block();
         if let Some(&trap_block) = key.as_ref().and_then(|key| self.trap_blocks.get(key)) {
             self.bcx.ins().brif(flag, trap_block, &[], after, &[]);
@@ -3126,9 +3160,10 @@ impl Lowerer<'_, '_> {
             }
         }
 
-        // Continue lowering into `after`.
+        // Continue lowering into `after`, which only `before` reaches.
         self.bcx.switch_to_block(after);
         self.bcx.seal_block(after);
+        self.counters.checked.continue_to(before, after);
         Ok(())
     }
 
@@ -3643,6 +3678,11 @@ impl Lowerer<'_, '_> {
         let caller_standard = self.in_standard_library();
         let cleanup_free = !self.locals.iter().any(|(_, ty)| ty.managed());
         let in_generator = self.generator.is_some();
+        let inline_cleanup = cleanup_free
+            || self
+                .exits
+                .as_ref()
+                .is_some_and(|exits| exits.single_tail_call);
         let (decl, mut args) = self.pop_call_args(name)?;
         // Only user code sets a site; std would pass null, which changes
         // nothing.
@@ -3662,10 +3702,11 @@ impl Lowerer<'_, '_> {
             self.leave_call(saved);
             return self.lower(&Op::Return);
         }
-        // A constructor lowered in its callers keeps a real tail call's order:
-        // the caller's locals are released before the callee's body runs, and
-        // the return's shared exit then finds only empty slots.
+        // Keep repeated cleanup in the shared tail-call exits. A single
+        // tail-call site can inline its cleanup without duplicating it;
+        // with many sites and owned locals that would grow quadratically.
         if let Some(body) = decl.inline_body.clone()
+            && inline_cleanup
             && !in_generator
         {
             self.release_locals();

@@ -137,7 +137,7 @@ the ordinary value handle; this is **not** a packed 16-byte vector or a native
 register ABI. Mask variants expose logical booleans, not hardware masks. Neither
 vector nor mask layout is a C, serialization, Arrow or Parquet contract.
 
-On x86-64, `--release` lowers wrapping arithmetic, float arithmetic, comparisons
+On x86-64, the default optimized profile lowers wrapping arithmetic, float arithmetic, comparisons
 and selection to baseline 128-bit SIMD. Integer `wrapping_sum` reduces lanes
 directly without calling the scalar module body. Numeric vector locals without mutable
 borrows stay in vector registers across supported operations and loops. Values
@@ -147,7 +147,7 @@ storage path. This is an internal optimization, not a different ownership rule.
 Checked integer arithmetic, mask summaries, ordered float reductions and list access keep
 their ordinary scalar implementations. On other compiler hosts, the module's
 scalar bodies remain available. The AArch64 implementation currently uses these
-scalar bodies, including in release builds; ARM vector acceleration is separate
+scalar bodies, including in optimized builds; ARM vector acceleration is separate
 work.
 The same source semantics apply with and without optimization. No runtime ISA
 selection or newer CPU feature is required.

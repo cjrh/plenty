@@ -1,7 +1,7 @@
 # Count matching integer values
 
 Write the ordinary calculation you need. For a simple comparison over an `i32`
-or `u32` column, `--release` can count matches with SIMD: the CPU compares four
+or `u32` column, the default optimized profile can count matches with SIMD: the CPU compares four
 values together. You do not choose a vector width or handle leftover rows.
 
 ```plenty

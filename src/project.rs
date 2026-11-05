@@ -190,15 +190,15 @@ impl SourceGraph {
 /// overflow, and ownership checks are the same in both profiles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Profile {
-    Debug,
-    Release,
+    FastCompile,
+    Optimized,
 }
 
 impl Profile {
     pub fn name(self) -> &'static str {
         match self {
-            Profile::Debug => "debug",
-            Profile::Release => "release",
+            Profile::FastCompile => "fast-compile",
+            Profile::Optimized => "optimized",
         }
     }
 }
@@ -1236,7 +1236,7 @@ pub struct BuildOptions {
 impl Default for BuildOptions {
     fn default() -> Self {
         Self {
-            profile: Profile::Debug,
+            profile: Profile::Optimized,
             locked: false,
             offline: false,
             compile: crate::CompileOptions::default(),
@@ -1309,7 +1309,7 @@ fn output_directory(project: &Project, profile: Profile) -> PathBuf {
 
 fn compile_options(options: &BuildOptions) -> crate::CompileOptions {
     let mut compile = options.compile.clone();
-    compile.optimize = options.profile == Profile::Release;
+    compile.optimize = options.profile == Profile::Optimized;
     compile
 }
 

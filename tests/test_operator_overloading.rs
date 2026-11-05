@@ -276,8 +276,8 @@ def main() -> Result[(), IoError]:
     for release in [false, true] {
         let mut command = std::process::Command::new(support::plenty_bin());
         command.current_dir(dir.path()).env("PLENTY_CACHE", "off");
-        if release {
-            command.arg("--release");
+        if !release {
+            command.arg("--fast-compile");
         }
         let output = command
             .args(["--dump", "asm", "p.plenty", "-o", "out"])
@@ -290,12 +290,8 @@ def main() -> Result[(), IoError]:
         );
         let text = std::fs::read_to_string(dir.path().join("out/asm.txt")).unwrap();
         let section = |name: &str| -> Vec<String> {
-            let body = text
-                .split("==== ")
-                .find(|part| part.starts_with(&format!("{name} ")))
-                .unwrap();
-            body.lines()
-                .skip(1)
+            support::asm_body(&text, name)
+                .lines()
                 .filter(|line| !line.trim().is_empty() && !line.trim().starts_with('#'))
                 .map(str::to_string)
                 .collect()
@@ -316,7 +312,7 @@ def main() -> Result[(), IoError]:
 fn inlined_checked_arithmetic_keeps_trap_location_and_tail_cleanup_order() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("p.plenty"), "class V:\n    n: i64\n    def __add__(self, other: &V) -> i64:\n        unchecked:\n            self.n + other.n\nclass Guard:\n    def __del__(self: &mut Guard) -> ():\n        print(\"drop\").unwrap()\ndef wrapper(a: &V, b: &V) -> i64:\n    guard = Guard()\n    a + b\ndef main() -> ():\n    a = V(i64.MAX)\n    b = V(1)\n    print(wrapper(a, b)).unwrap()\n").unwrap();
-    for mode in [&[][..], &["--release"][..]] {
+    for mode in [&["--fast-compile"][..], &["--release"][..]] {
         let output = std::process::Command::new(support::plenty_bin())
             .current_dir(dir.path())
             .env("PLENTY_CACHE", "off")

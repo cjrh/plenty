@@ -76,7 +76,7 @@ fn new_application_runs_and_library_checks() {
     assert_eq!(succeeds(&app, &["run"]), "Hello from hello!\n");
     // Commands find the manifest from a subdirectory.
     assert_eq!(succeeds(&app.join("src"), &["run"]), "Hello from hello!\n");
-    assert!(app.join("target/debug/hello").is_file());
+    assert!(app.join("target/optimized/hello").is_file());
     fails(&app, &["init"], "already exists");
     fails(dir.path(), &["new", "hello"], "already exists");
 
@@ -517,8 +517,11 @@ fn profiles_tests_and_clean() {
     );
     let calc = dir.path().join("calc");
     succeeds(&calc, &["build", "--release"]);
-    assert!(calc.join("target/release/calc").is_file());
-    assert!(!calc.join("target/debug").exists());
+    assert!(calc.join("target/optimized/calc").is_file());
+    assert!(!calc.join("target/fast-compile").exists());
+    succeeds(&calc, &["build", "--fast-compile"]);
+    assert!(calc.join("target/fast-compile/calc").is_file());
+    assert_eq!(succeeds(&calc, &["run", "--fast-compile"]), "5\n");
     assert_eq!(succeeds(&calc, &["run", "--release"]), "5\n");
 
     let output = plenty(&calc, &["test"]);
@@ -530,7 +533,8 @@ fn profiles_tests_and_clean() {
     );
     std::fs::remove_file(calc.join("tests/broken.plenty")).unwrap();
     assert!(
-        succeeds(&calc, &["test", "--release"]).ends_with("test result: ok. 1 passed; 0 failed\n")
+        succeeds(&calc, &["test", "--fast-compile"])
+            .ends_with("test result: ok. 1 passed; 0 failed\n")
     );
 
     succeeds(&calc, &["clean"]);
@@ -592,7 +596,7 @@ fn plentyc_is_the_single_file_compiler_and_names_that_match_commands_need_a_path
     fails(
         dir.path(),
         &["--release", "--check", "run"],
-        "--release requires FILE, --compile, --fuzz, or --dump",
+        "--release requires a compilation mode",
     );
 }
 
@@ -1078,11 +1082,11 @@ fn builds_reuse_up_to_date_outputs() {
         &app.join("tests/math.plenty"),
         "import std.test\nimport util\n\ndef test_twice() -> Result[(), std.test.TestError | OverflowError[i64]]:\n    std.test.equal(&util.twice(2)?, &5)?\n    Ok(())\n",
     );
-    assert!(status_lines(&app, &["build"]).contains("Compiling app v0.1.0 (debug)"));
+    assert!(status_lines(&app, &["build"]).contains("Compiling app v0.1.0 (optimized)"));
     let stderr = status_lines(&app, &["build"]);
-    assert!(stderr.contains("Fresh app v0.1.0 (debug)"), "{stderr}");
+    assert!(stderr.contains("Fresh app v0.1.0 (optimized)"), "{stderr}");
     assert!(!stderr.contains("Compiling"), "{stderr}");
-    assert!(status_lines(&app, &["build", "--release"]).contains("Compiling"));
+    assert!(status_lines(&app, &["build", "--fast-compile"]).contains("Compiling"));
 
     // A dependency's source is an input.
     write(
@@ -1093,7 +1097,7 @@ fn builds_reuse_up_to_date_outputs() {
     assert_eq!(succeeds(&app, &["run"]), "43\n");
 
     // A deleted output is rebuilt, and a failed build is not recorded.
-    std::fs::remove_file(app.join("target/debug/app")).unwrap();
+    std::fs::remove_file(app.join("target/optimized/app")).unwrap();
     assert!(status_lines(&app, &["build"]).contains("Compiling"));
     write(
         &app.join("src/extra.plenty"),
@@ -1116,7 +1120,7 @@ fn builds_reuse_up_to_date_outputs() {
     let second = plenty(&app, &["test"]);
     assert!(String::from_utf8_lossy(&second.stderr).contains("Fresh"));
     assert_eq!(first.stdout, second.stdout);
-    assert!(app.join("target/debug/tests/app/math").is_file());
+    assert!(app.join("target/optimized/tests/app/math").is_file());
 }
 
 #[test]
@@ -1150,7 +1154,7 @@ fn workspaces_share_a_lockfile_and_target_directory() {
 
     assert_eq!(succeeds(root, &["run"]), "42\n");
     assert!(root.join("plenty.lock").is_file());
-    assert!(root.join("target/debug/app").is_file());
+    assert!(root.join("target/optimized/app").is_file());
     let stdout = succeeds(root, &["test"]);
     assert!(
         stdout.starts_with(

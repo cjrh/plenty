@@ -70,6 +70,8 @@ impl Declared {
 pub(super) enum Request {
     /// Type metadata, as [`metadata::declare`] defines it.
     Metadata(Ty),
+    /// Static protocol adapters, in declaration order.
+    ProtocolTable(Vec<FuncId>),
     /// The function's trap-site table, holding these records.
     Sites(Vec<sites::Key>),
     /// A runtime helper.
@@ -170,6 +172,11 @@ impl Symbols {
     pub(super) fn declare_foreign(&mut self, name: &str, signature: &ir::Signature) -> FuncId {
         let number = self.request(Request::Foreign(name.to_string(), signature.clone()));
         FuncId::from_u32(FIRST_REQUEST + number)
+    }
+
+    /// One immutable table for these ordered method adapters.
+    pub(super) fn protocol_table(&mut self, functions: Vec<FuncId>) -> DataId {
+        DataId::from_u32(FIRST_REQUEST + self.request(Request::ProtocolTable(functions)))
     }
 
     /// Type metadata for `ty`.
@@ -357,6 +364,26 @@ pub(super) fn resolve(
         targets.push(match request {
             Request::Metadata(ty) => {
                 let id = metadata::declare(module, runtime, ty)?;
+                ModuleRelocTarget::user(1, id.as_u32())
+            }
+            Request::ProtocolTable(functions) => {
+                let mut tables = runtime.protocol_tables.lock().unwrap();
+                let id = if let Some(id) = tables.get(functions) {
+                    *id
+                } else {
+                    let id = module.declare_anonymous_data(false, false)?;
+                    let mut data = DataDescription::new();
+                    data.set_align(8);
+                    data.define(vec![0; functions.len() * 8].into_boxed_slice());
+                    runtime.refer(functions.iter().copied());
+                    for (index, function) in functions.iter().enumerate() {
+                        let reference = module.declare_func_in_data(*function, &mut data);
+                        data.write_function_addr(u32::try_from(index * 8)?, reference);
+                    }
+                    module.define_data(id, &data)?;
+                    tables.insert(functions.clone(), id);
+                    id
+                };
                 ModuleRelocTarget::user(1, id.as_u32())
             }
             Request::Sites(records) => {

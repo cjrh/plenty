@@ -237,7 +237,7 @@ fn guards_that_can_fire_keep_their_diagnostics() {
         "traps.plenty:12:5: shift count outside integer width",
         "traps.plenty:16:9: integer overflow",
     ];
-    for mode in [&[][..], &["--release"][..]] {
+    for mode in [&["--fast-compile"][..], &["--release"][..]] {
         let executable = dir.path().join("traps");
         let mut args = mode.to_vec();
         args.extend(["--compile", "traps.plenty", "-o", "traps"]);
@@ -282,7 +282,7 @@ fn constant_false_guards_emit_no_branch() {
     std::fs::write(dir.path().join("guards.plenty"), program()).unwrap();
     std::fs::write(dir.path().join("traps.plenty"), TRAPS).unwrap();
     for (mode, stages) in [
-        (&[][..], "clif,clif-opt"),
+        (&["--fast-compile"][..], "clif,clif-opt"),
         (&["--release"][..], "clif,clif-opt"),
     ] {
         for file in ["guards.plenty", "traps.plenty"] {
@@ -366,7 +366,7 @@ fn nonzero_divisors_remove_only_the_zero_guard() {
     }
     source += "def main() -> ():\n    pass\n";
     std::fs::write(dir.path().join("domain.plenty"), source).unwrap();
-    for mode in [&[][..], &["--release"][..]] {
+    for mode in [&["--fast-compile"][..], &["--release"][..]] {
         let mut args = mode.to_vec();
         // The asm listing decodes emitted object bytes and resolves relocation
         // targets, so it also protects guard removal in final native code.

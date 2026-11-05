@@ -1048,7 +1048,7 @@ impl Lower<'_> {
     ) -> Result<Type> {
         let start = self.locals.len();
         let call_start = ops.len();
-        let built = self.format_literal(template, values, None, at, ops)?;
+        let built = self.format_literal(template, values, None, "", at, ops)?;
         let callee = ops[call_start..]
             .iter()
             .rev()
@@ -1135,7 +1135,49 @@ impl Lower<'_> {
         } else {
             unary(&base.at, "&mut", base.clone())
         };
-        Some(self.format_literal(template, values, Some(target), literal_at, ops))
+        Some(self.format_literal(template, values, Some(target), "", literal_at, ops))
+    }
+
+    /// Quantity's builtin writer methods share the ordinary f-string lowering,
+    /// including writer limits and errors. No user hook or allocation is needed.
+    pub(super) fn quantity_format_method(
+        &mut self,
+        base: &Expr,
+        method: &str,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Option<Result<Type>> {
+        if !matches!(method, "display" | "debug") {
+            return None;
+        }
+        self.aliases
+            .quantity(referent(&self.expression_type_hint(base)?))?;
+        let [target] = args else {
+            return Some(Err(
+                at.error("quantity formatting takes one mutable Formatter reference")
+            ));
+        };
+        let template = Arc::new(Template {
+            pieces: vec![Piece::Field(Field {
+                at: at.clone(),
+                conversion: if method == "debug" {
+                    Conversion::Repr
+                } else {
+                    Conversion::None
+                },
+                spec: None,
+                nested: vec![],
+            })],
+        });
+        Some(self.format_literal(
+            &template,
+            std::slice::from_ref(base),
+            Some(target.clone()),
+            method,
+            at,
+            ops,
+        ))
     }
 
     /// Calls the generated function, registering it on first use. With a
@@ -1145,6 +1187,7 @@ impl Lower<'_> {
         template: &Arc<Template>,
         values: &[Expr],
         target: Option<Expr>,
+        purpose: &str,
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
@@ -1163,9 +1206,14 @@ impl Lower<'_> {
                 }
             })
             .collect();
-        let name = symbol(at, target.is_some());
+        let name = format!("{}{purpose}", symbol(at, target.is_some()));
         if !self.generics.templates.contains_key(&name) {
-            let function = format_function(&name, template, target.is_some(), &views, at);
+            let mut function = format_function(&name, template, target.is_some(), &views, at);
+            // A Quantity method evaluates its receiver before its writer
+            // argument; Formatter.format evaluates the formatter first.
+            if !purpose.is_empty() {
+                function.inputs.swap(0, 1);
+            }
             self.generics.validate_template(&function, self.aliases)?;
             self.generics.retention.keep(&function.body);
             self.generics
@@ -1173,16 +1221,24 @@ impl Lower<'_> {
                 .insert(name.clone(), Arc::new(function));
         }
         // Every other field is lent; a reference value is lent again.
-        let args: Vec<Expr> = target
-            .into_iter()
-            .chain(values.iter().zip(&views).map(|(value, &lent)| {
+        let mut args: Vec<Expr> = values
+            .iter()
+            .zip(&views)
+            .map(|(value, &lent)| {
                 if lent != Lent::Reference {
                     value.clone()
                 } else {
                     unary(&value.at, "&", value.clone())
                 }
-            }))
+            })
             .collect();
+        if let Some(target) = target {
+            if purpose.is_empty() {
+                args.insert(0, target);
+            } else {
+                args.push(target);
+            }
+        }
         self.generic_call(&name, None, &args, at, ops)
     }
 
@@ -1434,6 +1490,42 @@ impl Lower<'_> {
             Some(FieldSpec::Nested(text, spec_at)) => Some(parse_spec(text, spec_at, &kinds)?),
         };
         let debug = matches!(field.conversion, Conversion::Repr | Conversion::Ascii);
+        let quantity = self.aliases.quantity(&ty);
+        let quantity_debug =
+            (quantity.is_some() && field.conversion == Conversion::Repr && spec.is_none())
+                .then(|| ty.to_string());
+        if quantity.is_some() && field.conversion == Conversion::Str {
+            if let Some(spec) = &spec {
+                spec.check(&Category::Text, &ty, at)?;
+            }
+            let spelling = unary(
+                at,
+                "&",
+                try_(call(
+                    at,
+                    &fmt("to_string"),
+                    vec![value.clone(), number(at, NO_BUDGET), number(at, DEPTH)],
+                )),
+            );
+            return Ok(match &spec {
+                None => method(at, name(at, OUT), "text", vec![spelling]),
+                Some(spec) => method(
+                    at,
+                    name(at, OUT),
+                    "text_spec",
+                    vec![
+                        spelling,
+                        unary(at, "&", call(at, &fmt("Spec"), spec.arguments(at, &nested))),
+                    ],
+                ),
+            });
+        }
+        // Numeric specs apply to the stored number; debug conversions use the
+        // static runtime descriptor, including inside collections.
+        let quantity = quantity.filter(|_| !debug || quantity_debug.is_some());
+        let ty = quantity
+            .as_ref()
+            .map_or(ty, |(storage, _, _)| storage.clone());
         if ty.facts().shared {
             return Err(at.error(super::shared::FORMAT));
         }
@@ -1514,7 +1606,12 @@ impl Lower<'_> {
             });
         }
         // A conversion spells the value as text first.
-        let category = match (field.conversion, category) {
+        let conversion = if quantity_debug.is_some() {
+            Conversion::None
+        } else {
+            field.conversion
+        };
+        let category = match (conversion, category) {
             (Conversion::None, category)
             | (Conversion::Str, category @ (Category::Text | Category::Method | Category::Repr)) => {
                 category
@@ -1540,14 +1637,55 @@ impl Lower<'_> {
             )?;
         }
         let scalar = || {
-            if nonzero {
+            let number = if quantity.is_some() {
                 method(at, value.clone(), "get", vec![])
             } else {
                 unary(at, "*", value.clone())
+            };
+            if nonzero {
+                method(at, number, "get", vec![])
+            } else {
+                number
             }
         };
+        let with_unit = |write: Expr| {
+            if let Some(ty) = &quantity_debug {
+                return expr(
+                    at,
+                    Expression::If(vec![
+                        statement(try_(method(
+                            at,
+                            name(at, OUT),
+                            "text",
+                            vec![text(at, &format!("{ty}("))],
+                        ))),
+                        statement(try_(write)),
+                        statement(method(at, name(at, OUT), "text", vec![text(at, ")")])),
+                    ]),
+                );
+            }
+            let Some((_, dimension, _)) = &quantity else {
+                return write;
+            };
+            let symbol = dimension.symbol();
+            if symbol.is_empty() {
+                return write;
+            }
+            expr(
+                at,
+                Expression::If(vec![
+                    statement(try_(write)),
+                    statement(method(
+                        at,
+                        name(at, OUT),
+                        "text",
+                        vec![text(at, &format!(" {symbol}"))],
+                    )),
+                ]),
+            )
+        };
         let Some(spec) = &spec else {
-            return Ok(match category {
+            return Ok(with_unit(match category {
                 Category::Text if repr_text => method(at, out, "debug_text", vec![value]),
                 Category::Text => method(at, out, "text", vec![value]),
                 Category::Bool => method(at, out, "boolean", vec![scalar()]),
@@ -1579,9 +1717,9 @@ impl Lower<'_> {
                 }
                 Category::Repr if hooked => call(at, &fmt("repr_text"), vec![spelled(), out_mut()]),
                 Category::Repr => call(at, &fmt(represent), vec![value, out_mut()]),
-            });
+            }));
         };
-        Ok(match category {
+        Ok(with_unit(match category {
             Category::Text if repr_text => padded(temporary("debug_string", vec![value]), spec),
             Category::Text => padded(value, spec),
             Category::Bool => padded(
@@ -1628,7 +1766,7 @@ impl Lower<'_> {
             }
             Category::Repr if hooked => padded(temporary("repr_result", vec![spelled()]), spec),
             Category::Repr => padded(temporary(repr_string, vec![value]), spec),
-        })
+        }))
     }
 }
 

@@ -216,3 +216,161 @@ fn rejects_invalid_lookup(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(error.contains(expected), "{error}");
 }
+
+#[test]
+fn structural_class_keys_lookup_views_snapshots_and_transfer() {
+    support::assert_stdout(
+        r#"
+class Key:
+    text: str
+    n: i64
+mut data = {Key("a", 1): "first", Key("b", 2): "second"}.unwrap()
+probe = Key("a", 1)
+print(data[&probe], data.get(&probe).unwrap(), probe.text).unwrap()
+match data.get_mut(&probe):
+    case Some(value):
+        *value = "changed"
+    case Nothing:
+        pass
+borrowed = &data[&probe]
+print(*borrowed).unwrap()
+keys = data.keys().to_set().unwrap()
+combined = keys.union(data.keys()).unwrap()
+snapshot = copy(data).unwrap().keys_snapshot().unwrap()
+for key, value in data.items():
+    print(key.text, *value).unwrap()
+print(data.pop(&probe).unwrap(), probe.text).unwrap()
+data.update({Key("b", 2): "updated", Key("c", 3): "third"}.unwrap()).unwrap()
+owned = data.into_keys().unwrap()
+print(len(keys), len(combined), len(snapshot), len(owned)).unwrap()
+for key in owned:
+    print(key.text).unwrap()
+print(Key("a", 1) in keys, snapshot[0].text).unwrap()
+"#,
+        "first first a\nchanged\na changed\nb second\nchanged a\n2 2 2 2\nb\nc\nTrue a\n",
+    );
+}
+
+#[test]
+fn structural_class_keys_cannot_be_implicitly_duplicated_or_mutated() {
+    for (body, diagnostic) in [
+        (
+            "key = Key(1)\nkeys = {key}.unwrap()\nprint(key.n).unwrap()",
+            "moved",
+        ),
+        (
+            "data = {Key(1): 2}.unwrap()\nkeys = data.keys_snapshot().unwrap()",
+            "owned temporary",
+        ),
+        (
+            "mut keys = {Key(1)}.unwrap()\nfor key in &keys:\n    key.n = 2",
+            "shared",
+        ),
+    ] {
+        let source = format!("class Key:\n    n: i64\n{body}\n");
+        let error = support::check_source(&source).unwrap_err().to_string();
+        assert!(error.contains(diagnostic), "{error}");
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn structural_class_keys_failed_extraction_releases_owned_source() {
+    for budget in 0..=2 {
+        support::assert_visible_stdout(
+            &format!(
+                r#"
+class Key:
+    text: str
+    n: i64
+data = {{Key(("hello" + "").unwrap(), 1): ("value" + "").unwrap()}}.unwrap()
+print("__test_fail_allocations_after_{budget}__").unwrap()
+result = data.into_keys()
+print("__test_restore_allocations__").unwrap()
+print(result.is_ok()).unwrap()
+match result:
+    case Ok(keys):
+        print(keys[0].text).unwrap()
+    case Err(error):
+        pass
+"#
+            ),
+            if budget < 2 { "False" } else { "True\nhello" },
+        );
+    }
+}
+
+#[test]
+fn structural_class_keys_generic_bounds_comprehensions_and_values() {
+    support::assert_stdout(
+        r#"
+class Key[T: KeyType]:
+    value: T
+    label: str
+def distinct[K: KeyType](items: list[K]) -> Result[set[K], AllocError]:
+    {item for item in items}
+keys = distinct([Key(1, "a"), Key(1, "a"), Key(2, "b")].unwrap()).unwrap()
+print(len(keys)).unwrap()
+data = {Key(n, "x"): n for n in range(1, 3)}.unwrap()
+print(data[Key(1, "x")], data[Key(2, "x")]).unwrap()
+values = data.into_values().unwrap()
+print(values).unwrap()
+"#,
+        "2\n1 2\n[1, 2]\n",
+    );
+}
+
+#[test]
+fn anonymous_sum_keys_support_lookup_views_and_mixed_values() {
+    support::assert_stdout(
+        r#"
+type Key = i64 | str
+mut data: dict[Key, i64 | str] = {7: "numeric", "7": 42}.unwrap()
+data.insert(7, "updated").unwrap()
+print(data[7], data.get("7").unwrap()).unwrap()
+match data.get_mut("7"):
+    case Some(value):
+        *value = "text"
+    case Nothing:
+        pass
+keys = data.keys().to_set().unwrap()
+print(7 in data.keys(), "7" in keys, len(keys)).unwrap()
+for key, value in data.items():
+    print(*key, *value).unwrap()
+print(data.pop(7).unwrap(), len(data)).unwrap()
+snapshot = data.keys_snapshot().unwrap()
+print(snapshot).unwrap()
+"#,
+        "\"updated\" 42\nTrue True 2\n7 \"updated\"\n\"7\" \"text\"\n\"updated\" 1\n[\"7\"]\n",
+    );
+}
+
+#[test]
+fn anonymous_sum_key_probes_borrow_members_and_preserve_evaluation_order() {
+    support::assert_stdout(
+        r#"
+class Account:
+    id: i64
+type Key = Account | str
+def probe() -> str:
+    print("probe").unwrap()
+    ("na" + "me").unwrap()
+def container() -> dict[Key, i64]:
+    print("container").unwrap()
+    {"name": 10}.unwrap()
+print(probe() in container()).unwrap()
+mut data: dict[Key, i64] = {Account(7): 42, "name": 10}.unwrap()
+account = Account(7)
+name = ("na" + "me").unwrap()
+print(account in data, &account in data, data[account], data.get(&account).unwrap()).unwrap()
+print(data[name], data.get(name).unwrap()).unwrap()
+match data.get_mut(account):
+    case Some(value):
+        *value = 43
+    case Nothing:
+        pass
+print(data.pop(account).unwrap(), account.id, name).unwrap()
+"#,
+        "probe\ncontainer\nTrue\nTrue True 42 42\n10 10\n43 7 name\n",
+    );
+}

@@ -45,6 +45,7 @@ lessons, and the next language phase at `161e1c63` on 2026-10-24.
 | Executable scripts and embedded metadata | [Single-file scripts](completed/single-file-scripts.md) | [Modules and entry points](completed/entrypoints-modules-and-tutorials.md), [current packages](../design/toolchain/01-building/packages.md) |
 | Mixed-edition packages and language evolution | [Package language editions](language-editions.md) | [Current packages](../design/toolchain/01-building/packages.md), [script metadata](completed/single-file-scripts.md) |
 | Protocol bodies, defaults, `final`, and private hooks | [Protocol method bodies](protocol-method-bodies.md) | [Agreed rules](protocol-method-bodies/final-and-visibility.md), [short programs](protocol-method-bodies/examples.md), [existing wrappers and capabilities](completed/library-owned-operations.md) |
+| Heterogeneous protocol objects | [Boxed protocols](completed/boxed-protocols.md) | [Explicit ownership and method contract](completed/boxed-protocols/contract.md), [implementation design](completed/boxed-protocols/implementation.md), [research evidence](completed/boxed-protocols/evidence.md) |
 | Error composition | [Composition overview](completed/error-composition.md) | [Anonymous sums and the `Failure` policy](completed/error-sets.md), [completed reporting](completed/error-formatting.md), [typed-stream evidence](completed/error-composition/streams-and-evidence.md) |
 | Ownership and state | [Typestate](typestate-and-owned-transitions.md) | [Linear obligations](linear-obligations.md), [resolution scopes](linear-scope-resolution.md), [integration boundaries](linear-integration.md) |
 | Optional and fallible borrows | [Returned enums that carry references](returned-reference-enums.md) | [Returned references](../design/language/05-ownership/04-returned-references.md), [borrowed matching](../design/language/05-ownership/06-borrowed-matching.md) |
@@ -62,8 +63,8 @@ lessons, and the next language phase at `161e1c63` on 2026-10-24.
 | Plotting and data visualisation | [std.plot](std-plot.md) | [Examples beside ggplot2 and plotnine](std-plot/examples.md) |
 | Scientific numerics: optimization, integration, ODEs, special functions | [Numerics core](numerics.md) | [API sketch](numerics/api.md), [crate evaluation](numerics/crates.md), [`std.linalg`](../design/stdlib/linalg.md), [`std.stat`](../design/stdlib/stat.md) |
 | Exact decimal and financial arithmetic | [std.decimal](decimal.md) | [Polars embedding](polars-dataframes.md), [ordering](user-type-ordering.md), [dictionary keys](user-type-hashing.md), [checked arithmetic](completed/checked-arithmetic.md) |
-| Language consistency: copying, formatting, views, iteration, errors, callbacks | [Numerics core](numerics.md) — `std.numeric` in Plenty over `std.linalg`; a scoped SciPy subset in three milestones; `basin` and `numeris` not adopted | B38 (replaces issues #492, #493) |
-| [Six rules for a consistent core](consistency-rules.md) | [Fluent iterator pipelines](completed/fluent-iterators.md), [user type hashing](user-type-hashing.md), [error composition](completed/error-composition.md) |
+| Physical units and dimensional analysis | [Units of measure](units-of-measure.md) | [precedents](units-of-measure/precedents.md), [spike evidence](units-of-measure/evidence.md), [domain types](completed/domain-types.md), [value generics](value-generics.md) |
+| Language consistency: copying, formatting, views, iteration, errors, callbacks | [Six rules for a consistent core](consistency-rules.md) | [Fluent iterator pipelines](completed/fluent-iterators.md), [user type hashing](user-type-hashing.md), [error composition](completed/error-composition.md) |
 
 Companion examples and evidence do not imply additional implementation commitments.
 
@@ -83,6 +84,7 @@ reference pages. Further extensions remain tracked in the backlog.
 | [Fallible memory, parallel execution, and SIMD](memory-parallelism-and-simd.md) | [Fallible allocation](../design/language/08-errors/02-allocation-and-traps.md), [concurrency](../design/facilities/03-concurrency/index.md), [initial SIMD](../completed-work/performance.md#b23-simd) | B13 allocator control; B23 SIMD extensions; B24 automatic parallelization; B83 fixed arrays |
 | [Standard library scope](standard-library-scope.md) | [Embedded library](../design/stdlib/index.md), including data formats, TLS, HTTP, SQLite, signals and testing | Remaining B38–B70 scope |
 | [Keyword arguments, defaults, and static unpacking](keyword-arguments-and-unpacking.md) | [Named calls and fresh defaults](completed/named-arguments-and-fresh-defaults.md) under the narrower design | B36: splats and signature markers remain separate candidates |
+| [Units of measure](units-of-measure.md) | [Dimensions](../design/language/03-types/dimensions.md) and [`Quantity[T, D]`](../design/language/03-types/quantities.md), erased to their storage type (issue #701) | B97: `std.units`, sharing bodies that differ only in dimension |
 
 ## Not implemented
 
@@ -105,14 +107,15 @@ reference pages. Further extensions remain tracked in the backlog.
 | [Columnar lists](columnar-list.md) — explicit field-column storage, a bounded object facade, and native layout/ownership spikes | B76; related B11, B12, B23, B75 |
 | [User-defined ordering](user-type-ordering.md) — one three-way `__cmp__` hook | B37 |
 | [Timsort for stable, adaptive sorting](timsort.md) — fallible workspace, stability, and compatibility choices | B37 (issue #331) |
-| [User-defined dictionary keys and set members](user-type-hashing.md) — derived structural hashing and a `KeyType` bound | None yet |
+| [User-defined dictionary keys and set members](user-type-hashing.md) — derived structural hashing and a `KeyType` bound | Structural class/enum/anonymous-sum keys, including custom cleanup, plus `KeyType`; copying operations require duplicable keys |
 | [Derived serialization for classes and enums](derived-serialization.md) — `@serial` derives hooks against a JSON-shaped `std.serial` data model shared by JSON and TOML | None yet; candidate under B51/B38 (issue #471) |
 | [Returned enums that carry references](returned-reference-enums.md) — `Option[&T]` and `Result[&T, E]` returned under the first-reference-parameter rule, held in locals, never stored | None yet; extends B11 (issue #516) |
 | [Go-style scoped tasks](stackful-tasks.md), with [runtime choices](stackful-tasks/runtime.md) and [native spike evidence](stackful-tasks/evidence.md) — exploratory fixed-stack alternative; no lightweight scheduler adopted | B22 investigation; implementation uncommitted |
 | [Arbitrary-precision integers](bigint.md) — Plenty limbs with an inline small value; malachite rejected on allocation failure and LGPL | B38 (issue #481) |
 | [Faster linking](faster-linking.md) — measured link costs; caching the executable, running the linker directly and reusing the extracted runtime archive; object-format changes do not pay | B19; related B17 |
-| [Checked arithmetic by default](checked-by-default.md) — function-level typed errors, explicit trapping `unchecked:` and retained local `checked:` recovery; core/repository adoption and bounded validation complete; local review and merge pending | B14 |
+| [Checked arithmetic by default](checked-by-default.md) — function-level typed errors, explicit `unchecked:` with a validated no-failure precondition and retained local `checked:` recovery; core/repository adoption and bounded validation complete; local review and merge pending | B14 |
 | [Exact decimal arithmetic](decimal.md) — allocation-free 38-digit `Decimal` in Plenty, scale kept with numeric equality as in Python, exact operators under the integer trap and `checked:` rules, `NonZero[Decimal]` divisors, explicit rounding | None yet; related B76, B37, B74 |
+| [Numerics core](numerics.md) — `std.numeric` in Plenty over `std.linalg`; a scoped SciPy subset in three milestones; `basin` and `numeris` not adopted | B38 (replaces issues #492, #493) |
 | [Six rules for a consistent core](consistency-rules.md) — one copy rule, one formatting path, owner-to-view conversion, adapters on iterators only, error types that name only what can fail, every callable form as a callback | None yet; proposes B88–B93; related B12, B49, B84 (issues #614–#636) |
 
 ## Completed investigations

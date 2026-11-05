@@ -11,6 +11,7 @@ designs and the policy for moving completed proposals.
 
 | Proposal | Reference | Further work |
 | --- | --- | --- |
+| [Boxed protocol objects](boxed-protocols.md) | [Protocol objects](../../design/language/07-generics/boxed-protocols.md) | Further protocol capabilities remain separate from the delivered erased-owner contract |
 | [Positive and NonNegative integer domain types](domain-types.md) | [Numbers](../../design/language/03-types/numbers.md#positive-and-non-negative-integers), [std conventions](../../design/stdlib/conventions.md#invalid-arguments) | B96 `Bounded`; issue #686 |
 | [Single-file scripts](single-file-scripts.md) | [Script runner](../../design/toolchain/01-building/scripts.md) | B17/B18: wider executable-cache coverage |
 | [Library-owned operations and backend hooks](library-owned-operations.md) — investigation complete; no language change | [Protocols](../../design/language/07-generics/protocols.md), [visibility](../../design/language/02-source/visibility.md) | B29; future default/final methods and private-hook grants belong to [Protocol method bodies](../protocol-method-bodies.md) |

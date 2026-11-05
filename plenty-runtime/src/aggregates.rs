@@ -17,6 +17,8 @@ mod crypto;
 mod crypto_advanced;
 mod crypto_keys;
 mod entry_error;
+#[cfg(test)]
+mod enum_set_tests;
 pub(crate) mod executor_map;
 pub(crate) mod executor_reduce;
 mod filesystem;
@@ -79,6 +81,17 @@ pub(crate) struct Type {
     /// The adapter calling the type's `display` method, which `print` uses
     /// for a top-level argument of this type.
     pub(crate) display: Option<Format>,
+    /// Coherent unit spelling for Quantity, shared by every value of its type.
+    /// Some("") denotes a dimensionless quantity; None an ordinary type.
+    pub(crate) quantity: Option<&'static str>,
+    /// Canonical values and variant offsets for a compiler-proven small domain.
+    pub(crate) finite: Option<&'static Finite>,
+}
+/// Immutable finite-domain metadata emitted by `codegen::metadata::finite`.
+#[repr(C)]
+pub(crate) struct Finite {
+    pub(crate) values: &'static [u128],
+    pub(crate) offsets: &'static [u8],
 }
 /// A formatting adapter: it takes a reference to the value, as Plenty code
 /// passes one, and stores the method's `Result[str, FormatError]`.
@@ -99,7 +112,10 @@ pub(crate) struct Plan {
     pub(crate) fixed: bool,
 }
 const _: () = {
-    assert!(size_of::<Type>() == 104);
+    assert!(size_of::<Type>() == 128);
+    assert!(std::mem::offset_of!(Type, finite) == 120);
+    assert!(size_of::<Finite>() == 32);
+    assert!(std::mem::offset_of!(Type, quantity) == 104);
     assert!(std::mem::offset_of!(Type, debug) == 88);
     assert!(std::mem::offset_of!(Type, display) == 96);
     assert!(std::mem::offset_of!(Type, plan) == 72);
@@ -145,6 +161,7 @@ impl Type {
                     | b'O'
                     | b'W'
                     | b'J'
+                    | b'j'
             )
     }
     /// True when `release_next` would only clear the slot: no heap owner,
@@ -233,8 +250,8 @@ struct Collection {
     drop_entry: Option<usize>,
 }
 const _: () = {
-    use crate::list_layout::{BYTES, REMOVED, ROWS};
-    assert!(std::mem::offset_of!(Collection, ty) == 16);
+    use crate::list_layout::{BYTES, DESCRIPTOR, REMOVED, ROWS};
+    assert!(std::mem::offset_of!(Collection, ty) == DESCRIPTOR as usize);
     // `Entries` checks its own field offsets; these add the owner header.
     assert!(std::mem::offset_of!(Collection, entries) == ROWS as usize);
     assert!(ROWS + 8 == BYTES && ROWS + 24 == REMOVED);
@@ -638,6 +655,8 @@ fn try_collection_new(ty: &'static Type, capacity: usize) -> Result<*mut Collect
         ty,
         entries: if ty.kind == b'L' {
             Entries::new(ty.key(), ty.value)
+        } else if ty.kind == b'S' && crate::entries::enum_bits::eligible(ty.key()) {
+            Entries::enum_set(ty.key())
         } else {
             Entries::ordered(ty.key(), ty.value)
         },
@@ -662,8 +681,10 @@ unsafe extern "C" fn collection_destroy(header: *mut Header) {
         let ty = &*(*c).ty;
         // A list of values that own nothing needs no per-row release; skipping
         // the walk avoids touching every row before the buffer is freed.
-        let mut entry = if ty.kind == b'L'
-            && (ty.key().owns_nothing() || ty.key().only_strings().is_some_and(<[u32]>::is_empty))
+        let mut entry = if (*c).entries.bits().is_some()
+            || ty.kind == b'L'
+                && (ty.key().owns_nothing()
+                    || ty.key().only_strings().is_some_and(<[u32]>::is_empty))
         {
             None
         } else {
@@ -833,6 +854,9 @@ impl Collection {
         }
     }
     unsafe fn find(&self, key: u128) -> Option<usize> {
+        if let Some(found) = unsafe { self.entries.find_bitset(key) } {
+            return found;
+        }
         if self.table.is_empty() {
             None
         } else {
@@ -849,6 +873,9 @@ impl Collection {
             .filter(|n| *n <= i64::MAX as usize)
             .ok_or(AllocError::CapacityOverflow)?;
         memory::checked_capacity::<Entry>(needed)?;
+        if self.entries.bits().is_some() {
+            return Ok(());
+        }
         let table_size = if self.ty().kind != b'L' && needed > self.table.len() / 2 {
             let count = needed
                 .checked_mul(2)
@@ -902,6 +929,11 @@ impl Collection {
     /// Count missing keys before reserving. No logical update or payload cleanup
     /// occurs until entry, order, and bucket capacity are available.
     unsafe fn try_update(&mut self, source: &mut Collection) -> Result<(), AllocError> {
+        if let (Some(left), Some(right)) = (self.entries.bits(), source.entries.bits()) {
+            self.entries.set_bits(left | right);
+            source.entries.clear();
+            return Ok(());
+        }
         unsafe {
             let additional = source
                 .entries
@@ -959,6 +991,10 @@ impl Collection {
     /// Insert owned operands without adjusting their ownership.
     unsafe fn try_store(&mut self, key: u128, value: u128) -> Result<(), AllocError> {
         unsafe {
+            if self.entries.bits().is_some() {
+                self.entries.push(Entry { key, value: 0 });
+                return Ok(());
+            }
             if self.ty().kind != b'L'
                 && let Some(i) = self.find(key)
             {
@@ -996,6 +1032,11 @@ impl Collection {
     /// Sets have a zero payload; Some(0) still distinguishes removal from a miss.
     unsafe fn remove(&mut self, key: u128) -> Option<u128> {
         unsafe {
+            if self.entries.bits().is_some() {
+                let index = self.find(key)?;
+                self.entries.remove(index);
+                return Some(0);
+            }
             if self.table.is_empty() {
                 return None;
             }
@@ -1082,6 +1123,9 @@ unsafe fn equal(a: u128, b: u128, ty: &Type) -> bool {
             }
             b'L' | b'S' | b'D' => {
                 let (a, b) = (&*(a as *const Collection), &*(b as *const Collection));
+                if let (Some(left), Some(right)) = (a.entries.bits(), b.entries.bits()) {
+                    return left == right;
+                }
                 if a.len() != b.len() {
                     return false;
                 }
@@ -1303,7 +1347,7 @@ unsafe fn write_file_lines(
 }
 
 /// Count the selected unique members before allocating. Inputs stay borrowed;
-/// output members retain immutable keys only after all storage is reserved.
+/// output members gain independent ownership only after storage is reserved.
 unsafe fn try_set_from_entries(
     entries: impl Iterator<Item = Entry> + Clone,
     ty: &'static Type,
@@ -1316,7 +1360,19 @@ unsafe fn try_set_from_entries(
         };
         for entry in entries {
             // Capacity covers every selected member; this cannot grow storage.
-            (*output).try_insert(entry.key, 0)?;
+            if ty.key().affine {
+                // Copy into the destination row before duplicating its fields:
+                // affine records must never share their inline storage.
+                (*output).try_store(entry.key, 0)?;
+                let row = (*output).entries.len() - 1;
+                let slot = (*output).entries.slot(row, false);
+                let mut copy = slot.read();
+                let copied = try_copy_into(&mut copy, ty.key());
+                slot.write(copy);
+                copied?;
+            } else {
+                (*output).try_insert(entry.key, 0)?;
+            }
         }
         Ok(guard.into_value())
     }
@@ -1379,20 +1435,20 @@ unsafe fn try_dictionary_snapshot(
         while let Some(index) = cursor {
             cursor = source.entries.next(index);
             let entry = source.entries.get(index);
-            let value = if values && element.affine {
-                source.entries.set(index, true, 0);
-                entry.value
-            } else {
-                let value = if values { entry.value } else { entry.key };
+            let value = if values { entry.value } else { entry.key };
+            if !element.affine {
                 retain(value, element);
-                value
-            };
+            }
             // Reservation above guarantees push cannot allocate. No operation
             // after the first ownership transfer can fail or call user code.
             (*result).entries.push(Entry {
                 key: value,
                 value: 0,
             });
+            if element.affine {
+                // Inline record bytes must reach the result before clearing.
+                source.entries.set(index, values, 0);
+            }
         }
         Ok(result as u128)
     }
@@ -1604,6 +1660,17 @@ unsafe fn try_copy_box(source: *const Boxed, ty: &Type) -> Result<u128, AllocErr
 unsafe fn try_copy_collection(value: u128, ty: &Type) -> Result<u128, AllocError> {
     unsafe {
         let source = &*(value as *const Collection);
+        if let Some(entries) = source.entries.copy_bitset() {
+            let result = memory::try_allocate::<Collection, u8>(0)?;
+            result.write(Collection {
+                header: Header::new(collection_destroy),
+                ty: source.ty,
+                entries,
+                table: Vec::new(),
+                drop_entry: None,
+            });
+            return Ok(result as u128);
+        }
         let result = try_collection_new(&*source.ty, source.entries.len())?;
         let owner = OwnedValue {
             value: result as u128,
@@ -1743,8 +1810,10 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
         }
         out.extend_from_slice(ty.name.as_bytes());
         out.push(b'(');
-        out.extend_from_slice(wrapper.name.as_bytes());
-        out.push(b'=');
+        if ty.quantity.is_none() {
+            out.extend_from_slice(wrapper.name.as_bytes());
+            out.push(b'=');
+        }
         unsafe { render(value, wrapper.fields[0], out) };
         out.push(b')');
         return;
@@ -1826,6 +1895,7 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
             b'c' => out.extend_from_slice(b"<function>"),
             b'H' => out.extend_from_slice(b"<closure>"),
             b'J' => out.extend_from_slice(b"<boxed callable>"),
+            b'j' => out.extend_from_slice(b"<boxed protocol>"),
             b'X' => out.extend_from_slice(b"<sender>"),
             b'Y' => out.extend_from_slice(b"<receiver>"),
             b'P' => out.extend_from_slice(b"<executor>"),
@@ -1979,6 +2049,22 @@ pub(crate) unsafe extern "C" fn plenty_view_equal(
     }
 }
 
+/// Narrow ABI: exchange two rows of an exclusive slice view of `descriptor`'s
+/// type, as `list.swap` exchanges list rows (issue #729). The compiler checked
+/// both indices; the same row twice leaves it unchanged.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_view_swap(a: *mut u8, b: *mut u8, descriptor: *const Type) {
+    // SAFETY: the compiler holds the view's exclusive loan through the call,
+    // so both rows are live and unaliased, and passes the element's static
+    // descriptor.
+    unsafe {
+        let ty = &*descriptor;
+        let stride =
+            crate::list_layout::row_bytes(ty.kind, ty.inline_bytes as usize, ty.has_inline_range());
+        crate::entries::exchange_rows(a, b, stride, ty);
+    }
+}
+
 /// Narrow ABI: the total sort order of two values of `descriptor`'s type as
 /// -1, 0, or 1. Operands arrive as 64-bit halves; neither changes ownership.
 #[unsafe(no_mangle)]
@@ -2048,11 +2134,22 @@ pub(crate) unsafe extern "C" fn plenty_list_scalar_get(
     }
 }
 
-/// Reports list index `index`, as written, out of bounds for `len` rows.
-/// Generated code calls it from inline scalar row reads and writes, which
-/// normalize and check the index as `index` does (issue #509).
+/// Reports list index `record[0]`, as written, out of bounds for
+/// `record[1]` rows. Generated code calls it from inline scalar row reads and
+/// writes, which normalize and check the index as `index` does (issue #509).
+/// The pair is passed in memory to keep the call's argument registers off
+/// the hot path.
+///
+/// # Safety
+///
+/// `record` points to two readable `i64` words.
 #[unsafe(no_mangle)]
-extern "C" fn plenty_trap_list_index(index: i64, len: u64, site: *const crate::Site) -> ! {
+unsafe extern "C" fn plenty_trap_list_index(
+    record: *const [i64; 2],
+    site: *const crate::Site,
+) -> ! {
+    // SAFETY: the caller stores both words just before the call.
+    let [index, len] = unsafe { record.read() };
     out_of_bounds(index, len as usize, site)
 }
 
@@ -2473,6 +2570,14 @@ pub(crate) unsafe fn collection_at(
                     .display
                 {
                     Some(display) if op != 110 && out.hooks() => format(display, value, ty, out),
+                    _ if op != 110 && ty.quantity.is_some() => {
+                        render(value, ty.wrapper.unwrap().fields[0], out);
+                        let symbol = ty.quantity.unwrap();
+                        if !symbol.is_empty() {
+                            out.push(b' ');
+                            out.extend_from_slice(symbol.as_bytes());
+                        }
+                    }
                     _ => render(value, ty, out),
                 };
                 if op == 166 {
@@ -2636,6 +2741,15 @@ pub(crate) unsafe fn collection_at(
                 let target = &mut *(a as *mut Collection);
                 let other = &*(b as *const Collection);
                 let ty = &*target.ty;
+                if let (Some(left), Some(right)) = (target.entries.bits(), other.entries.bits()) {
+                    target.entries.set_bits(if op == 69 {
+                        left & right
+                    } else {
+                        left & !right
+                    });
+                    plenty_retain(a as *mut Header);
+                    return a;
+                }
                 target.entries.retain(|entry| {
                     if other.find(entry.key).is_some() == (op == 69) {
                         true
@@ -2645,10 +2759,12 @@ pub(crate) unsafe fn collection_at(
                     }
                 });
                 target.table.fill(0);
-                for index in target.entries.indices() {
-                    let entry = target.entries.get(index);
-                    let bucket = target.bucket(entry.key);
-                    target.table[bucket] = index + 1;
+                if target.entries.bits().is_none() {
+                    for index in target.entries.indices() {
+                        let entry = target.entries.get(index);
+                        let bucket = target.bucket(entry.key);
+                        target.table[bucket] = index + 1;
+                    }
                 }
                 plenty_retain(a as *mut Header);
                 a
@@ -2663,6 +2779,20 @@ pub(crate) unsafe fn collection_at(
                     KEY_VIEW_SYMMETRIC_DIFFERENCE => (SET_SYMMETRIC_DIFFERENCE, &*descriptor),
                     _ => (op, &*left.ty),
                 };
+                if let (Some(left), Some(right)) = (left.entries.bits(), right.entries.bits()) {
+                    return match try_collection_new(result_type, 0) {
+                        Ok(output) => {
+                            (*output).entries.set_bits(match op {
+                                SET_UNION => left | right,
+                                SET_INTERSECTION => left & right,
+                                SET_DIFFERENCE => left & !right,
+                                _ => left ^ right,
+                            });
+                            wrap(output as u128, 0)
+                        }
+                        Err(error) => wrap(wrap(0, error as u64), 1),
+                    };
+                }
                 let left_entries = left.entries.iter().filter(|entry| match op {
                     SET_UNION => true,
                     SET_INTERSECTION => right.find(entry.key).is_some(),
@@ -2687,6 +2817,14 @@ pub(crate) unsafe fn collection_at(
             }
             SET_IS_SUBSET..=SET_IS_DISJOINT | KEY_VIEW_EQUAL => {
                 let (left, right) = (&*(a as *const Collection), &*(b as *const Collection));
+                if let (Some(left), Some(right)) = (left.entries.bits(), right.entries.bits()) {
+                    return match op {
+                        KEY_VIEW_EQUAL => left == right,
+                        SET_IS_SUBSET => (left & !right).is_empty(),
+                        SET_IS_SUPERSET => (right & !left).is_empty(),
+                        _ => (left & right).is_empty(),
+                    } as u128;
+                }
                 let result = match op {
                     KEY_VIEW_EQUAL => {
                         left.entries.len() == right.entries.len()
@@ -2998,15 +3136,23 @@ pub(crate) unsafe fn collection_at(
                 .next(b as usize - 1)
                 .map_or(0, |i| i as u128 + 1),
             125 => {
-                let c = &*(a as *const Collection);
-                let key = c.entries.get(b as usize - 1).key;
-                retain(key, c.ty().key());
+                // Owned hash iteration transfers affine keys. Retaining an
+                // observation and then relocating it would duplicate cleanup
+                // state instead of transferring the destructor obligation.
+                let c = &mut *(a as *mut Collection);
+                let index = b as usize - 1;
+                let key = c.entries.get(index).key;
+                if c.ty().key().affine {
+                    c.entries.set(index, false, 0);
+                } else {
+                    retain(key, c.ty().key());
+                }
                 key
             }
             140 => {
                 let owner = *(a as *const u128);
                 let c = &mut *(owner as *mut Collection);
-                c.entries.slot(b as usize - 1, false) as u128
+                c.entries.key_ref(b as usize - 1) as u128
             }
             4 | 6 => {
                 let c = &*(a as *const Collection);

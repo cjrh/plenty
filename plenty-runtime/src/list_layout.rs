@@ -2,6 +2,8 @@
 //! rows inline (issue #509). Offsets are from a live list owner; the runtime
 //! asserts them against its repr(C) `Collection` and `Entries`.
 
+/// The owner's `*const Type` descriptor of the whole collection type.
+pub const DESCRIPTOR: i32 = 16;
 /// Address of row 0, a `*mut u128`.
 pub const ROWS: i32 = 24;
 /// Initialized row bytes, a `usize`; a dense list has `BYTES / stride` rows.

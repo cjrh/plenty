@@ -41,7 +41,8 @@ The compiler turns hotpath's live-metrics HTTP server off unless
 To see what the compiler generated rather than how long it took, use
 [`plenty --dump`](../design/toolchain/02-architecture/dump.md): it writes each
 function's operations, Cranelift IR before and after optimization, and
-assembly, with an index sorted by code size.
+assembly, with an index sorted by code size. To make generated programs
+faster, follow [Analyzing emitted code](emitted-code.md).
 
 ## Selecting a benchmark workload
 

@@ -17,6 +17,8 @@ static INTEGER: Type = Type {
     transparent: false,
     debug: None,
     display: None,
+    quantity: None,
+    finite: None,
 };
 static ID: Type = Type {
     kind: b'B',
@@ -122,5 +124,61 @@ fn structural_hashes_frame_fields_and_ignore_storage_addresses() {
         for text in text {
             plenty_release(text.cast());
         }
+    }
+}
+
+#[test]
+fn class_keys_hash_fields_instead_of_record_addresses() {
+    static CLASS: Type = Type {
+        kind: b'C',
+        affine: true,
+        inline_bytes: 48,
+        variants: &[
+            Variant {
+                name: "first",
+                fields: &[&TEXT],
+            },
+            Variant {
+                name: "number",
+                fields: &[&INTEGER],
+            },
+            Variant {
+                name: "last",
+                fields: &[&TEXT],
+            },
+        ],
+        ..INTEGER
+    };
+    // SAFETY: records have the descriptor's three slots and independently own
+    // their text fields; they stay live through hashing and equality checks.
+    unsafe {
+        let mut a = [
+            strings::new(b"hello") as u128,
+            42,
+            strings::new(b"world") as u128,
+        ];
+        let mut b = [
+            strings::new(b"hello") as u128,
+            42,
+            strings::new(b"world") as u128,
+        ];
+        let first = a.as_mut_ptr() as u128;
+        let second = b.as_mut_ptr() as u128;
+        for seed in [[0; 16], [1; 16], [0xa5; 16]] {
+            assert!(equal(first, second, &CLASS));
+            assert_eq!(
+                hashing::hash_with_key(first, &CLASS, &seed),
+                hashing::hash_with_key(second, &CLASS, &seed)
+            );
+            b[1] = 43;
+            assert!(!equal(first, second, &CLASS));
+            assert_ne!(
+                hashing::hash_with_key(first, &CLASS, &seed),
+                hashing::hash_with_key(second, &CLASS, &seed)
+            );
+            b[1] = 42;
+        }
+        release(first, &CLASS);
+        release(second, &CLASS);
     }
 }

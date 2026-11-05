@@ -9,6 +9,8 @@
 //!   constructor; a read becomes that literal and constructor call, as a
 //!   literal argument lowers. Constant getters are then unreferenced
 //!   (the resolver lets a constant be used only as a value) and are removed.
+//!   Quantity constants add only a checked storage retag, substituted with the
+//!   literal so coherent units do not require a getter call at runtime.
 //! - A *leaf predicate* takes scalar parameters, returns one scalar and
 //!   computes it with comparisons, boolean operators and literal matches only:
 //!   nothing in it can trap, call, allocate or touch memory. In optimized
@@ -88,8 +90,13 @@ fn definitions<'a>(ops: &'a [Op], visit: &mut impl FnMut(&'a str, &'a CompiledFn
 
 fn collect_constants(ops: &[Op], callees: &mut HashMap<String, Callee>) {
     definitions(ops, &mut |name, f| {
-        let domain = match f.sig.outputs.as_slice() {
-            [ty @ Ty::Class(class)] if ty.integer_domain().is_some() => {
+        let [output] = f.sig.outputs.as_slice() else {
+            return;
+        };
+        let storage = output.quantity_storage();
+        let scalar_output = storage.as_ref().unwrap_or(output);
+        let domain = match scalar_output {
+            ty @ Ty::Class(class) if ty.integer_domain().is_some() => {
                 Some(crate::record::method(&class.name, "new"))
             }
             _ => None,
@@ -98,11 +105,24 @@ fn collect_constants(ops: &[Op], callees: &mut HashMap<String, Callee>) {
             || f.generator.is_some()
             || !f.locals.is_empty()
             || !(domain.is_some()
-                || matches!(f.sig.outputs.as_slice(), [ty] if scalar(ty) || matches!(ty, Ty::Str | Ty::ByteStr)))
+                || scalar(scalar_output)
+                || matches!(scalar_output, Ty::Str | Ty::ByteStr))
         {
             return;
         }
-        let body: Vec<&Op> = f.body.iter().filter(|op| !marker(op)).collect();
+        let mut body: Vec<&Op> = f.body.iter().filter(|op| !marker(op)).collect();
+        let wrap = if storage.is_some() {
+            let Some(op @ Op::Class(crate::record::ClassOp::WrapQuantity(class))) = body.pop()
+            else {
+                return;
+            };
+            if *output != Ty::Class(class.clone()) {
+                return;
+            }
+            Some(op.clone())
+        } else {
+            None
+        };
         if let Some(new) = domain {
             // Domain constructors cannot trap; the frontend checked the literal.
             if let [
@@ -115,7 +135,10 @@ fn collect_constants(ops: &[Op], callees: &mut HashMap<String, Callee>) {
                     name.to_string(),
                     Callee {
                         params: vec![],
-                        body: vec![(*value).clone(), Op::Call(new)],
+                        body: vec![(*value).clone(), Op::Call(new)]
+                            .into_iter()
+                            .chain(wrap)
+                            .collect(),
                     },
                 );
             }
@@ -141,7 +164,7 @@ fn collect_constants(ops: &[Op], callees: &mut HashMap<String, Callee>) {
             name.to_string(),
             Callee {
                 params: vec![],
-                body: vec![value],
+                body: std::iter::once(value).chain(wrap).collect(),
             },
         );
     });

@@ -13,7 +13,7 @@ pub(super) struct Leaf {
 }
 
 pub(super) fn scalar(ty: &Ty) -> bool {
-    ty.is_numeric() || *ty == Ty::Bool
+    ty.is_numeric() || *ty == Ty::Bool || ty.quantity_storage().is_some_and(|t| scalar(&t))
 }
 
 fn borrowed_input(ty: &Ty) -> bool {
@@ -69,6 +69,12 @@ pub(super) fn prepare(bodies: &[(String, Arc<[Op]>)], functions: &mut HashMap<St
                     Op::Class(crate::record::ClassOp::FieldRef(class, index, false)) => {
                         scalar(&class.get().fields[*index].1)
                     }
+                    Op::Class(
+                        crate::record::ClassOp::WrapQuantity(class)
+                        | crate::record::ClassOp::Field(class, 0),
+                    ) => Ty::Class(class.clone())
+                        .quantity_storage()
+                        .is_some_and(|t| scalar(&t)),
                     Op::PushInt(_)
                     | Op::PushFloat { .. }
                     | Op::PushBool(_)

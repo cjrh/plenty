@@ -178,8 +178,8 @@ fn compile(dir: &Path, release: bool) -> std::path::PathBuf {
     std::fs::write(&source, program()).unwrap();
     let mut command = Command::new(support::plenty_bin());
     command.env("PLENTY_CACHE", "off");
-    if release {
-        command.arg("--release");
+    if !release {
+        command.arg("--fast-compile");
     }
     let output = command
         .arg("--compile")
@@ -257,7 +257,7 @@ fn constant_add_compares_instead_of_materializing_the_flag() {
     .unwrap();
     let output = Command::new(support::plenty_bin())
         .env("PLENTY_CACHE", "off")
-        .args(["--dump", "asm", "--dump-filter", "step"])
+        .args(["--fast-compile", "--dump", "asm", "--dump-filter", "step"])
         .arg(&source)
         .args(["-o", "-"])
         .output()

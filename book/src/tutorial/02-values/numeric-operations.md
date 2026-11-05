@@ -286,9 +286,11 @@ Every named function and closure keeps its own declared error contract,
 including when defined inside `checked:`. Calls returning `Result` still
 need explicit handling.
 
-Use `unchecked:` only when process termination is intentional. It yields
-an ordinary value, not a `Result`, and overflow still traps rather than
-wrapping. Keep the suite small and explain why its bounds are safe. See
+Use `unchecked:` only where you can show the arithmetic cannot fail. It
+yields an ordinary value, not a `Result`. Today a failure inside it still
+terminates the process rather than wrapping, but that check is not part of the
+promise, so do not use the suite to reject bad input. Keep it small and explain
+why its bounds are safe. See
 [arithmetic modes](../../design/language/03-types/numbers.md#unchecked-blocks).
 Integer [`std.math` helpers](../../design/stdlib/math.md) return ordinary
 overflow results; their float variants remain infallible. Remaining std

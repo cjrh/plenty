@@ -12,9 +12,9 @@ graph; imports never fetch or resolve packages.
 | `plenty new PATH [--lib] [--name NAME]` | Create `PATH` with a manifest, `src/main.plenty` (or `src/lib.plenty`), and `.gitignore` |
 | `plenty init [--lib] [--name NAME]` | Create a package in the current directory; refuses to replace a manifest or source |
 | `plenty check [--locked] [--offline] [--check-all-methods]` | Check the library (without requiring `main`) and every executable; [`--check-all-methods`](../../language/07-generics/index.md#checking-every-method) also checks unused methods of the package's own generic instances, not those of `std` or dependency types |
-| `plenty build [--release] [--no-strip] [--locked] [--offline]` | Check the library and compile every executable to `target/PROFILE/NAME` |
-| `plenty run [--release] [--no-strip] [--locked] [--offline] [--bin NAME] [-- ARGS...]` | Build one executable and run it with `ARGS` |
-| `plenty test [--release] [--locked] [--offline] [--no-capture] [--seed N] [--list] [--jobs N] [--timeout SECONDS] [FILTER...]` | Compile and run the package's [tests](#tests) |
+| `plenty build [--fast-compile] [--no-strip] [--locked] [--offline]` | Check the library and compile every executable to `target/PROFILE/NAME` |
+| `plenty run [--fast-compile] [--no-strip] [--locked] [--offline] [--bin NAME] [-- ARGS...]` | Build one executable and run it with `ARGS` |
+| `plenty test [--fast-compile] [--locked] [--offline] [--no-capture] [--seed N] [--list] [--jobs N] [--timeout SECONDS] [FILTER...]` | Compile and run the package's [tests](#tests) |
 | `plenty add [ALIAS] SOURCE [--version REQ] [--offline]` | Add a [dependency](#adding-dependencies) to the manifest and lock it |
 | `plenty fetch [--locked] [--offline]` | Resolve, download, and lock every dependency without compiling |
 | `plenty update [PACKAGE...] [--offline]` | Move [Git dependencies](#git-dependencies) to the commits their tags and revisions name now |
@@ -116,7 +116,7 @@ test result: FAILED. 1 passed; 1 failed
 | `--seed N` | Set `PLENTY_TEST_SEED=N` for every test; [`std.test`](../../stdlib/test.md) seeds its generator from it |
 | `--jobs N` | Run at most `N` tests at once; `N` is at least 1 |
 | `--timeout SECONDS` | Kill a test still running after `SECONDS` (at least 1) and fail it as `timed out after SECONDSs`; processes it started are not killed |
-| `--release`, `--locked`, `--offline` | As for `plenty build` |
+| `--fast-compile`, `--locked`, `--offline` | As for `plenty build` |
 
 A failing test's line gives the reason: `returned Err`, `exit status N` (a
 trap is status 1), `terminated by signal N`, or `timed out after Ns`. Without
@@ -126,13 +126,19 @@ trap is status 1), `terminated by signal N`, or `timed out after Ns`. Without
 
 | Profile | Selected by | Output | Code generation |
 |---|---|---|---|
-| debug | default | `target/debug/` | Cranelift `opt_level=none`; fastest compilation |
-| release | `--release` | `target/release/` | Cranelift `opt_level=speed` |
+| optimized | default | `target/optimized/` | Cranelift `opt_level=speed` and optimized call-site passes |
+| fast-compile | `--fast-compile` | `target/fast-compile/` | Cranelift `opt_level=none`; skips optimized call-site passes |
 
 Profiles change code generation only. Overflow, bounds, ownership, and every
-other language check behave identically. `plentyc --release FILE` and
-`plentyc --release --compile FILE -o OUT` select the release code generation for
-single files.
+other language check behave identically; neither profile adds debug information.
+Use `--fast-compile` for shorter edit-run cycles in large projects. Measure runtime
+performance with the optimized default. Compiled functions, program objects and
+executables remain cached separately by profile.
+
+`plentyc FILE` and `plentyc --compile FILE -o OUT` also optimize by default;
+`--fast-compile` selects the same unoptimized code generation for single files.
+`--release` is accepted as a compatibility alias for the optimized default.
+These are Plenty profiles, independent of Cargo's profiles for building the compiler.
 
 ## Build reuse
 

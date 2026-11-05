@@ -5,11 +5,15 @@ Lists use the [common collection rules](collections.md). Growth through
 nothing and traps on a missing index. Lists have no `*` repetition; a
 comprehension such as `[0.0 for _ in range(count)]?` builds repeated elements.
 
-Inside ordinary `for` loops, scalar indexing through immutable shared list
-references already in scope uses cached row metadata and checked direct loads.
-Each list keeps its own bounds check, including negative-index normalization;
-unrelated lists need not have equal lengths. Owned lists, exclusive or
-retargetable references, and generator bodies keep ordinary indexed access.
+Inside `for` and `while` loops, scalar indexing of a named list already in
+scope reads the list's length and row address once, before the loop, and then
+uses checked direct loads and stores. An immutable shared reference always
+qualifies. An owned list, exclusive reference, or retargetable binding
+qualifies only when the loop cannot resize, replace, or move the list: the loop
+makes no call and performs no list operation other than scalar element reads,
+writes, and length queries. Each list keeps its own bounds check, and a
+negative index is still normalized; unrelated lists need not have equal
+lengths. Generator bodies and other loops keep ordinary indexed access.
 
 ## Storage costs
 
@@ -68,7 +72,11 @@ contract: exclusive access, every element type, and no allocation, copy, retain,
 or drop. Negative indices count from the end, and a missing index traps. Both
 indices are evaluated before the list is borrowed, so they may read it. Equal
 indices leave the list unchanged. `swap` is the way to exchange owned elements,
-which cannot be moved out of indexed storage.
+which cannot be moved out of indexed storage. On a list of numbers or `bool`,
+`swap` compiles to inline bounds checks, loads, and stores with no runtime call;
+other element types call the runtime once. An exclusive
+[slice view](../../language/04-expressions/slices.md#slice-views), `&mut [T]`,
+has the same `swap`, with indices counted within the view.
 
 `items.sort() -> ()` orders the elements ascending, in place, without allocating.
 It requires exclusive access and one of these element types:

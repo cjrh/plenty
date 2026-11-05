@@ -155,8 +155,8 @@ fn native_range_output(source: &str, release: bool) -> std::process::Output {
     std::fs::write(&path, source).unwrap();
     let mut command = std::process::Command::new(support::plenty_bin());
     command.env("PLENTY_CACHE", "off");
-    if release {
-        command.arg("--release");
+    if !release {
+        command.arg("--fast-compile");
     }
     let compiled = command
         .arg("--compile")

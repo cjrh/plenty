@@ -593,8 +593,8 @@ def main() -> Result[(), AllocError]:
         compiler
             .current_dir(directory.path())
             .env("PLENTY_CACHE", "off");
-        if release {
-            compiler.arg("--release");
+        if !release {
+            compiler.arg("--fast-compile");
         }
         support::assert_success(
             compiler
@@ -789,8 +789,8 @@ def main() -> ():
         std::fs::write(&path, source).unwrap();
         let mut compiler = std::process::Command::new(support::plenty_bin());
         compiler.env("PLENTY_CACHE", "off");
-        if release {
-            compiler.arg("--release");
+        if !release {
+            compiler.arg("--fast-compile");
         }
         let output = compiler
             .arg("--compile")

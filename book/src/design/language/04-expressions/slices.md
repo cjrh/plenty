@@ -180,6 +180,7 @@ and before passing an exclusive view of it.
 | `len(v)` | Number of elements in the view |
 | `v[i]` | Element `i` of the view, with list index rules: a negative index counts from the end, and an index outside the view traps |
 | `v[i] = x` | Replace element `i`; needs an exclusive view in a `mut` binding |
+| `v.swap(i, j)` | Exchange elements `i` and `j` in place, with [`list.swap`](../../facilities/01-builtins/lists.md#reordering-and-extending)'s contract; needs an exclusive view |
 | `&v[i]`, `&mut v[i]` | Reference to element `i` |
 | `&v[a:b]`, `&mut v[a:b]` | Narrower view; bounds count from the start of `v` |
 | `for x in v` | `&T` per element, or `&mut T` for an exclusive view; `reversed(v)` and `enumerate(v)` also work |
@@ -207,9 +208,39 @@ b"bc"
 ```
 
 A view prints as a reference does, through to its elements; a `Bytes` buffer
-itself keeps its own spelling. Other list operations, such as methods, `in`,
-`list(v)`, and copying slices of a view, are rejected. Copy from the owner,
-`xs[a:b]?`, for an owned value.
+itself keeps its own spelling. Other list operations, such as methods other
+than `swap`, `in`, `list(v)`, and copying slices of a view, are rejected. Copy
+from the owner, `xs[a:b]?`, for an owned value.
+
+`v.swap(i, j)` counts both indices within the view, so a negative index counts
+from the view's end, and an index outside the view traps before either element
+moves. Both indices are evaluated before the view is borrowed, so they may read
+it, as `len(v) - 1` does. Equal indices leave the view unchanged. It accepts
+every element type and allocates, copies, retains, and drops nothing. For
+numbers and `bool` it compiles to the inline bounds checks, loads, and stores
+of `list.swap`; other element types make one runtime call, which repairs inline
+payload addresses. A shared view is read-only and has no `swap`:
+
+```plenty
+def reverse(v: &mut [i64]) -> Result[(), OverflowError[i64]]:
+    mut lo = 0
+    mut hi = len(v) - 1
+    while lo < hi:
+        v.swap(lo, hi)
+        lo += 1
+        hi -= 1
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    mut xs = [1, 2, 3, 4, 5]?
+    reverse(&mut xs[1:])?
+    print(xs)?
+    Ok(())
+```
+
+```output
+[1, 5, 4, 3, 2]
+```
 
 ### Views borrow their owner
 

@@ -140,8 +140,9 @@ def main() -> Result[(), OverflowError[i64]]:
         })
         .expect("counted loop backedge");
     assert!(!instructions.iter().any(|(offset, text)| (*offset >= target && *offset <= end) && text.starts_with("call")), "{asm}");
-    assert_eq!(asm.matches("# plenty_list_rows").count(), 2, "{asm}");
-    assert_eq!(asm.matches("# plenty_list_row_bytes").count(), 2, "{asm}");
+    // Scalar rows are dense: the setup reads the header without a call.
+    assert!(!asm.contains("# plenty_list_rows"), "{asm}");
+    assert!(!asm.contains("# plenty_list_row_bytes"), "{asm}");
     // Only the out-of-bounds cold blocks call out, to report the index.
     assert_eq!(asm.matches("# plenty_trap_list_index").count(), 2, "{asm}");
     assert!(!asm.contains("plenty_list_scalar_get"), "{asm}");
@@ -196,7 +197,7 @@ fn indexed_shared_columns_trap_at_each_columns_own_bound(
 }
 
 #[test]
-fn indexed_loops_do_not_cache_mutable_or_owned_sources() {
+fn indexed_loops_that_resize_or_retarget_keep_ordinary_access() {
     support::assert_visible_stdout(
         r#"
 def changing(xs: &mut list[i64]) -> ():
@@ -482,4 +483,494 @@ fn borrowed_access_has_only_narrow_runtime_relocations() {
             || matches!(name.as_str(), "plenty_retain" | "plenty_release")),
         "{calls:?}"
     );
+}
+
+/// Owned lists and exclusive references read their header once per loop
+/// when the loop cannot resize them, in `while` and `for` loops (issue #715).
+#[test]
+fn row_caches_cover_exclusive_owned_and_while_loops() {
+    support::assert_visible_stdout(
+        r#"
+def reverse(xs: &mut list[i64]) -> Result[(), OverflowError[i64]]:
+    mut lo = 0
+    mut hi = len(xs) - 1
+    while lo < hi:
+        t = xs[lo]
+        xs[lo] = xs[hi]
+        xs[hi] = t
+        lo += 1
+        hi -= 1
+    Ok(())
+def bump(xs: &mut list[u8], times: i64) -> Result[(), OverflowError[u8] | OverflowError[i64]]:
+    for _ in range(times):
+        for i in range(len(xs)):
+            xs[-i - 1] += 1u8
+    Ok(())
+def scan(xs: &list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut i = 0
+    while xs[i] != 0:
+        i += 1
+    Ok(i)
+def grow(xs: &mut list[i64]) -> Result[(), OverflowError[i64]]:
+    mut i = 0
+    while i < 3:
+        xs[0] = xs[-1] + 1
+        xs.append(xs[0]).unwrap()
+        i += 1
+    Ok(())
+def main() -> Result[(), OverflowError[u8] | OverflowError[i64]]:
+    mut xs = [1, 2, 3, 4, 5].unwrap()
+    reverse(&mut xs)?
+    print(xs).unwrap()
+    mut bytes = [1u8, 2u8].unwrap()
+    bump(&mut bytes, 3)?
+    print(bytes).unwrap()
+    print(scan(&[3, 2, 0, 1].unwrap())?).unwrap()
+    grow(&mut xs)?
+    print(xs).unwrap()
+    mut owned = [0.5, 1.5, 2.5].unwrap()
+    mut j = 0
+    while j < len(owned):
+        owned[j] = owned[-j - 1] * 2.0
+        j += 1
+    print(owned).unwrap()
+    Ok(())
+"#,
+        "[5, 4, 3, 2, 1]\n[4, 5]\n2\n[4, 4, 3, 2, 1, 2, 3, 4]\n[5.0, 3.0, 10.0]",
+    );
+}
+
+#[rstest]
+#[case("0", "list[i64]().unwrap()")]
+#[case("1", "[1].unwrap()")]
+#[case("-2", "[1].unwrap()")]
+#[case("-9223372036854775808", "[1].unwrap()")]
+#[case("9223372036854775807", "[1].unwrap()")]
+fn cached_exclusive_and_owned_rows_trap_out_of_bounds(#[case] index: &str, #[case] values: &str) {
+    for source in [
+        format!(
+            "def read(xs: &mut list[i64]) -> Result[i64, OverflowError[i64]]:\n    mut result = 0\n    mut i = 0\n    while i < 2:\n        result += xs[{index}]\n        i += 1\n    Ok(result)\ndef main() -> Result[(), OverflowError[i64]]:\n    mut xs = {values}\n    print(read(&mut xs)?).unwrap()\n    Ok(())"
+        ),
+        format!(
+            "def write(xs: &mut list[i64]) -> ():\n    for _ in range(2):\n        xs[{index}] = 1\nmut xs = {values}\nwrite(&mut xs)"
+        ),
+        format!(
+            "def main() -> Result[(), OverflowError[i64]]:\n    mut xs = {values}\n    for _ in range(2):\n        xs[{index}] += 1\n    Ok(())"
+        ),
+        format!(
+            "def size(xs: &[i64]) -> i64:\n    len(xs)\ndef main() -> Result[(), OverflowError[i64]]:\n    mut xs = {values}\n    mut n = 0\n    for _ in range(2):\n        n += size(&xs) + xs[{index}]\n    print(n).unwrap()\n    Ok(())"
+        ),
+    ] {
+        let output = support::run(&source);
+        assert!(!output.status.success(), "{source}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("index out of bounds"),
+            "{source}"
+        );
+    }
+}
+
+fn dump(kind: &str, filter: &str, source: &str) -> String {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rows.plenty");
+    std::fs::write(&path, source).unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"))
+        .args(["--release", "--dump", kind, "--dump-filter", filter])
+        .arg(path)
+        .args(["-o", "-"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
+}
+
+const REVERSE: &str = r#"
+def reverse(xs: &mut list[i64]) -> Result[(), OverflowError[i64]]:
+    mut lo = 0
+    mut hi = len(xs) - 1
+    while lo < hi:
+        t = xs[lo]
+        xs[lo] = xs[hi]
+        xs[hi] = t
+        lo += 1
+        hi -= 1
+    Ok(())
+def grow(xs: &mut list[i64]) -> ():
+    for i in range(2):
+        xs[i] = 1
+        xs.append(i).unwrap()
+def swap_bump(xs: &mut list[i64]) -> Result[(), OverflowError[i64]]:
+    for i in range(1):
+        xs.swap(i, 1)
+        xs[i] += 1
+    Ok(())
+def main() -> Result[(), OverflowError[i64]]:
+    mut xs = [1, 2].unwrap()
+    reverse(&mut xs)?
+    grow(&mut xs)
+    swap_bump(&mut xs)?
+    Ok(())
+"#;
+
+/// A loop that cannot resize its list uses the cached accesses; one that can
+/// keeps the accesses that read the header (issue #715).
+#[test]
+fn row_caches_fall_back_when_the_loop_can_resize_the_list() {
+    let reverse = dump("ops", "reverse", REVERSE);
+    assert_eq!(
+        reverse.matches("ListScalarGetView(").count(),
+        2,
+        "{reverse}"
+    );
+    assert_eq!(
+        reverse.matches("ListScalarSetView(").count(),
+        2,
+        "{reverse}"
+    );
+    assert!(!reverse.contains("ListScalarGetRef("), "{reverse}");
+    assert!(!reverse.contains("ListScalarSetRef("), "{reverse}");
+    let grow = dump("ops", "grow", REVERSE);
+    assert!(grow.contains("ListScalarSetRef("), "{grow}");
+    assert!(!grow.contains("View("), "{grow}");
+    // A swap cannot resize the list, so it keeps the cache.
+    let swap = dump("ops", "swap_bump", REVERSE);
+    assert!(swap.contains("ListScalarSwapRef("), "{swap}");
+    assert!(swap.contains("ListScalarSetView("), "{swap}");
+    assert!(!swap.contains("ListScalarSetRef("), "{swap}");
+}
+
+/// The reversal loop reads the list's flag byte only for `len(xs)` and the
+/// loop's setup, and
+/// a nonnegative index takes one unsigned comparison: no `cmov`
+/// normalization (issue #715).
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn cached_rows_read_the_header_once_and_skip_normalization() {
+    let asm = dump("asm", "reverse", REVERSE);
+    let removed = regex::Regex::new(r"movzb\S*\s+0x30\(").unwrap();
+    assert_eq!(removed.find_iter(&asm).count(), 2, "{asm}");
+    assert!(!asm.contains("cmov"), "{asm}");
+}
+
+/// An index failure stores its index and length to the stack for the
+/// helper, so the hot loop keeps its values out of the call's argument
+/// registers: the reversal loop has no register-to-register moves.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn index_failures_add_no_moves_to_the_loop() {
+    let asm = dump("asm", "reverse", REVERSE);
+    let instruction = regex::Regex::new(r"^\s*([0-9a-f]+):\s+(.*)$").unwrap();
+    let instructions: Vec<_> = asm
+        .lines()
+        .filter_map(|line| {
+            let captures = instruction.captures(line)?;
+            Some((
+                u64::from_str_radix(&captures[1], 16).unwrap(),
+                captures[2].to_owned(),
+            ))
+        })
+        .collect();
+    let (end, start) = instructions
+        .iter()
+        .find_map(|(offset, text)| {
+            let target = text.strip_prefix("jmp")?.trim().strip_prefix("0x")?;
+            let target = u64::from_str_radix(target, 16).ok()?;
+            (target < *offset).then_some((*offset, target))
+        })
+        .expect("reversal loop backedge");
+    // The function's exit lies inside the address range, so the frame
+    // pointer's restore is not a loop move.
+    let register_move = regex::Regex::new(r"^mov\s+%(\w+),%(\w+)$").unwrap();
+    let register_move = |text: &str| {
+        register_move
+            .captures(text)
+            .is_some_and(|c| ![&c[1], &c[2]].iter().any(|r| *r == "rsp" || *r == "rbp"))
+    };
+    assert!(
+        !instructions
+            .iter()
+            .any(|(offset, text)| (start..=end).contains(offset) && register_move(text)),
+        "{asm}"
+    );
+    assert_eq!(asm.matches("# plenty_trap_list_index").count(), 2, "{asm}");
+}
+
+/// Release builds report the index as written and the length through the
+/// stored pair.
+#[rstest]
+#[case("-4", "index -4, length 3")]
+#[case("3", "index 3, length 3")]
+fn release_index_failures_report_the_index_and_length(#[case] index: &str, #[case] message: &str) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("index.plenty");
+    std::fs::write(
+        &path,
+        format!(
+            "def at(xs: &[i64], i: i64) -> i64:\n    xs[i]\n\
+             def main() -> ():\n    xs = [1, 2, 3].unwrap()\n    print(at(&xs, {index})).unwrap()\n"
+        ),
+    )
+    .unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"))
+        .arg("--release")
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(&format!("index.plenty:2:5: index out of bounds: {message}")),
+        "{stderr}"
+    );
+}
+
+/// Loops whose calls take shared or view borrows, or an exclusive borrow of
+/// another owner, keep the row cache, for locals and field lists alike; calls
+/// that could resize the list through an exclusive list, owner or method
+/// receiver fall back (issue #717).
+const CALLS: &str = r#"
+class Bag:
+    items: list[i64]
+    total: i64
+
+    def add(self: &mut Bag, v: i64) -> ():
+        self.items.append(v).unwrap()
+
+def peek(xs: &[i64], i: i64) -> i64:
+    xs[i]
+def bump(xs: &mut [i64], i: i64) -> Result[(), OverflowError[i64]]:
+    xs[i] += 1
+    Ok(())
+def first(xs: &list[i64]) -> i64:
+    xs[0]
+def extend(xs: &mut list[i64]) -> ():
+    xs.append(xs[0]).unwrap()
+def refill(bag: &mut Bag) -> ():
+    bag.items.append(9).unwrap()
+def viewed(xs: &mut list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut s = 0
+    for i in range(len(xs)):
+        s += xs[i] + peek(xs, i) + first(xs)
+        bump(xs, i)?
+    Ok(s)
+def others(xs: &mut list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut zs = [5].unwrap()
+    mut s = 0
+    for i in range(len(xs)):
+        s += xs[i]
+        extend(&mut zs)
+    Ok(s + len(zs))
+def fields(bag: &mut Bag) -> Result[i64, OverflowError[i64]]:
+    mut s = 0
+    for i in range(len(bag.items)):
+        s += bag.items[i]
+        bag.items[i] = peek(&bag.items, i) * 2
+        bag.total += 1
+    Ok(s + bag.total)
+def shared_fields(bag: &Bag) -> Result[i64, OverflowError[i64]]:
+    mut s = 0
+    for i in range(len(bag.items)):
+        s += bag.items[i] + first(&bag.items)
+    Ok(s)
+def extended(xs: &mut list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut s = 0
+    for i in range(3):
+        s += xs[i]
+        extend(xs)
+    Ok(s)
+def refilled(bag: &mut Bag) -> Result[i64, OverflowError[i64]]:
+    mut s = 0
+    for i in range(3):
+        s += bag.items[i]
+        refill(bag)
+    Ok(s)
+def added(bag: &mut Bag) -> Result[i64, OverflowError[i64]]:
+    mut s = 0
+    mut i = 0
+    while i < 3:
+        s += bag.items[i]
+        bag.add(i)
+        i += 1
+    Ok(s)
+def nested(xs: &mut list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut s = 0
+    for i in range(3):
+        s += xs[i]
+        for _ in range(2):
+            s += xs[0]
+            extend(xs)
+    Ok(s)
+def owned() -> Result[i64, OverflowError[i64]]:
+    mut xs = [1, 2, 3].unwrap()
+    mut s = 0
+    for i in range(3):
+        s += xs[i]
+        extend(&mut xs)
+    Ok(s + len(xs))
+def main() -> Result[(), OverflowError[i64]]:
+    mut xs = [1, 2, 3].unwrap()
+    print(viewed(&mut xs)?).unwrap()
+    print(others(&mut xs)?).unwrap()
+    mut bag = Bag([1, 2].unwrap(), 0)
+    print(fields(&mut bag)?).unwrap()
+    print(shared_fields(&bag)?).unwrap()
+    mut ys = [4].unwrap()
+    print(extended(&mut ys)?).unwrap()
+    mut one = Bag([1].unwrap(), 0)
+    print(refilled(&mut one)?).unwrap()
+    mut four = Bag([4].unwrap(), 0)
+    print(added(&mut four)?).unwrap()
+    mut zs = [1].unwrap()
+    print(nested(&mut zs)?).unwrap()
+    print(owned()?).unwrap()
+    Ok(())
+"#;
+
+#[test]
+fn row_caches_survive_calls_that_cannot_resize_the_list() {
+    support::assert_visible_stdout(CALLS, "17\n13\n5\n10\n12\n19\n5\n9\n12");
+    let views = |name: &str| {
+        let ops = dump("ops", &format!("__plenty_fn_{name}"), CALLS);
+        let cached =
+            ops.matches("ListScalarGetView(").count() + ops.matches("ListScalarSetView(").count();
+        let ordinary =
+            ops.matches("ListScalarGetRef(").count() + ops.matches("ListScalarSetRef(").count();
+        (cached, ordinary)
+    };
+    for (name, accesses) in [
+        ("viewed", 1),
+        ("others", 1),
+        ("fields", 2),
+        ("shared_fields", 1),
+    ] {
+        assert_eq!(views(name), (accesses, 0), "{name}");
+    }
+    for (name, accesses) in [
+        ("extended", 1),
+        ("refilled", 1),
+        ("added", 1),
+        ("nested", 2),
+        ("owned", 1),
+    ] {
+        assert_eq!(views(name), (0, accesses), "{name}");
+    }
+}
+
+/// With a call in the loop, the list header is still read only before it
+/// (issue #717): every flag-byte read precedes the loop's head, the target of
+/// its back edge. `first` is recursive so that it stays a call.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn cached_rows_across_a_call_read_the_header_before_the_loop() {
+    let asm = dump(
+        "asm",
+        "summed",
+        r#"
+def first(xs: &list[i64], n: i64) -> Result[i64, OverflowError[i64]]:
+    if n == 0:
+        return Ok(xs[0])
+    first(xs, n - 1)
+def summed(xs: &mut list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut s = 0
+    for i in range(len(xs)):
+        s += xs[i] + first(xs, 0)?
+    Ok(s)
+def main() -> Result[(), OverflowError[i64]]:
+    mut xs = [1, 2, 3].unwrap()
+    print(summed(&mut xs)?).unwrap()
+    Ok(())
+"#,
+    );
+    let line = regex::Regex::new(r"(?m)^\s*([0-9a-f]+):\s+(\S+)\s+(\S+)").unwrap();
+    let mut header = Vec::new();
+    let mut head = usize::MAX;
+    for found in line.captures_iter(&asm) {
+        let at = usize::from_str_radix(&found[1], 16).unwrap();
+        if found[2].starts_with("movzb") && found[3].starts_with("0x30(") {
+            header.push(at);
+        } else if &found[2] == "jmp"
+            && let Some(target) = found[3].strip_prefix("0x")
+            && let Ok(target) = usize::from_str_radix(target, 16)
+            && target < at
+        {
+            head = head.min(target);
+        }
+    }
+    assert!(head != usize::MAX, "{asm}");
+    assert!(
+        !header.is_empty() && header.iter().all(|&at| at < head),
+        "{asm}"
+    );
+}
+
+/// Accesses of one row in a statement share its bounds check (issue #721),
+/// and their results and traps match unshared checks: through lists and
+/// views, with constant, negative and computed indices.
+const REPEATED: &str = r#"
+def swap_ends(xs: &mut [i64], i: i64) -> Result[(), OverflowError[i64]]:
+    j = -1 - i
+    t = xs[i]
+    xs[i] = xs[j]
+    xs[j] = t
+    Ok(())
+def double(xs: &mut [i64], i: i64) -> Result[(), OverflowError[i64]]:
+    xs[i] = xs[i] + xs[i]
+    Ok(())
+def sum_twice(xs: &[i64], i: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(xs[i] + xs[i] + xs[-1] + xs[-1] + xs[0] + xs[0])
+def main() -> Result[(), OverflowError[i64]]:
+    mut xs = [1, 2, 3, 4, 5].unwrap()
+    swap_ends(&mut xs, 0)?
+    swap_ends(&mut xs, -4)?
+    double(&mut xs, 2)?
+    double(&mut xs, -1)?
+    print(xs).unwrap()
+    print(sum_twice(&xs, 1)?).unwrap()
+    print(sum_twice(&xs, -5)?).unwrap()
+    Ok(())
+"#;
+
+#[test]
+fn repeated_row_accesses_keep_their_results() {
+    support::assert_stdout(REPEATED, "[5, 4, 6, 2, 2]\n22\n24\n");
+}
+
+#[rstest]
+#[case("swap_ends(&mut xs, 5)?", "index 5, length 5")]
+#[case("swap_ends(&mut xs, -6)?", "index -6, length 5")]
+#[case("double(&mut xs, 5)?", "index 5, length 5")]
+#[case("double(&mut xs, -6)?", "index -6, length 5")]
+#[case("print(sum_twice(&xs, 7)?).unwrap()", "index 7, length 5")]
+#[case("print(sum_twice(&xs[5:], 0)?).unwrap()", "index 0, length 0")]
+#[case("print(sum_twice(&xs[:1], -2)?).unwrap()", "index -2, length 1")]
+fn repeated_row_accesses_trap_with_the_first_failing_index(
+    #[case] call: &str,
+    #[case] message: &str,
+) {
+    let source = REPEATED.replace(
+        "    swap_ends(&mut xs, 0)?\n",
+        &format!("    {call}\n    swap_ends(&mut xs, 0)?\n"),
+    );
+    let output = support::run(&source);
+    assert!(!output.status.success(), "{source}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(&format!("index out of bounds: {message}")),
+        "{stderr}"
+    );
+}
+
+/// Each distinct row is checked once: `double` has one row and `sum_twice`
+/// three, so the release build emits one trap call per row (issue #721).
+#[test]
+fn repeated_row_accesses_check_each_row_once() {
+    for (name, rows) in [("double", 1), ("sum_twice", 3), ("swap_ends", 2)] {
+        let clif = dump("clif-opt", &format!("__plenty_fn_{name}"), REPEATED);
+        let traps = clif.matches("call fn").count();
+        assert_eq!(traps, rows, "{name}\n{clif}");
+    }
 }

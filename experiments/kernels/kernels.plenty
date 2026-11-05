@@ -1,0 +1,63 @@
+# Kernels from examples/fannkuch_redux.plenty, each a standalone function so
+# its own body can be compared with kernels.c. See README.md.
+
+# The reversal loop in `flips`: reverse s[1..first-1].
+def reverse(s: &mut [i64], first: i64) -> ():
+    mut lo = 1
+    mut hi = first - 1
+    while lo < hi:
+        t = s[lo]
+        s[lo] = s[hi]
+        s[hi] = t
+        lo += 1
+        hi -= 1
+
+# `reverse` with `s.swap`, as `flips` writes it since issue #729.
+def reverse_swap(s: &mut [i64], first: i64) -> ():
+    mut lo = 1
+    mut hi = first - 1
+    while lo < hi:
+        s.swap(lo, hi)
+        lo += 1
+        hi -= 1
+
+# Rotate perm[0..=last] left by one place.
+def rotate_left(perm: &mut [i64], last: i64) -> ():
+    head = perm[0]
+    for i in range(last):
+        perm[i] = perm[i + 1]
+    perm[last] = head
+
+# The permutation copy at the start of `flips`.
+def copy_row(perm: &[i64], scratch: &mut [i64]) -> ():
+    for i in range(len(perm)):
+        scratch[i] = perm[i]
+
+# The flip-count loop of `flips`, without the copy.
+def count_flips(s: &mut [i64]) -> i64:
+    mut first = s[0]
+    mut count = 0
+    while first != 0:
+        mut lo = 1
+        mut hi = first - 1
+        while lo < hi:
+            s.swap(lo, hi)
+            lo += 1
+            hi -= 1
+        next = s[first]
+        s[first] = first
+        first = next
+        count += 1
+    count
+
+def main() -> Result[(), AllocError | IoError]:
+    mut a = [0, 3, 1, 4, 2, 5]?
+    mut b = [0, 0, 0, 0, 0, 0]?
+    reverse(&mut a, 5)
+    reverse_swap(&mut a, 5)
+    reverse(&mut a, 5)
+    rotate_left(&mut a, 4)
+    copy_row(&a, &mut b)
+    flips = count_flips(&mut b)
+    print(a, b, flips)?
+    Ok(())

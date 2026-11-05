@@ -81,3 +81,35 @@ saved
 Here `T` is inferred as `()`. You can also write an explicit unit type argument,
 such as `keep_result[(), IoError](written)`. Unit still cannot be a direct
 function parameter, so `identity[()](())` is rejected.
+
+## Require collection keys
+
+Use `K: KeyType` when a generic algorithm needs dictionary keys or set members.
+It accepts integers, booleans, strings, bytes, and supported tuples, classes, enums and anonymous sums, including custom cleanup. The compiler checks all enum payloads; no hashing method is required.
+
+```plenty
+enum Label:
+    Id(i64)
+    Name(str)
+
+def frequencies[K: KeyType](values: list[K]) -> Result[dict[K, i64], AllocError | OverflowError[i64]]:
+    mut counts: dict[K, i64] = {}?
+    for value in values:
+        count = counts.get(&value, 0) + 1
+        counts.insert(value, count)?
+    Ok(counts)
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    values = [Label.Id(7), Label.Name("7"), Label.Id(7)]?
+    counts = frequencies(values)?
+    print(counts[Label.Id(7)], counts[Label.Name("7")])?
+    Ok(())
+```
+```output
+2 1
+```
+
+The loop consumes the list and transfers each key after borrowing it for
+lookup. This also works for keys with custom cleanup, which cannot be copied.
+Dictionary insertion and the count's addition remain fallible. Floats do not satisfy `KeyType`; see the
+[constraint reference](../../design/language/07-generics/index.md#keytype).

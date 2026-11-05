@@ -274,10 +274,28 @@ fn invalid_collections(#[case] source: &str, #[case] diagnostic: &str) {
     "print(len(range(-9223372036854775808, 9223372036854775807))).unwrap()",
     "range length exceeds i64"
 )]
+#[case(
+    "print(len(range(-1, 9223372036854775807))).unwrap()",
+    "range length exceeds i64"
+)]
+#[case(
+    "print(len(range(9223372036854775807, -2, -1))).unwrap()",
+    "range length exceeds i64"
+)]
 fn runtime_errors(#[case] source: &str, #[case] diagnostic: &str) {
     let output = support::run(source);
     assert_eq!(output.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&output.stderr).contains(diagnostic));
+}
+
+/// A range stepping up from a nonnegative start, or over a narrow type,
+/// needs no length check (issue #721).
+#[test]
+fn ranges_that_cannot_exceed_i64_lengths() {
+    support::assert_stdout(
+        "print(len(range(0, 9223372036854775807))).unwrap()\nprint(len(range(3, 9223372036854775807, 2))).unwrap()\nprint(len(range(-2147483648i32, 2147483647i32))).unwrap()",
+        "9223372036854775807\n4611686018427387902\n4294967295\n",
+    );
 }
 
 #[test]

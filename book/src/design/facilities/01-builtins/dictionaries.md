@@ -72,7 +72,9 @@ collisions can make it linear.
 `dictionary.keys() -> KeyView[K]` creates a shared, local-only borrowed view
 without allocating. A view can be bound to a local, iterated, and used with
 builtin set operations. Iteration yields `&K` in insertion order; use
-`[*key for key in dictionary.keys()]?` to collect owned keys explicitly.
+`[copy(key)? for key in dictionary.keys()]?` to collect owned keys explicitly,
+including move-only class keys without custom cleanup. Keys containing `__del__`
+can be borrowed here but cannot be copied; use `into_keys()` to transfer them.
 `len(view)` is O(1), and `key in view` / `not in` use dictionary lookup.
 The value holds a borrowed owner handle with a compiler-known key projection;
 the owner retains its row descriptor and each loop keeps its own cursor.
@@ -88,7 +90,10 @@ and disjoint from every operand.
 `union`, `intersection`, `difference`, and `symmetric_difference` take those
 same operands and return `Result[set[K], AllocError]`. `to_set()` materialises
 the keys as that result type. Algebra reserves its result before inserting
-keys and leaves both sources unchanged on failure. Result order is unspecified.
+keys and leaves both sources unchanged on failure. Move-only keys are copied
+into independent result storage. All four algebra methods and `to_set()` reject
+keys containing custom cleanup, because those keys cannot be copied.
+Relationship checks remain available. Result order is unspecified.
 Operators such as `|`, `&`, and `<=` are not part of the view API.
 Set relationship and algebra methods accept mixed set/view operands in either
 receiver order. `set.intersection_update(view)` and
@@ -129,11 +134,13 @@ preserve insertion order. Each returns a new list, retaining immutable element
 storage. Observed dictionaries remain unchanged on failure, and snapshots
 survive later source mutation or destruction.
 
-`keys_snapshot()` can observe a dictionary with affine values. `values_snapshot()` with affine
-payloads instead requires an owned temporary; its values transfer and the
-temporary is consumed on success or failure. Use `copy(d)?.values_snapshot()` to preserve
-such a source explicitly. Both snapshots reserve their complete output before
-transfer: two allocations when nonempty, one for an empty owner.
+A snapshot with affine selected elements requires an owned temporary: this
+applies to `keys_snapshot()` for move-only keys and `values_snapshot()` for
+move-only values. Those elements transfer and the temporary is consumed on
+success or failure. Use `copy(d)?.keys_snapshot()` or
+`copy(d)?.values_snapshot()` to preserve such a source explicitly. The unselected
+side may be affine even when observing a named dictionary. Both snapshots
+reserve their complete output before transfer: two allocations when nonempty, one for an empty owner.
 
 `dictionary.into_keys() -> Result[list[K], AllocError]` and
 `dictionary.into_values() -> Result[list[V], AllocError]` consume a named owner

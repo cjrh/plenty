@@ -31,7 +31,7 @@ pub enum DumpStage {
     Ops,
     /// Cranelift IR as the code generator built it.
     Clif,
-    /// Cranelift IR after Cranelift's own passes: optimized with `--release`.
+    /// Cranelift IR after Cranelift's own passes: optimized unless `--fast-compile` is selected.
     ClifOpt,
     /// Machine code, with resolved symbol names.
     Asm,
@@ -335,6 +335,33 @@ impl Plan {
             instructions: capture.instructions,
             optimized_instructions: capture.after.as_ref().map(instructions).unwrap_or(0),
         }
+    }
+
+    /// The entry of `id`, which shares `into`'s code ([`super::folding`]):
+    /// its own IR, and in place of code the function it shares. Its requests
+    /// were never declared, so the IR names them by number.
+    pub(super) fn folded(
+        &self,
+        module: &ObjectModule,
+        (id, into): (FuncId, FuncId),
+        capture: Capture,
+        (requests, checks): (&[Request], &super::traps::Checks),
+    ) -> Entry {
+        let mut entry = self.entry(
+            module,
+            id,
+            capture,
+            (&[], &[], &[]),
+            (requests, &[], checks),
+        );
+        if entry.asm.is_some() {
+            let into = module
+                .declarations()
+                .get_function_decl(into)
+                .linkage_name(into);
+            entry.asm = Some(format!("; shares the code of {into}\n"));
+        }
+        entry
     }
 
     /// The finished dump of `entries`, in placement order.
@@ -697,6 +724,7 @@ impl Names<'_> {
                     Some(Request::Coverage(counters)) => {
                         format!("{resolved} (coverage counters: {counters})")
                     }
+                    Some(Request::ProtocolTable(_)) => format!("protocol table {index}"),
                     Some(Request::Import(..) | Request::Foreign(..)) | None => resolved,
                 }
             }

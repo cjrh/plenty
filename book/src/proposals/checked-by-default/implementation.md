@@ -377,8 +377,8 @@ def make_incrementer() -> Callable[[i64], Result[i64, OverflowError[i64]]]:
 This closure needs no surrounding checked block or private error channel. Its
 arithmetic contract does not tie its lifetime to its definition scope; ordinary
 capture ownership and borrow rules still apply. A closure defined inside
-`unchecked:` likewise defaults to recoverable arithmetic. To make its arithmetic
-trap, put `unchecked:` inside the closure body, where the opt-out is visible.
+`unchecked:` likewise defaults to recoverable arithmetic. To opt its
+arithmetic out, put `unchecked:` inside the closure body, where it is visible.
 
 Calls returning `Result` still require explicit handling, even within `checked:`.
 Using `?` there exits the function as usual; it does not turn the call's error
@@ -436,7 +436,7 @@ Implementation still needs to update arithmetic-bearing functions, callback
 consumers, std implementations, examples and tests. This is ordinary work to
 make the repository obey the new contract, not a reason to preserve an inferior
 API. Diagnostics should explain missing arithmetic errors and the choices of
-propagation, local recovery or deliberate termination. Do not insert unchecked
+propagation, local recovery or an explicit `unchecked:` precondition. Do not insert unchecked
 blocks throughout the repository merely to make the build pass.
 
 Explicit checked expressions remain useful for local recovery. Recovery

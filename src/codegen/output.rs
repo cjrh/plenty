@@ -87,6 +87,7 @@ pub(super) struct Output {
     /// Every placed function's checks that trap through the runtime's
     /// handler, in an executable ([`traps`]).
     traps: Option<traps::Table>,
+    folds: super::folding::Folds,
 }
 
 struct Code {
@@ -160,6 +161,7 @@ impl Output {
             sites: sites::Table::default(),
             coverage_tables: super::coverage::Table::default(),
             traps: None,
+            folds: super::folding::Folds::default(),
         })
     }
 
@@ -216,6 +218,7 @@ impl Output {
         };
         let coverage = self.coverage_tables.define(&mut self.module)?;
         let mut product = self.module.finish();
+        self.folds.resolve(&mut product)?;
         coverage.resolve(&mut product)?;
         site_aliases.resolve(&mut product)?;
         if let Some(traps) = traps {
@@ -326,7 +329,7 @@ impl Output {
                     (&built.requests, &built.checks),
                     built.capture,
                     |module, sites, coverage, relocs| {
-                        symbols::resolve(
+                        let targets = symbols::resolve(
                             module,
                             sites,
                             coverage,
@@ -334,7 +337,15 @@ impl Output {
                             built.id,
                             &built.requests,
                             relocs,
-                        )
+                        )?;
+                        runtime.refer(relocs.iter().filter_map(|reloc| match reloc.name {
+                            ModuleRelocTarget::User {
+                                namespace: 0,
+                                index,
+                            } => Some(FuncId::from_u32(index)),
+                            _ => None,
+                        }));
+                        Ok(targets)
                     },
                 )?;
             }
@@ -364,6 +375,13 @@ impl Output {
             let name = symbol.strip_prefix("__plenty_fn_").unwrap_or(&symbol);
             format!("compiling `{name}`: {error}")
         })?;
+        let key = match self.fold(id, &code, requests, checks) {
+            Some(Ok(into)) => {
+                return self.place_folded((id, into), code.alignment, capture, (requests, checks));
+            }
+            Some(Err(key)) => Some(key),
+            None => None,
+        };
         // `relocate` appends the function's site records here.
         let site_base = self.sites.next_offset();
         let targets = relocate(
@@ -405,6 +423,67 @@ impl Output {
             code.bytes.as_slice(),
             &code.relocs,
         )?;
+        if let Some(key) = key {
+            self.folds.placed(id, key);
+        }
+        Ok(())
+    }
+
+    /// The function whose code `id` can share ([`super::folding`]), or the
+    /// key to record once `id` is placed; `None` if `id` keeps its own body.
+    /// `id` is used as a function value; see [`super::folding`].
+    pub(super) fn address_taken(&mut self, id: FuncId) {
+        self.folds.address_taken(id);
+    }
+
+    fn fold(
+        &self,
+        id: FuncId,
+        code: &Code,
+        requests: &[Request],
+        checks: &traps::Checks,
+    ) -> Option<std::result::Result<FuncId, [u8; 32]>> {
+        let local = self.module.declarations().get_function_decl(id).linkage
+            == cranelift_module::Linkage::Local;
+        if !local || self.coverage {
+            return None;
+        }
+        let body = super::folding::Body {
+            alignment: code.alignment,
+            bytes: code.bytes.as_slice(),
+            relocs: &code.relocs,
+            traps: &code.traps,
+            requests,
+            checks,
+        };
+        Some(self.folds.find(id, &body))
+    }
+
+    /// Define `id` empty, to share `into`'s code once the object is finished.
+    /// Its code has no checks or probes of its own to register, and the check
+    /// table reaches `into` through it.
+    fn place_folded(
+        &mut self,
+        (id, into): (FuncId, FuncId),
+        alignment: u64,
+        capture: Option<Box<Capture>>,
+        requested: (&[Request], &traps::Checks),
+    ) -> Result<()> {
+        if let Some(table) = &mut self.traps {
+            let call = ModuleReloc {
+                offset: 0,
+                kind: cranelift_codegen::binemit::Reloc::Abs8,
+                name: ModuleRelocTarget::user(0, into.as_u32()),
+                addend: 0,
+            };
+            table.refer(id, &[call]);
+        }
+        if let (Some(plan), Some(capture)) = (&self.dump, capture) {
+            let entry = plan.folded(&self.module, (id, into), *capture, requested);
+            self.dumped.push(entry);
+        }
+        self.folds.fold(id, into);
+        self.module.define_function_bytes(id, alignment, &[], &[])?;
         Ok(())
     }
 }
@@ -720,6 +799,70 @@ mod tests {
                 "{} trap relocations",
                 target.triple
             );
+        }
+    }
+
+    /// Every object format moves a folded function's symbol onto the code it
+    /// shares; Mach-O marks it an alternate entry of that code's atom.
+    #[test]
+    fn native_formats_fold_identical_functions() {
+        use object::{Object, ObjectSymbol, SymbolFlags};
+        for target in crate::target::NATIVE_TARGETS {
+            let isa =
+                super::super::baseline_isa(target.triple, "backtracking", "none", false).unwrap();
+            let mut output = Output::new(
+                Targets {
+                    ordinary: isa.clone(),
+                    single_pass: isa,
+                },
+                None,
+            )
+            .unwrap();
+            let signature = output.module.make_signature();
+            for name in ["__plenty_fn_fold_first", "__plenty_fn_fold_second"] {
+                let id = output
+                    .module
+                    .declare_function(name, cranelift_module::Linkage::Local, &signature)
+                    .unwrap();
+                let mut function = Function::with_name_signature(
+                    UserFuncName::user(0, id.as_u32()),
+                    signature.clone(),
+                );
+                let mut builder = FunctionBuilder::new(&mut function, &mut output.builder);
+                let block = builder.create_block();
+                builder.switch_to_block(block);
+                builder.seal_block(block);
+                builder.ins().return_(&[]);
+                builder.finalize(super::super::FRONTEND);
+                output.define(id, function).unwrap();
+            }
+            let bytes = output.finish().unwrap().emit().unwrap();
+            let file = object::File::parse(bytes.as_slice()).unwrap();
+            let symbol = |name: &str| {
+                let name = object_symbol_name(&file, name);
+                file.symbols()
+                    .find(|symbol| symbol.name() == Ok(name.as_str()))
+                    .unwrap_or_else(|| panic!("{}: no symbol {name}", target.triple))
+            };
+            let (first, second) = (
+                symbol("__plenty_fn_fold_first"),
+                symbol("__plenty_fn_fold_second"),
+            );
+            assert_eq!(
+                (first.section_index(), first.address()),
+                (second.section_index(), second.address()),
+                "{}",
+                target.triple
+            );
+            if target.object_format == object::BinaryFormat::MachO {
+                let SymbolFlags::MachO { n_desc, .. } = second.flags() else {
+                    panic!("Mach-O symbol flags");
+                };
+                assert_eq!(
+                    n_desc & object::macho::N_ALT_ENTRY,
+                    object::macho::N_ALT_ENTRY
+                );
+            }
         }
     }
 
@@ -1039,6 +1182,78 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     }
 
     /// The object for `source` with `build`, as bytes.
+    const FOLDING: &str = "from std.units import Length, Time
+
+def total[D: Dimension](xs: &list[Quantity[f64, D]]) -> Quantity[f64, D]:
+    mut acc = Quantity[f64, D](0.0)
+    for x in xs:
+        acc = acc + x
+    acc
+
+def kept(x: i64) -> i64:
+    x
+
+def also_kept(x: i64) -> i64:
+    x
+
+def shared(x: i64) -> i64:
+    x
+
+def main() -> Result[(), IoError | AllocError | OverflowError[i64]]:
+    lengths = [Quantity[f64, Length](1.0)]?
+    times = [Quantity[f64, Time](2.0)]?
+    f = kept
+    g = also_kept
+    print(total(&lengths), total(&times), f == g, f(1) + g(2) + shared(3))?
+    Ok(())
+";
+
+    fn object_symbol_name(file: &object::File<'_>, name: &str) -> String {
+        // Mach-O adds one underscore; the linkage name's own underscores matter.
+        if file.format() == object::BinaryFormat::MachO {
+            format!("_{name}")
+        } else {
+            name.to_owned()
+        }
+    }
+
+    /// Instances that differ only in dimension share one body, and so does a
+    /// function equal to another. Functions used as values keep their own
+    /// addresses, since function values compare addresses.
+    #[test]
+    fn identical_bodies_share_code() {
+        use object::{Object, ObjectSymbol};
+        let bytes = object(FOLDING, 1, Build::default());
+        let file = object::File::parse(bytes.as_slice()).unwrap();
+        let at = |name: &str| {
+            let name = object_symbol_name(&file, name);
+            let symbol = file
+                .symbols()
+                .find(|symbol| symbol.name() == Ok(name.as_str()))
+                .unwrap_or_else(|| panic!("no symbol {name}"));
+            (symbol.section_index(), symbol.address())
+        };
+        // Instance numbers depend on instantiation order, so find the two
+        // `total` instances by prefix; FOLDING has no other generics.
+        let prefix = object_symbol_name(&file, "__plenty_fn___plenty_generic_");
+        let instances: Vec<_> = file
+            .symbols()
+            .filter(|symbol| symbol.name().is_ok_and(|name| name.starts_with(&prefix)))
+            .map(|symbol| (symbol.section_index(), symbol.address()))
+            .collect();
+        assert_eq!(instances.len(), 2, "{instances:?}");
+        assert_eq!(instances[0], instances[1]);
+        let kept = at("__plenty_fn_kept");
+        assert_ne!(kept, at("__plenty_fn_also_kept"));
+        assert_eq!(kept, at("__plenty_fn_shared"));
+    }
+
+    #[test]
+    fn folded_object_does_not_depend_on_worker_count() {
+        let serial = object(FOLDING, 1, Build::default());
+        assert!(serial == object(FOLDING, 8, Build::default()));
+    }
+
     fn object(source: &str, workers: usize, build: Build) -> Vec<u8> {
         let mut heap = Heap::default();
         let program = crate::frontend::compile(source, &mut heap).unwrap();

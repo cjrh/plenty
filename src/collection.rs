@@ -239,6 +239,10 @@ pub enum CollectionOp {
     KeySetAlgebra(Arc<KeySetOperation>),
     KeyView(Ty),
     DictView(Ty, bool),
+    /// Consumed list -> the same list as another list type whose elements
+    /// share its row layout (a std.units quantity and its storage). Lowers to
+    /// one store of the new type descriptor in the list header.
+    ListRetag(Box<(Ty, Ty)>),
     KeyViewToSet(Ty),
     SetIsSuperset(Ty),
     SetIsDisjoint(Ty),
@@ -270,11 +274,17 @@ pub enum CollectionOp {
     /// Non-owning list observations; the frontend keeps the receiver's loan live.
     ListLenRef(Ty),
     ListScalarGetRef(Ty),
-    /// Stable shared list reference, length, rows, row bytes, index -> scalar.
-    /// Metadata is captured before a loop; bounds and negative indices remain checked.
+    /// List reference, index, length, rows -> scalar. The length and row-0
+    /// address were read before a loop that cannot change them; bounds and
+    /// negative indices remain checked (issues #429, #715).
     ListScalarGetView(Ty),
     /// Exclusive scalar row write: list reference, index, value -> ().
     ListScalarSetRef(Ty),
+    /// `ListScalarSetRef` with the loop's cached length and rows:
+    /// exclusive list reference, index, value, length, rows -> ().
+    ListScalarSetView(Ty),
+    /// Exclusive scalar row exchange: list reference, two indices -> ().
+    ListScalarSwapRef(Ty),
     /// A [`Query`] of the value behind a shared reference, which the
     /// frontend keeps alive under its loan; nothing is retained or released.
     QueryRef(Query),
@@ -303,6 +313,10 @@ pub enum CollectionOp {
     ViewItem(Ty, bool),
     /// Two shared views of one type -> whether their elements are equal.
     ViewEqual(Ty),
+    /// Exclusive view, two indices -> (): exchanges two rows in place, as
+    /// `list.swap` does (issue #729). Both indices are checked before either
+    /// row moves; scalar rows move inline, others through the runtime.
+    ViewSwap(Ty),
     /// Internal to `.par`: first-row address, row size, in-bounds index ->
     /// the owned element, leaving an empty row so the list's drop skips it.
     /// The index is not checked.
@@ -394,11 +408,91 @@ impl Ty {
             _ => None,
         }
     }
+    /// Explain rejected keys only; admission remains defined by `hashable`.
+    /// Walk in declaration order so nested fields have a stable, useful path.
+    pub fn key_type_error(&self, prefix: &str) -> String {
+        fn reason(ty: &Ty, path: String, ancestors: &mut Vec<Ty>) -> String {
+            if ancestors.contains(ty) {
+                return format!("{path}: recursive types are not supported as keys");
+            }
+            ancestors.push(ty.clone());
+            let detail = match ty {
+                Ty::Enum(t) => match t.try_get() {
+                    None => format!("{path}: type declaration is not complete"),
+                    Some(data) => data
+                        .variants
+                        .iter()
+                        .find_map(|variant| {
+                            variant
+                                .fields
+                                .iter()
+                                .enumerate()
+                                .find_map(|(index, field)| {
+                                    (!field.hashable()).then(|| {
+                                        let field_path = if t.anonymous() {
+                                            format!("{path} -> sum member {field}")
+                                        } else if t.tuple() {
+                                            format!("{path} -> tuple element {}", index + 1)
+                                        } else {
+                                            format!(
+                                                "{path} -> variant {} payload {}",
+                                                variant.name,
+                                                index + 1
+                                            )
+                                        };
+                                        reason(field, field_path, ancestors)
+                                    })
+                                })
+                        })
+                        .unwrap_or_else(|| {
+                            format!("{path}: recursive types are not supported as keys")
+                        }),
+                },
+                Ty::Class(t) => match t.try_get() {
+                    None => format!("{path}: type declaration is not complete"),
+                    Some(data) => data
+                        .fields
+                        .iter()
+                        .find_map(|(name, field)| {
+                            (!field.hashable()).then(|| {
+                                reason(field, format!("{path} -> field {name}"), ancestors)
+                            })
+                        })
+                        .unwrap_or_else(|| {
+                            format!("{path}: recursive types are not supported as keys")
+                        }),
+                },
+                _ => format!("{path}: {ty} is not a supported key type"),
+            };
+            ancestors.pop();
+            detail
+        }
+        format!(
+            "{prefix}; {}",
+            reason(self, self.to_string(), &mut Vec::new())
+        )
+    }
+
     pub fn hashable(&self) -> bool {
+        if let Self::Enum(t) = self {
+            // A recursive or unfinished declaration cannot establish a finite key.
+            let facts = self.facts();
+            return facts.complete
+                && !facts.recursive
+                && t.get()
+                    .variants
+                    .iter()
+                    .all(|variant| variant.fields.iter().all(Self::hashable));
+        }
+        if let Self::Class(t) = self {
+            let facts = self.facts();
+            return facts.complete
+                && !facts.recursive
+                && t.get().fields.iter().all(|(_, ty)| ty.hashable());
+        }
         self.is_int()
             || matches!(self, Self::Bool | Self::Str | Self::ByteStr)
             || self.domain_element().is_some()
-            || matches!(self, Self::Enum(t) if t.tuple() && t.get().variants[0].fields.iter().all(Self::hashable))
     }
 }
 
@@ -429,6 +523,7 @@ impl CollectionOp {
                 vec![Ty::Ref(Arc::new(t.clone()), false)],
                 Ty::DictView(Arc::new(t.clone()), *values),
             ),
+            ListRetag(types) => (vec![types.0.clone()], types.1.clone()),
             KeyView(t) => {
                 let Ty::Dict(key, _) = t else { unreachable!() };
                 (
@@ -794,6 +889,7 @@ impl CollectionOp {
                 )
             }
             ViewEqual(view) => (vec![view.clone(), view.clone()], Ty::Bool),
+            ViewSwap(view) => (vec![view.clone(), Ty::I64, Ty::I64], Ty::Unit),
             QueryRef(query) => (query.inputs(), query.output()),
             ListScalarGetRef(t) => (
                 vec![Ty::Ref(Arc::new(t.clone()), false), Ty::I64],
@@ -805,9 +901,18 @@ impl CollectionOp {
                     Ty::I64,
                     Ty::I64,
                     Ty::I64,
-                    Ty::I64,
                 ],
                 t.element().unwrap(),
+            ),
+            ListScalarSetView(t) => (
+                vec![
+                    Ty::Ref(Arc::new(t.clone()), true),
+                    Ty::I64,
+                    t.element().unwrap(),
+                    Ty::I64,
+                    Ty::I64,
+                ],
+                Ty::Unit,
             ),
             ListSortBy(sort) => (
                 vec![
@@ -825,6 +930,10 @@ impl CollectionOp {
                     Ty::I64,
                     t.element().unwrap(),
                 ],
+                Ty::Unit,
+            ),
+            ListScalarSwapRef(t) => (
+                vec![Ty::Ref(Arc::new(t.clone()), true), Ty::I64, Ty::I64],
                 Ty::Unit,
             ),
             HashIterNext(t) => (vec![t.clone(), Ty::I64], Ty::I64),
@@ -970,6 +1079,7 @@ impl CollectionOp {
             Self::SetIsSubset(_) => opcode::SET_IS_SUBSET,
             Self::KeySetRelation(op) | Self::KeySetAlgebra(op) => op.opcode,
             Self::KeyView(_) | Self::DictView(..) => unreachable!("dictionary views lower inline"),
+            Self::ListRetag(..) => unreachable!("list retags lower inline"),
             Self::KeyViewToSet(_) => opcode::KEY_VIEW_TO_SET,
             Self::SetIsSuperset(_) => opcode::SET_IS_SUPERSET,
             Self::SetIsDisjoint(_) => opcode::SET_IS_DISJOINT,
@@ -999,6 +1109,8 @@ impl CollectionOp {
             | Self::ListScalarGetRef(_)
             | Self::ListScalarGetView(_)
             | Self::ListScalarSetRef(_)
+            | Self::ListScalarSetView(_)
+            | Self::ListScalarSwapRef(_)
             | Self::ListRowsRef(_)
             | Self::ListRowBytesRef(_)
             | Self::ListRowRef(..)
@@ -1008,6 +1120,7 @@ impl CollectionOp {
             | Self::ViewRow(..)
             | Self::ViewItem(..)
             | Self::ViewEqual(_)
+            | Self::ViewSwap(_)
             | Self::ListSortBy(_)
             | Self::OrderCompare(_)
             | Self::QueryRef(_) => {

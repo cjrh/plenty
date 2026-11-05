@@ -256,6 +256,10 @@ impl Ty {
                     ))
                 }
             }
+            Self::BoxedProtocol(p) => p
+                .types()
+                .any(|t| t.promoted().is_some())
+                .then(|| Self::BoxedProtocol(Arc::new(p.map_types(Ty::clone)))),
             Self::Callable(t) => Self::promoted_sig(t).map(|t| Self::Callable(Arc::new(t))),
             Self::BoxedCallable(t) => {
                 Self::promoted_sig(t).map(|t| Self::BoxedCallable(Arc::new(t)))
@@ -295,6 +299,7 @@ impl Ty {
 
     fn weaken(&self) -> Self {
         match self {
+            Self::BoxedProtocol(p) => Self::BoxedProtocol(Arc::new(p.map_types(Ty::weaken))),
             Self::Class(t) => Self::Class(t.weaken()),
             Self::Enum(t) => Self::Enum(t.weaken()),
             Self::List(t) => Self::List(Arc::new(t.weaken())),
@@ -322,6 +327,7 @@ impl Ty {
 impl Clone for Ty {
     fn clone(&self) -> Self {
         match self {
+            Self::Dimension(d) => Self::Dimension(d.clone()),
             Self::Iter(t, id) => Self::Iter(t.clone(), *id),
             Self::Task(t) => Self::Task(t.clone()),
             Self::Channel(t, sender) => Self::Channel(Self::clone_child(t), *sender),
@@ -341,6 +347,9 @@ impl Clone for Ty {
             Self::Ref(t, m) => Self::Ref(Self::clone_child(t), *m),
             Self::Callable(t) => Self::Callable(Self::clone_sig(t)),
             Self::BoxedCallable(t) => Self::BoxedCallable(Self::clone_sig(t)),
+            Self::BoxedProtocol(t) => self
+                .promoted()
+                .unwrap_or_else(|| Self::BoxedProtocol(t.clone())),
             Self::Closure(t) => Self::Closure(t.clone()),
             Self::Generator(t) => Self::Generator(t.clone()),
             Self::Range(t) => Self::Range(t.clone()),
@@ -394,6 +403,7 @@ mod tests {
             copy: false,
             forwards_operators: false,
             redacted: false,
+            quantity: None,
             bytes: std::sync::OnceLock::new(),
             managed: std::sync::OnceLock::new(),
         });
@@ -426,6 +436,7 @@ mod tests {
             copy: false,
             forwards_operators: false,
             redacted: false,
+            quantity: None,
             bytes: std::sync::OnceLock::new(),
             managed: std::sync::OnceLock::new(),
         });
@@ -452,6 +463,7 @@ mod tests {
             copy: false,
             forwards_operators: false,
             redacted: false,
+            quantity: None,
             bytes: std::sync::OnceLock::new(),
             managed: std::sync::OnceLock::new(),
         });

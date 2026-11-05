@@ -259,9 +259,11 @@ fn moved_slot_drops_emit_no_release() {
             .count()
     };
     // `starts` releases its receiver's copy once; the moved slot adds nothing.
+    // `consume` is lowered in its callers (issue #722), so each lowered
+    // body's own release of `word` is counted.
     assert_eq!(releases("starts"), 1);
-    assert_eq!(releases("both"), 0);
+    assert_eq!(releases("both"), 2);
     assert_eq!(releases("wide"), 0);
     // Moved on one path only: the exit release stays.
-    assert_eq!(releases("partial_join"), 1);
+    assert_eq!(releases("partial_join"), 2);
 }

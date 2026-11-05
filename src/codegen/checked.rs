@@ -143,6 +143,7 @@ impl Lowerer<'_, '_> {
         let Ty::Enum(sum) = &result else {
             unreachable!("checked block results are Result enums")
         };
+        let before = self.bcx.current_block();
         let failure = self.bcx.create_block();
         let success = self.bcx.create_block();
         self.bcx.set_cold_block(failure);
@@ -164,8 +165,11 @@ impl Lowerer<'_, '_> {
         }
         self.bcx.ins().jump(exit, &[BlockArg::Value(err)]);
         self.stack = pending;
+        // Only `before` reaches `success`, so its row checks still hold
+        // there (issue #721), as after a trap guard.
         self.bcx.switch_to_block(success);
         self.bcx.seal_block(success);
+        self.counters.checked.continue_to(before, success);
         Ok(())
     }
 

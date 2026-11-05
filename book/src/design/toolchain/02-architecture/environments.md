@@ -47,7 +47,8 @@ Every named function and closure has an independent declared return contract.
 The frontend's `CheckedFunction` operation gives arithmetic failures a shared
 exit through that public `Result`; it does not wrap successful source returns.
 An explicit `checked:` expression instead constructs its own local `Result`.
-`unchecked:` selects trapping operators only for its lexical suite. Nested
+`unchecked:` lowers its lexical suite's operators with trap guards, which
+validate its no-failure precondition. Nested
 function definitions start their own recoverable boundary in either mode.
 See [function arithmetic contracts](../../language/03-types/numbers.md#function-arithmetic-contracts).
 

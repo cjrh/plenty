@@ -87,7 +87,7 @@ def main() -> Result[(), AllocError | IoError | StreamError]:
 #[test]
 fn empty_frame_slots_release_nothing() {
     let dir = program(NESTED);
-    for args in [&[][..], &["--release"]] {
+    for args in [&["--fast-compile"][..], &["--release"]] {
         assert_eq!(run(dir.path(), args), "closed\n");
         let cycle = asm(dir.path(), args, "cycle ");
         let runtime: Vec<_> = cycle
@@ -152,7 +152,7 @@ fn zero_branch_target(line: &str) -> Option<usize> {
 #[test]
 fn possibly_empty_release_tests_before_bookkeeping() {
     let dir = program(DYNAMIC);
-    for args in [&[][..], &["--release"]] {
+    for args in [&["--fast-compile"][..], &["--release"]] {
         assert_eq!(run(dir.path(), args), "kept\nFalse\n");
     }
     let pick = asm(dir.path(), &["--release"], "pick ");
@@ -256,7 +256,7 @@ drop l1\ndrop l2\n";
 #[test]
 fn destructors_run_once() {
     let dir = program(DESTRUCTORS);
-    for args in [&[][..], &["--release"]] {
+    for args in [&["--fast-compile"][..], &["--release"]] {
         assert_eq!(run(dir.path(), args), DESTRUCTORS_OUTPUT, "{args:?}");
     }
 }

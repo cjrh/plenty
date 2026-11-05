@@ -10,39 +10,190 @@ enum Site {
 }
 
 impl Lowerer<'_, '_> {
-    /// Normalizes a negative `index` as Python does and checks it against
-    /// `length`, as the runtime's `index` does; an index out of bounds traps
-    /// with the runtime's message and this site.
-    pub(super) fn list_index(
+    /// The address of row `index` of the rows at `rows`, each `row_bytes`
+    /// wide. A negative `index` counts from the end, as Python does, and an
+    /// index out of `0..length` traps with the runtime's message and this
+    /// site.
+    ///
+    /// Two choices keep the hot path free of register copies (issue #720).
+    /// An index known nonnegative needs no normalization, so the in-range
+    /// path uses it directly. Otherwise the two paths join on the row's
+    /// address, not the normalized index: the index usually stays live after
+    /// the access, and a joined copy of it would occupy a second register,
+    /// while the hot address dies at the join.
+    ///
+    /// A check already done in this block or a dominating one, for the same
+    /// rows, length and index values, is reused (issue #721): it cannot fail
+    /// now if it passed then, so trap behavior is unchanged.
+    pub(super) fn checked_row(
+        &mut self,
+        rows: cranelift_codegen::ir::Value,
+        length: cranelift_codegen::ir::Value,
+        index: cranelift_codegen::ir::Value,
+        row_bytes: i64,
+    ) -> Result<cranelift_codegen::ir::Value> {
+        let dfg = &self.bcx.func.dfg;
+        let known = super::known::known_signed(dfg, index);
+        let key = super::induction::RowKey {
+            rows: dfg.resolve_aliases(rows),
+            length: dfg.resolve_aliases(length),
+            index: known.ok_or_else(|| dfg.resolve_aliases(index)),
+        };
+        let block = self.bcx.current_block();
+        if let Some(address) = self.counters.checked.find(block, key, row_bytes) {
+            return Ok(address);
+        }
+        let failure = self.bcx.create_block();
+        let valid = self.bcx.create_block();
+        let normalized = match known {
+            Some(constant) if constant < 0 => Some(self.bcx.ins().iadd(index, length)),
+            Some(_) => Some(index),
+            None if self.nonnegative_operand(index) => Some(index),
+            None => None,
+        };
+        let joined = match normalized {
+            // A constant or nonnegative index needs only one test.
+            Some(normalized) => {
+                let in_range = self
+                    .bcx
+                    .ins()
+                    .icmp(IntCC::UnsignedLessThan, normalized, length);
+                self.bcx.ins().brif(in_range, valid, &[], failure, &[]);
+                None
+            }
+            None => {
+                let joined = self.bcx.append_block_param(valid, PTR_TY);
+                let hot = self.row_address(rows, index, row_bytes);
+                let negative = self.index_hot_test(index, length, valid, &[hot.into()]);
+                let (adjusted, in_range) = self.index_adjust(index, length, negative);
+                let cold = self.row_address(rows, adjusted, row_bytes);
+                self.bcx
+                    .ins()
+                    .brif(in_range, valid, &[cold.into()], failure, &[]);
+                Some(joined)
+            }
+        };
+        self.index_failure(failure, index, length)?;
+        self.bcx.switch_to_block(valid);
+        self.bcx.seal_block(valid);
+        // Computed in the block that uses it, a single-test address folds
+        // into the access's addressing mode.
+        let address = match joined {
+            Some(joined) => joined,
+            None => self.row_address(rows, normalized.unwrap_or(index), row_bytes),
+        };
+        self.counters
+            .checked
+            .record(block, valid, key, row_bytes, address);
+        Ok(address)
+    }
+
+    /// `rows + index * row_bytes`. A shift lets x86-64 fold a power-of-two
+    /// row size into the address.
+    pub(super) fn row_address(
+        &mut self,
+        rows: cranelift_codegen::ir::Value,
+        index: cranelift_codegen::ir::Value,
+        row_bytes: i64,
+    ) -> cranelift_codegen::ir::Value {
+        let offset = if row_bytes.count_ones() == 1 {
+            self.bcx.ins().ishl_imm_u(index, row_bytes.ilog2() as i64)
+        } else {
+            self.bcx.ins().imul_imm_s(index, row_bytes)
+        };
+        self.bcx.ins().iadd(rows, offset)
+    }
+
+    /// Reads (`store` is `None`) or writes the scalar row `index` of the
+    /// rows at `rows`, checked against `length` by [`Self::checked_row`].
+    fn scalar_row_access(
+        &mut self,
+        rows: cranelift_codegen::ir::Value,
+        length: cranelift_codegen::ir::Value,
+        index: cranelift_codegen::ir::Value,
+        element: &Ty,
+        store: Option<cranelift_codegen::ir::Value>,
+    ) -> Result<Option<cranelift_codegen::ir::Value>> {
+        let row_bytes = clif_type(element.clone()).bytes() as i64;
+        let address = self.checked_row(rows, length, index, row_bytes)?;
+        Ok(match store {
+            Some(value) => {
+                let flags = cranelift_codegen::ir::MemFlagsData::trusted();
+                self.bcx.ins().store(flags, value, address, 0);
+                None
+            }
+            None => Some(self.scalar_word(address, element)),
+        })
+    }
+
+    /// Branches to `valid` with `args` when `index` is in 0..length, the hot
+    /// path: one unsigned comparison, no normalization (issue #715). Returns
+    /// the cold block taken otherwise.
+    fn index_hot_test(
         &mut self,
         index: cranelift_codegen::ir::Value,
         length: cranelift_codegen::ir::Value,
-    ) -> Result<cranelift_codegen::ir::Value> {
-        // Length is nonnegative and at most isize::MAX. Adding it to a
-        // negative i64 cannot overflow; unsigned comparison rejects both
-        // still-negative indices and positive indices past the end.
-        let negative = self.bcx.ins().icmp_imm_s(IntCC::SignedLessThan, index, 0);
+        valid: cranelift_codegen::ir::Block,
+        args: &[cranelift_codegen::ir::BlockArg],
+    ) -> cranelift_codegen::ir::Block {
+        let in_range = self.bcx.ins().icmp(IntCC::UnsignedLessThan, index, length);
+        let negative = self.bcx.create_block();
+        self.bcx.ins().brif(in_range, valid, args, negative, &[]);
+        negative
+    }
+
+    /// In the cold block `negative`, the normalized index `index + length`
+    /// and whether it is in range. Length is at most isize::MAX, so for a
+    /// negative index the wrapped sum is below length, unsigned, exactly when
+    /// index >= -length; for a nonnegative index >= length the sum cannot
+    /// wrap and stays >= length.
+    fn index_adjust(
+        &mut self,
+        index: cranelift_codegen::ir::Value,
+        length: cranelift_codegen::ir::Value,
+        negative: cranelift_codegen::ir::Block,
+    ) -> (cranelift_codegen::ir::Value, cranelift_codegen::ir::Value) {
+        self.bcx.switch_to_block(negative);
+        self.bcx.set_cold_block(negative);
+        self.bcx.seal_block(negative);
         let adjusted = self.bcx.ins().iadd(index, length);
-        let normalized = self.bcx.ins().select(negative, adjusted, index);
-        let invalid = self
+        let in_range = self
             .bcx
             .ins()
-            .icmp(IntCC::UnsignedGreaterThanOrEqual, normalized, length);
-        let failure = self.bcx.create_block();
-        let valid = self.bcx.create_block();
-        self.bcx.ins().brif(invalid, failure, &[], valid, &[]);
+            .icmp(IntCC::UnsignedLessThan, adjusted, length);
+        (adjusted, in_range)
+    }
+
+    /// Fills the cold block `failure`, every predecessor of which is now
+    /// known: it reports `index` out of bounds for `length` at this site and
+    /// traps.
+    ///
+    /// The block stores the index and length to the scratch slot and passes
+    /// its address. Passed as arguments, they would need the first argument
+    /// registers at the call, and the register allocator then keeps the hot
+    /// path's values there too, adding moves to every iteration of a loop
+    /// that indexes a list. A trap does not return, so the slot is free.
+    fn index_failure(
+        &mut self,
+        failure: cranelift_codegen::ir::Block,
+        index: cranelift_codegen::ir::Value,
+        length: cranelift_codegen::ir::Value,
+    ) -> Result<()> {
         self.bcx.switch_to_block(failure);
         self.bcx.set_cold_block(failure);
+        self.bcx.seal_block(failure);
+        let slot = self.scratch_slot(16);
+        let record = self.bcx.ins().stack_addr(PTR_TY, slot, 0);
+        let flags = cranelift_codegen::ir::MemFlagsData::trusted();
+        self.bcx.ins().store(flags, index, record, 0);
+        self.bcx.ins().store(flags, length, record, 8);
         let site = self.trap_site()?;
         let helper = self
             .module
             .declare_func_in_func(self.runtime.trap_list_index, self.bcx.func);
-        self.bcx.ins().call(helper, &[index, length, site]);
+        self.bcx.ins().call(helper, &[record, site]);
         self.bcx.ins().trap(TrapCode::unwrap_user(3));
-        self.bcx.seal_block(failure);
-        self.bcx.switch_to_block(valid);
-        self.bcx.seal_block(valid);
-        Ok(normalized)
+        Ok(())
     }
 
     /// The row count of the live scalar list `owner`, read through
@@ -64,25 +215,66 @@ impl Lowerer<'_, '_> {
         self.bcx.ins().isub(stored, removed)
     }
 
-    /// The address of row `index` of the live scalar list `owner`, with the
-    /// runtime's bounds check. The caller's loan keeps the rows in place
-    /// while it uses the address.
-    fn scalar_row(
+    /// Exchanges two scalar rows of a list or slice view in place. Both
+    /// indices are checked before either row is written, so a trap leaves the
+    /// rows unchanged. Rows move as raw bits of their declared width; equal
+    /// indices store each value back.
+    pub(super) fn swap_scalar_rows(
         &mut self,
-        owner: cranelift_codegen::ir::Value,
-        index: cranelift_codegen::ir::Value,
+        rows: cranelift_codegen::ir::Value,
+        length: cranelift_codegen::ir::Value,
+        indices: [cranelift_codegen::ir::Value; 2],
+        row_bytes: i64,
         element: &Ty,
-    ) -> Result<cranelift_codegen::ir::Value> {
-        use crate::list_layout::ROWS;
+    ) -> Result<()> {
+        let [first, second] = indices;
+        let first = self.checked_row(rows, length, first, row_bytes)?;
+        let second = self.checked_row(rows, length, second, row_bytes)?;
         let flags = cranelift_codegen::ir::MemFlagsData::trusted();
-        let rows = self.bcx.ins().load(PTR_TY, flags, owner, ROWS);
-        let length = self.scalar_list_len(owner, element);
-        let normalized = self.list_index(index, length)?;
-        let offset = self.bcx.ins().ishl_imm_u(
-            normalized,
-            clif_type(element.clone()).bytes().ilog2() as i64,
-        );
-        Ok(self.bcx.ins().iadd(rows, offset))
+        let width = types::Type::int(clif_type(element.clone()).bits() as u16).unwrap();
+        let a = self.bcx.ins().load(width, flags, first, 0);
+        let b = self.bcx.ins().load(width, flags, second, 0);
+        self.bcx.ins().store(flags, b, first, 0);
+        self.bcx.ins().store(flags, a, second, 0);
+        Ok(())
+    }
+
+    /// Pops the loop's cached row-0 address and length above a cached scalar
+    /// row access's other operands (`ListScalarGetView`, `ListScalarSetView`).
+    fn cached_rows(
+        &mut self,
+        operation: &CollectionOp,
+    ) -> Result<Option<(cranelift_codegen::ir::Value, cranelift_codegen::ir::Value)>> {
+        if !matches!(
+            operation,
+            CollectionOp::ListScalarGetView(_) | CollectionOp::ListScalarSetView(_)
+        ) {
+            return Ok(None);
+        }
+        let (rows, _) = self.pop_typed(Ty::I64)?;
+        let (length, _) = self.pop_typed(Ty::I64)?;
+        Ok(Some((rows, length)))
+    }
+
+    /// The row-0 address and length of the scalar list behind `receiver`:
+    /// the loop's `cached` values, or read from its header. With a cache, the
+    /// loop's loan or ownership holds the list, and the receiver is unused.
+    fn scalar_rows(
+        &mut self,
+        cached: Option<(cranelift_codegen::ir::Value, cranelift_codegen::ir::Value)>,
+        receiver: cranelift_codegen::ir::Value,
+        list: &Ty,
+    ) -> (cranelift_codegen::ir::Value, cranelift_codegen::ir::Value) {
+        if let Some(cached) = cached {
+            return cached;
+        }
+        let owner = self.reference_word(receiver);
+        let flags = cranelift_codegen::ir::MemFlagsData::trusted();
+        let rows = self
+            .bcx
+            .ins()
+            .load(PTR_TY, flags, owner, crate::list_layout::ROWS);
+        (rows, self.scalar_list_len(owner, &list.element().unwrap()))
     }
 
     /// A runtime helper that answers `operation` directly: no argument block,
@@ -341,6 +533,22 @@ impl Lowerer<'_, '_> {
         };
         let zero = b.ins().iconst(types::I64, 0);
         let length = b.ins().select(nonempty, count, zero);
+        if !narrow {
+            self.counters.ranges.push((length, start, step));
+        }
+        // A narrow range, or an i64 range stepping up from a nonnegative
+        // start, is shorter than `i64::MAX`: fold its check (issue #721).
+        let short = narrow
+            || signed && {
+                let dfg = &self.bcx.func.dfg;
+                super::known::known_signed(dfg, step).is_some_and(|step| step > 0)
+                    && self.nonnegative_operand(first)
+            };
+        if short {
+            self.stack.push((length, Ty::I64));
+            return Ok(());
+        }
+        let b = &mut self.bcx;
         let oversized = b.ins().icmp_imm_s(IntCC::SignedLessThan, length, 0);
         let cold = b.create_block();
         let after = b.create_block();
@@ -388,6 +596,26 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
+    /// The function's scratch slot for runtime call operands, at least
+    /// `bytes` long: created on first use, and grown for a larger use, so a
+    /// function that only reports index failures keeps a small frame.
+    fn scratch_slot(&mut self, bytes: u32) -> cranelift_codegen::ir::StackSlot {
+        if let Some(slot) = self.collection_scratch {
+            let data = &mut self.bcx.func.sized_stack_slots[slot];
+            data.size = data.size.max(bytes);
+            return slot;
+        }
+        let slot = self
+            .bcx
+            .create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
+                cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                bytes,
+                4,
+            ));
+        self.collection_scratch = Some(slot);
+        slot
+    }
+
     /// Call runtime operation `opcode` through its own entry symbol,
     /// `plenty_op_<opcode>` (`plenty-runtime/src/aggregates.rs`), so the linker
     /// keeps only the operations a program calls. `site` is the trap site of
@@ -414,19 +642,7 @@ impl Lowerer<'_, '_> {
         } else {
             zero
         };
-        let slot = if let Some(slot) = self.collection_scratch {
-            slot
-        } else {
-            let slot = self
-                .bcx
-                .create_sized_stack_slot(cranelift_codegen::ir::StackSlotData::new(
-                    cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
-                    96,
-                    4,
-                ));
-            self.collection_scratch = Some(slot);
-            slot
-        };
+        let slot = self.scratch_slot(96);
         let args = self.bcx.ins().stack_addr(PTR_TY, slot, 0);
         for i in 0..3 {
             let value = values.get(i).copied().unwrap_or(zero);
@@ -492,6 +708,23 @@ impl Lowerer<'_, '_> {
             return self.lower_clist(op);
         }
         if self.lower_view(operation)? {
+            return Ok(());
+        }
+        if let CollectionOp::ListRetag(types) = operation {
+            let (from, to) = &**types;
+            // The rows already have the target layout; only the header's
+            // descriptor, which runtime formatting and cleanup read, changes.
+            let (list, _) = self.pop_typed(from.clone())?;
+            let id = self.module.metadata(to);
+            let gv = self.module.declare_data_in_func(id, self.bcx.func);
+            let descriptor = self.bcx.ins().symbol_value(PTR_TY, gv);
+            self.bcx.ins().store(
+                cranelift_codegen::ir::MemFlagsData::trusted(),
+                descriptor,
+                list,
+                crate::list_layout::DESCRIPTOR,
+            );
+            self.stack.push((list, to.clone()));
             return Ok(());
         }
         if let CollectionOp::DictView(owner, _) = operation {
@@ -562,42 +795,68 @@ impl Lowerer<'_, '_> {
             self.stack.push((length, Ty::I64));
             return Ok(());
         }
-        if let CollectionOp::ListScalarGetRef(ty) = operation {
+        // A scalar list's rows are dense at the element's declared width,
+        // so its row-0 address and row size need no runtime call.
+        if let CollectionOp::ListRowsRef(ty) | CollectionOp::ListRowBytesRef(ty) = operation
+            && let Some(element) = ty.element().filter(|e| e.is_numeric() || *e == Ty::Bool)
+        {
+            let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), false))?;
+            let value = if matches!(operation, CollectionOp::ListRowsRef(_)) {
+                let owner = self.reference_word(receiver);
+                let flags = cranelift_codegen::ir::MemFlagsData::trusted();
+                self.bcx
+                    .ins()
+                    .load(PTR_TY, flags, owner, crate::list_layout::ROWS)
+            } else {
+                let bytes = clif_type(element).bytes();
+                self.bcx.ins().iconst(types::I64, i64::from(bytes))
+            };
+            self.stack.push((value, Ty::I64));
+            return Ok(());
+        }
+        if let CollectionOp::ListScalarGetRef(ty) | CollectionOp::ListScalarGetView(ty) = operation
+        {
+            let cached = self.cached_rows(operation)?;
             let (index, _) = self.pop_typed(Ty::I64)?;
             let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), false))?;
-            let owner = self.reference_word(receiver);
+            let (rows, length) = self.scalar_rows(cached, receiver, ty);
             let element = ty.element().unwrap();
-            let address = self.scalar_row(owner, index, &element)?;
-            let bits = self.scalar_word(address, &element);
+            let bits = self
+                .scalar_row_access(rows, length, index, &element, None)?
+                .unwrap();
             let result = self.unpack(bits, &element);
             self.stack.push((result, element));
             return Ok(());
         }
-        if let CollectionOp::ListScalarGetView(ty) = operation {
-            let (index, _) = self.pop_typed(Ty::I64)?;
-            let (stride, _) = self.pop_typed(Ty::I64)?;
-            let (rows, _) = self.pop_typed(Ty::I64)?;
-            let (length, _) = self.pop_typed(Ty::I64)?;
-            // The view's loan holds the list; only its rows are read here.
-            self.pop_typed(Ty::Ref(Arc::new(ty.clone()), false))?;
-            let normalized = self.list_index(index, length)?;
-            let offset = self.bcx.ins().imul(normalized, stride);
-            let address = self.bcx.ins().iadd(rows, offset);
-            let element = ty.element().unwrap();
-            let bits = self.scalar_word(address, &element);
-            let result = self.unpack(bits, &element);
-            self.stack.push((result, element));
-            return Ok(());
-        }
-        if let CollectionOp::ListScalarSetRef(ty) = operation {
+        if let CollectionOp::ListScalarSetRef(ty) | CollectionOp::ListScalarSetView(ty) = operation
+        {
+            let cached = self.cached_rows(operation)?;
             let element = ty.element().unwrap();
             let (value, _) = self.pop_typed(element.clone())?;
             let (index, _) = self.pop_typed(Ty::I64)?;
             let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), true))?;
+            let (rows, length) = self.scalar_rows(cached, receiver, ty);
+            self.scalar_row_access(rows, length, index, &element, Some(value))?;
+            let unit = self.bcx.ins().iconst(types::I64, 0);
+            let unit = self.unpack(unit, &Ty::Unit);
+            self.stack.push((unit, Ty::Unit));
+            return Ok(());
+        }
+        if let CollectionOp::ListScalarSwapRef(ty) = operation {
+            let element = ty.element().unwrap();
+            let (second, _) = self.pop_typed(Ty::I64)?;
+            let (first, _) = self.pop_typed(Ty::I64)?;
+            let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), true))?;
             let owner = self.reference_word(receiver);
-            let address = self.scalar_row(owner, index, &element)?;
+            // The header is read once for both rows.
             let flags = cranelift_codegen::ir::MemFlagsData::trusted();
-            self.bcx.ins().store(flags, value, address, 0);
+            let rows = self
+                .bcx
+                .ins()
+                .load(PTR_TY, flags, owner, crate::list_layout::ROWS);
+            let length = self.scalar_list_len(owner, &element);
+            let row_bytes = clif_type(element.clone()).bytes() as i64;
+            self.swap_scalar_rows(rows, length, [first, second], row_bytes, &element)?;
             let unit = self.bcx.ins().iconst(types::I64, 0);
             let unit = self.unpack(unit, &Ty::Unit);
             self.stack.push((unit, Ty::Unit));
@@ -1166,6 +1425,11 @@ impl Lowerer<'_, '_> {
         let counter = super::induction::analyze(condition, body, &types)
             .filter(|counter| self.local_address(counter.local).is_none());
         let proven_step = counter.as_ref().and_then(|counter| counter.proven_step);
+        let bound_step = counter
+            .as_ref()
+            .and_then(|counter| counter.bound_step)
+            .filter(|&(local, _)| self.local_address(local).is_none())
+            .map(|(_, index)| index);
         let nonnegative = counter.filter(|counter| {
             counter.only_grows && super::is_signed(types[counter.local as usize].clone()) && {
                 let entry = self.read_local(counter.local);
@@ -1175,6 +1439,30 @@ impl Lowerer<'_, '_> {
         });
         if let Some(counter) = &nonnegative {
             self.counters.nonnegative_locals.push(counter.local);
+        }
+        let range = super::induction::analyze_range(condition, body).filter(|range| {
+            let slots = [range.target, range.remaining, range.advance];
+            slots.iter().all(|&slot| self.local_address(slot).is_none()) && {
+                let entry = (
+                    self.read_local(range.remaining),
+                    self.read_local(range.target),
+                    self.read_local(range.advance),
+                );
+                self.counters.ranges.contains(&entry)
+                    && super::known::known_signed(&self.bcx.func.dfg, entry.2) == Some(1)
+            }
+        });
+        let unit_steps = range
+            .as_ref()
+            .map_or(&[][..], |range| &range.unit_steps[..]);
+        let range_nonnegative = range.as_ref().filter(|range| {
+            super::is_signed(types[range.target as usize].clone()) && {
+                let first = self.read_local(range.target);
+                self.nonnegative_operand(first)
+            }
+        });
+        if let Some(range) = range_nonnegative {
+            self.counters.nonnegative_locals.push(range.target);
         }
         let header = self.bcx.create_block();
         let iteration = self.bcx.create_block();
@@ -1194,7 +1482,10 @@ impl Lowerer<'_, '_> {
             if self.terminated {
                 break;
             }
-            if Some(index) == proven_step && !self.gathering() {
+            let proven = Some(index) == proven_step
+                || Some(index) == bound_step
+                || unit_steps.contains(&index);
+            if proven && !self.gathering() {
                 self.lower_proven_step(op)?;
             } else {
                 self.lower(op)?;
@@ -1206,6 +1497,9 @@ impl Lowerer<'_, '_> {
         // The shared `break` blocks are still inside the iteration.
         self.finish_loop_exits()?;
         self.loop_targets.pop();
+        if range_nonnegative.is_some() {
+            self.counters.nonnegative_locals.pop();
+        }
         if nonnegative.is_some() {
             self.counters.nonnegative_locals.pop();
         }

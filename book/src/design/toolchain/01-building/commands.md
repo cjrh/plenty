@@ -30,8 +30,11 @@ Types from `std` keep per-use checking.
 Other modes reject it: compiling would emit those methods, and a reused cached
 object would skip their check.
 
-`--release` before `FILE`, `--compile`, `--fuzz`, or `--dump` selects Cranelift's speed
-optimizations, like the [release profile](packages.md#profiles).
+Code generation is optimized by default, including `plentyc`, object and shared
+library output, fuzz targets and dumps. `--fast-compile` skips speed optimizations
+for shorter edit-run cycles in large projects; it preserves all language checks.
+`--release` remains a compatibility alias for the optimized default. See
+[profiles](packages.md#profiles).
 
 `--test-hooks` with `FILE` or `--compile` enables
 [failure injection](../../stdlib/test.md#failure-injection) in an ordinary

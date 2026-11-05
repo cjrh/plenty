@@ -1,25 +1,35 @@
 # User-defined dictionary keys and set members
 
-**Status: Not implemented.** Nothing shipped. Dictionary keys and set members
-remain integers, `bool`, `str`, and tuples of these, as the
-[collections](../design/facilities/01-builtins/collections.md) and
-[enums](../design/language/03-types/enums.md) references state. Equality stays
-structural and non-overridable ([classes](../design/language/03-types/classes.md)).
-No backlog entry exists yet.
+**Status: Structural-key policy implemented.** Named enums whose payloads are supported key
+types now work as dictionary keys and set members, including nested enums.
+Classes whose fields are supported keys, including move-only classes and enums
+containing them, and the `KeyType` constraint are also implemented. Anonymous sums with supported key members are implemented. Custom-cleanup
+keys are admitted for borrowing and ownership transfer; copying operations reject them.
+Named enum and tuple sets with supported finite domains through 256 values now use
+[bitsets](../design/facilities/01-builtins/sets.md#small-enum-bitsets), including
+boolean and nested enum/tuple payloads. The
+[collection reference](../design/facilities/01-builtins/collections.md) owns the
+current contract. The design and historical analysis below describe the broader
+proposal; enum/class admission and the explicit generic constraint have shipped.
+Generic bodies remain checked per concrete instance: unconstrained parameters
+are not rejected solely for appearing in a collection signature. The original
+eager-rejection analysis below is historical, not current behavior.
 
 ## Problem
 
-A program that wants `dict[Point, V]`, `set[Color]` or `dict[UserId, V]` must
-flatten the key into a tuple by hand, losing the nominal type. Generic code is
-worse off: an unconstrained `K` cannot appear in `dict[K, V]` at all.
+Before structural key admission, a program that wanted `dict[Point, V]`,
+`set[Color]` or `dict[UserId, V]` had to flatten keys into tuples, losing their
+nominal types. Eligible classes and enums now work directly. Generic code can
+state its key requirement explicitly:
 
 ```text
-def count[K](xs: &list[K]) -> Result[dict[K, i64], AllocError]:
+def count[K: KeyType](xs: &list[K]) -> Result[dict[K, i64], AllocError]:
     ...
 ```
 
-is rejected at the signature (`dictionary keys must be integers, bool, str, or
-tuples of these`), before any instance is checked, so only `K: IntType` works.
+The bound rejects unsupported arguments at instantiation. Unconstrained generic
+functions continue to work when their concrete keys are valid; requiring a bound
+on every collection signature is not part of the implemented contract.
 
 The suggested direction is a `__hash__` dunder and a protocol requiring it as
 the key bound. This page assesses that idea against the current implementation,
@@ -35,7 +45,7 @@ static type descriptor. Generated code never hashes or probes.
 | Aspect | Current behavior |
 | --- | --- |
 | Descriptor | `Type` (`aggregates.rs:36`), 64 bytes, asserted layout: kind byte, `affine`, `reflexive`, inline payload size, key/value descriptors, name, variants (fields), and a `drop` function pointer at byte 56. Emitted by `src/codegen/metadata.rs`. |
-| Hash | `aggregates/hashing.rs` feeds the complete descriptor-guided key into SipHash-2-4: scalar words, length-framed strings, and kind `B` fields framed by variant tag and field count. Classes remain inadmissible keys and need a structural branch before admission. |
+| Hash | `aggregates/hashing.rs` feeds the complete descriptor-guided key into SipHash-2-4: scalar words, length-framed strings, and kind `B` fields framed by variant tag and field count. Classes now have a field-count-framed structural branch as well. |
 | Seeding | One secret 128-bit OS key per process, initialized on the first hash and shared by workers. Entropy failure traps; no fixed-seed production mode. |
 | Table | `Vec<usize>` of entry indices plus one, linear probing, power-of-two size, load at most one half (`try_reserve`, `aggregates.rs:546`). No hash is cached; rehashing and removal (`aggregates.rs:699`, backward-shift repair) recompute the home bucket of every key they visit. |
 | Entries | Dense, type-sized rows (`plenty-runtime/src/entries.rs`). Inline payloads such as multi-field tuples live in the row. Iteration walks rows, not the bucket table, so dictionary order is insertion order regardless of hash values. |
@@ -237,8 +247,9 @@ new storage need the same treatment affine *values* already have:
 | `insert`, `add`, `update` | Already adopt affine operands |
 | `get`, `[]`, `in`, `pop`, `discard` | Accept `&K`; an owned temporary is consumed |
 | Borrowed iteration, `items()` | Already yield `&K` |
-| `keys()` | Mirror `values()`: owned temporary, or `copy(d)?.keys()` |
-| `union`, `intersection`, `difference`, `symmetric_difference` | Need copied members (fallible, already `Result`) or a consuming form; decide per operation |
+| `keys()` | Shared `KeyView[K]`, iterating `&K`, without copying |
+| `keys_snapshot()`, `into_keys()` | Transfer affine keys from an owned temporary; use `copy(d)?.keys_snapshot()` to preserve the source |
+| `union`, `intersection`, `difference`, `symmetric_difference`, key-view `to_set()` | Copy members into independent result storage; reject keys containing custom cleanup; sources remain unchanged on success or failure |
 | Set and dict comprehensions | Move keys in as for `insert` |
 
 Copyable enums (payloads of copyable key types) avoid this table entirely, which
@@ -247,20 +258,16 @@ motivates the staging below.
 ### Generic bound
 
 `KeyType` is a built-in constraint beside `IntType` and `FloatType`
-(`src/frontend/generics.rs:19`). In a generic signature, `dict[K, V]` and
-`set[K]` require `K: KeyType`; today's eager rejection at resolution stays, with
-a diagnostic that names the fix. At a concrete use, a rejected type reports the
-first offending path:
+(`src/frontend/generics.rs`). It accepts exactly the current collection key
+predicate, on functions, methods, classes and enums. An unsuitable argument
+reports `TYPE does not satisfy KeyType`, even if the generic body does not use
+hashing. Unconstrained generic bodies remain checked per concrete instance;
+`dict[K, V]` and `set[K]` do not independently require an explicit bound.
 
-```text
-error: `Sample` is not a key type
-  note: field `Sample.ratio` has type `f64`; floats are not key types
-```
-
-```text
-error: `dict[K, i64]` requires `K: KeyType`
-  help: declare `def count[K: KeyType](...)`
-```
+Diagnostics now name the first unsupported component in declaration order,
+including class field names, enum variants and payload positions, and tuple
+element positions. The path ends with the rejected type or a specific reason
+such as an unsupported anonymous-sum member; see [key diagnostics](../design/language/07-generics/index.md#finding-an-unsupported-key-field).
 
 ### DoS resistance and seeding
 
@@ -372,12 +379,15 @@ of the fields their `__cmp__` compares.
 ## Open questions
 
 1. Name: `KeyType`, `Hashable`, or `Key`. `KeyType` matches `IntType`.
-2. Should classes with `__del__` be key types? Equality is structural on them,
-   but keys are dropped during table destruction and removal; copying is
-   impossible, so `keys()` and set algebra are unavailable.
+2. **Resolved:** classes with `__del__`, including nested cleanup, are keys
+   when their fields are keys. Hashability does not imply duplicability.
+   Non-mutating set algebra and key-view `to_set()` require explicit-copy
+   eligibility, while insertion, borrowed views, relationships, in-place updates
+   and owned extraction work without copying. Equal incoming keys are destroyed;
+   existing key owners remain in the collection. No user-defined clone hook is added.
 3. Private fields: structural hashing reads them, as equality already does.
    Confirm that is acceptable for public key types across modules.
-4. Whether `std.report`-style anonymous sums should be key types when every
+4. **Resolved:** anonymous sums are key types when every
    member is.
 5. Whether to cache hashes, after measurement.
 

@@ -1,22 +1,59 @@
 # Plenty
 
-Plenty is a statically typed language with Python-inspired syntax and native compilation.
+Plenty is a statically typed language with Python-inspired syntax that compiles to native code.
+It draws inspiration from:
+
+- Python (syntax and standard library)
+- Rust (safety)
+- Zig (explicit allocation)
+- Erlang (concurrency)
+- Go and D (fast compilation)
+
+Here's a small word counter:
 
 ```python
-type int = i64
-
-def sum_to(n: int, total: int) -> int:
-    """Sum the integers from 1 through n, using constant call-stack space."""
-    if n == 0:
-        total
-    else:
-        sum_to(n - 1, total + n)
-
-def main() -> ():
-    mut answer = sum_to(100, 0)
-    answer = answer + 1
-    print(answer).unwrap()
+def main() -> Result[(), AllocError | IoError]:
+    text = "small language big ideas small programs"
+    mut counts: dict[str, i64] = {}?
+    for word in text.split()?:
+        counts.insert(word, counts.get(word, 0) + 1)?
+    print(counts)?
+    Ok(())
 ```
+
+- Bindings are immutable unless declared `mut`.
+- Allocation and I/O return errors explicitly; `?` propagates them.
+- `AllocError | IoError` declares the possible error types.
+
+Save it as `main.plenty` and compile a native executable:
+
+```sh
+plenty --compile main.plenty --release -o main
+./main
+```
+
+Output:
+
+```text
+{"small": 2, "language": 1, "big": 1, "ideas": 1, "programs": 1}
+```
+
+Or run it directly in script mode:
+
+```sh
+plenty script main.plenty
+```
+
+Script mode caches the compiled executable for fast subsequent runs.
+For an executable script, add `#!/usr/bin/env -S plenty script` as the first
+line of `main.plenty`, then run:
+
+```sh
+chmod +x main.plenty
+./main.plenty
+```
+
+Edit and run again; Plenty recompiles when needed.
 
 ## Documentation
 

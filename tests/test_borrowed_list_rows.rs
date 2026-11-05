@@ -389,10 +389,8 @@ fn borrowed_scalar_iteration_loads_rows_directly() {
         .lines()
         .filter(|line| support::native_call(line))
         .collect();
-    assert_eq!(calls.len(), 2, "{asm}");
-    for helper in ["plenty_list_rows", "plenty_list_row_bytes"] {
-        assert!(calls.iter().any(|call| call.ends_with(helper)), "{asm}");
-    }
+    // Scalar rows are dense: the cursor setup reads the header directly.
+    assert!(calls.is_empty(), "{asm}");
     for absent in [
         "plenty_op_",
         "plenty_retain",

@@ -16,6 +16,7 @@ pub struct Facts {
     pub complete: bool,
     pub depth: usize,
     pub reflexive: bool,
+    /// Closures or erased protocol owners, which do not have value equality.
     pub closure: bool,
     pub concurrent_handle: bool,
     /// Reaches an `Atomic`, which has no equality and no formatting: its
@@ -53,7 +54,10 @@ impl Ty {
                 destructor: resource,
                 complete: true,
                 reflexive: !self.is_float() && !matches!(self, Self::Clist(_)),
-                closure: matches!(self, Self::Closure(_) | Self::BoxedCallable(_)),
+                closure: matches!(
+                    self,
+                    Self::Closure(_) | Self::BoxedCallable(_) | Self::BoxedProtocol(_)
+                ),
                 concurrent_handle: self.is_concurrent_handle(),
                 atomic: matches!(self, Self::Atomic(_)),
                 ..Facts::default()
@@ -102,6 +106,7 @@ impl Ty {
                 | Self::Generator(_)
                 | Self::Closure(_)
                 | Self::BoxedCallable(_)
+                | Self::BoxedProtocol(_)
         ) || self.is_concurrent_handle()
     }
     fn is_concurrent_handle(&self) -> bool {
@@ -189,7 +194,10 @@ impl Ty {
         let mut weights = Vec::new();
         let mut i = 0;
         while i < nodes.len() {
-            facts.closure |= matches!(nodes[i], Self::Closure(_) | Self::BoxedCallable(_));
+            facts.closure |= matches!(
+                nodes[i],
+                Self::Closure(_) | Self::BoxedCallable(_) | Self::BoxedProtocol(_)
+            );
             facts.concurrent_handle |= nodes[i].is_concurrent_handle();
             facts.atomic |= matches!(nodes[i], Self::Atomic(_));
             facts.shared |= matches!(nodes[i], Self::Shared(_));
@@ -400,6 +408,7 @@ mod tests {
             copy: false,
             forwards_operators: false,
             redacted: false,
+            quantity: None,
             bytes: OnceLock::new(),
             managed: OnceLock::new(),
         }

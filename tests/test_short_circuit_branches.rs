@@ -169,7 +169,7 @@ fn write(name: &str, source: &str) -> tempfile::TempDir {
 #[test]
 fn short_circuits_match_their_hand_written_branches() {
     let dir = write("branches.plenty", PROGRAM);
-    for mode in [&[][..], &["--release"][..]] {
+    for mode in [&["--fast-compile"][..], &["--release"][..]] {
         let mut args = mode.to_vec();
         args.push("branches.plenty");
         let out = stdout(plenty(dir.path(), &args));
@@ -192,7 +192,7 @@ fn short_circuits_match_their_hand_written_branches() {
 #[test]
 fn skipped_operand_cannot_trap_and_evaluated_operand_does() {
     let dir = write("trap.plenty", TRAP);
-    for mode in [&[][..], &["--release"][..]] {
+    for mode in [&["--fast-compile"][..], &["--release"][..]] {
         let mut args = mode.to_vec();
         args.push("trap.plenty");
         let output = plenty(dir.path(), &args);

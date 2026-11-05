@@ -23,18 +23,47 @@ impl Lowerer<'_, '_> {
                 let element = view_element(view);
                 let (index, _) = self.pop_typed(Ty::I64)?;
                 let (value, _) = self.pop_typed(view.clone())?;
-                let (rows, count) = self.bcx.ins().isplit(value);
+                let (rows, count) = self.split_view(value);
                 // Iteration stays below the count it read, so only indexing
                 // checks.
-                let index = match operation {
-                    CollectionOp::ViewRow(..) => self.list_index(index, count)?,
-                    _ => index,
+                let address = match operation {
+                    CollectionOp::ViewRow(..) => {
+                        let row_bytes = metadata::list_row_bytes(&element) as i64;
+                        self.checked_row(rows, count, index, row_bytes)?
+                    }
+                    _ => self.view_row(rows, index, &element),
                 };
-                let address = self.view_row(rows, index, &element);
                 // A row is a top-level slot: no inline-sum tag is projected.
                 let reference = self.bcx.ins().uextend(types::I128, address);
                 self.stack
                     .push((reference, Ty::Ref(Arc::new(element), *mutable)));
+            }
+            CollectionOp::ViewSwap(view) => {
+                let element = view_element(view);
+                let (second, _) = self.pop_typed(Ty::I64)?;
+                let (first, _) = self.pop_typed(Ty::I64)?;
+                let (value, _) = self.pop_typed(view.clone())?;
+                let (rows, count) = self.split_view(value);
+                let row_bytes = metadata::list_row_bytes(&element) as i64;
+                if element.is_numeric() || element == Ty::Bool {
+                    self.swap_scalar_rows(rows, count, [first, second], row_bytes, &element)?;
+                } else {
+                    // Checked inline, as for scalars; the runtime exchanges
+                    // the rows and repairs inline payload addresses, as
+                    // `list.swap` does.
+                    let first = self.checked_row(rows, count, first, row_bytes)?;
+                    let second = self.checked_row(rows, count, second, row_bytes)?;
+                    let id = self.module.metadata(&element);
+                    let gv = self.module.declare_data_in_func(id, self.bcx.func);
+                    let descriptor = self.bcx.ins().symbol_value(PTR_TY, gv);
+                    let helper = self
+                        .module
+                        .declare_func_in_func(self.runtime.view_swap, self.bcx.func);
+                    self.bcx.ins().call(helper, &[first, second, descriptor]);
+                }
+                let unit = self.bcx.ins().iconst(types::I64, 0);
+                let unit = self.unpack(unit, &Ty::Unit);
+                self.stack.push((unit, Ty::Unit));
             }
             CollectionOp::ViewEqual(view) => {
                 let element = view_element(view);
@@ -134,10 +163,22 @@ impl Lowerer<'_, '_> {
         self.bcx.ins().select(written, clamped, omitted)
     }
 
+    /// The rows and count of `view`, reusing a split already done on this
+    /// path.
+    fn split_view(&mut self, view: NativeValue) -> (NativeValue, NativeValue) {
+        let view = self.bcx.func.dfg.resolve_aliases(view);
+        let block = self.bcx.current_block();
+        if let Some(split) = self.counters.checked.split(block, view) {
+            return split;
+        }
+        let split = self.bcx.ins().isplit(view);
+        self.counters.checked.record_split(view, split);
+        split
+    }
+
     fn view_row(&mut self, rows: NativeValue, index: NativeValue, element: &Ty) -> NativeValue {
         let row_bytes = metadata::list_row_bytes(element) as i64;
-        let offset = self.bcx.ins().imul_imm_s(index, row_bytes);
-        self.bcx.ins().iadd(rows, offset)
+        self.row_address(rows, index, row_bytes)
     }
 }
 

@@ -141,3 +141,73 @@ impl Lowerer<'_, '_> {
         self.lower_call(&t.name)
     }
 }
+
+impl Lowerer<'_, '_> {
+    pub(super) fn lower_protocol_box_new(
+        &mut self,
+        source: &Ty,
+        adapters: &[String],
+        protocol: &Arc<crate::boxed::ProtocolType>,
+    ) -> Result<()> {
+        let (value, _) = self.pop_typed(source.clone())?;
+        let value = self.pack(value, source);
+        let table = self.module.protocol_table(
+            adapters
+                .iter()
+                .map(|adapter| self.user_fns[adapter].id)
+                .collect(),
+        );
+        let table = self.module.declare_data_in_func(table, self.bcx.func);
+        let pointer = self.bcx.ins().symbol_value(PTR_TY, table);
+        let pointer = self.bcx.ins().uextend(types::I128, pointer);
+        let descriptor = Ty::Box(Arc::new(source.clone()));
+        let packed = self.collection_call(128, &[value, pointer], Some(&descriptor))?;
+        let output = crate::sum::result(
+            Ty::BoxedProtocol(protocol.clone()),
+            crate::sum::alloc_error(),
+        );
+        let result = self.unpack(packed, &output);
+        self.stack.push((result, output));
+        Ok(())
+    }
+
+    pub(super) fn lower_protocol_box_call(
+        &mut self,
+        protocol: &Arc<crate::boxed::ProtocolType>,
+        index: usize,
+    ) -> Result<()> {
+        let method = &protocol.methods[index];
+        let split = self
+            .stack
+            .len()
+            .checked_sub(method.signature.inputs.len())
+            .ok_or("protocol call underflow")?;
+        let args: Vec<_> = self.stack.drain(split..).collect();
+        let (reference, _) = self.stack.pop().ok_or("missing protocol receiver")?;
+        let reference = self.raw_word(reference);
+        let boxed = self
+            .bcx
+            .ins()
+            .load(PTR_TY, MemFlagsData::trusted(), reference, 0);
+        let table = self
+            .bcx
+            .ins()
+            .load(PTR_TY, MemFlagsData::trusted(), boxed, 24);
+        let code = self.bcx.ins().load(
+            PTR_TY,
+            MemFlagsData::trusted(),
+            table,
+            i32::try_from(index * 8)?,
+        );
+        let slot = self.bcx.ins().iadd_imm_s(boxed, 32);
+        let environment = self.bcx.ins().uextend(types::I128, slot);
+        let receiver = Ty::Ref(Arc::new(Ty::Unit), method.mutable);
+        let mut adapted = method.signature.clone();
+        adapted.inputs.insert(0, receiver.clone());
+        let adapted = Arc::new(adapted);
+        self.stack.push((code, Ty::Callable(adapted.clone())));
+        self.stack.push((environment, receiver));
+        self.stack.extend(args);
+        self.lower_indirect_call(&adapted, false)
+    }
+}

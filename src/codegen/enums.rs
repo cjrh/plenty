@@ -7,6 +7,9 @@ pub(super) fn pack_value(
     value: cranelift_codegen::ir::Value,
     ty: &Ty,
 ) -> cranelift_codegen::ir::Value {
+    if let Some(storage) = ty.quantity_storage() {
+        return pack_value(b, value, &storage);
+    }
     if ty.wide() || matches!(ty, Ty::Ref(..) | Ty::View(..)) {
         return value;
     }
@@ -139,7 +142,8 @@ impl Lowerer<'_, '_> {
         use crate::record::ClassOp;
         let (inputs, output) = op.signature().ok_or("invalid class operation")?;
         let newtype = match op {
-            ClassOp::New(t)
+            ClassOp::WrapQuantity(t)
+            | ClassOp::New(t)
             | ClassOp::ArmDrop(t)
             | ClassOp::Field(t, _)
             | ClassOp::FieldRef(t, ..) => t.get().newtype_field().is_some(),
@@ -148,6 +152,7 @@ impl Lowerer<'_, '_> {
         // release. The `unpack` below converts between the class's 128-bit
         // slot and the field's native type.
         let result = match op {
+            ClassOp::WrapQuantity(_) => self.pop_typed(inputs[0].clone())?.0,
             // A newtype around a class record is filled through a reference
             // like that record, so it needs the record's storage: a class
             // slot's word always addresses the record after it.
@@ -495,7 +500,13 @@ impl Lowerer<'_, '_> {
         value: cranelift_codegen::ir::Value,
         ty: &Ty,
     ) -> cranelift_codegen::ir::Value {
+        if let Some(storage) = ty.quantity_storage() {
+            return self.unpack(value, &storage);
+        }
         let target = clif_type(ty.clone());
+        if self.bcx.func.dfg.value_type(value) == target {
+            return value;
+        }
         if ty.wide() || matches!(ty, Ty::Ref(..) | Ty::View(..)) {
             return if self.bcx.func.dfg.value_type(value) == types::I128 {
                 value

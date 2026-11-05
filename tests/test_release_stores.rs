@@ -33,8 +33,8 @@ fn compile(
         .env("PLENTY_CACHE", if cache == "off" { "off" } else { "on" })
         .env("PLENTY_CACHE_DIR", cache)
         .arg("--cache-stats");
-    if release {
-        command.arg("--release");
+    if !release {
+        command.arg("--fast-compile");
     }
     let output = command
         .arg("--compile")
@@ -284,20 +284,25 @@ fn generator_stores_survive_cold_warm_and_edited_cache(#[values(false, true)] re
     let edited_output =
         "53295\nOption[i64].Some(0)\nOption[i64].Some(0)\nOption[i64].Some(1)\n1844034\n";
     // Program-cache admission stores a marker on first use, then the object
-    // on second use. That second build must reuse all nine function entries.
+    // on second use. That second build must reuse every function entry.
+    // Optimized builds inline two small helpers into their callers, leaving
+    // seven entries.
+    let functions = if release { 7 } else { 9 };
+    let cold = format!("compile cache: program miss, 0 hits, {functions} misses");
+    let admission = format!("compile cache: program miss, {functions} hits, 0 misses");
     for (phase, source, mode, statistic, expected) in [
         (
             "cold-marker",
             GENERATORS,
             cache.as_os_str(),
-            "compile cache: program miss, 0 hits, 9 misses",
+            cold.as_str(),
             original_output,
         ),
         (
             "object-admission",
             GENERATORS,
             cache.as_os_str(),
-            "compile cache: program miss, 9 hits, 0 misses",
+            admission.as_str(),
             original_output,
         ),
         (

@@ -14,6 +14,11 @@ This skill describes the Plenty compiler in this repository. Run `plenty --versi
 compiler differs, install the matching skill release, and trust the compiler's
 diagnostics over this text.
 
+Builds optimize by default. Use `plenty --fast-compile FILE`,
+`plenty script --fast-compile FILE`, or `plenty run --fast-compile` for shorter
+edit-run cycles in large projects; runtime checks stay enabled. Package output
+is in `target/optimized/` by default or `target/fast-compile/` with that flag.
+
 ## Workflow
 
 1. Before writing code, read [the cheat sheet](../../../book/src/design/examples/cheatsheet.md) and, for
@@ -106,6 +111,8 @@ See [workflow and packages](references/workflow.md).
   declares `def write(self: &mut W, source: &[u8]) -> Result[i64, StreamError]`.
   `&mut xs[:m]` and `&mut xs[m:]` are disjoint when `m` is a literal or a
   non-`mut` `i64` name; other overlapping or unprovable ranges conflict.
+  A `&mut [T]` view takes `v[i] = x` and `v.swap(i, j)`; it has no other
+  list methods.
 - A plain integer `T` accepts a `NonZero[T]` or `Positive[T]` divisor directly: `n // step`,
   `n % step`, `n //= step`, `n %= step`. The result is `T`; no zero check
   remains. Signed `MIN // -1` still requires `OverflowError[T]` in the

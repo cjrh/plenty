@@ -99,7 +99,7 @@ class BuildTests(unittest.TestCase):
         self.assertNotIn("version", entry)
 
     def test_only_the_plenty_skill_is_published(self):
-        # Repository maintenance skills (consistency-check, upstream-check,
+        # Repository maintenance skills (consistency-check, upstream-check, emitted-code,
         # plenty-search) live beside it in .agents/skills but are not for users.
         self.assertEqual([p.name for p in (self.out / "skills").iterdir()], ["plenty"])
 
@@ -173,7 +173,7 @@ class BuildTests(unittest.TestCase):
 class RepositorySkillTests(unittest.TestCase):
     def test_maintenance_skills_are_linked_for_claude(self):
         repo = Path(sync_agent_skill.REPO)
-        for name in ("consistency-check", "upstream-check"):
+        for name in ("consistency-check", "upstream-check", "emitted-code"):
             text = (repo / ".agents/skills" / name / "SKILL.md").read_text()
             fields = dict(line.split(": ", 1) for line in re.match(r"---\n(.*?)\n---\n", text, re.DOTALL)[1].splitlines())
             self.assertEqual(fields["name"], name)

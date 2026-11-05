@@ -56,7 +56,10 @@ fn trap_with_tail_calls(
                         body.contains("TailCall(\"__plenty_class_std.bytes.Bytes.get\")"),
                         "{name}, {optimize}: {body}"
                     );
-                } else {
+                } else if !optimize {
+                    // Optimized builds inline Bytes.get into the caller
+                    // (issue #722), so no transfer remains; the stderr
+                    // comparison below still covers their provenance.
                     assert!(body.contains("return_call"), "{name}, {optimize}: {body}");
                     assert!(
                         !body.contains("plenty_caller_leave"),

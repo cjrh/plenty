@@ -8,7 +8,7 @@
 | `plenty FILE` | Compile and run |
 | `plenty script [OPTIONS] FILE [ARGS...]` | Run with arguments and optional embedded dependencies |
 | `plenty --compile FILE -o OUT` | Write a native executable |
-| `plenty --release FILE` | Run with optimized code generation |
+| `plenty --fast-compile FILE` | Skip optimization for shorter edit-run cycles |
 
 Profiles change code generation only; every check behaves the same. Linking
 needs a C compiler driver, `cc`, on `PATH`.
@@ -32,7 +32,7 @@ an application (`src/main.plenty`); `plenty new NAME --lib` creates a library
 | `plenty check` | Type-check the library and every executable |
 | `plenty run [-- ARGS...]` | Build and run the executable |
 | `plenty test [FILTER...]` | Run tests in `tests/` |
-| `plenty build [--release]` | Write `target/PROFILE/NAME` |
+| `plenty build [--fast-compile]` | Write `target/PROFILE/NAME` |
 | `plenty add ALIAS --path DIR` | Add a local dependency |
 | `plenty add ALIAS --git URL --tag TAG` | Add a Git dependency |
 | `plenty update` | Move Git dependencies to what their tags name now |

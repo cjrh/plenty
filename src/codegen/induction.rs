@@ -11,6 +11,9 @@
 //!   division by a nonnegative divisor then need no sign correction; see
 //!   [`Facts`].
 //!
+//! A counted `for i in range(...)` loop gets the same two facts by a different
+//! argument; see [`RangeLoop`].
+//!
 //! The analysis matches operations structurally and gives up on anything it
 //! does not recognize. It applies only to counters held in CLIF variables, so
 //! no reference can write them behind the operations' back.
@@ -28,6 +31,10 @@ pub(super) struct Counter {
     /// Every write to the counter inside the loop is a checked step that adds
     /// a nonnegative constant.
     pub only_grows: bool,
+    /// The bound's local and its first step's body index, when the bound is
+    /// also a counter whose step cannot overflow: in `while lo < hi`, with
+    /// `lo` the counter, `hi -= 1` cannot pass `lo` (issue #720).
+    pub bound_step: Option<(u8, usize)>,
 }
 
 /// Facts the lowerer holds while it lowers a function.
@@ -36,9 +43,241 @@ pub(super) struct Facts {
     /// Signed counter locals of the loops being lowered whose every value is
     /// nonnegative, one entry per loop that established it.
     pub nonnegative_locals: Vec<u8>,
+    /// The length, first element, and step of each 64-bit `range` whose
+    /// length this function computed; see [`RangeLoop`].
+    pub ranges: Vec<(Value, Value, Value)>,
     /// SSA values known to be nonnegative. A fact about an SSA value holds
     /// wherever the value is used.
     pub nonnegative: HashSet<Value>,
+    /// Row bounds checks done on the current path; see [`Checked`].
+    pub checked: Checked,
+}
+
+/// Row bounds checks already done, for reuse by a later access of the same
+/// row (issue #721). Each check, like each trap guard, ends by switching to
+/// a fresh block that only its own block reaches, so every check recorded
+/// along that chain of blocks dominates its end, `block`. Lowering in any
+/// other block forgets them.
+#[derive(Default)]
+pub(super) struct Checked {
+    block: Option<cranelift_codegen::ir::Block>,
+    /// Row keys, row sizes, and the rows' addresses.
+    rows: Vec<(RowKey, i64, Value)>,
+    /// Views split into their rows and count since `block`, so repeated
+    /// accesses through one view compare the same values.
+    splits: Vec<(Value, (Value, Value))>,
+}
+
+/// The rows and length values of a checked access, and its index: a
+/// constant by value, since each literal is a separate SSA value.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) struct RowKey {
+    pub rows: Value,
+    pub length: Value,
+    pub index: Result<i64, Value>,
+}
+
+/// Enough for one statement's accesses; older checks are dropped first.
+const CHECKED_ROWS: usize = 16;
+
+impl Checked {
+    pub(super) fn find(
+        &mut self,
+        block: Option<cranelift_codegen::ir::Block>,
+        key: RowKey,
+        row_bytes: i64,
+    ) -> Option<Value> {
+        if self.block != block {
+            self.forget();
+            return None;
+        }
+        self.rows
+            .iter()
+            .find(|(k, bytes, _)| *k == key && *bytes == row_bytes)
+            .map(|&(_, _, address)| address)
+    }
+
+    /// Records a check made in `from` that continues in `valid`.
+    pub(super) fn record(
+        &mut self,
+        from: Option<cranelift_codegen::ir::Block>,
+        valid: cranelift_codegen::ir::Block,
+        key: RowKey,
+        row_bytes: i64,
+        address: Value,
+    ) {
+        if self.block != from {
+            self.forget();
+        }
+        if self.rows.len() == CHECKED_ROWS {
+            self.rows.remove(0);
+        }
+        self.rows.push((key, row_bytes, address));
+        self.block = Some(valid);
+    }
+
+    /// Extends the chain when lowering continues from `from` into `to`,
+    /// a block only `from` reaches.
+    pub(super) fn continue_to(
+        &mut self,
+        from: Option<cranelift_codegen::ir::Block>,
+        to: cranelift_codegen::ir::Block,
+    ) {
+        if self.block.is_some() && self.block == from {
+            self.block = Some(to);
+        }
+    }
+
+    fn forget(&mut self) {
+        self.rows.clear();
+        self.splits.clear();
+        self.block = None;
+    }
+
+    /// The rows and count of `view` split earlier on this path, if any.
+    pub(super) fn split(
+        &mut self,
+        block: Option<cranelift_codegen::ir::Block>,
+        view: Value,
+    ) -> Option<(Value, Value)> {
+        if self.block != block {
+            self.forget();
+            self.block = block;
+            return None;
+        }
+        self.splits
+            .iter()
+            .find(|(v, _)| *v == view)
+            .map(|&(_, split)| split)
+    }
+
+    pub(super) fn record_split(&mut self, view: Value, split: (Value, Value)) {
+        if self.splits.len() == CHECKED_ROWS {
+            self.splits.remove(0);
+        }
+        self.splits.push((view, split));
+    }
+}
+
+/// The slots of a counted `range` loop, as `counted_iteration` in
+/// `frontend/collections.rs` builds it: the loop runs while `remaining > 0`,
+/// and each pass ends by decrementing `remaining` and adding `advance` to
+/// `target`, the loop variable.
+///
+/// When the loop starts at a range's first element with `remaining` its
+/// length and `advance` its step, and that step is 1, every value of `target`
+/// in the body is an element of the range, so `target + 1` is at most the
+/// range's stop and cannot overflow; the value after the last pass is the
+/// stop. A nonnegative start then keeps `target` nonnegative. Both hold only
+/// if nothing else writes these slots: [`analyze_range`] accepts no write to
+/// them except the step itself, at the end of the body or followed by
+/// `continue`.
+pub(super) struct RangeLoop {
+    pub target: u8,
+    pub remaining: u8,
+    pub advance: u8,
+    /// Body indices of top-level `target + 1` additions.
+    pub unit_steps: Vec<usize>,
+}
+
+/// Match a counted `range` loop; [`RangeLoop`] states what the caller must
+/// still check about the slots' values on entry.
+pub(super) fn analyze_range(condition: &[Op], body: &[Op]) -> Option<RangeLoop> {
+    use crate::op::IntegerOp;
+    use crate::value::Value as V;
+    let [Op::LoadLocal(remaining), Op::PushInt(V::I64(0)), Op::Gt] = condition else {
+        return None;
+    };
+    let remaining = *remaining;
+    let [
+        Op::LoadLocal(r),
+        Op::PushInt(V::I64(1)),
+        Op::Integer(IntegerOp::WrappingSub),
+        Op::StoreLocal(r2),
+        Op::LoadLocal(target),
+        Op::LoadLocal(advance),
+        Op::Integer(IntegerOp::WrappingAdd),
+        Op::StoreLocal(t2),
+    ] = body.get(body.len().checked_sub(STEP_OPS)?..)?
+    else {
+        return None;
+    };
+    let (target, advance) = (*target, *advance);
+    if *r != remaining || *r2 != remaining || *t2 != target {
+        return None;
+    }
+    let slots = [target, remaining, advance];
+    if target == advance || target == remaining || advance == remaining {
+        return None;
+    }
+    let step = &body[body.len() - STEP_OPS..];
+    if !only_steps(&body[..body.len() - STEP_OPS], &slots, step) {
+        return None;
+    }
+    let unit_steps = (0..body.len() - STEP_OPS)
+        .filter(|&index| {
+            let mut before = body[..index].iter().rev().filter(|op| !transparent(op));
+            matches!(
+                (&body[index], before.next(), before.next()),
+                (Op::Add, Some(Op::PushInt(k)), Some(Op::LoadLocal(i)))
+                    | (Op::Add, Some(Op::LoadLocal(i)), Some(Op::PushInt(k)))
+                    if *i == target && literal(*k) == 1
+            )
+        })
+        .collect();
+    Some(RangeLoop {
+        target,
+        remaining,
+        advance,
+        unit_steps,
+    })
+}
+
+const STEP_OPS: usize = 8;
+
+/// Whether `ops` and their nested bodies write none of `slots`, except by a
+/// copy of `step` that `continue` follows.
+fn only_steps(ops: &[Op], slots: &[u8], step: &[Op]) -> bool {
+    let mut index = 0;
+    while index < ops.len() {
+        if ops[index..].starts_with(step) {
+            index += step.len();
+            if !matches!(ops.get(index), Some(Op::Continue)) {
+                return false;
+            }
+            continue;
+        }
+        let nested = |ops: &[Op]| only_steps(ops, slots, step);
+        let ok = match &ops[index] {
+            Op::StoreLocal(i)
+            | Op::BorrowLocal(i, _)
+            | Op::MoveLocal(i)
+            | Op::DropLocal(i)
+            | Op::EmptyLocal(i)
+            | Op::Next(i) => !slots.contains(i),
+            Op::Loop { condition, body } => nested(condition) && nested(body),
+            Op::If {
+                then,
+                elifs,
+                otherwise,
+            } => {
+                nested(then)
+                    && elifs
+                        .iter()
+                        .all(|arm| nested(&arm.condition) && nested(&arm.body))
+                    && nested(otherwise)
+            }
+            Op::Match(arms) => arms.iter().all(|arm| nested(&arm.body)),
+            Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => nested(cleanup),
+            Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => nested(body),
+            _ => true,
+        };
+        if !ok {
+            return false;
+        }
+        index += 1;
+    }
+    true
 }
 
 /// Operations that emit no code and so cannot separate a matched sequence.
@@ -100,10 +339,18 @@ pub(super) fn analyze(condition: &[Op], body: &[Op], locals: &[Ty]) -> Option<Co
         Op::LoadLocal(i) => analyze_counter(*i, right, side, body, locals),
         _ => None,
     };
-    left_counter.or_else(|| match right {
+    let right_counter = match right {
         Op::LoadLocal(i) => analyze_counter(*i, left, side.mirrored(), body, locals),
         _ => None,
-    })
+    };
+    match left_counter {
+        Some(mut counter) => {
+            counter.bound_step =
+                right_counter.and_then(|bound| Some((bound.local, bound.proven_step?)));
+            Some(counter)
+        }
+        None => right_counter,
+    }
 }
 
 fn analyze_counter(
@@ -140,6 +387,7 @@ fn analyze_counter(
         local,
         proven_step: proven_step.map(|(index, _)| index),
         only_grows,
+        bound_step: None,
     })
 }
 

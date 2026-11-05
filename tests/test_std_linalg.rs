@@ -87,8 +87,8 @@ def main() -> Result[(), Failure]:
     for release in [false, true] {
         let mut command = Command::new(support::plenty_bin());
         command.current_dir(dir.path()).env("PLENTY_CACHE", "off");
-        if release {
-            command.arg("--release");
+        if !release {
+            command.arg("--fast-compile");
         }
         assert_success(
             command

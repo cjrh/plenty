@@ -160,10 +160,13 @@ def main() -> Result[(), AllocError | IoError]:
 Pair[i64](left=1, right=2) Pair[i64](left=1, right=2) Pair[list[i64]](left=[1], right=[2])
 ```
 
-Equality, printing, field access, and matching are unchanged. Classes,
-including copy classes, are not yet dictionary keys or set elements, except the
-builtin [`NonZero[T]`](numbers.md#nonzero-integers); see the
-[user type hashing proposal](../../../proposals/user-type-hashing.md).
+Equality, printing, field access, and matching are unchanged. Classes are
+[collection keys](../../facilities/01-builtins/collections.md) when every field
+is a supported key type. Custom `__del__` cleanup is allowed, including in
+nested fields; such keys cannot be copied for set algebra or key-view `to_set()`.
+Hashing reads their
+fields structurally, just as equality does. Ordinary instances move into the
+collection; `@copy` instances copy. `__hash__` and `__eq__` hooks are unsupported.
 
 ### Annotations
 

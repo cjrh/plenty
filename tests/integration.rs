@@ -212,6 +212,8 @@ mod test_fallible_displays;
 mod test_fallible_format;
 #[path = "test_fallible_text.rs"]
 mod test_fallible_text;
+#[path = "test_fannkuch_redux.rs"]
+mod test_fannkuch_redux;
 #[path = "test_ffi.rs"]
 mod test_ffi;
 #[path = "test_field_indexing.rs"]
@@ -266,6 +268,8 @@ mod test_generics;
 mod test_heap_drop_order;
 #[path = "test_indirect_ffi.rs"]
 mod test_indirect_ffi;
+#[path = "test_inline_calls.rs"]
+mod test_inline_calls;
 #[path = "test_inline_constructors.rs"]
 mod test_inline_constructors;
 #[path = "test_inline_copies.rs"]
@@ -584,6 +588,10 @@ mod test_std_textwrap;
 mod test_std_tls;
 #[path = "test_std_toml.rs"]
 mod test_std_toml;
+#[path = "test_std_units.rs"]
+mod test_std_units;
+#[path = "test_std_units_catalogue.rs"]
+mod test_std_units_catalogue;
 #[path = "test_std_url.rs"]
 mod test_std_url;
 #[path = "test_std_uuid.rs"]
@@ -689,5 +697,30 @@ mod test_worker_callables;
 #[path = "test_domain_types.rs"]
 mod test_domain_types;
 
+#[path = "test_dimensions.rs"]
+mod test_dimensions;
+#[path = "test_quantities.rs"]
+mod test_quantities;
 #[path = "test_std_ceilings.rs"]
 mod test_std_ceilings;
+
+#[path = "test_quantity_formatting.rs"]
+mod test_quantity_formatting;
+
+#[path = "test_quantity_constants.rs"]
+mod test_quantity_constants;
+
+#[path = "test_dimension_diagnostics.rs"]
+mod test_dimension_diagnostics;
+
+#[path = "test_quantity_erasure.rs"]
+mod test_quantity_erasure;
+
+#[path = "test_key_diagnostics.rs"]
+mod test_key_diagnostics;
+
+#[path = "test_cleanup_keys.rs"]
+mod test_cleanup_keys;
+
+#[path = "test_boxed_protocols.rs"]
+mod test_boxed_protocols;

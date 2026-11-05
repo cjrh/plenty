@@ -1,6 +1,8 @@
 //! Immutable native type metadata. No runtime parsing or metadata allocation.
 use super::*;
 
+mod finite;
+
 fn blob(module: &mut ObjectModule, bytes: Vec<u8>, links: &[(usize, DataId)]) -> Result<DataId> {
     let id = module.declare_anonymous_data(false, false)?;
     define(module, id, bytes, links, &[])?;
@@ -101,7 +103,8 @@ fn define_type(
 ) -> Result<()> {
     let id = runtime.type_data.lock().unwrap()[ty];
     // Mirrors plenty_runtime::aggregates::{Type, Variant} on the 64-bit host.
-    let mut bytes = vec![0; 104];
+    let mut bytes = vec![0; 128];
+    let finite = finite::emit(module, ty)?;
     // The formatting adapters belong to the type as written: a newtype's
     // methods are its own, not its field's.
     let formats: Vec<(u32, FuncId)> = [(88, false), (96, true)]
@@ -164,6 +167,22 @@ fn define_type(
     bytes[3] = u8::from(ty.has_inline_range());
     bytes[4..8].copy_from_slice(&(ty.inline_bytes() as u32).to_ne_bytes());
     let mut links = Vec::new();
+    if let Some(finite) = finite {
+        links.push((120, finite));
+    }
+    if let Some((class, _)) = &newtype
+        && let Some(dimension) = &class.get().quantity
+    {
+        let symbol = dimension.symbol();
+        word(&mut bytes, 112, symbol.len());
+        // Even a dimensionless quantity needs a non-null Some("") pointer.
+        let data = if symbol.is_empty() {
+            vec![0]
+        } else {
+            symbol.into_bytes()
+        };
+        links.push((104, blob(module, data, &[])?));
+    }
     match ty {
         Ty::View(t, _) if **t == Ty::Text => {}
         Ty::List(t)
@@ -274,6 +293,7 @@ fn define_type(
         .into_iter()
         .chain(formats)
         .collect();
+    runtime.refer(functions.iter().map(|&(_, function)| function));
     define(module, id, bytes, &links, &functions)
 }
 
@@ -281,6 +301,7 @@ fn define_type(
 /// `NonZero`, newtype, or atomic by the type whose layout it shares.
 fn kind_code(ty: &Ty) -> u8 {
     match ty {
+        Ty::Dimension(_) => unreachable!("dimensions have no runtime representation"),
         Ty::I8 => b'1',
         Ty::Callable(_) | Ty::Task(_) => b'c',
         Ty::Channel(_, true) => b'X',
@@ -290,6 +311,7 @@ fn kind_code(ty: &Ty) -> u8 {
         Ty::Future(_) => b'Z',
         Ty::Closure(_) => b'H',
         Ty::BoxedCallable(_) => b'J',
+        Ty::BoxedProtocol(_) => b'j',
         Ty::I16 => b'2',
         Ty::I32 => b'3',
         Ty::I64 => b'4',

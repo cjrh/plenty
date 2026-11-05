@@ -575,7 +575,11 @@ def main() -> Result[(), IoError]:
         let dump = plenty::dump_file(
             &file,
             None,
-            &plenty::CompileOptions::default(),
+            &plenty::CompileOptions {
+                // Inspect tail calls before optimized call-site substitution.
+                optimize: false,
+                ..Default::default()
+            },
             &plenty::DumpOptions {
                 stages: vec![plenty::DumpStage::Ops, plenty::DumpStage::Clif],
                 filter: Some("countdown".into()),

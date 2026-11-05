@@ -6,6 +6,11 @@ section links to the reference, which remains authoritative. The
 [tutorial](../../tutorial/index.md) teaches the same material in order, and the
 [signature index](../stdlib/signatures.md) lists the standard library.
 
+Builds optimize by default. Use `plenty --fast-compile FILE`,
+`plenty script --fast-compile FILE`, or `plenty run --fast-compile` for shorter
+edit-run cycles in large projects; runtime checks stay enabled. Package output
+is in `target/optimized/` by default or `target/fast-compile/` with that flag.
+
 ## Programs and printing
 
 ```plenty
@@ -90,9 +95,10 @@ def main() -> Result[(), IoError]:
 - Each function and closure has its own declared arithmetic contract,
   independent of its definition or call site. There is no private callback
   channel. Handle a callee's `Result` normally.
-- `unchecked:` deliberately selects process termination for arithmetic failure
-  and yields an ordinary suite value, not a `Result`. It never silently wraps.
-  Keep opt-outs small and document their bounds.
+- `unchecked:` asserts that its arithmetic cannot fail and yields an ordinary
+  suite value, not a `Result`. A violation currently terminates the process;
+  do not rely on that. Use wrapping operations for modular arithmetic. Keep
+  opt-outs small and document their bounds.
 - `?`, `return`, `break`, and `continue` inside it act on the function or loop.
 - Float arithmetic stays IEEE: overflow may produce infinity and division by
   zero may produce infinity or NaN. For recoverable zero division,
@@ -406,6 +412,37 @@ there is no automatic `+=` fallback. Equality remains structural. Other
 [rejected](../language/04-expressions/operators.md#reserved-method-names):
 write `display`/`debug` for formatting and named methods for the rest.
 
+## Compile-time dimensions
+
+Use `dimension` for a base or a derived dimension, and `D: Dimension` for an
+argument that carries no runtime value:
+
+```plenty
+dimension Length("m")
+dimension Time("s")
+dimension Velocity = Length / Time
+const metre: Quantity[f64, Length] = Quantity[f64, Length](1.0)
+
+def main() -> Result[(), IoError]:
+    distance = 12.0 * metre
+    elapsed = Quantity[f64, Time](4.0)
+    speed: Quantity[f64, Velocity] = distance / elapsed
+    print(speed)?
+    Ok(())
+```
+```output
+3.0 m/s
+```
+
+Products and quotients normalize; `Pow[A, n]` and `Root[A, n]` require integer
+exponents and exact roots. `One` is dimensionless. A dimension cannot be a value
+type. `Quantity[T, D]` checks dimensions in arithmetic and `.get()` reads its
+stored number. For floats, `.to(unit)` divides by a quantity of the same type.
+[`std.units`](../stdlib/units.md) provides SI dimensions, units such as `u.km`
+and constants; declare your own only for other bases.
+See [dimensions](../language/03-types/dimensions.md) and
+[quantities](../language/03-types/quantities.md).
+
 ## Option, Result, and errors
 
 ```plenty
@@ -582,7 +619,7 @@ def main() -> Result[(), IoError | OverflowError[i64]]:
 | `d[k] += 1` | `d.insert(k, d.get(k, 0) + 1)?`, or `*v += 1` on `Some(v)` from `d.get_mut(k)` |
 | `case x if x > 0:` | Test inside the arm |
 | `class B(A):` | Composition or a [protocol](../language/07-generics/protocols.md) |
-| Global variables | Pass values as parameters; `const` holds a number, `bool`, `str`, or `bytes` computed at compile time |
+| Global variables | Pass values as parameters; `const` holds a number, quantity, `bool`, `str`, or `bytes` computed at compile time |
 | `y = xs`, then using `xs` | `y = copy(xs)?`, or borrow with `&xs` |
 | A name first bound inside an `if`, loop, or `match` arm, used after it | Bind `name = if condition:` (or `name = match value:`), or use `a if cond else b`; the binding ends with its block. Only [`if const`](../language/02-source/target-conditionals.md) arms open no scope |
 | `x is None` | `x.is_none()`, or `match` on `Some`/`Nothing` |

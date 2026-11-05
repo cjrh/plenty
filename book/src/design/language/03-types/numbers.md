@@ -77,7 +77,8 @@ Integer arithmetic failures return `Err` from the enclosing function by
 default. Its declared `Result` error type must include the possible errors;
 successful arithmetic still produces ordinary integers. Use an explicit
 [`checked:` block](#checked-blocks) for local recovery, or
-[`unchecked:`](#unchecked-blocks) for deliberate process termination.
+[`unchecked:`](#unchecked-blocks) where the programmer guarantees that the
+arithmetic cannot fail.
 `//` floors signed quotients, including negative operands; `%` is integer-only. `/` accepts
 matching-width floats. Float arithmetic follows IEEE behavior for rounding,
 signed zero, infinities, NaN, and underflow; arithmetic overflow may yield infinity.
@@ -151,20 +152,25 @@ errors: handle a local checked result or explicitly opt out.
 
 ## Unchecked blocks
 
-`unchecked:` selects trapping arithmetic for its lexical suite. It yields
-the last expression's ordinary type, without wrapping or unwrapping a
+`unchecked:` states that integer arithmetic written in its lexical suite
+does not overflow or divide by zero; that is the programmer's precondition,
+not the compiler's. It yields the last expression's ordinary type, without wrapping or unwrapping a
 `Result`. It is also allowed as a statement suite, including an empty
 `pass` suite and suites whose paths exit. Locals remain block scoped and
 reference-valued suites are not supported.
 
 ```plenty fragment
-def scale_or_terminate(value: i64, factor: i64) -> i64:
+def scale_in_bounds(value: i64, factor: i64) -> i64:
     unchecked:
         value * factor
 ```
 
-Overflow and division by zero terminate the process, including in optimized
-builds; they never wrap silently or reach an outer checked boundary.
+The compiler currently validates the precondition: a violation terminates the
+process in every build, and never wraps or reaches an outer checked boundary.
+Do not rely on that termination as the suite's meaning. A planned compiler mode
+may assume the precondition and omit these checks, in which case a violation
+is undefined behavior, possibly a silently wrong result. Use explicit wrapping
+operations for modular arithmetic and ordinary validation for untrusted input.
 Nested `checked:` restores local recoverability; leaving either suite restores
 the outer mode. Calls still return their declared results, and `?`, `return`,
 `break` and `continue` keep their ordinary targets.
@@ -270,8 +276,8 @@ its operands are constants, so `checked:` around `i8.MAX + 1i8` produces
 `Err(OverflowError[i8](wrapped=-128))`.
 
 Arithmetic uses plain values and a shared cold error exit at its nearest
-recoverable boundary. An `unchecked:` operation uses an inline trap guard
-instead; it is not a promise of check-free arithmetic or greater speed. See the
+recoverable boundary. An `unchecked:` operation currently uses an inline trap guard
+instead; it does not yet make arithmetic check-free or faster. See the
 [design note](../../../proposals/completed/checked-arithmetic.md).
 
 ## Nonzero integers
@@ -321,8 +327,8 @@ Arithmetic keeps a result nonzero only where that follows from nonzero
 operands. Unary `-` and `+`, and `*` between two `NonZero[T]` values, return
 `NonZero[T]`; `*=` updates one. `+` and `-` between two values return `T`,
 since their result can be zero. Overflow returns `Err` at the nearest
-recoverable boundary, or traps in [unchecked blocks](#unchecked-blocks),
-so a product cannot wrap to zero. Other
+recoverable boundary, and violates the precondition of
+[unchecked blocks](#unchecked-blocks), so a product cannot wrap to zero. Other
 operators between two `NonZero` values, including `//`, `%`, bitwise operators,
 and shifts, are compile-time errors that suggest `.get()`. An integer literal beside a `NonZero[T]` operand
 is a `NonZero[T]` too: `step * 2` is a `NonZero[i64]`, and `step == 0` is a
@@ -383,8 +389,8 @@ True
 
 `+`, `*`, `+=` and `*=` preserve the domain; subtraction and unary `-`
 return `T`, and unary `+` preserves it. Overflow returns `Err` by default
-or traps in [unchecked blocks](#unchecked-blocks), so the domain cannot be violated by
-wrapping. Comparisons accept the same domain type or a literal in its domain.
+and violates the precondition of [unchecked blocks](#unchecked-blocks), so the
+domain cannot be violated by wrapping. Comparisons accept the same domain type or a literal in its domain.
 Other operators between domain values, including division, modulo, bitwise
 operations and shifts, require `.get()`.
 

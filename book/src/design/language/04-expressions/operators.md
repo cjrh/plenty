@@ -126,7 +126,7 @@ Equality, ordering and hashing never call user code:
 - `<`, `<=`, `>` and `>=` on a class come only from
   [newtype forwarding](#newtype-forwarding).
 - Dictionary keys and set elements use built-in structural hashing. Classes
-  and enums defined in Plenty are not keys yet.
+  are not keys yet; named enums with supported key payloads are accepted.
 
 A class, enum or protocol that declares `__eq__`, `__ne__`, `__lt__`,
 `__le__`, `__gt__`, `__ge__`, `__cmp__`, `__hash__` or `__key__` is rejected,
@@ -187,7 +187,8 @@ operators retain their overflow checks and division rules. Operators a newtype
 forwards to an integer field report `OverflowError` of the field type through
 the [function's declared Result](../03-types/numbers.md#function-arithmetic-contracts)
 by default, through a local [`checked:` block](../03-types/numbers.md#checked-blocks),
-or as a trap in `unchecked:`, just like the field's own operators. A user-defined
+or as a violated precondition in `unchecked:`, just like the field's own
+operators. A user-defined
 hook is an ordinary call with its own declared contract, independent of the
 caller's mode; a fallible hook still needs explicit Result handling.
 

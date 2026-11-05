@@ -8,6 +8,9 @@ result and reserves at least that many entries, including hash storage.
 Aliases expose these constructors too. Empty construction allocates its owner;
 negative counts and impossible layouts return `CapacityOverflow`; exhaustion
 returns `OutOfMemory`. Partial storage is reclaimed on failure.
+[Small enum bitsets](sets.md#small-enum-bitsets) need only the owner allocation;
+valid capacity hints require no additional storage because all possible members
+already fit in the membership mask.
 
 `[elements]`, `{key: value}`, `{elements}`, and typed empty constructors such as
 `list[i64]()` also return `Result[collection, AllocError]`. `{}` is a dictionary.
@@ -55,7 +58,9 @@ Growth reserves all required storage before mutation. Failure preserves contents
 order, and lookup behavior; capacity may change. Negative or impossible counts
 return `CapacityOverflow`. A successful reserve permits the specified number of
 subsequent insertions without storage allocation. Existing-key replacement and
-duplicate set insertion do not grow storage.
+duplicate set insertion do not grow storage. An equal incoming key is destroyed;
+the existing key owner is retained. This can run custom cleanup even when the
+collection length does not change.
 
 Insertion consumes its arguments on both outcomes; failure drops owned inputs.
 Reserve before moving an input that must survive a storage failure. The Result

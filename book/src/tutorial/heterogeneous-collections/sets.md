@@ -1,0 +1,218 @@
+# Sets and different kinds of values
+
+Sets accept named enums when every payload is a supported key type: integers,
+`bool`, `str`, `bytes`, or tuples, classes, enums and anonymous sums of those types. The variant
+is part of the identity, so different variants with equal payloads remain distinct.
+
+```plenty
+enum Selection:
+    Account(i64)
+    Group(str)
+    All
+
+def main() -> Result[(), AllocError | IoError]:
+    mut selected: set[Selection] = set()?
+    selected.add(Selection.Account(7))?
+    selected.add(Selection.Group("7"))?
+    selected.add(Selection.Account(7))?
+    print(len(selected))?
+    print(Selection.Account(7) in selected)?
+    Ok(())
+```
+```output
+2
+True
+```
+
+This is one element type with several alternatives. Enums carrying collections,
+floats or boxes cannot be set elements. Anonymous sums qualify when every member is a supported key type.
+
+## Class payloads
+
+A wrapper can also carry classes whose fields are supported keys. Ordinary
+classes move into the set; use a borrowed probe to keep a lookup value:
+
+```plenty
+class Account:
+    region: str
+    number: i64
+
+enum Selection:
+    Account(Account)
+    Group(str)
+
+def main() -> Result[(), AllocError | IoError]:
+    selected = {Selection.Account(Account("eu", 7)), Selection.Group("editors") }?
+    probe = Selection.Account(Account("eu", 7))
+    print(&probe in selected)?
+    for item in &selected:
+        match item:
+            case Selection.Account(account):
+                print(account.region, account.number)?
+            case Selection.Group(group):
+                print(group)?
+    Ok(())
+```
+```output
+True
+eu 7
+editors
+```
+
+The lookup compares fields rather than object addresses. Borrowed iteration
+keeps the stored keys immutable. For keys without custom cleanup, set algebra creates independent key copies;
+its result can outlive either input. See [sets](../../design/facilities/01-builtins/sets.md).
+
+## Keep each kind in its own set
+
+Suppose a selection contains numeric account IDs and textual group names.
+Separate sets preserve both kinds without converting IDs into strings:
+
+```plenty
+def main() -> Result[(), AllocError | IoError]:
+    mut account_ids: set[i64] = set()?
+    mut group_names: set[str] = set()?
+    account_ids.add(7)?
+    account_ids.add(7)?
+    group_names.add("editors")?
+    group_names.add("7")?
+    print(len(account_ids), len(group_names))?
+    print(7 in account_ids, "7" in group_names)?
+    Ok(())
+```
+```output
+1 2
+True True
+```
+
+The integer `7` and the name `"7"` remain distinct identities. Each set removes
+its own duplicates and supports the ordinary
+[set operations](../../design/facilities/01-builtins/sets.md).
+Group the two sets in a class if they need to travel together.
+
+## Use an anonymous sum
+
+When the types themselves express the alternatives, no wrapper is needed:
+
+```plenty
+def main() -> Result[(), AllocError | IoError]:
+    mut selected: set[i64 | str] = {7, "editors"}?
+    selected.add("7")?
+    selected.add(7)?
+    print(len(selected), 7 in selected, "7" in selected)?
+    Ok(())
+```
+```output
+3 True True
+```
+
+The member type is part of each key's identity. Every member must support
+structural hashing; `set[i64 | f64]` is rejected because floats are not keys.
+Use a named enum when alternatives need different meanings despite sharing a
+payload type. Anonymous sums use hash sets, including sums of finite enums.
+
+## Small enums without payloads
+
+Use ordinary sets for flags or selections too. An enum with no payloads and at
+most 256 variants automatically gets compact bitset storage. The compiler
+selects a 64-, 128-, or 256-bit mask from the number of possible values:
+
+```plenty
+enum Permission:
+    Read
+    Write
+    Execute
+
+def main() -> Result[(), AllocError | IoError]:
+    mut granted = {Permission.Read}?
+    granted.add(Permission.Write)?
+    required = {Permission.Read, Permission.Write}?
+    print(required.issubset(&granted))?
+    granted.discard(Permission.Write)
+    print(Permission.Write in granted)?
+    Ok(())
+```
+```output
+True
+False
+```
+
+Keep the usual `?` handling: constructing a set still allocates its owner.
+Adding members to this representation needs no further allocation. The same
+programming style works for larger enums and other payload types, which use
+hash sets. See [small enum bitsets](../../design/facilities/01-builtins/sets.md#small-enum-bitsets).
+
+## Small finite payloads
+
+Payloads can use bitsets too when the complete type has at most 256 possible
+values. Booleans and nested enums or tuples of these types qualify.
+Here `State` has three values: `Idle`, `Enabled(False)`, and `Enabled(True)`.
+
+```plenty
+enum State:
+    Idle
+    Enabled(bool)
+
+def main() -> Result[(), AllocError | IoError]:
+    mut allowed = {State.Idle, State.Enabled(False)}?
+    allowed.add(State.Enabled(True))?
+    print(len(allowed), State.Enabled(True) in allowed)?
+    Ok(())
+```
+```output
+3 True
+```
+
+The limit counts all possible payload combinations, regardless of how many
+members the set currently contains. For example, eight boolean fields have 256
+combinations; adding a separate payload-free variant makes 257 and selects a
+hash set. Integer and string payloads use hash sets. No special container or
+manual integer encoding is needed.
+
+## Keys with custom cleanup
+
+A key may define `__del__`, or contain a value that does. Its fields must still
+be supported key types. The collection owns the inserted key and runs cleanup
+when that owner is removed or destroyed. Borrow keys for lookup and inspection;
+transfer them when a second owner cannot be created.
+
+This example logs cleanup to make ownership visible. It unwraps diagnostic
+printing inside the destructor because cleanup cannot return an error:
+
+```plenty
+class Ticket:
+    id: i64
+
+    def __del__(self) -> ():
+        print("released", self.id).unwrap()
+
+def main() -> Result[(), AllocError | IoError]:
+    mut selected = {Ticket(7)}?
+    additional = {Ticket(8)}?
+    selected.update(additional)?
+    print(len(selected))?
+    for ticket in &selected:
+        print(ticket.id)?
+    # Transfer the owners out of the set before destroying them.
+    for ticket in selected:
+        drop(ticket)
+    Ok(())
+```
+```output
+2
+7
+8
+released 7
+released 8
+```
+
+Iteration order is unspecified. `update` consumes the source set; an equal
+incoming key is destroyed while the stored owner is retained. Use
+`intersection_update` and `difference_update` to filter in place, and relationship
+checks such as `issubset` to compare without copying.
+
+`union`, `intersection`, `difference`, `symmetric_difference`, `copy(selected)`
+and dictionary `keys().to_set()` require independent key copies, so they reject
+custom cleanup, including cleanup nested inside an enum or anonymous sum.
+A borrowed `keys()` view still works. To keep dictionary keys after consuming
+the dictionary, use `into_keys()`; see [dictionary snapshots and views](../../design/facilities/01-builtins/dictionaries.md#snapshots-and-views).

@@ -20,6 +20,8 @@ or use the [support index](toolchain/02-architecture/support.md) to find a contr
 - **Toolchain and implementation:** [building programs](toolchain/01-building/index.md)
   explains commands and artifacts; [architecture](toolchain/02-architecture/index.md)
   explains checking, native compilation, and runtime mechanisms.
+- **Comparisons:** [Plenty and Rust](comparisons/rust.md) compares
+  ownership and what Rust's `unsafe` permits.
 
 [Learn Plenty](../tutorial/index.md) teaches the language through executable
 examples. [Supplementary examples](examples/index.md) cover additional operations.

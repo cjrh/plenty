@@ -499,6 +499,8 @@ mod tests {
         transparent: false,
         debug: None,
         display: None,
+        quantity: None,
+        finite: None,
     };
 
     #[test]

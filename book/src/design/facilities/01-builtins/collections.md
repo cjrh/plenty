@@ -6,12 +6,21 @@ have a deliberately smaller interface than ordinary lists.
 
 `list[T]`, `dict[K, V]`, and `set[T]` have concrete element types, including
 nested collections. Dictionary keys and set members are integers, `bool`, `str`,
-`bytes`, or tuples recursively containing those types. Hashing uses tuple
-contents, including string and byte-literal contents, independently of where a
-tuple is stored. Floats, owned collection/class components, and user-defined
-hash/equality are unsupported. Unit elements are rejected.
+`bytes`, or tuples, classes, enums and anonymous sums recursively containing those types.
+Every class field and every payload of every variant must be a supported key
+type. Hashing includes class fields, variant tags and payload contents,
+independently of where the value is stored. Ordinary classes move into a
+collection; `@copy` classes keep their usual copy behavior. Stored keys are
+exposed only through shared borrows, so their identity cannot change in place.
+Floats, collections, boxes and recursive types are not supported keys.
+Keys with custom `__del__` cleanup are supported, including nested cleanup,
+but cannot be duplicated: copying collections, non-mutating set algebra and
+key-view `to_set()` reject these keys. Borrowing and ownership transfers work normally. User-defined hash/equality hooks remain unsupported. See the
+[heterogeneous collections tutorial](../../../tutorial/heterogeneous-collections/index.md).
+Unit elements are rejected. Sets of supported finite enums or tuples with at most 256 possible values
+use [bitsets](sets.md#small-enum-bitsets) instead; they do not hash or request entropy.
 
-Dictionary and set bucket selection uses SipHash-2-4 over the complete key,
+Dictionary and hash-backed set bucket selection uses SipHash-2-4 over the complete key,
 including framed tuple fields and string lengths. One secret 128-bit key is
 obtained from OS entropy on the process's first hash operation and shared across
 worker threads. Initialization and hashing allocate no runtime storage.

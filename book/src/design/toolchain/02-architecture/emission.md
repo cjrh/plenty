@@ -64,7 +64,7 @@ imports only they need. COFF resolves undefined symbols even in sections its
 linker will discard, so section garbage collection alone cannot do this. A
 reached foreign call keeps its real import; no fallback definition is generated.
 All bodies still receive frontend and ownership checks. This applies in both
-debug and optimized executable builds, so an unreachable user function has no
+fast-compile and optimized executable builds, so an unreachable user function has no
 executable symbol or breakpoint location on Windows. Explicit `--emit-object`,
 library objects and `--dump` preserve their existing user-definition and generator
 roots for inspection and external linking. External COFF consumers of such an
@@ -244,6 +244,28 @@ other function uses it. The choice depends on the function alone, so it is the
 same for every core count. `tests/test_large_functions.rs` runs functions over
 the limit.
 
+## Identical code folding
+
+A local function whose placed code equals an earlier function's shares that
+function's code instead of getting its own copy. Code is equal when its bytes,
+relocations, requested symbols, trap-site records and checks are equal; calls
+compare by callee after folding, so a caller of folded functions folds too
+when its callees were placed first. Quantity instances that differ only in
+dimension are the common case, since
+[dimensions are erased](../../language/03-types/quantities.md#representation-and-current-limits):
+`sum[Length]` and `sum[Time]` in [`std.units`](../../stdlib/units.md) compile
+to one body. An instance that formats a value or builds a collection keeps its
+own body, because its type descriptor names the dimension.
+
+A folded function is defined empty, and once the object module is finished its
+symbol is moved to the shared code, so every call and table entry reaches it.
+On Mach-O the moved symbol is marked `N_ALT_ENTRY`, keeping the code one
+linker atom. Exported functions and coverage builds keep every body. So does
+every function used as a value: [function values](../../language/06-functions/02-function-values.md)
+compare code addresses, so two distinct functions never compare equal. Other
+functions may still fold into one. In `--dump asm`, a folded function lists
+`; shares the code of SYMBOL` instead of instructions.
+
 ## Call-site substitution
 
 Before any body is lowered, `src/codegen/small_calls.rs` replaces two kinds of
@@ -255,7 +277,7 @@ call with the callee's operations (issue #363):
   its literal and the domain's constructor call, as a literal argument
   lowers. This happens in every build, and the constant has no function in
   the object.
-- **Leaf predicates**, in release builds only. A function whose parameters
+- **Leaf predicates**, in optimized builds only. A function whose parameters
   and result are numbers or `bool`, with no locals, and whose body is at most
   12 operations drawn from parameter reads, literals, constants, comparisons,
   `not`, `and`, `or`, and matches on `bool` or integer literals. Nothing in
@@ -272,6 +294,36 @@ The substituted operations report no source position, so a later trap or
 call in the caller reports the same position and call chain as before. They
 become part of the caller's IR, so the [compiled-function cache](cache.md)
 key changes when a constant's value or a predicate's body does.
+
+## Call-site inlining
+
+In optimized builds, `src/codegen/inline_calls.rs` lowers some calls by
+lowering the callee's typed body in the caller (issues #548 and #722). The
+body keeps its own locals, source position, trap sites and cleanup, so traps
+and `?` failures behave as the call would; only its final return becomes a
+jump. A callee is inlined when it is not recursive, not a generator, has no
+tail call and defines no function, and its operations, counting the callees
+inlined into it, stay within a bound:
+
+| Callee | Bound |
+|---|---|
+| A class's `new` or `__init__` | 64 operations |
+| Any function with one direct call site | 160 operations |
+| Any other function | 16 operations |
+
+A tail call is inlined only when the caller has no managed locals or has just
+one tail-call site; otherwise it retains the shared tail-exit cleanup, keeping
+code growth linear in the number of owned locals and exits. C string adapter failures also return through
+the inlined callee's exit, so the caller can handle the error.
+
+An inlined function's own body is built only if placed code or data still
+refers to it, for example a call from a generator, a function value, a
+protocol table or a thread adapter; exported functions are always built.
+Otherwise the copy at its call site is its only code, so inlining a function
+called once costs no extra compile time. The symbol of a body not built
+stays in the object as a single trap instruction, so code outside Plenty
+that calls it, such as C linked against the object, stops with `SIGILL`
+rather than running into the next function. `--dump` builds keep every body.
 
 ## Last-use moves
 
@@ -313,7 +365,7 @@ after the ownership checker, so diagnostics are unchanged.
 
 ## Constants in loops
 
-In release builds Cranelift rematerializes an integer or float constant in each
+In optimized builds Cranelift rematerializes an integer or float constant in each
 block that uses it rather than keeping it in a register across a loop: this
 saves a register for the loop's lifetime at the cost of one instruction per use.
 On x86-64 a constant that is the right operand of a float operation is read from
@@ -419,7 +471,9 @@ whose condition compares it with another local or a literal, as in
   the type's maximum, so `i + 1` cannot overflow; a literal bound also admits
   larger steps that stay in range, and `i > n` admits `i - 1`. Such a step is
   a plain add. Later writes, steps inside nested loops, and steps such as
-  `i <= n` with a variable `n` keep their check.
+  `i <= n` with a variable `n` keep their check. When the bound is also a
+  local, its own first step is proven the same way, so in `while lo < hi`
+  both `lo += 1` and `hi -= 1` are plain (issue #720).
 - **Signed division.** A signed counter that enters the loop holding a
   nonnegative literal, and whose every write in the loop adds a nonnegative
   literal, is never negative, since each add is checked or proven. `//` and
@@ -427,8 +481,20 @@ whose condition compares it with another local or a literal, as in
   division, with no floor correction or `MIN // -1` check. The zero-divisor
   check stays.
 
+A `for` loop over a `range(start, stop)` call with step 1 and an `i64` or
+`u64` element gets both facts from the range instead of a condition: every
+value of the loop variable `i` is below `stop`, so a top-level `i + 1` in the
+body is a plain add, and a nonnegative `start` keeps `i` nonnegative. The
+lowerer accepts the loop only when its hidden counters start from that
+range's computed length, start, and step, and nothing in the body writes them
+except the loop's own step before `continue`. Reversed ranges, other steps,
+narrower elements, and range values in locals keep every check.
+
 Counters in memory, borrowed locals and generator frames, are not analyzed.
-`for` loops over ranges already step with wrapping arithmetic.
+`for` loops over ranges step with wrapping arithmetic. A range over
+an integer type narrower than `i64`, or one with a positive literal step and
+a start known nonnegative, cannot have more than `i64.MAX` elements, so its
+length needs no overflow check (issue #721).
 
 ## Short circuits in conditions
 

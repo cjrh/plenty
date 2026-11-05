@@ -343,6 +343,7 @@ fn step(
                 | crate::collection::CollectionOp::ViewRow(ty, _)
                 | crate::collection::CollectionOp::ViewItem(ty, _)
                 | crate::collection::CollectionOp::ViewEqual(ty)
+                | crate::collection::CollectionOp::ViewSwap(ty)
                     if !matches!(ty, Ty::View(..)) =>
                 {
                     return Err("view operations require a slice view".into());
@@ -351,9 +352,14 @@ fn step(
                 | crate::collection::CollectionOp::ViewItem(Ty::View(_, false), true) => {
                     return Err("a shared slice view cannot lend a mutable row".into());
                 }
+                crate::collection::CollectionOp::ViewSwap(Ty::View(_, false)) => {
+                    return Err("swapping view rows requires an exclusive view".into());
+                }
                 crate::collection::CollectionOp::ListScalarGetRef(ty)
                 | crate::collection::CollectionOp::ListScalarGetView(ty)
                 | crate::collection::CollectionOp::ListScalarSetRef(ty)
+                | crate::collection::CollectionOp::ListScalarSetView(ty)
+                | crate::collection::CollectionOp::ListScalarSwapRef(ty)
                     if !matches!(ty, Ty::List(element) if element.is_numeric() || **element == Ty::Bool) =>
                 {
                     return Err("scalar list access requires a scalar list reference".into());
@@ -722,6 +728,72 @@ fn step(
                 return Err("closure call environment ownership mismatch".into());
             }
             stack.extend(t.signature.output.clone());
+        }
+        Op::ProtocolBoxNew(source, adapters, protocol) => {
+            if (!matches!(source.as_ref(), Ty::Class(_) | Ty::ByteStr)
+                && !matches!(source.as_ref(), Ty::Enum(t) if !t.anonymous()))
+                || protocol.methods.is_empty()
+                || source.storage_barrier().is_some()
+                || crate::boxed::erasure_barrier(source)
+                || stack.pop().as_ref() != Some(source.as_ref())
+                || adapters.len() != protocol.methods.len()
+            {
+                return Err("invalid protocol box source or method table".into());
+            }
+            for (adapter, method) in adapters.iter().zip(&protocol.methods) {
+                if method
+                    .signature
+                    .output
+                    .as_ref()
+                    .is_some_and(Ty::contains_reference)
+                    || method.signature.inputs.len() >= 256
+                {
+                    return Err("invalid protocol method signature".into());
+                }
+                let mut expected = method.signature.function();
+                expected.inputs.insert(
+                    0,
+                    (
+                        "self".into(),
+                        Ty::Ref(Arc::new((**source).clone()), method.mutable),
+                    ),
+                );
+                if sigs.get(adapter.as_str()).copied() != Some(&expected) {
+                    return Err("protocol adapter signature mismatch".into());
+                }
+            }
+            stack.push(crate::sum::result(
+                Ty::BoxedProtocol(protocol.clone()),
+                crate::sum::alloc_error(),
+            ));
+        }
+        Op::ProtocolBoxCall(protocol, index) => {
+            let method = protocol
+                .methods
+                .get(*index)
+                .ok_or("invalid protocol method index")?;
+            if method
+                .signature
+                .output
+                .as_ref()
+                .is_some_and(Ty::contains_reference)
+            {
+                return Err("protocol methods cannot return borrows".into());
+            }
+            for expected in method.signature.inputs.iter().rev() {
+                if stack.pop().as_ref() != Some(expected) {
+                    return Err("protocol argument mismatch".into());
+                }
+            }
+            if stack.pop()
+                != Some(Ty::Ref(
+                    Arc::new(Ty::BoxedProtocol(protocol.clone())),
+                    method.mutable,
+                ))
+            {
+                return Err("protocol receiver ownership mismatch".into());
+            }
+            stack.extend(method.signature.output.iter().cloned());
         }
         Op::BoxedCallableNew(source, adapter, signature) => {
             if signature.inputs.len() >= 256 || matches!(signature.output, Some(Ty::Ref(..))) {
@@ -1335,6 +1407,66 @@ mod tests {
         malformed.variants[0].fields.clear();
         let result = Ty::Enum(crate::nominal::Nominal::new(malformed));
         assert!(checked_block_step(vec![], result, &mut vec![]).is_err());
+    }
+
+    #[test]
+    fn protocol_calls_validate_index_arguments_identity_and_exclusivity() {
+        let protocol = Arc::new(crate::boxed::ProtocolType {
+            name: "P".into(),
+            arguments: vec![],
+            methods: vec![crate::boxed::ProtocolMethod {
+                name: "set".into(),
+                mutable: true,
+                signature: CallableSig {
+                    inputs: vec![Ty::I64],
+                    output: None,
+                },
+            }],
+        });
+        let owner = Ty::BoxedProtocol(protocol.clone());
+        for (index, stack, expected) in [
+            (1, vec![], "index"),
+            (
+                0,
+                vec![Ty::Ref(Arc::new(owner.clone()), true), Ty::Bool],
+                "argument",
+            ),
+            (
+                0,
+                vec![Ty::Ref(Arc::new(owner.clone()), false), Ty::I64],
+                "ownership",
+            ),
+            (
+                0,
+                vec![Ty::Ref(Arc::new(Ty::I64), true), Ty::I64],
+                "ownership",
+            ),
+        ] {
+            let error = step(
+                &Op::ProtocolBoxCall(protocol.clone(), index),
+                &mut stack.clone(),
+                &[],
+                &HashMap::default(),
+                None,
+                None,
+                None,
+            )
+            .err()
+            .expect("invalid protocol call must be rejected");
+            assert!(error.to_string().contains(expected), "{error}");
+        }
+        let mut stack = vec![Ty::Ref(Arc::new(owner), true), Ty::I64];
+        step(
+            &Op::ProtocolBoxCall(protocol, 0),
+            &mut stack,
+            &[],
+            &HashMap::default(),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(stack.is_empty());
     }
 
     /// Bodies are checked out of order, so the error must be chosen by position.

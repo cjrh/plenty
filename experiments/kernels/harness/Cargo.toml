@@ -1,0 +1,13 @@
+[package]
+name = "plenty-kernel-harness"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+# The compiler's pinned Cranelift; the reader parses hand-written CLIF.
+cranelift-codegen = { version = "=0.137.0", features = ["x86", "disas"] }
+cranelift-control = "=0.137.0"
+cranelift-reader = "=0.137.0"

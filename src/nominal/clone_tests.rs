@@ -9,6 +9,7 @@ fn definition(name: &str, fields: Vec<(String, Ty)>) -> ClassType {
         copy: false,
         forwards_operators: false,
         redacted: false,
+        quantity: None,
         bytes: OnceLock::new(),
         managed: OnceLock::new(),
     }

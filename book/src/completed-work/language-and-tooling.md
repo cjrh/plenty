@@ -5,6 +5,87 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## B97 compile-time dimensions
+
+[Dimension declarations and algebra](../design/language/03-types/dimensions.md)
+provide nominal bases, transparent derived aliases, `One`, normalized products
+and quotients, integer powers, and exact roots. Dimensions are interned types
+without values and are admitted by the `Dimension` generic constraint.
+Generic input expressions remain structurally inferable; output/body expressions
+are checked per instance. Tests compare random expressions against a dense
+reference evaluator and cover exponent boundaries, imports, privacy and generic
+diagnostics.
+
+The second stage of issue #701 adds [Quantity core](../design/language/03-types/quantities.md):
+coherent-value construction, `get`, float `to`/`from`, domain `try_from`,
+dimension-aware operators and compound assignments. Numeric widths, domain
+preservation/erasure and checked failures use existing arithmetic rules.
+Tests cover storage/result dimensions, rejection rules, evaluation order,
+collection/reference destinations and allocation denial.
+
+The third stage adds coherent-unit display and numeric format specs, normalized
+quantity debug output in aggregates, and writer methods through `std.fmt`.
+Unit spellings are static metadata, with no per-value dimension tag. Tests cover
+numeric widths and domains, normalized symbols, conversions, nested specs,
+writer limits and allocation denial.
+
+The fourth stage adds compile-time Quantity module constants: construction,
+quantity arithmetic, coherent-value extraction and float unit conversion.
+Dimensions and storage domains survive evaluation; overflow and invalid
+constant expressions are compile errors. Imports, forward references, static
+assertions and skipped branches follow the existing constant rules.
+
+The fifth stage adds scoped dimension-alias notes to type mismatches, quantity
+operators, constant checks, generic inference and dimension errors. Notes select
+the first visible matching alias in declaration/import order, respecting import
+bindings, visibility and generic-parameter shadowing. Canonical type identity and
+runtime formatting remain unchanged; tests cover nested types, defining-module
+scope, editor checks and concurrent compilations.
+
+The sixth stage completes issue #701's native erasure: Quantity parameters and
+results use their storage type's ABI, construction/projection are direct, and
+unit constants substitute folded values. The x86-64 release probe produces
+identical instructions to plain `f32`/`f64` for addition, multiplication and
+conversion by a parameter or constant unit. Tests cover numeric bits across
+calls, references, aggregates, closures, generators and workers in both modes.
+Domain-backed quantity aliases also resolve safely before storage definitions
+are finalized.
+
+[`std.units`](../design/stdlib/units.md) is embedded Plenty: the seven SI base
+dimensions, distinct derived aliases, prefixed SI and common exact units, the
+exact SI defining and CODATA 2022 constants, and dimension-aware `sqrt`,
+`cbrt`, `hypot`, `sum`, `mean`, `abs`, `clamp` and `std.math` wrappers. Celsius,
+Fahrenheit and `std.time.Duration` convert at the boundary; `to_duration`
+rejects negative, NaN and out-of-range times. Symbols print in declaration
+order within a module, so `std.units` quantities read `kg*m/s^2`.
+`wrap_list` and `strip_list` convert between `list[f64]` and
+`list[Quantity[f64, D]]` by replacing the list header's type descriptor, with
+no copy or allocation.
+
+Instances that differ only in dimension
+[share one body](../design/toolchain/02-architecture/emission.md#identical-code-folding):
+the object places identical code once, for any function not used as a value.
+`Quantity[T, D](x)` written with explicit type arguments, as generic bodies
+must, now retags its value as other constructions do, instead of calling the
+constructor; that made `std.units` generic bodies such as `sum` and `hypot`
+identical across dimensions.
+
+[`std.units.catalogue`](../design/stdlib/units-catalogue.md) adds every SI
+prefix on every SI unit and the other named units of NIST SP 811 appendix B,
+built from their definitions and tested against SP 811's factors. It is a
+separate module so its 768 constants cost compile time only where imported.
+[B97](../backlog.md#units-of-measure) retains plot axis labels from units.
+
+## Heterogeneous collections tutorial
+
+The [heterogeneous collections section](../tutorial/heterogeneous-collections/index.md)
+follows classes and enums. Runnable lessons teach enum wrappers with shared
+methods and anonymous-sum lists, sets, and dictionary keys and values. The
+lessons show mixed keys, mixed values, and both together, while preserving
+distinct member identities. Separate typed collections remain an alternative
+for independent lookup domains. Lessons also cover [custom-cleanup keys](../tutorial/heterogeneous-collections/sets.md#keys-with-custom-cleanup),
+transferring keys and borrowing views without duplicating cleanup obligations.
+
 ## Unicode trie example
 
 The [runnable trie](../design/examples/data-structures/trie.md) stores exact
@@ -112,7 +193,8 @@ block; float `div_checked` and nontrapping `MIN % -1` accompanied them
 (issue #557). The lexical private callback channel from issue #614 (B93)
 is superseded by independent declared function/closure error contracts in the
 [checked-default compiler core](../proposals/checked-by-default/implementation.md#current-implementation).
-That core also supports lexical trapping `unchecked:` suites. The private
+That core also supports lexical `unchecked:` suites, whose no-failure
+precondition is currently validated by traps. The private
 callback channel is removed. Initial std migration covers math helpers, bytes
 and time: integer reductions preserve typed overflow payloads, separate float
 helpers retain infallible IEEE values, serial pipeline sums return public
@@ -506,6 +588,20 @@ Future default/final methods and private-hook grants belong to the separate
 [protocol-body proposal](../proposals/protocol-method-bodies.md).
 Additional bounds/default-body contracts remain **B29** in the [backlog](../backlog.md).
 
+The [boxed protocol investigation](../proposals/completed/boxed-protocols.md) records a
+proposed `Box[P]` contract, compiler/runtime integration map and qualification
+criteria. Four original probes established the then-current rejection of protocol-valued
+boxes, concrete boxed method calls, and single-method erasure of class/enum
+instances through `BoxedCallable`. The subsequent implementation adds explicit
+`Box[P](value)?`, shared/mutable
+method tables over one concrete payload, fixed protocol argument inference,
+identical-protocol generic bounds, aggregate storage and descriptor-driven
+cleanup. Executable lessons cover heterogeneous lists and dictionary values.
+Borrowed outputs, consuming or generic requirements, copying, keys and native
+transfer remain unsupported. `Shared` contents and hidden executor/future, channel-endpoint or
+erased-callback payloads are conservatively rejected. See the
+[implemented contract](../design/language/07-generics/boxed-protocols.md).
+
 ## B32: Callback storage
 
 Owned concrete reusable/consuming environments and worker eligibility work in
@@ -694,3 +790,23 @@ sources. Set observations, algebra, and filter mutations accept dictionary
 key views. Views keep their dictionary borrowed and remain local-only; mutable
 value/item iteration stays immediate. See [dictionary views](../design/facilities/01-builtins/dictionaries.md#snapshots-and-views)
 and the [remaining B91 scope](../backlog.md).
+
+## Structural key diagnostics
+
+Rejected dictionary keys, set members, key views and `KeyType` arguments now
+identify the first unsupported nested component in declaration order. Paths
+name class fields, enum variants and one-based payload/tuple positions; custom
+cleanup and anonymous sums have specific explanations. Key admission remains
+unchanged. See [the generic constraint reference](../design/language/07-generics/index.md#finding-an-unsupported-key-field)
+and [B74](../backlog.md#stdlib-driven-language-ergonomics) for remaining key design decisions.
+
+## Optimized builds by default (issue #723)
+
+All compilation entry points now optimize generated code by default. The
+[fast-compile profile](../design/toolchain/01-building/packages.md#profiles)
+trades runtime optimization for shorter compilation without changing language
+checks. Package output uses `target/optimized/` and `target/fast-compile/`;
+`--release` remains an alias for the default. Profile-separated cache reuse and
+explicit two-profile regression tests accompany the change. Integration with
+call-site inlining preserves caller handling of C string conversion errors
+(issue #724) and shared cleanup for tail calls with managed locals (issue #725).

@@ -611,10 +611,11 @@ impl Lower<'_> {
                     }
                     _ => return Err(e.at.error("indexed assignment requires a list")),
                 };
-                let actual = self.expr_expected(index, Some(key.clone()), ops)?;
-                self.same(actual, Some(key.clone()), &index.at)?;
+                let (actual, reads) = self.observe_expected(index, Some(key.clone()), ops)?;
+                self.same(Some(actual), Some(key.clone()), &index.at)?;
                 let slot = self.slot(key, &index.at)?;
                 ops.push(Op::StoreLocal(slot));
+                Self::end_reads(reads, ops);
                 slots.push(slot);
                 Ok(())
             }
@@ -729,17 +730,20 @@ impl Lower<'_> {
                     break;
                 }
             }
-            if let Some(indices) = indices {
+            let reads = if let Some(indices) = indices {
                 let slot = *indices.next().expect("prepared assignment index");
                 ops.push(Op::MoveLocal(slot));
+                vec![]
             } else {
-                let actual = self.expr_expected(index, Some(key.clone()), ops)?;
-                self.same(actual, Some(key), &index.at)?;
-            }
+                let (actual, reads) = self.observe_expected(index, Some(key.clone()), ops)?;
+                self.same(Some(actual), Some(key), &index.at)?;
+                reads
+            };
             let operation = CollectionOp::ElementRef(collection, mutable);
             let output = operation.signature().1;
             self.mark(&e.at, ops);
             ops.push(Op::Collection(operation));
+            Self::end_reads(reads, ops);
             return Ok((output, loan));
         }
         if let Expression::Unary(op, base) = &ungroup(e).kind
@@ -959,7 +963,29 @@ impl Lower<'_> {
         expected: Type,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, Vec<usize>)> {
-        self.observe_with_context(e, expected, false, ops)
+        let (actual, loans) = self.observe_with_context(e, expected.clone(), false, ops)?;
+        let actual = match expected {
+            Some(expected) => self.inject_observed_sum(actual, &expected, ops),
+            None => actual,
+        };
+        Ok((actual, loans))
+    }
+
+    /// Retag an observed value while its source's loans/temporary remain live.
+    /// This creates no owning copy and does not widen reference types.
+    pub(super) fn inject_observed_sum(&self, actual: Ty, expected: &Ty, ops: &mut Vec<Op>) -> Ty {
+        if actual != *expected
+            && matches!(expected, Ty::Enum(sum) if sum.anonymous())
+            && crate::sum::accepts(expected, &actual)
+        {
+            ops.push(Op::Enum(crate::sum::EnumOp::Widen(
+                Box::new(actual),
+                Box::new(expected.clone()),
+            )));
+            expected.clone()
+        } else {
+            actual
+        }
     }
 
     pub(super) fn observe_method_receiver(
@@ -1370,7 +1396,9 @@ fn writable_referent<'a>(reference: &'a Ty, target: &Expr) -> Result<&'a Ty> {
             .at
             .error("assignment requires an exclusive reference"));
     };
-    if matches!(&**ty, Ty::Class(_)) {
+    // Quantity is a reserved builtin with copyable numeric storage. Replacing
+    // it preserves the referent's layout and never owns a destructor.
+    if matches!(&**ty, Ty::Class(t) if !t.name.starts_with("Quantity[")) {
         return Err(target
             .at
             .error("cannot replace a whole class through a reference; assign its fields instead"));

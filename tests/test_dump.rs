@@ -61,7 +61,14 @@ fn dump_writes_an_index_and_a_file_per_stage() {
     plenty(
         dir.path(),
         None,
-        &["--dump", "all", "demo.plenty", "-o", "out"],
+        &[
+            "--fast-compile",
+            "--dump",
+            "all",
+            "demo.plenty",
+            "-o",
+            "out",
+        ],
     );
     let out = dir.path().join("out");
     let index = read(&out, "index.txt");
@@ -206,5 +213,37 @@ fn dump_rejects_unknown_stages_and_misplaced_options() {
             .output()
             .unwrap();
         assert!(!output.status.success(), "{args:?} succeeded");
+    }
+}
+
+#[test]
+fn default_dump_is_optimized_and_fast_compile_preserves_calls() {
+    let dir = setup();
+    for binary in [env!("CARGO_BIN_EXE_plenty"), env!("CARGO_BIN_EXE_plentyc")] {
+        let dump = |flags: &[&str]| {
+            let output = Command::new(binary)
+                .current_dir(dir.path())
+                .env("PLENTY_CACHE", "off")
+                .args(flags)
+                .args([
+                    "--dump",
+                    "asm",
+                    "--dump-filter",
+                    "main",
+                    "demo.plenty",
+                    "-o",
+                    "-",
+                ])
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{output:?}");
+            String::from_utf8(output.stdout).unwrap()
+        };
+        let optimized = dump(&[]);
+        assert_eq!(optimized, dump(&["--release"]));
+        let fast = dump(&["--fast-compile"]);
+        assert_eq!(fast, dump(&["--fast-compile", "--release"]));
+        assert!(fast.contains("# __plenty_fn_twice"), "{fast}");
+        assert!(!optimized.contains("# __plenty_fn_twice"), "{optimized}");
     }
 }

@@ -329,8 +329,8 @@ def main() -> Result[(), AllocError | IoError]:
     for optimize in [false, true] {
         let executable = dir.path().join("program");
         let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"));
-        if optimize {
-            command.arg("--release");
+        if !optimize {
+            command.arg("--fast-compile");
         }
         let compiled = command
             .args(["--no-cache", "--compile"])

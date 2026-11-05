@@ -34,6 +34,11 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
         "std.complex",
         include_str!("../../stdlib/std/complex.plenty"),
     ),
+    ("std.units", include_str!("../../stdlib/std/units.plenty")),
+    (
+        "std.units.catalogue",
+        include_str!("../../stdlib/std/units/catalogue.plenty"),
+    ),
     ("std.plot", include_str!("../../stdlib/std/plot.plenty")),
     ("std.actor", include_str!("../../stdlib/std/actor.plenty")),
     (
@@ -374,6 +379,7 @@ pub(super) struct Resolved {
     pub(super) protocols: Vec<protocols::Protocol>,
     pub(super) access: AccessMap,
     pub(super) public_api: Vec<TypeRef>,
+    pub(super) dimension_names: dimension_diagnostics::Names,
     pub(super) at: Token,
     pub(super) require_main: bool,
     /// What the program depends on outside the compiler, for the program
@@ -422,12 +428,14 @@ impl Parser {
                 if element.args.is_empty()
                     && element.name.as_deref().is_some_and(numeric_type_name)
                     && !element.name.as_deref().is_some_and(|n| n.starts_with('f')));
+        let quantity = type_name == "Quantity" && output.args.len() == 2;
         if !domain
+            && !quantity
             && (!output.args.is_empty()
                 || !(numeric_type_name(type_name) || matches!(type_name, "bool" | "str" | "bytes")))
         {
             return Err(output.at.error(
-                "module constants require a concrete numeric type, an integer domain such as `Positive[i64]`, `bool`, `str`, or `bytes`",
+                "module constants require a concrete numeric type, an integer domain such as `Positive[i64]`, `Quantity[T, D]`, `bool`, `str`, or `bytes`",
             ));
         }
         self.expect("=")?;
@@ -732,6 +740,7 @@ impl Items<'_, '_> {
                 self.parser
                     .kind(Kind::Newline, "the end of the opaque pointer declaration")?;
                 module.declarations.push(TypeAlias {
+                    dimension: false,
                     at: at.clone(),
                     name: name.clone(),
                     target: TypeRef {
@@ -821,6 +830,11 @@ impl Items<'_, '_> {
             let name = e.name.clone();
             module.enums.push(e);
             name
+        } else if self.parser.peek().is("dimension") {
+            let a = self.parser.dimension_decl(&module.name)?;
+            let name = a.name.clone();
+            module.declarations.push(a);
+            name
         } else if self.parser.peek().is("type") {
             let a = self.parser.alias()?;
             let name = a.name.clone();
@@ -845,7 +859,7 @@ impl Items<'_, '_> {
             return Err(at.error(message));
         } else {
             return Err(at.error(if public {
-            "pub requires a function, class, enum, type, or const declaration; re-exports are not supported"
+            "pub requires a function, class, enum, type, dimension, or const declaration; re-exports are not supported"
         } else {
             "executable statements are not allowed at module scope; put them inside `def main() -> ():`"
         }));
@@ -1571,9 +1585,30 @@ struct Scope {
     /// Type parameters in scope: a declaration has few, so a scan beats
     /// building a hash set per function (issue #436).
     type_params: Vec<String>,
+    dimension_bindings: dimension_diagnostics::Bindings,
+    dimension_shadows: Arc<std::sync::Mutex<dimension_diagnostics::Shadows>>,
 }
 
 impl Scope {
+    fn dimension_shadow(&self, at: &Token) {
+        if self.type_params.is_empty() || self.dimension_bindings.is_empty() {
+            return;
+        }
+        let hidden: Vec<_> = self
+            .dimension_bindings
+            .iter()
+            .filter(|(name, _)| self.type_param(name.split('.').next().unwrap()))
+            .map(|(name, _)| name.clone())
+            .collect();
+        if !hidden.is_empty() {
+            self.dimension_shadows
+                .lock()
+                .unwrap()
+                .entry((at.file, at.line))
+                .or_default()
+                .extend(hidden);
+        }
+    }
     fn type_param(&self, name: &str) -> bool {
         self.type_params.iter().any(|p| p == name)
     }
@@ -1644,11 +1679,23 @@ impl Scope {
             .any(|p| p.split('.').next() == Some(name))
     }
     fn ty(&self, ty: &mut TypeRef) -> Result<()> {
+        self.dimension_shadow(&ty.at);
         if ty.concrete.is_some() {
             return Ok(());
         }
-        for arg in &mut ty.args {
-            self.ty(arg)?;
+        if let Some(name) = &ty.name
+            && matches!(name.as_str(), "Pow" | "Root")
+            && !self.type_param(name)
+            && self.symbol(name, &ty.at)?.is_none()
+        {
+            // Dimension operators are fallback names. In particular, the
+            // existing std.fs.Root type keeps its ordinary imported meaning.
+            ty.name = Some(format!("${name}"));
+        }
+        for (i, arg) in ty.args.iter_mut().enumerate() {
+            if i != 1 || !matches!(ty.name.as_deref(), Some("$Pow" | "$Root")) {
+                self.ty(arg)?;
+            }
         }
         if let Some(name) = &mut ty.name {
             if self.type_param(name) {
@@ -1656,7 +1703,7 @@ impl Scope {
             }
             // Imports can bind a builtin spelling only to that same identity.
             // Avoid probing the module table for these common types (issue #57).
-            if builtin(name) {
+            if builtin(name) || dimensions::syntax(name) {
                 return Ok(());
             }
             if let Some(symbol) = self.symbol(name, &ty.at)? {
@@ -1704,6 +1751,7 @@ impl Scope {
         }
         for (_, ty) in &mut f.inputs {
             scope.ty(ty)?;
+            dimensions::validate_input(ty, &scope.type_params)?;
         }
         scope.ty(&mut f.output)?;
         for default in f.defaults.iter_mut().flatten() {
@@ -1730,6 +1778,7 @@ impl Scope {
     }
     fn block(&self, body: &mut [Stmt], locals: &mut Locals) -> Result<()> {
         for stmt in body {
+            self.dimension_shadow(&stmt.at);
             match &mut stmt.kind {
                 Statement::With {
                     manager,
@@ -1868,6 +1917,7 @@ impl Scope {
         Ok(())
     }
     fn expr(&self, e: &mut Expr, locals: &Locals) -> Result<()> {
+        self.dimension_shadow(&e.at);
         fn root(e: &Expr) -> Option<&str> {
             match &e.kind {
                 Expression::Name(n)
@@ -2271,6 +2321,16 @@ pub class ZeroDivisionError:
 pub class OverflowError[T]:
     pub wrapped: T
 
+@copy
+pub class Quantity[T, D: Dimension]:
+    value: T
+
+    pub def get(self) -> T:
+        self.value
+
+    pub def to(self, unit: Quantity[T, D]) -> T:
+        (self / unit).get()
+
 @newtype
 @copy
 pub class NonZero[T: IntType]:
@@ -2431,6 +2491,66 @@ fn resolve(
             }
         }
     }
+    // Capture visible alias spellings before module resolution qualifies names.
+    // Order by the declaration/import in the using module, then declaration
+    // order within a namespace import. Never depend on hash iteration order.
+    let derived: Vec<Vec<_>> = modules
+        .iter()
+        .map(|m| {
+            m.declarations
+                .iter()
+                .filter(|a| a.dimension && a.target.concrete.is_none())
+                .map(|a| (a.name.clone(), qualified(&m.name, &a.name)))
+                .collect()
+        })
+        .collect();
+    let mut dimension_names = dimension_diagnostics::Names::default();
+    let bindings: Vec<Arc<Vec<_>>> = modules
+        .iter()
+        .zip(&dependencies)
+        .map(|(m, deps)| {
+            let mut visible = Vec::new();
+            for a in &m.declarations {
+                if a.dimension && a.target.concrete.is_none() {
+                    visible.push((a.at.line, 0, a.name.clone(), qualified(&m.name, &a.name)));
+                }
+            }
+            for (import, &dependency) in m.imports.iter().zip(deps) {
+                for (order, (name, symbol)) in derived[dependency].iter().enumerate() {
+                    if exports[dependency].get(name) != Some(symbol) {
+                        continue;
+                    }
+                    let spelling = match &import.item {
+                        Some(item) if item == name => import.binding.clone(),
+                        Some(_) => continue,
+                        None => format!("{}.{name}", import.binding),
+                    };
+                    visible.push((import.at.line, order, spelling, symbol.clone()));
+                }
+            }
+            visible.sort_by_key(|(line, order, _, _)| (*line, *order));
+            let bindings: Arc<Vec<_>> =
+                Arc::new(visible.into_iter().map(|(_, _, n, s)| (n, s)).collect());
+            if let Some(at) = m
+                .declarations
+                .first()
+                .map(|a| &a.at)
+                .or_else(|| m.imports.first().map(|i| &i.at))
+            {
+                // Empty bindings (including builtin modules with no file) must
+                // not overwrite a source-string module's diagnostic scope.
+                if !bindings.is_empty() {
+                    dimension_names
+                        .bindings
+                        .insert(at.file, Arc::clone(&bindings));
+                }
+            }
+            bindings
+        })
+        .collect();
+    let dimension_shadows = Arc::new(std::sync::Mutex::new(
+        dimension_diagnostics::Shadows::default(),
+    ));
     let mut result = Resolved {
         // Like `std`, the arithmetic errors' constructors are emitted only
         // when a program uses them.
@@ -2445,6 +2565,7 @@ fn resolve(
         classes: vec![],
         access: AccessMap::default(),
         public_api: vec![],
+        dimension_names,
         at,
         require_main,
         inputs: inputs::Inputs::default(),
@@ -2463,6 +2584,8 @@ fn resolve(
             imported: Arc::default(),
             namespaces: Arc::default(),
             constants: constants.clone(),
+            dimension_bindings: Arc::clone(&bindings[i]),
+            dimension_shadows: Arc::clone(&dimension_shadows),
         };
         // Namespace imports so far, to check enclosing and nested bindings.
         let mut bound: Vec<(&Import, usize)> = Vec::new();
@@ -2644,6 +2767,15 @@ fn resolve(
             }
         }
         for a in &mut m.declarations {
+            if a.dimension && a.target.concrete.is_some() {
+                result.access.types.insert(
+                    qualified(&m.name, &a.name),
+                    Access {
+                        owner: a.at.source(),
+                        public: m.exports.contains(&a.name),
+                    },
+                );
+            }
             if let Some(Ty::ForeignPtr(name)) = a.target.concrete.as_deref() {
                 result.access.types.insert(
                     name.to_string(),
@@ -2780,7 +2912,7 @@ fn resolve(
         result.classes.append(&mut m.classes);
         result.protocols.append(&mut m.protocols);
     }
-    super::consts::fold(&mut result.functions)?;
+    result.dimension_names.shadows = std::mem::take(&mut *dimension_shadows.lock().unwrap());
     Ok(result)
 }
 
@@ -2803,6 +2935,11 @@ pub(super) fn check_member_at(
     diagnostic: &Token,
 ) -> Result<()> {
     let class = class.split('[').next().unwrap();
+    // Quantity accepts coherent values through its constructor, but keeps its
+    // representation private. The field parameter enforces the storage type.
+    if class == "Quantity" && member == "__new__" {
+        return Ok(());
+    }
     if let Some(rule) = access.members.get(&(class.into(), member.into()))
         && !rule.public
         && rule.owner != context.source()
@@ -2868,6 +3005,12 @@ fn signature_public_types(
 }
 
 fn data_public_types(t: &TypeRef, params: &[(String, Option<TypeRef>)], out: &mut Vec<TypeRef>) {
+    if t.name
+        .as_deref()
+        .is_some_and(|name| name.starts_with("$exponent:"))
+    {
+        return;
+    }
     fn mentions(t: &TypeRef, params: &[(String, Option<TypeRef>)]) -> bool {
         params.iter().any(|(n, _)| t.name.as_ref() == Some(n))
             || t.args.iter().any(|t| mentions(t, params))
@@ -2879,7 +3022,9 @@ fn data_public_types(t: &TypeRef, params: &[(String, Option<TypeRef>)], out: &mu
         out.push(t.clone());
     } else {
         if t.name.as_ref().is_some_and(|n| {
-            !builtin(n) && !matches!(n.as_str(), "&" | "&mut" | "|" | VIEW_TYPE | MUT_VIEW_TYPE)
+            !builtin(n)
+                && !dimensions::syntax(n)
+                && !matches!(n.as_str(), "&" | "&mut" | "|" | VIEW_TYPE | MUT_VIEW_TYPE)
         }) {
             let mut head = t.clone();
             head.args.clear();
@@ -2893,6 +3038,21 @@ fn data_public_types(t: &TypeRef, params: &[(String, Option<TypeRef>)], out: &mu
 
 pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &AccessMap) -> Result<()> {
     fn visible(ty: &Ty, at: &Token, access: &AccessMap, aliases: &TypeAliases) -> Result<()> {
+        if let Ty::Dimension(d) = ty {
+            for base in d.bases() {
+                if access
+                    .types
+                    .get(base.name.as_ref())
+                    .is_some_and(|rule| !rule.public)
+                {
+                    return Err(at.error(format!(
+                        "public signature exposes private dimension `{}`",
+                        base.name
+                    )));
+                }
+            }
+            return Ok(());
+        }
         if let Some((name, arguments)) = aliases.data.arguments(ty) {
             if access.types.get(&name).is_some_and(|rule| !rule.public) {
                 return Err(at.error(format!("public signature exposes private type `{name}`")));
@@ -2917,6 +3077,26 @@ pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &Access
             return Ok(());
         }
         match ty {
+            Ty::BoxedProtocol(protocol) => {
+                if access
+                    .types
+                    .get(&protocol.name)
+                    .is_some_and(|rule| !rule.public)
+                {
+                    return Err(at.error(format!(
+                        "public signature exposes private protocol `{}`",
+                        protocol.name
+                    )));
+                }
+                for ty in protocol.arguments.iter().chain(
+                    protocol
+                        .methods
+                        .iter()
+                        .flat_map(|m| m.signature.inputs.iter().chain(m.signature.output.iter())),
+                ) {
+                    visible(ty, at, access, aliases)?;
+                }
+            }
             Ty::Closure(t) => {
                 for ty in t.signature.inputs.iter().chain(t.signature.output.iter()) {
                     visible(ty, at, access, aliases)?;
@@ -2978,7 +3158,7 @@ pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &Access
             }
             continue;
         }
-        if let Some(ty) = t.resolve(aliases)? {
+        if let Some(ty) = t.resolve_argument(aliases)? {
             visible(&ty, &t.at, access, aliases)?;
         }
     }

@@ -36,6 +36,8 @@ mod contexts;
 mod control;
 mod data;
 mod defaults;
+mod dimension_diagnostics;
+mod dimensions;
 mod divisors;
 mod enums;
 mod executors;
@@ -48,6 +50,7 @@ mod generics;
 pub(crate) mod ide;
 #[cfg(test)]
 mod lexer_tests;
+mod list_retag;
 mod mapping;
 mod modules;
 mod mutex;
@@ -58,6 +61,7 @@ mod patterns;
 mod pipelines;
 mod protocols;
 mod provenance;
+mod quantities;
 mod references;
 mod retention;
 mod shared;
@@ -111,6 +115,9 @@ impl TypeRef {
         };
         let args: Vec<String> = self.args.iter().map(TypeRef::spelling).collect();
         match name.as_str() {
+            "$Pow" | "$Root" => format!("{}[{}]", &name[1..], args.join(", ")),
+            "*" | "/" => format!("({} {name} {})", args[0], args[1]),
+            _ if name.starts_with("$exponent:") => name[10..].into(),
             "|" => args.join(" | "),
             "&" | "&mut" => format!("{name}{}", args.concat()),
             _ if args.is_empty() => name.clone(),
@@ -118,6 +125,17 @@ impl TypeRef {
         }
     }
     fn resolve(&self, aliases: &TypeAliases) -> Result<Type> {
+        let ty = self.resolve_argument(aliases)?;
+        if let Some(Ty::Dimension(d)) = &ty {
+            return Err(aliases.dimension_error(
+                &self.at,
+                format!("dimension `{d}` has no values; use it only as a dimension argument"),
+                ty.iter(),
+            ));
+        }
+        Ok(ty)
+    }
+    fn resolve_argument(&self, aliases: &TypeAliases) -> Result<Type> {
         let ty = self.resolve_inner(aliases)?;
         if ty == Some(Ty::Text) {
             return Err(self.at.error(
@@ -144,6 +162,9 @@ impl TypeRef {
             };
             return classes::constructor_output(initializer, instance.clone(), aliases)?
                 .resolve(aliases);
+        }
+        if name == "One" || dimensions::expression(name) {
+            return self.dimension_expression(aliases);
         }
         if name == "|" {
             let members = self
@@ -321,6 +342,9 @@ impl TypeRef {
             if self.args.len() != 1 {
                 return Err(self.at.error("Box requires 1 type argument"));
             }
+            if let Some(protocol) = protocols::boxed_type(&self.args[0], aliases)? {
+                return Ok(Some(Ty::BoxedProtocol(protocol)));
+            }
             let content = self.args[0]
                 .resolve(aliases)?
                 .ok_or_else(|| self.at.error("a box cannot hold unit"))?;
@@ -460,7 +484,9 @@ impl TypeRef {
                 .resolve(aliases)?
                 .ok_or_else(|| self.at.error("KeyView keys cannot be unit"))?;
             if !key.hashable() {
-                return Err(self.at.error("KeyView requires a hashable key type"));
+                return Err(self
+                    .at
+                    .error(key.key_type_error("KeyView requires a hashable key type")));
             }
             return Ok(Some(Ty::KeyView(Arc::new(key))));
         }
@@ -487,7 +513,7 @@ impl TypeRef {
                 "set" => {
                     if !args[0].hashable() {
                         return Err(self.at.error(
-                            "set elements must be integers, bool, str, or tuples of these",
+                            args[0].key_type_error("set elements must be integers, bool, str, bytes, or tuples/classes/enums/anonymous sums containing only these key types"),
                         ));
                     }
                     Ty::Set(Arc::new(args[0].clone()))
@@ -495,7 +521,7 @@ impl TypeRef {
                 _ => {
                     if !args[0].hashable() {
                         return Err(self.at.error(
-                            "dictionary keys must be integers, bool, str, or tuples of these",
+                            args[0].key_type_error("dictionary keys must be integers, bool, str, bytes, or tuples/classes/enums/anonymous sums containing only these key types"),
                         ));
                     }
                     Ty::Dict(Arc::new(args[0].clone()), Arc::new(args[1].clone()))
@@ -625,6 +651,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "__actor_run"
                 | "__actor_forget"
                 | "__report_write"
+                | list_retag::LIST_RETAG
                 | "__io_is_terminal"
                 | "flush_stdout"
                 | "flush_stderr"
@@ -649,6 +676,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "AppendError"
                 | "OverflowError"
                 | "ZeroDivisionError"
+                | "Quantity"
                 | "NonZero"
                 | "Positive"
                 | "NonNegative"
@@ -684,6 +712,9 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "IntType"
                 | "FloatType"
                 | "CopyType"
+                | "KeyType"
+                | "Dimension"
+                | "One"
                 | "next"
                 | "copy"
                 | "drop"
@@ -722,6 +753,7 @@ keywords!(
         | "try"
         | "with"
         | "type"
+        | "dimension"
         | "const"
         | "return"
         | "if"
@@ -1259,11 +1291,14 @@ impl Lower<'_> {
                     .and_then(|(expected, got)| callables::mismatch_hint(expected, got))
                     .unwrap_or_default()
             };
-            Err(at.error(format!(
+            let message = format!(
                 "expected {}, got {}{hint}",
-                type_name(expected),
-                type_name(got),
-            )))
+                type_name(expected.clone()),
+                type_name(got.clone())
+            );
+            Err(self
+                .aliases
+                .dimension_error(at, message, expected.iter().chain(&got)))
         }
     }
     /// Success type of a Result that `?` can propagate in this function.
@@ -1488,6 +1523,19 @@ impl Lower<'_> {
             return Err(e.at.error("iterator pipelines cannot escape their creating scope; bind locally or consume with a loop or terminal"));
         }
         let ty = match &e.kind {
+            Expression::Name(name) | Expression::Call(name, _)
+                if !self.names.contains_key(name)
+                    && !self.captures.contains(name)
+                    && (name == "One"
+                        || matches!(
+                            lookup_type(name, self.aliases),
+                            Some(Some(Ty::Dimension(_)))
+                        )) =>
+            {
+                return Err(e.at.error(format!(
+                    "dimension `{name}` has no values; use it only as a dimension argument"
+                )));
+            }
             Expression::NamedArgument(..) => {
                 return Err(e.at.error("named arguments require a statically resolved function, method, or class constructor"));
             }
@@ -1519,12 +1567,18 @@ impl Lower<'_> {
                 }
                 let actual = types
                     .iter()
-                    .map(|t| Ok(t.resolve(self.aliases)?.unwrap_or(Ty::Unit)))
+                    .map(|t| Ok(t.resolve_argument(self.aliases)?.unwrap_or(Ty::Unit)))
                     .collect::<Result<_>>()?;
                 let symbol = self.specialize(name, actual, &e.at)?;
                 Some(self.function_value(&symbol, &e.at, ops)?)
             }
             Expression::GenericCall(name, types, args) => {
+                if name == "Box" {
+                    return self.protocol_box(types, args, &e.at, ops).map(Some);
+                }
+                if name == list_retag::LIST_RETAG && !self.names.contains_key(name) {
+                    return self.list_retag(types, args, &e.at, ops);
+                }
                 if name == crate::atomic::ATOMIC {
                     return self.atomic_new(Some(types), args, None, &e.at, ops);
                 }
@@ -1541,6 +1595,10 @@ impl Lower<'_> {
                     }
                     .resolve(self.aliases)?
                     .unwrap();
+                    if ty.quantity_storage().is_some() {
+                        // A retag of the storage value, not a constructor call.
+                        return self.construct(ty, args, &e.at, ops).map(Some);
+                    }
                     let Ty::Class(t) = ty else {
                         return Err(e.at.error("select a variant to construct an enum"));
                     };
@@ -1659,6 +1717,9 @@ impl Lower<'_> {
                 }
             }
             Expression::Method(base, name, args, pos) => {
+                if let Some(result) = self.quantity_format_method(base, name, args, &e.at, ops) {
+                    return result;
+                }
                 if name == "format"
                     && let Some(ty) = self.format_method(base, args, &e.at, ops)
                 {
@@ -1775,7 +1836,7 @@ impl Lower<'_> {
                 }
             }
             Expression::Unary(op, value) => {
-                if let Some(result) = self.overloaded_unary(op, value, ops)? {
+                if let Some(result) = self.overloaded_unary(op, value, &e.at, ops)? {
                     return Ok(result);
                 }
                 if op == "&" || op == "&mut" {
@@ -1949,6 +2010,16 @@ impl Lower<'_> {
                         "values containing {subject} do not support membership equality"
                     )));
                 }
+                // Preserve left-to-right evaluation: the observed collection is
+                // already on top, so retag the probe beneath it in place.
+                let a = if a != element && matches!(&element, Ty::Enum(sum) if sum.anonymous()) {
+                    ops.push(Op::Swap);
+                    let injected = self.inject_observed_sum(a, &element, ops);
+                    ops.push(Op::Swap);
+                    injected
+                } else {
+                    a
+                };
                 self.same(
                     Some(a),
                     Some(if b == Ty::Str { Ty::Str } else { element }),
@@ -2894,6 +2965,9 @@ impl Lower<'_> {
         _at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
+        if !self.indexed_lists.is_empty() {
+            self.record_loop_call(&call, inputs, loans);
+        }
         let parameters = self
             .sigs
             .get(&self.function_name)
@@ -2914,6 +2988,62 @@ impl Lower<'_> {
         }
         ops.push(call);
         Ok(())
+    }
+    /// Records a direct call in every enclosing loop's list cache, with what
+    /// its arguments could resize; see [`collections::IndexedLists`]. Only
+    /// arguments reach a list: there are no global variables, and other call
+    /// operations (closures, callables, protocol boxes) end caching.
+    fn record_loop_call(&mut self, call: &Op, inputs: &[(String, Ty)], loans: &[usize]) {
+        use collections::Reach;
+        let Op::Call(callee) = call else {
+            return;
+        };
+        let borrowed = |ty: &Ty| matches!(ty, Ty::Ref(..) | Ty::View(..));
+        let mut reaches = Vec::new();
+        // Each view or reference parameter has one loan, in order. A loan
+        // carried in a by-value argument, such as a closure's borrowed
+        // captures, has none here.
+        if inputs.iter().filter(|(_, ty)| borrowed(ty)).count() != loans.len()
+            || inputs
+                .iter()
+                .any(|(_, ty)| !borrowed(ty) && ty.contains_reference())
+        {
+            reaches.push(Reach::Any);
+        } else {
+            let exclusive = inputs.iter().filter(|(_, ty)| borrowed(ty)).zip(loans);
+            for ((_, ty), &loan) in exclusive {
+                // A view cannot resize its list, and an exclusive scalar
+                // reference holds none.
+                let Ty::Ref(inner, true) = ty else {
+                    continue;
+                };
+                if inner.is_numeric() || matches!(**inner, Ty::Bool | Ty::Unit | Ty::Str) {
+                    continue;
+                }
+                let root = self.loans[loan].root;
+                reaches.push(if self.owned_slot(root) {
+                    Reach::Owned(root)
+                } else {
+                    Reach::Any
+                });
+            }
+        }
+        for context in &mut self.indexed_lists {
+            context.call(callee, &reaches);
+        }
+    }
+    /// Whether `slot` holds an owned value rather than a reference, so a
+    /// loan rooted there reaches only storage that binding owns.
+    fn owned_slot(&self, slot: u8) -> bool {
+        let ty = match usize::from(slot).checked_sub(self.parameters) {
+            Some(local) => self.locals.get(local),
+            None => self
+                .sigs
+                .get(&self.function_name)
+                .and_then(|sig| sig.inputs.get(usize::from(slot)))
+                .map(|(_, ty)| ty),
+        };
+        ty.is_some_and(|ty| !ty.contains_reference())
     }
     /// Lowers `return` with its value, the function's cleanup, and the exit.
     fn return_statement(
@@ -3329,20 +3459,32 @@ impl Lower<'_> {
                     return exited_block(body, i);
                 }
                 Statement::While { condition, body } => {
+                    self.indexed_lists.push(collections::IndexedLists::new(
+                        self.parameters + self.locals.len(),
+                    ));
                     let mut test = Vec::new();
-                    let ty = self.expr(condition, &mut test)?;
-                    self.same(ty, Some(Ty::Bool), &condition.at)?;
-                    self.building(&condition.at, 0, &mut test, false);
-                    self.finish_temporaries(temporary_start, &mut test);
-                    let saved = self.names.clone();
-                    self.loop_steps.push(Vec::new());
-                    self.loop_scopes.push(self.locals.len());
+                    let ty = self.expr(condition, &mut test);
                     let mut lowered = Vec::new();
-                    let result = self.block(body, &mut lowered, &Tail::Discard);
-                    self.loop_steps.pop();
-                    self.loop_scopes.pop();
-                    self.names = saved;
+                    let result = ty.and_then(|ty| {
+                        self.same(ty, Some(Ty::Bool), &condition.at)?;
+                        self.building(&condition.at, 0, &mut test, false);
+                        self.finish_temporaries(temporary_start, &mut test);
+                        let saved = self.names.clone();
+                        self.loop_steps.push(Vec::new());
+                        self.loop_scopes.push(self.locals.len());
+                        let result = self.block(body, &mut lowered, &Tail::Discard);
+                        self.loop_steps.pop();
+                        self.loop_scopes.pop();
+                        self.names = saved;
+                        result
+                    });
+                    let setup = self
+                        .indexed_lists
+                        .pop()
+                        .unwrap()
+                        .finish(&mut [&mut test, &mut lowered]);
                     result?;
+                    ops.extend(setup);
                     ops.push(Op::Loop {
                         condition: test.into(),
                         body: lowered.into(),
@@ -4676,11 +4818,14 @@ fn lower(
         protocols,
         access,
         public_api,
+        dimension_names,
         at,
         require_main,
         inputs,
     } = resolved;
-    let aliases = enums::resolve_types(&declarations, &enums, &classes)?;
+    let aliases =
+        enums::resolve_types(&declarations, &enums, &classes, dimension_names, &protocols)?;
+    consts::fold(&mut functions, &aliases)?;
     modules::check_api(&public_api, &aliases, &access)?;
     let (concrete_enums, generic_enums): (Vec<_>, Vec<_>) =
         enums.into_iter().partition(|e| e.type_params.is_empty());

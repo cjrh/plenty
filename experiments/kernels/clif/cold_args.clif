@@ -1,0 +1,640 @@
+; Probes of what the list-index cold blocks can pass without adding moves
+; to the reversal loop (variant d in reverse.clif). Counts per iteration are
+; in ../README.md.
+
+; n: d's cold blocks calling a helper whose only argument is a fresh symbol address.
+function %n_call_no_args(i128, i64) tail {
+    gv0 = symbol colocated u1:0
+    sig0 = (i64) system_v
+    fn0 = colocated u0:53 sig0
+
+block0(v0: i128, v1: i64):
+    v13, v14 = isplit.i128 v0
+    v4 = iconst.i64 1
+    v6, v7 = ssub_overflow v1, v4
+    trapnz v7, user4
+    v10 = icmp slt v4, v6
+    brif v10, block4(v4, v6), block5
+
+block4(v8: i64, v9: i64):
+    v15 = icmp.i64 ult v8, v14
+    brif v15, block7, block6
+
+block6 cold:
+    v16 = symbol_value.i64 gv0
+    call fn0(v16)
+    trap user3
+
+block7:
+    v53 = iconst.i64 3
+    v54 = ishl.i64 v8, v53
+    v21 = iadd.i64 v13, v54
+    v23 = load.i64 notrap aligned v21
+    v29 = icmp.i64 ult v9, v14
+    brif v29, block9, block8
+
+block8 cold:
+    v58 = symbol_value.i64 gv0
+    call fn0(v58)
+    trap user3
+
+block9:
+    v55 = ishl.i64 v9, v53
+    v25 = iadd.i64 v13, v55
+    v39 = load.i64 notrap aligned v25
+    store notrap aligned v39, v21
+    store.i64 notrap aligned v23, v25
+    v75 = iconst.i64 1
+    v60 = iadd.i64 v8, v75
+    v61 = isub.i64 v9, v75
+    v62 = icmp slt v60, v61
+    brif v62, block4(v60, v61), block5
+
+block5:
+    return
+}
+
+; o: d's cold blocks with only a trap.
+function %o_trap_only(i128, i64) tail {
+block0(v0: i128, v1: i64):
+    v13, v14 = isplit.i128 v0
+    v4 = iconst.i64 1
+    v6, v7 = ssub_overflow v1, v4
+    trapnz v7, user4
+    v10 = icmp slt v4, v6
+    brif v10, block4(v4, v6), block5
+
+block4(v8: i64, v9: i64):
+    v15 = icmp.i64 ult v8, v14
+    brif v15, block7, block6
+
+block6 cold:
+    trap user5
+
+block7:
+    v53 = iconst.i64 3
+    v54 = ishl.i64 v8, v53
+    v21 = iadd.i64 v13, v54
+    v23 = load.i64 notrap aligned v21
+    v29 = icmp.i64 ult v9, v14
+    brif v29, block9, block8
+
+block8 cold:
+    trap user6
+
+block9:
+    v55 = ishl.i64 v9, v53
+    v25 = iadd.i64 v13, v55
+    v39 = load.i64 notrap aligned v25
+    store notrap aligned v39, v21
+    store.i64 notrap aligned v23, v25
+    v75 = iconst.i64 1
+    v60 = iadd.i64 v8, v75
+    v61 = isub.i64 v9, v75
+    v62 = icmp slt v60, v61
+    brif v62, block4(v60, v61), block5
+
+block5:
+    return
+}
+
+; p: the index stored to a stack slot, then a trap.
+function %p_store_index_trap(i128, i64) tail {
+    ss0 = explicit_slot 16
+block0(v0: i128, v1: i64):
+    v13, v14 = isplit.i128 v0
+    v4 = iconst.i64 1
+    v6, v7 = ssub_overflow v1, v4
+    trapnz v7, user4
+    v10 = icmp slt v4, v6
+    brif v10, block4(v4, v6), block5
+
+block4(v8: i64, v9: i64):
+    v15 = icmp.i64 ult v8, v14
+    brif v15, block7, block6
+
+block6 cold:
+    v80 = stack_addr.i64 ss0
+    store notrap aligned v8, v80
+    trap user5
+
+block7:
+    v53 = iconst.i64 3
+    v54 = ishl.i64 v8, v53
+    v21 = iadd.i64 v13, v54
+    v23 = load.i64 notrap aligned v21
+    v29 = icmp.i64 ult v9, v14
+    brif v29, block9, block8
+
+block8 cold:
+    v81 = stack_addr.i64 ss0
+    store notrap aligned v9, v81
+    trap user6
+
+block9:
+    v55 = ishl.i64 v9, v53
+    v25 = iadd.i64 v13, v55
+    v39 = load.i64 notrap aligned v25
+    store notrap aligned v39, v21
+    store.i64 notrap aligned v23, v25
+    v75 = iconst.i64 1
+    v60 = iadd.i64 v8, v75
+    v61 = isub.i64 v9, v75
+    v62 = icmp slt v60, v61
+    brif v62, block4(v60, v61), block5
+
+block5:
+    return
+}
+
+; q: the index and length stored to a stack slot, then a trap.
+function %q_store_both_trap(i128, i64) tail {
+    ss0 = explicit_slot 16
+block0(v0: i128, v1: i64):
+    v13, v14 = isplit.i128 v0
+    v4 = iconst.i64 1
+    v6, v7 = ssub_overflow v1, v4
+    trapnz v7, user4
+    v10 = icmp slt v4, v6
+    brif v10, block4(v4, v6), block5
+
+block4(v8: i64, v9: i64):
+    v15 = icmp.i64 ult v8, v14
+    brif v15, block7, block6
+
+block6 cold:
+    v80 = stack_addr.i64 ss0
+    store notrap aligned v8, v80
+    store notrap aligned v14, v80+8
+    trap user5
+
+block7:
+    v53 = iconst.i64 3
+    v54 = ishl.i64 v8, v53
+    v21 = iadd.i64 v13, v54
+    v23 = load.i64 notrap aligned v21
+    v29 = icmp.i64 ult v9, v14
+    brif v29, block9, block8
+
+block8 cold:
+    v81 = stack_addr.i64 ss0
+    store notrap aligned v9, v81
+    store notrap aligned v14, v81+8
+    trap user6
+
+block9:
+    v55 = ishl.i64 v9, v53
+    v25 = iadd.i64 v13, v55
+    v39 = load.i64 notrap aligned v25
+    store notrap aligned v39, v21
+    store.i64 notrap aligned v23, v25
+    v75 = iconst.i64 1
+    v60 = iadd.i64 v8, v75
+    v61 = isub.i64 v9, v75
+    v62 = icmp slt v60, v61
+    brif v62, block4(v60, v61), block5
+
+block5:
+    return
+}
+
+; r: a call passing only the length.
+function %r_call_len_only(i128, i64) tail {
+    gv0 = symbol colocated u1:0
+    sig0 = (i64, i64) system_v
+    fn0 = colocated u0:53 sig0
+block0(v0: i128, v1: i64):
+    v13, v14 = isplit.i128 v0
+    v4 = iconst.i64 1
+    v6, v7 = ssub_overflow v1, v4
+    trapnz v7, user4
+    v10 = icmp slt v4, v6
+    brif v10, block4(v4, v6), block5
+
+block4(v8: i64, v9: i64):
+    v15 = icmp.i64 ult v8, v14
+    brif v15, block7, block6
+
+block6 cold:
+    v16 = symbol_value.i64 gv0
+    call fn0(v14, v16)
+    trap user5
+
+block7:
+    v53 = iconst.i64 3
+    v54 = ishl.i64 v8, v53
+    v21 = iadd.i64 v13, v54
+    v23 = load.i64 notrap aligned v21
+    v29 = icmp.i64 ult v9, v14
+    brif v29, block9, block8
+
+block8 cold:
+    v58 = symbol_value.i64 gv0
+    call fn0(v14, v58)
+    trap user6
+
+block9:
+    v55 = ishl.i64 v9, v53
+    v25 = iadd.i64 v13, v55
+    v39 = load.i64 notrap aligned v25
+    store notrap aligned v39, v21
+    store.i64 notrap aligned v23, v25
+    v75 = iconst.i64 1
+    v60 = iadd.i64 v8, v75
+    v61 = isub.i64 v9, v75
+    v62 = icmp slt v60, v61
+    brif v62, block4(v60, v61), block5
+
+block5:
+    return
+}
+
+; s: a call passing only the index.
+function %s_call_index_only(i128, i64) tail {
+    gv0 = symbol colocated u1:0
+    sig0 = (i64, i64) system_v
+    fn0 = colocated u0:53 sig0
+block0(v0: i128, v1: i64):
+    v13, v14 = isplit.i128 v0
+    v4 = iconst.i64 1
+    v6, v7 = ssub_overflow v1, v4
+    trapnz v7, user4
+    v10 = icmp slt v4, v6
+    brif v10, block4(v4, v6), block5
+
+block4(v8: i64, v9: i64):
+    v15 = icmp.i64 ult v8, v14
+    brif v15, block7, block6
+
+block6 cold:
+    v16 = symbol_value.i64 gv0
+    call fn0(v8, v16)
+    trap user5
+
+block7:
+    v53 = iconst.i64 3
+    v54 = ishl.i64 v8, v53
+    v21 = iadd.i64 v13, v54
+    v23 = load.i64 notrap aligned v21
+    v29 = icmp.i64 ult v9, v14
+    brif v29, block9, block8
+
+block8 cold:
+    v58 = symbol_value.i64 gv0
+    call fn0(v9, v58)
+    trap user6
+
+block9:
+    v55 = ishl.i64 v9, v53
+    v25 = iadd.i64 v13, v55
+    v39 = load.i64 notrap aligned v25
+    store notrap aligned v39, v21
+    store.i64 notrap aligned v23, v25
+    v75 = iconst.i64 1
+    v60 = iadd.i64 v8, v75
+    v61 = isub.i64 v9, v75
+    v62 = icmp slt v60, v61
+    brif v62, block4(v60, v61), block5
+
+block5:
+    return
+}
+
+; t: the index passed in the first check's cold block only.
+function %t_call_index_first_only(i128, i64) tail {
+    gv0 = symbol colocated u1:0
+    sig0 = (i64, i64) system_v
+    fn0 = colocated u0:53 sig0
+block0(v0: i128, v1: i64):
+    v13, v14 = isplit.i128 v0
+    v4 = iconst.i64 1
+    v6, v7 = ssub_overflow v1, v4
+    trapnz v7, user4
+    v10 = icmp slt v4, v6
+    brif v10, block4(v4, v6), block5
+
+block4(v8: i64, v9: i64):
+    v15 = icmp.i64 ult v8, v14
+    brif v15, block7, block6
+
+block6 cold:
+    v16 = symbol_value.i64 gv0
+    call fn0(v8, v16)
+    trap user5
+
+block7:
+    v53 = iconst.i64 3
+    v54 = ishl.i64 v8, v53
+    v21 = iadd.i64 v13, v54
+    v23 = load.i64 notrap aligned v21
+    v29 = icmp.i64 ult v9, v14
+    brif v29, block9, block8
+
+block8 cold:
+    trap user6
+
+block9:
+    v55 = ishl.i64 v9, v53
+    v25 = iadd.i64 v13, v55
+    v39 = load.i64 notrap aligned v25
+    store notrap aligned v39, v21
+    store.i64 notrap aligned v23, v25
+    v75 = iconst.i64 1
+    v60 = iadd.i64 v8, v75
+    v61 = isub.i64 v9, v75
+    v62 = icmp slt v60, v61
+    brif v62, block4(v60, v61), block5
+
+block5:
+    return
+}
+
+; u: the operands stored to a global scratch record, then a call with the site.
+function %u_global_scratch(i128, i64) tail {
+    gv0 = symbol colocated u1:0
+    gv1 = symbol colocated u1:1
+    sig0 = (i64) system_v
+    fn0 = colocated u0:53 sig0
+block0(v0: i128, v1: i64):
+    v13, v14 = isplit.i128 v0
+    v4 = iconst.i64 1
+    v6, v7 = ssub_overflow v1, v4
+    trapnz v7, user4
+    v10 = icmp slt v4, v6
+    brif v10, block4(v4, v6), block5
+
+block4(v8: i64, v9: i64):
+    v15 = icmp.i64 ult v8, v14
+    brif v15, block7, block6
+
+block6 cold:
+    v900 = symbol_value.i64 gv1
+    store notrap aligned v8, v900
+    store notrap aligned v14, v900+8
+    v901 = symbol_value.i64 gv0
+    call fn0(v901)
+    trap user3
+
+block7:
+    v53 = iconst.i64 3
+    v54 = ishl.i64 v8, v53
+    v21 = iadd.i64 v13, v54
+    v23 = load.i64 notrap aligned v21
+    v29 = icmp.i64 ult v9, v14
+    brif v29, block9, block8
+
+block8 cold:
+    v910 = symbol_value.i64 gv1
+    store notrap aligned v9, v910
+    store notrap aligned v14, v910+8
+    v911 = symbol_value.i64 gv0
+    call fn0(v911)
+    trap user3
+
+block9:
+    v55 = ishl.i64 v9, v53
+    v25 = iadd.i64 v13, v55
+    v39 = load.i64 notrap aligned v25
+    store notrap aligned v39, v21
+    store.i64 notrap aligned v23, v25
+    v75 = iconst.i64 1
+    v60 = iadd.i64 v8, v75
+    v61 = isub.i64 v9, v75
+    v62 = icmp slt v60, v61
+    brif v62, block4(v60, v61), block5
+
+block5:
+    return
+}
+
+; v: the operands stored to a stack slot, then a call with the site only.
+function %v_stack_scratch_site_only(i128, i64) tail {
+    ss0 = explicit_slot 16
+    gv0 = symbol colocated u1:0
+    gv1 = symbol colocated u1:1
+    sig0 = (i64) system_v
+    fn0 = colocated u0:53 sig0
+block0(v0: i128, v1: i64):
+    v13, v14 = isplit.i128 v0
+    v4 = iconst.i64 1
+    v6, v7 = ssub_overflow v1, v4
+    trapnz v7, user4
+    v10 = icmp slt v4, v6
+    brif v10, block4(v4, v6), block5
+
+block4(v8: i64, v9: i64):
+    v15 = icmp.i64 ult v8, v14
+    brif v15, block7, block6
+
+block6 cold:
+    v900 = stack_addr.i64 ss0
+    store notrap aligned v8, v900
+    store notrap aligned v14, v900+8
+    v901 = symbol_value.i64 gv0
+    call fn0(v901)
+    trap user3
+
+block7:
+    v53 = iconst.i64 3
+    v54 = ishl.i64 v8, v53
+    v21 = iadd.i64 v13, v54
+    v23 = load.i64 notrap aligned v21
+    v29 = icmp.i64 ult v9, v14
+    brif v29, block9, block8
+
+block8 cold:
+    v910 = stack_addr.i64 ss0
+    store notrap aligned v9, v910
+    store notrap aligned v14, v910+8
+    v911 = symbol_value.i64 gv0
+    call fn0(v911)
+    trap user3
+
+block9:
+    v55 = ishl.i64 v9, v53
+    v25 = iadd.i64 v13, v55
+    v39 = load.i64 notrap aligned v25
+    store notrap aligned v39, v21
+    store.i64 notrap aligned v23, v25
+    v75 = iconst.i64 1
+    v60 = iadd.i64 v8, v75
+    v61 = isub.i64 v9, v75
+    v62 = icmp slt v60, v61
+    brif v62, block4(v60, v61), block5
+
+block5:
+    return
+}
+
+; w: v passing the slot address as well: the shape Plenty now emits.
+function %w_stack_record_addr_arg(i128, i64) tail {
+    ss0 = explicit_slot 24
+    gv0 = symbol colocated u1:0
+    sig0 = (i64) system_v
+    fn0 = colocated u0:53 sig0
+block0(v0: i128, v1: i64):
+    v13, v14 = isplit.i128 v0
+    v4 = iconst.i64 1
+    v6, v7 = ssub_overflow v1, v4
+    trapnz v7, user4
+    v10 = icmp slt v4, v6
+    brif v10, block4(v4, v6), block5
+
+block4(v8: i64, v9: i64):
+    v15 = icmp.i64 ult v8, v14
+    brif v15, block7, block6
+
+block6 cold:
+    v900 = stack_addr.i64 ss0
+    store notrap aligned v8, v900
+    store notrap aligned v14, v900+8
+    v901 = symbol_value.i64 gv0
+    store notrap aligned v901, v900+16
+    call fn0(v900)
+    trap user3
+
+block7:
+    v53 = iconst.i64 3
+    v54 = ishl.i64 v8, v53
+    v21 = iadd.i64 v13, v54
+    v23 = load.i64 notrap aligned v21
+    v29 = icmp.i64 ult v9, v14
+    brif v29, block9, block8
+
+block8 cold:
+    v910 = stack_addr.i64 ss0
+    store notrap aligned v9, v910
+    store notrap aligned v14, v910+8
+    v911 = symbol_value.i64 gv0
+    store notrap aligned v911, v910+16
+    call fn0(v910)
+    trap user3
+
+block9:
+    v55 = ishl.i64 v9, v53
+    v25 = iadd.i64 v13, v55
+    v39 = load.i64 notrap aligned v25
+    store notrap aligned v39, v21
+    store.i64 notrap aligned v23, v25
+    v75 = iconst.i64 1
+    v60 = iadd.i64 v8, v75
+    v61 = isub.i64 v9, v75
+    v62 = icmp slt v60, v61
+    brif v62, block4(v60, v61), block5
+
+block5:
+    return
+}
+
+; x: w with a separate stack_addr per cold block; GVN merges them.
+function %x_record_fresh_addr(i128, i64) tail {
+    ss0 = explicit_slot 24
+    gv0 = symbol colocated u1:0
+    sig0 = (i64) system_v
+    fn0 = colocated u0:53 sig0
+block0(v0: i128, v1: i64):
+    v13, v14 = isplit.i128 v0
+    v4 = iconst.i64 1
+    v6, v7 = ssub_overflow v1, v4
+    trapnz v7, user4
+    v10 = icmp slt v4, v6
+    brif v10, block4(v4, v6), block5
+
+block4(v8: i64, v9: i64):
+    v15 = icmp.i64 ult v8, v14
+    brif v15, block7, block6
+
+block6 cold:
+    v900 = stack_addr.i64 ss0
+    store notrap aligned v8, v900
+    store notrap aligned v14, v900+8
+    v901 = symbol_value.i64 gv0
+    store notrap aligned v901, v900+16
+    v905 = stack_addr.i64 ss0
+    call fn0(v905)
+    trap user3
+
+block7:
+    v53 = iconst.i64 3
+    v54 = ishl.i64 v8, v53
+    v21 = iadd.i64 v13, v54
+    v23 = load.i64 notrap aligned v21
+    v29 = icmp.i64 ult v9, v14
+    brif v29, block9, block8
+
+block8 cold:
+    v910 = stack_addr.i64 ss0
+    store notrap aligned v9, v910
+    store notrap aligned v14, v910+8
+    v911 = symbol_value.i64 gv0
+    store notrap aligned v911, v910+16
+    v915 = stack_addr.i64 ss0
+    call fn0(v915)
+    trap user3
+
+block9:
+    v55 = ishl.i64 v9, v53
+    v25 = iadd.i64 v13, v55
+    v39 = load.i64 notrap aligned v25
+    store notrap aligned v39, v21
+    store.i64 notrap aligned v23, v25
+    v75 = iconst.i64 1
+    v60 = iadd.i64 v8, v75
+    v61 = isub.i64 v9, v75
+    v62 = icmp slt v60, v61
+    brif v62, block4(v60, v61), block5
+
+block5:
+    return
+}
+
+; y: the operands stored to a global, then a trap.
+function %y_global_then_trap(i128, i64) tail {
+    gv1 = symbol colocated u1:1
+block0(v0: i128, v1: i64):
+    v13, v14 = isplit.i128 v0
+    v4 = iconst.i64 1
+    v6, v7 = ssub_overflow v1, v4
+    trapnz v7, user4
+    v10 = icmp slt v4, v6
+    brif v10, block4(v4, v6), block5
+
+block4(v8: i64, v9: i64):
+    v15 = icmp.i64 ult v8, v14
+    brif v15, block7, block6
+
+block6 cold:
+    v900 = symbol_value.i64 gv1
+    store notrap aligned v8, v900
+    store notrap aligned v14, v900+8
+    trap user5
+
+block7:
+    v53 = iconst.i64 3
+    v54 = ishl.i64 v8, v53
+    v21 = iadd.i64 v13, v54
+    v23 = load.i64 notrap aligned v21
+    v29 = icmp.i64 ult v9, v14
+    brif v29, block9, block8
+
+block8 cold:
+    v910 = symbol_value.i64 gv1
+    store notrap aligned v9, v910
+    store notrap aligned v14, v910+8
+    trap user6
+
+block9:
+    v55 = ishl.i64 v9, v53
+    v25 = iadd.i64 v13, v55
+    v39 = load.i64 notrap aligned v25
+    store notrap aligned v39, v21
+    store.i64 notrap aligned v23, v25
+    v75 = iconst.i64 1
+    v60 = iadd.i64 v8, v75
+    v61 = isub.i64 v9, v75
+    v62 = icmp slt v60, v61
+    brif v62, block4(v60, v61), block5
+
+block5:
+    return
+}

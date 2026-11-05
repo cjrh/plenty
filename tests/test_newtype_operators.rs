@@ -27,6 +27,26 @@ class C:
 "#;
 
 #[test]
+fn ordering_inferred_affine_operands_preserves_their_loans() {
+    expect(
+        &format!(
+            "{WRAPPERS}
+def identity[T](value: T) -> T:
+    value
+def shared[T](value: &T) -> &T:
+    value
+left = B(2)
+right = B(3)
+print(shared(&left) < shared(&right)).unwrap()
+print(identity(B(2)) < identity(B(3))).unwrap()
+print(left.value, right.value).unwrap()
+"
+        ),
+        "True\nTrue\n2 3\n",
+    );
+}
+
+#[test]
 fn arithmetic_bitwise_unary_and_comparisons_forward_to_the_field() {
     expect(
         &format!(

@@ -68,9 +68,12 @@ area:
 16
 ```
 
-`plenty run` compiles into `target/debug/app` and runs it. Progress messages go
+`plenty run` compiles into `target/optimized/app` and runs it. Progress messages go
 to standard error; program arguments follow `--`, as in `plenty run -- a b`.
-`plenty build --release` writes an optimized executable to `target/release/`.
+Builds optimize by default. For shorter edit-run cycles in large projects, use
+`plenty run --fast-compile` or `plenty build --fast-compile`; these write to
+`target/fast-compile/` and keep the same overflow, bounds and ownership checks.
+Use the default profile when measuring runtime performance.
 A later build with no changed source reports `Fresh` and reuses the executable.
 
 The first build also writes `plenty.lock`, which records the resolved packages.

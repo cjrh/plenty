@@ -220,14 +220,13 @@ fn changing_a_substituted_predicate_misses_its_callers() {
 fn optimization_level_is_part_of_the_key() {
     let dir = tempfile::tempdir().unwrap();
     let cache = dir.path().join("cache");
-    let debug = emit(dir.path(), PROGRAM, Some(&cache), &[]);
+    let debug = emit(dir.path(), PROGRAM, Some(&cache), &["--fast-compile"]);
     let (debug_hits, debug_misses) = debug.counts();
     let before = entries(&cache).len() as u64;
     let source = dir.path().join("release.plenty");
     std::fs::write(&source, PROGRAM).unwrap();
     let object = dir.path().join("release.o");
-    // `--release` needs `--compile`; the object is extracted by linking
-    // nothing else, so compile to an executable instead.
+    // Optimized executable emission must not reuse the fast-compile objects.
     let output = plenty()
         .args(["--cache-stats", "--release", "--compile"])
         .arg(&source)
@@ -243,7 +242,9 @@ fn optimization_level_is_part_of_the_key() {
         object: Vec::new(),
     };
     let (hits, misses) = release.counts();
-    assert_eq!(hits + misses, debug_hits + debug_misses, "{stderr}");
+    // An inlined function that nothing else refers to is never compiled on
+    // its own in a release build (issue #722).
+    assert!(hits + misses <= debug_hits + debug_misses, "{stderr}");
     // Every optimized function missed, apart from the intra-program sharing
     // a cold run has: the unoptimized entries were never candidates, so the
     // optimized ones were all added. Workers missing the same new key at
@@ -660,7 +661,7 @@ fn single_file_runs_reuse_executables_and_invalidate_imports() {
         "--no-cache",
         "--no-program-cache",
         "--test-hooks",
-        "--release",
+        "--fast-compile",
     ] {
         let output = run_script(&root, &cache, &[flag]);
         assert!(
@@ -672,7 +673,7 @@ fn single_file_runs_reuse_executables_and_invalidate_imports() {
         assert!(!String::from_utf8_lossy(&output.stderr).contains("executable cache: hit"));
         assert!(String::from_utf8_lossy(&output.stderr).contains("link: "));
     }
-    let release = run_script(&root, &cache, &["--release"]);
+    let release = run_script(&root, &cache, &["--fast-compile"]);
     assert!(String::from_utf8_lossy(&release.stderr).contains("executable cache: hit"));
     let custom = run_script(&root, &cache, &["--linker", "cc"]);
     assert!(custom.status.success());
@@ -1381,16 +1382,16 @@ fn settings_and_the_opt_out_are_respected() {
     let cache = dir.path().join("cache");
     let root = project(dir.path());
     emit_project(&root, Some(&cache), &[]);
-    let optimized = plenty()
-        .args(["--cache-stats", "--release", "--compile"])
+    let fast = plenty()
+        .args(["--cache-stats", "--fast-compile", "--compile"])
         .arg(root.join("main.plenty"))
         .arg("-o")
         .arg(root.join("main"))
         .env("PLENTY_CACHE_DIR", &cache)
         .output()
         .unwrap();
-    assert!(optimized.status.success());
-    let stderr = String::from_utf8_lossy(&optimized.stderr);
+    assert!(fast.status.success());
+    let stderr = String::from_utf8_lossy(&fast.stderr);
     assert!(stderr.contains("program miss"), "{stderr}");
     assert_eq!(program_entries(&cache).len(), 2);
 
