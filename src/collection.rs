@@ -981,6 +981,52 @@ impl CollectionOp {
             ),
         }
     }
+
+    /// Whether the runtime only reads this operation's managed operands
+    /// during the call: it runs no Plenty code, and it neither releases nor
+    /// replaces a value that an operand owns or reaches. Keys hash and
+    /// compare structurally, and byte writes change only bytes. A counted
+    /// copy of an operand that its source still holds is then passed without
+    /// its retain and release (issue #744).
+    pub fn only_reads_operands(&self) -> bool {
+        use crate::bytes::BytesOp;
+        match self {
+            Self::Get(_)
+            | Self::ListGet(_)
+            | Self::ListCount(_)
+            | Self::ListFind(_)
+            | Self::ListRFind(_)
+            | Self::DictGet(_)
+            | Self::DictGetMut(_)
+            | Self::SetIsSubset(_)
+            | Self::SetIsSuperset(_)
+            | Self::SetIsDisjoint(_)
+            | Self::KeySetRelation(_) => true,
+            Self::Contains(t) => matches!(
+                t,
+                Ty::List(_) | Ty::Dict(..) | Ty::Set(_) | Ty::Range(_) | Ty::Str | Ty::ByteStr
+            ),
+            Self::Bytes(op) => matches!(
+                op,
+                BytesOp::Len
+                    | BytesOp::Capacity
+                    | BytesOp::Get
+                    | BytesOp::Set
+                    | BytesOp::Find
+                    | BytesOp::FindIn
+                    | BytesOp::FindBytes
+                    | BytesOp::Count
+                    | BytesOp::Matches
+                    | BytesOp::MatchesText
+                    | BytesOp::Run
+                    | BytesOp::Fill
+                    | BytesOp::CopyWithin
+                    | BytesOp::Overwrite
+            ),
+            _ => false,
+        }
+    }
+
     /// Whether the runtime can trap in this operation, which then takes the
     /// source position to report. Iteration reads stay in bounds by
     /// construction.

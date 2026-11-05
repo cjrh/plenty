@@ -1096,11 +1096,16 @@ impl Lowerer<'_, '_> {
                 || *input == Ty::Bool
                 || *input == crate::frontend::text_view()
         });
+        // A lookup or byte access reads every operand in place, such as the
+        // borrowed key of `get_mut(&key)` and the buffer a `Bytes` method
+        // reads through `self` (issue #744).
+        let only_reads = operation.only_reads_operands();
         let mut values = Vec::new();
         let mut held = Vec::new();
         for input in inputs.iter().rev() {
             let (value, _) = self.pop_typed(input.clone())?;
-            held.push(reads_in_place && *input == Ty::Str && self.forget_slot_copy(value));
+            let in_place = only_reads || reads_in_place && *input == Ty::Str;
+            held.push(in_place && self.forget_slot_copy(value));
             values.push(self.pack(value, input));
         }
         values.reverse();
