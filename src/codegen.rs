@@ -1948,6 +1948,7 @@ fn build_user_function(
             trap_blocks: HashMap::default(),
             moves: inline::Moves::find(body),
         };
+        lower.note_stable_inputs(decl.sig.inputs.len());
         // Argument addresses belong to the caller. Snapshot inline values into
         // this function's locals before any mutation or nested call can occur.
         for (i, (_, ty)) in decl.sig.inputs.iter().enumerate() {
@@ -2981,6 +2982,33 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
+    /// Records the entry values of the first `inputs` locals that are shared
+    /// list parameters; see [`induction::Bounds`].
+    fn note_stable_inputs(&mut self, inputs: usize) {
+        for local in 0..inputs as u8 {
+            let ty = &self.locals[local as usize].1;
+            let shared_list = matches!(ty, Ty::Ref(inner, false) if matches!(**inner, Ty::List(_)));
+            if shared_list && self.local_address(local).is_none() {
+                let value = self.read_local(local);
+                let value = self.bcx.func.dfg.resolve_aliases(value);
+                self.counters.bounds.stable_lists.insert(value);
+            }
+        }
+    }
+
+    /// Records what [`induction::Bounds`] knows about `value`, just read
+    /// from local `i`.
+    fn note_bounds(&mut self, i: u8, value: cranelift_codegen::ir::Value) {
+        let bounds = &mut self.counters.bounds;
+        let entry = bounds.invariant_locals.iter().rev().find(|(l, _)| *l == i);
+        if let Some(&(_, entry)) = entry {
+            bounds.canonical.insert(value, entry);
+        }
+        if let Some(&(_, stop)) = bounds.below_locals.iter().rev().find(|(l, _)| *l == i) {
+            bounds.below.insert(value, stop);
+        }
+    }
+
     fn nonnegative_operand(&self, value: cranelift_codegen::ir::Value) -> bool {
         self.counters.nonnegative.contains(&value)
             || induction::nonnegative_constant(&self.bcx.func.dfg, value)
@@ -3553,6 +3581,7 @@ impl Lowerer<'_, '_> {
         if self.counters.nonnegative_locals.contains(&i) {
             self.counters.nonnegative.insert(v);
         }
+        self.note_bounds(i, v);
         let block = self.bcx.current_block().ok_or("load outside a block")?;
         let before = self.bcx.func.layout.last_inst(block);
         let retain = self.retain(v, &ty);

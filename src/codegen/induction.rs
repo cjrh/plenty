@@ -22,7 +22,7 @@
 //! no reference can write them behind the operations' back.
 use cranelift_codegen::ir::{DataFlowGraph, Value};
 
-use crate::hash::HashSet;
+use crate::hash::{HashMap, HashSet};
 use crate::numeric::Checked as Arith;
 use crate::op::{Op, Ty};
 
@@ -47,14 +47,120 @@ pub(super) struct Facts {
     /// Signed counter locals of the loops being lowered whose every value is
     /// nonnegative, one entry per loop that established it.
     pub nonnegative_locals: Vec<u8>,
-    /// The length, first element, and step of each 64-bit `range` whose
-    /// length this function computed; see [`RangeLoop`].
-    pub ranges: Vec<(Value, Value, Value)>,
+    /// The length, first element, step and stop of each 64-bit `range`
+    /// whose length this function computed; see [`RangeLoop`].
+    pub ranges: Vec<(Value, Value, Value, Value)>,
     /// SSA values known to be nonnegative. A fact about an SSA value holds
     /// wherever the value is used.
     pub nonnegative: HashSet<Value>,
     /// Row bounds checks done on the current path; see [`Checked`].
     pub checked: Checked,
+    /// Facts that prove a row index below a list's length; see [`Bounds`].
+    pub bounds: Bounds,
+}
+
+/// Facts that prove a scalar list index in bounds, so its check is dead
+/// (issue #728).
+///
+/// The referent of a shared list parameter cannot change while the function
+/// runs: the caller's loan outlives the call. Every length read through the
+/// parameter's entry value, or a copy of it, is therefore the same number.
+/// Other shared references are not stable this way. A reborrow of an
+/// exclusive reference has the same native value as its source, and once the
+/// reborrow ends the source may clear or replace the list (issue #736). An
+/// inlined body lowers with its own facts, so its parameters' stability ends
+/// with the call. A slice view's count is part of the view's value. Two
+/// length values read through the same stable reference or view are
+/// therefore equal, and an index known to be nonnegative and below one of
+/// them is in bounds for the other.
+///
+/// Values are compared by their canonical value: inside a loop, a local the
+/// loop never writes has a fresh SSA value at each read (its header block is
+/// unsealed while the body lowers), so each read maps to the value the local
+/// held on entry.
+#[derive(Default)]
+pub(super) struct Bounds {
+    /// Locals the loops being lowered never write, with their entry values.
+    pub invariant_locals: Vec<(u8, Value)>,
+    pub canonical: HashMap<Value, Value>,
+    /// Entry values of the shared list parameters.
+    pub stable_lists: HashSet<Value>,
+    /// Canonical length values and the reference or view each was read from.
+    pub lengths: HashMap<Value, Value>,
+    /// Counter locals of the loops being lowered and the value every one of
+    /// their reads in the body is below.
+    pub below_locals: Vec<(u8, Value)>,
+    /// Values and a value each is below.
+    pub below: HashMap<Value, Value>,
+}
+
+impl Bounds {
+    pub(super) fn canonical(&self, dfg: &DataFlowGraph, value: Value) -> Value {
+        let value = dfg.resolve_aliases(value);
+        self.canonical.get(&value).copied().unwrap_or(value)
+    }
+
+    /// Whether `index` is below `length`; the caller still proves it
+    /// nonnegative.
+    pub(super) fn below(&self, dfg: &DataFlowGraph, index: Value, length: Value) -> bool {
+        let index = dfg.resolve_aliases(index);
+        let Some(&bound) = self.below.get(&index) else {
+            return false;
+        };
+        let (bound, length) = (self.canonical(dfg, bound), self.canonical(dfg, length));
+        bound == length
+            || self
+                .lengths
+                .get(&bound)
+                .is_some_and(|list| self.lengths.get(&length) == Some(list))
+    }
+}
+
+/// The locals `ops` and their nested bodies read and those they may write.
+pub(super) fn local_uses(ops: &[Op], read: &mut HashSet<u8>, written: &mut HashSet<u8>) {
+    for op in ops {
+        match op {
+            Op::LoadLocal(i) => {
+                read.insert(*i);
+            }
+            Op::StoreLocal(i)
+            | Op::BorrowLocal(i, _)
+            | Op::MoveLocal(i)
+            | Op::DropLocal(i)
+            | Op::EmptyLocal(i)
+            | Op::Next(i) => {
+                written.insert(*i);
+            }
+            Op::Loop { condition, body } => {
+                local_uses(condition, read, written);
+                local_uses(body, read, written);
+            }
+            Op::If {
+                then,
+                elifs,
+                otherwise,
+            } => {
+                local_uses(then, read, written);
+                for arm in elifs.iter() {
+                    local_uses(&arm.condition, read, written);
+                    local_uses(&arm.body, read, written);
+                }
+                local_uses(otherwise, read, written);
+            }
+            Op::Match(arms) => {
+                for arm in arms.iter() {
+                    local_uses(&arm.body, read, written);
+                }
+            }
+            Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => {
+                local_uses(cleanup, read, written);
+            }
+            Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
+                local_uses(body, read, written);
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Row bounds checks already done, for reuse by a later access of the same
