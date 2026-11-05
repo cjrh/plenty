@@ -1,0 +1,53 @@
+{
+  "name": "k-nucleotide",
+  "status": "ready",
+  "description_url": "https://benchmarksgame-team.pages.debian.net/benchmarksgame/description/knucleotide.html",
+  "reference": {
+    "language": "rust",
+    "program": 1,
+    "file": "reference/knucleotide.rs",
+    "url": "https://benchmarksgame-team.pages.debian.net/benchmarksgame/program/knucleotide-rust-1.html",
+    "authors": [
+      "Renat Galimov"
+    ],
+    "license": "BSD-3-Clause; see ../LICENSE-benchmarks-game.txt",
+    "threads": 7,
+    "asterisk": false,
+    "site_make": "/opt/src/rust-1.84.1/bin/rustc -C opt-level=3 -C target-cpu=ivybridge -C codegen-units=1 -L /opt/src/rust-libs --extern futures=/opt/src/rust-libs/libfutures-ada39ec68f280726.rlib --extern indexmap=/opt/src/rust-libs/libindexmap-28a5b5c9a6c1d4f5.rlib knucleotide.rs -o knucleotide.rust_run",
+    "site_command": "./knucleotide.rust_run 0 < knucleotide-input25000000.txt",
+    "build": {
+      "kind": "rust",
+      "command": [
+        "rustc",
+        "-C",
+        "opt-level=3",
+        "-C",
+        "target-cpu=native",
+        "-C",
+        "codegen-units=1",
+        "{source}",
+        "-o",
+        "{output}"
+      ]
+    }
+  },
+  "input": "fasta-stdin",
+  "check": {
+    "size": 1000,
+    "expected": "expected/fasta-1000.txt",
+    "compare": "exact"
+  },
+  "sizes": {
+    "quick": 250000,
+    "full": 25000000,
+    "site": 25000000
+  },
+  "plenty": [
+    {
+      "variant": "idiomatic",
+      "file": "plenty/knucleotide.plenty",
+      "threads": 1
+    }
+  ],
+  "notes": "The site links futures and indexmap, but this program uses only std, so the local build omits them. The reference counts the 7 frame lengths on 7 threads; the Plenty program counts them in turn."
+}

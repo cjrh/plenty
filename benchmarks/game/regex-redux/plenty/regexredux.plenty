@@ -1,0 +1,85 @@
+# regex-redux: strip FASTA headers and line breaks with a regex, count nine
+# variant patterns, then apply five substitutions in sequence and report the
+# lengths.
+# Same algorithm as the reference (regexredux.rs, Rust #1), using std.regex.
+# The reference counts the nine variants on nine threads; this version counts
+# them in turn on one thread.
+import std.bytes
+import std.regex
+
+const READ_CHUNK: i64 = 1048576
+
+type AppError = AllocError | IoError | OverflowError[i64] | std.bytes.BytesError | std.regex.RegexError | RangeError
+
+
+def read_all_stdin() -> Result[std.bytes.Bytes, AllocError | IoError | OverflowError[i64]]:
+    mut buffer = std.bytes.with_capacity(READ_CHUNK)?
+    mut end = 0
+    while True:
+        if end == buffer.len():
+            buffer.resize(end + READ_CHUNK, 0u8)?
+        count = buffer.read_stdin(end, buffer.len())?
+        if count == 0:
+            break
+        end += count
+    buffer.truncate(end)
+    Ok(buffer)
+
+
+def count_matches(pattern: &std.regex.Regex, text: &str) -> Result[i64, OverflowError[i64] | std.regex.RegexError]:
+    mut cursor = pattern.cursor()?
+    mut count = 0
+    while True:
+        match pattern.next_match(text, &mut cursor)?:
+            case Some(_):
+                count += 1
+            case Nothing:
+                break
+    Ok(count)
+
+
+def main() -> Result[(), AppError]:
+    input = read_all_stdin()?
+    input_length = input.len()
+    text = input.to_text()?
+    drop(input)
+
+    # The defaults cap one call at 100M matcher steps; the benchmark's inputs
+    # are hundreds of megabytes, so lift only the work limit.
+    mut bounds = std.regex.limits()
+    bounds.max_work = NonNegative.try_from(i64.MAX)?
+    unlimited = i64.MAX
+
+    cleaner = std.regex.compile(">[^\n]*\n|\n", &bounds)?
+    mut sequence = cleaner.replace_all(&text, "", unlimited)?
+    drop(text)
+    clean_length = len(sequence)
+
+    variants = [
+        "agggtaaa|tttaccct",
+        "[cgt]gggtaaa|tttaccc[acg]",
+        "a[act]ggtaaa|tttacc[agt]t",
+        "ag[act]gtaaa|tttac[agt]ct",
+        "agg[act]taaa|ttta[agt]cct",
+        "aggg[acg]aaa|ttt[cgt]ccct",
+        "agggt[cgt]aa|tt[acg]accct",
+        "agggta[cgt]a|t[acg]taccct",
+        "agggtaa[cgt]|[acg]ttaccct",
+    ]?
+    for variant in &variants:
+        pattern = std.regex.compile(variant, &bounds)?
+        print(f"{variant} {count_matches(&pattern, &sequence)?}"?)?
+
+    substitutions = [
+        ("tHa[Nt]", "<4>"),
+        ("aND|caN|Ha[DS]|WaS", "<3>"),
+        ("a[NSt]|BY", "<2>"),
+        ("<[^>]*>", "|"),
+        ("\\|[^|][^|]*\\|", "-"),
+    ]?
+    for (expression, replacement) in &substitutions:
+        pattern = std.regex.compile(expression, &bounds)?
+        sequence = pattern.replace_all(&sequence, replacement, unlimited)?
+
+    print(f"\n{input_length}\n{clean_length}\n{len(sequence)}"?)?
+    Ok(())

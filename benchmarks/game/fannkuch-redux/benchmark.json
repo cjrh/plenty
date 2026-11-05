@@ -1,0 +1,58 @@
+{
+  "name": "fannkuch-redux",
+  "status": "ready",
+  "description_url": "https://benchmarksgame-team.pages.debian.net/benchmarksgame/description/fannkuchredux.html",
+  "reference": {
+    "language": "c",
+    "program": 1,
+    "file": "reference/fannkuchredux.clang-1.c",
+    "url": "https://benchmarksgame-team.pages.debian.net/benchmarksgame/program/fannkuchredux-clang-1.html",
+    "authors": [
+      "Joseph Piché (C conversion)",
+      "Oleg Mazurov and Isaac Gouy (Java original)"
+    ],
+    "license": "BSD-3-Clause; see ../LICENSE-benchmarks-game.txt",
+    "threads": 1,
+    "asterisk": false,
+    "site_make": "/usr/bin/clang -pipe -Wall -O3 -fomit-frame-pointer -march=ivybridge  fannkuchredux.c -o fannkuchredux.clang_run",
+    "site_command": "./fannkuchredux.clang_run 12",
+    "build": {
+      "kind": "c",
+      "command": [
+        "clang",
+        "-pipe",
+        "-Wall",
+        "-O3",
+        "-fomit-frame-pointer",
+        "-march=native",
+        "{source}",
+        "-o",
+        "{output}"
+      ]
+    }
+  },
+  "input": "argument",
+  "check": {
+    "size": 7,
+    "expected": "expected/7.txt",
+    "compare": "exact"
+  },
+  "sizes": {
+    "quick": 10,
+    "full": 12,
+    "site": 12
+  },
+  "plenty": [
+    {
+      "variant": "idiomatic",
+      "file": "plenty/fannkuchredux.plenty",
+      "threads": 1
+    },
+    {
+      "variant": "parallel",
+      "file": "../../../examples/fannkuch_redux.plenty",
+      "threads": 8,
+      "note": "The existing example: 8 pool workers over blocks of permutations."
+    }
+  ]
+}

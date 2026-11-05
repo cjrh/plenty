@@ -1,0 +1,119 @@
+# fasta: generate DNA sequences by copying ALU and by weighted random choice.
+# Same algorithm as the reference (fasta.rs, Rust #3): f32 cumulative
+# probabilities scaled to integer limits, the benchmark's linear congruential
+# generator, a linear search for each symbol, and 60-column lines written
+# through a buffered writer in blocks of 1024 lines.
+import std.bytes
+import std.io
+
+const LINE_LENGTH: i64 = 60
+const BLOCK_SIZE: i64 = 61440
+const IM: i64 = 139968
+const IA: i64 = 3877
+const IC: i64 = 29573
+const MAX_N: i64 = 1_000_000_000
+
+const ALU: bytes = b"GGCCGGGCGCGGTGGCTCACGCCTGTAATCCCAGCACTTTGGGAGGCCGAGGCGGGCGGATCACCTGAGGTCAGGAGTTCGAGACCAGCCTGGCCAACATGGTGAAACCCCGTCTCTACTAAAAATACAAAAATTAGCCGGGCGTGGTGGCGCGCGCCTGTAATCCCAGCTACTCGGGAGGCTGAGGCAGGAGAATCGCTTGAACCCGGGAGGCGGAGGTTGCAGTGAGCCGAGATCGCGCCACTGCACTCCAGCCTGGGCGACAGAGCGAGACTCCGTCTCAAAAA"
+const IUB_CODES: bytes = b"acgtBDHKMNRSVWY"
+const HOMO_SAPIENS_CODES: bytes = b"acgt"
+
+type Out = std.io.BufWriter[std.io.Stdout]
+type FastaError = AllocError | OverflowError[i64] | ZeroDivisionError | std.io.Partial
+type AppError = FastaError | IoError | ParseError | std.io.StreamError
+
+
+class Rng:
+    seed: i64
+
+    def next(self: &mut Rng) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
+        self.seed = (self.seed * IA + IC) % IM
+        Ok(self.seed)
+
+
+# Cumulative limits in 0..=IM, accumulated in f32 as the reference does.
+def cumulative(probabilities: &list[f32]) -> Result[list[i64], AllocError]:
+    mut limits = list[i64].with_capacity(len(probabilities))?
+    mut sum: f32 = 0.0f32
+    for p in probabilities:
+        sum += *p
+        limits.append(i64((sum * f32(IM)).floor()))?
+    Ok(limits)
+
+
+def write_lines(out: &mut Out, block: &std.bytes.Bytes, count: i64) -> Result[(), FastaError]:
+    mut start = 0
+    while start < count:
+        stop = if start + LINE_LENGTH < count:
+            start + LINE_LENGTH
+        else:
+            count
+        std.io.write_all(out, &block[start:stop])?
+        std.io.write_all(out, b"\n")?
+        start = stop
+    Ok(())
+
+
+def repeat_fasta(out: &mut Out, block: &mut std.bytes.Bytes, n: i64) -> Result[(), FastaError]:
+    mut position = 0
+    mut remaining = n
+    while remaining > 0:
+        count = if remaining < BLOCK_SIZE:
+            remaining
+        else:
+            BLOCK_SIZE
+        for i in range(count):
+            block.set(i, ALU[position])
+            position += 1
+            if position == len(ALU):
+                position = 0
+        write_lines(out, block, count)?
+        remaining -= count
+    Ok(())
+
+
+def random_fasta(out: &mut Out, block: &mut std.bytes.Bytes, rng: &mut Rng, codes: &[u8], limits: &list[i64], n: i64) -> Result[(), FastaError]:
+    mut remaining = n
+    while remaining > 0:
+        count = if remaining < BLOCK_SIZE:
+            remaining
+        else:
+            BLOCK_SIZE
+        for i in range(count):
+            r = rng.next()?
+            mut k = 0
+            while limits[k] < r:
+                k += 1
+            block.set(i, codes[k])
+        write_lines(out, block, count)?
+        remaining -= count
+    Ok(())
+
+
+def main() -> Result[i32, AppError]:
+    argv = args()?
+    n = if len(argv) > 1:
+        i64.parse(&argv[1])?
+    else:
+        1000
+    if n < 0 or n > MAX_N:
+        write_stderr(f"N must be in 0..={MAX_N}\n"?)?
+        return Ok(2)
+    iub = cumulative(&[
+        0.27f32, 0.12f32, 0.12f32, 0.27f32, 0.02f32, 0.02f32, 0.02f32, 0.02f32,
+        0.02f32, 0.02f32, 0.02f32, 0.02f32, 0.02f32, 0.02f32, 0.02f32,
+    ]?)?
+    homo_sapiens = cumulative(&[0.3029549426680f32, 0.1979883004921f32, 0.1975473066391f32, 0.3015094502008f32]?)?
+
+    mut out = std.io.buffered_writer(std.io.stdout(), 65536)?
+    mut block = std.bytes.with_capacity(BLOCK_SIZE)?
+    block.resize(BLOCK_SIZE, 0u8)?
+    mut rng = Rng(42)
+
+    std.io.write_all(&mut out, b">ONE Homo sapiens alu\n")?
+    repeat_fasta(&mut out, &mut block, n * 2)?
+    std.io.write_all(&mut out, b">TWO IUB ambiguity codes\n")?
+    random_fasta(&mut out, &mut block, &mut rng, &IUB_CODES, &iub, n * 3)?
+    std.io.write_all(&mut out, b">THREE Homo sapiens frequency\n")?
+    random_fasta(&mut out, &mut block, &mut rng, &HOMO_SAPIENS_CODES, &homo_sapiens, n * 5)?
+    out.flush()?
+    Ok(0)

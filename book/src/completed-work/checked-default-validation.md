@@ -218,4 +218,5 @@ no general cross-language native `Result` ABI is invented.
 
 This is x86-64 host evidence, not universal cross-ISA, sanitizer, all-FFI or
 all-Rust-arithmetic coverage. Independent archive-decimal and PNG-framing defects
-remain issues #705 and #707, outside this arithmetic adoption.
+were recorded as issues #705 and #707, outside this arithmetic adoption. The
+[archive decimal boundary fix](libraries.md#b38-library-breadth) addresses #705.

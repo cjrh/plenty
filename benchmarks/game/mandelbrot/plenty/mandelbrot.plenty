@@ -1,0 +1,64 @@
+# mandelbrot: write an N-by-N Mandelbrot set bitmap in portable bitmap (P4) format.
+# Same algorithm as the reference (mandelbrot.clang-8.c): 50 iterations,
+# escape limit 2.0, one bit per pixel, rows padded to whole bytes.
+import std.bytes
+
+const ITERATIONS: i64 = 50
+const LIMIT_SQUARED: f64 = 4.0
+const BYTE_BITS: Positive[i64] = 8
+
+
+def in_set(cr: f64, ci: f64) -> bool:
+    mut zr = 0.0
+    mut zi = 0.0
+    mut tr = 0.0
+    mut ti = 0.0
+    mut i = 0
+    while i < ITERATIONS and tr + ti <= LIMIT_SQUARED:
+        zi = 2.0 * zr * zi + ci
+        zr = tr - ti + cr
+        tr = zr * zr
+        ti = zi * zi
+        # i stops at ITERATIONS.
+        unchecked:
+            i += 1
+    tr + ti <= LIMIT_SQUARED
+
+
+def render_row(row: &mut std.bytes.Bytes, y: i64, n: i64) -> Result[(), AllocError | OverflowError[i64]]:
+    row.clear()
+    ci = 2.0 * f64(y) / f64(n) - 1.0
+    mut bits: u8 = 0
+    mut count = 0
+    for x in range(n):
+        cr = 2.0 * f64(x) / f64(n) - 1.5
+        bits = bits << 1u8
+        if in_set(cr, ci):
+            bits = bits | 1u8
+        count += 1
+        if count == 8:
+            row.push(bits)?
+            bits = 0
+            count = 0
+    if count > 0:
+        bits = bits << u8(8 - count)
+        row.push(bits)?
+    Ok(())
+
+
+def main() -> Result[i32, AllocError | IoError | ParseError | OverflowError[i64]]:
+    argv = args()?
+    n = if len(argv) > 1:
+        i64.parse(&argv[1])?
+    else:
+        200
+    if n < 1:
+        write_stderr("N must be positive\n")?
+        return Ok(2)
+    write_stdout(f"P4\n{n} {n}\n"?)?
+    mut row = std.bytes.with_capacity((n + 7) // BYTE_BITS)?
+    for y in range(n):
+        render_row(&mut row, y, n)?
+        write_stdout_bytes(&row)?
+    flush_stdout()?
+    Ok(0)

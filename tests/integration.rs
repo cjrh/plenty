@@ -56,6 +56,8 @@ mod test_anonymous_sums;
 mod test_arm_stack_probes;
 #[path = "test_augmented_assignment.rs"]
 mod test_augmented_assignment;
+#[path = "test_benchmarks_game.rs"]
+mod test_benchmarks_game;
 #[path = "test_binary_io.rs"]
 mod test_binary_io;
 #[path = "test_bitwise.rs"]

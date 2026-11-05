@@ -436,14 +436,16 @@ class Pending:
         self.size >= 0 or self.path.is_some() or self.link.is_some()
 
 def digits_value(data: &Bytes, start: i64, stop: i64) -> Result[i64, ArchiveError]:
-    # Existing conservative guard bounds value*10+(digit-48) <= 9223372036854775799; digit is 0..9.
+    # i64.MAX = 922337203685477580*10+7; ASCII 55 is the final allowed digit.
     unchecked:
         if start == stop:
             return Err(ArchiveError.Corrupt)
         mut value = 0
         for index in range(start, stop):
             digit = byte(data, index)?
-            if digit < 48 or digit > 57 or value > 922337203685477579:
+            if digit < 48 or digit > 57:
+                return Err(ArchiveError.Corrupt)
+            if value > 922337203685477580 or (value == 922337203685477580 and digit > 55):
                 return Err(ArchiveError.Corrupt)
             value = value * 10 + (digit - 48)
         Ok(value)

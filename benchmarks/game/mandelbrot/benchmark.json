@@ -1,0 +1,51 @@
+{
+  "name": "mandelbrot",
+  "status": "ready",
+  "description_url": "https://benchmarksgame-team.pages.debian.net/benchmarksgame/description/mandelbrot.html",
+  "reference": {
+    "language": "c",
+    "program": 8,
+    "file": "reference/mandelbrot.clang-8.c",
+    "url": "https://benchmarksgame-team.pages.debian.net/benchmarksgame/program/mandelbrot-clang-8.html",
+    "authors": [
+      "Greg Buchholz"
+    ],
+    "license": "BSD-3-Clause; see ../LICENSE-benchmarks-game.txt",
+    "threads": 1,
+    "asterisk": false,
+    "site_make": "/usr/bin/clang -pipe -Wall -O3 -fomit-frame-pointer -march=ivybridge  mandelbrot.clang-8.c -o mandelbrot.clang-8.clang_run",
+    "site_command": "./mandelbrot.clang-8.clang_run 16000",
+    "build": {
+      "kind": "c",
+      "command": [
+        "clang",
+        "-pipe",
+        "-Wall",
+        "-O3",
+        "-fomit-frame-pointer",
+        "-march=native",
+        "{source}",
+        "-o",
+        "{output}"
+      ]
+    }
+  },
+  "input": "argument",
+  "check": {
+    "size": 200,
+    "expected": "expected/200.pbm",
+    "compare": "exact"
+  },
+  "sizes": {
+    "quick": 4000,
+    "full": 16000,
+    "site": 16000
+  },
+  "plenty": [
+    {
+      "variant": "idiomatic",
+      "file": "plenty/mandelbrot.plenty",
+      "threads": 1
+    }
+  ]
+}

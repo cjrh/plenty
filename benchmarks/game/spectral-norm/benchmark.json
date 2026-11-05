@@ -1,0 +1,52 @@
+{
+  "name": "spectral-norm",
+  "status": "ready",
+  "description_url": "https://benchmarksgame-team.pages.debian.net/benchmarksgame/description/spectralnorm.html",
+  "reference": {
+    "language": "c",
+    "program": 8,
+    "file": "reference/spectralnorm.clang-8.c",
+    "url": "https://benchmarksgame-team.pages.debian.net/benchmarksgame/program/spectralnorm-clang-8.html",
+    "authors": [
+      "Sebastien Loisel"
+    ],
+    "license": "BSD-3-Clause; see ../LICENSE-benchmarks-game.txt",
+    "threads": 1,
+    "asterisk": false,
+    "site_make": "/usr/bin/clang -pipe -Wall -O3 -fomit-frame-pointer -march=ivybridge  spectralnorm.clang-8.c -o spectralnorm.clang-8.clang_run -lm",
+    "site_command": "./spectralnorm.clang-8.clang_run 5500",
+    "build": {
+      "kind": "c",
+      "command": [
+        "clang",
+        "-pipe",
+        "-Wall",
+        "-O3",
+        "-fomit-frame-pointer",
+        "-march=native",
+        "{source}",
+        "-o",
+        "{output}",
+        "-lm"
+      ]
+    }
+  },
+  "input": "argument",
+  "check": {
+    "size": 100,
+    "expected": "expected/100.txt",
+    "compare": "float:1e-8"
+  },
+  "sizes": {
+    "quick": 2000,
+    "full": 5500,
+    "site": 5500
+  },
+  "plenty": [
+    {
+      "variant": "idiomatic",
+      "file": "plenty/spectralnorm.plenty",
+      "threads": 1
+    }
+  ]
+}

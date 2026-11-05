@@ -31,6 +31,11 @@ scope decision, not a second task list.
 
 Remaining breadth is **B38** in the [backlog](../backlog.md).
 
+Issue #705 corrects the [archive PAX decimal parser](../design/stdlib/archive.md#limits)
+to accept every nonnegative `i64`, including its final eight values. Boundary
+tests cover both optimization modes, overflow and malformed digits; the separate
+TAR content-length cap remains 2⁶² bytes.
+
 ## B39–B70: Initial delivery slices
 
 The local issues listed here recorded acceptance checks, ownership/allocation

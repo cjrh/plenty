@@ -1,0 +1,21 @@
+# Builds the site's regex-redux Rust #1 program with the `regex` crate, which
+# the site links from /opt/src/rust-libs. `[workspace]` keeps this package out
+# of the compiler workspace; Cargo.lock pins the crate versions.
+[package]
+name = "regexredux"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "regexredux"
+path = "regexredux.rs"
+
+[dependencies]
+regex = "=1.12.3"
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+
+[workspace]
