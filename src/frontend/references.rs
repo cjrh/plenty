@@ -714,6 +714,14 @@ impl Lower<'_> {
                         .error("element references require a list or dictionary"));
                 }
             };
+            // Scalar rows are read and written by their own operations; see
+            // `scalar_element_ref`. Caching borrows the list, so it comes first.
+            let view = match &collection {
+                Ty::List(element) if !(element.is_numeric() || **element == Ty::Bool) => {
+                    self.indexed_list_view(base, &collection)?
+                }
+                _ => None,
+            };
             let (_, loan) = self.borrow_with_indices(base, mutable, indices, ops)?;
             // Only distinct literal list indices are proven disjoint. Other
             // element loans, and descendant projections, keep the whole
@@ -739,9 +747,16 @@ impl Lower<'_> {
                 self.same(Some(actual), Some(key), &index.at)?;
                 reads
             };
-            let operation = CollectionOp::ElementRef(collection, mutable);
-            let output = operation.signature().1;
             self.mark(&e.at, ops);
+            let operation = match view {
+                // `uncache` relies on this exact sequence.
+                Some([length, rows]) => {
+                    ops.extend([Op::LoadLocal(length), Op::LoadLocal(rows)]);
+                    CollectionOp::ElementRefView(collection, mutable)
+                }
+                None => CollectionOp::ElementRef(collection, mutable),
+            };
+            let output = operation.signature().1;
             ops.push(Op::Collection(operation));
             Self::end_reads(reads, ops);
             return Ok((output, loan));

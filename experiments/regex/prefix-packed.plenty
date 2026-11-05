@@ -1,0 +1,26 @@
+# The prefix scanner's hot loop over a borrowed byte view. The production
+# matcher now borrows text as this same byte view once per search.
+def scan(data: &[u8], masks: &[i64], start: i64, width: i64, starts: i64, accept: i64, maximum: i64) -> (i64, i64):
+    mut state = 0
+    # Probe preconditions: start in 0..len(data), width in 1..8, maximum >= 0,
+    # and 256 masks containing up to eight independent eight-bit lanes.
+    # starts marks each lane's first bit, accept its width-th bit.
+    unchecked:
+        for index, byte in enumerate(&data[start:]):
+            if index >= maximum:
+                return (-2, index)
+            state = ((state << 1) | starts) & masks[i64(*byte)]
+            if state & accept != 0:
+                return (start + index + 1 - width, index + 1)
+        (-1, len(data) - start)
+
+def main() -> Result[(), AllocError | IoError]:
+    mut masks = list[i64].new()?
+    for _ in range(256):
+        masks.append(0)?
+    masks[97] = 1
+    masks[98] = 2
+    masks[99] = 256
+    masks[100] = 512
+    print(scan(b"zzab", &masks, 0, 2, 257, 514, 100))?
+    Ok(())

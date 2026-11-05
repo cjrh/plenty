@@ -890,6 +890,7 @@ dependencies = [
  "cc",
  "hmac",
  "libc",
+ "memchr",
  "ring",
  "rustls",
  "sha1",
