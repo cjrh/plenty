@@ -66,7 +66,8 @@ The script refuses to replace a directory that is not a skills tree, keeps
   the builtins and I/O pages into `skills/plenty/references/`;
 - rewrites links between copied pages, and reduces links to other pages to
   their text, until the book has a published URL;
-- drops issue notes and contributor-only passages;
+- drops issue notes and contributor-only passages, then recalculates signature-index
+  module line ranges against the published text;
 - adds the README and the `.claude-plugin/` marketplace and plugin manifests,
   with the version filled in.
 
