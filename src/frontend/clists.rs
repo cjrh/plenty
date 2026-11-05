@@ -265,6 +265,7 @@ impl Lower<'_> {
             },
         );
         Ok(Iteration {
+            counter: None,
             exact_len: Some(vec![Op::LoadLocal(length)]),
             cleanup: vec![],
             absent: vec![],

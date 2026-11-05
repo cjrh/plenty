@@ -772,6 +772,7 @@ impl Lower<'_> {
                 item_loans.push((relocation.slot(slot)?, loan));
             }
             let mut iteration = Iteration {
+                counter: None,
                 exact_len: plan
                     .iteration
                     .exact_len
