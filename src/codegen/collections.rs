@@ -954,13 +954,17 @@ impl Lowerer<'_, '_> {
             let address = self.bcx.ins().iadd(rows, offset);
             let element = ty.element().unwrap();
             let flags = cranelift_codegen::ir::MemFlagsData::trusted();
-            let base = element.newtype_base();
-            if base.is_numeric() || *base == Ty::Bool {
-                // Affine one-field classes can still have packed scalar rows.
-                // Taking one must not read or clear its neighbor's storage.
+            let base = match element.newtype_base().into_owned() {
+                Ty::Atomic(inner) => (*inner).clone(),
+                base => base,
+            };
+            if base.is_numeric() || base == Ty::Bool {
+                // Affine one-field classes and atomics can still have packed
+                // scalar rows, as `list_row_bytes` lays them out. Taking one
+                // must not read or clear its neighbor's storage.
                 let packed = self.scalar_word(address, &base);
                 let value = self.unpack(packed, &element);
-                let width = types::Type::int(clif_type(base.into_owned()).bits() as u16).unwrap();
+                let width = types::Type::int(clif_type(base).bits() as u16).unwrap();
                 let zero = self.bcx.ins().iconst(width, 0);
                 self.bcx.ins().store(flags, zero, address, 0);
                 self.stack.push((value, element));
@@ -1515,7 +1519,14 @@ impl Lowerer<'_, '_> {
     /// Records the stable shared list references, views and lengths that `condition` and
     /// `body` read but never write, with their values on entry; see
     /// [`super::induction::Bounds`].
-    fn enter_invariant_locals(&mut self, condition: &[Op], body: &[Op]) {
+    /// `stop` is the loop's range stop, if any: a local holding it, such as a
+    /// row cache's length taken from `range(len(xs))`, bounds the counter.
+    fn enter_invariant_locals(
+        &mut self,
+        condition: &[Op],
+        body: &[Op],
+        stop: Option<cranelift_codegen::ir::Value>,
+    ) {
         let mut read = crate::hash::HashSet::default();
         let mut written = crate::hash::HashSet::default();
         super::induction::local_uses(condition, &mut read, &mut written);
@@ -1533,10 +1544,11 @@ impl Lowerer<'_, '_> {
             let entry = self.read_local(local);
             let bounds = &mut self.counters.bounds;
             let entry = bounds.canonical(&self.bcx.func.dfg, entry);
+            let stop = stop.map(|stop| bounds.canonical(&self.bcx.func.dfg, stop));
             let stable = if shared_list {
                 bounds.stable_lists.contains(&entry)
             } else {
-                view || bounds.lengths.contains_key(&entry)
+                view || bounds.lengths.contains_key(&entry) || stop == Some(entry)
             };
             if !stable {
                 continue;
@@ -1616,7 +1628,7 @@ impl Lowerer<'_, '_> {
             self.counters.bounds.below_locals.push(below);
         }
         let invariant = self.counters.bounds.invariant_locals.len();
-        self.enter_invariant_locals(condition, body);
+        self.enter_invariant_locals(condition, body, stop);
         // Each body value of the counter is an element of the range, so it
         // is below the range's stop.
         let below = range

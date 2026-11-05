@@ -990,6 +990,9 @@ struct Lower<'a> {
     /// than a `match`, which only changes how a rejected tail is described.
     checked_value_tail: bool,
     indexed_lists: Vec<collections::IndexedLists>,
+    /// The list place and slot of the last counted `range(..., len(xs))`
+    /// whose stop was saved; see [`collections::IndexedLists::stop`].
+    range_stop: Option<((u8, Vec<usize>), u8)>,
     yield_type: Type,
     loans: Vec<crate::ownership::Loan>,
     reference_locals: HashMap<u8, usize>,
@@ -4610,6 +4613,7 @@ fn lower_body(
                 loans: Vec::new(),
                 reference_locals: HashMap::default(),
                 indexed_lists: Vec::new(),
+                range_stop: None,
                 expression_temps: Vec::new(),
                 contexts: Vec::new(),
                 return_origin: if sig.outputs.first().is_some_and(Ty::carries_loan) {
