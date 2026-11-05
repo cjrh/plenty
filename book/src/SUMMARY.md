@@ -758,4 +758,5 @@
 - [Per-module cache investigation](development/module-cache-investigation.md)
 - [The Plenty agent skill](development/agent-skill.md)
 - [Releasing Plenty](development/releasing.md)
+    - [Linux release glibc verification](development/glibc-compatibility.md)
     - [Release archive licenses](development/release-licenses.md)

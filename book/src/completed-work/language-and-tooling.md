@@ -5,6 +5,13 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## Linux release glibc verification (issue #730)
+
+The [v0.8.9 artifact audit](../development/glibc-compatibility.md) confirms the
+published glibc 2.28 baseline for both Linux architectures, including both
+optional engines. It separates the ARM build tool's 2.30 requirement from
+release requirements and records baseline execution and qualification limits.
+
 ## Agent skill refresh
 
 The [Plenty agent skill](../development/agent-skill.md) now distinguishes

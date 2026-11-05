@@ -133,6 +133,9 @@ git tag vX.Y.Z
 git push --atomic origin main vX.Y.Z
 ```
 
+The [v0.8.9 glibc verification](glibc-compatibility.md) records downloaded-artifact
+symbol audits and glibc 2.28 execution evidence for both Linux architectures.
+
 ## What the workflow does
 
 | Job | Work |
