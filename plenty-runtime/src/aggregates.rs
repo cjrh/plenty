@@ -2245,7 +2245,7 @@ operation_entries! {
 }
 // `std.regex`.
 operation_entries! {
-    360 361 362 363 364 365
+    360 361 362 363 364 365 367
 }
 // `std.net`.
 operation_entries! {
@@ -2481,7 +2481,7 @@ pub(crate) unsafe fn collection_at(
                 b as u8,
                 value as u64,
             )),
-            360..=365 => crate::regex::call(op, a, b, value),
+            360..=365 | 367 => crate::regex::call(op, a, b, value),
             366 => strings::ascii_equal_folded(a as *const Text, b as *const Text) as u128,
             192 => crate::text_io::result(crate::files::seek_bytes(
                 a as *mut crate::files::File,

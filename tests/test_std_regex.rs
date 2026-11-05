@@ -898,18 +898,19 @@ print(str.repr(result)?)?
         r#"def probe(pattern: &str) -> Result[bool, RegexError]:
     regex = std.regex.compile(pattern, &std.regex.limits())?
     mut cursor = regex.cursor()?
-    # All lazy transitions and one-pass searches use preallocated storage.
+    text = ("z".repeat(2048).map_error(RegexError.Allocation)? + "ab<ab>cd<cd>abc_def_abc_def").map_error(RegexError.Allocation)?
+    # All native batches, lazy transitions and one-pass searches reuse storage.
     print("__test_fail_allocations_after_0__").unwrap()
-    first = regex.next_match("ab<ab>cd<cd>", &mut cursor)?
-    second = regex.next_match("ab<ab>cd<cd>", &mut cursor)?
+    first = regex.next_match(&text, &mut cursor)?
+    second = regex.next_match(&text, &mut cursor)?
     Ok(first.is_some() and second.is_some())
 
 def main()"#,
     );
     let (_dir, executable) = build(&source);
-    for pattern in ["ab|cd", "<[^>]*>"] {
+    for pattern in ["ab|cd", "<[^>]*>", "abc|def"] {
         let mut succeeded = false;
-        for after in 0..256 {
+        for after in 0..512 {
             let marker = format!("__test_fail_allocations_after_{after}__");
             let out = run_output(&executable, &[&marker, pattern], &source);
             if out.ends_with(".Ok(True)") {
@@ -1229,25 +1230,160 @@ fn prefix_scan_accounts_at_the_maximum_work_counter() {
     let scan = &library[library.find("def prefix_candidate(").unwrap()
         ..library.find("# A bounded lazy DFA.").unwrap()];
     let source = format!(
-        r#"from std.regex import RegexError, Limit
+        r#"import std.bytes
+from std.regex import RegexError, Limit
 class Regex:
     _filter_width: i64
     _filter: list[i64]
+    _filter_start: i64
+    _filter_accept: i64
+    _literals: list[str]
 {scan}
 def main() -> Result[(), AllocError | IoError | RegexError]:
     mut masks = list[i64].new()?
     for _ in range(256):
         masks.append(0)?
-    program = Regex(1, masks)
+    mut program = Regex(1, masks, 1, 1, list[str].new()?)
     print(prefix_candidate(&program, b"zzzzz", 0, 9223372036854775802, i64.MAX)?)?
     print(prefix_candidate(&program, b"zzzzzz", 1, 9223372036854775802, i64.MAX)?)?
     print(prefix_candidate(&program, b"zzzzzz", 0, 9223372036854775802, i64.MAX).is_err())?
     print(prefix_candidate(&program, b"", 0, i64.MAX, i64.MAX)?)?
+    mut data = std.bytes.from_bytes(b"z")?
+    data.resize(2048, 0u8)?
+    program._filter_width = 8
+    program._literals = ["abcdefgh", "ijklmnop"]?
+    print(prefix_candidate(&program, &data, 0, 9223372036854772721, i64.MAX)?)?
+    print(prefix_candidate(&program, &data, 0, 0, 3085).is_err())?
+    print(prefix_candidate(&program, &data, 0, 0, 3086)?)?
     Ok(())
 "#
     );
     assert_eq!(
         output(&source),
-        "(-1, 9223372036854775807)\n(-1, 9223372036854775807)\nTrue\n(-1, 9223372036854775807)"
+        "(-1, 9223372036854775807)\n(-1, 9223372036854775807)\nTrue\n(-1, 9223372036854775807)\n(-1, 9223372036854775807)\nTrue\n(-1, 3086)"
+    );
+}
+
+#[test]
+fn packed_prefix_paths_agree_with_regex_on_overlaps_and_fallbacks() {
+    // Eight width-eight lanes exercise bit 63. Nine paths, epsilon cycles,
+    // optional groups and unequal alternatives exercise conservative fallback.
+    let patterns = [
+        "agggtaaa|tttaccct",
+        "[cgt]gggtaaa|tttaccc[acg]",
+        "(abc)|(bca)|(cab)",
+        "(?:ab|bc){3}",
+        "(?:ab|bc){4}",
+        "a{8}|b{8}|c{8}|d{8}|e{8}|f{8}|g{8}|h{8}",
+        "a{8}|b{8}|c{8}|d{8}|e{8}|f{8}|g{8}|h{8}|i{8}",
+        "(?:a?)*abc|xyz",
+        "(?:abc|bcd)+?",
+        "^abc|bcd$",
+        "abc|bcdef",
+        "(?i)abc|xyz",
+        "abc|éxy",
+    ];
+    let texts = [
+        "",
+        "ab",
+        "abc",
+        "bcdef",
+        "zzabcxyzbcd",
+        "abcabcabcbcabc",
+        "abababbcbcbcabcbcab",
+        "aggtacctagggtaaatttaccct",
+        "éabc😀bcdéxy",
+        "hhhhhhhhiiiiiiiiaaaaaaaabbbbbbbbccccccccddddddddeeeeeeeeffffffffgggggggg",
+    ];
+    let ps = patterns
+        .iter()
+        .map(|p| quoted(p))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let ts = texts
+        .iter()
+        .map(|t| quoted(t))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let body = format!(
+        "patterns = [{ps}]?\ntexts = [{ts}]?\nfor p in &patterns:\n    for t in &texts:\n        print(check(p, t)?)?\n"
+    );
+    let wants = patterns
+        .iter()
+        .flat_map(|p| texts.iter().map(move |t| expected(p, t)))
+        .collect::<Vec<_>>();
+    assert_eq!(output(&program(&body)), wants.join("\n"));
+}
+
+#[test]
+fn packed_filter_rejects_cross_alternative_false_candidates_with_exact_budget() {
+    native(
+        r#"
+mut limits = std.regex.limits()
+limits.max_work = 8
+r = std.regex.compile("agggtaaa|tttaccct", &limits)?
+# The old position union admitted this cross-alternative combination, then
+# exhausted its eight-byte budget in the DFA. Packed lanes reject it directly.
+print(r.is_match("aggtacct")?)?
+print(r.is_match("ézzzzzz")?)?
+print(shown(r.is_match("aggtacctz"))?)?
+data = std.bytes.from_bytes(b"\xffggtacct")?
+print(r.is_match_bytes(&data)?)?
+"#,
+        "False\nFalse\nLimitExceeded(Work)\nFalse",
+    );
+}
+
+#[test]
+fn native_literal_batches_keep_boundary_matches_priority_and_bytes() {
+    let patterns = [
+        "agggtaaa|tttaccct",
+        "[cgt]gggtaaa|tttaccc[acg]",
+        "(abc)|(bca)|(cab)",
+        "(?:ab|bc){3}",
+        "abcdefgh|ijklmnop|qrstuvwx|yzABCDEF|GHIJKLMN|OPQRSTUV|WXYZ0123|456789ab",
+        "abc|bcdef",
+        "^abc|bcd$",
+    ];
+    let mut texts = Vec::new();
+    for offset in [0, 1016, 1017, 1020, 1023, 2034] {
+        texts.push(format!(
+            "{}agggtaaatttaccctabcabcdefghijklmnop{}bcd",
+            "z".repeat(offset),
+            "z".repeat(2100)
+        ));
+    }
+    texts.push(format!("{}{}", "é😀".repeat(400), "456789ab"));
+    let ps = patterns
+        .iter()
+        .map(|p| quoted(p))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let ts = texts
+        .iter()
+        .map(|t| quoted(t))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let body = format!(
+        "patterns = [{ps}]?\ntexts = [{ts}]?\nfor p in &patterns:\n    for t in &texts:\n        print(check(p, t)?)?\n"
+    );
+    let wants = patterns
+        .iter()
+        .flat_map(|p| texts.iter().map(move |t| expected(p, t)))
+        .collect::<Vec<_>>();
+    assert_eq!(output(&program(&body)), wants.join("\n"));
+    native(
+        r#"
+mut data = std.bytes.from_bytes(b"\xff")?
+for _ in range(2040):
+    data.push(0u8)?
+data.extend(b"tttaccct")?
+r = std.regex.compile("agggtaaa|tttaccct", &std.regex.limits())?
+print(r.is_match_bytes(&data)?)?
+print(__regex_bytes_find(b"\xffabc\0", "abc"))?
+print(__regex_bytes_find(b"", ""))?
+print(__regex_bytes_find(b"", "abc"))?
+"#,
+        "True\n1\n0\n-1",
     );
 }

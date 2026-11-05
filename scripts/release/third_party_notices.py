@@ -32,6 +32,8 @@ TARGETS = ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu",
 # ring 0.17.14 ships for std.tls and advanced std.crypto. Its existing
 # vendored source and complete notices are covered through Cargo metadata.
 ROOTS = ("plenty", "plenty-runtime")
+# memchr 2.8.0 is covered by Cargo metadata, including its unmodified
+# vendored copy used for allocation-free regex byte substring searching.
 # BLAKE3 1.8.7 and its arrayvec, constant_time_eq and cpufeatures dependencies
 # are covered by Cargo metadata, including their unmodified vendored copies.
 LICENSE_PREFIXES = ("LICENSE", "LICENCE", "COPYING", "NOTICE", "COPYRIGHT", "UNLICENSE")
