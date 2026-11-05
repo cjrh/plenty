@@ -22,7 +22,7 @@ HERE = Path(__file__).resolve().parent
 
 def source(rows, repeats, kernel):
     declarations = program(rows, 1, 1, native=True, skip_generated=True).split("def main()", 1)[0]
-    return declarations + f"""def main() -> Result[(), AllocError | AppendError[Particle] | IoError]:
+    return declarations + f"""def main() -> Result[(), AllocError | AppendError[Particle] | IoError | OverflowError[i64] | ZeroDivisionError]:
     mut items = clist[Particle].with_capacity({rows})?
     for i in range({rows}):
         n = i % 1024

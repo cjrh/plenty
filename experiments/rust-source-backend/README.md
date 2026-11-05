@@ -26,9 +26,11 @@ is not required or exercised. `usize::MAX` tests capacity failure, not physical
 out-of-memory exhaustion.
 
 `semantics.plenty` and `overflow.plenty` are real Plenty input, compiled in both
-ordinary and release modes. `src/lib.rs` manually expresses selected matching
+fast-compile and optimized modes. `src/lib.rs` manually expresses selected matching
 semantics. The runner compares their stdout and success/failure category, and
-checks that overflow is reported; it does not assert identical trap formatting
+checks that overflow is reported; explicit `unchecked:` suites preserve the
+infallible scalar ABI and fatal arithmetic of the Rust comparison (default
+`--unchecked trap` mode); it does not assert identical trap formatting
 or failure status numbers. See [RESULTS.md](RESULTS.md) for recorded evidence.
 
 `tests/rust_host.rs` is a separate Rust test crate consuming the candidate

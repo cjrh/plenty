@@ -32,8 +32,9 @@ def check(compiler, directory):
     (directory / "columns.plenty").write_text(generate((HERE / "particle.plenty").read_text()))
     run(compiler, directory, "operations", """
 def accumulate(total: i64, x: &i64, y: &i64) -> i64:
-    total + *y if *x >= 2 else total
-def main() -> Result[(), AllocError | IoError | AppendParticleError]:
+    unchecked:
+        total + *y if *x >= 2 else total
+def main() -> Result[(), AllocError | IoError | AppendParticleError | OverflowError[i64]]:
     mut items = ClistParticle()?
     for i in range(5):
         items.append(Particle(i, i * 10, 2, 3, 4, 5, 6, 7))?
@@ -100,7 +101,7 @@ def main() -> Result[(), AllocError | IoError]:
     Ok(())
 """, "True True 0")
     run(compiler, directory, "differential", """
-def main() -> Result[(), AllocError | IoError | AppendParticleError]:
+def main() -> Result[(), AllocError | IoError | AppendParticleError | OverflowError[i64]]:
     for count in [0, 1, 2, 7, 8, 9, 33, 1025]?:
         mut items = ClistParticle()?
         mut rows = list[Particle]()?

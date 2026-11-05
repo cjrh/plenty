@@ -50,7 +50,9 @@ def generate(source):
     # Scalar append cannot allocate after reserve; unwrap documents that invariant.
     lines += [f"        self._{name}.append(row.{name}).unwrap()" for name, _ in fields]
     lines += ["        Ok(())", "", f"    pub def copy_row(self, index: i64) -> Option[{row}]:",
-              "        position = index + self.len() if index < 0 else index",
+              "        # A negative index plus a nonnegative length cannot overflow.",
+              "        position = unchecked:",
+              "            index + self.len() if index < 0 else index",
               "        if position < 0 or position >= self.len():", "            return Nothing",
               f"        Some({row}(" + ", ".join(f"self._{name}[position]" for name, _ in fields) + "))"]
     for name, ty in fields:

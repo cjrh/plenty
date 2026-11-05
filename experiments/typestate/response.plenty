@@ -25,19 +25,22 @@ pub class Writer:
     pub def write(self: Writer, count: i64) -> Result[Writer, WriteError]:
         if count < 0 or count > self.remaining:
             return Err(WriteError.OutOfRange(self))
-        mut owned = self
-        mut accepted = count
-        mut broken = False
-        if owned.wire.fail_after >= 0 and count > owned.wire.fail_after - owned.wire.sent:
-            accepted = owned.wire.fail_after - owned.wire.sent
-            broken = True
-        owned.wire.sent += accepted
-        total = owned.wire.sent
-        owned.remaining -= accepted
-        if broken:
-            # A partial write cannot return an owner that might replay bytes.
-            return Err(WriteError.Broken(accepted, total))
-        Ok(owned)
+        # Accepted bytes stay within the nonnegative length admitted by begin.
+        # Preserve the owner-carrying protocol errors; arithmetic cannot overflow.
+        unchecked:
+            mut owned = self
+            mut accepted = count
+            mut broken = False
+            if owned.wire.fail_after >= 0 and count > owned.wire.fail_after - owned.wire.sent:
+                accepted = owned.wire.fail_after - owned.wire.sent
+                broken = True
+            owned.wire.sent += accepted
+            total = owned.wire.sent
+            owned.remaining -= accepted
+            if broken:
+                # A partial write cannot return an owner that might replay bytes.
+                return Err(WriteError.Broken(accepted, total))
+            Ok(owned)
 
     pub def finish(self: Writer) -> Result[(), FinishError]:
         if self.remaining != 0:

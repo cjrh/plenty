@@ -6,8 +6,10 @@ def main() -> Result[(), AllocError | df.DataFrameError | IoError | ParseError]:
     n = i64.parse(env.get("SPIKE_ROWS")?.unwrap_or("1000000"))?
     reps = i64.parse(env.get("SPIKE_REPS")?.unwrap_or("100"))?
     input_start = time.monotonic_now()
-    groups = [i % 8 for i in range(n)]?
-    values = [f64(i % 100) for i in range(n)]?
+    groups_divisor: Positive[i64] = 8
+    values_divisor: Positive[i64] = 100
+    groups = [i % groups_divisor for i in range(n)]?
+    values = [f64(i % values_divisor) for i in range(n)]?
     input_ns = time.monotonic_now().saturating_duration_since(&input_start).as_nanoseconds()
     start = time.monotonic_now()
     columns = [df.column_i64("group", &groups)?, df.column_f64("value", &values)?]?

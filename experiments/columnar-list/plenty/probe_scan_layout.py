@@ -24,6 +24,25 @@ from generate import generate
 HERE = Path(__file__).resolve().parent
 
 
+def scalar_source(rows, repeats):
+    return f'''from std.time import monotonic_now
+
+def scalar(stop: i64) -> i64:
+    unchecked:
+        mut total = 0
+        for i in range(stop):
+            total += i
+        total
+
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    mut total = 0
+    for repeat in range({repeats}):
+        total += scalar({rows})
+    print(total)?
+    Ok(())
+'''
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("compiler", type=Path)
@@ -44,21 +63,7 @@ def main():
     checksum_expected = expected(args.rows, args.kernel) * args.repeats
     if args.kernel == "scalar":
         # An unrelated checked-arithmetic loop, with no collection operations.
-        program = f'''from std.time import monotonic_now
-
-def scalar(stop: i64) -> i64:
-    mut total = 0
-    for i in range(stop):
-        total += i
-    total
-
-def main() -> Result[(), IoError]:
-    mut total = 0
-    for repeat in range({args.repeats}):
-        total += scalar({args.rows})
-    print(total)?
-    Ok(())
-'''
+        program = scalar_source(args.rows, args.repeats)
         symbol = "__plenty_fn_scalar"
         checksum_expected = args.rows * (args.rows - 1) // 2 * args.repeats
     start = "    mut total = 0\n    for repeat"

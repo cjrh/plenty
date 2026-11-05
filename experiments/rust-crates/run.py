@@ -113,6 +113,9 @@ def checked_source(source):
         params = ", ".join(f"arg{i}: {ty}" for i, ty in enumerate(params))
         body = "0" if ret == "i64" else f"{ret}(0)"
         prelude += f"def {name}({params}) -> {ret}:\n    {body}\n\n"
+    # The restricted source keeps its infallible ABI and traps on arithmetic.
+    lines = source.splitlines(keepends=True)
+    source = lines[0] + "    unchecked:\n" + "".join("    " + line for line in lines[1:])
     # Signature-only stubs are checked but never executed in any backend.
     return prelude + source + "\ndef main() -> i32:\n    result = run(41)\n    0i32\n"
 

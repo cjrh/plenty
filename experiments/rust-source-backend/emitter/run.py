@@ -43,7 +43,7 @@ def rustc(source, dest, level=0, *, extra=(), ok=True):
 
 
 def native(args, source, dest, release=False, cache="off"):
-    return run([args.plenty, "--compile", *( ["--release"] if release else [] ), source, "-o", dest],
+    return run([args.plenty, "--compile", *( [] if release else ["--fast-compile"] ), source, "-o", dest],
                env={**os.environ, "PLENTY_CACHE": cache})
 
 
@@ -106,7 +106,7 @@ def check(args, out):
     }
     for name, expression in traps.items():
         source = out / f"trap_{name}.plenty"
-        source.write_text(f"def crash() -> i64:\n    n = 256\n    {expression}\n\ndef main() -> i32:\n    i32(crash())\n")
+        source.write_text(f"def crash() -> i64:\n    unchecked:\n        n = 256\n        {expression}\n\ndef main() -> i32:\n    i32(crash())\n")
         for release in [False, True]:
             exe = out / "native-trap"
             native(args, source, exe, release)
@@ -123,8 +123,8 @@ def check(args, out):
     rejected = {
         "float": ("def bad(x: f64) -> f64:\n    x * 2.0\n", "supports only"),
         "borrow": ("def bad(x: &i64) -> i64:\n    *x\n", "supports only"),
-        "mutual": ("def bad(x: i64) -> i64:\n    if x == 0:\n        return 0\n    other(x - 1)\ndef other(x: i64) -> i64:\n    bad(x)\n", "mutual recursion"),
-        "recursion": ("def bad(x: i64) -> i64:\n    if x == 0:\n        return 0\n    bad(x-1) + 1\n", "non-tail recursion"),
+        "mutual": ("def bad(x: i64) -> i64:\n    if x == 0:\n        return 0\n    unchecked:\n        other(x - 1)\ndef other(x: i64) -> i64:\n    bad(x)\n", "mutual recursion"),
+        "recursion": ("def bad(x: i64) -> i64:\n    if x == 0:\n        return 0\n    unchecked:\n        bad(x-1) + 1\n", "non-tail recursion"),
         "frontend": ("def bad() -> i64:\n    True\n", "expected i64"),
         "unused_bad": ("def unused() -> i64:\n    True\ndef bad() -> i64:\n    2\n", "expected i64"),
     }
@@ -142,10 +142,12 @@ def check(args, out):
     # MIN // -1 is a trap (covered above), whereas MIN % -1 must return zero.
     exhaustive = out / "exhaustive.plenty"
     exhaustive.write_text('''def quotient(a: i8, b: i8) -> i8:
-    a // b
+    unchecked:
+        a // b
 def remainder(a: i8, b: i8) -> i8:
-    a % b
-def main() -> Result[(), IoError]:
+    unchecked:
+        a % b
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut a = -128
     while a < 128:
         mut b = -128

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the current-language prototype and two expected baseline rejections."""
+"""Check the current-language prototype and native clist and the expected row-reference rejection."""
 import os
 from pathlib import Path
 import subprocess
@@ -12,7 +12,7 @@ env["PLENTY_CACHE"] = "off"
 cases = [
     ("columns.plenty", [], 0, "90\n"),
     ("reject-row-reference.plenty", ["--check"], 1, "references cannot be stored in class fields"),
-    ("reject-clist.plenty", ["--check"], 1, "`clist` is not a generic function"),
+    ("native-clist.plenty", ["--check"], 0, ""),
 ]
 for name, options, expected_code, expected in cases:
     result = subprocess.run([compiler, *options, str(root / name)], env=env, text=True, capture_output=True)

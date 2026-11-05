@@ -41,12 +41,13 @@ def main():
 
     for profile in ["debug", "release"]:
         flags = ["--release"] if profile == "release" else []
+        plenty_flags = [] if profile == "release" else ["--fast-compile"]
         command(["cargo", "test", "--offline", "--locked", *flags])
         command(["cargo", "build", "--offline", "--locked", *flags])
         rust = ROOT / "target" / profile / "plenty-rust-source-spike"
         for name in ["semantics", "overflow"]:
             native = output / f"{name}-{profile}"
-            command([str(plenty), *flags, "--compile", str(ROOT / f"{name}.plenty"), "-o", str(native)])
+            command([str(plenty), *plenty_flags, "--compile", str(ROOT / f"{name}.plenty"), "-o", str(native)])
             left = command([str(native)], ok=False)
             right = command([str(rust), name], ok=False)
             if name == "semantics":

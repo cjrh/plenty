@@ -5,6 +5,15 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## Experiment arithmetic migration
+
+Local issue #737 updates stored and generated experiment inputs for checked
+integer arithmetic. The fannkuch kernels propagate overflow errors; infallible
+Rust ABI comparisons retain explicit trapping suites. The experiment smoke
+check covers source inputs, expected rejections and generated fixtures without
+claiming to refresh historical performance measurements.
+
+
 ## B83 value parameters and B96 bounded integers
 
 [Value parameters](../design/language/07-generics/values.md) specialize functions,
