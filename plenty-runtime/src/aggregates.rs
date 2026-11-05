@@ -839,8 +839,14 @@ impl Collection {
         self.entries.len()
     }
     unsafe fn bucket(&self, key: u128) -> usize {
+        unsafe { self.probe(key, hash(key, self.ty().key())) }
+    }
+    /// The bucket holding `key`, or the empty bucket that ends its probe.
+    /// `hash` must be `hash(key, ...)`; callers that insert after a miss pass
+    /// the same hash to `vacant_bucket` instead of hashing the key again.
+    unsafe fn probe(&self, key: u128, hash: u64) -> usize {
         unsafe {
-            let mut bucket = hash(key, self.ty().key()) as usize & (self.table.len() - 1);
+            let mut bucket = hash as usize & (self.table.len() - 1);
             while self.table[bucket] != 0
                 && !equal(
                     self.entries.get(self.table[bucket] - 1).key,
@@ -852,6 +858,16 @@ impl Collection {
             }
             bucket
         }
+    }
+    /// The empty bucket for a key known to be absent. All stored keys are
+    /// unique, so the probe compares no keys.
+    fn vacant_bucket(&self, hash: u64) -> usize {
+        let mask = self.table.len() - 1;
+        let mut bucket = hash as usize & mask;
+        while self.table[bucket] != 0 {
+            bucket = (bucket + 1) & mask;
+        }
+        bucket
     }
     unsafe fn find(&self, key: u128) -> Option<usize> {
         if let Some(found) = unsafe { self.entries.find_bitset(key) } {
@@ -995,16 +1011,28 @@ impl Collection {
                 self.entries.push(Entry { key, value: 0 });
                 return Ok(());
             }
-            if self.ty().kind != b'L'
-                && let Some(i) = self.find(key)
-            {
-                if let Some(ty) = &self.ty().value {
-                    release(self.entries.get(i).value, ty);
+            // Hash once: a miss keeps the hash and its empty bucket for the
+            // insertion below (issue #748).
+            let hashed = self.ty().kind != b'L';
+            let key_hash = if hashed {
+                hash(key, self.ty().key())
+            } else {
+                0
+            };
+            let mut vacant = None;
+            if hashed && !self.table.is_empty() {
+                let bucket = self.probe(key, key_hash);
+                if let Some(i) = self.table[bucket].checked_sub(1) {
+                    if let Some(ty) = &self.ty().value {
+                        release(self.entries.get(i).value, ty);
+                    }
+                    release(key, self.ty().key());
+                    self.entries.set(i, true, value);
+                    return Ok(());
                 }
-                release(key, self.ty().key());
-                self.entries.set(i, true, value);
-                return Ok(());
+                vacant = Some(bucket);
             }
+            let table_len = self.table.len();
             let additional = if self.entries.len() == self.entries.capacity() {
                 // Geometric growth without making explicit reserve speculative.
                 self.entries
@@ -1019,8 +1047,13 @@ impl Collection {
                 1
             };
             self.try_reserve(additional)?;
-            if self.ty().kind != b'L' {
-                let bucket = self.bucket(key);
+            if hashed {
+                // Reservation either leaves the table untouched, keeping the
+                // probed bucket empty, or rebuilds it strictly larger.
+                let bucket = match vacant {
+                    Some(bucket) if self.table.len() == table_len => bucket,
+                    _ => self.vacant_bucket(key_hash),
+                };
                 self.table[bucket] = self.entries.vacant() + 1;
             }
             self.entries.push(Entry { key, value });
