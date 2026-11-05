@@ -91,15 +91,18 @@ transitions. Issue #753 removes per-byte text calls from the ASCII engines
 by borrowing UTF-8 storage once per search, iterates byte slices directly in
 the prefix scanner, and applies that filter at DFA restart states. The full
 regex-redux workload uses 44.36% fewer instructions than the merged #742
-implementation. Remaining scalar lowering and multi-literal filtering are
-tracked in issue #758.
+implementation. Issue #758 adds separate bit lanes for small alternative sets
+and bounded native substring batches for at most eight short ASCII prefixes.
+The unchanged full workload uses another 11.39% fewer instructions than main
+`d951457d`, with identical reference output. Scalar fallback lowering is
+isolated with CLIF variants and tracked in issue #760.
 
 The unchanged regex-redux program measures cleaning, all nine variant counts,
 and five substitutions against the Rust `regex` reference. Reproducible
 instruction-count results and the C/Plenty prefix-loop comparison are recorded
 in `experiments/regex/README.md`. See the [regex costs and coverage](../design/stdlib/regex.md#costs)
 and [benchmark workflow](../development/benchmarks-game.md). B48 retains broader
-engine coverage, native literal search and Unicode feature expansion.
+engine coverage, scalar scan lowering and Unicode feature expansion.
 
 ## B71: Error composition and HTTP
 

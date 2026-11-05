@@ -2,7 +2,8 @@
 //! tables, simple case mappings, and reads of borrowed UTF-8 text by byte
 //! offset. They do not allocate, except `TextSlice` (op 363), which copies a
 //! byte range into a new string and can fail with an allocation error.
-//! Parsing, compilation and matching are Plenty.
+//! Byte substring search (op 367) uses allocation-free memchr; parsing,
+//! compilation, batching, matching and limits remain Plenty.
 use crate::strings::{self, Text};
 
 fn property(code: u32, property: i64) -> bool {
@@ -62,6 +63,18 @@ fn at(text: &str, offset: i64) -> i64 {
 // Inlined so each operation's entry symbol keeps only its own arm.
 #[inline(always)]
 pub(crate) unsafe fn call(op: i64, a: u128, b: u128, c: u128) -> u128 {
+    if op == 367 {
+        // SAFETY: a is a shared byte view whose loan covers this call. Empty
+        // views may have a dangling address, so never construct their slice.
+        let source = match (a >> 64) as usize {
+            0 => &[],
+            count => unsafe { std::slice::from_raw_parts(a as u64 as *const u8, count) },
+        };
+        let needle = b as *const Text;
+        // SAFETY: b is a borrowed string word, live for this call.
+        let needle = unsafe { strings::bytes(&needle) };
+        return memchr::memmem::find(source, needle).map_or(-1, |at| at as i64) as u128;
+    }
     if op == 360 {
         return property(a as u32, b as i64) as u128;
     }

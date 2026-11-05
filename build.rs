@@ -12,7 +12,8 @@ use std::process::Command;
 
 /// The runtime's only third-party code: RustCrypto digests, HMAC, BLAKE3 and
 /// constant-time comparison for `std.crypto`, zlib-rs for `std.compress`, and
-/// rustls with its ring provider for `std.tls`, and SipHash for collections,
+/// rustls with its ring provider for `std.tls`, SipHash for collections, and
+/// memchr for the regex byte substring primitive,
 /// copied unmodified from
 /// crates.io into `plenty-runtime/vendor` (tests and benchmarks omitted).
 /// Versions match `Cargo.lock`,
@@ -29,6 +30,14 @@ type Vendored = (
     &'static [&'static str],
 );
 const VENDORED: &[Vendored] = &[
+    (
+        "memchr-2.8.0",
+        "memchr",
+        "2021",
+        &["std", "alloc"],
+        &[],
+        &[],
+    ),
     ("siphasher-1.0.4", "siphasher", "2018", &[], &[], &[]),
     ("cfg-if-1.0.4", "cfg_if", "2018", &[], &[], &[]),
     ("typenum-1.20.1", "typenum", "2018", &[], &[], &[]),
@@ -194,6 +203,7 @@ const VENDORED: &[Vendored] = &[
     ),
 ];
 const RUNTIME_EXTERNS: &[&str] = &[
+    "memchr",
     "zeroize",
     "blake3",
     "sha2",
