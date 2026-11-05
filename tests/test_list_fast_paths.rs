@@ -1418,3 +1418,148 @@ fn enumerate_counters_reuse_the_cursor_index() {
         );
     }
 }
+
+/// Owned lists and exclusive references whose loop cannot resize them: the
+/// row cache takes `range(len(xs))`'s stop as its length, and an owned
+/// `for x in xs` reads its hidden list's length and rows once (issue #728).
+const OWNED_BOUNDS: &str = r#"
+class Item:
+    name: str
+    hits: i64
+
+def sum_owned(n: i64) -> Result[i64, OverflowError[i64] | AllocError]:
+    mut xs = list[i64].with_capacity(n)?
+    for i in range(n):
+        xs.append(i)?
+    mut t = 0
+    for i in range(len(xs)):
+        xs[i] = xs[i] * 2
+        t += xs[i]
+    Ok(t)
+def sum_mut(xs: &mut list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut t = 0
+    for i in range(len(xs)):
+        xs[i] = xs[i] + 1
+        t += xs[i]
+    Ok(t)
+def sum_stale(xs: &mut list[i64]) -> Result[i64, OverflowError[i64]]:
+    n = len(xs)
+    xs.clear()
+    mut t = 0
+    for i in range(n):
+        t += xs[i]
+    Ok(t)
+def sum_popped(xs: &mut list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut t = 0
+    for i in range(len(xs)):
+        t += xs[i]
+        _ = xs.pop()
+    Ok(t)
+def sum_other(xs: &mut list[i64], ys: &mut list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut t = 0
+    for i in range(len(xs)):
+        t += ys[i]
+    Ok(t)
+def cursor_sum(xs: list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut t = 0
+    for x in xs:
+        t += x
+    Ok(t)
+def cursor_bytes(xs: list[u8]) -> Result[i64, OverflowError[i64]]:
+    mut t = 0
+    for i, x in enumerate(xs):
+        t += i * i64(x)
+    Ok(t)
+def cursor_text(xs: list[str]) -> Result[i64, OverflowError[i64]]:
+    mut t = 0
+    for s in xs:
+        if s == "stop":
+            break
+        t += len(s)
+    Ok(t)
+def cursor_items(xs: list[Item]) -> Result[i64, OverflowError[i64]]:
+    mut t = 0
+    for item in xs:
+        if item.hits < 0:
+            break
+        t += item.hits + len(item.name)
+    Ok(t)
+def main() -> Result[(), OverflowError[i64] | AllocError | IoError]:
+    mut xs = [1, 2, 3]?
+    mut short = [1, 2]?
+    print(sum_owned(4)?, sum_mut(&mut xs)?, xs)?
+    print(cursor_sum([4, 5, 6]?)?, cursor_bytes([1u8, 2u8, 3u8]?)?)?
+    print(cursor_text(["a", "bb", "stop", "dddd"]?)?)?
+    items = [Item(name="ab", hits=1), Item(name="c", hits=-1), Item(name="d", hits=5)]?
+    print(cursor_items(items)?)?
+    Ok(())
+"#;
+
+#[test]
+fn owned_range_counters_and_cursors_keep_their_results() {
+    support::assert_stdout(OWNED_BOUNDS, "12 9 [2, 3, 4]\n15 8\n3\n3\n");
+}
+
+#[rstest]
+#[case("print(sum_stale(&mut xs)?)?", "index 0, length 0")]
+#[case("print(sum_popped(&mut xs)?)?", "index 2, length 1")]
+#[case("print(sum_other(&mut xs, &mut short)?)?", "index 2, length 2")]
+fn owned_range_counters_trap_on_other_lengths(#[case] call: &str, #[case] message: &str) {
+    let source = OWNED_BOUNDS.replace(
+        "    print(cursor_sum(",
+        &format!("    {call}\n    print(cursor_sum("),
+    );
+    let output = support::run(&source);
+    assert!(!output.status.success(), "{source}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(&format!("index out of bounds: {message}")),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn owned_range_counters_and_cursors_skip_checks() {
+    // `sadd_overflow` counts the checked `t +=` plus any checked step.
+    for (name, traps, adds) in [
+        ("sum_owned", 0, 1),
+        ("sum_mut", 0, 2),
+        ("sum_stale", 1, 1),
+        ("sum_popped", 1, 1),
+        ("sum_other", 1, 1),
+        ("cursor_sum", 0, 1),
+        ("cursor_bytes", 0, 1),
+        ("cursor_text", 0, 1),
+        ("cursor_items", 0, 2),
+    ] {
+        let clif = dump("clif-opt", &format!("__plenty_fn_{name}"), OWNED_BOUNDS);
+        assert_eq!(
+            (
+                clif.matches("plenty_trap_list_index").count() > 0,
+                clif.matches("sadd_overflow").count()
+            ),
+            (traps > 0, adds),
+            "{name}\n{clif}"
+        );
+    }
+}
+
+#[test]
+fn owned_cursor_takes_packed_atomic_rows() {
+    // Atomic rows have their element's packed width; taking a 16-byte slot
+    // would read the neighbouring rows.
+    support::assert_stdout(
+        r#"
+from std.atomic import Atomic, Ordering
+def main() -> Result[(), AllocError | IoError]:
+    flags = [Atomic(False), Atomic(True), Atomic(False)]?
+    for flag in flags:
+        print(flag.load(Ordering.Acquire))?
+    counts = [Atomic[u8](3), Atomic[u8](4)]?
+    for count in counts:
+        print(count.into_inner())?
+    Ok(())
+"#,
+        "False\nTrue\nFalse\n3\n4\n",
+    );
+}

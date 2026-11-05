@@ -16,6 +16,12 @@ const KEY_VIEW_COLLECTION: &str = "collection constructors do not accept borrowe
 pub(super) struct IndexedLists {
     before: usize,
     views: HashMap<(u8, Vec<usize>), [u8; 2]>,
+    /// A `for i in range(len(xs))` loop's list place and the slot holding
+    /// the stop it read. The cache takes its length from that slot, so the
+    /// counter's bound and each access's length are one value (issue #728).
+    /// This is the length the setup would read: only the range's own count
+    /// computation runs between the two.
+    stop: Option<((u8, Vec<usize>), u8)>,
     setup: Vec<Op>,
     provisional: Vec<Provisional>,
     /// Callees of the direct calls lowered in this loop, in any order. The
@@ -51,6 +57,7 @@ impl IndexedLists {
         Self {
             before,
             views: HashMap::default(),
+            stop: None,
             setup: Vec::new(),
             provisional: Vec::new(),
             calls: Vec::new(),
@@ -2859,6 +2866,9 @@ impl Lower<'_> {
                 target,
             });
         }
+        if matches!(ty, Ty::List(_)) && !reverse {
+            return self.owned_list_iteration(ty, source, target, at, ops);
+        }
         let index = self.slot(Ty::I64, at)?;
         let hashed = matches!(ty, Ty::Set(_) | Ty::Dict(..));
         let text = ty == Ty::Str;
@@ -2985,6 +2995,74 @@ impl Lower<'_> {
         })
     }
 
+    /// Iterates an owned list forward through a row cursor. The list sits in
+    /// the loop's hidden `source` slot, which no other code can name, so
+    /// nothing can resize or reallocate it during the loop: the length,
+    /// first-row address and row size are read once, as for a borrowed list,
+    /// and `index < length` makes each row access and the step exact.
+    fn owned_list_iteration(
+        &mut self,
+        ty: Ty,
+        source: u8,
+        target: u8,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Iteration> {
+        let element = ty.element().unwrap();
+        let [length, rows, row_bytes, index] = [
+            self.slot(Ty::I64, at)?,
+            self.slot(Ty::I64, at)?,
+            self.slot(Ty::I64, at)?,
+            self.slot(Ty::I64, at)?,
+        ];
+        for (operation, slot) in [
+            (CollectionOp::ListLenRef(ty.clone()), length),
+            (CollectionOp::ListRowsRef(ty.clone()), rows),
+            (CollectionOp::ListRowBytesRef(ty.clone()), row_bytes),
+        ] {
+            ops.extend([
+                Op::BorrowLocal(source, false),
+                Op::Collection(operation),
+                Op::StoreLocal(slot),
+            ]);
+        }
+        ops.extend([Op::PushInt(Value::I64(0)), Op::StoreLocal(index)]);
+        let mut body = vec![
+            Op::LoadLocal(rows),
+            Op::LoadLocal(row_bytes),
+            Op::LoadLocal(index),
+        ];
+        if element.affine() {
+            // The taken row is left empty, so the list's drop skips it.
+            body.push(Op::Collection(CollectionOp::ListRowTake(ty)));
+        } else {
+            body.extend([
+                Op::Collection(CollectionOp::ListRowRef(ty, false)),
+                Op::ReadRef(element.clone()),
+            ]);
+        }
+        body.push(Op::StoreLocal(target));
+        let mut step = vec![
+            Op::LoadLocal(index),
+            Op::PushInt(Value::I64(1)),
+            Op::Integer(IntegerOp::WrappingAdd),
+            Op::StoreLocal(index),
+        ];
+        if element.managed() {
+            step.push(Op::DropLocal(target));
+        }
+        Ok(Iteration {
+            counter: Some(index),
+            exact_len: Some(vec![Op::LoadLocal(length)]),
+            cleanup: vec![],
+            condition: vec![Op::LoadLocal(index), Op::LoadLocal(length), Op::Lt],
+            absent: vec![],
+            body,
+            step,
+            target,
+        })
+    }
+
     pub(super) fn for_statement(
         &mut self,
         name: &[String],
@@ -3001,10 +3079,15 @@ impl Lower<'_> {
             step,
             cleanup,
             ..
-        } = self.iteration(name, iterable, None, ops)?;
+        } = {
+            self.range_stop = None;
+            self.iteration(name, iterable, None, ops)?
+        };
+        let stop = self.range_stop.take();
         self.building(&iterable.at, iterable_start, ops, false);
-        self.indexed_lists
-            .push(IndexedLists::new(self.parameters + start));
+        let mut indexed = IndexedLists::new(self.parameters + start);
+        indexed.stop = stop;
+        self.indexed_lists.push(indexed);
         self.loop_steps.push(step.clone());
         self.loop_scopes.push(self.locals.len());
         let result = self.block(statements, &mut body, &Tail::Discard);
@@ -3074,10 +3157,16 @@ impl Lower<'_> {
         let view = [self.slot(Ty::I64, &base.at)?, self.slot(Ty::I64, &base.at)?];
         let mut setup = Vec::new();
         self.mark(&base.at, &mut setup);
-        for (operation, slot) in [
+        let mut reads = vec![
             (CollectionOp::ListLenRef(ty.clone()), view[0]),
             (CollectionOp::ListRowsRef(ty.clone()), view[1]),
-        ] {
+        ];
+        let context = self.indexed_lists.last().unwrap();
+        if let Some((_, stop)) = context.stop.as_ref().filter(|(place, _)| *place == key) {
+            setup.extend([Op::LoadLocal(*stop), Op::StoreLocal(view[0])]);
+            reads.remove(0);
+        }
+        for (operation, slot) in reads {
             let (_, loan) = self.borrow(base, false, &mut setup)?;
             setup.extend([
                 Op::Collection(operation),
@@ -4933,6 +5022,31 @@ impl Lower<'_> {
         Ok(())
     }
 
+    /// The list place `xs` of a builtin `len(xs)` call, keyed as
+    /// [`IndexedLists`] keys its cached lists.
+    fn length_place(&self, e: &Expr) -> Option<(u8, Vec<usize>)> {
+        let Expression::Call(name, args) = &ungroup(e).kind else {
+            return None;
+        };
+        if name != "len"
+            || self.names.contains_key(name)
+            || self.sigs.contains_key(name)
+            || self.generics.templates.contains_key(name)
+            || self.aliases.contains_key(name)
+        {
+            return None;
+        }
+        let [arg] = &args[..] else {
+            return None;
+        };
+        let arg = match &ungroup(arg).kind {
+            Expression::Unary(op, inner) if op == "&" => inner,
+            _ => arg,
+        };
+        let (name, path) = self.list_path(arg)?;
+        Some((self.names.get(&name)?.slot, path))
+    }
+
     /// A range step is a `NonZero[i64]`, so a zero step cannot reach the
     /// range; the operand stack receives its `i64`.
     /// A `range` or slice step, which is a `NonZero[i64]`, as its integer.
@@ -4979,10 +5093,25 @@ impl Lower<'_> {
         let target = self.slot(element.clone(), at)?;
         let step = self.slot(Ty::I64, at)?;
         let remaining = self.slot(Ty::I64, at)?;
+        // The stop is the last operand evaluated when the step is implicit.
+        let length_of = match args {
+            [.., stop] if args.len() <= 2 && !reverse && element == Ty::I64 => {
+                self.length_place(stop)
+            }
+            _ => None,
+        };
         self.range_operands(args, &element, at, ops)?;
+        ops.push(Op::StoreLocal(step));
+        self.range_stop = match length_of {
+            Some(place) => {
+                let saved = self.slot(Ty::I64, at)?;
+                ops.extend([Op::Dup, Op::StoreLocal(saved)]);
+                Some((place, saved))
+            }
+            None => None,
+        };
         // Keep `start` as the first element while computing the count.
         ops.extend([
-            Op::StoreLocal(step),
             Op::Swap,
             Op::Dup,
             Op::StoreLocal(target),
