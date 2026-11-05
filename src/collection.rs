@@ -223,6 +223,9 @@ pub enum CollectionOp {
     /// the process status.
     ReportEntryError(Ty),
     ElementRef(Ty, bool),
+    /// `ElementRef` into a list with the loop's cached length and rows: list
+    /// reference, index, length, rows -> reference to that row (issue #739).
+    ElementRefView(Ty, bool),
     TryCopy(Ty),
     Next(Ty),
     TryNew(Ty),        // initial capacity -> Result[collection, AllocError]
@@ -686,6 +689,15 @@ impl CollectionOp {
             ReportWrite => (
                 vec![Ty::Str, Ty::I64],
                 crate::sum::result(Ty::I64, crate::sum::io_error()),
+            ),
+            ElementRefView(t, mutable) => (
+                vec![
+                    Ty::Ref(std::sync::Arc::new(t.clone()), *mutable),
+                    Ty::I64,
+                    Ty::I64,
+                    Ty::I64,
+                ],
+                Ty::Ref(std::sync::Arc::new(t.element().unwrap()), *mutable),
             ),
             ElementRef(t, mutable) => {
                 let (key, value) = match t {
@@ -1156,6 +1168,7 @@ impl CollectionOp {
             | Self::ListScalarGetView(_)
             | Self::ListScalarSetRef(_)
             | Self::ListScalarSetView(_)
+            | Self::ElementRefView(..)
             | Self::ListScalarSwapRef(_)
             | Self::ListRowsRef(_)
             | Self::ListRowBytesRef(_)
