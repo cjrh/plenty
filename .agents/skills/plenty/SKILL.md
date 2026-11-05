@@ -25,8 +25,8 @@ is in `target/optimized/` by default or `target/fast-compile/` with that flag.
    any `std` call, find its signature in
    [the signature index](../../../book/src/design/stdlib/signatures.md). Never guess an API: search
    the index for the name, then read the module page it links for ownership,
-   allocation, and error contracts. The index has no table of contents; each
-   module starts at a heading such as ``## `std.json` ``. <!-- issue #578 -->
+   allocation, and error contracts. Its Modules list gives links and line ranges
+   for reading one module at a time.
 2. Write the program. Executable statements belong in a function; a bare
    top-level statement is an error.
 3. Type-check: `plenty --check FILE` for one file, or `plenty check` inside a
@@ -60,7 +60,9 @@ See [workflow and packages](references/workflow.md).
   declare `OverflowError[T]` for `+`, `-`, `*`, unary `-`, and integer `pow`;
   plain `//` and `%` also require `ZeroDivisionError` (signed `//` can overflow).
   Write explicit `Ok(...)` on success. Use `checked:` for local recovery or a
-  small, justified `unchecked:` suite for deliberate termination. Functions and
+  small, justified `unchecked trap:` suite for deliberate termination. Plain
+  `unchecked:` asserts arithmetic preconditions: violations trap by default but
+  are undefined behavior under `--unchecked assume`, never wrapping arithmetic. Functions and
   closures keep independent declared contracts; a caller's mode never changes
   them. Integer `std.math.abs`/`sum`/`prod` return `Result`; the `*_float`
   helpers stay infallible, and float arithmetic keeps IEEE behavior. Serial
@@ -149,6 +151,30 @@ See [workflow and packages](references/workflow.md).
 See [errors](references/errors.md), [ownership](references/ownership.md), and
 [common diagnostics](references/diagnostics.md).
 
+## Choosing types and interfaces
+
+- Use `A | B` or an enum for a closed set of alternatives and `match` to
+  distinguish them. Use a generic protocol bound for static dispatch; use
+  `Box[P](value)?` when different implementations need one stored owner type.
+  Boxing consumes the concrete value and allocates. Bare `P` is not a value
+  type; borrow with `&Box[P]`. Boxed protocols cannot be copied, downcast, used
+  as keys, or transferred to workers. Read [boxing eligibility and limits](../../../book/src/design/language/07-generics/boxed-protocols.md)
+  before designing the interface; generic methods and consuming receivers
+  cannot be boxed.
+- Dictionary keys and set members can be tuples, classes, enums and anonymous
+  sums whose fields and payloads are recursively supported keys. Floats,
+  collections, boxes and recursive types are excluded; custom hash/equality
+  hooks are unsupported. Use `K: KeyType` in generic collection helpers; it
+  does not imply copying. See [collection contracts](../../../book/src/design/facilities/01-builtins/collections.md).
+- For physical values, use `Quantity[T, D]` and [std.units](../../../book/src/design/stdlib/units.md)
+  rather than manually tracking unit scales. For example, `90.0 * u.km / u.hour`
+  constructs a velocity and `speed.to(u.m / u.s)` returns its numeric value in
+  that unit. Import with `import std.units as u`. Dimensions are checked at
+  compile time; formatting uses coherent SI units. Use `u.from_celsius` and
+  `u.to_celsius` for absolute Celsius temperatures, not multiplication by an
+  offset unit. Read [quantities](../../../book/src/design/language/03-types/quantities.md)
+  for arithmetic and representation contracts.
+
 ## References
 
 | Page | Use |
@@ -156,6 +182,7 @@ See [errors](references/errors.md), [ownership](references/ownership.md), and
 | [Cheat sheet](../../../book/src/design/examples/cheatsheet.md) | Every everyday form, with the Python habits Plenty rejects |
 | [Signature index](../../../book/src/design/stdlib/signatures.md) | Every public `std` declaration, one line each |
 | [Standard library](../../../book/src/design/stdlib/index.md) | Module table; one page per module |
+| [Language reference](../../../book/src/design/language/index.md) | Types, control flow, generics, ownership and arithmetic contracts |
 | [Builtins](../../../book/src/design/facilities/01-builtins/index.md) | Prelude text, numbers, and collections |
 | [I/O](../../../book/src/design/facilities/02-io/index.md) | Prelude files, streams, arguments |
 | [Packages](../../../book/src/design/toolchain/01-building/packages.md) | `plenty.toml`, dependencies, project commands, tests |

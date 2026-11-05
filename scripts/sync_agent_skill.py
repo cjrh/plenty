@@ -4,7 +4,7 @@
 The `plenty` skill is developed in `.agents/skills/plenty/`, where its links
 point at book pages in this checkout. Publishing copies it to
 `skills/plenty/` with copies of the book pages it relies on (the syntax cheat
-sheet, the signature index, every std module page, builtins, I/O and packages)
+sheet, language reference, signature index, every std module page, builtins, I/O and packages)
 under `references/`, so the published tree is self-contained and matches one
 compiler version. The marketplace and plugin manifests and the README exist
 only in the published repository; their sources are in
@@ -39,6 +39,7 @@ BUNDLE = {
     "book/src/design/examples/cheatsheet.md": f"{REFERENCES}/cheatsheet.md",
     "book/src/design/toolchain/01-building/packages.md": f"{REFERENCES}/packages.md",
     "book/src/design/toolchain/01-building/scripts.md": f"{REFERENCES}/scripts.md",
+    "book/src/design/language": f"{REFERENCES}/language",
     "book/src/design/stdlib": f"{REFERENCES}/std",
     "book/src/design/facilities/01-builtins": f"{REFERENCES}/builtins",
     "book/src/design/facilities/02-io": f"{REFERENCES}/io",

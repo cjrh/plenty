@@ -62,6 +62,19 @@ changes a called function's declared contract. See
 [checked arithmetic](../../../../book/src/design/language/03-types/numbers.md#checked-blocks)
 and [local pipelines](../../../../book/src/design/language/09-iteration/06-pipelines.md).
 
+## Unchecked arithmetic
+
+Prefer declared arithmetic errors or local `checked:` recovery. When the
+intended policy is termination, use `unchecked trap:`. Plain `unchecked:`
+asserts that integer arithmetic preconditions hold; `--unchecked trap` checks
+that assertion (the default), while `--unchecked assume` omits those checks
+and makes violations undefined behavior. Neither mode means wrapping.
+Optimization profiles do not select the arithmetic mode. Indexing, allocation,
+floating-point arithmetic and called functions keep their own contracts;
+`std` continues to check its unchecked suites. See
+[unchecked blocks](../../../../book/src/design/language/03-types/numbers.md#unchecked-blocks)
+for the full preconditions and lexical nesting rules.
+
 ## Exit status
 
 Returning `Err` from `main` writes the error to standard error and exits with
