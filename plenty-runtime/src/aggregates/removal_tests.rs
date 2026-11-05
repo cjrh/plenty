@@ -257,3 +257,69 @@ fn benchmark_hash_removal() {
         }
     }
 }
+
+fn hashes() -> usize {
+    HASHES.with(|count| count.get())
+}
+
+#[test]
+fn insert_hashes_each_key_once() {
+    let owner = owned(4);
+    // SAFETY: the guard owns the collection throughout all raw ABI access.
+    unsafe {
+        let c = &mut *(owner.value as *mut Collection);
+        // New keys within capacity, a replacement, then a key that rebuilds
+        // the table (which rehashes the stored keys, not the new one twice).
+        for key in 0..4 {
+            let before = hashes();
+            c.insert(key, key + 1);
+            assert_eq!(hashes() - before, 1, "new key {key}");
+        }
+        let before = hashes();
+        c.insert(2, 30);
+        assert_eq!(hashes() - before, 1, "replacement");
+        let table = c.table.len();
+        let mut key = 4;
+        loop {
+            let before = hashes();
+            let stored = c.len();
+            c.insert(key, key + 1);
+            if c.table.len() != table {
+                assert_eq!(hashes() - before, 1 + stored, "rebuild at key {key}");
+                break;
+            }
+            assert_eq!(hashes() - before, 1, "new key {key}");
+            key += 1;
+        }
+        let model: Vec<_> = (0..=key)
+            .map(|k| (k, if k == 2 { 30 } else { k + 1 }))
+            .collect();
+        assert_model(c, &model);
+    }
+}
+
+#[test]
+fn get_or_insert_hashes_once_and_keeps_existing_values() {
+    let owner = owned(4);
+    // SAFETY: the guard owns the collection throughout all raw ABI access.
+    unsafe {
+        let c = &mut *(owner.value as *mut Collection);
+        for key in 0..12 {
+            let before = hashes();
+            let stored = c.len();
+            let table = c.table.len();
+            let row = c.try_get_or_insert(key, key + 1).unwrap();
+            let rebuilt = if c.table.len() == table { 0 } else { stored };
+            assert_eq!(hashes() - before, 1 + rebuilt, "new key {key}");
+            assert_eq!(c.entries.get(row).value, key + 1);
+        }
+        for key in 0..12 {
+            let before = hashes();
+            let row = c.try_get_or_insert(key, 99).unwrap();
+            assert_eq!(hashes() - before, 1, "present key {key}");
+            assert_eq!(c.entries.get(row).value, key + 1);
+        }
+        let model: Vec<_> = (0..12).map(|k| (k, k + 1)).collect();
+        assert_model(c, &model);
+    }
+}

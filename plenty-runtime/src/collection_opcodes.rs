@@ -43,6 +43,9 @@ pub const TEXT_SEARCH_STARTS: i64 = 0;
 pub const TEXT_SEARCH_ENDS: i64 = 1;
 pub const TEXT_SEARCH_FIND: i64 = 2;
 pub const TEXT_SEARCH_CONTAINS: i64 = 3;
+/// `dict.get_or_insert`: the dictionary reference, the owned key and the
+/// owned default (issue #748).
+pub const DICT_GET_OR_INSERT: i64 = 601;
 
 /// Operands after the three fixed input words of `plenty_op_<N>` calls.
 /// The result occupies word 3; only actual fourth/fifth inputs initialize

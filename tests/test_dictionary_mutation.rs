@@ -1,5 +1,6 @@
-//! Dictionaries have no indexed assignment; `insert` adds or replaces and
-//! `get_mut` lends a value in place (issue #580).
+//! Dictionaries have no indexed assignment; `insert` adds or replaces,
+//! `get_mut` lends a value in place (issue #580), and `get_or_insert` lends
+//! one after inserting a default for a missing key (issue #748).
 mod support;
 use support::{assert_stdout, check_diagnostic as diagnostic};
 
@@ -135,4 +136,55 @@ fn replace_through_get_mut_keeps_the_entry_position() {
         error.contains("cannot borrow shared reference as mutable"),
         "{error}"
     );
+}
+
+#[test]
+fn get_or_insert_counts_and_groups_with_one_lookup() {
+    assert_stdout(
+        "def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:\n    mut counts: dict[str, i64] = {}?\n    for word in [\"a\", \"b\", \"a\", \"c\", \"a\"]?:\n        *counts.get_or_insert(word, 0)? += 1\n    mut groups: dict[bool, list[i64]] = {}?\n    for n in range(5):\n        group = groups.get_or_insert(n > 2, []?)?\n        group.append(n)?\n    first = counts.get_or_insert(\"a\", 100)?\n    print(*first)?\n    print(counts, groups)?\n    Ok(())\n",
+        "3\n{\"a\": 3, \"b\": 1, \"c\": 1} {False: [0, 1, 2], True: [3, 4]}\n",
+    );
+}
+
+#[test]
+fn get_or_insert_drops_an_unused_default_and_keeps_the_entry() {
+    assert_stdout(
+        "class Guard:\n    label: str\n    def __del__(self) -> ():\n        print(\"drop\", self.label).unwrap()\ndef main() -> Result[(), AllocError | IoError]:\n    mut guards = {\"a\": Guard(\"a\")}?\n    hit = guards.get_or_insert(\"a\", Guard(\"unused\"))?\n    print(\"hit\", hit.label)?\n    missed = guards.get_or_insert(\"b\", Guard(\"b\"))?\n    missed.label = \"b2\"\n    for key in guards.keys():\n        print(*key)?\n    Ok(())\n",
+        "drop unused\nhit a\na\nb\ndrop a\ndrop b2\n",
+    );
+}
+
+#[test]
+fn get_or_insert_works_through_a_mutable_reference() {
+    assert_stdout(
+        "def bump(counts: &mut dict[str, i64], key: str) -> Result[(), AllocError | OverflowError[i64]]:\n    *counts.get_or_insert(key, 0)? += 1\n    Ok(())\ndef main() -> Result[(), AllocError | IoError | OverflowError[i64]]:\n    mut counts = {\"a\": 1}?\n    bump(&mut counts, \"a\")?\n    bump(&mut counts, \"b\")?\n    print(counts)?\n    Ok(())\n",
+        "{\"a\": 2, \"b\": 1}\n",
+    );
+}
+
+#[test]
+fn get_or_insert_borrows_the_whole_dictionary() {
+    let error = diagnostic(&program(
+        "    count = d.get_or_insert(\"b\", 2)?\n    print(d)?\n    *count = 3\n",
+    ));
+    assert!(error.contains("conflicting borrow"), "{error}");
+}
+
+#[test]
+fn get_or_insert_requires_a_mutable_binding_a_key_and_a_default() {
+    let immutable = "def main() -> Result[(), AllocError | IoError]:\n    d = {\"a\": 1}?\n    *d.get_or_insert(\"a\", 0)? = 2\n    Ok(())\n";
+    assert!(
+        diagnostic(immutable).contains("immutable binding"),
+        "{}",
+        diagnostic(immutable)
+    );
+    let error = diagnostic(&program("    value = d.get_or_insert(\"a\")?\n"));
+    assert!(
+        error.contains("get_or_insert requires a key and a default value"),
+        "{error}"
+    );
+    let error = diagnostic(&program("    value = d.get_or_insert(\"a\", \"b\")?\n"));
+    assert!(error.contains("expected i64, got str"), "{error}");
+    let error = diagnostic(&program("    value = d.get_or_insert(1, 2)?\n"));
+    assert!(error.contains("expected str, got i64"), "{error}");
 }

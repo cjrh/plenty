@@ -162,7 +162,7 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64] | ZeroDivisio
 
     mut counts: dict[str, i64] = {}?
     for word in "a b a".split()?:
-        counts.insert(word, counts.get(word, 0) + 1)?
+        *counts.get_or_insert(word, 0)? += 1
     counts.insert("b", 5)?
     match counts.get_mut("a"):
         case Some(count):
@@ -193,8 +193,9 @@ b 5
 Displays, comprehensions, `append`, `insert`, and `add` can fail to allocate,
 so they return `Result`. Empty displays need a type: `xs: list[i64] = []?`.
 Indexing a missing element or key traps; `get` returns an `Option`.
-Dictionaries have no indexed assignment: `insert` adds or replaces, and
-`get_mut` returns `Option[&mut V]` to change a value in place. See
+Dictionaries have no indexed assignment: `insert` adds or replaces,
+`get_mut` returns `Option[&mut V]` to change a value in place, and
+`get_or_insert(k, default)?` returns `&mut V` after inserting a missing key. See
 [collections](../facilities/01-builtins/collections.md),
 [lists](../facilities/01-builtins/lists.md), and
 [dictionaries](../facilities/01-builtins/dictionaries.md).
@@ -624,7 +625,7 @@ def main() -> Result[(), IoError | OverflowError[i64]]:
 | `map(f, xs)`, `filter(p, xs)`, `reduce(f, xs, init)` | `iter(&xs).filter(p).map(f)`, `.fold(init, f)`; no import |
 | `any(flags)`, `all(p(x) for x in xs)` | `iter(&flags).any()`, `iter(&xs).all(p)` |
 | `d[k] = v` | `d.insert(k, v)?`, which adds or replaces |
-| `d[k] += 1` | `d.insert(k, d.get(k, 0) + 1)?`, or `*v += 1` on `Some(v)` from `d.get_mut(k)` |
+| `d[k] += 1` | `*d.get_or_insert(k, 0)? += 1`, or `*v += 1` on `Some(v)` from `d.get_mut(k)` |
 | `case x if x > 0:` | Test inside the arm |
 | `class B(A):` | Composition or a [protocol](../language/07-generics/protocols.md) |
 | Global variables | Pass values as parameters; `const` holds a number, quantity, `bool`, `str`, or `bytes` computed at compile time |
