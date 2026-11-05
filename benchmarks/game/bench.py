@@ -107,7 +107,7 @@ def build_plenty(manifest: dict, variant: dict, work: Path, compiler: Path) -> P
     out_dir = work / "bin"
     out_dir.mkdir(parents=True, exist_ok=True)
     output = out_dir / f"{manifest['name']}.{program_id(variant['variant'])}"
-    run_checked([str(compiler), "--compile", str(source), "-o", str(output)])
+    run_checked([str(compiler), "--compile", *variant.get("flags", []), str(source), "-o", str(output)])
     return output
 
 
@@ -385,6 +385,9 @@ def cmd_run(args) -> int:
             }
             if verified is not None:
                 record["matches_reference"] = verified
+            flags = next((v.get("flags", []) for v in manifest["plenty"] if program_id(v["variant"]) == program), [])
+            if flags:
+                record["flags"] = " ".join(flags)
             if args.perf:
                 counts = perf_counts(command, stdin, work)
                 if counts:
@@ -461,7 +464,7 @@ def cmd_dump(args) -> int:
     plenty_dir = out / program_id(args.variant)
     if plenty_dir.exists():
         shutil.rmtree(plenty_dir)
-    command = [str(compiler), "--dump", args.stages, str((manifest["dir"] / variants[0]["file"]).resolve()), "-o", str(plenty_dir)]
+    command = [str(compiler), "--dump", args.stages, *variants[0].get("flags", []), str((manifest["dir"] / variants[0]["file"]).resolve()), "-o", str(plenty_dir)]
     if args.filter:
         command += ["--dump-filter", args.filter]
     run_checked(command)
