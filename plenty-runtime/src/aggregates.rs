@@ -827,7 +827,15 @@ pub(crate) fn checked_index(index: i64, len: usize) -> Option<usize> {
     };
     (i >= 0 && i < len as i128).then_some(i as usize)
 }
+#[cfg(test)]
+thread_local! {
+    /// Key hashes computed on this thread, so tests can check how often an
+    /// operation hashes (issue #748).
+    static HASHES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 unsafe fn hash(value: u128, ty: &Type) -> u64 {
+    #[cfg(test)]
+    HASHES.with(|count| count.set(count.get() + 1));
     // SAFETY: the caller supplies a live key matching its descriptor.
     unsafe { hashing::hash(value, ty) }
 }
