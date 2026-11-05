@@ -408,9 +408,48 @@ pub(super) fn mark_context_preserving(
             }
         }
     }
-    for ((name, _), preserves) in bodies.iter().zip(preserving) {
-        fns.get_mut(name).unwrap().preserves_caller = preserves;
+    for ((name, body), preserves) in bodies.iter().zip(preserving) {
+        let function = fns.get_mut(name).unwrap();
+        function.preserves_caller = preserves;
+        function.reads_no_caller = function.standard_library
+            && function.generator.is_none()
+            && reads_no_caller(body, &function.sig, &function.locals);
     }
+}
+
+/// Whether a std body can neither trap nor run other code, so nothing in it
+/// reads the caller context and a user call to it needs no site (issue #750).
+/// Domain accessors such as `NonNegative[i64].get` are the common case: a
+/// field read through `self`. Only straight-line reads qualify; any call,
+/// arithmetic, collection operation, or release of an owned local does not.
+pub(super) fn reads_no_caller(body: &[Op], sig: &FnSig, locals: &[Ty]) -> bool {
+    use crate::record::ClassOp;
+    let owns = sig
+        .inputs
+        .iter()
+        .map(|(_, ty)| ty)
+        .chain(locals)
+        .any(Ty::managed);
+    !owns
+        && sig.outputs.iter().all(|ty| !ty.managed())
+        && body.iter().all(|op| match op {
+            Op::ReadRef(ty) => !ty.managed(),
+            Op::Class(ClassOp::FieldRef(..)) => true,
+            Op::Site(_)
+            | Op::CallerSite(_)
+            | Op::Loan(_)
+            | Op::UseLoan(_)
+            | Op::EndLoan(_)
+            | Op::Returning(..)
+            | Op::LoadLocal(_)
+            | Op::BorrowLocal(..)
+            | Op::Reborrow(_)
+            | Op::PushInt(_)
+            | Op::PushBool(_)
+            | Op::PushUnit
+            | Op::Return => true,
+            _ => false,
+        })
 }
 
 /// Visits every operation of one function, not of the functions it defines.

@@ -691,7 +691,13 @@ impl Lowerer<'_, '_> {
         // source-level call, so user code names itself as the caller. The
         // runtime restores the context after every callback into compiled
         // code, so std needs nothing here.
-        let saved = if !self.in_standard_library() && matches!(opcode, 24 | 27) {
+        // A release that runs no compiled code needs no site (issue #750).
+        let tracked = match opcode {
+            24 => true,
+            27 => ty.is_none_or(Ty::release_runs_code),
+            _ => false,
+        };
+        let saved = if !self.in_standard_library() && tracked {
             self.enter_call()?
         } else {
             None

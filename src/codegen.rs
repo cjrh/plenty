@@ -1632,6 +1632,9 @@ struct UserFn {
     /// standard-library caller need not save and restore it; see
     /// [`sites::mark_context_preserving`].
     preserves_caller: bool,
+    /// A std body that can neither trap nor run other code, so user calls
+    /// to it need no caller site; see [`sites::reads_no_caller`].
+    reads_no_caller: bool,
 }
 
 /// Build a Cranelift `Signature` from a Plenty `FnSig`. User functions
@@ -1712,6 +1715,7 @@ fn collect_user_fns(
                         source: f.origins.trap_file.clone(),
                         standard_library: f.origins.standard_library,
                         preserves_caller: false,
+                        reads_no_caller: false,
                     },
                 );
                 bodies.push((name.clone(), Arc::clone(&f.body)));
@@ -2361,14 +2365,17 @@ impl Lowerer<'_, '_> {
         if ty.managed() {
             // User code names itself as the caller of std destructors. In
             // std the context is already right, and the runtime restores it
-            // after destructors.
-            let bookkeeping = !self.in_standard_library() && self.runtime.standard_calls;
+            // after destructors. A release that runs no compiled code cannot
+            // trap or read the context, so it needs no site (issue #750).
+            let user = !self.in_standard_library() && self.runtime.standard_calls;
+            let bookkeeping = user && ty.release_runs_code();
             // An empty slot owns nothing, and the runtime returns at once.
-            // Where the call has caller bookkeeping, testing here keeps both
-            // off that path. A value read from the stack frame may be known
-            // empty once the function is built; `remove_empty_releases` then
-            // folds this test, or removes a bare call (issue #549).
-            let done = bookkeeping.then(|| {
+            // In user code, testing here keeps the call, and any caller
+            // bookkeeping, off that path; a loop's moved-out locals take it
+            // on every iteration. A value read from the stack frame may be
+            // known empty once the function is built; `remove_empty_releases`
+            // then folds this test, or removes a bare call (issue #549).
+            let done = user.then(|| {
                 let release = self.bcx.create_block();
                 let done = self.bcx.create_block();
                 self.bcx.ins().brif(value, release, &[], done, &[]);
@@ -3679,7 +3686,7 @@ impl Lowerer<'_, '_> {
         let track_caller = if caller_standard {
             !decl.preserves_caller
         } else {
-            decl.standard_library || decl.source.is_none()
+            (decl.standard_library || decl.source.is_none()) && !decl.reads_no_caller
         };
         if let Some(inline) = decl.inline.clone() {
             let saved = if track_caller {
@@ -3788,7 +3795,9 @@ impl Lowerer<'_, '_> {
         let (decl, mut args) = self.pop_call_args(name)?;
         // Only user code sets a site; std would pass null, which changes
         // nothing.
-        let track_caller = !caller_standard && (decl.standard_library || decl.source.is_none());
+        let track_caller = !caller_standard
+            && (decl.standard_library || decl.source.is_none())
+            && !decl.reads_no_caller;
         // A real tail call destroys owned locals before entering its callee.
         // Keep that ordering when the leaf may trap: only substitute callers
         // whose final local cleanup has no observable work.
