@@ -19,7 +19,7 @@ def spans(found: &list[Match]) -> Result[str, AllocError | IoError]:
         parts.append(span(found[index].start, found[index].end)?)?
     Ok(",".join(parts)?)
 
-# Every match, then the groups of the first match.
+# Existence, every match, then the groups of the first match.
 def report(regex: &Regex, text: &str) -> Result[str, AllocError | IoError | std.regex.RegexError]:
     found = regex.find_all(text, 1000)?
     mut groups = list[str].new()?
@@ -33,7 +33,7 @@ def report(regex: &Regex, text: &str) -> Result[str, AllocError | IoError | std.
                         groups.append("_")?
         case Nothing:
             groups.append("none")?
-    parts = [spans(&found)?, " ".join(groups)?]?
+    parts = [str.repr(regex.is_match(text)?)?, spans(&found)?, " ".join(groups)?]?
     Ok(" | ".join(parts)?)
 
 def check(pattern: &str, text: &str) -> Result[str, AllocError | IoError | std.regex.RegexError]:
@@ -208,6 +208,34 @@ const PATTERNS: &[(&str, &str)] = &[
     ("é+", ""),
     ("[é-ü]+", ""),
     ("ü|é", ""),
+    ("agggtaaa|tttaccct", ""),
+    ("[cgt]gggtaaa|tttaccc[acg]", ""),
+    ("a[act]ggtaaa|tttacc[agt]t", ""),
+    ("abxy|cdzw", ""),
+    ("ab[cd]", ""),
+    ("[a]b[cd]", ""),
+    ("(?:ab|cd)+e", ""),
+    ("(ab)|(abcd)", ""),
+    ("(abcd)|(ab)", ""),
+    ("ab(?:cd|)", ""),
+    ("ab[^x]*c", ""),
+    ("abé|cdü", ""),
+    ("(?P<x>ab)|(?P<y>cd)", ""),
+    ("(?:|ab)*c", ""),
+    ("(?:ab?)*c", ""),
+    ("a{0,3}bc", ""),
+    (">[^\\n]*\\n|\\n", ""),
+    ("aND|caN|Ha[DS]|WaS", ""),
+    ("a[NSt]|BY", ""),
+    ("<[^>]*>", ""),
+    ("a[^z]*z|b+", ""),
+    ("ab*?|c+?", ""),
+    ("ab*|c+", ""),
+    ("(?:|a)b?", ""),
+    ("(?:a?|)b", ""),
+    ("[^z]*z", ""),
+    ("[^z]*?z", ""),
+    ("ab|a[^z]*z", ""),
 ];
 
 const HAYSTACKS: &[&str] = &[
@@ -231,6 +259,20 @@ const HAYSTACKS: &[&str] = &[
     "abcbcd",
     "Ⅻ ٣ 7",
     "e\u{301}\u{7}A",
+    "zzabzwcdxyabxycdzw",
+    "abababcdabéxcdücdabe",
+    "tttacccaagggtaaacgggtaaaagggtaaa",
+    "aNDcaNHaDHaSWaSaNBYaSt",
+    ">header\nacgt\n>another\n",
+    "éabxxxcüababc",
+    "abbbb ccc az aaaaaz",
+    "<abc><é><><abc",
+    "abbbbbbbbbbbbbbbbbbbbb",
+    "aéab",
+    "abéabc",
+    "ab€abc",
+    "ab😀abc",
+    "abé€😀abcabéabd",
 ];
 
 fn expected(pattern: &str, text: &str) -> String {
@@ -250,7 +292,14 @@ fn expected(pattern: &str, text: &str) -> String {
             .join(" "),
         None => "none".to_owned(),
     };
-    format!("{spans} | {groups}")
+    format!(
+        "{} | {spans} | {groups}",
+        if regex.is_match(text) {
+            "True"
+        } else {
+            "False"
+        }
+    )
 }
 
 #[test]
@@ -286,6 +335,128 @@ fn matches_agree_with_the_regex_crate() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn accelerators_preserve_offsets_and_fall_back_with_small_budgets() {
+    native(
+        r#"
+mut bounds = std.regex.limits()
+bounds.max_memory = 4000
+slow = std.regex.compile("ab|cd", &bounds)?
+fast = std.regex.compile("ab|cd", &std.regex.limits())?
+text = "éabxcdab"
+print(spans(&slow.find_all(text, 10)?)?)?
+print(spans(&fast.find_all(text, 10)?)?)?
+print(fast.find_at(text, 3)?.unwrap().start)?
+print(shown(fast.find_at(text, 1))?)?
+data = std.bytes.from_bytes(b"\xffab\xc3\xa9cd\x80ab")?
+print(spans(&fast.find_all_bytes(&data, 10)?)?)?
+print(fast.is_match_bytes(&data)?)?
+mut tiny = std.regex.limits()
+tiny.max_work = 0
+zero = std.regex.compile("ab|cd", &tiny)?
+print(shown(zero.find("ab"))?)?
+print(shown(zero.is_match("ab"))?)?
+filter = std.regex.compile("abx|cdy", &tiny)?
+print(shown(filter.captures("abx"))?)?
+"#,
+        "2-4,5-7,7-9\n2-4,5-7,7-9\n5\nOutOfRange\n1-3,5-7,8-10\nTrue\nLimitExceeded(Work)\nLimitExceeded(Work)\nLimitExceeded(Work)",
+    );
+}
+
+#[test]
+fn dfa_restarts_after_complete_utf8_scalars() {
+    // A failed partial match must not hide later matches. Exercise both the
+    // native literal-prefix restart and the DFA without a literal prefix.
+    native(
+        r#"
+for pattern in ["ab[cd]", "[a]b[cd]"]?:
+    r = std.regex.compile(&pattern, &std.regex.limits())?
+    for scalar, width in [("é", 2), ("€", 3), ("😀", 4)]?:
+        text = f"ab{scalar}abcab{scalar}abd"?
+        first = 2 + width
+        second = first + 5 + width
+        print(r.is_match(&text)?)?
+        m = r.find(&text)?.unwrap()
+        c = r.captures(&text)?.unwrap().get(0).unwrap()
+        print(m.start == first and m.end == first + 3, c.start == first and c.end == first + 3)?
+        later = r.find_at(&text, first + 3)?.unwrap()
+        caps = r.captures_at(&text, first + 3)?.unwrap().get(0).unwrap()
+        print(later.start == second and later.end == second + 3, caps.start == second)?
+        all = r.find_all(&text, 10)?
+        print(len(all) == 2 and all[0].start == first and all[1].start == second)?
+        mut cursor = r.cursor()?
+        a = r.next_match(&text, &mut cursor)?.unwrap()
+        b = r.next_match(&text, &mut cursor)?.unwrap()
+        print(a.start == first and b.start == second, r.next_match(&text, &mut cursor)?.is_none())?
+        print(r.replace_all(&text, "X", 100)? == f"ab{scalar}Xab{scalar}X"?)?
+        print("|".join(r.split(&text, 10)?)? == f"ab{scalar}|ab{scalar}|"?)?
+        tail = f"ab{scalar}"?
+        print(not r.is_match(&tail)?, r.find(&tail)?.is_none())?
+        data = std.bytes.from_text(&text)?
+        print(r.is_match_bytes(&data)?, r.find_bytes(&data, 0)?.unwrap().start == first)?
+variable = std.regex.compile("a+b", &std.regex.limits())?
+for text in ["aéab", "a€ab", "a😀ab", "aé€😀ab"]?:
+    print(variable.is_match(&text)?, variable.find(&text)?.is_some())?
+# Invalid bytes remain independent non-matching units, never scalar widths.
+r = std.regex.compile("ab[cd]", &std.regex.limits())?
+data = std.bytes.from_bytes(b"ab\xffabcab\xc3abdab\x80abc")?
+print(spans(&r.find_all_bytes(&data, 10)?)?, r.is_match_bytes(&data)?)?
+"#,
+        &format!(
+            "{}{}3-6,9-12,15-18 True",
+            "True\nTrue True\nTrue True\nTrue\nTrue True\nTrue\nTrue\nTrue True\nTrue True\n"
+                .repeat(6),
+            "True True\n".repeat(4),
+        ),
+    );
+}
+
+#[test]
+fn cached_cursor_rejects_different_patterns_and_search_limits() {
+    native(
+        r#"
+bounds = std.regex.limits()
+a = std.regex.compile("ab|cd", &bounds)?
+b = std.regex.compile("ef|gh", &bounds)?
+mut cursor = a.cursor()?
+print(a.next_match("abxef", &mut cursor)?.unwrap().start)?
+print(shown(b.next_match("abxef", &mut cursor))?)?
+mut small = std.regex.limits()
+small.max_work = 1
+c = std.regex.compile("ab|cd", &small)?
+print(shown(c.next_match("abxef", &mut cursor))?)?
+small.max_work = bounds.max_work
+small.max_memory = 4000
+d = std.regex.compile("ab|cd", &small)?
+print(shown(d.next_match("abxef", &mut cursor))?)?
+print(a.next_match("abxcd", &mut cursor)?.unwrap().start)?
+"#,
+        "0\nOutOfRange\nOutOfRange\nOutOfRange\n3",
+    );
+}
+
+#[test]
+fn dfa_cache_exhaustion_falls_back_without_losing_matches() {
+    // Every binary suffix occurs, forcing more than 64 reachable subsets.
+    // No c occurs until the end, so an existence search must fill the cache.
+    let mut text = String::new();
+    for bits in 0..256 {
+        for bit in (0..8).rev() {
+            text.push(if bits & (1 << bit) == 0 { 'a' } else { 'b' });
+        }
+    }
+    let pattern = "[ab]*a[ab]{7}c";
+    let body = format!(
+        "r = std.regex.compile({}, &std.regex.limits())?\n\
+         print(r.is_match({})?)?\n\
+         print(r.is_match({})?)?\n",
+        quoted(pattern),
+        quoted(&text),
+        quoted(&format!("{text}aaaaaaaaac")),
+    );
+    native(&body, "False\nTrue");
 }
 
 #[test]
@@ -712,6 +883,47 @@ def main()"#,
 
 #[cfg(feature = "runtime-checks")]
 #[test]
+fn accelerator_allocations_fail_cleanly_and_cursors_search_without_allocating() {
+    let source = program(
+        r#"
+argv = args()?
+print(argv[1])?
+result = probe(&argv[2])
+print("__test_restore_allocations__")?
+print(str.repr(result)?)?
+"#,
+    )
+    .replace(
+        "def main()",
+        r#"def probe(pattern: &str) -> Result[bool, RegexError]:
+    regex = std.regex.compile(pattern, &std.regex.limits())?
+    mut cursor = regex.cursor()?
+    # All lazy transitions and one-pass searches use preallocated storage.
+    print("__test_fail_allocations_after_0__").unwrap()
+    first = regex.next_match("ab<ab>cd<cd>", &mut cursor)?
+    second = regex.next_match("ab<ab>cd<cd>", &mut cursor)?
+    Ok(first.is_some() and second.is_some())
+
+def main()"#,
+    );
+    let (_dir, executable) = build(&source);
+    for pattern in ["ab|cd", "<[^>]*>"] {
+        let mut succeeded = false;
+        for after in 0..256 {
+            let marker = format!("__test_fail_allocations_after_{after}__");
+            let out = run_output(&executable, &[&marker, pattern], &source);
+            if out.ends_with(".Ok(True)") {
+                succeeded = true;
+                break;
+            }
+            assert!(out.contains("Allocation("), "{pattern}, {after}: {out}");
+        }
+        assert!(succeeded, "did not reach a successful search for {pattern}");
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
 fn compile_allocation_failure_is_reported_as_allocation() {
     // Issue #258: the empty bytes buffer allocated last in compile reported
     // its allocation failure as `OutOfRange`. The budget comes from argv, as
@@ -895,8 +1107,9 @@ fn vm_add_work_budget_checks_before_increment_at_i64_max() {
         ..library.find("const assert_text_start:").unwrap()];
     let vm = &library[library.find("class Vm:").unwrap()
         ..library
-            .find("    # Finds the leftmost-first match")
+            .find("    # Shift-And over a conservative ASCII prefix.")
             .unwrap()];
+    let vm = vm.replace("    _dfa: Dfa\n", "");
     let zeros =
         &library[library.find("def held[").unwrap()..library.find("def integers(").unwrap()];
     let source = format!(
