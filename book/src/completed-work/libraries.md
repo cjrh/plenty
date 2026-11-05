@@ -78,6 +78,24 @@ assignments. Extensions retain their original B IDs in the
 | B69 / #106 | [Archives](../design/stdlib/archive.md): TAR ustar/pax/GNU and ZIP/ZIP64 stored/DEFLATE streaming with root-confined staging extraction under explicit policy. |
 | B70 / #107 | [SQLite](../design/stdlib/sqlite.md): vendored 3.54.0, typed statements, owned rollback-on-drop transactions, copied values and explicit length limits. |
 
+## B48: Regex acceleration
+
+Issue #742 adds bounded ASCII prefix filters across alternatives and classes,
+a lazy DFA for existence and fixed-length match offsets, and a one-pass engine
+for unambiguous ASCII transitions. The Pike VM preserves subgroup captures and
+handles unsupported patterns, Unicode fallback and exhausted DFA caches. Work
+limits include accelerated scans and fallbacks; optional scratch fits within
+the existing memory budget, and allocations remain fallible. Issue #752 adds
+pattern and search-budget compatibility checks before a cursor reuses cached
+transitions.
+
+The unchanged regex-redux program measures cleaning, all nine variant counts,
+and five substitutions against the Rust `regex` reference. Reproducible
+instruction-count results and the C/Plenty prefix-loop comparison are recorded
+in `experiments/regex/README.md`. See the [regex costs and coverage](../design/stdlib/regex.md#costs)
+and [benchmark workflow](../development/benchmarks-game.md). B48 retains broader
+engine coverage, native literal search and Unicode feature expansion.
+
 ## B71: Error composition and HTTP
 
 The language/reporting foundation and precise-error migration are delivered:

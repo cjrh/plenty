@@ -27,6 +27,43 @@ before destruction; the final thread owns the destruction queue entry. This
 protects ownership counts, not concurrent mutable payload access or foreign
 resource transfer. Source permissions still come from borrow and worker checks.
 
+### Sole-owner release
+
+Release first loads the count. An immortal count returns. A count of 1 skips
+the locked decrement: an acquire fence follows the load and the object is
+destroyed, leaving the dead count at 1 until the destruction queue reuses the
+word. Other counts take the release decrement.
+
+This is sound because the releaser consumes a counted reference it owns, so
+the count is at least 1 and other counted references or borrows account for
+the rest:
+
+- Every count operation by another thread comes from a counted reference or a
+  borrow of one. A borrow of the releaser's own reference ends before the
+  release, through a scoped-worker join or a job or channel handoff, which
+  orders that thread's retains before the load. By coherence the load then
+  reads their increments or a later value, so it cannot read a stale 1.
+- When the load reads 1, no other counted reference exists, and no new one can
+  appear: creating one needs the releaser's reference, which it owns
+  exclusively. A retain racing with this release would already race with
+  destruction under an atomic decrement, so borrow and worker checks exclude it.
+- The 1 was written by the initial store or by another owner's release
+  decrement. The acquire fence synchronizes with that decrement, so the other
+  owner's payload use happens before destruction, as under the atomic path.
+- [`Shared[T]`](../../facilities/01-builtins/shared.md) handles each own a
+  count, so two live handles keep it at 2 or more. Borrowed contents are
+  released only when the last handle destroys the box or under a mutex.
+- The destruction queue writes its link only after the release has decided to
+  destroy, as before. Immortal literals keep `u64::MAX` and are never written,
+  so read-only literal data stays valid. Copies into another actor heap check
+  the count only for the immortal value.
+
+Retain has no such path. It also runs through shared borrows, which carry no
+count: a scoped worker and its parent copying one string, or two jobs reading
+the same `Shared[list[str]]`, can both read 1, and a plain store of 2 would
+lose an increment. Retain therefore always uses an atomic update. Compiled
+code changes counts only by calling `plenty_retain` and `plenty_release`.
+
 An iterative queue destroys owned graphs without recursive native-stack growth.
 A record, list, or box being destroyed hands each heap child to the queue and
 resumes its walk after that child is gone, which keeps cleanup in declaration

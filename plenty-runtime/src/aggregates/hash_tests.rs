@@ -182,3 +182,125 @@ fn class_keys_hash_fields_instead_of_record_addresses() {
         release(second, &CLASS);
     }
 }
+
+static BYTES: Type = Type {
+    kind: b'y',
+    ..INTEGER
+};
+
+/// The layout of a compiler-emitted immortal literal: a heap-format Text even
+/// when its contents would fit inline.
+#[repr(C, align(8))]
+struct Literal<const N: usize> {
+    refs: u64,
+    destroy: usize,
+    byte_len: u64,
+    scalar_len: u64,
+    data: [u8; N],
+}
+
+fn literal<const N: usize>(data: &[u8; N]) -> Literal<N> {
+    Literal {
+        refs: u64::MAX,
+        destroy: 0,
+        byte_len: N as u64,
+        scalar_len: N as u64,
+        data: *data,
+    }
+}
+
+// The direct str/bytes path hashes the byte view, so inline, literal and heap
+// owners of equal contents must agree with each other and with `equal`, both
+// at top level and inside a tuple, which uses the framed encoding.
+fn assert_text_storage_agrees<const N: usize>(contents: &[u8; N]) {
+    let literal = literal(contents);
+    let literal = &literal as *const Literal<N> as u128;
+    let owned = strings::new(contents);
+    assert_eq!(strings::is_inline(owned), N <= strings::INLINE_MAX);
+    let owned_key = owned as u128;
+    // SAFETY: both texts stay live through every hash and comparison; packed
+    // tuples refer to live local field arrays.
+    unsafe {
+        let mut literal_fields = [literal, owned_key];
+        let mut owned_fields = [owned_key, literal];
+        let literal_tuple = PAIR.pack(literal_fields.as_mut_ptr() as u128, 0);
+        let owned_tuple = PAIR.pack(owned_fields.as_mut_ptr() as u128, 0);
+        for key in [[0; 16], [1; 16], [0xa5; 16]] {
+            for ty in [&TEXT, &BYTES] {
+                assert!(equal(literal, owned_key, ty));
+                assert_eq!(
+                    hashing::hash_with_key(literal, ty, &key),
+                    hashing::hash_with_key(owned_key, ty, &key),
+                    "{contents:?}"
+                );
+            }
+            assert!(equal(literal_tuple, owned_tuple, &PAIR));
+            assert_eq!(
+                hashing::hash_with_key(literal_tuple, &PAIR, &key),
+                hashing::hash_with_key(owned_tuple, &PAIR, &key)
+            );
+        }
+        plenty_release(owned.cast());
+    }
+}
+
+#[test]
+fn text_keys_hash_by_contents_across_storage() {
+    assert_text_storage_agrees(b"");
+    assert_text_storage_agrees(b"A");
+    assert_text_storage_agrees(b"GGTATT");
+    assert_text_storage_agrees(b"abcdefg");
+    assert_text_storage_agrees(b"abcdefgh");
+    assert_text_storage_agrees(b"GGTATTTTAATTTATAGT");
+}
+
+#[test]
+fn distinct_text_keys_hash_apart() {
+    let contents: [&[u8]; 6] = [b"", b"\0", b"\0\0", b"A", b"AC", b"abcdefgh\0"];
+    let texts = contents.map(strings::new);
+    let mut hashes = std::collections::BTreeSet::new();
+    // SAFETY: each text stays live until its release below.
+    unsafe {
+        for &text in &texts {
+            hashes.insert(hashing::hash_with_key(text as u128, &TEXT, &[7; 16]));
+        }
+        for text in texts {
+            plenty_release(text.cast());
+        }
+    }
+    assert_eq!(hashes.len(), contents.len());
+}
+
+#[test]
+fn scalar_keys_ignore_bits_above_their_width() {
+    static I8: Type = Type {
+        kind: b'1',
+        ..INTEGER
+    };
+    static U32: Type = Type {
+        kind: b'7',
+        ..INTEGER
+    };
+    static BOOL: Type = Type {
+        kind: b'b',
+        ..INTEGER
+    };
+    let cases: [(&Type, u128, u128); 4] = [
+        (&I8, 0xff, 0xdead_beef_ffff_ff00 | 0xff),
+        (&U32, 7, 0x1234_0000_0007),
+        (&BOOL, 1, 0x101),
+        (&INTEGER, u64::MAX as u128, u128::MAX),
+    ];
+    for (ty, value, padded) in cases {
+        // SAFETY: scalars own nothing; both operands carry the same value.
+        unsafe {
+            assert!(equal(value, padded, ty));
+            for key in [[0; 16], [0xa5; 16]] {
+                assert_eq!(
+                    hashing::hash_with_key(value, ty, &key),
+                    hashing::hash_with_key(padded, ty, &key)
+                );
+            }
+        }
+    }
+}

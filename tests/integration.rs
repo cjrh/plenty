@@ -70,6 +70,8 @@ mod test_boolean_lowering;
 mod test_borrowed_iteration;
 #[path = "test_borrowed_list_rows.rs"]
 mod test_borrowed_list_rows;
+#[path = "test_borrowed_lookups.rs"]
+mod test_borrowed_lookups;
 #[path = "test_borrowed_match.rs"]
 mod test_borrowed_match;
 #[path = "test_borrowing.rs"]
