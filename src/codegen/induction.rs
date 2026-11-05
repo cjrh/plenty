@@ -92,6 +92,8 @@ pub(super) struct Bounds {
     pub below_locals: Vec<(u8, Value)>,
     /// Values and a value each is below.
     pub below: HashMap<Value, Value>,
+    /// The versioned loop copy being lowered, if any; see [`Version`].
+    pub version: Option<Version>,
 }
 
 impl Bounds {
@@ -819,4 +821,127 @@ fn writes_only_shrink(ops: &[Op], local: u8) -> bool {
         }
         _ => true,
     })
+}
+
+/// Loop versioning for a counted `range` loop whose stop has no visible
+/// relation to the lengths its body indexes (issue #728), as in
+/// `for i in range(r): xs[i] = xs[i + 1]`.
+///
+/// The loop is lowered twice. The first copy's accesses `xs[b + k]`, with
+/// `0 <= b < stop` and a constant `k >= 0`, skip their checks when the length
+/// they compare against is a value the loop reads but never writes; the copy
+/// records each such length with its largest `k`. One test before the loop,
+/// `stop <= length - k` for every recorded length, then chooses that copy or
+/// the second, an ordinary checked copy. If it holds, every pass's `b + k` is
+/// below its length, so the skipped checks could not fail; if not, the
+/// checked copy runs the same passes with the same traps, messages and
+/// positions, including any `break`, `return` or error before the bad index.
+pub(super) struct Version {
+    /// The range's stop, canonical.
+    pub stop: Value,
+    /// Canonical entry values of the enclosing loops' invariant locals, each
+    /// marked when it is a view: each was read before the loop, so it is
+    /// available to the test.
+    pub entries: HashMap<Value, bool>,
+    /// Lengths the first copy relied on, each with its largest offset; a
+    /// view's count is recorded by the view.
+    pub assumed: Vec<(Assumed, i64)>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Assumed {
+    Length(Value),
+    View(Value),
+}
+
+/// Largest constant offset a versioned access may add to the counter.
+pub(super) const VERSION_OFFSET: i64 = 64;
+
+/// Largest body, in operations, that is lowered twice; it bounds the code
+/// size and compile time versioning adds.
+const VERSION_OPS: usize = 96;
+
+/// Whether a range loop's body may be lowered twice: it is small and holds
+/// only operations without effects on other code's lowering. A call or
+/// nested loop has its own state and costs, and is not duplicated.
+pub(super) fn versionable(body: &[Op]) -> bool {
+    use crate::collection::CollectionOp as C;
+    let mut count = 0;
+    let mut allowed = true;
+    crate::threading::walk(body, &mut |op| {
+        count += 1;
+        allowed &= matches!(
+            op,
+            Op::Collection(
+                C::ListScalarGetRef(_)
+                    | C::ListScalarGetView(_)
+                    | C::ListScalarSetRef(_)
+                    | C::ListScalarSetView(_)
+                    | C::ListLenRef(_)
+                    | C::ViewLen(_)
+                    | C::ViewRow(..)
+                    | C::ViewItem(..)
+            ) | Op::Integer(_)
+                | Op::Numeric(_)
+                | Op::CheckedArith { .. }
+                | Op::Cast(_)
+                | Op::PushInt(_)
+                | Op::PushFloat { .. }
+                | Op::PushBool(_)
+                | Op::PushUnit
+                | Op::FloatNeg
+                | Op::Add
+                | Op::Sub
+                | Op::Mul
+                | Op::Eq
+                | Op::Ne
+                | Op::Lt
+                | Op::Le
+                | Op::Gt
+                | Op::Ge
+                | Op::Not
+                | Op::Drop
+                | Op::Dup
+                | Op::Swap
+                | Op::LoadLocal(_)
+                | Op::StoreLocal(_)
+                | Op::MoveLocal(_)
+                | Op::BorrowLocal(..)
+                | Op::ReadRef(_)
+                | Op::Reborrow(_)
+                | Op::If { .. }
+                | Op::Break
+                | Op::Continue
+                | Op::Loan(_)
+                | Op::UseLoan(_)
+                | Op::EndLoan(_)
+                | Op::Access(..)
+                | Op::Site(_)
+                | Op::Leaving
+                | Op::Returning(..)
+                | Op::Return
+        );
+    });
+    allowed && count <= VERSION_OPS
+}
+
+/// `(base, k)` when `value` is `base + k` for a constant `k`, or `value`
+/// itself with `k = 0`. A checked add's sum counts: its overflow check
+/// still runs before any use of the sum.
+pub(super) fn offset(dfg: &DataFlowGraph, value: Value) -> (Value, i64) {
+    use cranelift_codegen::ir::{InstructionData, Opcode};
+    let value = dfg.resolve_aliases(value);
+    if let cranelift_codegen::ir::ValueDef::Result(inst, 0) = dfg.value_def(value)
+        && let InstructionData::Binary {
+            opcode: Opcode::Iadd | Opcode::SaddOverflow,
+            args: [a, b],
+        } = dfg.insts[inst]
+    {
+        for (base, constant) in [(a, b), (b, a)] {
+            if let Some(k) = super::known::known_signed(dfg, constant) {
+                return (dfg.resolve_aliases(base), k);
+            }
+        }
+    }
+    (value, 0)
 }
