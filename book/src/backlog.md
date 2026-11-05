@@ -256,7 +256,7 @@ follow-up. All candidates still require scope and acceptance checks.
 | B66 | HTTP qualification | Generated route dispatch without user `match` waits on enum methods or existential protocol values; preserve existing qualification suites and [proxy fixture ownership](design/stdlib/http-qualification.md#reverse-proxies) (issue #719; [delivered scope](completed-work/libraries.md#b39b70-initial-delivery-slices)). |
 | B67 | Crypto | P-384/JWT ES384 and SHA-384 HMAC/JWT HS384; password KDFs need separate use-case/API review. |
 | B68 | Compression | Gzip header access, zstd and trailing-zero tolerance; archives remain B69. |
-| B69 | Archives | Policy-controlled link creation, mode/time restoration and streaming ZIP writes with data descriptors. |
+| B69 | Archives | [PAX decimal range correction](completed-work/libraries.md#b38-library-breadth) delivered (issue #705). Remaining: policy-controlled link creation, mode/time restoration and streaming ZIP writes with data descriptors. |
 | B70 | SQLite | Runtime allocator integration for accounting/failure injection, user-defined functions and backup API. |
 | B78 | Diffs | Line-first pass for char/word diffs and diffs in `std.test` failures (B57). Performance baselines belong to B19. |
 | B79 | Markdown | GFM tables, strikethrough/task lists and parser throughput beyond the recorded ~1 MB/s. |
