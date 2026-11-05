@@ -628,6 +628,7 @@
         - [Checked emitter and Rust build costs](proposals/rust-source-backend/checked-emitter.md)
     - [Generated library contracts and C headers](proposals/ffi-export-contracts.md)
     - [Fallible memory, parallel execution, and SIMD](proposals/memory-parallelism-and-simd.md)
+    - [Thread-local reference counts](proposals/thread-local-reference-counts.md)
     - [Portable SIMD without everyday bookkeeping](proposals/std-simd.md)
         - [A small portable API](proposals/std-simd/api.md)
         - [Initial explicit SIMD implementation](proposals/std-simd/implementation.md)
