@@ -1428,6 +1428,85 @@ impl Lowerer<'_, '_> {
         self.bcx.ins().select(any, nan_order, order)
     }
 
+    /// Makes the check before a loop that [`super::induction::Relation`]
+    /// describes, and records its facts for the body's first operations.
+    /// Returns how many operations they cover and the length of
+    /// `below_locals` to restore after them.
+    fn enter_relation(
+        &mut self,
+        condition: &[Op],
+        body: &[Op],
+        nonnegative: Option<u8>,
+        types: &[Ty],
+        invariant: usize,
+    ) -> Result<Option<(usize, usize)>> {
+        if self.gathering() {
+            return Ok(None);
+        }
+        let Some(relation) = super::induction::analyze_relation(condition, body) else {
+            return Ok(None);
+        };
+        let (low, high) = (relation.low, relation.high);
+        let view = self.counters.bounds.invariant_locals[invariant..]
+            .iter()
+            .find(|(local, _)| *local == relation.view)
+            .map(|&(_, entry)| entry);
+        let usable = nonnegative == Some(low)
+            && types[low as usize] == Ty::I64
+            && types[high as usize] == Ty::I64
+            && types[relation.view as usize] == relation.ty
+            && self.local_address(high).is_none();
+        let Some(view) = view.filter(|_| usable) else {
+            return Ok(None);
+        };
+        let element = super::views::view_element(&relation.ty);
+        let row_bytes = metadata::list_row_bytes(&element) as i64;
+        let (low_entry, high_entry) = (self.read_local(low), self.read_local(high));
+        let runs = self
+            .bcx
+            .ins()
+            .icmp(IntCC::SignedLessThan, low_entry, high_entry);
+        let check = self.bcx.create_block();
+        let join = self.bcx.create_block();
+        self.bcx.ins().brif(runs, check, &[], join, &[]);
+        self.bcx.switch_to_block(check);
+        self.bcx.seal_block(check);
+        // The first pass's checks, at its access's site.
+        let position = self.position.clone();
+        if let Some(site) = &relation.site {
+            if self.module.lines() {
+                self.bcx
+                    .set_srcloc(cranelift_codegen::ir::SourceLoc::new(site.line));
+            }
+            self.position.set(site);
+        }
+        let (rows, count) = self.split_view(view);
+        self.note_view_length(view, count);
+        for &index in &relation.indices {
+            let value = if index == low { low_entry } else { high_entry };
+            self.checked_row(rows, count, value, row_bytes)?;
+        }
+        self.position = position;
+        self.bcx.ins().jump(join, &[]);
+        self.bcx.switch_to_block(join);
+        self.bcx.seal_block(join);
+        // `count` does not dominate the body and is only compared, through
+        // the view it was read from, with the body's lengths.
+        let bounds = &mut self.counters.bounds;
+        let below = bounds.below_locals.len();
+        bounds.below_locals.push((high, count));
+        bounds.below_locals.push((low, count));
+        self.counters.nonnegative_locals.push(high);
+        Ok(Some((relation.prefix, below)))
+    }
+
+    /// Drops the facts [`Self::enter_relation`] recorded: a write to `low`
+    /// or `high` follows.
+    fn leave_relation(&mut self, below: usize) {
+        self.counters.bounds.below_locals.truncate(below);
+        self.counters.nonnegative_locals.pop();
+    }
+
     /// Records the stable shared list references, views and lengths that `condition` and
     /// `body` read but never write, with their values on entry; see
     /// [`super::induction::Bounds`].
@@ -1524,6 +1603,8 @@ impl Lowerer<'_, '_> {
         if let Some(below) = below {
             self.counters.bounds.below_locals.push(below);
         }
+        let low = nonnegative.as_ref().map(|counter| counter.local);
+        let mut relation = self.enter_relation(condition, body, low, &types, invariant)?;
         let header = self.bcx.create_block();
         let iteration = self.bcx.create_block();
         let exit = self.bcx.create_block();
@@ -1539,6 +1620,9 @@ impl Lowerer<'_, '_> {
         self.loop_targets.push((header, exit));
         self.enter_loop_exits(header, exit);
         for (index, op) in body.iter().enumerate() {
+            if let Some((_, below)) = relation.take_if(|&mut (prefix, _)| prefix == index) {
+                self.leave_relation(below);
+            }
             if self.terminated {
                 break;
             }
@@ -1550,6 +1634,9 @@ impl Lowerer<'_, '_> {
             } else {
                 self.lower(op)?;
             }
+        }
+        if let Some((_, below)) = relation {
+            self.leave_relation(below);
         }
         if !self.terminated {
             self.bcx.ins().jump(header, &[]);

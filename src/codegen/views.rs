@@ -46,6 +46,7 @@ impl Lowerer<'_, '_> {
                 let (first, _) = self.pop_typed(Ty::I64)?;
                 let (value, _) = self.pop_typed(view.clone())?;
                 let (rows, count) = self.split_view(value);
+                self.note_view_length(value, count);
                 let row_bytes = metadata::list_row_bytes(&element) as i64;
                 if element.is_numeric() || element == Ty::Bool {
                     self.swap_scalar_rows(rows, count, [first, second], row_bytes, &element)?;
@@ -167,7 +168,7 @@ impl Lowerer<'_, '_> {
 
     /// The rows and count of `view`, reusing a split already done on this
     /// path.
-    fn split_view(&mut self, view: NativeValue) -> (NativeValue, NativeValue) {
+    pub(super) fn split_view(&mut self, view: NativeValue) -> (NativeValue, NativeValue) {
         let view = self.bcx.func.dfg.resolve_aliases(view);
         let block = self.bcx.current_block();
         if let Some(split) = self.counters.checked.split(block, view) {
@@ -180,7 +181,7 @@ impl Lowerer<'_, '_> {
 
     /// A view's count is part of its value, so every count read from one
     /// view value is the same number; see [`super::induction::Bounds`].
-    fn note_view_length(&mut self, view: NativeValue, count: NativeValue) {
+    pub(super) fn note_view_length(&mut self, view: NativeValue, count: NativeValue) {
         let bounds = &mut self.counters.bounds;
         let view = bounds.canonical(&self.bcx.func.dfg, view);
         bounds.lengths.insert(count, view);
@@ -192,7 +193,7 @@ impl Lowerer<'_, '_> {
     }
 }
 
-fn view_element(view: &Ty) -> Ty {
+pub(super) fn view_element(view: &Ty) -> Ty {
     let Ty::View(element, _) = view else {
         unreachable!("a slice view operand")
     };
