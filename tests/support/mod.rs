@@ -85,7 +85,16 @@ pub fn check_all_methods(source: &str) -> Result<(), Box<dyn std::error::Error>>
         all_methods: true,
         ..Default::default()
     };
-    plenty::check_source_with_options(&program(source), &options)
+    plenty::check_source_with_options(&program(source), &options).map(drop)
+}
+
+/// The lint warnings a passing check reports, as the command line prints them.
+pub fn check_warnings(source: &str) -> Vec<String> {
+    plenty::check_source_with_options(&program(source), &plenty::CheckOptions::default())
+        .unwrap_or_else(|error| panic!("check failed: {error}"))
+        .iter()
+        .map(ToString::to_string)
+        .collect()
 }
 
 /// General language fixtures retain their unoptimized baseline. Optimization

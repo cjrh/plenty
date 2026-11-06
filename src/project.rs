@@ -1265,25 +1265,26 @@ pub fn check_entry(
     graph: &SourceGraph,
     require_main: bool,
     options: &crate::CheckOptions,
-) -> Result<()> {
-    check_sources(entry, graph, require_main, options).map(|_| ())
+) -> Result<Vec<crate::Warning>> {
+    check_sources(entry, graph, require_main, options).map(|(warnings, _)| warnings)
 }
 
-/// [`check_entry`], returning the canonical paths of every source file the
-/// check read, in all packages of `graph`.
+/// [`check_entry`], also returning the canonical paths of every source file
+/// the check read, in all packages of `graph`.
 fn check_sources(
     entry: &Path,
     graph: &SourceGraph,
     require_main: bool,
     options: &crate::CheckOptions,
-) -> Result<Vec<PathBuf>> {
+) -> Result<(Vec<crate::Warning>, Vec<PathBuf>)> {
     let mut heap = crate::value::Heap::default();
     let mut program =
         crate::frontend::compile_graph(entry, graph, require_main, &mut heap, *options)?;
     let checked = crate::op::check(&program.ops);
+    let warnings = std::mem::take(&mut program.warnings);
     let sources = std::mem::take(&mut program.source_paths);
     crate::teardown((program, heap), options);
-    checked.map(|()| sources)
+    checked.map(|()| (warnings, sources))
 }
 
 fn status(verb: &str, message: impl std::fmt::Display) {
@@ -1294,31 +1295,44 @@ fn title(package: &Package) -> String {
     format!("{} v{}", package.manifest.name, package.manifest.version)
 }
 
-/// Check every target of the selected packages. A target's check covers the
-/// files its import graph reaches, so afterwards each `.plenty` file below
-/// the package's `src/` that no target reached is reported as unchecked.
+/// Check every target of the selected packages, printing each package's lint
+/// warnings once on stderr after its targets pass. A target's check covers the
+/// files its import graph reaches, so afterwards each `.plenty` file below the
+/// package's `src/` that no target reached is reported as unchecked.
 pub fn check(directory: &Path, options: &BuildOptions) -> Result<()> {
     let project = open(directory, options)?;
     for &member in &project.selected {
         let package = project.member(member);
         status("Checking", title(package));
         let graph = project.source_graph(member);
+        // Targets share modules, so the same warning can come from each.
+        let mut warnings = Vec::new();
         let mut reached = BTreeSet::new();
-        if let Some(library) = &package.manifest.library {
-            reached.extend(check_sources(
-                &package.directory.join(library),
-                &graph,
-                false,
-                &options.check,
-            )?);
-        }
-        for (_, entry) in &package.manifest.binaries {
-            reached.extend(check_sources(
+        let entries = package
+            .manifest
+            .library
+            .iter()
+            .map(|library| (library, false))
+            .chain(
+                package
+                    .manifest
+                    .binaries
+                    .iter()
+                    .map(|(_, entry)| (entry, true)),
+            );
+        for (entry, require_main) in entries {
+            let (found, sources) = check_sources(
                 &package.directory.join(entry),
                 &graph,
-                true,
+                require_main,
                 &options.check,
-            )?);
+            )?;
+            warnings.extend(found);
+            reached.extend(sources);
+        }
+        crate::diagnostic::settle(&mut warnings);
+        for warning in &warnings {
+            eprintln!("{warning}");
         }
         let mut sources = vec![];
         source_files(&package.directory.join("src"), &mut sources)?;
@@ -1462,7 +1476,7 @@ fn build_member(
             ),
             None,
             &mut progress,
-            || check_entry(&entry, &graph, false, &crate::CheckOptions::default()),
+            || check_entry(&entry, &graph, false, &crate::CheckOptions::default()).map(drop),
         )?;
     }
     let mut outputs = vec![];

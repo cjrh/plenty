@@ -110,6 +110,7 @@ pub use codegen::{
     compile_source_to_executable, compile_source_to_executable_with_options,
     compile_source_to_object, dump_file,
 };
+pub use diagnostic::{Lint, Warning};
 pub use library::{
     LibraryArtifacts, LibraryKind, LibraryOptions, compile_file_to_library, emit_runtime_interface,
     runtime_interface_source,
@@ -128,7 +129,7 @@ pub use toolchain::{
 /// [`compile_source_to_executable`].
 #[cfg_attr(feature = "profile", hotpath::measure)]
 pub fn check_source(source: &str) -> Result<(), Box<dyn std::error::Error>> {
-    check_source_with_options(source, &CheckOptions::default())
+    check_source_with_options(source, &CheckOptions::default()).map(drop)
 }
 
 /// What a check verifies beyond what compilation checks, and how it ends.
@@ -149,14 +150,16 @@ pub struct CheckOptions {
     pub skip_teardown: bool,
 }
 
-/// [`check_source`] with the checks `options` adds.
+/// [`check_source`] with the checks `options` adds. Returns the program's
+/// [lint warnings](Warning), which never fail a check.
 pub fn check_source_with_options(
     source: &str,
     options: &CheckOptions,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<Vec<Warning>, Box<dyn std::error::Error>> {
     let mut heap = value::Heap::default();
-    let program = frontend::check(source, &mut heap, *options)?;
-    op::check(&program.ops)
+    let mut program = frontend::check(source, &mut heap, *options)?;
+    op::check(&program.ops)?;
+    Ok(std::mem::take(&mut program.warnings))
 }
 
 /// Check a complete application, resolving imports from the supplied root or
@@ -165,7 +168,7 @@ pub fn check_file(
     path: &std::path::Path,
     root: Option<&std::path::Path>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    check_file_with_options(path, root, true, &CheckOptions::default())
+    check_file_with_options(path, root, true, &CheckOptions::default()).map(drop)
 }
 
 /// Check a library module and its imports without requiring an application main.
@@ -173,19 +176,20 @@ pub fn check_module_file(
     path: &std::path::Path,
     root: Option<&std::path::Path>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    check_file_with_options(path, root, false, &CheckOptions::default())
+    check_file_with_options(path, root, false, &CheckOptions::default()).map(drop)
 }
 
 /// [`check_file`] (`require_main`) or [`check_module_file`] with the checks
-/// `options` adds.
+/// `options` adds. Returns the program's [lint warnings](Warning), which
+/// never fail a check.
 pub fn check_file_with_options(
     path: &std::path::Path,
     root: Option<&std::path::Path>,
     require_main: bool,
     options: &CheckOptions,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<Vec<Warning>, Box<dyn std::error::Error>> {
     let mut heap = value::Heap::default();
-    let program = frontend::compile_file(
+    let mut program = frontend::compile_file(
         path,
         root,
         require_main,
@@ -194,6 +198,7 @@ pub fn check_file_with_options(
         crate::UncheckedMode::Trap,
     )?;
     let checked = op::check(&program.ops);
+    let warnings = std::mem::take(&mut program.warnings);
     teardown((program, heap), options);
-    checked
+    checked.map(|()| warnings)
 }

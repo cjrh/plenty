@@ -4,7 +4,7 @@
 
 | Command | Use |
 |---|---|
-| `plenty --check FILE` | Type-check only; fastest feedback |
+| `plenty --check FILE` | Type-check only; fastest feedback; prints warnings, such as `redundant-copy`, on stderr |
 | `plenty FILE` | Compile and run |
 | `plenty script [OPTIONS] FILE [ARGS...]` | Run with arguments and optional embedded dependencies |
 | `plenty --compile FILE -o OUT` | Write a native executable |

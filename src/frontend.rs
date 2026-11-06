@@ -51,6 +51,7 @@ mod generics;
 pub(crate) mod ide;
 #[cfg(test)]
 mod lexer_tests;
+mod lints;
 mod list_retag;
 mod mapping;
 mod modules;
@@ -96,6 +97,9 @@ pub(crate) struct Program {
     pub(crate) imported_symbols: HashSet<String>,
     pub(crate) source_paths: Vec<std::path::PathBuf>,
     pub(crate) inputs: Inputs,
+    /// Lint reports in output order. Only checking reports them: a program
+    /// cache hit skips the frontend.
+    pub(crate) warnings: Vec<crate::diagnostic::Warning>,
 }
 
 pub(crate) use modules::inputs::{Inputs, standard_digest};
@@ -1426,6 +1430,7 @@ impl Lower<'_> {
         let target = self.check_propagation(e, &source, target, literal)?;
         let success = usize::from(source.is_option());
         let payload = source.get().variants[success].fields[0].clone();
+        self.redundant_copy(value, &payload);
         let mut cleanup = Vec::new();
         if !self.contexts.is_empty() {
             self.cleanup(0, &mut cleanup);
@@ -5162,6 +5167,8 @@ fn lower(
             ]);
         }
     }
+    let mut warnings = std::mem::take(&mut generics.warnings);
+    crate::diagnostic::settle(&mut warnings);
     Ok(Program {
         inputs,
         source_paths,
@@ -5169,5 +5176,6 @@ fn lower(
         ops,
         returns_status,
         exports,
+        warnings,
     })
 }
