@@ -42,16 +42,20 @@
 //!   constant (issue #391): a function's blocks after its body, a loop's
 //!   before its exit block is sealed.
 //!
-//! A `?` failure that shares blocks stores its carried values in a stack slot
-//! and jumps to a reload block for its entry, which loads them and jumps on
-//! (issue #771). regalloc2 merges a block parameter with the arguments passed
-//! to it, so parameters every exit passes to would join each failure's
-//! error, and through it the values the error shares registers with (an
-//! inlined callee's result, a loop counter), into one bundle spanning the
-//! function. Splitting that bundle spilled loop-carried values in hot loops.
-//! The loads are fresh values when several failures store before a reload;
-//! with one, alias analysis forwards the stored value, which then joins only
-//! that failure's path. Returns and tail calls keep passing parameters.
+//! In a body with a loop, a function exit that shares blocks stores its
+//! carried values in a stack slot and jumps to a reload block for its entry,
+//! which loads them and jumps on (issues #771 and #811). regalloc2 merges a
+//! block parameter with the arguments passed to it, so parameters every exit
+//! passes to would join each exit's values, and through them the values those
+//! share registers with (a loop counter, an inlined callee's result, a
+//! constant live from entry), into one bundle spanning the function.
+//! Splitting that bundle spilled loop-carried values in hot loops. Loads
+//! address the slot from another base than the stores, so alias analysis
+//! cannot forward a lone exit's stored values to them. A loop-free body
+//! passes parameters: it has no hot loop to protect, and a hot return path
+//! (a constructor called in a loop) would pay a store and load. An inlined
+//! callee's loop, at any inlining depth, marks its caller only once lowered,
+//! so exits before it still pass parameters. `break` and `continue` always pass parameters.
 use super::*;
 use cranelift_codegen::ir::{
     FuncRef, JumpTableData, MemFlagsData, SigRef, Signature, StackSlot, StackSlotData,
@@ -79,30 +83,46 @@ pub(super) struct Exits {
     pub(super) returns_to: Option<Block>,
     /// `break`s and `continue`s of each enclosing loop, innermost last.
     loops: Vec<Ladder>,
-    /// Where failures stage their carried values, by their types.
-    failure_slots: Vec<(Vec<Type>, StackSlot)>,
+    /// Where exits stage their carried values, by their types.
+    staging_slots: Vec<(Vec<Type>, StackSlot)>,
+    /// The body has a loop, counting inlined callees' loops: function exits
+    /// then stage their carried values in memory.
+    has_loop: bool,
 }
 
 impl Exits {
     pub(super) fn for_body(body: &[Op]) -> Self {
         let mut tail_calls = 0;
+        let mut has_loop = false;
         crate::threading::walk(body, &mut |op| {
             if matches!(op, Op::TailCall(_) | Op::TailCallIndirect(_)) {
                 tail_calls += 1;
             }
+            has_loop |= matches!(op, Op::Loop { .. });
         });
         Self {
             single_tail_call: tail_calls == 1,
+            has_loop,
             ..Default::default()
         }
     }
 
-    /// Exits of a body lowered into its caller, returning to `block`.
-    pub(super) fn returning_to(block: Block) -> Self {
+    /// Exits of `body` lowered into its caller, returning to `block`.
+    pub(super) fn returning_to(block: Block, body: &[Op]) -> Self {
         Self {
             returns_to: Some(block),
+            has_loop: Self::for_body(body).has_loop,
             ..Default::default()
         }
+    }
+
+    pub(super) fn has_loop(&self) -> bool {
+        self.has_loop
+    }
+
+    /// Record a loop lowered into the body from an inlined callee.
+    pub(super) fn mark_loop(&mut self) {
+        self.has_loop = true;
     }
 }
 
@@ -113,11 +133,11 @@ struct Ladder {
     steps: Vec<Shared>,
     /// The steps jumping to each target.
     entering: HashMap<Next, Vec<usize>>,
-    /// Blocks reloading failures' carried values before a step or target.
+    /// Blocks reloading staged carried values before a step or target.
     reloads: Vec<Reload>,
 }
 
-/// Loads a failure's carried values from `slot` and jumps to `entry`.
+/// Loads an exit's carried values from `slot` and jumps to `entry`.
 struct Reload {
     block: Block,
     entry: Block,
@@ -125,9 +145,11 @@ struct Reload {
     types: Vec<Type>,
 }
 
-/// The distance between carried values in a failure slot: the largest
+/// The distance between carried values in a staging slot: the largest
 /// scalar Plenty passes, an `i128`.
-const FAILURE_STRIDE: i32 = 16;
+const STAGING_STRIDE: i32 = 16;
+/// Offset of a reload's base address from the stores' base.
+const RELOAD_BIAS: i32 = 8;
 
 struct Target {
     block: Block,
@@ -223,8 +245,6 @@ impl Ladder {
 #[derive(Clone, Copy)]
 enum Which {
     Function,
-    /// A function exit staging its carried values in memory.
-    Failure,
     Loop,
 }
 
@@ -253,25 +273,6 @@ impl Lowerer<'_, '_> {
     /// function this jumps into the shared exit blocks; elsewhere it lowers
     /// everything inline.
     pub(super) fn leave(&mut self, values: Vec<StackEntry>, cleanup: &Arc<[Op]>) -> Result<()> {
-        self.leave_with(values, cleanup, false)
-    }
-
-    /// As [`Self::leave`] for a `?` failure, which stages its values in
-    /// memory when it shares exit blocks.
-    pub(super) fn leave_failing(
-        &mut self,
-        values: Vec<StackEntry>,
-        cleanup: &Arc<[Op]>,
-    ) -> Result<()> {
-        self.leave_with(values, cleanup, true)
-    }
-
-    fn leave_with(
-        &mut self,
-        values: Vec<StackEntry>,
-        cleanup: &Arc<[Op]>,
-        failing: bool,
-    ) -> Result<()> {
         if self.exits.is_none() {
             for op in cleanup.iter() {
                 self.lower(op)?;
@@ -287,12 +288,7 @@ impl Lowerer<'_, '_> {
             let returns_to = self.exits.as_ref().and_then(|exits| exits.returns_to);
             self.return_to(returns_to, &returned);
         } else {
-            let which = if failing {
-                Which::Failure
-            } else {
-                Which::Function
-            };
-            self.take_exit(which, steps, restore, returned, End::Return)?;
+            self.take_exit(Which::Function, steps, restore, returned, End::Return)?;
         }
         // Inline lowering would leave the position at cleanup's last marker.
         self.follow_markers(cleanup);
@@ -497,7 +493,7 @@ impl Lowerer<'_, '_> {
             .collect();
         let mut exits = self.exits.take().expect("shared exits");
         let ladder = match which {
-            Which::Function | Which::Failure => &mut exits.function,
+            Which::Function => &mut exits.function,
             Which::Loop => exits.loops.last_mut().expect("a loop's shared exits"),
         };
         let found = ladder
@@ -559,16 +555,16 @@ impl Lowerer<'_, '_> {
         }
         let mut target = ladder.block(next);
         let staged = match which {
-            Which::Failure if !carried.is_empty() => {
-                let slot = match exits.failure_slots.iter().find(|(t, _)| *t == types) {
+            Which::Function if exits.has_loop && !carried.is_empty() => {
+                let slot = match exits.staging_slots.iter().find(|(t, _)| *t == types) {
                     Some(&(_, slot)) => slot,
                     None => {
                         let slot = self.bcx.create_sized_stack_slot(StackSlotData::new(
                             StackSlotKind::ExplicitSlot,
-                            FAILURE_STRIDE as u32 * types.len() as u32,
+                            STAGING_STRIDE as u32 * types.len() as u32,
                             4,
                         ));
-                        exits.failure_slots.push((types.clone(), slot));
+                        exits.staging_slots.push((types.clone(), slot));
                         slot
                     }
                 };
@@ -624,10 +620,10 @@ impl Lowerer<'_, '_> {
             self.bcx.def_var(call, caller);
         }
         if let Some(slot) = staged {
-            debug_assert!(types.iter().all(|ty| ty.bytes() <= FAILURE_STRIDE as u32));
+            debug_assert!(types.iter().all(|ty| ty.bytes() <= STAGING_STRIDE as u32));
             let base = self.bcx.ins().stack_addr(PTR_TY, slot, 0);
             for (i, value) in carried.iter().enumerate() {
-                let at = FAILURE_STRIDE * i as i32;
+                let at = STAGING_STRIDE * i as i32;
                 self.bcx
                     .ins()
                     .store(MemFlagsData::trusted(), *value, base, at);
@@ -731,13 +727,15 @@ impl Lowerer<'_, '_> {
         // Reloads precede the steps they enter, so those are not sealed yet.
         for reload in &ladder.reloads {
             self.enter_shared(reload.block, sites);
-            let base = self.bcx.ins().stack_addr(PTR_TY, reload.slot, 0);
+            // Stores address the slot from offset 0. Another base keeps alias
+            // analysis from forwarding a lone exit's stored values here.
+            let base = self.bcx.ins().stack_addr(PTR_TY, reload.slot, RELOAD_BIAS);
             let args: Vec<BlockArg> = reload
                 .types
                 .iter()
                 .enumerate()
                 .map(|(i, ty)| {
-                    let at = FAILURE_STRIDE * i as i32;
+                    let at = STAGING_STRIDE * i as i32 - RELOAD_BIAS;
                     let value = self.bcx.ins().load(*ty, MemFlagsData::trusted(), base, at);
                     BlockArg::Value(value)
                 })

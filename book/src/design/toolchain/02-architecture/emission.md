@@ -537,6 +537,29 @@ kernel's swap loop matches C's eight instructions. In loops that make calls,
 regalloc2 can place a split's moves on the latch's back edge instead; `fasta`
 gains about 0.7% instructions this way.
 
+## Values carried to shared exits
+
+A function's `?` failures, returns and tail calls share their cleanup and
+release code: each exit jumps into a chain of shared blocks, passing the
+values it carries (`src/codegen/exits.rs`). regalloc2 merges a block
+parameter with the arguments passed to it when their live ranges do not
+overlap. Parameters that every exit passes to join each exit's values, and
+the values those share registers with, into one bundle spanning the
+function. regalloc2 splits such a bundle a few times, then cuts it into
+minimal pieces whose spill choice ignores loop depth, so a loop's counter or
+total ended up stored and reloaded on every pass.
+
+In a function with a loop, counting loops of callees inlined into it, an exit
+therefore stores its carried values in a stack slot and jumps to a reload
+block, which loads them and enters the shared blocks (issues #771 and #811).
+The loads address the slot from a different base than the stores, so
+Cranelift's alias analysis cannot replace a lone exit's loads with the stored
+values and reform the merge. A loop-free function passes parameters: it has
+no hot loop to protect, and a hot return path, such as a constructor called
+in a loop, would pay a store and a load. `break` and `continue` pass
+parameters too. Staging returns removes 4.4% of `n-body`'s instructions and
+1.6% of `fannkuch-redux`'s.
+
 ## Loop counter checks
 
 Integer arithmetic keeps its overflow and division checks, and Cranelift does
