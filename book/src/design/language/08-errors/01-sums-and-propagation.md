@@ -10,6 +10,74 @@ errors are supported. Bare absence needs enough type context to determine `T`.
 Conversion is explicit: use `option.ok_or(error)?` in a Result-returning
 function; `?` alone does not invent an error for absence.
 
+## Defaults and recovery
+
+`Result[T, E].unwrap_or(default: T) -> T` returns the `Ok` payload or the
+supplied default, discarding the error. Like the Option form, it evaluates the
+receiver and default eagerly, in that order. In
+`option.unwrap_or(compute()?)`, `compute` runs and can propagate an error even
+when the option is `Some`. Choose an eager default only when that is intended.
+
+The lazy alternatives consume an owned callback and invoke it at most once:
+
+| Method | Callback | When called | Result |
+|---|---|---|---|
+| `Option[T].unwrap_or_else(f)` | `() -> T` | `Nothing` | `T` |
+| `Result[T, E].unwrap_or_else(f)` | `E -> T` | `Err(error)`, passing the error | `T` |
+| `Option[T].ok_or_else(f)` | `() -> E` | `Nothing` | `Result[T, E]` |
+
+Named functions, reusable closures, and owned one-shot closures use
+[`OnceCallable`](../06-functions/04-consuming-and-stored-closures.md).
+Constructing a callback and evaluating its captures still happens eagerly;
+only its body is conditional. Unused callbacks and their captures are dropped.
+These operations add no allocation, deep copying, or implicit error propagation.
+The existing restrictions on passing borrowed environments by value apply.
+Use `match` for reference-carrying payloads and callbacks that cannot be passed
+as owners.
+
+Both sums also support `map_or(default, mapper)` and
+`map_or_else(fallback, mapper)`. The mapper consumes `T` and returns `U`.
+`map_or` evaluates its default `U` eagerly. `map_or_else` invokes only the
+selected callback: Option's fallback takes no arguments, Result's fallback
+consumes `E`, and both return the same `U` as the mapper. Receiver and callback
+expressions evaluate from left to right, once. No automatic flattening occurs.
+
+For a fallible default, choose `U = Result[T, E]`, wrap a present value with
+`Ok`, and propagate **after** selection:
+
+```plenty
+def default_number() -> Result[i64, ParseError]:
+    i64.parse("23")
+
+def choose(value: Option[i64]) -> Result[i64, ParseError]:
+    Ok(value.map_or_else(default_number, Ok)?)
+
+def main() -> Result[(), ParseError | IoError]:
+    print(choose(Some(7))?, choose(Nothing)?)?
+    Ok(())
+```
+```output
+7 23
+```
+
+These fallback semantics follow Rust's
+[Option](https://doc.rust-lang.org/std/option/enum.Option.html#method.map_or_else)
+and [Result](https://doc.rust-lang.org/std/result/enum.Result.html#method.unwrap_or_else)
+operations, with Plenty's explicit allocation and callback contracts.
+
+## Deliberate assertions
+
+`Option[T].expect(message: str) -> T` and
+`Result[T, E].expect(message: str) -> T` return the success payload or trap with
+the supplied message and the call site's source location. The message is
+evaluated eagerly, including on success. Reporting adds no allocation;
+constructing a dynamic message retains its ordinary allocation contract.
+The trap reports the message, without formatting the error payload, and uses
+Plenty's existing trap behavior rather than Rust panic unwinding. Prefer `?`
+and explicit recovery for expected failures.
+
+## Inspection and propagation
+
 `Result[T, E].is_ok() -> bool` and `is_err()` report which variant a result
 holds; `Option[T].is_some() -> bool` and `is_none()` do the same for an option.
 They observe the receiver, so a named value remains usable afterwards and a

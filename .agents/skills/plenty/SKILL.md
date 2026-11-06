@@ -54,6 +54,9 @@ See [workflow and packages](references/workflow.md).
 - `?` propagates `Err` or `Nothing`. The function's error type must equal the
   source's error or contain it in a union (`AllocError | IoError | ParseError`).
   `?` never turns an `Option` into a `Result`; use `.ok_or(error)?`.
+- `unwrap_or(default)` and `ok_or(error)` evaluate their arguments eagerly.
+  For computed defaults use `unwrap_or_else`, or `map_or_else(fallback, Ok)?`
+  when the fallback returns a Result; see [defaults](references/errors.md#eager-and-lazy-defaults).
 - No exceptions, `None`, `try`, `raise`, or `lambda`. Use `Result[T, E]`,
   `Option[T]` (`Some(x)` / `Nothing`), and `def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x + 1)`.
 - Integer arithmetic returns errors from the enclosing function by default:

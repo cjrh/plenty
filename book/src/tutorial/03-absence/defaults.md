@@ -51,5 +51,39 @@ These helpers add no allocation. They evaluate their arguments eagerly, even
 when a value is present. The Option methods consume owned payloads and drop an
 unused default or error. Dictionary lookup supports copyable values; use
 `pop` to remove and take an owned value. Use `match` when the fallback should
-run only on absence. Bare `Nothing` may need an Option annotation or a typed
+run only on absence, or choose a lazy helper as described below. Bare `Nothing` may need an Option annotation or a typed
 result context to determine its payload type.
+
+## Compute a default only when needed
+
+Both `Option` and `Result` provide `unwrap_or_else`: it calls a fallback only
+for `Nothing` or `Err`. A Result fallback receives the error. Option also has
+`ok_or_else` for constructing an absence error lazily. These take function
+values; [functions as values](../../design/language/06-functions/02-function-values.md)
+and [closures](../../design/language/06-functions/03-closures.md) explain
+callbacks in more detail.
+
+A fallback can itself fail. In that case, `map_or_else` lets both branches
+return a Result, and `?` handles that Result after selection:
+
+```plenty
+def default_port() -> Result[i64, ParseError]:
+    i64.parse("8080")
+
+def port(configured: Option[i64]) -> Result[i64, ParseError]:
+    Ok(configured.map_or_else(default_port, Ok)?)
+
+def main() -> Result[(), ParseError | IoError]:
+    print(port(Some(9000))?, port(Nothing)?)?
+    Ok(())
+```
+```output
+9000 8080
+```
+
+`default_port` runs only for `Nothing`. Writing
+`configured.unwrap_or(default_port()?)` would run it even for `Some(9000)`.
+A `match` is equally suitable when either branch needs several statements.
+`Result.unwrap_or(default)` also exists for deliberate recovery with a cheap,
+already available value. See [defaults and recovery](../../design/language/08-errors/01-sums-and-propagation.md#defaults-and-recovery)
+for ownership, evaluation order, and the Result callback's error argument.

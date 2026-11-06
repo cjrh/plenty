@@ -68,6 +68,7 @@ mod retention;
 mod shared;
 mod slices;
 mod sorting;
+mod sum_methods;
 mod tail_calls;
 mod target;
 mod threads;
