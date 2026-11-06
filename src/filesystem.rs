@@ -40,11 +40,15 @@ pub enum FsOp {
     ApplyCopyMetadata,
     IsWithin,
     ChildMetadata,
+    LockOpen,
+    LockTry,
 }
 
 impl FsOp {
     pub fn named(name: &str) -> Option<Self> {
         Some(match name {
+            "__fs_lock_open" => Self::LockOpen,
+            "__fs_lock_try" => Self::LockTry,
             "__fs_apply_copy_metadata" => Self::ApplyCopyMetadata,
             "__fs_is_within" => Self::IsWithin,
             "__fs_child_metadata" => Self::ChildMetadata,
@@ -88,6 +92,8 @@ impl FsOp {
     pub fn signature(self) -> (Vec<Ty>, Ty) {
         let bytes = || Ty::List(Arc::new(Ty::U8));
         let (inputs, output) = match self {
+            Self::LockOpen => (vec![bytes()], Ty::File),
+            Self::LockTry => (vec![Ty::File, Ty::Bool], Ty::Bool),
             Self::OpenFilePath => (vec![bytes(), Ty::Str], Ty::File),
             Self::Open => (vec![bytes()], Ty::FsReadDir),
             Self::Next => (vec![Ty::FsReadDir], sum::option(Ty::FsDirEntry)),
@@ -131,6 +137,11 @@ impl FsOp {
     }
 
     pub fn opcode(self) -> i64 {
+        match self {
+            Self::LockOpen => return 620,
+            Self::LockTry => return 621,
+            _ => {}
+        }
         match self as i64 {
             index @ 0..=14 => 150 + index,
             index @ 15..=28 => 260 + index - 15,
