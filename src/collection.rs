@@ -269,13 +269,13 @@ pub enum CollectionOp {
     DictGetOrInsert(Ty),
     ListPop(Ty),      // exclusive list/index -> Option[owned element]
     SetDiscard(Ty),   // exclusive set/value -> bool
-    ListReverse(Ty),  // exclusive list -> retained internal alias
-    ListSwap(Ty),     // exclusive list, two indices -> retained internal alias
-    ListSort(Ty),     // exclusive list, descending bool -> retained internal alias
+    ListReverse(Ty),  // exclusive list -> ()
+    ListSwap(Ty),     // exclusive list, two indices -> ()
+    ListSort(Ty),     // exclusive list, descending bool -> ()
     OrderCompare(Ty), // two ordered keys -> i64
     /// Exclusive list, callback reference, descending -> () or public Result[(), E].
     ListSortBy(Arc<KeySort>),
-    Clear(Ty), // exclusive list/dict/set -> retained internal alias
+    Clear(Ty), // exclusive list/dict/set -> ()
     Len(Ty),
     /// Non-owning list observations; the frontend keeps the receiver's loan live.
     ListLenRef(Ty),
@@ -743,7 +743,7 @@ impl CollectionOp {
                 types.clone(),
                 crate::sum::result(Ty::Unit, crate::sum::io_error()),
             ),
-            ListUnpack(t) => (vec![t.clone(), Ty::I64], t.clone()),
+            ListUnpack(t) => (vec![t.clone(), Ty::I64], Ty::Unit),
             FormatScalar(t) | FormatValue(t) => (
                 vec![t.clone()],
                 crate::sum::result(Ty::Str, crate::sum::alloc_error()),
@@ -893,13 +893,13 @@ impl CollectionOp {
                 vec![t.clone(), t.element().unwrap()],
                 crate::sum::option(Ty::I64),
             ),
-            KeySetFilter(op) => (vec![op.left.clone(), op.right.clone()], op.left.clone()),
+            KeySetFilter(op) => (vec![op.left.clone(), op.right.clone()], Ty::Unit),
             SetIntersectionUpdate(t) | SetDifferenceUpdate(t) => {
-                (vec![t.clone(), t.clone()], t.clone())
+                (vec![t.clone(), t.clone()], Ty::Unit)
             }
-            ListReverse(t) | Clear(t) => (vec![t.clone()], t.clone()),
-            ListSort(t) => (vec![t.clone(), Ty::Bool], t.clone()),
-            ListSwap(t) => (vec![t.clone(), Ty::I64, Ty::I64], t.clone()),
+            ListReverse(t) | Clear(t) => (vec![t.clone()], Ty::Unit),
+            ListSort(t) => (vec![t.clone(), Ty::Bool], Ty::Unit),
+            ListSwap(t) => (vec![t.clone(), Ty::I64, Ty::I64], Ty::Unit),
             Len(t) | HashIterFirst(t) => (vec![t.clone()], Ty::I64),
             ListLenRef(t) | ListRowsRef(t) | ListRowBytesRef(t) => {
                 (vec![Ty::Ref(Arc::new(t.clone()), false)], Ty::I64)
@@ -1075,7 +1075,8 @@ impl CollectionOp {
             | Self::SetIsSubset(_)
             | Self::SetIsSuperset(_)
             | Self::SetIsDisjoint(_)
-            | Self::KeySetRelation(_) => true,
+            | Self::KeySetRelation(_)
+            | Self::ListUnpack(_) => true,
             Self::Contains(t) => matches!(
                 t,
                 Ty::List(_) | Ty::Dict(..) | Ty::Set(_) | Ty::Range(_) | Ty::Str | Ty::ByteStr

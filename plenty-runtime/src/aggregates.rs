@@ -2937,8 +2937,7 @@ pub(crate) unsafe fn collection_at(
                         ),
                     );
                 }
-                plenty_retain(a as *mut Header);
-                a
+                0
             }
             110 | 111 | 166 => {
                 #[cfg(feature = "allocation-checks")]
@@ -3157,12 +3156,10 @@ pub(crate) unsafe fn collection_at(
                     } else {
                         left & !right
                     });
-                    plenty_retain(a as *mut Header);
-                    return a;
+                    return 0;
                 }
                 target.retain_members(other, op == 69);
-                plenty_retain(a as *mut Header);
-                a
+                0
             }
             SET_UNION..=SET_SYMMETRIC_DIFFERENCE
             | KEY_VIEW_UNION..=KEY_VIEW_SYMMETRIC_DIFFERENCE => {
@@ -3266,16 +3263,14 @@ pub(crate) unsafe fn collection_at(
                         release(entry.value, value);
                     }
                 }
-                plenty_retain(a as *mut Header);
-                a
+                0
             }
             126 => {
                 let c = &mut *(a as *mut Collection);
                 let len = c.entries.len();
                 c.entries
                     .swap(index(b as i64, len, site), index(value as i64, len, site));
-                plenty_retain(a as *mut Header);
-                a
+                0
             }
             127 => {
                 let c = &mut *(a as *mut Collection);
@@ -3290,13 +3285,11 @@ pub(crate) unsafe fn collection_at(
                         .entries
                         .sort_unstable_by(|x, y| direct(compare(x, y, element))),
                 }
-                plenty_retain(a as *mut Header);
-                a
+                0
             }
             57 => {
                 (*(a as *mut Collection)).entries.reverse();
-                plenty_retain(a as *mut Header);
-                a
+                0
             }
             56 => match strings::try_repeat(a as *const Text, b as i64) {
                 Ok(text) => wrap(text as u128, 0),

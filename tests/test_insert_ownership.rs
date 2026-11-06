@@ -37,6 +37,15 @@ def tally(counts: &mut dict[str, i64], key: str) -> Result[(), AllocError | Over
 def clear_all(counts: &mut dict[str, i64]) -> ():
     counts.clear()
 
+def reorder(names: &mut list[str]) -> ():
+    names.reverse()
+    names.sort()
+    names.swap(0, 1)
+
+def narrow(seen: &mut set[str], counts: &dict[str, i64]) -> ():
+    seen.intersection_update(counts.keys())
+    seen.difference_update(counts.keys())
+
 def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut seen = set[str]()?
     mut counts: dict[str, i64] = {}?
@@ -48,6 +57,9 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
         append_moved(&mut names, copy(&key)?)?
         tally(&mut counts, key)?
     print(len(seen), counts, names)?
+    reorder(&mut names)
+    narrow(&mut seen, &counts)
+    print(len(seen), names)?
     clear_all(&mut counts)
     print(len(counts))?
     print("__test_small_live_heap__")?
@@ -72,13 +84,16 @@ fn stores_through_mut_receivers_count_nothing() {
         "append_moved",
         "tally",
         "clear_all",
+        "reorder",
+        "narrow",
     ] {
         let body = support::asm_body(&asm, name);
         assert!(!body.contains("plenty_retain"), "{name}:\n{body}");
-        // A `get_or_insert` hit still releases the caller's key, and `clear`
-        // releases the alias of the receiver it returns (issue #813).
+        // A `get_or_insert` hit still releases the caller's key. `clear`,
+        // `reverse`, `sort`, `swap` and the set updates return unit, not a
+        // retained alias of the receiver (issue #813).
         let releases = body.matches("plenty_release").count();
-        let expected = usize::from(matches!(name, "tally" | "clear_all"));
+        let expected = usize::from(name == "tally");
         assert_eq!(releases, expected, "{name}:\n{body}");
     }
     let output = plenty(dir.path(), &["--release", "p.plenty"]);
@@ -88,7 +103,14 @@ fn stores_through_mut_receivers_count_nothing() {
         .lines()
         .filter(|line| !line.starts_with("__test_"))
         .collect();
-    assert_eq!(visible, [r#"2 {"a!": 2, "b!": 2} ["a!", "b!", "a!"]"#, "0"]);
+    assert_eq!(
+        visible,
+        [
+            r#"2 {"a!": 2, "b!": 2} ["a!", "b!", "a!"]"#,
+            r#"0 ["a!", "a!", "b!"]"#,
+            "0"
+        ]
+    );
 }
 
 // Moved, copied and borrowed (read through a reference) operands, for local
