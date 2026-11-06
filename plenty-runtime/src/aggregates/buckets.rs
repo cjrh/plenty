@@ -390,6 +390,45 @@ mod tests {
     }
 
     #[test]
+    fn retain_repairs_a_cluster_that_wraps_past_the_end() {
+        // Homes 14 and 15 of 16 buckets fill 14..16 and wrap into 0..=4, so
+        // `retain` starts after bucket 5 and must move references across the
+        // wrap. Several insertion orders vary the layout.
+        let orders: [[usize; 7]; 3] = [
+            [14, 14, 15, 15, 0, 1, 14],
+            [15, 14, 0, 14, 15, 1, 14],
+            [0, 1, 14, 15, 14, 15, 14],
+        ];
+        for homes in orders {
+            let hashes: Vec<u64> = homes
+                .iter()
+                .enumerate()
+                .map(|(entry, &home)| home as u64 | (entry as u64 + 1) << 8)
+                .collect();
+            for keep_mask in 0u32..1 << hashes.len() {
+                let mut table = Buckets::try_with_len(16).unwrap();
+                for (entry, &hash) in hashes.iter().enumerate() {
+                    table.insert_unique(hash, entry);
+                }
+                assert!(table.entry(0).is_some(), "the cluster wraps");
+                let mut visited = 0u32;
+                assert!(table.retain(|entry, hash| {
+                    assert_eq!(hash.bits, hashes[entry] & (u64::MAX >> 4));
+                    visited |= 1 << entry;
+                    keep_mask & 1 << entry != 0
+                }));
+                assert_eq!(visited, (1 << hashes.len()) - 1);
+                assert_eq!(table.occupied(), keep_mask.count_ones() as usize);
+                for (entry, &hash) in hashes.iter().enumerate() {
+                    let bucket = table.probe(hash, |found| found == entry);
+                    let expected = (keep_mask & 1 << entry != 0).then_some(entry);
+                    assert_eq!(table.entry(bucket), expected, "{homes:?} {keep_mask:#b}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn stored_bits_cover_tables_up_to_2_pow_32() {
         // Checked without allocating the tables: growth from 2^31 to 2^32
         // buckets and removal at 2^32 use stored bits; beyond, keys rehash.

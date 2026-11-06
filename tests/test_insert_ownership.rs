@@ -42,9 +42,9 @@ def reorder(names: &mut list[str]) -> ():
     names.sort()
     names.swap(0, 1)
 
-def narrow(seen: &mut set[str], counts: &dict[str, i64]) -> ():
+def narrow(seen: &mut set[str], counts: &dict[str, i64], dropped: &dict[str, i64]) -> ():
     seen.intersection_update(counts.keys())
-    seen.difference_update(counts.keys())
+    seen.difference_update(dropped.keys())
 
 def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut seen = set[str]()?
@@ -57,9 +57,12 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
         append_moved(&mut names, copy(&key)?)?
         tally(&mut counts, key)?
     print(len(seen), counts, names)?
+    add_moved(&mut seen, "c!")?
+    mut dropped: dict[str, i64] = {}?
+    insert_moved(&mut dropped, "b!")?
     reorder(&mut names)
-    narrow(&mut seen, &counts)
-    print(len(seen), names)?
+    narrow(&mut seen, &counts, &dropped)
+    print(seen, names)?
     clear_all(&mut counts)
     print(len(counts))?
     print("__test_small_live_heap__")?
@@ -107,7 +110,7 @@ fn stores_through_mut_receivers_count_nothing() {
         visible,
         [
             r#"2 {"a!": 2, "b!": 2} ["a!", "b!", "a!"]"#,
-            r#"0 ["a!", "a!", "b!"]"#,
+            r#"{"a!"} ["a!", "a!", "b!"]"#,
             "0"
         ]
     );

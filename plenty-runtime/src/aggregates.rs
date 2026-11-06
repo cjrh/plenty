@@ -983,7 +983,14 @@ impl Collection {
                     let mut copy = slot.read();
                     let copied = try_copy_into(&mut copy, key_ty);
                     slot.write(copy);
-                    copied?;
+                    if let Err(error) = copied {
+                        // The scratch table holds `source`'s references;
+                        // empty it before the caller destroys this set.
+                        if scratch {
+                            self.table.clear();
+                        }
+                        return Err(error);
+                    }
                 } else {
                     retain(key, key_ty);
                     self.entries.push(Entry { key, value: 0 });
@@ -3243,6 +3250,9 @@ pub(crate) unsafe fn collection_at(
                 };
                 result as u128
             }
+            // The compiler passes `b` consumed and drops it after this call
+            // whatever the outcome: on failure `try_update` leaves its entries
+            // but clears its index, so it must not be used again.
             60 | 61 => match (*(a as *mut Collection)).try_update(&mut *(b as *mut Collection)) {
                 Ok(()) => wrap(0, 0),
                 Err(error) => wrap(wrap(0, error as u64), 1),
