@@ -35,7 +35,7 @@ failure. Nonallocating operations keep their ordinary return types.
 | Equality | Structural equality allocates nothing. It is rejected at compile time for recursive data (B33) |
 | Indexed replacement | List/dictionary replacement allocates nothing. Missing dictionary keys trap; adding keys uses `insert` |
 | Destruction | An intrusive queue needs no allocated work list. User destructor bodies handle their own operation results |
-| Allocator provenance | Object prefixes retain their process-lifetime allocator table; container buffers still use the global allocator |
+| Allocator provenance | Objects and container buffers use the global allocator; the object allocator prefix was removed (issue #814) until allocator selection needs provenance |
 
 Class arguments evaluate left to right and move into the call. Storage cannot
 fail, because the instance is inline. Initializer failure drops initialized

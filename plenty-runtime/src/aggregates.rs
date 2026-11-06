@@ -477,10 +477,14 @@ unsafe fn try_box_new(ty: &Type, value: u128) -> Result<*mut Boxed, AllocError> 
     Ok(boxed)
 }
 /// Allocate a box whose content slot the caller stores; on failure, release
-/// `value`, the content the box would have owned.
+/// `value`, the content the box would have owned. The slot is not zeroed: the
+/// caller's store writes the value word and the payload bytes that word
+/// names, and every reader of a box slot (release, copy, equality, printing,
+/// moving out) reads the value word first and then only that payload. A
+/// local's stack slot relies on the same store into uninitialized storage.
 unsafe fn try_box_for(ty: &Type, value: u128) -> u128 {
     let content = ty.key();
-    match memory::try_allocate::<Boxed, u128>(content.slot_words()) {
+    match memory::try_allocate_uninit::<Boxed, u128>(content.slot_words()) {
         Ok(boxed) => unsafe {
             boxed.write(Boxed {
                 header: Header::new(box_destroy),

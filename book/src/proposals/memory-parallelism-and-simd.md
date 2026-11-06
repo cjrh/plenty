@@ -42,9 +42,9 @@ describes the initial explicit and automatic SIMD subsets. Generic collections
 are not packed numeric arrays, and ordinary loops remain serial.
 
 Public allocator switching, per-container allocator handles, allocator lifetimes,
-and buffer provenance remain unimplemented. Existing object prefixes retain an
-internal process-lifetime allocator table; container buffers still use the global
-allocator. Fixed inline arrays and constant value parameters are separately
+and buffer provenance remain unimplemented. Objects and container buffers use the
+global allocator; objects no longer carry an allocator prefix (issue #814), so
+allocator selection must record provenance without enlarging global objects. Fixed inline arrays and constant value parameters are separately
 [accepted but unimplemented](value-generics.md) under B83; bounded containers
 build on that design. These remaining contracts keep this proposal partly
 implemented. Scope and priorities belong in [B13/B23/B24/B83](../backlog.md).
