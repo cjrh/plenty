@@ -72,6 +72,68 @@ validate URLs or make values safe inside JavaScript, CSS, tag names, unquoted
 attributes or raw HTML. Template authors control `safe` and literal markup;
 do not treat untrusted templates as a markup sanitizer.
 
+### Escaping individual values
+
+Use `escape(text: &str, context: HtmlContext, max_bytes: NonNegative[i64] = 16777216)`
+when assembling a fragment directly or matching another renderer's exact output.
+It returns `Result[str, TemplateError]`. Choose the context from the position
+where the value will appear; the escaper does not parse surrounding HTML.
+
+| `HtmlContext` | Escapes | Intended position |
+| --- | --- | --- |
+| `Text` | `&`, `<`, `>` | Ordinary HTML text children |
+| `DoubleQuotedAttribute` | `&`, `"` | Inside a double-quoted ordinary attribute value |
+| `SingleQuotedAttribute` | `&`, `'` | Inside a single-quoted ordinary attribute value |
+| `TextAndAttributes` | `&`, `<`, `>`, `"`, `'` | The conservative policy used by `render` and the `escape` filter |
+
+Entities are `&amp;`, `&lt;`, `&gt;`, `&quot;` and `&#x27;`, respectively.
+Other UTF-8 bytes are preserved. The attribute modes do not add delimiters;
+keep the matching quotes around the complete attribute value. A text-escaped
+value can still contain quotes and is unsuitable for an attribute without
+escaping its original input for that attribute's context.
+
+```plenty
+from std.template import escape, HtmlContext, TemplateError
+
+def main() -> Result[(), TemplateError | AllocError | IoError]:
+    name = "Ada & \"friends\""
+    title = escape(&name, HtmlContext.DoubleQuotedAttribute, max_bytes=128)?
+    child = escape(&name, HtmlContext.Text, max_bytes=128)?
+    print(f"<span title=\"{title}\">{child}</span>"?)?
+    Ok(())
+```
+```output
+<span title="Ada &amp; &quot;friends&quot;">Ada &amp; "friends"</span>
+```
+
+The input is borrowed and never modified; success returns ordinary owned text,
+with no trust marker. Passing that text through `Json.Text` into `render`
+applies normal escaping again. Prefer raw input for template values and these
+helpers for directly assembled fragments. `safe` remains an explicit trust
+assertion by the template author; it does not check an escaping context.
+
+Escaping treats the input as text, including existing entities: `&amp;` becomes
+`&amp;amp;`. Call it once on the original value for the intended context;
+repeated calls are not idempotent. The new function does not change filter
+trust: `escape` uses `TextAndAttributes`, `upper`/`lower` revoke trust, and
+`trim` preserves it.
+
+`max_bytes` caps UTF-8 output, including entity expansion. Oversized input is
+rejected before allocation because escaping cannot shrink it. Each input byte
+is scanned once; replacement entities are appended directly and are not
+revisited. The output cap therefore also bounds source bytes scanned and
+copied. The function may allocate source/output buffers and returned text;
+allocation failures are `TemplateError.Allocation` or an allocation cause
+inside `TemplateError.Bytes`. Exceeding the cap returns `LimitExceeded`, with
+no partial output. A zero cap accepts only empty text; a dynamic cap uses
+`NonNegative.try_from(value)?`.
+
+These contexts do not support HTML comments, tag/attribute names, unquoted
+attributes, scripts, styles or URL validation. Choosing an enum value is
+explicit caller responsibility, not proof that its surrounding HTML is valid.
+
+### Inheritance
+
 `extends` must precede every non-whitespace, non-comment construct. An extending
 template contains only whitespace, comments and top-level blocks. Blocks cannot
 be nested or repeated within a template. The most-derived definition replaces

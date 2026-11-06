@@ -15,6 +15,12 @@ pub enum TemplateError:
     Allocation(AllocError)
     Bytes(BytesError)
 
+pub enum HtmlContext:
+    Text
+    DoubleQuotedAttribute
+    SingleQuotedAttribute
+    TextAndAttributes
+
 pub class Limits:
     pub max_source: NonNegative[i64]
     pub max_tokens: NonNegative[i64]
@@ -509,34 +515,41 @@ def path_value(path: &list[str], state: &mut State, bounds: &Limits) -> Result[V
             return Err(TemplateError.TypeMismatch)
     Ok(value_copy(&state.nodes[node].value))
 
-def escape(text: &str, max_bytes: i64) -> Result[str, TemplateError]:
+pub def escape(text: &str, context: HtmlContext, max_bytes: NonNegative[i64] = 16777216) -> Result[str, TemplateError]:
+    escape_bounded(text, context, max_bytes.get())
+
+def escape_bounded(text: &str, context: HtmlContext, max_bytes: i64) -> Result[str, TemplateError]:
+    # Escaping never shrinks its input. Reject before copying an oversized
+    # source so the output cap also bounds input scanning and temporary bytes.
+    if text.byte_len() > max_bytes:
+        return Err(TemplateError.LimitExceeded)
+    angles = context == HtmlContext.Text or context == HtmlContext.TextAndAttributes
+    double_quote = context == HtmlContext.DoubleQuotedAttribute or context == HtmlContext.TextAndAttributes
+    single_quote = context == HtmlContext.SingleQuotedAttribute or context == HtmlContext.TextAndAttributes
     mut output = allocated(std.bytes.empty())?
     encoded = allocated(std.bytes.from_text(text))?
     for byte in &encoded:
-        mut size = 1
+        mut replacement = b""
         if *byte == 38u8:
-            size = 5
-        elif *byte == 60u8 or *byte == 62u8:
-            size = 4
-        elif *byte == 34u8 or *byte == 39u8:
-            size = 6
+            replacement = b"&amp;"
+        elif *byte == 60u8 and angles:
+            replacement = b"&lt;"
+        elif *byte == 62u8 and angles:
+            replacement = b"&gt;"
+        elif *byte == 34u8 and double_quote:
+            replacement = b"&quot;"
+        elif *byte == 39u8 and single_quote:
+            replacement = b"&#x27;"
+        size = 1 if len(replacement) == 0 else len(replacement)
         # Both budget and output length are nonnegative i64 values.
         remaining = unchecked:
             max_bytes - output.len()
         if size > remaining:
             return Err(TemplateError.LimitExceeded)
-        if *byte == 38u8:
-            allocated(output.extend(b"&amp;"))?
-        elif *byte == 60u8:
-            allocated(output.extend(b"&lt;"))?
-        elif *byte == 62u8:
-            allocated(output.extend(b"&gt;"))?
-        elif *byte == 34u8:
-            allocated(output.extend(b"&quot;"))?
-        elif *byte == 39u8:
-            allocated(output.extend(b"&#x27;"))?
-        else:
+        if len(replacement) == 0:
             allocated(output.push(*byte))?
+        else:
+            allocated(output.extend(&replacement))?
     bytes_result(output.to_text())
 
 def evaluate(expr: &Expression, state: &mut State, bounds: &Limits) -> Result[Value, TemplateError]:
@@ -567,7 +580,7 @@ def evaluate(expr: &Expression, state: &mut State, bounds: &Limits) -> Result[Va
             elif filter == "trim":
                 value.text = allocated(value.text.strip())?
             elif filter == "escape":
-                value.text = escape(&value.text, bounds.max_output.get())?
+                value.text = escape_bounded(&value.text, HtmlContext.TextAndAttributes, bounds.max_output.get())?
                 value.safe = True
             elif filter == "safe":
                 value.safe = True
@@ -602,7 +615,7 @@ def emit(state: &mut State, value: &Value, bounds: &Limits) -> Result[(), Templa
         # Output has only grown through budget-checked append.
         remaining = unchecked:
             bounds.max_output.get() - state.output.len()
-        text = escape(&text, remaining)?
+        text = escape_bounded(&text, HtmlContext.TextAndAttributes, remaining)?
     append(state, &text, bounds)
 
 pub class Engine:

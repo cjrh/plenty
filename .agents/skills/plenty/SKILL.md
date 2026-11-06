@@ -181,6 +181,12 @@ See [errors](references/errors.md), [ownership](references/ownership.md), and
   offset unit. Read [quantities](../../../book/src/design/language/03-types/quantities.md)
   for arithmetic and representation contracts.
 
+- Use [std.template](../../../book/src/design/stdlib/template.md) for named text/HTML
+  layouts. For directly assembled HTML fragments, `escape(text, HtmlContext, max_bytes)`
+  provides bounded text and quote-specific attribute escaping. Choose the context
+  explicitly and escape each original value once. The result is ordinary `str`,
+  with no trust marker; keep raw values in `Json.Text` for `Engine.render`.
+
 ## References
 
 | Page | Use |
