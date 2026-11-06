@@ -21,6 +21,15 @@ target) for insertion-order links or the dead-row free list. Occupancy does not
 depend on payload bits. Removal unlinks a row and repairs its probe cluster by
 backward shifts, without moving payloads or scanning the whole table.
 
+Each bucket is one 64-bit word. For a table of `2^s` buckets, its low `s` bits
+hold the row slot and the bits above hold the low `64 - s` bits of the key's
+hash, so storing hashes costs no memory. A probe compares keys only where those
+bits match its hash. Growth rebuilds the table from stored bits without reading
+or hashing keys, and removal finds a shifted bucket's home from them; both fall
+back to rehashing keys only above `2^32` buckets (issue #761). Load stays at most
+one half, so the slot field always fits. Copying a collection, set algebra and
+`update` still hash each key they insert or look up.
+
 New keys reuse free slots at the logical tail; replacement preserves position.
 Live-row cursors make traversal, snapshots, copying, formatting, and destruction
 follow insertion order without visiting dead rows. Capacity follows peak occupancy

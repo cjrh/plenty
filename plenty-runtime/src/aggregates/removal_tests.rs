@@ -57,10 +57,7 @@ fn assert_model(c: &Collection, model: &[(u128, u128)]) {
         let slot = unsafe { c.find(key) }.expect("live key is reachable");
         assert_eq!(c.entries.get(slot).value, value);
     }
-    assert_eq!(
-        c.table.iter().filter(|slot| **slot != 0).count(),
-        model.len()
-    );
+    assert_eq!(c.table.occupied(), model.len());
 }
 
 #[test]
@@ -153,7 +150,7 @@ fn drain_and_churn_reuse_all_buffers_without_allocating() {
             c.try_insert(key, key).unwrap();
         }
         let capacity = c.entries.capacity();
-        let table_capacity = c.table.capacity();
+        let table_capacity = c.table.capacity_bytes();
         let restore = Restore;
         crate::accounting::fail_after(Some(0));
         for key in 0..4096 {
@@ -169,7 +166,7 @@ fn drain_and_churn_reuse_all_buffers_without_allocating() {
         }
         drop(restore);
         assert_eq!(c.entries.capacity(), capacity);
-        assert_eq!(c.table.capacity(), table_capacity);
+        assert_eq!(c.table.capacity_bytes(), table_capacity);
         assert_model(c, &(0..128).map(|k| (k, k)).collect::<Vec<_>>());
     }
 }
@@ -269,7 +266,7 @@ fn insert_hashes_each_key_once() {
     unsafe {
         let c = &mut *(owner.value as *mut Collection);
         // New keys within capacity, a replacement, then a key that rebuilds
-        // the table (which rehashes the stored keys, not the new one twice).
+        // the table from stored hash bits, hashing no stored key (issue #761).
         for key in 0..4 {
             let before = hashes();
             c.insert(key, key + 1);
@@ -285,7 +282,8 @@ fn insert_hashes_each_key_once() {
             let stored = c.len();
             c.insert(key, key + 1);
             if c.table.len() != table {
-                assert_eq!(hashes() - before, 1 + stored, "rebuild at key {key}");
+                assert!(stored > 4, "the table grew");
+                assert_eq!(hashes() - before, 1, "rebuild at key {key}");
                 break;
             }
             assert_eq!(hashes() - before, 1, "new key {key}");
@@ -306,11 +304,8 @@ fn get_or_insert_hashes_once_and_keeps_existing_values() {
         let c = &mut *(owner.value as *mut Collection);
         for key in 0..12 {
             let before = hashes();
-            let stored = c.len();
-            let table = c.table.len();
             let row = c.try_get_or_insert(key, key + 1).unwrap();
-            let rebuilt = if c.table.len() == table { 0 } else { stored };
-            assert_eq!(hashes() - before, 1 + rebuilt, "new key {key}");
+            assert_eq!(hashes() - before, 1, "new key {key}");
             assert_eq!(c.entries.get(row).value, key + 1);
         }
         for key in 0..12 {
@@ -320,6 +315,100 @@ fn get_or_insert_hashes_once_and_keeps_existing_values() {
             assert_eq!(c.entries.get(row).value, key + 1);
         }
         let model: Vec<_> = (0..12).map(|k| (k, k + 1)).collect();
+        assert_model(c, &model);
+    }
+}
+
+#[test]
+fn removal_and_growth_reuse_stored_hash_bits() {
+    // Keys sharing one home bucket of the 16-bucket table form a cluster, so
+    // removal shifts references and growth must separate them (issue #761).
+    let keys: Vec<u128> = (0..100_000)
+        .filter(|key| unsafe { hash(*key, &INTEGER) } & 15 == 5)
+        .take(64)
+        .collect();
+    let owner = owned(4);
+    // SAFETY: the guard owns the collection throughout all raw ABI access.
+    unsafe {
+        let c = &mut *(owner.value as *mut Collection);
+        let mut model = Vec::new();
+        for &key in &keys[..6] {
+            c.try_insert(key, key).unwrap();
+            model.push((key, key));
+        }
+        assert_eq!(c.table.len(), 16);
+        for &(key, value) in &model[..3] {
+            let before = hashes();
+            assert_eq!(c.remove(key), Some(value));
+            assert_eq!(hashes() - before, 1, "removal of {key}");
+        }
+        model.drain(..3);
+        assert_model(c, &model);
+        // Reinsertion reuses the freed slots; later keys grow the table.
+        for &key in &keys[..3] {
+            c.try_insert(key, key + 1).unwrap();
+            model.push((key, key + 1));
+        }
+        for &key in &keys[6..] {
+            let before = hashes();
+            c.try_insert(key, key).unwrap();
+            assert_eq!(hashes() - before, 1, "insertion of {key}");
+            model.push((key, key));
+        }
+        assert!(c.table.len() >= 128);
+        assert_model(c, &model);
+        for &(key, value) in model.iter().step_by(2) {
+            assert_eq!(c.remove(key), Some(value));
+        }
+        let model: Vec<_> = model.iter().copied().skip(1).step_by(2).collect();
+        assert_model(c, &model);
+    }
+}
+
+#[test]
+fn growth_and_removal_fall_back_to_hashing_keys_without_stored_bits() {
+    // Tables over 2^32 buckets lack the stored bits growth and removal need;
+    // the cap makes a 16-bucket table take those fallbacks.
+    let _limit = buckets::limit_stored_bits(0);
+    let keys: Vec<u128> = (0..100_000)
+        .filter(|key| unsafe { hash(*key, &INTEGER) } & 15 == 5)
+        .take(64)
+        .collect();
+    let owner = owned(4);
+    // SAFETY: the guard owns the collection throughout all raw ABI access.
+    unsafe {
+        let c = &mut *(owner.value as *mut Collection);
+        let mut model = Vec::new();
+        for &key in &keys[..6] {
+            c.try_insert(key, key).unwrap();
+            model.push((key, key));
+        }
+        assert_eq!(c.table.len(), 16);
+        // Removal rehashes each later reference in the cluster.
+        let before = hashes();
+        assert_eq!(c.remove(keys[0]), Some(keys[0]));
+        assert_eq!(hashes() - before, 1 + 5, "removal rehashes the cluster");
+        model.remove(0);
+        assert_model(c, &model);
+        let mut rebuilt = false;
+        for &key in &keys[6..] {
+            let (before, stored, table) = (hashes(), c.len(), c.table.len());
+            c.try_insert(key, key).unwrap();
+            let rebuild = if c.table.len() == table {
+                0
+            } else {
+                rebuilt = true;
+                stored
+            };
+            assert_eq!(hashes() - before, 1 + rebuild, "insertion of {key}");
+            model.push((key, key));
+        }
+        assert!(rebuilt && c.table.len() >= 128);
+        assert_model(c, &model);
+        for &(key, value) in model.iter().step_by(2) {
+            assert_eq!(c.remove(key), Some(value));
+        }
+        let model: Vec<_> = model.iter().copied().skip(1).step_by(2).collect();
         assert_model(c, &model);
     }
 }
