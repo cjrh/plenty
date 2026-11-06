@@ -88,6 +88,15 @@ impl Lowerer<'_, '_> {
                     _ => ArithKind::Mul,
                 };
                 let (value, overflow) = self.overflowing(kind, a, b, ty);
+                // Past the overflow exit, nonnegative operands give a
+                // nonnegative sum or product.
+                if super::is_signed(ty.clone())
+                    && operation != Checked::Sub
+                    && self.nonnegative_operand(a)
+                    && self.nonnegative_operand(b)
+                {
+                    self.counters.nonnegative.insert(value);
+                }
                 (value, vec![(overflow, TrapKind::Overflow)])
             }
             Checked::FloorDiv(proof) => self.checked_floor_div(a, b, ty, proof),

@@ -843,13 +843,22 @@ pub(super) struct Version {
     /// marked when it is a view: each was read before the loop, so it is
     /// available to the test.
     pub entries: HashMap<Value, bool>,
-    /// Lengths the first copy relied on, each with its largest offset; a
-    /// view's count is recorded by the view.
+    /// Accesses the first copy relied on, each with its largest offset.
     pub assumed: Vec<(Assumed, i64)>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Assumed {
+    /// The counter plus an offset, below a length on every pass.
+    Counter(LengthOf),
+    /// A loop-invariant index below a length: one unsigned test covers every
+    /// pass, including a negative index.
+    Index(Value, LengthOf),
+}
+
+/// A length local, or a view whose count is the length.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum LengthOf {
     Length(Value),
     View(Value),
 }
@@ -859,70 +868,92 @@ pub(super) const VERSION_OFFSET: i64 = 64;
 
 /// Largest body, in operations, that is lowered twice; it bounds the code
 /// size and compile time versioning adds.
-const VERSION_OPS: usize = 96;
+const VERSION_OPS: usize = 256;
 
 /// Whether a range loop's body may be lowered twice: it is small and holds
 /// only operations without effects on other code's lowering. A call or
 /// nested loop has its own state and costs, and is not duplicated.
 pub(super) fn versionable(body: &[Op]) -> bool {
-    use crate::collection::CollectionOp as C;
     let mut count = 0;
     let mut allowed = true;
     crate::threading::walk(body, &mut |op| {
-        count += 1;
-        allowed &= matches!(
+        // Markers for the checker and positions emit no code.
+        count += usize::from(!matches!(
             op,
-            Op::Collection(
-                C::ListScalarGetRef(_)
-                    | C::ListScalarGetView(_)
-                    | C::ListScalarSetRef(_)
-                    | C::ListScalarSetView(_)
-                    | C::ListLenRef(_)
-                    | C::ViewLen(_)
-                    | C::ViewRow(..)
-                    | C::ViewItem(..)
-            ) | Op::Integer(_)
-                | Op::Numeric(_)
-                | Op::CheckedArith { .. }
-                | Op::Cast(_)
-                | Op::PushInt(_)
-                | Op::PushFloat { .. }
-                | Op::PushBool(_)
-                | Op::PushUnit
-                | Op::FloatNeg
-                | Op::Add
-                | Op::Sub
-                | Op::Mul
-                | Op::Eq
-                | Op::Ne
-                | Op::Lt
-                | Op::Le
-                | Op::Gt
-                | Op::Ge
-                | Op::Not
-                | Op::Drop
-                | Op::Dup
-                | Op::Swap
-                | Op::LoadLocal(_)
-                | Op::StoreLocal(_)
-                | Op::MoveLocal(_)
-                | Op::BorrowLocal(..)
-                | Op::ReadRef(_)
-                | Op::Reborrow(_)
-                | Op::If { .. }
-                | Op::Break
-                | Op::Continue
-                | Op::Loan(_)
-                | Op::UseLoan(_)
-                | Op::EndLoan(_)
-                | Op::Access(..)
-                | Op::Site(_)
-                | Op::Leaving
-                | Op::Returning(..)
-                | Op::Return
-        );
+            Op::Site(_) | Op::Loan(_) | Op::UseLoan(_) | Op::EndLoan(_) | Op::Access(..)
+        ));
+        allowed &= allowed_op(op);
     });
     allowed && count <= VERSION_OPS
+}
+
+fn allowed_op(op: &Op) -> bool {
+    use crate::collection::CollectionOp as C;
+    if let Op::Class(crate::record::ClassOp::Field(class, _)) = op {
+        // A copy class's field read releases nothing.
+        return Ty::Class(class.clone()).can_copy();
+    }
+    matches!(
+        op,
+        Op::Collection(
+            C::ListScalarGetRef(_)
+                | C::ListScalarGetView(_)
+                | C::ListScalarSetRef(_)
+                | C::ListScalarSetView(_)
+                | C::ListLenRef(_)
+                | C::ViewLen(_)
+                | C::ViewRow(..)
+                | C::ViewItem(..)
+                | C::ElementRefView(..)
+        ) | Op::Class(crate::record::ClassOp::FieldRef(..))
+            | Op::WriteRef(_)
+            | Op::Integer(_)
+            | Op::Numeric(_)
+            | Op::CheckedArith { .. }
+            | Op::Cast(_)
+            | Op::PushInt(_)
+            | Op::PushFloat { .. }
+            | Op::PushBool(_)
+            | Op::PushUnit
+            | Op::FloatNeg
+            | Op::Add
+            | Op::Sub
+            | Op::Mul
+            // A division's own checks run in both copies, in pass order.
+            | Op::Div
+            | Op::FloorDiv(_)
+            | Op::Modulo(_)
+            | Op::Assumed(_)
+            | Op::Eq
+            | Op::Ne
+            | Op::Lt
+            | Op::Le
+            | Op::Gt
+            | Op::Ge
+            | Op::Not
+            | Op::Drop
+            | Op::Dup
+            | Op::Swap
+            | Op::LoadLocal(_)
+            | Op::StoreLocal(_)
+            | Op::MoveLocal(_)
+            // Releases a local, as an error path's cleanup does.
+            | Op::DropLocal(_)
+            | Op::BorrowLocal(..)
+            | Op::ReadRef(_)
+            | Op::Reborrow(_)
+            | Op::If { .. }
+            | Op::Break
+            | Op::Continue
+            | Op::Loan(_)
+            | Op::UseLoan(_)
+            | Op::EndLoan(_)
+            | Op::Access(..)
+            | Op::Site(_)
+            | Op::Leaving
+            | Op::Returning(..)
+            | Op::Return
+    )
 }
 
 /// `(base, k)` when `value` is `base + k` for a constant `k`, or `value`

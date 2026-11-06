@@ -2908,6 +2908,15 @@ impl Lowerer<'_, '_> {
             },
         };
         self.trap_if(of, TrapKind::Overflow)?;
+        // A sum or product of nonnegative operands that did not overflow is
+        // nonnegative: `range(i + 1, n)` starts at a nonnegative index.
+        if signed
+            && matches!(kind, ArithKind::Add | ArithKind::Mul)
+            && self.nonnegative_operand(a)
+            && self.nonnegative_operand(b)
+        {
+            self.counters.nonnegative.insert(result);
+        }
         self.stack.push((result, ty));
         Ok(())
     }
@@ -2987,6 +2996,22 @@ impl Lowerer<'_, '_> {
             } => self.bcx.ins().isub(a, b),
             _ => return Err("AOT: proven loop step is not an add or subtract".into()),
         };
+        // The proof excludes overflow, so a sum of nonnegative operands is
+        // nonnegative: `range(i + 1, n)` starts at a nonnegative index.
+        if matches!(op, Op::Add | Op::CheckedArith { .. })
+            && is_signed(ty.clone())
+            && self.nonnegative_operand(a)
+            && self.nonnegative_operand(b)
+            && !matches!(
+                op,
+                Op::CheckedArith {
+                    operation: crate::numeric::Checked::Sub,
+                    ..
+                }
+            )
+        {
+            self.counters.nonnegative.insert(result);
+        }
         self.stack.push((result, ty));
         Ok(())
     }
