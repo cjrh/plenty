@@ -1001,6 +1001,9 @@ struct Lower<'a> {
     yield_type: Type,
     loans: Vec<crate::ownership::Loan>,
     reference_locals: HashMap<u8, usize>,
+    /// Value slots of shared `values()`/`items()` loops, so a write through
+    /// one can name the `(&mut d).values()` form (issue #803).
+    shared_dictionary_values: HashSet<u8>,
     expression_temps: Vec<u8>,
     contexts: Vec<contexts::Context>,
     return_origin: Option<u8>,
@@ -4623,6 +4626,7 @@ fn lower_body(
                 yield_type: yield_type.clone(),
                 loans: Vec::new(),
                 reference_locals: HashMap::default(),
+                shared_dictionary_values: HashSet::default(),
                 indexed_lists: Vec::new(),
                 range_stop: None,
                 expression_temps: Vec::new(),

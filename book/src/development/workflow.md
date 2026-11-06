@@ -25,7 +25,7 @@ just                       # same as just build
 just compiler              # compiler only
 just engine dataframe      # one engine and its redistribution notices
 just engine linalg
-just test                  # all-features workspace suite
+just test                  # all-features workspace suite, with a timing report
 just docs                  # all three published-site checks
 just ci                    # every CI check this Linux host can run
 just release-check         # just ci plus the Docker release build and smoke tests
@@ -69,6 +69,36 @@ staged before replacement, and `--dist` rejects a library whose checksum no
 longer matches its notices after an interrupted update. Re-run the recipe to
 repair that installation. Existing notices directories are generated output and
 are replaced, not a location for application-owned files.
+
+## Check timing reports
+
+`just test` runs the full all-features workspace suite, including doctests,
+with compilation timed separately from test execution. It saves Markdown and
+JSON reports under a unique `target/check-timings/suite-*/` directory, and
+retains Cargo's compilation HTML under `target/cargo-timings/`. Output stays
+on the terminal and the command returns failure if compilation or tests fail.
+The execution phase includes Cargo's short freshness check and doctest builds;
+this is command-level attribution, not a compiler or per-test profiler.
+
+```sh
+python3 -B scripts/check_timings.py suite --profile ci
+python3 -B scripts/check_timings.py report target/check-timings/suite-CURRENT/timings.json --baseline target/check-timings/suite-EARLIER/timings.json
+```
+
+`just ci` also saves each invocation's step logs, `steps.tsv`, `timings.json`
+and `timings.md` under `target/local-ci/run-*/`, including failed steps. It
+continues to later checks after a failure. These timings use Bash's integer
+seconds; the suite wrapper uses a monotonic clock. Both add negligible work
+at command boundaries and retain separate runs for comparison.
+
+Direct `cargo test` remains available but does not save this report. Reports
+record the revision and host; note profile, cache warmth, competing builds,
+Cargo lock waits and environment overrides when comparing runs. JSON command
+rows record the suite's actual Cargo arguments. Measurements observe ordinary
+work; they do not reserve the host or claim controlled benchmark results.
+
+For CI job/step reports and historical comparisons, see
+[CI timings](ci-workflow.md#timings).
 
 ## Dependency versions
 
