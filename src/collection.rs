@@ -1008,6 +1008,33 @@ impl CollectionOp {
         }
     }
 
+    /// Whether this operation changes its receiver, operand 0, in place
+    /// without releasing or replacing it. The frontend passes the receiver
+    /// through an exclusive loan that it keeps live across the operation, so
+    /// code the operation runs, such as an element's destructor, cannot reach
+    /// the receiver's owner. A counted copy of the receiver that its source
+    /// still holds is then passed without its retain and release (issue #762).
+    pub fn mutates_receiver_in_place(&self) -> bool {
+        matches!(
+            self,
+            Self::TryReserve(_)
+                | Self::TryInsert(_)
+                | Self::TryExtend(_)
+                | Self::DictTryUpdate(_)
+                | Self::SetTryUpdate(_)
+                | Self::SetIntersectionUpdate(_)
+                | Self::SetDifferenceUpdate(_)
+                | Self::KeySetFilter(_)
+                | Self::DictPop(_)
+                | Self::ListPop(_)
+                | Self::SetDiscard(_)
+                | Self::ListReverse(_)
+                | Self::ListSwap(_)
+                | Self::ListSort(_)
+                | Self::Clear(_)
+        )
+    }
+
     /// Whether the runtime only reads this operation's managed operands
     /// during the call: it runs no Plenty code, and it neither releases nor
     /// replaces a value that an operand owns or reaches. Keys hash and

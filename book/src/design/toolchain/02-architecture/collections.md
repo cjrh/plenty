@@ -151,6 +151,19 @@ and compare structurally) and release or replace no stored value. Operations
 that can, such as `pop`, `discard`, and inserts, keep the copy's count, because
 a stored value they release may be the copy's source.
 
+Inserts store their operands without adjusting counts (issue #762). Every
+operand codegen passes is owned, whether its read moved it or counted a copy,
+so `insert`, `add`, `append`, and a `get_or_insert` miss make that count the
+collection's, and a failed insert releases it once. A `get_or_insert` hit
+keeps the stored entry: the runtime releases affine operands, and codegen
+tests a hit flag in the result and releases copyable ones inline. A mutation
+of a receiver through `&mut` (`counts.insert(k, v)` on a parameter or local,
+`pop`, `discard`, `clear`, set updates, `reverse`, `sort`, and so on) reads the
+collection's owner in place under the exclusive loan, so the receiver is
+neither retained nor released. `clear`, `reverse`, `sort`, `swap`, and the set
+updates still return a retained alias of the receiver, which the caller
+releases (issue #813).
+
 An element reference (`&xs[i]`, `&mut xs[i]`, `&mut grid[i][j]`, and the
 implicit one under `bodies[i].x`) of any element type checks the index inline
 like scalar access and computes the row's address, `rows + index * row_bytes`,
