@@ -239,11 +239,11 @@ fn imports_do_not_override_unrelated_bindings_or_allow_reexports() {
     for (source, expected) in [
         (
             "from std.sync import CancellationToken as print\ndef main() -> ():\n    pass\n",
-            "conflicts with an existing name",
+            "conflicts with the builtin `print`, a prelude name",
         ),
         (
             "from std.sync import CancellationToken as Token\nclass Token:\n    value: i64\ndef main() -> ():\n    pass\n",
-            "conflicts with an existing name",
+            "conflicts with the class `Token` declared at line 2",
         ),
         (
             "pub from std.thread import spawn\ndef main() -> ():\n    pass\n",
