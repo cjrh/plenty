@@ -504,6 +504,28 @@ pub fn native_call(line: &str) -> bool {
         .any(|field| field == mnemonic)
 }
 
+/// A branch, jump or return in the final assembly listing, on either
+/// supported ISA. A64 calls (`bl`, `blr`) are not branches here.
+pub fn native_branch(line: &str) -> bool {
+    let Some(mnemonic) = line
+        .split('#')
+        .next()
+        .unwrap_or(line)
+        .split_whitespace()
+        .nth(1)
+    else {
+        return false;
+    };
+    if cfg!(target_arch = "aarch64") {
+        matches!(
+            mnemonic,
+            "b" | "br" | "ret" | "cbz" | "cbnz" | "tbz" | "tbnz"
+        ) || mnemonic.starts_with("b.")
+    } else {
+        mnemonic.starts_with('j') || mnemonic == "ret"
+    }
+}
+
 /// The listing of `name` in a `--dump asm` file, without its header line. A
 /// function that shares another's code lists only that function's symbol;
 /// this returns the listing of the code it runs.

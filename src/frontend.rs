@@ -1006,6 +1006,9 @@ struct Lower<'a> {
     /// one can name the `(&mut d).values()` form (issue #803).
     shared_dictionary_values: HashSet<u8>,
     expression_temps: Vec<u8>,
+    /// Free hidden operand locals of collection displays; see
+    /// `Lower::operand_slot`.
+    spare_operands: Vec<u8>,
     contexts: Vec<contexts::Context>,
     return_origin: Option<u8>,
     /// Source name of each slot, kept after the binding leaves scope so an
@@ -4643,6 +4646,7 @@ fn lower_body(
                 indexed_lists: Vec::new(),
                 range_stop: None,
                 expression_temps: Vec::new(),
+                spare_operands: Vec::new(),
                 contexts: Vec::new(),
                 return_origin: if sig.outputs.first().is_some_and(Ty::carries_loan) {
                     sig.inputs

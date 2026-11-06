@@ -1276,7 +1276,7 @@ impl Lowerer<'_, '_> {
         // is, whatever the rules above say.
         let inserts = matches!(
             operation,
-            CollectionOp::Insert(_) | CollectionOp::TryInsert(_) | CollectionOp::DictGetOrInsert(_)
+            CollectionOp::TryInsert(_) | CollectionOp::DictGetOrInsert(_)
         );
         let mut values = Vec::new();
         let mut held = Vec::new();

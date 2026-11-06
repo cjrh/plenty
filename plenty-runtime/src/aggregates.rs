@@ -1119,9 +1119,9 @@ impl Collection {
         Ok(())
     }
 
+    #[cfg(test)]
     unsafe fn insert(&mut self, key: u128, value: u128) {
-        unsafe { self.try_adopt(key, value) }
-            .unwrap_or_else(|_| crate::fail("collection allocation failed"));
+        unsafe { self.try_adopt(key, value) }.expect("collection allocation failed");
     }
 
     /// Source ownership transfers only after reservation. On error the caller
@@ -2598,7 +2598,7 @@ macro_rules! operation_entries {
 
 // Lists, dictionaries, sets, ranges, text, boxes, generators and printing.
 operation_entries! {
-    1 4 5 6 7 8 10 12 13 15 24 26 27 28 29 32 33 34 35 36 37 38 39 40 41 42 43 44 45
+    4 5 6 7 8 10 12 13 15 24 26 27 28 29 32 33 34 35 36 37 38 39 40 41 42 43 44 45
     46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72
     73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99
     100 101 102 103 104 105 106 107 110 111 112 113 114 117 118 119 120 121 122 123 124
@@ -3479,11 +3479,6 @@ pub(crate) unsafe fn collection_at(
                     Ok(()) => wrap(0, 0),
                     Err(error) => wrap(wrap(0, error as u64), 1),
                 }
-            }
-            1 => {
-                (*(a as *mut Collection)).insert(b, value);
-                plenty_retain(a as *mut Header);
-                a
             }
             42 => {
                 let c = &*(a as *const Collection);

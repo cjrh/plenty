@@ -2181,13 +2181,15 @@ enum TrapKind {
 /// in [`Lowerer::slot_copies`] stay held by their sources across it. A
 /// `MoveLocal` empties its slot, but the moved owner stays on the stack until
 /// the op consuming it releases it, after that op's call; `Swap` only reorders
-/// the stack (issue #744).
+/// the stack (issue #744), and `Split` only reads a moved tuple's fields, as
+/// for the entry of a dict built by `collect()` (issue #826).
 fn keeps_slot_copies(op: &Op) -> bool {
     matches!(
         op,
         Op::LoadLocal(_)
             | Op::MoveLocal(_)
             | Op::Swap
+            | Op::Split(..)
             | Op::ReadRef(_)
             | Op::BorrowLocal(..)
             | Op::Reborrow(_)
