@@ -24,6 +24,8 @@ immutable strings can share storage. A nested
 the copy holds another owner of the same content, as `share()` would.
 `copy(handle)` on a handle itself is rejected in favour of `handle.share()`.
 Copying does not supply mutable aliases.
+For a value that already copies, `copy(value)?` equals `value`; checking
+reports it as a [`redundant-copy` warning](../../toolchain/01-building/warnings.md#redundant-copy).
 Generators, captured closures, recursive data, and types containing custom
 destruction cannot be copied. [Allocation](../08-errors/02-allocation-and-traps.md)
 and [destruction](07-destruction.md) describe failure and cleanup.

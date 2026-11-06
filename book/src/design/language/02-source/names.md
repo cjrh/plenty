@@ -32,3 +32,13 @@ names; unqualified standard variant patterns still denote the standard variants.
 
 Imported names are explicit private bindings. Importing a module or protocol
 does not activate methods or introduce transitive names.
+
+An import binds its alias, or else its item or module path. That name cannot be
+a built-in, a module declaration, or a name an earlier import bound. Importing
+a standard declaration that is itself the built-in, such as
+`from std.concurrent import ThreadPoolExecutor`, is allowed. The diagnostic
+points at the bound name, says whether it conflicts with a prelude built-in or
+with a declaration or import on a given line, and suggests renaming, binding
+with `as`, or removing a redundant import. Function-local bindings may still
+shadow imported names, as `math = 3` inside a function can after
+`import std.math as math`.

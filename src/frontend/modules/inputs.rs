@@ -103,13 +103,15 @@ impl Inputs {
         self.files.iter().all(|file| {
             std::fs::read(&file.path).is_ok_and(|text| *Sha256::digest(text) == file.digest)
                 && file.imports.iter().all(|import| {
+                    let at = Token {
+                        kind: Kind::Eof,
+                        line: 0,
+                        column: 0,
+                        file: None,
+                    };
                     let probe = Import {
-                        at: Token {
-                            kind: Kind::Eof,
-                            line: 0,
-                            column: 0,
-                            file: None,
-                        },
+                        binding_at: at.clone(),
+                        at,
                         module: import.module.clone(),
                         item: None,
                         binding: String::new(),

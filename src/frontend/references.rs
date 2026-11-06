@@ -93,7 +93,7 @@ pub(super) const SHARED_VIEW_MUTATION: &str =
     "cannot borrow a shared slice view as mutable; take an exclusive view with `&mut xs[a:b]`";
 pub(super) const VIEW_PROJECTION: &str =
     "a slice view has no fields and is not dereferenced; index its elements, as `v[i]`";
-pub(super) const DICT_INDEX_BORROW: &str = "dictionary values cannot be borrowed mutably by index; use `d.get_mut(k)`, which returns `Option[&mut V]`";
+pub(super) const DICT_INDEX_BORROW: &str = "dictionary values cannot be borrowed mutably by index; use `d.get_mut(k)`, which returns `Option[&mut V]`, or loop over `(&mut d).values()` or `(&mut d).items()` to change every value";
 pub(super) fn dict_index_augment(op: &str) -> String {
     format!(
         "dictionaries have no indexed assignment; use `d.insert(k, d.get(k, 0) {op} v)?`, or update the value in place through `d.get_mut(k)`, which returns `Option[&mut V]`"
@@ -900,6 +900,11 @@ impl Lower<'_> {
                     return Err(e.at.error(format!(
                         "cannot borrow shared reference as mutable; bare `self` is read-only in ordinary methods; {hint}"
                     )));
+                }
+                if self.shared_dictionary_values.contains(&local.slot) {
+                    return Err(e.at.error(
+                        "cannot borrow shared reference as mutable; `values()` and `items()` lend shared values; loop over `(&mut d).values()` or `(&mut d).items()` to change them",
+                    ));
                 }
                 return Err(e.at.error("cannot borrow shared reference as mutable"));
             }

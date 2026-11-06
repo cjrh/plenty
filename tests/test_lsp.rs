@@ -705,3 +705,35 @@ fn boxed_protocol_method_navigates_to_its_requirement() {
     assert_eq!(line, 1);
     client.exit();
 }
+
+#[test]
+fn warnings_are_published_with_warning_severity_and_their_lint_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("main.plenty");
+    write(
+        &main,
+        "from helper import twice\n\ndef main() -> Result[(), AllocError | IoError]:\n    s = \"hi\"\n    t = copy(s)?\n    print(t, twice(2))?\n    Ok(())\n",
+    );
+    // A warning in an imported module belongs to that module's diagnostics.
+    write(
+        &dir.path().join("helper.plenty"),
+        "pub def twice(n: i64) -> i64:\n    m = n\n    m\n\ndef unused() -> Result[str, AllocError]:\n    copy(\"x\")\n\npub def again(n: i64) -> Result[i64, AllocError]:\n    Ok(copy(n)?)\n",
+    );
+    let mut client = Client::start(&dir.path().join("cache"));
+    let diagnostics = client.open(&main);
+    let diagnostics = diagnostics.as_array().unwrap();
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    let warning = &diagnostics[0];
+    assert_eq!(warning["severity"], 2);
+    assert_eq!(warning["code"], "redundant-copy");
+    assert_eq!(warning["range"]["start"]["line"], 4);
+    assert_eq!(warning["range"]["start"]["character"], 8);
+    assert!(
+        warning["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("`copy(s)?` is redundant: `str` copies"),
+        "{warning}"
+    );
+    client.exit();
+}

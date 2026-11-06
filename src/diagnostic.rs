@@ -88,6 +88,87 @@ impl fmt::Display for Diagnostic {
 
 impl Error for Diagnostic {}
 
+/// A check that reports code it accepts. Lints never reject a program or
+/// change its exit status; each has a stable name that output shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[non_exhaustive]
+pub enum Lint {
+    /// `copy(value)?` of a value whose type already copies on use.
+    RedundantCopy,
+}
+
+impl Lint {
+    /// The stable name, as output and editors show it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Lint::RedundantCopy => "redundant-copy",
+        }
+    }
+}
+
+impl fmt::Display for Lint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+/// A lint's report at a position. It displays as the command line prints
+/// it: `path:line:column: warning: message [name]`.
+#[derive(Clone, Debug)]
+pub struct Warning {
+    pub(crate) lint: Lint,
+    pub(crate) diagnostic: Diagnostic,
+}
+
+impl Warning {
+    pub(crate) fn new(lint: Lint, position: Position, message: impl Into<String>) -> Self {
+        Warning {
+            lint,
+            diagnostic: Diagnostic::new(Some(position), message),
+        }
+    }
+
+    pub fn lint(&self) -> Lint {
+        self.lint
+    }
+
+    /// The text after the position, without the lint name.
+    pub fn message(&self) -> &str {
+        &self.diagnostic.message
+    }
+
+    /// The order output lists warnings in: by file, then position.
+    fn key(&self) -> (Option<&str>, u32, u32, Lint) {
+        let position = self.diagnostic.position.as_ref();
+        (
+            position.and_then(|p| p.file.as_deref()),
+            position.map_or(0, |p| p.line),
+            position.map_or(0, |p| p.column),
+            self.lint,
+        )
+    }
+}
+
+/// Sort `warnings` into output order and drop repeats: a body lowered twice
+/// reports each warning once.
+pub(crate) fn settle(warnings: &mut Vec<Warning>) {
+    warnings.sort_by(|a, b| {
+        a.key()
+            .cmp(&b.key())
+            .then_with(|| a.diagnostic.message.cmp(&b.diagnostic.message))
+    });
+    warnings.dedup_by(|a, b| a.lint == b.lint && a.diagnostic.same(&b.diagnostic));
+}
+
+impl fmt::Display for Warning {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(position) = &self.diagnostic.position {
+            write!(f, "{position}: ")?;
+        }
+        write!(f, "warning: {} [{}]", self.diagnostic.message, self.lint)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

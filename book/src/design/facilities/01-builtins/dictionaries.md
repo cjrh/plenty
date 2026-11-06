@@ -12,7 +12,8 @@ messages name `insert` or `get_mut`: key presence is a run-time fact, so a
 write through an absent key would trap where `--check` cannot see it.
 Reading `dictionary[key]` remains, and traps on an absent key.
 Writing through `dictionary[key].field` or calling a mutating method on
-`dictionary[key]` is rejected the same way; use `get_mut`.
+`dictionary[key]` is rejected the same way; use `get_mut` for one key, or
+[a mutable value loop](#updating-every-value) for every value.
 
 ```plenty
 def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
@@ -30,6 +31,55 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
 ```output
 {"apples": 2, "pears": 5}
 ```
+
+## Updating every value
+
+`for value in (&mut dictionary).values():` lends each value as `&mut V` in
+insertion order; `for key, value in (&mut dictionary).items():` adds a shared
+`&K` key. `&mut dictionary.items()` is the same loop. Each step reaches the
+next entry directly, with no key lookup, item tuple, or copy, so it works for
+affine values and allocates nothing. Inside a function taking
+`d: &mut dict[K, V]`, write `(&mut d).values()`; `d.values()` stays a shared
+loop.
+
+```plenty
+class Player:
+    name: str
+    hp: i64
+    items: list[str]
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    mut players = {"ada": Player("Ada", 3, []?), "lin": Player("Lin", 9, []?)}?
+    for player in (&mut players).values():
+        player.hp += 10
+        player.items.append("potion")?
+    for key, player in (&mut players).items():
+        if *key == "lin":
+            player.hp = 0
+            break
+    for key, player in players.items():
+        print(*key, player.hp, player.items)?
+    Ok(())
+```
+
+```output
+ada 13 ["potion"]
+lin 0 ["potion"]
+```
+
+The loop holds an exclusive loan of the whole dictionary until it ends, so
+the body cannot insert, remove, clear, read, or borrow the dictionary again,
+including through `get_mut` or a nested loop; these are `conflicting borrow`
+errors. `break`, `return`, and `?` end the loan without dropping or moving any
+value. The references are loop-local: storing one in a collection, assigning
+it to an outer reference binding, or returning it from a function that does not
+take the dictionary as its first reference parameter is rejected. A mutable
+projection is an immediate loop source; `(&mut dictionary).values()` cannot be
+bound to a name. There is no `values_mut()` or `items_mut()`: the exclusive
+receiver selects the mutable loop, as `for x in &mut xs` does for a list, and
+those names are compile errors that point here. To change values while also
+adding or removing keys, collect the keys first with `keys_snapshot()` and use
+`get_mut` per key.
 
 ## Lookup and removal
 
@@ -154,7 +204,7 @@ is O(1). `iter(values)` and `iter(items)` start pipelines, with item callbacks
 taking separate key and value parameters. These views have the same local-only
 borrow restrictions as key views and do not provide set operations.
 `(&mut dictionary).values()` yields `&mut V` in immediate loops; mutable views
-cannot be bound.
+cannot be bound. See [updating every value](#updating-every-value).
 Automatic box dereferencing applies to `keys()`, `values()` and `items()`,
 including nested boxes and borrowed boxed dictionaries. Their loans protect
 the boxed owner throughout the observation or loop.

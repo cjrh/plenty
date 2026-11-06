@@ -280,10 +280,18 @@ impl Server {
             }
         }
         let this = path.canonicalize().unwrap_or(path);
+        // A warning elsewhere is published when its own file is checked.
+        let warnings = analysis
+            .warnings
+            .iter()
+            .filter(|(_, d)| matches!(&d.file, Some(File::Path(p)) if *p == this))
+            .map(|(lint, d)| (Some(*lint), d));
         let diagnostics: Vec<Value> = analysis
             .diagnostics
             .iter()
-            .map(|d| {
+            .map(|d| (None, d))
+            .chain(warnings)
+            .map(|(lint, d): (Option<crate::Lint>, _)| {
                 let here = matches!(&d.file, Some(File::Path(p)) if *p == this);
                 let (line, column, message) = if here {
                     (d.line, d.column, d.message.clone())
@@ -314,12 +322,17 @@ impl Server {
                     column,
                     length,
                 };
-                json!({
+                let mut published = json!({
                     "range": self.range(&analysis, &location),
-                    "severity": 1,
+                    // LSP severities: 1 is an error, 2 a warning.
+                    "severity": if lint.is_some() { 2 } else { 1 },
                     "source": "plenty",
                     "message": message,
-                })
+                });
+                if let Some(lint) = lint {
+                    published["code"] = json!(lint.name());
+                }
+                published
             })
             .collect();
         write_message(

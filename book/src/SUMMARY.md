@@ -504,6 +504,7 @@
             - [Neovim support](design/toolchain/01-building/neovim.md)
             - [Language server](design/toolchain/01-building/language-server.md)
             - [Compiler commands](design/toolchain/01-building/commands.md)
+            - [Warnings](design/toolchain/01-building/warnings.md)
             - [Single-file scripts](design/toolchain/01-building/scripts.md)
             - [Packages and project commands](design/toolchain/01-building/packages.md)
             - [Application exit and error reports](design/toolchain/01-building/entry-report.md)

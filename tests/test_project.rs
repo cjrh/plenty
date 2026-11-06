@@ -1352,3 +1352,66 @@ def own() -> Result[Own[list[i64]], AllocError]:
         "main.plenty:12:21: `Own[list[i64]].get` copies `T`, but `list[i64]` cannot be copied",
     );
 }
+
+/// `plenty check` checks the files each target's import graph reaches, so it
+/// names every other `.plenty` file below `src/` instead of implying that a
+/// successful check covered the whole package (issue #805).
+#[test]
+fn check_reports_unimported_sources() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = dir.path().join("tools");
+    write(
+        &app.join("plenty.toml"),
+        "manifest-version = 1\n[package]\nname = \"tools\"\nversion = \"1.0.0\"\n\n[lib]\n\n[[bin]]\nname = \"one\"\npath = \"src/one.plenty\"\n\n[[bin]]\nname = \"two\"\npath = \"src/two.plenty\"\n",
+    );
+    let main = "def main() -> ():\n    pass\n";
+    write(
+        &app.join("src/lib.plenty"),
+        "pub def size() -> i64:\n    1\n",
+    );
+    write(&app.join("src/one.plenty"), main);
+    // Reached only from the second executable, through a subdirectory.
+    write(
+        &app.join("src/two.plenty"),
+        &format!("from util.helper import twice\n{main}"),
+    );
+    write(
+        &app.join("src/util/helper.plenty"),
+        "pub def twice(n: i64) -> i64:\n    n\n",
+    );
+    // Neither an orphan nor a target: fixtures outside src/, tests/ (which
+    // `plenty test` checks), and non-source files below src/.
+    let broken = "def broken( -> i64:\n";
+    write(&app.join("tests/fixtures/bad.plenty"), broken);
+    write(&app.join("fixtures/bad.plenty"), broken);
+    write(&app.join("src/notes.txt"), broken);
+    let lines = status_lines(&app, &["check"]);
+    assert!(!lines.contains("warning"), "{lines}");
+    assert!(
+        lines.contains("Checked tools v1.0.0: library and 2 executables; 4 of 4 files in src/"),
+        "{lines}"
+    );
+
+    write(&app.join("src/util/orphan.plenty"), broken);
+    let lines = status_lines(&app, &["check"]);
+    assert!(
+        lines.contains(
+            "warning: src/util/orphan.plenty is not imported by any target of `tools`; it was not checked"
+        ),
+        "{lines}"
+    );
+    assert_eq!(lines.matches("warning").count(), 1, "{lines}");
+    assert!(
+        lines.contains("Checked tools v1.0.0: library and 2 executables; 4 of 5 files in src/"),
+        "{lines}"
+    );
+
+    // An excluded file lives outside src/; moving it there ends the warning.
+    std::fs::rename(
+        app.join("src/util/orphan.plenty"),
+        app.join("fixtures/orphan.plenty"),
+    )
+    .unwrap();
+    let lines = status_lines(&app, &["check"]);
+    assert!(!lines.contains("warning"), "{lines}");
+}

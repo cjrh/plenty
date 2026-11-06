@@ -323,6 +323,8 @@ fn facility_exports(module: &str) -> &'static [&'static str] {
 
 struct Import {
     at: Token,
+    /// The bound name as written: the alias, or else the item or module path.
+    binding_at: Token,
     module: String,
     item: Option<String>,
     binding: String,
@@ -555,6 +557,7 @@ impl Parser {
         };
         let mut imports = Vec::new();
         loop {
+            let mut binding_at = self.peek().clone();
             let (module, item, default) = if let Some(module) = &from {
                 let item = self.name()?;
                 (module.clone(), Some(item.clone()), item)
@@ -563,12 +566,14 @@ impl Parser {
                 (module.clone(), None, module)
             };
             let binding = if self.eat("as") {
+                binding_at = self.peek().clone();
                 self.name()?
             } else {
                 default
             };
             imports.push(Import {
                 at: at.clone(),
+                binding_at,
                 module,
                 item,
                 binding,
@@ -666,6 +671,7 @@ fn parse_items(
     if parser.formats || (parser.mentions_format_error && !module.name.starts_with("std.")) {
         module.imports.push(Import {
             at: parser.peek().clone(),
+            binding_at: parser.peek().clone(),
             module: "std.fmt".into(),
             item: None,
             binding: fstrings::FMT_BINDING.into(),
@@ -875,7 +881,9 @@ impl Items<'_, '_> {
             return Err(at.error(format!("duplicate declaration `{name}`")));
         }
         if builtin(&name) && self.path != Some(Path::new(ARITHMETIC_ERRORS_PATH)) {
-            return Err(at.error(format!("cannot redefine builtin `{name}` as a type")));
+            return Err(at.error(format!(
+                "cannot redefine builtin `{name}` as a type: it is a prelude name, available without an import; rename the declaration"
+            )));
         }
         if public {
             module.exports.insert(name);
@@ -932,6 +940,35 @@ impl Module {
             .chain(self.enums.iter().map(|e| &e.name))
             .chain(self.classes.iter().map(|c| &c.name))
             .chain(self.protocols.iter().map(|p| &p.name))
+    }
+
+    /// What kind of declaration `name` is, and where it is declared.
+    fn declaration(&self, name: &str) -> Option<(&'static str, &Token)> {
+        let function = self.functions.iter().find(|f| f.name == name).map(|f| {
+            let kind = if self.constants.contains(name) {
+                "constant"
+            } else {
+                "function"
+            };
+            (kind, &f.at)
+        });
+        function
+            .or_else(|| {
+                let a = self.declarations.iter().find(|a| a.name == name)?;
+                Some((if a.dimension { "dimension" } else { "type" }, &a.at))
+            })
+            .or_else(|| {
+                let e = self.enums.iter().find(|e| e.name == name)?;
+                Some(("enum", &e.at))
+            })
+            .or_else(|| {
+                let c = self.classes.iter().find(|c| c.name == name)?;
+                Some(("class", &c.at))
+            })
+            .or_else(|| {
+                let p = self.protocols.iter().find(|p| p.name == name)?;
+                Some(("protocol", &p.at))
+            })
     }
 }
 
@@ -1287,6 +1324,7 @@ impl Loader {
         let item = import.item.as_ref()?;
         let module = Import {
             at: import.at.clone(),
+            binding_at: import.binding_at.clone(),
             module: format!("{}.{item}", import.module),
             item: None,
             binding: String::new(),
@@ -2433,11 +2471,92 @@ fn prelude_format_error(
 }
 
 fn import_text(import: &Import) -> String {
-    if import.module == import.binding {
-        format!("import {}", import.module)
+    let (text, default) = match &import.item {
+        Some(item) => (format!("from {} import {item}", import.module), item),
+        None => (format!("import {}", import.module), &import.module),
+    };
+    if *default == import.binding {
+        text
     } else {
-        format!("import {} as {}", import.module, import.binding)
+        format!("{text} as {}", import.binding)
     }
+}
+
+/// Why `import` cannot bind its name in module `m`, given the imports
+/// `before` it, which are already bound in `scope`. `exported` is whether the
+/// imported module exports the item, and `identical_builtin` whether that
+/// export is the builtin of the same name, which may be imported (issue #801).
+fn import_conflict(
+    m: &Module,
+    before: &[Import],
+    import: &Import,
+    scope: &Scope,
+    exported: bool,
+    identical_builtin: bool,
+) -> Option<String> {
+    let binding = &import.binding;
+    let root = binding.split('.').next().unwrap();
+    let alias = match &import.item {
+        Some(item) => format!("`from {} import {item} as ...`", import.module),
+        None => format!("`import {} as ...`", import.module),
+    };
+    let earlier = |other: &Import| {
+        if other.module == import.module && other.item == import.item {
+            format!(
+                "`{}` repeats the import at line {}; remove the redundant import",
+                import_text(import),
+                other.at.line
+            )
+        } else {
+            format!(
+                "import binding `{binding}` conflicts with `{}` at line {}; bind one of them under another name, as in {alias}",
+                import_text(other),
+                other.at.line
+            )
+        }
+    };
+    if builtin(root) && !identical_builtin {
+        return Some(if import.item.as_deref() == Some(root) && !exported {
+            format!(
+                "import binding `{binding}` conflicts with the builtin `{root}`: it is a prelude name, available without an import, and `{}` does not export it; remove the import",
+                import.module
+            )
+        } else {
+            format!(
+                "import binding `{binding}` conflicts with the builtin `{root}`, a prelude name; bind the import under another name, as in {alias}"
+            )
+        });
+    }
+    if scope.declared.contains(root) {
+        let (kind, at) = m.declaration(root)?;
+        return Some(format!(
+            "import binding `{binding}` conflicts with the {kind} `{root}` declared at line {}; rename the {kind} or bind the import under another name, as in {alias}",
+            at.line
+        ));
+    }
+    if scope.imported.contains_key(root) {
+        let other = before
+            .iter()
+            .find(|o| o.item.is_some() && o.binding == root)?;
+        return Some(earlier(other));
+    }
+    if scope.namespaces.contains_key(binding) {
+        let other = before
+            .iter()
+            .find(|o| o.item.is_none() && o.binding == *binding)?;
+        return Some(earlier(other));
+    }
+    if scope.namespace_root(root) && import.item.is_some() {
+        let other = before
+            .iter()
+            .find(|o| o.item.is_none() && o.binding.split('.').next() == Some(root))?;
+        return Some(format!(
+            "import binding `{binding}` conflicts with the module namespace `{root}` bound by `{}` at line {}; bind the import under another name, as in {alias}",
+            import_text(other),
+            other.at.line
+        ));
+    }
+    None
 }
 
 type SubmoduleError<'a> = dyn Fn(usize, &Import) -> Option<Box<dyn Error>> + 'a;
@@ -2619,23 +2738,34 @@ fn resolve(
         };
         // Namespace imports so far, to check enclosing and nested bindings.
         let mut bound: Vec<(&Import, usize)> = Vec::new();
-        for (import, dependency) in m.imports.iter().zip(deps) {
+        for (index, (import, dependency)) in m.imports.iter().zip(deps).enumerate() {
             let root = import.binding.split('.').next().unwrap();
-            let identical_builtin = import.item.as_ref().is_some_and(|item| {
-                exports[*dependency]
-                    .get(item)
-                    .is_some_and(|symbol| symbol == root)
-            });
+            let export = import
+                .item
+                .as_ref()
+                .and_then(|item| exports[*dependency].get(item));
+            let identical_builtin = export.is_some_and(|symbol| symbol == root);
             if (builtin(root) && !identical_builtin)
                 || scope.declared.contains(root)
                 || scope.imported.contains_key(root)
                 || scope.namespaces.contains_key(&import.binding)
                 || (scope.namespace_root(root) && import.item.is_some())
             {
-                return Err(import.at.error(format!(
-                    "import binding `{}` conflicts with an existing name",
-                    import.binding
-                )));
+                let message = import_conflict(
+                    m,
+                    &m.imports[..index],
+                    import,
+                    &scope,
+                    export.is_some(),
+                    identical_builtin,
+                )
+                .unwrap_or_else(|| {
+                    format!(
+                        "import binding `{}` conflicts with an existing name",
+                        import.binding
+                    )
+                });
+                return Err(import.binding_at.error(message));
             }
             if import.item.is_none() {
                 for &(other, other_dependency) in &bound {

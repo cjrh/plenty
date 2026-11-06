@@ -867,7 +867,7 @@ fn cycles_collisions_and_source_root_boundaries_are_diagnosed() {
             ),
             ("lib.plenty", ""),
         ],
-        "conflicts with an existing name",
+        "conflicts with the builtin `print`, a prelude name; bind the import under another name, as in `import lib as ...`",
     );
     let dir = workspace(&[
         (
@@ -927,10 +927,19 @@ fn an_alias_cannot_enclose_a_module_path() {
         "12\n",
     );
     // A module path cannot extend a declaration or an imported item either.
-    for main in [
-        "import p.b\nclass p:\n    v: i64\n",
-        "from x import f as p\nimport p.b\n",
-        "import p.b\nfrom x import f as p\n",
+    for (main, expected) in [
+        (
+            "import p.b\nclass p:\n    v: i64\n",
+            "main.plenty:1:8: import binding `p.b` conflicts with the class `p` declared at line 2",
+        ),
+        (
+            "from x import f as p\nimport p.b\n",
+            "main.plenty:2:8: import binding `p.b` conflicts with `from x import f as p` at line 1",
+        ),
+        (
+            "import p.b\nfrom x import f as p\n",
+            "main.plenty:2:20: import binding `p` conflicts with the module namespace `p` bound by `import p.b` at line 1",
+        ),
     ] {
         reject(
             &[
@@ -941,7 +950,7 @@ fn an_alias_cannot_enclose_a_module_path() {
                     &format!("{main}def main() -> ():\n    pass\n"),
                 ),
             ],
-            "conflicts with an existing name",
+            expected,
         );
     }
 }
@@ -1194,4 +1203,72 @@ fn imported_generic_body_errors_are_reported_in_the_importing_file() {
             main.display()
         )
     );
+}
+
+/// Name conflicts with builtins, declarations, and earlier imports name the
+/// identifier, its origin with a line, and a fix, at the conflicting name
+/// (issue #801).
+#[test]
+fn name_conflicts_explain_their_origin() {
+    let main = "\ndef main() -> ():\n    pass\n";
+    for (source, expected) in [
+        (
+            "def spawn() -> ():\n    pass\n",
+            "main.plenty:1:5: cannot redefine builtin `spawn` as a function: it is a prelude name, available without an import; rename the function",
+        ),
+        (
+            "def set() -> ():\n    pass\n",
+            "main.plenty:1:5: cannot redefine builtin `set` as a function",
+        ),
+        (
+            "class set:\n    v: i64\n",
+            "main.plenty:1:1: cannot redefine builtin `set` as a type: it is a prelude name, available without an import; rename the declaration",
+        ),
+        (
+            "from std.sync import Shared\n",
+            "main.plenty:1:22: import binding `Shared` conflicts with the builtin `Shared`: it is a prelude name, available without an import, and `std.sync` does not export it; remove the import",
+        ),
+        (
+            "import std.math as pages\ndef pages() -> ():\n    pass\n",
+            "main.plenty:1:20: import binding `pages` conflicts with the function `pages` declared at line 2; rename the function or bind the import under another name, as in `import std.math as ...`",
+        ),
+        (
+            "from std.math import sqrt\nclass sqrt:\n    v: i64\n",
+            "main.plenty:1:22: import binding `sqrt` conflicts with the class `sqrt` declared at line 2; rename the class or bind the import under another name, as in `from std.math import sqrt as ...`",
+        ),
+        (
+            "from std.math import sqrt\nfrom std.math import sqrt\n",
+            "main.plenty:2:22: `from std.math import sqrt` repeats the import at line 1; remove the redundant import",
+        ),
+        (
+            "import std.math as m\nimport std.json as m\n",
+            "main.plenty:2:20: import binding `m` conflicts with `import std.math as m` at line 1; bind one of them under another name, as in `import std.json as ...`",
+        ),
+        (
+            "from std.math import sqrt as m\nimport std.json as m\n",
+            "main.plenty:2:20: import binding `m` conflicts with `from std.math import sqrt as m` at line 1",
+        ),
+    ] {
+        let dir = workspace(&[("main.plenty", &format!("{source}{main}"))]);
+        let error = plenty::check_file(&dir.path().join("main.plenty"), None)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(expected), "expected {expected:?}: {error}");
+    }
+}
+
+/// A function-local binding may shadow an imported name, and importing a
+/// builtin's own declaration is not a conflict (issue #801).
+#[test]
+fn local_shadowing_and_identical_builtin_imports_are_allowed() {
+    for source in [
+        "import std.math as math\ndef main() -> ():\n    math = 3\n    if math > 2:\n        pass\n",
+        "from std.math import sqrt\ndef main() -> ():\n    sqrt = 2\n    if sqrt > 1:\n        pass\n",
+        "from std.concurrent import ThreadPoolExecutor\ndef main() -> ():\n    pass\n",
+    ] {
+        let dir = workspace(&[("main.plenty", source)]);
+        if let Err(error) = plenty::check_file(&dir.path().join("main.plenty"), None) {
+            panic!("rejected:\n{source}\n{error}");
+        }
+    }
 }

@@ -120,7 +120,8 @@ See [workflow and packages](references/workflow.md).
   borrow.
 - Dictionaries have no indexed assignment: `d.insert(k, v)?` adds or
   replaces, and `d.get_mut(k)` returns `Option[&mut V]` to change a value in
-  place. Reading `d[k]` traps on a missing key; `d.get(k)` returns an `Option`.
+  place. To change every value, loop over `(&mut d).values()` or
+  `(&mut d).items()`; there is no `values_mut()`. Reading `d[k]` traps on a missing key; `d.get(k)` returns an `Option`.
 - Slices copy and allocate: `xs[1:3]?`, `s[::-1]?`. A computed step needs
   `NonZero.try_from(step)?`. Slice assignment is rejected.
 - `&xs[1:3]` and `&mut xs[1:3]` borrow a list or `Bytes` view, `&[T]` or
@@ -157,7 +158,9 @@ See [workflow and packages](references/workflow.md).
 - Name error groups with an alias: `type AppError = AllocError | IoError | ParseError`.
   Define an enum only to add meaning, and map into it with `.map_error(...)`.
 - Prefer borrowed parameters (`&str`, `&list[T]`) unless the function keeps the
-  value. Avoid `copy` unless two owners are needed.
+  value. Avoid `copy` unless two owners are needed. Never write `copy(x)?`
+  when `x` copies (`str`, numbers, `@copy` classes): write `x`. `plenty --check`
+  reports it as a `redundant-copy` warning; fix every warning.
 - Reserve capacity when the size is known: `list[i64].with_capacity(n)?`.
 - Mark a class or enum that holds a secret `@redacted`: `print`, `str.repr`
   and f-strings then show `ApiKey(@redacted)` at any depth, while field access is

@@ -64,9 +64,12 @@ line, not its caller's.
 | `is_err[T, E](result: &Result[T, E])` | `result` is `Err` | `result is Err`, then a `  value: ` line |
 
 Values are shown with `str.repr`, so `T` must support equality or ordering as
-the function needs and have a `repr`. Showing a value allocates; when that
-fails the line reads `<no memory to show the value>`. A failure to write to
-standard error is ignored.
+the function needs. A value whose type `str.repr` rejects, such as a
+[`Shared[T]`](../facilities/01-builtins/shared.md) owner or a `std.sync.Mutex`,
+is shown as `<value cannot be formatted>`; `is_ok` and `is_err` therefore accept
+every `Result`, whatever the branch they do not expect holds. Showing a value
+allocates; when that fails the line reads `<no memory to show the value>`. A
+failure to write to standard error is ignored.
 
 Under `plenty test`, a test that returns `Err(TestError.Assertion)`, or the
 `Failure.Unspecified` that `?` makes of it, gets no further `error:` line: the
