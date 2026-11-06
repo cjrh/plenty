@@ -475,18 +475,14 @@ unsafe fn try_box_new(ty: &Type, value: u128) -> Result<*mut Boxed, AllocError> 
     Ok(boxed)
 }
 /// Allocate a box whose content slot the caller stores; on failure, release
-/// `value`, the content the box would have owned. The caller passes `whole`
-/// when its store writes every byte of the slot, so the slot need not be
-/// zeroed first; other stores can leave payload bytes unwritten.
-unsafe fn try_box_for(ty: &Type, value: u128, whole: bool) -> u128 {
+/// `value`, the content the box would have owned. The slot is not zeroed: the
+/// caller's store writes the value word and the payload bytes that word
+/// names, and every reader of a box slot (release, copy, equality, printing,
+/// moving out) reads the value word first and then only that payload. A
+/// local's stack slot relies on the same store into uninitialized storage.
+unsafe fn try_box_for(ty: &Type, value: u128) -> u128 {
     let content = ty.key();
-    let words = content.slot_words();
-    let allocated = if whole {
-        memory::try_allocate_uninit::<Boxed, u128>(words)
-    } else {
-        memory::try_allocate::<Boxed, u128>(words)
-    };
-    match allocated {
+    match memory::try_allocate_uninit::<Boxed, u128>(content.slot_words()) {
         Ok(boxed) => unsafe {
             boxed.write(Boxed {
                 header: Header::new(box_destroy),
@@ -3370,9 +3366,8 @@ pub(crate) unsafe fn collection_at(
                 box_take(a as *mut Boxed);
                 0
             }
-            // A box for the operand, which the caller stores in it on success;
-            // `b` is nonzero when that store writes the whole slot.
-            137 => try_box_for(&*descriptor, a, b != 0),
+            // A box for the operand, which the caller stores in it on success.
+            137 => try_box_for(&*descriptor, a),
             // An empty box for content the caller stores afterwards.
             121 => match try_box_new(&*descriptor, 0) {
                 Ok(boxed) => wrap(boxed as u128, 0),

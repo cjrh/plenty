@@ -339,35 +339,60 @@ fn box_contents_and_dereferences_are_checked() {
     }
 }
 
-/// A box for a class record skips zeroing because compiled code writes its
-/// whole slot; a box for a sum is zeroed, since a smaller variant leaves
-/// payload bytes unwritten (issue #814). Each new box here can reuse the
-/// freed storage of the one before, so stale bytes would show.
+/// Boxes are not zeroed: the store writes the value word and the payload it
+/// names, and readers read only those (issue #814). Each box here can reuse
+/// the freed storage of a larger value, so a reader that used bytes past a
+/// smaller sum variant's payload could print, copy or compare stale content.
+/// The output cannot show such a read when the stale bytes happen to match;
+/// running the program under Valgrind checks that no branch uses them.
 #[test]
 fn reused_box_storage_holds_only_the_new_content() {
     runs(
         r#"
-class Pair:
-    left: str
-    right: i64
+class Small:
+    a: i64
+class Big:
+    a: i64
+    b: i64
+    c: i64
+    e: str
+enum Shape:
+    Empty
+    Num(i64)
+    S(Small)
+    B(Big)
+    Pair(i64, i64)
+def unbox(b: Box[Shape]) -> Shape:
+    b
 def main() -> Result[(), AllocError | IoError]:
-    first = Box(Pair("old", 1))?
-    drop(first)
-    second = Box(Pair("new", 2))?
-    print(second)?
-    some = Box(Some(Pair("gone", 3)))?
-    drop(some)
-    nothing: Option[Pair] = Nothing
-    empty = Box(nothing)?
-    print(empty)?
-    twin = copy(empty)?
-    print(twin == empty)?
-    drop(empty)
+    drop(Box(Big(1, 2, 3, "old"))?)
+    record = Box(Big(4, 5, 6, "new"))?
+    print(record)?
+    drop(Box(Shape.B(Big(7, 8, 9, "gone")))?)
+    small = Box(Shape.S(Small(10)))?
+    twin = copy(small)?
+    print(twin == small, twin)?
     drop(twin)
-    again = Box(Some(Pair("again", 4)))?
-    print(again)?
+    drop(Box(Shape.B(Big(11, 12, 13, "gone")))?)
+    number = Box(Shape.Num(14))?
+    print(number == copy(number)?, number)?
+    drop(Box(Shape.B(Big(15, 16, 17, "gone")))?)
+    pair = unbox(Box(Shape.Pair(18, 19))?)
+    print(pair)?
+    drop(Box(Shape.B(Big(20, 21, 22, "gone")))?)
+    empty = Box(Shape.Empty)?
+    print(empty == copy(empty)?, empty)?
+    drop(Box(Some(Big(23, 24, 25, "gone")))?)
+    nothing: Option[Big] = Nothing
+    none = Box(nothing)?
+    print(none == copy(none)?, none)?
     Ok(())
 "#,
-        "Box(Pair(left=\"new\", right=2))\nBox(Option[Pair].Nothing)\nTrue\nBox(Option[Pair].Some(Pair(left=\"again\", right=4)))\n",
+        "Box(Big(a=4, b=5, c=6, e=\"new\"))\n\
+         True Box(Shape.S(Small(a=10)))\n\
+         True Box(Shape.Num(14))\n\
+         Shape.Pair(18, 19)\n\
+         True Box(Shape.Empty)\n\
+         True Box(Option[Big].Nothing)\n",
     );
 }

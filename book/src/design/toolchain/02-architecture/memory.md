@@ -96,9 +96,11 @@ a destructor keeps the ordered walk described above.
 `Box(value)` for content with inline storage, such as a class record, asks
 the runtime only for the allocation. Compiled code then copies the content into
 the box's slot. If the allocation fails, the runtime releases the value the box
-would have owned. A box for a class record is not zeroed, because that copy
-writes its whole slot; other content is zeroed first, since storing a sum
-variant smaller than the largest leaves payload bytes unwritten.
+would have owned. The slot is not zeroed first, just as a local's stack slot is
+not: the copy writes the value word and the payload that word names, such as the
+current variant's fields of a sum, and every reader of the box reads the value
+word first and then only that payload. Bytes past a smaller sum variant stay
+unwritten and are never read.
 
 ## Allocator provenance
 

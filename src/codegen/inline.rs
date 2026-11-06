@@ -455,14 +455,6 @@ fn plain_bytes(ty: &Ty) -> Option<u64> {
     }
 }
 
-/// Whether [`Lowerer::copy_inline_to`] writes every payload byte of `ty`'s
-/// slot: a class record, which it copies whole. Other payloads, such as a sum
-/// variant smaller than its largest, can leave bytes unwritten.
-pub(super) fn copies_whole_payload(ty: &Ty) -> bool {
-    matches!(ty, Ty::Class(t) if t.get().newtype_field().is_none())
-        && (ty.flat_record() || record_fixes(ty).is_some())
-}
-
 /// Copying more nested payloads than this calls the runtime's descriptor walk
 /// rather than growing the code at every copy site.
 const RECORD_FIX_LIMIT: usize = 8;

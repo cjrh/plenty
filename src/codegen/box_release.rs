@@ -234,10 +234,7 @@ impl Lowerer<'_, '_> {
     pub(super) fn box_in_place(&mut self, value: NativeValue, content: &Ty) -> Result<NativeValue> {
         let packed = self.pack(value, content);
         let boxed = Ty::Box(std::sync::Arc::new(content.clone()));
-        // A slot this store writes completely can skip the allocator's zeroing.
-        let whole = i64::from(inline::copies_whole_payload(content));
-        let whole = self.bcx.ins().iconst(types::I64, whole);
-        let result = self.collection_call(137, &[packed, whole], Some(&boxed))?;
+        let result = self.collection_call(137, &[packed], Some(&boxed))?;
         let (word, tags) = enums::split(self.bcx, result);
         let failed = self.bcx.ins().band_imm_s(tags, 1);
         let store = self.bcx.create_block();
