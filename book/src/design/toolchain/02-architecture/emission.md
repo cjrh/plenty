@@ -508,6 +508,35 @@ A condition that is not a compare, such as the join of a short-circuit `and`,
 keeps the body as the first successor: inverting it would cost a compare and a
 second branch on each pass.
 
+Loops are also rotated into do-while form (issue #726). The header becomes a
+guard that tests the condition once and branches to the exit or the body. The
+body ends in a latch that tests the condition again and branches back to the
+body or to the exit, so a pass ends in one conditional branch instead of a jump
+to the header and the header's branch. `continue` goes to the latch. Each copy
+of a versioned loop is rotated on its own; the guard keeps the exit-first
+branch above.
+
+The condition is lowered twice, so rotation is limited to conditions whose
+second copy adds no observable work: reads of scalar, `bool` and view locals,
+arithmetic, compares, casts, `not`, short-circuit `and`/`or`, and a view's
+length and items (`rotatable`). Both copies carry the condition's source
+position, so a failing index or overflow reports the same error and location
+from either copy, and they evaluate in the same order. A condition with a call,
+a list's length, a collection method or a managed value keeps the header test.
+
+A loop's own index facts (the `lo < hi` relation and in-range counters in
+`src/codegen/induction.rs`) describe values read in the body. Neither copy of
+the condition records them, since the guard's values also reach the exit when
+the loop does not run (issue #816). An unrotated loop records none: its body
+reads the header's values, which reach the exit too.
+
+A body that never falls through and has no `continue` gets no latch.
+
+Rotation removes one instruction per pass from tight loops: the `reverse`
+kernel's swap loop matches C's eight instructions. In loops that make calls,
+regalloc2 can place a split's moves on the latch's back edge instead; `fasta`
+gains about 0.7% instructions this way.
+
 ## Loop counter checks
 
 Integer arithmetic keeps its overflow and division checks, and Cranelift does
