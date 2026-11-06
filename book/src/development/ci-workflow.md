@@ -84,6 +84,39 @@ engine-only dependencies. The engine build receives the matching explicit
 `baseline-isolated-v2` engine cache key starts a new cache population; the
 first run is cold, and hosted timings must confirm reuse on later runs.
 
+### Embedded-runtime Rust dependencies
+
+The test shards also retain the 27 vendored Rust rlibs that `build.rs`
+compiles for both embedded runtimes. They are independent of runtime source,
+Cargo profile and allocation-check mode. A separate cache outside `target/`
+survives workspace-artifact cleanup. Only a successful `main` run's first
+shard saves it; both architectures have separate entries.
+
+The build script validates a SHA-256 key over the vendored source tree,
+build logic, lockfile, target, Rust compiler version and target standard-library
+contents. It checks each restored rlib's content before reuse and publishes
+complete entries atomically. Native C archives and the two runtime archives
+still rebuild: native headers/SDKs and runtime source need different inputs.
+Custom `PLENTY_RUNTIME_RUSTFLAGS` bypass reuse because flags may name extra
+files that the key cannot infer. Unreadable or symlinked key inputs also bypass
+reuse; they do not prevent an otherwise valid compiler build.
+
+Locally, entries live under the Cargo profile's
+`plenty-runtime-vendor-cache/` directory and survive runtime-source and
+feature-only rebuilds. `PLENTY_RUNTIME_VENDOR_CACHE=/absolute/path` shares
+entries across profiles or isolated targets; `PLENTY_RUNTIME_VENDOR_CACHE=off`
+disables reuse. Delete the directory to reclaim entries after a dependency or
+toolchain change. Cache status and dependency-stage duration appear in verbose
+Cargo build output; saved Cargo timings still report the whole build script.
+
+A local 2026-11-06 probe reduced this dependency stage from 18.95 seconds to
+0.46 seconds, removing all 27 vendored rustc invocations on a hit. Whole
+build-script samples were 82.16 seconds before caching, 82.23 seconds with a
+cold cache and 108.21 seconds with a warm cache: native/runtime work varied on
+the shared machine. Those samples establish a dependency-stage saving, not an
+end-to-end speedup. Hosted restore/save overhead and CI savings remain to be
+measured. The native and runtime archive stages remain outside this cache.
+
 ### Compiled-function cache
 
 Each shard also keeps the function entries of the
