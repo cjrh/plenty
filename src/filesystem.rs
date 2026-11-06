@@ -40,6 +40,8 @@ pub enum FsOp {
     ApplyCopyMetadata,
     IsWithin,
     ChildMetadata,
+    Symlink,
+    Canonicalize,
 }
 
 impl FsOp {
@@ -60,6 +62,8 @@ impl FsOp {
             "__fs_metadata" => Self::Metadata,
             "__fs_metadata_field" => Self::MetadataField,
             "__fs_readlink" => Self::ReadLink,
+            "__fs_symlink" => Self::Symlink,
+            "__fs_canonicalize" => Self::Canonicalize,
             "__path_join" => Self::Join,
             "__path_lexical" => Self::Lexical,
             "__path_components" => Self::Components,
@@ -98,7 +102,8 @@ impl FsOp {
             Self::EntryMetadata => (vec![Ty::FsDirEntry], Ty::FsMetadata),
             Self::Metadata => (vec![bytes(), Ty::Bool], Ty::FsMetadata),
             Self::MetadataField => return (vec![Ty::FsMetadata, Ty::U8], Ty::U64),
-            Self::ReadLink => (vec![bytes()], bytes()),
+            Self::ReadLink | Self::Canonicalize => (vec![bytes()], bytes()),
+            Self::Symlink => (vec![bytes(), bytes()], Ty::Unit),
             Self::Join => (vec![bytes(), bytes()], bytes()),
             Self::Lexical => (vec![bytes(), Ty::U8], sum::option(bytes())),
             Self::Components => (vec![bytes()], Ty::List(Arc::new(bytes()))),
@@ -131,6 +136,11 @@ impl FsOp {
     }
 
     pub fn opcode(self) -> i64 {
+        match self {
+            Self::Symlink => return 630,
+            Self::Canonicalize => return 631,
+            _ => {}
+        }
         match self as i64 {
             index @ 0..=14 => 150 + index,
             index @ 15..=28 => 260 + index - 15,

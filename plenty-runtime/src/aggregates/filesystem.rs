@@ -685,6 +685,54 @@ mod native {
         }
     }
 
+    // Bound both the native conversion and realpath's caller-owned output to
+    // Linux PATH_MAX. Reject oversized inputs before copying into stack storage.
+    unsafe fn bounded_path(value: u128) -> Result<[c_char; libc::PATH_MAX as usize], Error> {
+        // SAFETY: compiler supplies a live borrowed list[u8].
+        let list = unsafe { &*(value as *const Collection) };
+        if list.entries.len() >= libc::PATH_MAX as usize {
+            return Err(std::io::Error::from_raw_os_error(libc::ENAMETOOLONG).into());
+        }
+        let mut bytes = [0 as c_char; libc::PATH_MAX as usize];
+        for (index, entry) in list.entries.iter().enumerate() {
+            if entry.key as u8 == 0 {
+                return Err(Kind::InvalidInput.into());
+            }
+            bytes[index] = entry.key as u8 as c_char;
+        }
+        Ok(bytes)
+    }
+
+    unsafe fn canonicalize(value: u128, ty: &'static Type) -> Result<u128, Error> {
+        // SAFETY: compiler supplies a live borrowed path list.
+        let path = unsafe { bounded_path(value)? };
+        // realpath with a non-null buffer requires PATH_MAX bytes, including
+        // NUL. Let libc implement link traversal, directory checks and errno;
+        // realpath(NULL) would instead allocate an unbounded owned C buffer.
+        let mut resolved = [0 as c_char; libc::PATH_MAX as usize];
+        // SAFETY: terminated input and a writable PATH_MAX-byte output buffer.
+        let result = unsafe { libc::realpath(path.as_ptr().cast(), resolved.as_mut_ptr()) };
+        if result.is_null() {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        // SAFETY: successful realpath NUL-terminates within the supplied buffer.
+        let bytes = unsafe { CStr::from_ptr(resolved.as_ptr()) }.to_bytes();
+        // SAFETY: caller supplies the result's list[u8] descriptor.
+        unsafe { byte_list(bytes, ty) }
+    }
+
+    unsafe fn symlink(target: u128, link: u128) -> Result<u128, Error> {
+        // SAFETY: compiler supplies live borrowed path lists. Finish fallible
+        // conversion of both arguments before creating anything in the filesystem.
+        let target = unsafe { bounded_path(target)? };
+        let link = unsafe { bounded_path(link)? };
+        // SAFETY: both arrays contain checked, NUL-terminated native byte paths.
+        if unsafe { libc::symlink(target.as_ptr().cast(), link.as_ptr().cast()) } != 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        Ok(0)
+    }
+
     // Inlined so each operation's entry symbol keeps only its own arm.
     #[inline(always)]
     pub(super) unsafe fn call(
@@ -697,6 +745,8 @@ mod native {
         // borrows end before the caller releases its temporary retained inputs.
         unsafe {
             match op {
+                630 => symlink(a, b),
+                631 => canonicalize(a, descriptor.variants[0].fields[0]),
                 150 => open(a),
                 151 => next(&mut *(a as *mut Directory)),
                 152 => {

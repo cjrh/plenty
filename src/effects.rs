@@ -75,6 +75,8 @@ impl FsOp {
             | Self::EntryMetadata
             | Self::Metadata
             | Self::ReadLink
+            | Self::Symlink
+            | Self::Canonicalize
             | Self::Root
             | Self::WatchAdd => Effect::Path,
             Self::Next

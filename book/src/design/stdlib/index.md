@@ -42,7 +42,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.env`](env.md) | Environment variables as text or bytes, a detached snapshot, and the working directory | `IoError` |
 | [`std.error`](error.md) | Explicit error mapping, operation/path context, descriptions, and standard-error reports | Mapper-selected error, `Context[E]`, `AllocError` |
 | [`std.fmt`](fmt.md) | Writer-generic value/report formatting, bounded output and fallible strings | `FormatError` |
-| [`std.fs`](fs.md) | Directories, metadata/walking, rooted mutation, owned temporary resources, bounded file/tree copy, metadata preservation, delete/glob | `IoError`, `AllocError`, `WalkError`, `FsError`, `TreeCopyError` |
+| [`std.fs`](fs.md) | Directories, metadata/walking, symbolic links and canonical paths, rooted mutation, owned temporary resources, bounded file/tree copy, metadata preservation, delete/glob | `IoError`, `AllocError`, `WalkError`, `FsError`, `TreeCopyError` |
 | [`std.fs.dirs`](fs/dirs.md) | The home directory and the XDG configuration, cache, data, and state directories, from the environment | `IoError` |
 | [`std.fs.watch`](fs/watch.md) | Bounded Linux filesystem change batches, rename cookies, overflow and readiness waits | `WatchError`, `WaitError` |
 | [`std.graph`](graph.md) | Directed and undirected graphs with node and edge data, stable handles, traversal, shortest paths, topological order, components and spanning trees | `AllocError`, `GraphError` |
