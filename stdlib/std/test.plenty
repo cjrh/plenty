@@ -43,13 +43,17 @@ def heading(what: &str) -> ():
     say(what)
     say("\n")
 
+# A type that str.repr rejects, such as Shared[T] or a mutex, shows a marker,
+# so every assertion accepts every type (issue #809).
 def shown[T](label: &str, value: &T) -> ():
     say(label)
-    match str.repr(value):
-        case Ok(text):
+    match __repr_if_formattable(value):
+        case Some(Ok(text)):
             say(&text)
-        case Err(_):
+        case Some(Err(_)):
             say("<no memory to show the value>")
+        case Nothing:
+            say("<value cannot be formatted>")
     say("\n")
 
 def failed() -> Result[(), TestError]:

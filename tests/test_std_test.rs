@@ -59,12 +59,35 @@ closed: Result[(), IoError] = Err(IoError.Closed)
 std.test.is_err(&closed)?
 unit_error: Result[i64, ()] = Err(())
 std.test.is_err(&unit_error)?
+closed_shared: Result[Shared[i64], IoError] = Err(IoError.Closed)
+std.test.is_err(&closed_shared)?
+shared_error: Result[i64, Shared[i64]] = Ok(1)
+std.test.is_ok(&shared_error)?
+shared = Shared(5)?
+held: Result[Shared[i64], IoError] = Ok(shared)
+std.test.is_ok(&held)?
 std.test.equal(&(), &())?
 std.test.equal((), ())?
 "#,
     ));
     assert!(output.status.success(), "{}", stderr(&output));
     assert!(output.stderr.is_empty() && output.stdout.is_empty());
+}
+
+// A payload that str.repr rejects is shown as a marker instead of making the
+// assertion impossible to instantiate (issue #809).
+#[test]
+fn unformattable_payloads_show_a_marker() {
+    let source = "import std.sync\nimport std.test\n\ndef main() -> Result[(), std.test.TestError]:\n    held: Result[std.sync.Mutex[i64], IoError] = Ok(std.sync.Mutex(1))\n    std.test.is_ok(&held)?\n    std.test.is_err(&held)?\n    Ok(())\n";
+    let output = run_program(source);
+    assert_eq!(output.status.code(), Some(1));
+    let report = stderr(&output);
+    assert!(
+        report.starts_with(
+            "main.plenty:7:5: assertion failed: result is Err\n  value: <value cannot be formatted>\n"
+        ),
+        "{report:?}"
+    );
 }
 
 #[test]
@@ -121,6 +144,14 @@ fn failed_assertions_show_their_values() {
         (
             "result: Result[i64, ()] = Err(())\nstd.test.is_ok(&result)?",
             "assertion failed: result is Ok\n  error: ()\n",
+        ),
+        (
+            "shared = Shared(5)?\nresult: Result[Shared[i64], IoError] = Ok(shared)\nstd.test.is_err(&result)?",
+            "assertion failed: result is Err\n  value: <value cannot be formatted>\n",
+        ),
+        (
+            "shared = Shared(5)?\nresult: Result[i64, Shared[i64]] = Err(shared)\nstd.test.is_ok(&result)?",
+            "assertion failed: result is Ok\n  error: <value cannot be formatted>\n",
         ),
         (
             "std.test.not_equal(&(), &())?",
@@ -182,6 +213,7 @@ fn caller_location_hooks_are_reserved_for_std() {
     for call in [
         "drop(__caller_location())",
         "drop(__test_fault(0, 0, 0i32))",
+        "x = 1\n    drop(__repr_if_formattable(x))",
     ] {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("main.plenty");
