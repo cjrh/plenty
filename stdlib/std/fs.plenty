@@ -1,5 +1,6 @@
 # Rooted copy API modelled on Python shutil.copytree/copy2, with explicit
 # limits and no-follow contracts; implemented directly in Plenty.
+# Native symlink/realpath wrappers preserve OS resolution and errno semantics.
 from std.path import Path, from_bytes
 from std.time import Timestamp
 import std.bytes
@@ -670,6 +671,14 @@ pub def file_metadata(stream: &FileStream) -> Result[Metadata, IoError]:
 
 pub def read_link(path: &Path) -> Result[Path, IoError]:
     Ok(from_bytes(__fs_readlink(path.as_bytes())?))
+
+# Native resolution preserves filesystem semantics for links, dot-dot and
+# trailing slashes. This is an observation, never a confinement boundary.
+pub def canonicalize(path: &Path) -> Result[Path, IoError]:
+    Ok(from_bytes(__fs_canonicalize(path.as_bytes())?))
+
+pub def symlink(target: &Path, link: &Path) -> Result[(), IoError]:
+    __fs_symlink(target.as_bytes(), link.as_bytes())
 
 # Consuming generator uses the existing iteration system. Each item is fallible;
 # construction opens immediately, while advancing obtains just one entry.

@@ -39,3 +39,32 @@ Path text conversion is checked. For arbitrary Unix filenames, use
 `name.as_bytes()` and [NUL-framed transport](20-binary-paths.md), avoiding text
 decoding. These filesystem APIs currently require 64-bit Linux and statx for
 metadata. See the [directory reference](../../design/stdlib/fs.md).
+
+Use `fs.symlink` to create a link and `fs.canonicalize` when you need its
+resolved absolute name. Relative link targets are relative to the link's parent:
+
+```plenty
+import std.fs as fs
+import std.path as path
+
+def main() -> Result[(), IoError]:
+    write_text("original.txt", "data")?
+    target = path.from_text("original.txt")?
+    link = path.from_text("alias.txt")?
+    fs.symlink(&target, &link)?
+    print(fs.read_link(&link)?.to_text()?)?
+    resolved = fs.canonicalize(&link)?
+    print(resolved.is_absolute(), fs.metadata(&resolved)?.size())?
+    Ok(())
+```
+```output
+original.txt
+True 4
+```
+
+Canonicalization requires existing components and can fail for dangling links
+or loops. Its result can become stale immediately: it does not secure a later
+open against replacement. For operations through a held directory, use
+[rooted filesystem helpers](filesystem-helpers.md). The
+[metadata and links reference](../../design/stdlib/fs/metadata.md#creating-and-resolving-links)
+documents native path limits and error behavior.

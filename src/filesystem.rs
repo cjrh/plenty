@@ -40,6 +40,10 @@ pub enum FsOp {
     ApplyCopyMetadata,
     IsWithin,
     ChildMetadata,
+    Symlink,
+    Canonicalize,
+    LockOpen,
+    LockTry,
     CreateFile,
     SetUnixMode,
 }
@@ -47,6 +51,8 @@ pub enum FsOp {
 impl FsOp {
     pub fn named(name: &str) -> Option<Self> {
         Some(match name {
+            "__fs_lock_open" => Self::LockOpen,
+            "__fs_lock_try" => Self::LockTry,
             "__fs_create_file" => Self::CreateFile,
             "__fs_set_unix_mode" => Self::SetUnixMode,
             "__fs_apply_copy_metadata" => Self::ApplyCopyMetadata,
@@ -64,6 +70,8 @@ impl FsOp {
             "__fs_metadata" => Self::Metadata,
             "__fs_metadata_field" => Self::MetadataField,
             "__fs_readlink" => Self::ReadLink,
+            "__fs_symlink" => Self::Symlink,
+            "__fs_canonicalize" => Self::Canonicalize,
             "__path_join" => Self::Join,
             "__path_lexical" => Self::Lexical,
             "__path_components" => Self::Components,
@@ -92,6 +100,8 @@ impl FsOp {
     pub fn signature(self) -> (Vec<Ty>, Ty) {
         let bytes = || Ty::List(Arc::new(Ty::U8));
         let (inputs, output) = match self {
+            Self::LockOpen => (vec![bytes()], Ty::File),
+            Self::LockTry => (vec![Ty::File, Ty::Bool], Ty::Bool),
             Self::OpenFilePath => (vec![bytes(), Ty::Str], Ty::File),
             Self::Open => (vec![bytes()], Ty::FsReadDir),
             Self::Next => (vec![Ty::FsReadDir], sum::option(Ty::FsDirEntry)),
@@ -102,7 +112,8 @@ impl FsOp {
             Self::EntryMetadata => (vec![Ty::FsDirEntry], Ty::FsMetadata),
             Self::Metadata => (vec![bytes(), Ty::Bool], Ty::FsMetadata),
             Self::MetadataField => return (vec![Ty::FsMetadata, Ty::U8], Ty::U64),
-            Self::ReadLink => (vec![bytes()], bytes()),
+            Self::ReadLink | Self::Canonicalize => (vec![bytes()], bytes()),
+            Self::Symlink => (vec![bytes(), bytes()], Ty::Unit),
             Self::Join => (vec![bytes(), bytes()], bytes()),
             Self::Lexical => (vec![bytes(), Ty::U8], sum::option(bytes())),
             Self::Components => (vec![bytes()], Ty::List(Arc::new(bytes()))),
@@ -137,8 +148,12 @@ impl FsOp {
 
     pub fn opcode(self) -> i64 {
         match self {
+            Self::LockOpen => return 620,
+            Self::LockTry => return 621,
             Self::CreateFile => return 610,
             Self::SetUnixMode => return 611,
+            Self::Symlink => return 630,
+            Self::Canonicalize => return 631,
             _ => {}
         }
         match self as i64 {

@@ -533,7 +533,9 @@ fn step(
                     | Op::Integer(IntegerOp::ShiftLeft | IntegerOp::ShiftRight)
                     | Op::CheckedCast(_)
             );
-            if !operand {
+            let indexing =
+                matches!(&**inner, Op::Collection(operation) if operation.assumable_index());
+            if !operand && !indexing {
                 return Err(format!("`Assumed` cannot hold {inner:?}").into());
             }
             return step(inner, stack, locals, sigs, returns, loop_stack, yield_ty);

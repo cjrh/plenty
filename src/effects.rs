@@ -75,8 +75,11 @@ impl FsOp {
             | Self::EntryMetadata
             | Self::Metadata
             | Self::ReadLink
+            | Self::Symlink
+            | Self::Canonicalize
             | Self::Root
-            | Self::WatchAdd => Effect::Path,
+            | Self::WatchAdd
+            | Self::LockOpen => Effect::Path,
             Self::Next
             | Self::Close
             | Self::Closed
@@ -99,7 +102,8 @@ impl FsOp {
             | Self::IsWithin
             | Self::ChildMetadata
             | Self::WatchOpen
-            | Self::WatchRemove => Effect::Handle,
+            | Self::WatchRemove
+            | Self::LockTry => Effect::Handle,
             Self::Name
             | Self::Path
             | Self::FileType

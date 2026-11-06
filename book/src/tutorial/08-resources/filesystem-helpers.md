@@ -71,6 +71,15 @@ failure after creation leaves partial output for the caller to inspect or
 remove. The [recursive-copy example and recovery contract](../../design/stdlib/fs/copying.md)
 show the complete call and explain `TreeCopyError.Setup` versus partial-output `Partial`/`Entry` errors.
 
+For cooperating processes that must not operate on a resource simultaneously,
+use [`std.fs.lock`](../../design/stdlib/fs/lock.md). Keep the returned owner alive
+for the protected work. `acquire_now` reports contention immediately;
+`acquire_before` takes a total deadline and a cancellation token. Use a stable
+lockfile in a trusted directory and leave that file in place after releasing
+the lock: removing it while another process owns it can split coordination
+across different inodes. Locks close automatically, and normal subprocesses
+do not inherit them across exec.
+
 ## Create a private named file
 
 When a file should be visible immediately and must not already exist, use

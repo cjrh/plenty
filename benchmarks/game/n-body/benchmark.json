@@ -59,7 +59,7 @@
       "file": "plenty/nbody_unchecked.plenty",
       "threads": 1,
       "flags": ["--unchecked", "assume"],
-      "note": "The idiomatic program with its index arithmetic in unchecked: suites, built with --unchecked assume. List bounds checks remain."
+      "note": "The idiomatic program with its index arithmetic in unchecked: suites, built with --unchecked assume. Indices inside those suites are nonnegative and in range; bounds checks are omitted too."
     }
   ]
 }

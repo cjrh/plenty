@@ -158,6 +158,12 @@ Dependencies are not transitive: import only what your manifest declares.
   bare `T` takes ownership. A `Result[..., E]` names exactly the errors a
   caller must handle or propagate.
 
+For filesystem links, use `std.fs.symlink(&target, &link)` and
+`std.fs.canonicalize(&path)` with native-byte `std.path.Path` values. Both work
+on workers; canonicalization requires existing components and does not secure a
+later open against concurrent replacement. Read the
+[filesystem reference](../../../../book/src/design/stdlib/fs/metadata.md#creating-and-resolving-links) for path limits and native errors before replacing a rooted handle operation.
+
 For private filesystem state, `std.fs.Root.create_file` exclusively creates a
 read/write file with default mode 0600; `Root.create_dir` defaults to 0700.
 Both accept `unix_mode`, restricted by the OS creation policy. Change permissions

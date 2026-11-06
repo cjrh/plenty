@@ -98,7 +98,7 @@ impl Lower<'_> {
         let (got, mut reads) = self.observe_expected(index, Some(Ty::I64), ops)?;
         self.same(Some(got), Some(Ty::I64), &index.at)?;
         self.mark(at, ops);
-        ops.push(Op::Collection(CollectionOp::Bytes(BytesOp::Item)));
+        ops.push(self.index_op(CollectionOp::Bytes(BytesOp::Item)));
         reads.push(loan);
         Ok(reads)
     }
@@ -115,7 +115,7 @@ impl Lower<'_> {
         let (got, reads) = self.observe_expected(index, Some(Ty::I64), ops)?;
         self.same(Some(got), Some(Ty::I64), &index.at)?;
         self.mark(at, ops);
-        ops.push(Op::Collection(CollectionOp::Bytes(BytesOp::ValueItem)));
+        ops.push(self.index_op(CollectionOp::Bytes(BytesOp::ValueItem)));
         Ok(reads)
     }
 
@@ -168,7 +168,7 @@ impl Lower<'_> {
         let read = self.byte_storage_place(class, base, false, ops)?;
         ops.push(Op::LoadLocal(index_slot));
         self.mark(at, ops);
-        ops.push(Op::Collection(CollectionOp::Bytes(BytesOp::Item)));
+        ops.push(self.index_op(CollectionOp::Bytes(BytesOp::Item)));
         self.numeric_rhs(op, &Ty::U8, value, at, ops)?;
         let result = self.slot(Ty::U8, at)?;
         ops.push(Op::StoreLocal(result));
@@ -197,7 +197,7 @@ impl Lower<'_> {
         ops.extend([Op::LoadLocal(index), Op::LoadLocal(value)]);
         self.mark(at, ops);
         ops.extend([
-            Op::Collection(CollectionOp::Bytes(BytesOp::SetItem)),
+            self.index_op(CollectionOp::Bytes(BytesOp::SetItem)),
             Op::Drop,
             Op::UseLoan(loan),
         ]);

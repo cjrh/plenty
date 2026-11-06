@@ -3,7 +3,8 @@
 # index arithmetic in energy and advance sits in `unchecked:` suites; built
 # with `--unchecked assume`, those suites omit their overflow checks.
 # Indices stay below the body count and the pair count, so no arithmetic in
-# them can overflow. List bounds checks remain: no build setting removes them.
+# them can overflow. Every indexed access in those suites is nonnegative
+# and within its own collection, so assume mode also omits bounds checks.
 import std.math
 
 const SOLAR_MASS: f64 = 4.0 * std.math.pi * std.math.pi

@@ -1919,6 +1919,7 @@ fn build_user_function(
             locals: &locals,
             stack: Vec::new(),
             terminated: false,
+            assumed_index: false,
             loop_targets: Vec::new(),
             checked_targets: Vec::new(),
             generator: None,
@@ -2046,6 +2047,7 @@ fn build_main(
             locals: &[],
             stack: Vec::new(),
             terminated: false,
+            assumed_index: false,
             loop_targets: Vec::new(),
             checked_targets: Vec::new(),
             generator: None,
@@ -2221,6 +2223,8 @@ struct Lowerer<'a, 'b> {
     /// Once set, the outer loop in
     /// [`build_user_function`] stops feeding ops to this lowerer.
     terminated: bool,
+    /// Only while lowering one explicitly assumed indexing operation.
+    assumed_index: bool,
     /// The last entry is the innermost loop: (continue target, break target).
     loop_targets: Vec<(Block, Block)>,
     /// The last entry is the innermost `checked:` block: its exit, which
@@ -3094,10 +3098,16 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
-    /// An [`Op::Assumed`] integer operation: the plain instruction, without
+    /// An [`Op::Assumed`] operation: the plain instruction, without
     /// the check that would trap.
     fn lower_assumed(&mut self, op: &Op) -> Result<()> {
         match op {
+            Op::Collection(operation) if operation.assumable_index() => {
+                self.assumed_index = true;
+                let result = self.lower_assumed_index(operation);
+                self.assumed_index = false;
+                result?;
+            }
             Op::Add | Op::Sub | Op::Mul => {
                 let (a, b, ty) = self.pop_int_pair()?;
                 let result = match op {
