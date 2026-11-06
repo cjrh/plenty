@@ -20,6 +20,15 @@ failures, as Markdown and JSON. [CI reports](../development/ci-workflow.md#timin
 summarize Actions jobs and steps automatically and support historical run
 comparisons, keeping parallel runner time separate from elapsed span.
 
+## Native-engine dependency caches (issue #827)
+
+[Optional-engine CI caches](../development/ci-workflow.md#dependency-cache)
+use separate compiler and engine target directories. Compiler cache cleanup
+can no longer traverse the engine target and remove its Polars or faer
+dependencies. A new engine cache key repopulates the corrected layout; actual
+hosted cache-hit savings still need measurement. Local engine-build defaults
+and installed-library paths are unchanged.
+
 ## Linux release glibc verification (issue #730)
 
 The [v0.8.9 artifact audit](../development/glibc-compatibility.md) confirms the
