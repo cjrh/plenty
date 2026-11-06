@@ -62,8 +62,17 @@ pub class Root:
     pub def read_file(self, name: &Path) -> Result[FileStream, IoError]:
         Ok(FileStream(__fs_read_file(self._handle, name.as_bytes())?))
 
-    pub def create_dir(self, name: &Path) -> Result[(), IoError]:
-        __fs_make_dir(self._handle, name.as_bytes())
+    pub def create_dir(self, name: &Path, unix_mode: u32 = 0o700u32) -> Result[(), IoError]:
+        valid_unix_mode(unix_mode)?
+        __fs_make_dir(self._handle, name.as_bytes(), unix_mode)
+
+    pub def create_file(self, name: &Path, unix_mode: u32 = 0o600u32) -> Result[FileStream, IoError]:
+        valid_unix_mode(unix_mode)?
+        Ok(FileStream(__fs_create_file(self._handle, name.as_bytes(), unix_mode)?))
+
+    pub def set_unix_mode(self, unix_mode: u32) -> Result[(), IoError]:
+        valid_unix_mode(unix_mode)?
+        __fs_set_unix_mode(self._handle, unix_mode)
 
     pub def remove_file(self, name: &Path) -> Result[(), IoError]:
         __fs_remove_file(self._handle, name.as_bytes())
@@ -79,6 +88,17 @@ pub class Root:
 
     def duplicate(self) -> Result[Root, IoError]:
         Ok(Root(__fs_duplicate_root(self._handle)?))
+
+# Only ordinary permission bits; no accidental file-type, set-ID or sticky bits.
+def valid_unix_mode(unix_mode: u32) -> Result[(), IoError]:
+    if unix_mode > 0o777u32:
+        return Err(IoError.InvalidInput)
+    Ok(())
+
+# Changes the held inode, never a replacement reached through its old pathname.
+pub def set_file_unix_mode(stream: &FileStream, unix_mode: u32) -> Result[(), IoError]:
+    valid_unix_mode(unix_mode)?
+    __fs_set_unix_mode(stream.file, unix_mode)
 
 pub def root(path: &Path) -> Result[Root, IoError]:
     Ok(Root(__fs_root(path.as_bytes())?))

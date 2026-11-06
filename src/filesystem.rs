@@ -40,11 +40,15 @@ pub enum FsOp {
     ApplyCopyMetadata,
     IsWithin,
     ChildMetadata,
+    CreateFile,
+    SetUnixMode,
 }
 
 impl FsOp {
     pub fn named(name: &str) -> Option<Self> {
         Some(match name {
+            "__fs_create_file" => Self::CreateFile,
+            "__fs_set_unix_mode" => Self::SetUnixMode,
             "__fs_apply_copy_metadata" => Self::ApplyCopyMetadata,
             "__fs_is_within" => Self::IsWithin,
             "__fs_child_metadata" => Self::ChildMetadata,
@@ -107,9 +111,10 @@ impl FsOp {
             Self::Child | Self::ReadFile | Self::MakeTemporaryDir => {
                 (vec![Ty::File, bytes()], Ty::File)
             }
-            Self::MakeDir | Self::RemoveFile | Self::RemoveDir => {
-                (vec![Ty::File, bytes()], Ty::Unit)
-            }
+            Self::CreateFile => (vec![Ty::File, bytes(), Ty::U32], Ty::File),
+            Self::MakeDir => (vec![Ty::File, bytes(), Ty::U32], Ty::Unit),
+            Self::SetUnixMode => (vec![Ty::File, Ty::U32], Ty::Unit),
+            Self::RemoveFile | Self::RemoveDir => (vec![Ty::File, bytes()], Ty::Unit),
             Self::Move => (vec![Ty::File, bytes(), bytes()], Ty::Unit),
             Self::RootEntries => (vec![Ty::File], Ty::FsReadDir),
             Self::Anonymous | Self::DuplicateRoot => (vec![Ty::File], Ty::File),
@@ -131,6 +136,11 @@ impl FsOp {
     }
 
     pub fn opcode(self) -> i64 {
+        match self {
+            Self::CreateFile => return 610,
+            Self::SetUnixMode => return 611,
+            _ => {}
+        }
         match self as i64 {
             index @ 0..=14 => 150 + index,
             index @ 15..=28 => 260 + index - 15,

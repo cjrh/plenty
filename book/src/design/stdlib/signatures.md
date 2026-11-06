@@ -45,66 +45,66 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.env`](#stdenv): 1236-1250
 - [`std.error`](#stderror): 1252-1272
 - [`std.fmt`](#stdfmt): 1274-1341
-- [`std.fs`](#stdfs): 1343-1437
-- [`std.fs.dirs`](#stdfsdirs): 1439-1449
-- [`std.fs.watch`](#stdfswatch): 1451-1486
-- [`std.graph`](#stdgraph): 1488-1576
-- [`std.http`](#stdhttp): 1578-1648
-- [`std.http.decoder`](#stdhttpdecoder): 1650-1667
-- [`std.http.body`](#stdhttpbody): 1669-1704
-- [`std.http.client`](#stdhttpclient): 1706-1816
-- [`std.http.cookie`](#stdhttpcookie): 1818-1850
-- [`std.http.files`](#stdhttpfiles): 1852-1865
-- [`std.http.https`](#stdhttphttps): 1867-1881
-- [`std.http.proxy`](#stdhttpproxy): 1883-1904
-- [`std.http.server`](#stdhttpserver): 1906-1991
-- [`std.http.sse`](#stdhttpsse): 1993-2012
-- [`std.http.tls`](#stdhttptls): 2014-2031
-- [`std.http.typed`](#stdhttptyped): 2033-2066
-- [`std.http.websocket`](#stdhttpwebsocket): 2068-2103
-- [`std.http.wss`](#stdhttpwss): 2105-2111
-- [`std.image`](#stdimage): 2113-2159
-- [`std.io`](#stdio): 2161-2267
-- [`std.io.typed`](#stdiotyped): 2269-2307
-- [`std.json`](#stdjson): 2309-2373
-- [`std.jwt`](#stdjwt): 2375-2422
-- [`std.log`](#stdlog): 2424-2491
-- [`std.markdown`](#stdmarkdown): 2493-2527
-- [`std.template`](#stdtemplate): 2529-2550
-- [`std.math`](#stdmath): 2552-2623
-- [`std.mime`](#stdmime): 2625-2651
-- [`std.net`](#stdnet): 2653-2735
-- [`std.path`](#stdpath): 2737-2754
-- [`std.process`](#stdprocess): 2756-2805
-- [`std.random`](#stdrandom): 2807-2828
-- [`std.ready`](#stdready): 2830-2861
-- [`std.regex`](#stdregex): 2863-2916
-- [`std.report`](#stdreport): 2918-2925
-- [`std.secrets`](#stdsecrets): 2927-2953
-- [`std.shlex`](#stdshlex): 2955-2964
-- [`std.sketch`](#stdsketch): 2966-3004
-- [`std.sketch.xor`](#stdsketchxor): 3006-3017
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3019-3034
-- [`std.signal`](#stdsignal): 3036-3053
-- [`std.simd`](#stdsimd): 3055-3156
-- [`std.stat`](#stdstat): 3158-3191
-- [`std.plot`](#stdplot): 3193-3282
-- [`std.linalg`](#stdlinalg): 3284-3325
-- [`std.sync`](#stdsync): 3327-3345
-- [`std.system`](#stdsystem): 3347-3405
-- [`std.tempfile`](#stdtempfile): 3407-3439
-- [`std.test`](#stdtest): 3441-3483
-- [`std.text`](#stdtext): 3485-3528
-- [`std.thread`](#stdthread): 3530-3534
-- [`std.time`](#stdtime): 3536-3580
-- [`std.tls`](#stdtls): 3582-3664
-- [`std.toml`](#stdtoml): 3666-3715
-- [`std.unicode`](#stdunicode): 3717-3729
-- [`std.units`](#stdunits): 3731-3968
-- [`std.units.catalogue`](#stdunitscatalogue): 3970-4748
-- [`std.url`](#stdurl): 4750-4778
-- [`std.uuid`](#stduuid): 4780-4803
-- [`std.xml`](#stdxml): 4805-4838
+- [`std.fs`](#stdfs): 1343-1440
+- [`std.fs.dirs`](#stdfsdirs): 1442-1452
+- [`std.fs.watch`](#stdfswatch): 1454-1489
+- [`std.graph`](#stdgraph): 1491-1579
+- [`std.http`](#stdhttp): 1581-1651
+- [`std.http.decoder`](#stdhttpdecoder): 1653-1670
+- [`std.http.body`](#stdhttpbody): 1672-1707
+- [`std.http.client`](#stdhttpclient): 1709-1819
+- [`std.http.cookie`](#stdhttpcookie): 1821-1853
+- [`std.http.files`](#stdhttpfiles): 1855-1868
+- [`std.http.https`](#stdhttphttps): 1870-1884
+- [`std.http.proxy`](#stdhttpproxy): 1886-1907
+- [`std.http.server`](#stdhttpserver): 1909-1994
+- [`std.http.sse`](#stdhttpsse): 1996-2015
+- [`std.http.tls`](#stdhttptls): 2017-2034
+- [`std.http.typed`](#stdhttptyped): 2036-2069
+- [`std.http.websocket`](#stdhttpwebsocket): 2071-2106
+- [`std.http.wss`](#stdhttpwss): 2108-2114
+- [`std.image`](#stdimage): 2116-2162
+- [`std.io`](#stdio): 2164-2270
+- [`std.io.typed`](#stdiotyped): 2272-2310
+- [`std.json`](#stdjson): 2312-2376
+- [`std.jwt`](#stdjwt): 2378-2425
+- [`std.log`](#stdlog): 2427-2494
+- [`std.markdown`](#stdmarkdown): 2496-2530
+- [`std.template`](#stdtemplate): 2532-2553
+- [`std.math`](#stdmath): 2555-2626
+- [`std.mime`](#stdmime): 2628-2654
+- [`std.net`](#stdnet): 2656-2738
+- [`std.path`](#stdpath): 2740-2757
+- [`std.process`](#stdprocess): 2759-2808
+- [`std.random`](#stdrandom): 2810-2831
+- [`std.ready`](#stdready): 2833-2864
+- [`std.regex`](#stdregex): 2866-2919
+- [`std.report`](#stdreport): 2921-2928
+- [`std.secrets`](#stdsecrets): 2930-2956
+- [`std.shlex`](#stdshlex): 2958-2967
+- [`std.sketch`](#stdsketch): 2969-3007
+- [`std.sketch.xor`](#stdsketchxor): 3009-3020
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3022-3037
+- [`std.signal`](#stdsignal): 3039-3056
+- [`std.simd`](#stdsimd): 3058-3159
+- [`std.stat`](#stdstat): 3161-3194
+- [`std.plot`](#stdplot): 3196-3285
+- [`std.linalg`](#stdlinalg): 3287-3328
+- [`std.sync`](#stdsync): 3330-3348
+- [`std.system`](#stdsystem): 3350-3408
+- [`std.tempfile`](#stdtempfile): 3410-3442
+- [`std.test`](#stdtest): 3444-3486
+- [`std.text`](#stdtext): 3488-3531
+- [`std.thread`](#stdthread): 3533-3537
+- [`std.time`](#stdtime): 3539-3583
+- [`std.tls`](#stdtls): 3585-3667
+- [`std.toml`](#stdtoml): 3669-3718
+- [`std.unicode`](#stdunicode): 3720-3732
+- [`std.units`](#stdunits): 3734-3971
+- [`std.units.catalogue`](#stdunitscatalogue): 3973-4751
+- [`std.url`](#stdurl): 4753-4781
+- [`std.uuid`](#stduuid): 4783-4806
+- [`std.xml`](#stdxml): 4808-4841
 
 ## `std.actor`
 
@@ -1350,11 +1350,14 @@ enum FsError
 class Root
     def open_dir(self, name: &Path) -> Result[Root, IoError]
     def read_file(self, name: &Path) -> Result[FileStream, IoError]
-    def create_dir(self, name: &Path) -> Result[(), IoError]
+    def create_dir(self, name: &Path, unix_mode: u32 = 0o700u32) -> Result[(), IoError]
+    def create_file(self, name: &Path, unix_mode: u32 = 0o600u32) -> Result[FileStream, IoError]
+    def set_unix_mode(self, unix_mode: u32) -> Result[(), IoError]
     def remove_file(self, name: &Path) -> Result[(), IoError]
     def remove_dir(self, name: &Path) -> Result[(), IoError]
     def move(self, source: &Path, destination: &Path) -> Result[(), IoError]
     def names(self) -> Result[Names, IoError]
+def set_file_unix_mode(stream: &FileStream, unix_mode: u32) -> Result[(), IoError]
 def root(path: &Path) -> Result[Root, IoError]
 class Names
     def next(self: &mut Names) -> Result[Option[Path], IoError]
