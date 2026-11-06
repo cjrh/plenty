@@ -249,12 +249,11 @@ fn optimization_level_is_part_of_the_key() {
     // a cold run has: the unoptimized entries were never candidates, so the
     // optimized ones were all added. Workers missing the same new key at
     // once write one entry between them, so the counts vary with timing.
+    // Inlining leaves fewer optimized functions than unoptimized ones, so
+    // the count added is not compared with `before` (issue #770).
     assert!(misses > hits, "{stderr}");
     let added = entries(&cache).len() as u64 - before;
-    assert!(
-        added <= misses && added >= before / 2,
-        "{added} added, {stderr}"
-    );
+    assert!(added > 0 && added <= misses, "{added} added, {stderr}");
 }
 
 #[test]
