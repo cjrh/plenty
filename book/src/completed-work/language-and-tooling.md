@@ -20,6 +20,19 @@ failures, as Markdown and JSON. [CI reports](../development/ci-workflow.md#timin
 summarize Actions jobs and steps automatically and support historical run
 comparisons, keeping parallel runner time separate from elapsed span.
 
+## Embedded-runtime dependency reuse (issue #829)
+
+[Embedded-runtime Rust dependency caching](../development/ci-workflow.md#embedded-runtime-rust-dependencies)
+retains the 27 fixed vendored rlibs across runtime edits and feature-only
+rebuilds, with source/toolchain content keys and artifact validation. Test
+shards restore these dependencies independently of the compiler workspace
+cache. Native C compilation and both runtime archives still rebuild; this
+change does not eliminate the remaining build-script cost (tracked in local
+issue #832). A local probe
+reduced the vendored stage from 18.95 to 0.46 seconds; whole-build timing was
+inconclusive because the remaining stages varied. Hosted savings have not
+been measured.
+
 ## Native-engine dependency caches (issue #827)
 
 [Optional-engine CI caches](../development/ci-workflow.md#dependency-cache)
@@ -70,6 +83,15 @@ built for the integration tests. These checks reuse one feature configuration
 and avoid a separate sales-report compiler build. Allocation-failure checks
 remain enabled, and the
 dedicated default-feature build retains its separate coverage.
+
+## Range-trap fixture reuse (issue #830)
+
+The I/O range and fixed-width encoding trap tests compile 18 reusable fixtures
+instead of 154 separate programs. Each invalid input still runs in its own
+child process and checks exit status and the operation-specific trap text.
+Argument dispatch selects among the original literal call sites, preserving
+constant-input coverage, empty-input checks and reader/transport variants.
+The fixtures retain optimized compilation and runtime checks.
 
 ## B83 value parameters and B96 bounded integers
 

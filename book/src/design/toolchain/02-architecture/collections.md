@@ -178,14 +178,18 @@ of a receiver through `&mut` (`counts.insert(k, v)` on a parameter or local,
 collection's owner in place under the exclusive loan, so the receiver is
 neither retained nor released. `clear`, `reverse`, `sort`, `swap`, and the set
 updates return unit rather than an alias of the receiver, so they make no
-count change either (issue #813). `intersection_update` and
-`difference_update` also read their set argument in place when its source
-still holds it (issue #825). That source can be a `&set` parameter, a local,
-or a temporary parked in an expression local because its keys have `__del__`.
-The argument stays under its shared loan, and a removed member's `__del__`
-reaches only that member, since keys cannot hold collections. The receiver
-must be a local, a `&mut` parameter, or a field of one. An element receiver
-such as `grid[0]` still counts the argument (issue #831).
+count change either (issue #813). Literals, comprehensions, and `collect()`
+do the same: each element moves into the insert from a hidden local, and the
+collection under construction is loaded from its owner directly before the
+insert, so a counted element costs no retain or release (issue #826).
+`intersection_update` and `difference_update` also read their set argument in
+place when its source still holds it (issue #825). That source can be a `&set`
+parameter, a local, or a temporary parked in an expression local because its
+keys have `__del__`. The argument stays under its shared loan, and a removed
+member's `__del__` reaches only that member, since keys cannot hold
+collections. The receiver must be a local, a `&mut` parameter, or a field of
+one. An element receiver such as `grid[0]` still counts the argument (issue
+#831).
 
 An element reference (`&xs[i]`, `&mut xs[i]`, `&mut grid[i][j]`, and the
 implicit one under `bodies[i].x`) of any element type checks the index inline

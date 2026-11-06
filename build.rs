@@ -9,6 +9,8 @@ mod brotli_build;
 #[path = "plenty-runtime/native/cc_build.rs"]
 mod native_tools;
 use std::process::Command;
+#[path = "plenty-runtime/native/vendor_cache.rs"]
+mod runtime_vendor_cache;
 
 /// The runtime's only third-party code: RustCrypto digests, HMAC, BLAKE3 and
 /// constant-time comparison for `std.crypto`, zlib-rs for `std.compress`, and
@@ -397,8 +399,116 @@ fn package_env(rustc: &mut Command, path: &str) {
 /// Compile the vendored crates once into rlibs shared by both runtime builds.
 fn build_vendored(out: &Path) -> PathBuf {
     println!("cargo:rerun-if-changed=plenty-runtime/vendor");
+    println!("cargo:rerun-if-env-changed=PLENTY_RUNTIME_VENDOR_CACHE");
     let dir = out.join("vendor");
     std::fs::create_dir_all(&dir).unwrap();
+    // Arbitrary rustc flags may name additional files (a sysroot, extern, or
+    // linker script). Their inputs cannot be inferred here, so bypass reuse.
+    if std::env::var_os("PLENTY_RUNTIME_RUSTFLAGS").is_some_and(|flags| !flags.is_empty())
+        || std::env::var_os("PLENTY_RUNTIME_VENDOR_CACHE").is_some_and(|path| path == "off")
+    {
+        compile_vendored(out, &dir);
+        return dir;
+    }
+    let root = std::env::var_os("PLENTY_RUNTIME_VENDOR_CACHE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            // OUT_DIR is PROFILE/build/CRATE/out. Share fixed dependencies
+            // across Cargo feature sets, while remaining inside this target.
+            out.ancestors()
+                .nth(3)
+                .expect("Cargo OUT_DIR layout")
+                .join("plenty-runtime-vendor-cache")
+        });
+    let files: Vec<String> = VENDORED
+        .iter()
+        .map(|(_, name, ..)| format!("lib{name}.rlib"))
+        .collect();
+    let started = std::time::Instant::now();
+    let key = match vendor_key() {
+        Ok(key) => key,
+        Err(error) => {
+            eprintln!("embedded runtime Rust dependency cache bypassed: {error}");
+            compile_vendored(out, &dir);
+            return dir;
+        }
+    };
+    let (entry, hit) = runtime_vendor_cache::get_or_build(&root, &key, &files, |staging| {
+        compile_vendored(staging, staging)
+    })
+    .expect("cache embedded runtime Rust dependencies");
+    // C archives are rebuilt beside these copies. Never mutate the shared
+    // entry: concurrent Cargo feature/profile builds may read it.
+    for file in files {
+        std::fs::copy(entry.join(&file), dir.join(file)).unwrap();
+    }
+    eprintln!(
+        "embedded runtime Rust dependencies: {} ({:.2}s)",
+        if hit { "cache hit" } else { "built" },
+        started.elapsed().as_secs_f64()
+    );
+    dir
+}
+
+fn vendor_key() -> std::io::Result<String> {
+    let mut key = runtime_vendor_cache::Fingerprint::new();
+    key.field("plenty-runtime-vendor-v1");
+    for input in [
+        "build.rs",
+        "plenty-runtime/native/vendor_cache.rs",
+        "Cargo.lock",
+        "plenty-runtime/vendor",
+    ] {
+        key.field(input);
+        key.tree(Path::new(input))?;
+    }
+    // The vendored recipes only read these target properties. Runtime source,
+    // Cargo profile and runtime-checks do not affect any vendored invocation.
+    for name in ["TARGET", "CARGO_CFG_TARGET_ARCH"] {
+        key.field(name);
+        key.field(std::env::var(name).unwrap());
+    }
+    let rustc = std::env::var_os("RUSTC").unwrap();
+    // Cargo normally supplies an absolute executable. Include its bytes so
+    // a rebuilt/custom compiler reporting the same version cannot hit stale
+    // entries. PATH lookup also covers an explicitly configured bare name.
+    let rustc_path = if Path::new(&rustc).is_file() {
+        PathBuf::from(&rustc)
+    } else {
+        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+            .map(|dir| dir.join(&rustc))
+            .find(|path| path.is_file())
+            .expect("locate rustc executable")
+    };
+    key.tree(&rustc_path.canonicalize()?)?;
+    let version = Command::new(&rustc)
+        .arg("-vV")
+        .output()
+        .expect("query rustc version");
+    assert!(version.status.success(), "querying rustc version failed");
+    key.field(version.stdout);
+    key.field(sysroot());
+    // Include target std objects too, including custom/rebuilt toolchains
+    // whose version text is unchanged. This also validates target availability.
+    let libdir = Command::new(&rustc)
+        .args([
+            "--print",
+            "target-libdir",
+            "--target",
+            &std::env::var("TARGET").unwrap(),
+        ])
+        .output()
+        .expect("query target standard library");
+    assert!(
+        libdir.status.success(),
+        "querying target standard library failed"
+    );
+    let libdir = PathBuf::from(String::from_utf8(libdir.stdout).unwrap().trim());
+    key.tree(&libdir)?;
+    Ok(key.finish())
+}
+
+fn compile_vendored(out: &Path, dir: &Path) {
     for (path, name, edition, features, cfgs, externs) in VENDORED {
         let mut rustc = Command::new(std::env::var_os("RUSTC").unwrap());
         rustc
@@ -412,7 +522,7 @@ fn build_vendored(out: &Path) -> PathBuf {
             .args(["--cap-lints", "allow"])
             .arg(format!("-Ldependency={}", dir.display()))
             .arg("--out-dir")
-            .arg(&dir);
+            .arg(dir);
         for feature in *features {
             rustc.args(["--cfg", &format!("feature=\"{feature}\"")]);
         }
@@ -422,7 +532,7 @@ fn build_vendored(out: &Path) -> PathBuf {
             }
         }
         for name in *externs {
-            rustc.arg(extern_arg(&dir, name));
+            rustc.arg(extern_arg(dir, name));
         }
         package_env(&mut rustc, path);
         remap(&mut rustc, out);
@@ -433,7 +543,6 @@ fn build_vendored(out: &Path) -> PathBuf {
             String::from_utf8_lossy(&output.stderr)
         );
     }
-    dir
 }
 
 /// The one global symbol in `archive`'s symbol table named `name`, either

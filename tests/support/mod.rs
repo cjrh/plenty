@@ -125,6 +125,36 @@ pub fn run(source: &str) -> Output {
     Command::new(executable).output().unwrap()
 }
 
+/// Compile an argv-dispatched trap fixture once, then isolate each case in a
+/// child process. The source selects the case using `args()?[1]`; operands at
+/// the actual trap call sites can stay literals. Retain the optimized defaults
+/// used by the original per-case trap fixtures, including runtime checks.
+pub fn assert_trap_cases(source: &str, messages: &[String]) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.plenty");
+    let executable = dir.path().join("program");
+    std::fs::write(&path, source).unwrap();
+    plenty::compile_file_to_executable(&path, &executable, None)
+        .unwrap_or_else(|error| panic!("{source}\n{error}"));
+    for (case, message) in messages.iter().enumerate() {
+        let output = Command::new(&executable)
+            .arg(case.to_string())
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "case {case}: {source}\n{stderr}"
+        );
+        assert!(
+            stderr.contains(&format!(": {message}\n")),
+            "case {case}: {source}\n{stderr}"
+        );
+    }
+}
+
 /// Put a fragment in a typed function so its final value can be printed by main.
 pub fn assert_value(source: &str, ty: &str, expected: &str) {
     let (declarations, statements) = split_fragment(source);
@@ -472,6 +502,28 @@ pub fn native_call(line: &str) -> bool {
     instruction
         .split_whitespace()
         .any(|field| field == mnemonic)
+}
+
+/// A branch, jump or return in the final assembly listing, on either
+/// supported ISA. A64 calls (`bl`, `blr`) are not branches here.
+pub fn native_branch(line: &str) -> bool {
+    let Some(mnemonic) = line
+        .split('#')
+        .next()
+        .unwrap_or(line)
+        .split_whitespace()
+        .nth(1)
+    else {
+        return false;
+    };
+    if cfg!(target_arch = "aarch64") {
+        matches!(
+            mnemonic,
+            "b" | "br" | "ret" | "cbz" | "cbnz" | "tbz" | "tbnz"
+        ) || mnemonic.starts_with("b.")
+    } else {
+        mnemonic.starts_with('j') || mnemonic == "ret"
+    }
 }
 
 /// The listing of `name` in a `--dump asm` file, without its header line. A

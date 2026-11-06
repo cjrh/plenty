@@ -229,7 +229,6 @@ pub enum CollectionOp {
     TryCopy(Ty),
     Next(Ty),
     TryNew(Ty),        // initial capacity -> Result[collection, AllocError]
-    Insert(Ty),        // private builder: collection, element (or key, value) -> collection
     TryReserve(Ty),    // exclusive capacity reservation -> Result[(), AllocError]
     TryInsert(Ty),     // exclusive fallible append/add/insert
     TryExtend(Ty),     // exclusive list + consumed list -> Result[(), AllocError]
@@ -844,13 +843,6 @@ impl CollectionOp {
                 }
                 (args, crate::sum::allocation_result())
             }
-            Insert(t) => {
-                let mut args = vec![t.clone(), t.element().expect("collection element")];
-                if let Ty::Dict(_, v) = t {
-                    args.push((**v).clone());
-                }
-                (args, t.clone())
-            }
             Get(t) => match t {
                 Ty::Dict(k, v) => (vec![t.clone(), (**k).clone()], (**v).clone()),
                 _ => (vec![t.clone(), Ty::I64], t.element().unwrap()),
@@ -1206,7 +1198,6 @@ impl CollectionOp {
             Self::TryCopy(_) => 33,
             Self::Next(_) => 24,
             Self::TryNew(_) => 32,
-            Self::Insert(_) => 1,
             Self::TryReserve(_) => 28,
             Self::TryInsert(_) => 29,
             Self::TryExtend(_) => 59,
