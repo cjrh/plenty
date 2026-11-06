@@ -407,3 +407,109 @@ fn set_updates_read_a_borrowed_argument_in_place() {
         ]
     );
 }
+
+// The receiver may be a field: its reference only offsets a record address,
+// so the borrowed argument stays uncounted (issue #825). A local argument is
+// read in place, and a temporary one, parked in an expression local because
+// its keys have `__del__`, is read in place and dropped once by that local.
+const SET_UPDATE_SHAPES: &str = r#"class Key:
+    label: str
+    def __del__(self) -> ():
+        print("drop", self.label).unwrap()
+
+class Bag:
+    tags: set[Key]
+
+def key(label: str) -> Result[Key, AllocError]:
+    Ok(Key((label + "-counted-label")?))
+
+def through_field(bag: &mut Bag, other: &set[Key]) -> ():
+    bag.tags.intersection_update(other)
+
+def with_local(other: set[Key]) -> Result[(), AllocError | IoError]:
+    mut seen = {key("a")?, key("b")?}?
+    seen.intersection_update(other)
+    print("local", len(seen), len(other))?
+    Ok(())
+
+def with_temporary() -> Result[(), AllocError | IoError]:
+    mut seen = {key("a")?, key("b")?}?
+    seen.difference_update({key("a")?}?)
+    print("temporary", len(seen))?
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError]:
+    keep = {key("a")?}?
+    mut bag = Bag({key("a")?, key("b")?}?)
+    through_field(&mut bag, &keep)
+    print("field", len(bag.tags))?
+    with_local({key("a")?}?)?
+    with_temporary()?
+    print("__test_small_live_heap__")?
+    Ok(())
+"#;
+
+#[test]
+fn set_updates_read_field_local_and_temporary_shapes_in_place() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("p.plenty"), SET_UPDATE_SHAPES).unwrap();
+    let args = ["--release", "--dump", "asm", "p.plenty", "-o", "out"];
+    let output = plenty(dir.path(), &args);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let asm = std::fs::read_to_string(dir.path().join("out").join("asm.txt")).unwrap();
+    // The runtime calls around the update: none counts the argument before
+    // it, and only the temporary's own drop follows it.
+    for (name, op, releases_after) in [
+        ("through_field", "plenty_op_69", 0),
+        ("with_local", "plenty_op_69", 0),
+        ("with_temporary", "plenty_op_70", 1),
+    ] {
+        let body = support::asm_body(&asm, name);
+        let calls: Vec<_> = body
+            .lines()
+            .filter_map(|line| line.split("# ").nth(1))
+            .filter(|callee| callee.starts_with("plenty_"))
+            .collect();
+        let at = calls
+            .iter()
+            .position(|callee| *callee == op)
+            .unwrap_or_else(|| panic!("{name}: no {op}:\n{body}"));
+        assert!(
+            at == 0 || calls[at - 1] != "plenty_retain",
+            "{name}:\n{body}"
+        );
+        let releases = calls[at + 1..]
+            .iter()
+            .take_while(|callee| **callee == "plenty_release")
+            .count();
+        assert_eq!(releases, releases_after, "{name}:\n{body}");
+    }
+    let output = plenty(dir.path(), &["--release", "p.plenty"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "{stdout}");
+    let visible: Vec<_> = stdout
+        .lines()
+        .filter(|line| !line.starts_with("__test_"))
+        .collect();
+    assert_eq!(
+        visible,
+        [
+            "drop b-counted-label",
+            "field 1",
+            "drop b-counted-label",
+            "local 1 1",
+            "drop a-counted-label",
+            "drop a-counted-label",
+            "drop a-counted-label",
+            "drop a-counted-label",
+            "temporary 1",
+            "drop b-counted-label",
+            "drop a-counted-label",
+            "drop a-counted-label",
+        ]
+    );
+}

@@ -2181,11 +2181,14 @@ enum TrapKind {
 /// in [`Lowerer::slot_copies`] stay held by their sources across it. A
 /// `MoveLocal` empties its slot, but the moved owner stays on the stack until
 /// the op consuming it releases it, after that op's call; `Swap` only reorders
-/// the stack (issue #744).
+/// the stack (issue #744). A field reference only offsets the address of a
+/// record it neither counts nor releases, so a set update through
+/// `bag.tags` reads its borrowed argument in place (issue #825).
 fn keeps_slot_copies(op: &Op) -> bool {
     matches!(
         op,
-        Op::LoadLocal(_)
+        Op::Class(crate::record::ClassOp::FieldRef(..))
+            | Op::LoadLocal(_)
             | Op::MoveLocal(_)
             | Op::Swap
             | Op::ReadRef(_)
