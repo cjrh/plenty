@@ -181,7 +181,6 @@ impl CollectionOp {
             | Next(_)
             | TryNew(_)
             | Clist(_)
-            | Insert(_)
             | TryReserve(_)
             | TryInsert(_)
             | TryExtend(_)

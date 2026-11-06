@@ -1119,9 +1119,9 @@ impl Collection {
         Ok(())
     }
 
+    #[cfg(test)]
     unsafe fn insert(&mut self, key: u128, value: u128) {
-        unsafe { self.try_adopt(key, value) }
-            .unwrap_or_else(|_| crate::fail("collection allocation failed"));
+        unsafe { self.try_adopt(key, value) }.expect("collection allocation failed");
     }
 
     /// Source ownership transfers only after reservation. On error the caller
@@ -3479,11 +3479,6 @@ pub(crate) unsafe fn collection_at(
                     Ok(()) => wrap(0, 0),
                     Err(error) => wrap(wrap(0, error as u64), 1),
                 }
-            }
-            1 => {
-                (*(a as *mut Collection)).insert(b, value);
-                plenty_retain(a as *mut Header);
-                a
             }
             42 => {
                 let c = &*(a as *const Collection);

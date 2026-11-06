@@ -178,7 +178,10 @@ of a receiver through `&mut` (`counts.insert(k, v)` on a parameter or local,
 collection's owner in place under the exclusive loan, so the receiver is
 neither retained nor released. `clear`, `reverse`, `sort`, `swap`, and the set
 updates return unit rather than an alias of the receiver, so they make no
-count change either (issue #813).
+count change either (issue #813). Literals, comprehensions, and `collect()`
+do the same: each element moves into the insert from a hidden local, and the
+collection under construction is loaded from its owner directly before the
+insert, so a counted element costs no retain or release (issue #826).
 
 An element reference (`&xs[i]`, `&mut xs[i]`, `&mut grid[i][j]`, and the
 implicit one under `bodies[i].x`) of any element type checks the index inline

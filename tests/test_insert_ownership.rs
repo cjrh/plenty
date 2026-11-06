@@ -324,3 +324,110 @@ def main() -> ():
         "True True value-long-enough-to-count 0",
     );
 }
+
+// Single-`for` comprehensions lower as `collect()` pipelines; nested ones and
+// displays build through the general comprehension lowering. Each moves its
+// counted element into the insert and reads the result in place (issue #826).
+const BUILDS: &str = r#"def keys(words: &list[str]) -> Result[set[str], AllocError]:
+    {copy(w)? for w in words}
+
+def lengths(words: &list[str]) -> Result[dict[str, i64], AllocError]:
+    {copy(w)?: len(w) for w in words}
+
+def names(words: &list[str]) -> Result[list[str], AllocError]:
+    [copy(w)? for w in words if len(w) > 3]
+
+def nested_keys(rows: &list[list[str]]) -> Result[set[str], AllocError]:
+    {copy(w)? for row in rows for w in row}
+
+def nested_lengths(rows: &list[list[str]]) -> Result[dict[str, i64], AllocError]:
+    {copy(w)?: len(w) for row in rows for w in row}
+
+def nested_names(rows: &list[list[str]]) -> Result[list[str], AllocError]:
+    [copy(w)? for row in rows for w in row]
+
+def pair(a: &str, b: &str) -> Result[dict[str, str], AllocError]:
+    {copy(a)?: copy(b)?, copy(b)?: copy(a)?}
+
+def main() -> Result[(), AllocError | IoError]:
+    words = [("alpha-counted-word" + "")?, ("beta-counted-word" + "")?, ("alpha-counted-word" + "")?]?
+    rows = [copy(&words)?, [("gamma-counted-word" + "")?]?]?
+    print(keys(&words)?, lengths(&words)?, names(&words)?)?
+    print(nested_keys(&rows)?, nested_lengths(&rows)?, nested_names(&rows)?)?
+    print(pair(&words[0], &words[1])?)?
+    print("__test_small_live_heap__")?
+    Ok(())
+"#;
+
+#[test]
+fn comprehension_inserts_count_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("p.plenty"), BUILDS).unwrap();
+    let args = ["--release", "--dump", "asm", "p.plenty", "-o", "out"];
+    let output = plenty(dir.path(), &args);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let asm = std::fs::read_to_string(dir.path().join("out").join("asm.txt")).unwrap();
+    for name in [
+        "keys",
+        "lengths",
+        "names",
+        "nested_keys",
+        "nested_lengths",
+        "nested_names",
+        "pair",
+    ] {
+        let body = support::asm_body(&asm, name);
+        // Neither the element nor the collection is retained, and in a loop
+        // nothing is released on the straight-line path from an insert to its
+        // result test; later releases are on failure and exit paths. The last
+        // insert of the `pair` display falls through to the release of the
+        // owner's one copy at scope exit.
+        assert!(!body.contains("plenty_retain"), "{name}:\n{body}");
+        if name == "pair" {
+            continue;
+        }
+        let lines: Vec<&str> = body.lines().collect();
+        let inserts: Vec<usize> = (0..lines.len())
+            .filter(|&i| lines[i].ends_with("# plenty_op_29"))
+            .collect();
+        assert!(!inserts.is_empty(), "{name}:\n{body}");
+        for i in inserts {
+            let after = lines[i + 1..].iter().take_while(|line| {
+                !line
+                    .split_whitespace()
+                    .nth(1)
+                    .is_some_and(|op| op.starts_with('j'))
+            });
+            for line in after {
+                assert!(!line.contains("plenty_release"), "{name}:\n{body}");
+            }
+        }
+    }
+    let output = plenty(dir.path(), &["--release", "p.plenty"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "{stdout}");
+    let visible: Vec<_> = stdout
+        .lines()
+        .filter(|line| !line.starts_with("__test_"))
+        .collect();
+    assert_eq!(
+        visible,
+        [
+            concat!(
+                r#"{"alpha-counted-word", "beta-counted-word"} "#,
+                r#"{"alpha-counted-word": 18, "beta-counted-word": 17} "#,
+                r#"["alpha-counted-word", "beta-counted-word", "alpha-counted-word"]"#
+            ),
+            concat!(
+                r#"{"alpha-counted-word", "beta-counted-word", "gamma-counted-word"} "#,
+                r#"{"alpha-counted-word": 18, "beta-counted-word": 17, "gamma-counted-word": 18} "#,
+                r#"["alpha-counted-word", "beta-counted-word", "alpha-counted-word", "gamma-counted-word"]"#
+            ),
+            r#"{"alpha-counted-word": "beta-counted-word", "beta-counted-word": "alpha-counted-word"}"#,
+        ]
+    );
+}
