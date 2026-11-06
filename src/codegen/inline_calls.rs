@@ -381,15 +381,19 @@ impl Lowerer<'_, '_> {
             portable_simd,
             slot_copies: Vec::new(),
             empty_slot: Some((empty_word, empty_double)),
-            exits: Some(exits::Exits::returning_to(returned)),
+            exits: Some(exits::Exits::returning_to(returned, body)),
             counters: Default::default(),
             position: sites::Position::in_file(decl.source.clone(), decl.standard_library),
             trap_blocks: HashMap::default(),
             moves: Default::default(),
         };
+        let callee_loops = callee.exits.as_ref().is_some_and(|e| e.has_loop());
         let lowered = callee.lower_body(body, inputs);
         self.collection_scratch = callee.collection_scratch;
         lowered.map_err(|e| -> Box<dyn Error> { format!("in inlined `{name}`: {e}").into() })?;
+        if callee_loops && let Some(exits) = &mut self.exits {
+            exits.mark_loop();
+        }
         self.bcx.switch_to_block(returned);
         self.bcx.seal_block(returned);
         self.bcx.set_srcloc(srcloc);
