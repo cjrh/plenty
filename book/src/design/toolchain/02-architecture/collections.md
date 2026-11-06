@@ -170,8 +170,8 @@ of a receiver through `&mut` (`counts.insert(k, v)` on a parameter or local,
 `pop`, `discard`, `clear`, set updates, `reverse`, `sort`, and so on) reads the
 collection's owner in place under the exclusive loan, so the receiver is
 neither retained nor released. `clear`, `reverse`, `sort`, `swap`, and the set
-updates still return a retained alias of the receiver, which the caller
-releases (issue #813).
+updates return unit rather than an alias of the receiver, so they make no
+count change either (issue #813).
 
 An element reference (`&xs[i]`, `&mut xs[i]`, `&mut grid[i][j]`, and the
 implicit one under `bodies[i].x`) of any element type checks the index inline
