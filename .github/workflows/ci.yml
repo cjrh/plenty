@@ -40,10 +40,12 @@ jobs:
         with:
           workspaces: |
             . -> target
-            plenty-${{ matrix.engine }} -> ../target/${{ matrix.engine }}-engine
-          key: ${{ matrix.engine }}-${{ runner.arch }}-baseline
+            plenty-${{ matrix.engine }} -> target
+          # Nested targets are cleaned with the compiler's dependency set,
+          # which drops engine-only crates such as Polars (issue #827).
+          key: ${{ matrix.engine }}-${{ runner.arch }}-baseline-isolated-v2
           cache-bin: "false"
-      - run: python3 -B scripts/build_native_engine.py ${{ matrix.engine }} --out target/engine --jobs 2 --validate
+      - run: python3 -B scripts/build_native_engine.py ${{ matrix.engine }} --out target/engine --target-dir plenty-${{ matrix.engine }}/target --jobs 2 --validate
       - run: "cargo test --locked --features runtime-checks --test integration test_std_${{ matrix.engine }}::"
       - run: cargo test --locked --test integration test_tutorial::${{ matrix.engine }}_examples_with_optional_engine
       - name: Check the sales report application

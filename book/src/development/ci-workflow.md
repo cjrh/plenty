@@ -68,6 +68,15 @@ state are not retained. The [workspace profiles](#rust-build-profiles) also keep
 nightly workflow keeps no cache: each nightly update invalidates compiled
 dependencies.
 
+Optional-engine jobs keep compiler dependencies in `target/` and engine
+dependencies in `plenty-dataframe/target/` or `plenty-linalg/target/`. These
+cache paths must not overlap: the cache action cleans each target with its
+workspace's dependency list, so cleaning a parent target would discard nested
+engine-only dependencies. The engine build receives the matching explicit
+`--target-dir`; its installed library still goes to `target/engine/`. The
+`baseline-isolated-v2` engine cache key starts a new cache population; the
+first run is cold, and hosted timings must confirm reuse on later runs.
+
 ### Compiled-function cache
 
 Each shard also keeps the function entries of the
