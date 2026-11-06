@@ -176,7 +176,7 @@ impl Scan {
                 Op::Integer(_)
                 | Op::Numeric(_)
                 | Op::CheckedArith { .. }
-                // `--unchecked assume` integer arithmetic; it touches no list.
+                // `walk` inspects the wrapped arithmetic or indexing operation too.
                 | Op::Assumed(_)
                 | Op::Cast(_)
                 | Op::CheckedCast(_)
@@ -241,28 +241,36 @@ fn uncache(ops: &mut Vec<Op>, lengths: &[u8]) {
     let mut i = 0;
     while i < ops.len() {
         let restored = match &ops[i..] {
-            [
-                Op::LoadLocal(length),
-                Op::LoadLocal(_),
-                Op::Collection(C::ListScalarGetView(ty)),
-                ..,
-            ] if lengths.contains(length) => Some(C::ListScalarGetRef(ty.clone())),
-            [
-                Op::LoadLocal(length),
-                Op::LoadLocal(_),
-                Op::Collection(C::ListScalarSetView(ty)),
-                ..,
-            ] if lengths.contains(length) => Some(C::ListScalarSetRef(ty.clone())),
-            [
-                Op::LoadLocal(length),
-                Op::LoadLocal(_),
-                Op::Collection(C::ElementRefView(ty, mutable)),
-                ..,
-            ] if lengths.contains(length) => Some(C::ElementRef(ty.clone(), *mutable)),
+            [Op::LoadLocal(length), Op::LoadLocal(_), op, ..] if lengths.contains(length) => {
+                let (inner, assumed) = match op {
+                    Op::Assumed(inner) => (&**inner, true),
+                    op => (op, false),
+                };
+                let restored = match inner {
+                    Op::Collection(C::ListScalarGetView(ty)) => {
+                        Some(C::ListScalarGetRef(ty.clone()))
+                    }
+                    Op::Collection(C::ListScalarSetView(ty)) => {
+                        Some(C::ListScalarSetRef(ty.clone()))
+                    }
+                    Op::Collection(C::ElementRefView(ty, mutable)) => {
+                        Some(C::ElementRef(ty.clone(), *mutable))
+                    }
+                    _ => None,
+                };
+                restored.map(|operation| {
+                    let op = Op::Collection(operation);
+                    if assumed {
+                        Op::Assumed(Box::new(op))
+                    } else {
+                        op
+                    }
+                })
+            }
             _ => None,
         };
         if let Some(restored) = restored {
-            ops.splice(i..i + 3, [Op::Collection(restored)]);
+            ops.splice(i..i + 3, [restored]);
         } else {
             match &mut ops[i] {
                 Op::Loop { condition, body } => {
@@ -566,7 +574,7 @@ impl Lower<'_> {
         let (_, read) =
             self.borrow_with_indices(target, false, &mut Some(read_indices.iter()), ops)?;
         match scalar_element_ref(ops) {
-            Some(list) => scalar_row_read(list, view, ops),
+            Some(list) => self.scalar_row_read(list, view, ops),
             _ => {
                 ops.push(Op::ReadRef(ty.clone()));
             }
@@ -581,7 +589,7 @@ impl Lower<'_> {
         match scalar_element_ref(ops) {
             Some(list) => {
                 ops.push(Op::MoveLocal(result));
-                scalar_row_write(list, view, ops);
+                self.scalar_row_write(list, view, ops);
             }
             _ => {
                 ops.push(Op::MoveLocal(result));
@@ -3292,7 +3300,7 @@ impl Lower<'_> {
                 let (got, mut reads) = self.observe_expected(index, Some(Ty::I64), ops)?;
                 self.same(Some(got), Some(Ty::I64), &index.at)?;
                 self.mark(&e.at, ops);
-                scalar_row_read(ty, view, ops);
+                self.scalar_row_read(ty, view, ops);
                 reads.push(loan);
                 Self::end_reads(reads, ops);
                 return Ok(value);
@@ -3373,7 +3381,7 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(CollectionOp::TextIndex.signature().1);
         }
-        ops.push(Op::Collection(CollectionOp::Get(ty)));
+        ops.push(self.index_op(CollectionOp::Get(ty)));
         Self::end_reads(loans, ops);
         Ok(value)
     }
@@ -5886,8 +5894,11 @@ pub(super) fn decrement(index: u8, ops: &mut Vec<Op>) {
 /// narrow `ListScalarGetRef`/`ListScalarSetRef` helpers, which trap at the
 /// same mark with the same diagnostic (issue #122).
 pub(super) fn scalar_element_ref(ops: &mut Vec<Op>) -> Option<Ty> {
-    let Some(Op::Collection(CollectionOp::ElementRef(list @ Ty::List(element), _))) = ops.last()
-    else {
+    let last = match ops.last()? {
+        Op::Assumed(inner) => &**inner,
+        op => op,
+    };
+    let Op::Collection(CollectionOp::ElementRef(list @ Ty::List(element), _)) = last else {
         return None;
     };
     if !(element.is_numeric() || **element == Ty::Bool) {
@@ -5900,30 +5911,32 @@ pub(super) fn scalar_element_ref(ops: &mut Vec<Op>) -> Option<Ty> {
 
 /// Reads a scalar row with the list reference and index on the stack, from
 /// the loop's cached `view` when there is one.
-pub(super) fn scalar_row_read(list: Ty, view: Option<[u8; 2]>, ops: &mut Vec<Op>) {
-    let operation = match view {
-        // `uncache` relies on this exact sequence.
-        Some([length, rows]) => {
-            ops.extend([Op::LoadLocal(length), Op::LoadLocal(rows)]);
-            CollectionOp::ListScalarGetView(list)
-        }
-        None => CollectionOp::ListScalarGetRef(list),
-    };
-    ops.push(Op::Collection(operation));
-}
+impl Lower<'_> {
+    pub(super) fn scalar_row_read(&self, list: Ty, view: Option<[u8; 2]>, ops: &mut Vec<Op>) {
+        let operation = match view {
+            // `uncache` relies on this exact sequence.
+            Some([length, rows]) => {
+                ops.extend([Op::LoadLocal(length), Op::LoadLocal(rows)]);
+                CollectionOp::ListScalarGetView(list)
+            }
+            None => CollectionOp::ListScalarGetRef(list),
+        };
+        ops.push(self.index_op(operation));
+    }
 
-/// Writes a scalar row with the exclusive list reference, index and value on
-/// the stack, through the loop's cached `view` when there is one.
-pub(super) fn scalar_row_write(list: Ty, view: Option<[u8; 2]>, ops: &mut Vec<Op>) {
-    let operation = match view {
-        Some([length, rows]) => {
-            ops.extend([Op::LoadLocal(length), Op::LoadLocal(rows)]);
-            CollectionOp::ListScalarSetView(list)
-        }
-        None => CollectionOp::ListScalarSetRef(list),
-    };
-    ops.push(Op::Collection(operation));
-    ops.push(Op::Drop);
+    /// Writes a scalar row with the exclusive list reference, index and value on
+    /// the stack, through the loop's cached `view` when there is one.
+    pub(super) fn scalar_row_write(&self, list: Ty, view: Option<[u8; 2]>, ops: &mut Vec<Op>) {
+        let operation = match view {
+            Some([length, rows]) => {
+                ops.extend([Op::LoadLocal(length), Op::LoadLocal(rows)]);
+                CollectionOp::ListScalarSetView(list)
+            }
+            None => CollectionOp::ListScalarSetRef(list),
+        };
+        ops.push(self.index_op(operation));
+        ops.push(Op::Drop);
+    }
 }
 
 pub(super) fn increment(index: u8, ops: &mut Vec<Op>) {

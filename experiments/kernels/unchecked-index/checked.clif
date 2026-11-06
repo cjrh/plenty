@@ -1,0 +1,131 @@
+function u0:58(i128, i128, i64) -> f64 tail {
+    ss0 = explicit_slot 16, align = 16
+    gv0 = symbol colocated u0:100 ; .Ldata1 (trap sites: 2)
+    sig0 = (i64, i64) system_v
+    sig1 = (i64, i64) system_v
+    sig2 = (i64, i64) system_v
+    fn0 = colocated u0:52 sig0 ; plenty_trap_list_index
+    fn1 = colocated u0:52 sig1 ; plenty_trap_list_index
+    fn2 = colocated u0:52 sig2 ; plenty_trap_list_index
+
+block0(v0: i128, v1: i128, v2: i64):
+    ; line 4
+    jump block2
+
+block3(v19: i64, v23: f64, v28: i64):
+    v149 = iconst.i64 0
+    v150 = icmp sle v19, v149  ; v149 = 0
+    brif v150, block1(v23), block4
+
+block4:
+    ; line 5
+    v29, v30 = isplit.i128 v1
+    v151 = iconst.i64 3
+    v152 = ishl.i64 v28, v151  ; v151 = 3
+    v33 = iadd v29, v152
+    v35 = load.i64 notrap aligned v33
+    v36, v37 = isplit.i128 v0
+    v42 = icmp ult v35, v37
+    v153 = ishl v35, v151  ; v151 = 3
+    v41 = iadd v36, v153
+    brif v42, block6(v41), block7
+
+block7 cold:
+    v43 = iadd.i64 v35, v37
+    v44 = icmp ult v43, v37
+    v154 = iconst.i64 3
+    v155 = ishl v43, v154  ; v154 = 3
+    v47 = iadd.i64 v36, v155
+    brif v44, block6(v47), block5
+
+block5 cold:
+    v156 = stack_addr.i64 ss0
+    store.i64 notrap aligned v35, v156
+    store.i64 notrap aligned v37, v156+8
+    v157 = symbol_value.i64 gv0
+    call fn0(v156, v157)
+    trap user3
+
+block6(v38: i64):
+    v51 = load.i64 notrap aligned v38
+    v158 = iconst.i64 1
+    v159 = isub.i64 v19, v158  ; v158 = 1
+    v52 = bitcast.f64 v51
+    v53 = fadd.f64 v23, v52
+    v160 = iadd.i64 v28, v158  ; v158 = 1
+    jump block3(v159, v53, v160)
+
+block2:
+    v61, v62 = isplit.i128 v1
+    v65 = icmp.i64 sle v2, v62
+    v3 = iconst.i64 0
+    v133 = smax v3, v2  ; v3 = 0
+    ; line 2
+    v5 = f64const 0.0
+    ; line 5
+    v85 = iconst.i64 3
+    ; line 4
+    v7 = iconst.i64 1
+    ; line 5
+    brif v65, block3(v133, v5, v3), block8(v133, v5, v3)  ; v5 = 0.0, v3 = 0, v5 = 0.0, v3 = 0
+
+block8(v68: i64, v72: f64, v77: i64):
+    v137 = iconst.i64 0
+    v138 = icmp sle v68, v137  ; v137 = 0
+    brif v138, block1(v72), block9
+
+block9:
+    v78, v79 = isplit.i128 v1
+    v80 = icmp.i64 ult v77, v79
+    brif v80, block11, block10
+
+block10 cold:
+    v81 = stack_addr.i64 ss0
+    store.i64 notrap aligned v77, v81
+    store.i64 notrap aligned v79, v81+8
+    v82 = symbol_value.i64 gv0
+    v83 = iconst.i64 16
+    v84 = iadd v82, v83  ; v83 = 16
+    call fn1(v81, v84)
+    trap user3
+
+block11:
+    v139 = iconst.i64 3
+    v140 = ishl.i64 v77, v139  ; v139 = 3
+    v87 = iadd.i64 v78, v140
+    v89 = load.i64 notrap aligned v87
+    v90, v91 = isplit.i128 v0
+    v96 = icmp ult v89, v91
+    v141 = ishl v89, v139  ; v139 = 3
+    v95 = iadd v90, v141
+    brif v96, block13(v95), block14
+
+block14 cold:
+    v97 = iadd.i64 v89, v91
+    v98 = icmp ult v97, v91
+    v142 = iconst.i64 3
+    v143 = ishl v97, v142  ; v142 = 3
+    v101 = iadd.i64 v90, v143
+    brif v98, block13(v101), block12
+
+block12 cold:
+    v144 = stack_addr.i64 ss0
+    store.i64 notrap aligned v89, v144
+    store.i64 notrap aligned v91, v144+8
+    v145 = symbol_value.i64 gv0
+    call fn2(v144, v145)
+    trap user3
+
+block13(v92: i64):
+    v105 = load.i64 notrap aligned v92
+    v146 = iconst.i64 1
+    v147 = isub.i64 v68, v146  ; v146 = 1
+    v106 = bitcast.f64 v105
+    v107 = fadd.f64 v72, v106
+    v148 = iadd.i64 v77, v146  ; v146 = 1
+    jump block8(v147, v107, v148)
+
+block1(v117: f64):
+    ; line 6
+    return v117
+}

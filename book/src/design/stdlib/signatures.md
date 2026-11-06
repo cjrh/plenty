@@ -18,93 +18,94 @@ After changing a standard module, regenerate this page with
 
 Each section's lines in this file, so one module can be read alone.
 
-- [`std.actor`](#stdactor): 109-186
-- [`std.actor.net`](#stdactornet): 188-251
-- [`std.actor.tls`](#stdactortls): 253-282
-- [`std.actor.http.server`](#stdactorhttpserver): 284-347
-- [`std.archive`](#stdarchive): 349-415
-- [`std.atomic`](#stdatomic): 417-426
-- [`std.bytes`](#stdbytes): 428-475
-- [`std.cache.lru`](#stdcachelru): 477-499
-- [`std.channel`](#stdchannel): 501-505
-- [`std.cli`](#stdcli): 507-537
-- [`std.cli.fileinput`](#stdclifileinput): 539-548
-- [`std.cli.progress`](#stdcliprogress): 550-574
-- [`std.collections`](#stdcollections): 576-603
-- [`std.complex`](#stdcomplex): 605-631
-- [`std.compress`](#stdcompress): 633-663
-- [`std.concurrent`](#stdconcurrent): 665-669
-- [`std.crypto`](#stdcrypto): 671-752
-- [`std.csv`](#stdcsv): 754-817
-- [`std.dataframe`](#stddataframe): 819-1018
-- [`std.db.kv`](#stddbkv): 1020-1052
-- [`std.db.sqlite`](#stddbsqlite): 1054-1118
-- [`std.deque`](#stddeque): 1120-1134
-- [`std.diff`](#stddiff): 1136-1165
-- [`std.encoding`](#stdencoding): 1167-1234
-- [`std.env`](#stdenv): 1236-1250
-- [`std.error`](#stderror): 1252-1272
-- [`std.fmt`](#stdfmt): 1274-1341
-- [`std.fs`](#stdfs): 1343-1437
-- [`std.fs.dirs`](#stdfsdirs): 1439-1449
-- [`std.fs.watch`](#stdfswatch): 1451-1486
-- [`std.graph`](#stdgraph): 1488-1576
-- [`std.http`](#stdhttp): 1578-1648
-- [`std.http.decoder`](#stdhttpdecoder): 1650-1667
-- [`std.http.body`](#stdhttpbody): 1669-1704
-- [`std.http.client`](#stdhttpclient): 1706-1816
-- [`std.http.cookie`](#stdhttpcookie): 1818-1850
-- [`std.http.files`](#stdhttpfiles): 1852-1865
-- [`std.http.https`](#stdhttphttps): 1867-1881
-- [`std.http.proxy`](#stdhttpproxy): 1883-1904
-- [`std.http.server`](#stdhttpserver): 1906-1991
-- [`std.http.sse`](#stdhttpsse): 1993-2012
-- [`std.http.tls`](#stdhttptls): 2014-2031
-- [`std.http.typed`](#stdhttptyped): 2033-2066
-- [`std.http.websocket`](#stdhttpwebsocket): 2068-2103
-- [`std.http.wss`](#stdhttpwss): 2105-2111
-- [`std.image`](#stdimage): 2113-2159
-- [`std.io`](#stdio): 2161-2267
-- [`std.io.typed`](#stdiotyped): 2269-2307
-- [`std.json`](#stdjson): 2309-2373
-- [`std.jwt`](#stdjwt): 2375-2422
-- [`std.log`](#stdlog): 2424-2491
-- [`std.markdown`](#stdmarkdown): 2493-2527
-- [`std.template`](#stdtemplate): 2529-2550
-- [`std.math`](#stdmath): 2552-2623
-- [`std.mime`](#stdmime): 2625-2651
-- [`std.net`](#stdnet): 2653-2735
-- [`std.path`](#stdpath): 2737-2754
-- [`std.process`](#stdprocess): 2756-2805
-- [`std.random`](#stdrandom): 2807-2828
-- [`std.ready`](#stdready): 2830-2861
-- [`std.regex`](#stdregex): 2863-2916
-- [`std.report`](#stdreport): 2918-2925
-- [`std.secrets`](#stdsecrets): 2927-2953
-- [`std.shlex`](#stdshlex): 2955-2964
-- [`std.sketch`](#stdsketch): 2966-3004
-- [`std.sketch.xor`](#stdsketchxor): 3006-3017
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3019-3034
-- [`std.signal`](#stdsignal): 3036-3053
-- [`std.simd`](#stdsimd): 3055-3156
-- [`std.stat`](#stdstat): 3158-3191
-- [`std.plot`](#stdplot): 3193-3282
-- [`std.linalg`](#stdlinalg): 3284-3325
-- [`std.sync`](#stdsync): 3327-3345
-- [`std.system`](#stdsystem): 3347-3405
-- [`std.tempfile`](#stdtempfile): 3407-3439
-- [`std.test`](#stdtest): 3441-3483
-- [`std.text`](#stdtext): 3485-3528
-- [`std.thread`](#stdthread): 3530-3534
-- [`std.time`](#stdtime): 3536-3580
-- [`std.tls`](#stdtls): 3582-3664
-- [`std.toml`](#stdtoml): 3666-3715
-- [`std.unicode`](#stdunicode): 3717-3729
-- [`std.units`](#stdunits): 3731-3968
-- [`std.units.catalogue`](#stdunitscatalogue): 3970-4748
-- [`std.url`](#stdurl): 4750-4778
-- [`std.uuid`](#stduuid): 4780-4803
-- [`std.xml`](#stdxml): 4805-4838
+- [`std.actor`](#stdactor): 110-187
+- [`std.actor.net`](#stdactornet): 189-252
+- [`std.actor.tls`](#stdactortls): 254-283
+- [`std.actor.http.server`](#stdactorhttpserver): 285-348
+- [`std.archive`](#stdarchive): 350-416
+- [`std.atomic`](#stdatomic): 418-427
+- [`std.bytes`](#stdbytes): 429-476
+- [`std.cache.lru`](#stdcachelru): 478-500
+- [`std.channel`](#stdchannel): 502-506
+- [`std.cli`](#stdcli): 508-538
+- [`std.cli.fileinput`](#stdclifileinput): 540-549
+- [`std.cli.progress`](#stdcliprogress): 551-575
+- [`std.collections`](#stdcollections): 577-604
+- [`std.complex`](#stdcomplex): 606-632
+- [`std.compress`](#stdcompress): 634-664
+- [`std.concurrent`](#stdconcurrent): 666-670
+- [`std.crypto`](#stdcrypto): 672-753
+- [`std.csv`](#stdcsv): 755-818
+- [`std.dataframe`](#stddataframe): 820-1019
+- [`std.db.kv`](#stddbkv): 1021-1053
+- [`std.db.sqlite`](#stddbsqlite): 1055-1119
+- [`std.deque`](#stddeque): 1121-1135
+- [`std.diff`](#stddiff): 1137-1166
+- [`std.encoding`](#stdencoding): 1168-1235
+- [`std.env`](#stdenv): 1237-1251
+- [`std.error`](#stderror): 1253-1273
+- [`std.fmt`](#stdfmt): 1275-1342
+- [`std.fs`](#stdfs): 1344-1443
+- [`std.fs.dirs`](#stdfsdirs): 1445-1455
+- [`std.fs.lock`](#stdfslock): 1457-1471
+- [`std.fs.watch`](#stdfswatch): 1473-1508
+- [`std.graph`](#stdgraph): 1510-1598
+- [`std.http`](#stdhttp): 1600-1670
+- [`std.http.decoder`](#stdhttpdecoder): 1672-1689
+- [`std.http.body`](#stdhttpbody): 1691-1726
+- [`std.http.client`](#stdhttpclient): 1728-1838
+- [`std.http.cookie`](#stdhttpcookie): 1840-1872
+- [`std.http.files`](#stdhttpfiles): 1874-1887
+- [`std.http.https`](#stdhttphttps): 1889-1903
+- [`std.http.proxy`](#stdhttpproxy): 1905-1926
+- [`std.http.server`](#stdhttpserver): 1928-2013
+- [`std.http.sse`](#stdhttpsse): 2015-2034
+- [`std.http.tls`](#stdhttptls): 2036-2053
+- [`std.http.typed`](#stdhttptyped): 2055-2088
+- [`std.http.websocket`](#stdhttpwebsocket): 2090-2125
+- [`std.http.wss`](#stdhttpwss): 2127-2133
+- [`std.image`](#stdimage): 2135-2181
+- [`std.io`](#stdio): 2183-2289
+- [`std.io.typed`](#stdiotyped): 2291-2329
+- [`std.json`](#stdjson): 2331-2395
+- [`std.jwt`](#stdjwt): 2397-2444
+- [`std.log`](#stdlog): 2446-2513
+- [`std.markdown`](#stdmarkdown): 2515-2549
+- [`std.template`](#stdtemplate): 2551-2572
+- [`std.math`](#stdmath): 2574-2645
+- [`std.mime`](#stdmime): 2647-2673
+- [`std.net`](#stdnet): 2675-2757
+- [`std.path`](#stdpath): 2759-2776
+- [`std.process`](#stdprocess): 2778-2827
+- [`std.random`](#stdrandom): 2829-2850
+- [`std.ready`](#stdready): 2852-2883
+- [`std.regex`](#stdregex): 2885-2938
+- [`std.report`](#stdreport): 2940-2947
+- [`std.secrets`](#stdsecrets): 2949-2975
+- [`std.shlex`](#stdshlex): 2977-2986
+- [`std.sketch`](#stdsketch): 2988-3026
+- [`std.sketch.xor`](#stdsketchxor): 3028-3039
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3041-3056
+- [`std.signal`](#stdsignal): 3058-3075
+- [`std.simd`](#stdsimd): 3077-3178
+- [`std.stat`](#stdstat): 3180-3213
+- [`std.plot`](#stdplot): 3215-3304
+- [`std.linalg`](#stdlinalg): 3306-3347
+- [`std.sync`](#stdsync): 3349-3367
+- [`std.system`](#stdsystem): 3369-3427
+- [`std.tempfile`](#stdtempfile): 3429-3461
+- [`std.test`](#stdtest): 3463-3505
+- [`std.text`](#stdtext): 3507-3550
+- [`std.thread`](#stdthread): 3552-3556
+- [`std.time`](#stdtime): 3558-3602
+- [`std.tls`](#stdtls): 3604-3686
+- [`std.toml`](#stdtoml): 3688-3737
+- [`std.unicode`](#stdunicode): 3739-3751
+- [`std.units`](#stdunits): 3753-3990
+- [`std.units.catalogue`](#stdunitscatalogue): 3992-4770
+- [`std.url`](#stdurl): 4772-4800
+- [`std.uuid`](#stduuid): 4802-4825
+- [`std.xml`](#stdxml): 4827-4860
 
 ## `std.actor`
 
@@ -1342,7 +1343,7 @@ protocol Formattable
 
 ## `std.fs`
 
-Directories, metadata/walking, rooted mutation, owned temporary resources, bounded file/tree copy, metadata preservation, delete/glob. Errors: `IoError`, `AllocError`, `WalkError`, `FsError`, `TreeCopyError`. [Reference](fs.md).
+Directories, metadata/walking, symbolic links and canonical paths, rooted mutation, owned temporary resources, bounded file/tree copy, metadata preservation, delete/glob. Errors: `IoError`, `AllocError`, `WalkError`, `FsError`, `TreeCopyError`. [Reference](fs.md).
 
 ```text
 enum FsError
@@ -1350,11 +1351,14 @@ enum FsError
 class Root
     def open_dir(self, name: &Path) -> Result[Root, IoError]
     def read_file(self, name: &Path) -> Result[FileStream, IoError]
-    def create_dir(self, name: &Path) -> Result[(), IoError]
+    def create_dir(self, name: &Path, unix_mode: u32 = 0o700u32) -> Result[(), IoError]
+    def create_file(self, name: &Path, unix_mode: u32 = 0o600u32) -> Result[FileStream, IoError]
+    def set_unix_mode(self, unix_mode: u32) -> Result[(), IoError]
     def remove_file(self, name: &Path) -> Result[(), IoError]
     def remove_dir(self, name: &Path) -> Result[(), IoError]
     def move(self, source: &Path, destination: &Path) -> Result[(), IoError]
     def names(self) -> Result[Names, IoError]
+def set_file_unix_mode(stream: &FileStream, unix_mode: u32) -> Result[(), IoError]
 def root(path: &Path) -> Result[Root, IoError]
 class Names
     def next(self: &mut Names) -> Result[Option[Path], IoError]
@@ -1422,6 +1426,8 @@ def metadata(path: &Path) -> Result[Metadata, IoError]
 def symlink_metadata(path: &Path) -> Result[Metadata, IoError]
 def file_metadata(stream: &FileStream) -> Result[Metadata, IoError]
 def read_link(path: &Path) -> Result[Path, IoError]
+def canonicalize(path: &Path) -> Result[Path, IoError]
+def symlink(target: &Path, link: &Path) -> Result[(), IoError]
 def entries(owner: ReadDir) -> Generator[Result[DirEntry, IoError]]
 enum WalkError
     Io(Path, str, IoError) | Allocation(AllocError)
@@ -1446,6 +1452,22 @@ def config_dir() -> Result[Option[Path], IoError]
 def cache_dir() -> Result[Option[Path], IoError]
 def data_dir() -> Result[Option[Path], IoError]
 def state_dir() -> Result[Option[Path], IoError]
+```
+
+## `std.fs.lock`
+
+Owned Linux shared/exclusive advisory locks, nonblocking and cancellable deadline acquisition. Errors: `LockError`. [Reference](fs/lock.md).
+
+```text
+enum Mode
+    Shared | Exclusive
+enum LockError
+    WouldBlock | TimedOut | Cancelled | InvalidPath | Io(IoError) | Allocation(AllocError)
+class Lock
+    def close(self: &mut Lock) -> Result[(), LockError]
+    def is_closed(self) -> bool
+def acquire_now(path: &Path, mode: Mode) -> Result[Lock, LockError]
+def acquire_before(path: &Path, mode: Mode, deadline: &Deadline, cancel: &CancellationToken) -> Result[Lock, LockError]
 ```
 
 ## `std.fs.watch`

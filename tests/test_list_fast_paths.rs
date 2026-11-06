@@ -134,7 +134,13 @@ def main() -> Result[(), OverflowError[i64]]:
     let (end, target) = instructions
         .iter()
         .find_map(|(offset, text)| {
-            let target = text.strip_prefix("jmp")?.trim().strip_prefix("0x")?;
+            // A rotated loop's backedge is conditional (issue #726).
+            let (op, target) = text.split_once(char::is_whitespace)?;
+            let target = op
+                .starts_with('j')
+                .then_some(target)?
+                .trim()
+                .strip_prefix("0x")?;
             let target = u64::from_str_radix(target, 16).ok()?;
             (target < *offset).then_some((*offset, target))
         })
@@ -678,11 +684,25 @@ fn index_failures_add_no_moves_to_the_loop() {
     let (end, start) = instructions
         .iter()
         .find_map(|(offset, text)| {
-            let target = text.strip_prefix("jmp")?.trim().strip_prefix("0x")?;
+            let (op, target) = text.split_once(char::is_whitespace)?;
+            let target = op
+                .starts_with('j')
+                .then_some(target)?
+                .trim()
+                .strip_prefix("0x")?;
             let target = u64::from_str_radix(target, 16).ok()?;
             (target < *offset).then_some((*offset, target))
         })
         .expect("reversal loop backedge");
+    // The loop is rotated: its latch tests `lo < hi` and branches back, so
+    // no pass ends in an unconditional jump (issue #726).
+    assert!(
+        instructions[..]
+            .iter()
+            .filter(|(offset, _)| (start..=end).contains(offset))
+            .all(|(_, text)| !text.starts_with("jmp")),
+        "{asm}"
+    );
     // The function's exit lies inside the address range, so the frame
     // pointer's restore is not a loop move.
     let register_move = regex::Regex::new(r"^mov\s+%(\w+),%(\w+)$").unwrap();
@@ -1241,24 +1261,126 @@ fn relational_counters_trap_as_the_first_pass_would(#[case] call: &str, #[case] 
     }
 }
 
+/// The block named by a CLIF label line, such as `block3(v1: i64):`.
+fn block_label(line: &str) -> Option<&str> {
+    let name = line.split([' ', '(', ':']).next()?;
+    (name.starts_with("block") && !line.starts_with(' ')).then_some(name)
+}
+
+/// The blocks a CLIF `jump` or `brif` line branches to, in operand order.
+fn branch_targets(line: &str) -> Vec<&str> {
+    let Some((op, rest)) = line.trim().split_once(' ') else {
+        return Vec::new();
+    };
+    // `brif.i8` tests a narrow value.
+    if op != "jump" && op.split('.').next() != Some("brif") {
+        return Vec::new();
+    }
+    rest.split([',', ' ', '(', ')'])
+        .filter(|t| t.starts_with("block"))
+        .collect()
+}
+
+/// A natural loop of a CLIF function: its header, the latch that branches
+/// back to it, and the line ranges of its blocks.
+struct ClifLoop<'a> {
+    header: &'a str,
+    latch: &'a str,
+    blocks: Vec<&'a str>,
+}
+
+/// Each block's name, line range and successors, in text order.
+fn clif_blocks<'a>(lines: &[&'a str]) -> Vec<(&'a str, std::ops::Range<usize>, Vec<&'a str>)> {
+    let starts: Vec<(usize, &str)> = lines
+        .iter()
+        .enumerate()
+        .filter_map(|(at, line)| Some((at, block_label(line)?)))
+        .collect();
+    starts
+        .iter()
+        .enumerate()
+        .map(|(i, &(at, name))| {
+            let end = starts.get(i + 1).map_or(lines.len(), |&(next, _)| next);
+            let successors = lines[at..end]
+                .iter()
+                .flat_map(|line| branch_targets(line))
+                .collect();
+            (name, at..end, successors)
+        })
+        .collect()
+}
+
+/// The natural loops of `lines`, ordered by their header's position. A back
+/// edge goes to a block on the depth-first search stack from the entry.
+fn clif_loops<'a>(lines: &[&'a str]) -> Vec<ClifLoop<'a>> {
+    let blocks = clif_blocks(lines);
+    let index = |name: &str| blocks.iter().position(|(n, ..)| *n == name);
+    let mut back = Vec::new();
+    let mut state = vec![0u8; blocks.len()];
+    let mut stack = vec![(0, 0)];
+    state[0] = 1;
+    while let Some(&mut (block, ref mut next)) = stack.last_mut() {
+        let Some(&succ) = blocks[block].2.get(*next) else {
+            state[block] = 2;
+            stack.pop();
+            continue;
+        };
+        *next += 1;
+        let Some(succ) = index(succ) else { continue };
+        match state[succ] {
+            0 => {
+                state[succ] = 1;
+                stack.push((succ, 0));
+            }
+            1 => back.push((block, succ)),
+            _ => {}
+        }
+    }
+    let mut loops: Vec<ClifLoop> = back
+        .into_iter()
+        .map(|(latch, header)| {
+            let mut members = vec![header];
+            let mut work = vec![latch];
+            while let Some(block) = work.pop() {
+                if members.contains(&block) {
+                    continue;
+                }
+                members.push(block);
+                let name = blocks[block].0;
+                work.extend((0..blocks.len()).filter(|&b| blocks[b].2.contains(&name)));
+            }
+            ClifLoop {
+                header: blocks[header].0,
+                latch: blocks[latch].0,
+                blocks: members.iter().map(|&b| blocks[b].0).collect(),
+            }
+        })
+        .collect();
+    loops.sort_by_key(|l| index(l.header));
+    loops
+}
+
+/// The lines of `block` in `lines`.
+fn block_lines<'a>(lines: &[&'a str], block: &str) -> Vec<&'a str> {
+    clif_blocks(lines)
+        .into_iter()
+        .find(|(name, ..)| *name == block)
+        .map(|(_, range, _)| lines[range].to_vec())
+        .unwrap_or_default()
+}
+
 /// Calls to `plenty_trap_list_index` in or after the first loop header of
 /// `clif`, a back-edge target: a check before the loop comes earlier.
 fn loop_index_traps(clif: &str) -> usize {
     let lines: Vec<&str> = clif.lines().collect();
-    let label = |line: &str| {
-        let name = line.split(['(', ':']).next()?;
-        (name.starts_with("block") && !line.starts_with(' ')).then(|| name.to_string())
-    };
-    let header = lines
-        .iter()
-        .enumerate()
-        .filter_map(|(at, line)| Some((at, label(line)?)))
-        .find(|(at, name)| {
-            lines[at + 1..]
+    let header = clif_loops(&lines)
+        .first()
+        .and_then(|l| {
+            lines
                 .iter()
-                .any(|line| line.trim_start().starts_with(&format!("jump {name}(")))
+                .position(|line| block_label(line) == Some(l.header))
         })
-        .map_or(lines.len(), |(at, _)| at);
+        .unwrap_or(lines.len());
     let traps: Vec<String> = lines
         .iter()
         .filter(|line| line.ends_with("; plenty_trap_list_index"))
@@ -1803,74 +1925,82 @@ fn traps_per_loop(clif: &str) -> Vec<usize> {
         .filter(|line| line.ends_with("; plenty_trap_list_index"))
         .filter_map(|line| Some(line.trim().split(' ').next()?.to_string()))
         .collect();
-    let mut loops = Vec::new();
-    for (at, line) in lines.iter().enumerate() {
-        let Some(name) = line.split(['(', ':']).next() else {
-            continue;
-        };
-        if !name.starts_with("block") || line.starts_with(' ') {
-            continue;
-        }
-        let back = lines[at + 1..].iter().position(|line| {
-            let line = line.trim();
-            line == format!("jump {name}") || line.starts_with(&format!("jump {name}("))
-        });
-        if let Some(back) = back {
-            let count = lines[at..=at + 1 + back]
+    let blocks = clif_blocks(&lines);
+    let cold = |name: &str| {
+        blocks
+            .iter()
+            .any(|(n, range, _)| *n == name && lines[range.start].contains(" cold"))
+    };
+    clif_loops(&lines)
+        .iter()
+        .map(|l| {
+            // A check's failure branches to a cold block outside the loop.
+            let mut members = l.blocks.clone();
+            for (name, _, succ) in &blocks {
+                if l.blocks.contains(name) {
+                    for s in succ {
+                        if cold(s) && !members.contains(s) {
+                            members.push(s);
+                        }
+                    }
+                }
+            }
+            members
                 .iter()
+                .flat_map(|block| block_lines(&lines, block))
                 .filter(|line| traps.iter().any(|t| line.contains(&format!("call {t}("))))
-                .count();
-            loops.push(count);
-        }
-    }
-    loops
+                .count()
+        })
+        .collect()
 }
 
-/// Whether every loop header in `clif` that ends in a `brif` names its exit
-/// first: the target outside the blocks from the header to the block that
-/// jumps back to it.
-fn loop_headers_exit_first(clif: &str) -> bool {
+/// Each loop of `clif`, in order, as whether it is rotated and whether the
+/// branch that enters it names the exit first (issue #767). An unrotated
+/// loop's header ends in a `brif` and its latch jumps back to the header. A
+/// rotated loop's guard `brif`s to the exit or the body, and its latch
+/// `brif`s back to the body and then to the exit (issue #726). A test that
+/// is not a comparison has no free complement, so its branch names the body
+/// first.
+fn loop_layout(clif: &str) -> Vec<(bool, bool)> {
     let lines: Vec<&str> = clif.lines().collect();
-    let start = |block: &str| {
-        lines.iter().position(|line| {
-            line.strip_prefix(block)
-                .is_some_and(|rest| rest.starts_with(['(', ':']))
-        })
+    let terminator = |block: &str| {
+        block_lines(&lines, block)
+            .into_iter()
+            .rfind(|line| !branch_targets(line).is_empty())
+            .unwrap_or_else(|| panic!("{block} has no branch\n{clif}"))
     };
-    let mut headers = 0;
-    for (at, line) in lines.iter().enumerate() {
-        let Some(name) = line.split(['(', ':']).next() else {
-            continue;
-        };
-        if !name.starts_with("block") || line.starts_with(' ') {
-            continue;
-        }
-        let Some(back) = lines[at + 1..].iter().position(|line| {
-            let line = line.trim();
-            line == format!("jump {name}") || line.starts_with(&format!("jump {name}("))
-        }) else {
-            continue;
-        };
-        let end = at + 1 + back;
-        let terminator = lines[at + 1..]
-            .iter()
-            .map(|line| line.trim())
-            .find(|line| line.starts_with("brif ") || line.starts_with("jump "))
-            .unwrap();
-        let Some(targets) = terminator.strip_prefix("brif ") else {
-            continue;
-        };
-        let targets: Vec<&str> = targets
-            .split([',', ' ', '('])
-            .filter(|t| t.starts_with("block"))
-            .collect();
-        let inside = |block: &str| start(block).is_some_and(|i| (at..=end).contains(&i));
-        if inside(targets[0]) || !inside(targets[1]) {
-            return false;
-        }
-        headers += 1;
-    }
-    headers > 0
+    clif_loops(&lines)
+        .iter()
+        .map(|l| {
+            let inside = |block: &str| l.blocks.contains(&block);
+            let latch = terminator(l.latch);
+            if latch.trim().starts_with("jump ") {
+                let header = terminator(l.header);
+                if header.trim().starts_with("brif") {
+                    let targets = branch_targets(header);
+                    assert!(inside(targets[0]) != inside(targets[1]), "{header}\n{clif}");
+                    return (false, !inside(targets[0]));
+                }
+                return (false, true);
+            }
+            let targets = branch_targets(latch);
+            assert!(
+                targets[0] == l.header && !inside(targets[1]),
+                "{latch}\n{clif}"
+            );
+            let guard = clif_blocks(&lines)
+                .into_iter()
+                .filter(|(name, _, succ)| !inside(name) && succ.contains(&l.header))
+                .map(|(name, ..)| branch_targets(terminator(name)))
+                .find(|targets| targets.len() == 2)
+                .unwrap_or_else(|| panic!("no guard for {}\n{clif}", l.header));
+            assert!(
+                guard == [targets[1], l.header] || guard == [l.header, targets[1]],
+                "{clif}"
+            );
+            (true, guard[0] == targets[1])
+        })
+        .collect()
 }
 
 /// A loop header branches to its exit first, so Cranelift places the body
@@ -1880,7 +2010,73 @@ fn loop_headers_exit_first(clif: &str) -> bool {
 fn loop_headers_branch_to_the_exit_first() {
     for name in ["copy_rows", "pair_sum", "until_negative"] {
         let clif = dump("clif-opt", &format!("__plenty_fn_{name}"), VERSIONED);
-        assert!(loop_headers_exit_first(&clif), "{name}\n{clif}");
+        let layout = loop_layout(&clif);
+        assert!(!layout.is_empty(), "{name}\n{clif}");
+        assert!(
+            layout.iter().all(|&(_, exit_first)| exit_first),
+            "{name}\n{clif}"
+        );
+    }
+}
+
+/// Loops whose condition only reads scalar and view locals are rotated, in
+/// both versioned copies; a condition with a call or a list's length stays at
+/// the header (issue #726).
+const ROTATION: &str = r#"
+def below(i: i64, n: i64) -> bool:
+    i < n
+
+def called(n: i64) -> Result[i64, OverflowError[i64]]:
+    mut i = 0
+    while below(i, n):
+        i += 1
+    Ok(i)
+
+def list_length(xs: &list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut i = 0
+    while i < len(xs):
+        i += 1
+    Ok(i)
+
+def view_length(xs: &[i64]) -> Result[i64, OverflowError[i64]]:
+    mut i = 0
+    while i < len(xs) and xs[i] > 0:
+        i += 1
+    Ok(i)
+
+def flag(n: i64) -> Result[i64, OverflowError[i64]]:
+    mut more = n > 0
+    mut i = 0
+    while more:
+        i += 1
+        more = i < n
+    Ok(i)
+
+def main() -> Result[(), AllocError | OverflowError[i64]]:
+    xs = [1, 2]?
+    called(2)?
+    list_length(&xs)?
+    view_length(&xs)?
+    flag(2)?
+    Ok(())
+"#;
+
+#[test]
+fn scalar_loop_conditions_are_rotated() {
+    for (name, source, rotated) in [
+        ("copy_rows", VERSIONED, &[true, true][..]),
+        ("pair_sum", VERSIONED, &[true, true, true]),
+        ("until_negative", VERSIONED, &[true, true]),
+        ("called", ROTATION, &[false]),
+        ("list_length", ROTATION, &[false]),
+        // A view's length and items are rotated, with the index check in
+        // both copies.
+        ("view_length", ROTATION, &[true]),
+        ("flag", ROTATION, &[true]),
+    ] {
+        let clif = dump("clif-opt", &format!("__plenty_fn_{name}"), source);
+        let layout: Vec<bool> = loop_layout(&clif).iter().map(|&(r, _)| r).collect();
+        assert_eq!(layout, rotated, "{name}\n{clif}");
     }
 }
 

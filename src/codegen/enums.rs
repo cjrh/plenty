@@ -774,7 +774,7 @@ impl Lowerer<'_, '_> {
         let pending = self.stack.clone();
         self.release_stack();
         let values = vec![(residual, Ty::Enum(target.clone()))];
-        self.leave_failing(values, cleanup)?;
+        self.leave(values, cleanup)?;
         self.stack = pending;
         self.bcx.switch_to_block(success);
         self.bcx.seal_block(success);
@@ -860,6 +860,9 @@ impl Lowerer<'_, '_> {
         let (inputs, output) = op.signature();
         let (operand, _) = self.pop_typed(inputs[0].clone())?;
         let result = match op {
+            BoxOp::New(t) | BoxOp::Share(t) if t.has_inline_storage() => {
+                self.box_in_place(operand, t)?
+            }
             BoxOp::New(t) | BoxOp::Share(t) => {
                 // The runtime moves the value into the box, or drops it on failure.
                 let value = self.pack(operand, t);
