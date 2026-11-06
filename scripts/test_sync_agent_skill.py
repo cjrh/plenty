@@ -135,6 +135,26 @@ class BuildTests(unittest.TestCase):
                 rewritten = os.path.relpath(output, (self.out / pages[source]).parent)
                 self.assertIn(rewritten, published)
 
+    def test_discovery_and_editor_contract_links_survive_publication(self):
+        pages = sync_agent_skill.published_pages()
+        for source, targets in {
+            ".agents/skills/plenty/references/discovery.md": (
+                "book/src/design/facilities/03-concurrency/cancellation.md",
+                "book/src/design/facilities/03-concurrency/effects.md",
+            ),
+            ".agents/skills/plenty/references/workflow.md": (
+                "book/src/design/toolchain/01-building/language-server.md",
+                "book/src/design/toolchain/01-building/neovim.md",
+            ),
+        }.items():
+            published = (self.out / pages[source]).read_text()
+            for target in targets:
+                self.assertIn(target, pages)
+                output = self.out / pages[target]
+                self.assertTrue(output.is_file())
+                rewritten = os.path.relpath(output, (self.out / pages[source]).parent)
+                self.assertIn(f"]({rewritten})", published)
+
     def test_published_signature_ranges_cover_complete_sections(self):
         lines = (self.out / "skills/plenty/references/std/signatures.md").read_text().splitlines()
         entries = [re.fullmatch(r"- \[`(std\.[^`]+)`\]\(#[^)]+\): (\d+)-(\d+)", line)
