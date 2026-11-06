@@ -5,7 +5,7 @@ use crate::generators::{Generator, plenty_generator_resume};
 use crate::memory::{self, AllocError, Header, plenty_release, plenty_retain};
 use crate::ranges::{self, Range};
 use crate::strings::{self, Text};
-use buckets::Buckets;
+use buckets::{Buckets, KeyHash};
 use std::cmp::Ordering;
 use std::io::Write;
 
@@ -37,6 +37,8 @@ mod readiness;
 mod record_tests;
 #[cfg(test)]
 mod removal_tests;
+#[cfg(test)]
+mod set_hash_tests;
 #[cfg(plenty_runtime_sqlite)]
 mod sqlite;
 mod text_views;
@@ -917,6 +919,152 @@ impl Collection {
             self.table.entry(unsafe { self.bucket(key) })
         }
     }
+    /// `find` given the known bits of `key`'s hash. Hashes only when they do
+    /// not suffice for this table, leaving the whole hash in `known` for the
+    /// caller's next table (issue #817).
+    unsafe fn find_known(&self, key: u128, known: &mut KeyHash) -> Option<usize> {
+        if let Some(found) = unsafe { self.entries.find_bitset(key) } {
+            return found;
+        }
+        if self.table.is_empty() {
+            None
+        } else {
+            let hash = unsafe { self.hash_for(key, known) };
+            self.table.entry(unsafe { self.probe(key, hash) })
+        }
+    }
+    /// A hash of `key` this table can probe with: `known`, or the whole hash
+    /// when `known` lacks bits this table needs.
+    unsafe fn hash_for(&self, key: u128, known: &mut KeyHash) -> u64 {
+        if !self.table.accepts(*known) {
+            *known = KeyHash::full(unsafe { hash(key, self.ty().key()) });
+        }
+        known.bits
+    }
+    /// Copy members of `source` selected by `keep(key, known hash)` into this
+    /// new set, whose capacity covers them, in `source` order. With `record`,
+    /// each hashed row's unused value slot keeps the known hash for
+    /// `index_members`; the table serves meanwhile as scratch holding
+    /// `source`'s stored bits by entry slot, when it is long enough.
+    unsafe fn try_push_members(
+        &mut self,
+        source: &Collection,
+        record: bool,
+        mut keep: impl FnMut(u128, &mut KeyHash) -> bool,
+    ) -> Result<(), AllocError> {
+        unsafe {
+            let key_ty = (*self.ty).key();
+            let record = record && self.entries.bits().is_none();
+            let scratch = record
+                && source.entries.bits().is_none()
+                && self.table.index_by_slot(&source.table);
+            let shift = source.table.shift_bits();
+            for slot in source.entries.indices() {
+                let key = source.entries.get(slot).key;
+                let mut known = if scratch {
+                    self.table.slot_hash(slot, shift)
+                } else {
+                    KeyHash::UNKNOWN
+                };
+                if !keep(key, &mut known) {
+                    continue;
+                }
+                if self.entries.bits().is_some() {
+                    // A bitset member is a bit; it hashes nothing.
+                    self.try_insert(key, 0)?;
+                    continue;
+                }
+                let row = self.entries.vacant();
+                if key_ty.affine {
+                    // Copy into the destination row before duplicating its
+                    // fields: affine records must never share inline storage.
+                    self.entries.push(Entry { key, value: 0 });
+                    let slot = self.entries.slot(row, false);
+                    let mut copy = slot.read();
+                    let copied = try_copy_into(&mut copy, key_ty);
+                    slot.write(copy);
+                    copied?;
+                } else {
+                    retain(key, key_ty);
+                    self.entries.push(Entry { key, value: 0 });
+                }
+                if record {
+                    self.entries.slot(row, true).write(known.to_word());
+                }
+            }
+            if scratch {
+                self.table.clear();
+            }
+            Ok(())
+        }
+    }
+    /// Index the rows `try_push_members` recorded into the empty table, and
+    /// clear their value slots.
+    unsafe fn index_members(&mut self) {
+        if self.entries.bits().is_some() || self.table.is_empty() {
+            return;
+        }
+        let mut current = self.entries.first();
+        while let Some(row) = current {
+            current = self.entries.next(row);
+            let slot = self.entries.slot(row, true);
+            // SAFETY: `try_push_members` wrote this row's value slot.
+            let mut known = KeyHash::from_word(unsafe { slot.read() });
+            unsafe { slot.write(0) };
+            let hash = unsafe { self.hash_for(self.entries.get(row).key, &mut known) };
+            self.table.insert_unique(hash, row);
+        }
+    }
+    /// `intersection_update` (`common`) or `difference_update` of this hashed
+    /// set with a borrowed set-like `other`, allocating nothing.
+    unsafe fn retain_members(&mut self, other: &Collection, common: bool) {
+        unsafe {
+            let ty = &*self.ty;
+            if self.entries.bits().is_some() {
+                // A bitset target against a hashed key view.
+                self.entries.retain(|entry| {
+                    if other.find(entry.key).is_some() == common {
+                        true
+                    } else {
+                        release(entry.key, ty.key());
+                        false
+                    }
+                });
+                return;
+            }
+            // Decide in bucket order, so each member's stored hash bits
+            // probe `other`, and repair the index in place (issue #817).
+            // The unused value slot of a set row marks a removal, so
+            // removed members still drop in insertion order.
+            let Collection { entries, table, .. } = self;
+            let indexed = table.retain(|slot, mut known| {
+                let keep = other
+                    .find_known(entries.get(slot).key, &mut known)
+                    .is_some()
+                    == common;
+                entries.slot(slot, true).write(u128::from(!keep));
+                keep
+            });
+            let mut current = entries.first();
+            while let Some(slot) = current {
+                current = entries.next(slot);
+                let mark = entries.slot(slot, true);
+                if mark.read() != 0 {
+                    mark.write(0);
+                    release(entries.get(slot).key, ty.key());
+                    entries.remove(slot);
+                }
+            }
+            if !indexed {
+                // Without stored home bits, reinsert the unique survivors
+                // by hash; reinsertion compares no keys.
+                table.clear();
+                for index in entries.indices() {
+                    table.insert_unique(hash(entries.get(index).key, ty.key()), index);
+                }
+            }
+        }
+    }
     /// Reserve all buffers before publishing a new hash index. On error,
     /// logical contents and the old index remain intact; capacity may change.
     unsafe fn try_reserve(&mut self, additional: usize) -> Result<(), AllocError> {
@@ -978,7 +1126,11 @@ impl Collection {
     }
 
     /// Count missing keys before reserving. No logical update or payload cleanup
-    /// occurs until entry, order, and bucket capacity are available.
+    /// occurs until entry, order, and bucket capacity are available. The
+    /// consumed source's index becomes scratch: each reference moves to the
+    /// index of its entry slot, so its stored hash bits are available in source
+    /// order, and each key is hashed at most once (issue #817). On error the
+    /// source keeps its entries but no index; the caller drops it.
     unsafe fn try_update(&mut self, source: &mut Collection) -> Result<(), AllocError> {
         if let (Some(left), Some(right)) = (self.entries.bits(), source.entries.bits()) {
             self.entries.set_bits(left | right);
@@ -986,17 +1138,51 @@ impl Collection {
             return Ok(());
         }
         unsafe {
-            let additional = source
-                .entries
-                .iter()
-                .filter(|entry| self.find(entry.key).is_none())
-                .count();
-            self.try_reserve(additional)?;
             let ty = &*self.ty;
-            source.table.clear();
-            for entry in source.entries.iter() {
+            let scratch = !source.table.is_empty();
+            let shift = source.table.shift_bits();
+            if scratch {
+                source.table.sort_by_slot();
+            }
+            // Counting probes this table before it grows. When its tags need
+            // more bits than the source stored, keep the whole hash counting
+            // computes in place of the stored bits.
+            let whole = scratch
+                && !self.table.is_empty()
+                && !self.table.accepts(KeyHash { bits: 0, shift });
+            let stored = |table: &Buckets, slot| {
+                if scratch && !whole {
+                    table.slot_hash(slot, shift)
+                } else {
+                    KeyHash::UNKNOWN
+                }
+            };
+            let mut additional = 0;
+            for slot in source.entries.indices() {
+                let mut hash = stored(&source.table, slot);
+                if self
+                    .find_known(source.entries.get(slot).key, &mut hash)
+                    .is_none()
+                {
+                    additional += 1;
+                }
+                if whole {
+                    source.table.set_slot_hash(slot, hash.bits);
+                }
+            }
+            if let Err(error) = self.try_reserve(additional) {
+                source.table.clear();
+                return Err(error);
+            }
+            for slot in source.entries.indices() {
+                let entry = source.entries.get(slot);
+                let mut hash = if scratch && whole {
+                    KeyHash::full(source.table.slot_word(slot))
+                } else {
+                    stored(&source.table, slot)
+                };
                 // `additional` reserved a table unless every key is present.
-                let key_hash = hash(entry.key, ty.key());
+                let key_hash = self.hash_for(entry.key, &mut hash);
                 let bucket = self.probe(entry.key, key_hash);
                 if let Some(index) = self.table.entry(bucket) {
                     // An inline value lives in the row, so release it before
@@ -1011,6 +1197,7 @@ impl Collection {
                     self.entries.push(entry);
                 }
             }
+            source.table.clear();
             source.entries.clear();
             Ok(())
         }
@@ -1473,33 +1660,115 @@ unsafe fn write_file_lines(
     Ok(0)
 }
 
-/// Count the selected unique members before allocating. Inputs stay borrowed;
-/// output members gain independent ownership only after storage is reserved.
-unsafe fn try_set_from_entries(
-    entries: impl Iterator<Item = Entry> + Clone,
+/// Members of both hashed collections, counted by probing the longer table
+/// with the other's stored hash bits, so that usually no key is hashed.
+unsafe fn common_members(a: &Collection, b: &Collection) -> usize {
+    unsafe {
+        if a.entries.bits().is_some() || b.entries.bits().is_some() {
+            // A bitset finds members without hashing; walk the other operand.
+            let (walk, probe) = if a.entries.bits().is_some() {
+                (b, a)
+            } else {
+                (a, b)
+            };
+            return walk
+                .entries
+                .iter()
+                .filter(|entry| probe.find(entry.key).is_some())
+                .count();
+        }
+        if a.len() == 0 || b.len() == 0 {
+            return 0;
+        }
+        let (walk, probe) = if a.table.len() <= b.table.len() {
+            (a, b)
+        } else {
+            (b, a)
+        };
+        walk.table
+            .references()
+            .filter(|&(slot, mut known)| {
+                probe
+                    .find_known(walk.entries.get(slot).key, &mut known)
+                    .is_some()
+            })
+            .count()
+    }
+}
+
+/// Union, intersection, difference or symmetric difference of two borrowed
+/// set-like operands as a new set of `ty`, in `left` then `right` order.
+/// The result is counted and reserved before any member is copied; on
+/// failure the guard releases the copied prefix and both inputs are
+/// unchanged. Stored hash bits feed membership probes and the result's index
+/// where the tables' lengths allow, so each key is hashed at most once
+/// (issue #817).
+unsafe fn try_set_algebra(
+    left: &Collection,
+    right: &Collection,
+    op: i64,
     ty: &'static Type,
 ) -> Result<u128, AllocError> {
     unsafe {
-        let output = try_collection_new(ty, entries.clone().count())?;
+        let common = common_members(left, right);
+        let (l, r) = (left.len(), right.len());
+        let count = match op {
+            SET_UNION => l + r - common,
+            SET_INTERSECTION => common,
+            SET_DIFFERENCE => l - common,
+            _ => l + r - 2 * common,
+        };
+        let output = try_collection_new(ty, count)?;
         let guard = OwnedValue {
             value: output as u128,
             ty,
         };
-        for entry in entries {
-            // Capacity covers every selected member; this cannot grow storage.
-            if ty.key().affine {
-                // Copy into the destination row before duplicating its fields:
-                // affine records must never share their inline storage.
-                (*output).try_store(entry.key, 0)?;
-                let row = (*output).entries.len() - 1;
-                let slot = (*output).entries.slot(row, false);
-                let mut copy = slot.read();
-                let copied = try_copy_into(&mut copy, ty.key());
-                slot.write(copy);
-                copied?;
-            } else {
-                (*output).try_insert(entry.key, 0)?;
-            }
+        (*output).try_push_members(left, true, |key, known| match op {
+            SET_UNION => true,
+            SET_INTERSECTION => right.find_known(key, known).is_some(),
+            _ => right.find_known(key, known).is_none(),
+        })?;
+        if matches!(op, SET_UNION | SET_SYMMETRIC_DIFFERENCE) {
+            (*output).try_push_members(right, true, |key, known| {
+                left.find_known(key, known).is_none()
+            })?;
+        }
+        (*output).index_members();
+        Ok(guard.into_value())
+    }
+}
+
+/// Whether `source`'s live entry slots are `0..len` in insertion order: the
+/// layout a new collection gets by pushing its entries in that order.
+fn sequential(source: &Collection) -> bool {
+    source
+        .entries
+        .indices()
+        .enumerate()
+        .all(|(i, slot)| i == slot)
+}
+
+/// A new set of `ty` holding copies of every key of the borrowed hashed
+/// `source`, a set or dictionary. When the copy's slots and table length
+/// match the source's, it copies the bucket array; otherwise stored hash bits
+/// index it where they suffice (issue #817).
+unsafe fn try_members_copy(source: &Collection, ty: &'static Type) -> Result<u128, AllocError> {
+    unsafe {
+        let output = try_collection_new(ty, source.len())?;
+        let guard = OwnedValue {
+            value: output as u128,
+            ty,
+        };
+        let o = &mut *output;
+        let verbatim = o.entries.bits().is_none()
+            && source.entries.bits().is_none()
+            && o.table.len() == source.table.len()
+            && sequential(source);
+        o.try_push_members(source, !verbatim, |_, _| true)?;
+        if verbatim {
+            o.table.copy_from(&source.table);
+        } else {
+            o.index_members();
         }
         Ok(guard.into_value())
     }
@@ -1798,15 +2067,26 @@ unsafe fn try_copy_collection(value: u128, ty: &Type) -> Result<u128, AllocError
             });
             return Ok(result as u128);
         }
+        if ty.kind == b'S' {
+            return try_members_copy(source, &*source.ty);
+        }
         let result = try_collection_new(&*source.ty, source.entries.len())?;
         let owner = OwnedValue {
             value: result as u128,
             ty,
         };
+        // A dictionary whose layout the copy reproduces takes a copy of its
+        // bucket array instead of hashing each key (issue #817).
+        let verbatim =
+            ty.kind == b'D' && (*result).table.len() == source.table.len() && sequential(source);
         for entry in source.entries.iter() {
             // Insert byte copies that still name the source, then replace them
             // in place, so inline payloads are copied into the final buffer.
-            (*result).try_store(entry.key, entry.value)?;
+            if verbatim {
+                (*result).entries.push(entry);
+            } else {
+                (*result).try_store(entry.key, entry.value)?;
+            }
             if ty.kind == b'L' && ty.key().owns_nothing() {
                 continue;
             }
@@ -1828,6 +2108,9 @@ unsafe fn try_copy_collection(value: u128, ty: &Type) -> Result<u128, AllocError
                 value.write(copy);
                 copied?;
             }
+        }
+        if verbatim {
+            (*result).table.copy_from(&source.table);
         }
         Ok(owner.into_value())
     }
@@ -2868,7 +3151,6 @@ pub(crate) unsafe fn collection_at(
             69 | 70 => {
                 let target = &mut *(a as *mut Collection);
                 let other = &*(b as *const Collection);
-                let ty = &*target.ty;
                 if let (Some(left), Some(right)) = (target.entries.bits(), other.entries.bits()) {
                     target.entries.set_bits(if op == 69 {
                         left & right
@@ -2878,22 +3160,7 @@ pub(crate) unsafe fn collection_at(
                     plenty_retain(a as *mut Header);
                     return a;
                 }
-                target.entries.retain(|entry| {
-                    if other.find(entry.key).is_some() == (op == 69) {
-                        true
-                    } else {
-                        release(entry.key, ty.key());
-                        false
-                    }
-                });
-                target.table.clear();
-                if target.entries.bits().is_none() {
-                    // Surviving keys are unique, so reinsertion compares none.
-                    for index in target.entries.indices() {
-                        let key = target.entries.get(index).key;
-                        target.table.insert_unique(hash(key, ty.key()), index);
-                    }
-                }
+                target.retain_members(other, op == 69);
                 plenty_retain(a as *mut Header);
                 a
             }
@@ -2921,24 +3188,14 @@ pub(crate) unsafe fn collection_at(
                         Err(error) => wrap(wrap(0, error as u64), 1),
                     };
                 }
-                let left_entries = left.entries.iter().filter(|entry| match op {
-                    SET_UNION => true,
-                    SET_INTERSECTION => right.find(entry.key).is_some(),
-                    _ => right.find(entry.key).is_none(),
-                });
-                let right_entries = right.entries.iter().filter(|entry| {
-                    matches!(op, SET_UNION | SET_SYMMETRIC_DIFFERENCE)
-                        && left.find(entry.key).is_none()
-                });
-                let entries = left_entries.chain(right_entries);
-                match try_set_from_entries(entries, result_type) {
+                match try_set_algebra(left, right, op, result_type) {
                     Ok(set) => wrap(set, 0),
                     Err(error) => wrap(wrap(0, error as u64), 1),
                 }
             }
             KEY_VIEW_TO_SET => {
                 let source = &*(a as *const Collection);
-                match try_set_from_entries(source.entries.iter(), &*descriptor) {
+                match try_members_copy(source, &*descriptor) {
                     Ok(set) => wrap(set, 0),
                     Err(error) => wrap(wrap(0, error as u64), 1),
                 }

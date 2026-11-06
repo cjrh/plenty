@@ -27,8 +27,15 @@ hash, so storing hashes costs no memory. A probe compares keys only where those
 bits match its hash. Growth rebuilds the table from stored bits without reading
 or hashing keys, and removal finds a shifted bucket's home from them; both fall
 back to rehashing keys only above `2^32` buckets (issue #761). Load stays at most
-one half, so the slot field always fits. Copying a collection, set algebra and
-`update` still hash each key they insert or look up.
+one half, so the slot field always fits.
+
+Stored bits also serve another table at least as long, which needs no more of
+them (issue #817). A copy whose rows and table length match its source copies
+the bucket array. Set algebra probes each operand with the other's stored bits
+and indexes its result from them, `update` reuses the consumed source's bits,
+and `intersection_update` and `difference_update` repair the index in place.
+Where a target table is shorter than the source's, each key is hashed once; a
+copied dictionary with removed rows rehashes its keys.
 
 New keys reuse free slots at the logical tail; replacement preserves position.
 Live-row cursors make traversal, snapshots, copying, formatting, and destruction

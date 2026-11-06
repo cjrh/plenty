@@ -56,6 +56,37 @@ pub(super) fn limit_stored_bits(bits: u32) -> impl Drop {
     Restore(STORED_BITS_LIMIT.with(|limit| limit.replace(bits)))
 }
 
+/// Known bits of one key's hash: the low `64 - shift` bits that a bucket of a
+/// table with `shift` stores, or with `shift` 0 the whole hash. Operations
+/// that move keys between tables carry these instead of hashing again
+/// (issue #817).
+#[derive(Clone, Copy)]
+pub(super) struct KeyHash {
+    pub bits: u64,
+    pub shift: u32,
+}
+
+impl KeyHash {
+    /// No bits known; any table needs the key hashed.
+    pub const UNKNOWN: Self = Self { bits: 0, shift: 64 };
+    pub const fn full(hash: u64) -> Self {
+        Self {
+            bits: hash,
+            shift: 0,
+        }
+    }
+    /// The word a set row's unused value slot holds while a result is built.
+    pub fn to_word(self) -> u128 {
+        self.bits as u128 | (self.shift as u128) << 64
+    }
+    pub fn from_word(word: u128) -> Self {
+        Self {
+            bits: word as u64,
+            shift: (word >> 64) as u32,
+        }
+    }
+}
+
 pub(super) struct Buckets {
     slots: Vec<u64>,
 }
@@ -163,6 +194,135 @@ impl Buckets {
             }
         }
         true
+    }
+    /// Whether `hash` holds every bit this table's tags and home buckets
+    /// need: all of it, or the stored bits of a table no longer than this one
+    /// that cover this table's home bits.
+    #[inline]
+    pub fn accepts(&self, hash: KeyHash) -> bool {
+        hash.shift == 0
+            || hash.shift < 64
+                && !self.is_empty()
+                && self.shift() >= hash.shift
+                && covers(hash.shift, self.shift())
+    }
+    /// The stored hash bits of occupied `bucket`.
+    fn stored(&self, bucket: usize) -> KeyHash {
+        KeyHash {
+            bits: self.slots[bucket] >> self.shift(),
+            shift: self.shift(),
+        }
+    }
+    /// Each reference's entry slot with its stored hash bits.
+    pub fn references(&self) -> impl Iterator<Item = (usize, KeyHash)> + '_ {
+        let (mask, shift) = (self.slots.len().wrapping_sub(1), self.shift());
+        self.slots
+            .iter()
+            .filter(|slot| **slot != 0)
+            .map(move |&slot| {
+                let hash = KeyHash {
+                    bits: slot >> shift,
+                    shift,
+                };
+                ((slot as usize & mask) - 1, hash)
+            })
+    }
+    /// Keep the references for which `keep(entry slot, stored hash)` holds,
+    /// visiting them in bucket order, and restore the probe paths of the rest
+    /// from stored bits without reading keys. Returns false when the stored
+    /// bits do not cover the home buckets (tables over `2^32` buckets): the
+    /// rejected references are gone but the others need rebuilding by hash.
+    pub fn retain(&mut self, mut keep: impl FnMut(usize, KeyHash) -> bool) -> bool {
+        if self.is_empty() {
+            return true;
+        }
+        let (mask, shift) = (self.mask(), self.shift());
+        // Load is at most one half, so an empty bucket exists. Starting after
+        // one that was empty before any removal, no cluster wraps past it.
+        let start = self
+            .slots
+            .iter()
+            .position(|slot| *slot == 0)
+            .expect("an empty bucket");
+        for bucket in 0..self.slots.len() {
+            let slot = self.slots[bucket];
+            if slot != 0 && !keep((slot as usize & mask) - 1, self.stored(bucket)) {
+                self.slots[bucket] = 0;
+            }
+        }
+        if !covers(shift, shift) {
+            return false;
+        }
+        // Each reference moves to the first empty bucket from its home. Its
+        // old bucket lies on that path, so it moves only backwards within its
+        // cluster, and references placed earlier never gain a gap.
+        for i in 1..=mask {
+            let bucket = (start + i) & mask;
+            let slot = self.slots[bucket];
+            if slot != 0 {
+                self.slots[bucket] = 0;
+                let mut home = (slot >> shift) as usize & mask;
+                while self.slots[home] != 0 {
+                    home = (home + 1) & mask;
+                }
+                self.slots[home] = slot;
+            }
+        }
+        true
+    }
+    /// Make this empty table a copy of `source`, which has the same length.
+    pub fn copy_from(&mut self, source: &Self) {
+        self.slots.copy_from_slice(&source.slots);
+    }
+    /// Write each reference of `source` at index `entry slot` of this empty
+    /// table, as scratch for `slot_hash`. Returns false, writing nothing,
+    /// when this table is shorter than `source`'s slot range.
+    pub fn index_by_slot(&mut self, source: &Self) -> bool {
+        if source.is_empty() || self.len() < source.len() / 2 {
+            return false;
+        }
+        let mask = source.mask();
+        for &slot in &source.slots {
+            if slot != 0 {
+                self.slots[(slot as usize & mask) - 1] = slot;
+            }
+        }
+        true
+    }
+    /// Rearrange this table in place so that index `s` holds the reference
+    /// to entry slot `s`, as `index_by_slot` writes it. The table no longer
+    /// works for lookups. Every slot is below half the length, so each
+    /// exchange puts one reference at its final index.
+    pub fn sort_by_slot(&mut self) {
+        let mask = self.mask();
+        for i in 0..self.slots.len() {
+            loop {
+                let slot = self.slots[i];
+                if slot == 0 || (slot as usize & mask) - 1 == i {
+                    break;
+                }
+                self.slots.swap(i, (slot as usize & mask) - 1);
+            }
+        }
+    }
+    /// The hash bits stored for entry slot `entry` of a table indexed by slot,
+    /// whose references came from a table with `shift`.
+    pub fn slot_hash(&self, entry: usize, shift: u32) -> KeyHash {
+        KeyHash {
+            bits: self.slots[entry] >> shift,
+            shift,
+        }
+    }
+    /// Replace the scratch word of entry slot `entry` with a whole hash.
+    pub fn set_slot_hash(&mut self, entry: usize, hash: u64) {
+        self.slots[entry] = hash;
+    }
+    /// The raw scratch word of entry slot `entry`.
+    pub fn slot_word(&self, entry: usize) -> u64 {
+        self.slots[entry]
+    }
+    pub fn shift_bits(&self) -> u32 {
+        self.shift()
     }
     /// Empty `hole` and repair its probe cluster by backward shifting.
     /// `hash_of` rehashes an entry's key, needed only when stored bits do not
