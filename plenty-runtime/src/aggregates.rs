@@ -57,7 +57,9 @@ pub(crate) struct Type {
     pub(crate) value: Option<&'static Type>,
     pub(crate) name: &'static str,
     pub(crate) variants: &'static [Variant],
-    /// A class's `__del__` adapter, which receives the instance's slot.
+    /// A class's `__del__` adapter, which receives the instance's slot. For a
+    /// box, the compiler's release of its content slot, if it emitted one
+    /// (`codegen::box_release`).
     pub(crate) drop: Option<unsafe extern "C" fn(*mut u128)>,
     /// Set for a one-field class without `__del__`, whose values are its
     /// field's: the rest of this descriptor is the field's layout, and the
@@ -469,11 +471,43 @@ unsafe fn try_box_new(ty: &Type, value: u128) -> Result<*mut Boxed, AllocError> 
     }
     Ok(boxed)
 }
+/// Allocate a box whose content slot the caller stores; on failure, release
+/// `value`, the content the box would have owned.
+unsafe fn try_box_for(ty: &Type, value: u128) -> u128 {
+    let content = ty.key();
+    match memory::try_allocate::<Boxed, u128>(content.slot_words()) {
+        Ok(boxed) => unsafe {
+            boxed.write(Boxed {
+                header: Header::new(box_destroy),
+                ty,
+                padding: 0,
+                slot: [],
+            });
+            wrap(boxed as u128, 0)
+        },
+        Err(error) => {
+            unsafe { release(value, content) };
+            wrap(wrap(0, error as u64), 1)
+        }
+    }
+}
 unsafe extern "C" fn box_destroy(header: *mut Header) {
     unsafe {
         let boxed = header.cast::<Boxed>();
-        let content = (*(*boxed).ty).key();
+        let ty = &*(*boxed).ty;
+        let content = ty.key();
         let slot = std::ptr::addr_of_mut!((*boxed).slot).cast::<u128>();
+        // The compiler's release of this content queues each owned child
+        // through `plenty_release`, so this frame finishes before any child is
+        // destroyed and the box can be freed now. It exists only for content
+        // whose release runs no code, where the order is unobservable; see
+        // "Box destruction" in book/src/design/toolchain/02-architecture/memory.md.
+        if let Some(release_content) = ty.drop {
+            debug_assert_eq!(ty.kind, b'O');
+            release_content(slot);
+            memory::free::<Boxed, u128>(boxed, content.slot_words());
+            return;
+        }
         if let Some(child) = release_next(slot, content) {
             memory::continue_after(header, child);
             return;
@@ -2284,7 +2318,7 @@ operation_entries! {
     46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72
     73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99
     100 101 102 103 104 105 106 107 110 111 112 113 114 117 118 119 120 121 122 123 124
-    125 126 127 128 129 130 131 132 133 134 135 136 140 166 167 366 510 511 580 581 582
+    125 126 127 128 129 130 131 132 133 134 135 136 137 140 166 167 366 510 511 580 581 582
     583 584 585 590 591 592 593 594 595 596 597 598 599 600 601
 }
 // `std.bytes` storage and single-call byte transport.
@@ -3326,6 +3360,8 @@ pub(crate) unsafe fn collection_at(
                 box_take(a as *mut Boxed);
                 0
             }
+            // A box for the operand, which the caller stores in it on success.
+            137 => try_box_for(&*descriptor, a),
             // An empty box for content the caller stores afterwards.
             121 => match try_box_new(&*descriptor, 0) {
                 Ok(boxed) => wrap(boxed as u128, 0),
