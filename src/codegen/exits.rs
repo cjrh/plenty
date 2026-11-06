@@ -41,9 +41,21 @@
 //!   first, so a local every predecessor leaves empty still reads as the empty
 //!   constant (issue #391): a function's blocks after its body, a loop's
 //!   before its exit block is sealed.
+//!
+//! A `?` failure that shares blocks stores its carried values in a stack slot
+//! and jumps to a reload block for its entry, which loads them and jumps on
+//! (issue #771). regalloc2 merges a block parameter with the arguments passed
+//! to it, so parameters every exit passes to would join each failure's
+//! error, and through it the values the error shares registers with (an
+//! inlined callee's result, a loop counter), into one bundle spanning the
+//! function. Splitting that bundle spilled loop-carried values in hot loops.
+//! The loads are fresh values when several failures store before a reload;
+//! with one, alias analysis forwards the stored value, which then joins only
+//! that failure's path. Returns and tail calls keep passing parameters.
 use super::*;
 use cranelift_codegen::ir::{
-    FuncRef, JumpTableData, SigRef, Signature, Type, Value as NativeValue, types,
+    FuncRef, JumpTableData, MemFlagsData, SigRef, Signature, StackSlot, StackSlotData,
+    StackSlotKind, Type, Value as NativeValue, types,
 };
 use std::ops::Range;
 
@@ -67,6 +79,8 @@ pub(super) struct Exits {
     pub(super) returns_to: Option<Block>,
     /// `break`s and `continue`s of each enclosing loop, innermost last.
     loops: Vec<Ladder>,
+    /// Where failures stage their carried values, by their types.
+    failure_slots: Vec<(Vec<Type>, StackSlot)>,
 }
 
 impl Exits {
@@ -99,7 +113,21 @@ struct Ladder {
     steps: Vec<Shared>,
     /// The steps jumping to each target.
     entering: HashMap<Next, Vec<usize>>,
+    /// Blocks reloading failures' carried values before a step or target.
+    reloads: Vec<Reload>,
 }
+
+/// Loads a failure's carried values from `slot` and jumps to `entry`.
+struct Reload {
+    block: Block,
+    entry: Block,
+    slot: StackSlot,
+    types: Vec<Type>,
+}
+
+/// The distance between carried values in a failure slot: the largest
+/// scalar Plenty passes, an `i128`.
+const FAILURE_STRIDE: i32 = 16;
 
 struct Target {
     block: Block,
@@ -195,6 +223,8 @@ impl Ladder {
 #[derive(Clone, Copy)]
 enum Which {
     Function,
+    /// A function exit staging its carried values in memory.
+    Failure,
     Loop,
 }
 
@@ -223,6 +253,25 @@ impl Lowerer<'_, '_> {
     /// function this jumps into the shared exit blocks; elsewhere it lowers
     /// everything inline.
     pub(super) fn leave(&mut self, values: Vec<StackEntry>, cleanup: &Arc<[Op]>) -> Result<()> {
+        self.leave_with(values, cleanup, false)
+    }
+
+    /// As [`Self::leave`] for a `?` failure, which stages its values in
+    /// memory when it shares exit blocks.
+    pub(super) fn leave_failing(
+        &mut self,
+        values: Vec<StackEntry>,
+        cleanup: &Arc<[Op]>,
+    ) -> Result<()> {
+        self.leave_with(values, cleanup, true)
+    }
+
+    fn leave_with(
+        &mut self,
+        values: Vec<StackEntry>,
+        cleanup: &Arc<[Op]>,
+        failing: bool,
+    ) -> Result<()> {
         if self.exits.is_none() {
             for op in cleanup.iter() {
                 self.lower(op)?;
@@ -238,7 +287,12 @@ impl Lowerer<'_, '_> {
             let returns_to = self.exits.as_ref().and_then(|exits| exits.returns_to);
             self.return_to(returns_to, &returned);
         } else {
-            self.take_exit(Which::Function, steps, restore, returned, End::Return)?;
+            let which = if failing {
+                Which::Failure
+            } else {
+                Which::Function
+            };
+            self.take_exit(which, steps, restore, returned, End::Return)?;
         }
         // Inline lowering would leave the position at cleanup's last marker.
         self.follow_markers(cleanup);
@@ -443,7 +497,7 @@ impl Lowerer<'_, '_> {
             .collect();
         let mut exits = self.exits.take().expect("shared exits");
         let ladder = match which {
-            Which::Function => &mut exits.function,
+            Which::Function | Which::Failure => &mut exits.function,
             Which::Loop => exits.loops.last_mut().expect("a loop's shared exits"),
         };
         let found = ladder
@@ -503,7 +557,39 @@ impl Lowerer<'_, '_> {
                 }
             });
         }
-        let target = ladder.block(next);
+        let mut target = ladder.block(next);
+        let staged = match which {
+            Which::Failure if !carried.is_empty() => {
+                let slot = match exits.failure_slots.iter().find(|(t, _)| *t == types) {
+                    Some(&(_, slot)) => slot,
+                    None => {
+                        let slot = self.bcx.create_sized_stack_slot(StackSlotData::new(
+                            StackSlotKind::ExplicitSlot,
+                            FAILURE_STRIDE as u32 * types.len() as u32,
+                            4,
+                        ));
+                        exits.failure_slots.push((types.clone(), slot));
+                        slot
+                    }
+                };
+                let reload = match ladder.reloads.iter().find(|r| r.entry == target) {
+                    Some(reload) => reload.block,
+                    None => {
+                        let block = self.bcx.create_block();
+                        ladder.reloads.push(Reload {
+                            block,
+                            entry: target,
+                            slot,
+                            types: types.clone(),
+                        });
+                        block
+                    }
+                };
+                target = reload;
+                Some(slot)
+            }
+            _ => None,
+        };
         let sites = *exits
             .sites
             .get_or_insert_with(|| (self.bcx.declare_var(PTR_TY), self.bcx.declare_var(PTR_TY)));
@@ -536,6 +622,18 @@ impl Lowerer<'_, '_> {
                 at
             };
             self.bcx.def_var(call, caller);
+        }
+        if let Some(slot) = staged {
+            debug_assert!(types.iter().all(|ty| ty.bytes() <= FAILURE_STRIDE as u32));
+            let base = self.bcx.ins().stack_addr(PTR_TY, slot, 0);
+            for (i, value) in carried.iter().enumerate() {
+                let at = FAILURE_STRIDE * i as i32;
+                self.bcx
+                    .ins()
+                    .store(MemFlagsData::trusted(), *value, base, at);
+            }
+            self.bcx.ins().jump(target, &[]);
+            return Ok(());
         }
         let args: Vec<BlockArg> = carried.iter().map(|v| BlockArg::Value(*v)).collect();
         self.bcx.ins().jump(target, &args);
@@ -630,6 +728,22 @@ impl Lowerer<'_, '_> {
         self.terminated = false;
         self.slot_copies.clear();
         self.fresh_load = None;
+        // Reloads precede the steps they enter, so those are not sealed yet.
+        for reload in &ladder.reloads {
+            self.enter_shared(reload.block, sites);
+            let base = self.bcx.ins().stack_addr(PTR_TY, reload.slot, 0);
+            let args: Vec<BlockArg> = reload
+                .types
+                .iter()
+                .enumerate()
+                .map(|(i, ty)| {
+                    let at = FAILURE_STRIDE * i as i32;
+                    let value = self.bcx.ins().load(*ty, MemFlagsData::trusted(), base, at);
+                    BlockArg::Value(value)
+                })
+                .collect();
+            self.bcx.ins().jump(reload.entry, &args);
+        }
         // Every predecessor of a step is an exit or a later step.
         for shared in ladder.steps.iter().rev() {
             self.enter_shared(shared.block, sites);
