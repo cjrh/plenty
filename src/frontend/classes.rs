@@ -1119,7 +1119,7 @@ impl Lower<'_> {
         match collections::scalar_element_ref(ops) {
             Some(list) => {
                 ops.push(Op::MoveLocal(temp));
-                collections::scalar_row_write(list, view, ops);
+                self.scalar_row_write(list, view, ops);
             }
             _ => {
                 ops.push(Op::MoveLocal(temp));

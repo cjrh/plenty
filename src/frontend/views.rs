@@ -806,7 +806,7 @@ impl Lower<'_> {
             ops.push(Op::Collection(CollectionOp::TextView(TextViewOp::Index)));
             return Ok((Ty::Str, reads));
         }
-        ops.push(Op::Collection(CollectionOp::ViewRow(view.clone(), false)));
+        ops.push(self.index_op(CollectionOp::ViewRow(view.clone(), false)));
         ops.push(Op::ReadRef((**element).clone()));
         Ok(((**element).clone(), reads))
     }

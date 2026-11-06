@@ -503,6 +503,27 @@ impl Ty {
 }
 
 impl CollectionOp {
+    /// Index syntax whose caller may assert a nonnegative, in-range index.
+    /// Methods, slices, strings, dictionaries and iteration keep their own contracts.
+    pub(crate) fn assumable_index(&self) -> bool {
+        matches!(
+            self,
+            Self::ListScalarGetRef(_)
+                | Self::ListScalarGetView(_)
+                | Self::ListScalarSetRef(_)
+                | Self::ListScalarSetView(_)
+                | Self::ElementRef(Ty::List(_), _)
+                | Self::ElementRefView(Ty::List(_), _)
+                | Self::ViewRow(_, _)
+                | Self::Get(Ty::List(_))
+                | Self::Bytes(
+                    crate::bytes::BytesOp::Item
+                        | crate::bytes::BytesOp::SetItem
+                        | crate::bytes::BytesOp::ValueItem
+                )
+        )
+    }
+
     pub fn key_set_relation(left: Ty, right: Ty, opcode: i64) -> Self {
         Self::KeySetRelation(Arc::new(KeySetOperation {
             left,

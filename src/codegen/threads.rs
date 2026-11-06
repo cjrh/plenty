@@ -63,6 +63,7 @@ pub(super) fn build_adapter(
             locals: &[],
             stack: vec![],
             terminated: false,
+            assumed_index: false,
             loop_targets: vec![],
             checked_targets: vec![],
             generator: None,
