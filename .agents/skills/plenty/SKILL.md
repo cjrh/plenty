@@ -64,7 +64,10 @@ See [workflow and packages](references/workflow.md).
   `unchecked:` asserts arithmetic preconditions: violations trap by default but
   are undefined behavior under `--unchecked assume`, never wrapping arithmetic. Functions and
   closures keep independent declared contracts; a caller's mode never changes
-  them. Integer `std.math.abs`/`sum`/`prod` return `Result`; the `*_float`
+  them. In assume mode, list, slice-view and `Bytes` indices in a plain
+  `unchecked:` suite must also be nonnegative and in range; bounds checks and
+  negative-index normalization are omitted. Other indexing and collection
+  methods keep their contracts. Integer `std.math.abs`/`sum`/`prod` return `Result`; the `*_float`
   helpers stay infallible, and float arithmetic keeps IEEE behavior. Serial
   pipeline integer `.sum()` also returns a public `Result`. For fallible
   accumulation callbacks use `try_fold`, as in [arithmetic and callbacks](references/errors.md#arithmetic-and-callbacks).

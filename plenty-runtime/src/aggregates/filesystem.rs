@@ -212,8 +212,12 @@ mod native {
     const CLOEXEC: i32 = libc::O_CLOEXEC;
 
     fn open_at(fd: i32, path: &[u8], flags: i32) -> Result<std::fs::File, Error> {
+        open_at_mode(fd, path, flags, 0o600)
+    }
+
+    fn open_at_mode(fd: i32, path: &[u8], flags: i32, mode: u32) -> Result<std::fs::File, Error> {
         // SAFETY: callers provide a terminated buffer; ownership transfers once.
-        let result = unsafe { openat(fd, path.as_ptr().cast(), flags | CLOEXEC, 0o600u32) };
+        let result = unsafe { openat(fd, path.as_ptr().cast(), flags | CLOEXEC, mode) };
         if result < 0 {
             return Err(std::io::Error::last_os_error().into());
         }
@@ -359,7 +363,7 @@ mod native {
                 263..=265 => {
                     let name = leaf(contiguous(b)?)?;
                     checked(match op {
-                        263 => mkdirat(fd, name.as_ptr().cast(), 0o700),
+                        263 => mkdirat(fd, name.as_ptr().cast(), c as u32),
                         264 => unlinkat(fd, name.as_ptr().cast(), 0),
                         _ => unlinkat(fd, name.as_ptr().cast(), 0x200),
                     })
@@ -447,6 +451,18 @@ mod native {
                     let name = leaf(contiguous(b)?)?;
                     owned_metadata(stat_at(fd, &name, 0x100)?)
                 }
+                610 => {
+                    let name = leaf(contiguous(b)?)?;
+                    crate::files::prepare_read_write(ty.variants[0].fields[0], || {
+                        open_at_mode(
+                            fd,
+                            &name,
+                            NOFOLLOW | libc::O_CREAT | libc::O_EXCL | libc::O_RDWR,
+                            c as u32,
+                        )
+                    })
+                }
+                611 => checked(libc::fchmod(fd, b as u32)),
                 _ => unreachable!("rooted filesystem opcode"),
             }
         }
@@ -685,6 +701,54 @@ mod native {
         }
     }
 
+    // Bound both the native conversion and realpath's caller-owned output to
+    // Linux PATH_MAX. Reject oversized inputs before copying into stack storage.
+    unsafe fn bounded_path(value: u128) -> Result<[c_char; libc::PATH_MAX as usize], Error> {
+        // SAFETY: compiler supplies a live borrowed list[u8].
+        let list = unsafe { &*(value as *const Collection) };
+        if list.entries.len() >= libc::PATH_MAX as usize {
+            return Err(std::io::Error::from_raw_os_error(libc::ENAMETOOLONG).into());
+        }
+        let mut bytes = [0 as c_char; libc::PATH_MAX as usize];
+        for (index, entry) in list.entries.iter().enumerate() {
+            if entry.key as u8 == 0 {
+                return Err(Kind::InvalidInput.into());
+            }
+            bytes[index] = entry.key as u8 as c_char;
+        }
+        Ok(bytes)
+    }
+
+    unsafe fn canonicalize(value: u128, ty: &'static Type) -> Result<u128, Error> {
+        // SAFETY: compiler supplies a live borrowed path list.
+        let path = unsafe { bounded_path(value)? };
+        // realpath with a non-null buffer requires PATH_MAX bytes, including
+        // NUL. Let libc implement link traversal, directory checks and errno;
+        // realpath(NULL) would instead allocate an unbounded owned C buffer.
+        let mut resolved = [0 as c_char; libc::PATH_MAX as usize];
+        // SAFETY: terminated input and a writable PATH_MAX-byte output buffer.
+        let result = unsafe { libc::realpath(path.as_ptr().cast(), resolved.as_mut_ptr()) };
+        if result.is_null() {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        // SAFETY: successful realpath NUL-terminates within the supplied buffer.
+        let bytes = unsafe { CStr::from_ptr(resolved.as_ptr()) }.to_bytes();
+        // SAFETY: caller supplies the result's list[u8] descriptor.
+        unsafe { byte_list(bytes, ty) }
+    }
+
+    unsafe fn symlink(target: u128, link: u128) -> Result<u128, Error> {
+        // SAFETY: compiler supplies live borrowed path lists. Finish fallible
+        // conversion of both arguments before creating anything in the filesystem.
+        let target = unsafe { bounded_path(target)? };
+        let link = unsafe { bounded_path(link)? };
+        // SAFETY: both arrays contain checked, NUL-terminated native byte paths.
+        if unsafe { libc::symlink(target.as_ptr().cast(), link.as_ptr().cast()) } != 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        Ok(0)
+    }
+
     // Inlined so each operation's entry symbol keeps only its own arm.
     #[inline(always)]
     pub(super) unsafe fn call(
@@ -697,6 +761,8 @@ mod native {
         // borrows end before the caller releases its temporary retained inputs.
         unsafe {
             match op {
+                630 => symlink(a, b),
+                631 => canonicalize(a, descriptor.variants[0].fields[0]),
                 150 => open(a),
                 151 => next(&mut *(a as *mut Directory)),
                 152 => {

@@ -50,7 +50,8 @@ fn constructor(name: &str) -> bool {
 fn marker(op: &Op) -> bool {
     matches!(
         op,
-        Op::Site(_)
+        Op::Assumed(_)
+            | Op::Site(_)
             | Op::CallerSite(_)
             | Op::Access(..)
             | Op::Loan(_)
@@ -368,6 +369,7 @@ impl Lowerer<'_, '_> {
             locals: &locals,
             stack: Vec::new(),
             terminated: false,
+            assumed_index: false,
             loop_targets: Vec::new(),
             checked_targets: Vec::new(),
             generator: None,

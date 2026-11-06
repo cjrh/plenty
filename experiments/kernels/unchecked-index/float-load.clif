@@ -1,0 +1,43 @@
+function u0:58(i128, i128, i64) -> f64 tail {
+block0(v0: i128, v1: i128, v2: i64):
+    ; line 4
+    jump block2
+
+block3(v19: i64, v23: f64, v28: i64):
+    v68 = iconst.i64 0
+    v69 = icmp sle v19, v68  ; v68 = 0
+    brif v69, block1, block4
+
+block4:
+    ; line 5
+    v29, v30 = isplit.i128 v1
+    v70 = iconst.i64 3
+    v71 = ishl.i64 v28, v70  ; v70 = 3
+    v33 = iadd v29, v71
+    v35 = load.i64 notrap aligned v33
+    v36, v37 = isplit.i128 v0
+    v72 = ishl v35, v70  ; v70 = 3
+    v40 = iadd v36, v72
+    v43 = load.f64 notrap aligned v40
+    v73 = iconst.i64 1
+    v74 = isub.i64 v19, v73  ; v73 = 1
+    v44 = fadd.f64 v23, v43
+    v75 = iadd.i64 v28, v73  ; v73 = 1
+    jump block3(v74, v44, v75)
+
+block2:
+    v3 = iconst.i64 0
+    v64 = smax v3, v2  ; v3 = 0
+    ; line 2
+    v5 = f64const 0.0
+    ; line 5
+    v31 = iconst.i64 3
+    ; line 4
+    v7 = iconst.i64 1
+    ; line 5
+    jump block3(v64, v5, v3)  ; v5 = 0.0, v3 = 0
+
+block1:
+    ; line 6
+    return v23
+}

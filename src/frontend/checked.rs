@@ -17,7 +17,7 @@ pub(super) struct Scope {
     /// False selects trapping operators without searching outer scopes.
     pub(super) arithmetic: bool,
     /// A plain `unchecked:` suite outside `std` in a build that assumes its
-    /// preconditions: its fallible integer operations omit their checks.
+    /// preconditions: its integer and indexing operations omit their checks.
     pub(super) assume: bool,
     /// The errors the block's arithmetic can produce, in source order.
     pub(super) failures: Vec<Ty>,
@@ -212,6 +212,19 @@ impl Lower<'_> {
         } else {
             op
         });
+    }
+
+    /// Keep the lexical contract on the individual indexing operation so
+    /// calls and nested checked/trapping suites cannot inherit it.
+    pub(super) fn index_op(&self, operation: CollectionOp) -> Op {
+        let op = Op::Collection(operation);
+        if self.checked.last().is_some_and(|scope| scope.assume)
+            && matches!(&op, Op::Collection(operation) if operation.assumable_index())
+        {
+            Op::Assumed(Box::new(op))
+        } else {
+            op
+        }
     }
 
     /// `ZeroDivisionError`, or `OverflowError[T]` for `operand` `T`.
