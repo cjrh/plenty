@@ -750,3 +750,6 @@ mod test_std_fs_lock;
 
 #[path = "test_sum_fallbacks.rs"]
 mod test_sum_fallbacks;
+
+#[path = "../plenty-runtime/native/vendor_cache.rs"]
+mod test_runtime_vendor_cache;
