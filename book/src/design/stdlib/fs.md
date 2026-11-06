@@ -1,6 +1,8 @@
 # std.fs — directory enumeration
 
 Import `std.fs` and pass a borrowed [Path](path.md).
+[Metadata and links](fs/metadata.md) covers native-byte `symlink` creation and
+`canonicalize` resolution as well as file observations.
 For owned temporary resources, copy/move/remove and bounded glob filtering,
 see [rooted helpers](fs/helpers.md) and [file/tree copying](fs/copying.md). The home and XDG base directories are in
 [`std.fs.dirs`](fs/dirs.md). For change notifications, see

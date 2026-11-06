@@ -253,6 +253,8 @@ mod test_fs_permissions;
 
 #[path = "test_fs_helpers.rs"]
 mod test_fs_helpers;
+#[path = "test_fs_links.rs"]
+mod test_fs_links;
 #[path = "test_fstrings.rs"]
 mod test_fstrings;
 #[path = "test_fuzz.rs"]

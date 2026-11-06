@@ -66,6 +66,45 @@ including a relative target or invalid UTF-8. It does not resolve it, make it
 absolute or require that the target exists. Buffer growth and copying are
 fallible; a full native buffer is retried rather than silently truncated.
 
+## Creating and resolving links
+
+`symlink(target: &Path, link: &Path) -> Result[(), IoError]` creates a new
+symbolic link containing the target's exact bytes. A relative target is
+interpreted relative to the link's parent when followed, not relative to the
+caller's working directory. The target need not exist. An existing destination,
+including a dangling link, causes an error without replacing it. Parent
+components of `link` follow ordinary filesystem resolution; this is not a
+rooted no-follow operation. Use [Root and TempFile](helpers.md) for their
+separate confinement and publication contracts.
+
+`canonicalize(path: &Path) -> Result[Path, IoError]` returns a new absolute
+native-byte path after resolving symbolic links, `.` and `..`. Components are
+resolved in filesystem order: `link/..` refers to the target's parent. Every
+component must exist; dangling links and missing components return the native
+error, a non-directory intermediate component or a trailing slash on a file
+returns `ENOTDIR`, and loops or excessive link traversal return `ELOOP`.
+Empty paths fail. No text decoding or lossy replacement occurs.
+
+Both functions borrow their inputs, are usable on worker threads, and resolve
+relative input paths against the process working directory. Embedded NUL bytes
+return `IoError.InvalidInput`. On the current 64-bit Linux backend each input
+and the canonical output must fit in `PATH_MAX` including the terminating NUL
+(4095 content bytes); excess returns `IoError.System(ENAMETOOLONG)`. Input
+lengths are checked before copying. Native path buffers are bounded stack
+storage; `symlink` needs no Plenty heap allocation. Canonical output allocation
+is fallible and reports `IoError.Data(DataError.Allocation(...))`; OS/C-library
+failures retain `IoError.System(errno)`. Unsupported hosts return
+`IoError.Unsupported`.
+
+Canonicalization is a transient observation, **not a security boundary** or a
+snapshot. Concurrent rename, removal or replacement can change resolution or
+invalidate the returned name immediately. A later open need not access the same
+object; use held handles and descriptor-rooted operations when identity matters.
+The narrow native wrappers use `symlink` and caller-buffer `realpath` so libc
+implements platform link traversal, directory checks and error behavior instead
+of duplicating that resolver in Plenty. No `realpath(NULL)` allocation escapes
+into the language.
+
 The baseline is Rust's explicit `metadata`/`symlink_metadata` split and
 non-following DirEntry behavior. This differs from Python's default followed
 DirEntry predicates/stat; those defaults are not mixed. The native backend uses
@@ -75,6 +114,8 @@ libc/kernel statx support; absent kernel support or required basic fields return
 `IoError.Unsupported`. Native layouts and descriptors are private.
 
 ## Acknowledgements
+
+- Uses the C library’s [`symlink`](https://pubs.opengroup.org/onlinepubs/9799919799/functions/symlink.html) and [`realpath`](https://pubs.opengroup.org/onlinepubs/9799919799/functions/realpath.html) for native link creation and filesystem resolution.
 
 - Follows Rust's [`metadata`/`symlink_metadata`](https://doc.rust-lang.org/std/fs/fn.symlink_metadata.html) split and its Unix `statx` backend.
 

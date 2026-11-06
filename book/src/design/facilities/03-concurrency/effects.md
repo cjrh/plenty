@@ -12,7 +12,7 @@ the same walk as user code, and a foreign call is still rejected.
 | Clock | Monotonic and wall clocks, `sleep` | Allowed |
 | Entropy | `std.secrets` reads | Allowed |
 | Process stream | Standard input, output and error, `print`, `args` | Allowed; no ordering between threads |
-| Path | `open`, `read_text`, metadata, `read_dir`, `std.fs.root` | Allowed; a relative path resolves against the working directory at the call |
+| Path | `open`, `read_text`, metadata, `read_dir`, `std.fs.root`, `std.fs.symlink`, `std.fs.canonicalize` | Allowed; a relative path resolves against the working directory at the call |
 | Handle | Methods of `File`, `ReadDir` and `std.fs.Root`, rooted mutation, `std.ready` waits and selectors, operations on an open socket | Allowed under the loan rules below |
 | Environment | `std.env.get`, `vars`, `current_dir` | Allowed; reads only |
 | Child | `std.process` spawn, wait, poll and signal | Allowed; the runtime's child table is synchronized |
