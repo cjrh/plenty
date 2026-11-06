@@ -19,6 +19,12 @@ trapping and assumed unchecked arithmetic, routes readers to boxed protocols,
 structural collection keys and quantities, and uses the signature index's
 module navigation. Published skill assemblies include the language reference
 so those contracts remain accessible outside the compiler checkout.
+Issue #810 adds task-oriented capability discovery and a versioned gap-verification
+workflow, with executable typed partial-error and cancellable-shutdown examples.
+Applied examples distinguish string assignment, explicit class copying and nested
+Shared ownership, and package guidance covers module privacy, one-way imports,
+cycles, target/test coverage and current editor limits. Publication bundles the
+linked concurrency and editor setup contracts as well as the existing API pages.
 Issue #738 recalculates signature-index module ranges after publication transforms,
 so line-based reads select complete sections in the installed skill too.
 

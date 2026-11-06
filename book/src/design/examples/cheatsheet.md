@@ -518,11 +518,15 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     backup = copy(values)?
     moved = values
     print(moved, backup)?
+    label = "team"
+    other = label
+    print(label, other)?
     Ok(())
 ```
 ```output
 6 6
 [2, 4, 6] [2, 4, 6]
+team team
 ```
 
 Numbers, `bool`, `str`, `bytes`, ranges, and named function values copy. A
@@ -532,7 +536,12 @@ also copy.
 Every other value moves: collections, boxes, closures that capture,
 generators, and other class instances.
 After `moved = values`, `values` is unusable.
-`copy(x)?` is the explicit, fallible deep copy. `&x` lends shared access and
+`str` assignment keeps both names usable without `copy`; immutable storage may
+be shared. `copy(x)?` explicitly duplicates eligible owned mutable contents.
+An eligible ordinary class does not need `@copy` for this explicit operation;
+nested [Shared](../facilities/01-builtins/shared.md) handles retain the same content.
+Custom destruction, recursive data, generators and captured closures restrict
+copying. `&x` lends shared access and
 `&mut x` exclusive access; a `&T` parameter borrows an owner implicitly, but
 `&mut` must be written. Iterating `&list` yields `&T`, so dereference with `*`.
 References cannot be stored in classes, enums, tuples, or collections. See

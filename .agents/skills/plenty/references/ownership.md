@@ -12,7 +12,8 @@ also copy.
 Every other value moves: collections, boxes, closures that capture,
 generators, and other class instances.
 
-A moved name is unusable. `copy(x)?` makes an explicit, fallible deep copy.
+A moved name is unusable. `copy(x)?` explicitly duplicates eligible owned
+mutable contents; it is fallible. Ordinary `str` assignment needs no `copy`:
 
 ```plenty
 def main() -> Result[(), AllocError | IoError]:
@@ -29,6 +30,57 @@ def main() -> Result[(), AllocError | IoError]:
 ["Ada", "Grace"] ["Ada", "Grace"]
 team team
 ```
+
+## Explicit class copy and Shared content
+
+`@copy` controls implicit copying on ordinary value use. An eligible class
+without it still supports explicit `copy(value)?`. In this example the list
+becomes independent, while both records retain owners of one atomic value:
+
+```plenty
+from std.atomic import Atomic, Ordering
+
+class Snapshot:
+    names: list[str]
+    updates: Shared[Atomic[i64]]
+
+def main() -> Result[(), AllocError | IoError]:
+    original = Snapshot(["Ada"]?, Shared(Atomic[i64](0))?)
+    mut duplicate = copy(original)?
+    duplicate.names.append("Grace")?
+    duplicate.updates.store(7, Ordering.Relaxed)
+    print(len(original.names), len(duplicate.names))?
+    print(original.updates.load(Ordering.Relaxed), duplicate.updates.load(Ordering.Relaxed))?
+    Ok(())
+```
+```output
+1 2
+7 7
+```
+
+This is not permission to deep-copy every type: custom destruction, recursive
+data, generators and captured closures restrict explicit copying. For example:
+
+```plenty-error
+class Resource:
+    def __del__(self: &mut Resource) -> ():
+        pass
+
+def main() -> Result[(), AllocError]:
+    resource = Resource()
+    duplicate = copy(resource)?
+    Ok(())
+```
+```error
+cannot be copied
+```
+
+For a handle itself, use `another = handle.share()`, not `copy(handle)`.
+Sharing allocates nothing and gives shared access, not a mutable alias. Put
+synchronized mutation behind `Atomic` or `Mutex` as appropriate. Read the
+[copy eligibility rules](../../../../book/src/design/language/05-ownership/01-bindings-moves-and-copies.md)
+and [Shared contracts](../../../../book/src/design/facilities/01-builtins/shared.md)
+before choosing ownership for a larger object graph.
 
 ## Borrowing in signatures
 

@@ -43,6 +43,9 @@ BUNDLE = {
     "book/src/design/stdlib": f"{REFERENCES}/std",
     "book/src/design/facilities/01-builtins": f"{REFERENCES}/builtins",
     "book/src/design/facilities/02-io": f"{REFERENCES}/io",
+    "book/src/design/facilities/03-concurrency": f"{REFERENCES}/concurrency",
+    "book/src/design/toolchain/01-building/language-server.md": f"{REFERENCES}/language-server.md",
+    "book/src/design/toolchain/01-building/neovim.md": f"{REFERENCES}/neovim.md",
 }
 
 # Book passages addressed to compiler contributors. See "Contributor-only
