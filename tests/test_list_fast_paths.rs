@@ -1826,6 +1826,64 @@ fn traps_per_loop(clif: &str) -> Vec<usize> {
     loops
 }
 
+/// Whether every loop header in `clif` that ends in a `brif` names its exit
+/// first: the target outside the blocks from the header to the block that
+/// jumps back to it.
+fn loop_headers_exit_first(clif: &str) -> bool {
+    let lines: Vec<&str> = clif.lines().collect();
+    let start = |block: &str| {
+        lines.iter().position(|line| {
+            line.strip_prefix(block)
+                .is_some_and(|rest| rest.starts_with(['(', ':']))
+        })
+    };
+    let mut headers = 0;
+    for (at, line) in lines.iter().enumerate() {
+        let Some(name) = line.split(['(', ':']).next() else {
+            continue;
+        };
+        if !name.starts_with("block") || line.starts_with(' ') {
+            continue;
+        }
+        let Some(back) = lines[at + 1..].iter().position(|line| {
+            let line = line.trim();
+            line == format!("jump {name}") || line.starts_with(&format!("jump {name}("))
+        }) else {
+            continue;
+        };
+        let end = at + 1 + back;
+        let terminator = lines[at + 1..]
+            .iter()
+            .map(|line| line.trim())
+            .find(|line| line.starts_with("brif ") || line.starts_with("jump "))
+            .unwrap();
+        let Some(targets) = terminator.strip_prefix("brif ") else {
+            continue;
+        };
+        let targets: Vec<&str> = targets
+            .split([',', ' ', '('])
+            .filter(|t| t.starts_with("block"))
+            .collect();
+        let inside = |block: &str| start(block).is_some_and(|i| (at..=end).contains(&i));
+        if inside(targets[0]) || !inside(targets[1]) {
+            return false;
+        }
+        headers += 1;
+    }
+    headers > 0
+}
+
+/// A loop header branches to its exit first, so Cranelift places the body
+/// right after the header rather than after the code its exit reaches
+/// (issue #767).
+#[test]
+fn loop_headers_branch_to_the_exit_first() {
+    for name in ["copy_rows", "pair_sum", "until_negative"] {
+        let clif = dump("clif-opt", &format!("__plenty_fn_{name}"), VERSIONED);
+        assert!(loop_headers_exit_first(&clif), "{name}\n{clif}");
+    }
+}
+
 #[test]
 fn versioned_range_loops_have_an_unchecked_copy() {
     for (name, loops) in [
