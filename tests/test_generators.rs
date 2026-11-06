@@ -346,3 +346,55 @@ def main() -> Result[(), AllocError | IoError]:
             b"Result[i8, OverflowError[i8]].Err(OverflowError[i8](wrapped=-128))\nResult[i8, OverflowError[i8]].Ok(0)\nTrue True\n");
     }
 }
+
+// Issue #768: resume stores the yielded record after its result word. Four
+// i64 fields already exceed the fixed scratch area's 32-byte payload space.
+#[rstest]
+#[case(false, 4)]
+#[case(true, 4)]
+#[case(false, 8)]
+#[case(true, 8)]
+fn resume_reserves_the_complete_inline_yield(#[case] optimize: bool, #[case] fields: usize) {
+    let declarations = (0..fields)
+        .map(|field| format!("    field_{field}: i64\n"))
+        .collect::<String>();
+    let arguments = vec!["index"; fields].join(", ");
+    let source = format!(
+        r#"@copy
+class Span:
+{declarations}
+def values(text: str) -> Generator[Span]:
+    unchecked trap:
+        mut index = 0
+        for scalar in text:
+            index += 1
+            yield Span({arguments})
+
+def gather(text: &str, output: &mut list[i64]) -> Result[(), AllocError]:
+    for value in values(*text):
+        output.append(value.field_{last})?
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError]:
+    mut output: list[i64] = []?
+    gather(&"abc", &mut output)?
+    print(output)?
+    Ok(())
+"#,
+        last = fields - 1,
+    );
+    let directory = tempfile::tempdir().unwrap();
+    let executable = directory.path().join("yield-record");
+    plenty::compile_source_to_executable_with_options(
+        &source,
+        &executable,
+        &plenty::CompileOptions {
+            optimize,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let output = std::process::Command::new(executable).output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(output.stdout, b"[1, 2, 3]\n");
+}

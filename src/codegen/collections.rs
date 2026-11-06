@@ -745,7 +745,14 @@ impl Lowerer<'_, '_> {
         } else {
             zero
         };
-        let slot = self.scratch_slot(96);
+        // Resume writes the yielded inline payload after the result word.
+        // The usual six-word scratch area only leaves 32 bytes for it.
+        let bytes = if opcode == 24 {
+            64 + ty.map_or(0, Ty::inline_bytes)
+        } else {
+            96
+        };
+        let slot = self.scratch_slot(u32::try_from(bytes.max(96))?);
         let args = self.bcx.ins().stack_addr(PTR_TY, slot, 0);
         for i in 0..3 {
             let value = values.get(i).copied().unwrap_or(zero);

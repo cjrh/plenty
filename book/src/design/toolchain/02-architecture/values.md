@@ -90,6 +90,10 @@ address a packed list element, a local slot, or a projected enum payload. Slot
 padding is not part of the scalar value; runtime equality, hashing and formatting
 ignore it. Projected writes leave ancestor tags unchanged.
 
+Generator resumption reserves space for the complete inline yield layout after
+the runtime result word. The shared runtime-call scratch area grows for larger
+records and nested payloads; yielding a record does not impose a fixed-size limit.
+
 ## Lists
 
 Dense lists pack primitive numeric and boolean elements into 1-, 2-, 4- or
