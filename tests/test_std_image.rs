@@ -1069,6 +1069,37 @@ print(hex(&std.image.encode_png(&noisy(200, 120, ColorType.Rgba, 7)?, 6)?)?)?
     assert!(kinds[1..kinds.len() - 1].iter().all(|kind| kind == b"IDAT"));
 }
 
+#[test]
+fn idat_chunks_never_exceed_the_frame_size_even_within_one_row() {
+    // Issue #707: rows longer than the IDAT size, at level 0 (stored) and on
+    // noise (incompressible), once produced one IDAT per row. Every IDAT must
+    // stay at most 65536 bytes so no scanline can push a chunk past PNG's
+    // 2^31-1 length ceiling. The default decode limit caps width at 16384, so
+    // Rgba rows of 65533 and 65537 bytes with their filter byte straddle it.
+    let body = r#"
+images = [noisy(16383, 3, ColorType.Rgba, 3)?, noisy(16384, 3, ColorType.Rgba, 4)?, noisy(16384, 3, ColorType.Rgb, 5)?, noisy(16384, 9, ColorType.Gray, 6)?]?
+for image in images:
+    for level in [0, 1]?:
+        print(trip(&image, level)?)?
+        print(hex(&std.image.encode_png(&image, level)?)?)?
+"#;
+    let got = output(&program(body));
+    let lines: Vec<&str> = got.lines().collect();
+    assert_eq!(lines.len(), 16, "{got}");
+    for pair in lines.chunks(2) {
+        assert_eq!(pair[0], "True");
+        let png = chunks(&unhex(pair[1]));
+        let sizes: Vec<usize> = png
+            .iter()
+            .filter(|(kind, _)| kind == b"IDAT")
+            .map(|(_, data)| data.len())
+            .collect();
+        assert!(sizes.iter().all(|&size| size <= 65536), "{sizes:?}");
+        // Each image holds over 2*65536 raw bytes, so full-size frames occur.
+        assert!(sizes.contains(&65536), "{sizes:?}");
+    }
+}
+
 /// Runs a Python script with Pillow, or `None` when either is missing.
 fn pillow(script: &str, input: &str) -> Option<String> {
     use std::io::Write;

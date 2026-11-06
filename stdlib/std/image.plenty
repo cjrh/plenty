@@ -945,7 +945,8 @@ def decode_png(data: &[u8], limits: &Limits) -> Result[Image, ImageError]:
 
 # ---- PNG encoding ----
 
-# Compressed data is framed into IDAT chunks of about this size.
+# The largest IDAT payload the encoder writes. PNG chunk lengths stop at 2^31-1, and one
+# scanline can exceed that, so rows are fed and framed in pieces of at most this size.
 const idat_size: i64 = 65536
 
 def put32(out: &mut Bytes, value: i64) -> Result[(), ImageError]:
@@ -966,6 +967,19 @@ def framed(out: &mut Bytes, kind: i64, data: &[u8], start: i64, stop: i64) -> Re
     listed(out.extend(&data[start:stop]))?
     crc = coded(std.compress.crc32(0, &out[at:]))?
     put32(out, crc)
+
+# Frames all of `data` as consecutive IDAT chunks of at most idat_size bytes. Their
+# concatenation is the zlib stream, so where the chunks split it does not matter.
+def flushed(out: &mut Bytes, data: &[u8]) -> Result[(), ImageError]:
+    # 0<=at<=total throughout, and stop is at most idat_size past at and never past total.
+    unchecked:
+        total = len(data)
+        mut at = 0
+        while at < total:
+            stop = at + idat_size if total - at > idat_size else total
+            framed(out, idat, data, at, stop)?
+            at = stop
+        Ok(())
 
 # The sum of absolute differences of a filtered byte, read as signed.
 def cost(value: i64) -> i64:
@@ -1043,7 +1057,7 @@ def color_kind(color: ColorType) -> u8:
 pub def encode_png(image: &Image, level: i64 = 6) -> Result[Bytes, ImageError]:
     # Image dimensions<=2^31-1 and channels<=4 bound count, line and 5*line below 2^36.
     # Row/source/filter offsets stay inside held buffers. best<=4 and compressor writes consume
-    # at most the offered view, so fed never exceeds start+line. Bytes performs all unbounded
+    # at most the offered view, so fed never exceeds piece<=stop. Bytes performs all unbounded
     # output growth checks.
     unchecked:
         if level < 0 or level > 9:
@@ -1087,18 +1101,21 @@ pub def encode_png(image: &Image, level: i64 = 6) -> Result[Bytes, ImageError]:
             else:
                 best = filtered(&mut rows, pixels, at, pixels, at - count, count, step)
             start = best * line
+            stop = start + line
             mut fed = start
-            while fed < start + line:
-                fed += streamed(zlib.write(&rows[fed:start + line]))?
-            if zlib.inner.data.len() >= idat_size:
-                framed(&mut out, idat, &zlib.inner.data, 0, zlib.inner.data.len())?
-                zlib.inner.data.clear()
-                streamed(zlib.inner.seek(std.io.SeekFrom.Start(0)))?
+            # Feeding at most idat_size bytes per write keeps the compressed cursor near
+            # idat_size even when one row is gigabytes long.
+            while fed < stop:
+                piece = fed + idat_size if stop - fed > idat_size else stop
+                fed += streamed(zlib.write(&rows[fed:piece]))?
+                if zlib.inner.data.len() >= idat_size:
+                    flushed(&mut out, &zlib.inner.data)?
+                    zlib.inner.data.clear()
+                    streamed(zlib.inner.seek(std.io.SeekFrom.Start(0)))?
         streamed(zlib.finish())?
         sunk = zlib.inner
         rest = sunk.data
-        if rest.len() > 0:
-            framed(&mut out, idat, &rest, 0, rest.len())?
+        flushed(&mut out, &rest)?
         framed(&mut out, iend, &rest, 0, 0)?
         Ok(out)
 
