@@ -738,3 +738,6 @@ mod test_boxed_protocols;
 
 #[path = "test_value_generics.rs"]
 mod test_value_generics;
+
+#[path = "test_std_fs_lock.rs"]
+mod test_std_fs_lock;

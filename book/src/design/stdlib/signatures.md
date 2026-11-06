@@ -18,93 +18,94 @@ After changing a standard module, regenerate this page with
 
 Each section's lines in this file, so one module can be read alone.
 
-- [`std.actor`](#stdactor): 109-186
-- [`std.actor.net`](#stdactornet): 188-251
-- [`std.actor.tls`](#stdactortls): 253-282
-- [`std.actor.http.server`](#stdactorhttpserver): 284-347
-- [`std.archive`](#stdarchive): 349-415
-- [`std.atomic`](#stdatomic): 417-426
-- [`std.bytes`](#stdbytes): 428-475
-- [`std.cache.lru`](#stdcachelru): 477-499
-- [`std.channel`](#stdchannel): 501-505
-- [`std.cli`](#stdcli): 507-537
-- [`std.cli.fileinput`](#stdclifileinput): 539-548
-- [`std.cli.progress`](#stdcliprogress): 550-574
-- [`std.collections`](#stdcollections): 576-603
-- [`std.complex`](#stdcomplex): 605-631
-- [`std.compress`](#stdcompress): 633-663
-- [`std.concurrent`](#stdconcurrent): 665-669
-- [`std.crypto`](#stdcrypto): 671-752
-- [`std.csv`](#stdcsv): 754-817
-- [`std.dataframe`](#stddataframe): 819-1018
-- [`std.db.kv`](#stddbkv): 1020-1052
-- [`std.db.sqlite`](#stddbsqlite): 1054-1118
-- [`std.deque`](#stddeque): 1120-1134
-- [`std.diff`](#stddiff): 1136-1165
-- [`std.encoding`](#stdencoding): 1167-1234
-- [`std.env`](#stdenv): 1236-1250
-- [`std.error`](#stderror): 1252-1272
-- [`std.fmt`](#stdfmt): 1274-1341
-- [`std.fs`](#stdfs): 1343-1440
-- [`std.fs.dirs`](#stdfsdirs): 1442-1452
-- [`std.fs.watch`](#stdfswatch): 1454-1489
-- [`std.graph`](#stdgraph): 1491-1579
-- [`std.http`](#stdhttp): 1581-1651
-- [`std.http.decoder`](#stdhttpdecoder): 1653-1670
-- [`std.http.body`](#stdhttpbody): 1672-1707
-- [`std.http.client`](#stdhttpclient): 1709-1819
-- [`std.http.cookie`](#stdhttpcookie): 1821-1853
-- [`std.http.files`](#stdhttpfiles): 1855-1868
-- [`std.http.https`](#stdhttphttps): 1870-1884
-- [`std.http.proxy`](#stdhttpproxy): 1886-1907
-- [`std.http.server`](#stdhttpserver): 1909-1994
-- [`std.http.sse`](#stdhttpsse): 1996-2015
-- [`std.http.tls`](#stdhttptls): 2017-2034
-- [`std.http.typed`](#stdhttptyped): 2036-2069
-- [`std.http.websocket`](#stdhttpwebsocket): 2071-2106
-- [`std.http.wss`](#stdhttpwss): 2108-2114
-- [`std.image`](#stdimage): 2116-2162
-- [`std.io`](#stdio): 2164-2270
-- [`std.io.typed`](#stdiotyped): 2272-2310
-- [`std.json`](#stdjson): 2312-2376
-- [`std.jwt`](#stdjwt): 2378-2425
-- [`std.log`](#stdlog): 2427-2494
-- [`std.markdown`](#stdmarkdown): 2496-2530
-- [`std.template`](#stdtemplate): 2532-2553
-- [`std.math`](#stdmath): 2555-2626
-- [`std.mime`](#stdmime): 2628-2654
-- [`std.net`](#stdnet): 2656-2738
-- [`std.path`](#stdpath): 2740-2757
-- [`std.process`](#stdprocess): 2759-2808
-- [`std.random`](#stdrandom): 2810-2831
-- [`std.ready`](#stdready): 2833-2864
-- [`std.regex`](#stdregex): 2866-2919
-- [`std.report`](#stdreport): 2921-2928
-- [`std.secrets`](#stdsecrets): 2930-2956
-- [`std.shlex`](#stdshlex): 2958-2967
-- [`std.sketch`](#stdsketch): 2969-3007
-- [`std.sketch.xor`](#stdsketchxor): 3009-3020
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3022-3037
-- [`std.signal`](#stdsignal): 3039-3056
-- [`std.simd`](#stdsimd): 3058-3159
-- [`std.stat`](#stdstat): 3161-3194
-- [`std.plot`](#stdplot): 3196-3285
-- [`std.linalg`](#stdlinalg): 3287-3328
-- [`std.sync`](#stdsync): 3330-3348
-- [`std.system`](#stdsystem): 3350-3408
-- [`std.tempfile`](#stdtempfile): 3410-3442
-- [`std.test`](#stdtest): 3444-3486
-- [`std.text`](#stdtext): 3488-3531
-- [`std.thread`](#stdthread): 3533-3537
-- [`std.time`](#stdtime): 3539-3583
-- [`std.tls`](#stdtls): 3585-3667
-- [`std.toml`](#stdtoml): 3669-3718
-- [`std.unicode`](#stdunicode): 3720-3732
-- [`std.units`](#stdunits): 3734-3971
-- [`std.units.catalogue`](#stdunitscatalogue): 3973-4751
-- [`std.url`](#stdurl): 4753-4781
-- [`std.uuid`](#stduuid): 4783-4806
-- [`std.xml`](#stdxml): 4808-4841
+- [`std.actor`](#stdactor): 110-187
+- [`std.actor.net`](#stdactornet): 189-252
+- [`std.actor.tls`](#stdactortls): 254-283
+- [`std.actor.http.server`](#stdactorhttpserver): 285-348
+- [`std.archive`](#stdarchive): 350-416
+- [`std.atomic`](#stdatomic): 418-427
+- [`std.bytes`](#stdbytes): 429-476
+- [`std.cache.lru`](#stdcachelru): 478-500
+- [`std.channel`](#stdchannel): 502-506
+- [`std.cli`](#stdcli): 508-538
+- [`std.cli.fileinput`](#stdclifileinput): 540-549
+- [`std.cli.progress`](#stdcliprogress): 551-575
+- [`std.collections`](#stdcollections): 577-604
+- [`std.complex`](#stdcomplex): 606-632
+- [`std.compress`](#stdcompress): 634-664
+- [`std.concurrent`](#stdconcurrent): 666-670
+- [`std.crypto`](#stdcrypto): 672-753
+- [`std.csv`](#stdcsv): 755-818
+- [`std.dataframe`](#stddataframe): 820-1019
+- [`std.db.kv`](#stddbkv): 1021-1053
+- [`std.db.sqlite`](#stddbsqlite): 1055-1119
+- [`std.deque`](#stddeque): 1121-1135
+- [`std.diff`](#stddiff): 1137-1166
+- [`std.encoding`](#stdencoding): 1168-1235
+- [`std.env`](#stdenv): 1237-1251
+- [`std.error`](#stderror): 1253-1273
+- [`std.fmt`](#stdfmt): 1275-1342
+- [`std.fs`](#stdfs): 1344-1441
+- [`std.fs.dirs`](#stdfsdirs): 1443-1453
+- [`std.fs.lock`](#stdfslock): 1455-1469
+- [`std.fs.watch`](#stdfswatch): 1471-1506
+- [`std.graph`](#stdgraph): 1508-1596
+- [`std.http`](#stdhttp): 1598-1668
+- [`std.http.decoder`](#stdhttpdecoder): 1670-1687
+- [`std.http.body`](#stdhttpbody): 1689-1724
+- [`std.http.client`](#stdhttpclient): 1726-1836
+- [`std.http.cookie`](#stdhttpcookie): 1838-1870
+- [`std.http.files`](#stdhttpfiles): 1872-1885
+- [`std.http.https`](#stdhttphttps): 1887-1901
+- [`std.http.proxy`](#stdhttpproxy): 1903-1924
+- [`std.http.server`](#stdhttpserver): 1926-2011
+- [`std.http.sse`](#stdhttpsse): 2013-2032
+- [`std.http.tls`](#stdhttptls): 2034-2051
+- [`std.http.typed`](#stdhttptyped): 2053-2086
+- [`std.http.websocket`](#stdhttpwebsocket): 2088-2123
+- [`std.http.wss`](#stdhttpwss): 2125-2131
+- [`std.image`](#stdimage): 2133-2179
+- [`std.io`](#stdio): 2181-2287
+- [`std.io.typed`](#stdiotyped): 2289-2327
+- [`std.json`](#stdjson): 2329-2393
+- [`std.jwt`](#stdjwt): 2395-2442
+- [`std.log`](#stdlog): 2444-2511
+- [`std.markdown`](#stdmarkdown): 2513-2547
+- [`std.template`](#stdtemplate): 2549-2570
+- [`std.math`](#stdmath): 2572-2643
+- [`std.mime`](#stdmime): 2645-2671
+- [`std.net`](#stdnet): 2673-2755
+- [`std.path`](#stdpath): 2757-2774
+- [`std.process`](#stdprocess): 2776-2825
+- [`std.random`](#stdrandom): 2827-2848
+- [`std.ready`](#stdready): 2850-2881
+- [`std.regex`](#stdregex): 2883-2936
+- [`std.report`](#stdreport): 2938-2945
+- [`std.secrets`](#stdsecrets): 2947-2973
+- [`std.shlex`](#stdshlex): 2975-2984
+- [`std.sketch`](#stdsketch): 2986-3024
+- [`std.sketch.xor`](#stdsketchxor): 3026-3037
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3039-3054
+- [`std.signal`](#stdsignal): 3056-3073
+- [`std.simd`](#stdsimd): 3075-3176
+- [`std.stat`](#stdstat): 3178-3211
+- [`std.plot`](#stdplot): 3213-3302
+- [`std.linalg`](#stdlinalg): 3304-3345
+- [`std.sync`](#stdsync): 3347-3365
+- [`std.system`](#stdsystem): 3367-3425
+- [`std.tempfile`](#stdtempfile): 3427-3459
+- [`std.test`](#stdtest): 3461-3503
+- [`std.text`](#stdtext): 3505-3548
+- [`std.thread`](#stdthread): 3550-3554
+- [`std.time`](#stdtime): 3556-3600
+- [`std.tls`](#stdtls): 3602-3684
+- [`std.toml`](#stdtoml): 3686-3735
+- [`std.unicode`](#stdunicode): 3737-3749
+- [`std.units`](#stdunits): 3751-3988
+- [`std.units.catalogue`](#stdunitscatalogue): 3990-4768
+- [`std.url`](#stdurl): 4770-4798
+- [`std.uuid`](#stduuid): 4800-4823
+- [`std.xml`](#stdxml): 4825-4858
 
 ## `std.actor`
 
@@ -1449,6 +1450,22 @@ def config_dir() -> Result[Option[Path], IoError]
 def cache_dir() -> Result[Option[Path], IoError]
 def data_dir() -> Result[Option[Path], IoError]
 def state_dir() -> Result[Option[Path], IoError]
+```
+
+## `std.fs.lock`
+
+Owned Linux shared/exclusive advisory locks, nonblocking and cancellable deadline acquisition. Errors: `LockError`. [Reference](fs/lock.md).
+
+```text
+enum Mode
+    Shared | Exclusive
+enum LockError
+    WouldBlock | TimedOut | Cancelled | InvalidPath | Io(IoError) | Allocation(AllocError)
+class Lock
+    def close(self: &mut Lock) -> Result[(), LockError]
+    def is_closed(self) -> bool
+def acquire_now(path: &Path, mode: Mode) -> Result[Lock, LockError]
+def acquire_before(path: &Path, mode: Mode, deadline: &Deadline, cancel: &CancellationToken) -> Result[Lock, LockError]
 ```
 
 ## `std.fs.watch`

@@ -44,6 +44,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.fmt`](fmt.md) | Writer-generic value/report formatting, bounded output and fallible strings | `FormatError` |
 | [`std.fs`](fs.md) | Directories, metadata/walking, rooted mutation, owned temporary resources, bounded file/tree copy, metadata preservation, delete/glob | `IoError`, `AllocError`, `WalkError`, `FsError`, `TreeCopyError` |
 | [`std.fs.dirs`](fs/dirs.md) | The home directory and the XDG configuration, cache, data, and state directories, from the environment | `IoError` |
+| [`std.fs.lock`](fs/lock.md) | Owned Linux shared/exclusive advisory locks, nonblocking and cancellable deadline acquisition | `LockError` |
 | [`std.fs.watch`](fs/watch.md) | Bounded Linux filesystem change batches, rename cookies, overflow and readiness waits | `WatchError`, `WaitError` |
 | [`std.graph`](graph.md) | Directed and undirected graphs with node and edge data, stable handles, traversal, shortest paths, topological order, components and spanning trees | `AllocError`, `GraphError` |
 | [`std.http`](http.md) | Bounded HTTP/1.1 message heads and streamed `Content-Length`, chunked, and close-delimited bodies over `std.io` streams | `HttpError` |

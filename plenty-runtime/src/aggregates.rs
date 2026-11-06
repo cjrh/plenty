@@ -21,6 +21,7 @@ mod entry_error;
 mod enum_set_tests;
 pub(crate) mod executor_map;
 pub(crate) mod executor_reduce;
+mod file_lock;
 mod filesystem;
 #[cfg(test)]
 mod hash_tests;
@@ -2296,7 +2297,7 @@ operation_entries! {
 // `std.fs` paths and descriptors, file seeking and file readiness.
 operation_entries! {
     150 151 152 153 154 155 156 157 158 159 160 161 162 163 164 192 260 261 262 263
-    264 265 266 267 268 269 270 271 272 273 390 512 513 514 515 516 517 518 610 611
+    264 265 266 267 268 269 270 271 272 273 390 512 513 514 515 516 517 518 610 611 620 621
 }
 // `std.time`.
 operation_entries! {
@@ -2554,6 +2555,7 @@ pub(crate) unsafe fn collection_at(
         }
         match op {
             150..=164 => filesystem::call(op, a, b, descriptor),
+            620..=621 => file_lock::call(op, a, b, descriptor),
             260..=273 | 516..=518 | 610..=611 => {
                 filesystem::rooted_call(op, a, b, value, descriptor)
             }
