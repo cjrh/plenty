@@ -743,3 +743,6 @@ mod test_value_generics;
 
 #[path = "test_std_fs_lock.rs"]
 mod test_std_fs_lock;
+
+#[path = "test_sum_fallbacks.rs"]
+mod test_sum_fallbacks;

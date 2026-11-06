@@ -1,0 +1,57 @@
+def option_unwrap_or_else[T, F: OnceCallable[[], T]](source: Option[T], fallback: F) -> T:
+    mut compute = fallback
+    match source:
+        case Some(value):
+            value
+        case Nothing:
+            compute()
+
+def result_unwrap_or_else[T, E, F: OnceCallable[[E], T]](source: Result[T, E], fallback: F) -> T:
+    mut compute = fallback
+    match source:
+        case Ok(value):
+            value
+        case Err(error):
+            compute(error)
+
+def option_ok_or_else[T, E, F: OnceCallable[[], E]](source: Option[T], fallback: F) -> Result[T, E]:
+    mut compute = fallback
+    match source:
+        case Some(value):
+            Ok(value)
+        case Nothing:
+            Err(compute())
+
+def option_map_or[T, U, F: OnceCallable[[T], U]](source: Option[T], fallback: Option[U], mapper: F) -> U:
+    mut convert = mapper
+    match source:
+        case Some(value):
+            convert(value)
+        case Nothing:
+            fallback.unwrap()
+
+def result_map_or[T, E, U, F: OnceCallable[[T], U]](source: Result[T, E], fallback: Option[U], mapper: F) -> U:
+    mut convert = mapper
+    match source:
+        case Ok(value):
+            convert(value)
+        case Err(_):
+            fallback.unwrap()
+
+def option_map_or_else[T, U, D: OnceCallable[[], U], F: OnceCallable[[T], U]](source: Option[T], fallback: D, mapper: F) -> U:
+    mut compute = fallback
+    mut convert = mapper
+    match source:
+        case Some(value):
+            convert(value)
+        case Nothing:
+            compute()
+
+def result_map_or_else[T, E, U, D: OnceCallable[[E], U], F: OnceCallable[[T], U]](source: Result[T, E], fallback: D, mapper: F) -> U:
+    mut compute = fallback
+    mut convert = mapper
+    match source:
+        case Ok(value):
+            convert(value)
+        case Err(error):
+            compute(error)

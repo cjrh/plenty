@@ -1372,7 +1372,12 @@ impl Lower<'_> {
         })
     }
 
-    fn expr_hinted(&mut self, e: &Expr, expected: Type, ops: &mut Vec<Op>) -> Result<Type> {
+    pub(super) fn expr_hinted(
+        &mut self,
+        e: &Expr,
+        expected: Type,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
         if let Some(expected) = &expected
             && let Some(ty) = self.constructor_expected(e, expected, ops)?
         {
@@ -1406,6 +1411,16 @@ impl Lower<'_> {
             Expression::If(body) => self.if_value(&e.at, body, expected, ops),
 
             Expression::Method(base, name, args, _)
+                if sum_methods::method(name)
+                    && !self
+                        .place_type(base)
+                        .map(classes::unbox)
+                        .as_ref()
+                        .is_some_and(classes::inherent_receiver) =>
+            {
+                self.sum_method(base, name, args, expected, ops)
+            }
+            Expression::Method(base, name, args, _)
                 if matches!(name.as_str(), "unwrap_or" | "ok_or")
                     && !self
                         .place_type(base)
@@ -1413,7 +1428,7 @@ impl Lower<'_> {
                         .as_ref()
                         .is_some_and(classes::inherent_receiver) =>
             {
-                self.option_method(base, name, args, expected, ops)
+                self.sum_default(base, name, args, expected, ops)
             }
             Expression::Method(base, name, args, _)
                 if name == "unwrap"
@@ -3478,7 +3493,7 @@ impl Lower<'_> {
         }
     }
 
-    fn option_method(
+    fn sum_default(
         &mut self,
         base: &Expr,
         name: &str,
@@ -3513,7 +3528,7 @@ impl Lower<'_> {
             }
         };
         let start = self.locals.len();
-        let ty = self.expr_expected(base, payload_hint.map(crate::sum::option), ops)?;
+        let ty = self.expr_hinted(base, payload_hint.map(crate::sum::option), ops)?;
         if let Some(actual) = &ty {
             let class = classes::unbox(actual.clone());
             if classes::inherent_receiver(&class) {
@@ -3525,12 +3540,26 @@ impl Lower<'_> {
             return Err(base.at.error(format!("{name} requires one argument")));
         };
         let Some(Ty::Enum(option)) = ty else {
-            return Err(base.at.error(format!("{name} requires an Option")));
+            return Err(base.at.error(format!(
+                "{name} requires an Option{}",
+                if name == "unwrap_or" {
+                    " or Result"
+                } else {
+                    ""
+                }
+            )));
         };
-        if !option.is_option() {
-            return Err(base.at.error(format!("{name} requires an Option")));
+        if !option.is_option() && !(name == "unwrap_or" && option.is_result()) {
+            return Err(base.at.error(format!(
+                "{name} requires {}",
+                if name == "unwrap_or" {
+                    "an Option or Result"
+                } else {
+                    "an Option"
+                }
+            )));
         }
-        let payload = option.get().variants[1].fields[0].clone();
+        let payload = option.get().variants[usize::from(option.is_option())].fields[0].clone();
         let carried = if payload.carries_loan() {
             if name == "unwrap_or" {
                 return Err(base
@@ -3572,7 +3601,7 @@ impl Lower<'_> {
         } else {
             crate::sum::result(payload.clone(), actual)
         };
-        self.select_option(
+        self.select_sum_default(
             option,
             source,
             fallback,
@@ -3594,9 +3623,9 @@ impl Lower<'_> {
         }
     }
 
-    /// Select from already evaluated operands. Lookup defaults and Option
+    /// Select from already evaluated operands. Lookup defaults and sum
     /// methods share the ownership transfer and unused-argument cleanup.
-    fn select_option(
+    fn select_sum_default(
         &self,
         option: crate::nominal::Nominal<crate::sum::EnumType>,
         source: u8,
@@ -3605,13 +3634,14 @@ impl Lower<'_> {
         convert: bool,
         ops: &mut Vec<Op>,
     ) {
-        let payload = &option.get().variants[1].fields[0];
+        let success_tag = usize::from(option.is_option());
+        let payload = &option.get().variants[success_tag].fields[0];
         let mut yes = vec![
             Op::MoveLocal(source),
             Op::Enum(if payload.affine() {
-                crate::sum::EnumOp::Take(option.clone(), 1, 0)
+                crate::sum::EnumOp::Take(option.clone(), success_tag, 0)
             } else {
-                crate::sum::EnumOp::Field(option.clone(), 1, 0)
+                crate::sum::EnumOp::Field(option.clone(), success_tag, 0)
             }),
         ];
         let mut no = vec![Op::MoveLocal(fallback)];
@@ -3624,7 +3654,7 @@ impl Lower<'_> {
         ops.extend([
             Op::LoadLocal(source),
             Op::Enum(crate::sum::EnumOp::Tag(option)),
-            Op::PushInt(Value::I64(1)),
+            Op::PushInt(Value::I64(success_tag as i64)),
             Op::Eq,
             branch(yes, no),
             Op::DropLocal(source),
@@ -3743,6 +3773,15 @@ impl Lower<'_> {
         {
             return self.unwrap_result(base, args, None, ops);
         }
+        if sum_methods::method(name)
+            && !self
+                .place_type(base)
+                .map(classes::unbox)
+                .as_ref()
+                .is_some_and(classes::inherent_receiver)
+        {
+            return self.sum_method(base, name, args, None, ops);
+        }
         if matches!(name, "unwrap_or" | "ok_or")
             && !self
                 .place_type(base)
@@ -3750,7 +3789,7 @@ impl Lower<'_> {
                 .as_ref()
                 .is_some_and(classes::inherent_receiver)
         {
-            return self.option_method(base, name, args, None, ops);
+            return self.sum_default(base, name, args, None, ops);
         }
         if name == "map_error"
             && !self
@@ -4647,7 +4686,7 @@ impl Lower<'_> {
                 let Ty::Enum(option) = result else {
                     unreachable!()
                 };
-                self.select_option(option, slot, default, element.clone(), false, ops);
+                self.select_sum_default(option, slot, default, element.clone(), false, ops);
                 return Ok(Some(element));
             }
             return Ok(Some(result));

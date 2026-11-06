@@ -2,7 +2,7 @@
 
 Plenty has no exceptions. A fallible operation returns `Result[T, E]`; absence
 is `Option[T]`. Every `Result` must be consumed with `?`, `match`, a method
-such as `unwrap_or`, or an explicit `drop(result)`.
+such as `unwrap_or` (when deliberately recovering), or an explicit `drop(result)`.
 
 ## Propagate with `?` and a union
 
@@ -210,3 +210,24 @@ Use it only when termination is the intended policy.
 - `Failure`: propagating into `Result[T, Failure]` discards the cause. It is a
   last resort, not a way to combine errors.
 - `str` errors when a typed error exists: callers cannot match on text.
+
+## Eager and lazy defaults
+
+Both `Option` and `Result` have `unwrap_or(default)` and
+`unwrap_or_else(callback)`. `unwrap_or` evaluates the default even on success:
+`option.unwrap_or(compute()?)` can propagate `compute`'s error when the option
+is `Some`. The lazy callback takes no arguments for Option, or the error for
+Result. Option's `ok_or_else` constructs an absence error lazily.
+
+For a fallible default, use `option.map_or_else(fallible_default, Ok)?`:
+both branches return a Result, and `?` runs outside the callbacks. `map_or`
+has an eager default; `map_or_else` calls only one branch. Callback creation
+and capture evaluation are still eager. Owned one-shot callbacks are accepted;
+ordinary restrictions on borrowed environments still apply. Use `match` when
+it is clearer or a callback cannot be passed by value. Do not mechanically
+rewrite a lazy match into eager `unwrap_or` or `ok_or`.
+
+`expect(message)` on either sum deliberately traps with that eagerly evaluated
+message and the call location; it does not print the error payload. Prefer
+propagation or recovery for ordinary failures. See the executable examples and
+contracts in [standard sums](../../../../book/src/design/language/08-errors/01-sums-and-propagation.md#defaults-and-recovery).
