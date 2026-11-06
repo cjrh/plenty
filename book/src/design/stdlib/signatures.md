@@ -92,20 +92,20 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.plot`](#stdplot): 3218-3307
 - [`std.linalg`](#stdlinalg): 3309-3350
 - [`std.sync`](#stdsync): 3352-3370
-- [`std.system`](#stdsystem): 3372-3430
-- [`std.tempfile`](#stdtempfile): 3432-3464
-- [`std.test`](#stdtest): 3466-3508
-- [`std.text`](#stdtext): 3510-3553
-- [`std.thread`](#stdthread): 3555-3559
-- [`std.time`](#stdtime): 3561-3605
-- [`std.tls`](#stdtls): 3607-3689
-- [`std.toml`](#stdtoml): 3691-3740
-- [`std.unicode`](#stdunicode): 3742-3754
-- [`std.units`](#stdunits): 3756-3993
-- [`std.units.catalogue`](#stdunitscatalogue): 3995-4773
-- [`std.url`](#stdurl): 4775-4803
-- [`std.uuid`](#stduuid): 4805-4828
-- [`std.xml`](#stdxml): 4830-4863
+- [`std.system`](#stdsystem): 3372-3431
+- [`std.tempfile`](#stdtempfile): 3433-3465
+- [`std.test`](#stdtest): 3467-3509
+- [`std.text`](#stdtext): 3511-3554
+- [`std.thread`](#stdthread): 3556-3560
+- [`std.time`](#stdtime): 3562-3606
+- [`std.tls`](#stdtls): 3608-3690
+- [`std.toml`](#stdtoml): 3692-3741
+- [`std.unicode`](#stdunicode): 3743-3755
+- [`std.units`](#stdunits): 3757-3994
+- [`std.units.catalogue`](#stdunitscatalogue): 3996-4774
+- [`std.url`](#stdurl): 4776-4804
+- [`std.uuid`](#stduuid): 4806-4829
+- [`std.xml`](#stdxml): 4831-4864
 
 ## `std.actor`
 
@@ -3371,11 +3371,12 @@ def select_recv_before[A, B](first: &Receiver[A], second: &Receiver[B], deadline
 
 ## `std.system`
 
-Bounded Linux procfs snapshots: CPUs, memory, load, uptime, block devices, disk I/O and process status. Errors: `IoError`, `SystemError`. [Reference](system.md).
+CPU availability estimates and bounded Linux procfs snapshots: CPUs, memory, load, uptime, block devices, disk I/O and process status. Errors: `IoError`, `SystemError`. [Reference](system.md).
 
 ```text
 enum SystemError
-    Io(IoError) | Stream(StreamError) | Allocation(AllocError) | Limit | Malformed(str)
+    Io(IoError) | Stream(StreamError) | Allocation(AllocError) | Limit | Malformed(str) | Unavailable | Unsupported
+def available_parallelism() -> Result[Positive[i64], SystemError]
 class Memory
     total_bytes: u64
     free_bytes: u64

@@ -343,10 +343,15 @@ error of their own.
 The pool is borrowed: write `&pool`, or pass a `&ThreadPoolExecutor` value.
 
 ```text
-with ThreadPoolExecutor(8, 64)? as pool:
+workers = std.system.available_parallelism().unwrap_or(1)
+with ThreadPoolExecutor(workers, 64)? as pool:
     lengths = iter(paths).par(&pool).map(file_size).collect()?
     best = iter(range(1, n)).par(&pool, chunks=16).map(score).reduce(better)?
 ```
+
+The example imports `std.system` and chooses one worker on a failed availability
+query. Keep an explicit application/user count when supplied; see
+[CPU availability](../../stdlib/system.md#available-parallelism).
 
 | Part | Accepted |
 |---|---|

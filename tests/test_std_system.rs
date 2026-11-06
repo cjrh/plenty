@@ -10,6 +10,40 @@ use std::process::Command;
 const MEMORY: &str = "MemTotal: 1000 kB\nMemFree: 100 kB\nMemAvailable: 600 kB\nSwapTotal: 20 kB\nSwapFree: 12 kB\nFutureField: anything\n";
 const STATUS: &str = "Name:\tworker (with spaces)\\nname\nState:\tS (sleeping)\nPid:\t42\nPPid:\t1\nUid:\t1000\t1001\t1002\t1003\nThreads:\t3\nVmSize:\t2048 kB\nVmRSS:\t512 kB\n";
 
+#[test]
+fn cpu_availability_observes_restricted_affinity() {
+    if Command::new("taskset").arg("--version").output().is_err() {
+        eprintln!("taskset is unavailable; restricted-affinity qualification skipped");
+        return;
+    }
+    let (dir, executable) = support::build_file(
+        r#"import std.system
+def main() -> Result[(), std.system.SystemError | IoError]:
+    print(std.system.available_parallelism()?.get())?
+    Ok(())
+"#,
+    );
+    let status = std::fs::read_to_string("/proc/self/status").unwrap();
+    let allowed = status
+        .lines()
+        .find_map(|line| line.strip_prefix("Cpus_allowed_list:"))
+        .unwrap()
+        .trim();
+    let cpu = allowed.split([',', '-']).next().unwrap();
+    let output = Command::new("taskset")
+        .args(["-c", cpu])
+        .arg(&executable)
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "1");
+}
+
 fn fixture(root: &Path) {
     let procfs = root.join("proc");
     std::fs::create_dir_all(procfs.join("42")).unwrap();

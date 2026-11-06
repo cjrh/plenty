@@ -28,7 +28,7 @@ scope decision, not a second task list.
 | [Sketches](../design/stdlib/sketch.md) | Dense HyperLogLog, reservoir quantiles, Misra–Gries bounds, static xor/scalable cuckoo filters, bounded memory and versioned checkpoints (issues #496–#498). |
 | [Key/value database](../design/stdlib/kv.md) | Named ordered byte maps, transactions and bounded scans in Plenty over SQLite; versioned file schema and [engine decision](../design/stdlib/kv-engine.md) (issue #495). |
 | [UUID](../design/stdlib/uuid.md) | Canonical text/network bytes, OS-backed v4/v7 and allocation-free numeric sort keys (issue #461). |
-| [System](../design/stdlib/system.md) | Bounded Linux procfs snapshots for CPU/memory/load/uptime/block devices/disk I/O/processes (issue #487). |
+| [System](../design/stdlib/system.md) | Bounded Linux procfs snapshots for CPU/memory/load/uptime/block devices/disk I/O/processes (issue #487). Positive, fallible CPU-availability estimates for pool sizing and a [coverage/backend assessment](../design/stdlib/system-backends.md) were added by issue #716; Linux uses affinity and visible conventional cgroup quotas, with explicit platform limits. |
 
 Remaining breadth is **B38** in the [backlog](../backlog.md).
 
