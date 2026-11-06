@@ -120,7 +120,8 @@ See [workflow and packages](references/workflow.md).
   borrow.
 - Dictionaries have no indexed assignment: `d.insert(k, v)?` adds or
   replaces, and `d.get_mut(k)` returns `Option[&mut V]` to change a value in
-  place. Reading `d[k]` traps on a missing key; `d.get(k)` returns an `Option`.
+  place. To change every value, loop over `(&mut d).values()` or
+  `(&mut d).items()`; there is no `values_mut()`. Reading `d[k]` traps on a missing key; `d.get(k)` returns an `Option`.
 - Slices copy and allocate: `xs[1:3]?`, `s[::-1]?`. A computed step needs
   `NonZero.try_from(step)?`. Slice assignment is rejected.
 - `&xs[1:3]` and `&mut xs[1:3]` borrow a list or `Bytes` view, `&[T]` or
