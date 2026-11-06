@@ -42,7 +42,8 @@ Project commands (run inside a directory containing plenty.toml or below it):
        plenty lsp
 
 new / init: create a package with src/main.plenty (or src/lib.plenty with --lib).
-check: type-check every target; --check-all-methods also checks every method
+check: type-check every target and warn about .plenty files under src/ that no
+target imports; --check-all-methods also checks every method
 of every generic instance, including methods nothing calls. build: compile executables into target/optimized,
 or target/fast-compile with --fast-compile. --unchecked MODE: `trap` (default)
 or `assume` for plain `unchecked:` blocks outside std (see plentyc --help). run: build one executable and run it with
