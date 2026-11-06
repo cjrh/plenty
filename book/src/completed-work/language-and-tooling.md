@@ -871,6 +871,12 @@ key views. Views keep their dictionary borrowed and remain local-only; mutable
 value/item iteration stays immediate. See [dictionary views](../design/facilities/01-builtins/dictionaries.md#snapshots-and-views)
 and the [remaining B91 scope](../backlog.md).
 
+Issue #803 documents `(&mut d).values()` and `(&mut d).items()` as the way to
+[update every value](../design/facilities/01-builtins/dictionaries.md#updating-every-value)
+without a per-key `get_mut`. `values_mut()`, `items_mut()` and `iter_mut()`,
+indexed field or method writes, and writes through a shared value loop now
+name that form in their diagnostics.
+
 ## Structural key diagnostics
 
 Rejected dictionary keys, set members, key views and `KeyType` arguments now

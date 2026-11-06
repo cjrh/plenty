@@ -115,7 +115,9 @@ def main() -> Result[(), AllocError | IoError]:
 
 Iterating `&list[T]` or `&mut list[T]` yields `&T` or `&mut T`; read and
 replace through `*`. `for key, value in d.items():` borrows each value;
-read it with `*value`.
+read it with `*value`. `for value in (&mut d).values():` and
+`(&mut d).items()` lend `&mut V` and lock the whole dictionary until the loop
+ends.
 
 Rules:
 
