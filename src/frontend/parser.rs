@@ -595,13 +595,16 @@ impl Parser {
     ) -> Result<Function> {
         let at = self.take(); // def
         let once = anonymous && self.eat("once");
+        let name_at = self.peek().clone();
         let name = if anonymous {
             "__plenty_anonymous".into()
         } else {
             self.name()?
         };
         if class.is_none() && builtin(&name) {
-            return Err(at.error("cannot redefine a builtin"));
+            return Err(name_at.error(format!(
+                "cannot redefine builtin `{name}` as a function: it is a prelude name, available without an import; rename the function"
+            )));
         }
         let mut captures = Vec::new();
         if anonymous && self.eat("[") {
