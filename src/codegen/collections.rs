@@ -102,32 +102,40 @@ impl Lowerer<'_, '_> {
         index: cranelift_codegen::ir::Value,
         length: cranelift_codegen::ir::Value,
     ) -> bool {
-        use super::induction::Assumed;
+        use super::induction::{Assumed, LengthOf};
         let dfg = &self.bcx.func.dfg;
-        let (base, k) = super::induction::offset(dfg, index);
         let bounds = &self.counters.bounds;
         let Some(version) = &bounds.version else {
             return false;
         };
+        let canonical_length = bounds.canonical(dfg, length);
+        let length = if version.entries.get(&canonical_length) == Some(&false) {
+            LengthOf::Length(canonical_length)
+        } else if let Some(&view) = bounds.lengths.get(&canonical_length)
+            && version.entries.get(&view) == Some(&true)
+        {
+            LengthOf::View(view)
+        } else {
+            return false;
+        };
+        let (base, k) = super::induction::offset(dfg, index);
         let below_stop = bounds
             .below
             .get(&base)
             .is_some_and(|&bound| bounds.canonical(dfg, bound) == version.stop);
-        if !(0..=super::induction::VERSION_OFFSET).contains(&k)
-            || !below_stop
-            || !self.nonnegative_operand(base)
+        let (assumed, k) = if (0..=super::induction::VERSION_OFFSET).contains(&k)
+            && below_stop
+            && self.nonnegative_operand(base)
         {
-            return false;
-        }
-        let length = bounds.canonical(dfg, length);
-        let assumed = if version.entries.get(&length) == Some(&false) {
-            Assumed::Length(length)
-        } else if let Some(&view) = bounds.lengths.get(&length)
-            && version.entries.get(&view) == Some(&true)
-        {
-            Assumed::View(view)
+            (Assumed::Counter(length), k)
         } else {
-            return false;
+            // The same value on every pass: the test before the loop is
+            // this access's check.
+            let index = bounds.canonical(dfg, index);
+            if version.entries.get(&index) != Some(&false) {
+                return false;
+            }
+            (Assumed::Index(index, length), 0)
         };
         let version = self.counters.bounds.version.as_mut().unwrap();
         match version.assumed.iter_mut().find(|(a, _)| *a == assumed) {
@@ -1758,16 +1766,24 @@ impl Lowerer<'_, '_> {
             } else {
                 let mut holds = None;
                 for (assumed, k) in version.assumed {
-                    let length = match assumed {
-                        super::induction::Assumed::Length(length) => length,
-                        super::induction::Assumed::View(view) => self.bcx.ins().isplit(view).1,
+                    use super::induction::{Assumed, LengthOf};
+                    let (Assumed::Counter(length) | Assumed::Index(_, length)) = assumed;
+                    let length = match length {
+                        LengthOf::Length(length) => length,
+                        LengthOf::View(view) => self.bcx.ins().isplit(view).1,
                     };
-                    // A length is nonnegative, so this cannot wrap.
-                    let limit = self.bcx.ins().iadd_imm_s(length, -k);
-                    let fits = self
-                        .bcx
-                        .ins()
-                        .icmp(IntCC::SignedLessThanOrEqual, stop, limit);
+                    let fits = match assumed {
+                        Assumed::Index(index, _) => {
+                            self.bcx.ins().icmp(IntCC::UnsignedLessThan, index, length)
+                        }
+                        Assumed::Counter(_) => {
+                            // A length is nonnegative, so this cannot wrap.
+                            let limit = self.bcx.ins().iadd_imm_s(length, -k);
+                            self.bcx
+                                .ins()
+                                .icmp(IntCC::SignedLessThanOrEqual, stop, limit)
+                        }
+                    };
                     holds = Some(match holds {
                         Some(all) => self.bcx.ins().band(all, fits),
                         None => fits,

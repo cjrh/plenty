@@ -1703,6 +1703,32 @@ def own_length(xs: &mut list[i64]) -> Result[(), OverflowError[i64]]:
         xs[i] = xs[i] + 1
     Ok(())
 
+def add_at(n: i64, j: i64, xs: &mut list[i64], ys: &list[i64]) -> Result[(), OverflowError[i64]]:
+    for i in range(n):
+        xs[i] = xs[i] + ys[j]
+    Ok(())
+
+def pair_sum(n: i64, xs: &list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut t = 0
+    for i in range(n):
+        for j in range(i + 1, n):
+            t += xs[i] * xs[j]
+    Ok(t)
+
+def halve(n: i64, d: NonZero[i64], xs: &mut list[i64]) -> Result[(), OverflowError[i64]]:
+    for i in range(n):
+        xs[i] = xs[i] // d
+    Ok(())
+
+class Point:
+    x: i64
+    y: i64
+
+def spread(n: i64, j: i64, ps: &mut list[Point]) -> Result[(), OverflowError[i64]]:
+    for i in range(n):
+        ps[i].x += ps[j].y
+    Ok(())
+
 def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut dst = [0, 0, 0]?
     src = [1, 2, 3]?
@@ -1722,6 +1748,13 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     called(3, &mut dst)?
     own_length(&mut dst)?
     print(dst)?
+    add_at(3, 1, &mut dst, &src)?
+    add_at(3, -1, &mut dst, &src)?
+    print(dst, pair_sum(3, &src)?)?
+    halve(3, 2, &mut dst)?
+    mut ps = [Point(1, 10), Point(2, 20)]?
+    spread(2, 1, &mut ps)?
+    print(dst, ps[0].x, ps[1].x)?
     Ok(())
 "#;
 
@@ -1732,7 +1765,8 @@ fn versioned_range_loops_keep_their_results() {
     // them without trapping.
     support::assert_stdout(
         VERSIONED,
-        "[1, 2, 3] [2, 3, 4, 4] 6 5\n3 2 -1\noverflow\n[0, 1, 2, 3]\n[3, 5, 7]\n",
+        "[1, 2, 3] [2, 3, 4, 4] 6 5\n3 2 -1\noverflow\n[0, 1, 2, 3]\n[3, 5, 7]\n\
+         [8, 10, 12] 11\n[4, 5, 6] 21 22\n",
     );
 }
 
@@ -1742,6 +1776,9 @@ fn versioned_range_loops_keep_their_results() {
 #[case("print(view_sum(3, &src[1:3])?)?", "index 2, length 2")]
 #[case("print(until_negative(4, &src)?)?", "index 3, length 3")]
 #[case("print(first_negative(5, &src))?", "index 3, length 3")]
+#[case("add_at(3, 3, &mut dst, &src)?", "index 3, length 3")]
+#[case("add_at(3, -4, &mut dst, &src)?", "index -4, length 3")]
+#[case("add_at(4, 0, &mut dst, &src)?", "index 3, length 3")]
 fn versioned_range_loops_trap_past_the_length(#[case] call: &str, #[case] message: &str) {
     let source = VERSIONED.replace(
         "    copy_rows(3, &mut dst, &src)",
@@ -1801,6 +1838,13 @@ fn versioned_range_loops_have_an_unchecked_copy() {
         ("owned_copy", &[0, 0, 2]),
         ("called", &[2]),
         ("own_length", &[0]),
+        // One test before the loop covers the invariant `ys[j]`, including
+        // a negative `j`.
+        ("add_at", &[0, 2]),
+        // The outer loop holds both copies of the inner one.
+        ("pair_sum", &[2, 0, 2]),
+        ("halve", &[0, 1]),
+        ("spread", &[0, 2]),
     ] {
         let clif = dump("clif-opt", &format!("__plenty_fn_{name}"), VERSIONED);
         assert_eq!(traps_per_loop(&clif), loops, "{name}\n{clif}");

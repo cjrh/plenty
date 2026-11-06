@@ -152,6 +152,10 @@ impl Scan {
                 // A row reference moves nothing; writes through it are
                 // classified by `WriteRef`.
                 | Op::Collection(C::ElementRef(Ty::List(_), _) | C::ElementRefView(..)) => true,
+                // A copy class's field read releases nothing.
+                Op::Class(crate::record::ClassOp::Field(class, _)) => {
+                    Ty::Class(class.clone()).can_copy()
+                }
                 Op::WriteRef(ty) | Op::FillRef(ty) | Op::ReplaceRef(ty) => scalar(ty),
                 Op::Collection(
                     C::ListScalarGetRef(_)
