@@ -33,6 +33,13 @@ and exercised independently. Its jobs run in parallel:
 - `lint`: format, clippy and book links.
 - `proxy_tests`: the [reverse-proxy tests](proxy-tests.md).
 
+Optional-engine jobs use `runtime-checks` for both module tests and tutorial
+examples, reusing the compiler, embedded runtime and integration test binary.
+Cargo also builds the CLI for the integration target, so the sales-report
+application uses that binary without a separate compiler build.
+`just ci dataframe linalg` follows the same rule locally. The
+`doctests` job still verifies a default-feature compiler build separately.
+
 The shards build with the `ci` Cargo profile, defined in `.cargo/config.toml`:
 the `dev` profile with the `plenty` crate at `opt-level = 1` and dependencies
 at `opt-level = 2`, keeping debug assertions and overflow checks. Nearly every
