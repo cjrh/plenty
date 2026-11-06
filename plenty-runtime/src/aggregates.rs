@@ -961,7 +961,7 @@ impl Collection {
     }
 
     unsafe fn insert(&mut self, key: u128, value: u128) {
-        unsafe { self.try_insert(key, value) }
+        unsafe { self.try_adopt(key, value) }
             .unwrap_or_else(|_| crate::fail("collection allocation failed"));
     }
 
@@ -1041,6 +1041,22 @@ impl Collection {
             stored
         }
     }
+    /// Store owned operands, as generated code passes them: a copyable
+    /// operand's count, whether its read moved or copied it, becomes the
+    /// table's (issue #762). A failed insertion drops both operands once.
+    unsafe fn try_adopt(&mut self, key: u128, value: u128) -> Result<(), AllocError> {
+        unsafe {
+            let stored = self.try_store(key, value);
+            if stored.is_err() {
+                let ty = &*self.ty;
+                release(key, ty.key());
+                if let Some(ty) = ty.value {
+                    release(value, ty);
+                }
+            }
+            stored
+        }
+    }
     /// Insert owned operands without adjusting their ownership.
     unsafe fn try_store(&mut self, key: u128, value: u128) -> Result<(), AllocError> {
         unsafe {
@@ -1060,11 +1076,16 @@ impl Collection {
             self.try_add(key, value, slot).map(|_| ())
         }
     }
-    /// `dict.get_or_insert`: the row of `key`, inserting `key` and `value` on
-    /// a miss with `try_insert`'s ownership rules. A hit keeps the stored
-    /// entry and drops the affine operands; generated code releases the
-    /// copyable ones, so a hit adjusts no reference counts (issue #748).
-    unsafe fn try_get_or_insert(&mut self, key: u128, value: u128) -> Result<usize, AllocError> {
+    /// `dict.get_or_insert`: the row of `key` and whether it was present. A
+    /// miss inserts the owned `key` and `value` as `try_adopt` does, adjusting
+    /// no reference counts (issues #748, #762). A hit keeps the stored entry
+    /// and drops the affine operands; generated code releases the copyable
+    /// ones, which it does inline for less than this generic release costs.
+    unsafe fn try_get_or_insert(
+        &mut self,
+        key: u128,
+        value: u128,
+    ) -> Result<(usize, bool), AllocError> {
         unsafe {
             let ty = &*self.ty;
             let (key_ty, value_ty) = (ty.key(), ty.value.expect("dictionary value"));
@@ -1076,20 +1097,14 @@ impl Collection {
                 if value_ty.affine {
                     release(value, value_ty);
                 }
-                return Ok(i);
-            }
-            if !key_ty.affine {
-                retain(key, key_ty);
-            }
-            if !value_ty.affine {
-                retain(value, value_ty);
+                return Ok((i, true));
             }
             let added = self.try_add(key, value, slot);
             if added.is_err() {
                 release(key, key_ty);
                 release(value, value_ty);
             }
-            added
+            added.map(|i| (i, false))
         }
     }
     /// Hash `key` once and find its row, or the empty bucket a miss would
@@ -1409,7 +1424,7 @@ pub(crate) unsafe fn try_text_list<'a>(
                 value: strings::try_new(text?)? as u128,
                 ty: ty.key(),
             };
-            (*output).try_insert(text.value, 0)?;
+            (*output).try_adopt(text.into_value(), 0)?;
         }
         Ok(owner.into_value())
     }
@@ -1436,7 +1451,7 @@ pub(crate) unsafe fn try_reader_lines(
             if strings::utf8(&(line.value as *const Text)).is_empty() {
                 break;
             }
-            (*output).try_insert(line.value, 0)?;
+            (*output).try_adopt(line.into_value(), 0)?;
         }
         Ok(owner.into_value())
     }
@@ -1527,7 +1542,7 @@ unsafe fn try_text_pieces<'a>(
                 value: strings::try_new(piece)? as u128,
                 ty: ty.key(),
             };
-            (*result).try_insert(piece.value, 0)?;
+            (*result).try_adopt(piece.into_value(), 0)?;
         }
         Ok(owner.into_value())
     }
@@ -2600,11 +2615,20 @@ pub(crate) unsafe fn collection_at(
                 c.entries.slot(position, c.ty().kind != b'L') as u128
             }
             // `dict.get_or_insert`: Ok(the value slot's address) or Err(AllocError).
+            // A hit sets the high word to `GET_OR_INSERT_HIT`, which generated
+            // code tests to release its copyable operands and then clears.
             DICT_GET_OR_INSERT => {
                 let owner = *(a as *const u128);
                 let c = &mut *(owner as *mut Collection);
                 match c.try_get_or_insert(b, value) {
-                    Ok(position) => wrap(c.entries.slot(position, true) as u128, 0),
+                    Ok((position, hit)) => {
+                        let flag = if hit {
+                            (GET_OR_INSERT_HIT as u128) << 64
+                        } else {
+                            0
+                        };
+                        wrap(c.entries.slot(position, true) as u128, 0) | flag
+                    }
                     Err(error) => wrap(wrap(0, error as u64), 1),
                 }
             }
@@ -3185,7 +3209,7 @@ pub(crate) unsafe fn collection_at(
                         c.try_reserve(b as usize)
                     }
                 } else {
-                    c.try_insert(b, value)
+                    c.try_adopt(b, value)
                 };
                 match result {
                     Ok(()) => wrap(0, 0),

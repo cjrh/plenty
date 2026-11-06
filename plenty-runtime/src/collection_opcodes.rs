@@ -46,6 +46,11 @@ pub const TEXT_SEARCH_CONTAINS: i64 = 3;
 /// `dict.get_or_insert`: the dictionary reference, the owned key and the
 /// owned default (issue #748).
 pub const DICT_GET_OR_INSERT: i64 = 601;
+/// The high word of a `DICT_GET_OR_INSERT` result whose key was present. An
+/// `Ok` word's high word is otherwise 0 and an `Err` word's is odd. On a hit
+/// the caller still owns the copyable operands; on a miss the table owns them
+/// (issue #762).
+pub const GET_OR_INSERT_HIT: i64 = 2;
 
 /// Operands after the three fixed input words of `plenty_op_<N>` calls.
 /// The result occupies word 3; only actual fourth/fifth inputs initialize

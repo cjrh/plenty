@@ -289,6 +289,8 @@ mod test_inline_copies;
 mod test_inline_generators;
 #[path = "test_inline_ranges.rs"]
 mod test_inline_ranges;
+#[path = "test_insert_ownership.rs"]
+mod test_insert_ownership;
 #[path = "test_iteration_conveniences.rs"]
 mod test_iteration_conveniences;
 #[path = "test_key_sorting.rs"]

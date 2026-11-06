@@ -304,13 +304,15 @@ fn get_or_insert_hashes_once_and_keeps_existing_values() {
         let c = &mut *(owner.value as *mut Collection);
         for key in 0..12 {
             let before = hashes();
-            let row = c.try_get_or_insert(key, key + 1).unwrap();
+            let (row, hit) = c.try_get_or_insert(key, key + 1).unwrap();
+            assert!(!hit, "new key {key}");
             assert_eq!(hashes() - before, 1, "new key {key}");
             assert_eq!(c.entries.get(row).value, key + 1);
         }
         for key in 0..12 {
             let before = hashes();
-            let row = c.try_get_or_insert(key, 99).unwrap();
+            let (row, hit) = c.try_get_or_insert(key, 99).unwrap();
+            assert!(hit, "present key {key}");
             assert_eq!(hashes() - before, 1, "present key {key}");
             assert_eq!(c.entries.get(row).value, key + 1);
         }

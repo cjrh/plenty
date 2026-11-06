@@ -1265,11 +1265,28 @@ impl Lowerer<'_, '_> {
         // borrowed key of `get_mut(&key)` and the buffer a `Bytes` method
         // reads through `self` (issue #744).
         let only_reads = operation.only_reads_operands();
+        // A mutation through `&mut` changes the receiver in place, and the
+        // exclusive loan keeps its owner alive, so the receiver's copy is read
+        // in place too (issue #762).
+        let receiver_in_place = operation.mutates_receiver_in_place();
+        // Inserted operands are owned on the stack, moved or copied alike,
+        // and the runtime adopts them: it stores their counts or drops them
+        // once on a failed insert or a `get_or_insert` hit (issue #762). One
+        // read in place would give the runtime a count it never had, so none
+        // is, whatever the rules above say.
+        let inserts = matches!(
+            operation,
+            CollectionOp::Insert(_) | CollectionOp::TryInsert(_) | CollectionOp::DictGetOrInsert(_)
+        );
         let mut values = Vec::new();
         let mut held = Vec::new();
-        for input in inputs.iter().rev() {
+        for (i, input) in inputs.iter().enumerate().rev() {
             let (value, _) = self.pop_typed(input.clone())?;
-            let in_place = only_reads || reads_in_place && *input == Ty::Str;
+            let adopted = inserts && i > 0;
+            let in_place = !adopted
+                && (only_reads
+                    || reads_in_place && *input == Ty::Str
+                    || receiver_in_place && i == 0);
             held.push(in_place && self.forget_slot_copy(value));
             values.push(self.pack(value, input));
         }
@@ -1392,6 +1409,11 @@ impl Lowerer<'_, '_> {
         };
         arguments.extend(cell);
         let result = self.collection_call_at(operation.opcode(), &arguments, descriptor, site)?;
+        let result = if let CollectionOp::DictGetOrInsert(_) = operation {
+            self.get_or_insert_hit(result, &values[1..], &inputs[1..])
+        } else {
+            result
+        };
         let result = self.unpack(result, &output);
         let (result, output) = match (&formatted, cell) {
             (Some(formatted), Some(cell)) => {
@@ -1406,19 +1428,49 @@ impl Lowerer<'_, '_> {
         } else {
             self.snapshot_inline(result, &output)
         };
-        // Inserted affine values move into the collection; the runtime
-        // retains only the copyable operands it stores.
-        let inserts = matches!(
-            operation,
-            CollectionOp::Insert(_) | CollectionOp::TryInsert(_) | CollectionOp::DictGetOrInsert(_)
-        );
+        // The runtime owns the adopted operands now.
         for (i, (value, ty)) in values.iter().zip(&inputs).enumerate() {
-            if !(held[i] || inserts && i > 0 && ty.affine()) {
+            if !(held[i] || inserts && i > 0) {
                 self.release(*value, ty);
             }
         }
         self.stack.push((result, output));
         Ok(())
+    }
+
+    /// The `dict.get_or_insert` result word without its hit flag. A hit
+    /// leaves the copyable `operands` with the caller, so they are released
+    /// here on that path only; a miss stored them (issue #762).
+    fn get_or_insert_hit(
+        &mut self,
+        result: cranelift_codegen::ir::Value,
+        operands: &[cranelift_codegen::ir::Value],
+        operand_types: &[Ty],
+    ) -> cranelift_codegen::ir::Value {
+        let (low, high) = self.bcx.ins().isplit(result);
+        let hit = self.bcx.ins().icmp_imm_u(
+            cranelift_codegen::ir::condcodes::IntCC::Equal,
+            high,
+            crate::collection_opcodes::GET_OR_INSERT_HIT,
+        );
+        if operand_types.iter().any(|ty| !ty.affine() && ty.managed()) {
+            let release = self.bcx.create_block();
+            let done = self.bcx.create_block();
+            self.bcx.ins().brif(hit, release, &[], done, &[]);
+            self.bcx.switch_to_block(release);
+            self.bcx.seal_block(release);
+            for (value, ty) in operands.iter().zip(operand_types) {
+                if !ty.affine() {
+                    self.release(*value, ty);
+                }
+            }
+            self.bcx.ins().jump(done, &[]);
+            self.bcx.switch_to_block(done);
+            self.bcx.seal_block(done);
+        }
+        let zero = self.bcx.ins().iconst(types::I64, 0);
+        let high = self.bcx.ins().select(hit, zero, high);
+        self.bcx.ins().iconcat(low, high)
     }
 
     /// The `Result` of a formatting operation whose methods may fail: the
