@@ -1,0 +1,43 @@
+# Set-heavy workload for hash-table changes (issue #761): growth from empty,
+# membership hits and misses, removal, reinsertion and a union, with i64 and
+# str members. Prints checksums so outputs can be compared across compilers.
+def integers(n: i64) -> Result[i64, AllocError | OverflowError[i64]]:
+    mut members = set[i64]()?
+    for i in range(n):
+        members.add(i * 7919)?
+    mut found = 0
+    for i in range(2 * n):
+        if i * 7919 in members:
+            found = found + 1
+    for i in range(n):
+        if i & 1 == 0:
+            members.discard(i * 7919)
+    for i in range(n):
+        if i & 3 == 0:
+            members.add(i * 7919)?
+    mut odd = set[i64]()?
+    for i in range(n):
+        odd.add(i * 7919 + 1)?
+    joined = members.union(&odd)?
+    Ok(found + len(members) + len(joined))
+
+def strings(n: i64) -> Result[i64, AllocError | OverflowError[i64]]:
+    mut members = set[str]()?
+    for i in range(n):
+        members.add(f"key-{i}"?)?
+    mut found = 0
+    for i in range(2 * n):
+        if f"key-{i}"? in members:
+            found = found + 1
+    for i in range(n):
+        if i & 1 == 0:
+            members.discard(f"key-{i}"?)
+    for i in range(n):
+        if i & 3 == 0:
+            members.add(f"key-{i}"?)?
+    Ok(found + len(members))
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    print(integers(1_000_000)?)?
+    print(strings(500_000)?)?
+    Ok(())

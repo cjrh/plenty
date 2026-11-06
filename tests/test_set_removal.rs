@@ -173,3 +173,37 @@ fn rejects_invalid_discard(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(error.contains(expected), "{error}");
 }
+
+#[test]
+fn string_sets_survive_growth_removal_reinsertion_and_set_operations() {
+    // Growth rebuilds the table from stored hash bits and removal shifts
+    // references by them (issue #761); every member must stay reachable.
+    native(
+        r#"
+mut words = set[str]().unwrap()
+for i in range(3000):
+    words.add(f"w{i}".unwrap()).unwrap()
+for i in range(0, 3000, 3):
+    words.discard(f"w{i}".unwrap())
+print(len(words)).unwrap()
+for i in range(0, 3000, 6):
+    words.add(f"w{i}".unwrap()).unwrap()
+mut wrong = set[i64]().unwrap()
+for start in [0, 1, 2, 4, 5].unwrap():
+    for i in range(start, 3000, 6):
+        if f"w{i}".unwrap() not in words:
+            wrong.add(i).unwrap()
+for i in range(3, 3000, 6):
+    if f"w{i}".unwrap() in words:
+        wrong.add(i).unwrap()
+print(len(words), len(wrong)).unwrap()
+evens = {"w0", "w2", "w3", "w4", "w6"}.unwrap()
+both = words.intersection(&evens).unwrap()
+print(len(both), "w3" in both, "w6" in both).unwrap()
+mut copy = copy(words).unwrap()
+copy.discard("w1")
+print(len(copy), "w1" in copy, "w1" in words).unwrap()
+"#,
+        "2000\n2500 0\n4 False True\n2499 False True",
+    );
+}

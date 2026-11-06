@@ -5,9 +5,11 @@ use crate::generators::{Generator, plenty_generator_resume};
 use crate::memory::{self, AllocError, Header, plenty_release, plenty_retain};
 use crate::ranges::{self, Range};
 use crate::strings::{self, Text};
+use buckets::Buckets;
 use std::cmp::Ordering;
 use std::io::Write;
 
+mod buckets;
 mod byte_scan;
 mod byte_storage;
 mod bytes;
@@ -256,7 +258,7 @@ struct Collection {
     header: Header,
     ty: *const Type,
     entries: Entries,
-    table: Vec<usize>,
+    table: Buckets,
     /// The live row to resume after a heap child finishes destruction.
     drop_entry: Option<usize>,
 }
@@ -671,7 +673,7 @@ fn try_collection_new(ty: &'static Type, capacity: usize) -> Result<*mut Collect
         } else {
             Entries::ordered(ty.key(), ty.value)
         },
-        table: Vec::new(),
+        table: Buckets::new(),
         drop_entry: None,
     };
     // Validate and reserve before publishing an owner. Until the header is
@@ -863,30 +865,12 @@ impl Collection {
     /// The bucket holding `key`, or the empty bucket that ends its probe.
     /// `hash` must be `hash(key, ...)`; callers that insert after a miss pass
     /// the same hash to `vacant_bucket` instead of hashing the key again.
+    /// Keys are compared only where the bucket's stored hash bits match.
     unsafe fn probe(&self, key: u128, hash: u64) -> usize {
-        unsafe {
-            let mut bucket = hash as usize & (self.table.len() - 1);
-            while self.table[bucket] != 0
-                && !equal(
-                    self.entries.get(self.table[bucket] - 1).key,
-                    key,
-                    self.ty().key(),
-                )
-            {
-                bucket = (bucket + 1) & (self.table.len() - 1);
-            }
-            bucket
-        }
-    }
-    /// The empty bucket for a key known to be absent. All stored keys are
-    /// unique, so the probe compares no keys.
-    fn vacant_bucket(&self, hash: u64) -> usize {
-        let mask = self.table.len() - 1;
-        let mut bucket = hash as usize & mask;
-        while self.table[bucket] != 0 {
-            bucket = (bucket + 1) & mask;
-        }
-        bucket
+        let key_ty = self.ty().key();
+        self.table.probe(hash, |entry| unsafe {
+            equal(self.entries.get(entry).key, key, key_ty)
+        })
     }
     unsafe fn find(&self, key: u128) -> Option<usize> {
         if let Some(found) = unsafe { self.entries.find_bitset(key) } {
@@ -895,7 +879,7 @@ impl Collection {
         if self.table.is_empty() {
             None
         } else {
-            unsafe { self.table[self.bucket(key)].checked_sub(1) }
+            self.table.entry(unsafe { self.bucket(key) })
         }
     }
     /// Reserve all buffers before publishing a new hash index. On error,
@@ -916,28 +900,25 @@ impl Collection {
                 .checked_mul(2)
                 .and_then(|n| n.max(16).checked_next_power_of_two())
                 .ok_or(AllocError::CapacityOverflow)?;
-            memory::checked_capacity::<usize>(count)?;
+            memory::checked_capacity::<u64>(count)?;
             count
         } else {
             0
         };
-        let mut table = Vec::new();
+        let mut table = Buckets::new();
         if table_size != 0 {
-            memory::try_reserve(&mut table, table_size)?;
-            table.resize(table_size, 0);
+            table = Buckets::try_with_len(table_size)?;
         }
         self.entries.try_reserve(additional)?;
         if table_size != 0 {
-            // Hashing legal keys (integers, bool, str) never allocates or calls
-            // user code. Build from hashes alone: all existing keys are unique.
-            for i in self.entries.indices() {
-                let entry = self.entries.get(i);
-                let mut bucket =
-                    unsafe { hash(entry.key, self.ty().key()) } as usize & (table_size - 1);
-                while table[bucket] != 0 {
-                    bucket = (bucket + 1) & (table_size - 1);
+            // Stored hash bits usually suffice (see `Buckets`). Otherwise
+            // hashing legal keys (integers, bool, str) never allocates or
+            // calls user code. All existing keys are unique.
+            if !self.table.rehash_into(&mut table) {
+                for i in self.entries.indices() {
+                    let entry = self.entries.get(i);
+                    table.insert_unique(unsafe { hash(entry.key, self.ty().key()) }, i);
                 }
-                table[bucket] = i + 1;
             }
             self.table = table;
         }
@@ -977,9 +958,12 @@ impl Collection {
                 .count();
             self.try_reserve(additional)?;
             let ty = &*self.ty;
-            source.table.fill(0);
+            source.table.clear();
             for entry in source.entries.iter() {
-                if let Some(index) = self.find(entry.key) {
+                // `additional` reserved a table unless every key is present.
+                let key_hash = hash(entry.key, ty.key());
+                let bucket = self.probe(entry.key, key_hash);
+                if let Some(index) = self.table.entry(bucket) {
                     // An inline value lives in the row, so release it before
                     // its storage is overwritten.
                     if let Some(value_type) = ty.value {
@@ -988,8 +972,7 @@ impl Collection {
                     self.entries.set(index, true, entry.value);
                     release(entry.key, ty.key());
                 } else {
-                    let bucket = self.bucket(entry.key);
-                    self.table[bucket] = self.entries.vacant() + 1;
+                    self.table.set(bucket, key_hash, self.entries.vacant());
                     self.entries.push(entry);
                 }
             }
@@ -1093,7 +1076,7 @@ impl Collection {
             };
             if hashed && !self.table.is_empty() {
                 let bucket = self.probe(key, hash);
-                slot.found = self.table[bucket].checked_sub(1);
+                slot.found = self.table.entry(bucket);
                 slot.vacant = Some(bucket);
             }
             slot
@@ -1121,9 +1104,9 @@ impl Collection {
                 // probed bucket empty, or rebuilds it strictly larger.
                 let bucket = match slot.vacant {
                     Some(bucket) if self.table.len() == slot.table_len => bucket,
-                    _ => self.vacant_bucket(slot.hash),
+                    _ => self.table.vacant(slot.hash),
                 };
-                self.table[bucket] = self.entries.vacant() + 1;
+                self.table.set(bucket, slot.hash, self.entries.vacant());
             }
             let index = self.entries.vacant();
             self.entries.push(Entry { key, value });
@@ -1143,24 +1126,15 @@ impl Collection {
             if self.table.is_empty() {
                 return None;
             }
-            let mut hole = self.bucket(key);
-            let index = self.table[hole].checked_sub(1)?;
+            let hole = self.bucket(key);
+            let index = self.table.entry(hole)?;
             let entry = self.entries.remove(index);
-            let mask = self.table.len() - 1;
-            let mut probe = (hole + 1) & mask;
-            while self.table[probe] != 0 {
-                let slot = self.table[probe] - 1;
-                let home = hash(self.entries.get(slot).key, self.ty().key()) as usize & mask;
-                // Move only references whose circular probe path crosses the
-                // hole. An empty bucket terminates even across wraparound.
-                if (hole.wrapping_sub(home) & mask) < (probe.wrapping_sub(home) & mask) {
-                    self.table[hole] = self.table[probe];
-                    hole = probe;
-                }
-                probe = (probe + 1) & mask;
-            }
-            self.table[hole] = 0;
-            release(entry.key, self.ty().key());
+            // The descriptor is static; reading it does not borrow `self`.
+            let key_ty = (*self.ty).key();
+            let entries = &self.entries;
+            self.table
+                .remove(hole, |slot| hash(entries.get(slot).key, key_ty));
+            release(entry.key, key_ty);
             Some(entry.value)
         }
     }
@@ -1769,7 +1743,7 @@ unsafe fn try_copy_collection(value: u128, ty: &Type) -> Result<u128, AllocError
                 header: Header::new(collection_destroy),
                 ty: source.ty,
                 entries,
-                table: Vec::new(),
+                table: Buckets::new(),
                 drop_entry: None,
             });
             return Ok(result as u128);
@@ -2850,12 +2824,12 @@ pub(crate) unsafe fn collection_at(
                         false
                     }
                 });
-                target.table.fill(0);
+                target.table.clear();
                 if target.entries.bits().is_none() {
+                    // Surviving keys are unique, so reinsertion compares none.
                     for index in target.entries.indices() {
-                        let entry = target.entries.get(index);
-                        let bucket = target.bucket(entry.key);
-                        target.table[bucket] = index + 1;
+                        let key = target.entries.get(index).key;
+                        target.table.insert_unique(hash(key, ty.key()), index);
                     }
                 }
                 plenty_retain(a as *mut Header);
@@ -2964,7 +2938,7 @@ pub(crate) unsafe fn collection_at(
             58 => {
                 let c = &mut *(a as *mut Collection);
                 let ty = &*c.ty;
-                c.table.fill(0);
+                c.table.clear();
                 // Drain preserves allocated capacity. Clear the visible length
                 // before invoking cleanup, then destroy entries in source order.
                 for entry in c.entries.drain() {
