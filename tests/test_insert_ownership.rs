@@ -197,3 +197,105 @@ def main() -> ():
         "dict copied\nset copied\nlist moved\nget_or_insert moved\npresent-value\ncopied-operand 0 0 0 1",
     );
 }
+
+// Mutations through `&mut` receivers reached through a field, a list element
+// and a `get_mut` row, which read the receiver in place, keep every count
+// balanced, including destructors that run while values are replaced, popped
+// and cleared.
+#[test]
+fn nested_mut_receivers_keep_counts_balanced() {
+    native(
+        r#"
+class Noisy:
+    name: str
+
+    def __del__(self: &mut Noisy) -> ():
+        print("drop", self.name).unwrap()
+
+class Bag:
+    items: list[str]
+    index: dict[str, list[str]]
+    tags: set[str]
+
+    def put(self: &mut Bag, word: str) -> Result[(), AllocError]:
+        self.items.append(copy(&word)?)?
+        self.items.sort()
+        self.items.swap(0, 0)
+        self.tags.add(copy(&word)?)?
+        match self.index.get_mut(&word):
+            case Some(row):
+                row.append(copy(&word)?)?
+                row.extend([copy(&word)?]?)?
+                row.reverse()
+                row.pop()
+            case Nothing:
+                self.index.insert(copy(&word)?, [word]?)?
+        Ok(())
+
+def grow(grid: &mut list[set[str]], word: str) -> Result[(), AllocError]:
+    grid[0].add(copy(&word)?)?
+    grid[1].update(set[str]()?)?
+    grid[1].add(word)?
+    grid[0].intersection_update(&grid[1])
+    grid[1].difference_update(&grid[0])
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError]:
+    mut bag = Bag([]?, {}?, set[str]()?)
+    for word in ["alpha-counted-key", "beta-counted-key", "alpha-counted-key"]?:
+        bag.put((word + "")?)?
+    print(bag.items, bag.index, len(bag.tags))?
+    mut grid: list[set[str]] = [set[str]()?, set[str]()?]?
+    for word in ["one-counted-word", "two-counted-word"]?:
+        grow(&mut grid, (word + "")?)?
+    print(len(grid[0]), len(grid[1]))?
+    mut owners: dict[str, Noisy] = {}?
+    owners.insert("k", Noisy("first"))?
+    owners.insert("k", Noisy("second"))?
+    owners.pop("k")
+    mut ns: list[Noisy] = [Noisy("a"), Noisy("b")]?
+    ns.reverse()
+    ns.clear()
+    print("__test_small_live_heap__")?
+    Ok(())
+"#,
+        r#"["alpha-counted-key", "alpha-counted-key", "beta-counted-key"] {"alpha-counted-key": ["alpha-counted-key", "alpha-counted-key"], "beta-counted-key": ["beta-counted-key"]} 2
+1 0
+drop first
+drop second
+drop b
+drop a"#,
+    );
+}
+
+/// A failed append through a `get_mut` row drops its moved element once.
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn failed_append_through_row_drops_element_once() {
+    native(
+        r#"
+def put(d: &mut dict[str, list[str]], k: str, v: str) -> Result[(), AllocError]:
+    match d.get_mut(&k):
+        case Some(row):
+            row.append(v)?
+        case Nothing:
+            d.insert(k, [v]?)?
+    Ok(())
+
+def main() -> ():
+    mut d: dict[str, list[str]] = {}.unwrap()
+    k = ("key-long-enough-to-count" + "").unwrap()
+    v = ("value-long-enough-to-count" + "").unwrap()
+    put(&mut d, copy(&k).unwrap(), copy(&v).unwrap()).unwrap()
+    k2 = copy(&k).unwrap()
+    v2 = copy(&v).unwrap()
+    print("__test_fail_allocations_after_0__").unwrap()
+    failed = put(&mut d, k2, v2).is_err()
+    popped = d.pop(k).is_some()
+    print("__test_restore_allocations__").unwrap()
+    print(failed, popped, v, len(d)).unwrap()
+    print("__test_small_live_heap__").unwrap()
+"#,
+        "True True value-long-enough-to-count 0",
+    );
+}

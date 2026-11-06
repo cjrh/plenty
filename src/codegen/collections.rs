@@ -1202,12 +1202,24 @@ impl Lowerer<'_, '_> {
         // exclusive loan keeps its owner alive, so the receiver's copy is read
         // in place too (issue #762).
         let receiver_in_place = operation.mutates_receiver_in_place();
+        // Inserted operands are owned on the stack, moved or copied alike,
+        // and the runtime adopts them: it stores their counts or drops them
+        // once on a failed insert or a `get_or_insert` hit (issue #762). One
+        // read in place would give the runtime a count it never had, so none
+        // is, whatever the rules above say.
+        let inserts = matches!(
+            operation,
+            CollectionOp::Insert(_) | CollectionOp::TryInsert(_) | CollectionOp::DictGetOrInsert(_)
+        );
         let mut values = Vec::new();
         let mut held = Vec::new();
         for (i, input) in inputs.iter().enumerate().rev() {
             let (value, _) = self.pop_typed(input.clone())?;
-            let in_place =
-                only_reads || reads_in_place && *input == Ty::Str || receiver_in_place && i == 0;
+            let adopted = inserts && i > 0;
+            let in_place = !adopted
+                && (only_reads
+                    || reads_in_place && *input == Ty::Str
+                    || receiver_in_place && i == 0);
             held.push(in_place && self.forget_slot_copy(value));
             values.push(self.pack(value, input));
         }
@@ -1349,13 +1361,7 @@ impl Lowerer<'_, '_> {
         } else {
             self.snapshot_inline(result, &output)
         };
-        // Inserted operands are owned on the stack, moved or copied alike,
-        // and the runtime adopts them: it stores their counts or drops them
-        // once on a failed insert or a `get_or_insert` hit (issue #762).
-        let inserts = matches!(
-            operation,
-            CollectionOp::Insert(_) | CollectionOp::TryInsert(_) | CollectionOp::DictGetOrInsert(_)
-        );
+        // The runtime owns the adopted operands now.
         for (i, (value, ty)) in values.iter().zip(&inputs).enumerate() {
             if !(held[i] || inserts && i > 0) {
                 self.release(*value, ty);
