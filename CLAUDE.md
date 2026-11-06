@@ -118,6 +118,25 @@ environment variables may not persist between tool calls. For summarized test
 output, use the available output-filtering tools or capture a log while retaining
 the original process exit status; a successful `grep` does not prove tests passed.
 
+### Check timing reports
+
+Use `just test` for full-suite checks: it saves compilation/execution timings
+in `target/check-timings/suite-*/timings.md` and `timings.json`. `just ci`
+saves each invocation's step timings and logs in `target/local-ci/run-*/`.
+Direct Cargo commands do not save these reports.
+
+```sh
+python3 -B scripts/check_timings.py ci --repo OWNER/REPO --run RUN_ID
+python3 -B scripts/check_timings.py report NEW.json --baseline OLD.json
+```
+
+The Cargo workflow publishes a **Check timing report** job summary and a
+`check-timings` artifact. The `ci` command can also inspect historical runs
+using authenticated `gh`, without downloading logs. See
+[local timing reports](book/src/development/workflow.md#check-timing-reports)
+and [CI timing limits](book/src/development/ci-workflow.md#timings) before
+comparing cache conditions or interpreting summed parallel runner time.
+
 ### Shell conditions and pipelines
 
 Agent shells run with `set -o pipefail`. A reader such as `grep -q` or
