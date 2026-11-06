@@ -836,9 +836,15 @@ fn writes_only_shrink(ops: &[Op], local: u8) -> bool {
 /// below its length, so the skipped checks could not fail; if not, the
 /// checked copy runs the same passes with the same traps, messages and
 /// positions, including any `break`, `return` or error before the bad index.
+///
+/// A `while` loop, or a range loop's access through an index no pass
+/// changes, relies instead on that index, or a constant, being below a
+/// length the loop never changes: one unsigned test before the loop covers
+/// every pass (issue #766), as for `perm[0]` in fannkuch's flip loop.
 pub(super) struct Version {
-    /// The range's stop, canonical.
-    pub stop: Value,
+    /// The range's stop, canonical; `None` for a `while` loop, whose
+    /// accesses can rely only on indices that no pass changes.
+    pub stop: Option<Value>,
     /// Canonical entry values of the enclosing loops' invariant locals, each
     /// marked when it is a view: each was read before the loop, so it is
     /// available to the test.
@@ -854,6 +860,10 @@ pub(super) enum Assumed {
     /// A loop-invariant index below a length: one unsigned test covers every
     /// pass, including a negative index.
     Index(Value, LengthOf),
+    /// A nonnegative constant index below a length; the constant is
+    /// materialized again before the loop, where the body's value is not
+    /// available.
+    Constant(i64, LengthOf),
 }
 
 /// A length local, or a view whose count is the length.
@@ -870,12 +880,18 @@ pub(super) const VERSION_OFFSET: i64 = 64;
 /// size and compile time versioning adds.
 const VERSION_OPS: usize = 256;
 
-/// Whether a range loop's body may be lowered twice: it is small and holds
-/// only operations without effects on other code's lowering. A call or
-/// nested loop has its own state and costs, and is not duplicated.
-pub(super) fn versionable(body: &[Op]) -> bool {
+/// Whether a loop's condition and body may be lowered twice: they are small
+/// and hold only operations without effects on other code's lowering. A
+/// nested `while` loop counts with its body, which may itself be versioned.
+/// A nested range loop is not duplicated (`RangeLength` is excluded): its
+/// own versioning already covers its accesses, and four copies of it gained
+/// nothing measurable. A call is not duplicated either: an inlined callee
+/// lowers with its own state, and a single-site callee's body is lowered
+/// only at its call (issue #766).
+pub(super) fn versionable(condition: &[Op], body: &[Op]) -> bool {
     let mut count = 0;
     let mut allowed = true;
+    crate::threading::walk(condition, &mut |op| allowed &= allowed_op(op));
     crate::threading::walk(body, &mut |op| {
         // Markers for the checker and positions emit no code.
         count += usize::from(!matches!(
@@ -892,6 +908,12 @@ fn allowed_op(op: &Op) -> bool {
     if let Op::Class(crate::record::ClassOp::Field(class, _)) = op {
         // A copy class's field read releases nothing.
         return Ty::Class(class.clone()).can_copy();
+    }
+    if let Op::Collection(C::ViewSwap(view)) = op {
+        // A scalar swap is inline checks, loads and stores; others call
+        // the runtime.
+        let element = super::views::view_element(view);
+        return element.is_numeric() || element == Ty::Bool;
     }
     matches!(
         op,
@@ -943,6 +965,7 @@ fn allowed_op(op: &Op) -> bool {
             | Op::ReadRef(_)
             | Op::Reborrow(_)
             | Op::If { .. }
+            | Op::Loop { .. }
             | Op::Break
             | Op::Continue
             | Op::Loan(_)

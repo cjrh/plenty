@@ -49,7 +49,7 @@ other operation that can fail, such as `t * 10 + v[hi]`, keeps its checks.
 
 Any other `for i in range(start, stop)` loop with step 1 and a nonnegative
 `start` is compiled twice when its body is small, makes no call, and has no
-nested loop, as in `for i in range(n): dst[i] = src[i]`. `start` is
+nested range loop, as in `for i in range(n): dst[i] = src[i]`. `start` is
 nonnegative when it is a constant, a range counter, or a checked sum of such
 values, as in `for j in range(i + 1, n)`. One test before the loop compares
 `stop` with the length of each list or view the body indexes by `i` or `i + k`,
@@ -63,6 +63,15 @@ must be read once before the loop: a borrowed list or view, or a list that
 uses the row cache described above. A division keeps its own checks in both
 copies. The body limit, 256 operations, bounds the code size the second copy
 adds. An overflow check on `i + k` with `k > 1` remains.
+
+A `while` loop without the `lo < hi` form above is compiled twice under the
+same conditions. Either kind of loop may hold a nested `while` loop. Its test
+covers each unchanged index and each nonnegative constant index, such as
+`perm[0]` in `while perm[0] != 0:`; a negative constant index keeps its check
+in both copies. A nested
+loop also sees the lengths its enclosing loops never change: with
+`n = len(u)`, a `for j in range(n)` loop inside `for i in range(n)` reads
+`u[j]` and `u[i]` without checks.
 
 ## Storage costs
 
