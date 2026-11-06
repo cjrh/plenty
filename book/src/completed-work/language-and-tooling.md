@@ -5,6 +5,13 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## Package check coverage (issue #805)
+
+`plenty check` now warns about each `.plenty` file below a package's `src/`
+that no target imports, and ends with a summary of the targets checked and the
+`src/` files they reached. [Check coverage](../design/toolchain/01-building/packages.md#check-coverage)
+documents the rule: fixtures and other unbuilt sources belong outside `src/`.
+
 ## Linux release glibc verification (issue #730)
 
 The [v0.8.9 artifact audit](../development/glibc-compatibility.md) confirms the

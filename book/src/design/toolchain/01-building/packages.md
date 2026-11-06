@@ -11,7 +11,7 @@ graph; imports never fetch or resolve packages.
 |---|---|
 | `plenty new PATH [--lib] [--name NAME]` | Create `PATH` with a manifest, `src/main.plenty` (or `src/lib.plenty`), and `.gitignore` |
 | `plenty init [--lib] [--name NAME]` | Create a package in the current directory; refuses to replace a manifest or source |
-| `plenty check [--locked] [--offline] [--check-all-methods]` | Check the library (without requiring `main`) and every executable; [`--check-all-methods`](../../language/07-generics/index.md#checking-every-method) also checks unused methods of the package's own generic instances, not those of `std` or dependency types |
+| `plenty check [--locked] [--offline] [--check-all-methods]` | Check the library (without requiring `main`) and every executable, and report [unchecked sources](#check-coverage); [`--check-all-methods`](../../language/07-generics/index.md#checking-every-method) also checks unused methods of the package's own generic instances, not those of `std` or dependency types |
 | `plenty build [--fast-compile] [--no-strip] [--locked] [--offline]` | Check the library and compile every executable to `target/PROFILE/NAME` |
 | `plenty run [--fast-compile] [--no-strip] [--locked] [--offline] [--bin NAME] [-- ARGS...]` | Build one executable and run it with `ARGS` |
 | `plenty test [--fast-compile] [--locked] [--offline] [--no-capture] [--seed N] [--list] [--jobs N] [--timeout SECONDS] [FILTER...]` | Compile and run the package's [tests](#tests) |
@@ -43,6 +43,29 @@ Any other first argument is a [compiler command](commands.md): `plenty FILE`
 still compiles and runs one file. A file named like a project command needs a
 path, such as `plenty ./run`. The `plentyc` binary provides only the compiler
 commands.
+
+## Check coverage
+
+A target's check covers the files its import graph reaches: its entry, the
+package modules it imports, and the dependency libraries those import.
+`plenty check` checks every target, then reports each `.plenty` file below the
+package's `src/` that no target reached. Such a file was not parsed or
+type-checked, so it may contain errors:
+
+```text
+  Checking tools v1.0.0
+warning: src/util/orphan.plenty is not imported by any target of `tools`; it was not checked
+   Checked tools v1.0.0: library and 2 executables; 4 of 5 files in src/
+```
+
+The warning does not change the exit status. The summary names the targets
+checked and counts the files below `src/` that they reached. Test files are
+not targets: `plenty test` checks `tests/` when it compiles them, and
+`plenty check` ignores that directory. Every `.plenty` file below `src/` is
+package source, which [build reuse](#build-reuse) also fingerprints; keep
+fixtures, generated samples and other intentionally unbuilt `.plenty` files in
+another directory, such as `tests/fixtures/` or `fixtures/`. Files without the
+`.plenty` extension are never reported.
 
 ## Tests
 
