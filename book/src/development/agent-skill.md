@@ -38,7 +38,11 @@ When a language or toolchain change lands, review `SKILL.md` and its handwritten
 references alongside the cheat sheet. Correct obsolete advice and remove
 workarounds for resolved issues. Keep common error-prevention rules in the
 entrypoint; link to reference contracts for specialized features instead of
-copying their full specification.
+copying their full specification. The skill's `references/discovery.md` guide
+routes migration tasks to existing modules and asks for versioned minimal
+reproductions before declaring a capability absent. Applied ownership examples
+distinguish ordinary copying, explicit class copying and shared content;
+package examples teach module visibility and target coverage.
 
 Check both the checkout skill and the assembled tree: a working book link can
 lose its destination when publishing if that page is not bundled. The language
@@ -63,7 +67,7 @@ The script refuses to replace a directory that is not a skills tree, keeps
 - copies `.agents/skills/plenty/` to `skills/plenty/`, naming the compiler
   version from `Cargo.toml` (`--version` overrides it);
 - copies the cheat sheet, language reference, package and script pages, every standard library page, and
-  the builtins and I/O pages into `skills/plenty/references/`;
+  the builtins, I/O, concurrency and editor-setup pages into `skills/plenty/references/`;
 - rewrites links between copied pages, and reduces links to other pages to
   their text, until the book has a published URL;
 - drops issue notes and contributor-only passages, then recalculates signature-index
