@@ -94,6 +94,38 @@ cold, as is the first run after the shard count changes.
 
 ### Timings
 
+The Cargo workflow ends with a **Check timing report** job, also after failed
+checks. Its job summary shows jobs ranked by duration and a table of step names
+aggregated across shards and architectures, with counts, seconds, status and
+share of measured step time. The `check-timings` artifact retains the Markdown,
+normalized JSON and raw Actions timestamps for 30 days. The reporting job itself
+is excluded. Cancellation can prevent a report from being produced.
+
+The same small helper can report on an existing run of any workflow. It reads
+job/step timestamps through an authenticated `gh` CLI, including all pages and
+only the latest run attempt; it does not download logs or rerun checks:
+
+```sh
+python3 -B scripts/check_timings.py ci --repo OWNER/REPO --run RUN_ID
+python3 -B scripts/check_timings.py report target/check-timings/ci-CURRENT/timings.json --baseline target/check-timings/ci-EARLIER/timings.json
+```
+
+Use the output directories printed by the commands. Comparisons show the
+absolute delta for every step name; a changed number of steps is marked rather
+than treated as a slowdown. Job and step status remains visible when checks
+fail. A report collected during a run is partial; unfinished jobs have no
+completed duration. Raw timestamps remain in `jobs.json` and run metadata in
+`run.json` for further inspection.
+
+Elapsed span (first job start to last job finish) and summed runner-step time
+are separate: jobs run concurrently, and runner time cannot be summed into
+workflow latency. Initial queue time is outside the span. Step timestamps have
+second resolution and do not attribute scheduling gaps between steps. Compare
+the same workflow, architectures, shard counts and cache conditions; cache
+restore/save and setup/post-action costs are included as their own steps.
+These reports locate growing process steps; existing JUnit and Cargo artifacts
+provide more detail when needed.
+
 Test compilation is a separate step from execution. The `cargo-timings-*`
 artifacts retain Cargo's HTML compilation reports for seven days, including
 reports available after a failed run: `cargo-timings-tests` from the first
