@@ -896,7 +896,12 @@ pub(super) fn versionable(condition: &[Op], body: &[Op]) -> bool {
         // Markers for the checker and positions emit no code.
         count += usize::from(!matches!(
             op,
-            Op::Site(_) | Op::Loan(_) | Op::UseLoan(_) | Op::EndLoan(_) | Op::Access(..)
+            Op::Assumed(_)
+                | Op::Site(_)
+                | Op::Loan(_)
+                | Op::UseLoan(_)
+                | Op::EndLoan(_)
+                | Op::Access(..)
         ));
         allowed &= allowed_op(op);
     });

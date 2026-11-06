@@ -192,8 +192,17 @@ The preconditions are representable results of `+`, `-`, `*`, negation and
 `pow`, nonzero divisors and representable quotients for `//` and `%`, valid
 shift counts, and in-range integer conversions. `i64.MIN % -1` stays `0`, and
 a negative `pow` exponent still traps in either mode. Floating-point
-arithmetic, allocation, indexing and explicit wrapping, saturating and checked
-methods keep their contracts.
+arithmetic, allocation and explicit wrapping, saturating and checked methods
+keep their contracts.
+
+In assume mode, list, slice-view and `Bytes` indexing written inside a plain
+`unchecked:` suite also requires `0 <= index < len(collection)`. Reads, writes,
+augmented assignments and element borrows omit both bounds checks and
+negative-index normalization. A negative or out-of-range index is undefined
+behavior, even when the negative index would normally count from the end.
+Default/trap builds retain normal negative indexing and out-of-range traps.
+This does not change slices, collection methods such as `swap`, or indexing of
+strings, immutable `bytes`, dictionaries, tuples or ranges.
 
 Modes apply lexically. Nested `checked:` restores local recoverability; a
 nested plain `unchecked:` follows the build setting, even inside

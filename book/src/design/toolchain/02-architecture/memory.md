@@ -75,6 +75,29 @@ Inline generator cleanup uses the count handoff but finishes synchronously while
 its enclosing storage is live. Private helper aliases do not authorize mutable
 source aliases. Traps end the process without unwinding language scopes.
 
+### Box destruction
+
+When a box's content releases without running code, the free order of its
+children cannot be observed. Its descriptor then carries a compiled release of
+the content slot, and the runtime calls that function instead of walking the
+content's descriptor. The compiler builds one for each boxed type that is:
+
+- a string, collection, box, or another value released with one
+  `plenty_release`;
+- a sum such as `Option[Box[T]]` in which one variant owns a single such
+  value; or
+- a class without `__del__` whose fields are of those kinds or own nothing.
+
+The function reads each owned child at its fixed offset and passes it to
+`plenty_release`. During destruction that call only queues the child, so deep
+trees still drop without growing the native stack. Content whose release runs
+a destructor keeps the ordered walk described above.
+
+`Box(value)` for content with inline storage, such as a class record, asks
+the runtime only for the allocation. Compiled code then copies the content into
+the box's slot. If the allocation fails, the runtime releases the value the box
+would have owned.
+
 ## Allocator provenance
 
 Object allocations carry a private prefix identifying their allocator, leaving

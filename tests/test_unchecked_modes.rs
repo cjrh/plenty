@@ -324,3 +324,192 @@ def main() -> Result[(), AllocError | IoError]:
     }
     assert_eq!(counts[0], counts[1], "{counts:?}");
 }
+
+#[test]
+fn assumed_indexing_removes_checks_and_negative_normalization() {
+    let source = r#"
+from std.bytes import Bytes, from_bytes
+@copy
+class Pair:
+    a: i64
+    b: i64
+
+def kernel_list(xs: &mut list[i64], i: i64) -> i64:
+    unchecked:
+        xs[i] = 7
+        xs[i] += 2
+        return xs[i]
+def kernel_record(xs: &mut list[Pair], i: i64) -> i64:
+    unchecked:
+        xs[i].a = 8
+        return xs[i].a
+def kernel_view(xs: &mut [i64], i: i64) -> i64:
+    unchecked:
+        xs[i] = 9
+        return xs[i]
+def kernel_bytes(xs: &mut Bytes, i: i64) -> u8:
+    unchecked:
+        xs[i] = 10u8
+        xs[i] += 1u8
+        return xs[i]
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = [1, 2]?
+    mut pairs = [Pair(1, 2)]?
+    mut bytes = from_bytes(b"ab")?
+    print(kernel_list(&mut xs, 1), kernel_record(&mut pairs, 0), kernel_view(&mut xs, 0), kernel_bytes(&mut bytes, 1))?
+    Ok(())
+"#;
+    for optimize in [false, true] {
+        for mode in [UncheckedMode::Trap, UncheckedMode::Assume] {
+            let dir = tempfile::tempdir().unwrap();
+            let mut opts = options(mode);
+            opts.optimize = optimize;
+            assert_eq!(stdout(&run(dir.path(), source, &opts)), "9 8 9 11\n");
+        }
+    }
+    let trapping = dump(
+        source,
+        UncheckedMode::Trap,
+        DumpStage::ClifOpt,
+        "kernel_",
+        false,
+    );
+    assert!(trapping.contains("plenty_trap_list_index"), "{trapping}");
+    assert!(trapping.contains("plenty_bytes_item"), "{trapping}");
+    let assumed = dump(
+        source,
+        UncheckedMode::Assume,
+        DumpStage::ClifOpt,
+        "kernel_",
+        false,
+    );
+    for check in [
+        "plenty_trap_list_index",
+        "plenty_bytes_item",
+        "plenty_bytes_set_item",
+        "icmp",
+        "brif",
+    ] {
+        assert!(!assumed.contains(check), "{check}: {assumed}");
+    }
+}
+
+#[test]
+fn indexing_keeps_checks_outside_assumed_lexical_scope() {
+    let template = r#"
+def read(xs: &list[i64], i: i64) -> i64:
+    BODY
+def main() -> Result[(), AllocError | IoError]:
+    xs = [3, 4]?
+    unchecked:
+        print(read(&xs, INDEX))?
+    Ok(())
+"#;
+    for body in [
+        "return xs[i]",
+        "unchecked trap:\n        return xs[i]",
+        "unchecked:\n        unchecked trap:\n            return xs[i]",
+    ] {
+        for mode in [UncheckedMode::Trap, UncheckedMode::Assume] {
+            let dir = tempfile::tempdir().unwrap();
+            let source = template.replace("BODY", body);
+            assert_eq!(
+                stdout(&run(
+                    dir.path(),
+                    &source.replace("INDEX", "-1"),
+                    &options(mode)
+                )),
+                "4\n"
+            );
+            for index in ["2", "-3"] {
+                assert_traps(
+                    &run(dir.path(), &source.replace("INDEX", index), &options(mode)),
+                    "index out of bounds",
+                );
+            }
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let source = template.replace("BODY", "unchecked:\n        return xs[i]");
+    assert_eq!(
+        stdout(&run(
+            dir.path(),
+            &source.replace("INDEX", "-1"),
+            &options(UncheckedMode::Trap)
+        )),
+        "4\n"
+    );
+    assert_traps(
+        &run(
+            dir.path(),
+            &source.replace("INDEX", "2"),
+            &options(UncheckedMode::Trap),
+        ),
+        "index out of bounds",
+    );
+}
+
+#[test]
+fn assumed_indexing_preserves_owned_temporaries_and_uncaches_resized_lists() {
+    let source = r#"
+from std.bytes import from_bytes
+@copy
+class Pair:
+    a: i64
+    b: i64
+
+def temporary(i: i64) -> Result[(), AllocError | IoError]:
+    unchecked:
+        value = [Pair(11, 12)]?[i]
+        text = ["first", "last"]?[i]
+        byte = from_bytes(b"xy")?[i]
+        print(value.a, value.b, text, byte)?
+    Ok(())
+def main() -> Result[(), AllocError | IoError]:
+    temporary(0)?
+    mut xs = [1]?
+    unchecked:
+        for i in range(3):
+            xs[0] += 1
+            xs.append(i)?
+            xs[i] = i
+        print(xs)?
+        r = &mut xs[0]
+        *r = 42
+    print(xs[0])?
+    Ok(())
+"#;
+    for optimize in [false, true] {
+        let mut opts = options(UncheckedMode::Assume);
+        opts.optimize = optimize;
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(
+            stdout(&run(dir.path(), source, &opts)),
+            "11 12 first 120\n[2, 1, 2, 2]\n42\n"
+        );
+    }
+}
+
+#[test]
+fn assumed_indexing_is_lexical_for_closures_checked_blocks_and_methods() {
+    for expression in [
+        "f = def(values: &list[i64], i: i64) -> i64:\n            values[i]\n        print(f(&xs, 2))?",
+        "r = checked:\n            xs[2] + 1",
+        "xs.swap(0, 2)",
+    ] {
+        let source = format!(
+            r#"
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = [3, 4]?
+    unchecked:
+        {expression}
+    Ok(())
+"#
+        );
+        let dir = tempfile::tempdir().unwrap();
+        assert_traps(
+            &run(dir.path(), &source, &options(UncheckedMode::Assume)),
+            "index out of bounds",
+        );
+    }
+}

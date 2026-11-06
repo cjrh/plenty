@@ -288,6 +288,12 @@ fn define_type(
         // Absent only when no live body arms the class (`reachability`), so
         // no instance can reach the hook.
         .and_then(|name| runtime.drop_hooks.get(name).copied());
+    // A box's slot is released by compiled code when its content allows
+    // (`box_release`); the runtime finds that function at the same offset.
+    let hook = hook.or_else(|| match ty {
+        Ty::Box(content) => runtime.box_releasers.get(&**content).copied(),
+        _ => None,
+    });
     let functions: Vec<_> = hook
         .map(|hook| (56, hook))
         .into_iter()

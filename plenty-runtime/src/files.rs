@@ -127,8 +127,17 @@ pub(crate) fn adopt_socket(file: std::fs::File, ty: &'static Type) -> Result<u12
 /// Wraps a regular file opened for reading and writing, such as an unnamed
 /// temporary file that is written and then read back.
 pub(crate) fn adopt_read_write(file: std::fs::File, ty: &'static Type) -> Result<u128, Error> {
-    let pointer = adopt(file, true, ty)?;
-    // SAFETY: `adopt` initialized this owner and nothing else refers to it yet.
+    prepare_read_write(ty, || Ok(file))
+}
+
+/// Reserve a read/write owner before creating a named file, so allocation
+/// failure cannot leave a file behind without returning its owner.
+pub(crate) fn prepare_read_write(
+    ty: &'static Type,
+    open: impl FnOnce() -> Result<std::fs::File, Error>,
+) -> Result<u128, Error> {
+    let pointer = prepare(true, ty, open)?;
+    // SAFETY: `prepare` initialized this owner and nothing else refers to it yet.
     unsafe {
         let owner = &mut *(pointer as *mut File);
         owner.writable = true;

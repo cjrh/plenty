@@ -289,8 +289,11 @@ need explicit handling.
 Use `unchecked:` only where you can show the arithmetic cannot fail. It
 yields an ordinary value, not a `Result`. A failure inside it terminates the
 process by default, but `--unchecked assume` builds omit that check, so do not
-use the suite to reject bad input; write `unchecked trap:` when termination is
-the intent. Keep it small and explain why its bounds are safe. See
+use the suite to reject bad input. In assume builds, list, slice-view and
+`Bytes` indexing inside the suite also requires nonnegative, in-range indices;
+normal negative indexing is unavailable there. Keep these suites small and
+justify every indexed access as well as the arithmetic. Write `unchecked trap:`
+when termination is the intent. See
 [arithmetic modes](../../design/language/03-types/numbers.md#unchecked-blocks).
 Integer [`std.math` helpers](../../design/stdlib/math.md) return ordinary
 overflow results; their float variants remain infallible. Remaining std

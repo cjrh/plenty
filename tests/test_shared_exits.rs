@@ -482,3 +482,256 @@ def main() -> Result[(), OverflowError[i64]]:
         expected
     );
 }
+
+// The listing patterns below (`j` branches, `(%rsp)` stores) are x86-64's;
+// AArch64 listings have not been checked against them.
+#[cfg(target_arch = "x86_64")]
+/// Functions with a hot loop and exits of each kind: a lone `?` failure, tail
+/// calls and returns, each carrying the loop's total and releasing an owned
+/// list.
+const HOT_EXITS: &str = r#"def flips(xs: &mut list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut count = 0
+    mut first = xs[0]
+    while first != 0:
+        mut lo = 0
+        mut hi = first
+        while lo < hi:
+            xs.swap(lo, hi)
+            lo += 1
+            hi -= 1
+        count += 1
+        first = xs[0]
+    Ok(count)
+
+def one_failure(n: i64) -> Result[i64, AllocError | OverflowError[i64]]:
+    mut xs = [3, 1, 2, 0]?
+    mut total = 0
+    for k in range(n):
+        xs[0] = 3
+        total += flips(&mut xs)?
+    Ok(total)
+
+def other(c: i64, n: i64) -> Result[i64, AllocError | OverflowError[i64]]:
+    Ok(c + n)
+
+def tail(n: i64) -> Result[i64, AllocError | OverflowError[i64]]:
+    mut xs = [3, 1, 2, 0]?
+    if n < 0:
+        return other(0, n)
+    mut total = 0
+    for k in range(n):
+        xs[0] = 3
+        total += flips(&mut xs)?
+        if total > 1000000000:
+            return other(total, k)
+    other(total, n)
+
+def returns(n: i64) -> Result[i64, AllocError | OverflowError[i64]]:
+    mut xs = [3, 1, 2, 0]?
+    if n < 0:
+        return Ok(-1)
+    mut total = 0
+    for k in range(n):
+        xs[0] = 3
+        total += flips(&mut xs)?
+        if total > 1000000000:
+            return Ok(total)
+    Ok(total)
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    print(one_failure(10)?, tail(10)?, returns(10)?)?
+    Ok(())
+"#;
+
+#[cfg(target_arch = "x86_64")]
+/// The instructions of each innermost loop's hot path in a `--dump asm`
+/// listing: the blocks between a backward jump and its target from which the
+/// jump is reachable, so exits and cold blocks are left out.
+fn hot_loops(body: &str) -> Vec<Vec<&str>> {
+    let target = |text: &str| -> Option<u64> {
+        let operand = text.split_whitespace().nth(1)?;
+        u64::from_str_radix(operand.strip_prefix("0x")?, 16).ok()
+    };
+    let code: Vec<(u64, &str)> = body
+        .lines()
+        .filter_map(|line| {
+            let (addr, text) = line.trim().split_once(':')?;
+            Some((u64::from_str_radix(addr, 16).ok()?, text.trim()))
+        })
+        .collect();
+    let jumps = |text: &str| text.starts_with('j');
+    let ends = |text: &str| text.starts_with("jmp") || text.starts_with("ret") || text == "ud2";
+    let dests: Vec<u64> = code
+        .iter()
+        .filter(|(_, text)| jumps(text))
+        .filter_map(|(_, text)| target(text))
+        .collect();
+    let mut blocks: Vec<Vec<(u64, &str)>> = vec![Vec::new()];
+    for &(addr, text) in &code {
+        if dests.contains(&addr) && !blocks.last().unwrap().is_empty() {
+            blocks.push(Vec::new());
+        }
+        blocks.last_mut().unwrap().push((addr, text));
+        if jumps(text) || ends(text) {
+            blocks.push(Vec::new());
+        }
+    }
+    blocks.retain(|block| !block.is_empty());
+    let start = |addr: u64| blocks.iter().position(|block| block[0].0 == addr);
+    let successors = |i: usize| {
+        let (_, text) = *blocks[i].last().unwrap();
+        let mut out: Vec<usize> = jumps(text)
+            .then(|| target(text).and_then(start))
+            .flatten()
+            .into_iter()
+            .collect();
+        if !ends(text) && i + 1 < blocks.len() {
+            out.push(i + 1);
+        }
+        out
+    };
+    let ranges: Vec<(usize, usize)> = (0..blocks.len())
+        .filter_map(|i| {
+            let (addr, text) = *blocks[i].last().unwrap();
+            let dest = target(text).filter(|&dest| jumps(text) && dest <= addr)?;
+            Some((start(dest)?, i))
+        })
+        .collect();
+    ranges
+        .iter()
+        .filter(|&&(head, tail)| {
+            !ranges
+                .iter()
+                .any(|&other| other != (head, tail) && head <= other.0 && other.1 <= tail)
+        })
+        .filter_map(|&(head, tail)| {
+            let mut body = vec![tail];
+            let mut changed = true;
+            while changed {
+                changed = false;
+                for i in head..=tail {
+                    if !body.contains(&i) && successors(i).iter().any(|s| body.contains(s)) {
+                        body.push(i);
+                        changed = true;
+                    }
+                }
+            }
+            // A backward jump in cold code whose target cannot reach it
+            // closes no loop.
+            body.contains(&head).then(|| {
+                body.sort();
+                body.iter()
+                    .flat_map(|&i| blocks[i].iter().map(|&(_, text)| text))
+                    .collect()
+            })
+        })
+        .collect()
+}
+
+/// Values passed to a function's shared exit blocks stay out of its hot
+/// loops (issue #811). Passed as block parameters, a lone failure's error,
+/// tail calls' arguments and returned values joined the loop's total in one
+/// register-allocation bundle spanning the function, and splitting it stored
+/// and reloaded the total on every iteration.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn values_passed_to_shared_exits_stay_out_of_hot_loops() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("p.plenty"), HOT_EXITS).unwrap();
+    let output = std::process::Command::new(support::plenty_bin())
+        .current_dir(dir.path())
+        .env("PLENTY_CACHE", "off")
+        .args(["--dump", "asm", "p.plenty", "-o", "out"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let asm = std::fs::read_to_string(dir.path().join("out/asm.txt")).unwrap();
+    for name in ["one_failure", "tail", "returns"] {
+        let body = support::asm_body(&asm, name);
+        let loops = hot_loops(body);
+        assert!(!loops.is_empty(), "no loop in {name}\n{body}");
+        for hot in loops {
+            // Loop-invariant loads may stay; a store is a spill.
+            let stores: Vec<&&str> = hot
+                .iter()
+                .filter(|text| {
+                    text.split('#')
+                        .next()
+                        .unwrap()
+                        .trim_end()
+                        .ends_with("(%rsp)")
+                })
+                .collect();
+            assert!(
+                stores.is_empty(),
+                "{name}'s hot loop stores {stores:?}\n{body}"
+            );
+        }
+    }
+}
+
+/// A loop inlined through a loop-free callee marks the outer caller too, so
+/// `driver`'s exits after the call stage their values (issue #811). The
+/// reloads address the staging slot at offset 8.
+#[test]
+fn loops_inlined_through_a_callee_stage_the_callers_exits() {
+    let program = r#"def work(xs: &list[i64], n: i64) -> Result[i64, OverflowError[i64]]:
+    mut total = 0
+    for k in range(n):
+        total += xs[k & 3]
+    Ok(total)
+
+def mid(xs: &list[i64], n: i64) -> Result[i64, OverflowError[i64]]:
+    t = work(xs, n)?
+    Ok(t + 1)
+
+def driver(n: i64) -> Result[i64, AllocError | OverflowError[i64]]:
+    ys = [1, 2, 3, 4]?
+    if n < 0:
+        return Ok(-1)
+    t = mid(&ys, n)?
+    if t > 5:
+        return Ok(t + ys[0])
+    Ok(t)
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    print(driver(100)?)?
+    Ok(())
+"#;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("p.plenty"), program).unwrap();
+    let output = std::process::Command::new(support::plenty_bin())
+        .current_dir(dir.path())
+        .env("PLENTY_CACHE", "off")
+        .args([
+            "--dump",
+            "clif",
+            "--dump-filter",
+            "driver",
+            "p.plenty",
+            "-o",
+            "out",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let clif = std::fs::read_to_string(dir.path().join("out/clif.txt")).unwrap();
+    // Both callees must be inlined for this to test the propagation.
+    assert!(
+        !clif.contains("__plenty_fn_work") && !clif.contains("__plenty_fn_mid"),
+        "{clif}"
+    );
+    assert!(
+        clif.lines()
+            .any(|line| line.contains("stack_addr") && line.trim_end().ends_with("+8")),
+        "driver's exits pass parameters\n{clif}"
+    );
+}

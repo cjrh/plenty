@@ -68,6 +68,7 @@ use cranelift_object::ObjectModule;
 use crate::cache::{Cache, Lookup, ProgramKey};
 use crate::frontend::Sources;
 mod atomic;
+mod box_release;
 mod casts;
 mod channels;
 mod checked;
@@ -808,6 +809,8 @@ fn object_module(
         sorting::declare_adapters(&ops, workers, &mut out.module, &mut runtime.sort_adapters)?;
     let formats =
         formatting::declare_adapters(&ops, workers, &mut out.module, &mut runtime.format_hooks)?;
+    let box_releasers =
+        box_release::declare_adapters(&ops, workers, &mut out.module, &mut runtime.box_releasers)?;
     let runtime = runtime;
     // `bodies` is in declaration order, as `FuncId`s are. The map's own order
     // changes from run to run, which would make the object differ between
@@ -877,6 +880,11 @@ fn object_module(
         .chain(sorts.into_iter().map(|(sort, id)| Job::Sort(sort, id)))
         .chain(formats.into_iter().map(|(hook, id)| Job::Format(hook, id)))
         .chain(
+            box_releasers
+                .into_iter()
+                .map(|(content, id)| Job::BoxRelease(content, id)),
+        )
+        .chain(
             bodies
                 .into_iter()
                 .map(|(name, body)| Job::Function(name, body)),
@@ -901,6 +909,9 @@ fn object_module(
             Job::Format(hook, id) => {
                 formatting::build_adapter(&hook, id, fns, str_data, runtime, worker)
             }
+            Job::BoxRelease(content, id) => {
+                box_release::build_adapter(&content, id, fns, str_data, runtime, worker)
+            }
             Job::Function(name, body) => {
                 build_user_function(&name, &body, fns, str_data, runtime, worker)
             }
@@ -922,6 +933,8 @@ enum Job {
     Executor(Arc<crate::executor::Job>, FuncId),
     Sort(Arc<crate::collection::KeySort>, FuncId),
     Format(crate::collection::FormatHook, FuncId),
+    /// A box content type's compiled release; see [`box_release`].
+    BoxRelease(Ty, FuncId),
     /// A user function, with its drop callback or, for a generator, its
     /// resume function.
     Function(String, Arc<[Op]>),
@@ -1041,6 +1054,9 @@ struct Runtime {
     referenced: std::sync::Mutex<crate::hash::HashSet<FuncId>>,
     /// `__del__` adapters by method name, linked into class descriptors.
     drop_hooks: HashMap<String, FuncId>,
+    /// Compiled releases of box content by content type, linked into box
+    /// descriptors; see [`box_release`].
+    box_releasers: HashMap<Ty, FuncId>,
     list_len: FuncId,
     /// `plenty_list_rows(list) -> first row address` and
     /// `plenty_list_row_bytes(list) -> row size`, for borrowed iteration.
@@ -1245,6 +1261,7 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         protocol_tables: Default::default(),
         referenced: Default::default(),
         drop_hooks: HashMap::default(),
+        box_releasers: HashMap::default(),
         retain: one_arg(module, "plenty_retain", PTR_TY)?,
         release: one_arg(module, "plenty_release", PTR_TY)?,
         list_len: {
@@ -1919,6 +1936,7 @@ fn build_user_function(
             locals: &locals,
             stack: Vec::new(),
             terminated: false,
+            assumed_index: false,
             loop_targets: Vec::new(),
             checked_targets: Vec::new(),
             generator: None,
@@ -2046,6 +2064,7 @@ fn build_main(
             locals: &[],
             stack: Vec::new(),
             terminated: false,
+            assumed_index: false,
             loop_targets: Vec::new(),
             checked_targets: Vec::new(),
             generator: None,
@@ -2221,6 +2240,8 @@ struct Lowerer<'a, 'b> {
     /// Once set, the outer loop in
     /// [`build_user_function`] stops feeding ops to this lowerer.
     terminated: bool,
+    /// Only while lowering one explicitly assumed indexing operation.
+    assumed_index: bool,
     /// The last entry is the innermost loop: (continue target, break target).
     loop_targets: Vec<(Block, Block)>,
     /// The last entry is the innermost `checked:` block: its exit, which
@@ -2324,6 +2345,9 @@ impl Lowerer<'_, '_> {
         }
         if ty.managed() && inline::release_fields(ty).is_some() {
             self.release_record(value, ty);
+            return;
+        }
+        if ty.managed() && self.release_heap_payload(value, ty) {
             return;
         }
         if ty.wide() || matches!(ty, Ty::Generator(_) | Ty::Closure(_)) {
@@ -3094,10 +3118,16 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
-    /// An [`Op::Assumed`] integer operation: the plain instruction, without
+    /// An [`Op::Assumed`] operation: the plain instruction, without
     /// the check that would trap.
     fn lower_assumed(&mut self, op: &Op) -> Result<()> {
         match op {
+            Op::Collection(operation) if operation.assumable_index() => {
+                self.assumed_index = true;
+                let result = self.lower_assumed_index(operation);
+                self.assumed_index = false;
+                result?;
+            }
             Op::Add | Op::Sub | Op::Mul => {
                 let (a, b, ty) = self.pop_int_pair()?;
                 let result = match op {
