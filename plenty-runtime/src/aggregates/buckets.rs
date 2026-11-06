@@ -23,7 +23,37 @@ use crate::memory::{self, AllocError};
 /// Whether a bucket of a table with `shift` holds the `home_bits` low hash
 /// bits that a table of `2^home_bits` buckets needs to place it.
 fn covers(shift: u32, home_bits: u32) -> bool {
-    home_bits <= 64 - shift
+    home_bits <= stored_bits(shift)
+}
+
+#[cfg(not(test))]
+fn stored_bits(shift: u32) -> u32 {
+    64 - shift
+}
+
+/// Tests cap the usable stored bits so small tables take the fallbacks that
+/// otherwise run only above `2^32` buckets.
+#[cfg(test)]
+fn stored_bits(shift: u32) -> u32 {
+    (64 - shift).min(STORED_BITS_LIMIT.with(std::cell::Cell::get))
+}
+
+#[cfg(test)]
+thread_local! {
+    static STORED_BITS_LIMIT: std::cell::Cell<u32> = const { std::cell::Cell::new(u32::MAX) };
+}
+
+/// Cap the stored hash bits that growth and removal may use on this thread
+/// until the guard drops.
+#[cfg(test)]
+pub(super) fn limit_stored_bits(bits: u32) -> impl Drop {
+    struct Restore(u32);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            STORED_BITS_LIMIT.with(|limit| limit.set(self.0));
+        }
+    }
+    Restore(STORED_BITS_LIMIT.with(|limit| limit.replace(bits)))
 }
 
 pub(super) struct Buckets {
@@ -109,11 +139,14 @@ impl Buckets {
     }
     /// Rebuild these references into the empty `target` from stored hash
     /// bits alone. Returns false, leaving `target` empty, when they hold
-    /// fewer bits than `target`'s home buckets need.
+    /// fewer bits than `target`'s home buckets need. `target` must be at
+    /// least as long: a shorter one would need hash bits a bucket does not
+    /// store, giving wrong tags and silent lookup misses.
     pub fn rehash_into(&self, target: &mut Self) -> bool {
         if self.is_empty() {
             return true;
         }
+        debug_assert!(target.shift() >= self.shift(), "tables only grow");
         if !covers(self.shift(), target.shift()) {
             return false;
         }

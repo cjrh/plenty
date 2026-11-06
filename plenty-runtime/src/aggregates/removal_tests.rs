@@ -364,3 +364,51 @@ fn removal_and_growth_reuse_stored_hash_bits() {
         assert_model(c, &model);
     }
 }
+
+#[test]
+fn growth_and_removal_fall_back_to_hashing_keys_without_stored_bits() {
+    // Tables over 2^32 buckets lack the stored bits growth and removal need;
+    // the cap makes a 16-bucket table take those fallbacks.
+    let _limit = buckets::limit_stored_bits(0);
+    let keys: Vec<u128> = (0..100_000)
+        .filter(|key| unsafe { hash(*key, &INTEGER) } & 15 == 5)
+        .take(64)
+        .collect();
+    let owner = owned(4);
+    // SAFETY: the guard owns the collection throughout all raw ABI access.
+    unsafe {
+        let c = &mut *(owner.value as *mut Collection);
+        let mut model = Vec::new();
+        for &key in &keys[..6] {
+            c.try_insert(key, key).unwrap();
+            model.push((key, key));
+        }
+        assert_eq!(c.table.len(), 16);
+        // Removal rehashes each later reference in the cluster.
+        let before = hashes();
+        assert_eq!(c.remove(keys[0]), Some(keys[0]));
+        assert_eq!(hashes() - before, 1 + 5, "removal rehashes the cluster");
+        model.remove(0);
+        assert_model(c, &model);
+        let mut rebuilt = false;
+        for &key in &keys[6..] {
+            let (before, stored, table) = (hashes(), c.len(), c.table.len());
+            c.try_insert(key, key).unwrap();
+            let rebuild = if c.table.len() == table {
+                0
+            } else {
+                rebuilt = true;
+                stored
+            };
+            assert_eq!(hashes() - before, 1 + rebuild, "insertion of {key}");
+            model.push((key, key));
+        }
+        assert!(rebuilt && c.table.len() >= 128);
+        assert_model(c, &model);
+        for &(key, value) in model.iter().step_by(2) {
+            assert_eq!(c.remove(key), Some(value));
+        }
+        let model: Vec<_> = model.iter().copied().skip(1).step_by(2).collect();
+        assert_model(c, &model);
+    }
+}
