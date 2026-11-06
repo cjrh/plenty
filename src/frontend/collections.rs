@@ -2001,6 +2001,9 @@ impl Lower<'_> {
         ]);
         self.reference_locals.insert(key_slot, loan);
         self.reference_locals.insert(value_slot, loan);
+        if !mutable {
+            self.shared_dictionary_values.insert(value_slot);
+        }
         for (name, slot, ty) in [
             (&names[0], key_slot, key_ty),
             (&names[1], value_slot, value_ty.clone()),
@@ -4712,6 +4715,16 @@ impl Lower<'_> {
             ops.push(Op::Collection(operation));
             Self::end_reads(loans, ops);
             return Ok(Some(result));
+        }
+        if matches!(name, "values_mut" | "items_mut" | "iter_mut") {
+            let projection = if name == "items_mut" {
+                "items"
+            } else {
+                "values"
+            };
+            return Err(base.at.error(format!(
+                "dictionaries have no `{name}`; borrow the dictionary exclusively instead: `for ... in (&mut d).{projection}():` yields `&mut V`"
+            )));
         }
         Err(base
             .at

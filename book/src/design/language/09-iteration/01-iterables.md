@@ -69,8 +69,9 @@ Its source loan prohibits invalidating dictionary mutation.
 `dictionary.keys()` creates a bindable local `KeyView[K]`; iteration yields
 `&K` in the same insertion order, without allocation. `dictionary.values()`
 is a loop/comprehension source yielding `&V`, including affine values;
-`(&mut dictionary).values()` yields `&mut V`. Both protect the whole dictionary
-under their loans. Collect explicitly (`[*key for key in d.keys()]?`), or
+`(&mut dictionary).values()` yields `&mut V`; see
+[updating every value](../../facilities/01-builtins/dictionaries.md#updating-every-value).
+Both protect the whole dictionary under their loans. Collect explicitly (`[*key for key in d.keys()]?`), or
 use `keys_snapshot()` / `values_snapshot()` for owned lists and `into_keys()` /
 `into_values()` to consume the owner. See [dictionary views](../../facilities/01-builtins/dictionaries.md#snapshots-and-views)
 for the key view's set operations and storage restrictions.

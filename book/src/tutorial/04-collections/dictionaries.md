@@ -61,6 +61,9 @@ def main() -> Result[(), AllocError | IoError]:
 
 `get_mut` allocates nothing. The reference borrows the whole dictionary
 exclusively, so the dictionary cannot be read or changed while it is live.
+To change every value, loop over `(&mut groups).values()` instead of calling
+`get_mut` per key; [dictionary key/value loops](../05-iteration/02-unpack-items.md)
+show the mutable form.
 
 To count or group, a missing key needs a starting value. `get_or_insert(key,
 default)` inserts the default when the key is absent, then returns a mutable
