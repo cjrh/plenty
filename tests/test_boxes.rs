@@ -338,3 +338,36 @@ fn box_contents_and_dereferences_are_checked() {
         assert!(error.contains(expected), "{source}\n{error}");
     }
 }
+
+/// A box for a class record skips zeroing because compiled code writes its
+/// whole slot; a box for a sum is zeroed, since a smaller variant leaves
+/// payload bytes unwritten (issue #814). Each new box here can reuse the
+/// freed storage of the one before, so stale bytes would show.
+#[test]
+fn reused_box_storage_holds_only_the_new_content() {
+    runs(
+        r#"
+class Pair:
+    left: str
+    right: i64
+def main() -> Result[(), AllocError | IoError]:
+    first = Box(Pair("old", 1))?
+    drop(first)
+    second = Box(Pair("new", 2))?
+    print(second)?
+    some = Box(Some(Pair("gone", 3)))?
+    drop(some)
+    nothing: Option[Pair] = Nothing
+    empty = Box(nothing)?
+    print(empty)?
+    twin = copy(empty)?
+    print(twin == empty)?
+    drop(empty)
+    drop(twin)
+    again = Box(Some(Pair("again", 4)))?
+    print(again)?
+    Ok(())
+"#,
+        "Box(Pair(left=\"new\", right=2))\nBox(Option[Pair].Nothing)\nTrue\nBox(Option[Pair].Some(Pair(left=\"again\", right=4)))\n",
+    );
+}

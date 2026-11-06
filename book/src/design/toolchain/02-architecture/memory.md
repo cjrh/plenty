@@ -96,15 +96,20 @@ a destructor keeps the ordered walk described above.
 `Box(value)` for content with inline storage, such as a class record, asks
 the runtime only for the allocation. Compiled code then copies the content into
 the box's slot. If the allocation fails, the runtime releases the value the box
-would have owned.
+would have owned. A box for a class record is not zeroed, because that copy
+writes its whole slot; other content is zeroed first, since storing a sum
+variant smaller than the largest leaves payload bytes unwritten.
 
 ## Allocator provenance
 
-Object allocations carry a private prefix identifying their allocator, leaving
-generated-code header and payload offsets unchanged. Freeing uses that identity,
-never a later global choice. Internal allocator tables must live for the process.
-Ordinary objects select the global allocator; `Vec`-backed container buffers use
-it directly. Public allocator selection and scoped allocator lifetimes are unsupported.
+Runtime objects and container buffers both come from the global allocator, and
+an object allocation carries no prefix before its header: with only one
+allocator, freeing needs no record of which one created an object. A box is a
+16-byte header, its descriptor word and a padding word, then its content slot.
+Public allocator selection and scoped allocator lifetimes are unsupported. Adding
+them (backlog B13) must record provenance again without enlarging objects of the
+global allocator; a 16-byte prefix made each binary-trees node a 112-byte malloc
+chunk rather than 96 (issue #814).
 
 Checked buffer growth and partial-construction cleanup implement the
 [recoverable allocation contract](../../language/08-errors/02-allocation-and-traps.md).

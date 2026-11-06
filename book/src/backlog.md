@@ -165,6 +165,11 @@ and the [completed measurements](completed-work/performance.md) as baselines.
   managed fields, records over 192 bytes and tuple release plans. Measure inline
   copies beyond current runtime-copy paths; owned temporaries and nonscalar list
   rows still use runtime helpers. [Flat-layout rationale](proposals/completed/flat-class-layout.md).
+  Box size (issue #814): a box's class-record slot still keeps a value word that
+  only addresses the record after it, and `Option[Box[T]]` keeps a tag word
+  rather than a null niche; dropping both would take a binary-trees node from a
+  96-byte malloc chunk to 64 (C: 32). A size-class free list for fixed-size boxes
+  is unmeasured.
 - **Serial frontend efficiency:** module-scope name hashing, builtin-sum
   interning and `Ty`/nominal-handle clone traffic (about 10% of check samples with
   allocation excluded; issue #696). The signature map and nominal fact/lock costs

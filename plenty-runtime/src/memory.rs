@@ -226,111 +226,69 @@ fn try_flex_layout<H, E>(count: usize) -> Result<Layout, AllocError> {
         .map(|(layout, _)| layout.pad_to_align())
         .ok_or(AllocError::CapacityOverflow)
 }
-/// Internal allocator identity. Callbacks obey Rust Layout allocation contracts;
-/// storage must be zeroed and the allocator must outlive all of its allocations.
-pub(crate) struct Allocator {
-    allocate_zeroed: unsafe fn(Layout) -> *mut u8,
-    deallocate: unsafe fn(*mut u8, Layout),
-}
-static GLOBAL: Allocator = Allocator {
-    allocate_zeroed: alloc_zeroed,
-    deallocate: dealloc,
-};
-
-#[repr(C)]
-struct Allocation {
-    allocator: &'static Allocator,
-}
-
-fn allocation_layout<H, E>(count: usize) -> Result<(Layout, usize), AllocError> {
+/// Runtime objects come from the global allocator with no prefix: only one
+/// allocator exists, so freeing needs no record of which one created an
+/// object. Public allocator selection (backlog B13) must record provenance
+/// again, and must not cost objects of the global allocator their size; see
+/// "Allocator provenance" in book/src/design/toolchain/02-architecture/memory.md.
+fn object_layout<H, E>(count: usize) -> Result<Layout, AllocError> {
     let object = try_flex_layout::<H, E>(count)?;
     assert!(
         object.size() != 0,
         "runtime allocations require a nonzero header"
     );
-    Layout::new::<Allocation>()
-        .extend(object)
-        .map(|(layout, offset)| (layout.pad_to_align(), offset))
-        .map_err(|_| AllocError::CapacityOverflow)
+    Ok(object)
 }
 
 pub(crate) fn try_allocate<H, E>(count: usize) -> Result<*mut H, AllocError> {
-    try_allocate_in::<H, E>(count, &GLOBAL)
-}
-
-pub(crate) fn try_allocate_in<H, E>(
-    count: usize,
-    allocator: &'static Allocator,
-) -> Result<*mut H, AllocError> {
-    try_allocate_with::<H, E>(count, allocator, allocator.allocate_zeroed)
+    try_allocate_with::<H, E>(count, alloc_zeroed)
 }
 
 /// [`try_allocate`] without zeroing, for an object whose header and every
 /// element the caller writes before anything reads them, such as a copied
 /// string. Freeing and allocation accounting are the same as for zeroed
-/// storage: both come from the global allocator.
+/// storage.
 pub(crate) fn try_allocate_uninit<H, E>(count: usize) -> Result<*mut H, AllocError> {
-    try_allocate_with::<H, E>(count, &GLOBAL, std::alloc::alloc)
+    try_allocate_with::<H, E>(count, std::alloc::alloc)
 }
 
 fn try_allocate_with<H, E>(
     count: usize,
-    allocator: &'static Allocator,
     allocate: unsafe fn(Layout) -> *mut u8,
 ) -> Result<*mut H, AllocError> {
-    let (layout, offset) = allocation_layout::<H, E>(count)?;
+    let layout = object_layout::<H, E>(count)?;
     // SAFETY: the checked layout has a nonzero size. Null means no allocation
     // was obtained, so returning an error leaves nothing to deallocate.
     let pointer = unsafe { allocate(layout) };
     if pointer.is_null() {
         Err(AllocError::OutOfMemory)
     } else {
-        unsafe {
-            pointer.cast::<Allocation>().write(Allocation { allocator });
-            Ok(pointer.add(offset).cast())
-        }
+        Ok(pointer.cast())
     }
 }
 pub(crate) unsafe fn free<H, E>(pointer: *mut H, count: usize) {
-    // SAFETY: pointer/count match try_allocate[_in]; the preceding private
-    // prefix remains live until the allocator that created it reclaims it.
+    // SAFETY: pointer/count match the try_allocate call that created it.
     unsafe {
-        let (layout, offset) = allocation_layout::<H, E>(count).expect("live allocation layout");
-        let base = pointer.cast::<u8>().sub(offset);
-        let allocator = (*base.cast::<Allocation>()).allocator;
-        (allocator.deallocate)(base, layout);
+        let layout = object_layout::<H, E>(count).expect("live allocation layout");
+        dealloc(pointer.cast(), layout);
     }
 }
 
 #[cfg(test)]
 mod allocator_tests {
     use super::*;
-    thread_local! { static FREED: Cell<usize> = const { Cell::new(0) }; }
-    unsafe fn custom_free(pointer: *mut u8, layout: Layout) {
-        FREED.with(|n| n.set(n.get() + 1));
-        unsafe {
-            dealloc(pointer, layout);
-        }
-    }
-    static CUSTOM: Allocator = Allocator {
-        allocate_zeroed: alloc_zeroed,
-        deallocate: custom_free,
-    };
     #[repr(C, align(64))]
     struct Aligned([u8; 64]);
     #[test]
-    fn provenance_and_alignment_survive_moving_the_owner() {
-        FREED.with(|n| n.set(0));
-        let first = try_allocate_in::<Aligned, u128>(3, &CUSTOM).unwrap();
-        let second = try_allocate::<Aligned, u128>(3).unwrap();
-        assert_eq!(first as usize % 64, 0);
+    fn allocations_are_aligned_and_zeroed() {
+        let object = try_allocate::<Aligned, u128>(3).unwrap();
+        assert_eq!(object as usize % 64, 0);
         unsafe {
-            assert!((*first).0.iter().all(|b| *b == 0));
-            free::<Aligned, u128>(second, 3);
-            assert_eq!(FREED.with(Cell::get), 0);
-            free::<Aligned, u128>(first, 3);
+            assert!((*object).0.iter().all(|b| *b == 0));
+            let tail = object.add(1).cast::<u128>();
+            assert!((0..3).all(|i| tail.add(i).read() == 0));
+            free::<Aligned, u128>(object, 3);
         }
-        assert_eq!(FREED.with(Cell::get), 1);
     }
 }
 
