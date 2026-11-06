@@ -63,6 +63,22 @@ both run 14 instructions per pass, as does `count_flips`' inner loop, so the
 C comparison is unchanged. The two forms differ only in register choice and
 one fewer trap site.
 
+Issue #726 rotates loops into do-while form, so each pass ends in one
+conditional branch. Measured on the current kernels, per pass, before and
+after:
+
+| Loop | 4239252a | Rotated |
+|---|---|---|
+| reverse | 14 | 13 |
+| reverse_swap | 9 | 8 (C: 8) |
+| rotate_left, checked copy | 12 | 12 |
+| rotate_left, unchecked copy | 8 | 7 |
+| copy_row, checked / unchecked | 9 / 7 | 8 / 6 |
+| count_flips, checked / unchecked | 9 / 9 | 8 / 8 |
+
+`rotate_left`'s checked copy keeps 12: regalloc2 splits the latch's back
+edge and places a `mov` and `jmp` there.
+
 `reverse.clif` (a is Plenty's shape before 4d4f1545):
 
 | Variant | Change | Count |
