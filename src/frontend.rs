@@ -657,6 +657,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "__min_replaces"
                 | "__max_replaces"
                 | "__test_fault"
+                | fstrings::REPR_IF_FORMATTABLE
                 | "__actor_heap"
                 | "__actor_run"
                 | "__actor_forget"
@@ -2587,6 +2588,18 @@ impl Lower<'_> {
                 }
                 if name == "next" {
                     return self.next(args, &e.at, ops);
+                }
+                if name == fstrings::REPR_IF_FORMATTABLE {
+                    let standard =
+                        e.at.source()
+                            .as_ref()
+                            .is_some_and(|source| self.generics.source_facts(source).1);
+                    if !standard {
+                        return Err(e
+                            .at
+                            .error(format!("`{name}` is reserved for the standard library")));
+                    }
+                    return self.repr_if_formattable(args, &e.at, ops).map(Some);
                 }
                 if let Some(operation) = match name.as_str() {
                     "__caller_location" => Some(CollectionOp::CallerLocation),

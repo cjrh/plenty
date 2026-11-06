@@ -16,6 +16,8 @@ const DEPTH: &str = "32";
 /// f-strings have no byte budget; only allocation failure bounds them.
 const NO_BUDGET: &str = "9223372036854775807";
 const OUT: &str = "__plenty_out";
+/// std's `__repr_if_formattable(value)`; see [`Lower::repr_if_formattable`].
+pub(super) const REPR_IF_FORMATTABLE: &str = "__repr_if_formattable";
 /// Widths and precisions are static; this keeps generated spellings bounded.
 const SPEC_LIMIT: usize = 4096;
 
@@ -1408,6 +1410,41 @@ impl Lower<'_> {
             display,
             function,
         })
+    }
+
+    /// std's `__repr_if_formattable(value)`: `Some(str.repr(value))` when a
+    /// value of this type can be formatted, otherwise
+    /// `Nothing: Option[Result[str, AllocError]]`. The choice is made per
+    /// instantiation, so a generic caller such as `std.test.is_err` accepts
+    /// payloads `str.repr` rejects (issue #809). `value` must be a local name,
+    /// which reading or skipping leaves unchanged.
+    pub(super) fn repr_if_formattable(
+        &mut self,
+        args: &[Expr],
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Ty> {
+        let [value] = args else {
+            return Err(at.error(format!("{REPR_IF_FORMATTABLE} takes one value")));
+        };
+        let local = match &ungroup(value).kind {
+            Expression::Name(local) => self.names.get(local).map(|l| l.ty.clone()),
+            _ => None,
+        };
+        let Some(ty) = local else {
+            return Err(value
+                .at
+                .error(format!("{REPR_IF_FORMATTABLE} takes a local name")));
+        };
+        // `str.repr` reads through the local's references to the value.
+        let chosen = if super::collections::repr_rejection(referent(&ty)).is_none() {
+            let repr = method(at, name(at, "str"), "repr", vec![value.clone()]);
+            self.expr_expected(&call(at, "Some", vec![repr]), None, ops)?
+        } else {
+            let absent = crate::sum::option(crate::sum::result(Ty::Str, crate::sum::alloc_error()));
+            self.expr_expected(&name(at, "Nothing"), Some(absent), ops)?
+        };
+        chosen.ok_or_else(|| at.error(format!("{REPR_IF_FORMATTABLE} produced no value")))
     }
 
     /// `operation`, run with the formatting methods `ty` needs.
