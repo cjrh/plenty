@@ -55,7 +55,9 @@ name = "shapes"
 version = "0.1.0"
 ```
 
-Items other packages use must be `pub`, including fields and methods.
+Visibility is per defining module, including within one package: declarations
+another module uses must be `pub`, including needed fields and methods. Keep
+helpers private unless they form an intentional interface.
 Arithmetic errors are part of that public contract too:
 
 ```plenty project-file shapes/src/lib.plenty
@@ -112,13 +114,28 @@ pub def show(area: i64) -> Result[(), IoError]:
     Ok(())
 ```
 
-```plenty project-file app/src/main.plenty
+The calculation module depends on the geometry library; presentation does not:
+
+```plenty project-file app/src/measure.plenty
 import geometry
+
+pub def square_area(side: i64) -> Result[i64, OverflowError[i64]]:
+    square = geometry.Square(side)
+    square.area()
+```
+
+```plenty project-file app/src/main.plenty
 from report import show
+from measure import square_area
 
 def main() -> Result[(), IoError | OverflowError[i64]]:
-    square = geometry.Square(4)
-    show(square.area()?)
+    show(square_area(4)?)
+```
+
+```sh plenty-project app
+plenty check
+```
+```output
 ```
 
 ```sh plenty-project app
@@ -131,6 +148,39 @@ area: 16
 
 Status lines such as `Compiling` go to standard error. The first build writes
 `plenty.lock`; commit it with the manifest.
+
+### Splitting a package by responsibility
+
+The example has one-way imports: `app/main -> measure -> geometry`, and
+`app/main -> report`. Split parsing, application policy and presentation when
+they have distinct responsibilities or contracts, rather than imposing a line
+limit. Keep shared types in a lower-level module both consumers can import.
+Imports do not re-export names: import a type from its defining module instead
+of relying on another file's import. Cycles are rejected, with the dependency
+chain in the diagnostic; moving a shared type or passing a value can break one.
+See [modules and imports](../../../../book/src/design/language/02-source/modules.md).
+
+Start a move by deciding the smallest public interface. A moved helper does
+not automatically need to be public; expose only what callers in other modules
+use. Public classes also need explicit visibility on externally used fields
+and methods. Preserve error types and ownership in the new signatures.
+
+After each move, check the package library and every executable with
+`plenty check`, run `plenty test` for its tests, and run the relevant binaries.
+In this walkthrough, run `plenty test` in `shapes/` and `plenty check` / `plenty run`
+in `app/`. A standalone `plenty --check src/main.plenty` checks that entry's
+reachable graph; it does not establish coverage of a separate library or other
+binaries. Files not reachable from any target/test can still be orphaned: an
+unimported file is not checked merely because it is under `src/`. Connect the
+new module to an appropriate target or test before trusting a successful check.
+<!-- issue #805 -->
+
+The [language server](../../../../book/src/design/toolchain/01-building/language-server.md)
+provides diagnostics, hover, go to definition, inlay hints and completion; see
+[Neovim setup](../../../../book/src/design/toolchain/01-building/neovim.md).
+References/rename and move-to-module refactoring are not shipped capabilities.
+Use explicit edits and package checks rather than assuming editor support.
+<!-- issues #821 and #822 -->
 
 ### Git dependencies
 

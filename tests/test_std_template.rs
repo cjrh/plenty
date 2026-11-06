@@ -410,3 +410,132 @@ print(templates.render("bad", &context)?)?
         );
     }
 }
+
+#[test]
+fn explicit_html_contexts_preserve_exact_text_and_quote_delimiters() {
+    let source = program(
+        r#"
+text = "&<>\"'é🙂"
+print(std.template.escape(&text, std.template.HtmlContext.Text)?)?
+print(std.template.escape(&text, std.template.HtmlContext.DoubleQuotedAttribute)?)?
+print(std.template.escape(&text, std.template.HtmlContext.SingleQuotedAttribute)?)?
+print(std.template.escape(&text, std.template.HtmlContext.TextAndAttributes)?)?
+# Existing character references are input text, not trusted markup.
+print(std.template.escape("&amp;", std.template.HtmlContext.Text)?)?
+attr = std.template.escape("\" autofocus=\"yes", std.template.HtmlContext.DoubleQuotedAttribute)?
+child = std.template.escape("<b>\"hello\"</b>", std.template.HtmlContext.Text)?
+print(f"<span title=\"{attr}\">{child}</span>"?)?
+"#,
+    );
+    let expected = "&amp;&lt;&gt;\"'é🙂\n&amp;<>&quot;'é🙂\n&amp;<>\"&#x27;é🙂\n&amp;&lt;&gt;&quot;&#x27;é🙂\n&amp;amp;\n<span title=\"&quot; autofocus=&quot;yes\">&lt;b&gt;\"hello\"&lt;/b&gt;</span>";
+    for optimize in [false, true] {
+        assert_eq!(output_with_optimization(&source, optimize), expected);
+    }
+}
+
+#[test]
+fn explicit_escape_caps_count_utf8_bytes_and_entity_expansion() {
+    let source = program(
+        r#"
+for mode, exact in [(std.template.HtmlContext.Text, 21), (std.template.HtmlContext.DoubleQuotedAttribute, 20), (std.template.HtmlContext.SingleQuotedAttribute, 20), (std.template.HtmlContext.TextAndAttributes, 31)]?:
+    text = "&<>\"'é🙂"
+    print(std.template.escape(&text, mode, NonNegative.try_from(exact).unwrap())?.byte_len())?
+    below = unchecked:
+        exact - 1
+    match std.template.escape(&text, mode, NonNegative.try_from(below).unwrap()):
+        case Err(TemplateError.LimitExceeded):
+            print("expansion limit")?
+        case _:
+            print("wrong")?
+    print(std.template.escape("", mode, 0)? == "")?
+    print(std.template.escape("é🙂", mode, 6)?)?
+    match std.template.escape("é🙂", mode, 5):
+        case Err(TemplateError.LimitExceeded):
+            print("input limit")?
+        case _:
+            print("wrong")?
+print(std.template.escape("&", std.template.HtmlContext.Text, NonNegative.try_from(i64.MAX).unwrap())?)?
+"#,
+    );
+    let expected = [21, 20, 20, 31]
+        .map(|size| format!("{size}\nexpansion limit\nTrue\né🙂\ninput limit"))
+        .join("\n")
+        + "\n&amp;";
+    for optimize in [false, true] {
+        assert_eq!(output_with_optimization(&source, optimize), expected);
+    }
+    let error = support::check_file_error(&program(
+        "drop(std.template.escape(\"x\", std.template.HtmlContext.Text, -1))",
+    ));
+    assert!(error.contains("cannot be negative"), "{error}");
+}
+
+#[test]
+fn escaped_strings_carry_no_template_trust_and_existing_filters_keep_their_policy() {
+    let source = program(
+        r#"
+bounds = std.template.limits()
+mut templates = std.template.engine(&bounds)?
+templates.add("page", "<p>{{ value }}</p><i title=\"{{ value }}\"></i>")?
+templates.add("filters", "{{ value | escape }}|{{ value | escape | trim }}|{{ value | safe | upper }}|{{ value | safe | lower }}")?
+raw = Json.Object([Member("value", Json.Text("<B&\"'>"))]?)
+print(templates.render("page", &raw)?)?
+print(templates.render("filters", &raw)?)?
+# Reusing text-escaped data in an attribute still applies normal escaping,
+# including the quotes that the Text policy intentionally left literal.
+escaped = std.template.escape("\" onclick=\"bad&", std.template.HtmlContext.Text)?
+values = Json.Object([Member("value", Json.Text(escaped))]?)
+print(templates.render("page", &values)?)?
+print(templates.render("page", &values, html=False)?)?
+"#,
+    );
+    assert_eq!(
+        support::run_file_stdout(&source),
+        "<p>&lt;B&amp;&quot;&#x27;&gt;</p><i title=\"&lt;B&amp;&quot;&#x27;&gt;\"></i>\n&lt;B&amp;&quot;&#x27;&gt;|&lt;B&amp;&quot;&#x27;&gt;|&lt;B&amp;&quot;&#x27;&gt;|&lt;b&amp;&quot;&#x27;&gt;\n<p>&quot; onclick=&quot;bad&amp;amp;</p><i title=\"&quot; onclick=&quot;bad&amp;amp;\"></i>\n<p>\" onclick=\"bad&amp;</p><i title=\"\" onclick=\"bad&amp;\"></i>"
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn escaping_reports_allocation_failures_and_rejects_oversize_before_allocating() {
+    let mut body = String::from(
+        r#"
+text = "&<>\"'é🙂 a long value requiring heap storage &<>\"'é🙂"
+# An output cap smaller than the source is rejected without allocating.
+print("__test_fail_allocations_after_0__")?
+rejected = std.template.escape(&text, std.template.HtmlContext.Text, 1)
+print("__test_restore_allocations__")?
+expected: Result[str, TemplateError] = Err(TemplateError.LimitExceeded)
+print(rejected == expected)?
+"#,
+    );
+    for budget in 0..24 {
+        body.push_str(&format!(
+            r#"
+print("__test_fail_allocations_after_{budget}__")?
+result{budget} = std.template.escape(&text, std.template.HtmlContext.DoubleQuotedAttribute)
+print("__test_restore_allocations__")?
+match result{budget}:
+    case Err(TemplateError.Allocation(AllocError.OutOfMemory)):
+        print("allocation")?
+    case Err(TemplateError.Bytes(BytesError.Allocation(AllocError.OutOfMemory))):
+        print("allocation")?
+    case Ok(value):
+        print(value == "&amp;<>&quot;'é🙂 a long value requiring heap storage &amp;<>&quot;'é🙂")?
+    case _:
+        print("wrong")?
+"#
+        ));
+    }
+    let source = format!("from std.bytes import BytesError\n{}", program(&body));
+    let output = support::run_file_stdout(&source);
+    let lines: Vec<_> = output.lines().collect();
+    assert_eq!(lines.len(), 25);
+    assert_eq!(lines[0], "True");
+    let failures = lines[1..]
+        .iter()
+        .take_while(|line| **line == "allocation")
+        .count();
+    assert!(failures > 0 && failures < 24, "{output}");
+    assert!(lines[1 + failures..].iter().all(|line| *line == "True"));
+}

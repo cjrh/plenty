@@ -42,5 +42,31 @@ lower `max_output` for a short notification. Registration and rendering are
 fallible, and the example propagates those failures to the caller. Keep the
 engine and render it again with different values to reuse its parsed templates.
 
+For a small fragment assembled in your program, use `std.template.escape`
+rather than a chain of string replacements. Choose `HtmlContext.Text` for text
+children or the quote-specific attribute mode for each attribute value. For
+example, quotes should stay literal in text but must be escaped inside a
+double-quoted attribute:
+
+```plenty
+from std.template import escape, HtmlContext, TemplateError
+
+def main() -> Result[(), TemplateError | AllocError | IoError]:
+    label = "Say \"hello\" & smile"
+    attribute = escape(&label, HtmlContext.DoubleQuotedAttribute, max_bytes=256)?
+    child = escape(&label, HtmlContext.Text, max_bytes=256)?
+    print(f"<button title=\"{attribute}\">{child}</button>"?)?
+    Ok(())
+```
+```output
+<button title="Say &quot;hello&quot; &amp; smile">Say "hello" &amp; smile</button>
+```
+
+`max_bytes` includes the expanded entities. The helper returns ordinary text:
+passing its output into a template would escape it again. Keep raw values in
+`Json.Text` when using `Engine.render`, and use these helpers once per original
+value when assembling HTML directly. The context is your choice; the library
+does not detect HTML positions or validate URLs, scripts, styles or names.
+
 See the [`std.template` reference](../../design/stdlib/template.md) for the
 supported syntax, filters, inheritance rules and precise limits.

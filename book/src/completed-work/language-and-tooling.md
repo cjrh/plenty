@@ -19,6 +19,12 @@ trapping and assumed unchecked arithmetic, routes readers to boxed protocols,
 structural collection keys and quantities, and uses the signature index's
 module navigation. Published skill assemblies include the language reference
 so those contracts remain accessible outside the compiler checkout.
+Issue #810 adds task-oriented capability discovery and a versioned gap-verification
+workflow, with executable typed partial-error and cancellable-shutdown examples.
+Applied examples distinguish string assignment, explicit class copying and nested
+Shared ownership, and package guidance covers module privacy, one-way imports,
+cycles, target/test coverage and current editor limits. Publication bundles the
+linked concurrency and editor setup contracts as well as the existing API pages.
 Issue #738 recalculates signature-index module ranges after publication transforms,
 so line-based reads select complete sections in the installed skill too.
 
@@ -226,7 +232,13 @@ See [iteration](../design/language/09-iteration/01-iterables.md) and
 payloads, normalize membership and support injection/widening. Precise errors,
 `?` and explicit success values replaced the former `try`/`try_` allocation
 conventions; `Failure` is a last resort (issue #342), not the recommended default.
-`Option.unwrap_or` and `ok_or` shipped as part of issue #35. B71 records typed
+`Option.unwrap_or` and `ok_or` shipped as part of issue #35.
+[Sum fallback conveniences](../design/language/08-errors/01-sums-and-propagation.md#defaults-and-recovery)
+(issues #800/#820) add Result.unwrap_or, lazy unwrap_or_else on both sums,
+Option.ok_or_else, and map_or/map_or_else on both sums. Owned consuming
+callbacks preserve conditional evaluation and cleanup; returning a Result from
+both mapping branches handles a fallible fallback without special propagation.
+Both sums also provide message-bearing expect with caller-located traps. B71 records typed
 presentation and `Result.map_error`/variant mapper values (issue #556).
 
 [Arithmetic hooks](../design/language/04-expressions/operators.md) shipped for

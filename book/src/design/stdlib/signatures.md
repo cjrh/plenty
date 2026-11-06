@@ -71,41 +71,41 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.jwt`](#stdjwt): 2397-2444
 - [`std.log`](#stdlog): 2446-2513
 - [`std.markdown`](#stdmarkdown): 2515-2549
-- [`std.template`](#stdtemplate): 2551-2572
-- [`std.math`](#stdmath): 2574-2645
-- [`std.mime`](#stdmime): 2647-2673
-- [`std.net`](#stdnet): 2675-2757
-- [`std.path`](#stdpath): 2759-2776
-- [`std.process`](#stdprocess): 2778-2827
-- [`std.random`](#stdrandom): 2829-2850
-- [`std.ready`](#stdready): 2852-2883
-- [`std.regex`](#stdregex): 2885-2938
-- [`std.report`](#stdreport): 2940-2947
-- [`std.secrets`](#stdsecrets): 2949-2975
-- [`std.shlex`](#stdshlex): 2977-2986
-- [`std.sketch`](#stdsketch): 2988-3026
-- [`std.sketch.xor`](#stdsketchxor): 3028-3039
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3041-3056
-- [`std.signal`](#stdsignal): 3058-3075
-- [`std.simd`](#stdsimd): 3077-3178
-- [`std.stat`](#stdstat): 3180-3213
-- [`std.plot`](#stdplot): 3215-3304
-- [`std.linalg`](#stdlinalg): 3306-3347
-- [`std.sync`](#stdsync): 3349-3367
-- [`std.system`](#stdsystem): 3369-3427
-- [`std.tempfile`](#stdtempfile): 3429-3461
-- [`std.test`](#stdtest): 3463-3505
-- [`std.text`](#stdtext): 3507-3550
-- [`std.thread`](#stdthread): 3552-3556
-- [`std.time`](#stdtime): 3558-3602
-- [`std.tls`](#stdtls): 3604-3686
-- [`std.toml`](#stdtoml): 3688-3737
-- [`std.unicode`](#stdunicode): 3739-3751
-- [`std.units`](#stdunits): 3753-3990
-- [`std.units.catalogue`](#stdunitscatalogue): 3992-4770
-- [`std.url`](#stdurl): 4772-4800
-- [`std.uuid`](#stduuid): 4802-4825
-- [`std.xml`](#stdxml): 4827-4860
+- [`std.template`](#stdtemplate): 2551-2575
+- [`std.math`](#stdmath): 2577-2648
+- [`std.mime`](#stdmime): 2650-2676
+- [`std.net`](#stdnet): 2678-2760
+- [`std.path`](#stdpath): 2762-2779
+- [`std.process`](#stdprocess): 2781-2830
+- [`std.random`](#stdrandom): 2832-2853
+- [`std.ready`](#stdready): 2855-2886
+- [`std.regex`](#stdregex): 2888-2941
+- [`std.report`](#stdreport): 2943-2950
+- [`std.secrets`](#stdsecrets): 2952-2978
+- [`std.shlex`](#stdshlex): 2980-2989
+- [`std.sketch`](#stdsketch): 2991-3029
+- [`std.sketch.xor`](#stdsketchxor): 3031-3042
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3044-3059
+- [`std.signal`](#stdsignal): 3061-3078
+- [`std.simd`](#stdsimd): 3080-3181
+- [`std.stat`](#stdstat): 3183-3216
+- [`std.plot`](#stdplot): 3218-3307
+- [`std.linalg`](#stdlinalg): 3309-3350
+- [`std.sync`](#stdsync): 3352-3370
+- [`std.system`](#stdsystem): 3372-3430
+- [`std.tempfile`](#stdtempfile): 3432-3464
+- [`std.test`](#stdtest): 3466-3508
+- [`std.text`](#stdtext): 3510-3553
+- [`std.thread`](#stdthread): 3555-3559
+- [`std.time`](#stdtime): 3561-3605
+- [`std.tls`](#stdtls): 3607-3689
+- [`std.toml`](#stdtoml): 3691-3740
+- [`std.unicode`](#stdunicode): 3742-3754
+- [`std.units`](#stdunits): 3756-3993
+- [`std.units.catalogue`](#stdunitscatalogue): 3995-4773
+- [`std.url`](#stdurl): 4775-4803
+- [`std.uuid`](#stduuid): 4805-4828
+- [`std.xml`](#stdxml): 4830-4863
 
 ## `std.actor`
 
@@ -2555,6 +2555,8 @@ Bounded Jinja-style text templates with explicit JSON values, HTML escaping, con
 ```text
 enum TemplateError
     LimitExceeded | Syntax(i64) | UnknownTemplate(str) | DuplicateTemplate(str) | MissingValue(str) | TypeMismatch | InheritanceCycle | Allocation(AllocError) | Bytes(BytesError)
+enum HtmlContext
+    Text | DoubleQuotedAttribute | SingleQuotedAttribute | TextAndAttributes
 class Limits
     max_source: NonNegative[i64]
     max_tokens: NonNegative[i64]
@@ -2565,6 +2567,7 @@ class Limits
     max_steps: NonNegative[i64]
     max_output: NonNegative[i64]
 def limits() -> Limits
+def escape(text: &str, context: HtmlContext, max_bytes: NonNegative[i64] = 16777216) -> Result[str, TemplateError]
 class Engine
     def add(self: &mut Engine, name: &str, source: &str) -> Result[(), TemplateError]
     def render(self, name: &str, context: &Json, html: bool = True) -> Result[str, TemplateError]

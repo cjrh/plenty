@@ -11,8 +11,9 @@ time to native code. Code that looks like correct Python is usually wrong
 Plenty.
 
 This skill describes the Plenty compiler in this repository. Run `plenty --version`; if the installed
-compiler differs, install the matching skill release, and trust the compiler's
-diagnostics over this text.
+compiler differs, use its matching skill release. When investigating a reported
+gap, record the compiler version and the actual skill path/version loaded; a
+current checkout does not establish what an earlier agent read.
 
 Builds optimize by default. Use `plenty --fast-compile FILE`,
 `plenty script --fast-compile FILE`, or `plenty run --fast-compile` for shorter
@@ -39,6 +40,11 @@ is in `target/optimized/` by default or `target/fast-compile/` with that flag.
    `plenty --compile FILE -o OUT` and run `./OUT ARGS`, or use
    `plenty run -- ARGS` in a package.
 
+Before porting a library or reporting a missing feature, use the
+[capability discovery guide](references/discovery.md): start from the task,
+verify the current contract, then check a minimal reproduction. An unfamiliar
+name or a rejected spelling is not evidence that the capability is absent.
+
 Use a package (`plenty new NAME`) for several executables or tests. Single-file
 utilities can declare path/Git dependencies in an optional script header.
 See [workflow and packages](references/workflow.md).
@@ -54,6 +60,9 @@ See [workflow and packages](references/workflow.md).
 - `?` propagates `Err` or `Nothing`. The function's error type must equal the
   source's error or contain it in a union (`AllocError | IoError | ParseError`).
   `?` never turns an `Option` into a `Result`; use `.ok_or(error)?`.
+- `unwrap_or(default)` and `ok_or(error)` evaluate their arguments eagerly.
+  For computed defaults use `unwrap_or_else`, or `map_or_else(fallback, Ok)?`
+  when the fallback returns a Result; see [defaults](references/errors.md#eager-and-lazy-defaults).
 - No exceptions, `None`, `try`, `raise`, or `lambda`. Use `Result[T, E]`,
   `Option[T]` (`Some(x)` / `Nothing`), and `def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x + 1)`.
 - Integer arithmetic returns errors from the enclosing function by default:
@@ -96,7 +105,10 @@ See [workflow and packages](references/workflow.md).
   Every other value moves: collections, boxes, closures that capture,
   generators, and other class instances.
   A moved name is unusable. Borrow with `&x` (shared) or `&mut x`
-  (exclusive), or copy explicitly with `copy(x)?`. Iterating `&list[T]`
+  (exclusive), or copy explicitly with `copy(x)?`. An eligible ordinary class
+  can be explicitly copied without `@copy`: owned mutable fields duplicate,
+  while nested `Shared` handles retain the same content. Direct handles use
+  `.share()`. See the [applied copy example](references/ownership.md#explicit-class-copy-and-shared-content). Iterating `&list[T]`
   yields `&T`; dereference with `*value`. `for x in owner` moves `owner`;
   write `for x in &self.items` to borrow.
 - A binding made inside an `if`, loop, or `match` arm ends with that block.
@@ -178,6 +190,12 @@ See [errors](references/errors.md), [ownership](references/ownership.md), and
   offset unit. Read [quantities](../../../book/src/design/language/03-types/quantities.md)
   for arithmetic and representation contracts.
 
+- Use [std.template](../../../book/src/design/stdlib/template.md) for named text/HTML
+  layouts. For directly assembled HTML fragments, `escape(text, HtmlContext, max_bytes)`
+  provides bounded text and quote-specific attribute escaping. Choose the context
+  explicitly and escape each original value once. The result is ordinary `str`,
+  with no trust marker; keep raw values in `Json.Text` for `Engine.render`.
+
 ## References
 
 | Page | Use |
@@ -189,7 +207,8 @@ See [errors](references/errors.md), [ownership](references/ownership.md), and
 | [Builtins](../../../book/src/design/facilities/01-builtins/index.md) | Prelude text, numbers, and collections |
 | [I/O](../../../book/src/design/facilities/02-io/index.md) | Prelude files, streams, arguments |
 | [Packages](../../../book/src/design/toolchain/01-building/packages.md) | `plenty.toml`, dependencies, project commands, tests |
-| [Workflow](references/workflow.md) | Commands and a package walkthrough |
+| [Workflow](references/workflow.md) | Commands, module boundaries and a package walkthrough |
+| [Capability discovery](references/discovery.md) | Task-to-module pointers and verifying reported gaps |
 | [Errors](references/errors.md) | Error types, propagation, context, exit status |
 | [Ownership](references/ownership.md) | Moves, borrows, copies, allocation |
 | [Diagnostics](references/diagnostics.md) | Frequent compiler errors and their fixes |
