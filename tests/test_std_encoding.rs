@@ -711,6 +711,7 @@ fn fixed_width_offsets_trap_before_reading_or_writing() {
         } else {
             8
         };
+        let mut cases = Vec::new();
         for offset in [i64::MIN, -1, 9 - width, i64::MAX] {
             for (call, message) in [
                 (
@@ -722,22 +723,37 @@ fn fixed_width_offsets_trap_before_reading_or_writing() {
                     "unpack: offset outside source buffer",
                 ),
             ] {
-                assert_trap(
-                    &program(&format!(
-                        "mut buffer = std.bytes.with_capacity(8)?\nbuffer.resize(8, 0u8)?\n{call}"
-                    )),
-                    message,
-                );
+                cases.push((
+                    format!("buffer.resize(8, 0u8)?\n{call}"),
+                    message.to_owned(),
+                ));
             }
         }
         for length in 0..width {
-            assert_trap(
-                &program(&format!(
-                    "mut buffer = std.bytes.with_capacity(8)?\nbuffer.resize({length}, 0u8)?\ndrop(std.encoding.unpack_{kind}(&buffer, 0, Endian.Big))"
-                )),
-                "unpack: offset outside source buffer",
-            );
+            cases.push((
+                format!("buffer.resize({length}, 0u8)?\ndrop(std.encoding.unpack_{kind}(&buffer, 0, Endian.Big))"),
+                "unpack: offset outside source buffer".to_owned(),
+            ));
         }
+        // Preserve every literal offset/length and both endian call paths.
+        // Dispatch chooses a case without changing the operation's operands.
+        let mut body = String::from(
+            "mut buffer = std.bytes.with_capacity(8)?\nmatch i64.parse(args()?[1]).unwrap():\n",
+        );
+        for (case, (statements, _)) in cases.iter().enumerate() {
+            body.push_str(&format!("    case {case}:\n"));
+            for statement in statements.lines() {
+                body.push_str(&format!("        {statement}\n"));
+            }
+        }
+        body.push_str("    case _:\n        return Err(IoError.Other)\n");
+        support::assert_trap_cases(
+            &program(&body),
+            &cases
+                .into_iter()
+                .map(|(_, message)| message)
+                .collect::<Vec<_>>(),
+        );
     }
 }
 
@@ -1227,20 +1243,4 @@ print(std.encoding.unpack_f32(&record, 0, Endian.Big), std.encoding.unpack_f64(&
         String::from_utf8_lossy(&run.stderr)
     );
     assert_eq!(run.stdout, b"c0200000000000000000f03f\n-2.5 1.0\n");
-}
-
-fn assert_trap(source: &str, message: &str) {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("main.plenty");
-    let executable = dir.path().join("program");
-    std::fs::write(&path, source).unwrap();
-    plenty::compile_file_to_executable(&path, &executable, None)
-        .unwrap_or_else(|error| panic!("{source}\n{error}"));
-    let output = std::process::Command::new(executable).output().unwrap();
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert_eq!(output.status.code(), Some(1), "{source}\n{stderr}");
-    assert!(
-        stderr.contains(&format!(": {message}\n")),
-        "{source}\n{stderr}"
-    );
 }
