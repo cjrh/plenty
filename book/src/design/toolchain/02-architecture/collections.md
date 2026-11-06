@@ -27,8 +27,15 @@ hash, so storing hashes costs no memory. A probe compares keys only where those
 bits match its hash. Growth rebuilds the table from stored bits without reading
 or hashing keys, and removal finds a shifted bucket's home from them; both fall
 back to rehashing keys only above `2^32` buckets (issue #761). Load stays at most
-one half, so the slot field always fits. Copying a collection, set algebra and
-`update` still hash each key they insert or look up.
+one half, so the slot field always fits.
+
+Stored bits also serve another table at least as long, which needs no more of
+them (issue #817). A copy whose rows and table length match its source copies
+the bucket array. Set algebra probes each operand with the other's stored bits
+and indexes its result from them, `update` reuses the consumed source's bits,
+and `intersection_update` and `difference_update` repair the index in place.
+Where a target table is shorter than the source's, each key is hashed once; a
+copied dictionary with removed rows rehashes its keys.
 
 New keys reuse free slots at the logical tail; replacement preserves position.
 Live-row cursors make traversal, snapshots, copying, formatting, and destruction
@@ -170,8 +177,8 @@ of a receiver through `&mut` (`counts.insert(k, v)` on a parameter or local,
 `pop`, `discard`, `clear`, set updates, `reverse`, `sort`, and so on) reads the
 collection's owner in place under the exclusive loan, so the receiver is
 neither retained nor released. `clear`, `reverse`, `sort`, `swap`, and the set
-updates still return a retained alias of the receiver, which the caller
-releases (issue #813).
+updates return unit rather than an alias of the receiver, so they make no
+count change either (issue #813).
 
 An element reference (`&xs[i]`, `&mut xs[i]`, `&mut grid[i][j]`, and the
 implicit one under `bodies[i].x`) of any element type checks the index inline

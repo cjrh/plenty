@@ -935,10 +935,14 @@ impl Lower<'_> {
         };
         let element = (**element).clone();
         let source = self.slot(ty.clone(), at)?;
+        ops.push(Op::StoreLocal(source));
+        // The length check only reads the list, so the slot's copy is passed
+        // without a retain and release (issue #813).
+        ops.push(Op::LoadLocal(source));
         self.mark(at, ops);
         ops.push(Op::PushInt(Value::I64(count as i64)));
         ops.push(Op::Collection(CollectionOp::ListUnpack(ty.clone())));
-        ops.push(Op::StoreLocal(source));
+        ops.push(Op::Drop);
         for index in 0..count {
             ops.push(Op::LoadLocal(source));
             ops.push(Op::PushInt(Value::I64(index as i64)));
