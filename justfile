@@ -15,7 +15,7 @@ engine name:
 
 # Full workspace suite, including allocation-failure tests.
 test:
-    cargo test --locked --workspace --all-features
+    python3 -B scripts/check_timings.py suite
 
 # All published-site checks (requires the mdBook version in book/releases.json).
 docs:

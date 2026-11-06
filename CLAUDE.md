@@ -32,8 +32,9 @@ do not merge or rewrite a branch under review without explicit instruction.
    worker's files, build outputs, ports, or temporary paths belong to this task.
 3. Implement and validate the change with its tests and reference/tutorial
    updates. For Rust changes, format and run the applicable workspace tests and
-   lint checks; use `cargo test --workspace --all-features` when checking the
-   full suite, since the runtime is a separate workspace member and both crates
+   lint checks; use `just test` when checking the full suite so compilation and
+   execution timings are saved. It runs `cargo test --locked --workspace
+   --all-features`: the runtime is a separate workspace member and both crates
    gate allocation tests behind features. Documentation-only changes need
    relevant document/link/example checks, not an unrelated full compiler build.
 4. Review and stage only the task's files, commit locally, and create/update its
@@ -87,6 +88,7 @@ issue ownership, discussion, and PR review state live in the database.
 | Command | Use |
 |---|---|
 | `cargo test --locked --workspace` | Run compiler and runtime tests, without the allocation-accounting tests |
+| `just test` | Full all-features workspace suite with saved compilation/execution timings; see [check reports](book/src/development/workflow.md#check-timing-reports) |
 | `cargo test --locked --workspace --all-features` | Full suite, as CI runs it: adds the `runtime-checks` and `allocation-checks` tests |
 | `cargo test --locked --test integration test_tutorial::` | Check the tutorial lessons |
 | `PLENTY_CACHE=off cargo test ...` | Run without the compiled-function cache; `.cargo/config.toml` points it at `target/plenty-cache` for tests and `cargo run` |
