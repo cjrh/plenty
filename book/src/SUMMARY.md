@@ -434,6 +434,7 @@
             - [Bounded operations](design/stdlib/fs/operations.md)
             - [Filesystem copying](design/stdlib/fs/copying.md)
             - [User directories](design/stdlib/fs/dirs.md)
+            - [Advisory file locks](design/stdlib/fs/lock.md)
             - [Filesystem changes](design/stdlib/fs/watch.md)
         - [`std.graph`](design/stdlib/graph.md)
         - [`std.http`](design/stdlib/http.md)

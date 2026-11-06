@@ -163,3 +163,11 @@ For filesystem links, use `std.fs.symlink(&target, &link)` and
 on workers; canonicalization requires existing components and does not secure a
 later open against concurrent replacement. Read the
 [filesystem reference](../../../../book/src/design/stdlib/fs/metadata.md#creating-and-resolving-links) for path limits and native errors before replacing a rooted handle operation.
+
+For private filesystem state, `std.fs.Root.create_file` exclusively creates a
+read/write file with default mode 0600; `Root.create_dir` defaults to 0700.
+Both accept `unix_mode`, restricted by the OS creation policy. Change permissions
+through the held handle using `Root.set_unix_mode` or `std.fs.set_file_unix_mode`.
+Read the [rooted filesystem contracts](../../../../book/src/design/stdlib/fs/helpers.md)
+before relying on symlink, umask, existing-path or platform behavior. Use
+`temporary_file` and publication when incomplete writes must stay unnamed.

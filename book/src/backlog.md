@@ -247,7 +247,7 @@ follow-up. All candidates still require scope and acceptance checks.
 | B52 | TOML | Independent conformance checks (`toml-test`/reference crate); evaluate TOML 1.1. |
 | B53 | CSV | Lenient parsing/recovery, header mapping/typed columns, non-UTF-8 encodings, multibyte delimiters and throughput benchmarks. |
 | B54 | Encodings | Bulk native codec/packing throughput, streaming codecs and varints. [IEEE float packing delivered](completed-work/libraries.md) (issue #656). |
-| B55 | Filesystem | Passwd fallback, `XDG_RUNTIME_DIR` and `XDG_*_DIRS` search lists. |
+| B55 | Filesystem | [Advisory locking delivered](completed-work/libraries.md) (issue #774); explicit child-fd inheritance remains issue #777. Passwd fallback, `XDG_RUNTIME_DIR` and `XDG_*_DIRS` search lists. |
 | B56 | Concurrency primitives | Condition variables, rwlocks and semaphores only with a concrete use case. |
 | B60 | URLs | Relative resolution, normalization/equivalence, IDNA and form encoding. |
 | B63 | HTTP client | WebSocket `permessage-deflate` and proxy tunnels; cookie jars/content decoding were declined, not scheduled. |

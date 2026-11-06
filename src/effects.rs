@@ -78,12 +78,15 @@ impl FsOp {
             | Self::Symlink
             | Self::Canonicalize
             | Self::Root
-            | Self::WatchAdd => Effect::Path,
+            | Self::WatchAdd
+            | Self::LockOpen => Effect::Path,
             Self::Next
             | Self::Close
             | Self::Closed
             | Self::Child
             | Self::ReadFile
+            | Self::CreateFile
+            | Self::SetUnixMode
             | Self::MakeDir
             | Self::RemoveFile
             | Self::RemoveDir
@@ -99,7 +102,8 @@ impl FsOp {
             | Self::IsWithin
             | Self::ChildMetadata
             | Self::WatchOpen
-            | Self::WatchRemove => Effect::Handle,
+            | Self::WatchRemove
+            | Self::LockTry => Effect::Handle,
             Self::Name
             | Self::Path
             | Self::FileType

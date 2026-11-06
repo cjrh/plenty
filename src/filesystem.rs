@@ -42,11 +42,19 @@ pub enum FsOp {
     ChildMetadata,
     Symlink,
     Canonicalize,
+    LockOpen,
+    LockTry,
+    CreateFile,
+    SetUnixMode,
 }
 
 impl FsOp {
     pub fn named(name: &str) -> Option<Self> {
         Some(match name {
+            "__fs_lock_open" => Self::LockOpen,
+            "__fs_lock_try" => Self::LockTry,
+            "__fs_create_file" => Self::CreateFile,
+            "__fs_set_unix_mode" => Self::SetUnixMode,
             "__fs_apply_copy_metadata" => Self::ApplyCopyMetadata,
             "__fs_is_within" => Self::IsWithin,
             "__fs_child_metadata" => Self::ChildMetadata,
@@ -92,6 +100,8 @@ impl FsOp {
     pub fn signature(self) -> (Vec<Ty>, Ty) {
         let bytes = || Ty::List(Arc::new(Ty::U8));
         let (inputs, output) = match self {
+            Self::LockOpen => (vec![bytes()], Ty::File),
+            Self::LockTry => (vec![Ty::File, Ty::Bool], Ty::Bool),
             Self::OpenFilePath => (vec![bytes(), Ty::Str], Ty::File),
             Self::Open => (vec![bytes()], Ty::FsReadDir),
             Self::Next => (vec![Ty::FsReadDir], sum::option(Ty::FsDirEntry)),
@@ -112,9 +122,10 @@ impl FsOp {
             Self::Child | Self::ReadFile | Self::MakeTemporaryDir => {
                 (vec![Ty::File, bytes()], Ty::File)
             }
-            Self::MakeDir | Self::RemoveFile | Self::RemoveDir => {
-                (vec![Ty::File, bytes()], Ty::Unit)
-            }
+            Self::CreateFile => (vec![Ty::File, bytes(), Ty::U32], Ty::File),
+            Self::MakeDir => (vec![Ty::File, bytes(), Ty::U32], Ty::Unit),
+            Self::SetUnixMode => (vec![Ty::File, Ty::U32], Ty::Unit),
+            Self::RemoveFile | Self::RemoveDir => (vec![Ty::File, bytes()], Ty::Unit),
             Self::Move => (vec![Ty::File, bytes(), bytes()], Ty::Unit),
             Self::RootEntries => (vec![Ty::File], Ty::FsReadDir),
             Self::Anonymous | Self::DuplicateRoot => (vec![Ty::File], Ty::File),
@@ -137,6 +148,10 @@ impl FsOp {
 
     pub fn opcode(self) -> i64 {
         match self {
+            Self::LockOpen => return 620,
+            Self::LockTry => return 621,
+            Self::CreateFile => return 610,
+            Self::SetUnixMode => return 611,
             Self::Symlink => return 630,
             Self::Canonicalize => return 631,
             _ => {}

@@ -6,7 +6,8 @@ Import `std.fs` and pass a borrowed [Path](path.md).
 For owned temporary resources, copy/move/remove and bounded glob filtering,
 see [rooted helpers](fs/helpers.md) and [file/tree copying](fs/copying.md). The home and XDG base directories are in
 [`std.fs.dirs`](fs/dirs.md). For change notifications, see
-[`std.fs.watch`](fs/watch.md).
+[`std.fs.watch`](fs/watch.md). For cooperating-process locking, see
+[`std.fs.lock`](fs/lock.md).
 `read_dir(&path) -> Result[ReadDir, IoError]` opens one directory immediately.
 `ReadDir` is affine and owns a lazy native stream. `next()` requires a mutable
 owner and returns `Result[Option[DirEntry], IoError]`: `Some` is one entry,
@@ -81,4 +82,4 @@ Native enumeration currently supports 64-bit Linux; unsupported hosts return
 ## Acknowledgements
 
 - Directory API modelled on Python's [`os.scandir`](https://docs.python.org/3/library/os.html#os.scandir) and Rust's [`std::fs::read_dir`](https://doc.rust-lang.org/std/fs/fn.read_dir.html).
-- Uses the Rust [`libc`](https://github.com/rust-lang/libc) crate for target-specific Linux open flags (MIT OR Apache-2.0).
+- Uses the Rust [`libc`](https://github.com/rust-lang/libc) crate for target-specific Linux filesystem syscalls and flags (MIT OR Apache-2.0).

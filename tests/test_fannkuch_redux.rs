@@ -63,19 +63,63 @@ fn flip_counter_stays_in_a_register() {
     );
     let asm = std::fs::read_to_string(dir.path().join("out/asm.txt")).unwrap();
     let body = support::asm_body(&asm, "block");
+    check_counter_increment(body, line).unwrap_or_else(|error| panic!("{error}\n{body}"));
+}
+
+/// Both decoders retain the instruction mnemonic after the address. Checked
+/// AArch64 addition sets flags with `adds`; x86's `add` already sets them.
+fn check_counter_increment(body: &str, line: usize) -> Result<(), String> {
     let marker = format!("# line {line}");
     let mut at_line = false;
     let mut increments = 0;
     for text in body.lines().map(str::trim) {
         if text.starts_with("# line") {
             at_line = text == marker;
-        } else if at_line {
-            increments += usize::from(text.contains("add "));
-            assert!(
-                !text.contains("(%rsp)"),
-                "line {line} accesses the stack: {text}\n{body}"
-            );
+        } else if at_line && let Some((_, instruction)) = text.split_once(':') {
+            increments += usize::from(matches!(
+                instruction.split_whitespace().next(),
+                Some("add" | "adds")
+            ));
+            // Cover the stack and frame pointer forms on both supported ISAs,
+            // including indexed x86 operands and AArch64's frame-pointer alias.
+            if ["(%rsp", "(%rbp", "[sp", "[x29", "[fp"]
+                .iter()
+                .any(|stack| instruction.contains(stack))
+            {
+                return Err(format!("line {line} accesses the stack: {text}"));
+            }
         }
     }
-    assert!(increments > 0, "no code for line {line}\n{body}");
+    if increments == 0 {
+        return Err(format!("no counter increment for line {line}"));
+    }
+    Ok(())
+}
+
+#[test]
+fn counter_check_recognizes_both_instruction_sets() {
+    for instruction in ["add $1,%r14", "add x0, x0, #0x1", "adds x0, x0, x2"] {
+        let body = format!(
+            "# line 46\n    998: mov x2, #0x1\n# line 47\n    99c: {instruction}\n# line 48\n    9a0: ldr x0, [sp, #0x10]"
+        );
+        assert_eq!(check_counter_increment(&body, 47), Ok(()));
+        assert!(check_counter_increment(&body, 46).is_err());
+        assert!(check_counter_increment(&body, 99).is_err());
+    }
+}
+
+#[test]
+fn counter_check_rejects_spills_on_both_instruction_sets() {
+    for spill in [
+        "mov 0x10(%rsp),%rax",
+        "mov %rax,-0x8(%rbp)",
+        "mov (%rsp,%rax,8),%rcx",
+        "ldr x0, [sp, #0x10]",
+        "stur x0, [x29, #-0x8]",
+        "str x0, [fp, #-0x8]",
+    ] {
+        let body = format!("# line 47\n    99c: adds x0, x0, x2\n    9a0: {spill}");
+        let error = check_counter_increment(&body, 47).unwrap_err();
+        assert!(error.contains("accesses the stack"), "{error}");
+    }
 }

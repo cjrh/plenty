@@ -212,8 +212,12 @@ mod native {
     const CLOEXEC: i32 = libc::O_CLOEXEC;
 
     fn open_at(fd: i32, path: &[u8], flags: i32) -> Result<std::fs::File, Error> {
+        open_at_mode(fd, path, flags, 0o600)
+    }
+
+    fn open_at_mode(fd: i32, path: &[u8], flags: i32, mode: u32) -> Result<std::fs::File, Error> {
         // SAFETY: callers provide a terminated buffer; ownership transfers once.
-        let result = unsafe { openat(fd, path.as_ptr().cast(), flags | CLOEXEC, 0o600u32) };
+        let result = unsafe { openat(fd, path.as_ptr().cast(), flags | CLOEXEC, mode) };
         if result < 0 {
             return Err(std::io::Error::last_os_error().into());
         }
@@ -359,7 +363,7 @@ mod native {
                 263..=265 => {
                     let name = leaf(contiguous(b)?)?;
                     checked(match op {
-                        263 => mkdirat(fd, name.as_ptr().cast(), 0o700),
+                        263 => mkdirat(fd, name.as_ptr().cast(), c as u32),
                         264 => unlinkat(fd, name.as_ptr().cast(), 0),
                         _ => unlinkat(fd, name.as_ptr().cast(), 0x200),
                     })
@@ -447,6 +451,18 @@ mod native {
                     let name = leaf(contiguous(b)?)?;
                     owned_metadata(stat_at(fd, &name, 0x100)?)
                 }
+                610 => {
+                    let name = leaf(contiguous(b)?)?;
+                    crate::files::prepare_read_write(ty.variants[0].fields[0], || {
+                        open_at_mode(
+                            fd,
+                            &name,
+                            NOFOLLOW | libc::O_CREAT | libc::O_EXCL | libc::O_RDWR,
+                            c as u32,
+                        )
+                    })
+                }
+                611 => checked(libc::fchmod(fd, b as u32)),
                 _ => unreachable!("rooted filesystem opcode"),
             }
         }
