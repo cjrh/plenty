@@ -1908,3 +1908,102 @@ fn versioned_range_loops_have_an_unchecked_copy() {
         assert_eq!(traps_per_loop(&clif), loops, "{name}\n{clif}");
     }
 }
+
+/// While loops are versioned too: a nonnegative constant index (`perm[0]`
+/// in fannkuch) is tested once before the loop. A nested loop's read of an
+/// enclosing loop's invariant length proves its counter, as in spectral-norm
+/// (issue #766).
+const VERSIONED_NESTED: &str = r#"
+def drain(xs: &mut [i64]) -> Result[i64, OverflowError[i64]]:
+    mut n = 0
+    while xs[0] > 0:
+        xs[0] -= 1
+        n += 1
+    Ok(n)
+
+def last_drain(xs: &mut [i64]) -> Result[i64, OverflowError[i64]]:
+    mut n = 0
+    while xs[-1] > 0:
+        xs[-1] -= 1
+        n += 1
+    Ok(n)
+
+def fill_first(n: i64, xs: &mut [i64]) -> ():
+    for i in range(n):
+        xs[i] = xs[0]
+
+def row_sums(u: &[i64], out: &mut [i64]) -> Result[(), OverflowError[i64]]:
+    n = len(u)
+    for i in range(n):
+        mut s = 0
+        for j in range(n):
+            s += u[j] * u[i]
+        out[i] = s
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    mut xs = [3, 1]?
+    print(drain(&mut xs)?, xs)?
+    mut ys = [1, 2]?
+    print(last_drain(&mut ys)?, ys)?
+    mut zs = [4, 5, 6]?
+    fill_first(3, &mut zs)
+    print(zs)?
+    u = [1, 2, 3]?
+    mut out = [0, 0, 0]?
+    row_sums(&u, &mut out)?
+    print(out)?
+    Ok(())
+"#;
+
+#[test]
+fn versioned_while_and_nested_loops_keep_their_results() {
+    support::assert_stdout(
+        VERSIONED_NESTED,
+        "3 [0, 1]\n2 [1, 0]\n[4, 4, 4]\n[6, 12, 18]\n",
+    );
+}
+
+#[rstest]
+#[case("mut e = [1]?\n    print(drain(&mut e[0:0])?)?", "index 0, length 0")]
+#[case(
+    "mut e = [1]?\n    print(last_drain(&mut e[1:1])?)?",
+    "index -1, length 0"
+)]
+#[case("mut e = [1]?\n    fill_first(1, &mut e[0:0])", "index 0, length 0")]
+#[case("mut e = [1]?\n    fill_first(2, &mut e)", "index 1, length 1")]
+#[case(
+    "v = [1, 2, 3]?\n    mut short = [0, 0]?\n    row_sums(&v, &mut short[0:2])?",
+    "index 2, length 2"
+)]
+fn versioned_while_and_nested_loops_trap_as_before(#[case] call: &str, #[case] message: &str) {
+    let source = VERSIONED_NESTED.replace(
+        "    mut xs = [3, 1]?",
+        &format!("    {call}\n    mut xs = [3, 1]?"),
+    );
+    let output = support::run(&source);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{call}\n{stderr}");
+    assert!(
+        stderr.contains(&format!("index out of bounds: {message}")),
+        "{call}\n{stderr}"
+    );
+    assert!(output.stdout.is_empty(), "{call}");
+}
+
+#[test]
+fn versioned_while_and_nested_loops_have_an_unchecked_copy() {
+    for (name, loops) in [
+        // The unchecked copy, then the checked one.
+        ("drain", &[0, 2][..]),
+        // A negative constant index is never tested before the loop.
+        ("last_drain", &[2]),
+        ("fill_first", &[0, 2]),
+        // `out[i]` keeps its check; the inner loop's `u[j]` and `u[i]` are
+        // below the enclosing `n = len(u)`.
+        ("row_sums", &[1, 0]),
+    ] {
+        let clif = dump("clif-opt", &format!("__plenty_fn_{name}"), VERSIONED_NESTED);
+        assert_eq!(traps_per_loop(&clif), loops, "{name}\n{clif}");
+    }
+}

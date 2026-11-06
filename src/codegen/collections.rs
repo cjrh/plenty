@@ -122,12 +122,17 @@ impl Lowerer<'_, '_> {
         let below_stop = bounds
             .below
             .get(&base)
-            .is_some_and(|&bound| bounds.canonical(dfg, bound) == version.stop);
+            .is_some_and(|&bound| Some(bounds.canonical(dfg, bound)) == version.stop);
         let (assumed, k) = if (0..=super::induction::VERSION_OFFSET).contains(&k)
             && below_stop
             && self.nonnegative_operand(base)
         {
             (Assumed::Counter(length), k)
+        } else if let Some(constant) = super::known::known_signed(dfg, index) {
+            if constant < 0 {
+                return false;
+            }
+            (Assumed::Constant(constant, length), 0)
         } else {
             // The same value on every pass: the test before the loop is
             // this access's check.
@@ -1627,6 +1632,9 @@ impl Lowerer<'_, '_> {
                 continue;
             }
             let entry = self.read_local(local);
+            // Inside an enclosing loop the read is a fresh header value;
+            // map it to that loop's entry value, as a body read would be.
+            self.note_bounds(local, entry);
             let bounds = &mut self.counters.bounds;
             let entry = bounds.canonical(&self.bcx.func.dfg, entry);
             let stop = stop.map(|stop| bounds.canonical(&self.bcx.func.dfg, stop));
@@ -1712,10 +1720,11 @@ impl Lowerer<'_, '_> {
             self.counters.nonnegative_locals.push(below.0);
             self.counters.bounds.below_locals.push(below);
         }
-        let versioned = range_nonnegative.is_some()
-            && stop.is_some()
+        // A range loop's counter, or any loop's unchanged indices; see
+        // `induction::Version`.
+        let versioned = (range.is_none() || (range_nonnegative.is_some() && stop.is_some()))
             && !self.gathering()
-            && super::induction::versionable(body);
+            && super::induction::versionable(condition, body);
         let invariant = self.counters.bounds.invariant_locals.len();
         self.enter_invariant_locals(condition, body, stop, versioned);
         // Each body value of the counter is an element of the range, so it
@@ -1733,7 +1742,7 @@ impl Lowerer<'_, '_> {
             Some(index) == proven_step || Some(index) == bound_step || unit_steps.contains(&index)
         };
         let exit = self.bcx.create_block();
-        let version = stop.filter(|_| versioned && relation.is_none());
+        let version = (versioned && relation.is_none()).then_some(stop);
         if let Some(stop) = version {
             // See `induction::Version`: lower an unchecked copy, then the test
             // that selects it, then, if the copy skipped any check, a checked
@@ -1743,7 +1752,7 @@ impl Lowerer<'_, '_> {
             self.bcx.seal_block(guard);
             let bounds = &self.counters.bounds;
             let version = super::induction::Version {
-                stop: bounds.canonical(&self.bcx.func.dfg, stop),
+                stop: stop.map(|stop| bounds.canonical(&self.bcx.func.dfg, stop)),
                 entries: bounds
                     .invariant_locals
                     .iter()
@@ -1767,7 +1776,9 @@ impl Lowerer<'_, '_> {
                 let mut holds = None;
                 for (assumed, k) in version.assumed {
                     use super::induction::{Assumed, LengthOf};
-                    let (Assumed::Counter(length) | Assumed::Index(_, length)) = assumed;
+                    let (Assumed::Counter(length)
+                    | Assumed::Index(_, length)
+                    | Assumed::Constant(_, length)) = assumed;
                     let length = match length {
                         LengthOf::Length(length) => length,
                         LengthOf::View(view) => self.bcx.ins().isplit(view).1,
@@ -1776,7 +1787,13 @@ impl Lowerer<'_, '_> {
                         Assumed::Index(index, _) => {
                             self.bcx.ins().icmp(IntCC::UnsignedLessThan, index, length)
                         }
+                        Assumed::Constant(index, _) => {
+                            self.bcx
+                                .ins()
+                                .icmp_imm_s(IntCC::SignedGreaterThan, length, index)
+                        }
                         Assumed::Counter(_) => {
+                            let stop = stop.expect("a counter assumption has a range stop");
                             // A length is nonnegative, so this cannot wrap.
                             let limit = self.bcx.ins().iadd_imm_s(length, -k);
                             self.bcx
