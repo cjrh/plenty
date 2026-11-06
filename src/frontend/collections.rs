@@ -4893,10 +4893,11 @@ impl Lower<'_> {
         if !key_view {
             self.same(Some(actual.clone()), Some(ty.clone()), &argument.at)?;
         }
-        let slot = self.slot(actual.clone(), &argument.at)?;
-        ops.push(Op::StoreLocal(slot));
+        // Swap rather than park the argument in a local: a store can run
+        // code, which would make codegen count a borrowed set argument that
+        // it can otherwise read in place (issue #825).
         let loan = self.mutation_place(base, ops)?;
-        ops.push(Op::MoveLocal(slot));
+        ops.push(Op::Swap);
         ops.push(Op::Collection(if key_view {
             CollectionOp::KeySetFilter(Arc::new(crate::collection::KeySetOperation {
                 left: ty,

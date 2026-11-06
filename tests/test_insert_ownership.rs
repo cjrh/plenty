@@ -324,3 +324,86 @@ def main() -> ():
         "True True value-long-enough-to-count 0",
     );
 }
+
+// `intersection_update` and `difference_update` only read their `&set`
+// argument, and a removed member's `__del__` reaches only that member, so a
+// borrowed argument is passed without a retain and release (issue #825). A
+// temporary argument is still dropped after the call. Keys hold counted
+// labels so that each member and argument is counted.
+const SET_UPDATES: &str = r#"class Key:
+    label: str
+    def __del__(self) -> ():
+        print("drop", self.label).unwrap()
+
+def key(label: str) -> Result[Key, AllocError]:
+    Ok(Key((label + "-counted-label")?))
+
+def narrow(seen: &mut set[Key], other: &set[Key]) -> ():
+    seen.intersection_update(other)
+
+def trim(seen: &mut set[Key], other: &set[Key]) -> ():
+    seen.difference_update(other)
+
+def main() -> Result[(), AllocError | IoError]:
+    mut seen = {key("a")?, key("b")?, key("c")?}?
+    keep = {key("a")?, key("c")?}?
+    narrow(&mut seen, &keep)
+    print("narrowed", len(seen), len(keep))?
+    trim(&mut seen, &keep)
+    print("trimmed", len(seen), len(keep))?
+    mut local = {key("d")?, key("e")?}?
+    local.difference_update({key("d")?}?)
+    print("temporary", len(local))?
+    local.intersection_update(keep)
+    print("local", len(local), len(keep))?
+    for k in &keep:
+        print(k.label)?
+    print("__test_small_live_heap__")?
+    Ok(())
+"#;
+
+#[test]
+fn set_updates_read_a_borrowed_argument_in_place() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("p.plenty"), SET_UPDATES).unwrap();
+    let args = ["--release", "--dump", "asm", "p.plenty", "-o", "out"];
+    let output = plenty(dir.path(), &args);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let asm = std::fs::read_to_string(dir.path().join("out").join("asm.txt")).unwrap();
+    for (name, op) in [("narrow", "plenty_op_69"), ("trim", "plenty_op_70")] {
+        let body = support::asm_body(&asm, name);
+        assert!(body.contains(op), "{name}:\n{body}");
+        assert!(!body.contains("plenty_retain"), "{name}:\n{body}");
+        assert!(!body.contains("plenty_release"), "{name}:\n{body}");
+    }
+    let output = plenty(dir.path(), &["--release", "p.plenty"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "{stdout}");
+    let visible: Vec<_> = stdout
+        .lines()
+        .filter(|line| !line.starts_with("__test_"))
+        .collect();
+    assert_eq!(
+        visible,
+        [
+            "drop b-counted-label",
+            "narrowed 2 2",
+            "drop a-counted-label",
+            "drop c-counted-label",
+            "trimmed 0 2",
+            "drop d-counted-label",
+            "drop d-counted-label",
+            "temporary 1",
+            "drop e-counted-label",
+            "local 0 2",
+            "a-counted-label",
+            "c-counted-label",
+            "drop a-counted-label",
+            "drop c-counted-label",
+        ]
+    );
+}

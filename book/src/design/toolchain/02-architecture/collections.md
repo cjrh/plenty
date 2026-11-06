@@ -178,7 +178,11 @@ of a receiver through `&mut` (`counts.insert(k, v)` on a parameter or local,
 collection's owner in place under the exclusive loan, so the receiver is
 neither retained nor released. `clear`, `reverse`, `sort`, `swap`, and the set
 updates return unit rather than an alias of the receiver, so they make no
-count change either (issue #813).
+count change either (issue #813). `intersection_update` and
+`difference_update` also read their set argument in place when its source
+still holds it, such as a `&set` parameter or a local (issue #825): the
+argument stays under its shared loan, and a removed member's `__del__` reaches
+only that member, since keys cannot hold collections.
 
 An element reference (`&xs[i]`, `&mut xs[i]`, `&mut grid[i][j]`, and the
 implicit one under `bodies[i].x`) of any element type checks the index inline
