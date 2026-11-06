@@ -88,6 +88,8 @@ required-features = ["rust-source-spike"]
 
 [build-dependencies]
 cc = "1"
+sha2 = { version = "0.10", default-features = false }
+tempfile = "3.27.0"
 
 [target."cfg(windows)".dependencies]
 cc = "1"
