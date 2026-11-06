@@ -70,7 +70,7 @@ Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
 --fast-compile: skip optimization for faster compilation (optimized by default).
 --release: compatibility alias for the optimized default.
 --unchecked MODE: what plain `unchecked:` blocks outside std do with their
-  arithmetic preconditions: `trap` (default) checks them and traps; `assume`
+  arithmetic and indexing preconditions: `trap` (default) checks them and traps; `assume`
   omits the checks, so a violation is undefined behavior. `unchecked trap:`
   always traps.
 --test-hooks: enable std.test failure injection for FILE or --compile.

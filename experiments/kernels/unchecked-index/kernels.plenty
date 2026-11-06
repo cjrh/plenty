@@ -1,0 +1,12 @@
+def gather(xs: &[f64], indices: &[i64], n: i64) -> f64:
+    mut total = 0.0
+    unchecked:
+        for i in range(n):
+            total += xs[indices[i]]
+    total
+
+def main() -> Result[(), AllocError | IoError]:
+    xs = [1.0, 2.0, 3.0]?
+    indices = [2, 0, 1]?
+    print(gather(&xs, &indices, len(indices)))?
+    Ok(())

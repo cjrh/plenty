@@ -188,6 +188,12 @@ and before passing an exclusive view of it.
 | `v == w`, `v != w` | Equal lengths and equal elements; both sides are views of one element type |
 | `print(v)`, `str.repr(v)`, `f"{v}"` | The elements as a list, `[2, 3]`; a `&[u8]` as a `bytes` literal, `b"bc"` |
 
+In `--unchecked assume` builds, view indexing inside a plain
+[`unchecked:` suite](../03-types/numbers.md#unchecked-blocks) assumes a
+nonnegative index below the view's own length, with no bounds check or
+negative-index normalization. The view's construction and `swap` method keep
+their normal contracts.
+
 A view's length never changes, so `v[i]` in `for i in range(len(v))` or
 `for i, x in enumerate(v)` compiles without a bounds check, as described for
 [lists](../../facilities/01-builtins/lists.md). An in-place reversal,

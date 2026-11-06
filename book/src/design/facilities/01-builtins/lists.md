@@ -5,6 +5,13 @@ Lists use the [common collection rules](collections.md). Growth through
 nothing and traps on a missing index. Lists have no `*` repetition; a
 comprehension such as `[0.0 for _ in range(count)]?` builds repeated elements.
 
+With `--unchecked assume`, list indexing lexically inside a plain
+[`unchecked:` suite](../../language/03-types/numbers.md#unchecked-blocks)
+requires a nonnegative index below the list length. Reads, writes and borrows
+omit both the bounds check and negative-index normalization; violating this
+precondition is undefined behavior. `unchecked trap:` and default builds keep
+normal indexing behavior. The optimizations below describe checked accesses.
+
 Inside `for` and `while` loops, scalar indexing of a named list already in
 scope reads the list's length and row address once, before the loop, and then
 uses checked direct loads and stores. An immutable shared reference always

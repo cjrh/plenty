@@ -65,6 +65,7 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
         locals: &[],
         stack: vec![(incoming[0], sig.inputs[0].1.clone())],
         terminated: false,
+        assumed_index: false,
         loop_targets: Vec::new(),
         checked_targets: Vec::new(),
         generator: None,
