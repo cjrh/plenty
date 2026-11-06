@@ -40,17 +40,17 @@ jobs:
         with:
           workspaces: |
             . -> target
-            plenty-${{ matrix.engine }} -> ../target/${{ matrix.engine }}-engine
-          key: ${{ matrix.engine }}-${{ runner.arch }}-baseline
+            plenty-${{ matrix.engine }} -> target
+          # Nested targets are cleaned with the compiler's dependency set,
+          # which drops engine-only crates such as Polars (issue #827).
+          key: ${{ matrix.engine }}-${{ runner.arch }}-baseline-isolated-v2
           cache-bin: "false"
-      - run: python3 -B scripts/build_native_engine.py ${{ matrix.engine }} --out target/engine --jobs 2 --validate
+      - run: python3 -B scripts/build_native_engine.py ${{ matrix.engine }} --out target/engine --target-dir plenty-${{ matrix.engine }}/target --jobs 2 --validate
       - run: "cargo test --locked --features runtime-checks --test integration test_std_${{ matrix.engine }}::"
-      - run: cargo test --locked --test integration test_tutorial::${{ matrix.engine }}_examples_with_optional_engine
+      - run: cargo test --locked --features runtime-checks --test integration test_tutorial::${{ matrix.engine }}_examples_with_optional_engine
       - name: Check the sales report application
         if: matrix.engine == 'dataframe'
-        run: |
-          cargo build --locked --bin plenty
-          python3 -B examples/sales_report/check.py --plenty target/debug/plenty -v
+        run: python3 -B examples/sales_report/check.py --plenty target/debug/plenty -v
   # The full all-features suite under cargo-nextest, split across runners.
   # Each shard compiles the tests itself: a shared build job plus
   # `cargo nextest archive` would add a dependent job's setup to the critical

@@ -20,6 +20,15 @@ failures, as Markdown and JSON. [CI reports](../development/ci-workflow.md#timin
 summarize Actions jobs and steps automatically and support historical run
 comparisons, keeping parallel runner time separate from elapsed span.
 
+## Native-engine dependency caches (issue #827)
+
+[Optional-engine CI caches](../development/ci-workflow.md#dependency-cache)
+use separate compiler and engine target directories. Compiler cache cleanup
+can no longer traverse the engine target and remove its Polars or faer
+dependencies. A new engine cache key repopulates the corrected layout; actual
+hosted cache-hit savings still need measurement. Local engine-build defaults
+and installed-library paths are unchanged.
+
 ## Linux release glibc verification (issue #730)
 
 The [v0.8.9 artifact audit](../development/glibc-compatibility.md) confirms the
@@ -51,6 +60,16 @@ Rust ABI comparisons retain explicit trapping suites. The experiment smoke
 check covers source inputs, expected rejections and generated fixtures without
 claiming to refresh historical performance measurements.
 
+
+## Optional-engine check build reuse (issue #828)
+
+[Engine CI checks](../development/ci-workflow.md#ci-build-caches-and-timings)
+and `just ci dataframe linalg` use `runtime-checks` consistently for module
+tests and runnable tutorial examples. The sales report uses the CLI already
+built for the integration tests. These checks reuse one feature configuration
+and avoid a separate sales-report compiler build. Allocation-failure checks
+remain enabled, and the
+dedicated default-feature build retains its separate coverage.
 
 ## B83 value parameters and B96 bounded integers
 

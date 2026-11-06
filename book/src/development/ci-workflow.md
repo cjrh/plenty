@@ -33,6 +33,13 @@ and exercised independently. Its jobs run in parallel:
 - `lint`: format, clippy and book links.
 - `proxy_tests`: the [reverse-proxy tests](proxy-tests.md).
 
+Optional-engine jobs use `runtime-checks` for both module tests and tutorial
+examples, reusing the compiler, embedded runtime and integration test binary.
+Cargo also builds the CLI for the integration target, so the sales-report
+application uses that binary without a separate compiler build.
+`just ci dataframe linalg` follows the same rule locally. The
+`doctests` job still verifies a default-feature compiler build separately.
+
 The shards build with the `ci` Cargo profile, defined in `.cargo/config.toml`:
 the `dev` profile with the `plenty` crate at `opt-level = 1` and dependencies
 at `opt-level = 2`, keeping debug assertions and overflow checks. Nearly every
@@ -67,6 +74,15 @@ without filling storage with per-PR copies. Workspace artifacts and incremental
 state are not retained. The [workspace profiles](#rust-build-profiles) also keep compilation outputs small. The
 nightly workflow keeps no cache: each nightly update invalidates compiled
 dependencies.
+
+Optional-engine jobs keep compiler dependencies in `target/` and engine
+dependencies in `plenty-dataframe/target/` or `plenty-linalg/target/`. These
+cache paths must not overlap: the cache action cleans each target with its
+workspace's dependency list, so cleaning a parent target would discard nested
+engine-only dependencies. The engine build receives the matching explicit
+`--target-dir`; its installed library still goes to `target/engine/`. The
+`baseline-isolated-v2` engine cache key starts a new cache population; the
+first run is cold, and hosted timings must confirm reuse on later runs.
 
 ### Compiled-function cache
 

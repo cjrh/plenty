@@ -57,10 +57,10 @@ step_engine() {
     python3 -B scripts/build_native_engine.py "$engine" --out target/engine --validate || return
     local -x "PLENTY_${upper}_TESTS=1" "PLENTY_${upper}_ENGINE=$repo/target/engine/libplenty_${engine}_v1.so"
     cargo test --locked --features runtime-checks --test integration "test_std_${engine}::" &&
-        cargo test --locked --test integration "test_tutorial::${engine}_examples_with_optional_engine" || return
+        cargo test --locked --features runtime-checks --test integration "test_tutorial::${engine}_examples_with_optional_engine" || return
     if [ "$engine" = dataframe ]; then
-        cargo build --locked --bin plenty &&
-            python3 -B examples/sales_report/check.py --plenty target/debug/plenty -v
+        # Cargo builds the CLI when it builds the integration test target.
+        python3 -B examples/sales_report/check.py --plenty target/debug/plenty -v
     fi
 }
 step_dataframe() { step_engine dataframe; }
