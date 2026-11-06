@@ -215,3 +215,10 @@ See [errors](references/errors.md), [ownership](references/ownership.md), and
 | [Errors](references/errors.md) | Error types, propagation, context, exit status |
 | [Ownership](references/ownership.md) | Moves, borrows, copies, allocation |
 | [Diagnostics](references/diagnostics.md) | Frequent compiler errors and their fixes |
+
+For subprocess cleanup, `std.process.Command.process_group(ProcessGroup.NewSession)`
+establishes a child-led group before execution. Send `Child.terminate_group()` or
+`kill_group()` before reaping the leader, then `wait()`. A completed wait disables
+group signalling to avoid reused IDs; descendants can escape by changing groups
+or sessions. Read [std.process](../../../book/src/design/stdlib/process.md#process-groups-and-sessions)
+for the Linux support and ownership contract.

@@ -1134,3 +1134,132 @@ print(child.wait()?.success())?
         "cancelled\nTrue\nFalse",
     );
 }
+
+#[test]
+fn process_groups_and_sessions_are_established_before_exec() {
+    native(
+        r#"
+mut built = piped("/usr/bin/python3", &list[str].new()?)?
+built.arg("-c")?
+built.arg("import os,sys; print(os.getpgrp()==os.getpid(), os.getsid(0)==os.getpid(), sys.argv[1])")?
+built.arg("literal ; '$HOME' | *")?
+built.process_group(std.process.ProcessGroup.NewGroup)
+print(out_text(&built)?)?
+built.process_group(std.process.ProcessGroup.NewSession)
+print(out_text(&built)?)?
+# Resetting the mode restores inheritance; a reusable command makes fresh leaders.
+built.process_group(std.process.ProcessGroup.Inherit)
+print(out_text(&built)?)?
+built.process_group(std.process.ProcessGroup.NewSession)
+print(out_text(&built)?)?
+"#,
+        "True False literal ; '$HOME' | *\n\nTrue True literal ; '$HOME' | *\n\nFalse False literal ; '$HOME' | *\n\nTrue True literal ; '$HOME' | *",
+    );
+}
+
+#[test]
+fn group_termination_reaches_descendants_and_reaping_disables_signals() {
+    // The forked descendant and leader both retain stdout. EOF proves that
+    // group termination stopped both. Alarms bound a broken implementation.
+    native(
+        r#"
+mut built = piped("/usr/bin/python3", &list[str].new()?)?
+built.arg("-c")?
+built.arg("import os,signal; pid=os.fork(); signal.alarm(10); print('ready', flush=True) if pid==0 else None; signal.pause()")?
+built.process_group(std.process.ProcessGroup.NewSession)
+mut child = built.spawn()?
+mut reader = std.io.from_file(child.take_stdout().unwrap())
+mut ready = std.bytes.empty()?
+print(std.io.read_up_to(&mut reader, &mut ready, 6).unwrap(), text(&ready)?)?
+print(str.repr(child.signal_group(0))?, str.repr(child.signal_group(65))?)?
+cleanup_start = std.time.monotonic_now()
+child.terminate_group()?
+# Do not reap the leader until every required group signal has been sent.
+show(&child.wait()?)?
+mut end = std.bytes.empty()?
+print(std.io.read_up_to(&mut reader, &mut end, 1).unwrap(), elapsed(&cleanup_start) < 5000000000u64)?
+print(str.repr(child.terminate_group())?, str.repr(child.kill_group())?)?
+# Inherited groups must never be targeted, even after their child was reaped.
+mut inherited = std.process.command("true")?.spawn()?
+print(str.repr(inherited.kill_group())?)?
+inherited.wait()?
+print(str.repr(inherited.kill_group())?)?
+"#,
+        "6 ready\n\nResult[(), IoError].Err(IoError.InvalidInput) Result[(), IoError].Err(IoError.InvalidInput)\nFalse Option[i32].Nothing Option[i32].Some(15)\n0 True\nResult[(), IoError].Ok(()) Result[(), IoError].Ok(())\nResult[(), IoError].Err(IoError.InvalidInput)\nResult[(), IoError].Err(IoError.InvalidInput)",
+    );
+}
+
+#[test]
+fn timeout_and_cancellation_keep_an_isolated_group_available_for_cleanup() {
+    native(
+        r#"
+mut built = piped("/usr/bin/python3", &list[str].new()?)?
+built.arg("-c")?
+built.arg("import os,signal; signal.signal(signal.SIGTERM, signal.SIG_IGN); pid=os.fork(); signal.alarm(10); print('ready', flush=True) if pid==0 else None; signal.pause()")?
+built.process_group(std.process.ProcessGroup.NewGroup)
+mut child = built.spawn()?
+mut reader = std.io.from_file(child.take_stdout().unwrap())
+mut ready = std.bytes.empty()?
+print(std.io.read_up_to(&mut reader, &mut ready, 6).unwrap(), text(&ready)?)?
+child.terminate_group()?
+cancel = CancellationToken()?
+print(child.wait_timeout(&std.time.milliseconds(30u32), &cancel)?.is_none())?
+cancel.cancel()
+match child.wait_timeout(&std.time.seconds(30u32), &cancel):
+    case Err(std.process.WaitError.Cancelled):
+        print("cancelled")?
+    case _:
+        print("wrong result")?
+cleanup_start = std.time.monotonic_now()
+child.kill_group()?
+show(&child.wait()?)?
+mut end = std.bytes.empty()?
+print(std.io.read_up_to(&mut reader, &mut end, 1).unwrap(), elapsed(&cleanup_start) < 5000000000u64)?
+"#,
+        "6 ready\n\nTrue\ncancelled\nFalse Option[i32].Nothing Option[i32].Some(9)\n0 True",
+    );
+}
+
+#[test]
+fn isolated_spawn_failure_is_reported_and_command_remains_reusable() {
+    native(
+        r#"
+mut built = std.process.command("/plenty-no-such-directory/program")?
+built.process_group(std.process.ProcessGroup.NewGroup)
+print(str.repr(built.spawn())?)?
+built.process_group(std.process.ProcessGroup.NewSession)
+print(str.repr(built.spawn())?)?
+mut good = std.process.command("true")?
+good.process_group(std.process.ProcessGroup.NewSession)
+mut first = good.spawn()?
+show(&first.wait()?)?
+mut second = good.spawn()?
+show(&second.wait()?)?
+"#,
+        "Result[std.process.Child, IoError].Err(IoError.System(2))\nResult[std.process.Child, IoError].Err(IoError.System(2))\nTrue Option[i32].Some(0) Option[i32].Nothing\nTrue Option[i32].Some(0) Option[i32].Nothing",
+    );
+}
+
+#[test]
+fn exited_unreaped_leader_still_anchors_descendant_cleanup() {
+    native(
+        r#"
+mut built = piped("/usr/bin/python3", &list[str].new()?)?
+built.arg("-c")?
+# The descendant reports ready only after /proc proves the leader is a zombie.
+# Its alarm bounds failures without relying on a shell or an orphan's cleanup.
+built.arg("import os,signal,time\nleader=os.getpid()\npid=os.fork()\nif pid: os._exit(0)\nsignal.alarm(10)\nwhile open('/proc/%d/stat'%leader).read().split()[2]!='Z': time.sleep(.001)\nprint('ready',flush=True)\nsignal.pause()")?
+built.process_group(std.process.ProcessGroup.NewSession)
+mut child = built.spawn()?
+mut reader = std.io.from_file(child.take_stdout().unwrap())
+mut ready = std.bytes.empty()?
+print(std.io.read_up_to(&mut reader, &mut ready, 6).unwrap(), text(&ready)?)?
+cleanup_start = std.time.monotonic_now()
+child.kill_group()?
+show(&child.wait()?)?
+mut end = std.bytes.empty()?
+print(std.io.read_up_to(&mut reader, &mut end, 1).unwrap(), elapsed(&cleanup_start) < 5000000000u64)?
+"#,
+        "6 ready\n\nTrue Option[i32].Some(0) Option[i32].Nothing\n0 True",
+    );
+}

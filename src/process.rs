@@ -45,7 +45,7 @@ impl ProcessOp {
             Self::Spawn => (vec![bytes(), Ty::I64, Ty::I64], Ty::I64),
             Self::Pipe => (vec![Ty::I64, Ty::U8], Ty::File),
             Self::Wait => (vec![Ty::I64, Ty::Bool], Ty::I64),
-            Self::Signal => (vec![Ty::I64, Ty::I64], Ty::Unit),
+            Self::Signal => (vec![Ty::I64, Ty::I64, Ty::Bool], Ty::Unit),
             Self::Poll => (vec![Ty::I64, Ty::I64, Ty::I64], Ty::I64),
             // The readable end on which each caught signal arrives as a byte.
             Self::SignalListen => (vec![], Ty::File),

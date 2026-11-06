@@ -13,7 +13,7 @@ mod native {
     use std::ffi::{CStr, OsStr};
     use std::os::fd::{AsRawFd, OwnedFd};
     use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::process::ExitStatusExt;
+    use std::os::unix::process::{CommandExt, ExitStatusExt};
     use std::process::{Child, Command, Stdio};
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -26,6 +26,7 @@ mod native {
         id: u32,
         child: Child,
         pipes: [i32; 3],
+        isolated: bool,
     }
 
     /// A handle is `id << 32 | pid`. Ids are never reused, so a handle kept
@@ -38,6 +39,8 @@ mod native {
     const STDIN_PIPE: u64 = 0b11;
     const CHANGE_DIR: u64 = 1 << 6;
     const CLEAR_ENV: u64 = 1 << 7;
+    const NEW_GROUP: u64 = 1 << 8;
+    const NEW_SESSION: u64 = 1 << 9;
 
     /// Exec fails with ETXTBSY while any process has the program open for
     /// writing. A child forked by another thread holds a copy of each
@@ -57,6 +60,7 @@ mod native {
 
     unsafe extern "C" {
         fn kill(pid: i32, signal: i32) -> i32;
+        fn setsid() -> i32;
         fn poll(fds: *mut PollFd, count: u64, timeout: i32) -> i32;
     }
 
@@ -131,6 +135,27 @@ mod native {
             .stdin(stdio(flags)?)
             .stdout(stdio(flags >> 2)?)
             .stderr(stdio(flags >> 4)?);
+        match flags & (NEW_GROUP | NEW_SESSION) {
+            0 => {}
+            NEW_GROUP => {
+                command.process_group(0);
+            }
+            NEW_SESSION => {
+                // SAFETY: the child callback only invokes async-signal-safe
+                // setsid and captures nothing. Command's exec-error pipe
+                // reports setup failures and reaps the failed child.
+                unsafe {
+                    command.pre_exec(|| {
+                        if setsid() < 0 {
+                            Err(std::io::Error::last_os_error())
+                        } else {
+                            Ok(())
+                        }
+                    });
+                }
+            }
+            _ => return Err(Kind::InvalidInput.into()),
+        }
         let mut table = children();
         // Reserved before the child exists, so a started child is always recorded.
         table
@@ -168,7 +193,14 @@ mod native {
         ];
         let handle = (id as u128) << 32 | child.id() as u128;
         // The table outlives every actor heap, so it grows in System.
-        crate::actor_heap::outside(|| table.push(Entry { id, child, pipes }));
+        crate::actor_heap::outside(|| {
+            table.push(Entry {
+                id,
+                child,
+                pipes,
+                isolated: flags & (NEW_GROUP | NEW_SESSION) != 0,
+            })
+        });
         Ok(handle)
     }
 
@@ -211,15 +243,18 @@ mod native {
         }
     }
 
-    fn signal(handle: u128, number: u128) -> Result<u128, Error> {
+    fn signal(handle: u128, number: u128, group: bool) -> Result<u128, Error> {
         let table = children();
         let at = position(&table, handle)?;
-        if !(1..=64).contains(&number) {
+        if !(1..=64).contains(&number) || (group && !table[at].isolated) {
             return Err(Kind::InvalidInput.into());
         }
-        // SAFETY: the entry is unreaped under the lock, so its pid is still
-        // this child's (possibly a zombie's) and cannot have been reused.
-        if unsafe { kill(table[at].child.id() as i32, number as i32) } != 0 {
+        let pid = table[at].child.id() as i32;
+        let target = if group { -pid } else { pid };
+        // SAFETY: this unreaped child pins its PID under the table lock,
+        // including after exit. Only a group created with this leader's PID
+        // can be targeted; inherited groups can never reach this branch.
+        if unsafe { kill(target, number as i32) } != 0 {
             return Err(std::io::Error::last_os_error().into());
         }
         Ok(0)
@@ -381,7 +416,7 @@ mod native {
                 197 => spawn(&contiguous(a)?, b, c as u64),
                 198 => pipe(a, b, output[0]),
                 199 => wait(a, b != 0),
-                228 => signal(a, b),
+                228 => signal(a, b, c != 0),
                 229 => ready(a, b as u64, c as i64),
                 500 => crate::signals::listen(output[0]),
                 _ => crate::fail("invalid process operation"),
