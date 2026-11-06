@@ -485,6 +485,23 @@ about fifteen Cranelift instructions to compile: a file of 2,000 one-line
 functions with four rounding calls each takes 55% (release) to 85% (debug)
 more compiler instructions.
 
+## Loop layout
+
+A loop header whose condition ends in a compare branches to the exit on the
+complemented compare, so the exit is the branch's first successor (issue #767,
+`lower_loop_copy` in `src/codegen/collections.rs`). Cranelift orders blocks by
+a depth-first search that visits the first successor first, then emits them in
+reverse postorder. With the body as the first successor, every loop body lands
+after all code reachable from its exit, at the end of the enclosing loop. A
+value used after an inner loop and live across it then sits in a register
+through the out-of-line body, while the header keeps it on the stack: regalloc2
+reloads it at the start of each pass. With the exit first, the body follows its
+header. In `fannkuch-redux` this removes reloads from three hot inner loops.
+
+A condition that is not a compare, such as the join of a short-circuit `and`,
+keeps the body as the first successor: inverting it would cost a compare and a
+second branch on each pass.
+
 ## Loop counter checks
 
 Integer arithmetic keeps its overflow and division checks, and Cranelift does

@@ -1822,6 +1822,31 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
+    /// The complement of `test` when it is a compare, as a new compare of the
+    /// same operands; the original becomes dead. Other conditions, such as a
+    /// short-circuit join's parameter, have no free complement: inverting
+    /// one costs a compare and a branch on its result.
+    fn complement_compare(
+        &mut self,
+        test: cranelift_codegen::ir::Value,
+    ) -> Option<cranelift_codegen::ir::Value> {
+        use cranelift_codegen::ir::condcodes::CondCode;
+        use cranelift_codegen::ir::{InstructionData, ValueDef};
+        let dfg = &self.bcx.func.dfg;
+        let ValueDef::Result(inst, 0) = dfg.value_def(dfg.resolve_aliases(test)) else {
+            return None;
+        };
+        match dfg.insts[inst] {
+            InstructionData::IntCompare {
+                args: [a, b], cond, ..
+            } => Some(self.bcx.ins().icmp(cond.complement(), a, b)),
+            InstructionData::FloatCompare {
+                args: [a, b], cond, ..
+            } => Some(self.bcx.ins().fcmp(cond.complement(), a, b)),
+            _ => None,
+        }
+    }
+
     /// Lowers one copy of a loop from its `header`, which the caller enters
     /// and seals, to `exit`.
     fn lower_loop_copy(
@@ -1839,7 +1864,18 @@ impl Lowerer<'_, '_> {
             self.lower(op)?;
         }
         let (test, _) = self.pop_typed(Ty::Bool)?;
-        self.bcx.ins().brif(test, iteration, &[], exit, &[]);
+        // Branch to the exit on the complemented test where one is free, so
+        // the exit is the first successor. Cranelift lowers blocks in the
+        // reverse postorder of a DFS that visits the first successor first,
+        // so this places the body right after its header instead of after
+        // everything the exit reaches. regalloc2 splits live ranges in that
+        // linear order: with the body last, a value used after the loop but
+        // live across it can keep a register through the body while the
+        // header holds it on the stack, a reload each pass (issue #767).
+        match self.complement_compare(test) {
+            Some(done) => self.bcx.ins().brif(done, exit, &[], iteration, &[]),
+            None => self.bcx.ins().brif(test, iteration, &[], exit, &[]),
+        };
         self.bcx.switch_to_block(iteration);
         self.bcx.seal_block(iteration);
         self.loop_targets.push((header, exit));

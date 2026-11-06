@@ -229,9 +229,9 @@ def main() -> Result[(), IoError | OverflowError[i64]]:
     assert_eq!(
         runtime,
         [
-            "plenty_generator_finish",
             "plenty_caller_enter",
-            "plenty_caller_leave"
+            "plenty_caller_leave",
+            "plenty_generator_finish"
         ],
         "{relocations:?}"
     );
@@ -241,13 +241,15 @@ def main() -> Result[(), IoError | OverflowError[i64]]:
         .filter(|name| !name.starts_with("plenty_"))
         .collect();
     assert_eq!(user, ["__plenty_fn_triple"], "{relocations:?}");
+    // Relocations follow block order: a loop body precedes its exit
+    // (see "Loop layout" in the emission reference).
     assert_eq!(
         calls,
         [
-            "plenty_generator_finish",
             "plenty_caller_enter",
             "__plenty_fn_triple",
-            "plenty_caller_leave"
+            "plenty_caller_leave",
+            "plenty_generator_finish"
         ],
         "{relocations:?}"
     );
