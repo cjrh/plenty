@@ -1048,6 +1048,21 @@ impl CollectionOp {
         )
     }
 
+    /// Whether this operation only reads its argument, operand 1, while it
+    /// changes its receiver in place. `intersection_update` and
+    /// `difference_update` read the `&set` argument to decide which members
+    /// to drop. The frontend keeps the argument's shared loan live across the
+    /// call, and a dropped member's `__del__` reaches only that member: keys
+    /// cannot hold collections, so no member reaches the argument's owner. A
+    /// counted copy of the argument that its source still holds is then
+    /// passed without its retain and release (issue #825).
+    pub fn reads_argument_in_place(&self) -> bool {
+        matches!(
+            self,
+            Self::SetIntersectionUpdate(_) | Self::SetDifferenceUpdate(_)
+        )
+    }
+
     /// Whether the runtime only reads this operation's managed operands
     /// during the call: it runs no Plenty code, and it neither releases nor
     /// replaces a value that an operand owns or reaches. Keys hash and

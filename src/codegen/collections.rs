@@ -1269,6 +1269,8 @@ impl Lowerer<'_, '_> {
         // exclusive loan keeps its owner alive, so the receiver's copy is read
         // in place too (issue #762).
         let receiver_in_place = operation.mutates_receiver_in_place();
+        // A set update reads its `&set` argument in place (issue #825).
+        let argument_in_place = operation.reads_argument_in_place();
         // Inserted operands are owned on the stack, moved or copied alike,
         // and the runtime adopts them: it stores their counts or drops them
         // once on a failed insert or a `get_or_insert` hit (issue #762). One
@@ -1286,7 +1288,8 @@ impl Lowerer<'_, '_> {
             let in_place = !adopted
                 && (only_reads
                     || reads_in_place && *input == Ty::Str
-                    || receiver_in_place && i == 0);
+                    || receiver_in_place && i == 0
+                    || argument_in_place && i == 1);
             held.push(in_place && self.forget_slot_copy(value));
             values.push(self.pack(value, input));
         }
