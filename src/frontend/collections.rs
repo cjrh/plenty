@@ -1285,6 +1285,20 @@ impl Lower<'_> {
         Ok(Some(output))
     }
 
+    /// A hidden local for a display operand, reused from an earlier display
+    /// when one of the same type is free, so displays do not exhaust the 256
+    /// slots (issue #826).
+    fn operand_slot(&mut self, ty: Ty, at: &Token) -> Result<u8> {
+        let parameters = self.parameters;
+        let locals = &self.locals;
+        match (self.spare_operands.iter())
+            .position(|&slot| locals[slot as usize - parameters] == ty)
+        {
+            Some(index) => Ok(self.spare_operands.swap_remove(index)),
+            None => self.slot(ty, at),
+        }
+    }
+
     pub(super) fn slot(&mut self, ty: Ty, at: &Token) -> Result<u8> {
         let slot = u8::try_from(self.parameters + self.locals.len())
             .map_err(|_| at.error("at most 256 parameter/local slots are supported"))?;
@@ -1734,8 +1748,8 @@ impl Lower<'_> {
             None => {
                 // Each operand moves from a hidden local into the insert, which
                 // adopts its count, and the result is loaded right before it, so
-                // codegen reads it in place (issue #826). Entries of one display
-                // reuse the hidden locals.
+                // codegen reads it in place (issue #826). The locals are empty
+                // outside that window, so entries and later displays reuse them.
                 let mut operands: Option<(Ty, Vec<u8>)> = None;
                 for (key, value) in entries {
                     let entry_start = ops.len();
@@ -1744,13 +1758,16 @@ impl Lower<'_> {
                         .as_ref()
                         .is_none_or(|(known, _)| *known != inferred)
                     {
+                        if let Some((_, slots)) = operands.take() {
+                            self.spare_operands.extend(slots);
+                        }
                         let mut types = vec![inferred.element().expect("collection element")];
                         if let Ty::Dict(_, v) = &inferred {
                             types.push((**v).clone());
                         }
                         let slots = types
                             .into_iter()
-                            .map(|t| self.slot(t, &key.at))
+                            .map(|t| self.operand_slot(t, &key.at))
                             .collect::<Result<_>>()?;
                         operands = Some((inferred.clone(), slots));
                     }
@@ -1763,6 +1780,9 @@ impl Lower<'_> {
                     let entry = ops.split_off(entry_start);
                     ops.extend(allocation_succeeded(pending));
                     ops.push(branch(entry, vec![]));
+                }
+                if let Some((_, slots)) = operands {
+                    self.spare_operands.extend(slots);
                 }
             }
         }
@@ -5715,7 +5735,11 @@ impl Lower<'_> {
         ]);
         // The receiver is loaded from its own local right before the moved
         // element, so codegen reads it in place, and the insert adopts the
-        // element's count: neither is retained or released (issue #826).
+        // element's count: neither is retained or released (issue #826). A
+        // managed element must move explicitly: last-use analysis does not
+        // turn a one-word load followed by a collection op into a move,
+        // because it treats that op as a borrowing query (issue #379), so a
+        // `LoadLocal` would still be retained.
         let item = &self.locals[target as usize - self.parameters];
         body.extend([
             Op::LoadLocal(owner),

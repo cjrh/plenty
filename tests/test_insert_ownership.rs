@@ -349,12 +349,32 @@ def nested_names(rows: &list[list[str]]) -> Result[list[str], AllocError]:
 def pair(a: &str, b: &str) -> Result[dict[str, str], AllocError]:
     {copy(a)?: copy(b)?, copy(b)?: copy(a)?}
 
+def upper(w: &str) -> str:
+    w.upper().unwrap()
+
+def copied(w: &str) -> Result[str, AllocError]:
+    copy(w)
+
+def collected(words: &list[str]) -> Result[list[str], AllocError]:
+    iter(words).map(upper).collect()
+
+def tried(words: &list[str]) -> Result[list[str], AllocError]:
+    iter(words).map(copied).try_collect()
+
+def generated(n: i64) -> Generator[str]:
+    for i in range(n):
+        yield ("generated-counted-word" + "").unwrap()
+
+def listed(n: i64) -> Result[list[str], AllocError]:
+    list(generated(n))
+
 def main() -> Result[(), AllocError | IoError]:
     words = [("alpha-counted-word" + "")?, ("beta-counted-word" + "")?, ("alpha-counted-word" + "")?]?
     rows = [copy(&words)?, [("gamma-counted-word" + "")?]?]?
     print(keys(&words)?, lengths(&words)?, names(&words)?)?
     print(nested_keys(&rows)?, nested_lengths(&rows)?, nested_names(&rows)?)?
     print(pair(&words[0], &words[1])?)?
+    print(collected(&words)?, tried(&words)?, listed(2)?)?
     print("__test_small_live_heap__")?
     Ok(())
 "#;
@@ -379,29 +399,30 @@ fn comprehension_inserts_count_nothing() {
         "nested_lengths",
         "nested_names",
         "pair",
+        "collected",
+        "tried",
+        "listed",
     ] {
         let body = support::asm_body(&asm, name);
-        // Neither the element nor the collection is retained, and in a loop
-        // nothing is released on the straight-line path from an insert to its
-        // result test; later releases are on failure and exit paths. The last
+        // Neither the element nor the collection is retained, and nothing is
+        // released on the straight-line path from an insert to the next
+        // branch; later releases are on failure and exit paths. The last
         // insert of the `pair` display falls through to the release of the
         // owner's one copy at scope exit.
         assert!(!body.contains("plenty_retain"), "{name}:\n{body}");
-        if name == "pair" {
-            continue;
-        }
         let lines: Vec<&str> = body.lines().collect();
-        let inserts: Vec<usize> = (0..lines.len())
+        let mut inserts: Vec<usize> = (0..lines.len())
             .filter(|&i| lines[i].ends_with("# plenty_op_29"))
             .collect();
         assert!(!inserts.is_empty(), "{name}:\n{body}");
+        if name == "pair" {
+            assert_eq!(inserts.len(), 2, "{name}:\n{body}");
+            inserts.pop();
+        }
         for i in inserts {
-            let after = lines[i + 1..].iter().take_while(|line| {
-                !line
-                    .split_whitespace()
-                    .nth(1)
-                    .is_some_and(|op| op.starts_with('j'))
-            });
+            let after = lines[i + 1..]
+                .iter()
+                .take_while(|line| !support::native_branch(line));
             for line in after {
                 assert!(!line.contains("plenty_release"), "{name}:\n{body}");
             }
@@ -428,6 +449,26 @@ fn comprehension_inserts_count_nothing() {
                 r#"["alpha-counted-word", "beta-counted-word", "alpha-counted-word", "gamma-counted-word"]"#
             ),
             r#"{"alpha-counted-word": "beta-counted-word", "beta-counted-word": "alpha-counted-word"}"#,
+            concat!(
+                r#"["ALPHA-COUNTED-WORD", "BETA-COUNTED-WORD", "ALPHA-COUNTED-WORD"] "#,
+                r#"["alpha-counted-word", "beta-counted-word", "alpha-counted-word"] "#,
+                r#"["generated-counted-word", "generated-counted-word"]"#
+            ),
         ]
     );
+}
+
+#[test]
+fn displays_reuse_hidden_operand_locals() {
+    // Each dict display needs a result and a pending local; its key and value
+    // locals are shared with earlier displays, so 80 displays fit in the 256
+    // slots (issue #826).
+    let mut source = String::from(
+        "def many(a: &str, b: &str) -> Result[i64, AllocError]:\n    mut d = {copy(a)?: copy(b)?}?\n",
+    );
+    for _ in 0..80 {
+        source.push_str("    d = {copy(a)?: copy(b)?}?\n");
+    }
+    source.push_str("    Ok(len(d))\n");
+    support::check_source(&source).unwrap();
 }
