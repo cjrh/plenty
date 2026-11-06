@@ -1,6 +1,8 @@
 //! `std.io`: partial-progress stream contracts, retry helpers, and bounded
 //! buffering, exercised through scripted fake streams and real descriptors.
 
+mod support;
+
 use std::io::Write;
 use std::process::{Command, Stdio};
 
@@ -1285,30 +1287,25 @@ fn read_ranges_trap_before_empty_input_or_transport_calls() {
             "read",
         ),
     ] {
-        for (start, stop) in [(-1, 0), (2, 1), (0, 5), (5, 5), (i64::MAX, i64::MAX)] {
+        // Keep literal ranges at each call site; argv only selects which trap
+        // runs in this process, so constant-input codegen coverage is preserved.
+        let mut body =
+            format!("mut buffer = blank(4)?\n{setup}\nmatch i64.parse(args()?[1]).unwrap():\n");
+        let ranges = [(-1, 0), (2, 1), (0, 5), (5, 5), (i64::MAX, i64::MAX)];
+        for (case, (start, stop)) in ranges.into_iter().enumerate() {
             let call = call
                 .replace("START", &start.to_string())
                 .replace("STOP", &stop.to_string());
-            let source = format!(
-                "import std.io.typed\nimport std.secrets\nimport std.http.client\nimport std.http.typed\n{}",
-                program(&format!("mut buffer = blank(4)?\n{setup}\ndrop({call})"))
-            );
-            let dir = tempfile::tempdir().unwrap();
-            let path = dir.path().join("main.plenty");
-            let executable = dir.path().join("program");
-            std::fs::write(&path, &source).unwrap();
-            plenty::compile_file_to_executable(&path, &executable, None)
-                .unwrap_or_else(|error| panic!("{source}\n{error}"));
-            let output = Command::new(executable)
-                .stdin(Stdio::null())
-                .output()
-                .unwrap();
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            assert_eq!(output.status.code(), Some(1), "{source}\n{stderr}");
-            assert!(
-                stderr.contains(&format!(": {operation}: start/stop outside buffer\n")),
-                "{source}\n{stderr}"
-            );
+            body.push_str(&format!("    case {case}:\n        drop({call})\n"));
         }
+        body.push_str("    case _:\n        return Err(IoError.Other)\n");
+        let source = format!(
+            "import std.io.typed\nimport std.secrets\nimport std.http.client\nimport std.http.typed\n{}",
+            program(&body)
+        );
+        support::assert_trap_cases(
+            &source,
+            &vec![format!("{operation}: start/stop outside buffer"); ranges.len()],
+        );
     }
 }

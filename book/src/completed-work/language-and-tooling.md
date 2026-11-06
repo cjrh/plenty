@@ -71,6 +71,15 @@ and avoid a separate sales-report compiler build. Allocation-failure checks
 remain enabled, and the
 dedicated default-feature build retains its separate coverage.
 
+## Range-trap fixture reuse (issue #830)
+
+The I/O range and fixed-width encoding trap tests compile 18 reusable fixtures
+instead of 154 separate programs. Each invalid input still runs in its own
+child process and checks exit status and the operation-specific trap text.
+Argument dispatch selects among the original literal call sites, preserving
+constant-input coverage, empty-input checks and reader/transport variants.
+The fixtures retain optimized compilation and runtime checks.
+
 ## B83 value parameters and B96 bounded integers
 
 [Value parameters](../design/language/07-generics/values.md) specialize functions,
