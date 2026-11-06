@@ -52,6 +52,16 @@ check covers source inputs, expected rejections and generated fixtures without
 claiming to refresh historical performance measurements.
 
 
+## Optional-engine check build reuse (issue #828)
+
+[Engine CI checks](../development/ci-workflow.md#ci-build-caches-and-timings)
+and `just ci dataframe linalg` use `runtime-checks` consistently for module
+tests and runnable tutorial examples. The sales report uses the CLI already
+built for the integration tests. These checks reuse one feature configuration
+and avoid a separate sales-report compiler build. Allocation-failure checks
+remain enabled, and the
+dedicated default-feature build retains its separate coverage.
+
 ## B83 value parameters and B96 bounded integers
 
 [Value parameters](../design/language/07-generics/values.md) specialize functions,

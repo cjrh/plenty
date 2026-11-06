@@ -44,13 +44,12 @@ jobs:
           key: ${{ matrix.engine }}-${{ runner.arch }}-baseline
           cache-bin: "false"
       - run: python3 -B scripts/build_native_engine.py ${{ matrix.engine }} --out target/engine --jobs 2 --validate
+      # Keep one feature set; integration tests also build the sales-report CLI.
       - run: "cargo test --locked --features runtime-checks --test integration test_std_${{ matrix.engine }}::"
-      - run: cargo test --locked --test integration test_tutorial::${{ matrix.engine }}_examples_with_optional_engine
+      - run: cargo test --locked --features runtime-checks --test integration test_tutorial::${{ matrix.engine }}_examples_with_optional_engine
       - name: Check the sales report application
         if: matrix.engine == 'dataframe'
-        run: |
-          cargo build --locked --bin plenty
-          python3 -B examples/sales_report/check.py --plenty target/debug/plenty -v
+        run: python3 -B examples/sales_report/check.py --plenty target/debug/plenty -v
   # The full all-features suite under cargo-nextest, split across runners.
   # Each shard compiles the tests itself: a shared build job plus
   # `cargo nextest archive` would add a dependent job's setup to the critical
