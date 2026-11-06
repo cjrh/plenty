@@ -1,12 +1,13 @@
 //! Dictionaries have no indexed assignment; `insert` adds or replaces,
-//! `get_mut` lends a value in place (issue #580), and `get_or_insert` lends
-//! one after inserting a default for a missing key (issue #748).
+//! `get_mut` lends a value in place (issue #580), `get_or_insert` lends
+//! one after inserting a default for a missing key (issue #748), and
+//! `(&mut d).values()` / `(&mut d).items()` lend every value (issue #803).
 mod support;
 use support::{assert_stdout, check_diagnostic as diagnostic};
 
 const ASSIGNMENT: &str =
     "dictionaries have no indexed assignment; use `d.insert(k, v)?`, which adds or replaces";
-const BORROW: &str = "dictionary values cannot be borrowed mutably by index; use `d.get_mut(k)`, which returns `Option[&mut V]`";
+const BORROW: &str = "dictionary values cannot be borrowed mutably by index; use `d.get_mut(k)`, which returns `Option[&mut V]`, or loop over `(&mut d).values()` or `(&mut d).items()` to change every value";
 
 fn program(body: &str) -> String {
     format!(
@@ -187,4 +188,90 @@ fn get_or_insert_requires_a_mutable_binding_a_key_and_a_default() {
     assert!(error.contains("expected i64, got str"), "{error}");
     let error = diagnostic(&program("    value = d.get_or_insert(1, 2)?\n"));
     assert!(error.contains("expected str, got i64"), "{error}");
+}
+
+const RESOURCE: &str = "class Resource:\n    name: str\n    hp: i64\n    log: list[str]\n    def __del__(self) -> ():\n        print(\"drop\", self.name).unwrap()\n";
+
+#[test]
+fn mutable_value_loops_change_affine_values_in_place_and_exit_early() {
+    let source = format!(
+        "{RESOURCE}def find(d: &mut dict[i64, Resource], want: i64) -> Result[bool, AllocError]:\n    for key, r in (&mut d).items():\n        r.log.append(\"seen\")?\n        if *key == want:\n            return Ok(True)\n    Ok(False)\ndef main() -> Result[(), AllocError | IoError | OverflowError[i64]]:\n    mut d = {{1: Resource(\"one\", 1, []?), 2: Resource(\"two\", 2, []?), 3: Resource(\"three\", 3, []?)}}?\n    for r in (&mut d).values():\n        r.hp += 10\n    print(find(&mut d, 2)?)?\n    for r in (&mut d).values():\n        if r.name == \"two\":\n            break\n        r.name = \"first\"\n    for key, r in d.items():\n        print(*key, r.name, r.hp, r.log)?\n    Ok(())\n"
+    );
+    assert_stdout(
+        &source,
+        "True\n1 first 11 [\"seen\"]\n2 two 12 [\"seen\"]\n3 three 13 []\ndrop first\ndrop two\ndrop three\n",
+    );
+}
+
+#[test]
+fn mutable_value_loops_reject_structural_mutation_and_other_access() {
+    for body in [
+        "    for v in (&mut lists).values():\n        lists.insert(\"b\", []?)?\n",
+        "    for k, v in (&mut lists).items():\n        lists.pop(k)\n",
+        "    for v in (&mut lists).values():\n        lists.clear()\n",
+        "    for v in (&mut lists).values():\n        print(len(lists))?\n",
+        "    for v in (&mut lists).values():\n        match lists.get_mut(\"a\"):\n            case Some(w):\n                w.append(1)?\n            case Nothing:\n                pass\n",
+        "    for v in (&mut lists).values():\n        for w in (&mut lists).values():\n            w.append(1)?\n",
+    ] {
+        let error = diagnostic(&program(body));
+        assert!(error.contains("conflicting borrow"), "{body}: {error}");
+    }
+}
+
+#[test]
+fn mutable_value_references_cannot_escape_the_loop() {
+    for (body, expected) in [
+        (
+            "    mut refs: list[&mut list[i64]] = []?\n    for v in (&mut lists).values():\n        refs.append(v)?\n",
+            "references cannot be stored in collections",
+        ),
+        (
+            "    mut other = [0]?\n    mut keep = &mut other\n    for v in (&mut lists).values():\n        keep = v\n    keep.append(9)?\n",
+            "can be reassigned only to a reference into the owner it first borrowed",
+        ),
+        (
+            "    view = (&mut lists).values()\n",
+            "mutable dictionary projections are immediate iteration sources",
+        ),
+    ] {
+        let error = diagnostic(&program(body));
+        assert!(error.contains(expected), "{body}: {error}");
+    }
+    let escape = "def first(fallback: &mut list[i64]) -> &mut list[i64]:\n    mut d = {\"a\": [1].unwrap()}.unwrap()\n    for v in (&mut d).values():\n        return v\n    fallback\ndef main() -> ():\n    pass\n";
+    let error = diagnostic(escape);
+    assert!(
+        error.contains("returned reference must originate from the first reference parameter"),
+        "{error}"
+    );
+}
+
+#[test]
+fn rust_style_mutable_iterators_name_the_exclusive_projection() {
+    for (method, projection) in [
+        ("values_mut", "values"),
+        ("items_mut", "items"),
+        ("iter_mut", "values"),
+    ] {
+        let body = format!("    for v in lists.{method}():\n        pass\n");
+        let error = diagnostic(&program(&body));
+        assert!(
+            error.contains(&format!(
+                "dictionaries have no `{method}`; borrow the dictionary exclusively instead: `for ... in (&mut d).{projection}():` yields `&mut V`"
+            )),
+            "{method}: {error}"
+        );
+    }
+}
+
+#[test]
+fn writes_through_shared_value_loops_name_the_exclusive_projection() {
+    const HINT: &str = "cannot borrow shared reference as mutable; `values()` and `items()` lend shared values; loop over `(&mut d).values()` or `(&mut d).items()` to change them";
+    for body in [
+        "    for v in lists.values():\n        v.append(2)?\n",
+        "    for k, v in lists.items():\n        v.append(2)?\n",
+        "    for p in points.values():\n        p.x = 2\n",
+    ] {
+        let error = diagnostic(&program(body));
+        assert!(error.contains(HINT), "{body}: {error}");
+    }
 }

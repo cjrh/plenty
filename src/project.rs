@@ -1265,12 +1265,26 @@ pub fn check_entry(
     graph: &SourceGraph,
     require_main: bool,
     options: &crate::CheckOptions,
-) -> Result<()> {
+) -> Result<Vec<crate::Warning>> {
+    check_sources(entry, graph, require_main, options).map(|(warnings, _)| warnings)
+}
+
+/// [`check_entry`], also returning the canonical paths of every source file
+/// the check read, in all packages of `graph`.
+fn check_sources(
+    entry: &Path,
+    graph: &SourceGraph,
+    require_main: bool,
+    options: &crate::CheckOptions,
+) -> Result<(Vec<crate::Warning>, Vec<PathBuf>)> {
     let mut heap = crate::value::Heap::default();
-    let program = crate::frontend::compile_graph(entry, graph, require_main, &mut heap, *options)?;
+    let mut program =
+        crate::frontend::compile_graph(entry, graph, require_main, &mut heap, *options)?;
     let checked = crate::op::check(&program.ops);
+    let warnings = std::mem::take(&mut program.warnings);
+    let sources = std::mem::take(&mut program.source_paths);
     crate::teardown((program, heap), options);
-    checked
+    checked.map(|()| (warnings, sources))
 }
 
 fn status(verb: &str, message: impl std::fmt::Display) {
@@ -1281,23 +1295,96 @@ fn title(package: &Package) -> String {
     format!("{} v{}", package.manifest.name, package.manifest.version)
 }
 
-/// Check every target of the selected packages.
+/// Check every target of the selected packages, printing each package's lint
+/// warnings once on stderr after its targets pass. A target's check covers the
+/// files its import graph reaches, so afterwards each `.plenty` file below the
+/// package's `src/` that no target reached is reported as unchecked.
 pub fn check(directory: &Path, options: &BuildOptions) -> Result<()> {
     let project = open(directory, options)?;
     for &member in &project.selected {
         let package = project.member(member);
         status("Checking", title(package));
         let graph = project.source_graph(member);
-        if let Some(library) = &package.manifest.library {
-            check_entry(
-                &package.directory.join(library),
+        // Targets share modules, so the same warning can come from each.
+        let mut warnings = Vec::new();
+        let mut reached = BTreeSet::new();
+        let entries = package
+            .manifest
+            .library
+            .iter()
+            .map(|library| (library, false))
+            .chain(
+                package
+                    .manifest
+                    .binaries
+                    .iter()
+                    .map(|(_, entry)| (entry, true)),
+            );
+        for (entry, require_main) in entries {
+            let (found, sources) = check_sources(
+                &package.directory.join(entry),
                 &graph,
-                false,
+                require_main,
                 &options.check,
             )?;
+            warnings.extend(found);
+            reached.extend(sources);
         }
-        for (_, entry) in &package.manifest.binaries {
-            check_entry(&package.directory.join(entry), &graph, true, &options.check)?;
+        crate::diagnostic::settle(&mut warnings);
+        for warning in &warnings {
+            eprintln!("{warning}");
+        }
+        let mut sources = vec![];
+        source_files(&package.directory.join("src"), &mut sources)?;
+        sources.sort();
+        let unreached: Vec<_> = sources.iter().filter(|s| !reached.contains(*s)).collect();
+        for path in &unreached {
+            eprintln!(
+                "warning: {} is not imported by any target of `{}`; it was not checked",
+                relative_path(&project.root, path),
+                package.manifest.name
+            );
+        }
+        status(
+            "Checked",
+            format!(
+                "{}: {}; {} of {} files in src/",
+                title(package),
+                describe_targets(&package.manifest),
+                sources.len() - unreached.len(),
+                sources.len()
+            ),
+        );
+    }
+    Ok(())
+}
+
+/// The targets `plenty check` checks, such as `library and 2 executables`.
+fn describe_targets(manifest: &Manifest) -> String {
+    let executables = match manifest.binaries.len() {
+        0 => None,
+        1 => Some("1 executable".to_string()),
+        n => Some(format!("{n} executables")),
+    };
+    match (manifest.library.is_some(), executables) {
+        (true, Some(executables)) => format!("library and {executables}"),
+        (true, None) => "library".into(),
+        (false, Some(executables)) => executables,
+        (false, None) => unreachable!("a manifest declares at least one target"),
+    }
+}
+
+/// The canonical paths of the `.plenty` files below `directory`.
+fn source_files(directory: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
+    if !directory.is_dir() {
+        return Ok(());
+    }
+    for entry in std::fs::read_dir(directory)? {
+        let path = entry?.path();
+        if path.is_dir() {
+            source_files(&path, files)?;
+        } else if path.is_file() && path.extension().is_some_and(|e| e == "plenty") {
+            files.push(path.canonicalize()?);
         }
     }
     Ok(())
@@ -1389,7 +1476,7 @@ fn build_member(
             ),
             None,
             &mut progress,
-            || check_entry(&entry, &graph, false, &crate::CheckOptions::default()),
+            || check_entry(&entry, &graph, false, &crate::CheckOptions::default()).map(drop),
         )?;
     }
     let mut outputs = vec![];

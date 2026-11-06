@@ -51,6 +51,7 @@ mod generics;
 pub(crate) mod ide;
 #[cfg(test)]
 mod lexer_tests;
+mod lints;
 mod list_retag;
 mod mapping;
 mod modules;
@@ -96,6 +97,9 @@ pub(crate) struct Program {
     pub(crate) imported_symbols: HashSet<String>,
     pub(crate) source_paths: Vec<std::path::PathBuf>,
     pub(crate) inputs: Inputs,
+    /// Lint reports in output order. Only checking reports them: a program
+    /// cache hit skips the frontend.
+    pub(crate) warnings: Vec<crate::diagnostic::Warning>,
 }
 
 pub(crate) use modules::inputs::{Inputs, standard_digest};
@@ -657,6 +661,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "__min_replaces"
                 | "__max_replaces"
                 | "__test_fault"
+                | fstrings::REPR_IF_FORMATTABLE
                 | "__actor_heap"
                 | "__actor_run"
                 | "__actor_forget"
@@ -997,6 +1002,9 @@ struct Lower<'a> {
     yield_type: Type,
     loans: Vec<crate::ownership::Loan>,
     reference_locals: HashMap<u8, usize>,
+    /// Value slots of shared `values()`/`items()` loops, so a write through
+    /// one can name the `(&mut d).values()` form (issue #803).
+    shared_dictionary_values: HashSet<u8>,
     expression_temps: Vec<u8>,
     contexts: Vec<contexts::Context>,
     return_origin: Option<u8>,
@@ -1422,6 +1430,7 @@ impl Lower<'_> {
         let target = self.check_propagation(e, &source, target, literal)?;
         let success = usize::from(source.is_option());
         let payload = source.get().variants[success].fields[0].clone();
+        self.redundant_copy(value, &payload);
         let mut cleanup = Vec::new();
         if !self.contexts.is_empty() {
             self.cleanup(0, &mut cleanup);
@@ -2584,6 +2593,18 @@ impl Lower<'_> {
                 }
                 if name == "next" {
                     return self.next(args, &e.at, ops);
+                }
+                if name == fstrings::REPR_IF_FORMATTABLE {
+                    let standard =
+                        e.at.source()
+                            .as_ref()
+                            .is_some_and(|source| self.generics.source_facts(source).1);
+                    if !standard {
+                        return Err(e
+                            .at
+                            .error(format!("`{name}` is reserved for the standard library")));
+                    }
+                    return self.repr_if_formattable(args, &e.at, ops).map(Some);
                 }
                 if let Some(operation) = match name.as_str() {
                     "__caller_location" => Some(CollectionOp::CallerLocation),
@@ -4618,6 +4639,7 @@ fn lower_body(
                 yield_type: yield_type.clone(),
                 loans: Vec::new(),
                 reference_locals: HashMap::default(),
+                shared_dictionary_values: HashSet::default(),
                 indexed_lists: Vec::new(),
                 range_stop: None,
                 expression_temps: Vec::new(),
@@ -5145,6 +5167,8 @@ fn lower(
             ]);
         }
     }
+    let mut warnings = std::mem::take(&mut generics.warnings);
+    crate::diagnostic::settle(&mut warnings);
     Ok(Program {
         inputs,
         source_paths,
@@ -5152,5 +5176,6 @@ fn lower(
         ops,
         returns_status,
         exports,
+        warnings,
     })
 }

@@ -42,6 +42,11 @@ Numbers and booleans copy on assignment. Strings remain usable after
 assignment because their storage is immutable. Tuples containing only these
 values copy; tuples containing collections move.
 
+A value that copies needs no `copy(...)?`: write `name = original` for a
+string. `plenty --check` [warns](../../design/toolchain/01-building/warnings.md#redundant-copy)
+about `copy(x)?` when the type of `x` already copies. Use `copy` for values
+that move, such as lists, when you need two independent owners.
+
 A mutable owner can receive a new value after moving its previous one.
 The compiler checks all continuing paths: a move on one branch can cause a
 `use of possibly moved binding` diagnostic later.

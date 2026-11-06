@@ -4,7 +4,7 @@
 
 | Command | Use |
 |---|---|
-| `plenty --check FILE` | Type-check only; fastest feedback |
+| `plenty --check FILE` | Type-check only; fastest feedback; prints warnings, such as `redundant-copy`, on stderr |
 | `plenty FILE` | Compile and run |
 | `plenty script [OPTIONS] FILE [ARGS...]` | Run with arguments and optional embedded dependencies |
 | `plenty --compile FILE -o OUT` | Write a native executable |
@@ -32,7 +32,7 @@ an application (`src/main.plenty`); `plenty new NAME --lib` creates a library
 
 | Command | Use |
 |---|---|
-| `plenty check` | Type-check the library and every executable |
+| `plenty check` | Type-check the library and every executable; warn about `src/` files no target imports |
 | `plenty run [-- ARGS...]` | Build and run the executable |
 | `plenty test [FILTER...]` | Run tests in `tests/` |
 | `plenty build [--fast-compile]` | Write `target/PROFILE/NAME` |
@@ -166,7 +166,8 @@ use. Public classes also need explicit visibility on externally used fields
 and methods. Preserve error types and ownership in the new signatures.
 
 After each move, check the package library and every executable with
-`plenty check`, run `plenty test` for its tests, and run the relevant binaries.
+`plenty check` and resolve any warning about a `src/` file that no target
+imports, run `plenty test` for its tests, and run the relevant binaries.
 In this walkthrough, run `plenty test` in `shapes/` and `plenty check` / `plenty run`
 in `app/`. A standalone `plenty --check src/main.plenty` checks that entry's
 reachable graph; it does not establish coverage of a separate library or other

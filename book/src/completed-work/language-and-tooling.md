@@ -5,6 +5,30 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## Package check coverage (issue #805)
+
+`plenty check` now warns about each `.plenty` file below a package's `src/`
+that no target imports, and ends with a summary of the targets checked and the
+`src/` files they reached. [Check coverage](../design/toolchain/01-building/packages.md#check-coverage)
+documents the rule: fixtures and other unbuilt sources belong outside `src/`.
+
+## Coarse check timing reports
+
+[Local check reports](../development/workflow.md#check-timing-reports) retain
+full-suite compilation/execution timings and local CI step durations, including
+failures, as Markdown and JSON. [CI reports](../development/ci-workflow.md#timings)
+summarize Actions jobs and steps automatically and support historical run
+comparisons, keeping parallel runner time separate from elapsed span.
+
+## Native-engine dependency caches (issue #827)
+
+[Optional-engine CI caches](../development/ci-workflow.md#dependency-cache)
+use separate compiler and engine target directories. Compiler cache cleanup
+can no longer traverse the engine target and remove its Polars or faer
+dependencies. A new engine cache key repopulates the corrected layout; actual
+hosted cache-hit savings still need measurement. Local engine-build defaults
+and installed-library paths are unchanged.
+
 ## Linux release glibc verification (issue #730)
 
 The [v0.8.9 artifact audit](../development/glibc-compatibility.md) confirms the
@@ -36,6 +60,16 @@ Rust ABI comparisons retain explicit trapping suites. The experiment smoke
 check covers source inputs, expected rejections and generated fixtures without
 claiming to refresh historical performance measurements.
 
+
+## Optional-engine check build reuse (issue #828)
+
+[Engine CI checks](../development/ci-workflow.md#ci-build-caches-and-timings)
+and `just ci dataframe linalg` use `runtime-checks` consistently for module
+tests and runnable tutorial examples. The sales report uses the CLI already
+built for the integration tests. These checks reuse one feature configuration
+and avoid a separate sales-report compiler build. Allocation-failure checks
+remain enabled, and the
+dedicated default-feature build retains its separate coverage.
 
 ## B83 value parameters and B96 bounded integers
 
@@ -855,6 +889,12 @@ sources. Set observations, algebra, and filter mutations accept dictionary
 key views. Views keep their dictionary borrowed and remain local-only; mutable
 value/item iteration stays immediate. See [dictionary views](../design/facilities/01-builtins/dictionaries.md#snapshots-and-views)
 and the [remaining B91 scope](../backlog.md).
+
+Issue #803 documents `(&mut d).values()` and `(&mut d).items()` as the way to
+[update every value](../design/facilities/01-builtins/dictionaries.md#updating-every-value)
+without a per-key `get_mut`. `values_mut()`, `items_mut()` and `iter_mut()`,
+indexed field or method writes, and writes through a shared value loop now
+name that form in their diagnostics.
 
 ## Structural key diagnostics
 

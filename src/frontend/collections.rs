@@ -2008,6 +2008,9 @@ impl Lower<'_> {
         ]);
         self.reference_locals.insert(key_slot, loan);
         self.reference_locals.insert(value_slot, loan);
+        if !mutable {
+            self.shared_dictionary_values.insert(value_slot);
+        }
         for (name, slot, ty) in [
             (&names[0], key_slot, key_ty),
             (&names[1], value_slot, value_ty.clone()),
@@ -3920,34 +3923,13 @@ impl Lower<'_> {
                     return Err(base.at.error("str.repr takes one value"));
                 }
                 let (source, loans) = self.observe(&args[0], ops)?;
-                if source.dictionary_view() {
-                    return Err(args[0].at.error("dictionary key views cannot be formatted; materialise keys_snapshot(), into_keys(), or to_set()"));
-                }
-                // A view formats as its rows do, like the reference it is.
-                if source.restricted_storage()
-                    && !matches!(source, Ty::View(..))
-                    && (source.carried_reference().is_none() || source.format_blocker().is_some())
-                {
-                    let message = source
-                        .format_blocker()
-                        .map_or("generators cannot be formatted".into(), |b| {
-                            b.message(&source)
-                        });
-                    return Err(base.at.error(message));
-                }
-                if source.facts().shared {
-                    return Err(base.at.error(super::shared::FORMAT));
-                }
-                if source.facts().atomic && super::mutex::holds_mutex(&source) {
-                    return Err(base.at.error(super::mutex::FORMAT));
-                }
-                if source.facts().atomic {
-                    return Err(base
-                        .at
-                        .error("atomics cannot be formatted; format a value read with load()"));
-                }
-                if source.recursive_data() {
-                    return Err(base.at.error("automatic formatting is not supported for recursive data; format selected fields"));
+                if let Some(message) = repr_rejection(&source) {
+                    let at = if source.dictionary_view() {
+                        &args[0].at
+                    } else {
+                        &base.at
+                    };
+                    return Err(at.error(message));
                 }
                 let operation = CollectionOp::FormatValue(source.clone());
                 let operation = self.formatted(operation, &[source], false, &base.at)?;
@@ -4740,6 +4722,16 @@ impl Lower<'_> {
             ops.push(Op::Collection(operation));
             Self::end_reads(loans, ops);
             return Ok(Some(result));
+        }
+        if matches!(name, "values_mut" | "items_mut" | "iter_mut") {
+            let projection = if name == "items_mut" {
+                "items"
+            } else {
+                "values"
+            };
+            return Err(base.at.error(format!(
+                "dictionaries have no `{name}`; borrow the dictionary exclusively instead: `for ... in (&mut d).{projection}():` yields `&mut V`"
+            )));
         }
         Err(base
             .at
@@ -6040,4 +6032,42 @@ fn receiver_requirement(name: &str, ty: &Ty) -> Option<&'static str> {
         "clear" => "a mutable list, dictionary, or set binding or class field",
         _ => return None,
     })
+}
+
+/// Why `str.repr` rejects a value of type `source`, as the diagnostic it
+/// reports, judged from the type alone. Formatting methods with the wrong
+/// signature are reported later, while the formatting is lowered.
+pub(super) fn repr_rejection(source: &Ty) -> Option<String> {
+    if source.dictionary_view() {
+        return Some("dictionary key views cannot be formatted; materialise keys_snapshot(), into_keys(), or to_set()".into());
+    }
+    // A view formats as its rows do, like the reference it is.
+    if source.restricted_storage()
+        && !matches!(source, Ty::View(..))
+        && (source.carried_reference().is_none() || source.format_blocker().is_some())
+    {
+        return Some(
+            source
+                .format_blocker()
+                .map_or("generators cannot be formatted".into(), |b| {
+                    b.message(source)
+                }),
+        );
+    }
+    if source.facts().shared {
+        return Some(super::shared::FORMAT.into());
+    }
+    if source.facts().atomic && super::mutex::holds_mutex(source) {
+        return Some(super::mutex::FORMAT.into());
+    }
+    if source.facts().atomic {
+        return Some("atomics cannot be formatted; format a value read with load()".into());
+    }
+    if source.recursive_data() {
+        return Some(
+            "automatic formatting is not supported for recursive data; format selected fields"
+                .into(),
+        );
+    }
+    None
 }

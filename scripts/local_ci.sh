@@ -4,7 +4,7 @@
 # Usage: local_ci.sh [--release] [STEP...]
 #
 # With no STEP, runs every host step below in order. Each step's output goes to
-# target/local-ci/STEP.log; a failing step does not stop later steps, and the
+# target/local-ci/run-*/STEP.log; a failing step does not stop later steps, and the
 # exit status is nonzero if any failed. --release also runs the release
 # workflow's glibc 2.28 container build, full test suite, and distribution
 # smoke tests (scripts/release/local-check.sh --test; needs Docker).
@@ -57,10 +57,10 @@ step_engine() {
     python3 -B scripts/build_native_engine.py "$engine" --out target/engine --validate || return
     local -x "PLENTY_${upper}_TESTS=1" "PLENTY_${upper}_ENGINE=$repo/target/engine/libplenty_${engine}_v1.so"
     cargo test --locked --features runtime-checks --test integration "test_std_${engine}::" &&
-        cargo test --locked --test integration "test_tutorial::${engine}_examples_with_optional_engine" || return
+        cargo test --locked --features runtime-checks --test integration "test_tutorial::${engine}_examples_with_optional_engine" || return
     if [ "$engine" = dataframe ]; then
-        cargo build --locked --bin plenty &&
-            python3 -B examples/sales_report/check.py --plenty target/debug/plenty -v
+        # Cargo builds the CLI when it builds the integration test target.
+        python3 -B examples/sales_report/check.py --plenty target/debug/plenty -v
     fi
 }
 step_dataframe() { step_engine dataframe; }
@@ -104,20 +104,26 @@ done
 [ ${#steps[@]} -gt 0 ] || steps=("${all[@]}")
 [ -z "${release:-}" ] || steps+=(release)
 
+timing_dir="$(mktemp -d "$logs/run-$(date -u +%Y%m%dT%H%M%S)-XXXXXX")" || exit 1
+timing_rows="$timing_dir/steps.tsv"
+: > "$timing_rows"
+run_start=$SECONDS
 failed=()
 summary=()
 for step in "${steps[@]}"; do
-    log="$logs/$step.log"
+    log="$timing_dir/$step.log"
     start=$SECONDS
     printf '%-14s ... ' "$step"
     if ("step_$step") >"$log" 2>&1; then result=ok; else result=FAILED; failed+=("$step"); fi
     line="$(printf '%-14s %-6s %5ss  %s' "$step" "$result" "$((SECONDS - start))" "${log#"$repo"/}")"
     echo "$result ($((SECONDS - start))s)"
     summary+=("$line")
+    printf '%s\t%s\t%s\n' "$step" "$result" "$((SECONDS - start))" >> "$timing_rows"
 done
 
 echo
 printf '%s\n' "${summary[@]}"
+python3 -B scripts/check_timings.py local "$timing_rows" --elapsed "$((SECONDS - run_start))" --output "$timing_dir" || exit 1
 if [ ${#failed[@]} -gt 0 ]; then
     echo "local-ci: failed: ${failed[*]}"
     exit 1

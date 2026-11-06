@@ -129,7 +129,10 @@ fn expressions(#[case] source: &str, #[case] ty: &str, #[case] expected: &str) {
 #[case("def f(x: i64) -> i64:\n    x = 2\n    x", "immutable")]
 #[case("x = ()", "expected a value")]
 #[case("def f(x: ()) -> ():\n    pass", "unit parameters")]
-#[case("def print() -> ():\n    pass", "cannot redefine a builtin")]
+#[case(
+    "def print() -> ():\n    pass",
+    "cannot redefine builtin `print` as a function"
+)]
 #[case("__plenty_entry()", "expected an expression")]
 #[case(
     "def f() -> ():\n    def g() -> ():\n        pass",

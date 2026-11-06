@@ -195,7 +195,9 @@ so they return `Result`. Empty displays need a type: `xs: list[i64] = []?`.
 Indexing a missing element or key traps; `get` returns an `Option`.
 Dictionaries have no indexed assignment: `insert` adds or replaces,
 `get_mut` returns `Option[&mut V]` to change a value in place, and
-`get_or_insert(k, default)?` returns `&mut V` after inserting a missing key. See
+`get_or_insert(k, default)?` returns `&mut V` after inserting a missing key.
+`for v in (&mut d).values():` and `for k, v in (&mut d).items():` change
+every value in place. See
 [collections](../facilities/01-builtins/collections.md),
 [lists](../facilities/01-builtins/lists.md), and
 [dictionaries](../facilities/01-builtins/dictionaries.md).
