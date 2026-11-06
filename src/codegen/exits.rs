@@ -54,8 +54,8 @@
 //! cannot forward a lone exit's stored values to them. A loop-free body
 //! passes parameters: it has no hot loop to protect, and a hot return path
 //! (a constructor called in a loop) would pay a store and load. An inlined
-//! callee's loop marks its caller only once lowered, so exits before it
-//! still pass parameters. `break` and `continue` always pass parameters.
+//! callee's loop, at any inlining depth, marks its caller only once lowered,
+//! so exits before it still pass parameters. `break` and `continue` always pass parameters.
 use super::*;
 use cranelift_codegen::ir::{
     FuncRef, JumpTableData, MemFlagsData, SigRef, Signature, StackSlot, StackSlotData,

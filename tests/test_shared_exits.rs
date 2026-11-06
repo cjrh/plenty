@@ -483,6 +483,9 @@ def main() -> Result[(), OverflowError[i64]]:
     );
 }
 
+// The listing patterns below (`j` branches, `(%rsp)` stores) are x86-64's;
+// AArch64 listings have not been checked against them.
+#[cfg(target_arch = "x86_64")]
 /// Functions with a hot loop and exits of each kind: a lone `?` failure, tail
 /// calls and returns, each carrying the loop's total and releasing an owned
 /// list.
@@ -540,6 +543,7 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     Ok(())
 "#;
 
+#[cfg(target_arch = "x86_64")]
 /// The instructions of each innermost loop's hot path in a `--dump asm`
 /// listing: the blocks between a backward jump and its target from which the
 /// jump is reachable, so exits and cold blocks are left out.
@@ -629,6 +633,7 @@ fn hot_loops(body: &str) -> Vec<Vec<&str>> {
 /// tail calls' arguments and returned values joined the loop's total in one
 /// register-allocation bundle spanning the function, and splitting it stored
 /// and reloaded the total on every iteration.
+#[cfg(target_arch = "x86_64")]
 #[test]
 fn values_passed_to_shared_exits_stay_out_of_hot_loops() {
     let dir = tempfile::tempdir().unwrap();
@@ -667,4 +672,66 @@ fn values_passed_to_shared_exits_stay_out_of_hot_loops() {
             );
         }
     }
+}
+
+/// A loop inlined through a loop-free callee marks the outer caller too, so
+/// `driver`'s exits after the call stage their values (issue #811). The
+/// reloads address the staging slot at offset 8.
+#[test]
+fn loops_inlined_through_a_callee_stage_the_callers_exits() {
+    let program = r#"def work(xs: &list[i64], n: i64) -> Result[i64, OverflowError[i64]]:
+    mut total = 0
+    for k in range(n):
+        total += xs[k & 3]
+    Ok(total)
+
+def mid(xs: &list[i64], n: i64) -> Result[i64, OverflowError[i64]]:
+    t = work(xs, n)?
+    Ok(t + 1)
+
+def driver(n: i64) -> Result[i64, AllocError | OverflowError[i64]]:
+    ys = [1, 2, 3, 4]?
+    if n < 0:
+        return Ok(-1)
+    t = mid(&ys, n)?
+    if t > 5:
+        return Ok(t + ys[0])
+    Ok(t)
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    print(driver(100)?)?
+    Ok(())
+"#;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("p.plenty"), program).unwrap();
+    let output = std::process::Command::new(support::plenty_bin())
+        .current_dir(dir.path())
+        .env("PLENTY_CACHE", "off")
+        .args([
+            "--dump",
+            "clif",
+            "--dump-filter",
+            "driver",
+            "p.plenty",
+            "-o",
+            "out",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let clif = std::fs::read_to_string(dir.path().join("out/clif.txt")).unwrap();
+    // Both callees must be inlined for this to test the propagation.
+    assert!(
+        !clif.contains("__plenty_fn_work") && !clif.contains("__plenty_fn_mid"),
+        "{clif}"
+    );
+    assert!(
+        clif.lines()
+            .any(|line| line.contains("stack_addr") && line.trim_end().ends_with("+8")),
+        "driver's exits pass parameters\n{clif}"
+    );
 }

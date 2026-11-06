@@ -387,10 +387,10 @@ impl Lowerer<'_, '_> {
             trap_blocks: HashMap::default(),
             moves: Default::default(),
         };
-        let callee_loops = callee.exits.as_ref().is_some_and(|e| e.has_loop());
         let lowered = callee.lower_body(body, inputs);
         self.collection_scratch = callee.collection_scratch;
-        lowered.map_err(|e| -> Box<dyn Error> { format!("in inlined `{name}`: {e}").into() })?;
+        let callee_loops = lowered
+            .map_err(|e| -> Box<dyn Error> { format!("in inlined `{name}`: {e}").into() })?;
         if callee_loops && let Some(exits) = &mut self.exits {
             exits.mark_loop();
         }
@@ -406,7 +406,9 @@ impl Lowerer<'_, '_> {
     }
 
     /// Lower an inlined body as [`build_user_function`] lowers a function's.
-    fn lower_body(&mut self, body: &[Op], inputs: usize) -> Result<()> {
+    /// Returns whether it has a loop, counting loops of callees inlined
+    /// into it at any depth, so the caller's later exits stage their values.
+    fn lower_body(&mut self, body: &[Op], inputs: usize) -> Result<bool> {
         self.note_stable_inputs(inputs);
         // Argument addresses belong to the caller: snapshot inline values.
         for (i, (_, ty)) in self.locals.iter().enumerate().take(inputs) {
@@ -424,9 +426,11 @@ impl Lowerer<'_, '_> {
         if !self.terminated {
             self.leave(self.stack.clone(), &Arc::from([]))?;
         }
+        // Read before `finish_exits` takes the exits.
+        let has_loop = self.exits.as_ref().is_some_and(|e| e.has_loop());
         self.finish_exits()?;
         self.seal_trap_blocks();
         self.finish_portable_simd();
-        Ok(())
+        Ok(has_loop)
     }
 }
