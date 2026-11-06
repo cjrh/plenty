@@ -45,67 +45,67 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.env`](#stdenv): 1237-1251
 - [`std.error`](#stderror): 1253-1273
 - [`std.fmt`](#stdfmt): 1275-1342
-- [`std.fs`](#stdfs): 1344-1438
-- [`std.fs.dirs`](#stdfsdirs): 1440-1450
-- [`std.fs.lock`](#stdfslock): 1452-1466
-- [`std.fs.watch`](#stdfswatch): 1468-1503
-- [`std.graph`](#stdgraph): 1505-1593
-- [`std.http`](#stdhttp): 1595-1665
-- [`std.http.decoder`](#stdhttpdecoder): 1667-1684
-- [`std.http.body`](#stdhttpbody): 1686-1721
-- [`std.http.client`](#stdhttpclient): 1723-1833
-- [`std.http.cookie`](#stdhttpcookie): 1835-1867
-- [`std.http.files`](#stdhttpfiles): 1869-1882
-- [`std.http.https`](#stdhttphttps): 1884-1898
-- [`std.http.proxy`](#stdhttpproxy): 1900-1921
-- [`std.http.server`](#stdhttpserver): 1923-2008
-- [`std.http.sse`](#stdhttpsse): 2010-2029
-- [`std.http.tls`](#stdhttptls): 2031-2048
-- [`std.http.typed`](#stdhttptyped): 2050-2083
-- [`std.http.websocket`](#stdhttpwebsocket): 2085-2120
-- [`std.http.wss`](#stdhttpwss): 2122-2128
-- [`std.image`](#stdimage): 2130-2176
-- [`std.io`](#stdio): 2178-2284
-- [`std.io.typed`](#stdiotyped): 2286-2324
-- [`std.json`](#stdjson): 2326-2390
-- [`std.jwt`](#stdjwt): 2392-2439
-- [`std.log`](#stdlog): 2441-2508
-- [`std.markdown`](#stdmarkdown): 2510-2544
-- [`std.template`](#stdtemplate): 2546-2567
-- [`std.math`](#stdmath): 2569-2640
-- [`std.mime`](#stdmime): 2642-2668
-- [`std.net`](#stdnet): 2670-2752
-- [`std.path`](#stdpath): 2754-2771
-- [`std.process`](#stdprocess): 2773-2822
-- [`std.random`](#stdrandom): 2824-2845
-- [`std.ready`](#stdready): 2847-2878
-- [`std.regex`](#stdregex): 2880-2933
-- [`std.report`](#stdreport): 2935-2942
-- [`std.secrets`](#stdsecrets): 2944-2970
-- [`std.shlex`](#stdshlex): 2972-2981
-- [`std.sketch`](#stdsketch): 2983-3021
-- [`std.sketch.xor`](#stdsketchxor): 3023-3034
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3036-3051
-- [`std.signal`](#stdsignal): 3053-3070
-- [`std.simd`](#stdsimd): 3072-3173
-- [`std.stat`](#stdstat): 3175-3208
-- [`std.plot`](#stdplot): 3210-3299
-- [`std.linalg`](#stdlinalg): 3301-3342
-- [`std.sync`](#stdsync): 3344-3362
-- [`std.system`](#stdsystem): 3364-3422
-- [`std.tempfile`](#stdtempfile): 3424-3456
-- [`std.test`](#stdtest): 3458-3500
-- [`std.text`](#stdtext): 3502-3545
-- [`std.thread`](#stdthread): 3547-3551
-- [`std.time`](#stdtime): 3553-3597
-- [`std.tls`](#stdtls): 3599-3681
-- [`std.toml`](#stdtoml): 3683-3732
-- [`std.unicode`](#stdunicode): 3734-3746
-- [`std.units`](#stdunits): 3748-3985
-- [`std.units.catalogue`](#stdunitscatalogue): 3987-4765
-- [`std.url`](#stdurl): 4767-4795
-- [`std.uuid`](#stduuid): 4797-4820
-- [`std.xml`](#stdxml): 4822-4855
+- [`std.fs`](#stdfs): 1344-1441
+- [`std.fs.dirs`](#stdfsdirs): 1443-1453
+- [`std.fs.lock`](#stdfslock): 1455-1469
+- [`std.fs.watch`](#stdfswatch): 1471-1506
+- [`std.graph`](#stdgraph): 1508-1596
+- [`std.http`](#stdhttp): 1598-1668
+- [`std.http.decoder`](#stdhttpdecoder): 1670-1687
+- [`std.http.body`](#stdhttpbody): 1689-1724
+- [`std.http.client`](#stdhttpclient): 1726-1836
+- [`std.http.cookie`](#stdhttpcookie): 1838-1870
+- [`std.http.files`](#stdhttpfiles): 1872-1885
+- [`std.http.https`](#stdhttphttps): 1887-1901
+- [`std.http.proxy`](#stdhttpproxy): 1903-1924
+- [`std.http.server`](#stdhttpserver): 1926-2011
+- [`std.http.sse`](#stdhttpsse): 2013-2032
+- [`std.http.tls`](#stdhttptls): 2034-2051
+- [`std.http.typed`](#stdhttptyped): 2053-2086
+- [`std.http.websocket`](#stdhttpwebsocket): 2088-2123
+- [`std.http.wss`](#stdhttpwss): 2125-2131
+- [`std.image`](#stdimage): 2133-2179
+- [`std.io`](#stdio): 2181-2287
+- [`std.io.typed`](#stdiotyped): 2289-2327
+- [`std.json`](#stdjson): 2329-2393
+- [`std.jwt`](#stdjwt): 2395-2442
+- [`std.log`](#stdlog): 2444-2511
+- [`std.markdown`](#stdmarkdown): 2513-2547
+- [`std.template`](#stdtemplate): 2549-2570
+- [`std.math`](#stdmath): 2572-2643
+- [`std.mime`](#stdmime): 2645-2671
+- [`std.net`](#stdnet): 2673-2755
+- [`std.path`](#stdpath): 2757-2774
+- [`std.process`](#stdprocess): 2776-2825
+- [`std.random`](#stdrandom): 2827-2848
+- [`std.ready`](#stdready): 2850-2881
+- [`std.regex`](#stdregex): 2883-2936
+- [`std.report`](#stdreport): 2938-2945
+- [`std.secrets`](#stdsecrets): 2947-2973
+- [`std.shlex`](#stdshlex): 2975-2984
+- [`std.sketch`](#stdsketch): 2986-3024
+- [`std.sketch.xor`](#stdsketchxor): 3026-3037
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3039-3054
+- [`std.signal`](#stdsignal): 3056-3073
+- [`std.simd`](#stdsimd): 3075-3176
+- [`std.stat`](#stdstat): 3178-3211
+- [`std.plot`](#stdplot): 3213-3302
+- [`std.linalg`](#stdlinalg): 3304-3345
+- [`std.sync`](#stdsync): 3347-3365
+- [`std.system`](#stdsystem): 3367-3425
+- [`std.tempfile`](#stdtempfile): 3427-3459
+- [`std.test`](#stdtest): 3461-3503
+- [`std.text`](#stdtext): 3505-3548
+- [`std.thread`](#stdthread): 3550-3554
+- [`std.time`](#stdtime): 3556-3600
+- [`std.tls`](#stdtls): 3602-3684
+- [`std.toml`](#stdtoml): 3686-3735
+- [`std.unicode`](#stdunicode): 3737-3749
+- [`std.units`](#stdunits): 3751-3988
+- [`std.units.catalogue`](#stdunitscatalogue): 3990-4768
+- [`std.url`](#stdurl): 4770-4798
+- [`std.uuid`](#stduuid): 4800-4823
+- [`std.xml`](#stdxml): 4825-4858
 
 ## `std.actor`
 
@@ -1351,11 +1351,14 @@ enum FsError
 class Root
     def open_dir(self, name: &Path) -> Result[Root, IoError]
     def read_file(self, name: &Path) -> Result[FileStream, IoError]
-    def create_dir(self, name: &Path) -> Result[(), IoError]
+    def create_dir(self, name: &Path, unix_mode: u32 = 0o700u32) -> Result[(), IoError]
+    def create_file(self, name: &Path, unix_mode: u32 = 0o600u32) -> Result[FileStream, IoError]
+    def set_unix_mode(self, unix_mode: u32) -> Result[(), IoError]
     def remove_file(self, name: &Path) -> Result[(), IoError]
     def remove_dir(self, name: &Path) -> Result[(), IoError]
     def move(self, source: &Path, destination: &Path) -> Result[(), IoError]
     def names(self) -> Result[Names, IoError]
+def set_file_unix_mode(stream: &FileStream, unix_mode: u32) -> Result[(), IoError]
 def root(path: &Path) -> Result[Root, IoError]
 class Names
     def next(self: &mut Names) -> Result[Option[Path], IoError]

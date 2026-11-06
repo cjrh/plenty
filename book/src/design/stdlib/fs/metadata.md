@@ -77,3 +77,7 @@ libc/kernel statx support; absent kernel support or required basic fields return
 ## Acknowledgements
 
 - Follows Rust's [`metadata`/`symlink_metadata`](https://doc.rust-lang.org/std/fs/fn.symlink_metadata.html) split and its Unix `statx` backend.
+
+To update ordinary permission bits, use the held-handle operations
+[`Root.set_unix_mode` and `set_file_unix_mode`](helpers.md#private-creation-and-permission-changes).
+Changing a `Permissions` observation's fields does not change the filesystem.

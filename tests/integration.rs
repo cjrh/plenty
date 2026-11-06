@@ -248,6 +248,9 @@ mod test_float_left_constants;
 mod test_float_negation;
 #[path = "test_float_rounding.rs"]
 mod test_float_rounding;
+#[path = "test_fs_permissions.rs"]
+mod test_fs_permissions;
+
 #[path = "test_fs_helpers.rs"]
 mod test_fs_helpers;
 #[path = "test_fstrings.rs"]

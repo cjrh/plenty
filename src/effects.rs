@@ -83,6 +83,8 @@ impl FsOp {
             | Self::Closed
             | Self::Child
             | Self::ReadFile
+            | Self::CreateFile
+            | Self::SetUnixMode
             | Self::MakeDir
             | Self::RemoveFile
             | Self::RemoveDir

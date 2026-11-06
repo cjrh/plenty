@@ -79,3 +79,41 @@ lockfile in a trusted directory and leave that file in place after releasing
 the lock: removing it while another process owns it can split coordination
 across different inodes. Locks close automatically, and normal subprocesses
 do not inherit them across exec.
+
+## Create a private named file
+
+When a file should be visible immediately and must not already exist, use
+`Root.create_file`. Its default 0600 mode prevents group and other access from
+creation; `create_dir` defaults to 0700. Both are restricted by the process
+umask. An existing file, directory or symlink causes an error.
+
+```plenty
+import std.io
+import std.fs as fs
+import std.path as path
+
+def main() -> Result[(), AllocError | IoError | std.io.StreamError]:
+    parent = fs.root(&path.from_text(".")?)?
+    name = path.from_text("private-state")?
+    parent.create_dir(&name)?
+    directory = parent.open_dir(&name)?
+    token = path.from_text("token")?
+    mut file = directory.create_file(&token)?
+    file.file.write("secret")?
+    fs.set_file_unix_mode(&file, 0o400u32)?
+    file.close()?
+    directory.remove_file(&token)?
+    parent.remove_dir(&name)?
+    Ok(())
+```
+
+```output
+```
+
+`set_file_unix_mode` changes the held file, so a replacement at its old path
+cannot redirect the update. `Root.set_unix_mode` does the same for a directory.
+Setting a mode does not close the handle or revoke existing access. Unlike
+staging, a named file remains after a write failure; use the staging pattern
+when readers must see only complete output. See the
+[permission contracts](../../design/stdlib/fs/helpers.md#private-creation-and-permission-changes)
+for custom modes, ACLs, umask and errors.

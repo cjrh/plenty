@@ -157,3 +157,11 @@ Dependencies are not transitive: import only what your manifest declares.
 - Signatures show ownership: `&T` borrows, `&mut T` borrows exclusively, a
   bare `T` takes ownership. A `Result[..., E]` names exactly the errors a
   caller must handle or propagate.
+
+For private filesystem state, `std.fs.Root.create_file` exclusively creates a
+read/write file with default mode 0600; `Root.create_dir` defaults to 0700.
+Both accept `unix_mode`, restricted by the OS creation policy. Change permissions
+through the held handle using `Root.set_unix_mode` or `std.fs.set_file_unix_mode`.
+Read the [rooted filesystem contracts](../../../../book/src/design/stdlib/fs/helpers.md)
+before relying on symlink, umask, existing-path or platform behavior. Use
+`temporary_file` and publication when incomplete writes must stay unnamed.
