@@ -487,12 +487,13 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
             print!("{}", usage(program));
         }
         [flag, source] if (flag == "--check" || flag == "--check-module") => {
-            plenty::check_file_with_options(
+            let warnings = plenty::check_file_with_options(
                 Path::new(source),
                 root.as_deref(),
                 flag == "--check",
                 &check,
             )?;
+            print_warnings(&warnings);
         }
         [flag, source, option, output]
             if flag == "--fuzz" && (option == "-o" || option == "--output") =>
@@ -544,6 +545,14 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
     Ok(ExitCode::SUCCESS)
 }
 
+/// Lint warnings go to stderr and leave the exit status unchanged; see
+/// book/src/design/toolchain/01-building/warnings.md.
+fn print_warnings(warnings: &[plenty::Warning]) {
+    for warning in warnings {
+        eprintln!("{warning}");
+    }
+}
+
 /// The modes that accept `--package-graph`. The graph's first package must
 /// contain FILE.
 fn with_graph(
@@ -556,7 +565,9 @@ fn with_graph(
     let graph = plenty::project::SourceGraph::read(graph)?;
     match args {
         [flag, source] if flag == "--check" || flag == "--check-module" => {
-            plenty::project::check_entry(Path::new(source), &graph, flag == "--check", check)?;
+            let warnings =
+                plenty::project::check_entry(Path::new(source), &graph, flag == "--check", check)?;
+            print_warnings(&warnings);
         }
         [flag, source, option, output]
             if flag == "--compile" && (option == "-o" || option == "--output") =>

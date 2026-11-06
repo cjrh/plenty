@@ -219,6 +219,7 @@ pub(super) fn prepare(
         unchecked: crate::UncheckedMode::Trap,
         source_facts: None,
         retention,
+        warnings: Vec::new(),
     };
     for f in functions {
         if table.declared(&f.name).is_some()
@@ -329,6 +330,8 @@ pub(super) struct Engine {
     /// per function.
     source_facts: Option<(Arc<str>, Arc<str>, bool)>,
     pub(super) retention: retention::Retention,
+    /// Lint reports so far, in lowering order; see `diagnostic::settle`.
+    pub(super) warnings: Vec<crate::diagnostic::Warning>,
 }
 
 /// What later calls need from a concrete function after it joined the queue.

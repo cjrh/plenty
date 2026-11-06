@@ -1265,12 +1265,14 @@ pub fn check_entry(
     graph: &SourceGraph,
     require_main: bool,
     options: &crate::CheckOptions,
-) -> Result<()> {
+) -> Result<Vec<crate::Warning>> {
     let mut heap = crate::value::Heap::default();
-    let program = crate::frontend::compile_graph(entry, graph, require_main, &mut heap, *options)?;
+    let mut program =
+        crate::frontend::compile_graph(entry, graph, require_main, &mut heap, *options)?;
     let checked = crate::op::check(&program.ops);
+    let warnings = std::mem::take(&mut program.warnings);
     crate::teardown((program, heap), options);
-    checked
+    checked.map(|()| warnings)
 }
 
 fn status(verb: &str, message: impl std::fmt::Display) {
@@ -1281,23 +1283,35 @@ fn title(package: &Package) -> String {
     format!("{} v{}", package.manifest.name, package.manifest.version)
 }
 
-/// Check every target of the selected packages.
+/// Check every target of the selected packages, printing each package's
+/// lint warnings once on stderr after its targets pass.
 pub fn check(directory: &Path, options: &BuildOptions) -> Result<()> {
     let project = open(directory, options)?;
     for &member in &project.selected {
         let package = project.member(member);
         status("Checking", title(package));
         let graph = project.source_graph(member);
+        // Targets share modules, so the same warning can come from each.
+        let mut warnings = Vec::new();
         if let Some(library) = &package.manifest.library {
-            check_entry(
+            warnings.extend(check_entry(
                 &package.directory.join(library),
                 &graph,
                 false,
                 &options.check,
-            )?;
+            )?);
         }
         for (_, entry) in &package.manifest.binaries {
-            check_entry(&package.directory.join(entry), &graph, true, &options.check)?;
+            warnings.extend(check_entry(
+                &package.directory.join(entry),
+                &graph,
+                true,
+                &options.check,
+            )?);
+        }
+        crate::diagnostic::settle(&mut warnings);
+        for warning in &warnings {
+            eprintln!("{warning}");
         }
     }
     Ok(())
@@ -1389,7 +1403,7 @@ fn build_member(
             ),
             None,
             &mut progress,
-            || check_entry(&entry, &graph, false, &crate::CheckOptions::default()),
+            || check_entry(&entry, &graph, false, &crate::CheckOptions::default()).map(drop),
         )?;
     }
     let mut outputs = vec![];

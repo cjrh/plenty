@@ -94,6 +94,8 @@ pub struct Diagnostic {
 #[derive(Default, Debug)]
 pub struct Analysis {
     pub diagnostics: Vec<Diagnostic>,
+    /// Lint warnings, by lint; they never stop a check.
+    pub warnings: Vec<(crate::Lint, Diagnostic)>,
     pub symbols: Vec<Symbol>,
     pub references: Vec<Reference>,
     pub inferred_bindings: Vec<InferredBinding>,
@@ -192,6 +194,7 @@ struct Recorder {
     /// and lowering skips them.
     skipped: HashSet<String>,
     diagnostics: Vec<crate::diagnostic::Diagnostic>,
+    warnings: Vec<crate::diagnostic::Warning>,
 }
 
 /// One analysis's recorder, installed in place of the thread's current one.
@@ -564,12 +567,14 @@ fn check(path: &Path, graph: Option<&crate::project::SourceGraph>) -> Result<()>
     };
     resolved.require_main = resolved.functions.iter().any(|f| f.name == "main");
     let mut heap = Heap::default();
-    let program = lower(
+    let mut program = lower(
         resolved,
         &mut heap,
         crate::CheckOptions::default(),
         crate::UncheckedMode::Trap,
     )?;
+    let warnings = std::mem::take(&mut program.warnings);
+    with(|r| r.warnings = warnings);
     // A function that failed was left out, so later passes would report
     // what is missing rather than what is wrong.
     if with(|r| r.diagnostics.is_empty()) {
@@ -703,6 +708,7 @@ fn finish(recorder: Recorder) -> Analysis {
         types,
         inferred_bindings,
         diagnostics,
+        warnings,
         ..
     } = recorder;
     let lines: HashMap<&Arc<str>, Vec<usize>> = texts
@@ -812,8 +818,13 @@ fn finish(recorder: Recorder) -> Analysis {
         .into_iter()
         .map(|found| diagnostic(found, &texts))
         .collect();
+    let warnings = warnings
+        .into_iter()
+        .map(|found| (found.lint, diagnostic(found.diagnostic, &texts)))
+        .collect();
     Analysis {
         diagnostics,
+        warnings,
         symbols,
         references: found,
         inferred_bindings,

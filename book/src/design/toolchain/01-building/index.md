@@ -7,6 +7,8 @@ embedded in the compiler. Program builds invoke neither Cargo nor rustc.
 - [Installing a release](installing.md): release archives, requirements, and
   `PATH` setup.
 - [Commands](commands.md): checking, running, executable and library output.
+- [Warnings](warnings.md): lints that checking reports, such as
+  `redundant-copy`.
 - [Neovim](neovim.md): file detection, syntax highlighting, editing defaults,
   and language server setup.
 - [Language server](language-server.md): `plenty lsp` diagnostics, hover, go

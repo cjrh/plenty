@@ -9,7 +9,7 @@ is the supported editor; see [Neovim support](neovim.md) for its setup.
 
 | Request | Behavior |
 |---|---|
-| Diagnostics | The file's check errors, published when it is opened, saved, or edited (after a 150 ms pause) |
+| Diagnostics | The file's check errors and [warnings](warnings.md), published when it is opened, saved, or edited (after a 150 ms pause) |
 | Hover | The declaration as written and its docstring, as Markdown |
 | Go to definition | The declaration's name, in the same file, another module, a dependency, or `std` |
 | Inlay hints | Inferred types after unannotated simple local binding names, when the current check succeeds |

@@ -22,6 +22,9 @@ These commands compile single files. `plentyc` accepts exactly these commands;
 | `plenty --print-target` | Print the packaged runtime's target and CPU baseline |
 | `plenty --version` (`-V`) | Print the compiler's version and target: `plenty X.Y.Z (x86_64-unknown-linux-gnu)`, where `X.Y.Z` is the installed version |
 
+Checking modes print [warnings](warnings.md) on stderr; they do not change the
+exit status.
+
 `--check-all-methods` with `--check` or `--check-module` also checks every
 method of every instance the program creates of a generic class or enum it
 declares, including methods nothing uses, which are otherwise
