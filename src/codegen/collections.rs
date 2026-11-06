@@ -1265,11 +1265,28 @@ impl Lowerer<'_, '_> {
         // borrowed key of `get_mut(&key)` and the buffer a `Bytes` method
         // reads through `self` (issue #744).
         let only_reads = operation.only_reads_operands();
+        // A mutation through `&mut` changes the receiver in place, and the
+        // exclusive loan keeps its owner alive, so the receiver's copy is read
+        // in place too (issue #762).
+        let receiver_in_place = operation.mutates_receiver_in_place();
+        // Inserted operands are owned on the stack, moved or copied alike,
+        // and the runtime adopts them: it stores their counts or drops them
+        // once on a failed insert or a `get_or_insert` hit (issue #762). One
+        // read in place would give the runtime a count it never had, so none
+        // is, whatever the rules above say.
+        let inserts = matches!(
+            operation,
+            CollectionOp::Insert(_) | CollectionOp::TryInsert(_) | CollectionOp::DictGetOrInsert(_)
+        );
         let mut values = Vec::new();
         let mut held = Vec::new();
-        for input in inputs.iter().rev() {
+        for (i, input) in inputs.iter().enumerate().rev() {
             let (value, _) = self.pop_typed(input.clone())?;
-            let in_place = only_reads || reads_in_place && *input == Ty::Str;
+            let adopted = inserts && i > 0;
+            let in_place = !adopted
+                && (only_reads
+                    || reads_in_place && *input == Ty::Str
+                    || receiver_in_place && i == 0);
             held.push(in_place && self.forget_slot_copy(value));
             values.push(self.pack(value, input));
         }
@@ -1392,6 +1409,11 @@ impl Lowerer<'_, '_> {
         };
         arguments.extend(cell);
         let result = self.collection_call_at(operation.opcode(), &arguments, descriptor, site)?;
+        let result = if let CollectionOp::DictGetOrInsert(_) = operation {
+            self.get_or_insert_hit(result, &values[1..], &inputs[1..])
+        } else {
+            result
+        };
         let result = self.unpack(result, &output);
         let (result, output) = match (&formatted, cell) {
             (Some(formatted), Some(cell)) => {
@@ -1406,19 +1428,49 @@ impl Lowerer<'_, '_> {
         } else {
             self.snapshot_inline(result, &output)
         };
-        // Inserted affine values move into the collection; the runtime
-        // retains only the copyable operands it stores.
-        let inserts = matches!(
-            operation,
-            CollectionOp::Insert(_) | CollectionOp::TryInsert(_) | CollectionOp::DictGetOrInsert(_)
-        );
+        // The runtime owns the adopted operands now.
         for (i, (value, ty)) in values.iter().zip(&inputs).enumerate() {
-            if !(held[i] || inserts && i > 0 && ty.affine()) {
+            if !(held[i] || inserts && i > 0) {
                 self.release(*value, ty);
             }
         }
         self.stack.push((result, output));
         Ok(())
+    }
+
+    /// The `dict.get_or_insert` result word without its hit flag. A hit
+    /// leaves the copyable `operands` with the caller, so they are released
+    /// here on that path only; a miss stored them (issue #762).
+    fn get_or_insert_hit(
+        &mut self,
+        result: cranelift_codegen::ir::Value,
+        operands: &[cranelift_codegen::ir::Value],
+        operand_types: &[Ty],
+    ) -> cranelift_codegen::ir::Value {
+        let (low, high) = self.bcx.ins().isplit(result);
+        let hit = self.bcx.ins().icmp_imm_u(
+            cranelift_codegen::ir::condcodes::IntCC::Equal,
+            high,
+            crate::collection_opcodes::GET_OR_INSERT_HIT,
+        );
+        if operand_types.iter().any(|ty| !ty.affine() && ty.managed()) {
+            let release = self.bcx.create_block();
+            let done = self.bcx.create_block();
+            self.bcx.ins().brif(hit, release, &[], done, &[]);
+            self.bcx.switch_to_block(release);
+            self.bcx.seal_block(release);
+            for (value, ty) in operands.iter().zip(operand_types) {
+                if !ty.affine() {
+                    self.release(*value, ty);
+                }
+            }
+            self.bcx.ins().jump(done, &[]);
+            self.bcx.switch_to_block(done);
+            self.bcx.seal_block(done);
+        }
+        let zero = self.bcx.ins().iconst(types::I64, 0);
+        let high = self.bcx.ins().select(hit, zero, high);
+        self.bcx.ins().iconcat(low, high)
     }
 
     /// The `Result` of a formatting operation whose methods may fail: the
@@ -1727,6 +1779,12 @@ impl Lowerer<'_, '_> {
     pub(super) fn lower_loop(&mut self, condition: &[Op], body: &[Op]) -> Result<()> {
         self.lower_clist_simd_prefix(condition, body);
         let initial = self.stack.clone();
+        // This loop's index facts start here; they cover body reads only.
+        let facts = self.counters.bounds.below_locals.len();
+        // An unrotated loop's body reads the header's values, which also
+        // reach the exit, so its index facts would hold after a loop that
+        // never ran (issue #816). Only a rotated loop records them.
+        let rotated = self.rotatable(condition);
         let types: Vec<Ty> = self.locals.iter().map(|(_, ty)| ty.clone()).collect();
         let counter = super::induction::analyze(condition, body, &types)
             .filter(|counter| self.local_address(counter.local).is_none());
@@ -1789,6 +1847,7 @@ impl Lowerer<'_, '_> {
         });
         let cursor_below = cursor
             .as_ref()
+            .filter(|_| rotated)
             .map(|cursor| (cursor.index, self.read_local(cursor.length)));
         if let Some(below) = cursor_below {
             self.counters.nonnegative_locals.push(below.0);
@@ -1806,12 +1865,17 @@ impl Lowerer<'_, '_> {
         let below = range
             .as_ref()
             .zip(stop)
+            .filter(|_| rotated)
             .map(|(range, stop)| (range.target, stop));
         if let Some(below) = below {
             self.counters.bounds.below_locals.push(below);
         }
         let low = nonnegative.as_ref().map(|counter| counter.local);
-        let mut relation = self.enter_relation(condition, body, low, &types, invariant)?;
+        let mut relation = if rotated {
+            self.enter_relation(condition, body, low, &types, invariant)?
+        } else {
+            None
+        };
         let proven = |index| {
             Some(index) == proven_step || Some(index) == bound_step || unit_steps.contains(&index)
         };
@@ -1838,7 +1902,9 @@ impl Lowerer<'_, '_> {
             };
             let outer = self.counters.bounds.version.replace(version);
             let fast = self.bcx.create_block();
-            self.lower_loop_copy(condition, body, fast, exit, &proven, &mut None)?;
+            self.lower_loop_copy(
+                condition, body, fast, exit, &proven, &mut None, facts, rotated, false,
+            )?;
             let version = std::mem::replace(&mut self.counters.bounds.version, outer).unwrap();
             self.stack = initial.clone();
             self.terminated = false;
@@ -1883,14 +1949,29 @@ impl Lowerer<'_, '_> {
                 let checked = self.bcx.create_block();
                 self.bcx.ins().brif(holds.unwrap(), fast, &[], checked, &[]);
                 self.bcx.seal_block(fast);
-                self.lower_loop_copy(condition, body, checked, exit, &proven, &mut None)?;
-                self.bcx.seal_block(checked);
+                if !self.lower_loop_copy(
+                    condition, body, checked, exit, &proven, &mut None, facts, rotated, true,
+                )? {
+                    self.bcx.seal_block(checked);
+                }
             }
         } else {
             let header = self.bcx.create_block();
             self.bcx.ins().jump(header, &[]);
-            self.lower_loop_copy(condition, body, header, exit, &proven, &mut relation)?;
-            self.bcx.seal_block(header);
+            // A rotated header has no back edge, so it is sealed early.
+            if !self.lower_loop_copy(
+                condition,
+                body,
+                header,
+                exit,
+                &proven,
+                &mut relation,
+                facts,
+                rotated,
+                true,
+            )? {
+                self.bcx.seal_block(header);
+            }
         }
         if below.is_some() {
             self.counters.bounds.below_locals.pop();
@@ -1939,7 +2020,20 @@ impl Lowerer<'_, '_> {
     }
 
     /// Lowers one copy of a loop from its `header`, which the caller enters
-    /// and seals, to `exit`.
+    /// and seals, to `exit`. `facts` is the length of `below_locals` before
+    /// this loop pushed its body facts. `rotated` is the caller's
+    /// [`Self::rotatable`] result. `seal` says that `header` has all its
+    /// predecessors; a rotated copy then seals it before the body and returns
+    /// true. Otherwise the body's reads of variables set before the loop
+    /// resolve to block parameters, and drops in debug builds cannot see
+    /// that a local is empty.
+    ///
+    /// A [rotated](Self::rotatable) loop tests its condition in `header`
+    /// once, as a guard, and again in a latch after the body, which branches
+    /// back to the body: a pass runs one conditional branch and no `jmp`
+    /// (issue #726). Both copies run the same ops at the same positions, and
+    /// the condition still runs once before each pass and once at the end.
+    #[allow(clippy::too_many_arguments)]
     fn lower_loop_copy(
         &mut self,
         condition: &[Op],
@@ -1948,13 +2042,36 @@ impl Lowerer<'_, '_> {
         exit: cranelift_codegen::ir::Block,
         proven: &dyn Fn(usize) -> bool,
         relation: &mut Option<(usize, usize)>,
-    ) -> Result<()> {
+        facts: usize,
+        rotated: bool,
+        seal: bool,
+    ) -> Result<bool> {
         let iteration = self.bcx.create_block();
+        let latch = if rotated {
+            self.bcx.create_block()
+        } else {
+            header
+        };
+        let entry = (self.stack.clone(), self.position.clone(), self.bcx.srcloc());
         self.bcx.switch_to_block(header);
-        for op in condition {
-            self.lower(op)?;
+        if rotated && seal {
+            self.bcx.seal_block(header);
         }
-        let (test, _) = self.pop_typed(Ty::Bool)?;
+        let test = if rotated {
+            // The relation's facts, like `facts`, hold in the body only.
+            let high = relation
+                .is_some()
+                .then(|| self.counters.nonnegative_locals.pop())
+                .flatten();
+            let test = self.lower_rotated_condition(condition, facts);
+            self.counters.nonnegative_locals.extend(high);
+            test?
+        } else {
+            for op in condition {
+                self.lower(op)?;
+            }
+            self.pop_typed(Ty::Bool)?.0
+        };
         // Branch to the exit on the complemented test where one is free, so
         // the exit is the first successor. Cranelift lowers blocks in the
         // reverse postorder of a DFS that visits the first successor first,
@@ -1968,9 +2085,11 @@ impl Lowerer<'_, '_> {
             None => self.bcx.ins().brif(test, iteration, &[], exit, &[]),
         };
         self.bcx.switch_to_block(iteration);
-        self.bcx.seal_block(iteration);
-        self.loop_targets.push((header, exit));
-        self.enter_loop_exits(header, exit);
+        if !rotated {
+            self.bcx.seal_block(iteration);
+        }
+        self.loop_targets.push((latch, exit));
+        self.enter_loop_exits(latch, exit);
         for (index, op) in body.iter().enumerate() {
             if let Some((_, below)) = relation.take_if(|&mut (prefix, _)| prefix == index) {
                 self.leave_relation(below);
@@ -1988,11 +2107,100 @@ impl Lowerer<'_, '_> {
             self.leave_relation(below);
         }
         if !self.terminated {
-            self.bcx.ins().jump(header, &[]);
+            self.bcx.ins().jump(latch, &[]);
         }
         // The shared `break` blocks are still inside the iteration.
         self.finish_loop_exits()?;
         self.loop_targets.pop();
-        Ok(())
+        if rotated {
+            // The latch's condition runs where the header's did; the code
+            // after the loop continues from the body's state, as without
+            // rotation.
+            let after = (self.position.clone(), self.bcx.srcloc());
+            self.bcx.seal_block(latch);
+            self.bcx.switch_to_block(latch);
+            let (stack, position, srcloc) = entry;
+            self.stack = stack;
+            self.position = position;
+            self.bcx.set_srcloc(srcloc);
+            self.terminated = false;
+            // A body that never falls through and has no `continue` leaves
+            // the latch unreachable; an edge from it would turn the body's
+            // reads into block parameters.
+            if !self.bcx.is_unreachable() {
+                let test = self.lower_rotated_condition(condition, facts)?;
+                self.bcx.ins().brif(test, iteration, &[], exit, &[]);
+            }
+            self.bcx.seal_block(iteration);
+            self.position = after.0;
+            self.bcx.set_srcloc(after.1);
+            self.fresh_load = None;
+            self.tags.loaded = None;
+        }
+        Ok(rotated && seal)
+    }
+
+    /// Lowers one copy of a rotated loop's condition and returns its test.
+    /// The loop's own `below_locals`, from `facts` on, describe body reads,
+    /// so the condition's reads do not record them: the guard's values reach
+    /// the exit when the loop does not run.
+    fn lower_rotated_condition(
+        &mut self,
+        condition: &[Op],
+        facts: usize,
+    ) -> Result<cranelift_codegen::ir::Value> {
+        let own = self.counters.bounds.below_locals.split_off(facts);
+        let lowered = condition.iter().try_for_each(|op| self.lower(op));
+        self.counters.bounds.below_locals.extend(own);
+        lowered?;
+        Ok(self.pop_typed(Ty::Bool)?.0)
+    }
+
+    /// Whether a loop with `condition` is rotated: its condition only reads
+    /// scalar and view locals and computes with them, so lowering it twice
+    /// runs no extra code, and no value it reads is cached across the body.
+    /// Calls, collection methods other than a view's length and rows, and
+    /// managed values keep the condition at the header.
+    fn rotatable(&self, condition: &[Op]) -> bool {
+        let plain = |ty: &Ty| ty.is_numeric() || *ty == Ty::Bool;
+        condition.iter().all(|op| match op {
+            Op::Site(_)
+            | Op::Access(..)
+            | Op::Loan(_)
+            | Op::UseLoan(_)
+            | Op::EndLoan(_)
+            | Op::PushInt(_)
+            | Op::PushBool(_)
+            | Op::PushFloat { .. }
+            | Op::Add
+            | Op::Sub
+            | Op::Mul
+            | Op::Div
+            | Op::FloorDiv(_)
+            | Op::Modulo(_)
+            | Op::Integer(_)
+            | Op::FloatNeg
+            | Op::Eq
+            | Op::Ne
+            | Op::Lt
+            | Op::Le
+            | Op::Gt
+            | Op::Ge
+            | Op::Not
+            | Op::Dup
+            | Op::Swap
+            | Op::Collection(CollectionOp::ViewLen(_) | CollectionOp::ViewRow(..)) => true,
+            Op::LoadLocal(i) => {
+                let ty = &self.locals[*i as usize].1;
+                plain(ty) || matches!(ty, Ty::View(..))
+            }
+            Op::Reborrow(ty) => matches!(ty, Ty::View(..)),
+            Op::ReadRef(ty) | Op::Cast(ty) | Op::CheckedCast(ty) => plain(ty),
+            // A short-circuit `and` or `or`.
+            Op::Match(arms) => arms.iter().all(|arm| {
+                matches!(arm.pattern, crate::op::Pattern::Bool(_)) && self.rotatable(&arm.body)
+            }),
+            _ => false,
+        })
     }
 }

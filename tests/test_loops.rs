@@ -190,3 +190,179 @@ fn diagnostics(#[case] source: &str, #[case] expected: &str) {
         "{source}\nexpected {expected:?}, got {error:?}"
     );
 }
+
+/// Runs a complete program with and without `--release`, returning the exit
+/// code and output of each, which must agree.
+fn run_both(source: &str) -> (Option<i32>, String, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.plenty");
+    std::fs::write(&path, source).unwrap();
+    let outputs: Vec<_> = [&[][..], &["--release"]]
+        .iter()
+        .map(|flags| {
+            let output = Command::new(env!("CARGO_BIN_EXE_plenty"))
+                .args(*flags)
+                .arg(&path)
+                .output()
+                .unwrap();
+            (
+                output.status.code(),
+                String::from_utf8_lossy(&output.stdout).into_owned(),
+                String::from_utf8_lossy(&output.stderr)
+                    .replace(&*path.to_string_lossy(), "main.plenty"),
+            )
+        })
+        .collect();
+    assert_eq!(outputs[0], outputs[1], "{source}");
+    outputs[0].clone()
+}
+
+/// A rotated loop tests its condition in a guard and again at the end of each
+/// pass (issue #726). A failure in either copy reports the same error, and
+/// `and` still stops at its first false or failing operand.
+#[test]
+fn rotated_conditions_keep_their_failures_and_order() {
+    let (code, stdout, stderr) = run_both(
+        r#"
+def climb(start: i64, step: i64) -> Result[i64, OverflowError[i64]]:
+    mut n = start
+    mut passes = 0
+    while n * step > 0:
+        n += 1
+        passes += 1
+    Ok(passes)
+
+def both(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:
+    mut x = a
+    mut y = b
+    mut passes = 0
+    while x * 2 > 0 and y * 3 > 0:
+        x += 1
+        y += 1
+        passes += 1
+    Ok(passes)
+
+def show(r: Result[i64, OverflowError[i64]]) -> Result[(), IoError]:
+    match r:
+        case Ok(n):
+            print(n)?
+        case Err(e):
+            print(e.wrapped)?
+    Ok(())
+
+def main() -> Result[(), IoError]:
+    # The first test fails.
+    show(climb(4611686018427387904, 2))?
+    # A later pass fails.
+    show(climb(4611686018427387900, 2))?
+    # Both operands would fail; the first one reports.
+    show(both(4611686018427387904, 3074457345618258603))?
+    # The second operand fails on a later pass.
+    show(both(1, 3074457345618258600))?
+    # The condition is false at once.
+    show(both(-1, 1))?
+    Ok(())
+"#,
+    );
+    assert_eq!(code, Some(0), "{stderr}");
+    assert_eq!(
+        stdout,
+        "-9223372036854775808\n-9223372036854775808\n-9223372036854775808\n-9223372036854775807\n0\n"
+    );
+}
+
+/// `continue` in a rotated loop runs the latch's test; a condition with a
+/// call stays at the header and runs once per test.
+#[test]
+fn rotated_loops_continue_to_the_latch() {
+    let (code, stdout, stderr) = run_both(
+        r#"
+def skip_sum(n: i64) -> Result[i64, OverflowError[i64]]:
+    mut i = 0
+    mut t = 0
+    while i < n:
+        i += 1
+        if i == 2 or i == 4:
+            continue
+        t += i
+    Ok(t)
+
+def below(i: i64, n: i64, calls: &mut i64) -> Result[bool, OverflowError[i64]]:
+    calls += 1
+    Ok(i < n)
+
+def counted(n: i64) -> Result[i64, OverflowError[i64]]:
+    mut i = 0
+    mut calls = 0
+    while below(i, n, &mut calls)?:
+        i += 1
+    Ok(calls)
+
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(skip_sum(10)?)?
+    print(skip_sum(0)?)?
+    print(counted(4)?)?
+    Ok(())
+"#,
+    );
+    assert_eq!(code, Some(0), "{stderr}");
+    assert_eq!(stdout, "49\n0\n5\n");
+}
+
+/// A loop's index facts about `lo < hi` hold in its body, not after a loop
+/// that never ran: `s[hi]` here is out of bounds and must trap, at its own
+/// position (issue #816; it read past the list before loops were rotated).
+#[test]
+fn loop_index_facts_stay_in_the_body() {
+    let (code, stdout, stderr) = run_both(
+        r#"
+def h(s: &mut [i64], first: i64) -> Result[i64, OverflowError[i64]]:
+    mut lo = 1
+    mut hi = first - 1
+    while lo < hi:
+        s.swap(lo, hi)
+        lo += 1
+        hi -= 1
+    Ok(s[hi])
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    mut a = [7]?
+    print(h(&mut a, 2)?)?
+    Ok(())
+"#,
+    );
+    assert_eq!(code, Some(1), "{stdout}");
+    assert!(
+        stderr.contains("main.plenty:9:8: index out of bounds: index 1, length 1"),
+        "{stderr}"
+    );
+}
+
+/// A rotated condition's index check traps at the condition's position with
+/// the same report, whether the guard or the latch fails (issue #726).
+#[test]
+fn rotated_condition_traps_keep_their_position() {
+    for (start, index) in [(5, 5), (0, 3)] {
+        let (code, _, stderr) = run_both(&format!(
+            r#"
+def scan(xs: &[i64], start: i64) -> Result[i64, OverflowError[i64]]:
+    mut i = start
+    while xs[i] > 0:
+        i += 1
+    Ok(i)
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    xs = [1, 2, 3]?
+    print(scan(&xs, {start})?)?
+    Ok(())
+"#
+        ));
+        assert_eq!(code, Some(1), "{stderr}");
+        assert!(
+            stderr.contains(&format!(
+                "main.plenty:4:11: index out of bounds: index {index}, length 3"
+            )),
+            "{stderr}"
+        );
+    }
+}

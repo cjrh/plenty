@@ -241,6 +241,138 @@ print("__test_end_no_allocations__").unwrap()
     assert_eq!(output.stdout, b"__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n");
 }
 
+/// Destructor-free box content releases through a compiled per-type adapter
+/// rather than the runtime's descriptor walk (issue #740); its children must
+/// still go through the destruction queue, so deep values drop on a small
+/// stack and dropping allocates nothing.
+#[cfg(all(feature = "runtime-checks", target_os = "linux"))]
+#[test]
+fn deep_destructor_free_boxes_drop_on_a_small_native_stack_without_allocating() {
+    let source = r#"
+class Node:
+    left: Option[Box[Node]]
+    right: Option[Box[Node]]
+    label: str
+def tree(depth: i64) -> Result[Node, OverflowError[i64]]:
+    if depth == 0:
+        return Ok(Node(Nothing, Nothing, "leaf"))
+    left = Box(tree(depth - 1)?).unwrap()
+    right = Box(tree(depth - 1)?).unwrap()
+    Ok(Node(Some(left), Some(right), "pair"))
+mut chain: Option[Box[Node]] = Nothing
+for n in range(100000):
+    chain = Some(Box(Node(chain, Nothing, "link")).unwrap())
+words = Some(Box("word").unwrap())
+forest = Box(tree(12).unwrap()).unwrap()
+print("__test_begin_no_allocations__").unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+drop(chain)
+drop(forest)
+drop(words)
+print("__test_restore_allocations__").unwrap()
+print("__test_end_no_allocations__").unwrap()
+"#;
+    let workspace = tempfile::tempdir().unwrap();
+    let executable = workspace.path().join("deep");
+    support::compile_source_to_executable(source, &executable).unwrap();
+    let output = std::process::Command::new("sh")
+        .args(["-c", "ulimit -s 256; exec \"$1\"", "recursive-drop-test"])
+        .arg(&executable)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout, b"__test_begin_no_allocations__\n__test_fail_allocations_after_0__\n__test_restore_allocations__\n__test_end_no_allocations__\n");
+}
+
+/// Content whose release runs a destructor keeps the runtime's ordered walk:
+/// a destructor-free parent drops its boxed children in field order, depth
+/// first, and a failed in-place box drops the content it would have owned
+/// exactly once.
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn boxes_of_destructor_free_parents_keep_child_drop_order() {
+    runs(
+        r#"
+class Leaf:
+    name: str
+    def __del__(self) -> ():
+        # No allocation, so the hook also runs while allocation is failing.
+        write_stdout("drop ").unwrap()
+        write_stdout(self.name).unwrap()
+        write_stdout("\n").unwrap()
+        pass
+class Pair:
+    left: Option[Box[Leaf]]
+    right: Option[Box[Pair]]
+    tag: str
+inner = Pair(Some(Box(Leaf("b")).unwrap()), Nothing, "inner")
+outer = Box(Pair(Some(Box(Leaf("a")).unwrap()), Some(Box(inner).unwrap()), "outer")).unwrap()
+drop(outer)
+plain = Pair(Some(Box(Leaf("c")).unwrap()), Nothing, "plain")
+print("__test_fail_allocations_after_0__").unwrap()
+failed = Box(plain)
+print("__test_restore_allocations__").unwrap()
+match failed:
+    case Ok(value):
+        print("unexpected").unwrap()
+    case Err(error):
+        print(error).unwrap()
+"#,
+        "drop a\ndrop b\n__test_fail_allocations_after_0__\ndrop c\n__test_restore_allocations__\nAllocError.OutOfMemory\n",
+    );
+}
+
+/// Box content qualifies for a compiled release by its type (issue #740):
+/// destructor-free classes, single-handle sums and handles get one, while
+/// content whose release runs a destructor keeps the runtime's ordered walk.
+/// Without this, a regression to the walk would show only in benchmarks.
+/// Mach-O prefixes symbol names with `_`, so this reads ELF only.
+#[cfg(target_os = "linux")]
+#[test]
+fn destructor_free_box_content_gets_a_compiled_release() {
+    use object::{Object, ObjectSymbol};
+    let (_dir, executable) = support::build_unstripped(
+        r#"
+enum Chain:
+    Link(Box[Chain])
+    End
+class Leaf:
+    name: str
+    def __del__(self) -> ():
+        pass
+class Node:
+    next: Option[Box[Node]]
+    label: str
+def main() -> Result[(), AllocError]:
+    node = Box(Node(Nothing, "a"))?
+    chain = Box(Chain.End)?
+    words = Box(["a"]?)?
+    leaf = Box(Leaf("b"))?
+    drop(node)
+    drop(chain)
+    drop(words)
+    drop(leaf)
+    Ok(())
+"#,
+    );
+    let data = std::fs::read(&executable).unwrap();
+    let file = object::File::parse(&*data).unwrap();
+    let mut releases: Vec<String> = file
+        .symbols()
+        .filter_map(|symbol| symbol.name().ok())
+        .filter_map(|name| name.strip_prefix("__plenty_box_release["))
+        .filter_map(|name| name.strip_suffix(']'))
+        .map(str::to_owned)
+        .collect();
+    releases.sort();
+    releases.dedup();
+    assert_eq!(releases, ["Chain", "Node", "list[str]"]);
+}
+
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn nested_recursive_field_updates_do_not_allocate_and_drop_replaced_values() {

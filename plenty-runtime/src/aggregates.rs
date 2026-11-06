@@ -5,9 +5,11 @@ use crate::generators::{Generator, plenty_generator_resume};
 use crate::memory::{self, AllocError, Header, plenty_release, plenty_retain};
 use crate::ranges::{self, Range};
 use crate::strings::{self, Text};
+use buckets::Buckets;
 use std::cmp::Ordering;
 use std::io::Write;
 
+mod buckets;
 mod byte_scan;
 mod byte_storage;
 mod bytes;
@@ -58,7 +60,9 @@ pub(crate) struct Type {
     pub(crate) value: Option<&'static Type>,
     pub(crate) name: &'static str,
     pub(crate) variants: &'static [Variant],
-    /// A class's `__del__` adapter, which receives the instance's slot.
+    /// A class's `__del__` adapter, which receives the instance's slot. For a
+    /// box, the compiler's release of its content slot, if it emitted one
+    /// (`codegen::box_release`).
     pub(crate) drop: Option<unsafe extern "C" fn(*mut u128)>,
     /// Set for a one-field class without `__del__`, whose values are its
     /// field's: the rest of this descriptor is the field's layout, and the
@@ -257,7 +261,7 @@ struct Collection {
     header: Header,
     ty: *const Type,
     entries: Entries,
-    table: Vec<usize>,
+    table: Buckets,
     /// The live row to resume after a heap child finishes destruction.
     drop_entry: Option<usize>,
 }
@@ -470,11 +474,43 @@ unsafe fn try_box_new(ty: &Type, value: u128) -> Result<*mut Boxed, AllocError> 
     }
     Ok(boxed)
 }
+/// Allocate a box whose content slot the caller stores; on failure, release
+/// `value`, the content the box would have owned.
+unsafe fn try_box_for(ty: &Type, value: u128) -> u128 {
+    let content = ty.key();
+    match memory::try_allocate::<Boxed, u128>(content.slot_words()) {
+        Ok(boxed) => unsafe {
+            boxed.write(Boxed {
+                header: Header::new(box_destroy),
+                ty,
+                padding: 0,
+                slot: [],
+            });
+            wrap(boxed as u128, 0)
+        },
+        Err(error) => {
+            unsafe { release(value, content) };
+            wrap(wrap(0, error as u64), 1)
+        }
+    }
+}
 unsafe extern "C" fn box_destroy(header: *mut Header) {
     unsafe {
         let boxed = header.cast::<Boxed>();
-        let content = (*(*boxed).ty).key();
+        let ty = &*(*boxed).ty;
+        let content = ty.key();
         let slot = std::ptr::addr_of_mut!((*boxed).slot).cast::<u128>();
+        // The compiler's release of this content queues each owned child
+        // through `plenty_release`, so this frame finishes before any child is
+        // destroyed and the box can be freed now. It exists only for content
+        // whose release runs no code, where the order is unobservable; see
+        // "Box destruction" in book/src/design/toolchain/02-architecture/memory.md.
+        if let Some(release_content) = ty.drop {
+            debug_assert_eq!(ty.kind, b'O');
+            release_content(slot);
+            memory::free::<Boxed, u128>(boxed, content.slot_words());
+            return;
+        }
         if let Some(child) = release_next(slot, content) {
             memory::continue_after(header, child);
             return;
@@ -672,7 +708,7 @@ fn try_collection_new(ty: &'static Type, capacity: usize) -> Result<*mut Collect
         } else {
             Entries::ordered(ty.key(), ty.value)
         },
-        table: Vec::new(),
+        table: Buckets::new(),
         drop_entry: None,
     };
     // Validate and reserve before publishing an owner. Until the header is
@@ -864,30 +900,12 @@ impl Collection {
     /// The bucket holding `key`, or the empty bucket that ends its probe.
     /// `hash` must be `hash(key, ...)`; callers that insert after a miss pass
     /// the same hash to `vacant_bucket` instead of hashing the key again.
+    /// Keys are compared only where the bucket's stored hash bits match.
     unsafe fn probe(&self, key: u128, hash: u64) -> usize {
-        unsafe {
-            let mut bucket = hash as usize & (self.table.len() - 1);
-            while self.table[bucket] != 0
-                && !equal(
-                    self.entries.get(self.table[bucket] - 1).key,
-                    key,
-                    self.ty().key(),
-                )
-            {
-                bucket = (bucket + 1) & (self.table.len() - 1);
-            }
-            bucket
-        }
-    }
-    /// The empty bucket for a key known to be absent. All stored keys are
-    /// unique, so the probe compares no keys.
-    fn vacant_bucket(&self, hash: u64) -> usize {
-        let mask = self.table.len() - 1;
-        let mut bucket = hash as usize & mask;
-        while self.table[bucket] != 0 {
-            bucket = (bucket + 1) & mask;
-        }
-        bucket
+        let key_ty = self.ty().key();
+        self.table.probe(hash, |entry| unsafe {
+            equal(self.entries.get(entry).key, key, key_ty)
+        })
     }
     unsafe fn find(&self, key: u128) -> Option<usize> {
         if let Some(found) = unsafe { self.entries.find_bitset(key) } {
@@ -896,7 +914,7 @@ impl Collection {
         if self.table.is_empty() {
             None
         } else {
-            unsafe { self.table[self.bucket(key)].checked_sub(1) }
+            self.table.entry(unsafe { self.bucket(key) })
         }
     }
     /// Reserve all buffers before publishing a new hash index. On error,
@@ -917,28 +935,25 @@ impl Collection {
                 .checked_mul(2)
                 .and_then(|n| n.max(16).checked_next_power_of_two())
                 .ok_or(AllocError::CapacityOverflow)?;
-            memory::checked_capacity::<usize>(count)?;
+            memory::checked_capacity::<u64>(count)?;
             count
         } else {
             0
         };
-        let mut table = Vec::new();
+        let mut table = Buckets::new();
         if table_size != 0 {
-            memory::try_reserve(&mut table, table_size)?;
-            table.resize(table_size, 0);
+            table = Buckets::try_with_len(table_size)?;
         }
         self.entries.try_reserve(additional)?;
         if table_size != 0 {
-            // Hashing legal keys (integers, bool, str) never allocates or calls
-            // user code. Build from hashes alone: all existing keys are unique.
-            for i in self.entries.indices() {
-                let entry = self.entries.get(i);
-                let mut bucket =
-                    unsafe { hash(entry.key, self.ty().key()) } as usize & (table_size - 1);
-                while table[bucket] != 0 {
-                    bucket = (bucket + 1) & (table_size - 1);
+            // Stored hash bits usually suffice (see `Buckets`). Otherwise
+            // hashing legal keys (integers, bool, str) never allocates or
+            // calls user code. All existing keys are unique.
+            if !self.table.rehash_into(&mut table) {
+                for i in self.entries.indices() {
+                    let entry = self.entries.get(i);
+                    table.insert_unique(unsafe { hash(entry.key, self.ty().key()) }, i);
                 }
-                table[bucket] = i + 1;
             }
             self.table = table;
         }
@@ -946,7 +961,7 @@ impl Collection {
     }
 
     unsafe fn insert(&mut self, key: u128, value: u128) {
-        unsafe { self.try_insert(key, value) }
+        unsafe { self.try_adopt(key, value) }
             .unwrap_or_else(|_| crate::fail("collection allocation failed"));
     }
 
@@ -978,9 +993,12 @@ impl Collection {
                 .count();
             self.try_reserve(additional)?;
             let ty = &*self.ty;
-            source.table.fill(0);
+            source.table.clear();
             for entry in source.entries.iter() {
-                if let Some(index) = self.find(entry.key) {
+                // `additional` reserved a table unless every key is present.
+                let key_hash = hash(entry.key, ty.key());
+                let bucket = self.probe(entry.key, key_hash);
+                if let Some(index) = self.table.entry(bucket) {
                     // An inline value lives in the row, so release it before
                     // its storage is overwritten.
                     if let Some(value_type) = ty.value {
@@ -989,8 +1007,7 @@ impl Collection {
                     self.entries.set(index, true, entry.value);
                     release(entry.key, ty.key());
                 } else {
-                    let bucket = self.bucket(entry.key);
-                    self.table[bucket] = self.entries.vacant() + 1;
+                    self.table.set(bucket, key_hash, self.entries.vacant());
                     self.entries.push(entry);
                 }
             }
@@ -1024,6 +1041,22 @@ impl Collection {
             stored
         }
     }
+    /// Store owned operands, as generated code passes them: a copyable
+    /// operand's count, whether its read moved or copied it, becomes the
+    /// table's (issue #762). A failed insertion drops both operands once.
+    unsafe fn try_adopt(&mut self, key: u128, value: u128) -> Result<(), AllocError> {
+        unsafe {
+            let stored = self.try_store(key, value);
+            if stored.is_err() {
+                let ty = &*self.ty;
+                release(key, ty.key());
+                if let Some(ty) = ty.value {
+                    release(value, ty);
+                }
+            }
+            stored
+        }
+    }
     /// Insert owned operands without adjusting their ownership.
     unsafe fn try_store(&mut self, key: u128, value: u128) -> Result<(), AllocError> {
         unsafe {
@@ -1043,11 +1076,16 @@ impl Collection {
             self.try_add(key, value, slot).map(|_| ())
         }
     }
-    /// `dict.get_or_insert`: the row of `key`, inserting `key` and `value` on
-    /// a miss with `try_insert`'s ownership rules. A hit keeps the stored
-    /// entry and drops the affine operands; generated code releases the
-    /// copyable ones, so a hit adjusts no reference counts (issue #748).
-    unsafe fn try_get_or_insert(&mut self, key: u128, value: u128) -> Result<usize, AllocError> {
+    /// `dict.get_or_insert`: the row of `key` and whether it was present. A
+    /// miss inserts the owned `key` and `value` as `try_adopt` does, adjusting
+    /// no reference counts (issues #748, #762). A hit keeps the stored entry
+    /// and drops the affine operands; generated code releases the copyable
+    /// ones, which it does inline for less than this generic release costs.
+    unsafe fn try_get_or_insert(
+        &mut self,
+        key: u128,
+        value: u128,
+    ) -> Result<(usize, bool), AllocError> {
         unsafe {
             let ty = &*self.ty;
             let (key_ty, value_ty) = (ty.key(), ty.value.expect("dictionary value"));
@@ -1059,20 +1097,14 @@ impl Collection {
                 if value_ty.affine {
                     release(value, value_ty);
                 }
-                return Ok(i);
-            }
-            if !key_ty.affine {
-                retain(key, key_ty);
-            }
-            if !value_ty.affine {
-                retain(value, value_ty);
+                return Ok((i, true));
             }
             let added = self.try_add(key, value, slot);
             if added.is_err() {
                 release(key, key_ty);
                 release(value, value_ty);
             }
-            added
+            added.map(|i| (i, false))
         }
     }
     /// Hash `key` once and find its row, or the empty bucket a miss would
@@ -1094,7 +1126,7 @@ impl Collection {
             };
             if hashed && !self.table.is_empty() {
                 let bucket = self.probe(key, hash);
-                slot.found = self.table[bucket].checked_sub(1);
+                slot.found = self.table.entry(bucket);
                 slot.vacant = Some(bucket);
             }
             slot
@@ -1122,9 +1154,9 @@ impl Collection {
                 // probed bucket empty, or rebuilds it strictly larger.
                 let bucket = match slot.vacant {
                     Some(bucket) if self.table.len() == slot.table_len => bucket,
-                    _ => self.vacant_bucket(slot.hash),
+                    _ => self.table.vacant(slot.hash),
                 };
-                self.table[bucket] = self.entries.vacant() + 1;
+                self.table.set(bucket, slot.hash, self.entries.vacant());
             }
             let index = self.entries.vacant();
             self.entries.push(Entry { key, value });
@@ -1144,24 +1176,15 @@ impl Collection {
             if self.table.is_empty() {
                 return None;
             }
-            let mut hole = self.bucket(key);
-            let index = self.table[hole].checked_sub(1)?;
+            let hole = self.bucket(key);
+            let index = self.table.entry(hole)?;
             let entry = self.entries.remove(index);
-            let mask = self.table.len() - 1;
-            let mut probe = (hole + 1) & mask;
-            while self.table[probe] != 0 {
-                let slot = self.table[probe] - 1;
-                let home = hash(self.entries.get(slot).key, self.ty().key()) as usize & mask;
-                // Move only references whose circular probe path crosses the
-                // hole. An empty bucket terminates even across wraparound.
-                if (hole.wrapping_sub(home) & mask) < (probe.wrapping_sub(home) & mask) {
-                    self.table[hole] = self.table[probe];
-                    hole = probe;
-                }
-                probe = (probe + 1) & mask;
-            }
-            self.table[hole] = 0;
-            release(entry.key, self.ty().key());
+            // The descriptor is static; reading it does not borrow `self`.
+            let key_ty = (*self.ty).key();
+            let entries = &self.entries;
+            self.table
+                .remove(hole, |slot| hash(entries.get(slot).key, key_ty));
+            release(entry.key, key_ty);
             Some(entry.value)
         }
     }
@@ -1401,7 +1424,7 @@ pub(crate) unsafe fn try_text_list<'a>(
                 value: strings::try_new(text?)? as u128,
                 ty: ty.key(),
             };
-            (*output).try_insert(text.value, 0)?;
+            (*output).try_adopt(text.into_value(), 0)?;
         }
         Ok(owner.into_value())
     }
@@ -1428,7 +1451,7 @@ pub(crate) unsafe fn try_reader_lines(
             if strings::utf8(&(line.value as *const Text)).is_empty() {
                 break;
             }
-            (*output).try_insert(line.value, 0)?;
+            (*output).try_adopt(line.into_value(), 0)?;
         }
         Ok(owner.into_value())
     }
@@ -1519,7 +1542,7 @@ unsafe fn try_text_pieces<'a>(
                 value: strings::try_new(piece)? as u128,
                 ty: ty.key(),
             };
-            (*result).try_insert(piece.value, 0)?;
+            (*result).try_adopt(piece.into_value(), 0)?;
         }
         Ok(owner.into_value())
     }
@@ -1770,7 +1793,7 @@ unsafe fn try_copy_collection(value: u128, ty: &Type) -> Result<u128, AllocError
                 header: Header::new(collection_destroy),
                 ty: source.ty,
                 entries,
-                table: Vec::new(),
+                table: Buckets::new(),
                 drop_entry: None,
             });
             return Ok(result as u128);
@@ -2285,7 +2308,7 @@ operation_entries! {
     46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72
     73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99
     100 101 102 103 104 105 106 107 110 111 112 113 114 117 118 119 120 121 122 123 124
-    125 126 127 128 129 130 131 132 133 134 135 136 140 166 167 366 510 511 580 581 582
+    125 126 127 128 129 130 131 132 133 134 135 136 137 140 166 167 366 510 511 580 581 582
     583 584 585 590 591 592 593 594 595 596 597 598 599 600 601
 }
 // `std.bytes` storage and single-call byte transport.
@@ -2592,11 +2615,20 @@ pub(crate) unsafe fn collection_at(
                 c.entries.slot(position, c.ty().kind != b'L') as u128
             }
             // `dict.get_or_insert`: Ok(the value slot's address) or Err(AllocError).
+            // A hit sets the high word to `GET_OR_INSERT_HIT`, which generated
+            // code tests to release its copyable operands and then clears.
             DICT_GET_OR_INSERT => {
                 let owner = *(a as *const u128);
                 let c = &mut *(owner as *mut Collection);
                 match c.try_get_or_insert(b, value) {
-                    Ok(position) => wrap(c.entries.slot(position, true) as u128, 0),
+                    Ok((position, hit)) => {
+                        let flag = if hit {
+                            (GET_OR_INSERT_HIT as u128) << 64
+                        } else {
+                            0
+                        };
+                        wrap(c.entries.slot(position, true) as u128, 0) | flag
+                    }
                     Err(error) => wrap(wrap(0, error as u64), 1),
                 }
             }
@@ -2854,12 +2886,12 @@ pub(crate) unsafe fn collection_at(
                         false
                     }
                 });
-                target.table.fill(0);
+                target.table.clear();
                 if target.entries.bits().is_none() {
+                    // Surviving keys are unique, so reinsertion compares none.
                     for index in target.entries.indices() {
-                        let entry = target.entries.get(index);
-                        let bucket = target.bucket(entry.key);
-                        target.table[bucket] = index + 1;
+                        let key = target.entries.get(index).key;
+                        target.table.insert_unique(hash(key, ty.key()), index);
                     }
                 }
                 plenty_retain(a as *mut Header);
@@ -2968,7 +3000,7 @@ pub(crate) unsafe fn collection_at(
             58 => {
                 let c = &mut *(a as *mut Collection);
                 let ty = &*c.ty;
-                c.table.fill(0);
+                c.table.clear();
                 // Drain preserves allocated capacity. Clear the visible length
                 // before invoking cleanup, then destroy entries in source order.
                 for entry in c.entries.drain() {
@@ -3177,7 +3209,7 @@ pub(crate) unsafe fn collection_at(
                         c.try_reserve(b as usize)
                     }
                 } else {
-                    c.try_insert(b, value)
+                    c.try_adopt(b, value)
                 };
                 match result {
                     Ok(()) => wrap(0, 0),
@@ -3330,6 +3362,8 @@ pub(crate) unsafe fn collection_at(
                 box_take(a as *mut Boxed);
                 0
             }
+            // A box for the operand, which the caller stores in it on success.
+            137 => try_box_for(&*descriptor, a),
             // An empty box for content the caller stores afterwards.
             121 => match try_box_new(&*descriptor, 0) {
                 Ok(boxed) => wrap(boxed as u128, 0),

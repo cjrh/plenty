@@ -349,7 +349,7 @@ fn wide_enum_set_storage_measurements() {
                 }
                 let bytes = std::mem::size_of::<Collection>()
                     + set.entries.storage_bytes()
-                    + set.table.capacity() * std::mem::size_of::<usize>();
+                    + set.table.capacity_bytes();
                 println!(
                     "{} members={members}: {bytes} requested heap bytes (owner {})",
                     if set.entries.bits().is_some() {
