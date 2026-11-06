@@ -5,7 +5,8 @@
 > [numeric reference](../design/language/03-types/numbers.md#unchecked-blocks),
 > which is authoritative. A `plenty.toml` setting and the stdlib precondition
 > audit remain under **B14** in the [backlog](../backlog.md); until that audit,
-> `std` always traps. This is the arithmetic-only extension to
+> `std` always traps. Issue #764 also extends the mode to list, slice-view
+> and `Bytes` index syntax. This builds on
 > [checked arithmetic by default](checked-by-default.md).
 
 ## Contract
@@ -78,8 +79,13 @@ rules; its range/validity obligations must be specified separately from ordinary
 floating arithmetic. Compile-time invalid constants remain compile errors.
 No new recoverable shift or cast API is implied by this proposal.
 
-Allocation failure, capacity/layout validation for memory allocation, indexing
-and bounds checks, ownership, borrowing, I/O failures and explicit `unwrap()`
+Issue #764 extends the implemented mode to list, slice-view and `Bytes`
+index syntax: plain assumed suites require nonnegative, in-range indices and
+omit bounds checks and negative-index normalization. Trapping suites preserve
+normal negative indexing. Other indexing and collection methods remain checked.
+
+Allocation failure, capacity/layout validation for memory allocation,
+ownership, borrowing, I/O failures and explicit `unwrap()`
 are outside this feature. Memory-management arithmetic must still establish
 its own safety invariants. The global mode is not permission to skip allocator
 validation or to assume an allocation succeeded.
@@ -134,7 +140,7 @@ and both unchecked block forms: those operations remain defined.
 
 Check nested modes, callbacks, generators, compound writes, short-circuit paths,
 integer widths, divisors, shifts, conversions, powers and mode-sensitive cache
-reuse. Verify that allocation, indexing and explicit checked/wrapping operations
+reuse. Verify that allocation, indexing outside assumed suites and explicit checked/wrapping operations
 retain their contracts. Compiler backends must preserve valid-input semantics;
 omitting guards alone does not establish that all desired optimizer assumptions
 are represented.

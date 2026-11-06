@@ -774,7 +774,7 @@ impl Lowerer<'_, '_> {
         let pending = self.stack.clone();
         self.release_stack();
         let values = vec![(residual, Ty::Enum(target.clone()))];
-        self.leave_failing(values, cleanup)?;
+        self.leave(values, cleanup)?;
         self.stack = pending;
         self.bcx.switch_to_block(success);
         self.bcx.seal_block(success);

@@ -38,8 +38,10 @@ for shorter edit-run cycles in large projects; it preserves all language checks.
 
 `--unchecked MODE` selects what plain
 [`unchecked:` suites](../../language/03-types/numbers.md#unchecked-blocks)
-outside `std` do with their arithmetic preconditions: `trap`, the default,
+outside `std` do with their arithmetic and indexing preconditions: `trap`, the default,
 checks them; `assume` omits the checks, so a violation is undefined behavior.
+Assumed list, slice-view and `Bytes` indices must be nonnegative and in range;
+bounds checks and negative-index normalization are omitted.
 It applies to compiling modes, including `plenty build`, `run`, `test` and
 scripts; checking modes reject it.
 

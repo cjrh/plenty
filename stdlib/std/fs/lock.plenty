@@ -1,0 +1,81 @@
+# Linux flock locks. The native hooks only open and attempt a nonblocking lock;
+# deadlines, cancellation and error policy live here. File destruction closes
+# the descriptor without LOCK_UN, preserving any inherited open description.
+from std.path import Path
+from std.sync import CancellationToken
+from std.time import Deadline, monotonic_now
+
+pub enum Mode:
+    Shared
+    Exclusive
+
+pub enum LockError:
+    WouldBlock
+    TimedOut
+    Cancelled
+    InvalidPath
+    Io(IoError)
+    Allocation(AllocError)
+
+def io[T](result: Result[T, IoError]) -> Result[T, LockError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(IoError.Data(DataError.Allocation(error))):
+            Err(LockError.Allocation(error))
+        case Err(error):
+            Err(LockError.Io(error))
+
+# The private File is the sole owner. Do not expose an unlock operation: flock
+# unlock would affect children sharing this open file description as well.
+pub class Lock:
+    _file: File
+
+    pub def close(self: &mut Lock) -> Result[(), LockError]:
+        io(self._file.close())
+
+    pub def is_closed(self) -> bool:
+        self._file.closed
+
+def open_lock(path: &Path) -> Result[File, LockError]:
+    if len(path.as_bytes()) == 0 or len(path.as_bytes()) > 4096:
+        return Err(LockError.InvalidPath)
+    for byte in path.as_bytes():
+        if *byte == 0u8:
+            return Err(LockError.InvalidPath)
+    io(__fs_lock_open(path.as_bytes()))
+
+pub def acquire_now(path: &Path, mode: Mode) -> Result[Lock, LockError]:
+    file = open_lock(path)?
+    if io(__fs_lock_try(file, mode == Mode.Exclusive))?:
+        return Ok(Lock(file))
+    Err(LockError.WouldBlock)
+
+pub def acquire_before(path: &Path, mode: Mode, deadline: &Deadline, cancel: &CancellationToken) -> Result[Lock, LockError]:
+    if cancel.is_cancelled():
+        return Err(LockError.Cancelled)
+    if deadline.expired(&monotonic_now()):
+        return Err(LockError.TimedOut)
+    file = open_lock(path)?
+    while True:
+        if cancel.is_cancelled():
+            return Err(LockError.Cancelled)
+        if deadline.expired(&monotonic_now()):
+            return Err(LockError.TimedOut)
+        match __fs_lock_try(file, mode == Mode.Exclusive):
+            case Ok(True):
+                return Ok(Lock(file))
+            case Ok(False):
+                pass
+            case Err(IoError.System(4i32)):
+                # Interrupted syscall: retry only after rechecking the budget.
+                continue
+            case Err(error):
+                return Err(LockError.Io(error))
+        remaining = deadline.remaining(&monotonic_now()).as_timeout_ms()
+        # flock has no pollable readiness. Cancellation wakes this bounded
+        # token wait directly; retry contention at most every ten milliseconds.
+        slice = 10u64 if remaining > 10u64 else remaining
+        if cancel.wait_timeout_ms(slice):
+            return Err(LockError.Cancelled)
+    Err(LockError.TimedOut)

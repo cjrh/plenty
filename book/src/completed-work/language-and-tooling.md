@@ -242,7 +242,11 @@ That core also supports lexical `unchecked:` suites. Their
 [build modes](../design/language/03-types/numbers.md#unchecked-blocks) followed
 (local PR #924): `--unchecked trap` checks the preconditions by default,
 `--unchecked assume` omits the checks outside `std`, and `unchecked trap:`
-always traps; caches key on the mode. The private
+always traps; caches key on the mode. Issue #764 extends assumed suites to list,
+slice-view and `Bytes` index reads, writes and borrows: indices must be
+nonnegative and in range, and both bounds checks and negative normalization
+are omitted. Trapping scopes, other indexing and `std` keep their contracts.
+The private
 callback channel is removed. Initial std migration covers math helpers, bytes
 and time: integer reductions preserve typed overflow payloads, separate float
 helpers retain infallible IEEE values, serial pipeline sums return public
