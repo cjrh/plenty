@@ -522,13 +522,15 @@ arithmetic, compares, casts, `not`, short-circuit `and`/`or`, and a view's
 length and items (`rotatable`). Both copies carry the condition's source
 position, so a failing index or overflow reports the same error and location
 from either copy, and they evaluate in the same order. A condition with a call,
-a list's length, a collection method or a managed value keeps the header test,
-as does a loop lowered while collecting a scope's cleanup.
+a list's length, a collection method or a managed value keeps the header test.
 
 A loop's own index facts (the `lo < hi` relation and in-range counters in
 `src/codegen/induction.rs`) describe values read in the body. Neither copy of
 the condition records them, since the guard's values also reach the exit when
-the loop does not run (issue #816).
+the loop does not run (issue #816). An unrotated loop records none: its body
+reads the header's values, which reach the exit too.
+
+A body that never falls through and has no `continue` gets no latch.
 
 Rotation removes one instruction per pass from tight loops: the `reverse`
 kernel's swap loop matches C's eight instructions. In loops that make calls,

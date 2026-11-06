@@ -1662,6 +1662,10 @@ impl Lowerer<'_, '_> {
         let initial = self.stack.clone();
         // This loop's index facts start here; they cover body reads only.
         let facts = self.counters.bounds.below_locals.len();
+        // An unrotated loop's body reads the header's values, which also
+        // reach the exit, so its index facts would hold after a loop that
+        // never ran (issue #816). Only a rotated loop records them.
+        let rotated = self.rotatable(condition);
         let types: Vec<Ty> = self.locals.iter().map(|(_, ty)| ty.clone()).collect();
         let counter = super::induction::analyze(condition, body, &types)
             .filter(|counter| self.local_address(counter.local).is_none());
@@ -1724,6 +1728,7 @@ impl Lowerer<'_, '_> {
         });
         let cursor_below = cursor
             .as_ref()
+            .filter(|_| rotated)
             .map(|cursor| (cursor.index, self.read_local(cursor.length)));
         if let Some(below) = cursor_below {
             self.counters.nonnegative_locals.push(below.0);
@@ -1741,12 +1746,17 @@ impl Lowerer<'_, '_> {
         let below = range
             .as_ref()
             .zip(stop)
+            .filter(|_| rotated)
             .map(|(range, stop)| (range.target, stop));
         if let Some(below) = below {
             self.counters.bounds.below_locals.push(below);
         }
         let low = nonnegative.as_ref().map(|counter| counter.local);
-        let mut relation = self.enter_relation(condition, body, low, &types, invariant)?;
+        let mut relation = if rotated {
+            self.enter_relation(condition, body, low, &types, invariant)?
+        } else {
+            None
+        };
         let proven = |index| {
             Some(index) == proven_step || Some(index) == bound_step || unit_steps.contains(&index)
         };
@@ -1774,7 +1784,7 @@ impl Lowerer<'_, '_> {
             let outer = self.counters.bounds.version.replace(version);
             let fast = self.bcx.create_block();
             self.lower_loop_copy(
-                condition, body, fast, exit, &proven, &mut None, facts, false,
+                condition, body, fast, exit, &proven, &mut None, facts, rotated, false,
             )?;
             let version = std::mem::replace(&mut self.counters.bounds.version, outer).unwrap();
             self.stack = initial.clone();
@@ -1821,7 +1831,7 @@ impl Lowerer<'_, '_> {
                 self.bcx.ins().brif(holds.unwrap(), fast, &[], checked, &[]);
                 self.bcx.seal_block(fast);
                 if !self.lower_loop_copy(
-                    condition, body, checked, exit, &proven, &mut None, facts, true,
+                    condition, body, checked, exit, &proven, &mut None, facts, rotated, true,
                 )? {
                     self.bcx.seal_block(checked);
                 }
@@ -1838,6 +1848,7 @@ impl Lowerer<'_, '_> {
                 &proven,
                 &mut relation,
                 facts,
+                rotated,
                 true,
             )? {
                 self.bcx.seal_block(header);
@@ -1891,7 +1902,8 @@ impl Lowerer<'_, '_> {
 
     /// Lowers one copy of a loop from its `header`, which the caller enters
     /// and seals, to `exit`. `facts` is the length of `below_locals` before
-    /// this loop pushed its body facts. `seal` says that `header` has all its
+    /// this loop pushed its body facts. `rotated` is the caller's
+    /// [`Self::rotatable`] result. `seal` says that `header` has all its
     /// predecessors; a rotated copy then seals it before the body and returns
     /// true. Otherwise the body's reads of variables set before the loop
     /// resolve to block parameters, and drops in debug builds cannot see
@@ -1912,9 +1924,9 @@ impl Lowerer<'_, '_> {
         proven: &dyn Fn(usize) -> bool,
         relation: &mut Option<(usize, usize)>,
         facts: usize,
+        rotated: bool,
         seal: bool,
     ) -> Result<bool> {
-        let rotated = !self.gathering() && self.rotatable(condition);
         let iteration = self.bcx.create_block();
         let latch = if rotated {
             self.bcx.create_block()
@@ -1993,8 +2005,13 @@ impl Lowerer<'_, '_> {
             self.position = position;
             self.bcx.set_srcloc(srcloc);
             self.terminated = false;
-            let test = self.lower_rotated_condition(condition, facts)?;
-            self.bcx.ins().brif(test, iteration, &[], exit, &[]);
+            // A body that never falls through and has no `continue` leaves
+            // the latch unreachable; an edge from it would turn the body's
+            // reads into block parameters.
+            if !self.bcx.is_unreachable() {
+                let test = self.lower_rotated_condition(condition, facts)?;
+                self.bcx.ins().brif(test, iteration, &[], exit, &[]);
+            }
             self.bcx.seal_block(iteration);
             self.position = after.0;
             self.bcx.set_srcloc(after.1);

@@ -311,7 +311,7 @@ def main() -> Result[(), IoError | OverflowError[i64]]:
 
 /// A loop's index facts about `lo < hi` hold in its body, not after a loop
 /// that never ran: `s[hi]` here is out of bounds and must trap, at its own
-/// position (issue #726; it read past the list before loops were rotated).
+/// position (issue #816; it read past the list before loops were rotated).
 #[test]
 fn loop_index_facts_stay_in_the_body() {
     let (code, stdout, stderr) = run_both(
