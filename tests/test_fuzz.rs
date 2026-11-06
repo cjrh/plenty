@@ -412,10 +412,17 @@ fn counters_and_pc_tables_reach_the_driver() {
         dir.path(),
         r#"import fuzz_input
 
+# Recursive, so it stays a function with its own counters however small
+# helpers are inlined.
+def first(at: u64) -> u64:
+    if at == 0u64:
+        return at
+    return first(at >> 1u64)
+
 def main() -> Result[(), IoError]:
     if fuzz_input.size() == 3u64:
         print("three bytes")?
-    print(fuzz_input.byte(0u64))?
+    print(fuzz_input.byte(first(0u64)))?
     Ok(())
 "#,
         &archive,

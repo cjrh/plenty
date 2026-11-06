@@ -334,7 +334,13 @@ inlined into it, stay within a bound:
 |---|---|
 | A class's `new` or `__init__` | 64 operations |
 | Any function with one direct call site | 160 operations |
-| Any other function | 16 operations |
+| Any other function | 16 operations, or 24 while its call sites times its operations stay within 256 |
+
+The larger shared bound (issue #770) covers bounds-checked accessors such as
+`Bytes.get` and `Bytes.set` and short arithmetic helpers called in hot loops,
+whose call would otherwise also keep the loop around it from being versioned.
+The product bound keeps a helper called from dozens of places, as in the
+regular-expression parser, a call, so code size and compile time grow little.
 
 A tail call is inlined only when the caller has no managed locals or has just
 one tail-call site; otherwise it retains the shared tail-exit cleanup, keeping

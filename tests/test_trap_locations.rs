@@ -558,6 +558,17 @@ fn caller_positions_name_the_call_after_argument_evaluation(
 /// Calls into the caller-context runtime in each function of a release clif
 /// dump that includes `std`, keyed by the dump's function header.
 fn caller_context_calls(source: &str) -> Vec<(String, usize)> {
+    dumped_functions(source)
+        .into_iter()
+        .map(|(header, body)| {
+            let count = body.matches("plenty_caller_enter").count();
+            (header, count)
+        })
+        .collect()
+}
+
+/// Header and clif of each function in a release dump that includes `std`.
+fn dumped_functions(source: &str) -> Vec<(String, String)> {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("main.plenty"), source).unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_plenty"))
@@ -584,25 +595,34 @@ fn caller_context_calls(source: &str) -> Vec<(String, usize)> {
         .skip(1)
         .map(|function| {
             let header = function.lines().next().unwrap().to_string();
-            (header, function.matches("plenty_caller_enter").count())
+            (header, function.to_string())
         })
         .collect()
 }
 
 /// Issue #366: standard-library code keeps the user caller it was entered
 /// with, so formatting and collection-heavy std functions make no caller
-/// context calls; user calls into std still name their call site.
+/// context calls around direct calls; user calls into std still name their
+/// call site. A call through a callable still saves the context (see
+/// `standard_indirect_calls_still_restore_the_caller_context`), as an inlined
+/// `map_error` in std formatting does (issue #770).
 #[test]
 fn standard_library_code_makes_no_caller_context_calls() {
     let source = "from std.graph import DiGraph\nfrom std.fmt import FormatError\ndef main() -> Result[(), AllocError | IoError | FormatError]:\n    xs = [3, 4, 5]?\n    print(f\"{xs} {1.5}\"?)?\n    empty = DiGraph[i64, i64]()?\n    print(*empty.node(0))?\n    Ok(())\n";
     let calls = caller_context_calls(source);
-    let standard: Vec<_> = calls
-        .iter()
+    let standard: Vec<_> = dumped_functions(source)
+        .into_iter()
         .filter(|(header, _)| header.contains("source=std/"))
+        .map(|(header, body)| {
+            let enters = body.matches("plenty_caller_enter").count();
+            (header, enters, body.matches("call_indirect").count())
+        })
         .collect();
     assert!(standard.len() > 20, "{calls:?}");
     assert!(
-        standard.iter().all(|(_, count)| *count == 0),
+        standard
+            .iter()
+            .all(|(_, enters, indirect)| enters <= indirect),
         "{standard:?}"
     );
     assert!(

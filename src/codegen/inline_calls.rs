@@ -27,8 +27,20 @@ const MAX_CONSTRUCTOR_OPERATIONS: usize = 64;
 /// how large a caller grows.
 const MAX_SINGLE_SITE_OPERATIONS: usize = 160;
 
-/// The same bound for a function called from several places.
+/// The same bound for a function called from several places: about the
+/// size of the call it replaces, so each copy costs little.
 const MAX_SHARED_OPERATIONS: usize = 16;
+
+/// A larger bound for a function called from several places, met only while
+/// its copies together stay within [`MAX_SHARED_GROWTH`] (issue #770). A
+/// bounds-checked accessor such as `Bytes.get`, or a short arithmetic helper
+/// in a hot loop, is just above [`MAX_SHARED_OPERATIONS`].
+const MAX_SHARED_GROWTH_OPERATIONS: usize = 24;
+
+/// Operations in all copies of a function inlined by
+/// [`MAX_SHARED_GROWTH_OPERATIONS`]: ten call sites at that bound. A helper
+/// called from dozens of places, as in a parser, stays a call.
+const MAX_SHARED_GROWTH: usize = 256;
 
 /// Whether `name` is a constructor: a class's `new` or its `__init__`.
 fn constructor(name: &str) -> bool {
@@ -71,7 +83,8 @@ struct Plan<'a> {
 /// depends on how often the body would be copied, so compile time grows
 /// little: a constructor is small by construction, a function with one call
 /// site is usually lowered only there, and one called from several places
-/// must be about as small as the call it replaces.
+/// must be about as small as the call it replaces, or a little larger while
+/// its copies together stay small.
 ///
 /// A real tail call releases the caller's locals before the callee runs,
 /// which a jump back into the caller cannot express, so a body with one
@@ -112,13 +125,17 @@ pub(super) fn prepare(bodies: &[(String, Arc<[Op]>)], functions: &mut HashMap<St
 }
 
 impl<'a> Plan<'a> {
-    fn limit(&self, name: &str) -> usize {
+    /// Whether `name`, with `size` operations counting its inlined callees,
+    /// is small enough to copy to each of its call sites.
+    fn fits(&self, name: &str, size: usize) -> bool {
+        let sites = self.sites.get(name).copied().unwrap_or(0);
         if constructor(name) {
-            MAX_CONSTRUCTOR_OPERATIONS
-        } else if self.sites.get(name) == Some(&1) {
-            MAX_SINGLE_SITE_OPERATIONS
+            size <= MAX_CONSTRUCTOR_OPERATIONS
+        } else if sites == 1 {
+            size <= MAX_SINGLE_SITE_OPERATIONS
         } else {
-            MAX_SHARED_OPERATIONS
+            size <= MAX_SHARED_OPERATIONS
+                || (size <= MAX_SHARED_GROWTH_OPERATIONS && sites * size <= MAX_SHARED_GROWTH)
         }
     }
 
@@ -156,7 +173,7 @@ impl<'a> Plan<'a> {
         // A recursive call found below marked this function as staying a call.
         let size = match self.states.get(name) {
             Some(State::Done(None)) => None,
-            _ => total.filter(|&total| total <= self.limit(name)),
+            _ => total.filter(|&total| self.fits(name, total)),
         };
         self.states.insert(name, State::Done(size));
         size

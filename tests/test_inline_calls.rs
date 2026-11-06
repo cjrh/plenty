@@ -159,8 +159,15 @@ def main() -> Result[(), AllocError | IoError]:
 
 #[test]
 fn small_and_single_site_functions_are_lowered_in_their_callers() {
+    let calls = calls_in(SHAPES, "caller", "106 3 [4, 3, 2, 1]\n");
+    assert_eq!(calls, ["shared", "shared", "depth"]);
+}
+
+/// Callees named in `function`'s section of an optimized `--dump asm` of
+/// `source`, after checking that the program prints `expected`.
+fn calls_in(source: &str, function: &str, expected: &str) -> Vec<String> {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("p.plenty"), SHAPES).unwrap();
+    std::fs::write(dir.path().join("p.plenty"), source).unwrap();
     let args = ["--release", "--dump", "asm", "p.plenty", "-o", "out"];
     let output = plenty(dir.path(), &args);
     assert!(
@@ -169,20 +176,52 @@ fn small_and_single_site_functions_are_lowered_in_their_callers() {
         String::from_utf8_lossy(&output.stderr)
     );
     let ran = plenty(dir.path(), &["--release", "p.plenty"]);
-    assert_eq!(
-        String::from_utf8(ran.stdout).unwrap(),
-        "106 3 [4, 3, 2, 1]\n"
-    );
+    assert_eq!(String::from_utf8(ran.stdout).unwrap(), expected);
     let text = std::fs::read_to_string(dir.path().join("out").join("asm.txt")).unwrap();
-    let start = text.find("==== caller ").expect("caller dumped");
+    let start = text
+        .find(&format!("==== {function} "))
+        .expect("function dumped");
     let rest = &text[start + 5..];
     let section = &rest[..rest.find("\n==== ").unwrap_or(rest.len())];
-    let calls: Vec<&str> = section
+    section
         .lines()
         .filter_map(|line| line.rsplit_once("# __plenty_fn_"))
-        .map(|(_, callee)| callee.trim())
-        .collect();
-    assert_eq!(calls, ["shared", "shared", "depth"], "{section}");
+        .map(|(_, callee)| callee.trim().to_string())
+        .collect()
+}
+
+/// `pair` and `spread` each have 18 operations, above the 16 allowed for any
+/// function with several call sites. `pair`'s two copies stay within the
+/// shared growth bound, so it is inlined; `spread`'s fifteen do not, so it
+/// stays a call (issue #770).
+const GROWTH: &str = r#"def pair(i: i64, j: i64) -> f64:
+    unchecked:
+        ij = i + j
+        1.0 / f64(ij * (ij + 1) // 2 + i + 1)
+
+def spread(i: i64, j: i64) -> f64:
+    unchecked:
+        ij = i + j
+        1.0 / f64(ij * (ij + 1) // 2 + j + 1)
+
+def caller(n: i64) -> f64:
+    mut total = 0.0
+    for i in range(n):
+        total += pair(i, 1) + pair(1, i)
+    total += spread(0, 1) + spread(1, 0) + spread(2, 0) + spread(0, 2) + spread(3, 0)
+    total += spread(0, 3) + spread(4, 0) + spread(0, 4) + spread(5, 0) + spread(0, 5)
+    total += spread(6, 0) + spread(0, 6) + spread(7, 0) + spread(0, 7) + spread(8, 0)
+    total
+
+def main() -> Result[(), AllocError | IoError]:
+    print(caller(4))?
+    Ok(())
+"#;
+
+#[test]
+fn shared_helpers_above_the_small_bound_are_inlined_while_their_copies_stay_few() {
+    let calls = calls_in(GROWTH, "caller", "3.555214691852623\n");
+    assert_eq!(calls, vec!["spread"; 15]);
 }
 
 /// A function inlined at its only call site keeps its symbol in the object,
