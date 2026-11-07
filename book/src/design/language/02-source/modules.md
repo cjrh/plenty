@@ -23,7 +23,11 @@ DIR` selects another root. In a [package](../../toolchain/01-building/packages.m
 the root is `src/`, and the first component of an import may instead be a
 declared dependency alias, which names that dependency's library; an alias may
 not match a local top-level module. `a.b` resolves to `<root>/a/b.plenty` or the trusted
-interface `<root>/a/b.plentyi`. Having both is ambiguous. Imported canonical
+interface `<root>/a/b.plentyi`. The aliases `.p` and `.pi` work in the same
+positions. More than one of these four files is ambiguous, including a source
+and an interface with the same stem: interfaces do not accompany source files
+under the same module name. Different modules can freely mix long and short
+spellings. Imported canonical
 filenames and directories must have identifier components and cannot escape
 the root. File/directory name collisions and import cycles are errors; a cycle
 diagnostic names the actual dependency chain.

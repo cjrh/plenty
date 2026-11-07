@@ -1,5 +1,16 @@
 # Completed language and tooling work
 
+## Short file extensions (issue #851)
+
+Source files accept `.p` as an alias for `.plenty`, and trusted interfaces
+accept `.pi` as an alias for `.plentyi`. Module lookup, package targets and
+tests, declaration moves, runtime-interface output, and Neovim detection
+recognize the aliases. Multiple spellings of one imported module are rejected
+with the conflicting paths; a source and interface with the same stem remain
+ambiguous. Inferred package targets and test modules reject duplicate spellings
+as well. Existing extensions and generated companion names remain supported.
+
+
 [Completed-work index](../completed-work.md) · [Remaining work](../backlog.md)
 
 These records describe delivered subsets and concluded decisions. References

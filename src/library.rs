@@ -45,11 +45,8 @@ pub fn emit_runtime_interface(
     root: Option<&Path>,
     name: &str,
 ) -> Result<()> {
-    if output
-        .extension()
-        .is_none_or(|extension| extension != "plentyi")
-    {
-        return Err("runtime interface output must have the .plentyi extension".into());
+    if !crate::source_path::is_interface(output) {
+        return Err("runtime interface output must have the .plentyi or .pi extension".into());
     }
     let (source, paths) = runtime_interface(path, root, name)?;
     publication::validate(&[output], &paths)?;

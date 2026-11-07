@@ -1,6 +1,6 @@
 # Plenty for Neovim
 
-This runtime plugin detects `*.plenty` files and provides syntax highlighting,
+This runtime plugin detects `*.plenty`, `*.p`, `*.plentyi`, and `*.pi` files and provides syntax highlighting,
 four-space soft tabs, `#` comment support, and a configuration for the Plenty
 language server (`plenty lsp`) in `lsp/plenty.lua`.
 
@@ -26,7 +26,7 @@ or a new `*.plenty` file. `:set filetype?` should report `plenty` and
 colorscheme's standard colors. Users can override the `plenty*` highlight groups.
 For other indentation preferences, use an `after/ftplugin/plenty.vim` file.
 
-The plugin registers the extension with Neovim's native filetype detector so
+The plugin registers these extensions with Neovim's native filetype detector so
 comment-leading source does not fall through to generic `conf` detection. If
 you added the runtime path after opening a file, restart Neovim to load detection;
 for an already-open buffer with the runtime path available, run

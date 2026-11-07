@@ -220,11 +220,11 @@ impl Reader<'_> {
         let mut components = path.components();
         let inside = components.next() == Some(std::path::Component::Normal("src".as_ref()))
             && components.all(|c| matches!(c, std::path::Component::Normal(_)))
-            && path.extension().is_some_and(|e| e == "plenty");
+            && crate::source_path::is_source(&path);
         if !inside {
             return self.error(
                 entry,
-                format!("`{key}` must be a relative .plenty path below src/, not {text:?}"),
+                format!("`{key}` must be a relative .plenty or .p path below src/, not {text:?}"),
             );
         }
         Ok(path)
@@ -472,17 +472,37 @@ fn read_document(
         },
     };
 
+    let default_target = |stem: &str| -> Result<Option<PathBuf>, String> {
+        let paths: Vec<_> = ["plenty", "p"]
+            .iter()
+            .map(|e| PathBuf::from(format!("src/{stem}.{e}")))
+            .filter(|p| directory.join(p).is_file())
+            .collect();
+        if paths.len() > 1 {
+            return Err(format!(
+                "{name}: ambiguous default target: {} and {}; declare an explicit target path",
+                paths[0].display(),
+                paths[1].display()
+            ));
+        }
+        Ok(paths.into_iter().next())
+    };
     let library = match document.get("lib") {
         Some(entry) => {
             let table = reader.table("lib", entry)?;
             reader.known(table, "[lib]", &["path"])?;
             Some(match table.get("path") {
                 Some(path) => reader.entry_path("path", path)?,
-                None => PathBuf::from("src/lib.plenty"),
+                None => default_target("lib")?.unwrap_or_else(|| PathBuf::from("src/lib.plenty")),
             })
         }
-        None => (infer_targets && directory.join("src/lib.plenty").is_file())
-            .then(|| PathBuf::from("src/lib.plenty")),
+        None => {
+            if infer_targets {
+                default_target("lib")?
+            } else {
+                None
+            }
+        }
     };
     let binaries = match document.get("bin") {
         Some(entry) => {
@@ -515,14 +535,13 @@ fn read_document(
             }
             binaries
         }
-        None if directory.join("src/main.plenty").is_file() => {
-            vec![(package_name.clone(), PathBuf::from("src/main.plenty"))]
-        }
-        None => vec![],
+        None => default_target("main")?
+            .map(|path| vec![(package_name.clone(), path)])
+            .unwrap_or_default(),
     };
     if library.is_none() && binaries.is_empty() {
         return Err(format!(
-            "{name}: package `{package_name}` has no targets; add src/main.plenty, src/lib.plenty, [lib], or [[bin]]"
+            "{name}: package `{package_name}` has no targets; add src/main.plenty (or .p), src/lib.plenty (or .p), [lib], or [[bin]]"
         ));
     }
 

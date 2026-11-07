@@ -340,7 +340,7 @@ fn check_type(
         // resource; its operations are certified per call in `inspect`.
         Ty::ForeignPtr(_, threads) => match (threads, reach) {
             (Threads::None, _) => {
-                return Err(format!("{ty} has no thread contract; worker code may hold an opaque value only if its .plentyi declaration is `@thread_movable` or `@thread_shareable`"))
+                return Err(format!("{ty} has no thread contract; worker code may hold an opaque value only if its .plentyi/.pi declaration is `@thread_movable` or `@thread_shareable`"))
             }
             (Threads::Movable, Reach::Moved | Reach::Lent) => {
                 return Err(format!("{ty} is `@thread_movable`, not `@thread_shareable`: it may cross threads only as a field of a moved class value that `copy(x)` rejects, such as an owner with `__del__`; not copied, borrowed or `Shared`"))
@@ -558,7 +558,7 @@ fn inspect(
         Op::ForeignCall { declaration, .. } if !declaration.thread_safe => {
             error = Some(match declaration.symbol() {
                 Some(symbol) => format!(
-                    "C function `{symbol}` has no worker-thread effect contract; declare it `@thread_safe` in its .plentyi interface only if it may run on any thread"
+                    "C function `{symbol}` has no worker-thread effect contract; declare it `@thread_safe` in its .plentyi/.pi interface only if it may run on any thread"
                 ),
                 None => {
                     "foreign calls through a function address have no worker-thread effect contract"

@@ -743,11 +743,10 @@ impl Items<'_, '_> {
         let public = self.parser.eat("pub");
         let at = self.parser.peek().clone();
         let name = if self.parser.peek().is("extern") || self.parser.peek().is("opaque") {
-            if !self
-                .path
-                .is_some_and(|p| p.extension().is_some_and(|e| e == "plentyi"))
-            {
-                return Err(at.error("C declarations require a trusted .plentyi interface module"));
+            if !self.path.is_some_and(crate::source_path::is_interface) {
+                return Err(
+                    at.error("C declarations require a trusted .plentyi or .pi interface module")
+                );
             }
             if self.parser.eat("extern") {
                 self.parser.expect("def")?;
@@ -1117,12 +1116,9 @@ pub(crate) fn identity(path: &Path, graph: &crate::project::SourceGraph) -> Opti
 }
 
 /// A file's path below its source root as a dotted module path, if every
-/// component is an identifier and the file is a `.plenty` source or interface.
+/// component is an identifier and the file has a supported source or interface extension.
 fn module_path_of(relative: &Path) -> Option<String> {
-    if relative
-        .extension()
-        .is_none_or(|e| e != "plenty" && e != "plentyi")
-    {
+    if !crate::source_path::is_module(relative) {
         return None;
     }
     let names = relative
@@ -1429,16 +1425,13 @@ impl Loader {
         let mut path = root.to_path_buf();
         for (i, part) in parts.iter().enumerate() {
             path.push(part);
-            let file = path.with_extension("plenty");
-            let interface = path.with_extension("plentyi");
-            if (path.is_dir() && (file.exists() || interface.exists()))
-                || (file.exists() && interface.exists())
-            {
+            let files = crate::source_path::candidates(&path);
+            if (path.is_dir() && !files.is_empty()) || files.len() > 1 {
                 return Err(import.at.error(format!(
-                    "ambiguous module `{}`: conflicting namespace or .plenty/.plentyi files at {} and {}",
+                    "ambiguous module `{}`: conflicting namespace or .plenty/.p/.plentyi/.pi files at {}: {}",
                     import.module,
                     path.display(),
-                    file.display()
+                    files.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")
                 )));
             }
             if i + 1 != parts.len() && !path.is_dir() {
@@ -1448,11 +1441,10 @@ impl Loader {
                 )));
             }
         }
-        let file = if path.with_extension("plentyi").exists() {
-            path.with_extension("plentyi")
-        } else {
-            path.with_extension("plenty")
-        };
+        let file = crate::source_path::candidates(&path)
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| path.with_extension("plenty"));
         let canonical = file.canonicalize().map_err(|e| {
             import.at.error(format!(
                 "loading `{}` at {}: {e}",
@@ -1465,7 +1457,7 @@ impl Loader {
         }
         if module_path_of(canonical.strip_prefix(root).unwrap()).is_none() {
             return Err(import.at.error(
-                "canonical imported paths must be .plenty files or .plentyi interfaces with identifier components",
+                "canonical imported paths must be .plenty/.p files or .plentyi/.pi interfaces with identifier components",
             ));
         }
         Ok(canonical)
@@ -1689,7 +1681,7 @@ fn prepare_packages(
             )
             .into());
         }
-        if ["std", "std.plenty", "std.plentyi"]
+        if ["std", "std.plenty", "std.p", "std.plentyi", "std.pi"]
             .iter()
             .any(|name| root.join(name).exists())
         {
@@ -1707,6 +1699,8 @@ fn prepare_packages(
                 alias.clone(),
                 format!("{alias}.plenty"),
                 format!("{alias}.plentyi"),
+                format!("{alias}.p"),
+                format!("{alias}.pi"),
             ]
             .iter()
             .map(|name| root.join(name))
@@ -1730,7 +1724,7 @@ fn prepare_packages(
                 .is_none()
             {
                 return Err(format!(
-                    "library {} must be a .plenty module with identifier components inside {}",
+                    "library {} must be a .plenty/.p module with identifier components inside {}",
                     library.display(),
                     root.display()
                 )
@@ -3523,7 +3517,7 @@ mod tests {
             let extension = path.extension().and_then(|e| e.to_str());
             if path.is_dir() {
                 sources(&path, out);
-            } else if matches!(extension, Some("plenty" | "plentyi")) {
+            } else if crate::source_path::is_module(&path) {
                 let text = std::fs::read_to_string(&path).unwrap();
                 out.push((path, text));
             } else if extension == Some("md") {
