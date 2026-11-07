@@ -138,13 +138,42 @@ symbol audits and glibc 2.28 execution evidence for both Linux architectures.
 
 ## What the workflow does
 
+Release jobs restore isolated dependency caches. Native compiler and engine
+caches share keys with default-branch qualification jobs, including the pinned
+toolchain, target flags and manifest hashes. Every release still compiles its
+own workspace sources and validates the resulting artifacts. Compiler and engine
+target directories do not overlap, so compiler-cache cleanup cannot discard
+engine-only dependencies.
+
+Linux host and glibc-image full suites use the existing `ci` Cargo profile:
+workspace code is optimized at level 1 while debug assertions and overflow checks
+remain enabled. Shipped executables still use the unchanged `release` profile,
+CPU baseline and glibc 2.28 environment. The native unit checks retain their
+existing profile.
+
+Linux release caches are separate from ordinary Ubuntu CI because the build
+images and flags differ. GitHub cache scope lets tag runs restore default-branch
+caches, but a cache saved for one tag is unavailable to another tag. A manual
+Linux dry run on `main` can seed the Linux caches for subsequent tags; without
+that rehearsal they start cold. Native caches are populated by normal
+qualification on `main`. Hosted cold/warm timings must be compared after these
+changes run; the cache configuration alone is not a measured speedup.
+
+For Linux CI setup, `build.sh --out-dir DIR --test --phase setup` installs and
+checks the pinned tools without compiling or packaging. The complete invocation
+repeats those checks and runs the suite. `--engine-workspace-targets` places each
+engine's Cargo output in its own workspace `target/`, outside the compiler's
+`CARGO_TARGET_DIR`; omitting it preserves the local output layout.
+
 | Job | Work |
 |---|---|
 | Verify tag | Requires the tagged commit to be on `main` and the tag to equal `v` plus the `Cargo.toml` version (`scripts/release/check-version.sh`) |
 | Test | The full test suite and release-script tests on native Ubuntu x86-64 and ARM64 runners, with the pinned Rust |
 | Build and test | For each architecture in its pinned glibc 2.28 image: installs the pinned Rust, builds both executables with `--locked`, runs the test suite, audits the compiler, then builds/audits both engines and packages them in the compiler archive |
 | Smoke test | For each target and its pinned distribution images: installs only the documented prerequisites, disconnects the network, and exercises all archives, including app-only engine relocation with the compiler/original engine removed (`smoke-in-container.sh`) |
-| Build and test (experimental) | On `macos-15` and `windows-2025` with the pinned Rust: builds both executables, runs the platform-boundary and compiler/runtime unit tests, audits the executables (`check-native.py`), and packages the archive (`build-native.sh`), including the validated dataframe dylib on macOS or DLL on Windows |
+| Prepare compiler (experimental) | On `macos-15` and `windows-2025` with the pinned Rust: builds both executables and runs platform-boundary and compiler/runtime unit tests (`build-native.sh --test --phase prepare`) |
+| Prepare dataframe (experimental) | Concurrently builds the dataframe engine and runs its formatting, tests and Clippy checks with the pinned baseline |
+| Package (experimental) | Requires both preparations, audits the supplied executables and engine, and packages the archive (`build-native.sh --phase package`) |
 | Smoke test (experimental) | On a fresh runner of the same kind, with Rust, Cargo and `PLENTY*` variables removed from the environment: checks the archive, then type-checks, compiles and runs a program from paths with spaces, before and after moving the installation (`smoke-native.py`) |
 | Publish | Tag pushes only. Creates a draft release with every target's archives and checksums, then publishes it (`publish.sh`) |
 
@@ -156,7 +185,8 @@ packages the prepared compiler binaries from `CARGO_TARGET_DIR/release/` with
 previously validated engines from that directory, retaining all packaging
 audits. Package mode requires `--engine-dir` and rejects `--test`; the caller
 must ensure both preparations succeeded. Omitting `--phase` keeps the complete
-local build, engine validation and packaging flow used by the release workflow.
+local build, engine validation and packaging flow; release jobs select the
+explicit phases.
 
 Native Ubuntu test runners and the x86-64 baseline build install the
 SHA-256-verified mold version pinned in `scripts/release/toolchain.env`, without

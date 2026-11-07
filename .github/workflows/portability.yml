@@ -100,7 +100,7 @@ jobs:
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: . -> target/native-release
-          key: portability-release-v1-${{ matrix.target }}-${{ hashFiles('scripts/release/target.sh') }}
+          shared-key: portability-release-v2-${{ matrix.target }}-${{ hashFiles('scripts/release/target.sh') }}
           cache-bin: "false"
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build and test release compiler
@@ -155,7 +155,7 @@ jobs:
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: plenty-dataframe -> target
-          key: portability-dataframe-v1-${{ matrix.target }}-${{ hashFiles('scripts/build_native_engine.py') }}
+          shared-key: portability-dataframe-v2-${{ matrix.target }}-${{ hashFiles('scripts/build_native_engine.py') }}
           cache-bin: "false"
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build and validate dataframe engine

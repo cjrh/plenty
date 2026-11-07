@@ -83,6 +83,18 @@ default behavior; explicit prepare/package phases support the CI split.
 Release baselines and custom-runtime-flag cache safeguards are preserved.
 Hosted cold/warm savings remain to be measured.
 
+## Release build reuse (issue #859)
+
+The [release workflow](../development/releasing.md#what-the-workflow-does)
+prepares native compilers and dataframe engines concurrently, then audits and
+packages their same-run artifacts before clean-runner smoke tests. Compatible
+native dependency caches share keys with main-branch qualification; isolated
+Linux compiler and engine caches can be seeded by a main-branch dry run.
+Linux full suites use the existing debug-checked `ci` profile; release binary
+flags, test coverage, archive audits and publication gates remain unchanged.
+The v0.8.18 baseline had a 21m48s Windows dataframe build after compiler checks;
+post-change hosted savings remain to be measured.
+
 ## Short file extensions (issue #851)
 
 Source files accept `.p` as an alias for `.plenty`, and trusted interfaces
