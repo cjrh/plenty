@@ -1,9 +1,11 @@
 # Type argument inference
 
 Calls supply all generic arguments, as in `identity[list[i64]](values)`, or infer all
-from inputs, as in `identity(values)`. Partial explicit lists and inference from
-an expected result type are unsupported. Output-only or unused parameters need
-an explicit list.
+from inputs, as in `identity(values)`. Partial explicit lists are unsupported.
+A generic function's expected result type does not select its arguments, so its
+output-only or unused parameters need an explicit list. A generic class
+constructor is the exception: an expected instance of the class supplies its
+arguments; see [generic data](data.md).
 
 Inference structurally matches concrete arguments: `&T` against `&Message` learns
 `T = Message`; `&dict[K, V]` against `&dict[str, u8]` learns both parameters.

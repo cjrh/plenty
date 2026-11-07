@@ -5,7 +5,8 @@ creates a [protocol object](../../language/07-generics/boxed-protocols.md) with
 indirect method dispatch and no payload extraction or copying.
 
 `Box(value) -> Result[Box[T], AllocError]` moves a value into one heap allocation.
-Failure drops the input. Boxes are affine. Moving, borrowing, extracting content,
+Failure drops the input. An expected `Box[T]` makes `T` the expected type of
+`value`, as in `boxed: Box[dict[str, i64]] = Box({}?)?`. Boxes are affine. Moving, borrowing, extracting content,
 and destroying the box add no allocation; explicit copying and operations on its
 content retain their own costs. Boxes provide a heap boundary for
 [recursive data](../../language/03-types/recursive-data.md). A box has one

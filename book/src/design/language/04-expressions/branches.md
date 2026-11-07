@@ -10,7 +10,9 @@ aggregates containing Results.
 Continuing branches of value-producing `if`/`elif`/`else` suites must agree on
 type. An `if` without `else` can only produce unit. The inline conditional uses
 `value_if_true if condition else value_if_false`; only its selected value is
-evaluated.
+evaluated. Without an expected type from its context, the first value's type is
+the expected type of the second: `Some(1) if ready else Nothing` works, while
+`Nothing if ready else Some(1)` needs an annotation.
 
 An `if` takes any number of `elif` arms. The arms are alternatives at one level,
 tested in order; they do not count toward the
@@ -64,7 +66,10 @@ def main() -> Result[(), IoError | OverflowError[i64]]:
 `mut` and annotations work as for ordinary bindings. An annotation or the
 assigned destination's type supplies the expected type to every continuing arm,
 including every `elif` and `else`; this allows contextual `Nothing` and empty
-collection literals. Continuing arms must agree. Arms ending in `return`,
+collection literals. Without one, the first continuing arm is inferred alone
+and supplies the expected type of the arms after it, as the first value of an
+inline conditional does for the second, so only a first continuing arm of
+`Nothing` or `[]?` needs an annotation. Continuing arms must agree. Arms ending in `return`,
 `break`, or `continue` contribute no value. If every arm exits, write an ordinary
 `if` statement instead of binding its nonexistent value. An absent `else`
 produces unit on its unselected path; unit cannot be stored in a binding.

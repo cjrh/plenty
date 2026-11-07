@@ -2029,6 +2029,16 @@ impl Lower<'_> {
                 alternative,
                 &mut body,
             );
+            // Without an expected type, later cases take the first continuing
+            // case's type, as the inline conditional's second value does.
+            let inferred;
+            let tail = match (tail, &joined) {
+                (Tail::Value(None), Some(Some(ty))) => {
+                    inferred = Tail::Value(Some(ty.clone()));
+                    &inferred
+                }
+                _ => tail,
+            };
             if let BlockResult::Continues(ty) =
                 self.returning_block(&case.body, &case.at, &mut body, tail)?
             {
