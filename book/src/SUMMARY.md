@@ -692,6 +692,8 @@
     - [User-defined ordering](proposals/user-type-ordering.md)
     - [Timsort for stable, adaptive sorting](proposals/timsort.md)
     - [User-defined dictionary keys and set members](proposals/user-type-hashing.md)
+    - [One borrowed text type](proposals/unified-borrowed-text.md)
+        - [Borrowed text: representation and migration](proposals/unified-borrowed-text/representation.md)
     - [Derived serialization for classes and enums](proposals/derived-serialization.md)
     - [Value generic parameters](proposals/value-generics.md)
     - [std.plot: a ggplot2-style plotting module](proposals/std-plot.md)
