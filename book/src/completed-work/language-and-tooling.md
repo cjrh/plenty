@@ -83,6 +83,18 @@ default behavior; explicit prepare/package phases support the CI split.
 Release baselines and custom-runtime-flag cache safeguards are preserved.
 Hosted cold/warm savings remain to be measured.
 
+## Release build reuse (issue #859)
+
+The [release workflow](../development/releasing.md#what-the-workflow-does)
+prepares native compilers and dataframe engines concurrently, then audits and
+packages their same-run artifacts before clean-runner smoke tests. Compatible
+native dependency caches share keys with main-branch qualification; isolated
+Linux compiler and engine caches can be seeded by a main-branch dry run.
+Linux full suites use the existing debug-checked `ci` profile; release binary
+flags, test coverage, archive audits and publication gates remain unchanged.
+The v0.8.18 baseline had a 21m48s Windows dataframe build after compiler checks;
+post-change hosted savings remain to be measured.
+
 ## Short file extensions (issue #851)
 
 Source files accept `.p` as an alias for `.plenty`, and trusted interfaces
@@ -758,6 +770,13 @@ Compile-time constants/static assertions, embedded data and `if const target.*`
 shipped (local PR #628). Module constant indexing and import/module diagnostics
 were improved (issues #562/#568/#587).
 
+Import-binding warnings use the existing CLI/LSP warning channel (issue #818).
+Resolution counts uses in all declarations, including type positions and generic
+bodies, independently of executable reachability. Package targets keep their
+own import scopes, and an unused binding still loads and checks its module.
+The [warning contract](../design/toolchain/01-building/warnings.md#unused-import)
+explains intentional validation imports and target-conditional scope.
+
 The local [semantic-search trial](../development/semantic-search.md) has
 repository extraction, incremental synchronization/deletion detection and hybrid
 queries in Plenty; a pinned Python/FastEmbed subprocess performs inference.
@@ -1092,3 +1111,19 @@ literal other than `-1` adds no signed `OverflowError[T]`, so `x // 2` needs
 no error contract. Constants, variables and guards still prove nothing; typed
 `NonZero[T]` and `Positive[T]` divisors carry other proofs. See
 [checked blocks](../design/language/03-types/numbers.md#checked-blocks).
+
+## Call-scoped FFI string vectors and native errors (issues #779/#780)
+
+Trusted interfaces accept `&list[str] as c_strings`: one fallible packed owner
+holds a null-terminated pointer table and NUL-terminated UTF-8 copies. Empty
+vectors, embedded NUL refusal, layout overflow and left-to-right cleanup follow
+the existing `CStrError` contract. The temporary never becomes a Plenty pointer.
+
+A Plenty-only `&mut i32 as errno` output captures the calling thread's native
+C error immediately after native return, before any adapter cleanup. Conversion
+failure leaves it unchanged; wrappers retain responsibility for interpreting the
+native status and whether errno is meaningful. Existing scalar return ABIs and
+worker certification remain intact. Windows support concerns CRT errno, not
+`GetLastError` or a separate foreign CRT. Neither operation adds arbitrary pointer
+dereference, retained pointers or C record support. See the
+[adapter contracts](../design/facilities/04-interop/borrowing-text.md).

@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -90,3 +91,18 @@ uint64_t fixture_strided_bytes(const uint8_t *data, size_t count, size_t stride)
     for (size_t i = 0; i < count; ++i) sum += data[i * stride];
     return sum;
 }
+
+/* Adapters must pass a real terminated pointer table, including empty vectors. */
+uint64_t fixture_c_strings(const char *const *values, const char *tail) {
+    uint64_t count = 0, bytes = strlen(tail);
+    for (; values[count] != NULL; ++count) {
+        bytes += strlen(values[count]);
+    }
+    return count * 100 + bytes;
+}
+int32_t fixture_errno_text(const char *text, int32_t code) {
+    errno = code;
+    return text[0] == '\0' ? 0 : -1;
+}
+void fixture_errno_void(int32_t code) { errno = code; }
+void *fixture_errno_address(void) { return (void *)&fixture_errno_void; }

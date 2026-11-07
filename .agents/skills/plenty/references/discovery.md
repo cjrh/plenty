@@ -156,3 +156,12 @@ handler adds `Allow` from `exchange.allowed_methods`. Enable
 `TrailingSlash.Redirect` explicitly for method-preserving 308 redirects after
 an exact miss; exact routes and exact wrong-method responses win. `find` stays
 an exact matcher. See [HTTP routing](../../../../book/src/design/stdlib/http-server.md#routing).
+
+For trusted C bindings, `&list[str] as c_strings` creates a read-only call-scoped
+null-terminated string-pointer vector; it shares `c_string`'s `CStrError`
+allocation/NUL contract. `&mut i32 as errno` is a Plenty-only output parameter,
+omitted from C arguments, which captures thread-local C errno immediately after
+native return and before cleanup. Interpret the snapshot only when the native
+return contract says it is meaningful; conversion failure leaves it unchanged.
+Neither adapter permits retaining temporary pointers or bypasses worker checks.
+See [foreign adapters](../../../../book/src/design/facilities/04-interop/borrowing-text.md).

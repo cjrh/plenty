@@ -44,3 +44,17 @@ An interface for `uint64_t checksum(const uint8_t *data, size_t size)` would
 instead declare `text: &str as utf8`. It receives all bytes, including embedded
 NULs, and needs no temporary copy. Neither adapter lets C retain or modify the
 buffer. Use a binding with an explicit ownership contract for those cases.
+
+For a C string array, declare `arguments: &list[str] as c_strings` and return
+`Result[T, CStrError]`. This builds a terminated pointer table and terminated
+UTF-8 strings for one call; even the empty list has a final null pointer. C must
+not modify or retain the table or its strings. See
+[C string vectors](../../design/facilities/04-interop/borrowing-text.md#c-string-vectors).
+
+When a native API reports failure through its return value and `errno`, add an
+`error: &mut i32 as errno` parameter to its trusted declaration. This parameter
+is omitted from C arguments and receives the calling thread's error immediately
+after native return, before temporary buffers are freed. Check the native return
+first, and inspect the captured value only if that API says it is meaningful.
+Successful calls need not clear it. Argument-conversion failure leaves the slot
+unchanged. See [native error capture](../../design/facilities/04-interop/borrowing-text.md#capture-native-errno).

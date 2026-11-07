@@ -86,6 +86,59 @@ pub(crate) unsafe fn try_c_string(text: *const Text) -> Result<*mut Text, CStrEr
     }
 }
 
+/// Build one private buffer containing a pointer table and terminated bytes.
+/// Its Text header is used only for ownership/release, never text operations.
+/// `get` must return the same live immutable text on both passes.
+pub(crate) unsafe fn try_c_strings(
+    count: usize,
+    get: impl Fn(usize) -> *const Text,
+) -> Result<*mut Text, CStrError> {
+    let overflow = || CStrError::Allocation(AllocError::CapacityOverflow);
+    let table_bytes = count
+        .checked_add(1)
+        .and_then(|n| n.checked_mul(size_of::<*const u8>()))
+        .ok_or_else(overflow)?;
+    let mut size = table_bytes;
+    // Validate before allocation, so even invalid late elements need no rollback.
+    for index in 0..count {
+        let text = get(index);
+        // SAFETY: caller keeps every text alive and unchanged for both passes.
+        let source = unsafe { bytes(&text) };
+        if source.contains(&0) {
+            return Err(CStrError::EmbeddedNul);
+        }
+        size = size
+            .checked_add(source.len())
+            .and_then(|n| n.checked_add(1))
+            .ok_or_else(overflow)?;
+    }
+    // SAFETY: layout arithmetic is checked by the allocator; data is 8-aligned,
+    // sufficient for the target's pointers. No fallible work follows allocation.
+    unsafe {
+        let out = memory::try_allocate_uninit::<Text, u8>(size).map_err(CStrError::Allocation)?;
+        out.write(Text {
+            header: Header::new(destroy),
+            byte_len: size as u64,
+            scalar_len: 0,
+            data: [],
+        });
+        let data = ptr::addr_of_mut!((*out).data).cast::<u8>();
+        let table = data.cast::<*const u8>();
+        let mut offset = table_bytes;
+        for index in 0..count {
+            let text = get(index);
+            let source = bytes(&text);
+            let target = data.add(offset);
+            table.add(index).write(target);
+            ptr::copy_nonoverlapping(source.as_ptr(), target, source.len());
+            target.add(source.len()).write(0);
+            offset += source.len() + 1;
+        }
+        table.add(count).write(ptr::null());
+        Ok(out)
+    }
+}
+
 /// Inline data lives in the word, so the view borrows the word's storage.
 pub(crate) unsafe fn bytes(text: &*const Text) -> &[u8] {
     // SAFETY: the caller keeps a heap text alive for the returned view's lifetime.

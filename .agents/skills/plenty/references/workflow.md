@@ -4,11 +4,14 @@
 
 | Command | Use |
 |---|---|
-| `plenty --check FILE` | Type-check only; fastest feedback; prints warnings, such as `redundant-copy`, on stderr |
+| `plenty --check FILE` | Type-check only; fastest feedback; prints warnings, `redundant-copy` and `unused-import` on stderr |
 | `plenty FILE` | Compile and run |
 | `plenty script [OPTIONS] FILE [ARGS...]` | Run with arguments and optional embedded dependencies |
 | `plenty --compile FILE -o OUT` | Write a native executable |
 | `plenty --fast-compile FILE` | Skip optimization for shorter edit-run cycles |
+
+Import warnings concern bindings, not executable reachability. An unused import
+still loads and checks its module; retain intentional validation imports.
 
 Profiles change code generation only; every check behaves the same. The separate
 `--unchecked trap|assume` option controls plain `unchecked:` arithmetic suites;

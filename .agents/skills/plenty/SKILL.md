@@ -198,7 +198,11 @@ actual `std.serial.Kind` values. Rendering borrows and preserves the error.
   value. Avoid `copy` unless two owners are needed. Never write `copy(x)?`
   or `copy(&x)?` when `x` copies (`str`, numbers, `@copy` classes): write `x`;
   for a reference `r: &str`, write `*r` instead of `copy(r)?`. `plenty --check`
-  reports them as `redundant-copy` warnings; fix every warning.
+  reports them as `redundant-copy` warnings; apply the suggested replacements.
+- Checks also report `unused-import` when an import binding has no resolved use
+  in its module, including types and generic bodies. Remove unneeded imports,
+  but retain an import that intentionally keeps a module in checking: deleting
+  it can reduce validation coverage. Warnings are advisory and do not fail a check.
 - Reserve capacity when the size is known: `list[i64].with_capacity(n)?`.
 - Mark a class or enum that holds a secret `@redacted`: `print`, `str.repr`
   and f-strings then show `ApiKey(@redacted)` at any depth, while field access is

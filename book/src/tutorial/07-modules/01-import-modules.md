@@ -55,3 +55,9 @@ plenty --module-root src --check-module src/tools/geometry.plenty
 
 `--check` checks a complete application and requires `main`. `--check-module`
 checks a library and its imports without that requirement.
+
+Checks also report an `unused-import` warning when an imported name or alias
+has no use in its module. A type annotation such as `point: Position` counts as
+a use. Remove imports you no longer need, but retain one that intentionally
+includes another module in checking: deleting it can reduce validation coverage.
+Warnings do not fail the check; see the [warning contract](../../design/toolchain/01-building/warnings.md#unused-import).

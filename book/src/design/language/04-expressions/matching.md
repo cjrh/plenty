@@ -25,6 +25,7 @@ A case holds one pattern. A pattern is one of:
 | `name` | any payload, bound to an immutable local |
 | `_ as name` | the whole matched value, bound to an immutable local |
 | `name: MemberType` | a whole member of an anonymous sum; see [member patterns](../03-types/anonymous-sums.md) |
+| `name: B \| C` | the members of an anonymous sum that earlier cases leave, bound as that smaller sum; see [residual members](../03-types/anonymous-sums.md#residual-members) |
 | `Enum.Variant` or `Enum.Variant(p, ...)` | that variant, with one pattern per payload position |
 | `Some(p)`, `Nothing`, `Ok(p)`, `Err(p)` | that standard variant |
 | `(p, q)` or `(p,)` | a tuple with one pattern per component |
