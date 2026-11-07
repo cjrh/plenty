@@ -1,0 +1,50 @@
+; `sum_iter` from kernels.plenty at main 2945afb3 (--dump clif), with its
+; single-predecessor latch blocks merged into the body. See upstream-use-state.md.
+function u0:62(i128) -> f64 tail {
+block0(v0: i128):
+                                    v29 -> v0
+                                    v13 -> v29
+    v1 = iconst.i64 0
+    v2 = uextend.i128 v1  ; v1 = 0
+    ; line 12
+    v3 = f64const 0.0
+    v30 -> v3
+    ; line 13
+    v4 = ireduce.i64 v0
+    v5 = ireduce.i64 v0
+    v6, v7 = isplit v0
+    v10 -> v7
+    v27 -> v10
+    v8 = iconst.i64 0
+    v9 -> v8
+    jump block2
+
+block3:
+    v11 = icmp.i64 slt v9, v10  ; v9 = 0
+    v12 = icmp.i64 sge v9, v10  ; v9 = 0
+    brif v12, block1(v30), block4(v9, v30)  ; v30 = 0.0, v9 = 0, v30 = 0.0
+
+block4(v15: i64, v22: f64):
+    v14 = ireduce.i64 v13
+    v16, v17 = isplit.i128 v13
+    v18 = iconst.i64 3
+    v19 = ishl v15, v18  ; v18 = 3
+    v20 = iadd v16, v19
+    v21 = uextend.i128 v20
+    ; line 14
+    v23 = load.f64 notrap aligned v20
+    v24 = fadd v22, v23
+    v25 = iconst.i64 1
+    v26 = iadd v15, v25  ; v25 = 1
+    ; line 13
+    v28 = icmp.i64 slt v26, v27
+    brif v28, block4(v26, v24), block1(v24)
+
+block2:
+    ; line 14
+    jump block3
+
+block1(v31: f64):
+    ; line 15
+    return v31
+}

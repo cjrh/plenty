@@ -1,0 +1,33 @@
+--- a/cranelift/codegen/src/machinst/lower.rs
++++ b/cranelift/codegen/src/machinst/lower.rs
+@@ -1410,6 +1410,7 @@
+     // multiple times, it is pushed into `multiple_stack`, which we
+     // use to do the graph-walk that propagates multiplicity below.
+     let mut multiple_stack: SmallVec<[Value; 16]> = smallvec![];
++    let mut merged_use: SecondaryMap<Value, bool> = SecondaryMap::with_default(false);
+ 
+     if let Some(sret_param) = sret_param {
+         // There's an implicit use of the struct-return parameter in each
+@@ -1450,6 +1451,9 @@
+             debug_assert!(f.dfg.value_is_real(arg));
+             mark_use(arg, &mut multiple_stack);
+         }
++        for &arg in f.dfg.inst_args(inst) {
++            merged_use[map_to_first_result(f, arg)] = true;
++        }
+     }
+ 
+     // Step 2: propagate multiplicity. `Multiple` is
+@@ -1458,6 +1462,12 @@
+     // their uses, and so on, depending on how deep a lowering rule
+     // matches.
+     while let Some(value) = multiple_stack.pop() {
++        // A value used only as block-call arguments is put in a register
++        // once; no consumer merges its instruction, so its operand tree
++        // is lowered once.
++        if !merged_use[value] {
++            continue;
++        }
+         for u in uses(value).into_iter().flatten() {
+             mark_use(u, &mut multiple_stack);
+         }
