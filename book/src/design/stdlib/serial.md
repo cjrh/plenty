@@ -6,9 +6,10 @@ specializes `encode[T, E, S](value: &T, out: &mut S)` and
 return `Result[..., SerialError[E]]`; `S` satisfies `Encoder[E]` and `D`
 satisfies `Decoder[E]`. Format algorithms are Plenty code.
 
-Use the [JSON typed entry points](json-codecs.md) for complete documents or
-direct conversion to and from `Json`. There is currently no `@serial`
-derivation, TOML adapter, reflection, or user macro requirement. The
+Use the [JSON typed entry points](json-codecs.md) or
+[TOML typed entry points](toml-codecs.md) for complete documents or direct
+owning tree conversion. [Declare `@serial`](serial-derive.md) on a class or
+enum to generate ordinary checked hooks, or supply either hook yourself. The
 [serialization proposal](../../proposals/derived-serialization.md) records the
 staged design and rationale.
 
@@ -24,13 +25,22 @@ staged design and rationale.
 | Tuple | Fixed-length array |
 | `Option[T]` | `Nothing` is null; `Some` uses `T`'s representation |
 | `Box[T]` | `T`'s representation |
-| Class or enum | Handwritten hooks |
+| `std.bytes.Bytes` | Canonical, padded base64 text |
+| `bytes` | Base64 encoding only; decode into owning `Bytes` |
+| Class or enum | Derived or handwritten hooks |
 
 Nested `Option[Option[T]]`, including through transparent `Box` wrappers, is
 rejected because two levels of `Nothing` would
-both encode as null. Bytes, `Result`, unions, dictionary keys other than
+both encode as null. `Result`, unions, dictionary keys other than
 strings, and classes or enums without hooks have no automatic representation.
 Collection ordering follows the collection's iteration order.
+
+`bytes` denotes read-only static literal storage, which cannot be created from
+runtime input. `Bytes` is the runtime-owned representation. Invalid base64
+returns `Fault.InvalidBase64(EncodingError)` with the precise cause; allocation
+failures remain in the adapter's allocation-error domain. Both forms use the
+existing [`std.encoding`](encoding.md) implementation, including canonical
+padding and unused-bit checks.
 
 ## Handwritten hooks
 
@@ -48,8 +58,10 @@ cross module privacy boundaries just as automatic destruction does. They
 never expose private fields or bypass a constructor: the decode hook must
 construct the value through the type's normal validated constructor.
 
-For an object, encode `start_object`, each `key` followed by one encoded
-value, then `end_object`. Decode `start_object`, call `next_key` until
+For a class, encode `start_object`, each `field` followed by one encoded
+value, then `end_object`. Mapping codecs use `key` instead: TOML may omit a
+null class field but rejects a null map value, preserving dictionary entries.
+Decode `start_object`, call `next_key` until
 `Nothing`, and decode one value for each returned key. Keep an `Option` slot
 per field to detect duplicates and missing fields. Supply intentional defaults
 after reading the object and before construction. Call `unknown_key` for
@@ -74,9 +86,20 @@ an empty list while constructing the error. Success does not allocate path entri
 
 `Fault` distinguishes unexpected kinds, missing/duplicate/unknown fields,
 unknown variants, range failures, wrong tuple lengths, duplicate set elements,
-and values a format cannot represent. `Decoder.reject(fault)` turns these
-semantic failures into its concrete error type. `Decoder.allocation(cause)`
-preserves format context for container allocation failures.
+values a format cannot represent, invalid base64, and native `StackLimit`.
+Both adapters' `reject(fault)` methods turn semantic or native-budget failures
+into their concrete error type. `Decoder.allocation(cause)`
+preserves format context for container allocation failures. `Encoder.allocation`
+does the same for base64 scratch storage.
+
+`read_field(slot, source, name)` detects duplicates and decodes into a mutable
+`Option[T]` slot, preserving `Step.Field(name)`. `require_field` takes the
+decoded value or calls compiler-specialized `absent`: missing `Option` fields
+become `Nothing`, including aliases and generic instances; other missing fields
+fail. A tuple of slots keeps wide records within the compiler's local-slot
+budget without heap allocation. `constructed` maps `Result[T, Fault]` from a
+validated constructor into the decoder's concrete error domain. Constructors
+with other error types need an explicit decoding hook to choose that mapping.
 
 The protocols use scalar operations and explicit container boundaries.
 `Decoder.null()` consumes a null and returns true, or leaves a non-null value
@@ -88,11 +111,34 @@ it. An encoder writes exactly one root value. After any failure, discard the
 adapter; recovery and reuse are not supported. Format adapters own depth,
 input, output, and tree budgets.
 
+Checked codec calls also enforce a native stack budget before entering a
+callee. Wide inline fields can consume substantial stack even at a modest
+document depth. `Fault.StackLimit` reports insufficient stack, unavailable
+thread bounds, or a call segment whose stack use cannot be bounded. It can
+occur before the format's configured depth limit. Opaque callbacks and
+unguarded recursive call segments are conservatively rejected; rejection
+helpers must themselves have a bounded reporting path. A rejection path that
+cannot be budgeted is a compile error. Hosts embedding compiled Plenty code
+must keep the executing thread's stack mapping and stack resource limit
+unchanged; Unix stack bounds are cached per thread.
+
+Call `encode` and `decode` directly. To pass codec work as a function value,
+write an ordinary wrapper with concrete adapter types, keeping the checked
+codec call inside that wrapper.
+
+`Decoder.variant()` consumes a text tag and returns `(tag, False)`, or starts
+an object and selects its first tagged payload, returning `(tag, True)`.
+Consume the payload and check `next_key()` returns `Nothing` to enforce exactly
+one tag. An empty tagged object is rejected. This operation avoids consuming
+the first event while guessing whether an enum uses text or an object.
+
 All dispatch is static. Containers allocate their decoded storage; adapters
 may allocate parsing/output buffers and traversal stacks. The implementation
 does not promise allocation-free strings or a performance improvement over a
-specialized handwritten event loop. Compile-time, code-size and throughput
-measurements remain a prerequisite for derivation.
+specialized handwritten event loop. See the
+[serialization measurements](../../development/serialization-measurements.md)
+for cold compile time, object size, throughput and the costs of static
+specialization. Runtime reflection and user macros are not required.
 
 ## Acknowledgements
 

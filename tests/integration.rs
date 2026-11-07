@@ -780,3 +780,11 @@ mod test_runtime_vendor_cache;
 
 #[path = "test_std_serial.rs"]
 mod test_std_serial;
+#[path = "test_std_serial_bytes.rs"]
+mod test_std_serial_bytes;
+#[path = "test_std_serial_derive.rs"]
+mod test_std_serial_derive;
+#[path = "test_std_serial_reader.rs"]
+mod test_std_serial_reader;
+#[path = "test_std_serial_toml.rs"]
+mod test_std_serial_toml;

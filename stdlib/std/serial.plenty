@@ -1,6 +1,8 @@
 # Format-neutral, statically dispatched codecs. Formats own parsing, output
 # and limits; codecs own field policy and constructor invariants.
 # See book/src/design/stdlib/serial.md and issue #781.
+import std.encoding
+from std.bytes import Bytes
 
 pub enum Fault:
     UnexpectedKind
@@ -12,6 +14,8 @@ pub enum Fault:
     WrongLength(i64, i64)
     DuplicateElement
     Unrepresentable
+    InvalidBase64(std.encoding.EncodingError)
+    StackLimit
 
 pub enum Step:
     Field(str)
@@ -70,6 +74,10 @@ pub def at[T, E](result: Result[T, SerialError[E]], step: Step) -> Result[T, Ser
             Err(cause.at(step))
 
 pub protocol Encoder[E]:
+    def reject(self, fault: Fault) -> E:
+        pass
+    def allocation(self, cause: AllocError) -> E:
+        pass
     def null(self: &mut Encoder) -> Result[(), E]:
         pass
     def boolean(self: &mut Encoder, value: bool) -> Result[(), E]:
@@ -90,10 +98,18 @@ pub protocol Encoder[E]:
         pass
     def key(self: &mut Encoder, name: &str) -> Result[(), E]:
         pass
+    # Class fields admit omission of null in formats without null values;
+    # ordinary mapping keys must retain their entries or reject the value.
+    def field(self: &mut Encoder, name: &str) -> Result[(), E]:
+        pass
     def end_object(self: &mut Encoder) -> Result[(), E]:
         pass
 
 pub protocol Decoder[E]:
+    # A text tag has no payload; an object tag selects its first value.
+    # The caller consumes a payload then checks next_key for an exact one-tag object.
+    def variant(self: &mut Decoder) -> Result[(str, bool), E]:
+        pass
     def null(self: &mut Decoder) -> Result[bool, E]:
         pass
     def boolean(self: &mut Decoder) -> Result[bool, E]:
@@ -129,6 +145,25 @@ pub def encode[T, E, S: Encoder[E]](value: &T, out: &mut S) -> Result[(), Serial
 pub def decode[T, E, D: Decoder[E]](source: &mut D) -> Result[T, SerialError[E]]:
     __serial_decode[T, E, D](source)
 
+# Caller guards report through the same typed adapter bridge. These helpers
+# remain unguarded so an exhausted codec segment can always report its cause.
+def decode_stack_error_mut[E, D: Decoder[E]](source: &mut D) -> SerialError[E]:
+    error(source.reject(Fault.StackLimit))
+
+def decode_stack_error_ref[E, D: Decoder[E]](source: &D) -> SerialError[E]:
+    error(source.reject(Fault.StackLimit))
+
+def encode_stack_error_mut[E, S: Encoder[E]](out: &mut S) -> SerialError[E]:
+    error(out.reject(Fault.StackLimit))
+
+def encode_stack_error_ref[E, S: Encoder[E]](out: &S) -> SerialError[E]:
+    error(out.reject(Fault.StackLimit))
+
+# Missing-field behavior is selected after aliases and generic arguments are
+# resolved, so an Option hidden by either still receives Nothing.
+pub def absent[T, E, D: Decoder[E]](source: &D, name: &str) -> Result[T, SerialError[E]]:
+    __serial_absent[T, E, D](source, name)
+
 pub enum UnknownFields:
     Reject
     Ignore
@@ -141,3 +176,51 @@ pub def allocated[T, E, D: Decoder[E]](result: Result[T, AllocError], source: &D
             Ok(value)
         case Err(cause):
             Err(error(source.allocation(cause)))
+
+# Text formats use canonical, padded RFC 4648 base64. Keep the allocation
+# cause in the format's domain; malformed input retains the precise codec cause.
+pub def encode_bytes[E, S: Encoder[E]](value: &[u8], out: &mut S) -> Result[(), SerialError[E]]:
+    text = match std.encoding.base64_text(value):
+        case Ok(text):
+            text
+        case Err(std.encoding.EncodingError.Allocation(cause)):
+            return Err(error(out.allocation(cause)))
+        case Err(_):
+            __trap("base64 encoding a byte view cannot reject its input")
+    wrap(out.text(&text))
+
+pub def decode_bytes[E, D: Decoder[E]](source: &mut D) -> Result[Bytes, SerialError[E]]:
+    text = wrap(source.text())?
+    match std.encoding.base64_from_text(&text):
+        case Ok(value):
+            Ok(value)
+        case Err(std.encoding.EncodingError.Allocation(cause)):
+            Err(error(source.allocation(cause)))
+        case Err(cause):
+            Err(error(source.reject(Fault.InvalidBase64(cause))))
+
+# Ordinary helpers keep the generated object's live locals proportional to
+# its fields. In particular, each match arm need not allocate its own set of
+# duplicate/error/try temporaries in the compiler's local-slot table.
+pub def read_field[T, E, D: Decoder[E]](slot: &mut Option[T], source: &mut D, name: &str) -> Result[(), SerialError[E]]:
+    if slot.is_some():
+        return at[(), E](Err(error(source.reject(Fault.DuplicateField(*name)))), Step.Field(*name))
+    value = at(decode[T, E, D](source), Step.Field(*name))?
+    *slot = Some(value)
+    Ok(())
+
+pub def require_field[T, E, D: Decoder[E]](slot: &mut Option[T], source: &D, name: &str) -> Result[T, SerialError[E]]:
+    match replace(*slot, Nothing):
+        case Some(value):
+            Ok(value)
+        case Nothing:
+            at(absent[T, E, D](source, name), Step.Field(*name))
+
+# A validated constructor may reject with format-neutral Fault. Other domain
+# errors need an explicit handwritten decode hook to choose their wire mapping.
+pub def constructed[T, E, D: Decoder[E]](value: Result[T, Fault], source: &D) -> Result[T, SerialError[E]]:
+    match value:
+        case Ok(result):
+            Ok(result)
+        case Err(cause):
+            Err(error(source.reject(cause)))

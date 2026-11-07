@@ -100,7 +100,10 @@ pub(super) fn expand(
     replacements: &mut generics::Substitution,
     at: &Token,
 ) -> Result<Option<Arc<Function>>> {
-    if !matches!(name, "std.serial.encode" | "std.serial.decode") {
+    if !matches!(
+        name,
+        "std.serial.encode" | "std.serial.decode" | "std.serial.absent"
+    ) {
         return Ok(None);
     }
     let ty = actual[0].as_type().expect("codec value is a type");
@@ -117,8 +120,23 @@ pub(super) fn expand(
         "Fault",
         "Step",
         "SerialError",
+        "encode_bytes",
+        "decode_bytes",
     ] {
         names.push((identifier, format!("std.serial.{identifier}")));
+    }
+    if name == "std.serial.absent" {
+        let mut generated = template.clone();
+        generated.body = body(
+            if matches!(ty, Ty::Enum(option) if option.is_option()) {
+                "    Ok(Nothing)\n"
+            } else {
+                "    Err(error(source.reject(Fault.MissingField(*name))))\n"
+            },
+            at,
+            &names,
+        )?;
+        return Ok(Some(Arc::new(generated)));
     }
     let mut child = |label: &str, ty: &Ty| {
         replacements.insert(label.into(), generics::type_ref(ty, at));
@@ -136,6 +154,19 @@ pub(super) fn expand(
                 "    wrap(source.text())\n".into()
             } else {
                 "    wrap(out.text(value))\n".into()
+            }
+        }
+        Ty::ByteStr => {
+            if decoding {
+                return Err(at.error("static `bytes` literals cannot be decoded at runtime; decode into `std.bytes.Bytes`"));
+            }
+            "    encode_bytes[E, S](value, out)\n".into()
+        }
+        Ty::Class(class) if class.get().name == "std.bytes.Bytes" => {
+            if decoding {
+                "    decode_bytes[E, D](source)\n".into()
+            } else {
+                "    encode_bytes[E, S](&value[:], out)\n".into()
             }
         }
         t if t.is_int() => {
@@ -167,7 +198,7 @@ pub(super) fn expand(
         Ty::F32 | Ty::F64 => {
             if decoding {
                 if matches!(ty, Ty::F32) {
-                    "    number = wrap(source.decimal())?\n    if number > 3.4028234663852886e38 or number < -3.4028234663852886e38:\n        return Err(error(source.reject(Fault.OutOfRange)))\n    Ok(T(number))\n".into()
+                    "    number = wrap(source.decimal())?\n    if number != f64.INF and number != -f64.INF and (number > 3.4028234663852886e38 or number < -3.4028234663852886e38):\n        return Err(error(source.reject(Fault.OutOfRange)))\n    Ok(T(number))\n".into()
                 } else {
                     "    wrap(source.decimal())\n".into()
                 }
@@ -194,7 +225,7 @@ pub(super) fn expand(
                     ""
                 };
                 format!(
-                    "    wrap(source.start_array())?\n    mut result = allocated[{create}[Item], E, D]({create}[Item](), source)?\n    mut index = 0\n    while wrap(source.next_element())?:\n        item = at(decode[Item, E, D](source), Step.Index(index))?\n{duplicate}        allocated[(), E, D](result.{append}(item), source)?\n        unchecked:\n            index += 1\n    Ok(result)\n"
+                    "    wrap(source.start_array())?\n    mut result = allocated[{create}[Item], E, D]({create}[Item](), source)?\n    mut index = 0\n    while at(wrap(source.next_element()), Step.Index(index))?:\n        item = at(decode[Item, E, D](source), Step.Index(index))?\n{duplicate}        at(allocated[(), E, D](result.{append}(item), source), Step.Index(index))?\n        unchecked:\n            index += 1\n    Ok(result)\n"
                 )
             } else {
                 "    wrap(out.start_array())?\n    mut index = 0\n    for item in value:\n        at(encode[Item, E, S](item, out), Step.Index(index))?\n        unchecked:\n            index += 1\n    wrap(out.end_array())\n".into()
@@ -203,7 +234,7 @@ pub(super) fn expand(
         Ty::Dict(key, item) if **key == Ty::Str => {
             child("Item", item);
             if decoding {
-                "    wrap(source.start_object())?\n    mut result = allocated[dict[str, Item], E, D](dict[str, Item](), source)?\n    while True:\n        match wrap(source.next_key())?:\n            case Some(key):\n                if key in result:\n                    return at[T, E](Err(error(source.reject(Fault.DuplicateField(key)))), Step.Key(key))\n                item = at(decode[Item, E, D](source), Step.Key(key))?\n                allocated[(), E, D](result.insert(key, item), source)?\n            case Nothing:\n                break\n    Ok(result)\n".into()
+                "    wrap(source.start_object())?\n    mut result = allocated[dict[str, Item], E, D](dict[str, Item](), source)?\n    while True:\n        match wrap(source.next_key())?:\n            case Some(key):\n                if key in result:\n                    return at[T, E](Err(error(source.reject(Fault.DuplicateField(key)))), Step.Key(key))\n                item = at(decode[Item, E, D](source), Step.Key(key))?\n                at(allocated[(), E, D](result.insert(key, item), source), Step.Key(key))?\n            case Nothing:\n                break\n    Ok(result)\n".into()
             } else {
                 "    wrap(out.start_object())?\n    for key, item in value.items():\n        at(wrap(out.key(key)), Step.Key(*key))?\n        at(encode[Item, E, S](item, out), Step.Key(*key))?\n    wrap(out.end_object())\n".into()
             }
@@ -236,7 +267,7 @@ pub(super) fn expand(
                 let label = format!("Part{i}");
                 child(&label, t);
                 if decoding {
-                    operation.push_str(&format!("    if not wrap(source.next_element())?:\n        return Err(error(source.reject(Fault.WrongLength({}, {i}))))\n    part{i} = at(decode[{label}, E, D](source), Step.Index({i}))?\n",fields.len()));
+                    operation.push_str(&format!("    if not at(wrap(source.next_element()), Step.Index({i}))?:\n        return Err(error(source.reject(Fault.WrongLength({}, {i}))))\n    part{i} = at(decode[{label}, E, D](source), Step.Index({i}))?\n",fields.len()));
                 } else {
                     operation.push_str(&format!(
                         "    at(encode[{label}, E, S](&(value)[{i}], out), Step.Index({i}))?\n"
@@ -244,7 +275,7 @@ pub(super) fn expand(
                 }
             }
             if decoding {
-                operation.push_str(&format!("    if wrap(source.next_element())?:\n        return Err(error(source.reject(Fault.WrongLength({}, {}))))\n    Ok(({}))\n",fields.len(),fields.len()+1,(0..fields.len()).map(|i|format!("part{i},")).collect::<Vec<_>>().join(" ")));
+                operation.push_str(&format!("    if at(wrap(source.next_element()), Step.Index({}))?:\n        return Err(error(source.reject(Fault.WrongLength({}, {}))))\n    Ok(({}))\n",fields.len(),fields.len(),fields.len()+1,(0..fields.len()).map(|i|format!("part{i},")).collect::<Vec<_>>().join(" ")));
             } else {
                 operation.push_str("    wrap(out.end_array())\n");
             }

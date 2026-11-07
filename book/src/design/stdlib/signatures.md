@@ -67,46 +67,46 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.image`](#stdimage): 2143-2189
 - [`std.io`](#stdio): 2191-2297
 - [`std.io.typed`](#stdiotyped): 2299-2337
-- [`std.serial`](#stdserial): 2339-2387
-- [`std.json`](#stdjson): 2389-2512
-- [`std.jwt`](#stdjwt): 2514-2561
-- [`std.log`](#stdlog): 2563-2630
-- [`std.markdown`](#stdmarkdown): 2632-2666
-- [`std.template`](#stdtemplate): 2668-2705
-- [`std.math`](#stdmath): 2707-2778
-- [`std.mime`](#stdmime): 2780-2806
-- [`std.net`](#stdnet): 2808-2890
-- [`std.path`](#stdpath): 2892-2909
-- [`std.process`](#stdprocess): 2911-2969
-- [`std.random`](#stdrandom): 2971-2992
-- [`std.ready`](#stdready): 2994-3025
-- [`std.regex`](#stdregex): 3027-3080
-- [`std.report`](#stdreport): 3082-3089
-- [`std.secrets`](#stdsecrets): 3091-3117
-- [`std.shlex`](#stdshlex): 3119-3128
-- [`std.sketch`](#stdsketch): 3130-3168
-- [`std.sketch.xor`](#stdsketchxor): 3170-3181
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3183-3198
-- [`std.signal`](#stdsignal): 3200-3217
-- [`std.simd`](#stdsimd): 3219-3320
-- [`std.stat`](#stdstat): 3322-3355
-- [`std.plot`](#stdplot): 3357-3446
-- [`std.linalg`](#stdlinalg): 3448-3489
-- [`std.sync`](#stdsync): 3491-3509
-- [`std.system`](#stdsystem): 3511-3570
-- [`std.tempfile`](#stdtempfile): 3572-3604
-- [`std.test`](#stdtest): 3606-3648
-- [`std.text`](#stdtext): 3650-3693
-- [`std.thread`](#stdthread): 3695-3699
-- [`std.time`](#stdtime): 3701-3745
-- [`std.tls`](#stdtls): 3747-3829
-- [`std.toml`](#stdtoml): 3831-3880
-- [`std.unicode`](#stdunicode): 3882-3894
-- [`std.units`](#stdunits): 3896-4133
-- [`std.units.catalogue`](#stdunitscatalogue): 4135-4913
-- [`std.url`](#stdurl): 4915-4943
-- [`std.uuid`](#stduuid): 4945-4968
-- [`std.xml`](#stdxml): 4970-5003
+- [`std.serial`](#stdserial): 2339-2397
+- [`std.json`](#stdjson): 2399-2549
+- [`std.jwt`](#stdjwt): 2551-2598
+- [`std.log`](#stdlog): 2600-2667
+- [`std.markdown`](#stdmarkdown): 2669-2703
+- [`std.template`](#stdtemplate): 2705-2742
+- [`std.math`](#stdmath): 2744-2815
+- [`std.mime`](#stdmime): 2817-2843
+- [`std.net`](#stdnet): 2845-2927
+- [`std.path`](#stdpath): 2929-2946
+- [`std.process`](#stdprocess): 2948-3006
+- [`std.random`](#stdrandom): 3008-3029
+- [`std.ready`](#stdready): 3031-3062
+- [`std.regex`](#stdregex): 3064-3117
+- [`std.report`](#stdreport): 3119-3126
+- [`std.secrets`](#stdsecrets): 3128-3154
+- [`std.shlex`](#stdshlex): 3156-3165
+- [`std.sketch`](#stdsketch): 3167-3205
+- [`std.sketch.xor`](#stdsketchxor): 3207-3218
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3220-3235
+- [`std.signal`](#stdsignal): 3237-3254
+- [`std.simd`](#stdsimd): 3256-3357
+- [`std.stat`](#stdstat): 3359-3392
+- [`std.plot`](#stdplot): 3394-3483
+- [`std.linalg`](#stdlinalg): 3485-3526
+- [`std.sync`](#stdsync): 3528-3546
+- [`std.system`](#stdsystem): 3548-3607
+- [`std.tempfile`](#stdtempfile): 3609-3641
+- [`std.test`](#stdtest): 3643-3685
+- [`std.text`](#stdtext): 3687-3730
+- [`std.thread`](#stdthread): 3732-3736
+- [`std.time`](#stdtime): 3738-3782
+- [`std.tls`](#stdtls): 3784-3866
+- [`std.toml`](#stdtoml): 3868-3965
+- [`std.unicode`](#stdunicode): 3967-3979
+- [`std.units`](#stdunits): 3981-4218
+- [`std.units.catalogue`](#stdunitscatalogue): 4220-4998
+- [`std.url`](#stdurl): 5000-5028
+- [`std.uuid`](#stduuid): 5030-5053
+- [`std.xml`](#stdxml): 5055-5088
 
 ## `std.actor`
 
@@ -2338,11 +2338,11 @@ def copy_all[E, G, R: Reader[E], W: Writer[G]](reader: &mut R, writer: &mut W, s
 
 ## `std.serial`
 
-Format-neutral typed codecs, handwritten class/enum hooks, and typed error paths. Errors: `SerialError[E]`. [Reference](serial.md).
+Format-neutral typed codecs, derived or handwritten class/enum hooks, canonical bytes, and typed error paths. Errors: `SerialError[E]`. [Reference](serial.md).
 
 ```text
 enum Fault
-    UnexpectedKind | MissingField(str) | DuplicateField(str) | UnknownField(str) | UnknownVariant(str) | OutOfRange | WrongLength(i64, i64) | DuplicateElement | Unrepresentable
+    UnexpectedKind | MissingField(str) | DuplicateField(str) | UnknownField(str) | UnknownVariant(str) | OutOfRange | WrongLength(i64, i64) | DuplicateElement | Unrepresentable | InvalidBase64(std.encoding.EncodingError) | StackLimit
 enum Step
     Field(str) | Index(i64) | Key(str) | Variant(str)
 class SerialError[E]
@@ -2354,6 +2354,8 @@ def error[E](cause: E) -> SerialError[E]
 def wrap[T, E](result: Result[T, E]) -> Result[T, SerialError[E]]
 def at[T, E](result: Result[T, SerialError[E]], step: Step) -> Result[T, SerialError[E]]
 protocol Encoder[E]
+    def reject(self, fault: Fault) -> E
+    def allocation(self, cause: AllocError) -> E
     def null(self: &mut Encoder) -> Result[(), E]
     def boolean(self: &mut Encoder, value: bool) -> Result[(), E]
     def integer(self: &mut Encoder, value: i64) -> Result[(), E]
@@ -2364,8 +2366,10 @@ protocol Encoder[E]
     def end_array(self: &mut Encoder) -> Result[(), E]
     def start_object(self: &mut Encoder) -> Result[(), E]
     def key(self: &mut Encoder, name: &str) -> Result[(), E]
+    def field(self: &mut Encoder, name: &str) -> Result[(), E]
     def end_object(self: &mut Encoder) -> Result[(), E]
 protocol Decoder[E]
+    def variant(self: &mut Decoder) -> Result[(str, bool), E]
     def null(self: &mut Decoder) -> Result[bool, E]
     def boolean(self: &mut Decoder) -> Result[bool, E]
     def integer(self: &mut Decoder) -> Result[i64, E]
@@ -2381,9 +2385,15 @@ protocol Decoder[E]
     def allocation(self, cause: AllocError) -> E
 def encode[T, E, S: Encoder[E]](value: &T, out: &mut S) -> Result[(), SerialError[E]]
 def decode[T, E, D: Decoder[E]](source: &mut D) -> Result[T, SerialError[E]]
+def absent[T, E, D: Decoder[E]](source: &D, name: &str) -> Result[T, SerialError[E]]
 enum UnknownFields
     Reject | Ignore
 def allocated[T, E, D: Decoder[E]](result: Result[T, AllocError], source: &D) -> Result[T, SerialError[E]]
+def encode_bytes[E, S: Encoder[E]](value: &[u8], out: &mut S) -> Result[(), SerialError[E]]
+def decode_bytes[E, D: Decoder[E]](source: &mut D) -> Result[Bytes, SerialError[E]]
+def read_field[T, E, D: Decoder[E]](slot: &mut Option[T], source: &mut D, name: &str) -> Result[(), SerialError[E]]
+def require_field[T, E, D: Decoder[E]](slot: &mut Option[T], source: &D, name: &str) -> Result[T, SerialError[E]]
+def constructed[T, E, D: Decoder[E]](value: Result[T, Fault], source: &D) -> Result[T, SerialError[E]]
 ```
 
 ## `std.json`
@@ -2427,6 +2437,8 @@ def parse_text(text: &str, bounds: &Limits) -> Result[Json, JsonError]
 def read_value[R: Reader](reader: &mut R, bounds: &Limits) -> Result[Json, JsonError]
 def find(members: &list[Member], key: &str) -> Option[i64]
 class Encoder
+    def reject(self, fault: std.serial.Fault) -> JsonError
+    def allocation(self, cause: AllocError) -> JsonError
     def pending(self) -> i64
     def written(self) -> i64
     def is_complete(self) -> bool
@@ -2437,6 +2449,7 @@ class Encoder
     def decimal(self: &mut Encoder, value: f64) -> Result[(), JsonError]
     def number(self: &mut Encoder, text: &str) -> Result[(), JsonError]
     def text(self: &mut Encoder, value: &str) -> Result[(), JsonError]
+    def field(self: &mut Encoder, name: &str) -> Result[(), JsonError]
     def key(self: &mut Encoder, name: &str) -> Result[(), JsonError]
     def start_array(self: &mut Encoder) -> Result[(), JsonError]
     def end_array(self: &mut Encoder) -> Result[(), JsonError]
@@ -2462,6 +2475,7 @@ class CodecDecoder
     def integer(self: &mut CodecDecoder) -> Result[i64, JsonError]
     def unsigned(self: &mut CodecDecoder) -> Result[u64, JsonError]
     def decimal(self: &mut CodecDecoder) -> Result[f64, JsonError]
+    def variant(self: &mut CodecDecoder) -> Result[(str, bool), JsonError]
     def text(self: &mut CodecDecoder) -> Result[str, JsonError]
     def start_array(self: &mut CodecDecoder) -> Result[(), JsonError]
     def next_element(self: &mut CodecDecoder) -> Result[bool, JsonError]
@@ -2470,6 +2484,25 @@ class CodecDecoder
     def unknown_key(self: &mut CodecDecoder, name: &str) -> Result[(), JsonError]
     def finish(self: &mut CodecDecoder) -> Result[(), JsonError]
 def codec_decoder(source: &[u8], options: &CodecOptions) -> Result[CodecDecoder, JsonError]
+class CodecReader[R]
+    inner: R
+    def reject(self, fault: std.serial.Fault) -> JsonError
+    def allocation(self, cause: AllocError) -> JsonError
+    def null(self: &mut CodecReader[R]) -> Result[bool, JsonError]
+    def boolean(self: &mut CodecReader[R]) -> Result[bool, JsonError]
+    def integer(self: &mut CodecReader[R]) -> Result[i64, JsonError]
+    def unsigned(self: &mut CodecReader[R]) -> Result[u64, JsonError]
+    def decimal(self: &mut CodecReader[R]) -> Result[f64, JsonError]
+    def variant(self: &mut CodecReader[R]) -> Result[(str, bool), JsonError]
+    def text(self: &mut CodecReader[R]) -> Result[str, JsonError]
+    def start_array(self: &mut CodecReader[R]) -> Result[(), JsonError]
+    def next_element(self: &mut CodecReader[R]) -> Result[bool, JsonError]
+    def start_object(self: &mut CodecReader[R]) -> Result[(), JsonError]
+    def next_key(self: &mut CodecReader[R]) -> Result[Option[str], JsonError]
+    def finish(self: &mut CodecReader[R]) -> Result[(), JsonError]
+    def unknown_key(self: &mut CodecReader[R], name: &str) -> Result[(), JsonError]
+def codec_reader[R: Reader](inner: R) -> CodecReader[R]
+def load_from[T, R: Reader](source: &mut CodecReader[R], options: &CodecOptions) -> Result[T, std.serial.SerialError[JsonError]]
 def dump[T](value: &T, bounds: &Limits) -> Result[Bytes, std.serial.SerialError[JsonError]]
 def load[T](source: &[u8], options: &CodecOptions) -> Result[T, std.serial.SerialError[JsonError]]
 class TreeLimits
@@ -2478,6 +2511,8 @@ class TreeLimits
     max_text_bytes: NonNegative[i64]
 def tree_limits() -> TreeLimits
 class TreeEncoder
+    def reject(self, fault: std.serial.Fault) -> JsonError
+    def allocation(self, cause: AllocError) -> JsonError
     def null(self: &mut TreeEncoder) -> Result[(), JsonError]
     def boolean(self: &mut TreeEncoder, value: bool) -> Result[(), JsonError]
     def integer(self: &mut TreeEncoder, value: i64) -> Result[(), JsonError]
@@ -2486,6 +2521,7 @@ class TreeEncoder
     def text(self: &mut TreeEncoder, value: &str) -> Result[(), JsonError]
     def start_array(self: &mut TreeEncoder) -> Result[(), JsonError]
     def start_object(self: &mut TreeEncoder) -> Result[(), JsonError]
+    def field(self: &mut TreeEncoder, name: &str) -> Result[(), JsonError]
     def key(self: &mut TreeEncoder, name: &str) -> Result[(), JsonError]
     def end_array(self: &mut TreeEncoder) -> Result[(), JsonError]
     def end_object(self: &mut TreeEncoder) -> Result[(), JsonError]
@@ -2499,6 +2535,7 @@ class TreeDecoder
     def integer(self: &mut TreeDecoder) -> Result[i64, JsonError]
     def unsigned(self: &mut TreeDecoder) -> Result[u64, JsonError]
     def decimal(self: &mut TreeDecoder) -> Result[f64, JsonError]
+    def variant(self: &mut TreeDecoder) -> Result[(str, bool), JsonError]
     def text(self: &mut TreeDecoder) -> Result[str, JsonError]
     def start_array(self: &mut TreeDecoder) -> Result[(), JsonError]
     def next_element(self: &mut TreeDecoder) -> Result[bool, JsonError]
@@ -3834,7 +3871,7 @@ Strict TOML 1.0 parsing, value-tree writing and format-preserving document edits
 
 ```text
 enum TomlFault
-    UnexpectedByte | UnexpectedEnd | InvalidUtf8 | ControlCharacter | InvalidEscape | InvalidNumber | NumberOutOfRange | InvalidDateTime | DuplicateKey | DuplicateTable | KeyConflict | DepthExceeded | InputTooLarge | OutputTooLarge | NotATable | Stream(StreamError) | Allocation(AllocError)
+    UnexpectedByte | UnexpectedEnd | InvalidUtf8 | ControlCharacter | InvalidEscape | InvalidNumber | NumberOutOfRange | InvalidDateTime | DuplicateKey | DuplicateTable | KeyConflict | DepthExceeded | InputTooLarge | OutputTooLarge | NotATable | InvalidState | Serialization(std.serial.Fault) | Stream(StreamError) | Allocation(AllocError)
 class TomlError
     fault: TomlFault
     offset: i64
@@ -3877,6 +3914,54 @@ class Document
     def remove(self: &mut Document, path: &list[str]) -> Result[bool, TomlError]
 def document(source: &[u8], bounds: &Limits) -> Result[Document, TomlError]
 def document_text(text: &str, bounds: &Limits) -> Result[Document, TomlError]
+class TreeLimits
+    max_depth: NonNegative[i64]
+    max_nodes: NonNegative[i64]
+    max_text_bytes: NonNegative[i64]
+def tree_limits() -> TreeLimits
+class CodecOptions
+    limits: Limits
+    tree_limits: TreeLimits
+    unknown_fields: std.serial.UnknownFields
+def codec_options() -> CodecOptions
+class TreeEncoder
+    def reject(self, fault: std.serial.Fault) -> TomlError
+    def allocation(self, cause: AllocError) -> TomlError
+    def null(self: &mut TreeEncoder) -> Result[(), TomlError]
+    def boolean(self: &mut TreeEncoder, value: bool) -> Result[(), TomlError]
+    def integer(self: &mut TreeEncoder, value: i64) -> Result[(), TomlError]
+    def unsigned(self: &mut TreeEncoder, value: u64) -> Result[(), TomlError]
+    def decimal(self: &mut TreeEncoder, value: f64) -> Result[(), TomlError]
+    def text(self: &mut TreeEncoder, value: &str) -> Result[(), TomlError]
+    def start_array(self: &mut TreeEncoder) -> Result[(), TomlError]
+    def start_object(self: &mut TreeEncoder) -> Result[(), TomlError]
+    def key(self: &mut TreeEncoder, name: &str) -> Result[(), TomlError]
+    def field(self: &mut TreeEncoder, name: &str) -> Result[(), TomlError]
+    def end_array(self: &mut TreeEncoder) -> Result[(), TomlError]
+    def end_object(self: &mut TreeEncoder) -> Result[(), TomlError]
+    def finish(self: &mut TreeEncoder) -> Result[Toml, TomlError]
+def tree_encoder(limits: &TreeLimits) -> Result[TreeEncoder, TomlError]
+class TreeDecoder
+    def reject(self, fault: std.serial.Fault) -> TomlError
+    def allocation(self, cause: AllocError) -> TomlError
+    def null(self: &mut TreeDecoder) -> Result[bool, TomlError]
+    def boolean(self: &mut TreeDecoder) -> Result[bool, TomlError]
+    def integer(self: &mut TreeDecoder) -> Result[i64, TomlError]
+    def unsigned(self: &mut TreeDecoder) -> Result[u64, TomlError]
+    def decimal(self: &mut TreeDecoder) -> Result[f64, TomlError]
+    def variant(self: &mut TreeDecoder) -> Result[(str, bool), TomlError]
+    def text(self: &mut TreeDecoder) -> Result[str, TomlError]
+    def start_array(self: &mut TreeDecoder) -> Result[(), TomlError]
+    def next_element(self: &mut TreeDecoder) -> Result[bool, TomlError]
+    def start_object(self: &mut TreeDecoder) -> Result[(), TomlError]
+    def next_key(self: &mut TreeDecoder) -> Result[Option[str], TomlError]
+    def unknown_key(self: &mut TreeDecoder, name: &str) -> Result[(), TomlError]
+    def finish(self: &mut TreeDecoder) -> Result[(), TomlError]
+def tree_decoder(value: Toml, limits: &TreeLimits, unknown_fields: std.serial.UnknownFields = std.serial.UnknownFields.Reject) -> Result[TreeDecoder, TomlError]
+def to_value[T](value: &T, limits: &TreeLimits) -> Result[Toml, std.serial.SerialError[TomlError]]
+def from_value[T](value: Toml, limits: &TreeLimits, unknown_fields: std.serial.UnknownFields = std.serial.UnknownFields.Reject) -> Result[T, std.serial.SerialError[TomlError]]
+def dump[T](value: &T, options: &CodecOptions) -> Result[str, std.serial.SerialError[TomlError]]
+def load[T](text: &str, options: &CodecOptions) -> Result[T, std.serial.SerialError[TomlError]]
 ```
 
 ## `std.unicode`

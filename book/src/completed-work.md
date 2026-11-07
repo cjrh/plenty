@@ -31,6 +31,13 @@ queue. The [reference](design/index.md) owns current behavior and limits;
 support. Local issue/PR numbers identify records in the shared `issues.db`, not
 GitHub records. Reproductions, claims and review state remain there.
 
+## Derived serialization
+
+Issue #781 completes B77 with shared JSON/TOML codecs for `@serial` classes and
+enums, validated construction and defaults, canonical bytes, bounded reader
+loading and measured costs. See the
+[delivery record](completed-work/language-and-tooling.md#b77-derived-serialization-issue-781).
+
 ## Native qualification build reuse
 
 Issue #850 adds isolated dependency caches and concurrent compiler/dataframe

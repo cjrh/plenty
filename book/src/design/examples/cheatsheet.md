@@ -333,6 +333,12 @@ closure that changes a `mut` capture. See
 
 ## Classes and enums
 
+Use [`@serial`](../stdlib/serial-derive.md) above a class or enum to generate
+missing typed JSON/TOML hooks. Decoding preserves normal construction and
+constructor defaults; handwritten hooks customize a representation. The
+[typed configuration lesson](../../tutorial/07-modules/30-typed-configuration.md)
+shows one schema used with both formats.
+
 For primitive-field classes, `clist[T]()` creates allocation-free empty
 [columnar storage](../facilities/01-builtins/clists.md).
 `items.append(row)` returns `Result[(), AppendError[T]]`; `items[i].field`

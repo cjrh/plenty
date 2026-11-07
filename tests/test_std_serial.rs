@@ -442,3 +442,80 @@ def main() -> Result[(), IoError]:
         "std.json.JsonFault.InvalidState\nstd.json.JsonFault.InvalidState\nstd.json.JsonFault.InvalidState\n",
     );
 }
+
+#[test]
+fn adapter_nonfinite_float_and_final_tuple_boundary_regressions() {
+    support::assert_stdout(
+        r#"import std.toml
+import std.json
+import std.io
+import std.bytes
+from std.bytes import Bytes
+from std.io import Cursor, StreamError
+
+pub class Failing:
+    cursor: Cursor
+    pub def read(self: &mut Failing, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        if self.cursor.position() >= 4:
+            return Err(StreamError.UnexpectedEof)
+        end = unchecked:
+            start + 1
+        self.cursor.read(buffer, start, end)
+
+def main() -> Result[(), IoError | AllocError]:
+    for text in ["a = inf", "a = -inf", "a = nan", "a = 1e39"]?:
+        match std.toml.load[dict[str, f32]](&text, &std.toml.codec_options()):
+            case Ok(values):
+                value = values.get("a").unwrap()
+                print(value == f32.INF, value == -f32.INF, value != value)?
+            case Err(error):
+                print(error.cause.fault, error.path)?
+    mut source = std.json.codec_reader(Failing(std.io.cursor(std.bytes.from_text("[\"x\"]")?)))
+    match std.json.load_from[(str,), Failing](&mut source, &std.json.codec_options()):
+        case Ok(_):
+            print("unexpected")?
+        case Err(error):
+            print(error.cause.fault, error.path)?
+    Ok(())
+"#,
+        "True False False\nFalse True False\nFalse False True\nstd.toml.TomlFault.Serialization(std.serial.Fault.OutOfRange) Option[list[std.serial.Step]].Some([std.serial.Step.Key(\"a\")])\nstd.json.JsonFault.Stream(std.io.StreamError.UnexpectedEof) Option[list[std.serial.Step]].Some([std.serial.Step.Index(1)])\n",
+    );
+}
+#[test]
+fn deeply_nested_unknown_tree_values_preserve_siblings_and_depth_limits() {
+    support::assert_stdout(
+        &format!(
+            r#"{IMPORTS}{SERVER}
+def unknown_tree() -> Result[Json, AllocError]:
+    mut slot = [Json.Null]?
+    for depth in range(1000):
+        if depth % 2 == 0:
+            mut items = list[Json]()?
+            items.append(replace(slot[0], Json.Null))?
+            slot[0] = Json.Array(items)
+        else:
+            mut members = list[Member]()?
+            members.append(Member("nested", replace(slot[0], Json.Null)))?
+            slot[0] = Json.Object(members)
+    mut members = list[Member]()?
+    members.append(Member("ignored", replace(slot[0], Json.Null)))?
+    members.append(Member("port", Json.Int(80)))?
+    Ok(Json.Object(members))
+
+def main() -> Result[(), IoError | AllocError | SerialError[JsonError]]:
+    mut bounds = std.json.tree_limits()
+    bounds.max_depth = 1024
+    server = std.json.from_value[Server](unknown_tree()?, &bounds, std.serial.UnknownFields.Ignore)?
+    print(server.port, server.label)?
+    bounds.max_depth = 64
+    match std.json.from_value[Server](unknown_tree()?, &bounds, std.serial.UnknownFields.Ignore):
+        case Ok(_):
+            print("unexpected success")?
+        case Err(error):
+            print(error.cause.fault, error.path.unwrap(), error.complete)?
+    Ok(())
+"#
+        ),
+        "80 local\nstd.json.JsonFault.DepthExceeded [std.serial.Step.Field(\"ignored\")] True\n",
+    );
+}
