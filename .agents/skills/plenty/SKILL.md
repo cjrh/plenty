@@ -193,6 +193,10 @@ See [errors](references/errors.md), [ownership](references/ownership.md), and
   offset unit. Read [quantities](../../../book/src/design/language/03-types/quantities.md)
   for arithmetic and representation contracts.
 
+- For supported HTML layouts, prefer `Engine.render_html(name, context)`; it
+  preflights static structure and infers text/quoted-attribute escaping.
+  `validate_html(name)` checks without values. Read [the strict subset](../../../book/src/design/stdlib/template-html.md);
+  dynamic URLs, scripts/styles, HTML comments and trust filters are rejected.
 - Use [std.template](../../../book/src/design/stdlib/template.md) for named text/HTML
   layouts. For directly assembled HTML fragments, `escape(text, HtmlContext, max_bytes)`
   provides bounded text and quote-specific attribute escaping. Compose registered

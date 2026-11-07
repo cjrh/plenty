@@ -94,3 +94,9 @@ Issue #837 delivers opt-in delimiter markers for adjacent ASCII source
 whitespace, preserving default output, compact negative literals and original
 byte diagnostics. See [the reference](design/stdlib/template.md#whitespace-control)
 and [the library delivery record](completed-work/libraries.md#template-literal-whitespace-control).
+
+## Checked HTML template rendering
+
+Issue #839 adds opt-in structural preflight and inferred text/quoted-attribute
+escaping for a bounded HTML subset. See [the contract](design/stdlib/template-html.md)
+and [the delivery record](completed-work/libraries.md#checked-html-template-rendering).

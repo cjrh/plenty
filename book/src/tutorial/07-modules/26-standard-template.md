@@ -18,7 +18,7 @@ def main() -> Result[(), TemplateError | AllocError | IoError]:
         Member("title", Json.Text("Team & friends")),
         Member("names", Json.Array([Json.Text("Ada"), Json.Text("Grace")]?)),
     ]?)
-    print(pages.render("report", &values)?)?
+    print(pages.render_html("report", &values)?)?
     Ok(())
 ```
 ```output
@@ -31,13 +31,45 @@ class-to-template conversion happens automatically. Fields such as
 rather than silently producing an empty string. An empty array takes the loop's
 `else` branch, which is useful for empty reports.
 
+`render_html` checks a bounded HTML structure before looking up values. It
+chooses escaping from text or the surrounding ordinary attribute quotes, checks
+both control-flow branches and requires includes/blocks/loops to preserve their
+element stack. Keep URLs literal in the trusted template. Dynamic URLs,
+scripts/styles, HTML comments and `safe` are rejected; see
+[checked HTML templates](../../design/stdlib/template-html.md) for the supported
+names and composition limits. The existing `render` API accepts more trusted
+source without that structural check.
+
 Interpolated text is HTML-escaped by default. Keep user text in HTML text or
 quoted ordinary attributes. HTML escaping does not validate links or JavaScript;
 do not place user values in scripts, styles or tag names. For a plain-text
 message, call `pages.render("report", &values, html=False)` with a plain-text
 template. The `safe` filter deliberately disables escaping for trusted markup.
 
-When quotes should stay literal in text, choose `escape_text` on that
+For checked rendering, no context filter is needed:
+
+```plenty
+import std.template
+from std.template import TemplateError
+from std.json import Json, Member
+
+def main() -> Result[(), TemplateError | AllocError | IoError]:
+    bounds = std.template.limits()
+    mut pages = std.template.engine(&bounds)?
+    pages.add("button", "<button title=\"{{ label }}\">{{ label }}</button>")?
+    values = Json.Object([Member("label", Json.Text("Say \"hello\" & smile"))]?)
+    pages.validate_html("button")?
+    print(pages.render_html("button", &values)?)?
+    Ok(())
+```
+```output
+<button title="Say &quot;hello&quot; &amp; smile">Say "hello" &amp; smile</button>
+```
+
+`validate_html` is useful at setup time without any JSON values. `render_html`
+always repeats that preflight, then shares its spent work with the render budget.
+
+When using the existing `render` API, choose `escape_text` on that
 placeholder. For an ordinary attribute, use the filter matching its quote
 delimiter. Keep the original value in `Json.Text`; these selections escape once
 at final output and need no `safe` assertion:
@@ -91,7 +123,7 @@ def main() -> Result[(), TemplateError | AllocError | IoError]:
     values = Json.Object([Member("names", Json.Array([
         Json.Text("Ada"), Json.Text("Grace"),
     ]?))]?)
-    print(pages.render("nav", &values)?)?
+    print(pages.render_html("nav", &values)?)?
     Ok(())
 ```
 ```output
@@ -156,7 +188,7 @@ def main() -> Result[(), TemplateError | AllocError | IoError]:
             Json.Object([Member("label", Json.Text("Cancel"))]?),
         ]?)),
     ]?)
-    print(pages.render("table", &values)?)?
+    print(pages.render_html("table", &values)?)?
     Ok(())
 ```
 ```output

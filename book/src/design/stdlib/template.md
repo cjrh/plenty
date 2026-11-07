@@ -108,6 +108,12 @@ for readable source that renders adjacent inline elements.
 
 ## Escaping and inheritance
 
+For supported HTML templates, prefer [`validate_html` and
+`render_html`](template-html.md): mandatory structural preflight selects text
+and quoted-attribute escaping from the literal position. They reject unsupported
+positions and unsafe trust filters. The existing `render` behavior below remains
+available for trusted source outside that bounded subset.
+
 `render(name, context, html=True)` escapes `&`, `<`, `>`, `"` and `'` in
 interpolated values. Literal template text is trusted. Keep original raw text
 in `Json.Text`. Select a narrower escaping context per placeholder when exact

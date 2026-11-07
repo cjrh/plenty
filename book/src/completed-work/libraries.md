@@ -369,3 +369,14 @@ source's boundaries. Executable checks cover inline navigation, comments,
 branches/loops, preformatted content, mixed line endings, Unicode, inheritance,
 syntax failures and exact source/token limits. See
 [the template contract](../design/stdlib/template.md#whitespace-control).
+
+## Checked HTML template rendering
+
+Issue #839 delivers `Engine.validate_html` and `render_html`: static names, exact
+written element stacks, ordinary quoted attributes, title text, literal URLs and
+Data-only balanced composition through conditions, loops, includes and inherited
+blocks. Mandatory preflight checks every branch and escaping policy before
+rendering; work, depth, output and allocation errors preserve engine/context
+reuse. Existing rendering remains unchanged. The [bounded contract](../design/stdlib/template-html.md)
+excludes HTML5 tree repair, scripting/style/foreign content, comments, dynamic
+URLs and sanitization.
