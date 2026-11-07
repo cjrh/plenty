@@ -81,9 +81,12 @@ characters all have Unicode's White_Space property. NUL and U+200B are not
 whitespace. The bundled Unicode tables also govern trimming; Python's additional
 whitespace classifications are not promised.
 
-`text.isdigit()` and `text.isalpha()` require nonempty text consisting entirely
-of ASCII digits (`0`–`9`) or ASCII letters (`A`–`Z`, `a`–`z`), respectively.
-They deliberately do not implement Python's Unicode digit/letter predicates.
+`text.isdigit()`, `text.isalpha()` and `text.isalnum()` require nonempty text
+consisting entirely of ASCII digits (`0`–`9`), ASCII letters (`A`–`Z`,
+`a`–`z`), or either, respectively. Underscores, punctuation, non-ASCII letters
+and digits (`é`, `١`, `１`) and combining marks are false. They deliberately do
+not implement Python's Unicode digit/letter predicates; Unicode letter and
+number classification is part of [backlog item B47](../../../backlog.md).
 
 All classification methods observe their receiver, take no arguments, and allocate nothing.
 
