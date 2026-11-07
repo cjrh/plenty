@@ -854,6 +854,15 @@ impl Lowerer<'_, '_> {
     }
 }
 
+/// The offset within a box of a reference to its `content`. A class with a
+/// record is stored flat at byte 32, without a value word, so a reference to
+/// it names the 16 bytes before the record, as for a flat field. Other content
+/// keeps its slot at byte 32. The runtime's `Boxed::content` decides the same
+/// way (issue #814).
+pub(super) fn box_content_offset(content: &Ty) -> i64 {
+    if content.flat_field() { 16 } else { 32 }
+}
+
 impl Lowerer<'_, '_> {
     pub(super) fn lower_box(&mut self, op: &crate::boxed::BoxOp) -> Result<()> {
         use crate::boxed::BoxOp;
@@ -871,19 +880,25 @@ impl Lowerer<'_, '_> {
             }
             BoxOp::Take(t) => {
                 let slot = self.bcx.ins().iadd_imm_s(operand, 32);
-                let value = self.bcx.ins().load(
-                    types::I128,
-                    cranelift_codegen::ir::MemFlagsData::trusted(),
-                    slot,
-                    0,
-                );
+                let value = if t.flat_field() {
+                    // The record is stored where the slot would be; see
+                    // `box_content_offset`.
+                    self.bcx.ins().uextend(types::I128, slot)
+                } else {
+                    self.bcx.ins().load(
+                        types::I128,
+                        cranelift_codegen::ir::MemFlagsData::trusted(),
+                        slot,
+                        0,
+                    )
+                };
                 let value = self.unpack(value, t);
                 let value = self.snapshot_inline(value, t);
                 self.collection_call(120, &[operand], None)?;
                 self.pack(value, t)
             }
-            BoxOp::Ref(..) | BoxOp::SharedRef(_) => {
-                // A reference to the box's slot becomes one to its content slot.
+            BoxOp::Ref(t, _) | BoxOp::SharedRef(t) => {
+                // A reference to the box's slot becomes one to its content.
                 let address = self.raw_word(operand);
                 let boxed = self.bcx.ins().load(
                     PTR_TY,
@@ -891,7 +906,7 @@ impl Lowerer<'_, '_> {
                     address,
                     0,
                 );
-                let slot = self.bcx.ins().iadd_imm_s(boxed, 32);
+                let slot = self.bcx.ins().iadd_imm_s(boxed, box_content_offset(t));
                 self.bcx.ins().uextend(types::I128, slot)
             }
         };

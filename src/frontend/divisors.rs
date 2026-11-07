@@ -2,6 +2,33 @@
 use super::*;
 use crate::numeric::{Checked, Divisor};
 
+/// The proof an integer literal divisor of `//` or `%` supplies: `x // 2`
+/// cannot divide by zero, and only `-1` can overflow. Other divisors,
+/// including named constants, prove nothing (issue #796).
+pub(super) fn literal_divisor(op: &str, divisor: &Expr) -> Divisor {
+    if !matches!(op, "//" | "%") {
+        return Divisor::Any;
+    }
+    let (negative, inner) = match &ungroup(divisor).kind {
+        Expression::Unary(sign, inner) if sign == "-" => (true, ungroup(inner)),
+        _ => (false, ungroup(divisor)),
+    };
+    let Expression::Number(text) = &inner.kind else {
+        return Divisor::Any;
+    };
+    if text.contains(['.', 'e', 'E', 'f']) {
+        return Divisor::Any;
+    }
+    let digits = text
+        .find(|c: char| c.is_ascii_alphabetic())
+        .map_or(text.as_str(), |split| &text[..split])
+        .replace('_', "");
+    match digits.parse::<i128>() {
+        Ok(magnitude) => Divisor::literal(if negative { -magnitude } else { magnitude }),
+        Err(_) => Divisor::Any,
+    }
+}
+
 impl Lower<'_> {
     fn divisor_type(&self, op: &str, value: &Expr) -> Option<(Ty, Divisor)> {
         if !matches!(op, "//" | "%") {
@@ -60,7 +87,9 @@ impl Lower<'_> {
         let actual = match proof {
             Divisor::NonZero => ty.nonzero_element(),
             Divisor::Positive => ty.positive_element(),
-            Divisor::Any => unreachable!("domain divisors carry a proof"),
+            Divisor::Any | Divisor::BelowMinusOne => {
+                unreachable!("domain divisors carry a type proof")
+            }
         };
         self.same(actual, Some(element.clone()), &value.at)?;
         let Ty::Class(class) = ty else {
@@ -115,7 +144,7 @@ impl Lower<'_> {
             let actual = self.expr_expected(value, Some(ty.clone()), ops)?;
             self.same(actual, Some(ty.clone()), &value.at)?;
             self.mark_arithmetic(op, ty, at, ops);
-            self.numeric_operation(op, ty.clone(), at, ops)?;
+            self.numeric_operation(op, ty.clone(), literal_divisor(op, value), at, ops)?;
             Ok(())
         }
     }

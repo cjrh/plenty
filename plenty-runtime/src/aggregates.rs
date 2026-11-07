@@ -460,31 +460,73 @@ struct Boxed {
     padding: u64,
     slot: [u128; 0],
 }
+impl Boxed {
+    /// Where the content lives. A class with a record is stored flat at
+    /// `slot`, without the value word that would only hold its address, so a
+    /// reference to it names the descriptor and padding words before it
+    /// (issue #814); compiled code mirrors this with `Ty::flat_field`. A
+    /// callable or protocol box keeps its adapter in the padding word and the
+    /// word before the record: its call sites pass `slot` as a reference to
+    /// content of a type they do not know.
+    unsafe fn content(boxed: *const Boxed, content: &Type) -> Field {
+        unsafe {
+            Field {
+                at: std::ptr::addr_of!((*boxed).slot).cast::<u128>().cast_mut(),
+                flat: (*boxed).padding == 0 && content.flat_field(),
+            }
+        }
+    }
+    /// The 16-byte words after the descriptor, for a box without an adapter
+    /// when `plain`.
+    fn words(plain: bool, content: &Type) -> usize {
+        if plain {
+            content.field_words()
+        } else {
+            content.slot_words()
+        }
+    }
+}
 
 /// Move `value` into a new box. On failure the caller still owns `value`.
 unsafe fn try_box_new(ty: &Type, value: u128) -> Result<*mut Boxed, AllocError> {
+    unsafe { try_box_with(ty, value, 0) }
+}
+/// [`try_box_new`] with the adapter of a callable or protocol box, which
+/// must be stored before the content: it decides the content's layout.
+unsafe fn try_box_with(ty: &Type, value: u128, adapter: u64) -> Result<*mut Boxed, AllocError> {
     let content = ty.key();
-    let boxed = memory::try_allocate::<Boxed, u128>(content.slot_words())?;
+    let boxed = memory::try_allocate::<Boxed, u128>(Boxed::words(adapter == 0, content))?;
     unsafe {
         boxed.write(Boxed {
             header: Header::new(box_destroy),
             ty,
-            padding: 0,
+            padding: adapter,
             slot: [],
         });
-        ranges::store(std::ptr::addr_of_mut!((*boxed).slot).cast(), value, content);
+        let field = Boxed::content(boxed, content);
+        if !field.flat {
+            ranges::store(field.at, value, content);
+        } else if value as u64 == 0 {
+            field.clear(content);
+        } else {
+            ranges::copy_payload(value, content, field.at.cast());
+        }
     }
     Ok(boxed)
 }
-/// Allocate a box whose content slot the caller stores; on failure, release
-/// `value`, the content the box would have owned. The slot is not zeroed: the
-/// caller's store writes the value word and the payload bytes that word
-/// names, and every reader of a box slot (release, copy, equality, printing,
-/// moving out) reads the value word first and then only that payload. A
+/// Allocate a box whose content the caller stores; on failure, release
+/// `value`, the content the box would have owned. The storage is not zeroed:
+/// the caller's store writes a flat record's bytes, or the value word and the
+/// payload bytes that word names, and every reader of a box's content
+/// (release, copy, equality, printing, moving out) reads only those. A
 /// local's stack slot relies on the same store into uninitialized storage.
+///
+/// Op 137 builds only plain boxes (`Box(value)`), so the content takes the
+/// flat layout when it has one; a callable or protocol box comes from
+/// [`try_box_with`], which sets its adapter first.
 unsafe fn try_box_for(ty: &Type, value: u128) -> u128 {
     let content = ty.key();
-    match memory::try_allocate_uninit::<Boxed, u128>(content.slot_words()) {
+    match memory::try_allocate_uninit::<Boxed, u128>(content.field_words()) {
         Ok(boxed) => unsafe {
             boxed.write(Boxed {
                 header: Header::new(box_destroy),
@@ -503,33 +545,36 @@ unsafe fn try_box_for(ty: &Type, value: u128) -> u128 {
 unsafe extern "C" fn box_destroy(header: *mut Header) {
     unsafe {
         let boxed = header.cast::<Boxed>();
-        let ty = &*(*boxed).ty;
+        let ty: &'static Type = &*(*boxed).ty;
         let content = ty.key();
-        let slot = std::ptr::addr_of_mut!((*boxed).slot).cast::<u128>();
+        let plain = (*boxed).padding == 0;
         // The compiler's release of this content queues each owned child
         // through `plenty_release`, so this frame finishes before any child is
         // destroyed and the box can be freed now. It exists only for content
         // whose release runs no code, where the order is unobservable; see
         // "Box destruction" in book/src/design/toolchain/02-architecture/memory.md.
-        if let Some(release_content) = ty.drop {
+        // It expects the flat layout, which a protocol box of the same content
+        // does not use.
+        if let Some(release_content) = ty.drop
+            && plain
+        {
             debug_assert_eq!(ty.kind, b'O');
-            release_content(slot);
-            memory::free::<Boxed, u128>(boxed, content.slot_words());
+            release_content(std::ptr::addr_of_mut!((*boxed).slot).cast());
+            memory::free::<Boxed, u128>(boxed, content.field_words());
             return;
         }
-        if let Some(child) = release_next(slot, content) {
+        if let Some(child) = release_next_field(Boxed::content(boxed, content), content) {
             memory::continue_after(header, child);
             return;
         }
-        memory::free::<Boxed, u128>(boxed, content.slot_words());
+        memory::free::<Boxed, u128>(boxed, Boxed::words(plain, content));
     }
 }
 /// Free a box whose content the caller has already moved out.
 unsafe fn box_take(boxed: *mut Boxed) {
     unsafe {
-        std::ptr::addr_of_mut!((*boxed).slot)
-            .cast::<u128>()
-            .write(0);
+        let content = (*(*boxed).ty).key();
+        Boxed::content(boxed, content).clear(content);
         plenty_release(boxed.cast());
     }
 }
@@ -661,45 +706,50 @@ unsafe fn release_next(slot: *mut u128, ty: &Type) -> Option<*mut Header> {
     }
 }
 
-/// `release_next` for each field of a record. A flat field's progress is
-/// recorded in its own fields, which are cleared as they finish: a record of
-/// zero bytes owns nothing.
+/// `release_next` for each field of a record.
 unsafe fn release_next_fields(record: Record<'_>) -> Option<*mut Header> {
     unsafe {
         for (field, ty) in record.slots() {
             // A walk resumes from the first field after each heap child, so
-            // skip finished flat records without descending into them.
-            let child = if field.flat {
-                if field.is_clear(ty) {
-                    continue;
-                }
-                if let Some(strings) = ty.only_strings() {
-                    release_strings(field.at, strings);
-                    field.clear(ty);
-                    continue;
-                }
-                let nested = field.record(ty);
-                if nested.begin_release(ty) {
-                    let child = release_next_fields(nested);
-                    if child.is_none() {
-                        // Inline payload bytes outlive their slots' words.
-                        field.clear(ty);
-                    }
-                    child
-                } else {
-                    // An observer's count was consumed: forget the fields,
-                    // as clearing a slot does.
-                    field.clear(ty);
-                    None
-                }
-            } else {
-                release_next(field.at, ty)
-            };
-            if child.is_some() {
-                return child;
+            // `release_next_field` skips finished flat records.
+            if let Some(child) = release_next_field(field, ty) {
+                return Some(child);
             }
         }
         None
+    }
+}
+
+/// `release_next` for one field. A flat record's progress is recorded in its
+/// own fields, which are cleared as they finish: a record of zero bytes owns
+/// nothing, so a finished one is skipped without descending into it.
+unsafe fn release_next_field(field: Field, ty: &'static Type) -> Option<*mut Header> {
+    unsafe {
+        if !field.flat {
+            return release_next(field.at, ty);
+        }
+        if field.is_clear(ty) {
+            return None;
+        }
+        if let Some(strings) = ty.only_strings() {
+            release_strings(field.at, strings);
+            field.clear(ty);
+            return None;
+        }
+        let nested = field.record(ty);
+        if nested.begin_release(ty) {
+            let child = release_next_fields(nested);
+            if child.is_none() {
+                // Inline payload bytes outlive their slots' words.
+                field.clear(ty);
+            }
+            child
+        } else {
+            // An observer's count was consumed: forget the fields, as
+            // clearing a slot does.
+            field.clear(ty);
+            None
+        }
     }
 }
 
@@ -1472,10 +1522,9 @@ unsafe fn equal(a: u128, b: u128, ty: &Type) -> bool {
             b'U' => byte_storage::equal(a, b),
             b'Q' => clist::equal(a, b, ty),
             b'O' | b'W' => {
-                let (a, b) = (a as *const Boxed, b as *const Boxed);
-                let slot =
-                    |boxed: *const Boxed| std::ptr::addr_of!((*boxed).slot).cast::<u128>().read();
-                equal(slot(a), slot(b), ty.key())
+                let content = ty.key();
+                let read = |boxed: u128| Boxed::content(boxed as *const Boxed, content).read();
+                equal(read(a), read(b), content)
             }
             b'R' => {
                 let (a, b) = (&*(a as *const Range), &*(b as *const Range));
@@ -2084,12 +2133,12 @@ unsafe fn try_copy_shared(value: &mut u128, ty: &Type) -> Result<(), AllocError>
 unsafe fn try_copy_box(source: *const Boxed, ty: &Type) -> Result<u128, AllocError> {
     unsafe {
         let content = ty.key();
-        let source = std::ptr::addr_of!((*source).slot).cast::<u128>().read();
+        let source = Boxed::content(source, content).read();
         let boxed = try_box_new(ty, source)?;
-        let slot = std::ptr::addr_of_mut!((*boxed).slot).cast::<u128>();
-        let mut inner = slot.read();
+        let field = Boxed::content(boxed, content);
+        let mut inner = field.read();
         let copied = try_copy_into(&mut inner, content);
-        slot.write(inner);
+        field.write(inner, content);
         match copied {
             Ok(()) => Ok(boxed as u128),
             Err(error) => {
@@ -2311,11 +2360,7 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
             b'O' | b'W' => {
                 let boxed = value as *const Boxed;
                 out.extend_from_slice(if ty.kind == b'O' { b"Box(" } else { b"Shared(" });
-                render(
-                    std::ptr::addr_of!((*boxed).slot).cast::<u128>().read(),
-                    ty.key(),
-                    out,
-                );
+                render(Boxed::content(boxed, ty.key()).read(), ty.key(), out);
                 out.push(b')');
             }
             b'r' => {
@@ -3663,11 +3708,8 @@ pub(crate) unsafe fn collection_at(
             },
             // A callable box retains its concrete content descriptor for drops.
             // The generated shared-call adapter occupies the box's padding word.
-            128 => match try_box_new(&*descriptor, a) {
-                Ok(boxed) => {
-                    (*boxed).padding = b as u64;
-                    wrap(boxed as u128, 0)
-                }
+            128 => match try_box_with(&*descriptor, a, b as u64) {
+                Ok(boxed) => wrap(boxed as u128, 0),
                 Err(error) => {
                     release(a, (*descriptor).key());
                     wrap(wrap(0, error as u64), 1)

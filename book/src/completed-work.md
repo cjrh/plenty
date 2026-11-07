@@ -29,6 +29,13 @@ queue. The [reference](design/index.md) owns current behavior and limits;
 support. Local issue/PR numbers identify records in the shared `issues.db`, not
 GitHub records. Reproductions, claims and review state remain there.
 
+## Native qualification build reuse
+
+Issue #850 adds isolated dependency caches and concurrent compiler/dataframe
+builds to [native OS qualification](development/ci-workflow.md#native-os-qualification),
+while preserving packaging audits and smoke coverage. See the
+[delivery record](completed-work/language-and-tooling.md#native-qualification-build-reuse-issue-850).
+
 ## Declared template context shapes
 
 Issue #838 adds [schema preflight and checked request rendering](design/stdlib/template-schema.md)

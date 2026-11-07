@@ -4,10 +4,10 @@ Type arguments go before the call: `range[u8](8)`. A collection annotation or
 function return type can also guide a directly written range comprehension.
 
 ```plenty
-def squares() -> Result[list[u8], AllocError | OverflowError[u8] | ZeroDivisionError]:
+def squares() -> Result[list[u8], AllocError | OverflowError[u8]]:
     [n * n for n in range(8) if n % 2 == 0]
 
-def main() -> Result[(), AllocError | IoError | OverflowError[u8] | OverflowError[u16] | ZeroDivisionError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[u8] | OverflowError[u16]]:
     print(squares()?)?
     print([n * n for n in range[u8](8) if n % 2 == 0]?)?
     small: list[u16] = [n + 1 for n in range(3)]?

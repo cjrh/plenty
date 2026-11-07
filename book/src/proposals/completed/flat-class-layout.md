@@ -103,6 +103,12 @@ relies on is therefore:
 
 These three hold for every class, newtype or not.
 
+> **Superseded 2026-11-07:** a plain box of a class with a record now stores
+> the record flat at offset 32, with no value word (issue #814). A borrowed
+> class argument is the handle plus 16, the address 16 bytes before the record,
+> matching the class-reference convention; owned arguments and results still
+> copy the record through the descriptor. Generated headers are unchanged.
+
 ### Costs and limits
 
 - `Type` grows by 8 bytes, so every program's read-only data changes; machine
