@@ -158,6 +158,96 @@ fn only_loops_that_cannot_resize_cache_bytes() {
     }
 }
 
+const REPLACING: &str = r#"
+import std.bytes
+from std.bytes import Bytes
+
+class Holder:
+    data: Bytes
+
+    def grow(self: &mut Holder) -> Result[(), AllocError]:
+        self.data.push(1u8)?
+        Ok(())
+
+    def method(self: &mut Holder) -> Result[u8, AllocError]:
+        mut total = 0u8
+        for i in range(self.data.len()):
+            total = total ^ self.data.get(i)
+            if i == 0:
+                self.grow()?
+        Ok(total)
+
+def assigned(holder: &mut Holder) -> Result[u8, AllocError]:
+    mut total = 0u8
+    for i in range(holder.data.len()):
+        total = total ^ holder.data.get(i)
+        holder.data = std.bytes.from_text("zzzzz")?
+    Ok(total)
+
+def replaced(holder: &mut Holder) -> Result[u8, AllocError]:
+    mut total = 0u8
+    for i in range(holder.data.len()):
+        total = total ^ holder.data.get(i)
+        old = replace(holder.data, std.bytes.from_text("qqqqq")?)
+        drop(old)
+    Ok(total)
+
+def truncated(data: &mut Bytes) -> u8:
+    mut total = 0u8
+    for i in range(data.len()):
+        total = total ^ data.get(i)
+        data.truncate(data.len())
+    total
+
+def inner_clears(data: &mut Bytes) -> u8:
+    mut total = 0u8
+    for j in range(data.len()):
+        total = total ^ data.get(j)
+        for k in range(1):
+            if total == 0u8:
+                data.clear()
+    total
+
+def main() -> Result[(), AllocError | IoError]:
+    mut holder = Holder(data=std.bytes.from_text("abcd")?)
+    print(holder.method()?)?
+    print(holder.data.len())?
+    print(assigned(&mut holder)?)?
+    print(replaced(&mut holder)?)?
+    mut data = std.bytes.from_text("abc")?
+    print(truncated(&mut data))?
+    print(inner_clears(&mut data))?
+    print(data.len())?
+    Ok(())
+"#;
+
+// Every way the loop can resize or replace the buffer keeps the method
+// calls: an owner method, assignment, `replace`, `truncate`, and an inner
+// loop that clears the buffer the outer loop reads.
+#[test]
+fn loops_that_resize_or_replace_keep_method_calls() {
+    let expected = "4\n5\n97\n122\n96\n96\n3\n";
+    for flags in [&["--fast-compile"][..], &["--release"]] {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("main.plenty"), REPLACING).unwrap();
+        let mut args = flags.to_vec();
+        args.push("main.plenty");
+        assert_eq!(plenty(dir.path(), &args), expected, "{flags:?}");
+    }
+    let ops = dump(REPLACING, &["--release"], "ops");
+    for name in [
+        "Holder.method",
+        "assigned",
+        "replaced",
+        "truncated",
+        "inner_clears",
+    ] {
+        let body = support::asm_body(&ops, name);
+        assert!(!body.is_empty(), "{name} missing from ops dump");
+        assert!(!body.contains("BytesGetView"), "{name}:\n{body}");
+    }
+}
+
 const TRAPS: &str = r#"
 import std.bytes
 

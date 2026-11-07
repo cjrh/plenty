@@ -139,8 +139,11 @@ proves the index in bounds, the access
 is one byte load or store. Otherwise one unsigned comparison with the cached
 length guards it, and a failing index calls the method in a cold block. The
 method traps there with its own message, std position and caller note, since
-the length it reads is the cached one. Any call that could resize the buffer,
-such as `push` or a function taking `&mut Bytes`, restores the method calls.
+the length it reads is the cached one. Any operation in the loop that could
+resize or replace the buffer restores the method calls: a resizing method such
+as `push` or `clear`, a call taking `&mut` to the buffer or its owner, an
+assignment or `replace` of the binding or a parent, or an operation the
+analysis does not classify.
 
 The length of a borrowed list of any element type is read from the header
 inline: the stored byte count divided by the constant row size, a shift when
