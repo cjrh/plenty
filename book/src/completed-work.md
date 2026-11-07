@@ -38,6 +38,10 @@ claim. See the [library delivery record](completed-work/libraries.md#declared-te
 
 ## Text ownership comparison
 
+The [Text operation tables](design/facilities/01-builtins/text.md#passing-assigning-and-copying-text)
+spell out accepted and rejected argument, binding, slice, and explicit-copy
+forms, including borrow lifetimes, backing storage, and nested results.
+
 The reference now compares [Plenty text with Python, Rust, and C](design/facilities/01-builtins/text-compared.md),
 including assignment costs, immutable storage, mutable construction, borrowed
 views, and Unicode indexing. The comparison tables use a wider screen layout
