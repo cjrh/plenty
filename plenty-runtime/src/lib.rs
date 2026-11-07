@@ -37,6 +37,7 @@ mod panics;
 mod ranges;
 mod regex;
 mod render_buffer;
+mod serial_stack;
 mod signal_context;
 mod signals;
 mod stack_overflow;
