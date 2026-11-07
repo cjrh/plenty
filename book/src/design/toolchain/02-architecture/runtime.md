@@ -206,7 +206,7 @@ handlers, since their host links them.
 An operation that can [trap](../../language/08-errors/02-allocation-and-traps.md)
 passes its runtime helper a pointer to its source position. Positions are
 sixteen-byte records (line, column, the offset to a length-prefixed file
-name, and an embedded-standard-library flag) in one read-only table per
+name, and the caller field described below) in one read-only table per
 object. Each function numbers its own records, deduplicated by position and
 provenance, so its IR is built on any thread with the offsets known; the
 thread placing the function appends them to the object's table and carries
@@ -253,7 +253,14 @@ standard error.
 For objects containing embedded std functions, user calls into std save and
 restore a thread-local pointer to the nearest user call site, except calls to
 std accessors that only read a field, such as `NonNegative[i64].get`, which
-cannot trap or run other code. User code also
+cannot trap or run other code, and std bodies inlined into user code whose only
+use of the context is their own trap sites (issue #842). The latter are bodies
+of `Bytes` primitives, integer arithmetic, comparisons and branches, with no
+call, loop or release that runs code, such as `Bytes.get`, `Bytes.set` and
+`Bytes.len`. Their inlined trap records name the user call site instead.
+A record's caller field is 0 in user code, 1 in std code that reads the
+thread-local caller, and otherwise the signed byte distance from the record to
+its user caller's record in the same table. User code also
 saves and restores it around generator advancement, collection operations that
 can run callbacks, and cleanup that can run compiled code: a class `__del__`,
 a generator, or a closure, channel or executor, which may own either. Releasing strings,

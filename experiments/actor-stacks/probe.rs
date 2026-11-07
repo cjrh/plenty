@@ -257,7 +257,7 @@ fn new_actor(state: RuntimeState, trap: bool) -> Actor {
                 line: 1,
                 column: 1,
                 file: 0,
-                standard_library: 0,
+                caller: 0,
             },
         }
     }

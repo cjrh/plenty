@@ -153,3 +153,30 @@ C's quick input uses 362,036,283–362,036,296 instructions: the Plenty/C ratio
 falls from 11.42 to 2.11. Compile counts are unchanged within their spread.
 The before compile probe was built from the baseline source in a separate
 target directory. Raw repetitions are under `issue-843` in `results.json`.
+
+## Caller sites in inlined access (issue #842)
+
+`growing.plenty` pushes to the buffer it reads, so the loop keeps the method
+calls. Before this change, each inlined `len`, `get`, `set` and `push` saved
+and restored the thread-local caller: a site address, `plenty_caller_enter`,
+a spill and reload of its result and `plenty_caller_leave`. Inlined `Bytes`
+primitives now name the user call site in their own trap records instead.
+
+```sh
+PLENTY_CACHE=off target/release/plenty --release --dump asm \
+    --dump-filter transform experiments/kernels/bytes/growing.plenty -o /tmp/growing
+```
+
+| Kernel | Instructions per byte, 2e50b1b8 | After | `plenty_caller_enter` calls in `transform`, before / after |
+|---|---:|---:|---|
+| `growing.plenty` | 68 | 45 | 5 / 0 |
+| `growing.plenty`, pushing to a second `&mut Bytes` | 68 | 45 | 5 / 0 |
+| `kernels.plenty` | 7 | 7 | 1 / 0 (around the hoisted `len()`) |
+
+The reverse-complement benchmark's reversal loop is a `while` loop, so it
+still calls `get` and `set`; it fell from 53 to 45 instructions per pass, and
+the program's `plenty_caller_enter` call sites from 32 to 14. The
+quick FASTA input (size 2,500,000) ran 765,708,420–765,708,439
+`instructions:u` before and 656,456,084–656,456,096 after, **14.3% fewer**,
+with identical output (three runs each, `taskset -c 0`). The before compiler
+was built from 2e50b1b8 in a separate target directory.

@@ -780,7 +780,7 @@ mod tests {
                 .sites
                 .append(
                     &mut output.module,
-                    &[(None, 1, 1, false), (None, 2, 1, false)],
+                    &[((None, 1, 1, false), None), ((None, 2, 1, false), None)],
                 )
                 .unwrap();
             output.sites.address(&mut output.module, table, 16).unwrap();

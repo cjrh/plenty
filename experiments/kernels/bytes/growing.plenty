@@ -1,0 +1,14 @@
+import std.bytes
+
+def transform(data: &mut std.bytes.Bytes) -> Result[(), AllocError]:
+    n = data.len()
+    for i in range(n):
+        data.set(i, data.get(i) ^ 32u8)
+        data.push(data.get(i))?
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError]:
+    mut data = std.bytes.from_text("ACGT")?
+    transform(&mut data)?
+    print(data)?
+    Ok(())

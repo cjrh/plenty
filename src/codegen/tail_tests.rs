@@ -37,6 +37,7 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
             source: None,
             preserves_caller: false,
             reads_no_caller: false,
+            names_caller_in_sites: false,
         },
     );
     let mut symbols = symbols::Symbols::new(Arc::new(symbols::Declared::snapshot(

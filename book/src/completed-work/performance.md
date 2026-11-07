@@ -64,7 +64,7 @@ whole-program/compilation measurements. The optimized caller kernel fell from
 62 to 38 instructions per byte; the quick reverse-complement input used 25.3%
 fewer instructions with identical
 output. Caller-site bookkeeping, repeated checks and unused owner-word loads
-remain (issues #842–#844); the result is not a claim of C-equivalent code.
+remained (issues #842–#844); the result is not a claim of C-equivalent code.
 
 ### Loop-cached byte access (issue #843)
 
@@ -77,7 +77,21 @@ byte kernel fell from 38 to 7 instructions per byte (C: 4); the remaining
 difference is the range loop's separate down-counter and index. The quick
 reverse-complement input used 81.5% fewer instructions with identical output.
 In cached loops the caller scopes and unused owner-word loads (issues #842 and
-#844) leave the loop with the calls; they remain for uncached calls.
+#844) leave the loop with the calls; the owner-word loads remain for uncached
+calls.
+
+### Caller sites in inlined byte access (issue #842)
+
+In optimized builds (the default), a user function that inlines `Bytes.get`,
+`Bytes.set`, `Bytes.len` or `Bytes.push` no longer saves and restores the
+thread-local caller around each call. The inlined trap records name the user
+call site themselves; see [trap sites](../design/toolchain/02-architecture/runtime.md#trap-sites).
+Trap messages and caller notes are unchanged. A loop that pushes to its buffer,
+and so keeps the method calls, fell from 68 to 45 instructions per byte, with
+no `plenty_caller_enter` call left in it. The quick reverse-complement input,
+whose reversal `while` loop still calls the methods, used 14.3% fewer
+instructions with identical output. Std bodies that call, loop or run
+destructors still use the thread-local context.
 
 ### k-nucleotide counting-loop investigation (issue #743)
 
