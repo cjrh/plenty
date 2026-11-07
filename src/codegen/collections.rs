@@ -100,7 +100,7 @@ impl Lowerer<'_, '_> {
     /// Whether the versioned loop copy being lowered may skip the check of
     /// `index` against `length`, recording the test that copy then needs;
     /// see [`super::induction::Version`].
-    fn versioned_index(
+    pub(super) fn versioned_index(
         &mut self,
         index: cranelift_codegen::ir::Value,
         length: cranelift_codegen::ir::Value,
@@ -195,7 +195,7 @@ impl Lowerer<'_, '_> {
     /// Branches to `valid` with `args` when `index` is in 0..length, the hot
     /// path: one unsigned comparison, no normalization (issue #715). Returns
     /// the cold block taken otherwise.
-    fn index_hot_test(
+    pub(super) fn index_hot_test(
         &mut self,
         index: cranelift_codegen::ir::Value,
         length: cranelift_codegen::ir::Value,
@@ -213,7 +213,7 @@ impl Lowerer<'_, '_> {
     /// negative index the wrapped sum is below length, unsigned, exactly when
     /// index >= -length; for a nonnegative index >= length the sum cannot
     /// wrap and stays >= length.
-    fn index_adjust(
+    pub(super) fn index_adjust(
         &mut self,
         index: cranelift_codegen::ir::Value,
         length: cranelift_codegen::ir::Value,
@@ -1548,6 +1548,12 @@ impl Lowerer<'_, '_> {
             ClistOp::Get(..) | ClistOp::Set(..) | ClistOp::CopyRow(_)
         ) {
             return self.lower_clist_access(op);
+        }
+        if matches!(
+            op,
+            ClistOp::Len(_) | ClistOp::Column(..) | ClistOp::GetView(..) | ClistOp::SetView(..)
+        ) {
+            return self.lower_clist_inline(op);
         }
         let (inputs, output) = op.signature();
         let mut args = Vec::new();

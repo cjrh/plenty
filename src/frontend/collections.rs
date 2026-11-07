@@ -1,4 +1,5 @@
 use super::*;
+use crate::clist::ClistOp;
 use crate::collection::Query;
 use crate::collection_opcodes as opcode;
 
@@ -6,9 +7,11 @@ const KEY_VIEW_COLLECTION: &str = "collection constructors do not accept borrowe
 
 /// Per-loop row metadata (length, row-0 address) for scalar lists already in
 /// scope, read once before the loop instead of at every `xs[i]` (issues #429,
-/// #715, #717). A list is a local or a field path on one (`self.items`). An
-/// immutable shared reference is stable for the whole loop. Owned lists,
-/// exclusive references and retargetable bindings are cached provisionally:
+/// #715, #717), and likewise the row count and column addresses of clists
+/// for `rows[i].field` (issue #759). A list is a local or a field path on one
+/// (`self.items`). An immutable shared reference is stable for the whole
+/// loop. Owned lists, exclusive references and retargetable bindings are
+/// cached provisionally:
 /// when the finished loop contains an operation that could replace, resize or
 /// move a list (a list mutation other than a row write, a write to the
 /// binding, a call that could reach it), `uncache` restores ordinary indexed
@@ -16,6 +19,10 @@ const KEY_VIEW_COLLECTION: &str = "collection constructors do not accept borrowe
 pub(super) struct IndexedLists {
     before: usize,
     views: HashMap<(u8, Vec<usize>), [u8; 2]>,
+    /// A cached clist's row count slot, by place.
+    clist_lengths: HashMap<(u8, Vec<usize>), u8>,
+    /// A cached clist column's address slot, by place and field.
+    columns: HashMap<(u8, Vec<usize>, usize), u8>,
     /// A `for i in range(len(xs))` loop's list place and the slot holding
     /// the stop it read. The cache takes its length from that slot, so the
     /// counter's bound and each access's length are one value (issue #728).
@@ -31,11 +38,23 @@ pub(super) struct IndexedLists {
     reaches: Vec<Reach>,
 }
 
-/// A provisionally cached list rooted at binding `source`.
+/// A provisionally cached list, or clist row count or column, rooted at
+/// binding `source`.
 struct Provisional {
     source: u8,
+    /// The length slot, and the rows or column slot.
     view: [u8; 2],
     setup: Vec<Op>,
+    /// The owner a reference `source` borrows from, if it has a loan.
+    owner: Option<u8>,
+}
+
+/// A list or clist place a loop may cache; see [`Lower::cached_place`].
+struct CachedPlace {
+    source: u8,
+    key: (u8, Vec<usize>),
+    /// Whether the place cannot change for the whole loop.
+    stable: bool,
     /// The owner a reference `source` borrows from, if it has a loan.
     owner: Option<u8>,
 }
@@ -57,6 +76,8 @@ impl IndexedLists {
         Self {
             before,
             views: HashMap::default(),
+            clist_lengths: HashMap::default(),
+            columns: HashMap::default(),
             stop: None,
             setup: Vec::new(),
             provisional: Vec::new(),
@@ -173,6 +194,19 @@ impl Scan {
                     | C::ViewItem(..)
                     | C::ViewSwap(_),
                 ) => true,
+                // Field reads and writes, counts and copies of one row move
+                // no column; only appends, reserves, removals and clears do.
+                Op::Collection(C::Clist(
+                    ClistOp::Get(..)
+                    | ClistOp::Set(..)
+                    | ClistOp::GetView(..)
+                    | ClistOp::SetView(..)
+                    | ClistOp::Len(_)
+                    | ClistOp::Capacity(_)
+                    | ClistOp::Column(..)
+                    | ClistOp::Load(_)
+                    | ClistOp::CopyRow(_),
+                )) => true,
                 Op::Integer(_)
                 | Op::Numeric(_)
                 | Op::CheckedArith { .. }
@@ -255,6 +289,12 @@ fn uncache(ops: &mut Vec<Op>, lengths: &[u8]) {
                     }
                     Op::Collection(C::ElementRefView(ty, mutable)) => {
                         Some(C::ElementRef(ty.clone(), *mutable))
+                    }
+                    Op::Collection(C::Clist(ClistOp::GetView(ty, field))) => {
+                        Some(C::Clist(ClistOp::Get(ty.clone(), *field)))
+                    }
+                    Op::Collection(C::Clist(ClistOp::SetView(ty, field))) => {
+                        Some(C::Clist(ClistOp::Set(ty.clone(), *field)))
                     }
                     _ => None,
                 };
@@ -3190,43 +3230,16 @@ impl Lower<'_> {
     /// The cached (length, rows) slots for indexing the list `base` inside
     /// the innermost loop, if it qualifies; see [`IndexedLists`].
     pub(super) fn indexed_list_view(&mut self, base: &Expr, ty: &Ty) -> Result<Option<[u8; 2]>> {
-        let Some((name, path)) = self.list_path(base) else {
-            return Ok(None);
-        };
-        let Some(local) = self.names.get(&name) else {
-            return Ok(None);
-        };
-        let source = local.slot;
-        let Some(context) = self.indexed_lists.last() else {
-            return Ok(None);
-        };
-        let list = |ty: &Ty| matches!(ty, Ty::List(_));
-        if !list(ty) {
+        if !matches!(ty, Ty::List(_)) {
             return Ok(None);
         }
-        let stable = match (&local.ty, path.is_empty()) {
-            (Ty::Ref(inner, exclusive), true) if list(inner) => !exclusive && !local.mutable,
-            (Ty::Ref(inner, exclusive), false) if matches!(**inner, Ty::Class(_)) => {
-                !exclusive && !local.mutable
-            }
-            (owned, true) if list(owned) => false,
-            (Ty::Class(_), false) => false,
-            _ => return Ok(None),
-        };
-        if usize::from(source) >= context.before
-            || self.captures.contains(&name)
-            || self.yield_type.is_some()
-        {
+        let Some(place) = self.cached_place(base, ty) else {
             return Ok(None);
-        }
-        let key = (source, path);
-        if let Some(view) = context.views.get(&key) {
+        };
+        let context = self.indexed_lists.last().unwrap();
+        if let Some(view) = context.views.get(&place.key) {
             return Ok(Some(*view));
         }
-        let owner = self
-            .reference_locals
-            .get(&source)
-            .map(|&loan| self.loans[loan].root);
         let view = [self.slot(Ty::I64, &base.at)?, self.slot(Ty::I64, &base.at)?];
         let mut setup = Vec::new();
         self.mark(&base.at, &mut setup);
@@ -3234,9 +3247,8 @@ impl Lower<'_> {
             (CollectionOp::ListLenRef(ty.clone()), view[0]),
             (CollectionOp::ListRowsRef(ty.clone()), view[1]),
         ];
-        let context = self.indexed_lists.last().unwrap();
-        if let Some((_, stop)) = context.stop.as_ref().filter(|(place, _)| *place == key) {
-            setup.extend([Op::LoadLocal(*stop), Op::StoreLocal(view[0])]);
+        if let Some(stop) = self.cached_stop(&place.key) {
+            setup.extend([Op::LoadLocal(stop), Op::StoreLocal(view[0])]);
             reads.remove(0);
         }
         for (operation, slot) in reads {
@@ -3248,18 +3260,126 @@ impl Lower<'_> {
             ]);
         }
         let context = self.indexed_lists.last_mut().unwrap();
-        context.views.insert(key, view);
-        if stable {
+        context.views.insert(place.key.clone(), view);
+        Self::cache_setup(context, &place, view, setup);
+        Ok(Some(view))
+    }
+
+    /// The cached (row count, column address) slots for `base[i].field` on
+    /// the clist `base` of type `ty` inside the innermost loop, if it
+    /// qualifies; see [`IndexedLists`]. Called before `base` is borrowed for
+    /// the access, since caching borrows it.
+    pub(super) fn indexed_clist_view(
+        &mut self,
+        base: &Expr,
+        ty: &Ty,
+        field: usize,
+    ) -> Result<Option<[u8; 2]>> {
+        let Some(place) = self.cached_place(base, ty) else {
+            return Ok(None);
+        };
+        let context = self.indexed_lists.last().unwrap();
+        let length = context.clist_lengths.get(&place.key).copied();
+        let column_key = (place.source, place.key.1.clone(), field);
+        if let (Some(length), Some(&column)) = (length, context.columns.get(&column_key)) {
+            return Ok(Some([length, column]));
+        }
+        let mut setup = Vec::new();
+        self.mark(&base.at, &mut setup);
+        let mut reads = Vec::new();
+        let length = match length {
+            Some(length) => length,
+            None => {
+                let slot = self.slot(Ty::I64, &base.at)?;
+                match self.cached_stop(&place.key) {
+                    Some(stop) => setup.extend([Op::LoadLocal(stop), Op::StoreLocal(slot)]),
+                    None => reads.push((ClistOp::Len(ty.clone()), slot)),
+                }
+                slot
+            }
+        };
+        let column = self.slot(Ty::I64, &base.at)?;
+        reads.push((ClistOp::Column(ty.clone(), field), column));
+        for (operation, slot) in reads {
+            let (_, loan) = self.borrow(base, false, &mut setup)?;
+            setup.extend([
+                Op::Collection(CollectionOp::Clist(operation)),
+                Op::StoreLocal(slot),
+                Op::UseLoan(loan),
+            ]);
+        }
+        let context = self.indexed_lists.last_mut().unwrap();
+        context.clist_lengths.insert(place.key.clone(), length);
+        context.columns.insert(column_key, column);
+        let view = [length, column];
+        Self::cache_setup(context, &place, view, setup);
+        Ok(Some(view))
+    }
+
+    /// The innermost loop's cacheable place for the list or clist `base` of
+    /// type `ty`: a binding declared before the loop, or a field path on one,
+    /// that no closure captures, outside generators.
+    fn cached_place(&self, base: &Expr, ty: &Ty) -> Option<CachedPlace> {
+        let (name, path) = self.list_path(base)?;
+        let local = self.names.get(&name)?;
+        let source = local.slot;
+        let context = self.indexed_lists.last()?;
+        let kind = |other: &Ty| std::mem::discriminant(other) == std::mem::discriminant(ty);
+        if !matches!(ty, Ty::List(_) | Ty::Clist(_)) {
+            return None;
+        }
+        let stable = match (&local.ty, path.is_empty()) {
+            (Ty::Ref(inner, exclusive), true) if kind(inner) => !exclusive && !local.mutable,
+            (Ty::Ref(inner, exclusive), false) if matches!(**inner, Ty::Class(_)) => {
+                !exclusive && !local.mutable
+            }
+            (owned, true) if kind(owned) => false,
+            (Ty::Class(_), false) => false,
+            _ => return None,
+        };
+        if usize::from(source) >= context.before
+            || self.captures.contains(&name)
+            || self.yield_type.is_some()
+        {
+            return None;
+        }
+        let owner = self
+            .reference_locals
+            .get(&source)
+            .map(|&loan| self.loans[loan].root);
+        Some(CachedPlace {
+            source,
+            key: (source, path),
+            stable,
+            owner,
+        })
+    }
+
+    /// The slot holding the stop of the innermost loop's `range(len(place))`,
+    /// which is the place's length when the loop starts; see
+    /// [`IndexedLists::stop`].
+    fn cached_stop(&self, key: &(u8, Vec<usize>)) -> Option<u8> {
+        let context = self.indexed_lists.last()?;
+        context
+            .stop
+            .as_ref()
+            .filter(|(place, _)| place == key)
+            .map(|(_, stop)| *stop)
+    }
+
+    /// Adds a cached place's `setup` to the loop: at once when the place is
+    /// stable, otherwise provisionally; see [`IndexedLists`].
+    fn cache_setup(context: &mut IndexedLists, place: &CachedPlace, view: [u8; 2], setup: Vec<Op>) {
+        if place.stable {
             context.setup.extend(setup);
         } else {
             context.provisional.push(Provisional {
-                source,
+                source: place.source,
                 view,
                 setup,
-                owner,
+                owner: place.owner,
             });
         }
-        Ok(Some(view))
     }
 
     /// The binding and field indices of a list place `xs` or `a.b.items`,
