@@ -164,6 +164,11 @@ and [the delivery record](completed-work/libraries.md#checked-html-template-rend
 Issue #782 adds shared bounded pretty output for JSON events, trees and typed
 values. See the [delivery record](completed-work/libraries.md#bounded-json-pretty-output-issue-782).
 
+## HTTP response dates
+
+Issue #786 adds automatic response dates with caller overrides and shared
+bounded formatting. See the [delivery record](completed-work/libraries.md#http-response-dates-issue-786).
+
 ## Serialization diagnostics
 
 Issue #783 adds bounded readable JSON/TOML causes, typed field paths and opt-in

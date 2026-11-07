@@ -50,63 +50,63 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.fs.lock`](#stdfslock): 1458-1473
 - [`std.fs.watch`](#stdfswatch): 1475-1510
 - [`std.graph`](#stdgraph): 1512-1600
-- [`std.http`](#stdhttp): 1602-1672
-- [`std.http.decoder`](#stdhttpdecoder): 1674-1691
-- [`std.http.body`](#stdhttpbody): 1693-1728
-- [`std.http.client`](#stdhttpclient): 1730-1840
-- [`std.http.cookie`](#stdhttpcookie): 1842-1874
-- [`std.http.files`](#stdhttpfiles): 1876-1889
-- [`std.http.https`](#stdhttphttps): 1891-1905
-- [`std.http.proxy`](#stdhttpproxy): 1907-1928
-- [`std.http.server`](#stdhttpserver): 1930-2021
-- [`std.http.sse`](#stdhttpsse): 2023-2042
-- [`std.http.tls`](#stdhttptls): 2044-2061
-- [`std.http.typed`](#stdhttptyped): 2063-2096
-- [`std.http.websocket`](#stdhttpwebsocket): 2098-2133
-- [`std.http.wss`](#stdhttpwss): 2135-2141
-- [`std.image`](#stdimage): 2143-2189
-- [`std.io`](#stdio): 2191-2297
-- [`std.io.typed`](#stdiotyped): 2299-2337
-- [`std.serial`](#stdserial): 2339-2403
-- [`std.json`](#stdjson): 2405-2557
-- [`std.jwt`](#stdjwt): 2559-2606
-- [`std.log`](#stdlog): 2608-2675
-- [`std.markdown`](#stdmarkdown): 2677-2711
-- [`std.template`](#stdtemplate): 2713-2750
-- [`std.math`](#stdmath): 2752-2823
-- [`std.mime`](#stdmime): 2825-2851
-- [`std.net`](#stdnet): 2853-2935
-- [`std.path`](#stdpath): 2937-2954
-- [`std.process`](#stdprocess): 2956-3014
-- [`std.random`](#stdrandom): 3016-3037
-- [`std.ready`](#stdready): 3039-3070
-- [`std.regex`](#stdregex): 3072-3125
-- [`std.report`](#stdreport): 3127-3138
-- [`std.secrets`](#stdsecrets): 3140-3166
-- [`std.shlex`](#stdshlex): 3168-3177
-- [`std.sketch`](#stdsketch): 3179-3217
-- [`std.sketch.xor`](#stdsketchxor): 3219-3230
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3232-3247
-- [`std.signal`](#stdsignal): 3249-3266
-- [`std.simd`](#stdsimd): 3268-3369
-- [`std.stat`](#stdstat): 3371-3404
-- [`std.plot`](#stdplot): 3406-3495
-- [`std.linalg`](#stdlinalg): 3497-3538
-- [`std.sync`](#stdsync): 3540-3558
-- [`std.system`](#stdsystem): 3560-3619
-- [`std.tempfile`](#stdtempfile): 3621-3653
-- [`std.test`](#stdtest): 3655-3697
-- [`std.text`](#stdtext): 3699-3742
-- [`std.thread`](#stdthread): 3744-3748
-- [`std.time`](#stdtime): 3750-3794
-- [`std.tls`](#stdtls): 3796-3878
-- [`std.toml`](#stdtoml): 3880-3979
-- [`std.unicode`](#stdunicode): 3981-3993
-- [`std.units`](#stdunits): 3995-4232
-- [`std.units.catalogue`](#stdunitscatalogue): 4234-5012
-- [`std.url`](#stdurl): 5014-5042
-- [`std.uuid`](#stduuid): 5044-5067
-- [`std.xml`](#stdxml): 5069-5102
+- [`std.http`](#stdhttp): 1602-1673
+- [`std.http.decoder`](#stdhttpdecoder): 1675-1692
+- [`std.http.body`](#stdhttpbody): 1694-1729
+- [`std.http.client`](#stdhttpclient): 1731-1841
+- [`std.http.cookie`](#stdhttpcookie): 1843-1875
+- [`std.http.files`](#stdhttpfiles): 1877-1890
+- [`std.http.https`](#stdhttphttps): 1892-1906
+- [`std.http.proxy`](#stdhttpproxy): 1908-1929
+- [`std.http.server`](#stdhttpserver): 1931-2022
+- [`std.http.sse`](#stdhttpsse): 2024-2043
+- [`std.http.tls`](#stdhttptls): 2045-2062
+- [`std.http.typed`](#stdhttptyped): 2064-2097
+- [`std.http.websocket`](#stdhttpwebsocket): 2099-2134
+- [`std.http.wss`](#stdhttpwss): 2136-2142
+- [`std.image`](#stdimage): 2144-2190
+- [`std.io`](#stdio): 2192-2298
+- [`std.io.typed`](#stdiotyped): 2300-2338
+- [`std.serial`](#stdserial): 2340-2404
+- [`std.json`](#stdjson): 2406-2558
+- [`std.jwt`](#stdjwt): 2560-2607
+- [`std.log`](#stdlog): 2609-2676
+- [`std.markdown`](#stdmarkdown): 2678-2712
+- [`std.template`](#stdtemplate): 2714-2751
+- [`std.math`](#stdmath): 2753-2824
+- [`std.mime`](#stdmime): 2826-2852
+- [`std.net`](#stdnet): 2854-2936
+- [`std.path`](#stdpath): 2938-2955
+- [`std.process`](#stdprocess): 2957-3015
+- [`std.random`](#stdrandom): 3017-3038
+- [`std.ready`](#stdready): 3040-3071
+- [`std.regex`](#stdregex): 3073-3126
+- [`std.report`](#stdreport): 3128-3139
+- [`std.secrets`](#stdsecrets): 3141-3167
+- [`std.shlex`](#stdshlex): 3169-3178
+- [`std.sketch`](#stdsketch): 3180-3218
+- [`std.sketch.xor`](#stdsketchxor): 3220-3231
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3233-3248
+- [`std.signal`](#stdsignal): 3250-3267
+- [`std.simd`](#stdsimd): 3269-3370
+- [`std.stat`](#stdstat): 3372-3405
+- [`std.plot`](#stdplot): 3407-3496
+- [`std.linalg`](#stdlinalg): 3498-3539
+- [`std.sync`](#stdsync): 3541-3559
+- [`std.system`](#stdsystem): 3561-3620
+- [`std.tempfile`](#stdtempfile): 3622-3654
+- [`std.test`](#stdtest): 3656-3698
+- [`std.text`](#stdtext): 3700-3743
+- [`std.thread`](#stdthread): 3745-3749
+- [`std.time`](#stdtime): 3751-3795
+- [`std.tls`](#stdtls): 3797-3879
+- [`std.toml`](#stdtoml): 3881-3980
+- [`std.unicode`](#stdunicode): 3982-3994
+- [`std.units`](#stdunits): 3996-4233
+- [`std.units.catalogue`](#stdunitscatalogue): 4235-5013
+- [`std.url`](#stdurl): 5015-5043
+- [`std.uuid`](#stduuid): 5045-5068
+- [`std.xml`](#stdxml): 5070-5103
 
 ## `std.actor`
 
@@ -668,7 +668,7 @@ def decompressor[R](format: Format, inner: R, limit: NonNegative[i64]) -> Result
 
 Executors, futures and parallel operations. Errors: Pool/submission/future/parallel errors. [Reference](concurrent.md).
 
-Compiler-provided: `ThreadPoolExecutor`, `Future`, `PoolError`, `SubmitError`, `FutureError`, `PoolMapError`, `ParallelError`. Their signatures are on the reference page.
+Compiler-provided: `ThreadPoolExecutor`, `Future`, `PoolError`, `SubmitError`, `FutureError`, `PoolMapError`, `ParallelError`, `Submitter`. Their signatures are on the reference page.
 
 ## `std.crypto`
 
@@ -1669,6 +1669,7 @@ def encode_chunk_size(length: NonNegative[i64]) -> Result[Bytes, HttpError]
 def write_last_chunk[W: Writer](writer: &mut W, trailers: &list[Header]) -> Result[(), HttpError]
 def encode_last_chunk(trailers: &list[Header]) -> Result[Bytes, HttpError]
 def write_body[W: Writer](writer: &mut W, framing: &Framing, source: &[u8]) -> Result[(), HttpError]
+def http_date(timestamp: &Timestamp) -> Result[Option[str], HttpError]
 ```
 
 ## `std.http.decoder`

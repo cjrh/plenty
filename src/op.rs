@@ -59,6 +59,9 @@ pub enum Ty {
     /// through atomic instructions.
     Atomic(Arc<Ty>),
     Executor,
+    /// A transferable, nonblocking submission handle to a pool: it keeps the
+    /// pool's queue alive but never owns, shuts down, or waits for the pool.
+    Submitter,
     Future(Arc<Ty>),
     Closure(Arc<crate::closure::ClosureType>),
     Callable(Arc<CallableSig>),
@@ -315,6 +318,7 @@ impl Ty {
                 | Self::CancellationToken
                 | Self::Atomic(_)
                 | Self::Executor
+                | Self::Submitter
                 | Self::Future(_)
                 | Self::Closure(_)
                 | Self::BoxedCallable(_) | Self::BoxedProtocol(_)
@@ -667,6 +671,7 @@ impl Ty {
                 | Self::Clist(_)
                 | Self::CancellationToken
                 | Self::Executor
+                | Self::Submitter
                 | Self::Future(_)
                 | Self::List(_)
                 | Self::Set(_)
@@ -831,6 +836,7 @@ impl fmt::Display for Ty {
             Ty::Dimension(d) => return write!(f, "{d}"),
             Ty::Task(_) => "scoped task",
             Ty::Executor => "ThreadPoolExecutor",
+            Ty::Submitter => "Submitter",
             Ty::CancellationToken => "CancellationToken",
             Ty::Atomic(t) => return write!(f, "Atomic[{t}]"),
             Ty::Future(t) => return write!(f, "Future[{t}]"),

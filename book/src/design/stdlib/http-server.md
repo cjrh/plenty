@@ -555,6 +555,23 @@ timed out`, `handshake failed` and `accept failed`, most with a
 `status` field. An event the sink cannot take is dropped and counted in
 `dropped_events`; logging never blocks serving.
 
+## Response dates
+
+The server adds one `Date` header to final responses, including handler errors,
+protocol refusals, queue-full `503` and parked-head `408` responses. This also
+covers `HEAD`, streamed responses, `101` protocol switches and detached streams.
+It does not add `Date` to `100 Continue`. A caller-supplied `Date`, found without
+regard to ASCII case, keeps its exact value and is never supplemented.
+
+The value is generated when the response head is prepared from one
+[`std.time.wall_now`](time.md) reading, using
+[`std.http.http_date`](http.md#http-dates). The wall-clock API is infallible;
+an unrepresentable timestamp (outside 1970–9999 or invalid nanoseconds) causes
+omission rather than an invented date. Allocation failures remain
+`HttpError.Allocation` before that response head is written. If an admission
+response cannot be prepared, the server closes the connection without an answer.
+There is no global date cache, background task or caller clock configuration.
+
 ## Limits
 
 - The accepting thread waits on one selector of at most 64 events per wait,
@@ -575,7 +592,7 @@ timed out`, `handshake failed` and `accept failed`, most with a
 - HTTPS has the [`std.tls` limits](tls.md#limits). The server speaks only
   HTTP/1.x, so its `ServerConfig` should offer no ALPN protocol but
   `http/1.1`.
-- No `Date` header, compression, request trailers in the exchange, or
+- No compression, request trailers in the exchange, or
   HTTP/2. A connection taken by `switch_protocols` or `detach` holds its
   worker until the handler returns, so long-lived WebSockets and event
   streams count against `workers`. Forms, JSON, uploads, cookies and forwarded clients are in

@@ -2,6 +2,8 @@
 //! multipart uploads, cookies and forwarded clients. Requests run in memory
 //! through `serve_connection_from`; nothing needs a network.
 
+mod support;
+
 /// An in-memory `Transport` and a handler for each helper. `$STORAGE` is
 /// replaced with a directory the test owns.
 const PRELUDE: &str = r##"import std.bytes
@@ -257,7 +259,8 @@ fn run(main: &str) -> String {
         r"(Content-Type: text/plain; charset=utf-8|Content-Type: application/json|Content-Length: \d+|Connection: close)\|",
     )
     .unwrap();
-    let text = String::from_utf8_lossy(&output.stdout).replace("\r\n", "|");
+    let text =
+        support::without_http_dates(&String::from_utf8_lossy(&output.stdout).replace("\r\n", "|"));
     common
         .replace_all(&text, "")
         .lines()
