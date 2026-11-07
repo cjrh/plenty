@@ -464,5 +464,10 @@ This delivers a mapping/package experiment, not issue #480's original zero-copy
 borrowed byte source. The cache-hot 64 KiB-buffer probe measured mapped copy-out
 at 5.39–5.55 GiB/s against 5.81–6.18 GiB/s for `pread` on the development x86-64
 Linux host; no application performance benefit is claimed. Other platforms and
-worker use are not qualified. Remaining design scope stays in
-[B38](../backlog.md#standard-library-follow-ups).
+worker use are not qualified.
+
+Issue #480 is closed as deferred. Making memory-mapped file usage safe is too
+complex at present, and Plenty's safety posture will not be changed to
+accommodate this use case now. The prototype is retained as experimental
+evidence; any future support may be explored in a separate library outside the
+standard library. No further implementation or publication is scheduled.

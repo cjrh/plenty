@@ -131,8 +131,11 @@ byte sources while preserving its ownership and fault guarantees. Immutable seal
 backing storage and file-backed storage with external mutation are different
 contracts; an ordinary shared borrow alone cannot assert either. Keeping the
 package independent allows those choices to be explored without promising a
-stable standard-library API. Remaining issue scope and priorities stay in
-`book/src/backlog.md` in the Plenty repository, not in this package README.
+stable standard-library API. Issue #480 is closed as deferred: making memory-mapped file usage safe is too
+complex at present, and Plenty's safety posture will not be changed to
+accommodate this use case now. This prototype is retained for possible future
+experimentation in a separate library outside std; no further implementation or
+publication is scheduled.
 
 ## Validation
 
