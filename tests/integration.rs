@@ -84,6 +84,8 @@ mod test_boxes;
 mod test_byte_literals;
 #[path = "test_byte_sources.rs"]
 mod test_byte_sources;
+#[path = "test_byte_views.rs"]
+mod test_byte_views;
 #[path = "test_call_borrowing.rs"]
 mod test_call_borrowing;
 #[path = "test_call_substitution.rs"]

@@ -51,5 +51,58 @@
     "baseline": 62,
     "register_clif_variant": 38,
     "after": 38
+  },
+  "issue-843": {
+    "baseline": "4cfb54405b1160baec8bb2eba48bc94720de2424",
+    "runtime-before": [
+      4133999784,
+      4133999777,
+      4133999769
+    ],
+    "runtime-after": [
+      765707632,
+      765707638,
+      765707639
+    ],
+    "reference_instructions": [
+      362036286,
+      362036296,
+      362036283
+    ],
+    "compile-before": [
+      125069541260,
+      125050332769,
+      125070177029
+    ],
+    "compile-after": [
+      125037322651,
+      125010499410,
+      125000957090
+    ],
+    "compile-revcomp-before": [
+      163152628,
+      167749053,
+      168593317
+    ],
+    "compile-revcomp-after": [
+      169826176,
+      168868820,
+      165684193
+    ],
+    "compile-fannkuch-before": [
+      367450272,
+      353104559,
+      352970411
+    ],
+    "compile-fannkuch-after": [
+      358970620,
+      355927139,
+      353865405
+    ],
+    "kernel_caller_instructions": {
+      "c_scalar": 4,
+      "before": 38,
+      "after": 7
+    }
   }
 }

@@ -69,6 +69,7 @@ use crate::cache::{Cache, Lookup, ProgramKey};
 use crate::frontend::Sources;
 mod atomic;
 mod box_release;
+mod byte_views;
 mod casts;
 mod channels;
 mod checked;

@@ -15,7 +15,9 @@ Delivery history and retired backlog entries live here, separate from the
   including the [k-nucleotide counting-loop investigation](completed-work/performance.md#k-nucleotide-counting-loop-investigation-issue-743)
   (issue #743).
   [Byte method access](completed-work/performance.md#byte-method-access-issue-741)
-  records the narrow checked helpers delivered for issue #741.
+  records the narrow checked helpers delivered for issue #741 and the
+  [loop-cached byte access](completed-work/performance.md#loop-cached-byte-access-issue-843)
+  of issue #843.
 
 B IDs are stable. A record here means the **described subset** shipped or its
 investigation concluded; it does not mean every conceivable extension of that

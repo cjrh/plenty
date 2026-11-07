@@ -66,6 +66,19 @@ fewer instructions with identical
 output. Caller-site bookkeeping, repeated checks and unused owner-word loads
 remain (issues #842–#844); the result is not a claim of C-equivalent code.
 
+### Loop-cached byte access (issue #843)
+
+A loop that cannot resize or replace a `Bytes` buffer reads its length and
+first-byte address once and accesses bytes directly; see the
+[collections architecture](../design/toolchain/02-architecture/collections.md).
+An index the loop does not prove in range keeps one unsigned comparison, and a
+failing index traps through the method with unchanged messages and sites. The
+byte kernel fell from 38 to 7 instructions per byte (C: 4); the remaining
+difference is the range loop's separate down-counter and index. The quick
+reverse-complement input used 81.5% fewer instructions with identical output.
+In cached loops the caller scopes and unused owner-word loads (issues #842 and
+#844) leave the loop with the calls; they remain for uncached calls.
+
 ### k-nucleotide counting-loop investigation (issue #743)
 
 The original issue was split into issues #744–#750, with follow-ups #755,

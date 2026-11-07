@@ -778,6 +778,14 @@ pub fn function_references(op: &Op, require: &mut impl FnMut(&str)) {
         Op::Collection(crate::collection::CollectionOp::ListSortBy(sort)) => {
             require(&sort.key_of);
         }
+        Op::Collection(
+            operation @ (crate::collection::CollectionOp::BytesGetView(_)
+            | crate::collection::CollectionOp::BytesSetView(_)),
+        ) => {
+            if let Some(method) = operation.bytes_view_method() {
+                require(&method);
+            }
+        }
         Op::Collection(crate::collection::CollectionOp::Formatted(formatted)) => {
             for hook in &formatted.hooks {
                 require(&hook.function);
