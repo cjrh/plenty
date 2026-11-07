@@ -183,6 +183,19 @@ send nothing to avoid reaching a reused group ID. Descendants that create
 another group or session escape this cleanup. See
 [process groups and sessions](../../design/stdlib/process.md#process-groups-and-sessions).
 
+For a child protocol that accepts an already open file, use
+`command.inherit_file(&file)` and pass the returned descriptor in argv or the
+environment. It owns a separate copy, so the original file can close before
+spawn. Clear the command's copies after spawning if they are no longer needed;
+children keep their own copies. The cursor and advisory lock are shared.
+File inheritance also works with `NewSession` and `Stdio.File`; redirecting a
+standard stream alone does not expose an extra descriptor to the child. See
+[explicit file inheritance](../../design/stdlib/process.md#explicit-file-inheritance)
+for the 64-file limit, errors and an executable example, and
+[lock inheritance](../../design/stdlib/fs/lock.md#ownership-and-release) for a
+lock that must outlive its runner.
+
+
 See the references for [`std.env`](../../design/stdlib/env.md) and
 [`std.process`](../../design/stdlib/process.md), including pipes you read and
 write yourself.

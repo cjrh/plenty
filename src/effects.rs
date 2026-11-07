@@ -133,6 +133,7 @@ impl ProcessOp {
             Self::ChangeDir => Effect::ProcessGlobal,
             Self::Spawn | Self::Pipe | Self::Wait | Self::Signal | Self::Poll => Effect::Child,
             Self::SignalListen => Effect::SignalDisposition,
+            Self::DuplicateFile | Self::FileDescriptor => Effect::Handle,
         }
     }
 }

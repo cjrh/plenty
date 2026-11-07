@@ -61,6 +61,8 @@ input. Pass such data as an argument or a variable instead.
 | `env_remove(name: &str)`, `env_remove_bytes(name: &list[u8])` | `Result[(), IoError]` | The child does not inherit it |
 | `env_clear()` | `()` | The child inherits nothing; earlier edits are dropped |
 | `current_dir(path: &Path)` | `Result[(), IoError]` | The child's working directory |
+| `inherit_file(file: &File)` | `Result[i32, IoError]` | Own a copy selected for child inheritance; return its descriptor |
+| `clear_inherited_files()` | `()` | Close all copies held by this command |
 | `process_group(mode: ProcessGroup)` | `()` | Select inherited group, new group or new session before execution |
 | `stdin(mode: Stdio)`, `stdout(mode: Stdio)`, `stderr(mode: Stdio)` | `()` | Choose a stream |
 | `stderr_to_stdout()` | `()` | The child's stderr goes wherever its stdout goes |
@@ -139,9 +141,76 @@ is closed is `IoError.Closed`; one without the needed access is
 `IoError.NotWritable` for stdout or stderr and `IoError.NotReadable` for
 stdin. The command keeps its files either way.
 
-Pipe ends, and the duplicates of redirection files, are close-on-exec, so
-one child never inherits another child's pipes or files. Other descriptors
-the program opened are close-on-exec as well.
+Pipe ends and redirection-source duplicates are close-on-exec. Standard streams
+follow `Stdio`; above them only copies explicitly selected with `inherit_file`
+survive that command's exec. Other commands do not inherit those selected copies.
+
+### Explicit file inheritance
+
+`inherit_file(file: &File) -> Result[i32, IoError]` borrows an open file and
+creates a separately owned copy, with a descriptor of at least three. Pass the
+returned number in an argument or environment variable according to the child's
+protocol. It is valid for this command's children; it is not a raw descriptor
+ownership API. Do not close or change it through native code.
+
+The source stays open and unchanged. Closing or dropping it after configuration
+is safe. The copy shares its open file description: file cursor, status flags,
+and advisory locks are shared, so coordinate concurrent I/O. For an owned
+[`std.fs.lock.Lock`](fs/lock.md), use `owner.inherit_into(&mut command)` rather
+than opening the lockfile again.
+
+```plenty
+import std.process
+from std.process import Stdio
+from std.bytes import BytesError
+from std.io import StreamError
+
+def main() -> Result[(), AllocError | IoError | BytesError | StreamError]:
+    with open("inherited-message.txt", "w")? as file:
+        file.write("inherited data")?
+    mut built = std.process.command("/bin/cat")?
+    with open("inherited-message.txt", "r")? as file:
+        descriptor = built.inherit_file(&file)?
+        # /proc/self/fd is Linux-specific, like this inheritance API.
+        built.arg(&f"/proc/self/fd/{descriptor}"?)?
+    built.stdout(Stdio.Piped)
+    mut child = built.spawn()?
+    built.clear_inherited_files()
+    output = child.output(4096)?
+    print(output.stdout.to_text()?)?
+    Ok(())
+```
+```output
+inherited data
+```
+
+Each command holds at most 64 copies, including repeated selections of the same
+source; another selection returns `IoError.InvalidInput`. A closed source returns
+`IoError.Closed`. OS duplication failures retain their system code, and owner or
+list allocation failures preserve `IoError.Data(DataError.Allocation(...))`.
+Selection either succeeds completely or leaves the command unchanged.
+
+Inside the child, these are ordinary inheritable descriptors. Descendants can
+retain copies through further forks or execs unless the child closes them or
+sets close-on-exec itself. The child protocol must manage that lifetime.
+
+The copies remain in the parent, close-on-exec, until `clear_inherited_files()` or
+command drop; repeated spawn reuses them. A failed spawn preserves this
+configuration for reuse or clearing and leaks no additional copies. Clearing
+closes only the command's copies, does not affect already started children, and
+can be repeated. It reports no close errors, like ordinary file drop. A command
+copy can keep a lock alive even after its original owner and all children close.
+
+Only the child changes its selected copies' close-on-exec flags, immediately
+before exec, through a fixed native callback using async-signal-safe syscalls.
+The parent's flags never change, including when spawning fails, so concurrent
+spawns do not need to coordinate inheritance flag changes. There is no user pre-exec
+callback. Arbitrary destination descriptor remapping remains unsupported. Selection is
+independent of [standard-stream redirection](#command): redirecting a file does
+not expose its original descriptor number after exec. Only an explicitly
+selected copy survives above the standard streams, including when a redirected
+source and selected copy share an open file description. Group/session setup
+and `stderr_to_stdout()` compose with these rules.
 
 Close-on-exec still leaves a short window: a child forked by one thread holds
 a copy of every descriptor open at that moment until its exec closes them. If
@@ -301,8 +370,9 @@ A child that outlives the program is adopted by the system as usual.
 ## Limits
 
 - Linux x86-64 GNU only. Starting a child uses the host allocator briefly for
-  its argument vector and the fixed session-setup callback when selected;
-  these host allocations are outside fallible accounting.
+  its argument vector and fixed session/inheritance callbacks when selected
+  (at most 64 selected descriptors). These host allocations are outside fallible
+  accounting; configuring file copies remains fallible.
 - No redirection of a stream to another child; `shell` can build a pipeline.
   A file redirection takes a `File`, so open it before setting the stream.
 - Timed child waits poll; scheduling and lock contention can delay return

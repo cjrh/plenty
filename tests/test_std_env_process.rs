@@ -1136,6 +1136,105 @@ print(child.wait()?.success())?
 }
 
 #[test]
+fn inherited_files_are_selected_per_command_during_concurrent_spawns() {
+    let source = format!(
+        r#"{PRELUDE}
+import std.test
+
+def launch(built: Command) -> ():
+    for attempt in range(8):
+        mut child = built.spawn().unwrap()
+        output = child.output(4096).unwrap()
+        if not output.status.success():
+            print(output.stderr.to_text().unwrap()).unwrap()
+            std.test.check(False, "child descriptor selection failed").unwrap()
+
+def main() -> Result[(), AllocError | IoError]:
+    with open("a", "w")? as file:
+        file.write("a")?
+    with open("b", "w")? as file:
+        file.write("b")?
+    # Both original files and both command copies are open during every fork.
+    # Each exec must see exactly the requested copy, not an original or its peer.
+    with open("a", "r")? as a:
+        with open("b", "r")? as b:
+            mut first = std.process.command("/usr/bin/python3")?
+            mut second = std.process.command("/usr/bin/python3")?
+            script = "import os,sys\nwanted=int(sys.argv[1])\nassert os.read(wanted,1)==sys.argv[2].encode()\nidentities=[(os.stat(p).st_dev,os.stat(p).st_ino) for p in ['a','b']]\nseen=[]\nfor fd in range(3,256):\n try:\n  st=os.fstat(fd)\n except OSError:\n  continue\n if (st.st_dev,st.st_ino) in identities: seen.append(fd)\nassert seen==[wanted], seen\nos.lseek(wanted,0,0)"
+            first.arg("-c")?
+            first.arg(script)?
+            first_fd = first.inherit_file(&a)?
+            first.arg(&str.from(first_fd)?)?
+            first.arg("a")?
+            first.stdout(Stdio.Piped)
+            first.stderr(Stdio.Piped)
+            second.arg("-c")?
+            second.arg(script)?
+            second_fd = second.inherit_file(&b)?
+            second.arg(&str.from(second_fd)?)?
+            second.arg("b")?
+            second.stdout(Stdio.Piped)
+            second.stderr_to_stdout()
+            second.process_group(std.process.ProcessGroup.NewSession)
+            first.stderr_to_stdout()
+            first.process_group(std.process.ProcessGroup.NewGroup)
+            first.stdin(Stdio.File(open("/dev/null", "r")?))
+            second.stdin(Stdio.File(open("/dev/null", "r")?))
+            with spawn(launch, first).unwrap() as left:
+                with spawn(launch, second).unwrap() as right:
+                    left.join()
+                    right.join()
+    print("ok")?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        assert_eq!(run_with_optimization(&source, optimize), "ok");
+    }
+}
+
+#[test]
+fn inherited_files_outlive_source_close_and_validate_limits_and_spawn_failure() {
+    native(
+        r#"
+mut file = open("/dev/null", "r")?
+mut built = std.process.command("/usr/bin/python3")?
+built.arg("-c")?
+built.arg("import os,sys; assert os.read(int(sys.argv[1]),1)==b''")?
+for index in range(64):
+    drop(built.inherit_file(&file)?)
+limit_rejected = match built.inherit_file(&file):
+    case Err(IoError.InvalidInput):
+        True
+    case _:
+        False
+print(limit_rejected)?
+built.clear_inherited_files()
+fd = built.inherit_file(&file)?
+built.arg(&str.from(fd)?)?
+mut missing = std.process.command("/definitely/not/a/program")?
+drop(missing.inherit_file(&file)?)
+file.close()?
+closed_rejected = match built.inherit_file(&file):
+    case Err(IoError.Closed):
+        True
+    case _:
+        False
+print(closed_rejected)?
+print(bad(&missing.spawn()), bad(&missing.spawn()))?
+missing.clear_inherited_files()
+mut child = built.spawn()?
+built.clear_inherited_files()
+print(child.wait()?.success())?
+# Clearing is idempotent and the released configuration remains reusable.
+built.clear_inherited_files()
+print(bad(&std.process.command("/definitely/not/a/program")?.spawn()))?
+"#,
+        "True\nTrue\nTrue True\nTrue\nTrue",
+    );
+}
+
+#[test]
 fn process_groups_and_sessions_are_established_before_exec() {
     native(
         r#"
@@ -1490,7 +1589,10 @@ fn isolated_group_cleanup_closes_a_merged_pipe_held_by_descendants() {
 for mode in [std.process.ProcessGroup.NewGroup, std.process.ProcessGroup.NewSession]?:
     mut built = std.process.command("/usr/bin/python3")?
     built.arg("-c")?
-    built.arg("import os,signal; pid=os.fork(); signal.alarm(10); os.write(2,b'ready\\n') if pid==0 else None; signal.pause()")?
+    built.arg("import os,sys,signal; assert os.read(int(sys.argv[1]),1)==b''; pid=os.fork(); signal.alarm(10); os.write(2,b'ready\\n') if pid==0 else None; signal.pause()")?
+    with open("/dev/null", "r")? as file:
+        fd = built.inherit_file(&file)?
+        built.arg(&str.from(fd)?)?
     built.stdin(Stdio.Null)
     built.stdout(Stdio.Piped)
     built.stderr_to_stdout()
@@ -1520,6 +1622,8 @@ fn isolated_merged_pipe_pre_spawn_allocation_failure_preserves_configuration() {
 for mode in [std.process.ProcessGroup.NewGroup, std.process.ProcessGroup.NewSession]?:
     mut built = std.process.command("/bin/sleep")?
     built.arg("60")?
+    with open("/dev/null", "r")? as file:
+        drop(built.inherit_file(&file)?)
     built.stdout(Stdio.Piped)
     built.stderr_to_stdout()
     built.process_group(mode)
@@ -1543,5 +1647,75 @@ for mode in [std.process.ProcessGroup.NewGroup, std.process.ProcessGroup.NewSess
     print(retry.wait()?.signal())?
 "#,
         "True\nOption[i32].Some(9)\nTrue\nOption[i32].Some(9)",
+    );
+}
+
+#[test]
+fn inherited_files_remain_distinct_from_redirection_with_groups_and_merged_streams() {
+    native(
+        r#"
+with open("shared", "w")? as file:
+    file.write("data")?
+for mode in [std.process.ProcessGroup.NewGroup, std.process.ProcessGroup.NewSession]?:
+    mut built = std.process.command("/usr/bin/python3")?
+    built.arg("-c")?
+    built.arg("import os,sys; fd=int(sys.argv[1]); st=os.stat('shared'); seen=[]\nfor n in range(3,512):\n try: s=os.fstat(n)\n except OSError: continue\n seen.append(n)\nassert seen==[fd],seen\nassert os.getpgrp()==os.getpid()\nassert (os.getsid(0)==os.getpid())==(sys.argv[2]=='session')\nassert os.read(0,4)==b'data'\nassert os.read(fd,4)==b'data'\nos.lseek(fd,0,0)\nos.lseek(0,0,0)\nprint('out',flush=True);print('err',file=sys.stderr,flush=True)")?
+    with open("shared", "r")? as source:
+        fd = built.inherit_file(&source)?
+        built.arg(&str.from(fd)?)?
+    # A different owner for the same inode must still close across exec.
+    built.stdin(Stdio.File(open("shared", "r")?))
+    built.arg("session" if mode == std.process.ProcessGroup.NewSession else "group")?
+    built.process_group(mode)
+    built.stdout(Stdio.File(open("combined.log", "a")?))
+    built.stderr_to_stdout()
+    for attempt in range(2):
+        mut child = built.spawn()?
+        print(child.wait()?.success())?
+    # Replacing a redirection cannot corrupt the independently held allowlist.
+    built.stdout(Stdio.Piped)
+    for attempt in range(2):
+        mut child = built.spawn()?
+        result = child.output(4096)?
+        print(result.status.success(), result.stderr.len())?
+        print(result.stdout.to_text()?.strip()?)?
+with open("combined.log", "r")? as log:
+    print(log.read()?.strip()?)?
+"#,
+        "True\nTrue\nTrue 0\nout\nerr\nTrue 0\nout\nerr\nTrue\nTrue\nTrue 0\nout\nerr\nTrue 0\nout\nerr\nout\nerr\nout\nerr\nout\nerr\nout\nerr",
+    );
+}
+
+#[test]
+fn inherited_file_configuration_survives_redirected_spawn_failure_and_reuse() {
+    native(
+        r#"
+for mode in [std.process.ProcessGroup.NewGroup, std.process.ProcessGroup.NewSession]?:
+    mut file = open("/dev/null", "r")?
+    mut missing = std.process.command("/definitely/not/a/program")?
+    drop(missing.inherit_file(&file)?)
+    missing.stdout(Stdio.File(open("failure.log", "a")?))
+    missing.stderr_to_stdout()
+    missing.process_group(mode)
+    print(bad(&missing.spawn()), bad(&missing.spawn()))?
+    missing.clear_inherited_files()
+    mut built = std.process.command("/usr/bin/python3")?
+    built.arg("-c")?
+    built.arg("import os,sys; assert os.read(int(sys.argv[1]),1)==b''; print('ok',flush=True); print('merged',file=sys.stderr,flush=True)")?
+    fd = built.inherit_file(&file)?
+    built.arg(&str.from(fd)?)?
+    file.close()?
+    built.stdout(Stdio.File(open("/dev/null", "r")?))
+    built.stderr_to_stdout()
+    built.process_group(mode)
+    print(bad(&built.spawn()), bad(&built.spawn()))?
+    built.stdout(Stdio.Piped)
+    for attempt in range(2):
+        mut child = built.spawn()?
+        result = child.output(4096)?
+        print(result.status.success())?
+        print(result.stdout.to_text()?.strip()?)?
+"#,
+        "True True\nTrue True\nTrue\nok\nmerged\nTrue\nok\nmerged\nTrue True\nTrue True\nTrue\nok\nmerged\nTrue\nok\nmerged",
     );
 }

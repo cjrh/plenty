@@ -138,6 +138,14 @@ const _: () = {
     assert!(std::mem::offset_of!(Type, wrapper) == 64);
     assert!(size_of::<Variant>() == 32);
 };
+const _: () = {
+    use crate::list_layout::{BYTES, DESCRIPTOR, REMOVED, ROWS};
+    assert!(std::mem::offset_of!(Collection, ty) == DESCRIPTOR as usize);
+    // `Entries` checks its own field offsets; these add the owner header.
+    assert!(std::mem::offset_of!(Collection, entries) == ROWS as usize);
+    assert!(ROWS + 8 == BYTES && ROWS + 24 == REMOVED);
+};
+const _: () = assert!(std::mem::offset_of!(Boxed, slot) == 32);
 impl Type {
     /// A plain string, whose bytes are its `print` spelling. A class over
     /// `str` formats as the class instead.
@@ -267,13 +275,6 @@ struct Collection {
     /// The live row to resume after a heap child finishes destruction.
     drop_entry: Option<usize>,
 }
-const _: () = {
-    use crate::list_layout::{BYTES, DESCRIPTOR, REMOVED, ROWS};
-    assert!(std::mem::offset_of!(Collection, ty) == DESCRIPTOR as usize);
-    // `Entries` checks its own field offsets; these add the owner header.
-    assert!(std::mem::offset_of!(Collection, entries) == ROWS as usize);
-    assert!(ROWS + 8 == BYTES && ROWS + 24 == REMOVED);
-};
 
 #[derive(Clone, Copy)]
 pub(crate) enum Fields<'a> {
@@ -459,7 +460,6 @@ struct Boxed {
     padding: u64,
     slot: [u128; 0],
 }
-const _: () = assert!(std::mem::offset_of!(Boxed, slot) == 32);
 
 /// Move `value` into a new box. On failure the caller still owns `value`.
 unsafe fn try_box_new(ty: &Type, value: u128) -> Result<*mut Boxed, AllocError> {
@@ -2626,7 +2626,7 @@ operation_entries! {
 }
 // `std.process` and `std.signal`.
 operation_entries! {
-    193 194 195 196 197 198 199 228 229 500
+    193 194 195 196 197 198 199 228 229 500 501 502
 }
 // `std.unicode`.
 operation_entries! {
@@ -2775,7 +2775,7 @@ unsafe fn operation(op: i64, args: *const u128, descriptor: *const Type, site: *
             return;
         }
         if op == 197 {
-            let operands = read_operands::<4>(op, args);
+            let operands = read_operands::<5>(op, args);
             out.write(process::spawn_call(operands, descriptor));
             return;
         }
@@ -2888,7 +2888,7 @@ pub(crate) unsafe fn collection_at(
             512..=514 => watch::call(op, a, b, descriptor),
             184..=187 => crate::time::call(op, a),
             640 => crate::system::call() as u64 as u128,
-            193..=199 | 228..=229 | 500 => process::call(op, a, b, value, descriptor),
+            193..=199 | 228..=229 | 500..=502 => process::call(op, a, b, value, descriptor),
             224..=227 => crate::unicode::call(op, a, b, value),
             390 => crate::text_io::result(crate::files::wait_ready(
                 a as *const crate::files::File,

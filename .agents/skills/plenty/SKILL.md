@@ -199,6 +199,16 @@ See [errors](references/errors.md), [ownership](references/ownership.md), and
   explicitly and escape each original value once. The result is ordinary `str`,
   with no trust marker; keep raw values in `Json.Text` for `Engine.render`.
 
+- For child descriptor protocols, use `Command.inherit_file(&file)` or
+  `Lock.inherit_into(&mut command)` and pass the returned number through argv
+  or the environment. The command owns a close-on-exec copy; only its children
+  inherit it. Source close is safe; cursors and locks are shared. Clear command
+  copies after spawning with `clear_inherited_files()` when reuse is unnecessary,
+  or those copies can keep a lock alive. At most 64 selections per command;
+  arbitrary fd remapping is unsupported. `Stdio.File` redirects standard streams
+  independently; only selected copies survive as extra descriptors. Read
+  [explicit inheritance](../../../book/src/design/stdlib/process.md#explicit-file-inheritance).
+
 ## References
 
 | Page | Use |

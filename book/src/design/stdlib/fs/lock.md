@@ -68,6 +68,9 @@ or return from one; dropping it in that worker releases its ownership normally.
 
 - `close(self: &mut Lock) -> Result[(), LockError]` relinquishes this
   descriptor. Repeated close is harmless, including after a close error.
+- `inherit_into(self, command: &mut Command) -> Result[i32, LockError]` adds an
+  owned copy to a [process command](../process.md#explicit-file-inheritance)
+  and returns its child descriptor. The source stays owned here.
 - `is_closed(self) -> bool` reports whether this owner has been closed.
 - Drop closes the descriptor without allocating or reporting a close error,
   including on return, `?`, and scope exit. It never issues `LOCK_UN`.
@@ -79,11 +82,28 @@ until that copy is also closed, even if the original owner closes or dies.
 An explicit `LOCK_UN` would instead unlock all copies, which is why this API
 has no separate unlock operation.
 
-Descriptors are always created close-on-exec. Normal [`std.process`](../process.md)
-children do **not** retain them across exec. This API does not expose a raw
-file descriptor or a switch to inherit it; explicit child-fd selection is
-outside this API's implemented scope. Applications requiring a lock to outlive
-a runner through an exec'd child must keep their existing inheritance strategy.
+Descriptors are created close-on-exec. Normal [`std.process`](../process.md)
+children do **not** retain them across exec. To keep a lock alive in a child,
+call `owner.inherit_into(&mut command)`, pass the returned descriptor in the
+child's argv or environment according to its protocol, then spawn. It adds an
+owned copy to that command only, without changing the parent's descriptor flags.
+The child can close its descriptor to release its share of the lock.
+
+The command itself also keeps a copy for reuse. After a successful spawn,
+`command.clear_inherited_files()` relinquishes those copies; closing the
+original owner then leaves the child as the sole holder. Runner death releases
+all parent copies, but the child still holds the lock until it closes its copy
+or exits. Multiple children can share that description, and release waits for
+the last copy, including copies passed on to further descendants by the child.
+The child's descriptor protocol must close copies it no longer needs. A failed
+spawn leaves the command copies owned for retry or
+explicit clearing. This is an open-file-description lifetime, not a lease.
+
+Inheritance accepts at most 64 files per command. A closed lock returns
+`Io(IoError.Closed)`; too many selections return `Io(IoError.InvalidInput)`.
+Native duplication failures preserve their OS error, and allocation failures
+return `Allocation(AllocError)`. Failure leaves the lock and command unchanged.
+No raw descriptor close or unlock operation is exposed.
 
 This API is supported on 64-bit Linux; other targets return
 `Io(IoError.Unsupported)`. Network filesystems can emulate or restrict `flock`

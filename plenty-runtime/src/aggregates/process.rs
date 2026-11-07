@@ -2,7 +2,7 @@
 //! Spawning goes through Rust's `Command`, so there is no shell, the exec
 //! failure is reported to the parent, and every pipe end is close-on-exec.
 //! `Command` builds its argument vector with the host allocator; that short
-//! transient is the one allocation here outside Plenty's fallible accounting.
+//! transient and fixed pre-exec callbacks are outside Plenty's fallible accounting.
 use super::filesystem::{byte_list, contiguous};
 use super::{Collection, OwnedValue, Type, wrap};
 use crate::text_io::{self, Error, Kind};
@@ -70,6 +70,7 @@ mod native {
     unsafe extern "C" {
         fn kill(pid: i32, signal: i32) -> i32;
         fn setsid() -> i32;
+        fn fcntl(fd: i32, command: i32, ...) -> i32;
         fn poll(fds: *mut PollFd, count: u64, timeout: i32) -> i32;
     }
 
@@ -108,7 +109,7 @@ mod native {
     /// The file a `REDIRECTED` code names, duplicated for the child.
     ///
     /// # Safety
-    /// `files` is a live borrowed `list[File]`.
+    /// `files` and `inherited` are live borrowed `list[File]` values.
     unsafe fn redirected(files: u128, code: u64, write: bool) -> Result<std::fs::File, Error> {
         // SAFETY: per the contract, each entry key is a live file owner.
         unsafe {
@@ -120,7 +121,7 @@ mod native {
     }
 
     /// # Safety
-    /// `files` is a live borrowed `list[File]`.
+    /// `files` and `inherited` are live borrowed `list[File]` values.
     unsafe fn stdio(code: u64, files: u128, write: bool) -> Result<Stdio, Error> {
         Ok(match code & MODE {
             INHERIT => Stdio::inherit(),
@@ -137,12 +138,13 @@ mod native {
     /// redirected stream codes name.
     ///
     /// # Safety
-    /// `files` is a live borrowed `list[File]`.
+    /// `files` and `inherited` are live borrowed `list[File]` values.
     pub(super) unsafe fn spawn(
         spec: &[u8],
         argc: u128,
         flags: u64,
         files: u128,
+        inherited: &Collection,
     ) -> Result<u128, Error> {
         let spec = spec.strip_suffix(&[0]).ok_or(Kind::InvalidInput)?;
         let mut parts = spec.split(|byte| *byte == 0);
@@ -231,6 +233,35 @@ mod native {
                 }
             }
             _ => return Err(Kind::InvalidInput.into()),
+        }
+        // Owners stay borrowed through exec, so none of these slots can be
+        // reused by Command's internal error pipe. Parent flags never change.
+        let count = inherited.entries.len();
+        if count > 64 {
+            return Err(Kind::InvalidInput.into());
+        }
+        let mut descriptors = [0i32; 64];
+        for (slot, entry) in descriptors.iter_mut().zip(inherited.entries.iter()) {
+            // SAFETY: the compiler checks the borrowed list[File] operand.
+            *slot = unsafe { crate::files::descriptor(entry.key as *const crate::files::File)? };
+            if *slot < 3 {
+                return Err(Kind::InvalidInput.into());
+            }
+        }
+        if count != 0 {
+            // SAFETY: after fork this callback only uses async-signal-safe
+            // fcntl and errno access, with stack data and no allocation/locks.
+            // F_SETFD=2; clearing FD_CLOEXEC affects only the child's table.
+            unsafe {
+                command.pre_exec(move || {
+                    for &fd in &descriptors[..count] {
+                        if fcntl(fd, 2, 0) == -1 {
+                            return Err(std::io::Error::last_os_error());
+                        }
+                    }
+                    Ok(())
+                });
+            }
         }
         let mut table = children();
         // Reserved before the child exists, so a started child is always recorded.
@@ -500,23 +531,33 @@ mod native {
                 228 => signal(a, b, c != 0),
                 229 => ready(a, b as u64, c as i64),
                 500 => crate::signals::listen(output[0]),
+                501 => crate::files::duplicate(a as *const crate::files::File, output[0]),
+                502 => Ok(crate::files::descriptor(a as *const crate::files::File)? as u128),
                 _ => crate::fail("invalid process operation"),
             }
         }
     }
 }
 
-/// `__process_spawn`, the one process operation with a fourth operand.
+/// `__process_spawn`, the process operation with separate redirection and inheritance operands.
 #[inline(always)]
-pub(super) unsafe fn spawn_call(operands: [u128; 4], descriptor: *const Type) -> u128 {
+pub(super) unsafe fn spawn_call(operands: [u128; 5], descriptor: *const Type) -> u128 {
     #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
     {
-        let [spec, argc, flags, files] = operands;
+        let [spec, argc, flags, files, inherited] = operands;
         let _ = descriptor;
-        // SAFETY: the compiler signature supplies a live list[u8] and a live
-        // borrowed list[File] for the duration of the call.
+        // SAFETY: the compiler signature supplies a live list[u8] and two live
+        // borrowed list[File] operands for the duration of the call.
         text_io::result(unsafe {
-            contiguous(spec).and_then(|spec| native::spawn(&spec, argc, flags as u64, files))
+            contiguous(spec).and_then(|spec| {
+                native::spawn(
+                    &spec,
+                    argc,
+                    flags as u64,
+                    files,
+                    &*(inherited as *const Collection),
+                )
+            })
         })
     }
     #[cfg(not(all(target_os = "linux", target_pointer_width = "64")))]

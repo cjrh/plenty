@@ -68,6 +68,8 @@ pub const fn scratch_operand_count(op: i64) -> usize {
         LIST_SLICE | TEXT_SLICE | BYTES_SLICE | CLIST_SLICE => 2,
         // A text view's source, start, stop and the bound flags.
         TEXT_VIEW_SUBVIEW | TEXT_VIEW_OF_STR => 1,
+        // Child spawn: separate redirected files and explicit inherited files.
+        197 => 2,
         // File input, fill and copy_within.
         188 | 237 | 282
         // AEAD and HKDF.
@@ -76,8 +78,6 @@ pub const fn scratch_operand_count(op: i64) -> usize {
         | 345 | 346
         // Readiness and selectors.
         | 419 | 421 | 422
-        // Child spawn: its redirection files.
-        | 197
         // TLS buffer transfers and details; primitive column assignment.
         | 477 | 478 | 490..=492 | 527 => 1,
         _ => 0,
