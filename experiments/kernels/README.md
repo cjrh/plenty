@@ -23,12 +23,7 @@ gcc -O2 -fno-tree-loop-distribute-patterns -c experiments/kernels/kernels.c -o /
 objdump -d --no-show-raw-insn /tmp/kc.o | python3 experiments/kernels/loops.py
 
 target/release/plenty --dump asm experiments/kernels/kernels.plenty -o /tmp/k
-# Lowercase, unpad hex (0x0000001d -> 0x1d), and turn `==== name` into `==== x name`:
-python3 -c 'import re,sys
-for l in sys.stdin:
-    l=re.sub(r"0x0*([0-9A-Fa-f]+)",lambda m:"0x"+(m.group(1).lower() or "0"),l)
-    print(re.sub(r"^==== (\S+)",r"==== x \1",l) if l.startswith("====") else l.lower(),end="")' \
-  < /tmp/k/asm.txt | python3 experiments/kernels/loops.py
+python3 experiments/kernels/loops.py < /tmp/k/asm.txt
 
 cargo build --release --manifest-path experiments/kernels/harness/Cargo.toml \
   --target-dir target/kernel-harness
