@@ -9,7 +9,8 @@ normalization/injection/widening, including Result widening and borrowed matchin
 Builtin `Failure` stays as a last resort, for when no precise error can be
 written; issue #342 closed after removing the cases that forced erasure. The current
 [propagation reference](../../design/language/08-errors/01-sums-and-propagation.md)
-remains authoritative. Case guards, residual-set inference and empty sums are
+remains authoritative. Explicit residual member patterns (`case rest: B | C:`)
+shipped with issue #824. Case guards, implicit residual-set inference and empty sums are
 deferred extensions in B14/B71 of the [backlog](../../backlog.md), not missing
 requirements of this completed initial contract. Human-readable presentation is specified separately
 in [formatting and error reports](error-formatting.md). The

@@ -374,7 +374,7 @@ impl Lowerer<'_, '_> {
 
     pub(super) fn lower_enum(&mut self, op: &EnumOp) -> Result<()> {
         let (inputs, output) = op.signature().ok_or("invalid enum operation")?;
-        if let EnumOp::Widen(source, target) = op {
+        if let EnumOp::Widen(source, target) | EnumOp::Narrow(source, target) = op {
             let (value, _) = self.pop_typed((**source).clone())?;
             let packed = self.pack(value, source);
             let result = self.widen_sum(packed, source, target);
@@ -428,7 +428,9 @@ impl Lowerer<'_, '_> {
             | EnumOp::Tag(t)
             | EnumOp::Field(t, _, _)
             | EnumOp::Take(t, _, _) => t,
-            EnumOp::TagRef(..) | EnumOp::FieldRef(..) | EnumOp::Widen(..) => unreachable!(),
+            EnumOp::TagRef(..) | EnumOp::FieldRef(..) | EnumOp::Widen(..) | EnumOp::Narrow(..) => {
+                unreachable!()
+            }
         };
         // The source and tags of a single-field projection, for a
         // construction that puts the payload back; see [`TagFacts`].
@@ -528,7 +530,9 @@ impl Lowerer<'_, '_> {
                     self.pack(field_value, &output)
                 }
             }
-            EnumOp::TagRef(..) | EnumOp::FieldRef(..) | EnumOp::Widen(..) => unreachable!(),
+            EnumOp::TagRef(..) | EnumOp::FieldRef(..) | EnumOp::Widen(..) | EnumOp::Narrow(..) => {
+                unreachable!()
+            }
         };
         let unpacked = self.unpack(result, &output);
         if let EnumOp::Tag(_) = op
@@ -570,7 +574,10 @@ impl Lowerer<'_, '_> {
                 let old_tag = self.bcx.ins().band_imm_s(tags, mask as i64);
                 let mut tag = self.bcx.ins().iconst(types::I64, 0);
                 for (index, member) in crate::sum::members(source).iter().enumerate() {
-                    let destination = targets.iter().position(|t| t == member).unwrap();
+                    // A narrowing leaves out members that cannot be active.
+                    let Some(destination) = targets.iter().position(|t| t == member) else {
+                        continue;
+                    };
                     let selected = self
                         .bcx
                         .ins()
