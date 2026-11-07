@@ -1,0 +1,65 @@
+import std.test as test
+import memmap
+
+type Problem = test.TestError | AllocError | IoError | memmap.MapError | LoadError
+
+def test_read_and_bounds() -> Result[(), Problem]:
+    scratch = test.scratch()?
+    path = scratch.file("input")?
+    write_text(&path, "abcdef")?
+    library = memmap.load("target/libmemmap.so")?
+    mapping = library.open(&path, 6)?
+    test.equal(&mapping.length(), &6u64)?
+    mut output = [0u8, 0u8, 0u8, 0u8]?
+    test.equal(&mapping.read_into(2, &mut output)?, &4)?
+    test.equal(&output, &[99u8, 100u8, 101u8, 102u8]?)?
+    test.equal(&mapping.read_into(6, &mut output)?, &0)?
+    test.is_err(&mapping.read_into(7, &mut output))?
+    test.is_err(&library.open(&path, 5))?
+    Ok(())
+
+def test_empty_mapping() -> Result[(), Problem]:
+    scratch = test.scratch()?
+    path = scratch.file("empty")?
+    write_text(&path, "")?
+    library = memmap.load("target/libmemmap.so")?
+    mapping = library.open(&path, 0)?
+    mut output: list[u8] = []?
+    test.equal(&mapping.length(), &0u64)?
+    test.equal(&mapping.read_into(0, &mut output)?, &0)?
+    Ok(())
+
+def test_mapping_outlives_library() -> Result[(), Problem]:
+    scratch = test.scratch()?
+    path = scratch.file("input")?
+    write_text(&path, "xyz")?
+    library = memmap.load("target/libmemmap.so")?
+    mapping = library.open(&path, 3)?
+    drop(library)
+    mut output = [0u8]?
+    test.equal(&mapping.read_into(1, &mut output)?, &1)?
+    test.equal(&output[0], &121u8)?
+    Ok(())
+
+def test_external_truncation_is_error() -> Result[(), Problem]:
+    scratch = test.scratch()?
+    path = scratch.file("input")?
+    write_text(&path, "original")?
+    library = memmap.load("target/libmemmap.so")?
+    mapping = library.open(&path, 8)?
+    # A second opener truncates the backing inode; the mapping size stays fixed.
+    write_text(&path, "")?
+    mut output = [0u8]?
+    test.equal(&mapping.length(), &8u64)?
+    test.is_err(&mapping.read_into(0, &mut output))?
+    Ok(())
+
+def test_path_and_loader_errors() -> Result[(), Problem]:
+    test.is_err(&memmap.load("target/not-a-library.so"))?
+    # libc opens successfully but has no experiment discovery contract.
+    test.is_err(&memmap.load("libc.so.6"))?
+    library = memmap.load("target/libmemmap.so")?
+    test.is_err(&library.open("/no/such/memmap-file", 100))?
+    test.is_err(&library.open("/dev/null", 100))?
+    test.is_err(&library.open("bad\0path", 100))?
+    Ok(())
