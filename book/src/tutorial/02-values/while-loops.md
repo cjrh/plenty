@@ -23,7 +23,7 @@ go
 `continue` skips the rest of the current iteration. `break` exits the loop:
 
 ```plenty
-def main() -> Result[(), IoError | OverflowError[i64] | ZeroDivisionError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     mut n = 0
     while True:
         n = n + 1

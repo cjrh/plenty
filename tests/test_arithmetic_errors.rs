@@ -3,7 +3,7 @@
 //! trapping (issue #557). Float `div_checked` rejects both zeros. Arithmetic
 //! follows the function contract unless explicitly unchecked. None of it allocates.
 mod support;
-use support::{check_diagnostic, run_stdout};
+use support::{check_diagnostic, check_source, run_stdout};
 
 /// (type, bits, signed)
 const TYPES: [(&str, u32, bool); 8] = [
@@ -185,9 +185,10 @@ fn unsigned_division_can_only_fail_on_a_zero_divisor() {
     let output = run_stdout(
         "def main() -> Result[(), IoError]:
     a: u8 = 255
+    two: u8 = 2
     zero: u8 = 0
     quotient: Result[u8, ZeroDivisionError] = checked:
-        a // 2u8
+        a // two
     remainder = checked:
         a % zero
     print(quotient.is_ok(), remainder.is_err())?
@@ -198,19 +199,106 @@ fn unsigned_division_can_only_fail_on_a_zero_divisor() {
 }
 
 #[test]
-fn a_constant_divisor_still_types_the_failure_it_cannot_produce() {
-    // The block's type follows its operators, not its operand values; the
-    // code generator omits the branches a constant divisor rules out.
-    let output = run_stdout(&format!(
-        "{SHOW}def main() -> Result[(), IoError]:
-    n = i64.MIN
-    quarter = checked:
-        n // 4
-    show(quarter)?
+fn a_literal_divisor_adds_only_the_failures_it_can_cause() {
+    // Issue #796: a nonzero literal cannot divide by zero and a literal other
+    // than -1 cannot overflow, so these functions need no error contract.
+    let output = run_stdout(
+        "def half(x: i64) -> i64:
+    x // 2
+
+def below(x: i64) -> i64:
+    x // -2
+
+def remainder(x: i8) -> (i8, i8, i8):
+    (x % -3i8, x % (4i8), x % -1i8)
+
+def parity(x: u8) -> u8:
+    x % 2
+
+def halve[T: IntType](x: T) -> T:
+    x // 2
+
+def shrink(x: i64) -> i64:
+    mut y = x
+    y //= 4
+    y %= -5
+    y
+
+def main() -> Result[(), IoError]:
+    print(half(-7), half(i64.MIN), below(i64.MIN), below(7))?
+    print(remainder(i8.MIN), remainder(-7i8), parity(255u8))?
+    print(halve(-9i8), halve(9u64), shrink(-100), shrink(i64.MIN))?
     Ok(())
-"
-    ));
-    assert_eq!(output, "-2305843009213693952\n");
+",
+    );
+    // Floor semantics, as in Python.
+    assert_eq!(
+        output,
+        "-4 -4611686018427387904 4611686018427387904 -4\n\
+         (-2, 0, 0) (-1, 1, 0) 1\n\
+         -5 4 0 -2\n"
+    );
+}
+
+#[test]
+fn other_divisors_keep_their_failures() {
+    for (body, error) in [
+        ("x // -1", "OverflowError[i64]"),
+        ("x // 0", "ZeroDivisionError"),
+        ("x % 0", "ZeroDivisionError"),
+        ("d = 2\n    x // d", "ZeroDivisionError"),
+        ("x // STEP", "ZeroDivisionError"),
+        // A negated expression is computed, so it is not a literal.
+        ("x // -(-2)", "OverflowError[i64]"),
+        ("-x", "OverflowError[i64]"),
+    ] {
+        let message = check_diagnostic(&format!(
+            "const STEP: i64 = 2\ndef f(x: i64) -> i64:\n    {body}\ndef main() -> ():\n    pass\n"
+        ));
+        assert!(
+            message.contains(&format!("arithmetic can fail with {error}")),
+            "{body}: {message}"
+        );
+    }
+    // `-1` keeps only the overflow, and `% -1` cannot fail.
+    check_source("def f(x: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(x // -1 + x % -1)\n")
+        .unwrap();
+    let message = check_diagnostic("def f(x: i64) -> i64:\n    checked:\n        x // 2\n");
+    assert!(
+        message.contains("this `checked:` block contains no arithmetic that can fail"),
+        "{message}"
+    );
+}
+
+#[test]
+fn a_block_with_a_literal_divisor_reports_only_its_other_failures() {
+    // The matches are exhaustive only if neither block includes
+    // ZeroDivisionError; the second keeps the MIN // -1 overflow.
+    let output = run_stdout(
+        "def mean(a: i64, b: i64) -> i64:
+    result = checked:
+        (a + b) // 2
+    match result:
+        case Ok(value):
+            value
+        case Err(OverflowError(wrapped)):
+            wrapped // 2
+
+def negate(a: i64) -> i64:
+    result = checked:
+        a // -1
+    match result:
+        case Ok(value):
+            value
+        case Err(OverflowError(wrapped)):
+            wrapped
+
+def main() -> Result[(), IoError]:
+    print(mean(3, 4), mean(i64.MAX, 1), negate(5), negate(i64.MIN))?
+    Ok(())
+",
+    );
+    assert_eq!(output, "3 -4611686018427387904 -5 -9223372036854775808\n");
 }
 
 #[test]

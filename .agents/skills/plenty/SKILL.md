@@ -80,7 +80,9 @@ innermost-first path; unwrap intentionally or propagate that complete type.
   `Option[T]` (`Some(x)` / `Nothing`), and `def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x + 1)`.
 - Integer arithmetic returns errors from the enclosing function by default:
   declare `OverflowError[T]` for `+`, `-`, `*`, unary `-`, and integer `pow`;
-  plain `//` and `%` also require `ZeroDivisionError` (signed `//` can overflow).
+  `//` and `%` by a variable also require `ZeroDivisionError` (signed `//` can
+  overflow). A nonzero literal divisor adds neither, except that `x // -1` can
+  overflow: `x // 2` cannot fail.
   Write explicit `Ok(...)` on success. Use `checked:` for local recovery or a
   small, justified `unchecked trap:` suite for deliberate termination. Plain
   `unchecked:` asserts arithmetic preconditions: violations trap by default but

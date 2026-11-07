@@ -112,6 +112,7 @@ impl Inputs {
             appendix: None,
             inputs: vec![],
             script: false,
+            namespaces: Default::default(),
         };
         self.files.iter().all(|file| {
             (!file.included

@@ -746,7 +746,9 @@ match std.io.open_file("missing/none.bin", "r"):
         print("opened")?
     case Err(cause):
         print(str.repr(cause)?)?
-match std.io.open_file("mode.bin", "sideways"):
+# A local's value reaches the runtime check, not the compiler's.
+sideways = "sideways"
+match std.io.open_file("mode.bin", sideways):
     case Ok(_):
         print("opened")?
     case Err(cause):
@@ -758,6 +760,113 @@ match std.io.open_file("mode.bin", "sideways"):
 std.io.StreamError.Io(IoError.System(2))
 std.io.StreamError.Io(IoError.InvalidMode)
 "#,
+    );
+}
+
+const OPEN_MODES: [&str; 8] = ["r", "w", "a", "x", "r+", "w+", "a+", "x+"];
+
+/// The checker's verdict on one program, as builtin `open` and the std
+/// wrappers must agree on every statically known mode (issue #807).
+fn mode_verdict(program: &str) -> Result<(), String> {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.plenty");
+    std::fs::write(&path, program).unwrap();
+    plenty::check_file(&path, None).map_err(|error| error.to_string())
+}
+
+fn mode_programs(mode: &str) -> Vec<String> {
+    let calls = [
+        format!("open(\"m.bin\", \"{mode}\")"),
+        format!("open(\"m.bin\", (\"{mode}\"))"),
+        "open(\"m.bin\", MODE)".to_string(),
+        format!("io.open_file(\"m.bin\", \"{mode}\")"),
+        format!("io.open_file(\"m.bin\", (\"{mode}\"))"),
+        format!("io.open_file(\"m.bin\", mode=\"{mode}\")"),
+        "io.open_file(\"m.bin\", MODE)".to_string(),
+        format!("open(\"m.bin\", \"{mode}\" if FLAG else \"r\")"),
+        format!("io.open_file(\"m.bin\", \"r\" if not FLAG else \"{mode}\")"),
+        format!("io.open_path(&paths.from_text(\"m.bin\")?, \"{mode}\")"),
+        "io.open_path(&paths.from_text(\"m.bin\")?, MODE)".to_string(),
+    ];
+    calls
+        .iter()
+        .map(|call| {
+            format!(
+                "import std.io as io\nimport std.path as paths\n\nconst MODE: str = \"{mode}\"\nconst FLAG: bool = True\n\n\
+                 def main() -> Result[(), AllocError | IoError]:\n    drop({call})\n    Ok(())\n"
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn wrappers_and_builtin_open_accept_the_same_literal_modes() {
+    for mode in OPEN_MODES {
+        for program in mode_programs(mode) {
+            if let Err(error) = mode_verdict(&program) {
+                panic!("{program}\n{error}");
+            }
+        }
+    }
+}
+
+#[test]
+fn wrappers_and_builtin_open_reject_the_same_literal_modes() {
+    for mode in [
+        "bad", "", "R", "r ", "rb", "wb", "r+b", "br", "rt", "w+t", "b", "tb",
+    ] {
+        for program in mode_programs(mode) {
+            let error = mode_verdict(&program).expect_err(&program);
+            assert!(
+                error.contains(&format!(
+                    "unknown open mode `{mode}`; use one of r, w, a, x, r+, w+, a+, x+"
+                )),
+                "{program}\n{error}"
+            );
+            assert_eq!(
+                error.contains("modes take no `b` or `t` letter"),
+                matches!(mode, "rb" | "wb" | "r+b" | "br" | "rt" | "w+t"),
+                "{program}\n{error}"
+            );
+        }
+    }
+}
+
+#[test]
+fn computed_invalid_modes_fail_before_touching_the_filesystem() {
+    let out = run(
+        r#"import std.io as io
+import std.path as paths
+
+def builtin(mode: &str) -> Result[(), IoError]:
+    drop(open("created.bin", mode)?)
+    Ok(())
+
+def wrapper(mode: &str) -> Result[(), io.StreamError]:
+    drop(io.open_file("created.bin", mode)?)
+    Ok(())
+
+def native(mode: &str) -> Result[(), io.StreamError]:
+    drop(io.open_path(&paths.from_text("created.bin").unwrap(), mode)?)
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError]:
+    for mode in ["wb", "x+b", "", "sideways"]?:
+        print(str.repr(builtin(&mode))?, str.repr(wrapper(&mode))?, str.repr(native(&mode))?)?
+    print(str.repr(open("created.bin"))?)?
+    Ok(())
+"#,
+        b"",
+    );
+    let refused = "Result[(), IoError].Err(IoError.InvalidMode) \
+                   Result[(), std.io.StreamError].Err(std.io.StreamError.Io(IoError.InvalidMode)) \
+                   Result[(), std.io.StreamError].Err(std.io.StreamError.Io(IoError.InvalidMode))\n";
+    assert_eq!(
+        out.stdout,
+        format!(
+            "{}Result[File, IoError].Err(IoError.System(2))",
+            refused.repeat(4)
+        )
     );
 }
 

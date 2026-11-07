@@ -476,10 +476,8 @@ def main() -> Result[(), IoError | AllocError | OverflowError[i64] | ZeroDivisio
                 "def squares1(limit: i64) -> Result[list[i64], AllocError | OverflowError[i64] | ZeroDivisionError]:",
                 "OverflowError[i64]",
             ),
-            (
-                "def squares1(limit: i64) -> Result[list[i64], AllocError | OverflowError[i64] | ZeroDivisionError]:",
-                "ZeroDivisionError",
-            ),
+            // `n % 2` cannot divide by zero (issue #796); the workload keeps its
+            // ZeroDivisionError declaration so its source and timings stay comparable.
         ] {
             // A caller's wider contract must not supply a callee's missing error.
             let narrowed = wider_callers.replace(signature, &signature.replace(error, "IoError"));

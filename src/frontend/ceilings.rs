@@ -1,13 +1,32 @@
-//! Fixed std ceilings are declaration metadata, not a new integer type. Check
-//! statically known inputs before call wrappers replace them with local names;
-//! std bodies keep their traps for dynamic inputs and erased callable values.
+//! Fixed std ceilings and open modes are declaration metadata, not new types.
+//! Check statically known inputs before call wrappers replace them with local
+//! names; std bodies keep their runtime guards for dynamic inputs and erased
+//! callable values.
 use super::*;
 
 impl Parser {
-    /// The std-only marker follows a parameter or field's existing domain type.
+    /// The std-only marker follows a parameter or field's existing type.
     /// Keeping it outside type arguments avoids introducing value generics.
     pub(super) fn limited_type(&mut self) -> Result<TypeRef> {
         let mut ty = self.ty()?;
+        if self.peek().is("__open_mode") {
+            let at = self.take();
+            if !self.standard {
+                return Err(at.error(
+                    "`__open_mode` is reserved for standard-library parameter and field declarations",
+                ));
+            }
+            let text = |ty: &TypeRef| ty.name.as_deref() == Some("str") && ty.args.is_empty();
+            let borrowed = ty.name.as_deref() == Some("&") && ty.args.len() == 1;
+            if !(text(&ty) || borrowed && text(&ty.args[0])) {
+                return Err(at.error("`__open_mode` requires str or &str"));
+            }
+            ty.metadata = Some(Box::new(TypeMetadata {
+                check: Some(StaticCheck::OpenMode),
+                ..Default::default()
+            }));
+            return Ok(ty);
+        }
         if !self.peek().is("__max") {
             return Ok(ty);
         }
@@ -39,8 +58,7 @@ impl Parser {
         }
         self.expect(")")?;
         ty.metadata = Some(Box::new(TypeMetadata {
-            parameter: false,
-            ceiling: Some(ceiling),
+            check: Some(StaticCheck::Ceiling(ceiling)),
             ..Default::default()
         }));
         Ok(ty)
@@ -63,6 +81,21 @@ impl Lower<'_> {
         Ok(())
     }
 
+    pub(super) fn check_static(
+        &self,
+        value: &Expr,
+        operation: &str,
+        parameter: &str,
+        check: StaticCheck,
+    ) -> Result<()> {
+        match check {
+            StaticCheck::Ceiling(ceiling) => {
+                self.check_ceiling(value, operation, parameter, ceiling)
+            }
+            StaticCheck::OpenMode => self.check_open_mode(value),
+        }
+    }
+
     pub(super) fn check_call_ceilings(&self, name: &str, args: &[Expr]) -> Result<()> {
         let Some(inputs) = self.generics.ceilings.get(name) else {
             return Ok(());
@@ -74,8 +107,8 @@ impl Lower<'_> {
                 }
                 _ => (inputs.get(index), arg),
             };
-            if let Some((parameter, Some(ceiling))) = input {
-                self.check_ceiling(value, name, parameter, *ceiling)?;
+            if let Some((parameter, Some(check))) = input {
+                self.check_static(value, name, parameter, *check)?;
             }
         }
         Ok(())
@@ -98,9 +131,9 @@ impl Lower<'_> {
             return Ok(());
         };
         if let Some((_, ty)) = declaration.fields.iter().find(|(name, _)| name == field)
-            && let Some(ceiling) = ty.ceiling()
+            && let Some(check) = ty.static_check()
         {
-            self.check_ceiling(value, &declaration.name, field, ceiling)?;
+            self.check_static(value, &declaration.name, field, check)?;
         }
         Ok(())
     }
@@ -123,8 +156,7 @@ mod tests {
             .unwrap();
         // Inject the metadata an embedded std declaration's parser supplies.
         f.inputs[0].1.metadata = Some(Box::new(TypeMetadata {
-            parameter: false,
-            ceiling: Some(64),
+            check: Some(StaticCheck::Ceiling(64)),
             ..Default::default()
         }));
         let error = match lower(

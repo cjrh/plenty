@@ -393,8 +393,9 @@ impl Lower<'_> {
                 return Ok(Some(crate::sum::result(Ty::Str, crate::sum::alloc_error())));
             }
             self.mark_arithmetic(op, &a, &e.at, ops);
+            let proof = divisors::literal_divisor(op, right);
             if a.is_int()
-                && let Some(operation) = crate::numeric::Checked::named(op)
+                && let Some(operation) = crate::numeric::Checked::named(op, proof)
                 && self.checked_arith(operation, &a, &e.at, ops)?
             {
                 Self::end_reads(loans, ops);
@@ -405,8 +406,8 @@ impl Lower<'_> {
                 "-" => Op::Sub,
                 "*" => Op::Mul,
                 "/" => Op::Div,
-                "//" => Op::FloorDiv(crate::numeric::Divisor::Any),
-                "%" => Op::Modulo(crate::numeric::Divisor::Any),
+                "//" => Op::FloorDiv(proof),
+                "%" => Op::Modulo(proof),
                 "==" => Op::Eq,
                 "!=" => Op::Ne,
                 "<" => Op::Lt,

@@ -49,13 +49,24 @@ pub(super) struct TypeMetadata {
     pub(super) value_parameter: bool,
     /// Substitutes a source type parameter, rather than a written concrete type.
     pub(super) parameter: bool,
-    /// Std-only fixed upper bound; resolved types and layout are unchanged.
-    pub(super) ceiling: Option<i64>,
+    /// Std-only check of a statically known argument; resolved types and
+    /// layout are unchanged.
+    pub(super) check: Option<StaticCheck>,
+}
+
+/// A std-only declaration marker, checked where a direct call, default or
+/// field update supplies a literal or module constant (see `ceilings.rs`).
+#[derive(Clone, Copy)]
+pub(super) enum StaticCheck {
+    /// `__max(N)`: a fixed upper bound on an integer domain value.
+    Ceiling(i64),
+    /// `__open_mode`: a mode string that the runtime's `open` accepts.
+    OpenMode,
 }
 
 impl TypeRef {
-    pub(super) fn ceiling(&self) -> Option<i64> {
-        self.metadata.as_ref().and_then(|m| m.ceiling)
+    pub(super) fn static_check(&self) -> Option<StaticCheck> {
+        self.metadata.as_ref().and_then(|m| m.check)
     }
 }
 
