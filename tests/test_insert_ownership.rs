@@ -514,6 +514,156 @@ fn set_updates_read_field_local_and_temporary_shapes_in_place() {
     );
 }
 
+// The receiver may be a list element, including a nested one: its reference
+// computes a row address and can only trap, so the borrowed argument stays
+// uncounted, in a single access, through a negative index and in a loop over
+// the rows (issue #831). The argument may itself be another row, whose copy
+// its row holds across the receiver's reference.
+const SET_UPDATE_ELEMENTS: &str = r#"class Key:
+    label: str
+    def __del__(self) -> ():
+        print("drop", self.label).unwrap()
+
+def key(label: str) -> Result[Key, AllocError]:
+    Ok(Key((label + "-counted-label")?))
+
+def through_element(grid: &mut list[set[str]], other: &set[str]) -> ():
+    grid[0].difference_update(other)
+
+def keys_through_element(grid: &mut list[set[Key]], other: &set[Key]) -> ():
+    grid[1].intersection_update(other)
+
+def every_row(grid: &mut list[set[str]], other: &set[str]) -> ():
+    for i in range(len(grid)):
+        grid[i].difference_update(other)
+
+def at(grid: &mut list[set[str]], other: &set[str], i: i64) -> ():
+    grid[i].difference_update(other)
+
+def rows(grid: &mut list[set[str]]) -> ():
+    grid[0].difference_update(&grid[1])
+
+def nested(grid: &mut list[list[set[str]]], other: &set[str], i: i64, j: i64) -> ():
+    grid[i][j].difference_update(other)
+
+def text_rows() -> Result[(), AllocError | IoError]:
+    mut grid = [{"a", "b"}?, {"b", "c"}?]?
+    dropped = {"b"}?
+    through_element(&mut grid, &dropped)
+    print(grid, dropped)?
+    every_row(&mut grid, &{"c"}?)
+    print(grid)?
+    at(&mut grid, &dropped, -1)
+    print(grid)?
+    Ok(())
+
+def key_rows() -> Result[(), AllocError | IoError]:
+    keep = {key("a")?}?
+    mut keyed = [set[Key]()?, {key("a")?, key("b")?}?]?
+    keys_through_element(&mut keyed, &keep)
+    print("keyed", len(keyed[1]), len(keep))?
+    Ok(())
+
+def other_shapes() -> Result[(), AllocError | IoError]:
+    mut pair = [{"a", "b"}?, {"b", "c"}?]?
+    rows(&mut pair)
+    print(pair)?
+    mut nest = [[{"x"}?]?, [{"x", "y"}?, {"y"}?]?]?
+    nested(&mut nest, &{"y"}?, 1, 0)
+    print(nest)?
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError]:
+    text_rows()?
+    key_rows()?
+    other_shapes()?
+    print("__test_small_live_heap__")?
+    Ok(())
+"#;
+
+// The same update through an element past the end traps before the update:
+// the earlier update's result is printed, and nothing after the trap runs.
+const SET_UPDATE_ELEMENT_TRAP: &str = r#"def at(grid: &mut list[set[str]], other: &set[str], i: i64) -> ():
+    grid[i].difference_update(other)
+
+def rows(grid: &mut list[set[str]]) -> ():
+    grid[0].difference_update(&grid[1])
+
+def nested(grid: &mut list[list[set[str]]], other: &set[str], i: i64, j: i64) -> ():
+    grid[i][j].difference_update(other)
+
+def main() -> Result[(), AllocError | IoError]:
+    mut grid = [{"a", "b"}?, {"b", "c"}?]?
+    dropped = {"b"}?
+    at(&mut grid, &dropped, 0)
+    print(grid)?
+    at(&mut grid, &dropped, 2)
+    print("unreachable", grid)?
+    Ok(())
+"#;
+
+#[test]
+fn set_updates_through_list_elements_read_the_argument_in_place() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("p.plenty"), SET_UPDATE_ELEMENTS).unwrap();
+    let args = ["--release", "--dump", "asm", "p.plenty", "-o", "out"];
+    let output = plenty(dir.path(), &args);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let asm = std::fs::read_to_string(dir.path().join("out").join("asm.txt")).unwrap();
+    for (name, op) in [
+        ("through_element", "plenty_op_70"),
+        ("keys_through_element", "plenty_op_69"),
+        ("every_row", "plenty_op_70"),
+        ("at", "plenty_op_70"),
+        ("rows", "plenty_op_70"),
+        ("nested", "plenty_op_70"),
+    ] {
+        let body = support::asm_body(&asm, name);
+        assert!(body.contains(op), "{name}:\n{body}");
+        assert!(!body.contains("plenty_retain"), "{name}:\n{body}");
+        assert!(!body.contains("plenty_release"), "{name}:\n{body}");
+    }
+    let output = plenty(dir.path(), &["--release", "p.plenty"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let visible: Vec<_> = stdout
+        .lines()
+        .filter(|line| !line.starts_with("__test_"))
+        .collect();
+    assert_eq!(
+        visible,
+        [
+            r#"[{"a"}, {"b", "c"}] {"b"}"#,
+            r#"[{"a"}, {"b"}]"#,
+            r#"[{"a"}, set()]"#,
+            "drop b-counted-label",
+            "keyed 1 1",
+            "drop a-counted-label",
+            "drop a-counted-label",
+            r#"[{"a"}, {"b", "c"}]"#,
+            r#"[[{"x"}], [{"x"}, {"y"}]]"#,
+        ]
+    );
+    std::fs::write(dir.path().join("trap.plenty"), SET_UPDATE_ELEMENT_TRAP).unwrap();
+    let output = plenty(dir.path(), &["--release", "trap.plenty"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stdout}\n{stderr}");
+    assert_eq!(stdout, "[{\"a\"}, {\"b\", \"c\"}]\n", "{stderr}");
+    assert!(
+        stderr.contains("trap.plenty:2:5: index out of bounds: index 2, length 2"),
+        "{stderr}"
+    );
+}
+
 // Single-`for` comprehensions lower as `collect()` pipelines; nested ones and
 // displays build through the general comprehension lowering. Each moves its
 // counted element into the insert and reads the result in place (issue #826).
