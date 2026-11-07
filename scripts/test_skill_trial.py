@@ -42,6 +42,35 @@ class TranscriptTests(unittest.TestCase):
         )
         self.assertEqual(len(skill_trial.failed_commands(calls)), 1)
 
+    def test_all_source_extensions_keep_invocations_failures_and_diagnostics(self):
+        calls = []
+        for extension in ("plenty", "p", "plentyi", "pi"):
+            calls.append({
+                "tool": "Bash", "input": {"command": f"plenty main.{extension}"},
+                "failed": True, "output": f"error: /tmp/main.{extension}:2:8: unknown type `int`",
+            })
+        calls.append({"tool": "Bash", "input": {"command": "plenty notes.pdf; plenty notes.plentymore"},
+                      "failed": False, "output": ""})
+        self.assertEqual(len(skill_trial.compiler_calls(calls)), 4)
+        self.assertEqual(len(skill_trial.failed_commands(calls)), 4)
+        quoted = [{"tool": "Bash", "input": {"command": f"plenty '{name}'"}}
+                  for name in ("main.plenty", "main.p", "main.plentyi", "main.pi")]
+        self.assertEqual(len(skill_trial.compiler_calls(quoted)), 4)
+        self.assertEqual([found["error"] for found in skill_trial.diagnostics(calls)],
+                         [f"main.{ext}:2:8: unknown type `int`" for ext in ("plenty", "p", "plentyi", "pi")])
+
+    def test_artifacts_preserve_every_source_spelling(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            work, destination = root / "work", root / "saved"
+            work.mkdir()
+            for extension in ("plenty", "p", "plentyi", "pi"):
+                (work / f"helper.{extension}").write_text(f"# {extension} source")
+            (work / "helper.pdf").write_text("unrelated")
+            skill_trial.copy_sources(work, destination)
+            self.assertEqual(sorted(p.name for p in destination.iterdir()),
+                             ["helper.p", "helper.pi", "helper.plenty", "helper.plentyi"])
+
 
 class IsolationTests(unittest.TestCase):
     def test_checkout_and_instruction_directories_are_rejected(self):

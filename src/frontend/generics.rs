@@ -267,7 +267,7 @@ pub(super) struct Engine {
     pub(super) templates: HashMap<String, Arc<Function>>,
     /// Retained after lowering without keeping complete function bodies alive.
     pub(super) defaults: HashMap<String, Vec<Option<Expr>>>,
-    pub(super) ceilings: HashMap<String, Vec<(String, Option<i64>)>>,
+    pub(super) ceilings: HashMap<String, Vec<(String, Option<StaticCheck>)>>,
     pub(super) constants: HashMap<String, Arc<Function>>,
     pub(super) call_wrappers: HashMap<(String, Vec<usize>), String>,
     /// Conditional Context methods retain their declarations without lowering
@@ -553,12 +553,12 @@ impl Engine {
         if f.name.starts_with("$const.") {
             self.constants.insert(f.name.clone(), Arc::new(f.clone()));
         }
-        if f.inputs.iter().any(|(_, ty)| ty.ceiling().is_some()) {
+        if f.inputs.iter().any(|(_, ty)| ty.static_check().is_some()) {
             self.ceilings.insert(
                 f.name.clone(),
                 f.inputs
                     .iter()
-                    .map(|(n, t)| (n.clone(), t.ceiling()))
+                    .map(|(n, t)| (n.clone(), t.static_check()))
                     .collect(),
             );
         }
@@ -1714,12 +1714,14 @@ impl Engine {
         key.1.shrink_to_fit();
         let actual = &key.1;
         let count = id.map_or(0, |id| self.instantiated[id as usize].1);
-        let replacements: Substitution = template
+        let mut replacements: Substitution = template
             .type_params
             .iter()
             .map(|(n, _)| n.clone())
             .zip(actual.iter().map(|ty| ty.reference(at)))
             .collect();
+        let generated = serial::expand(name, actual, template, &mut replacements, at)?;
+        let template = generated.as_ref().unwrap_or(template);
         let mut demanded = Vec::new();
         for ((_, bound), argument) in template.type_params.iter().zip(actual) {
             let Some(ty) = argument.as_type() else {

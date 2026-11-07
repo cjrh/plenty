@@ -416,6 +416,11 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
         let mut constructor_error = None;
         for f in &mut methods {
             operators::validate(f, aliases)?;
+            serial::validate_hook(f, &class.name, aliases)?;
+            if serial::decode_hook(f) {
+                f.name = method(&class.name, &f.name);
+                continue;
+            }
             let special = matches!(f.name.as_str(), "__init__" | "__del__");
             let Some((receiver, receiver_type)) = f.inputs.first() else {
                 return Err(f.at.error("methods require a self receiver"));
@@ -946,6 +951,7 @@ impl Lower<'_> {
     }
     pub(super) fn field(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<(Ty, Vec<usize>)> {
         if let Some((base, index, owner, field)) = self.clist_projection(e)? {
+            let view = self.indexed_clist_view(base, &owner, field)?;
             let mut indices = Vec::new();
             self.access_indices(base, &mut indices, ops, false)?;
             let actual = self.expr_expected(index, Some(Ty::I64), ops)?;
@@ -955,10 +961,9 @@ impl Lower<'_> {
             let (_, loan) =
                 self.borrow_with_indices(base, false, &mut Some(indices.iter()), ops)?;
             ops.push(Op::MoveLocal(slot));
-            let operation = crate::clist::ClistOp::Get(owner, field);
-            let ty = operation.signature().1;
+            let ty = crate::clist::field(&owner, field);
             self.mark(&e.at, ops);
-            ops.push(Op::Collection(CollectionOp::Clist(operation)));
+            super::clists::field_access(crate::clist::ClistOp::Get(owner, field), view, ops);
             return Ok((ty, vec![loan]));
         }
         let Expression::Member(base, name, _) = &e.kind else {
@@ -1278,6 +1283,11 @@ impl Lower<'_> {
     ) -> Result<Type> {
         if matches!(name, "__init__" | "__del__" | "__new__") {
             return Err(base.at.error("lifecycle methods cannot be called directly"));
+        }
+        if matches!(name, "__encode__" | "__decode__") {
+            return Err(base.at.error(
+                "serialization hooks are called through std.serial.encode and std.serial.decode",
+            ));
         }
         let callee = method(owner, name);
         super::ide::method_call(&base.at, name, &callee);

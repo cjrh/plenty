@@ -104,6 +104,14 @@ unchanged. Indexed field reads and writes use checked native-width loads and
 stores. `copy_row` checks its index once, then gathers the known fields directly
 into fresh ordinary row storage without runtime schema dispatch. Each access
 observes the current owner, so growth and mutation between accesses are safe.
+
+An innermost `for` or `while` loop over `rows[i].field` reads the row count
+and each accessed field's column address once, before the loop, and one bounds
+check covers every field of the same row in an iteration (issue #759). The loop
+keeps those values only when nothing in it can resize or replace the clist:
+the same rule as [list loops](../../toolchain/02-architecture/collections.md),
+so an `append`, `reserve`, `remove`, `clear`, or call that receives the clist
+mutably makes each access read the header again.
 Whole-row workloads can still cost more than ordinary lists: gathering separated
 fields and moving the reconstructed object have costs of their own. The
 [access measurements](../../../proposals/columnar-list/indexed-access.md)

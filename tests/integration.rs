@@ -246,6 +246,8 @@ mod test_flat_payloads;
 mod test_float_constants;
 #[path = "test_float_left_constants.rs"]
 mod test_float_left_constants;
+#[path = "test_float_loads.rs"]
+mod test_float_loads;
 #[path = "test_float_negation.rs"]
 mod test_float_negation;
 #[path = "test_float_rounding.rs"]
@@ -773,3 +775,6 @@ mod test_sum_fallbacks;
 
 #[path = "../plenty-runtime/native/vendor_cache.rs"]
 mod test_runtime_vendor_cache;
+
+#[path = "test_std_serial.rs"]
+mod test_std_serial;

@@ -1299,23 +1299,49 @@ fn a_new_file_that_changes_resolution_is_noticed() {
     let root = project(dir.path());
     emit_project(&root, Some(&cache), &[]);
     emit_project(&root, Some(&cache), &[]);
-    std::fs::write(root.join("helpers.plentyi"), HELPERS).unwrap();
-    let output = plenty()
-        .args(["--emit-object"])
-        .arg(root.join("main.plenty"))
-        .arg("-o")
-        .arg(root.join("main.o"))
-        .env("PLENTY_CACHE_DIR", &cache)
-        .output()
-        .unwrap();
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("ambiguous module `helpers`"), "{stderr}");
+    for extension in ["plentyi", "p", "pi"] {
+        std::fs::write(root.join(format!("helpers.{extension}")), HELPERS).unwrap();
+        let output = plenty()
+            .args(["--emit-object"])
+            .arg(root.join("main.plenty"))
+            .arg("-o")
+            .arg(root.join("main.o"))
+            .env("PLENTY_CACHE_DIR", &cache)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("ambiguous module `helpers`"), "{stderr}");
 
-    // Removing it again restores the stored program.
-    std::fs::remove_file(root.join("helpers.plentyi")).unwrap();
+        // Removing it again restores the stored program.
+        std::fs::remove_file(root.join(format!("helpers.{extension}"))).unwrap();
+        let warm = emit_project(&root, Some(&cache), &[]);
+        assert_eq!(program(&warm), Some(true), "{}", warm.stderr());
+    }
+
+    // A directory without Plenty files is not a namespace and changes
+    // nothing; its first module makes the import ambiguous.
+    std::fs::create_dir(root.join("helpers")).unwrap();
+    std::fs::write(root.join("helpers/mod.rs"), "").unwrap();
     let warm = emit_project(&root, Some(&cache), &[]);
     assert_eq!(program(&warm), Some(true), "{}", warm.stderr());
+    for extension in ["plenty", "p", "plentyi", "pi"] {
+        std::fs::write(root.join(format!("helpers/extra.{extension}")), "").unwrap();
+        let output = plenty()
+            .args(["--emit-object"])
+            .arg(root.join("main.plenty"))
+            .arg("-o")
+            .arg(root.join("main.o"))
+            .env("PLENTY_CACHE_DIR", &cache)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("ambiguous module `helpers`"), "{stderr}");
+        std::fs::remove_file(root.join(format!("helpers/extra.{extension}"))).unwrap();
+        let warm = emit_project(&root, Some(&cache), &[]);
+        assert_eq!(program(&warm), Some(true), "{}", warm.stderr());
+    }
 }
 
 /// Another compiler, or the same one rebuilt, never reuses a program: the

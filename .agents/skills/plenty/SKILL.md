@@ -5,6 +5,10 @@ description: Write, fix, and explain programs in the Plenty programming language
 
 # Writing Plenty programs
 
+Source files accept `.plenty` or `.p`; trusted interfaces accept `.plentyi` or
+`.pi`. Different modules may mix spellings, but multiple spellings of the same
+imported module are ambiguous. Package default targets and tests accept `.p`.
+
 Plenty is statically typed, with Python-shaped syntax, single ownership with
 checked borrows, no exceptions, and no hidden allocation. It compiles ahead of
 time to native code. Code that looks like correct Python is usually wrong
@@ -48,6 +52,19 @@ name or a rejected spelling is not evidence that the capability is absent.
 Use a package (`plenty new NAME`) for several executables or tests. Single-file
 utilities can declare path/Git dependencies in an optional script header.
 See [workflow and packages](references/workflow.md).
+
+## Typed serialization
+
+Use `std.json.load[T]` and `dump` for built-in typed JSON values, or
+`to_value`/`from_value` for direct tree conversion. `from_value` owns the input
+`Json`. Classes and enums require private `__encode__` and receiver-less
+`__decode__` hooks with the fixed `std.serial` signatures; `@serial` derivation
+is not implemented. Preserve constructor invariants and use field slots to
+handle missing/default/duplicate fields. Read the
+[codec contract](../../../book/src/design/stdlib/serial.md) and
+[JSON limits and options](../../../book/src/design/stdlib/json-codecs.md)
+before writing hooks. Typed failures carry `SerialError[JsonError]` with an
+innermost-first path; unwrap intentionally or propagate that complete type.
 
 ## Rules that prevent most errors
 

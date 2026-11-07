@@ -158,3 +158,25 @@ fn loaded_wrappers_keep_raw_addresses_private_and_enforce_moves() {
         assert!(error.contains(expected), "{error}");
     }
 }
+
+#[test]
+fn runtime_interface_accepts_short_output_and_source_extensions() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("producer.p");
+    let output = dir.path().join("plugin.pi");
+    std::fs::write(
+        &source,
+        "export def answer() -> i32 = \"calc_answer\":\n    42\n",
+    )
+    .unwrap();
+    plenty::emit_runtime_interface(&source, &output, None, "calc").unwrap();
+    plenty::check_module_file(&output, None).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_plentyc"))
+        .arg("--runtime-interface")
+        .arg(&source)
+        .args(["--library-name", "calc", "-o"])
+        .arg(&output)
+        .output()
+        .unwrap();
+    assert!(result.status.success(), "{result:?}");
+}

@@ -7,6 +7,12 @@ assert(vim.bo.filetype == 'plenty', 'existing file detection')
 vim.cmd('edit stdlib/std/bytes.plenty')
 assert(vim.bo.filetype == 'plenty', 'comment-leading source must beat conf fallback')
 assert(vim.bo.syntax == 'plenty' and vim.b.current_syntax == 'plenty', 'source syntax loaded')
+for _, extension in ipairs({'p', 'pi', 'plentyi'}) do
+  vim.cmd('enew')
+  vim.cmd('file alias-test.' .. extension)
+  vim.cmd('doautocmd BufNewFile')
+  assert(vim.bo.filetype == 'plenty', extension .. ' detection')
+end
 vim.cmd('enew')
 vim.cmd('file syntax-test.plenty')
 vim.cmd('doautocmd BufNewFile')

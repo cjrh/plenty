@@ -100,7 +100,7 @@ impl Lowerer<'_, '_> {
     /// Whether the versioned loop copy being lowered may skip the check of
     /// `index` against `length`, recording the test that copy then needs;
     /// see [`super::induction::Version`].
-    fn versioned_index(
+    pub(super) fn versioned_index(
         &mut self,
         index: cranelift_codegen::ir::Value,
         length: cranelift_codegen::ir::Value,
@@ -170,7 +170,8 @@ impl Lowerer<'_, '_> {
     }
 
     /// Reads (`store` is `None`) or writes the scalar row `index` of the
-    /// rows at `rows`, checked against `length` by [`Self::checked_row`].
+    /// rows at `rows`, checked against `length` by [`Self::checked_row`]. A
+    /// read returns the unpacked element.
     fn scalar_row_access(
         &mut self,
         rows: cranelift_codegen::ir::Value,
@@ -187,14 +188,14 @@ impl Lowerer<'_, '_> {
                 self.bcx.ins().store(flags, value, address, 0);
                 None
             }
-            None => Some(self.scalar_word(address, element)),
+            None => Some(self.scalar_value(address, element, element)),
         })
     }
 
     /// Branches to `valid` with `args` when `index` is in 0..length, the hot
     /// path: one unsigned comparison, no normalization (issue #715). Returns
     /// the cold block taken otherwise.
-    fn index_hot_test(
+    pub(super) fn index_hot_test(
         &mut self,
         index: cranelift_codegen::ir::Value,
         length: cranelift_codegen::ir::Value,
@@ -212,7 +213,7 @@ impl Lowerer<'_, '_> {
     /// negative index the wrapped sum is below length, unsigned, exactly when
     /// index >= -length; for a nonnegative index >= length the sum cannot
     /// wrap and stays >= length.
-    fn index_adjust(
+    pub(super) fn index_adjust(
         &mut self,
         index: cranelift_codegen::ir::Value,
         length: cranelift_codegen::ir::Value,
@@ -993,10 +994,9 @@ impl Lowerer<'_, '_> {
             let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), false))?;
             let (rows, length) = self.dense_rows(cached, receiver, ty);
             let element = ty.element().unwrap();
-            let bits = self
+            let result = self
                 .scalar_row_access(rows, length, index, &element, None)?
                 .unwrap();
-            let result = self.unpack(bits, &element);
             self.stack.push((result, element));
             return Ok(());
         }
@@ -1124,8 +1124,7 @@ impl Lowerer<'_, '_> {
                 // Affine one-field classes and atomics can still have packed
                 // scalar rows, as `list_row_bytes` lays them out. Taking one
                 // must not read or clear its neighbor's storage.
-                let packed = self.scalar_word(address, &base);
-                let value = self.unpack(packed, &element);
+                let value = self.scalar_value(address, &base, &element);
                 let width = types::Type::int(clif_type(base).bits() as u16).unwrap();
                 let zero = self.bcx.ins().iconst(width, 0);
                 self.bcx.ins().store(flags, zero, address, 0);
@@ -1549,6 +1548,12 @@ impl Lowerer<'_, '_> {
             ClistOp::Get(..) | ClistOp::Set(..) | ClistOp::CopyRow(_)
         ) {
             return self.lower_clist_access(op);
+        }
+        if matches!(
+            op,
+            ClistOp::Len(_) | ClistOp::Column(..) | ClistOp::GetView(..) | ClistOp::SetView(..)
+        ) {
+            return self.lower_clist_inline(op);
         }
         let (inputs, output) = op.signature();
         let mut args = Vec::new();

@@ -1719,3 +1719,18 @@ def main() -> Result[(), IoError]:
         "after moving `scale`, an import in an `if const` block would close a circular import: caller -> report -> native -> caller"
     );
 }
+
+#[test]
+fn declarations_can_move_between_short_extension_modules() {
+    let dir = package(&[
+        (
+            "src/main.p",
+            "import helper\ndef main() -> i32:\n    helper.answer()\n",
+        ),
+        ("src/helper.p", "pub def answer() -> i32:\n    42\n"),
+        ("src/destination.p", ""),
+    ]);
+    let moved = plan(dir.path(), "src/helper.p", 1, "src/destination.p").unwrap();
+    assert!(moved.files["src/main.p"].contains("destination"));
+    assert!(moved.files["src/destination.p"].contains("pub def answer"));
+}

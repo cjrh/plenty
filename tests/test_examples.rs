@@ -16,7 +16,7 @@ fn plenty_files(directory: &Path, found: &mut Vec<PathBuf>) {
             plenty_files(&path, found);
         } else if path
             .extension()
-            .is_some_and(|extension| extension == "plenty")
+            .is_some_and(|extension| extension == "plenty" || extension == "p")
         {
             found.push(path);
         }

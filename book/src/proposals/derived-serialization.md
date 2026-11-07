@@ -1,14 +1,15 @@
 # Derived serialization for classes and enums
 
-**Status: Not implemented.** Nothing shipped; this page is the design record
-for issue #471. [`std.json`](../design/stdlib/json.md) and
-[`std.toml`](../design/stdlib/toml.md) remain authoritative: neither derives
-codecs, and a typed codec is written by hand over JSON events or a TOML tree.
-Implementation is tracked by issue #781 and [B77](../backlog.md), related to
-B51. The staged strategy was reaffirmed on 2026-11-07: usable format-neutral
-codecs and handwritten hooks precede `@serial` derivation; runtime reflection
-and user macros are not prerequisites. The recorded design decisions appear in
-[Decisions](#decisions).
+**Status: Partially implemented.** [`std.serial`](../design/stdlib/serial.md)
+and [typed JSON codecs](../design/stdlib/json-codecs.md) provide the first
+usable handwritten-hook milestone of issue #781. The JSON adapter supports
+complete buffers and direct, owning `Json` conversion. `Decoder.allocation`
+adds the format-specific allocation-error bridge needed by built-in containers.
+`@serial` derivation, TOML codecs, byte representations, incremental typed
+reader loading, and the performance gate before derivation remain in
+[B77](../backlog.md). This page records the accepted overall design, including
+future syntax; the reference pages describe shipped behavior. Runtime
+reflection and user macros are not prerequisites.
 
 ## Problem
 
@@ -36,9 +37,9 @@ reflection, and its goals rule out hidden allocation and slow compilation.
 This page chooses how the per-type code is produced, how a type opts in, how
 each kind of type maps to formats, and how errors report where they happened.
 
-## What exists today
+## Original feasibility probes
 
-Probes in this section ran on local `main` at `7923a7c0` with a debug compiler.
+These historical probes preceded the handwritten-hook milestone and ran on local `main` at `7923a7c0` with a debug compiler.
 
 | Fact | Consequence for a design |
 | --- | --- |
@@ -318,7 +319,7 @@ is settled when the entry points are implemented.
 ```text
 pub class SerialError[E]:
     pub cause: E
-    pub path: list[Step]
+    pub path: Option[list[Step]]
     pub complete: bool
 
 pub enum Step:
@@ -332,8 +333,8 @@ The cause is the format's own error, so JSON keeps its byte offset, line and
 column; TOML, decoding from a tree with no positions, relies on the path. A
 derived hook adds its step only while an error propagates out of it, so a
 successful encode or decode never touches the path. Field and variant names
-are string literals; a `Key` step moves the already decoded key. Adding a step
-is a fallible list operation: if memory is refused, `complete` becomes `False`
+are string literals; a `Key` step moves the already decoded key. The implemented path is optional so a root error needs no list allocation.
+Adding a step lazily creates its list and is fallible: if memory is refused, `complete` becomes `False`
 and the cause is kept, so an out-of-memory condition never replaces the
 original error. `SerialError` displays as
 `servers[2].port: number out of range at line 7, column 12`.

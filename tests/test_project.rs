@@ -426,6 +426,11 @@ fn graph_errors_are_reported() {
             "dependency `util` collides with the local module",
         ),
         (
+            "util = { path = \"../util\" }\n",
+            vec![main, ("src/util/inner/helper.plenty", "")],
+            "dependency `util` collides with the local module",
+        ),
+        (
             "std = { path = \"../util\" }\n",
             vec![main],
             "`std` is reserved",
@@ -435,6 +440,23 @@ fn graph_errors_are_reported() {
         package(dir.path(), "app", dependencies, &files);
         fails(&dir.path().join("app"), &["check"], message);
     }
+    // A directory without Plenty modules, such as a Rust module or a
+    // non-Plenty `std/`, is not a namespace and collides with nothing.
+    let _ = std::fs::remove_dir_all(dir.path().join("app"));
+    package(
+        dir.path(),
+        "app",
+        "util = { path = \"../util\" }\n",
+        &[
+            (
+                "src/main.plenty",
+                "import util\ndef main() -> ():\n    drop(util.f())\n",
+            ),
+            ("src/util/mod.rs", ""),
+            ("src/std/README.md", ""),
+        ],
+    );
+    succeeds(&dir.path().join("app"), &["check"]);
     write(
         &dir.path().join("app/plenty.toml"),
         "manifest-version = 1\n[package]\nname = \"app\"\nversion = \"0.1.0\"\nplenty-version = \"999.0.0\"\n",
@@ -1973,4 +1995,86 @@ fn a_package_includes_only_its_own_files() {
         &["check"],
         "included path `../deep/plenty.toml` belongs to package `deep`; package `levels` may include only its own files",
     );
+}
+
+#[test]
+fn short_targets_tests_and_unreached_sources_work_in_packages() {
+    let dir = tempfile::tempdir().unwrap();
+    package(
+        dir.path(),
+        "short",
+        "",
+        &[
+            (
+                "src/main.p",
+                "def main() -> Result[(), IoError]:\n    print(42)?\n    Ok(())\n",
+            ),
+            ("src/lib.p", "pub def value() -> i64:\n    42\n"),
+            ("src/unreached.p", "pub def unused() -> i64:\n    1\n"),
+            ("tests/basic.p", "def test_value() -> ():\n    pass\n"),
+        ],
+    );
+    let root = dir.path().join("short");
+    assert_eq!(succeeds(&root, &["run"]), "42\n");
+    assert!(status_lines(&root, &["check"]).contains("unreached.p"));
+    assert!(succeeds(&root, &["test", "--list"]).contains("basic::test_value"));
+    succeeds(&root, &["test"]);
+    write(
+        &root.join("tests/basic.plenty"),
+        "def main() -> ():\n    pass\n",
+    );
+    fails(&root, &["test", "--list"], "ambiguous test module");
+    write(
+        &root.join("src/main.plenty"),
+        "def main() -> ():\n    pass\n",
+    );
+    fails(&root, &["check"], "ambiguous default target");
+}
+
+#[test]
+fn explicit_short_targets_and_short_dependency_libraries_work() {
+    let dir = tempfile::tempdir().unwrap();
+    package(
+        dir.path(),
+        "helper",
+        "",
+        &[("src/lib.p", "pub def value() -> i64:\n    42\n")],
+    );
+    package(
+        dir.path(),
+        "app",
+        "helper = { path = \"../helper\" }\n",
+        &[(
+            "src/custom.p",
+            "import helper\ndef main() -> Result[(), IoError]:\n    print(helper.value())?\n    Ok(())\n",
+        )],
+    );
+    let root = dir.path().join("app");
+    let manifest = root.join("plenty.toml");
+    let mut text = std::fs::read_to_string(&manifest).unwrap();
+    text.push_str("\n[[bin]]\nname = \"app\"\npath = \"src/custom.p\"\n");
+    write(&manifest, &text);
+    assert_eq!(succeeds(&root, &["run"]), "42\n");
+    write(&root.join("src/helper.pi"), "");
+    fails(&root, &["check"], "collides with the local module");
+}
+
+#[test]
+fn init_preserves_existing_short_default_sources_without_creating_a_package() {
+    for (stem, args) in [
+        ("main", vec!["init", "--name", "app"]),
+        ("lib", vec!["init", "--name", "app", "--lib"]),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join(format!("src/{stem}.p"));
+        write(&source, "# existing user source\n");
+        fails(dir.path(), &args, &format!("{stem}.p already exists"));
+        assert_eq!(
+            std::fs::read_to_string(source).unwrap(),
+            "# existing user source\n"
+        );
+        assert!(!dir.path().join(format!("src/{stem}.plenty")).exists());
+        assert!(!dir.path().join("plenty.toml").exists());
+        assert!(!dir.path().join(".gitignore").exists());
+    }
 }

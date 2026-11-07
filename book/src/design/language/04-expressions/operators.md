@@ -157,7 +157,8 @@ and [hashing](../../../proposals/user-type-hashing.md) proposals.
 
 A method named `__name__`, with two underscores on each side, must be a hook
 the compiler calls: an operator hook in the tables above, or, on a class,
-`__init__`, `__del__`, `__enter__` or `__exit__`. A class, enum or protocol that declares any
+`__init__`, `__del__`, `__enter__` or `__exit__`. Classes and enums also admit
+the fixed [`__encode__` and receiver-less `__decode__` serialization hooks](../../stdlib/serial.md#handwritten-hooks). A class, enum or protocol that declares any
 other such name is rejected, so a Python special method cannot compile and
 then be ignored. The names stay free for hooks the language may add. Where
 Plenty has its own form, the diagnostic names it:

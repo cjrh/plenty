@@ -91,6 +91,16 @@ class Owner:
             return dict(db.execute("SELECT d.id, coalesce(group_concat(c.body, ''), '') FROM documents d "
                                    "LEFT JOIN chunks c ON c.document_id=d.id GROUP BY d.id"))
 
+    def test_short_source_and_interface_extensions_are_indexed(self):
+        source = (self.root / "source.plenty").read_text()
+        for extension in ("p", "plentyi", "pi"):
+            self.write(f"alias.{extension}", source)
+        subprocess.run(["git", "-C", str(self.root), "add", "."], check=True)
+        self.sync()
+        bodies = self.bodies()
+        for extension in ("p", "plentyi", "pi"):
+            self.assertIn("Plenty module documentation", bodies[f"repo:source:alias.{extension}"])
+
     def test_extraction_incremental_changes_and_pruning(self):
         self.assertIn("6 updated", self.sync())
         before = self.database.read_bytes()

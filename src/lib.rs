@@ -81,6 +81,7 @@ mod regex;
 #[path = "../experiments/rust-source-backend/emitter/mod.rs"]
 pub mod rust_source_spike;
 pub mod script;
+mod source_path;
 mod sqlite;
 mod stream;
 mod sum;

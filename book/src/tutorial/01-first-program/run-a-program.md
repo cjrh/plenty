@@ -1,6 +1,6 @@
 # Run a program
 
-Save this as `hello.plenty`:
+Save this as `hello.plenty` (or `hello.p`; both extensions work):
 
 ```plenty
 def main() -> Result[(), IoError | OverflowError[i64]]:

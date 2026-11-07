@@ -967,10 +967,11 @@ fn header(text: &str, offset: usize) -> String {
     public_declaration(&out.trim().replace(",)", ")").replace(",]", "]"))
 }
 
-/// Keep std-only ceiling markers out of public headers and field declarations,
-/// without touching the same text inside a default's string literal.
+/// Keep std-only `__max(N)` and `__open_mode` markers out of public headers
+/// and field declarations, without touching the same text inside a default's
+/// string literal.
 fn public_declaration(text: &str) -> String {
-    if !text.contains("__max(") {
+    if !text.contains("__max(") && !text.contains("__open_mode") {
         return text.to_owned();
     }
     let mut out = String::new();
@@ -991,6 +992,15 @@ fn public_declaration(text: &str) -> String {
                 chars.next();
             }
             chars.by_ref().find(|&c| c == ')');
+            if out.ends_with(' ') {
+                out.pop();
+            }
+            continue;
+        }
+        if c == '_' && chars.as_str().starts_with("_open_mode") && out.trim_end().ends_with("str") {
+            for _ in 0.."_open_mode".len() {
+                chars.next();
+            }
             if out.ends_with(' ') {
                 out.pop();
             }
@@ -1056,6 +1066,13 @@ mod tests {
         assert_eq!(
             public_declaration("pub depth: NonNegative[i64] __max(1024)"),
             "pub depth: NonNegative[i64]"
+        );
+        assert_eq!(
+            header(
+                "def open(path: &str, mode: &str __open_mode, note: str = \"__open_mode\") -> ():\n    pass\n",
+                0
+            ),
+            "def open(path: &str, mode: &str, note: str = \"__open_mode\") -> ()"
         );
     }
 
