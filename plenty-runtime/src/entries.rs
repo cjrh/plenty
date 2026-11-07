@@ -590,6 +590,26 @@ impl Entries {
             self.set(index, true, entry.value);
         }
     }
+    /// Insert a dense row at `index`, at most `len()`, moving the later rows
+    /// up one row with a single `memmove`. Reservation belongs to the
+    /// surrounding transactional operation.
+    pub unsafe fn insert(&mut self, index: usize, entry: Entry) {
+        assert!(self.order.is_none(), "only dense lists insert");
+        let len = self.len();
+        assert!(index <= len && len < self.capacity());
+        // Extraction scratch is dead at this mutation, as for `push`.
+        self.data.truncate(len * self.stride);
+        self.removed = false;
+        self.data.resize(self.data.len() + self.stride, 0);
+        let start = index * self.stride;
+        self.data
+            .copy_within(start..len * self.stride, start + self.stride);
+        self.data[start..start + self.stride].fill(0);
+        self.relocate(index + 1);
+        unsafe {
+            self.set(index, false, entry.key);
+        }
+    }
     /// Append byte copies of `count` dense rows of `source`, starting at row
     /// `first`, in one copy. Both sides are dense lists of one element type
     /// whose elements own nothing; the caller reserved the capacity.

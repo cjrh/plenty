@@ -31,6 +31,30 @@ is a runtime error.
 List construction, copying, and growth return allocation
 [results](../03-absence/index.md), handled here with `?`.
 
+`insert(index, value)` places a value at a position and moves later elements
+up one place. An index equal to the length appends; negative indices count from
+the end, as for reads. Like `append`, it can grow the list, so it returns an
+allocation result:
+
+```plenty
+def main() -> Result[(), AllocError | IoError]:
+    mut queue = ["b", "d"]?
+    queue.insert(0, "a")?
+    queue.insert(2, "c")?
+    queue.insert(len(queue), "e")?
+    print(queue)?
+    Ok(())
+```
+
+```output
+["a", "b", "c", "d", "e"]
+```
+
+An index beyond either end, such as `6` or `-6` for this five-element list, is
+a runtime error rather than a silent append.
+See [list insertion](../../design/facilities/01-builtins/lists.md#insertion)
+for the full contract.
+
 Collections can nest. Update an inner list directly through its indices:
 
 ```plenty

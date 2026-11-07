@@ -229,9 +229,12 @@ pub enum CollectionOp {
     ElementRefView(Ty, bool),
     TryCopy(Ty),
     Next(Ty),
-    TryNew(Ty),        // initial capacity -> Result[collection, AllocError]
-    TryReserve(Ty),    // exclusive capacity reservation -> Result[(), AllocError]
-    TryInsert(Ty),     // exclusive fallible append/add/insert
+    TryNew(Ty),     // initial capacity -> Result[collection, AllocError]
+    TryReserve(Ty), // exclusive capacity reservation -> Result[(), AllocError]
+    TryInsert(Ty),  // exclusive fallible append/add/insert
+    /// Exclusive list, index, owned element -> Result[(), AllocError]. An
+    /// index outside `-len..=len` traps (issue #798).
+    ListTryInsert(Ty),
     TryExtend(Ty),     // exclusive list + consumed list -> Result[(), AllocError]
     DictTryUpdate(Ty), // exclusive dictionary + consumed dictionary
     SetTryUpdate(Ty),  // exclusive set + consumed set
@@ -845,6 +848,10 @@ impl CollectionOp {
                 }
                 (args, crate::sum::allocation_result())
             }
+            ListTryInsert(t) => (
+                vec![t.clone(), Ty::I64, t.element().expect("list element")],
+                crate::sum::allocation_result(),
+            ),
             Get(t) => match t {
                 Ty::Dict(k, v) => (vec![t.clone(), (**k).clone()], (**v).clone()),
                 _ => (vec![t.clone(), Ty::I64], t.element().unwrap()),
@@ -1034,6 +1041,7 @@ impl CollectionOp {
             self,
             Self::TryReserve(_)
                 | Self::TryInsert(_)
+                | Self::ListTryInsert(_)
                 | Self::TryExtend(_)
                 | Self::DictTryUpdate(_)
                 | Self::SetTryUpdate(_)
@@ -1120,6 +1128,7 @@ impl CollectionOp {
             Self::Get(_)
                 | Self::ElementRef(..)
                 | Self::ListSwap(_)
+                | Self::ListTryInsert(_)
                 | Self::ListUnpack(_)
                 | Self::Range(_)
                 | Self::TextIndex
@@ -1203,6 +1212,7 @@ impl CollectionOp {
             Self::TryNew(_) => 32,
             Self::TryReserve(_) => 28,
             Self::TryInsert(_) => 29,
+            Self::ListTryInsert(_) => opcode::LIST_INSERT,
             Self::TryExtend(_) => 59,
             Self::DictTryUpdate(_) => 60,
             Self::SetTryUpdate(_) => 61,
