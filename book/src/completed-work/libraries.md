@@ -378,3 +378,14 @@ scopes without sample contexts. Checked rendering verifies actual JSON against
 required/optional fields, bounded arrays and unions, sharing the work budget with
 preflight. Optional reads and variant correlation remain deliberately conservative;
 ordinary dynamic rendering is unchanged.
+
+## Checked HTML template rendering
+
+Issue #839 delivers `Engine.validate_html` and `render_html`: static names, exact
+written element stacks, ordinary quoted attributes, title text, literal URLs and
+Data-only balanced composition through conditions, loops, includes and inherited
+blocks. Mandatory preflight checks every branch and escaping policy before
+rendering; work, depth, output and allocation errors preserve engine/context
+reuse. Existing rendering remains unchanged. The [bounded contract](../design/stdlib/template-html.md)
+excludes HTML5 tree repair, scripting/style/foreign content, comments, dynamic
+URLs and sanitization.
