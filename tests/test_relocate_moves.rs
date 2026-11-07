@@ -226,6 +226,10 @@ extern def getpid_raw() -> i32 = \"getpid\"
 
 pub def has_pid() -> bool:
     getpid_raw() > 0
+
+# A wrapper that does not use the extern, so it can move.
+pub def pid_label() -> i64:
+    7
 ",
     ),
     (
@@ -244,8 +248,9 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     print(calc.firsts(3)?, calc.clamp(Some(7)), calc.platform())?
     print(\"é ü\", calc.cap(5))?
     if const target.os == \"windows\":
-        print(limits.LIMIT)?
-    print(native.has_pid())?
+        print(\"windows\")?
+    print(limits.LIMIT)?
+    print(native.pid_label(), native.has_pid())?
     Ok(())
 ",
     ),
@@ -386,6 +391,40 @@ fn behaviour(dir: &Path, tests: bool) -> Result<String, String> {
         }
         out.push_str(&String::from_utf8(output.stdout).unwrap());
     }
+    Ok(out)
+}
+
+/// The warnings `plenty check` reports in `dir`, without their locations,
+/// which a move changes. The warning for a file no target imports is left
+/// out: a move can leave such a file behind, as the reference documents.
+fn warnings(dir: &Path) -> Result<Vec<String>, String> {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"))
+        .arg("check")
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    if !output.status.success() {
+        return Err(stderr);
+    }
+    let mut out: Vec<String> = stderr
+        .lines()
+        .filter_map(|line| line.strip_prefix("warning: "))
+        .filter(|line| !line.contains("is not imported by any target"))
+        .map(|line| {
+            // Drop a leading `path:line:column: `.
+            let mut parts = line.splitn(4, ':');
+            match (parts.next(), parts.next(), parts.next(), parts.next()) {
+                (Some(_), Some(l), Some(c), Some(rest))
+                    if l.parse::<u32>().is_ok() && c.parse::<u32>().is_ok() =>
+                {
+                    rest.trim_start().to_owned()
+                }
+                _ => line.to_owned(),
+            }
+        })
+        .collect();
+    out.sort();
     Ok(out)
 }
 
@@ -535,13 +574,14 @@ fn difference(original: &Files, back: &Files) -> String {
     out
 }
 
-/// Every file below `dir` except build output, by relative path.
+/// Every file below `dir` except the build output in `dir/target`, by
+/// relative path.
 fn listing(dir: &Path) -> Files {
     fn walk(root: &Path, dir: &Path, out: &mut Files) {
         for entry in std::fs::read_dir(dir).unwrap() {
             let path = entry.unwrap().path();
             if path.is_dir() {
-                if path.file_name().is_some_and(|n| n != "target") {
+                if path != root.join("target") {
                     walk(root, &path, out);
                 }
             } else {
@@ -627,6 +667,7 @@ fn every_move(fixture: &[(&str, &str)], package: &str, tests: bool) -> Report {
         .collect();
     write(&root, &original);
     let output = behaviour(&root, tests).unwrap();
+    let warned = warnings(&root).unwrap();
     let on_disk = listing(&root);
     let stable = |message: &str| {
         message
@@ -710,7 +751,13 @@ fn every_move(fixture: &[(&str, &str)], package: &str, tests: bool) -> Report {
                     write(copy.path(), &moved.files);
                     let expected = expected_output(&output, &moved.api_changes);
                     let failure = match behaviour(copy.path(), tests) {
-                        Ok(actual) if actual == expected => continue,
+                        Ok(actual) if actual == expected => match warnings(copy.path()) {
+                            Ok(after) if after == warned => continue,
+                            Ok(after) => {
+                                format!("{}: warned {after:?}, not {warned:?}", moved.label)
+                            }
+                            Err(error) => format!("{}: check failed: {error}", moved.label),
+                        },
                         Ok(actual) => {
                             format!("{}: printed {actual:?}, expected {expected:?}", moved.label)
                         }
@@ -936,18 +983,15 @@ fn every_move_in_a_package_with_aliases_protocols_and_conditionals_keeps_its_out
     check(
         report,
         Counts {
-            tried: 53,
-            applied: 30,
-            refused: 23,
-            round_trips: 14,
-            exact_round_trips: 2,
+            tried: 58,
+            applied: 38,
+            refused: 20,
+            round_trips: 24,
+            exact_round_trips: 3,
         },
         r##"`firsts` from src/calc.plenty to src/lib.plenty: back refused: `lib` is the package's library, which tests and other packages import under the package name; moving declarations out of it is not supported
-`firsts` from src/calc.plenty to src/limits.plenty: back refused: src/main.plenty:13: an `if const` block names `limits`; the move cannot check its unselected arms
 `clamp` from src/calc.plenty to src/lib.plenty: back refused: `lib` is the package's library, which tests and other packages import under the package name; moving declarations out of it is not supported
-`clamp` from src/calc.plenty to src/limits.plenty: back refused: src/main.plenty:13: an `if const` block names `limits`; the move cannot check its unselected arms
 `cap` from src/calc.plenty to src/lib.plenty: back refused: `lib` is the package's library, which tests and other packages import under the package name; moving declarations out of it is not supported
-`cap` from src/calc.plenty to src/limits.plenty: back refused: src/main.plenty:13: an `if const` block names `limits`; the move cannot check its unselected arms
 `platform` from src/calc.plenty to src/lib.plenty: src/calc.plenty:19: `platform` has an `if const` block, whose unselected arms the move cannot check
 `platform` from src/calc.plenty to src/limits.plenty: src/calc.plenty:19: `platform` has an `if const` block, whose unselected arms the move cannot check
 `platform` from src/calc.plenty to src/main.plenty: src/calc.plenty:19: `platform` has an `if const` block, whose unselected arms the move cannot check
@@ -956,10 +1000,8 @@ fn every_move_in_a_package_with_aliases_protocols_and_conditionals_keeps_its_out
 `version` from src/lib.plenty to src/limits.plenty: `lib` is the package's library, which tests and other packages import under the package name; moving declarations out of it is not supported
 `version` from src/lib.plenty to src/main.plenty: `lib` is the package's library, which tests and other packages import under the package name; moving declarations out of it is not supported
 `version` from src/lib.plenty to src/shapes.plenty: `lib` is the package's library, which tests and other packages import under the package name; moving declarations out of it is not supported
-`LIMIT` from src/limits.plenty to src/calc.plenty: src/main.plenty:13: an `if const` block names `LIMIT`; the move cannot check its unselected arms
-`LIMIT` from src/limits.plenty to src/lib.plenty: src/main.plenty:13: an `if const` block names `LIMIT`; the move cannot check its unselected arms
-`LIMIT` from src/limits.plenty to src/main.plenty: src/main.plenty:13: an `if const` block names `LIMIT`; the move cannot check its unselected arms
-`LIMIT` from src/limits.plenty to src/shapes.plenty: src/main.plenty:13: an `if const` block names `LIMIT`; the move cannot check its unselected arms
+`LIMIT` from src/limits.plenty to src/lib.plenty: back refused: `lib` is the package's library, which tests and other packages import under the package name; moving declarations out of it is not supported
+`LIMIT` from src/limits.plenty to src/main.plenty: after moving `LIMIT`, the package would not check: src/main.plenty:1:1: src/calc.plenty:1:1: circular import: src/main.plenty -> src/calc.plenty -> src/main.plenty
 `main` from src/main.plenty to src/calc.plenty: src/main.plenty runs `main`; a target's `main` cannot move
 `main` from src/main.plenty to src/lib.plenty: src/main.plenty runs `main`; a target's `main` cannot move
 `main` from src/main.plenty to src/limits.plenty: src/main.plenty runs `main`; a target's `main` cannot move
@@ -969,19 +1011,27 @@ fn every_move_in_a_package_with_aliases_protocols_and_conditionals_keeps_its_out
 `has_pid` from src/native.plentyi to src/limits.plenty: `has_pid` uses a declaration of `native` the move cannot import
 `has_pid` from src/native.plentyi to src/main.plenty: `has_pid` uses a declaration of `native` the move cannot import
 `has_pid` from src/native.plentyi to src/shapes.plenty: `has_pid` uses a declaration of `native` the move cannot import
+`pid_label` from src/native.plentyi to src/calc.plenty: back refused: the destination must be a module of the same package's src/
+`pid_label` from src/native.plentyi to src/lib.plenty: back refused: the destination must be a module of the same package's src/
+`pid_label` from src/native.plentyi to src/limits.plenty: back refused: the destination must be a module of the same package's src/
+`pid_label` from src/native.plentyi to src/main.plenty: back refused: the destination must be a module of the same package's src/
+`pid_label` from src/native.plentyi to src/shapes.plenty: back refused: the destination must be a module of the same package's src/
 `Side` from src/shapes.plenty to src/lib.plenty: back refused: `lib` is the package's library, which tests and other packages import under the package name; moving declarations out of it is not supported
-`Side` from src/shapes.plenty to src/limits.plenty: back refused: src/main.plenty:13: an `if const` block names `limits`; the move cannot check its unselected arms
 `Side` from src/shapes.plenty to src/main.plenty: after moving `Side`, the package would not check: src/main.plenty:4:1: src/shapes.plenty:1:1: circular import: src/main.plenty -> src/shapes.plenty -> src/main.plenty
 `Square` from src/shapes.plenty to src/lib.plenty: back refused: `lib` is the package's library, which tests and other packages import under the package name; moving declarations out of it is not supported
-`Square` from src/shapes.plenty to src/limits.plenty: back refused: src/main.plenty:13: an `if const` block names `limits`; the move cannot check its unselected arms
 `Strip` from src/shapes.plenty to src/lib.plenty: back refused: `lib` is the package's library, which tests and other packages import under the package name; moving declarations out of it is not supported
-`Strip` from src/shapes.plenty to src/limits.plenty: back refused: src/main.plenty:13: an `if const` block names `limits`; the move cannot check its unselected arms
 `Measured` from src/shapes.plenty to src/lib.plenty: back refused: `lib` is the package's library, which tests and other packages import under the package name; moving declarations out of it is not supported
-`Measured` from src/shapes.plenty to src/limits.plenty: back refused: src/main.plenty:13: an `if const` block names `limits`; the move cannot check its unselected arms
 `Measured` from src/shapes.plenty to src/main.plenty: after moving `Measured`, the package would not check: src/main.plenty:4:1: src/shapes.plenty:1:1: circular import: src/main.plenty -> src/shapes.plenty -> src/main.plenty
-`doubled` from src/shapes.plenty to src/lib.plenty: back refused: `lib` is the package's library, which tests and other packages import under the package name; moving declarations out of it is not supported
-`doubled` from src/shapes.plenty to src/limits.plenty: back refused: src/main.plenty:13: an `if const` block names `limits`; the move cannot check its unselected arms"##,
-        r##"`firsts` from src/calc.plenty to src/main.plenty
+`doubled` from src/shapes.plenty to src/lib.plenty: back refused: `lib` is the package's library, which tests and other packages import under the package name; moving declarations out of it is not supported"##,
+        r##"`firsts` from src/calc.plenty to src/limits.plenty
+  src/calc.plenty
+    - # The comprehension binds its own `LIMIT`.
+    - pub def firsts(n: i64) -> Result[list[i64], AllocError]:
+    -     [LIMIT for LIMIT in range(n)]
+    + # The comprehension binds its own `LIMIT`.
+    + pub def firsts(n: i64) -> Result[list[i64], AllocError]:
+    +     [LIMIT for LIMIT in range(n)]
+`firsts` from src/calc.plenty to src/main.plenty
   src/calc.plenty
     - # The comprehension binds its own `LIMIT`.
     - pub def firsts(n: i64) -> Result[list[i64], AllocError]:
@@ -997,6 +1047,22 @@ fn every_move_in_a_package_with_aliases_protocols_and_conditionals_keeps_its_out
     + # The comprehension binds its own `LIMIT`.
     + pub def firsts(n: i64) -> Result[list[i64], AllocError]:
     +     [LIMIT for LIMIT in range(n)]
+`clamp` from src/calc.plenty to src/limits.plenty
+  src/calc.plenty
+    - # So does the case pattern.
+    - pub def clamp(value: Option[i64]) -> i64:
+    -     match value:
+    -         case Some(LIMIT):
+    -             LIMIT
+    -         case Nothing:
+    -             0
+    + # So does the case pattern.
+    + pub def clamp(value: Option[i64]) -> i64:
+    +     match value:
+    +         case Some(LIMIT):
+    +             LIMIT
+    +         case Nothing:
+    +             0
 `clamp` from src/calc.plenty to src/main.plenty
   src/calc.plenty
     - # So does the case pattern.
@@ -1029,6 +1095,12 @@ fn every_move_in_a_package_with_aliases_protocols_and_conditionals_keeps_its_out
     +             LIMIT
     +         case Nothing:
     +             0
+`cap` from src/calc.plenty to src/limits.plenty
+  src/calc.plenty
+    - pub def cap(x: i64) -> i64:
+    -     LIMIT if x > LIMIT else x
+    + pub def cap(x: i64) -> i64:
+    +     LIMIT if x > LIMIT else x
 `cap` from src/calc.plenty to src/main.plenty
   src/calc.plenty
     - pub def cap(x: i64) -> i64:
@@ -1041,11 +1113,35 @@ fn every_move_in_a_package_with_aliases_protocols_and_conditionals_keeps_its_out
     -     LIMIT if x > LIMIT else x
     + pub def cap(x: i64) -> i64:
     +     LIMIT if x > LIMIT else x
+`LIMIT` from src/limits.plenty to src/calc.plenty
+  src/main.plenty
+    - import limits
+    + import limits
+`LIMIT` from src/limits.plenty to src/shapes.plenty
+  src/main.plenty
+    - import limits
+    + import limits
 `Side` from src/shapes.plenty to src/calc.plenty
   src/shapes.plenty
     - pub type Side = i64
     + pub type Side = i64
+`Side` from src/shapes.plenty to src/limits.plenty
+  src/shapes.plenty
+    - pub type Side = i64
+    + pub type Side = i64
 `Square` from src/shapes.plenty to src/calc.plenty
+  src/shapes.plenty
+    - # Two classes with a method of the same name.
+    - pub class Square:
+    -     pub side: Side
+    -     pub def area(self) -> Result[i64, OverflowError[i64]]:
+    -         Ok(self.side * self.side)
+    + # Two classes with a method of the same name.
+    + pub class Square:
+    +     pub side: Side
+    +     pub def area(self) -> Result[i64, OverflowError[i64]]:
+    +         Ok(self.side * self.side)
+`Square` from src/shapes.plenty to src/limits.plenty
   src/shapes.plenty
     - # Two classes with a method of the same name.
     - pub class Square:
@@ -1081,6 +1177,18 @@ fn every_move_in_a_package_with_aliases_protocols_and_conditionals_keeps_its_out
     +     pub length: Side
     +     pub def area(self) -> Result[i64, OverflowError[i64]]:
     +         Ok(self.width * self.length)
+`Strip` from src/shapes.plenty to src/limits.plenty
+  src/shapes.plenty
+    - pub class Strip:
+    -     pub width: Side
+    -     pub length: Side
+    -     pub def area(self) -> Result[i64, OverflowError[i64]]:
+    -         Ok(self.width * self.length)
+    + pub class Strip:
+    +     pub width: Side
+    +     pub length: Side
+    +     pub def area(self) -> Result[i64, OverflowError[i64]]:
+    +         Ok(self.width * self.length)
 `Strip` from src/shapes.plenty to src/main.plenty
   src/shapes.plenty
     - pub class Strip:
@@ -1094,6 +1202,12 @@ fn every_move_in_a_package_with_aliases_protocols_and_conditionals_keeps_its_out
     +     pub def area(self) -> Result[i64, OverflowError[i64]]:
     +         Ok(self.width * self.length)
 `Measured` from src/shapes.plenty to src/calc.plenty
+  src/shapes.plenty
+    + pub def doubled[T: Measured](item: &T) -> Result[i64, OverflowError[i64]]:
+    +     Ok(item.area()? * 2)
+    - pub def doubled[T: Measured](item: &T) -> Result[i64, OverflowError[i64]]:
+    -     Ok(item.area()? * 2)
+`Measured` from src/shapes.plenty to src/limits.plenty
   src/shapes.plenty
     + pub def doubled[T: Measured](item: &T) -> Result[i64, OverflowError[i64]]:
     +     Ok(item.area()? * 2)
