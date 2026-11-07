@@ -697,3 +697,49 @@ fn merges_keep_values_moved_on_some_paths_live() {
         );
     }
 }
+
+/// A loop that makes no wait check still leaves what its body assigned, so a
+/// join after it sees an endpoint moved before the loop and assigned inside.
+#[test]
+fn joins_after_loops_see_endpoints_assigned_in_the_body() {
+    let field = "    mut ends = Ends(sender=sender, names=n)
+    drop(ends.sender)
+";
+    let whole = "    mut held = sender
+    drop(held)
+";
+    for (setup, holder, header, assign) in [
+        (
+            field,
+            "ends",
+            "    for i in range(2):\n",
+            "ends.sender = s2",
+        ),
+        (whole, "held", "    for i in range(2):\n", "held = s2"),
+        (
+            field,
+            "ends",
+            "    mut i = 0\n    while True:\n        if i == 1:\n            break\n        i = 1\n",
+            "ends.sender = s2",
+        ),
+    ] {
+        let source = format!(
+            "def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    n, nr = channel[str](1).unwrap()
+    drop(nr)
+{setup}    mut rx = receiver
+{header}        s2, r2 = channel[i64](1).unwrap()
+        {assign}
+        rx = r2
+    with spawn(consume, rx).unwrap():
+        pass
+"
+        );
+        let error = field_moves(&source).unwrap_err();
+        assert!(
+            error.contains(&format!("`{holder}` holds `Sender[i64]` on some paths;")),
+            "{source}\n{error}"
+        );
+    }
+}

@@ -2212,7 +2212,33 @@ impl Checker<'_, '_> {
                         merge(&[&[entry.clone()][..], &backedges].concat(), &mut next);
                         let checked = self.state_waits.get() != waits
                             || self.submitted.borrow().len() != jobs;
-                        if next == entry || !checked {
+                        if next == entry {
+                            break next;
+                        }
+                        if !checked {
+                            // Stopping before a pass from `next`: its exits
+                            // would differ from those collected only in the
+                            // slots where `next` differs from `entry`. A path
+                            // that writes such a slot leaves the value it wrote
+                            // either way; one that does not carries the entry
+                            // value through. So joining each collected exit
+                            // with `next` in those slots covers both, and the
+                            // condition run from `next` adds the exit where
+                            // the body runs no further.
+                            let changed: Vec<usize> =
+                                (0..next.len()).filter(|&i| next[i] != entry[i]).collect();
+                            for exit in &mut exits {
+                                let mut later = exit.clone();
+                                for &i in &changed {
+                                    later[i] = next[i];
+                                }
+                                let mut joined = State::new();
+                                merge(&[exit.clone(), later], &mut joined);
+                                *exit = joined;
+                            }
+                            let mut zero = next.clone();
+                            self.sequence(condition, &mut zero, &mut Vec::new(), site)?;
+                            exits.push(zero);
                             break next;
                         }
                         entry = next;
