@@ -913,3 +913,38 @@ fn a_hash_line_inside_a_multi_line_string_stays_with_the_string() {
     write_moved(dir.path(), &moved);
     assert_eq!(run(dir.path()), before);
 }
+
+#[test]
+fn line_breaks_inside_a_multi_line_string_keep_their_bytes() {
+    let main = "import shapes\n\ndef main() -> Result[(), AllocError | IoError]:\n    print(shapes.TEXT.byte_len())?\n    print(shapes.TEXT)?\n    Ok(())\n";
+    // A CRLF source into an LF destination, and an LF source into a CRLF one.
+    for (source, destination, expected) in [
+        (
+            "pub const TEXT: str = \"\"\"a\r\nb\r\n\"\"\"\r\n",
+            "pub def unit() -> i64:\n    1\n",
+            "pub def unit() -> i64:\n    1\n\npub const TEXT: str = \"\"\"a\r\nb\r\n\"\"\"\n",
+        ),
+        (
+            "pub const TEXT: str = \"\"\"a\nb\n\"\"\"\n",
+            "pub def unit() -> i64:\r\n    1\r\n",
+            "pub def unit() -> i64:\r\n    1\r\n\r\npub const TEXT: str = \"\"\"a\nb\n\"\"\"\r\n",
+        ),
+    ] {
+        let dir = package(&[
+            ("src/shapes.plenty", source),
+            ("src/main.plenty", main),
+            ("src/geometry.plenty", destination),
+        ]);
+        let before = run(dir.path());
+        let printed = if source.contains('\r') {
+            "6\na\r\nb\r\n\n"
+        } else {
+            "4\na\nb\n\n"
+        };
+        assert_eq!(before, printed);
+        let moved = plan(dir.path(), "src/shapes.plenty", 1, "src/geometry.plenty").unwrap();
+        assert_eq!(moved.files["src/geometry.plenty"], expected);
+        write_moved(dir.path(), &moved);
+        assert_eq!(run(dir.path()), before);
+    }
+}

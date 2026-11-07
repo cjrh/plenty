@@ -132,6 +132,11 @@ impl Lexed {
     fn inside_string(&self, line: u32) -> bool {
         self.strings.iter().any(|&(a, b)| a < line && line <= b)
     }
+
+    /// Whether the line break ending `line` (from 1) belongs to a string.
+    fn breaks_string(&self, line: u32) -> bool {
+        self.strings.iter().any(|&(a, b)| a <= line && line < b)
+    }
 }
 
 fn lex(text: &str) -> Result<Lexed, String> {
@@ -1448,8 +1453,23 @@ impl Work<'_, '_> {
         let destination_text = &self.sources[self.destination()].text;
         let newline = newline(destination_text);
         let source_lines: Vec<&str> = source_text.lines().collect();
-        let mut moved: String = source_lines[first as usize..=last as usize].join(newline);
-        moved.push_str(newline);
+        // Line breaks take the destination's ending, except inside a string,
+        // where the ending is part of the string's value.
+        let strings = lex(source_text)?;
+        let mut moved = String::new();
+        for (i, raw) in source_text
+            .split_inclusive('\n')
+            .enumerate()
+            .take(last as usize + 1)
+            .skip(first as usize)
+        {
+            moved.push_str(source_lines[i]);
+            if strings.breaks_string(i as u32 + 1) {
+                moved.push_str(&raw[source_lines[i].len()..]);
+            } else {
+                moved.push_str(newline);
+            }
+        }
         if let Some(at) = self.declaration.private_at
             && self.needs_public
         {
