@@ -37,6 +37,34 @@ do not place user values in scripts, styles or tag names. For a plain-text
 message, call `pages.render("report", &values, html=False)` with a plain-text
 template. The `safe` filter deliberately disables escaping for trusted markup.
 
+When quotes should stay literal in text, choose `escape_text` on that
+placeholder. For an ordinary attribute, use the filter matching its quote
+delimiter. Keep the original value in `Json.Text`; these selections escape once
+at final output and need no `safe` assertion:
+
+```plenty
+import std.template
+from std.template import TemplateError
+from std.json import Json, Member
+
+def main() -> Result[(), TemplateError | AllocError | IoError]:
+    bounds = std.template.limits()
+    mut pages = std.template.engine(&bounds)?
+    pages.add("button", "<button title=\"{{ label | escape_double_quoted }}\">{{ label | escape_text }}</button>")?
+    values = Json.Object([Member("label", Json.Text("Say \"hello\" & smile"))]?)
+    print(pages.render("button", &values)?)?
+    Ok(())
+```
+```output
+<button title="Say &quot;hello&quot; &amp; smile">Say "hello" &amp; smile</button>
+```
+
+Use `escape_single_quoted` for an attribute surrounded by single quotes. Put
+the selected context after `upper` or `lower`, which reset escaping to the
+render's default; `trim` preserves it. Multiple context filters select the last
+one over the raw value. A context filter requests escaping even with
+`html=False`. These filters cannot validate URLs or protect script/style content.
+
 Set limits for your application before constructing the engine: for example,
 lower `max_output` for a short notification. Registration and rendering are
 fallible, and the example propagates those failures to the caller. Keep the

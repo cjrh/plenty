@@ -198,6 +198,11 @@ See [errors](references/errors.md), [ownership](references/ownership.md), and
   provides bounded text and quote-specific attribute escaping. Choose the context
   explicitly and escape each original value once. The result is ordinary `str`,
   with no trust marker; keep raw values in `Json.Text` for `Engine.render`.
+  Its `escape_text`, `escape_double_quoted` and `escape_single_quoted` filters
+  choose an output context per placeholder without `safe`. Keep matching quotes
+  around attributes. Put selectors after `upper`/`lower` (which reset policy);
+  `trim` preserves selection, the last selector wins, and explicit selectors
+  still escape with `html=False`. Reserve `safe` for deliberate trusted markup.
 
 - For child descriptor protocols, use `Command.inherit_file(&file)` or
   `Lock.inherit_into(&mut command)` and pass the returned number through argv

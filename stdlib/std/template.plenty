@@ -58,16 +58,23 @@ def identifier(text: &str) -> bool:
             return False
     True
 
+# Context selections apply only when emitting this expression. They never
+# turn raw text into an unqualified trusted value.
+enum Emission:
+    Default
+    Trusted
+    Escape(HtmlContext)
+
 class Value:
     kind: i64
     text: str
     integer: i64
     real: f64
     node: i64
-    safe: bool
+    emission: Emission
 
 def empty_value() -> Value:
-    Value(0, "", 0, 0.0, -1, False)
+    Value(0, "", 0, 0.0, -1, Emission.Default)
 
 class Expression:
     literal: Value
@@ -180,7 +187,7 @@ def expression(source: &str, at: i64) -> Result[Expression, TemplateError]:
     mut filters: list[str] = allocated(list[str]())?
     for index in range(1, len(parts)):
         filter = allocated(parts[index].strip())?
-        if filter != "upper" and filter != "lower" and filter != "trim" and filter != "length" and filter != "escape" and filter != "safe":
+        if filter != "upper" and filter != "lower" and filter != "trim" and filter != "length" and filter != "escape" and filter != "safe" and filter != "escape_text" and filter != "escape_double_quoted" and filter != "escape_single_quoted":
             return Err(TemplateError.Syntax(at))
         allocated(filters.append(filter))?
     Ok(Expression(value, path, filters, negate))
@@ -477,7 +484,7 @@ def flatten(state: &mut State, key: str, data: &Json, depth: i64, bounds: &Limit
     Ok(node)
 
 def value_copy(value: &Value) -> Value:
-    Value(value.kind, value.text, value.integer, value.real, value.node, value.safe)
+    Value(value.kind, value.text, value.integer, value.real, value.node, value.emission)
 
 def truth(value: &Value, state: &State) -> bool:
     if value.kind == 0:
@@ -510,15 +517,15 @@ def path_value(path: &list[str], state: &mut State, bounds: &Limits) -> Result[V
             ordinal = unchecked:
                 position + 1
             if name == "index":
-                return Ok(Value(2, "", ordinal, 0.0, -1, False))
+                return Ok(Value(2, "", ordinal, 0.0, -1, Emission.Default))
             elif name == "index0":
-                return Ok(Value(2, "", position, 0.0, -1, False))
+                return Ok(Value(2, "", position, 0.0, -1, Emission.Default))
             elif name == "first":
-                return Ok(Value(1, "", 1 if position == 0 else 0, 0.0, -1, False))
+                return Ok(Value(1, "", 1 if position == 0 else 0, 0.0, -1, Emission.Default))
             elif name == "last":
-                return Ok(Value(1, "", 1 if ordinal == count else 0, 0.0, -1, False))
+                return Ok(Value(1, "", 1 if ordinal == count else 0, 0.0, -1, Emission.Default))
             elif name == "length":
-                return Ok(Value(2, "", count, 0.0, -1, False))
+                return Ok(Value(2, "", count, 0.0, -1, Emission.Default))
             return Err(TemplateError.MissingValue(name))
         if state.bindings[index].name == path[0]:
             node = state.bindings[index].node
@@ -602,27 +609,33 @@ def evaluate(expr: &Expression, state: &mut State, bounds: &Limits) -> Result[Va
                 count = len(state.nodes[value.node].children)
             else:
                 return Err(TemplateError.TypeMismatch)
-            value = Value(2, "", count, 0.0, -1, False)
+            value = Value(2, "", count, 0.0, -1, Emission.Default)
         else:
             if value.kind != 4:
                 return Err(TemplateError.TypeMismatch)
             if filter == "upper":
                 value.text = allocated(value.text.upper())?
-                value.safe = False
+                value.emission = Emission.Default
             elif filter == "lower":
                 value.text = allocated(value.text.lower())?
-                value.safe = False
+                value.emission = Emission.Default
             elif filter == "trim":
                 value.text = allocated(value.text.strip())?
             elif filter == "escape":
                 value.text = escape_bounded(&value.text, HtmlContext.TextAndAttributes, bounds.max_output.get())?
-                value.safe = True
+                value.emission = Emission.Trusted
             elif filter == "safe":
-                value.safe = True
+                value.emission = Emission.Trusted
+            elif filter == "escape_text":
+                value.emission = Emission.Escape(HtmlContext.Text)
+            elif filter == "escape_double_quoted":
+                value.emission = Emission.Escape(HtmlContext.DoubleQuotedAttribute)
+            elif filter == "escape_single_quoted":
+                value.emission = Emission.Escape(HtmlContext.SingleQuotedAttribute)
             if value.text.byte_len() > bounds.max_output.get():
                 return Err(TemplateError.LimitExceeded)
     if expr.negate:
-        value = Value(1, "", 0 if truth(&value, state) else 1, 0.0, -1, False)
+        value = Value(1, "", 0 if truth(&value, state) else 1, 0.0, -1, Emission.Default)
     Ok(value)
 
 def append(state: &mut State, text: &str, bounds: &Limits) -> Result[(), TemplateError]:
@@ -646,11 +659,21 @@ def emit(state: &mut State, value: &Value, bounds: &Limits) -> Result[(), Templa
         text = value.text
     elif value.kind != 0:
         return Err(TemplateError.TypeMismatch)
-    if state.html and not value.safe:
-        # Output has only grown through budget-checked append.
-        remaining = unchecked:
-            bounds.max_output.get() - state.output.len()
-        text = escape_bounded(&text, HtmlContext.TextAndAttributes, remaining)?
+    context: Option[HtmlContext] = match value.emission:
+        case Emission.Default:
+            Some(HtmlContext.TextAndAttributes) if state.html else Nothing
+        case Emission.Trusted:
+            Nothing
+        case Emission.Escape(context):
+            Some(context)
+    match context:
+        case Nothing:
+            pass
+        case Some(mode):
+            # Output has only grown through budget-checked append.
+            remaining = unchecked:
+                bounds.max_output.get() - state.output.len()
+            text = escape_bounded(&text, mode, remaining)?
     append(state, &text, bounds)
 
 pub class Engine:

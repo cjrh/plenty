@@ -47,6 +47,14 @@ link. Remove the delivered scope from the active backlog; if an item still has
 extensions, retain its ID there and link both ways. Do not copy outstanding
 task lists into these pages or recycle retired B IDs.
 
+## Explicit template interpolation contexts
+
+Issue #834 adds [per-placeholder HTML escape contexts](design/stdlib/template.md#escaping-and-inheritance)
+for raw template values. Text and quoted-attribute selectors defer encoding to
+final emission, preserve bounded rendering, and keep explicit `safe` assertions
+separate. Filter chaining, the conservative default and plain-text mode are
+documented alongside the [library delivery record](completed-work/libraries.md#b38-library-breadth).
+
 ## Typed time and cancellable waits
 
 Delivered B42.
