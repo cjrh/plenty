@@ -4,7 +4,14 @@
 mod support;
 #[cfg(feature = "runtime-checks")]
 use support::http_program_output as output;
-use support::{assert_http_program as runs, tls_fixtures as fixtures};
+use support::tls_fixtures as fixtures;
+
+fn runs(prelude: &str, main: &str, expected: &str) {
+    assert_eq!(
+        support::without_http_dates(&support::http_program_output(&format!("{prelude}{main}"))),
+        expected.trim_end()
+    );
+}
 
 /// An in-memory `Transport` and a handler covering each response style.
 const SCRIPTED: &str = r##"import std.bytes
@@ -2187,4 +2194,170 @@ def main() -> Result[(), ServerError | AllocError | IoError]:
     assert_eq!(result.matches("HTTP/1.1 404 Not Found|").count(), 2);
     assert!(result.contains("||first-owned-fallback"), "{result}");
     assert!(result.ends_with("||second-owned-fallback"), "{result}");
+}
+
+/// Date is generated once on every final response path, never on 100,
+/// and a mixed-case caller override remains byte-for-byte unchanged.
+#[test]
+fn response_dates_cover_final_refusal_upgrade_and_detached_paths() {
+    let source = format!("{SCRIPTED}");
+    let source = source
+        + r##"
+pub class DateApp:
+    pub def handle(self, route: &i64, exchange: &mut Exchange[Script]) -> Result[(), HttpError | AllocError]:
+        match *route:
+            case 1:
+                mut head = std.http.response(200, "OK")?
+                head.add("dAtE", "caller value")?
+                exchange.respond(head, b"override")?
+            case 2:
+                mut head = std.http.response(101, "Switching Protocols")?
+                head.add("Connection", "Upgrade")?
+                head.add("Upgrade", "example")?
+                drop(exchange.switch_protocols(head)?)
+            case 3:
+                drop(exchange.detach(std.http.response(200, "OK")?)?)
+            case 4:
+                exchange.start(std.http.response(200, "OK")?)?
+                exchange.write(b"stream")?
+                exchange.end()?
+            case 5:
+                mut body = std.bytes.empty()?
+                exchange.read_all(&mut body)?
+                exchange.send_text(200, "continue")?
+            case 6:
+                return Err(HttpError.Broken)
+            case _:
+                exchange.send_text(200, "normal")?
+        Ok(())
+
+def main() -> Result[(), ServerError | AllocError | IoError]:
+    mut table = std.http.server.router[i64]()?
+    table.add("GET", "/", 0)?
+    table.add("GET", "/bad/{name}", 0)?
+    table.add("GET", "/override", 1)?
+    table.add("GET", "/upgrade", 2)?
+    table.add("GET", "/detach", 3)?
+    table.add("GET", "/stream", 4)?
+    table.add("POST", "/continue", 5)?
+    table.add("GET", "/fail", 6)?
+    for line in ["GET /", "GET /override", "GET /upgrade", "GET /detach", "GET /stream", "HEAD /", "GET /fail", "GET /missing", "GET /bad/%zz"]?:
+        print("CASE", line)?
+        request = line.concat(" HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")?
+        stop = CancellationToken()?
+        drop(std.http.server.serve_connection(Script(std.bytes.from_text(&request)?, 0, 4096, False, True), &table, &DateApp(), &std.http.server.config(), &stop, &stop))
+        print("")?
+    print("CASE continue")?
+    stop = CancellationToken()?
+    drop(std.http.server.serve_connection(Script(std.bytes.from_text("POST /continue HTTP/1.1\r\nHost: x\r\nContent-Length: 1\r\nExpect: 100-continue\r\nConnection: close\r\n\r\nx")?, 0, 1, False, True), &table, &DateApp(), &std.http.server.config(), &stop, &stop))
+    print("")?
+    Ok(())
+"##;
+    let result = support::http_program_output(&source);
+    let sections: Vec<_> = result.split("CASE ").skip(1).collect();
+    assert_eq!(sections.len(), 10, "{result}");
+    for section in sections {
+        if section.starts_with("GET /override\n") {
+            assert_eq!(
+                section.matches("dAtE: caller value|").count(),
+                1,
+                "{section}"
+            );
+            assert!(!section.contains("Date: "), "{section}");
+        } else {
+            let dates: Vec<_> = section
+                .split('|')
+                .filter_map(|field| field.strip_prefix("Date: "))
+                .collect();
+            assert_eq!(dates.len(), 1, "{section}");
+            let date = dates[0];
+            assert_eq!(date.len(), 29, "{date}");
+            assert!(date.ends_with(" GMT"), "{date}");
+            assert_eq!(&date[3..5], ", ");
+            assert_eq!(&date[16..17], " ");
+        }
+    }
+    assert!(
+        result.contains("HTTP/1.1 100 Continue||HTTP/1.1 200 OK|"),
+        "{result}"
+    );
+    assert!(
+        result.contains("HTTP/1.1 101 Switching Protocols|"),
+        "{result}"
+    );
+    assert!(result.contains("HTTP/1.1 400 Bad Request|"), "{result}");
+    assert!(
+        result.contains("HTTP/1.1 500 Internal Server Error|"),
+        "{result}"
+    );
+}
+
+/// Unusable readings and caller overrides need no allocation. Allocation
+/// refusal from a usable reading stays typed instead of producing fake dates.
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn response_date_policy_handles_unusable_time_and_allocation_refusal() {
+    let module = include_str!("../stdlib/std/http/server.plenty");
+    let start = module.find("def dated(").unwrap();
+    let helper = module[start..].split("\n\n").next().unwrap();
+    let extra = [
+        "def date(",
+        "def http_allocated[T](",
+        "def flushed(",
+        "def admission_response(",
+    ]
+    .iter()
+    .map(|marker| {
+        let start = module.find(marker).unwrap();
+        module[start..]
+            .split("\n\n")
+            .next()
+            .unwrap()
+            .replace("reason(status)", "std.http.server.reason(status)")
+    })
+    .collect::<Vec<_>>()
+    .join("\n\n");
+    let source = format!(
+        r##"import std.bytes
+import std.http
+import std.http.server
+import std.io
+import std.time
+from std.bytes import Bytes
+from std.io import StreamError
+from std.http import ResponseHead, HttpError
+{helper}
+{extra}
+
+def main() -> Result[(), HttpError | AllocError | IoError]:
+    mut bad = std.http.response(200, "OK")?
+    mut override = std.http.response(200, "OK")?
+    override.add("dAtE", "kept")?
+    mut interim = std.http.response(100, "Continue")?
+    print("__test_begin_no_allocations__")?
+    before = dated(&mut bad, &std.time.Timestamp(-1, 0u32)).is_ok()
+    after = dated(&mut bad, &std.time.Timestamp(253402300800, 0u32)).is_ok()
+    invalid = dated(&mut bad, &std.time.Timestamp(0, 1000000000u32)).is_ok()
+    kept = dated(&mut override, &std.time.Timestamp(0, 0u32)).is_ok()
+    skipped = dated(&mut interim, &std.time.Timestamp(0, 0u32)).is_ok()
+    print("__test_end_no_allocations__")?
+    print("__test_fail_allocations_after_0__")?
+    failed = match dated(&mut bad, &std.time.Timestamp(0, 0u32)):
+        case Err(HttpError.Allocation(_)):
+            True
+        case _:
+            False
+    print("__test_restore_allocations__")?
+    print(before, after, invalid, kept, skipped, failed, len(bad.headers), len(override.headers), len(interim.headers))?
+    print(std.http.http_date(&std.time.Timestamp(784111777, 0u32))?.unwrap())?
+    for status in [408, 503]?:
+        text = admission_response(status)?.to_text().unwrap()
+        print(len(text.split("\r\nDate: ")?) == 2, "Connection: close\r\n" in text)?
+    Ok(())
+"##
+    );
+    assert_eq!(
+        support::http_program_output(&source),
+        "True True True True True True 0 1 0\nSun, 06 Nov 1994 08:49:37 GMT\nTrue True\nTrue True"
+    );
 }

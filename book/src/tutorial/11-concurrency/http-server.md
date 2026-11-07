@@ -173,6 +173,11 @@ wins before any redirect, and redirects win before the unknown-path fallback.
 The default `TrailingSlash.Exact` performs no alternate lookup. See
 [redirect limits and precedence](../../design/stdlib/http-server.md#trailing-slash-redirects).
 
+The server adds a `Date` header automatically when the wall reading can be
+represented as an HTTP date. Supplying your own `Date` on a response head
+preserves that value. The example prints only the status and body, so its
+output does not depend on the clock. See [response dates](../../design/stdlib/http-server.md#response-dates).
+
 The client sends a `Host` field because HTTP/1.1 requires exactly one: a
 request without it, with two, or with a malformed value gets `400` before
 routing. The handler finds the host the request names in

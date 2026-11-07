@@ -408,3 +408,12 @@ rendering; work, depth, output and allocation errors preserve engine/context
 reuse. Existing rendering remains unchanged. The [bounded contract](../design/stdlib/template-html.md)
 excludes HTML5 tree repair, scripting/style/foreign content, comments, dynamic
 URLs and sanitization.
+
+## HTTP response dates (issue #786)
+
+The HTTP server adds `Date` to final, streaming, upgraded, detached and
+server-generated responses, preserving caller overrides and leaving interim
+`100 Continue` unchanged. The shared [`std.http.http_date`](../design/stdlib/http.md#http-dates)
+formatter retains the static-file API through a compatibility wrapper.
+Unrepresentable wall readings omit the field; allocation refusal remains an
+ordinary response failure. See [response dates](../design/stdlib/http-server.md#response-dates).

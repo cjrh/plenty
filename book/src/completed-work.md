@@ -158,3 +158,8 @@ arithmetic, ordering comparisons and calls remain unsupported.
 Issue #839 adds opt-in structural preflight and inferred text/quoted-attribute
 escaping for a bounded HTML subset. See [the contract](design/stdlib/template-html.md)
 and [the delivery record](completed-work/libraries.md#checked-html-template-rendering).
+
+## HTTP response dates
+
+Issue #786 adds automatic response dates with caller overrides and shared
+bounded formatting. See the [delivery record](completed-work/libraries.md#http-response-dates-issue-786).

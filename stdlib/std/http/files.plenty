@@ -151,14 +151,6 @@ def day_names() -> str:
 
 def month_names() -> str:
     return "JanFebMarAprMayJunJulAugSepOctNovDec"
-# 9999-12-31T23:59:59Z: the last second an IMF-fixdate can show.
-const last_second: i64 = 253402300799
-
-def two(out: &str, value: i64) -> Result[str, FilesError]:
-    mut text = allocated(str.from(value))?
-    if value < 10:
-        text = allocated("0".concat(&text))?
-    allocated(out.concat(&text))
 
 def days_from_civil(year: i64, month: i64, day: i64) -> i64:
     # Only parsed dates reach here: 1970<=year<=9999, month=1..12,
@@ -178,48 +170,7 @@ def days_from_civil(year: i64, month: i64, day: i64) -> i64:
 # `seconds` since the epoch as an IMF-fixdate (RFC 9110 section 5.6.7), such
 # as `Sun, 06 Nov 1994 08:49:37 GMT`. Only 1970 to 9999 are shown.
 pub def http_date(timestamp: &Timestamp) -> Result[Option[str], FilesError]:
-    # The guard bounds seconds to 0..253402300799. days<=2932896,
-    # z<=3652364, era<=24, doe<146097, yoe<=399, mp<=11. Calendar
-    # arithmetic stays below four million; clock<=86399. Month=1..12
-    # and weekday=0..6 bound the name indexes; all divisors are positive.
-    unchecked:
-        seconds = timestamp.seconds
-        if timestamp.nanoseconds >= 1000000000u32 or seconds < 0 or seconds > last_second:
-            return Ok(Nothing)
-        days = seconds // 86400
-        clock = seconds % 86400
-        # Howard Hinnant's civil_from_days, for days on or after 1970-01-01.
-        z = days + 719468
-        era = z // 146097
-        doe = z - era * 146097
-        yoe = (doe - doe // 1460 + doe // 36524 - doe // 146096) // 365
-        doy = doe - (365 * yoe + yoe // 4 - yoe // 100)
-        mp = (5 * doy + 2) // 153
-        day = doy - (153 * mp + 2) // 5 + 1
-        mut month = mp + 3
-        if mp >= 10:
-            month = mp - 9
-        mut year = yoe + era * 400
-        if month <= 2:
-            year += 1
-        weekday = days % 7
-        names = allocated(std.bytes.from_text(day_names()))?
-        mut out = lifted(names.to_text_range(weekday * 3, weekday * 3 + 3))?
-        out = allocated(out.concat(", "))?
-        out = two(&out, day)?
-        months = allocated(std.bytes.from_text(month_names()))?
-        out = allocated(out.concat(" "))?
-        out = allocated(out.concat(&lifted(months.to_text_range(month * 3 - 3, month * 3))?))?
-        out = allocated(out.concat(" "))?
-        out = allocated(out.concat(&allocated(str.from(year))?))?
-        out = allocated(out.concat(" "))?
-        out = two(&out, clock // 3600)?
-        out = allocated(out.concat(":"))?
-        out = two(&out, clock % 3600 // 60)?
-        out = allocated(out.concat(":"))?
-        out = two(&out, clock % 60)?
-        out = allocated(out.concat(" GMT"))?
-        Ok(Some(out))
+    http(std.http.http_date(timestamp))
 
 # The decimal number in data[start:start + count], or -1.
 def digits(data: &Bytes, start: i64, count: i64) -> i64:
