@@ -156,12 +156,21 @@ pub(super) fn check_symbols<'a>(
                 }
             }
             let signature = (inputs, declaration.output(sig).map(abi));
-            if let Some(previous) = symbols.insert(symbol, signature.clone())
-                && previous != signature
+            if let Some((previous, thread_safe)) =
+                symbols.insert(symbol, (signature.clone(), declaration.thread_safe))
             {
-                return Err(f
-                    .at
-                    .error(format!("conflicting C signatures for symbol `{symbol}`")));
+                if previous != signature {
+                    return Err(f
+                        .at
+                        .error(format!("conflicting C signatures for symbol `{symbol}`")));
+                }
+                // One C function has one thread-safety; declarations that
+                // disagree leave a reader unable to tell which is right.
+                if thread_safe != declaration.thread_safe {
+                    return Err(f.at.error(format!(
+                        "conflicting `@thread_safe` declarations for symbol `{symbol}`; annotate every declaration of it or none"
+                    )));
+                }
             }
         }
     }

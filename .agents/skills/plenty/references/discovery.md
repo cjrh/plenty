@@ -15,7 +15,7 @@ and linked module references own the current API contracts.
 | Parse a submitted form | [std.http.body](../../../../book/src/design/stdlib/http-body.md): bounded `parse_form_text` and `read_form`. Parsing key/value pairs is distinct from deriving typed validation for a class. |
 | Preserve a partial I/O failure | [std.io](../../../../book/src/design/stdlib/io.md): `Partial` records completed work and the cause; it can be a member of an error union. [Typed streams](../../../../book/src/design/stdlib/io-typed.md) preserve a caller-chosen cause type. |
 | Stop a worker or bounded wait | [Cancellation](../../../../book/src/design/facilities/03-concurrency/cancellation.md), [std.sync](../../../../book/src/design/stdlib/sync.md) deadline wrappers and [std.ready](../../../../book/src/design/stdlib/ready.md) handle readiness. A token does not interrupt arbitrary blocking calls. |
-| Call native code from a worker | [Worker effects](../../../../book/src/design/facilities/03-concurrency/effects.md): user foreign calls, including reachable destructors, remain rejected. Standard helpers also undergo certification; they have no blanket exemption. |
+| Call native code from a worker | [Worker effects](../../../../book/src/design/facilities/03-concurrency/effects.md): a reachable foreign call, including from a destructor, is rejected unless its `extern def` is [`@thread_safe`](../../../../book/src/design/facilities/04-interop/trusted-declarations.md#worker-threads); opaque pointers stay ineligible. Standard helpers also undergo certification; they have no blanket exemption. |
 
 ## Verify the report
 
@@ -107,7 +107,7 @@ an unbounded child wait or foreign call.
 
 ## A confirmed worker restriction
 
-A minimal negative check distinguishes unsupported worker FFI from an API
+A minimal negative check distinguishes an uncertified foreign call from an API
 search failure. The companion interface is a declaration only; no native
 library is needed because the program is rejected during checking:
 
@@ -127,10 +127,13 @@ def main() -> Result[(), SpawnError[()]]:
     Ok(())
 ```
 ```error
-foreign calls have no worker-thread effect contract
+C function `external` has no worker-thread effect contract
 ```
 
 The [effect reference](../../../../book/src/design/facilities/03-concurrency/effects.md)
 also covers transitive helpers and destruction. Prefer an existing certified
 standard operation when it expresses the task; renaming a foreign call or
-moving it into a helper does not certify it.
+moving it into a helper does not certify it. Add
+[`@thread_safe`](../../../../book/src/design/facilities/04-interop/trusted-declarations.md#worker-threads)
+to the `extern def` only after checking that the C function is safe on any
+thread; the compiler trusts the annotation. Opaque pointers stay ineligible.

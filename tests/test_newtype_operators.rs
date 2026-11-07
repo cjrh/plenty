@@ -318,7 +318,7 @@ fn invalid_newtype_declarations_are_diagnosed() {
         ("@newtype\n@newtype\nclass D:\n    x: i64", "duplicate"),
         (
             "@final\nclass U:\n    x: i64",
-            "the annotations are `@copy`, `@newtype` and `@redacted`",
+            "the annotations are `@copy`, `@newtype`, `@redacted` and `@thread_safe`",
         ),
     ] {
         let error = support::check_source(source).unwrap_err().to_string();

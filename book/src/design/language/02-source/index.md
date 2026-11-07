@@ -31,7 +31,8 @@ Anonymous functions can appear in function bodies; see
 
 A line holding only `@name` annotates the declaration below it. The set of
 annotations is closed and compiler-known: `@copy` and `@newtype` on classes,
-and `@redacted` on classes and enums.
+`@redacted` on classes and enums, and `@thread_safe` on `extern def`
+declarations.
 See [annotations](../03-types/classes.md#annotations).
 
 Names follow [lexical scope and prelude rules](names.md). Modules use

@@ -39,3 +39,42 @@ ownership, and errors. Plenty does not verify the native implementation;
 application code should use typed wrappers.
 `pub` exposes a name to Plenty imports; it does not export a C symbol. See the
 [C interface reference](../../design/facilities/04-interop/trusted-declarations.md) for the supported ABI.
+
+## Call C on worker threads
+
+A [worker thread](../11-concurrency/index.md) cannot reach a foreign call
+unless its declaration is annotated `@thread_safe`. Plenty cannot see what C
+code does, so this annotation is your promise that the function is safe on any
+thread, at the same time as other calls, and changes no state that other
+threads share, such as the working directory. POSIX documents `getpid` as safe:
+
+```plenty-file c_process.plentyi
+@thread_safe
+extern def getpid_raw() -> i32 = "getpid"
+
+pub def id() -> i32:
+    getpid_raw()
+```
+
+```plenty
+import c_process
+
+def same_process(parent: i32) -> bool:
+    c_process.id() == parent
+
+def main() -> Result[(), IoError | SpawnError[()]]:
+    parent = c_process.id()
+    with spawn(same_process, parent).drop_job()? as task:
+        print(task.join())?
+    Ok(())
+```
+
+```output
+True
+```
+
+Without the annotation, checking rejects the program and names `getpid`. Leave
+it off when the C documentation does not state thread safety. Opaque pointers
+stay on the thread that holds them even when every call is annotated; see
+[worker threads](../../design/facilities/04-interop/trusted-declarations.md#worker-threads)
+for the full rules.
