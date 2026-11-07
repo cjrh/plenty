@@ -43,9 +43,13 @@ bytes, is a bug in the caller, so it stops the program with a
 [trap report](../../design/language/08-errors/02-allocation-and-traps.md#trap-reports)
 naming the method, `Bytes.get: index is outside 0..len()`, and your calling
 line. Check a range that comes from input first and return your own error.
-`slice` and `copy` make independent buffers; nothing is copied unless you ask. `to_text` succeeds only for valid UTF-8, and a zero byte
-is ordinary data. Printing a buffer spells it as a byte literal, with `\xhh`
-for bytes that are not printable ASCII; for hex output, see
+`slice` and `copy` make independent buffers; nothing is copied unless you ask.
+`to_text` succeeds only for valid UTF-8, and a zero byte is ordinary data. To
+show bytes that might not be UTF-8, such as another program's output,
+`to_text_lossy()` replaces each invalid sequence with U+FFFD instead of
+failing; see [lossy text](../../design/stdlib/bytes.md#lossy-text). Printing a
+buffer spells it as a byte literal, with `\xhh` for bytes that are not
+printable ASCII; for hex output, see
 [printing bytes](../../design/stdlib/bytes.md#printing).
 
 `checksum` shows how to work on part of a buffer: borrow it and pass the range.

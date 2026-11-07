@@ -99,7 +99,10 @@ False Option[i32].Some(3)
 
 `env` sets a variable for this child only. `communicate` writes the input,
 reads both outputs as they arrive so that no pipe fills up, and returns the
-exit status. A nonzero exit code is a normal result: the program ran. Never
+exit status. A nonzero exit code is a normal result: the program ran.
+Output is bytes, and `to_text` fails with `InvalidUtf8` when a program writes
+something that is not UTF-8. When you only need to show or log it, use
+`to_text_lossy()`, which replaces invalid sequences with U+FFFD. Never
 put text you did not write into a `shell` script; pass it as an argument or a
 variable.
 
