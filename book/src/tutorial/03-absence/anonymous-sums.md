@@ -167,7 +167,9 @@ invalid setting: RangeError.OutOfRange
 ```
 
 A missing setting becomes the default `8`; parse and range errors keep their
-original values. `rest` has type `ParseError | RangeError`, so `Err(rest)`
+original values. `show` prints a forwarded error and continues only so the
+demonstration can try all three inputs; an application would usually
+propagate it with `?` or return a failure status. `rest` has type `ParseError | RangeError`, so `Err(rest)`
 matches the smaller declared error. The compiler checks the written members
 against what the earlier cases leave and names the correct set when they
 differ. A member counts as handled only when every one of its variants is, so

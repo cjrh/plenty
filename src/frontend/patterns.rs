@@ -889,7 +889,10 @@ impl Tree {
                     }
                 }
             }
-            _ => {}
+            // Another row matches every value first, so this one is unreachable.
+            Tree::Leaf(_) => {}
+            // The root of a match on an anonymous sum tests its member tag.
+            _ => unreachable!("a residual case requires a root member switch"),
         }
     }
 

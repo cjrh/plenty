@@ -147,7 +147,9 @@ residual. A member type written in the case must belong to the matched sum.
 The members normalize like any sum. When one member remains, the ordinary
 `case rest: B:` is the residual case; `B | C` written for a single remaining
 `B` is rejected. In generic code, substitution can collapse a written
-`T | C` to `C`, which then matches as an ordinary member pattern. A residual
+`T | C` to `C`, which then matches as an ordinary member pattern. The check
+runs on each instance, so the same case rejects an instance whose `T` is a
+member that earlier cases already handle. A residual
 case with nothing left is an unreachable case; there are no empty sums.
 Written first, a residual naming every member binds the whole value.
 
