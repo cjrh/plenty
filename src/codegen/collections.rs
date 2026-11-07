@@ -382,6 +382,8 @@ impl Lowerer<'_, '_> {
             CollectionOp::Bytes(BytesOp::Item) => (runtime.bytes_item, true, Site::Trap),
             CollectionOp::Bytes(BytesOp::SetItem) => (runtime.bytes_set_item, true, Site::Trap),
             CollectionOp::Bytes(BytesOp::ValueItem) => (runtime.bytes_item, false, Site::Trap),
+            CollectionOp::Bytes(BytesOp::Get) => (runtime.bytes_get, false, Site::None),
+            CollectionOp::Bytes(BytesOp::Set) => (runtime.bytes_set, false, Site::None),
             CollectionOp::Bytes(BytesOp::Len) => (runtime.bytes_len, false, Site::None),
             CollectionOp::Len(Ty::Str) => (runtime.text_len, false, Site::None),
             CollectionOp::TextByteLen => (runtime.text_byte_len, false, Site::None),
@@ -1202,7 +1204,15 @@ impl Lowerer<'_, '_> {
             } else {
                 receiver
             };
-            let borrowed = borrowed || self.forget_fresh_load(receiver);
+            // Byte method arguments can separate the receiver load from this
+            // call. Its recorded slot/field copy remains borrowed while the
+            // owner is held in place; these helpers cannot call back or grow it.
+            let borrowed = borrowed
+                || self.forget_fresh_load(receiver)
+                || (matches!(
+                    operation,
+                    CollectionOp::Bytes(crate::bytes::BytesOp::Get | crate::bytes::BytesOp::Set)
+                ) && self.forget_slot_copy(receiver));
             let mut args = vec![owner];
             args.extend(trailing);
             match site {
@@ -1278,7 +1288,9 @@ impl Lowerer<'_, '_> {
         // is, whatever the rules above say.
         let inserts = matches!(
             operation,
-            CollectionOp::TryInsert(_) | CollectionOp::DictGetOrInsert(_)
+            CollectionOp::TryInsert(_)
+                | CollectionOp::ListTryInsert(_)
+                | CollectionOp::DictGetOrInsert(_)
         );
         let mut values = Vec::new();
         let mut held = Vec::new();

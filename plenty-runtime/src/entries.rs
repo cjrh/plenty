@@ -141,6 +141,21 @@ impl Words {
         };
         self.len += bytes.len();
     }
+    /// Move bytes `at..` up by `width` with one `memmove` and zero the
+    /// opened gap. Unlike `resize` followed by `copy_within`, the new tail is
+    /// written once, by the move.
+    fn open_gap(&mut self, at: usize, width: usize) {
+        assert!(at <= self.len && width <= self.capacity - self.len);
+        // SAFETY: both ranges lie in the owned allocation, `copy_to` permits
+        // overlap, and zeroing the gap initializes every byte below the new
+        // length.
+        unsafe {
+            let gap = self.ptr.as_ptr().cast::<u8>().add(at);
+            gap.copy_to(gap.add(width), self.len - at);
+            gap.write_bytes(0, width);
+        }
+        self.len += width;
+    }
     fn resize(&mut self, len: usize, value: u8) {
         assert!(len <= self.capacity);
         if len > self.len {
@@ -588,6 +603,22 @@ impl Entries {
         unsafe {
             self.set(index, false, entry.key);
             self.set(index, true, entry.value);
+        }
+    }
+    /// Insert a dense row at `index`, at most `len()`, moving the later rows
+    /// up one row with a single `memmove`. Reservation belongs to the
+    /// surrounding transactional operation.
+    pub unsafe fn insert(&mut self, index: usize, entry: Entry) {
+        assert!(self.order.is_none(), "only dense lists insert");
+        let len = self.len();
+        assert!(index <= len && len < self.capacity());
+        // Extraction scratch is dead at this mutation, as for `push`.
+        self.data.truncate(len * self.stride);
+        self.removed = false;
+        self.data.open_gap(index * self.stride, self.stride);
+        self.relocate(index + 1);
+        unsafe {
+            self.set(index, false, entry.key);
         }
     }
     /// Append byte copies of `count` dense rows of `source`, starting at row

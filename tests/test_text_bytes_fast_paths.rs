@@ -634,3 +634,181 @@ fn held_text_operands_skip_the_dispatcher_and_retain() {
         "choose: {calls:?}"
     );
 }
+
+/// `get`/`set` keep their stricter nonnegative-index contract, but no longer
+/// marshal each byte through a dispatcher scratch block (issue #741).
+#[test]
+fn byte_methods_use_narrow_helpers_in_both_compilation_modes() {
+    let source = include_str!("../experiments/kernels/bytes/kernels.plenty");
+    for fast in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("methods.plenty"), source).unwrap();
+        let mut compiler = Command::new(support::plenty_bin());
+        compiler
+            .current_dir(directory.path())
+            .env("PLENTY_CACHE", "off");
+        if fast {
+            compiler.arg("--fast-compile");
+        }
+        let output = compiler
+            .args([
+                "--dump",
+                "asm",
+                "--dump-std",
+                "methods.plenty",
+                "-o",
+                "dump",
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let asm = std::fs::read_to_string(directory.path().join("dump/asm.txt")).unwrap();
+        for helper in ["plenty_bytes_get", "plenty_bytes_set"] {
+            assert!(asm.contains(helper), "fast={fast}: missing {helper}");
+        }
+        if !fast {
+            let transform = asm
+                .split("==== transform ")
+                .nth(1)
+                .expect("kernel function")
+                .split("====")
+                .next()
+                .unwrap();
+            for bookkeeping in ["plenty_retain", "plenty_release"] {
+                assert!(!transform.contains(bookkeeping), "{transform}");
+            }
+        }
+        for dispatcher in ["plenty_op_173", "plenty_op_174"] {
+            assert!(
+                !asm.contains(dispatcher),
+                "fast={fast}: retained {dispatcher}"
+            );
+        }
+        let mut run = Command::new(support::plenty_bin());
+        run.current_dir(directory.path()).env("PLENTY_CACHE", "off");
+        if fast {
+            run.arg("--fast-compile");
+        }
+        let output = run.arg("methods.plenty").output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "b\"acgt\"\n");
+    }
+}
+
+#[test]
+fn byte_methods_keep_owned_temporaries_and_borrowed_fields_live() {
+    const SOURCE: &str = r#"
+from std.bytes import Bytes, from_text
+
+class Holder:
+    data: Bytes
+
+def change(data: &mut Bytes, index: i64, mask: u8) -> ():
+    data.set(index, data.get(index) ^ mask)
+
+def read(data: &Bytes, index: i64) -> u8:
+    data.get(index)
+
+def main() -> Result[(), AllocError | IoError]:
+    mut holder = Holder(from_text("ABC")?)
+    change(&mut holder.data, 1, 32u8)
+    print(holder.data, read(&holder.data, 0), (from_text("xyz")?).get(2))?
+    borrowed = &mut holder.data
+    borrowed.set(2, borrowed.get(2) ^ 32u8)
+    print(holder.data)?
+    Ok(())
+"#;
+    for optimize in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("program");
+        let options = plenty::CompileOptions {
+            optimize,
+            ..Default::default()
+        };
+        plenty::compile_source_to_executable_with_options(SOURCE, &path, &options).unwrap();
+        let output = Command::new(path).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "b\"AbC\" 65 122\nb\"Abc\"\n"
+        );
+    }
+}
+
+#[test]
+fn byte_methods_keep_strict_bounds_and_user_trap_locations() {
+    const SOURCE: &str = r#"
+from std.bytes import Bytes, from_text
+
+def read(data: &Bytes, index: i64) -> u8:
+    data.get(index)
+
+def write(data: &mut Bytes, index: i64) -> ():
+    data.set(index, 0u8)
+
+def main() -> Result[(), AllocError | IoError]:
+    mut data = from_text("abc")?
+    match args()?[1]:
+        case "0":
+            print(read(&data, -1))?
+        case "1":
+            print(read(&data, 3))?
+        case "2":
+            print(read(&data, i64.MIN))?
+        case "3":
+            print(read(&data, i64.MAX))?
+        case "4":
+            write(&mut data, -1)
+        case "5":
+            write(&mut data, 3)
+        case "6":
+            write(&mut data, i64.MIN)
+        case "7":
+            write(&mut data, i64.MAX)
+        case _:
+            pass
+    Ok(())
+"#;
+    for optimize in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("bounds.plenty");
+        let executable = dir.path().join("program");
+        std::fs::write(&source, SOURCE).unwrap();
+        let options = plenty::CompileOptions {
+            optimize,
+            ..Default::default()
+        };
+        plenty::compile_file_to_executable_with_options(&source, &executable, None, &options)
+            .unwrap();
+        for case in 0..8 {
+            let output = Command::new(&executable)
+                .arg(case.to_string())
+                .output()
+                .unwrap();
+            assert_eq!(output.status.code(), Some(1));
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let method = if case < 4 { "get" } else { "set" };
+            assert!(
+                stderr.contains(&format!("Bytes.{method}: index is outside 0..len()")),
+                "{stderr}"
+            );
+            let line = if case < 4 { 5 } else { 8 };
+            assert!(
+                stderr.contains(&format!("note: called from bounds.plenty:{line}:5")),
+                "{stderr}"
+            );
+        }
+    }
+}

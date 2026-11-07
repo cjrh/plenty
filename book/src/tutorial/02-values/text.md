@@ -40,6 +40,7 @@ def main() -> Result[(), AllocError | IoError | ParseError]:
     print("apple" < "pear")?
     print("abc".isalpha())?
     print("123".isdigit())?
+    print("v2".isalnum())?
     print(ord("é")?)?
     print(chr(233)?)?
     print("Hello".lower()?)?
@@ -49,6 +50,7 @@ def main() -> Result[(), AllocError | IoError | ParseError]:
 ```
 
 ```output
+True
 True
 True
 True
