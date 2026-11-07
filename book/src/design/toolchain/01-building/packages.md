@@ -174,7 +174,10 @@ rebuilds), every file the last build read with its contents, the package graph,
 the entry file, the target kind, the profile and linker options, and the
 compiler executable (path, size, and modification time; the compiler embeds
 `std` and the runtime). A symbolic link below `src/` counts by the name of its
-target. Reuse makes the checks the [program
+target. The walk does not follow a link to a directory, so a module added
+inside a linked directory is noticed only when an import resolves to it, by the
+import checks below. Retargeting a linked `src/` or `tests/` itself rebuilds,
+since the canonical entry and source roots are inputs. Reuse makes the checks the [program
 cache](../02-architecture/cache.md#program-objects) makes: every import must
 still resolve to the same file, and every [included file](#included-files) must
 still be one the package may include. A file in the package directory that no

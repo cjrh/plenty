@@ -102,6 +102,7 @@ pub(crate) struct Program {
     pub(crate) warnings: Vec<crate::diagnostic::Warning>,
 }
 
+pub(crate) use modules::identity as graph_identity;
 pub(crate) use modules::inputs::{Inputs, standard_digest};
 
 /// A diagnostic that can leave a worker thread. A compiler diagnostic keeps

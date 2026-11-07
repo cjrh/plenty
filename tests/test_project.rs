@@ -1684,6 +1684,62 @@ fn graph_packages_with_one_parent_include_only_their_own_sources() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+
+    // A package named like `a`'s tests but rooted elsewhere is not exempt.
+    write(&work.join("t_src/lib.plenty"), "pub const N: i64 = 1\n");
+    write(&work.join("t_src/private.txt"), "private");
+    write(
+        &work.join("a_src/main.plenty"),
+        "import b\nconst S: str = include_str(\"../t_src/private.txt\")\n\ndef main() -> ():\n    pass\n",
+    );
+    let graph = std::fs::read_to_string(work.join("graph.toml")).unwrap();
+    write(
+        &work.join("graph.toml"),
+        &format!(
+            "{graph}\n[[package]]\nidentity = \"a-tests\"\nroot = \"t_src\"\nlibrary = \"t_src/lib.plenty\"\ndependencies = {{}}\n"
+        ),
+    );
+    let output = check();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(
+            "included path `../t_src/private.txt` belongs to package `a-tests`; package `a` may include only its own files"
+        ),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn reuse_follows_a_retargeted_source_or_tests_link() {
+    // Each tree's files still exist and are unchanged, so only the canonical
+    // roots tell the builds apart.
+    let dir = tempfile::tempdir().unwrap();
+    package(dir.path(), "app", "", &[]);
+    let app = dir.path().join("app");
+    let main = |word: &str| {
+        format!("def main() -> Result[(), IoError]:\n    print(\"{word}\")?\n    Ok(())\n")
+    };
+    write(&app.join("src1/main.plenty"), &main("one"));
+    write(&app.join("src2/main.plenty"), &main("two"));
+    write(&app.join("t1/check.plenty"), "def main() -> i32:\n    0\n");
+    write(&app.join("t2/check.plenty"), "def main() -> i32:\n    1\n");
+    let link = |target: &str, name: &str| {
+        let path = app.join(name);
+        let _ = std::fs::remove_file(&path);
+        std::os::unix::fs::symlink(target, path).unwrap();
+    };
+    link("src1", "src");
+    link("t1", "tests");
+    assert_eq!(succeeds(&app, &["run"]), "one\n");
+    assert!(status_lines(&app, &["build"]).contains("Fresh"));
+    succeeds(&app, &["test"]);
+
+    link("src2", "src");
+    assert!(status_lines(&app, &["build"]).contains("Compiling"));
+    assert_eq!(succeeds(&app, &["run"]), "two\n");
+    link("t2", "tests");
+    assert!(!plenty(&app, &["test"]).status.success());
 }
 
 #[test]

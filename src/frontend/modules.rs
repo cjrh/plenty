@@ -1110,7 +1110,7 @@ pub(super) fn file_graph(
 
 /// The canonical entry and packages [`load_graph`] would use: what names a
 /// build of them in the program cache. `None` when loading would fail.
-pub(super) fn identity(path: &Path, graph: &crate::project::SourceGraph) -> Option<String> {
+pub(crate) fn identity(path: &Path, graph: &crate::project::SourceGraph) -> Option<String> {
     let entry = path.canonicalize().ok()?;
     let packages = prepare_packages(graph).ok()?;
     Some(format!("{entry:?}\n{packages:?}"))
@@ -1592,10 +1592,18 @@ pub(super) fn included_file(
             }
         }
     };
+    // A package and its tests share a directory. The tests package is named
+    // after the package and rooted at the directory's `tests/`, so a package
+    // that only borrows the name is not exempt.
+    let tests_of = |tests: &crate::project::SourcePackage, of: &crate::project::SourcePackage| {
+        tests.identity == format!("{}-tests", of.identity)
+            && tests.directory.as_ref().is_some_and(|directory| {
+                directory.join("tests").canonicalize().ok().as_ref() == Some(&tests.root)
+            })
+    };
     let sibling = |other: &crate::project::SourcePackage| {
         other.directory == includer.directory
-            && (other.identity == format!("{}-tests", includer.identity)
-                || includer.identity == format!("{}-tests", other.identity))
+            && (tests_of(other, includer) || tests_of(includer, other))
     };
     let owner = file
         .ancestors()

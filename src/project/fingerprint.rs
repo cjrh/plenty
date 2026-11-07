@@ -9,7 +9,8 @@
 //! compiler's identity. The compiler embeds `std` and the runtime, so its
 //! identity covers both.
 //!
-//! The contents are not hashed here. The stored fingerprint holds the
+//! It also covers the canonical entry and source roots, so retargeting a
+//! symbolic `src/` or `tests/` rebuilds. The contents are not hashed here. The stored fingerprint holds the
 //! frontend's [`Inputs`](crate::frontend::Inputs): every source and included
 //! file the build read, with its digest. A target is fresh only while they
 //! are [current](crate::frontend::Inputs::current), the check the program
@@ -38,6 +39,13 @@ pub(super) fn digest(
     field(crate::cache::compiler_identity());
     field(kind);
     field(&entry.display().to_string());
+    // The canonical entry and roots: retargeting a symbolic `src/` or
+    // `tests/` leaves the recorded inputs current, as they name the old
+    // canonical files. `None` means the build will fail and record nothing.
+    field(&format!(
+        "{:?}",
+        crate::frontend::graph_identity(entry, graph)
+    ));
     // Moving/replacing an optional shared engine changes the RUNPATH of an
     // executable that reaches it. Missing/unused engines never fail fingerprinting.
     for engine in crate::toolchain::ENGINES {
@@ -166,11 +174,11 @@ impl Fingerprint {
         let mut bytes = self.digest.clone().into_bytes();
         bytes.push(b'\n');
         bytes.extend_from_slice(&inputs);
-        std::fs::create_dir_all(self.path.parent().unwrap())?;
-        let mut temporary = self.path.clone().into_os_string();
-        temporary.push(format!(".{}.tmp", std::process::id()));
-        std::fs::write(&temporary, bytes)?;
-        std::fs::rename(&temporary, &self.path)?;
+        let parent = self.path.parent().unwrap();
+        std::fs::create_dir_all(parent)?;
+        let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+        std::io::Write::write_all(&mut temporary, &bytes)?;
+        temporary.persist(&self.path)?;
         Ok(())
     }
 }
