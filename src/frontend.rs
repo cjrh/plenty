@@ -67,6 +67,7 @@ mod quantities;
 mod references;
 mod retention;
 mod serial;
+mod serial_derive;
 mod shared;
 mod slices;
 mod sorting;

@@ -1720,6 +1720,26 @@ impl Engine {
             .map(|(n, _)| n.clone())
             .zip(actual.iter().map(|ty| ty.reference(at)))
             .collect();
+        if matches!(name, "std.serial.decode" | "std.serial.encode") {
+            let value = actual.first().and_then(Argument::as_type);
+            let custom = matches!(value,Some(Ty::Class(t)) if t.get().name != "std.bytes.Bytes")
+                || matches!(value,Some(Ty::Enum(t)) if !t.is_option() && !t.is_result() && !t.tuple() && !t.anonymous());
+            if custom {
+                let ty = value.unwrap();
+                let owner = classes::method_owner(ty).unwrap();
+                let hook = if name.ends_with("decode") {
+                    "__decode__"
+                } else {
+                    "__encode__"
+                };
+                if !self
+                    .templates
+                    .contains_key(&crate::record::method(owner, hook))
+                {
+                    return Err(at.error(format!("{ty} has no {hook} serialization hook; use @serial, or write a private {hook}; automatic decoding requires initializer fields/types to match exactly and return () or Result[(), std.serial.Fault]; preserve constructor invariants in custom decoding")));
+                }
+            }
+        }
         let generated = serial::expand(name, actual, template, &mut replacements, at)?;
         let template = generated.as_ref().unwrap_or(template);
         let mut demanded = Vec::new();
@@ -2320,7 +2340,14 @@ pub(super) fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Res
         | Expression::Bool(_)
         | Expression::Unit
         | Expression::ClassNew(..) => {}
-        Expression::Ambiguous { .. } => unreachable!("resolved with module names"),
+        // Derivation substitutes field AST types before namespace resolution.
+        // Preserve both parser readings until the scope can select one.
+        Expression::Ambiguous { generic, index } => {
+            substitute_expr(generic, substitutions)?;
+            if let Ok(index) = index {
+                substitute_expr(index, substitutions)?;
+            }
+        }
     }
     Ok(())
 }
