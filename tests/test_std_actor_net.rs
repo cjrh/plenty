@@ -542,13 +542,14 @@ fn dial_peer_cancels_on_early_child_exit() {
 fn refused_port() -> (OwnedFd, SocketAddrV4) {
     use rustix::net::{AddressFamily, SocketFlags, SocketType, bind, getsockname, socket_with};
 
-    let socket = socket_with(
-        AddressFamily::INET,
-        SocketType::STREAM,
-        SocketFlags::CLOEXEC,
-        None,
-    )
-    .unwrap();
+    // Darwin requires setting close-on-exec on the descriptor after socket().
+    #[cfg(target_vendor = "apple")]
+    let flags = SocketFlags::empty();
+    #[cfg(not(target_vendor = "apple"))]
+    let flags = SocketFlags::CLOEXEC;
+    let socket = socket_with(AddressFamily::INET, SocketType::STREAM, flags, None).unwrap();
+    #[cfg(target_vendor = "apple")]
+    rustix::io::fcntl_setfd(&socket, rustix::io::FdFlags::CLOEXEC).unwrap();
     bind(&socket, &SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)).unwrap();
     let address = SocketAddrV4::try_from(getsockname(&socket).unwrap()).unwrap();
     (socket, address)
@@ -556,7 +557,12 @@ fn refused_port() -> (OwnedFd, SocketAddrV4) {
 
 #[test]
 fn refused_port_stays_reserved_while_refusing_connections() {
-    let (_reservation, address) = refused_port();
+    let (reservation, address) = refused_port();
+    assert!(
+        rustix::io::fcntl_getfd(&reservation)
+            .unwrap()
+            .contains(rustix::io::FdFlags::CLOEXEC)
+    );
     for _ in 0..10 {
         let error =
             TcpStream::connect_timeout(&address.into(), Duration::from_secs(1)).unwrap_err();

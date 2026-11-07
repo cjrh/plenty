@@ -135,12 +135,34 @@ pub fn int_kind(ty: &Ty) -> i64 {
     }
 }
 
-/// Proof supplied by the divisor's nominal type, retained until native lowering.
+/// Proof supplied by the divisor's nominal type or by an integer literal
+/// divisor, retained until native lowering. The literal rule is in
+/// `book/src/design/language/03-types/numbers.md#checked-blocks`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Divisor {
     Any,
+    /// Never zero; may be `-1`.
     NonZero,
+    /// Greater than zero.
     Positive,
+    /// At most `-2`: a negative literal other than `-1`.
+    BelowMinusOne,
+}
+
+impl Divisor {
+    /// The proof an integer literal divisor with `value` supplies.
+    pub fn literal(value: i128) -> Self {
+        match value {
+            0 => Self::Any,
+            -1 => Self::NonZero,
+            v if v > 0 => Self::Positive,
+            _ => Self::BelowMinusOne,
+        }
+    }
+
+    pub fn may_be_minus_one(self) -> bool {
+        matches!(self, Self::Any | Self::NonZero)
+    }
 }
 
 /// Arithmetic that exits the innermost enclosing `checked:` block with an
@@ -159,14 +181,15 @@ pub enum Checked {
 }
 
 impl Checked {
-    /// The integer operator `op` names, if it can fail.
-    pub fn named(op: &str) -> Option<Self> {
+    /// The integer operator `op` names, if it can fail, with `divisor`'s
+    /// proof for `//` and `%`.
+    pub fn named(op: &str, divisor: Divisor) -> Option<Self> {
         Some(match op {
             "+" => Self::Add,
             "-" => Self::Sub,
             "*" => Self::Mul,
-            "//" => Self::FloorDiv(Divisor::Any),
-            "%" => Self::Modulo(Divisor::Any),
+            "//" => Self::FloorDiv(divisor),
+            "%" => Self::Modulo(divisor),
             _ => return None,
         })
     }
@@ -178,7 +201,7 @@ impl Checked {
         match self {
             Self::Add | Self::Sub | Self::Mul | Self::Pow => true,
             Self::FloorDiv(proof) => {
-                proof != Divisor::Positive && matches!(ty, Ty::I8 | Ty::I16 | Ty::I32 | Ty::I64)
+                proof.may_be_minus_one() && matches!(ty, Ty::I8 | Ty::I16 | Ty::I32 | Ty::I64)
             }
             Self::Modulo(_) | Self::FloatDiv => false,
         }

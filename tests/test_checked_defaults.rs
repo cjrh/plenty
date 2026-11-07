@@ -33,11 +33,12 @@ def main() -> Result[(), IoError]:
 fn errors_are_required_at_the_operation_not_inferred_from_callers() {
     for (body, error) in [
         ("a + 1", "OverflowError[i64]"),
-        ("a // 2", "ZeroDivisionError"),
-        ("a % 2", "ZeroDivisionError"),
+        ("a // b", "ZeroDivisionError"),
+        ("a % b", "ZeroDivisionError"),
     ] {
-        let source =
-            format!("def bad(a: i64) -> i64:\n    {body}\ndef main() -> ():\n    drop(bad(1))\n");
+        let source = format!(
+            "def bad(a: i64, b: i64) -> i64:\n    {body}\ndef main() -> ():\n    drop(bad(1, 2))\n"
+        );
         let diagnostic = check_diagnostic(&source);
         assert!(diagnostic.contains(error), "{diagnostic}");
         assert!(diagnostic.contains("checked:"), "{diagnostic}");

@@ -3235,7 +3235,7 @@ impl Lowerer<'_, '_> {
         }
 
         let signed = is_signed(ty.clone()) && !self.nonnegative_division(a, b, proof);
-        if checks && signed && proof != crate::numeric::Divisor::Positive {
+        if checks && signed && proof.may_be_minus_one() {
             // Only one signed-division overflow case exists: INT_MIN / -1.
             // (Result `-INT_MIN` is not representable at the same width.)
             let int_min = match ty {
@@ -3283,7 +3283,7 @@ impl Lowerer<'_, '_> {
         }
         let result = if is_signed(ty.clone()) && !self.nonnegative_division(a, b, proof) {
             // INT_MIN % -1 is zero, so avoid a hardware division overflow.
-            let divisor = if proof == crate::numeric::Divisor::Positive {
+            let divisor = if !proof.may_be_minus_one() {
                 b
             } else {
                 let minus_one = self.bcx.ins().icmp_imm_s(IntCC::Equal, b, -1);

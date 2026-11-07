@@ -8,7 +8,7 @@ its serialized formats. Also see [xor filters](sketch-xor.md) and
 ```plenty
 from std.sketch import SketchError, hyperloglog, hash_u64, quantiles
 
-def main() -> Result[(), SketchError | AllocError | IoError | ZeroDivisionError]:
+def main() -> Result[(), SketchError | AllocError | IoError]:
     mut users = hyperloglog()?
     mut latency = quantiles()?
     for i in range(10000):
