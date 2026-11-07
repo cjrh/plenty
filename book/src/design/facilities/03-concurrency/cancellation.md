@@ -25,9 +25,13 @@ return normally. A token imposes no return type or error variant. It does not
 change future state by itself: [Future.cancel](futures.md) only prevents pending
 work from starting.
 
-Ordinary blocking channel operations and foreign calls do not observe tokens.
-Use [timed waits](timed-selection.md) or an explicit shutdown message when work
-must periodically regain control. Scope exit and executor shutdown still join
+Ordinary blocking channel operations, the millisecond
+[timed waits](timed-selection.md) and foreign calls do not observe tokens.
+Pass the token to a [typed deadline wait](../../stdlib/sync.md#typed-deadline-waits)
+such as `recv_before` or `select_recv_before`, which returns
+`WaitError.Cancelled` after `cancel()`, or send an explicit shutdown message.
+[`std.ready`](../../stdlib/ready.md) gives I/O handles the same deadline and
+token parameters. Scope exit and executor shutdown still join
 running workers, so cancellation-aware code must actually return, and the code
 that cancels must reach its cancel on every exit; see
 [cancel on every exit](#cancel-on-every-exit).

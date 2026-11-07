@@ -71,7 +71,10 @@ HTTP dates and SSE retry hints with `Duration` and `Timestamp`. WebSocket, SSE,
 readiness and child deadline waits accept caller cancellation while preserving
 server shutdown behavior. [`std.sync`](design/stdlib/sync.md#typed-deadline-waits)
 provides typed channel, future, token and two-channel selection waits; explicit
-millisecond primitives remain as low-level compatibility APIs (B42).
+millisecond primitives remain as low-level compatibility APIs (B42). Issue #792
+makes the reference, tutorial and skill lead with the cancellable waits and
+state that the channel, selection and future millisecond waits take no token,
+with a lesson that ends a long selection on `SIGTERM`.
 
 ## Registered template fragments
 

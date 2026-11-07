@@ -1,8 +1,22 @@
 # Timed waits and selection
 
-Prefer the [typed deadline waits in `std.sync`](../../stdlib/sync.md#typed-deadline-waits)
-for cancellable application code. They take `&Deadline` and `&CancellationToken`.
-The low-level primitives below use `u64` milliseconds using a monotonic total budget, including repeated
+Wait with the [typed deadline waits in `std.sync`](../../stdlib/sync.md#typed-deadline-waits)
+in application code, and always where a stop request must end the wait. They
+take `&Deadline` and `&CancellationToken` and recheck the token about every
+10 ms ([polling limits](../../stdlib/sync.md#typed-deadline-waits)), so
+`cancel()` ends the wait with `WaitError.Cancelled`. The
+[signal lesson](../../../tutorial/11-concurrency/stop-on-signal.md#stop-a-long-wait-on-a-signal)
+stops a long selection on `SIGTERM` this way.
+
+The millisecond primitives on this page are low-level waits that take no
+cancellation token. Only `token.wait_timeout_ms` observes a
+`CancellationToken`, its own. No token wakes a channel, selection, or future
+wait, so a stop request waits for the whole budget: a `select_recv_timeout_ms` call given an
+hour delays shutdown by up to an hour.
+Use them where nothing needs to interrupt the wait, or to build a wrapper that
+checks its own token between short budgets, as `std.sync` does.
+
+Each budget is `u64` milliseconds using a monotonic total budget, including repeated
 wakeups. Zero checks immediately. Readiness or disconnection at the final check
 wins over timeout. Lock contention, cleanup, and scheduling may delay return
 beyond the budget; timeouts are not hard execution deadlines.
@@ -31,6 +45,7 @@ without consuming or resetting it. Neither timed observation allocates.
 
 | Operation | Result |
 | --- | --- |
+| `std.sync.select_recv_before(&first, &second, &deadline, &cancel)` | `Result[Selected[A, B], WaitError]`; cancellable |
 | `select_recv(&first, &second)` | `Result[Selected[A, B], SelectError]` |
 | `select_recv_nowait(&first, &second)` | Same |
 | `select_recv_timeout_ms(&first, &second, timeout_ms)` | Same |
@@ -49,6 +64,8 @@ The first receiver has priority whenever both are ready; sustained traffic can
 starve the second. Selection receives a message before returning, rather than
 reporting readiness that another receiver could invalidate. It allocates nothing.
 
-Only two-channel receive selection is supported: no send cases, arbitrary channel
-sets, or cancellation-token case. Selected and ordinary receives compete for
+Only two-channel receive selection is supported: no send cases or arbitrary
+channel sets. The builtins take no token, and only `select_recv_timeout_ms` has
+a millisecond budget; `select_recv_before` adds a deadline and a cancellation
+token. Selected and ordinary receives compete for
 messages. Application protocols can still deadlock.

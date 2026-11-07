@@ -177,9 +177,12 @@ Cancellation does not interrupt instructions or skip cleanup.
 
 `cancel()` is safe to repeat. Dropping a token handle does not cancel work.
 `wait_timeout_ms(milliseconds)` waits for a request and returns whether it arrived.
-A token does not wake an ordinary `recv()` call. Use a shutdown message or a
-[timed receive](channel-timeouts.md) when a worker must periodically check for
-cancellation. Automatic joining still waits for that worker to return.
-
-In a receive loop, check `is_cancelled()` between bounded receives. Avoid a
-zero-timeout retry loop that consumes a CPU while idle.
+A token does not wake an ordinary `recv()` call or a millisecond wait such as
+`recv_timeout_ms`. When a worker waits for messages, pass the token to
+`std.sync.recv_before` or `std.sync.select_recv_before`, which return
+`WaitError.Cancelled` after `cancel()`; see the
+[shared deadline lesson](deadlines.md) and
+[either-channel selection](channel-selection.md#wait-until-a-deadline-or-a-stop-request).
+A shutdown message works too. Automatic joining still waits for that worker to
+return. Do not poll with `recv_timeout_ms(0)` and `is_cancelled()` in a loop
+instead: it consumes a CPU while idle.
