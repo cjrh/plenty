@@ -448,6 +448,7 @@
         - [`std.http.files`](design/stdlib/http-files.md)
         - [`std.http.proxy`](design/stdlib/http-proxy.md)
         - [`std.http.server`](design/stdlib/http-server.md)
+            - [HTTP malformed-capture responses](design/stdlib/http-refusals.md)
         - [HTTP server qualification](design/stdlib/http-qualification.md)
         - [`std.http.sse`](design/stdlib/sse.md)
         - [`std.http.typed`](design/stdlib/http-typed.md)

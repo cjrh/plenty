@@ -427,3 +427,14 @@ server-generated responses, preserving caller overrides and leaving interim
 formatter retains the static-file API through a compatibility wrapper.
 Unrepresentable wall readings omit the field; allocation refusal remains an
 ordinary response failure. See [response dates](../design/stdlib/http-server.md#response-dates).
+
+## HTTP malformed-capture responses (issue #787)
+
+Worker HTTP servers support a separate capture-free renderer for malformed
+percent escapes and invalid decoded UTF-8 in matched captures. The callback
+gets only a validated reason and a bounded, failure-poisoned response buffer;
+ordinary typed handlers still reject these captures. The server controls fixed
+400 status, Date, length framing, HEAD suppression and connection close, with
+existing deadlines and cooperative cancellation. See the
+[contract](../design/stdlib/http-refusals.md). Other parsing refusals and actor
+servers retain their existing behavior.
