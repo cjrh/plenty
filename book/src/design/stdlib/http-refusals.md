@@ -23,6 +23,10 @@ def main() -> Result[(), std.http.server.ServerError]:
     routes.set_path_refusal(Some(bad_path), 4096)
     Ok(())
 ```
+```output
+```
+
+This example configures the router and exits without starting a listener.
 
 `Router.set_path_refusal(renderer, max_bytes)` returns `()` and replaces the
 previous function and limit without allocating. Its function type is
