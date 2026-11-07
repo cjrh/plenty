@@ -595,6 +595,7 @@ mod test_std_system_available;
 mod test_std_tempfile;
 #[path = "test_std_template.rs"]
 mod test_std_template;
+mod test_std_template_schema;
 #[path = "test_std_template_whitespace.rs"]
 mod test_std_template_whitespace;
 #[path = "test_std_test.rs"]

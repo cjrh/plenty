@@ -25,6 +25,13 @@ queue. The [reference](design/index.md) owns current behavior and limits;
 support. Local issue/PR numbers identify records in the shared `issues.db`, not
 GitHub records. Reproductions, claims and review state remain there.
 
+## Declared template context shapes
+
+Issue #838 adds [schema preflight and checked request rendering](design/stdlib/template-schema.md)
+for every reachable field path, union alternative, loop and effective composed
+layout. Runtime JSON rendering stays available; validation makes no compile-time
+claim. See the [library delivery record](completed-work/libraries.md#declared-template-context-shapes).
+
 ## Reconciliation history
 
 The backlog's full reconciliation on 2026-10-22 covered local `main` and merged
