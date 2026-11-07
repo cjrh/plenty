@@ -1194,17 +1194,23 @@ impl Loader {
                     embed.path
                 )));
             }
-            // A package includes only its own files, even when another
-            // package's directory lies inside its own, as a workspace member
-            // at `assets/` does. A package and its `tests/` package share one
-            // `assets/`, so an identical assets directory is not another's.
+            // The most deeply nested package owns a file, so a package
+            // includes only its own files even when another package lies
+            // inside its directory, as a workspace member at `assets/` does.
+            // A package and its `tests/` package share one `assets/`, so an
+            // identical assets directory is not another's.
+            let own = match assets {
+                Some(assets) if !file.starts_with(root) => assets,
+                _ => root,
+            };
             let owner = self.packages.iter().enumerate().find(|(i, other)| {
+                let nested = |d: &PathBuf| file.starts_with(d) && d.starts_with(own) && d != own;
                 *i != package
-                    && (file.starts_with(&other.root)
+                    && (nested(&other.root)
                         || other
                             .assets
                             .as_ref()
-                            .is_some_and(|a| Some(a) != assets && file.starts_with(a)))
+                            .is_some_and(|a| Some(a) != assets && nested(a)))
             });
             if let Some((_, other)) = owner {
                 return Err(embed.at.error(format!(

@@ -1572,9 +1572,9 @@ def main() -> Result[(), IoError]:
 
 #[test]
 fn a_package_includes_only_its_own_files() {
-    // A workspace member at `assets/` is a layout that builds. The root
-    // package may include other files there, but not files in the member's
-    // source root.
+    // A workspace member at `assets/` is a layout that builds. The most
+    // deeply nested package owns a file: the root package may include other
+    // files there, but not the member's, and the member includes its own.
     let dir = tempfile::tempdir().unwrap();
     let ws = dir.path().join("ws");
     write(
@@ -1585,7 +1585,17 @@ fn a_package_includes_only_its_own_files() {
         &ws.join("assets/plenty.toml"),
         "manifest-version = 1\n[package]\nname = \"levels\"\nversion = \"0.1.0\"\n",
     );
-    write(&ws.join("assets/src/lib.plenty"), "pub const N: i64 = 1\n");
+    write(
+        &ws.join("assets/src/lib.plenty"),
+        "const DATA: str = include_str(\"data.txt\")\nconst LEVEL: str = include_str(\"../assets/lvl.txt\")\npub const N: i64 = 1 if DATA == \"data\" and LEVEL == \"level\" else 0\n",
+    );
+    write(&ws.join("assets/src/data.txt"), "data");
+    write(&ws.join("assets/assets/lvl.txt"), "level");
+    write(&ws.join("assets/tests/f.txt"), "fixture");
+    write(
+        &ws.join("assets/tests/fixture.plenty"),
+        "const F: str = include_str(\"f.txt\")\n\ndef main() -> i32:\n    0 if F == \"fixture\" else 1\n",
+    );
     write(&ws.join("assets/notes.txt"), "notes");
     let main = |include: &str| {
         format!(
@@ -1594,6 +1604,9 @@ fn a_package_includes_only_its_own_files() {
     };
     write(&ws.join("src/main.plenty"), &main(""));
     assert_eq!(succeeds(&ws, &["run"]), "1\n");
+    assert!(
+        succeeds(&ws.join("assets"), &["test"]).ends_with("test result: ok. 1 passed; 0 failed\n")
+    );
     write(
         &ws.join("src/main.plenty"),
         &main("const NOTES: str = include_str(\"../assets/notes.txt\")\n"),

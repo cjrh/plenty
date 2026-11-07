@@ -247,9 +247,13 @@ manifest, `tests/`, another package's files, or a file that a link in either
 directory points to elsewhere. The source root is the target of `src`, as for
 imports. `assets` itself must be a directory, not a symbolic link: a package
 whose `assets` is a link or a file fails to load, even when nothing includes
-from it. A package includes only its own files: if another package's source root
-or `assets` lies inside a package's `assets/`, as a workspace member at
-`assets/` does, including a file there is an error that names both packages.
+from it. The most deeply nested package's source root or `assets/` that contains
+a file owns it, and a package may include only files it owns. So when a
+workspace member lies at `assets/`, the outer package may include other files
+there but not the member's, and the member includes its own; including another
+package's file is an error that names both packages. In the reverse layout, a
+package inside a dependency's `assets/` owns only its source root and `assets/`,
+so the dependency can include the package's other files, such as its manifest.
 
 Every regular file below `assets/` counts toward [build reuse](#build-reuse),
 whether or not a target includes it, so an unreadable file there fails the
@@ -430,12 +434,11 @@ identity whose package has a `library`. The optional `assets` names the
 directory that the package's [included files](#assets) may also come from;
 `plenty graph` writes it only for a package that has `assets`. Packages may
 share an identical `assets` directory, as a package and its `tests/` package do,
-and both may include from it. Otherwise a file inside another package's source
-root or `assets` belongs to that package, and only that package may include it.
-Optional keys added later, such as `assets`, leave `graph-version` at 1. Older
-compilers reject unknown keys, so they still read a graph that does not use
-them. Relative paths are relative to the file. `--package-graph` works with
-`FILE`, `--check`, `--check-module`, and `--compile`. It lets another build
-system compile a package without `plenty.toml`, and makes the compiler's input
-visible when debugging resolution.
-
+and both may include from it. Otherwise the most deeply nested package's source
+root or `assets` that contains a file owns it, and a package may include only
+files it owns. Optional keys added later, such as `assets`, leave
+`graph-version` at 1. Older compilers reject unknown keys, so they still read a
+graph that does not use them. Relative paths are relative to the file.
+`--package-graph` works with `FILE`, `--check`, `--check-module`, and
+`--compile`. It lets another build system compile a package without
+`plenty.toml`, and makes the compiler's input visible when debugging resolution.
