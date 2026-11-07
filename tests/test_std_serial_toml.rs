@@ -293,3 +293,49 @@ def main() -> Result[(), IoError | AllocError | SerialError[TomlError]]:
         "True True False\nTrue True False\nTrue True False\nTrue True False\nTrue True False",
     );
 }
+
+#[test]
+fn ignored_mixed_containers_preserve_siblings_and_enforce_tree_depth() {
+    let mut toml_value = "[]".to_string();
+    let mut json_value = "[]".to_string();
+    for _ in 0..20 {
+        toml_value = format!("{{ nested = [{toml_value}, {{}}], empty = [] }}");
+        json_value = format!(r#"{{"nested":[{json_value},{{}}],"empty":[]}}"#);
+    }
+    let toml = format!("extra = {toml_value}\nport = 8080\nlabel = 'following'\nlast = []");
+    let json = format!(r#"{{"extra":{json_value},"port":8080,"label":"following","last":[]}}"#);
+    support::assert_stdout(
+        &format!(
+            r#"{IMPORTS}{MODEL}
+import std.json
+from std.json import JsonError
+
+def main() -> Result[(), IoError | SerialError[TomlError] | SerialError[JsonError]]:
+    mut options = std.toml.codec_options()
+    options.unknown_fields = std.serial.UnknownFields.Ignore
+    value = std.toml.load[Config]({toml:?}, &options)?
+    print(value.port, value.label)?
+    json_bounds = std.json.limits()
+    tree = std.serial.wrap(std.json.parse_text({json:?}, &json_bounds))?
+    mut tree_bounds = std.json.tree_limits()
+    from_json = std.json.from_value[Config](tree, &tree_bounds, std.serial.UnknownFields.Ignore)?
+    print(from_json.port, from_json.label)?
+    options.tree_limits.max_depth = 4
+    match std.toml.load[Config]({toml:?}, &options):
+        case Err(error):
+            print(error.cause.fault, error.path.unwrap())?
+        case Ok(_):
+            print("unexpected")?
+    deep_tree = std.serial.wrap(std.json.parse_text({json:?}, &json_bounds))?
+    tree_bounds.max_depth = 4
+    match std.json.from_value[Config](deep_tree, &tree_bounds, std.serial.UnknownFields.Ignore):
+        case Err(error):
+            print(error.cause.fault, error.path.unwrap())?
+        case Ok(_):
+            print("unexpected")?
+    Ok(())
+"#
+        ),
+        "8080 following\n8080 following\nstd.toml.TomlFault.DepthExceeded [std.serial.Step.Field(\"extra\")]\nstd.json.JsonFault.DepthExceeded [std.serial.Step.Field(\"extra\")]\n",
+    );
+}
