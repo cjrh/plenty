@@ -4926,6 +4926,7 @@ fn lower(
 ) -> Result<Program> {
     ide::declare_program(&resolved);
     let modules::Resolved {
+        warnings: import_warnings,
         standard_sources,
         source_paths,
         source_root,
@@ -5201,6 +5202,7 @@ fn lower(
         }
     }
     let mut warnings = std::mem::take(&mut generics.warnings);
+    warnings.extend(import_warnings);
     crate::diagnostic::settle(&mut warnings);
     Ok(Program {
         inputs,

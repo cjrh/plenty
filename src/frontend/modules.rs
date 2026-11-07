@@ -378,6 +378,7 @@ pub(super) struct AccessMap {
 }
 
 pub(super) struct Resolved {
+    pub(super) warnings: Vec<crate::diagnostic::Warning>,
     pub(super) standard_sources: HashSet<Arc<str>>,
     pub(super) source_paths: Vec<PathBuf>,
     pub(super) source_root: Option<PathBuf>,
@@ -1936,6 +1937,8 @@ struct Scope {
     declared: Arc<HashSet<String>>,
     /// Names bound by `from module import name`, and their symbols.
     imported: Arc<HashMap<String, String>>,
+    /// Binding usage is shared by parallel resolution and nested scopes.
+    import_uses: Arc<HashMap<String, std::sync::atomic::AtomicBool>>,
     namespaces: Arc<HashMap<String, Arc<HashMap<String, String>>>>,
     constants: Arc<HashMap<String, String>>,
     /// Type parameters in scope: a declaration has few, so a scan beats
@@ -1980,16 +1983,23 @@ impl Scope {
         }
         Ok(())
     }
+    fn use_import(&self, binding: &str) {
+        if let Some(used) = self.import_uses.get(binding) {
+            used.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
     fn symbol(&self, path: &str, at: &Token) -> Result<Option<String>> {
         if self.declared.contains(path) {
             return Ok(Some(qualified(&self.module, path)));
         }
         if let Some(symbol) = self.imported.get(path) {
+            self.use_import(path);
             return Ok(Some(symbol.clone()));
         }
         if let Some((prefix, member)) = path.rsplit_once('.')
             && let Some(exports) = self.namespaces.get(prefix)
         {
+            self.use_import(prefix);
             return exports.get(member).cloned().map(Some).ok_or_else(|| {
                 let bytes = exports.get("Bytes").is_some_and(|s| s == "std.bytes.Bytes");
                 at.error(
@@ -2060,6 +2070,9 @@ impl Scope {
             // Imports can bind a builtin spelling only to that same identity.
             // Avoid probing the module table for these common types (issue #57).
             if builtin(name) || dimensions::syntax(name) {
+                if self.imported.contains_key(name) {
+                    self.use_import(name);
+                }
                 return Ok(());
             }
             if let Some(symbol) = self.symbol(name, &ty.at)? {
@@ -3015,6 +3028,7 @@ fn resolve(
         dimension_diagnostics::Shadows::default(),
     ));
     let mut result = Resolved {
+        warnings: Vec::new(),
         // Like `std`, the arithmetic errors' constructors are emitted only
         // when a program uses them.
         standard_sources: HashSet::from_iter([ARITHMETIC_ERRORS_PATH.into()]),
@@ -3045,6 +3059,12 @@ fn resolve(
             module: m.name.clone(),
             declared: Arc::new(m.names().cloned().collect()),
             imported: Arc::default(),
+            import_uses: Arc::new(
+                m.imports
+                    .iter()
+                    .map(|i| (i.binding.clone(), std::sync::atomic::AtomicBool::new(false)))
+                    .collect(),
+            ),
             namespaces: Arc::default(),
             constants: constants.clone(),
             dimension_bindings: Arc::clone(&bindings[i]),
@@ -3417,6 +3437,21 @@ fn resolve(
                 );
                 if exposed {
                     signature_public_types(f, &c.type_params, true, &mut result.public_api);
+                }
+            }
+        }
+        if !m.name.starts_with("std.") {
+            for import in &m.imports {
+                if import.binding != fstrings::FMT_BINDING
+                    && import.binding != serial_derive::BINDING
+                    && !scope.import_uses[&import.binding]
+                        .load(std::sync::atomic::Ordering::Relaxed)
+                {
+                    result.warnings.push(crate::diagnostic::Warning::new(
+                        crate::diagnostic::Lint::UnusedImport,
+                        import.binding_at.position(),
+                        format!("import binding `{}` is unused; remove it unless the import intentionally includes the module in checking", import.binding),
+                    ));
                 }
             }
         }

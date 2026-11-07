@@ -288,9 +288,18 @@ fn hover_definition_and_diagnostics_in_a_file_with_an_error_elsewhere() {
     let mut client = Client::start(&dir.path().join("cache"));
     let diagnostics = client.open(&main);
     let diagnostics = diagnostics.as_array().unwrap();
-    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
     assert_eq!(diagnostics[0]["range"]["start"]["line"], 9);
     assert_eq!(diagnostics[0]["message"], "expected i64, got str");
+    // Editor recovery keeps independently established import warnings too.
+    assert_eq!(diagnostics[1]["code"], "unused-import");
+    assert_eq!(diagnostics[1]["severity"], 2);
+    assert!(
+        diagnostics[1]["message"]
+            .as_str()
+            .unwrap()
+            .contains("`area`")
+    );
 
     // A local function: signature with its docstring.
     let hover = client.hover(&main, 19, 8);
@@ -1129,5 +1138,21 @@ fn edits_name_open_documents_by_the_clients_uri() {
             ],
         }})
     );
+    client.exit();
+}
+
+#[test]
+fn unused_imports_are_published_as_lsp_warnings() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("main.plenty");
+    write(&main, "import std.math as m\ndef main() -> ():\n    pass\n");
+    let mut client = Client::start(&dir.path().join("cache"));
+    let diagnostics = client.open(&main);
+    let diagnostics = diagnostics.as_array().unwrap();
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert_eq!(diagnostics[0]["severity"], 2);
+    assert_eq!(diagnostics[0]["code"], "unused-import");
+    assert_eq!(diagnostics[0]["range"]["start"]["line"], 0);
+    assert_eq!(diagnostics[0]["range"]["start"]["character"], 19);
     client.exit();
 }

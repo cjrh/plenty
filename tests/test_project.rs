@@ -1449,7 +1449,7 @@ fn check_reports_unimported_sources() {
     // Reached only from the second executable, through a subdirectory.
     write(
         &app.join("src/two.plenty"),
-        &format!("from util.helper import twice\n{main}"),
+        "from util.helper import twice\ndef main() -> ():\n    drop(twice(1))\n",
     );
     write(
         &app.join("src/util/helper.plenty"),
@@ -2077,4 +2077,37 @@ fn init_preserves_existing_short_default_sources_without_creating_a_package() {
         assert!(!dir.path().join("plenty.toml").exists());
         assert!(!dir.path().join(".gitignore").exists());
     }
+}
+
+#[test]
+fn unused_imports_keep_validation_coverage_across_package_targets() {
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        &dir.path().join("plenty.toml"),
+        "manifest-version = 1\n[package]\nname = \"coverage\"\nversion = \"1.0.0\"\n[lib]\n[[bin]]\nname = \"app\"\npath = \"src/main.plenty\"\n",
+    );
+    write(
+        &dir.path().join("src/lib.plenty"),
+        "import helper\npub def size() -> i64:\n    1\n",
+    );
+    write(
+        &dir.path().join("src/main.plenty"),
+        "import helper\ndef main() -> ():\n    drop(helper.twice(1))\n",
+    );
+    write(
+        &dir.path().join("src/helper.plenty"),
+        "pub def twice(n: i64) -> i64:\n    n\n",
+    );
+    let stderr = status_lines(dir.path(), &["check"]);
+    assert_eq!(stderr.matches("[unused-import]").count(), 1, "{stderr}");
+    assert!(stderr.contains("lib.plenty"), "{stderr}");
+    assert!(!stderr.contains("not imported by any target"), "{stderr}");
+    // The unused binding is still a validation edge, not a reason to prune.
+    write(
+        &dir.path().join("src/helper.plenty"),
+        "pub def twice(n: i64) -> i64:\n    \"bad\"\n",
+    );
+    let output = plenty(dir.path(), &["check"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("helper.plenty"));
 }

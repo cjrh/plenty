@@ -95,6 +95,8 @@ impl Error for Diagnostic {}
 pub enum Lint {
     /// `copy(value)?` of a value whose type already copies on use.
     RedundantCopy,
+    /// An explicit import binding has no resolved uses in its defining module.
+    UnusedImport,
 }
 
 impl Lint {
@@ -102,6 +104,7 @@ impl Lint {
     pub fn name(self) -> &'static str {
         match self {
             Lint::RedundantCopy => "redundant-copy",
+            Lint::UnusedImport => "unused-import",
         }
     }
 }
