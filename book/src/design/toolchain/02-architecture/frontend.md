@@ -171,8 +171,9 @@ HKDF output size, image dimensions, actor heaps and procfs read sizes. Decoded s
 one remain [B96](../../../backlog.md).
 
 The same mechanism checks open modes. `__open_mode` after a `str` or `&str`
-parameter or field makes a literal or module-constant argument pass the
-runtime's `OpenMode::parse`, the check builtin `open` applies to its mode.
+parameter or field requires an argument the module-constant evaluator can fold
+(a literal, a module constant or a constant expression) to pass the runtime's
+`OpenMode::parse`, the check builtin `open` applies to its mode.
 `std.io.open_file` and `open_path` use it, so their invalid literal modes are
 compile errors with the builtin's diagnostic. Like `__max`, it is reserved for
 std declarations and hidden from public signatures.

@@ -213,10 +213,11 @@ impl Lower<'_> {
         if open_modes::OpenMode::parse(&text).is_some() {
             return Ok(());
         }
-        // Python's `b` suffix selects binary access; Plenty selects it by
-        // the type (`std.io.FileStream`) rather than the mode.
-        let hint = if open_modes::OpenMode::parse(&text.replace('b', "")).is_some() {
-            "; modes take no `b` suffix (`std.io` file streams already read and write bytes)"
+        // Python's `b` and `t` letters select binary or text access, in any
+        // position (`rb`, `br`, `rt`). Plenty selects access by type instead.
+        let python = text.replace(['b', 't'], "");
+        let hint = if python != text && open_modes::OpenMode::parse(&python).is_some() {
+            "; modes take no `b` or `t` letter: `File` reads text and `std.io` file streams read bytes"
         } else {
             ""
         };

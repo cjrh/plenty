@@ -215,8 +215,9 @@ is no method returning the inner stream; exchange it with
 | `cursor(data: Bytes)` | `Cursor` | `Reader`, `Writer`, `Seeker` |
 
 `open_file` and `open_path` take the [modes of builtin `open`](../facilities/02-io/files.md),
-with no `b` suffix: a `FileStream` always reads and writes bytes. As with
-`open`, a literal or module-constant mode outside that set is a compile error.
+with no `b` or `t` letter: a `FileStream` always reads and writes bytes. As
+with `open`, a mode outside that set is a compile error when the compiler can
+evaluate it (a literal, a module constant or a constant expression).
 A mode computed at run time that is invalid is
 `StreamError.Io(IoError.InvalidMode)`, reported before the path is opened.
 

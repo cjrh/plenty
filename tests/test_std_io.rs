@@ -783,6 +783,8 @@ fn mode_programs(mode: &str) -> Vec<String> {
         format!("io.open_file(\"m.bin\", (\"{mode}\"))"),
         format!("io.open_file(\"m.bin\", mode=\"{mode}\")"),
         "io.open_file(\"m.bin\", MODE)".to_string(),
+        format!("open(\"m.bin\", \"{mode}\" if FLAG else \"r\")"),
+        format!("io.open_file(\"m.bin\", \"r\" if not FLAG else \"{mode}\")"),
         format!("io.open_path(&paths.from_text(\"m.bin\")?, \"{mode}\")"),
         "io.open_path(&paths.from_text(\"m.bin\")?, MODE)".to_string(),
     ];
@@ -790,7 +792,7 @@ fn mode_programs(mode: &str) -> Vec<String> {
         .iter()
         .map(|call| {
             format!(
-                "import std.io as io\nimport std.path as paths\n\nconst MODE: str = \"{mode}\"\n\n\
+                "import std.io as io\nimport std.path as paths\n\nconst MODE: str = \"{mode}\"\nconst FLAG: bool = True\n\n\
                  def main() -> Result[(), AllocError | IoError]:\n    drop({call})\n    Ok(())\n"
             )
         })
@@ -810,7 +812,9 @@ fn wrappers_and_builtin_open_accept_the_same_literal_modes() {
 
 #[test]
 fn wrappers_and_builtin_open_reject_the_same_literal_modes() {
-    for mode in ["bad", "", "R", "r ", "rb", "wb", "r+b", "rt", "b"] {
+    for mode in [
+        "bad", "", "R", "r ", "rb", "wb", "r+b", "br", "rt", "w+t", "b", "tb",
+    ] {
         for program in mode_programs(mode) {
             let error = mode_verdict(&program).expect_err(&program);
             assert!(
@@ -820,8 +824,8 @@ fn wrappers_and_builtin_open_reject_the_same_literal_modes() {
                 "{program}\n{error}"
             );
             assert_eq!(
-                error.contains("modes take no `b` suffix"),
-                matches!(mode, "rb" | "wb" | "r+b"),
+                error.contains("modes take no `b` or `t` letter"),
+                matches!(mode, "rb" | "wb" | "r+b" | "br" | "rt" | "w+t"),
                 "{program}\n{error}"
             );
         }
