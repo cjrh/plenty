@@ -182,6 +182,55 @@ fn lex(text: &str) -> Result<Lexed, String> {
     Ok(Lexed { items, strings })
 }
 
+/// The lines (from 0) of each `if const` conditional in `text`, from its
+/// `if const` line to the end of its last arm. The analysis does not see
+/// unselected arms, so names there are neither found nor checked.
+fn conditionals(text: &str) -> Result<Vec<(u32, u32)>, String> {
+    let lexed = lex(text)?;
+    let lines: Vec<&str> = text.lines().collect();
+    let indent = |line: &str| line.len() - line.trim_start().len();
+    let mut out = vec![];
+    for tokens in &lexed.items {
+        for pair in tokens.windows(2) {
+            if !(pair[0].is("if") && pair[1].is("const") && pair[0].line == pair[1].line) {
+                continue;
+            }
+            let first = pair[0].line - 1;
+            let Some(head) = lines.get(first as usize) else {
+                continue;
+            };
+            let base = indent(head);
+            let mut last = first;
+            for (i, line) in lines.iter().enumerate().skip(first as usize + 1) {
+                let trimmed = line.trim_start();
+                let continues = trimmed.is_empty()
+                    || trimmed.starts_with('#')
+                    || lexed.inside_string(i as u32 + 1)
+                    || indent(line) > base
+                    || (indent(line) == base
+                        && (trimmed.starts_with("elif ") || trimmed.starts_with("else:")));
+                if !continues {
+                    break;
+                }
+                if !trimmed.is_empty() {
+                    last = i as u32;
+                }
+            }
+            out.push((first, last));
+        }
+    }
+    Ok(out)
+}
+
+/// Whether `text` contains `name` as a whole word.
+fn mentions(text: &str, name: &str) -> bool {
+    let is_word = |c: char| c.is_alphanumeric() || c == '_';
+    text.match_indices(name).any(|(at, _)| {
+        !text[..at].chars().next_back().is_some_and(is_word)
+            && !text[at + name.len()..].chars().next().is_some_and(is_word)
+    })
+}
+
 /// The tokens of each top-level item of `text`, without layout tokens.
 fn top_level(text: &str) -> Result<Vec<Vec<Token>>, String> {
     lex(text).map(|l| l.items)
@@ -904,6 +953,7 @@ impl<'a> Planner<'a> {
             dependencies: BTreeSet::new(),
             needs_public: false,
         };
+        work.conditional_arms(&reach_before)?;
         work.moved_references()?;
         work.carried_imports()?;
         work.callers()?;
@@ -1130,6 +1180,73 @@ impl Work<'_, '_> {
         };
         in_module
             && matches!(self.form_of(u), Form::Qualified { qualifier, .. } if qualifier == binding)
+    }
+
+    /// Refuse when an `if const` conditional could hold a use the analysis
+    /// cannot see: one in the moved text, or one elsewhere whose text
+    /// mentions the moved name or a binding of the source module.
+    fn conditional_arms(&self, reach: &Reach) -> Result<(), String> {
+        let name = &self.name;
+        let source_text = &self.sources[self.source()].text;
+        if let Some((first, _)) = conditionals(source_text)?
+            .into_iter()
+            .find(|&(first, last)| first <= self.span.1 && self.span.0 <= last)
+        {
+            return Err(format!(
+                "{}:{}: `{name}` has an `if const` block, whose unselected arms the move cannot check",
+                self.planner.relative(self.source()),
+                first + 1
+            ));
+        }
+        let source_leaf = self
+            .planner
+            .source_module
+            .rsplit('.')
+            .next()
+            .unwrap_or_default()
+            .to_owned();
+        let mut files: BTreeSet<PathBuf> = reach.reached();
+        files.extend(reach.files.values().flatten().cloned());
+        files.insert(self.source().to_owned());
+        files.insert(self.destination().to_owned());
+        for path in &files {
+            let text = match self.sources.get(path) {
+                Some(source) => source.text.clone(),
+                None => self.planner.text(path)?,
+            };
+            let arms = conditionals(&text)?;
+            if arms.is_empty() {
+                continue;
+            }
+            let mut names = vec![name.clone()];
+            if path != self.source() {
+                names.push(source_leaf.clone());
+                if self.sources.contains_key(path) {
+                    names.extend(self.plain_binding(path, self.source())?);
+                    for import in self.file_imports(path)? {
+                        names.extend(
+                            import
+                                .items
+                                .iter()
+                                .filter(|item| import.from.is_some() && item.0 == *name)
+                                .map(|item| Import::binding(item).to_owned()),
+                        );
+                    }
+                }
+            }
+            let lines: Vec<&str> = text.lines().collect();
+            for (first, last) in arms {
+                let arm = lines[first as usize..=last as usize].join("\n");
+                if let Some(found) = names.iter().find(|n| mentions(&arm, n)) {
+                    return Err(format!(
+                        "{}:{}: an `if const` block names `{found}`; the move cannot check its unselected arms",
+                        self.planner.relative(path),
+                        first + 1
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 
     fn import_error(&self, path: &Path, import: &Import) -> Result<(), String> {
@@ -1612,6 +1729,11 @@ impl Work<'_, '_> {
                     .collect();
                 if let Some(bare) = bare {
                     source_qualified = true;
+                    // The moved text may have been the import's only other
+                    // user; the rewritten names now use it.
+                    if let Some(changes) = self.imports.get_mut(path) {
+                        changes.0.retain(|(_, binding)| *binding != qualifier);
+                    }
                     let replacement = format!("{qualifier}.{name}");
                     let offset = qualifier.chars().count() as u32 + 1;
                     for (u, (l, column)) in rest.iter().zip(bare) {
@@ -1743,14 +1865,20 @@ impl Work<'_, '_> {
                             ),
                         ));
                         file_edits.push((path.clone(), replace(l, column, length, &replacement)));
-                        // Remove `import source` when this was its last use.
+                        // Remove `import source` when this was its last use,
+                        // counting the uses the moved text adds to the
+                        // destination, such as `Point` written `g.Point`.
                         let other_uses = self.uses.iter().any(|o| {
                             o.path == *path
                                 && o.target != target
                                 && !lines.contains(&location_line(&o.location))
                                 && self.qualified_by(o, &qualifier, None)
                         });
-                        if !other_uses && !removals.iter().any(|(_, b)| *b == qualifier) {
+                        let moved_uses = is_destination
+                            && self.source_qualifier.as_deref() == Some(qualifier.as_str())
+                            && !self.span_rewrites.is_empty();
+                        if !other_uses
+                            && !moved_uses && !removals.iter().any(|(_, b)| *b == qualifier) {
                             self.import_error(path, import)?;
                             removals.push((import.line, qualifier.clone()));
                         }

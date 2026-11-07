@@ -224,7 +224,7 @@ impl Server {
                         write_message(
                             output,
                             &json!({"jsonrpc": "2.0", "method": "window/showMessage",
-                                "params": {"type": 2, "message": api_changes.join(" ")}}),
+                                "params": {"type": 2, "message": api_changes.join("; ")}}),
                         )?;
                     }
                     Some(action)
@@ -714,7 +714,7 @@ impl Server {
                 edit["changeAnnotations"] = json!({annotation: {
                     "label": format!("Move `{}` to `{}`", plan.name, plan.destination),
                     "needsConfirmation": true,
-                    "description": plan.api_changes.join(" "),
+                    "description": plan.api_changes.join("; "),
                 }});
             }
             edit

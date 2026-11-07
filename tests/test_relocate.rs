@@ -1258,3 +1258,67 @@ def main() -> Result[(), AllocError | IoError]:
     assert_eq!(back.files["src/report.plenty"], report);
     assert_eq!(back.files["src/geometry.plenty"], geometry);
 }
+
+#[test]
+fn moved_text_with_an_if_const_block_is_refused() {
+    let a = "\
+def helper() -> i64:
+    1
+
+pub def moved() -> i64:
+    x = 0
+    if const target.os == \"macos\":
+        x = helper()
+    x
+";
+    let main = "\
+import a
+
+def main() -> Result[(), IoError]:
+    print(a.moved())?
+    Ok(())
+";
+    let dir = package(&[
+        ("src/a.plenty", a),
+        ("src/b.plenty", "pub const B: i64 = 1\n"),
+        ("src/main.plenty", main),
+    ]);
+    assert_eq!(
+        refused(dir.path(), "src/a.plenty", 4, "src/b.plenty"),
+        "src/a.plenty:6: `moved` has an `if const` block, whose unselected arms the move cannot check"
+    );
+}
+
+#[test]
+fn an_if_const_block_naming_the_source_module_is_refused() {
+    let a = "\
+pub def moved() -> i64:
+    1
+";
+    let main = "\
+import a
+
+def main() -> Result[(), IoError]:
+    y = 0
+    if const target.os == \"macos\":
+        y = a.moved()
+    elif const target.os == \"windows\":
+        y = 2
+    print(y)?
+    Ok(())
+";
+    let dir = package(&[
+        ("src/a.plenty", a),
+        ("src/b.plenty", "pub const B: i64 = 1\n"),
+        ("src/main.plenty", main),
+    ]);
+    assert_eq!(
+        refused(dir.path(), "src/a.plenty", 1, "src/b.plenty"),
+        "src/main.plenty:5: an `if const` block names `moved`; the move cannot check its unselected arms"
+    );
+    // A block that names neither the declaration nor the source module does
+    // not stop the move.
+    let unrelated = main.replace("a.moved()", "3").replace("print(y)", "print(a.moved())?\n    print(y)");
+    std::fs::write(dir.path().join("src/main.plenty"), unrelated).unwrap();
+    plan(dir.path(), "src/a.plenty", 1, "src/b.plenty").unwrap();
+}

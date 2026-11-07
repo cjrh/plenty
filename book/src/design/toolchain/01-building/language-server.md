@@ -127,6 +127,11 @@ error, when:
 - the line is not a supported declaration: `extern`, `opaque`, `dimension`, and
   `if const` blocks are refused;
 - the declaration is `main` in a target's entry file, which runs it;
+- the moved text contains an [`if const`](../../language/02-source/target-conditionals.md)
+  block, or an `if const` block in a file the check reaches names the moved
+  declaration, the source module's import binding in that file, or the
+  source module's last path component. Unselected arms are not checked on
+  the current target, so the move could neither rewrite nor check them;
 - the source is the package's library;
 - the declaration uses `include_str` or `include_bytes`, whose paths are
   relative to its file's directory, and the destination is in another

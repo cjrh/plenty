@@ -963,7 +963,7 @@ fn a_move_is_a_versioned_annotated_edit_in_utf16_columns() {
         &[
             (
                 "src/shapes.plenty",
-                "def base() -> i64:\n    3\n\npub def one() -> i64:\n    base()\n",
+                "def base() -> i64:\n    3\n\ndef more() -> i64:\n    4\n\npub def one() -> (i64, i64):\n    (base(), more())\n",
             ),
             ("src/geometry.plenty", "pub def two() -> i64:\n    2\n"),
             (
@@ -984,12 +984,12 @@ fn a_move_is_a_versioned_annotated_edit_in_utf16_columns() {
     );
     client.open(&shapes);
     client.open(&main);
-    let actions = code_actions(&mut client, &uri(&shapes), 4);
+    let actions = code_actions(&mut client, &uri(&shapes), 7);
     assert_eq!(
         actions,
         json!([
-            move_action(&uri(&shapes), &uri(&geometry), "geometry", "one", 5, 1),
-            move_action(&uri(&shapes), &uri(&main), "main", "one", 5, 1),
+            move_action(&uri(&shapes), &uri(&geometry), "geometry", "one", 8, 1),
+            move_action(&uri(&shapes), &uri(&main), "main", "one", 8, 1),
         ])
     );
     let resolved = client.request("codeAction/resolve", actions[0].clone());
@@ -1001,8 +1001,8 @@ fn a_move_is_a_versioned_annotated_edit_in_utf16_columns() {
         json!({
             "documentChanges": [
                 {"textDocument": {"uri": uri(&geometry), "version": null}, "edits": [
-                    api(at(0, 0, 0, 0), "from shapes import base\n\n"),
-                    api(at(2, 0, 2, 0), "\npub def one() -> i64:\n    base()\n"),
+                    api(at(0, 0, 0, 0), "from shapes import base, more\n\n"),
+                    api(at(2, 0, 2, 0), "\npub def one() -> (i64, i64):\n    (base(), more())\n"),
                 ]},
                 {"textDocument": {"uri": uri(&main), "version": 1}, "edits": [
                     api(at(0, 0, 1, 0), ""),
@@ -1013,13 +1013,14 @@ fn a_move_is_a_versioned_annotated_edit_in_utf16_columns() {
                 ]},
                 {"textDocument": {"uri": uri(&shapes), "version": 1}, "edits": [
                     api(at(0, 0, 0, 0), "pub "),
-                    api(at(2, 0, 5, 0), ""),
+                    api(at(3, 0, 3, 0), "pub "),
+                    api(at(5, 0, 8, 0), ""),
                 ]},
             ],
             "changeAnnotations": {"api": {
                 "label": "Move `one` to `geometry`",
                 "needsConfirmation": true,
-                "description": "makes `shapes.base` public, because the moved code uses it",
+                "description": "makes `shapes.base` public, because the moved code uses it; makes `shapes.more` public, because the moved code uses it",
             }},
         })
     );

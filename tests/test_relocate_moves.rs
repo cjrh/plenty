@@ -341,26 +341,73 @@ fn plan(
     Ok((after, plan.api_changes))
 }
 
-/// How a round trip that is not exact differs: by where the declaration is
-/// in its module and whether it is `pub`, or also by other text.
-fn difference(original: &Files, back: &Files, file: &str) -> &'static str {
-    let lines = |text: &str| {
-        let mut lines: Vec<String> = text
-            .lines()
-            .filter(|line| !line.trim().is_empty())
-            .map(|line| line.strip_prefix("pub ").unwrap_or(line).to_owned())
-            .collect();
-        lines.sort();
-        lines
-    };
-    let other_files_same = original
-        .iter()
-        .all(|(path, text)| path == file || back[path] == *text);
-    if other_files_same && lines(&original[file]) == lines(&back[file]) {
-        "position"
-    } else {
-        "imports"
+/// The non-blank lines that differ between `before` and `after`, as a
+/// minimal diff: `-` for a removed line and `+` for an added one.
+fn line_diff(before: &str, after: &str) -> Vec<String> {
+    let a: Vec<&str> = before.lines().filter(|l| !l.trim().is_empty()).collect();
+    let b: Vec<&str> = after.lines().filter(|l| !l.trim().is_empty()).collect();
+    // Longest common subsequence lengths of each pair of suffixes.
+    let mut common = vec![vec![0usize; b.len() + 1]; a.len() + 1];
+    for i in (0..a.len()).rev() {
+        for j in (0..b.len()).rev() {
+            common[i][j] = if a[i] == b[j] {
+                common[i + 1][j + 1] + 1
+            } else {
+                common[i + 1][j].max(common[i][j + 1])
+            };
+        }
     }
+    let (mut i, mut j, mut out) = (0, 0, vec![]);
+    while i < a.len() || j < b.len() {
+        if i < a.len() && j < b.len() && a[i] == b[j] {
+            i += 1;
+            j += 1;
+        } else if j == b.len() || (i < a.len() && common[i + 1][j] >= common[i][j + 1]) {
+            out.push(format!("- {}", a[i]));
+            i += 1;
+        } else {
+            out.push(format!("+ {}", b[j]));
+            j += 1;
+        }
+    }
+    out
+}
+
+/// How a round trip that is not exact differs from the original, file by
+/// file.
+fn difference(original: &Files, back: &Files) -> String {
+    let mut out = String::new();
+    for (path, text) in original {
+        let diff = line_diff(text, &back[path]);
+        if !diff.is_empty() {
+            out.push_str(&format!("  {path}\n"));
+            for line in diff {
+                out.push_str(&format!("    {line}\n"));
+            }
+        }
+    }
+    out
+}
+
+/// Every file below `dir` except build output, by relative path.
+fn listing(dir: &Path) -> Files {
+    fn walk(root: &Path, dir: &Path, out: &mut Files) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                if path.file_name().is_some_and(|n| n != "target") {
+                    walk(root, &path, out);
+                }
+            } else {
+                let relative = path.strip_prefix(root).unwrap().display().to_string();
+                let bytes = std::fs::read(&path).unwrap();
+                out.insert(relative, String::from_utf8_lossy(&bytes).into_owned());
+            }
+        }
+    }
+    let mut out = Files::new();
+    walk(dir, dir, &mut out);
+    out
 }
 
 fn changes(before: &Files, after: &Files) -> String {
@@ -415,11 +462,17 @@ struct Applied {
     api_changes: Vec<String>,
 }
 
-fn every_move(
-    fixture: &[(&str, &str)],
-    package: &str,
-    tests: bool,
-) -> (Counts, Vec<String>, Vec<String>) {
+/// What trying every move found.
+struct Report {
+    counts: Counts,
+    /// Each refusal, with paths relative to the fixture's root.
+    refusals: String,
+    /// Each inexact round trip and its difference from the original.
+    inexact: String,
+    failures: Vec<String>,
+}
+
+fn every_move(fixture: &[(&str, &str)], package: &str, tests: bool) -> Report {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
     let original: Files = fixture
@@ -428,16 +481,11 @@ fn every_move(
         .collect();
     write(&root, &original);
     let output = behaviour(&root, tests).unwrap();
-    let on_disk = |root: &Path| -> Files {
-        original
-            .keys()
-            .map(|path| {
-                (
-                    path.clone(),
-                    std::fs::read_to_string(root.join(path)).unwrap(),
-                )
-            })
-            .collect()
+    let on_disk = listing(&root);
+    let stable = |message: &str| {
+        message
+            .replace(&format!("{}/", root.display()), "")
+            .replace(&format!("{}/", dir.path().display()), "")
     };
 
     let mut counts = Counts::default();
@@ -458,7 +506,7 @@ fn every_move(
                         other => failures
                             .push(format!("{label}: refused with {message:?}, then {other:?}")),
                     }
-                    refusals.push(format!("{label}: {message}"));
+                    refusals.push(format!("{label}: {}", stable(&message)));
                 }
                 Ok((files, api_changes)) => {
                     counts.applied += 1;
@@ -472,8 +520,8 @@ fn every_move(
                                 Ok(true) => counts.exact_round_trips += 1,
                                 Ok(false) => {
                                     inexact.push(format!(
-                                        "{label}: {}",
-                                        difference(&original, &back, &file)
+                                        "{label}\n{}",
+                                        difference(&original, &back)
                                     ));
                                     // The text moved back keeps the output.
                                     applied.push(Applied {
@@ -487,7 +535,8 @@ fn every_move(
                                 }
                             }
                         }
-                        Some(Err(_)) => {}
+                        Some(Err(message)) => refusals
+                            .push(format!("{label}: back refused: {}", stable(&message))),
                         None => failures.push(format!("{label}: not found in its destination")),
                     }
                     applied.push(Applied {
@@ -499,8 +548,8 @@ fn every_move(
             }
         }
     }
-    // Planning reads the files and never writes them.
-    assert_eq!(on_disk(&root), original);
+    // Planning reads the files and never writes or creates one.
+    assert_eq!(listing(&root), on_disk);
 
     // Build and run each applied move in its own copy, a few at a time.
     let queue = Mutex::new(applied.into_iter());
@@ -528,91 +577,40 @@ fn every_move(
         }
     });
     failures.extend(found.into_inner().unwrap());
+    let report = Report {
+        counts,
+        refusals: refusals.join("\n"),
+        inexact: inexact.concat(),
+        failures,
+    };
     eprintln!(
-        "{counts:?}\n{}\ninexact:\n{}",
-        refusals.join("\n"),
-        inexact.join("\n")
+        "{:?}\nrefusals:\n{}\ninexact:\n{}",
+        report.counts, report.refusals, report.inexact
     );
-    (counts, inexact, failures)
+    report
 }
 
 #[test]
 fn every_move_in_a_package_with_shadowed_names_keeps_its_output() {
-    let (counts, inexact, failures) = every_move(SHADOWING, "", false);
-    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
-    assert_eq!(
-        counts,
-        Counts {
-            tried: 33,
-            applied: 17,
-            refused: 16,
-            round_trips: 17,
-            exact_round_trips: 5,
-        }
-    );
-    assert_eq!(
-        inexact,
-        [
-            "`SCALE` from src/geometry.plenty to src/units.plenty: position",
-            "`scale` from src/geometry.plenty to src/units.plenty: imports",
-            "`offset` from src/geometry.plenty to src/units.plenty: position",
-            "`shifted` from src/geometry.plenty to src/main.plenty: position",
-            "`shifted` from src/geometry.plenty to src/report.plenty: position",
-            "`shifted` from src/geometry.plenty to src/units.plenty: position",
-            "`BANNER` from src/report.plenty to src/geometry.plenty: position",
-            "`BANNER` from src/report.plenty to src/main.plenty: position",
-            "`BANNER` from src/report.plenty to src/units.plenty: position",
-            "`describe` from src/report.plenty to src/geometry.plenty: imports",
-            "`describe` from src/report.plenty to src/main.plenty: position",
-            "`Unit` from src/units.plenty to src/geometry.plenty: position",
-        ]
-    );
+    let report = every_move(SHADOWING, "", false);
+    check(report, Counts::default(), "", "");
 }
 
 #[test]
 fn every_move_in_a_package_with_nested_crlf_modules_keeps_its_output() {
-    let (counts, inexact, failures) = every_move(NESTED, "", true);
-    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
-    assert_eq!(
-        counts,
-        Counts {
-            tried: 21,
-            applied: 9,
-            refused: 12,
-            round_trips: 5,
-            exact_round_trips: 1,
-        }
-    );
-    assert_eq!(
-        inexact,
-        [
-            "`POEM` from src/text/format.plenty to src/main.plenty: position",
-            "`POEM` from src/text/format.plenty to src/text/strings.plenty: position",
-            "`Secret` from src/text/format.plenty to src/text/strings.plenty: position",
-            "`greet` from src/text/strings.plenty to src/text/format.plenty: imports",
-        ]
-    );
+    let report = every_move(NESTED, "", true);
+    check(report, Counts::default(), "", "");
 }
 
 #[test]
 fn every_move_in_a_workspace_library_keeps_its_dependents_output() {
-    let (counts, inexact, failures) = every_move(WORKSPACE, "tools/", true);
-    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
-    assert_eq!(
-        counts,
-        Counts {
-            tried: 10,
-            applied: 4,
-            refused: 6,
-            round_trips: 3,
-            exact_round_trips: 1,
-        }
-    );
-    assert_eq!(
-        inexact,
-        [
-            "`Point` from tools/src/shapes.plenty to tools/src/colors.plenty: position",
-            "`describe` from tools/src/shapes.plenty to tools/src/colors.plenty: imports",
-        ]
-    );
+    let report = every_move(WORKSPACE, "tools/", true);
+    check(report, Counts::default(), "", "");
+}
+
+fn check(report: Report, counts: Counts, refusals: &str, inexact: &str) {
+    assert!(report.failures.is_empty(), "{}", report.failures.join("\n\n"));
+    assert_eq!(report.counts, counts);
+    assert_eq!(report.refusals, refusals);
+    assert_eq!(report.inexact, inexact);
 }
