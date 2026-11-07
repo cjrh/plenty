@@ -3,7 +3,8 @@
 mod support;
 
 use std::io::{BufRead, BufReader, ErrorKind, Read, Write};
-use std::net::{Shutdown, TcpListener, TcpStream};
+use std::net::{Ipv4Addr, Shutdown, SocketAddrV4, TcpListener, TcpStream};
+use std::os::fd::OwnedFd;
 use std::process::{Child, ChildStdout, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
@@ -537,11 +538,39 @@ fn dial_peer_cancels_on_early_child_exit() {
     }
 }
 
+/// Reserve a TCP port without listening so dials fail without a port-reuse gap.
+fn refused_port() -> (OwnedFd, SocketAddrV4) {
+    use rustix::net::{AddressFamily, SocketFlags, SocketType, bind, getsockname, socket_with};
+
+    let socket = socket_with(
+        AddressFamily::INET,
+        SocketType::STREAM,
+        SocketFlags::CLOEXEC,
+        None,
+    )
+    .unwrap();
+    bind(&socket, &SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let address = SocketAddrV4::try_from(getsockname(&socket).unwrap()).unwrap();
+    (socket, address)
+}
+
+#[test]
+fn refused_port_stays_reserved_while_refusing_connections() {
+    let (_reservation, address) = refused_port();
+    for _ in 0..10 {
+        let error =
+            TcpStream::connect_timeout(&address.into(), Duration::from_secs(1)).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::ConnectionRefused);
+        let error = TcpListener::bind(address).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::AddrInUse);
+    }
+}
+
 /// Lookup, a refused connect, and a request over a dialled connection.
 #[test]
 fn dial_and_lookup_from_an_actor() {
-    let closed = TcpListener::bind("127.0.0.1:0").unwrap();
-    let closed_port = closed.local_addr().unwrap().port();
+    let (closed, closed_address) = refused_port();
+    let closed_port = closed_address.port();
     let open = TcpListener::bind("127.0.0.1:0").unwrap();
     let open_port = open.local_addr().unwrap().port();
     let source = configured(
@@ -552,9 +581,8 @@ fn dial_and_lookup_from_an_actor() {
         ],
     );
     let (_dir, executable) = support::build_file(&source);
-    // Keep both ports reserved while compiling. Another test can still reuse
-    // the refused port after this drop, so validate the client before joining.
-    drop(closed);
+    // Keep the non-listening socket bound until the child exits: parallel tests
+    // must not turn the refused dial into a successful connection (issue #848).
     let peer = DialPeer::start(open, Duration::from_secs(40));
     let output =
         support::output_within(&mut Command::new(executable), b"", Duration::from_secs(35));
@@ -584,6 +612,7 @@ fn dial_and_lookup_from_an_actor() {
         "{stdout}\n{stderr}"
     );
     peer.finish();
+    drop(closed);
 }
 
 #[test]

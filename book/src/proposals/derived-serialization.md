@@ -4,8 +4,10 @@
 for issue #471. [`std.json`](../design/stdlib/json.md) and
 [`std.toml`](../design/stdlib/toml.md) remain authoritative: neither derives
 codecs, and a typed codec is written by hand over JSON events or a TOML tree.
-No backlog entry exists yet; [B51](../backlog.md) lists derived typed codecs as
-a candidate under B38. The design questions are decided; see
+Implementation is tracked by issue #781 and [B77](../backlog.md), related to
+B51. The staged strategy was reaffirmed on 2026-11-07: usable format-neutral
+codecs and handwritten hooks precede `@serial` derivation; runtime reflection
+and user macros are not prerequisites. The recorded design decisions appear in
 [Decisions](#decisions).
 
 ## Problem
@@ -443,24 +445,44 @@ Each records the choice and the alternatives considered.
 
 ## Implementation sketch
 
-Each stage is usable on its own.
+The first deliverable is a usable codec interface with handwritten hooks, not
+automatic derivation. Establish the format-neutral contract independently of
+how hook bodies are produced. Stages 1 and 2 form that first deliverable;
+`@serial` follows only after handwritten codecs validate it. The detailed hook,
+constructor-error and default-handling contracts still need implementation
+probes against the current compiler before they are treated as proven APIs.
 
 1. **`std.serial` in Plenty.** `Encoder`, `Decoder`, `Fault`, `Step`,
    `SerialError`, and the JSON decoder adapter. Verify that `json.Encoder`
-   satisfies `Encoder[JsonError]`. Hand-written `__encode__`/`__decode__` can
-   be tested as ordinary methods before any compiler work.
+   satisfies `Encoder[JsonError]`. Exercise the model with handwritten encoding
+   methods and ordinary decode helper functions; the receiver-less
+   `__decode__` hook itself requires the compiler support in stage 2.
 2. **Hooks and entry points.** Accept a receiver-less `__decode__` and an
    `__encode__` with the fixed signatures; expand `std.serial.encode` and
    `decode` per instance for built-ins and hooks; diagnostics naming the
    offending field path. Add `json.dump`, `load` and the reader variant.
+   Include a JSON tree builder/cursor and direct conversion to/from `Json`,
+   avoiding a text encode/parse round trip. This gives template contexts a
+   typed-data input path through handwritten hooks before derivation lands;
+   it does not imply compile-time template field validation.
 3. **`@serial`.** Parse the annotation on classes and enums and generate hook
    bodies as ordinary checked operations, so ownership, effects and
    diagnostics need no special path; decoding through a matching `__init__`
    is an ordinary call with named arguments. `--dump` shows the generated
-   bodies.
+   bodies. Generated and handwritten hooks use the same contract and compose
+   for nested values; there is no separate reflection-based codec path.
 4. **TOML.** Tree builder and tree cursor; `toml.dump` and `load`.
-5. **Docs.** Reference pages for `std.serial`, the `json` and `toml` additions,
-   classes and enums; a tutorial lesson that replaces a hand-written codec.
+5. **Docs.** Update reference pages, tutorial examples and guidance with each
+   usable milestone; cover `std.serial`, the `json` and `toml` additions,
+   classes and enums. Once derivation lands, replace an appropriate handwritten
+   codec in the tutorial while retaining a custom-hook example.
+
+Runtime reflection and a user macro system are separate language decisions,
+not dependencies of issue #781. If compile-time reflection later has enough
+independent uses, it may implement derivation in library code while preserving
+the hook and format contracts established here. Typed URL-encoded form decoding
+is likewise a separately assessed adapter extension, not part of the initial
+JSON/TOML deliverable.
 
 ### Measurements
 

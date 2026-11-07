@@ -50,6 +50,7 @@ lessons, and the next language phase at `161e1c63` on 2026-10-24.
 | Ownership and state | [Typestate](typestate-and-owned-transitions.md) | [Linear obligations](linear-obligations.md), [resolution scopes](linear-scope-resolution.md), [integration boundaries](linear-integration.md) |
 | Optional and fallible borrows | [Returned enums that carry references](returned-reference-enums.md) | [Returned references](../design/language/05-ownership/04-returned-references.md), [borrowed matching](../design/language/05-ownership/06-borrowed-matching.md) |
 | Linked structures and graphs | [Owned structures and checked identities](arenas.md) | [Recursive representation](recursive-data.md), [arena prototype](arenas/prototype.md) |
+| Borrowed text and substrings | [One borrowed text type](unified-borrowed-text.md) | [Representation and migration](unified-borrowed-text/representation.md), [current text contract](../design/facilities/01-builtins/text.md) |
 | Collections | [Ordering](user-type-ordering.md) | [Stable sorting algorithm](timsort.md), [hashing and equality](user-type-hashing.md), [slice syntax](completed/slice-syntax.md) |
 | Compile-time sizes and fixed inline arrays | [Value generic parameters](value-generics.md) | [Fixed capacity and inline storage](memory-parallelism-and-simd.md#fixed-capacity-and-inline-storage), [portable `std.simd` API](std-simd/api.md) |
 | Typed data formats | [Derived serialization](derived-serialization.md) | [`std.json`](../design/stdlib/json.md), [`std.toml`](../design/stdlib/toml.md), [method annotations](protocol-method-bodies/final-and-visibility.md#method-annotations) |
@@ -91,6 +92,7 @@ reference pages. Further extensions remain tracked in the backlog.
 
 | Proposal | Backlog |
 | --- | --- |
+| [One borrowed text type](unified-borrowed-text.md) — exploratory unification of `&str` and `&substr`; representation and generic-reference semantics remain adoption gates | B12; returned text relates to B11 |
 | [Runtime-independent networking protocols](sans-io-protocols.md) — agreed codec/session/driver direction; complete shared WebSocket session and both drivers remain proposed | B94, B85 |
 | [Actor budgets and retained stacks](actor-budget-scheduling.md) — test-only heap/trap probe; compiler checkpoints and stage ownership integration remain unimplemented | B85 |
 | [Blocking work for actors](actor-blocking-work.md) — bounded native workers, independent job ownership and event-based completion | B85 |
