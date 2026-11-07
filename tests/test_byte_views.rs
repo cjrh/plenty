@@ -158,6 +158,13 @@ fn only_loops_that_cannot_resize_cache_bytes() {
     for name in ["pushes", "calls"] {
         assert!(!cached(name), "{name}:\n{}", support::asm_body(&ops, name));
     }
+    // Issue #844: the inlined methods read the one-word owner through
+    // `&mut Bytes`; a two-word load would keep a dead high-word load.
+    let clif = dump(RESIZING, &["--release"], "clif-opt");
+    for name in ["pushes", "calls"] {
+        let body = support::asm_body(&clif, name);
+        assert!(!body.contains("load.i128"), "{name}:\n{body}");
+    }
 }
 
 const REPLACING: &str = r#"

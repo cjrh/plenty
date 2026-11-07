@@ -55,6 +55,11 @@ them. A `__del__` hook receives such a reference and must not read the word.
 The runtime release walk clears a finished flat record so a resumed walk skips
 it.
 
+A read through any other reference loads only the words its type uses: a
+scalar loads its declared width, and a one-word value, such as a text, list or
+byte storage owner, loads only the slot's low word, even under a sum tag
+projection (issue #844).
+
 Compiled code avoids the runtime walk when the type makes it unnecessary. A
 payload with no internal addresses, such as a range, a flat record, or a closure
 environment without inline captures, is copied as plain bytes; a sum whose

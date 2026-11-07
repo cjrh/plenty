@@ -2635,9 +2635,7 @@ impl Lowerer<'_, '_> {
             }
             Op::ReadRef(ty) => {
                 let (reference, _) = self.stack.pop().ok_or("reference stack underflow")?;
-                // A scalar is entirely in its slot's first word.
-                let packed = self.read_typed_reference(reference, ty);
-                let value = self.unpack(packed, ty);
+                let value = self.read_unpacked_reference(reference, ty);
                 let value = if ty.can_copy() {
                     self.snapshot_inline(value, ty)
                 } else {
@@ -2665,8 +2663,7 @@ impl Lowerer<'_, '_> {
             Op::ReplaceRef(ty) => {
                 let (reference, _) = self.stack.pop().ok_or("reference stack underflow")?;
                 let (value, _) = self.pop_typed(ty.clone())?;
-                let old = self.read_typed_reference(reference, ty);
-                let old = self.unpack(old, ty);
+                let old = self.read_unpacked_reference(reference, ty);
                 // Inline field storage is overwritten below; relocate the old
                 // owner without retaining it or running its destructor.
                 let old = self.snapshot_inline(old, ty);

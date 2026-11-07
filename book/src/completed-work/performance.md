@@ -77,8 +77,8 @@ byte kernel fell from 38 to 7 instructions per byte (C: 4); the remaining
 difference is the range loop's separate down-counter and index. The quick
 reverse-complement input used 81.5% fewer instructions with identical output.
 In cached loops the caller scopes and unused owner-word loads (issues #842 and
-#844) leave the loop with the calls; the owner-word loads remain for uncached
-calls.
+#844) leave the loop with the calls; both were later removed from uncached
+calls as well.
 
 ### Caller sites in inlined byte access (issue #842)
 
@@ -92,6 +92,17 @@ no `plenty_caller_enter` call left in it. The quick reverse-complement input,
 whose reversal `while` loop still calls the methods, used 14.3% fewer
 instructions with identical output. Std bodies that call, loop or run
 destructors still use the thread-local context.
+
+### One-word reference reads (issue #844)
+
+A read through a reference of a one-word value, such as the `Bytes` owner the
+inlined `get` and `set` read through `self`, loads only the low slot word;
+Cranelift kept the dead high word of a two-word load. Loops that keep the
+`Bytes` method calls lose about one instruction per method call on top of
+issue #842's change: the pushing byte kernel fell from 45 to 42 instructions
+per byte. Other one-word reads through references benefit likewise. The fasta
+benchmark used 1.0% fewer instructions and quick reverse-complement 0.09%
+fewer; see `experiments/kernels/bytes/README.md`.
 
 ### k-nucleotide counting-loop investigation (issue #743)
 

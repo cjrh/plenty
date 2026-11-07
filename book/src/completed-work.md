@@ -17,7 +17,9 @@ Delivery history and retired backlog entries live here, separate from the
   [Byte method access](completed-work/performance.md#byte-method-access-issue-741)
   records the narrow checked helpers delivered for issue #741 and the
   [loop-cached byte access](completed-work/performance.md#loop-cached-byte-access-issue-843)
-  of issue #843.
+  of issue #843, and the
+  [one-word reference reads](completed-work/performance.md#one-word-reference-reads-issue-844)
+  of issue #844.
 
 B IDs are stable. A record here means the **described subset** shipped or its
 investigation concluded; it does not mean every conceivable extension of that

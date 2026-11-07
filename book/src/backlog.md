@@ -166,8 +166,8 @@ are recorded there.
   only with application/CPU evidence. An opt-in CPU target such as x86-64-v2
   requires a decision against B17's fixed-baseline reproducibility contract.
   Strict byte-method dispatcher removal (issue #741), loop-cached byte
-  access (issue #843) and caller sites in inlined byte access (issue #842) are
-  recorded in the
+  access (issue #843), caller sites in inlined byte access (issue #842) and
+  one-word reference reads (issue #844) are recorded in the
   [byte-access delivery record](completed-work/performance.md#byte-method-access-issue-741).
 - **Layout/cleanup:** natural record-field packing beyond 16-byte slots, compact
   sum tags/niches, relocation/release plans for records holding ranges/sums/other
