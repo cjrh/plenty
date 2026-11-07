@@ -1869,3 +1869,322 @@ def main() -> Result[(), IoError | AllocError]:
         );
     }
 }
+
+// Issue #784: policies keep the application's route type and Handler protocol.
+const ROUTING_POLICIES: &str = r##"
+pub enum PolicyRoute:
+    Normal
+    Missing(str)
+    WrongMethod
+    Fail
+    Silent
+
+pub class PolicyApp:
+    pub def handle(self, route: &PolicyRoute, exchange: &mut Exchange[Script]) -> Result[(), HttpError | AllocError]:
+        match route:
+            case PolicyRoute.Normal:
+                exchange.send_text(200, &f"normal {exchange.path} {exchange.query} {len(exchange.params)} {exchange.allowed_methods}\n"?)?
+            case PolicyRoute.Missing(label):
+                exchange.send_text(404, &f"{label} {exchange.path} {exchange.query} {len(exchange.params)}\n"?)?
+            case PolicyRoute.WrongMethod:
+                status = 204 if exchange.request.method == "OPTIONS" else 405
+                mut head = std.http.response(status, std.http.server.reason(status))?
+                head.add("Allow", exchange.allowed_methods)?
+                head.add("X-Policy", "method")?
+                exchange.respond(head, b"")?
+            case PolicyRoute.Fail:
+                return Err(HttpError.Broken)
+            case PolicyRoute.Silent:
+                pass
+        Ok(())
+
+def policy_request(table: &Router[PolicyRoute], label: &str, method: &str, target: &str) -> Result[(), AllocError | IoError]:
+    input = std.bytes.from_text(&f"{method} {target} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"?)?
+    stop = CancellationToken()?
+    print("BEGIN", label)?
+    report = std.http.server.serve_connection(Script(input, 0, 7, False, True), table, &PolicyApp(), &std.http.server.config(), &stop, &stop)
+    print("\nEND", label, report.requests, report.handler_errors)?
+    Ok(())
+"##;
+
+fn policy_section<'a>(output: &'a str, label: &str) -> &'a str {
+    output
+        .split_once(&format!("BEGIN {label}\n"))
+        .unwrap_or_else(|| panic!("missing {label}: {output}"))
+        .1
+        .split_once(&format!("\nEND {label}"))
+        .unwrap()
+        .0
+}
+
+#[test]
+fn typed_fallbacks_customize_missing_paths_methods_and_options() {
+    let result = support::http_program_output(&format!(
+        "{SCRIPTED}{ROUTING_POLICIES}{}",
+        r##"
+def main() -> Result[(), ServerError | AllocError | IoError]:
+    mut table = std.http.server.router[PolicyRoute]()?
+    table.add("GET", "/users/{id}", PolicyRoute.Normal)?
+    table.add("PUT", "/users/{id}", PolicyRoute.Normal)?
+    policy_request(&table, "default-missing", "GET", "/missing")?
+    policy_request(&table, "default-method", "POST", "/users/42")?
+    table.set_fallback(Some(PolicyRoute.Missing("custom-missing")))
+    table.set_method_not_allowed(Some(PolicyRoute.WrongMethod))
+    policy_request(&table, "missing", "POST", "/missing?raw=%2f+%20")?
+    policy_request(&table, "method", "POST", "/users/42?raw=%2f")?
+    policy_request(&table, "options", "OPTIONS", "/users/42")?
+    policy_request(&table, "head", "HEAD", "/missing")?
+    policy_request(&table, "normal", "HEAD", "/users/42")?
+    policy_request(&table, "invalid-capture", "GET", "/users/%ff")?
+    table.set_fallback(Some(PolicyRoute.Missing("replacement")))
+    policy_request(&table, "replacement", "GET", "/missing")?
+    table.set_fallback(Nothing)
+    table.set_method_not_allowed(Nothing)
+    policy_request(&table, "cleared-missing", "GET", "/missing")?
+    policy_request(&table, "cleared-method", "POST", "/users/42")?
+    table.set_method_not_allowed(Some(PolicyRoute.WrongMethod))
+    table.add("OPTIONS", "/users/{id}", PolicyRoute.Normal)?
+    policy_request(&table, "explicit-options", "OPTIONS", "/users/42")?
+    Ok(())
+"##
+    ));
+    for label in ["default-missing", "cleared-missing"] {
+        let response = policy_section(&result, label);
+        assert!(response.starts_with("HTTP/1.1 404 Not Found|"), "{result}");
+        assert!(response.ends_with("Not Found\n"), "{result}");
+    }
+    for label in ["default-method", "cleared-method"] {
+        let response = policy_section(&result, label);
+        assert!(
+            response.starts_with("HTTP/1.1 405 Method Not Allowed|"),
+            "{result}"
+        );
+        assert!(response.contains("Allow: GET, PUT, HEAD|"), "{result}");
+        assert!(!response.contains("X-Policy"), "{result}");
+    }
+    assert!(
+        policy_section(&result, "missing").ends_with("custom-missing /missing raw=%2f+%20 0\n"),
+        "{result}"
+    );
+    let method = policy_section(&result, "method");
+    assert!(
+        method.starts_with("HTTP/1.1 405 Method Not Allowed|"),
+        "{result}"
+    );
+    assert!(
+        method.contains("Allow: GET, PUT, HEAD|X-Policy: method|"),
+        "{result}"
+    );
+    let options = policy_section(&result, "options");
+    assert!(options.starts_with("HTTP/1.1 204 No Content|"), "{result}");
+    assert!(
+        options.contains("Allow: GET, PUT, HEAD|X-Policy: method|"),
+        "{result}"
+    );
+    for label in ["head", "normal"] {
+        let response = policy_section(&result, label);
+        assert!(response.ends_with("||"), "{result}");
+        assert!(!response.contains("custom-missing /missing"), "{result}");
+    }
+    assert!(
+        policy_section(&result, "invalid-capture").starts_with("HTTP/1.1 400 Bad Request|"),
+        "{result}"
+    );
+    assert!(
+        policy_section(&result, "replacement").ends_with("replacement /missing  0\n"),
+        "{result}"
+    );
+    assert!(
+        policy_section(&result, "explicit-options").starts_with("HTTP/1.1 200 OK|"),
+        "{result}"
+    );
+    assert!(
+        result
+            .lines()
+            .filter(|line| line.starts_with("END "))
+            .all(|line| line.ends_with(" 1 0")),
+        "{result}"
+    );
+}
+
+#[test]
+fn slash_redirects_preserve_method_query_and_exact_route_precedence() {
+    let result = support::http_program_output(&format!(
+        "{SCRIPTED}{ROUTING_POLICIES}{}",
+        r##"
+def main() -> Result[(), ServerError | AllocError | IoError]:
+    mut table = std.http.server.router[PolicyRoute]()?
+    table.add("GET", "/docs/", PolicyRoute.Normal)?
+    table.add("POST", "/submit/", PolicyRoute.Normal)?
+    table.add("GET", "/remove", PolicyRoute.Normal)?
+    table.add("GET", "/both", PolicyRoute.Normal)?
+    table.add("POST", "/both/", PolicyRoute.Normal)?
+    table.add("GET", "/users/{id}/", PolicyRoute.Normal)?
+    table.add("*", "/wild/", PolicyRoute.Normal)?
+    table.add("GET", "/rest/{path...}", PolicyRoute.Normal)?
+    table.add("GET", "//evil.example/", PolicyRoute.Normal)?
+    table.add("GET", "/back\\slash/", PolicyRoute.Normal)?
+    table.add("GET", "/fragment#/", PolicyRoute.Normal)?
+    table.set_fallback(Some(PolicyRoute.Missing("missing")))
+    policy_request(&table, "exact-default", "GET", "/docs")?
+    table.set_trailing_slash(std.http.server.TrailingSlash.Redirect)
+    policy_request(&table, "add", "GET", "/docs?raw=%2f+%20&x=a%26b")?
+    policy_request(&table, "empty-query", "GET", "/docs?")?
+    policy_request(&table, "post", "POST", "/submit?x=1")?
+    policy_request(&table, "remove", "GET", "/remove/")?
+    policy_request(&table, "head", "HEAD", "/docs")?
+    policy_request(&table, "capture", "GET", "/users/Ada%20L")?
+    policy_request(&table, "wild", "OPTIONS", "/wild")?
+    policy_request(&table, "wrong-alternate-method", "OPTIONS", "/docs")?
+    policy_request(&table, "exact-wrong-method", "POST", "/both")?
+    policy_request(&table, "exact", "GET", "/docs/")?
+    policy_request(&table, "rest", "GET", "/rest")?
+    policy_request(&table, "root", "GET", "/")?
+    policy_request(&table, "double-slash", "GET", "//evil.example")?
+    policy_request(&table, "backslash", "GET", "/back\\slash")?
+    policy_request(&table, "fragment", "GET", "/fragment#")?
+    policy_request(&table, "absolute", "GET", "http://example.test/docs?x=%2F")?
+    table.set_trailing_slash(std.http.server.TrailingSlash.Exact)
+    policy_request(&table, "disabled", "GET", "/docs")?
+    Ok(())
+"##
+    ));
+    for (label, location) in [
+        ("add", "/docs/?raw=%2f+%20&x=a%26b"),
+        ("empty-query", "/docs/?"),
+        ("post", "/submit/?x=1"),
+        ("remove", "/remove"),
+        ("head", "/docs/"),
+        ("capture", "/users/Ada%20L/"),
+        ("wild", "/wild/"),
+        ("absolute", "/docs/?x=%2F"),
+    ] {
+        let response = policy_section(&result, label);
+        assert!(
+            response.starts_with("HTTP/1.1 308 Permanent Redirect|"),
+            "{result}"
+        );
+        assert!(
+            response.contains(&format!("Location: {location}|")),
+            "{result}"
+        );
+        assert!(response.ends_with("||"), "{result}");
+        assert!(response.contains("Content-Length: 0|"), "{result}");
+    }
+    for label in [
+        "exact-default",
+        "wrong-alternate-method",
+        "root",
+        "double-slash",
+        "backslash",
+        "fragment",
+        "disabled",
+    ] {
+        assert!(
+            policy_section(&result, label).starts_with("HTTP/1.1 404 Not Found|"),
+            "{result}"
+        );
+    }
+    assert!(
+        policy_section(&result, "exact-wrong-method")
+            .starts_with("HTTP/1.1 405 Method Not Allowed|Allow: GET, HEAD|"),
+        "{result}"
+    );
+    for label in ["exact", "rest"] {
+        assert!(
+            policy_section(&result, label).starts_with("HTTP/1.1 200 OK|"),
+            "{result}"
+        );
+    }
+}
+
+#[test]
+fn fallback_failures_follow_the_normal_handler_contract() {
+    let result = support::http_program_output(&format!(
+        "{SCRIPTED}{ROUTING_POLICIES}{}",
+        r##"
+def main() -> Result[(), ServerError | AllocError | IoError]:
+    mut table = std.http.server.router[PolicyRoute]()?
+    table.add("GET", "/", PolicyRoute.Normal)?
+    table.set_fallback(Some(PolicyRoute.Fail))
+    policy_request(&table, "failed", "GET", "/missing")?
+    table.set_fallback(Some(PolicyRoute.Silent))
+    policy_request(&table, "silent", "GET", "/missing")?
+    table.set_method_not_allowed(Some(PolicyRoute.Fail))
+    policy_request(&table, "method-failed", "POST", "/")?
+    Ok(())
+"##
+    ));
+    for label in ["failed", "silent", "method-failed"] {
+        assert!(
+            policy_section(&result, label).starts_with("HTTP/1.1 500 Internal Server Error|"),
+            "{result}"
+        );
+        assert!(result.contains(&format!("END {label} 1 1")), "{result}");
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn routing_policy_allocations_fail_without_trapping() {
+    let result = output(&format!(
+        "{SCRIPTED}{ROUTING_POLICIES}{}",
+        r##"
+def main() -> Result[(), ServerError | AllocError | IoError]:
+    mut table = std.http.server.router[PolicyRoute]()?
+    table.add("POST", "/long-canonical-route-beyond-inline/", PolicyRoute.Normal)?
+    table.set_trailing_slash(std.http.server.TrailingSlash.Redirect)
+    table.set_fallback(Some(PolicyRoute.Missing("missing-label-beyond-inline")))
+    table.set_method_not_allowed(Some(PolicyRoute.WrongMethod))
+    stop = CancellationToken()?
+    config = std.http.server.config()
+    for target in ["/long-canonical-route-beyond-inline?query=long-value-beyond-inline%2f", "/missing-path-beyond-inline", "/long-canonical-route-beyond-inline/"]?:
+        for budget in range(160):
+            method = "GET" if target.endswith("/") else "POST"
+            request = std.bytes.from_text(&f"{method} {target} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"?)?
+            marker = "__test_fail_allocations_after_".concat(str.from(budget)?)?.concat("__")?
+            print(marker)?
+            report = std.http.server.serve_connection(Script(request, 0, 7, False, False), &table, &PolicyApp(), &config, &stop, &stop)
+            print("__test_restore_allocations__")?
+            print(report.requests)?
+    Ok(())
+"##
+    ));
+    let counts: Vec<_> = result.lines().collect();
+    assert_eq!(counts.len(), 480);
+    for group in counts.as_chunks::<160>().0 {
+        assert!(group.iter().all(|count| ["0", "1"].contains(count)));
+        assert_eq!(group[0], "0");
+        assert!(group[140..].iter().all(|count| *count == "1"));
+    }
+}
+
+#[test]
+fn fallback_values_can_own_application_state() {
+    let result = support::http_program_output(&format!(
+        "{SCRIPTED}{}",
+        r##"
+pub enum OwnedRoute:
+    Missing(list[str])
+
+pub class OwnedApp:
+    pub def handle(self, route: &OwnedRoute, exchange: &mut Exchange[Script]) -> Result[(), HttpError]:
+        match route:
+            case OwnedRoute.Missing(labels):
+                exchange.send_text(404, &labels[0])
+
+def main() -> Result[(), ServerError | AllocError | IoError]:
+    mut table = std.http.server.router[OwnedRoute]()?
+    stop = CancellationToken()?
+    for label in ["first-owned-fallback", "second-owned-fallback"]?:
+        table.set_fallback(Some(OwnedRoute.Missing([label]?)))
+        input = std.bytes.from_text("GET /missing HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")?
+        drop(std.http.server.serve_connection(Script(input, 0, 7, False, True), &table, &OwnedApp(), &std.http.server.config(), &stop, &stop))
+    table.set_fallback(Nothing)
+    Ok(())
+"##
+    ));
+    assert_eq!(result.matches("HTTP/1.1 404 Not Found|").count(), 2);
+    assert!(result.contains("||first-owned-fallback"), "{result}");
+    assert!(result.ends_with("||second-owned-fallback"), "{result}");
+}

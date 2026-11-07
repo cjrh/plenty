@@ -58,54 +58,54 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.http.files`](#stdhttpfiles): 1875-1888
 - [`std.http.https`](#stdhttphttps): 1890-1904
 - [`std.http.proxy`](#stdhttpproxy): 1906-1927
-- [`std.http.server`](#stdhttpserver): 1929-2014
-- [`std.http.sse`](#stdhttpsse): 2016-2035
-- [`std.http.tls`](#stdhttptls): 2037-2054
-- [`std.http.typed`](#stdhttptyped): 2056-2089
-- [`std.http.websocket`](#stdhttpwebsocket): 2091-2126
-- [`std.http.wss`](#stdhttpwss): 2128-2134
-- [`std.image`](#stdimage): 2136-2182
-- [`std.io`](#stdio): 2184-2290
-- [`std.io.typed`](#stdiotyped): 2292-2330
-- [`std.json`](#stdjson): 2332-2396
-- [`std.jwt`](#stdjwt): 2398-2445
-- [`std.log`](#stdlog): 2447-2514
-- [`std.markdown`](#stdmarkdown): 2516-2550
-- [`std.template`](#stdtemplate): 2552-2587
-- [`std.math`](#stdmath): 2589-2660
-- [`std.mime`](#stdmime): 2662-2688
-- [`std.net`](#stdnet): 2690-2772
-- [`std.path`](#stdpath): 2774-2791
-- [`std.process`](#stdprocess): 2793-2851
-- [`std.random`](#stdrandom): 2853-2874
-- [`std.ready`](#stdready): 2876-2907
-- [`std.regex`](#stdregex): 2909-2962
-- [`std.report`](#stdreport): 2964-2971
-- [`std.secrets`](#stdsecrets): 2973-2999
-- [`std.shlex`](#stdshlex): 3001-3010
-- [`std.sketch`](#stdsketch): 3012-3050
-- [`std.sketch.xor`](#stdsketchxor): 3052-3063
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3065-3080
-- [`std.signal`](#stdsignal): 3082-3099
-- [`std.simd`](#stdsimd): 3101-3202
-- [`std.stat`](#stdstat): 3204-3237
-- [`std.plot`](#stdplot): 3239-3328
-- [`std.linalg`](#stdlinalg): 3330-3371
-- [`std.sync`](#stdsync): 3373-3391
-- [`std.system`](#stdsystem): 3393-3452
-- [`std.tempfile`](#stdtempfile): 3454-3486
-- [`std.test`](#stdtest): 3488-3530
-- [`std.text`](#stdtext): 3532-3575
-- [`std.thread`](#stdthread): 3577-3581
-- [`std.time`](#stdtime): 3583-3627
-- [`std.tls`](#stdtls): 3629-3711
-- [`std.toml`](#stdtoml): 3713-3762
-- [`std.unicode`](#stdunicode): 3764-3776
-- [`std.units`](#stdunits): 3778-4015
-- [`std.units.catalogue`](#stdunitscatalogue): 4017-4795
-- [`std.url`](#stdurl): 4797-4825
-- [`std.uuid`](#stduuid): 4827-4850
-- [`std.xml`](#stdxml): 4852-4885
+- [`std.http.server`](#stdhttpserver): 1929-2020
+- [`std.http.sse`](#stdhttpsse): 2022-2041
+- [`std.http.tls`](#stdhttptls): 2043-2060
+- [`std.http.typed`](#stdhttptyped): 2062-2095
+- [`std.http.websocket`](#stdhttpwebsocket): 2097-2132
+- [`std.http.wss`](#stdhttpwss): 2134-2140
+- [`std.image`](#stdimage): 2142-2188
+- [`std.io`](#stdio): 2190-2296
+- [`std.io.typed`](#stdiotyped): 2298-2336
+- [`std.json`](#stdjson): 2338-2402
+- [`std.jwt`](#stdjwt): 2404-2451
+- [`std.log`](#stdlog): 2453-2520
+- [`std.markdown`](#stdmarkdown): 2522-2556
+- [`std.template`](#stdtemplate): 2558-2593
+- [`std.math`](#stdmath): 2595-2666
+- [`std.mime`](#stdmime): 2668-2694
+- [`std.net`](#stdnet): 2696-2778
+- [`std.path`](#stdpath): 2780-2797
+- [`std.process`](#stdprocess): 2799-2857
+- [`std.random`](#stdrandom): 2859-2880
+- [`std.ready`](#stdready): 2882-2913
+- [`std.regex`](#stdregex): 2915-2968
+- [`std.report`](#stdreport): 2970-2977
+- [`std.secrets`](#stdsecrets): 2979-3005
+- [`std.shlex`](#stdshlex): 3007-3016
+- [`std.sketch`](#stdsketch): 3018-3056
+- [`std.sketch.xor`](#stdsketchxor): 3058-3069
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3071-3086
+- [`std.signal`](#stdsignal): 3088-3105
+- [`std.simd`](#stdsimd): 3107-3208
+- [`std.stat`](#stdstat): 3210-3243
+- [`std.plot`](#stdplot): 3245-3334
+- [`std.linalg`](#stdlinalg): 3336-3377
+- [`std.sync`](#stdsync): 3379-3397
+- [`std.system`](#stdsystem): 3399-3458
+- [`std.tempfile`](#stdtempfile): 3460-3492
+- [`std.test`](#stdtest): 3494-3536
+- [`std.text`](#stdtext): 3538-3581
+- [`std.thread`](#stdthread): 3583-3587
+- [`std.time`](#stdtime): 3589-3633
+- [`std.tls`](#stdtls): 3635-3717
+- [`std.toml`](#stdtoml): 3719-3768
+- [`std.unicode`](#stdunicode): 3770-3782
+- [`std.units`](#stdunits): 3784-4021
+- [`std.units.catalogue`](#stdunitscatalogue): 4023-4801
+- [`std.url`](#stdurl): 4803-4831
+- [`std.uuid`](#stduuid): 4833-4856
+- [`std.xml`](#stdxml): 4858-4891
 
 ## `std.actor`
 
@@ -1966,7 +1966,12 @@ class Report
     dropped_events: u64
 enum Match
     Found(i64, list[str]) | NotFound | MethodNotAllowed(str)
+enum TrailingSlash
+    Exact | Redirect
 class Router[R]
+    def set_fallback(self: &mut Router[R], route: Option[R]) -> ()
+    def set_method_not_allowed(self: &mut Router[R], route: Option[R]) -> ()
+    def set_trailing_slash(self: &mut Router[R], policy: TrailingSlash) -> ()
     def add(self: &mut Router[R], method: &str, pattern: &str, route: R) -> Result[(), ServerError]
     def find(self, method: &str, path: &str) -> Result[Match, ServerError]
     def route(self, index: i64) -> &R
@@ -1981,6 +1986,7 @@ class Exchange[T]
     path: str
     query: str
     params: list[str]
+    allowed_methods: str
     peer: Option[SocketAddress]
     def stopping(self) -> bool
     def cancelled(self) -> bool

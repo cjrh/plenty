@@ -92,7 +92,7 @@ its own thread and passes each to the queue once it has input (see
 [Idle connections](#idle-connections)). Every worker shares one borrow of the router, the
 handler and the config, so `handle` takes `self` and `route` by shared borrow
 and cannot change them; shared state needs a synchronized type such as a
-channel or token. A handler class and its `handle` method must be `pub`,
+channel or token. A handler type and its `handle` method must be `pub`,
 because `serve` calls them from another module, and so must the route type
 its signature names. The route type and the handler must be usable on
 worker threads, under the ordinary
@@ -120,6 +120,9 @@ peer or a test that plays one. `stop` and
 | `router[R]()` | `Result[Router[R], ServerError]`: an empty table whose routes carry values of type `R` |
 | `router.add(method, pattern, route: R)` | `Result[(), ServerError]`: append a route |
 | `router.find(method, path)` | `Result[Match, ServerError]`: the route for a request |
+| `router.set_fallback(route: Option[R])` | Store a typed handler value for paths with no route; `Nothing` restores the built-in `404` |
+| `router.set_method_not_allowed(route: Option[R])` | Store a typed handler value for an exact path with no matching method; `Nothing` restores the built-in `405` and `Allow` |
+| `router.set_trailing_slash(policy: TrailingSlash)` | `Exact` (default), or `Redirect` to the registered spelling after an exact miss |
 | `router.route(index)` | `&R`: the value of the route at `index`, in the order routes were added |
 | `Match.Found(index, params: list[str])` | `index` is the matched route's; `params` holds the captures in pattern order, still percent-encoded |
 | `Match.NotFound` | No pattern matches the path |
@@ -134,9 +137,10 @@ method and the same shape as an earlier one with `DuplicateRoute`.
 
 Routes are tried in the order they were added; the first match wins, so add
 specific routes before general ones. A `GET` route also answers `HEAD`, with
-the body left out. Matching compares the path exactly: no case folding, no
-trailing-slash redirect and no `..` normalization. The query string is not
-part of the path.
+the body left out. `find` compares the path exactly: no case folding or `..`
+normalization. The query string is not part of the path. Fallback and slash
+policies apply when serving through this module or `std.http.tls`; they do not
+change `find`, `Match`, route indices or a manual dispatcher built on `find`.
 
 Before routing, the server checks the target and `Host` with
 [`std.http.request_target`](http.md#targets-and-host) and answers `400`
@@ -148,8 +152,71 @@ is routed on its path, and its authority replaces `Host`. The check lives in
 itself stays permissive so clients and proxies can read any well-formed
 message.
 
-The server answers `404`, or `405` with an `Allow` field, without calling the
-handler. A capture that does not percent-decode to UTF-8 gets `400`.
+By default the server answers `404`, or `405` with an `Allow` field, without
+calling the handler. A successfully matched route whose capture does not
+percent-decode to UTF-8 gets `400`, including when a fallback is configured.
+
+### Fallback and method policy
+
+`set_fallback(Some(route))` stores a route value for an unknown path, and
+`set_method_not_allowed(Some(route))` stores one for an exact path whose
+patterns do not accept the request's method. Both use the same `Handler[T, R, E]`
+as ordinary routes, with its usual body reads, response framing, HEAD body
+suppression, error handling, deadlines and reports. They borrow the stored
+value; captures are empty. `exchange.path` and `exchange.query` retain the
+request's original encoded text.
+
+`exchange.allowed_methods` is the exact path's computed `Allow` value for a
+method-not-allowed dispatch, and `""` otherwise. It lists distinct registered
+methods in insertion order, with `HEAD` added after them when `GET` is present.
+A custom handler chooses its response status and fields; add `Allow` explicitly
+when returning `405`. For example it can answer an `OPTIONS` request with
+`204` and that same field. OPTIONS is not synthesized: an explicit route or
+`*` route wins, otherwise the default is `405` or the custom method handler.
+`OPTIONS *` is still rejected before routing.
+
+The setters take ownership of the optional route without allocating and drop
+any previous value. `Nothing` restores the corresponding default. Ordinary
+route indices remain unchanged. Handler and route worker eligibility applies
+to fallback payloads as it does to other `R` values. Malformed targets,
+framing faults and invalid captures bypass fallbacks.
+
+The [server tutorial](../../tutorial/11-concurrency/http-server.md) shows a
+complete handler with typed fallback variants. These policies do not configure
+[`std.actor.http.server`](actor-http-server.md), whose application dispatches
+requests separately.
+
+### Trailing-slash redirects
+
+`set_trailing_slash(TrailingSlash.Redirect)` enables a bounded alternate lookup
+when no pattern matches the exact request path. The server removes one final
+`/`, or adds one when missing; `/` itself is unchanged. It redirects only if
+the alternate spelling accepts the request method (`HEAD` may use `GET`, and
+`*` accepts any method). A spelling that only matches a different method does
+not redirect. This is an explicit redirect policy rather than normalization:
+case, repeated internal slashes, encoded characters and dot segments remain
+unchanged.
+
+The response is always `308 Permanent Redirect`, with an empty body and a
+root-relative `Location`. The status preserves the method and body when a
+client follows it, including POST; the server does not rewrite the method or
+internally dispatch to the alternate path. Query bytes, their percent escapes
+and an empty final `?` are preserved. Absolute-form requests also receive a
+root-relative reference, without copying their authority. Paths beginning `//`,
+paths containing a literal backslash, and targets containing a literal `#`
+are not redirected, to avoid references a browser could interpret differently.
+
+Exact matches always win, including rest captures and an exact path's `405` or
+custom method handler. A redirect wins over the unknown-path fallback. With
+`TrailingSlash.Exact`, the default, a slash difference reaches the ordinary
+unknown-path handling. Both spellings can be registered explicitly when they
+should have independent handlers.
+
+The alternate path, query and response allocations are bounded by the accepted
+request's `config.limits.max_line` plus the one added slash and fixed response
+fields. Allocation failure closes the connection as for other server-generated
+responses. Redirects use the ordinary exchange response/linger behavior: an
+unread request body is not passed to an application handler.
 
 ### Route values
 
@@ -187,11 +254,11 @@ handler. Several patterns may carry equal values, so two paths can share one
 variant; `DuplicateRoute` depends only on method and pattern shape. `router`
 needs its type argument written out: `router[Route]()`.
 
-The server does not generate the dispatch. A route enum cannot implement
-`Handler` itself, because enums have no methods and protocols constrain only
-classes, and a router of handler objects of different classes would need
-existential protocol values, which Plenty does not have. One `match` in one
-handler class keeps dispatch static and checked.
+The server does not generate the dispatch. The application supplies its own
+`Handler` implementation, commonly one exhaustive `match` in a handler class
+as shown here. A class or enum with a matching public `handle` method satisfies
+the [structural protocol](../language/07-generics/protocols.md). The handler is
+shared across requests; the selected route value is borrowed from the router.
 
 ## Exchanges
 
@@ -203,6 +270,7 @@ The handler receives an `Exchange[T]` for one request.
 | `authority: str` | `host[:port]` the request names: an absolute-form target's authority, else the `Host` value; empty only for HTTP/1.0 without `Host` |
 | `path`, `query` | The target's path and the text after its first `?`, both still percent-encoded; an absolute-form target's scheme and authority are removed |
 | `params: list[str]` | Captures, percent-decoded |
+| `allowed_methods: str` | Computed `Allow` for a method-not-allowed dispatch, otherwise empty; custom handlers add the response field themselves |
 | `peer: Option[SocketAddress]` | The address the connection came from: a reverse proxy's, when there is one (see [`std.http.proxy`](http-proxy.md)) |
 | `read_body(&mut buffer, start, stop)` | `Result[i64, HttpError]`: part of the request body; `0` from a non-empty range is the end, and an empty range returns `0` without reading |
 | `read_all(&mut out)` | `Result[i64, HttpError]`: append the rest of the body, within `limits.max_body` |
