@@ -12,6 +12,8 @@ use crate::mutex::MutexOp;
 use crate::net::NetOp;
 use crate::op::{CompiledFn, Op, Ty};
 use crate::process::ProcessOp;
+use crate::stream::StreamOp;
+use crate::value::Value;
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// The functions of a program whose bodies are being checked. The call table
@@ -147,8 +149,10 @@ impl<'p> Program<'p> {
     /// wait for a thread that is itself blocked on the held queue. Only
     /// `send_nowait`, `recv_nowait`, nowait selection, and `submit_nowait`
     /// never wait; a timed operation's bound can be arbitrarily long. Waits
-    /// for tokens, readiness, and child processes count, as do foreign
-    /// calls. A sleep is not counted: it ends without another thread.
+    /// for tokens, readiness, and child processes count, as do file, socket,
+    /// and datagram transfers and foreign calls. A sleep is not counted: it
+    /// ends without another thread. Nor are standard-stream reads and writes,
+    /// whose other end is outside the program.
     ///
     /// Calls follow `function_references`, which also names the workers a
     /// function starts and the destructors it arms; the destructor of every
@@ -199,7 +203,16 @@ impl<'p> Program<'p> {
             let _ = crate::threading::inspect(function, &mut types, &mut calls);
             functions.extend(calls);
             let mut waits = false;
+            let mut previous: Option<&Op> = None;
             crate::threading::walk(&function.body, &mut |op| {
+                // A readiness poll with a literal zero timeout, as in
+                // `std.ready.wait_now`, returns at once. Adjacency in memory
+                // proves the literal is the last argument of this call.
+                let polls = previous.is_some_and(|before| {
+                    std::ptr::eq((before as *const Op).wrapping_add(1), op)
+                        && matches!(before, Op::PushInt(Value::U64(0)))
+                });
+                previous = Some(op);
                 crate::threading::function_references(op, &mut |name| {
                     functions.push(name.to_owned())
                 });
@@ -221,11 +234,32 @@ impl<'p> Program<'p> {
                         | ExecutorOp::Shutdown,
                     )
                     // Token and readiness waits end when another thread
-                    // cancels or writes, a child can wait on a pipe this
-                    // program drains, and a foreign function can do anything.
+                    // cancels or writes. A file can be a socket, pipe, or
+                    // FIFO whose peer is another thread, and opening a FIFO
+                    // waits for one. A child can wait on a pipe this program
+                    // drains, and a foreign function can do anything.
+                    // Standard streams are not counted: their other end is
+                    // outside the program.
                     | Op::Control(ControlOp::Wait | ControlOp::WaitTimeout)
                     | Op::Collection(
-                        CollectionOp::Net(NetOp::ReadyWait | NetOp::Select)
+                        CollectionOp::Net(
+                            NetOp::ReadyWait
+                            | NetOp::Select
+                            | NetOp::Accept
+                            | NetOp::SendTo
+                            | NetOp::ReceiveFrom
+                            | NetOp::Resolve,
+                        )
+                        | CollectionOp::Stream(StreamOp::FileRead | StreamOp::FileWrite)
+                        | CollectionOp::OpenFile
+                        | CollectionOp::FileRead
+                        | CollectionOp::FileWrite
+                        | CollectionOp::FileFlush
+                        | CollectionOp::FileReadLine
+                        | CollectionOp::FileReadSized
+                        | CollectionOp::FileReadLineSized
+                        | CollectionOp::FileReadLines
+                        | CollectionOp::FileWriteLines
                         | CollectionOp::Process(ProcessOp::Wait),
                     )
                     | Op::ForeignCall { .. }
@@ -233,6 +267,7 @@ impl<'p> Program<'p> {
                     | Op::TailCallIndirect(_)
                     | Op::BoxedCallableCall(_)
                     | Op::ProtocolBoxCall(..) => true,
+                    Op::Collection(CollectionOp::Stream(StreamOp::Wait)) => !polls,
                     Op::ClosureCall(closure) => closure.name.is_empty(),
                     _ => false,
                 };

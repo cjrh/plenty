@@ -137,7 +137,7 @@ see [shutdown](executors.md#shutdown-and-live-receivers) and
 ### Which workers can wait
 
 A worker *can wait* if code it can run makes any blocking or timed wait, on any
-queue, lock, token, or handle, or calls a foreign function:
+queue, lock, token, handle, file, or socket, or calls a foreign function:
 
 - `send(value)`, `send_timeout_ms`, `recv()`, `recv_timeout_ms`, or a blocking
   or timed `select_recv`, whatever the message type;
@@ -149,12 +149,19 @@ queue, lock, token, or handle, or calls a foreign function:
 - a [readiness wait](../../stdlib/ready.md), such as `std.ready.wait`, a
   selector wait, or `Signals.wait`;
 - waiting for a child process;
+- opening, reading, writing, or flushing a file or stream, or waiting for its
+  readiness, other than a standard stream;
+- accepting a connection, sending or receiving a datagram, or resolving a
+  host name;
 - any call to a foreign function, including a `@thread_safe` one.
 
 A timeout bounds the wait, but the bound can be arbitrarily long. A wait on
 another queue, a lock, a token, or a handle counts because the thread that
 would end it could itself be blocked on the queue the joining function holds; a
-child process could be blocked on a pipe that thread drains. Only `send_nowait`,
+child process could be blocked on a pipe that thread drains. File I/O counts
+because the compiler cannot tell a regular file from a socket, pipe, or FIFO
+whose other end that thread holds. A zero-timeout readiness check such as
+`std.ready.wait_now` does not wait. Only `send_nowait`,
 `recv_nowait`, `select_recv_nowait`, and `submit_nowait` never wait, so a
 worker that uses only these is joined while the function keeps the opposite
 endpoint:
@@ -189,7 +196,8 @@ The code a worker can run includes:
 A call through a `Callable`, a boxed callable, or a protocol box, a held
 boxed value or generator, and a function without a body to inspect, such as
 one compiled elsewhere, count as waits. A sleep does not: it ends without
-another thread. Nor does a blocking read or write on a stream; see
+another thread. Nor does reading standard input or writing standard output or
+standard error, including `print`; see
 [what the rule does not decide](#what-the-rule-does-not-decide).
 
 ### What can hold an endpoint
@@ -251,8 +259,9 @@ count messages. These safe programs are rejected:
 - the live receiver belongs to a different queue of the same message type;
 - the worker sends only with `send_timeout_ms`, or its blocking sends always
   fit the queue's capacity, or run only on paths the program never takes;
-- the worker's only waits are on other queues, locks, tokens, handles, or
-  foreign calls that no thread blocked on this queue can hold up;
+- the worker's only waits are on other queues, locks, tokens, handles, files,
+  sockets, or foreign calls that no thread blocked on this queue can hold up,
+  such as reads of a regular file;
 - another thread also receives from the queue;
 - the receiver's caller-side owner would have received.
 
@@ -268,8 +277,12 @@ The rule is not a deadlock-freedom guarantee. It does not cover:
 - endpoints held by the function's callers through bindings it was not passed;
 - a worker that retries a `nowait` operation until it succeeds, which waits
   without blocking;
-- a worker blocked in a stream read or write, such as on a pipe another
-  thread of the program feeds;
+- a worker blocked reading standard input or writing standard output or
+  standard error, such as `print` into a full pipe. The other end of a
+  standard stream belongs to another process, so no thread blocked on the
+  queue can hold it up, unless the program connects its own standard streams
+  to a pipe it drains. Counting these streams would make every printing worker
+  one that can wait;
 - a worker blocked for any other reason.
 
 Dropping or guarding the surviving endpoints removes the rejection. Workers

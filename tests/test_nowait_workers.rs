@@ -2,8 +2,9 @@
 //! for anything does not block a join or shutdown while the joining function
 //! keeps the opposite endpoint. Only `send_nowait`, `recv_nowait`, nowait
 //! selection, and `submit_nowait` never wait; any other wait counts, on any
-//! queue, lock, token, readiness, child process, or foreign call, through
-//! helpers, destructors, started workers, and calls through values.
+//! queue, lock, token, readiness, child process, file or socket transfer, or
+//! foreign call, through helpers, destructors, started workers, and calls
+//! through values. Standard-stream reads and writes do not count.
 mod support;
 
 const NOTIFY: &str = "def notify(sender: Sender[i64]) -> ():
@@ -343,4 +344,97 @@ fn token_readiness_and_process_waits_count_for_workers_and_jobs() {
             assert!(error.contains(expected), "{source}\n{error}");
         }
     }
+}
+
+#[test]
+fn file_and_socket_transfers_count_but_standard_streams_do_not() {
+    // A third thread can block on the queue before it writes the byte the
+    // worker reads; the join then never returns (review of local PR #1039).
+    rejected(
+        "import std.bytes
+from std.net import TcpStream, connect, listen, loopback_v4
+from std.time import deadline_after, monotonic_now, seconds
+def waiter(sender: Sender[i64], stream: TcpStream) -> ():
+    notify(sender)
+    mut inbound = stream
+    mut buffer = std.bytes.from_text(\"y\").unwrap()
+    drop(inbound.read(&mut buffer, 0, 1))
+def filler(sender: Sender[i64], stream: TcpStream) -> ():
+    drop(sender.send(1))
+    drop(sender.send(2))
+    mut outbound = stream
+    drop(outbound.write(b\"x\"))
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
+    sender, receiver = channel[i64](1)?
+    listener = listen(&loopback_v4(0u16), 1).unwrap()
+    address = listener.local_address().unwrap()
+    never = CancellationToken()?
+    deadline = deadline_after(&monotonic_now(), &seconds(10)).unwrap()
+    client = connect(&address, &deadline, &never).unwrap()
+    server = listener.accept(&deadline, &never).unwrap()
+    with spawn(filler, sender.share(), client).drop_job()?:
+        with spawn(waiter, sender, server).unwrap() as task:
+            task.join()
+        drop(receiver)
+    print(\"done\")?
+    Ok(())
+",
+        "could block the worker's send",
+    );
+    // Any file can be a pipe or FIFO whose writer is another thread.
+    for transfer in [
+        "    mut buffer = std.bytes.from_text(\"y\").unwrap()
+    drop(stream.read(&mut buffer, 0, 1))
+",
+        "    drop(stream.write(b\"x\"))
+",
+    ] {
+        rejected(
+            &format!(
+                "import std.bytes
+from std.io import FileStream
+def worker(sender: Sender[i64], file: FileStream) -> ():
+    notify(sender)
+    mut stream = file
+{transfer}def start(file: FileStream) -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    with spawn(worker, sender, file).unwrap():
+        pass
+def main() -> ():
+    pass
+"
+            ),
+            "could block the worker's send",
+        );
+    }
+    rejected(
+        "from std.io import FileStream
+def forward(sender: Sender[i64], file: FileStream) -> ():
+    notify(sender)
+    mut stream = file
+    drop(stream.write(b\"x\"))
+def start(file: FileStream) -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    with ThreadPoolExecutor(1, 1).unwrap() as pool:
+        future = pool.submit(def once [sender, file]() -> (): forward(sender, file)).unwrap()
+def main() -> ():
+    pass
+",
+        "could block the job's send",
+    );
+    // A standard stream's other end is outside the program.
+    runs(
+        "def worker(sender: Sender[i64]) -> Result[(), IoError]:
+    notify(sender)
+    print(\"sent\")?
+    Ok(())
+def main() -> Result[(), AllocError | IoError | RecvError | SpawnError[()]]:
+    sender, receiver = channel[i64](1)?
+    with spawn(worker, sender).drop_job()?:
+        pass
+    print(receiver.recv()?)?
+    Ok(())
+",
+        "sent\n0\n",
+    );
 }

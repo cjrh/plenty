@@ -10,8 +10,9 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 A join, pool shutdown, or result wait is no longer rejected for a live opposite
 endpoint when the worker or job cannot wait for anything: its code, including
 helpers, destructors, and workers it starts, makes no blocking or timed wait on
-any queue, lock, future, pool, token, readiness handle, or child process, and
-calls no foreign function. Calls through values still count as waits.
+any queue, lock, future, pool, token, readiness handle, child process, file, or
+socket, and calls no foreign function. Standard-stream I/O, including `print`,
+does not count. Calls through values still count as waits.
 [Which workers can wait](../design/facilities/03-concurrency/channels.md#which-workers-can-wait)
 documents the rule.
 
