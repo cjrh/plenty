@@ -146,7 +146,8 @@ fn a_class_moves_with_its_comment_and_every_caller_follows() {
     assert_eq!(
         moved.api_changes,
         [
-            "moves public `tools.shapes.Point` to `tools.geometry.Point`; packages outside this workspace that import it must change"
+            "moves public `tools.shapes.Point` to `tools.geometry.Point`; packages outside this workspace that import it must change",
+            "changes the printed type name `shapes.Point` to `geometry.Point`",
         ]
     );
     let expected = BTreeMap::from([
@@ -325,7 +326,8 @@ fn moving_a_public_library_declaration_reports_the_path_change() {
     assert_eq!(
         moved.api_changes,
         [
-            "moves public `tools.shapes.Point` to `tools.geometry.Point`; packages outside this workspace that import it must change"
+            "moves public `tools.shapes.Point` to `tools.geometry.Point`; packages outside this workspace that import it must change",
+            "changes the printed type name `shapes.Point` to `geometry.Point`",
         ]
     );
     assert_eq!(
@@ -839,6 +841,10 @@ fn decorators_and_their_comments_move_with_the_declaration() {
         "Pair"
     );
     let moved = plan(dir.path(), "src/shapes.plenty", 5, "src/geometry.plenty").unwrap();
+    assert_eq!(
+        moved.api_changes,
+        ["changes the printed type name `shapes.Secret` to `geometry.Secret`"]
+    );
     let expected = BTreeMap::from([
         (
             "src/geometry.plenty".to_string(),
@@ -1011,5 +1017,73 @@ fn a_rewritten_name_captured_by_a_parameter_is_refused() {
     assert_eq!(
         refused(dir.path(), "src/shapes.plenty", 1, "src/config.plenty"),
         "src/main.plenty:10:5: after the move, `shapes.size` would no longer name `size`"
+    );
+}
+
+#[test]
+fn moving_into_the_library_imports_it_under_the_package_name() {
+    let dir = package(&[
+        ("src/lib.plenty", "pub def version() -> i64:\n    1\n"),
+        (
+            "src/shapes.plenty",
+            "pub class Point:\n    pub x: i64\n\npub def unit() -> i64:\n    1\n",
+        ),
+        (
+            "src/main.plenty",
+            &format!(
+                "import shapes\nfrom shapes import Point\n\n{PRINT_MAIN_PREFIX}    print(shapes.Point(x=1))?\n    print(Point(x=2))?\n    print(shapes.unit())?\n    Ok(())\n"
+            ),
+        ),
+        (
+            "tests/points.plenty",
+            "import tools.shapes\nfrom tools.shapes import Point\n\ndef test_point() -> ():\n    p = tools.shapes.Point(x=1)\n    q = Point(x=2)\n",
+        ),
+    ]);
+    assert_eq!(run(dir.path()), "shapes.Point(x=1)\nshapes.Point(x=2)\n1\n");
+    let moved = plan(dir.path(), "src/shapes.plenty", 1, "src/lib.plenty").unwrap();
+    assert_eq!(
+        moved.api_changes,
+        [
+            "moves public `tools.shapes.Point` to `tools.Point`; packages outside this workspace that import it must change",
+            "changes the printed type name `shapes.Point` to `lib.Point`",
+        ]
+    );
+    let expected = BTreeMap::from([
+        (
+            "src/lib.plenty".to_string(),
+            "pub def version() -> i64:\n    1\n\npub class Point:\n    pub x: i64\n".to_string(),
+        ),
+        (
+            "src/shapes.plenty".to_string(),
+            "pub def unit() -> i64:\n    1\n".to_string(),
+        ),
+        (
+            "src/main.plenty".to_string(),
+            format!(
+                "import shapes\nfrom lib import Point\nimport lib\n\n{PRINT_MAIN_PREFIX}    print(lib.Point(x=1))?\n    print(Point(x=2))?\n    print(shapes.unit())?\n    Ok(())\n"
+            ),
+        ),
+        (
+            "tests/points.plenty".to_string(),
+            "from tools import Point\nimport tools\n\ndef test_point() -> ():\n    p = tools.Point(x=1)\n    q = Point(x=2)\n".to_string(),
+        ),
+    ]);
+    assert_eq!(moved.files, expected);
+    write_moved(dir.path(), &moved);
+    assert_eq!(run(dir.path()), "lib.Point(x=1)\nlib.Point(x=2)\n1\n");
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"))
+        .arg("test")
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert_eq!(
+        refused(dir.path(), "src/lib.plenty", 1, "src/shapes.plenty"),
+        "`lib` is the package's library, which tests and other packages import under the package name; moving declarations out of it is not supported"
     );
 }

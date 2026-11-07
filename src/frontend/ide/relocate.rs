@@ -116,6 +116,7 @@ struct Declaration {
     column: u32,
     /// The keyword's position, where `pub ` is inserted; None when public.
     private_at: Option<(u32, u32)>,
+    keyword: String,
 }
 
 /// A file's top-level items and its multi-line strings.
@@ -292,6 +293,7 @@ fn declaration(tokens: &[Token]) -> Result<Declaration, String> {
         line: at.line,
         column: at.column,
         private_at: (!public).then_some((keyword.line, keyword.column)),
+        keyword: keyword_text.to_owned(),
     })
 }
 
@@ -518,6 +520,9 @@ struct Planner<'a> {
     destination_path: PathBuf,
     source_module: String,
     destination_module: String,
+    /// Whether the destination is the package's library, which code outside
+    /// `src/` imports under the package name.
+    destination_is_library: bool,
     /// The package targets and tests, with their graphs.
     entries: Vec<(PathBuf, crate::project::SourceGraph)>,
     /// Every source file, checked as its own entry when no target reaches
@@ -608,7 +613,18 @@ impl<'a> Planner<'a> {
         if destination_path == source_path {
             return Err("the destination is the declaration's own module".into());
         }
+        let library = package
+            .manifest
+            .library
+            .as_ref()
+            .and_then(|l| package.directory.join(l).canonicalize().ok());
         let source_module = module_path(&src, &source_path).ok_or("source module path")?;
+        if library.as_ref() == Some(&source_path) {
+            return Err(format!(
+                "`{source_module}` is the package's library, which tests and other packages import under the package name; moving declarations out of it is not supported"
+            ));
+        }
+        let destination_is_library = library.as_ref() == Some(&destination_path);
         let destination_module =
             module_path(&src, &destination_path).ok_or("destination module path")?;
         // The targets and tests of this package and of workspace members
@@ -651,10 +667,20 @@ impl<'a> Planner<'a> {
             destination_path,
             source_module,
             destination_module,
+            destination_is_library,
             entries,
             files: all_files,
             analyses: std::cell::Cell::new(0),
         })
+    }
+
+    /// The destination's import path, after a dependency or test prefix
+    /// such as `tools.`: the library is imported as `tools` itself.
+    fn destination_import(&self, prefix: &str) -> String {
+        match prefix.strip_suffix('.') {
+            Some(package) if self.destination_is_library => package.to_owned(),
+            _ => format!("{prefix}{}", self.destination_module),
+        }
     }
 
     fn text(&self, path: &Path) -> Result<String, String> {
@@ -1513,7 +1539,8 @@ impl Work<'_, '_> {
                             .map(|a| format!(" as {a}"))
                             .unwrap_or_default();
                         additions.push(format!(
-                            "from {prefix}{destination_module} import {name}{alias}"
+                            "from {} import {name}{alias}",
+                            self.planner.destination_import(&prefix)
                         ));
                     }
                 }
@@ -1576,7 +1603,7 @@ impl Work<'_, '_> {
                                     })
                                 });
                                 existing.unwrap_or_else(|| {
-                                    let module = format!("{prefix}{destination_module}");
+                                    let module = self.planner.destination_import(&prefix);
                                     additions.push(format!("import {module}"));
                                     module
                                 })
@@ -1676,7 +1703,14 @@ impl Work<'_, '_> {
         if self.declaration.private_at.is_none() && member.manifest.library.is_some() {
             let package = &member.manifest.name;
             self.api_changes.push(format!(
-                "moves public `{package}.{}.{name}` to `{package}.{}.{name}`; packages outside this workspace that import it must change",
+                "moves public `{package}.{}.{name}` to `{}.{name}`; packages outside this workspace that import it must change",
+                self.planner.source_module,
+                self.planner.destination_import(&format!("{package}."))
+            ));
+        }
+        if matches!(self.declaration.keyword.as_str(), "class" | "enum") {
+            self.api_changes.push(format!(
+                "changes the printed type name `{}.{name}` to `{}.{name}`",
                 self.planner.source_module, self.planner.destination_module
             ));
         }
