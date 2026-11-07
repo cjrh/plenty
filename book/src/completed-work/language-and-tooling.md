@@ -988,3 +988,12 @@ checks. Package output uses `target/optimized/` and `target/fast-compile/`;
 explicit two-profile regression tests accompany the change. Integration with
 call-site inlining preserves caller handling of C string conversion errors
 (issue #724) and shared cleanup for tail calls with managed locals (issue #725).
+
+## Literal divisors (issue #796)
+
+A `//` or `%` divisor written as an integer literal now removes the arithmetic
+errors it rules out: a nonzero literal adds no `ZeroDivisionError`, and a
+literal other than `-1` adds no signed `OverflowError[T]`, so `x // 2` needs
+no error contract. Constants, variables and guards still prove nothing; typed
+`NonZero[T]` and `Positive[T]` divisors carry other proofs. See
+[checked blocks](../design/language/03-types/numbers.md#checked-blocks).

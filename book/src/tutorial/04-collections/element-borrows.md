@@ -127,7 +127,7 @@ run of the list, and the list cannot grow while the view is live. Two exclusive
 views of one list can be live together when one stops where the other starts:
 
 ```plenty
-def main() -> Result[(), AllocError | IoError | ZeroDivisionError | OverflowError[i64]]:
+def main() -> Result[(), AllocError | IoError]:
     mut scores = [70, 85, 90, 65, 88]?
     half = len(scores) // 2
     low = &mut scores[:half]

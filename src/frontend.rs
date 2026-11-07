@@ -1190,7 +1190,8 @@ impl Lower<'_> {
         self.same(Some(b), Some(ty.clone()), &right.at)?;
         loans.extend(other_loans);
         self.mark_arithmetic(op, &ty, at, ops);
-        let output = self.numeric_operation(op, ty, at, ops)?;
+        let proof = divisors::literal_divisor(op, right);
+        let output = self.numeric_operation(op, ty, proof, at, ops)?;
         Self::end_reads(loans, ops);
         Ok(output)
     }
@@ -1202,7 +1203,14 @@ impl Lower<'_> {
             || (ty.is_float()
                 && matches!(&ungroup(e).kind, Expression::Number(n) if n.contains(['.', 'e', 'E'])))
     }
-    fn numeric_operation(&mut self, op: &str, ty: Ty, at: &Token, ops: &mut Vec<Op>) -> Result<Ty> {
+    fn numeric_operation(
+        &mut self,
+        op: &str,
+        ty: Ty,
+        proof: crate::numeric::Divisor,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Ty> {
         if let Some(kind) = IntegerOp::binary(op) {
             if !ty.is_int() {
                 return Err(at.error("bitwise operations require integers"));
@@ -1217,7 +1225,7 @@ impl Lower<'_> {
             return Err(at.error("floor division and modulo currently require integers"));
         }
         if ty.is_int()
-            && let Some(operation) = crate::numeric::Checked::named(op)
+            && let Some(operation) = crate::numeric::Checked::named(op, proof)
             && self.checked_arith(operation, &ty, at, ops)?
         {
             return Ok(ty);
@@ -1227,8 +1235,8 @@ impl Lower<'_> {
             "-" => Op::Sub,
             "*" => Op::Mul,
             "/" => Op::Div,
-            "//" => Op::FloorDiv(crate::numeric::Divisor::Any),
-            "%" => Op::Modulo(crate::numeric::Divisor::Any),
+            "//" => Op::FloorDiv(proof),
+            "%" => Op::Modulo(proof),
             "==" => Op::Eq,
             "!=" => Op::Ne,
             "<" => Op::Lt,

@@ -123,7 +123,7 @@ unary minus is not defined for unsigned type u8
 and rounds down, including for negative values:
 
 ```plenty
-def main() -> Result[(), IoError | OverflowError[i64] | ZeroDivisionError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     print(1 + 2 * 3)?
     print((1 + 2) * 3)?
     print(-7 // 3)?
@@ -137,8 +137,12 @@ def main() -> Result[(), IoError | OverflowError[i64] | ZeroDivisionError]:
 ```
 
 Integer division by zero returns `ZeroDivisionError`. Signed division also
-requires `OverflowError[T]` for `T.MIN // -1`. The contract follows the
-operators and operand types, even with a known nonzero divisor such as `3`.
+returns `OverflowError[T]` for `T.MIN // -1`. The contract follows the
+operators and operand types, with one exception: a divisor written as an
+integer literal rules out what it cannot cause. `n // 3` and `n % 3` can fail
+with neither error, and `n // -1` only with overflow. A divisor held in a
+variable or constant still requires `ZeroDivisionError`, and for a signed
+type `OverflowError[T]`, even when you know it is nonzero or not `-1`.
 Use `/` for floating-point division.
 
 Integers also support bitwise operations and shifts. A shift count must be
