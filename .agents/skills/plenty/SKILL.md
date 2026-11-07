@@ -195,9 +195,17 @@ See [errors](references/errors.md), [ownership](references/ownership.md), and
 
 - Use [std.template](../../../book/src/design/stdlib/template.md) for named text/HTML
   layouts. For directly assembled HTML fragments, `escape(text, HtmlContext, max_bytes)`
-  provides bounded text and quote-specific attribute escaping. Choose the context
+  provides bounded text and quote-specific attribute escaping. Compose registered
+  fragments with `{% include 'form' with row %}` using an object context; no
+  string concatenation or `safe` is needed. Each include has its own loop scope
+  and shares the render budgets. Choose the context
   explicitly and escape each original value once. The result is ordinary `str`,
   with no trust marker; keep raw values in `Json.Text` for `Engine.render`.
+  Its `escape_text`, `escape_double_quoted` and `escape_single_quoted` filters
+  choose an output context per placeholder without `safe`. Keep matching quotes
+  around attributes. Put selectors after `upper`/`lower` (which reset policy);
+  `trim` preserves selection, the last selector wins, and explicit selectors
+  still escape with `html=False`. Reserve `safe` for deliberate trusted markup.
 
 - For child descriptor protocols, use `Command.inherit_file(&file)` or
   `Lock.inherit_into(&mut command)` and pass the returned number through argv
@@ -208,6 +216,12 @@ See [errors](references/errors.md), [ownership](references/ownership.md), and
   arbitrary fd remapping is unsupported. `Stdio.File` redirects standard streams
   independently; only selected copies survive as extra descriptors. Read
   [explicit inheritance](../../../book/src/design/stdlib/process.md#explicit-file-inheritance).
+
+- For template layout, `{{- value -}}`, `{%- ... -%}` and `{#- ... -#}` trim
+  adjacent literal ASCII whitespace. Plain delimiters preserve it; Unicode
+  whitespace and rendered values are unchanged. Markers cannot trim through
+  another tag or from an overriding block into its base layout. See
+  [whitespace control](../../../book/src/design/stdlib/template.md#whitespace-control).
 
 ## References
 
