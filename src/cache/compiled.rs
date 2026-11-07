@@ -21,6 +21,7 @@ use super::Cache;
 /// function that populated the cache. Source locations and other parameterized
 /// Cranelift metadata deliberately do not survive here.
 pub(crate) struct MachineCode {
+    pub stack_bytes: Option<u64>,
     pub alignment: u64,
     pub bytes: Vec<u8>,
     pub relocs: Vec<MachReloc>,
@@ -32,6 +33,10 @@ pub(crate) struct MachineCode {
 impl From<&CompiledCode> for MachineCode {
     fn from(code: &CompiledCode) -> Self {
         Self {
+            stack_bytes: code
+                .buffer
+                .frame_layout()
+                .map(|layout| u64::from(layout.frame_to_fp_offset) + 16),
             alignment: u64::from(code.buffer.min_alignment),
             bytes: code.buffer.data().to_vec(),
             relocs: code.buffer.relocs().to_vec(),

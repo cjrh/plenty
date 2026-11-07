@@ -10,10 +10,11 @@
 //! book/src/design/facilities/04-interop/trusted-declarations.md#worker-threads.
 use super::*;
 
-/// One known annotation. Later annotations, such as the agreed `@final`,
-/// `@protocol.Name` and `@serial`, extend this set.
+/// One known annotation. Later annotations, such as the agreed `@final` and
+/// `@protocol.Name`, extend this set.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Annotation {
+    Serial,
     Copy,
     Newtype,
     Redacted,
@@ -25,6 +26,7 @@ pub(super) enum Annotation {
 impl Annotation {
     fn named(name: &str) -> Option<Self> {
         match name {
+            "serial" => Some(Self::Serial),
             "copy" => Some(Self::Copy),
             "newtype" => Some(Self::Newtype),
             "redacted" => Some(Self::Redacted),
@@ -36,6 +38,7 @@ impl Annotation {
     }
     pub(super) fn name(self) -> &'static str {
         match self {
+            Self::Serial => "serial",
             Self::Copy => "copy",
             Self::Newtype => "newtype",
             Self::Redacted => "redacted",
@@ -47,7 +50,7 @@ impl Annotation {
     /// The declarations this annotation applies to, for diagnostics.
     pub(super) fn targets(self) -> &'static str {
         match self {
-            Self::Redacted => "class and enum declarations",
+            Self::Redacted | Self::Serial => "class and enum declarations",
             Self::Copy | Self::Newtype => "class declarations",
             Self::ThreadSafe => "`extern def` declarations",
             Self::ThreadMovable | Self::ThreadShareable => "`opaque` declarations",
@@ -68,7 +71,7 @@ impl Parser {
             };
             let Some(annotation) = Annotation::named(spelling) else {
                 return Err(name.error(format!(
-                    "unknown annotation `@{spelling}`; the annotations are `@copy`, `@newtype`, `@redacted`, `@thread_safe`, `@thread_movable` and `@thread_shareable`"
+                    "unknown annotation `@{spelling}`; the annotations are `@copy`, `@newtype`, `@redacted`, `@thread_safe`, `@thread_movable`, `@thread_shareable` and `@serial`"
                 )));
             };
             if self.peek().kind != Kind::Newline {

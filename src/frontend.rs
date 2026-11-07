@@ -67,6 +67,8 @@ mod quantities;
 mod references;
 mod retention;
 mod serial;
+mod serial_derive;
+mod serial_stack;
 mod shared;
 mod slices;
 mod sorting;
@@ -2900,7 +2902,7 @@ impl Lower<'_> {
         call: Op,
         inputs: &[(String, Ty)],
         loans: &[usize],
-        _at: &Token,
+        at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
         if !self.indexed_lists.is_empty() {
@@ -2913,15 +2915,27 @@ impl Lower<'_> {
         let references = inputs.iter().filter(|(_, ty)| ty.contains_reference());
         // A closure with borrowed captures carries references without a loan
         // of its own here, so it never qualifies.
-        if !loans.is_empty()
+        let forwards = !loans.is_empty()
             && references.clone().count() == loans.len()
             && references.clone().all(|(_, ty)| matches!(ty, Ty::Ref(..)))
             && loans.iter().all(|&loan| {
                 let root = usize::from(self.loans[loan].root);
                 root < self.parameters
                     && matches!(parameters.and_then(|p| p.get(root)), Some((_, Ty::Ref(..))))
-            })
+            });
+        if let Op::Call(callee) = &call
+            && self.generics.serial_stack.contains_key(callee)
         {
+            let callee = callee.clone();
+            let mut operations = Vec::with_capacity(2);
+            if forwards {
+                operations.push(Op::ForwardsReferences);
+            }
+            operations.push(call);
+            self.guarded_serial_call(&callee, inputs, loans, operations, at, ops)?;
+            return Ok(());
+        }
+        if forwards {
             ops.push(Op::ForwardsReferences);
         }
         ops.push(call);
@@ -3938,6 +3952,11 @@ fn take_call(ops: &mut Vec<Op>, begin: usize) -> Option<(usize, String)> {
 /// Return expressions are tail positions even inside a guard branch. Make
 /// every path exit, using a tail call where the last operation is a call.
 fn finish_return(body: &mut Vec<Op>) {
+    let guarded = body.len() >= 2
+        && matches!(
+            body[body.len() - 2],
+            Op::Collection(CollectionOp::SerialStackReady { .. })
+        );
     match body.last_mut() {
         Some(last @ Op::Call(_)) => {
             let Op::Call(name) = last else { unreachable!() };
@@ -3955,6 +3974,22 @@ fn finish_return(body: &mut Vec<Op>) {
                 finish_return(&mut body);
                 arm.body = body.into();
             }
+        }
+        Some(Op::If {
+            then,
+            elifs,
+            otherwise,
+        }) if guarded => {
+            let finish = |body: &mut Arc<[Op]>| {
+                let mut ops = body.to_vec();
+                finish_return(&mut ops);
+                *body = ops.into();
+            };
+            finish(then);
+            for arm in Arc::make_mut(elifs) {
+                finish(&mut arm.body);
+            }
+            finish(otherwise);
         }
         _ => body.push(Op::Return),
     }

@@ -725,6 +725,11 @@ impl Names<'_> {
                         format!("{resolved} (coverage counters: {counters})")
                     }
                     Some(Request::ProtocolTable(_)) => format!("protocol table {index}"),
+                    Some(Request::SerialStackBudget(callee, failure)) => format!(
+                        "{resolved} (codec stack budget: {}, failure: {})",
+                        self.function(*callee),
+                        self.function(*failure)
+                    ),
                     Some(Request::Import(..) | Request::Foreign(..)) | None => resolved,
                 }
             }

@@ -55,16 +55,23 @@ See [workflow and packages](references/workflow.md).
 
 ## Typed serialization
 
-Use `std.json.load[T]` and `dump` for built-in typed JSON values, or
-`to_value`/`from_value` for direct tree conversion. `from_value` owns the input
-`Json`. Classes and enums require private `__encode__` and receiver-less
-`__decode__` hooks with the fixed `std.serial` signatures; `@serial` derivation
-is not implemented. Preserve constructor invariants and use field slots to
-handle missing/default/duplicate fields. Read the
+Use `@serial` on classes and enums, then `std.json.load[T]` / `dump` or
+`std.toml.load[T]` / `dump` for typed documents. `to_value`/`from_value` convert
+directly to owning format trees; `from_value` consumes its input. Derivation
+generates missing private `__encode__` and receiver-less `__decode__` hooks;
+write either hook for a custom schema. Constructor defaults apply only to
+absent fields; a missing optional field without a default becomes `Nothing`.
+Validated constructors returning `Fault` retain typed failures; other domain
+errors need a handwritten decoding hook. TOML omits null class fields and
+rejects null dictionary values. Bytes use canonical padded base64; runtime
+decoding returns owning `Bytes`, not static `bytes` literals. Read the
 [codec contract](../../../book/src/design/stdlib/serial.md) and
 [JSON limits and options](../../../book/src/design/stdlib/json-codecs.md)
-before writing hooks. Typed failures carry `SerialError[JsonError]` with an
-innermost-first path; unwrap intentionally or propagate that complete type.
+before writing hooks. For class fields call `Encoder.field`; mapping keys use
+`Encoder.key`. Typed failures carry `SerialError[JsonError]` or
+`SerialError[TomlError]` with an innermost-first path; propagate that complete
+type. `std.json.load_from` borrows an owning `CodecReader[R]` made with
+`codec_reader(inner)`; its public `inner` preserves the reader on failure.
 
 ## Rules that prevent most errors
 
