@@ -134,6 +134,11 @@ stderr text/integer/boolean reports still allocate no memory. Canonical owned
 text methods on URLs, media types, socket addresses and Set-Cookie values are
 `to_string()`. See [report formatting](../design/stdlib/report.md).
 
+Issue #824 adds explicit residual member patterns: after cases that handle
+some members, `case rest: B | C:` binds the remaining members as a smaller sum
+for forwarding. The compiler checks the written set against coverage; borrowed
+matches cannot narrow. See [residual members](../design/language/03-types/anonymous-sums.md#residual-members).
+
 Remaining presentation/inference candidates stay **B71** in the [backlog](../backlog.md).
 
 ## B76: Columnar data

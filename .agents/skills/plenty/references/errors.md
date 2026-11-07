@@ -123,6 +123,43 @@ Match an enum member's variant directly with `case Err(UsageError.Arguments):`.
 To bind a whole union member, match the error with `case name: Type:`; `_`
 covers the rest.
 
+To recover from some members and forward the others, end with
+`case rest: B | C:`, naming exactly the members earlier cases leave. `rest`
+has the smaller sum type, so no `case e: T: Err(e)` per member is needed:
+
+```plenty
+enum SettingError:
+    Missing
+
+def setting(text: &str) -> Result[u8, SettingError | ParseError | RangeError]:
+    if text == "":
+        return Err(SettingError.Missing)
+    u8.try_from(i64.parse(text)?)
+
+def setting_or_default(text: &str) -> Result[u8, ParseError | RangeError]:
+    match setting(text):
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case SettingError.Missing:
+                    Ok(8)
+                case rest: ParseError | RangeError:
+                    Err(rest)
+
+def main() -> Result[(), IoError | ParseError | RangeError]:
+    print(setting_or_default("")?)?
+    Ok(())
+```
+```output
+8
+```
+
+The compiler names the correct set when the written one differs. A member
+covered by only some of its variants stays in the residual; one remaining
+member is the ordinary `case rest: B:`. It works only at the case position of
+an owned match: `match &error` cannot narrow, so bind `_ as rest` there.
+
 ## Add meaning with an enum and `map_error`
 
 Wrap a cause when the caller needs to know what was being done. A variant

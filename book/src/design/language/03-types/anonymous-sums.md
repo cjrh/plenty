@@ -96,14 +96,69 @@ satisfies that protocol. Formatting dispatch borrows the active member without
 allocation or consuming the sum. A missing or mismatched method on any member
 rejects the whole bound, regardless of which member is active.
 
-This version does not infer residual sums after recovery, introduce empty
-sums, forward arbitrary member methods or protocols, or erase errors. See
+This version does not infer residual sums after recovery (a
+[residual member pattern](#residual-members) states one explicitly), introduce
+empty sums, forward arbitrary member methods or protocols, or erase errors. See
 [propagation](../08-errors/01-sums-and-propagation.md) for `?` and builtin
 `Failure`, the last-resort error that erases its cause.
 
 The [anonymous-sum proposal](../../../proposals/completed/error-sets.md) records the
 design rationale and migration boundary. The [composition overview](../../../proposals/completed/error-composition.md)
 distinguishes sums from deliberate error mapping and typed stream APIs.
+
+## Residual members
+
+After cases that handle some members, `case rest: B | C:` matches every
+remaining value and binds it as the smaller sum `B | C`. Use it to recover
+from some errors and forward the others:
+
+```plenty
+enum A:
+    Bad
+enum B:
+    Bad
+enum C:
+    Worse
+    Bad
+
+def narrow(error: A | B | C) -> Result[(), B | C]:
+    match error:
+        case handled: A:
+            Ok(())
+        case rest: B | C:
+            Err(rest)
+
+def main() -> Result[(), AllocError | IoError]:
+    print(str.repr(&narrow(A.Bad))?)?
+    print(str.repr(&narrow(C.Bad))?)?
+    Ok(())
+```
+```output
+Result[(), B | C].Ok(())
+Result[(), B | C].Err(C.Bad)
+```
+
+The written members must be exactly those the earlier cases leave; otherwise
+the diagnostic names the correct set. A member is handled only when earlier
+cases cover all of its values, by a whole-member pattern or by covering every
+variant (and payload). Matching `case C.Worse:` alone leaves `C` in the
+residual. A member type written in the case must belong to the matched sum.
+
+The members normalize like any sum. When one member remains, the ordinary
+`case rest: B:` is the residual case; `B | C` written for a single remaining
+`B` is rejected. In generic code, substitution can collapse a written
+`T | C` to `C`, which then matches as an ordinary member pattern. A residual
+case with nothing left is an unreachable case; there are no empty sums.
+Written first, a residual naming every member binds the whole value.
+
+A residual case appears only at the case position of a matched sum: not inside
+`Err(...)` or another payload, and not as a `|` alternative. Match the payload
+with a nested `match`, as the [tutorial](../../../tutorial/03-absence/anonymous-sums.md#recover-from-one-error-and-forward-the-rest)
+does. An owned match moves the active payload into the smaller sum's layout
+without allocating; only that payload is later destroyed. A borrowed match
+(`match &value`) is rejected when the residual is smaller than the matched
+sum, because the smaller sum has a different tag layout and a reference cannot
+be narrowed in place. Bind `_ as rest` to borrow the whole sum instead.
 
 ## Collection keys
 

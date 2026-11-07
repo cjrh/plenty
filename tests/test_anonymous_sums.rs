@@ -966,3 +966,181 @@ def main() -> ():
         &["cannot move out of a reference"],
     );
 }
+
+#[test]
+fn residual_member_patterns_forward_uncovered_members() {
+    runs(
+        r#"
+enum A:
+    Bad
+enum B:
+    Bad
+enum C:
+    Worse
+    Bad
+def narrow(error: A | B | C) -> Result[(), B | C]:
+    match error:
+        case handled: A:
+            Ok(())
+        case rest: B | C:
+            Err(rest)
+def variants(error: A | B | C) -> Result[(), A | B]:
+    match error:
+        case C.Worse:
+            Ok(())
+        case C.Bad:
+            Ok(())
+        case rest: A | B:
+            Err(rest)
+def whole(error: A | B) -> Result[(), A | B]:
+    match error:
+        case rest: A | B:
+            Err(rest)
+def main() -> Result[(), AllocError | IoError]:
+    print("__test_fail_allocations_after_0__")?
+    print("__test_begin_no_allocations__")?
+    first = narrow(A.Bad)
+    second = narrow(B.Bad)
+    third = narrow(C.Bad)
+    fourth = variants(C.Worse)
+    fifth = variants(B.Bad)
+    sixth = whole(A.Bad)
+    print("__test_end_no_allocations__")?
+    print("__test_restore_allocations__")?
+    print(str.repr(&first)?)?
+    print(str.repr(&second)?)?
+    print(str.repr(&third)?)?
+    print(str.repr(&fourth)?)?
+    print(str.repr(&fifth)?)?
+    print(str.repr(&sixth)?)?
+    Ok(())
+"#,
+        "Result[(), B | C].Ok(())\nResult[(), B | C].Err(B.Bad)\nResult[(), B | C].Err(C.Bad)\nResult[(), A | B].Ok(())\nResult[(), A | B].Err(B.Bad)\nResult[(), A | B].Err(A.Bad)\n",
+    );
+}
+
+#[test]
+fn residual_member_patterns_move_payloads_and_destroy_them_once() {
+    runs(
+        r#"
+class Owned:
+    id: i64
+    def __del__(self) -> ():
+        print(self.id).unwrap()
+enum Code:
+    Value(i64)
+    Other
+enum Skip:
+    Value
+def forward(error: Code | Owned | Skip | str) -> Result[i64, Owned | str]:
+    match error:
+        case Code.Value(n):
+            Ok(n)
+        case Code.Other:
+            Ok(0)
+        case skip: Skip:
+            Ok(-1)
+        case rest: Owned | str:
+            Err(rest)
+def generic[T](error: Skip | T | Code) -> Result[(), T | Code]:
+    match error:
+        case skip: Skip:
+            Ok(())
+        case rest: T | Code:
+            Err(rest)
+def report(result: Result[i64, Owned | str]) -> ():
+    match result:
+        case Ok(n):
+            print(n).unwrap()
+        case Err(error):
+            match error:
+                case owned: Owned:
+                    print("owned").unwrap()
+                case text: str:
+                    print(text).unwrap()
+def main() -> ():
+    report(forward(Code.Value(7)))
+    report(forward(Skip.Value))
+    report(forward("text"))
+    report(forward(Owned(42)))
+    match generic[Owned](Owned(5)):
+        case Ok(_):
+            print("ok").unwrap()
+        case Err(error):
+            print(str.repr(&error).unwrap()).unwrap()
+    # `T | Code` normalizes to `Code`, an ordinary member pattern.
+    match generic[Code](Code.Other):
+        case Ok(_):
+            print("ok").unwrap()
+        case Err(error):
+            print(str.repr(&error).unwrap()).unwrap()
+"#,
+        "7\n-1\ntext\nowned\n42\nOwned(id=5)\n5\nCode.Other\n",
+    );
+}
+
+#[test]
+fn residual_member_patterns_must_name_exactly_the_uncovered_members() {
+    let prelude = "enum A:\n    Bad\nenum B:\n    Bad\nenum C:\n    Worse\n    Bad\n";
+    let case = |signature: &str, cases: &str| {
+        format!(
+            "{prelude}def f({signature}) -> i64:\n    match error:\n{cases}def main() -> ():\n    pass\n"
+        )
+    };
+    rejects(
+        &case(
+            "error: A | B | C",
+            "        case a: A:\n            0\n        case rest: A | B | C:\n            1\n",
+        ),
+        &[
+            "residual member type A | B | C does not match the members earlier cases leave; write `case rest: B | C:`",
+        ],
+    );
+    // Covering one variant leaves its enum in the residual.
+    rejects(
+        &case(
+            "error: A | B | C",
+            "        case C.Worse:\n            0\n        case rest: A | B:\n            1\n",
+        ),
+        &["write `case rest: A | B | C:`"],
+    );
+    rejects(
+        &case(
+            "error: A | B | C",
+            "        case a: A:\n            0\n        case c: C:\n            0\n        case rest: B | C:\n            1\n",
+        ),
+        &["write `case rest: B:`"],
+    );
+    rejects(
+        &case(
+            "error: A | B",
+            "        case a: A:\n            0\n        case b: B:\n            0\n        case rest: A | B:\n            1\n",
+        ),
+        &["unreachable case"],
+    );
+    rejects(
+        &case(
+            "error: &(A | B | C)",
+            "        case a: A:\n            0\n        case rest: B | C:\n            1\n",
+        ),
+        &["requires an owned match: a reference to A | B | C cannot be narrowed to B | C"],
+    );
+    rejects(
+        &case(
+            "error: A | B | C",
+            "        case C.Worse | rest: A | B:\n            0\n        case _:\n            1\n",
+        ),
+        &["cannot be a `|` alternative"],
+    );
+    rejects(
+        &case("error: A", "        case rest: A | B:\n            0\n"),
+        &["requires a matched anonymous sum at the case position, not A"],
+    );
+    rejects(
+        &case(
+            "error: A | B",
+            "        case a: A:\n            0\n        case rest: B | C:\n            1\n",
+        ),
+        &["member type C is absent from A | B"],
+    );
+}
