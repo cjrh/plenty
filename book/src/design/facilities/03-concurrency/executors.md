@@ -84,8 +84,9 @@ pools:
 > `Receiver[T]`, once the function has submitted a job that can hold `Sender[T]`
 > and [can wait](channels.md#which-workers-can-wait).
 
-A job that makes no blocking or timed wait on any queue or lock, such as one
-that sends only with `send_nowait`, therefore does not block a shutdown.
+A job that makes no blocking or timed wait on any queue, lock, token, or handle
+and calls no foreign function, such as one that sends only with `send_nowait`,
+therefore does not block a shutdown.
 
 A pool shuts down at `pool.shutdown()`, including through a
 `&ThreadPoolExecutor`, at `drop(pool)`, when its binding is reassigned, and

@@ -2,8 +2,8 @@
 //! for anything does not block a join or shutdown while the joining function
 //! keeps the opposite endpoint. Only `send_nowait`, `recv_nowait`, nowait
 //! selection, and `submit_nowait` never wait; any other wait counts, on any
-//! queue or lock, through helpers, destructors, started workers, and calls
-//! through values.
+//! queue, lock, token, readiness, child process, or foreign call, through
+//! helpers, destructors, started workers, and calls through values.
 mod support;
 
 const NOTIFY: &str = "def notify(sender: Sender[i64]) -> ():
@@ -269,4 +269,78 @@ def main() -> ():
 ",
         "could block the job's send",
     );
+}
+
+/// Waits that end only when another thread acts, or that the checker cannot
+/// see into, in a worker that holds a sender and a token.
+const OTHER_WAITS: [&str; 5] = [
+    // A cancellation token wait: its canceller could be blocked on the queue.
+    "    token.wait()
+",
+    "    drop(token.wait_timeout_ms(10))
+",
+    // `cancelled_before` waits on the token with a deadline.
+    "    never = CancellationToken().unwrap()
+    deadline = deadline_after(&monotonic_now(), &seconds(1000)).unwrap()
+    drop(cancelled_before(&token, &deadline, &never))
+",
+    // A readiness wait: the writer could be blocked on the queue.
+    "    drop(wait(&file, Interest.Read, &deadline_at(&monotonic_now()), &token))
+",
+    // A child process can wait on a pipe that this program drains.
+    "    match command(\"true\"):
+        case Ok(found):
+            match found.spawn():
+                case Ok(started):
+                    mut child = started
+                    drop(child.wait())
+                case Err(_):
+                    pass
+        case Err(_):
+            pass
+",
+];
+
+const OTHER_IMPORTS: &str = "from std.process import command
+from std.ready import Interest, wait, wait_now
+from std.sync import cancelled_before
+from std.time import deadline_after, deadline_at, monotonic_now, seconds
+";
+
+#[test]
+fn token_readiness_and_process_waits_count_for_workers_and_jobs() {
+    const START: &str = "    with spawn(worker, sender, file, token).unwrap():
+        pass
+";
+    const SUBMIT: &str = "    with ThreadPoolExecutor(1, 1).unwrap() as pool:
+        future = pool.submit(def once [sender, file, token]() -> (): worker(sender, file, token)).unwrap()
+        future.result().unwrap()
+";
+    let program = |body: &str, wait: &str| {
+        format!(
+            "{OTHER_IMPORTS}{NOTIFY}def worker(sender: Sender[i64], file: File, token: CancellationToken) -> ():
+    notify(sender)
+{body}def start(file: File, token: CancellationToken) -> ():
+    sender, receiver = channel[i64](1).unwrap()
+{wait}def main() -> ():
+    pass
+"
+        )
+    };
+    for (wait, expected) in [
+        (START, "could block the worker's send"),
+        (SUBMIT, "could block the job's send"),
+    ] {
+        // A readiness test that does not wait keeps the worker nonblocking.
+        let source = program(
+            "    drop(wait_now(&file, Interest.Read))\n    drop(token.is_cancelled())\n",
+            wait,
+        );
+        support::check_source(&source).unwrap_or_else(|e| panic!("{source}\n{e}"));
+        for body in OTHER_WAITS {
+            let source = program(body, wait);
+            let error = support::check_source(&source).unwrap_err().to_string();
+            assert!(error.contains(expected), "{source}\n{error}");
+        }
+    }
 }

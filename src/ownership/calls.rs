@@ -4,10 +4,14 @@
 //! (issue #793).
 use super::Hazard;
 use crate::channel::{ChannelOp, SelectMode};
+use crate::collection::CollectionOp;
+use crate::control::ControlOp;
 use crate::executor::{ExecutorOp, Job as Submitted};
 use crate::hash::{HashMap, HashSet};
 use crate::mutex::MutexOp;
+use crate::net::NetOp;
 use crate::op::{CompiledFn, Op, Ty};
+use crate::process::ProcessOp;
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// The functions of a program whose bodies are being checked. The call table
@@ -22,8 +26,10 @@ pub struct Program<'p> {
     /// Every function body by name, for `waits`. Separate from `table`,
     /// whose construction asks what each submitted job can block on.
     definitions: OnceLock<HashMap<&'p str, &'p CompiledFn>>,
-    /// `waits` by worker and closure names, which fix the input types.
-    waits: Mutex<HashMap<String, bool>>,
+    /// `waits` by worker and closure names and input types. The names fix
+    /// the inputs today, since generic workers are named per instance; the
+    /// types are part of the key so a reused name cannot reuse a stale answer.
+    waits: Mutex<HashMap<(String, Vec<Ty>), bool>>,
 }
 
 /// What a submitted job can block on, with the job's result type.
@@ -140,7 +146,9 @@ impl<'p> Program<'p> {
     /// held endpoint's queue: a worker waiting on a lock or another queue can
     /// wait for a thread that is itself blocked on the held queue. Only
     /// `send_nowait`, `recv_nowait`, nowait selection, and `submit_nowait`
-    /// never wait; a timed operation's bound can be arbitrarily long.
+    /// never wait; a timed operation's bound can be arbitrarily long. Waits
+    /// for tokens, readiness, and child processes count, as do foreign
+    /// calls. A sleep is not counted: it ends without another thread.
     ///
     /// Calls follow `function_references`, which also names the workers a
     /// function starts and the destructors it arms; the destructor of every
@@ -151,7 +159,7 @@ impl<'p> Program<'p> {
         reason = "nominal identities exclude definition cells"
     )]
     fn waits(&self, roots: &[&str], inputs: &[Ty]) -> bool {
-        let key = roots.join("\n");
+        let key = (roots.join("\n"), inputs.to_vec());
         if let Some(&cached) = self.waits.lock().unwrap().get(&key) {
             return cached;
         }
@@ -212,6 +220,15 @@ impl<'p> Program<'p> {
                         | ExecutorOp::WaitTimeout(_)
                         | ExecutorOp::Shutdown,
                     )
+                    // Token and readiness waits end when another thread
+                    // cancels or writes, a child can wait on a pipe this
+                    // program drains, and a foreign function can do anything.
+                    | Op::Control(ControlOp::Wait | ControlOp::WaitTimeout)
+                    | Op::Collection(
+                        CollectionOp::Net(NetOp::ReadyWait | NetOp::Select)
+                        | CollectionOp::Process(ProcessOp::Wait),
+                    )
+                    | Op::ForeignCall { .. }
                     | Op::CallIndirect(_)
                     | Op::TailCallIndirect(_)
                     | Op::BoxedCallableCall(_)
