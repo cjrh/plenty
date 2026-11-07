@@ -733,7 +733,10 @@ HTTP/1.1 401 Unauthorized|Content-Type: text/plain; charset=utf-8|Content-Length
 4
 "
     );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
+    assert_eq!(
+        support::without_http_dates(&String::from_utf8_lossy(&output.stdout)),
+        expected
+    );
 }
 
 /// Extract the actual metadata/conditional/date path without the MIME-table

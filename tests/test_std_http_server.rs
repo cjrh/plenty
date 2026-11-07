@@ -2200,7 +2200,7 @@ def main() -> Result[(), ServerError | AllocError | IoError]:
 /// and a mixed-case caller override remains byte-for-byte unchanged.
 #[test]
 fn response_dates_cover_final_refusal_upgrade_and_detached_paths() {
-    let source = format!("{SCRIPTED}");
+    let source = SCRIPTED.to_owned();
     let source = source
         + r##"
 pub class DateApp:
