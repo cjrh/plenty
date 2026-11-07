@@ -24,3 +24,62 @@ body {
 h1, h2, h3, h4, h5, h6 {
     font-weight: 700;
 }
+
+/* Keep the comparison readable without widening ordinary reference chapters. */
+@media screen {
+    .content:has(.text-comparison) {
+        --content-max-width: 1280px;
+    }
+}
+
+.text-comparison-table {
+    overflow-x: auto;
+    margin: 1.5em 0;
+}
+
+/* The labelled outer region owns scrolling and keyboard focus. */
+.text-comparison-table > .table-wrapper {
+    overflow: visible;
+}
+
+.text-comparison-table:focus-visible {
+    outline: 2px solid var(--links);
+    outline-offset: 3px;
+}
+
+.text-comparison-table table {
+    display: table;
+    width: 100%;
+    min-width: 1040px;
+    margin: 0;
+    font-size: 0.9em;
+    line-height: 1.45;
+}
+
+.text-comparison-table th,
+.text-comparison-table td {
+    padding: 0.65em 0.8em;
+    vertical-align: top;
+    text-align: left;
+}
+
+.text-comparison-table th:first-child,
+.text-comparison-table td:first-child {
+    width: 16%;
+}
+
+@media print {
+    .text-comparison-table {
+        overflow: visible;
+    }
+
+    .text-comparison-table table {
+        min-width: 0;
+        font-size: 9pt;
+    }
+
+    .text-comparison-table th,
+    .text-comparison-table td {
+        padding: 0.4em;
+    }
+}
