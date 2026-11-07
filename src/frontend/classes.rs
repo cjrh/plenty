@@ -946,6 +946,7 @@ impl Lower<'_> {
     }
     pub(super) fn field(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<(Ty, Vec<usize>)> {
         if let Some((base, index, owner, field)) = self.clist_projection(e)? {
+            let view = self.indexed_clist_view(base, &owner, field)?;
             let mut indices = Vec::new();
             self.access_indices(base, &mut indices, ops, false)?;
             let actual = self.expr_expected(index, Some(Ty::I64), ops)?;
@@ -955,10 +956,9 @@ impl Lower<'_> {
             let (_, loan) =
                 self.borrow_with_indices(base, false, &mut Some(indices.iter()), ops)?;
             ops.push(Op::MoveLocal(slot));
-            let operation = crate::clist::ClistOp::Get(owner, field);
-            let ty = operation.signature().1;
+            let ty = crate::clist::field(&owner, field);
             self.mark(&e.at, ops);
-            ops.push(Op::Collection(CollectionOp::Clist(operation)));
+            super::clists::field_access(crate::clist::ClistOp::Get(owner, field), view, ops);
             return Ok((ty, vec![loan]));
         }
         let Expression::Member(base, name, _) = &e.kind else {

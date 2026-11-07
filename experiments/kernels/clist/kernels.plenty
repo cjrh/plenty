@@ -1,0 +1,67 @@
+# Issue #759: n-body's clist field access loops as standalone functions.
+# `kernels.c` holds the same loops over plain column arrays.
+
+@copy
+class Body:
+    x: f64
+    y: f64
+    z: f64
+    vx: f64
+    vy: f64
+    vz: f64
+    mass: f64
+
+
+# advance's velocity loops; the inner one is the kernel.
+def velocity(bodies: &mut clist[Body], dx: &mut list[f64], dy: &mut list[f64], dz: &mut list[f64], mag: &mut list[f64]) -> Result[i64, OverflowError[i64]]:
+    n = len(bodies)
+    mut k = 0
+    for i in range(n):
+        for j in range(i + 1, n):
+            mi = bodies[i].mass * mag[k]
+            mj = bodies[j].mass * mag[k]
+            bodies[i].vx -= dx[k] * mj
+            bodies[i].vy -= dy[k] * mj
+            bodies[i].vz -= dz[k] * mj
+            bodies[j].vx += dx[k] * mi
+            bodies[j].vy += dy[k] * mi
+            bodies[j].vz += dz[k] * mi
+            k += 1
+    Ok(k)
+
+
+# advance's position loop.
+def positions(bodies: &mut clist[Body], dt: f64) -> ():
+    for i in range(len(bodies)):
+        bodies[i].x += dt * bodies[i].vx
+        bodies[i].y += dt * bodies[i].vy
+        bodies[i].z += dt * bodies[i].vz
+
+
+# A shared clist: energy's pair loops; the inner one is the kernel.
+def potential(bodies: &clist[Body]) -> Result[f64, OverflowError[i64]]:
+    mut e = 0.0
+    n = len(bodies)
+    for i in range(n):
+        for j in range(i + 1, n):
+            dx = bodies[i].x - bodies[j].x
+            dy = bodies[i].y - bodies[j].y
+            dz = bodies[i].z - bodies[j].z
+            e -= bodies[i].mass * bodies[j].mass / (dx * dx + dy * dy + dz * dz).sqrt()
+    Ok(e)
+
+
+def main() -> Result[(), AllocError | AppendError[Body] | IoError | OverflowError[i64]]:
+    mut bodies = clist[Body].with_capacity(5)?
+    for b in range(5):
+        f = f64(b)
+        bodies.append(Body(f, f * 2.0, f * 3.0, 0.5, 0.25, 0.125, f + 1.0))?
+    mut dx = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]?
+    mut dy = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]?
+    mut dz = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]?
+    mut mag = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]?
+    k = velocity(&mut bodies, &mut dx, &mut dy, &mut dz, &mut mag)?
+    positions(&mut bodies, 0.01)
+    e = potential(&bodies)?
+    print(f"{k} {bodies[4].x:.6f} {bodies[0].vx:.6f} {e:.6f}"?)?
+    Ok(())
