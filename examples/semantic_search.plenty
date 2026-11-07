@@ -383,7 +383,7 @@ def corpus(root: &str, issues: &str) -> Result[list[Document], SearchFailure]:
             continue
         markdown = filename.endswith(".md")
         rust = filename.endswith(".rs")
-        plenty = filename.endswith(".plenty")
+        plenty = filename.endswith(".plenty") or filename.endswith(".p") or filename.endswith(".plentyi") or filename.endswith(".pi")
         python = filename.endswith(".py")
         if not markdown and not rust and not plenty and not python:
             continue

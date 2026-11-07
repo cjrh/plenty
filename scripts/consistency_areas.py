@@ -31,7 +31,7 @@ import subprocess
 import sys
 
 REPO = Path(__file__).resolve().parent.parent
-TEXT_SUFFIXES = {".md", ".plenty", ".plentyi", ".rs", ".toml", ".vim", ".lua"}
+TEXT_SUFFIXES = {".md", ".plenty", ".p", ".plentyi", ".pi", ".rs", ".toml", ".vim", ".lua"}
 # Proposals and experiments record history and rejected designs; old syntax
 # there is expected. Checked only with --include-history.
 HISTORY = ("book/src/proposals/", "experiments/")
@@ -51,7 +51,7 @@ DEFAULT_MAX_HITS = 80
 # to the first `-` or `/` (`http-client.md`, `fs/walking.md`).
 STD_THEMES = {
     "std-net": "http https net tls actor sse websocket wss url channel concurrent thread ready signal",
-    "std-formats": "json toml xml csv encoding markdown template uuid mime report image",
+    "std-formats": "serial json toml xml csv encoding markdown template uuid mime report image",
     "std-crypto": "crypto jwt secrets random",
     "std-text": "text unicode regex fmt shlex diff bytes",
     "std-system": "io fs path tempfile env system process cli log archive compress error",

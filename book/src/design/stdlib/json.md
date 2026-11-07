@@ -1,10 +1,11 @@
 # std.json
 
 `import std.json` decodes and encodes JSON (RFC 8259) under explicit limits,
-with one error type, `JsonError`. It has two levels:
+with one error type, `JsonError`. [Typed codecs](json-codecs.md) wrap this
+error in `std.serial.SerialError[JsonError]`. It also exposes two lower levels:
 
 - **Events**: a resumable `Decoder` and a validating `Encoder` that never hold
-  the document. Typed codecs are ordinary functions over them.
+  the document. Typed codecs use these through the `std.serial` adapter.
 - **Value tree**: `Json`, built from and written through the same events.
 
 The module is checked Plenty code with no native primitives of its own. It
@@ -142,6 +143,7 @@ For encoding, `offset` is the number of bytes produced when the call failed and
 | `InvalidState` | A call that the decoder's or encoder's state does not allow |
 | `Stream(StreamError)` | A reader or writer failed; `InvalidProgress` if it reported an impossible count |
 | `Allocation(AllocError)` | Memory was refused |
+| `Serialization(std.serial.Fault)` | A typed codec rejected the schema or representation |
 
 After any error, a decoder or encoder is
 poisoned: every later call reports `InvalidState`. Partial trees and buffers are
@@ -343,5 +345,5 @@ made per token and per event, not byte access.
   and exact decimals are available only as `Event.Number` text.
 - `write_value` builds the whole encoding before writing. Use an `Encoder` with
   `write_pending` for bounded output memory.
-- No derived codecs: a typed codec is written by hand over events.
+- Typed codecs support built-ins and handwritten hooks; see [typed JSON codecs](json-codecs.md). `@serial` derivation is not implemented.
 - No tree equality or path lookup helpers.

@@ -146,6 +146,7 @@ const STANDARD_MODULES: &[(&str, &str)] = &[
     ),
     ("std.image", include_str!("../../stdlib/std/image.plenty")),
     ("std.regex", include_str!("../../stdlib/std/regex.plenty")),
+    ("std.serial", include_str!("../../stdlib/std/serial.plenty")),
     ("std.json", include_str!("../../stdlib/std/json.plenty")),
     ("std.jwt", include_str!("../../stdlib/std/jwt.plenty")),
     ("std.log", include_str!("../../stdlib/std/log.plenty")),
@@ -743,11 +744,10 @@ impl Items<'_, '_> {
         let public = self.parser.eat("pub");
         let at = self.parser.peek().clone();
         let name = if self.parser.peek().is("extern") || self.parser.peek().is("opaque") {
-            if !self
-                .path
-                .is_some_and(|p| p.extension().is_some_and(|e| e == "plentyi"))
-            {
-                return Err(at.error("C declarations require a trusted .plentyi interface module"));
+            if !self.path.is_some_and(crate::source_path::is_interface) {
+                return Err(
+                    at.error("C declarations require a trusted .plentyi or .pi interface module")
+                );
             }
             if self.parser.eat("extern") {
                 self.parser.expect("def")?;
@@ -1118,12 +1118,9 @@ pub(crate) fn identity(path: &Path, graph: &crate::project::SourceGraph) -> Opti
 }
 
 /// A file's path below its source root as a dotted module path, if every
-/// component is an identifier and the file is a `.plenty` source or interface.
+/// component is an identifier and the file has a supported source or interface extension.
 fn module_path_of(relative: &Path) -> Option<String> {
-    if relative
-        .extension()
-        .is_none_or(|e| e != "plenty" && e != "plentyi")
-    {
+    if !crate::source_path::is_module(relative) {
         return None;
     }
     let names = relative
@@ -1156,7 +1153,7 @@ fn local_module(
     Some(root.join(name))
         .filter(|path| namespace(path) != Namespace::Absent)
         .or_else(|| {
-            ["plenty", "plentyi"]
+            crate::source_path::EXTENSIONS
                 .iter()
                 .map(|extension| root.join(name).with_extension(extension))
                 .find(|path| path.exists())
@@ -1175,8 +1172,8 @@ enum Namespace {
 
 /// Whether `directory`, below the canonical `root`, is a module namespace:
 /// some module path through it names a file, because it or one of its
-/// subdirectories with a module-name component holds a `.plenty` or
-/// `.plentyi` file whose stem is a module name. Other directories, such as a
+/// subdirectories with a module-name component holds a supported source or
+/// interface file whose stem is a module name. Other directories, such as a
 /// Rust module or assets beside `a.plenty`, are not namespaces, so they
 /// neither make `a` ambiguous nor collide with a name.
 ///
@@ -1206,9 +1203,7 @@ fn namespace(root: &Path, directory: &Path) -> Namespace {
             };
             let name = entry.file_name();
             let name = Path::new(&name);
-            let module = name
-                .extension()
-                .is_some_and(|e| e == "plenty" || e == "plentyi");
+            let module = crate::source_path::is_module(name);
             let stem = if module {
                 name.file_stem()
             } else {
@@ -1549,20 +1544,23 @@ impl Loader {
         let mut path = root.to_path_buf();
         for (i, part) in parts.iter().enumerate() {
             path.push(part);
-            let file = path.with_extension("plenty");
-            let interface = path.with_extension("plentyi");
-            let both = file.exists() && interface.exists();
-            let namespace = if !both && (file.exists() || interface.exists()) {
+            let files = crate::source_path::candidates(&path);
+            let both = files.len() > 1;
+            let namespace = if !both && !files.is_empty() {
                 self.namespace(root, &path)
             } else {
                 Namespace::Absent
             };
             if both || namespace != Namespace::Absent {
                 let mut message = format!(
-                    "ambiguous module `{}`: conflicting namespace or .plenty/.plentyi files at {} and {}",
+                    "ambiguous module `{}`: conflicting namespace or .plenty/.p/.plentyi/.pi files at {}: {}",
                     import.module,
                     path.display(),
-                    file.display()
+                    files
+                        .iter()
+                        .map(|p| p.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 );
                 if let Namespace::Unreadable(unreadable) = namespace {
                     message += &format!(
@@ -1580,11 +1578,10 @@ impl Loader {
                 )));
             }
         }
-        let file = if path.with_extension("plentyi").exists() {
-            path.with_extension("plentyi")
-        } else {
-            path.with_extension("plenty")
-        };
+        let file = crate::source_path::candidates(&path)
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| path.with_extension("plenty"));
         let canonical = file.canonicalize().map_err(|e| {
             import.at.error(format!(
                 "loading `{}` at {}: {e}",
@@ -1597,7 +1594,7 @@ impl Loader {
         }
         if module_path_of(canonical.strip_prefix(root).unwrap()).is_none() {
             return Err(import.at.error(
-                "canonical imported paths must be .plenty files or .plentyi interfaces with identifier components",
+                "canonical imported paths must be .plenty/.p files or .plentyi/.pi interfaces with identifier components",
             ));
         }
         Ok(canonical)
@@ -1823,7 +1820,7 @@ fn prepare_packages(
             .into());
         }
         if namespace(root, &root.join("std")) != Namespace::Absent
-            || ["std.plenty", "std.plentyi"]
+            || ["std.plenty", "std.p", "std.plentyi", "std.pi"]
                 .iter()
                 .any(|name| root.join(name).exists())
         {
@@ -1856,7 +1853,7 @@ fn prepare_packages(
                 .is_none()
             {
                 return Err(format!(
-                    "library {} must be a .plenty module with identifier components inside {}",
+                    "library {} must be a .plenty/.p module with identifier components inside {}",
                     library.display(),
                     root.display()
                 )
@@ -3649,7 +3646,7 @@ mod tests {
             let extension = path.extension().and_then(|e| e.to_str());
             if path.is_dir() {
                 sources(&path, out);
-            } else if matches!(extension, Some("plenty" | "plentyi")) {
+            } else if crate::source_path::is_module(&path) {
                 let text = std::fs::read_to_string(&path).unwrap();
                 out.push((path, text));
             } else if extension == Some("md") {

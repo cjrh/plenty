@@ -1,0 +1,39 @@
+class P:
+    x: f64
+    y: f32
+
+def sum_index(xs: &[f64], n: i64) -> f64:
+    mut total = 0.0
+    for i in range(n):
+        total += xs[i]
+    total
+
+def sum_iter(xs: &[f64]) -> f64:
+    mut total = 0.0
+    for x in xs:
+        total += *x
+    total
+
+def sum_f32(xs: &[f32], n: i64) -> f32:
+    mut total = 0.0f32
+    for i in range(n):
+        total += xs[i]
+    total
+
+def read_ref(r: &f64) -> f64:
+    *r + 1.0
+
+def field(p: &P) -> f64:
+    p.x + 1.0
+
+def main() -> Result[(), AllocError | IoError]:
+    xs = [1.0, -0.0, 3.0]?
+    ys = [1.5f32, 2.0f32]?
+    p = P(x=2.0, y=1.0f32)
+    v = 4.0
+    print(sum_index(&xs, len(xs)))?
+    print(sum_iter(&xs))?
+    print(sum_f32(&ys, len(ys)))?
+    print(read_ref(&v))?
+    print(field(&p))?
+    Ok(())

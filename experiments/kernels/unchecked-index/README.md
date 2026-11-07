@@ -29,7 +29,8 @@ Attribution against the 5-instruction C loop:
 
 No hot-path overflow checks, header reloads, spills, or calls remain in this
 view kernel. The cold negative-index normalization is entirely absent after
-the change. Remaining float-load work is issue #812; loop layout is issue #726.
+the change. Loop layout is issue #726. Issue #812 later made the `f64` load
+direct, removing the `movq`; see [typed float loads](../float-loads/README.md).
 
 The CLIF files retain the dumped baseline's function identifiers and comments.
 Run each separately through the [existing harness](../README.md), because the

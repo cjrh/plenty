@@ -1,5 +1,10 @@
 # Source files and declarations
 
+Source files use `.plenty` or its alias `.p`. Trusted interface files use
+`.plentyi` or its alias `.pi`. The spellings have the same semantics; existing
+long extensions remain supported. See [module lookup](modules.md) for ambiguity
+rules when more than one spelling names a module.
+
 Spaces delimit indented suites. Tabs are rejected, and indentation must return
 to an existing level. Blank lines and comment-only lines do not affect
 indentation. Parentheses permit multiline expressions. Comments start with `#`.

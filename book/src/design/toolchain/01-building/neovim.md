@@ -1,7 +1,7 @@
 # Neovim support
 
 The repository includes a runtime plugin in `editors/nvim`. It detects
-`*.plenty` files, highlights source syntax using the active colorscheme, sets
+`*.plenty`, `*.p`, `*.plentyi`, and `*.pi` files, highlights source syntax using the active colorscheme, sets
 four-space soft tabs, supplies `#` comment formatting, and configures the
 [language server](language-server.md) for Neovim's built-in LSP client.
 

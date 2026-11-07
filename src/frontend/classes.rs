@@ -416,6 +416,11 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
         let mut constructor_error = None;
         for f in &mut methods {
             operators::validate(f, aliases)?;
+            serial::validate_hook(f, &class.name, aliases)?;
+            if serial::decode_hook(f) {
+                f.name = method(&class.name, &f.name);
+                continue;
+            }
             let special = matches!(f.name.as_str(), "__init__" | "__del__");
             let Some((receiver, receiver_type)) = f.inputs.first() else {
                 return Err(f.at.error("methods require a self receiver"));
@@ -1278,6 +1283,11 @@ impl Lower<'_> {
     ) -> Result<Type> {
         if matches!(name, "__init__" | "__del__" | "__new__") {
             return Err(base.at.error("lifecycle methods cannot be called directly"));
+        }
+        if matches!(name, "__encode__" | "__decode__") {
+            return Err(base.at.error(
+                "serialization hooks are called through std.serial.encode and std.serial.decode",
+            ));
         }
         let callee = method(owner, name);
         super::ide::method_call(&base.at, name, &callee);

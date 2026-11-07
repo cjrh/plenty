@@ -140,7 +140,7 @@ test result: ok. 1 passed; 0 failed
 
 [A later lesson](18-standard-test.md) shows test functions and `std.test`.
 `plenty check` type-checks every target without linking. It reaches only the
-files that targets import, so it warns about any other `.plenty` file under
+files that targets import, so it warns about any other `.plenty` or `.p` file under
 `src/` and ends with a summary such as
 `Checked app v0.1.0: 1 executable; 2 of 2 files in src/`. Keep test fixtures
 and other files that are not package source outside `src/`. Files a program

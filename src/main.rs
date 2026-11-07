@@ -42,13 +42,13 @@ Project commands (run inside a directory containing plenty.toml or below it):
        plenty lsp
 
 new / init: create a package with src/main.plenty (or src/lib.plenty with --lib).
-check: type-check every target and warn about .plenty files under src/ that no
+check: type-check every target and warn about .plenty/.p files under src/ that no
 target imports; --check-all-methods also checks every method
 of every generic instance, including methods nothing calls. build: compile executables into target/optimized,
 or target/fast-compile with --fast-compile. --unchecked MODE: `trap` (default)
 or `assume` for plain `unchecked:` blocks outside std (see plentyc --help). run: build one executable and run it with
 ARGS. test: run each test_* function in tests/*.plenty in its own process, or
-each tests/*.plenty program that defines main; a FILTER keeps the tests whose
+each tests/*.plenty program that defines main (.p files work too); a FILTER keeps the tests whose
 FILE::NAME contains it. Output is shown only for failing tests unless
 --no-capture. --seed N sets PLENTY_TEST_SEED for std.test.rng. --jobs N runs at
 most N tests at once (default: one per CPU). --timeout SECONDS fails a test

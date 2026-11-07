@@ -170,7 +170,8 @@ impl Lowerer<'_, '_> {
     }
 
     /// Reads (`store` is `None`) or writes the scalar row `index` of the
-    /// rows at `rows`, checked against `length` by [`Self::checked_row`].
+    /// rows at `rows`, checked against `length` by [`Self::checked_row`]. A
+    /// read returns the unpacked element.
     fn scalar_row_access(
         &mut self,
         rows: cranelift_codegen::ir::Value,
@@ -187,7 +188,7 @@ impl Lowerer<'_, '_> {
                 self.bcx.ins().store(flags, value, address, 0);
                 None
             }
-            None => Some(self.scalar_word(address, element)),
+            None => Some(self.scalar_value(address, element, element)),
         })
     }
 
@@ -993,10 +994,9 @@ impl Lowerer<'_, '_> {
             let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(ty.clone()), false))?;
             let (rows, length) = self.dense_rows(cached, receiver, ty);
             let element = ty.element().unwrap();
-            let bits = self
+            let result = self
                 .scalar_row_access(rows, length, index, &element, None)?
                 .unwrap();
-            let result = self.unpack(bits, &element);
             self.stack.push((result, element));
             return Ok(());
         }
@@ -1124,8 +1124,7 @@ impl Lowerer<'_, '_> {
                 // Affine one-field classes and atomics can still have packed
                 // scalar rows, as `list_row_bytes` lays them out. Taking one
                 // must not read or clear its neighbor's storage.
-                let packed = self.scalar_word(address, &base);
-                let value = self.unpack(packed, &element);
+                let value = self.scalar_value(address, &base, &element);
                 let width = types::Type::int(clif_type(base).bits() as u16).unwrap();
                 let zero = self.bcx.ins().iconst(width, 0);
                 self.bcx.ins().store(flags, zero, address, 0);

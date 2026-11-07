@@ -30,6 +30,10 @@ A package is a directory containing `plenty.toml`. `plenty new NAME` creates
 an application (`src/main.plenty`); `plenty new NAME --lib` creates a library
 (`src/lib.plenty`). `plenty init` does the same in the current directory.
 
+Source target paths may use `.p` in place of `.plenty`, including inferred
+`src/main.p` and `src/lib.p`. Interfaces may use `.pi` in place of `.plentyi`.
+Keep one spelling per imported module; duplicate candidates are ambiguous.
+
 | Command | Use |
 |---|---|
 | `plenty check` | Type-check the library and every executable; warn about `src/` files no target imports |

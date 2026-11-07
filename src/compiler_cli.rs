@@ -26,7 +26,8 @@ Usage: {0} FILE
        {0} -V | --version
        {0} -h | --help
 
-FILE: reuse a cached executable or compile/link, then run it privately.
+FILE: source files use .plenty or .p; interfaces use .plentyi or .pi.
+Reuse a cached executable or compile/link, then run it privately.
 Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
 --module-root DIR: resolve absolute imports here (default: FILE's directory).
 --package-graph GRAPH: resolve imports through a package graph file, as

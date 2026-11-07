@@ -91,7 +91,9 @@ owner projections.
 Scalar references read and write only the scalar's declared bytes, whether they
 address a packed list element, a local slot, or a projected enum payload. Slot
 padding is not part of the scalar value; runtime equality, hashing and formatting
-ignore it. Projected writes leave ancestor tags unchanged.
+ignore it. Projected writes leave ancestor tags unchanged. A read of an `f32`
+or `f64`, or of a quantity over one, loads the float type directly rather than
+an integer word and a bitcast (issue #812).
 
 Generator resumption reserves space for the complete inline yield layout after
 the runtime result word. The shared runtime-call scratch area grows for larger

@@ -216,6 +216,6 @@ differs.
 ## Other editors
 
 Any client that starts a server with a command line and speaks LSP over stdio
-can use `plenty lsp` for files with the `.plenty` extension. No VS Code
+can use `plenty lsp` for files with the `.plenty`, `.p`, `.plentyi`, or `.pi` extension. No VS Code
 extension is provided; a generic LSP client extension configured with the
 command `plenty lsp` works.

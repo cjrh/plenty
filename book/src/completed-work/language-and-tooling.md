@@ -5,6 +5,17 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## Handwritten serialization codecs (issue #781)
+
+[`std.serial`](../design/stdlib/serial.md) supplies statically specialized
+built-in codecs, private class/enum hooks and `SerialError[E]` with bounded
+error paths. [Typed JSON entry points](../design/stdlib/json-codecs.md) encode
+and decode complete buffers and convert directly to/from an owning `Json`
+tree under explicit depth, node and text budgets. Handwritten decoding retains
+control over defaults, unknown fields and validated construction. This is the
+first usable contract milestone; B77 retains derivation, TOML, byte support,
+reader loading and the performance gate before derivation.
+
 ## Native qualification build reuse (issue #850)
 
 [Native OS qualification](../development/ci-workflow.md#native-os-qualification)
@@ -15,6 +26,20 @@ runs the existing smoke checks. Local release builds keep their complete
 default behavior; explicit prepare/package phases support the CI split.
 Release baselines and custom-runtime-flag cache safeguards are preserved.
 Hosted cold/warm savings remain to be measured.
+
+## Short file extensions (issue #851)
+
+Source files accept `.p` as an alias for `.plenty`, and trusted interfaces
+accept `.pi` as an alias for `.plentyi`. Module lookup, package targets and
+tests, declaration moves, runtime-interface output, and Neovim detection
+recognize the aliases. Multiple spellings of one imported module are rejected
+with the conflicting paths; a source and interface with the same stem remain
+ambiguous. Inferred package targets and test modules reject duplicate spellings
+as well. Existing extensions and generated companion names remain supported.
+
+Package initialization refuses an existing short default source before writing
+a scaffold. Agent skill trials preserve all source/interface spellings in saved
+artifacts and recognize their compiler invocations and diagnostics.
 
 ## Source roots are real directories (issue #840)
 
