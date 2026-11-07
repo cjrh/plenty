@@ -791,6 +791,31 @@ fn moved_fields(ops: &[Op]) -> Vec<(u8, Arc<[usize]>)> {
     fields
 }
 
+/// Push the types of the parts of a `ty` value that remain after the fields
+/// at `moved` paths move out: a class with a moved field contributes its
+/// other fields, each with the moves inside it removed.
+fn unmoved(ty: &Ty, moved: &[&[usize]], parts: &mut Vec<Ty>) {
+    if moved.iter().any(|path| path.is_empty()) {
+        return;
+    }
+    let Ty::Class(class) = ty else {
+        parts.push(ty.clone());
+        return;
+    };
+    if moved.is_empty() {
+        parts.push(ty.clone());
+        return;
+    }
+    for (index, (_, field)) in class.get().fields.iter().enumerate() {
+        let inside: Vec<&[usize]> = moved
+            .iter()
+            .filter(|path| path[0] == index)
+            .map(|path| &path[1..])
+            .collect();
+        unmoved(field, &inside, parts);
+    }
+}
+
 /// The binding and field path that each precise loan in `ops` covers.
 fn loan_places(ops: &[Op]) -> HashMap<usize, (u8, Vec<usize>)> {
     let mut places = HashMap::default();
@@ -1316,6 +1341,28 @@ impl Checker<'_, '_> {
         self.blocked_endpoints(sends, true, state, site, kind, advice)
     }
 
+    /// The types of the parts of `slot`'s value that its fields' moves leave
+    /// in place (issue #794). A field moved out on every path is gone; one
+    /// moved on only some paths is gone too unless `possibly` keeps it.
+    fn remaining(&self, slot: usize, state: &State, possibly: bool) -> Vec<Ty> {
+        let moved: Vec<&[usize]> = self
+            .fields
+            .iter()
+            .enumerate()
+            .filter(|(k, (root, _))| {
+                *root as usize == slot
+                    && match state[self.locals.len() + k] {
+                        Slot::Moved { definite, .. } => definite || !possibly,
+                        _ => false,
+                    }
+            })
+            .map(|(_, (_, path))| &path[..])
+            .collect();
+        let mut parts = Vec::new();
+        unmoved(&self.locals[slot], &moved, &mut parts);
+        parts
+    }
+
     /// Match the worker's endpoints against live owners of the opposite side.
     fn blocked_endpoints(
         &self,
@@ -1340,11 +1387,19 @@ impl Checker<'_, '_> {
             };
             // A borrowed parameter's owner is alive for the whole call.
             let parameter = slot < self.parameters;
-            let Some(message) = endpoints([self.locals[slot].clone()], !worker_sends, parameter)
-                .into_iter()
-                .find(|message| messages.contains(message))
-            else {
-                continue;
+            let find = |parts: Vec<Ty>| {
+                endpoints(parts, !worker_sends, parameter)
+                    .into_iter()
+                    .find(|message| messages.contains(message))
+            };
+            // A field moved out on every path no longer holds its endpoints;
+            // one moved on only some paths still holds them on the others.
+            let (message, partly) = match find(self.remaining(slot, state, false)) {
+                Some(message) => (message, partly),
+                None => match find(self.remaining(slot, state, true)) {
+                    Some(message) => (message, true),
+                    None => continue,
+                },
             };
             let place = self.place(slot as u8, &[], false);
             let name = match &place {

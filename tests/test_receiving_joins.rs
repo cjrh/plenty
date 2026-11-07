@@ -322,3 +322,152 @@ fn sender_guard_order_and_message_type_are_conservative() {
     ))
     .unwrap();
 }
+
+const ENDS: &str = "class Ends:
+    sender: Sender[i64]
+    names: Sender[str]
+
+class Outer:
+    ends: Ends
+    count: i64
+
+";
+
+fn field_moves(body: &str) -> Result<(), String> {
+    support::check_source(&format!("{CONSUME}{ENDS}{body}")).map_err(|error| error.to_string())
+}
+
+/// Issue #794: a field moved out of a binding on every path no longer counts
+/// as an endpoint the binding holds, as a `match` destructure does not.
+#[test]
+fn moved_fields_release_their_endpoints_at_joins() {
+    let accepted = [
+        "def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    names, labels = channel[str](1).unwrap()
+    ends = Ends(sender, names)
+    kept = ends.names
+    drop(ends.sender)
+    with spawn(consume, receiver).unwrap():
+        pass
+    drop(kept)
+",
+        "def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    names, labels = channel[str](1).unwrap()
+    match Ends(sender, names):
+        case Ends(sender, kept):
+            drop(sender)
+            with spawn(consume, receiver).unwrap():
+                pass
+            drop(kept)
+",
+        "def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    names, labels = channel[str](1).unwrap()
+    outer = Outer(Ends(sender, names), 0)
+    drop(outer.ends.sender)
+    with spawn(consume, receiver).unwrap():
+        pass
+",
+        "def run(flag: bool) -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    names, labels = channel[str](1).unwrap()
+    ends = Ends(sender, names)
+    if flag:
+        drop(ends.sender)
+    else:
+        moved = ends.sender
+        drop(moved)
+    with spawn(consume, receiver).unwrap():
+        pass
+",
+    ];
+    for body in accepted {
+        field_moves(body).unwrap_or_else(|error| panic!("{body}\n{error}"));
+    }
+    let blocked = "could block the worker's receive";
+    for (body, note) in [
+        // The moved field holds no `Sender[i64]`.
+        (
+            "def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    names, labels = channel[str](1).unwrap()
+    ends = Ends(sender, names)
+    drop(ends.names)
+    with spawn(consume, receiver).unwrap():
+        pass
+",
+            "`ends` holds `Sender[i64]`;",
+        ),
+        (
+            "def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    names, labels = channel[str](1).unwrap()
+    outer = Outer(Ends(sender, names), 0)
+    drop(outer.ends.names)
+    with spawn(consume, receiver).unwrap():
+        pass
+",
+            "`outer` holds `Sender[i64]`;",
+        ),
+        // Assigning the field again restores a holder.
+        (
+            "def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    spare, unused = channel[i64](1).unwrap()
+    names, labels = channel[str](1).unwrap()
+    mut ends = Ends(sender, names)
+    drop(ends.sender)
+    ends.sender = spare
+    with spawn(consume, receiver).unwrap():
+        pass
+",
+            "`ends` holds `Sender[i64]`;",
+        ),
+        (
+            "def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    spare, unused = channel[i64](1).unwrap()
+    names, labels = channel[str](1).unwrap()
+    mut ends = Ends(sender, names)
+    drop(ends.sender)
+    ends = Ends(spare, ends.names)
+    with spawn(consume, receiver).unwrap():
+        pass
+",
+            "`ends` holds `Sender[i64]`;",
+        ),
+        // A field moved on only one path still holds on the other.
+        (
+            "def run(flag: bool) -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    names, labels = channel[str](1).unwrap()
+    ends = Ends(sender, names)
+    if flag:
+        drop(ends.sender)
+    with spawn(consume, receiver).unwrap():
+        pass
+",
+            "`ends` holds `Sender[i64]` on some paths;",
+        ),
+        (
+            "def run(flag: bool) -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    names, labels = channel[str](1).unwrap()
+    ends = Ends(sender, names)
+    if flag:
+        drop(ends.sender)
+    else:
+        drop(ends.names)
+    with spawn(consume, receiver).unwrap():
+        pass
+",
+            "`ends` holds `Sender[i64]` on some paths;",
+        ),
+    ] {
+        let error = field_moves(body).expect_err(body);
+        assert!(error.contains(blocked), "{body}\n{error}");
+        assert!(error.contains(note), "{body}\n{error}");
+    }
+}
