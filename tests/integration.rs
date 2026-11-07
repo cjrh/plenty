@@ -427,6 +427,8 @@ mod test_reference_tail_calls;
 mod test_release_stores;
 #[path = "test_relocate.rs"]
 mod test_relocate;
+#[path = "test_relocate_moves.rs"]
+mod test_relocate_moves;
 #[path = "test_result_handling.rs"]
 mod test_result_handling;
 #[path = "test_retained_job_errors.rs"]

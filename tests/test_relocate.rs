@@ -633,7 +633,7 @@ def main() -> Result[(), AllocError | IoError]:
     let moved = plan(dir.path(), "src/shapes.plenty", 4, "src/geometry.plenty").unwrap();
     assert_eq!(
         moved.files["src/geometry.plenty"],
-        "import std.path\nfrom std.math import fabs\nimport std.math\nfrom std.math import degrees\n\npub def unit() -> i64:\n    1\n\npub def norm(x: f64) -> (f64, f64):\n    (degrees(fabs(x)), std.math.radians(x))\n"
+        "import std.path\nfrom std.math import degrees, fabs\nimport std.math\n\npub def unit() -> i64:\n    1\n\npub def norm(x: f64) -> (f64, f64):\n    (degrees(fabs(x)), std.math.radians(x))\n"
     );
     assert_eq!(
         moved.files["src/shapes.plenty"],
@@ -1107,4 +1107,154 @@ fn moving_into_the_library_imports_it_under_the_package_name() {
         refused(dir.path(), "src/lib.plenty", 1, "src/shapes.plenty"),
         "`lib` is the package's library, which tests and other packages import under the package name; moving declarations out of it is not supported"
     );
+}
+
+const COLORS: &str = "\
+pub enum Color:
+    Red
+    Blue
+
+pub def name(c: &Color) -> str:
+    match c:
+        case Color.Red:
+            \"red\"
+        case Color.Blue:
+            \"blue\"
+";
+
+const POINT: &str = "\
+import colors
+
+@copy
+pub class Point:
+    pub x: i64
+
+pub def describe(p: &Point) -> Result[str, AllocError]:
+    f\"{p.x} in {colors.name(&colors.Color.Red)}\"
+";
+
+const SHOW: &str = "\
+from shapes import Point, describe
+
+def main() -> Result[(), AllocError | IoError]:
+    print(describe(&Point(x=5))?)?
+    Ok(())
+";
+
+#[test]
+fn format_string_fields_are_not_references_to_rewrite() {
+    // The checker records `std.fmt` calls at `p.x}` and at the field of
+    // `colors.name(...)`; neither is a name the move rewrites.
+    let dir = package(&[
+        ("src/colors.plenty", COLORS),
+        ("src/shapes.plenty", POINT),
+        ("src/main.plenty", SHOW),
+    ]);
+    let before = run(dir.path());
+    assert_eq!(before, "5 in red\n");
+    let moved = plan(dir.path(), "src/shapes.plenty", 7, "src/colors.plenty").unwrap();
+    assert_eq!(
+        moved.files,
+        BTreeMap::from([
+            (
+                "src/colors.plenty".to_owned(),
+                format!(
+                    "from shapes import Point\n\n{COLORS}\npub def describe(p: &Point) -> Result[str, AllocError]:\n    f\"{{p.x}} in {{name(&Color.Red)}}\"\n"
+                ),
+            ),
+            (
+                "src/shapes.plenty".to_owned(),
+                "@copy\npub class Point:\n    pub x: i64\n".to_owned(),
+            ),
+            (
+                "src/main.plenty".to_owned(),
+                SHOW.replace(
+                    "from shapes import Point, describe\n",
+                    "from shapes import Point\nfrom colors import describe\n"
+                ),
+            ),
+        ])
+    );
+    write_moved(dir.path(), &moved);
+    assert_eq!(run(dir.path()), before);
+}
+
+#[test]
+fn a_target_entry_keeps_its_main() {
+    let dir = package(&[
+        ("src/colors.plenty", COLORS),
+        ("src/shapes.plenty", POINT),
+        ("src/main.plenty", SHOW),
+    ]);
+    assert_eq!(
+        refused(dir.path(), "src/main.plenty", 3, "src/shapes.plenty"),
+        "src/main.plenty runs `main`; a target's `main` cannot move"
+    );
+}
+
+#[test]
+fn moving_back_writes_the_qualified_name_an_import_already_provides() {
+    let dir = package(&[
+        ("src/colors.plenty", COLORS),
+        ("src/shapes.plenty", POINT),
+        ("src/main.plenty", SHOW),
+    ]);
+    let before = run(dir.path());
+    // `name` moves to `shapes`, where `colors.name` becomes `name`.
+    let there = plan(dir.path(), "src/colors.plenty", 5, "src/shapes.plenty").unwrap();
+    write_moved(dir.path(), &there);
+    assert_eq!(run(dir.path()), before);
+    // Back again: `shapes` still imports `colors`, so `name` becomes
+    // `colors.name` rather than taking a `from colors import name`.
+    let back = plan(dir.path(), "src/shapes.plenty", 10, "src/colors.plenty").unwrap();
+    assert_eq!(
+        back.files,
+        BTreeMap::from([
+            ("src/colors.plenty".to_owned(), COLORS.to_owned()),
+            ("src/shapes.plenty".to_owned(), POINT.to_owned()),
+        ])
+    );
+}
+
+#[test]
+fn an_import_of_one_declaration_under_two_names_keeps_the_other() {
+    let geometry = "\
+@copy
+pub class Point:
+    pub x: i64
+
+pub def norm(p: &Point) -> i64:
+    p.x
+";
+    let report = "\
+from geometry import Point as P
+
+pub def show(p: &P) -> i64:
+    p.x
+";
+    let main = "\
+import geometry
+import report
+
+def main() -> Result[(), AllocError | IoError]:
+    p = geometry.Point(x=2)
+    print(geometry.norm(&p), report.show(&p))?
+    Ok(())
+";
+    let dir = package(&[
+        ("src/geometry.plenty", geometry),
+        ("src/report.plenty", report),
+        ("src/main.plenty", main),
+    ]);
+    let before = run(dir.path());
+    let there = plan(dir.path(), "src/geometry.plenty", 5, "src/report.plenty").unwrap();
+    assert_eq!(
+        there.files["src/report.plenty"],
+        "from geometry import Point as P, Point\n\npub def show(p: &P) -> i64:\n    p.x\n\npub def norm(p: &Point) -> i64:\n    p.x\n"
+    );
+    write_moved(dir.path(), &there);
+    assert_eq!(run(dir.path()), before);
+    let back = plan(dir.path(), "src/report.plenty", 6, "src/geometry.plenty").unwrap();
+    assert_eq!(back.files["src/report.plenty"], report);
+    assert_eq!(back.files["src/geometry.plenty"], geometry);
 }

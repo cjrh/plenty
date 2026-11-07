@@ -752,6 +752,34 @@ impl<'a> Planner<'a> {
                 continue;
             };
             let symbol = &analysis.symbols[reference.symbol];
+            // Format strings record calls to `std.fmt` methods at their
+            // fields, such as `p.x}` or `gree` for the methods that write
+            // `p.x` and `greet()`. A name is written as a name or a dotted
+            // name, and a member, which no import renames, as its own name.
+            let l = &reference.location;
+            let written: String = analysis
+                .sources
+                .get(&l.file)
+                .and_then(|text| text.lines().nth(l.line as usize - 1))
+                .map(|line| {
+                    line.chars()
+                        .skip(l.column as usize - 1)
+                        .take(l.length as usize)
+                        .collect()
+                })
+                .unwrap_or_default();
+            let dotted = written.split('.').all(|part| {
+                !part.is_empty() && part.chars().all(|c| c.is_alphanumeric() || c == '_')
+            });
+            let member = symbol.name.rsplit('.').next().unwrap_or_default();
+            let named = matches!(
+                symbol.kind,
+                SymbolKind::Method | SymbolKind::Field | SymbolKind::Variant
+            )
+            .then(|| written.rsplit('.').next() == Some(member));
+            if !dotted || named == Some(false) {
+                continue;
+            }
             let target = match &symbol.location {
                 Some(Location {
                     file: File::Path(file),
@@ -765,7 +793,6 @@ impl<'a> Planner<'a> {
                 .location
                 .as_ref()
                 .map(|l| (l.file.clone(), l.line, l.column));
-            let l = &reference.location;
             uses.entry((path.clone(), l.line, l.column, l.length))
                 .or_insert_with(|| Use {
                     path: path.clone(),
@@ -802,6 +829,18 @@ impl<'a> Planner<'a> {
             .ok_or("no top-level declaration here")?;
         let declaration = item.declaration.clone()?;
         let name = declaration.name.clone();
+        // A target's entry file runs its own `main`.
+        if name == "main"
+            && self
+                .entries
+                .iter()
+                .any(|(path, _)| *path == self.source_path)
+        {
+            return Err(format!(
+                "{} runs `main`; a target's `main` cannot move",
+                self.relative(&self.source_path)
+            ));
+        }
         // `include_str` and `include_bytes` paths are relative to the
         // including file's directory.
         if let Some(directory) = self.source_path.parent()
@@ -858,6 +897,8 @@ impl<'a> Planner<'a> {
             edits: BTreeMap::new(),
             span_edits: vec![],
             rewrites: HashMap::default(),
+            span_rewrites: HashMap::default(),
+            source_qualifier: None,
             api_changes: vec![],
             imports: BTreeMap::new(),
             dependencies: BTreeSet::new(),
@@ -967,6 +1008,12 @@ struct Work<'p, 'a> {
     /// by (file, line, column) of their location: the edit's start (from
     /// 0) and the name's offset in its replacement.
     rewrites: HashMap<(PathBuf, u32, u32), (u32, u32, u32)>,
+    /// The same for references in the moved text, with the edit's start in
+    /// the moved text.
+    span_rewrites: HashMap<(PathBuf, u32, u32), (u32, u32, u32)>,
+    /// The destination's binding of a plain `import` of the source, which
+    /// qualifies the source declarations the moved text uses.
+    source_qualifier: Option<String>,
 }
 
 fn is_declaration(kind: SymbolKind) -> bool {
@@ -1039,6 +1086,19 @@ impl Work<'_, '_> {
                     && u.kind == SymbolKind::Module
             })
             .and_then(|u| u.identity.as_ref().map(|i| i.0.clone()))
+    }
+
+    /// The binding of a plain `import` of the file `module` in `path`.
+    fn plain_binding(&self, path: &Path, module: &Path) -> Result<Option<String>, String> {
+        Ok(self.file_imports(path)?.iter().find_map(|i| {
+            if i.from.is_some() {
+                return None;
+            }
+            i.items.iter().enumerate().find_map(|(index, item)| {
+                self.imports_file(path, i, index, module)
+                    .then(|| Import::binding(item).to_owned())
+            })
+        }))
     }
 
     /// Whether the `index`th module of `import` in `path` is the file `module`.
@@ -1185,17 +1245,18 @@ impl Work<'_, '_> {
                 Form::Bare { column, name } => (*column, *column, name.clone()),
                 Form::Other => (u.location.column - 1, u.location.column - 1, name.clone()),
             };
-            let point =
-                match self
-                    .rewrites
-                    .get(&(u.path.clone(), u.location.line, u.location.column))
-                {
-                    Some(&(l, c, offset)) => edits
-                        .get(u.path.as_path())
-                        .and_then(|e| map_point(e, l, c))
-                        .map(|(l, c)| (u.path.clone(), l, c + offset)),
-                    None => map(&u.path, line, column),
-                };
+            let key = (u.path.clone(), u.location.line, u.location.column);
+            let point = if let Some(&(l, c, offset)) = self.span_rewrites.get(&key) {
+                map_point(&self.span_edits, l, c)
+                    .map(|(l, c)| (self.destination().to_owned(), moved_first + l, c + offset))
+            } else if let Some(&(l, c, offset)) = self.rewrites.get(&key) {
+                edits
+                    .get(u.path.as_path())
+                    .and_then(|e| map_point(e, l, c))
+                    .map(|(l, c)| (u.path.clone(), l, c + offset))
+            } else {
+                map(&u.path, line, column)
+            };
             let expected = if in_span {
                 identity(&u.identity)
             } else {
@@ -1228,6 +1289,7 @@ impl Work<'_, '_> {
     /// module it must import, and the destination's own declarations.
     fn moved_references(&mut self) -> Result<(), String> {
         let name = self.name.clone();
+        self.source_qualifier = self.plain_binding(self.destination(), self.source())?;
         let span_uses: Vec<Use> = self
             .uses
             .iter()
@@ -1256,10 +1318,28 @@ impl Work<'_, '_> {
                     ));
                 };
                 let dependency = dependency.clone();
-                if !matches!(&written, Form::Bare { name, .. } if *name == dependency.name) {
-                    return Err(format!(
-                        "`{name}` refers to `{}` in a form the move cannot rewrite",
-                        dependency.name
+                let column = match &written {
+                    Form::Bare { column, name } if *name == dependency.name => *column,
+                    _ => {
+                        return Err(format!(
+                            "`{name}` refers to `{}` in a form the move cannot rewrite",
+                            dependency.name
+                        ));
+                    }
+                };
+                // With `import source` already in the destination, write
+                // `source.name`, as moving it in the other direction reads it.
+                if let Some(qualifier) = &self.source_qualifier {
+                    let line_in_span = location_line(&u.location) - self.span.0;
+                    self.span_rewrites.insert(
+                        (u.path.clone(), u.location.line, u.location.column),
+                        (line_in_span, column, qualifier.chars().count() as u32 + 1),
+                    );
+                    self.span_edits.push(replace(
+                        line_in_span,
+                        column,
+                        dependency.name.chars().count() as u32,
+                        &format!("{qualifier}.{}", dependency.name),
                     ));
                 }
                 if self.dependencies.insert(dependency.name.clone())
@@ -1277,6 +1357,11 @@ impl Work<'_, '_> {
                 continue;
             }
             if file == self.destination() {
+                // A member, such as `p.x` or `Unit.Metre`, is written the
+                // same in any module.
+                if !is_declaration(u.kind) {
+                    continue;
+                }
                 // The destination's own declaration: write its bare name.
                 let line_in_span = location_line(&u.location) - self.span.0;
                 match written {
@@ -1396,9 +1481,11 @@ impl Work<'_, '_> {
                             // A name the analysis did not record: keep it.
                             continue;
                         };
+                        // By this binding: `from m import Point as P, Point`
+                        // binds one declaration twice.
                         let bare = |u: &Use| {
                             u.identity.as_ref() == Some(&identity)
-                                && matches!(self.form_of(u), Form::Bare { .. })
+                                && matches!(self.form_of(u), Form::Bare { name, .. } if name == binding)
                         };
                         (
                             self.uses.iter().any(|u| self.in_span(u) && bare(u)),
@@ -1438,6 +1525,9 @@ impl Work<'_, '_> {
             }
         }
         for dependency in &self.dependencies {
+            if self.source_qualifier.is_some() {
+                break;
+            }
             if bindings.contains_key(dependency) || self.destination_names.contains(dependency) {
                 return Err(format!(
                     "`{name}` uses `{}.{dependency}`, but `{}` already binds `{dependency}`",
@@ -1474,6 +1564,7 @@ impl Work<'_, '_> {
             }
         }
         let mut source_uses_name = false;
+        let mut source_qualified = false;
         let cannot_rewrite = |path: &Path, u: &Use| {
             format!(
                 "{}:{}:{}: cannot rewrite this reference to `{name}`",
@@ -1494,12 +1585,45 @@ impl Work<'_, '_> {
         for (path, file_uses) in &by_file {
             let lines = self.import_lines(path);
             if *path == source {
-                if file_uses
+                let rest: Vec<&Use> = file_uses
                     .iter()
-                    .any(|u| !lines.contains(&location_line(&u.location)))
-                {
-                    source_uses_name = true;
-                    self.needs_public = true;
+                    .filter(|u| !lines.contains(&location_line(&u.location)))
+                    .collect();
+                if rest.is_empty() {
+                    continue;
+                }
+                source_uses_name = true;
+                self.needs_public = true;
+                // With `import destination` already there, write
+                // `destination.name`, as moving it in the other direction
+                // reads it.
+                let Some(qualifier) = self.plain_binding(path, &destination)? else {
+                    continue;
+                };
+                let bare: Option<Vec<(u32, u32)>> = rest
+                    .iter()
+                    .map(|u| match self.form_of(u) {
+                        Form::Bare {
+                            column,
+                            name: written,
+                        } if written == name => Some((location_line(&u.location), column)),
+                        _ => None,
+                    })
+                    .collect();
+                if let Some(bare) = bare {
+                    source_qualified = true;
+                    let replacement = format!("{qualifier}.{name}");
+                    let offset = qualifier.chars().count() as u32 + 1;
+                    for (u, (l, column)) in rest.iter().zip(bare) {
+                        rewrites.push((
+                            (path.clone(), u.location.line, u.location.column),
+                            (l, column, offset),
+                        ));
+                        file_edits.push((
+                            path.clone(),
+                            replace(l, column, name.chars().count() as u32, &replacement),
+                        ));
+                    }
                 }
                 continue;
             }
@@ -1655,11 +1779,13 @@ impl Work<'_, '_> {
                         .join(", "),
                 ));
             }
-            self.imports
-                .entry(source)
-                .or_default()
-                .1
-                .push(format!("from {destination_module} import {name}"));
+            if !source_qualified {
+                self.imports
+                    .entry(source)
+                    .or_default()
+                    .1
+                    .push(format!("from {destination_module} import {name}"));
+            }
         }
         Ok(())
     }
@@ -1820,6 +1946,35 @@ impl Work<'_, '_> {
                     }
                 }
             }
+            // Add to a `from` import of the same module already there: in
+            // order when its names are sorted, else at the end.
+            added.retain(|import| {
+                let Some(line) = path_imports
+                    .iter()
+                    .filter(|i| i.from.is_some() && i.from == import.from && !i.comment)
+                    .map(|i| i.line)
+                    .find(|line| changed.get(line).is_none_or(|c| !c.items.is_empty()))
+                else {
+                    return true;
+                };
+                let existing = changed.entry(line).or_insert_with(|| {
+                    path_imports
+                        .iter()
+                        .find(|i| i.line == line)
+                        .expect("the line has an import")
+                        .clone()
+                });
+                for item in &import.items {
+                    let sorted = existing.items.is_sorted_by(|a, b| a.0 <= b.0);
+                    let at = if sorted {
+                        existing.items.partition_point(|other| other.0 <= item.0)
+                    } else {
+                        existing.items.len()
+                    };
+                    existing.items.insert(at, item.clone());
+                }
+                false
+            });
             // Removing every import also removes the blank lines after them.
             let all_removed = added.is_empty()
                 && path_imports
