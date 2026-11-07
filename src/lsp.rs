@@ -600,10 +600,12 @@ impl Server {
         let Some(path) = uri_path(uri) else {
             return json!([]);
         };
-        let text = match self.documents.get(uri) {
+        let document = self.documents.get(uri);
+        let text = match document {
             Some(document) => document.text.clone(),
             None => std::fs::read_to_string(&path).unwrap_or_default(),
         };
+        let version = document.and_then(|d| d.version);
         let line = params["range"]["start"]["line"].as_u64().unwrap_or(0) as u32 + 1;
         let candidate = wanted
             .then(|| ide::relocate::candidates(&path, &text, line))
@@ -618,7 +620,10 @@ impl Server {
                 json!({
                     "title": format!("Move `{}` to module `{module}`", candidate.name),
                     "kind": "refactor.move",
-                    "data": {"uri": uri, "line": line, "destination": path_uri(file)},
+                    // The name and version let resolve refuse an action
+                    // offered for text that has changed since.
+                    "data": {"uri": uri, "line": line, "destination": path_uri(file),
+                        "name": candidate.name, "version": version},
                 })
             })
             .collect();
@@ -634,6 +639,20 @@ impl Server {
         let (Some(path), Some(destination), Some(line)) = (path, destination, line) else {
             return Err("this code action has no move to resolve".into());
         };
+        let document = data["uri"].as_str().and_then(|uri| self.documents.get(uri));
+        let text = match document {
+            Some(document) => document.text.clone(),
+            None => std::fs::read_to_string(&path).map_err(|e| e.to_string())?,
+        };
+        let current = ide::relocate::candidates(&path, &text, line).map(|c| c.name);
+        if document.and_then(|d| d.version) != data["version"].as_i64()
+            || current.as_deref() != data["name"].as_str()
+        {
+            return Err(
+                "the file has changed since this move was offered; ask for code actions again"
+                    .into(),
+            );
+        }
         let overlay: HashMap<PathBuf, String> = self
             .documents
             .values()
@@ -644,10 +663,13 @@ impl Server {
         let mut changes = serde_json::Map::new();
         let mut document_changes = vec![];
         for file in &plan.files {
-            let document = self
+            // An open document's edits name the client's URI, which can
+            // differ from the canonical path through a symbolic link.
+            let open = self
                 .documents
-                .values()
-                .find(|d| d.path.canonicalize().ok().as_ref() == Some(&file.path));
+                .iter()
+                .find(|(_, d)| d.path.canonicalize().ok().as_ref() == Some(&file.path));
+            let document = open.map(|(_, d)| d);
             let text = match document {
                 Some(document) => document.text.clone(),
                 None => std::fs::read_to_string(&file.path).map_err(|e| e.to_string())?,
@@ -676,7 +698,7 @@ impl Server {
                     edit
                 })
                 .collect();
-            let uri = path_uri(&file.path);
+            let uri = open.map_or_else(|| path_uri(&file.path), |(uri, _)| uri.clone());
             if self.document_changes {
                 document_changes.push(json!({
                     "textDocument": {"uri": uri, "version": document.and_then(|d| d.version)},

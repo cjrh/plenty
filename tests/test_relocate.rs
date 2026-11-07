@@ -17,13 +17,16 @@ fn package(files: &[(&str, &str)]) -> tempfile::TempDir {
     dir
 }
 
-/// Every file below `dir`, by relative path.
+/// Every source file below `dir`, by relative path.
 fn snapshot(dir: &Path) -> BTreeMap<String, String> {
     fn walk(root: &Path, dir: &Path, out: &mut BTreeMap<String, String>) {
         for entry in std::fs::read_dir(dir).unwrap() {
             let path = entry.unwrap().path();
             if path.is_dir() {
-                walk(root, &path, out);
+                // `plenty run` writes its build output here.
+                if path != root.join("target") {
+                    walk(root, &path, out);
+                }
             } else {
                 let relative = path.strip_prefix(root).unwrap().display().to_string();
                 out.insert(relative, std::fs::read_to_string(&path).unwrap());
@@ -234,7 +237,7 @@ fn a_private_declaration_used_elsewhere_becomes_public() {
     let moved = plan(dir.path(), "src/shapes.plenty", 1, "src/geometry.plenty").unwrap();
     assert_eq!(
         moved.api_changes,
-        ["makes `double` public, because other modules use it"]
+        ["makes `geometry.double` public, because other modules use it"]
     );
     assert_eq!(
         moved.files["src/shapes.plenty"],
@@ -325,7 +328,10 @@ fn moving_a_public_library_declaration_reports_the_path_change() {
             "moves public `tools.shapes.Point` to `tools.geometry.Point`; packages outside this workspace that import it must change"
         ]
     );
-    assert!(moved.files["src/lib.plenty"].contains("geometry.Point"));
+    assert_eq!(
+        moved.files["src/lib.plenty"],
+        "import geometry\n\npub def origin() -> geometry.Point:\n    geometry.Point(x=0, y=0)\n"
+    );
 }
 
 #[test]
@@ -409,4 +415,352 @@ fn unsupported_moves_are_refused() {
     std::fs::write(loose.path().join("b.plenty"), "").unwrap();
     let message = refused(loose.path(), "a.plenty", 1, "b.plenty");
     assert!(message.contains("needs a package"), "{message}");
+}
+
+/// Write a planned move's files into the package.
+fn write_moved(dir: &Path, moved: &Moved) {
+    for (path, text) in &moved.files {
+        std::fs::write(dir.join(path), text).unwrap();
+    }
+}
+
+/// The standard output of `plenty run` in the package.
+fn run(dir: &Path) -> String {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"))
+        .arg("run")
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
+}
+
+const PRINTING_MAIN: &str = "\
+import shapes
+
+def main() -> Result[(), AllocError | IoError]:
+    print(shapes.TEXT)?
+    Ok(())
+";
+
+#[test]
+fn an_included_file_moves_only_within_its_directory() {
+    let files = [
+        (
+            "src/shapes.plenty",
+            "pub const TEXT: str = include_str(\"data.txt\")\n",
+        ),
+        ("src/data.txt", "included"),
+        ("src/main.plenty", PRINTING_MAIN),
+        ("src/geometry.plenty", GEOMETRY),
+        ("src/sub/geometry.plenty", GEOMETRY),
+    ];
+    let dir = package(&files);
+    let message = refused(
+        dir.path(),
+        "src/shapes.plenty",
+        1,
+        "src/sub/geometry.plenty",
+    );
+    assert_eq!(
+        message,
+        "`TEXT` includes a file by a path relative to src/; move it to a module in that directory, or change the path first"
+    );
+
+    assert_eq!(run(dir.path()), "included\n");
+    let moved = plan(dir.path(), "src/shapes.plenty", 1, "src/geometry.plenty").unwrap();
+    assert_eq!(
+        moved.files,
+        BTreeMap::from([
+            (
+                "src/geometry.plenty".to_string(),
+                "pub def unit() -> i64:\n    1\n\npub const TEXT: str = include_str(\"data.txt\")\n"
+                    .to_string()
+            ),
+            ("src/shapes.plenty".to_string(), String::new()),
+            (
+                "src/main.plenty".to_string(),
+                PRINTING_MAIN.replace("shapes", "geometry")
+            ),
+        ])
+    );
+    write_moved(dir.path(), &moved);
+    assert_eq!(run(dir.path()), "included\n");
+}
+
+#[test]
+fn a_module_whose_path_ends_with_the_source_is_left_alone() {
+    let net = "pub const TEXT: str = \"net\"\n";
+    let main = "\
+import shapes
+import net.shapes
+from net.shapes import TEXT
+
+def main() -> Result[(), AllocError | IoError]:
+    print(shapes.TEXT)?
+    print(net.shapes.TEXT)?
+    print(TEXT)?
+    Ok(())
+";
+    let dir = package(&[
+        ("src/shapes.plenty", "pub const TEXT: str = \"local\"\n"),
+        ("src/net/shapes.plenty", net),
+        ("src/main.plenty", main),
+        ("src/geometry.plenty", GEOMETRY),
+    ]);
+    assert_eq!(run(dir.path()), "local\nnet\nnet\n");
+    let moved = plan(dir.path(), "src/shapes.plenty", 1, "src/geometry.plenty").unwrap();
+    assert_eq!(
+        moved.files["src/main.plenty"],
+        main.replacen("import shapes\n", "", 1)
+            .replacen("TEXT\n\n", "TEXT\nimport geometry\n\n", 1)
+            .replace("print(shapes.TEXT)", "print(geometry.TEXT)")
+    );
+    assert!(!moved.files.contains_key("src/net/shapes.plenty"));
+    write_moved(dir.path(), &moved);
+    assert_eq!(run(dir.path()), "local\nnet\nnet\n");
+}
+
+#[test]
+fn import_words_in_strings_and_docstrings_are_not_imports() {
+    let shapes = "\
+import std.math as m
+
+pub const NOTE: str = \"\"\"
+import geometry
+from shapes import NOTE
+\"\"\"
+
+pub def norm(x: f64) -> f64:
+    \"\"\"The distance,
+    from the start.\"\"\"
+    m.fabs(x)
+";
+    let main = "\
+import shapes
+
+def main() -> Result[(), AllocError | IoError]:
+    print(shapes.norm(-2.0))?
+    print(shapes.NOTE)?
+    Ok(())
+";
+    let dir = package(&[
+        ("src/shapes.plenty", shapes),
+        ("src/main.plenty", main),
+        ("src/geometry.plenty", GEOMETRY),
+    ]);
+    let before = run(dir.path());
+    assert_eq!(
+        before,
+        "2.0\n\nimport geometry\nfrom shapes import NOTE\n\n"
+    );
+    let moved = plan(dir.path(), "src/shapes.plenty", 8, "src/geometry.plenty").unwrap();
+    assert_eq!(
+        moved.files,
+        BTreeMap::from([
+            (
+                "src/geometry.plenty".to_string(),
+                "import std.math as m\n\npub def unit() -> i64:\n    1\n\npub def norm(x: f64) -> f64:\n    \"\"\"The distance,\n    from the start.\"\"\"\n    m.fabs(x)\n".to_string()
+            ),
+            (
+                "src/shapes.plenty".to_string(),
+                "pub const NOTE: str = \"\"\"\nimport geometry\nfrom shapes import NOTE\n\"\"\"\n".to_string()
+            ),
+            (
+                "src/main.plenty".to_string(),
+                "import shapes\nimport geometry\n\ndef main() -> Result[(), AllocError | IoError]:\n    print(geometry.norm(-2.0))?\n    print(shapes.NOTE)?\n    Ok(())\n".to_string()
+            ),
+        ])
+    );
+    write_moved(dir.path(), &moved);
+    assert_eq!(run(dir.path()), before);
+}
+
+#[test]
+fn std_imports_are_matched_by_module_and_combined() {
+    let shapes = "\
+import std.math
+from std.math import fabs, degrees
+
+pub def norm(x: f64) -> (f64, f64):
+    (degrees(fabs(x)), std.math.radians(x))
+
+pub def keep(x: f64) -> f64:
+    fabs(x)
+";
+    let geometry = "import std.path\nfrom std.math import fabs\n\npub def unit() -> i64:\n    1\n";
+    let main = "\
+import shapes
+
+def main() -> Result[(), AllocError | IoError]:
+    print(shapes.norm(-4.0))?
+    print(shapes.keep(-1.0))?
+    Ok(())
+";
+    let dir = package(&[
+        ("src/shapes.plenty", shapes),
+        ("src/main.plenty", main),
+        ("src/geometry.plenty", geometry),
+    ]);
+    let before = run(dir.path());
+    let moved = plan(dir.path(), "src/shapes.plenty", 4, "src/geometry.plenty").unwrap();
+    assert_eq!(
+        moved.files["src/geometry.plenty"],
+        "import std.path\nfrom std.math import fabs\nimport std.math\nfrom std.math import degrees\n\npub def unit() -> i64:\n    1\n\npub def norm(x: f64) -> (f64, f64):\n    (degrees(fabs(x)), std.math.radians(x))\n"
+    );
+    assert_eq!(
+        moved.files["src/shapes.plenty"],
+        "from std.math import fabs\n\npub def keep(x: f64) -> f64:\n    fabs(x)\n"
+    );
+    write_moved(dir.path(), &moved);
+    assert_eq!(run(dir.path()), before);
+}
+
+#[test]
+fn a_crlf_destination_keeps_its_line_endings() {
+    let dir = package(&[
+        (
+            "src/shapes.plenty",
+            "import std.math as m\nfrom std.math import degrees\n\npub def norm(x: f64) -> f64:\n    degrees(m.fabs(x))\n",
+        ),
+        (
+            "src/main.plenty",
+            "import shapes\n\ndef main() -> Result[(), AllocError | IoError]:\n    print(shapes.norm(-4.0))?\n    Ok(())\n",
+        ),
+        ("src/geometry.plenty", "pub def unit() -> i64:\r\n    1\r\n"),
+    ]);
+    let before = run(dir.path());
+    let moved = plan(dir.path(), "src/shapes.plenty", 4, "src/geometry.plenty").unwrap();
+    assert_eq!(
+        moved.files["src/geometry.plenty"],
+        "import std.math as m\r\nfrom std.math import degrees\r\n\r\npub def unit() -> i64:\r\n    1\r\n\r\npub def norm(x: f64) -> f64:\r\n    degrees(m.fabs(x))\r\n"
+    );
+    write_moved(dir.path(), &moved);
+    assert_eq!(run(dir.path()), before);
+}
+
+#[test]
+fn documented_refusals() {
+    let dir = package(&[
+        ("src/shapes.plenty", SHAPES),
+        ("src/main.plenty", MAIN),
+        ("src/geometry.plenty", GEOMETRY),
+        ("tests/points.plenty", TEST),
+    ]);
+    assert_eq!(
+        refused(dir.path(), "src/shapes.plenty", 4, "tests/points.plenty"),
+        "the destination must be a module of the same package's src/"
+    );
+
+    for (text, keyword) in [
+        ("opaque Handle\n", "opaque"),
+        (
+            "extern def puts(text: &str as utf8) -> i32 = \"puts\"\n",
+            "extern",
+        ),
+        ("dimension Speed = Length / Time\n", "dimension"),
+        (
+            "if const target.os == \"linux\":\n    const A: i64 = 1\n",
+            "if",
+        ),
+    ] {
+        let dir = package(&[
+            ("src/shapes.plenty", text),
+            ("src/main.plenty", "def main() -> ():\n    pass\n"),
+            ("src/geometry.plenty", GEOMETRY),
+        ]);
+        assert_eq!(
+            refused(dir.path(), "src/shapes.plenty", 1, "src/geometry.plenty"),
+            format!("moving `{keyword}` declarations is not supported")
+        );
+    }
+
+    // The destination imports another `Point`.
+    let dir = package(&[
+        ("src/shapes.plenty", SHAPES),
+        (
+            "src/main.plenty",
+            &MAIN.replace("    show(a)\n", "    n = shapes.norm(&a)\n    show(a)\n"),
+        ),
+        ("src/other.plenty", "pub class Point:\n    pub z: i64\n"),
+        (
+            "src/geometry.plenty",
+            "from other import Point\n\npub def unit() -> i64:\n    1\n",
+        ),
+    ]);
+    assert_eq!(
+        refused(dir.path(), "src/shapes.plenty", 4, "src/geometry.plenty"),
+        "`geometry` already imports a `Point`"
+    );
+
+    // The moved code's `m` and the destination's `m` are different modules.
+    let dir = package(&[
+        ("src/shapes.plenty", SHAPES),
+        (
+            "src/main.plenty",
+            "import shapes\n\ndef main() -> ():\n    x = shapes.norm(&shapes.Point(x=1, y=2))\n",
+        ),
+        (
+            "src/geometry.plenty",
+            "import std.path as m\n\npub def unit() -> i64:\n    1\n",
+        ),
+    ]);
+    assert_eq!(
+        refused(dir.path(), "src/shapes.plenty", 8, "src/geometry.plenty"),
+        "`norm` needs `import std.math as m`, but `geometry` already has `import std.path as m`"
+    );
+
+    // An import inside `if const` cannot be rewritten.
+    let dir = package(&[
+        ("src/shapes.plenty", "pub def one() -> i64:\n    1\n"),
+        (
+            "src/main.plenty",
+            "if const target.os == \"linux\":\n    import shapes\n\ndef main() -> ():\n    x = shapes.one()\n",
+        ),
+        ("src/geometry.plenty", GEOMETRY),
+    ]);
+    let message = refused(dir.path(), "src/shapes.plenty", 1, "src/geometry.plenty");
+    assert_eq!(
+        message,
+        "src/main.plenty: line 2 has an indented import, which the move cannot rewrite"
+    );
+
+    // The moved code calls a `unit` that is not the destination's.
+    let dir = package(&[
+        (
+            "src/shapes.plenty",
+            "from other import unit\n\npub def two() -> i64:\n    unit()\n",
+        ),
+        ("src/other.plenty", "pub def unit() -> i64:\n    2\n"),
+        (
+            "src/main.plenty",
+            "import shapes\n\ndef main() -> ():\n    x = shapes.two()\n",
+        ),
+        ("src/geometry.plenty", GEOMETRY),
+    ]);
+    assert_eq!(
+        refused(dir.path(), "src/shapes.plenty", 3, "src/geometry.plenty"),
+        "`two` uses `unit`, which `geometry` declares as something else"
+    );
+
+    // A member access spaced or split across lines is not rewritten.
+    for (access, at) in [("shapes . ONE", "4:18"), ("(shapes\n        .ONE)", "5:10")] {
+        let dir = package(&[
+            ("src/shapes.plenty", "pub const ONE: i64 = 1\n"),
+            (
+                "src/main.plenty",
+                &format!("import shapes\n\ndef main() -> ():\n    x = {access}\n"),
+            ),
+            ("src/geometry.plenty", GEOMETRY),
+        ]);
+        let message = refused(dir.path(), "src/shapes.plenty", 1, "src/geometry.plenty");
+        assert_eq!(
+            message,
+            format!("src/main.plenty:{at}: cannot rewrite this reference to `ONE`")
+        );
+    }
 }

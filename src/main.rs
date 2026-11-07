@@ -61,7 +61,8 @@ In a workspace root these commands act on every member.
 cache: report or empty the compile/executable cache (PLENTY_CACHE_DIR,
 default ~/.cache/plenty; PLENTY_CACHE=off disables it).
 lsp: serve the Language Server Protocol on stdin and stdout for an editor:
-diagnostics, hover, go to definition, and completion.
+diagnostics, hover, go to definition, inlay hints, completion, and a code
+action that moves a declaration to another module.
 --no-strip: keep the symbol table and debug sections in built executables.
 --test-hooks: with build or run, enable std.test failure injection.
 --locked: fail instead of creating or updating plenty.lock.
