@@ -17,6 +17,8 @@ pub struct Program<'p> {
     table: OnceLock<HashMap<&'p str, Body<'p>>>,
     /// The jobs each callee reaches, so every function is searched once.
     jobs: Mutex<HashMap<&'p str, Arc<[Job<'p>]>>>,
+    /// Whether a call to each callee can shut down a pool.
+    shuts: Mutex<HashMap<&'p str, bool>>,
     /// Every function body by name, for `waits`. Separate from `table`,
     /// whose construction asks what each submitted job can block on.
     definitions: OnceLock<HashMap<&'p str, &'p CompiledFn>>,
@@ -70,6 +72,7 @@ impl<'p> Program<'p> {
             ops,
             table: OnceLock::new(),
             jobs: Mutex::default(),
+            shuts: Mutex::default(),
             definitions: OnceLock::new(),
             waits: Mutex::default(),
         }
@@ -309,15 +312,10 @@ impl<'p> Program<'p> {
     /// arguments, or a closure's `captures`, can reach count: a job of a
     /// pool the callee makes can hold a caller's endpoint only through them.
     /// The call is not checked to submit before it shuts down, nor to shut
-    /// down the pool it submitted to. Also returns the message types of the
-    /// receivers the arguments can hold, which the callee's own checks see.
-    pub(super) fn own_pool_submissions(
-        &self,
-        callee: &str,
-        captures: &[Ty],
-    ) -> (Vec<Hazard>, Vec<Ty>) {
+    /// down the pool it submitted to.
+    pub(super) fn own_pool_submissions(&self, callee: &str, captures: &[Ty]) -> Vec<Hazard> {
         let Some(function) = self.definitions().get(callee) else {
-            return Default::default();
+            return Vec::new();
         };
         let roots: Vec<Ty> = function
             .sig
@@ -327,9 +325,9 @@ impl<'p> Program<'p> {
             .chain(captures.iter().cloned())
             .collect();
         let sends = crate::threading::endpoints(roots.iter().cloned(), true, true);
-        let locks = crate::threading::mutexes(roots.iter().cloned());
+        let locks = crate::threading::mutexes(roots);
         if sends.is_empty() && locks.is_empty() {
-            return Default::default();
+            return Vec::new();
         }
         let hazards: Vec<Hazard> = self
             .pool_submissions(Some(callee))
@@ -340,11 +338,23 @@ impl<'p> Program<'p> {
                 Hazard::Cancels(_) => false,
             })
             .collect();
-        if hazards.is_empty() || !self.effects(Some(callee)).shuts() {
-            return Default::default();
+        if hazards.is_empty() || !self.shuts(callee) {
+            return Vec::new();
         }
-        let receives = crate::threading::endpoints(roots, false, true);
-        (hazards, receives)
+        hazards
+    }
+
+    /// `effects(callee).shuts()`, cached for the checks of every call.
+    fn shuts(&self, callee: &str) -> bool {
+        let Some((&name, _)) = self.table().get_key_value(callee) else {
+            return true;
+        };
+        if let Some(&shuts) = self.shuts.lock().unwrap().get(name) {
+            return shuts;
+        }
+        let shuts = self.effects(Some(name)).shuts();
+        self.shuts.lock().unwrap().insert(name, shuts);
+        shuts
     }
 
     fn reached_jobs(&self, callee: Option<&str>) -> Arc<[Job<'p>]> {

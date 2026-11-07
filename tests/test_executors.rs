@@ -1651,10 +1651,50 @@ fn a_call_that_shuts_down_its_own_pool_blocks_on_live_receivers() {
             && error.contains("`receiver` holds `Receiver[i64]`"),
         "{error}"
     );
-    // A receiver moved into the call is the callee's to check.
+    // A receiver moved into the call is the callee's to check, also as the
+    // returned value's part.
     runs(
         &own_pool_main("    drop(drains(sender, receiver))\n"),
         "done\n",
+    );
+    runs(
+        &format!(
+            "{PRODUCE}{OWN_POOL}def main() -> Result[(), PoolError | AllocError]:
+    sender, receiver = channel[i64](1)?
+    drains(sender, receiver)
+"
+        ),
+        "",
+    );
+}
+
+/// The callee could take a receiver, but the returned value keeps the
+/// caller's own through the call.
+#[test]
+fn a_returned_receiver_not_handed_to_the_call_blocks_its_own_pool() {
+    let source = format!(
+        "{PRODUCE}def go(sender: Sender[i64], spare: Option[Receiver[i64]]) -> Result[i64, PoolError | AllocError]:
+    drop(spare)
+    own = ThreadPoolExecutor(1, 1)?
+    drop(own.submit(produce, sender).drop_job())
+    Ok(1)
+
+def make() -> Result[(Receiver[i64], i64), PoolError | AllocError]:
+    sender, receiver = channel[i64](1)?
+    return Ok((receiver, go(sender, Nothing)?))
+
+def main() -> Result[(), PoolError | AllocError]:
+    drop(make()?)
+    Ok(())
+"
+    );
+    let error = support::check_source(&source).unwrap_err().to_string();
+    assert!(
+        error.contains(
+            "this call to `go` can shut down a pool after a job that holds `Sender[i64]` \
+             was submitted, while the returned value still holds `Receiver[i64]`"
+        ),
+        "{error}"
     );
 }
 
