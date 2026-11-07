@@ -425,3 +425,46 @@ fn far_deeper_nesting_is_rejected_without_recursing(
     let error = plenty::check_source(&shape(depth)).unwrap_err().to_string();
     assert!(error.ends_with(LIMIT), "{error}");
 }
+
+/// `a and b or c and d ...`: alternating clauses of the kind an allow-list
+/// predicate uses.
+fn predicates(operators: usize) -> String {
+    let clauses: Vec<String> = (0..=operators / 2)
+        .map(|i| format!("x != {i} and x == 7"))
+        .collect();
+    value("bool", &clauses.join(" or "))
+}
+
+/// The default stack of a spawned Rust thread, including a test worker.
+const WORKER_STACK: usize = 2 << 20;
+
+/// Boolean chains at the nesting limit compile in-process on a default
+/// worker stack. Lowering walks an `and`/`or` chain's left spine in a loop
+/// rather than recursing per operand; 45 `or` comparisons used to overflow
+/// this stack (issue #841).
+#[rstest]
+#[case::conjunctions(conjunctions, 61, "True\n")]
+#[case::disjunctions(disjunctions, 61, "True\n")]
+#[case::predicates(predicates, 61, "True\n")]
+fn boolean_chains_compile_on_a_worker_stack(
+    #[case] shape: fn(usize) -> String,
+    #[case] operators: usize,
+    #[case] printed: &str,
+) {
+    let workspace = tempfile::tempdir().unwrap();
+    let executable = workspace.path().join("program");
+    let source = shape(operators);
+    let output = executable.clone();
+    std::thread::Builder::new()
+        .stack_size(WORKER_STACK)
+        .spawn(move || {
+            support::compile_source_to_executable(&source, &output)
+                .unwrap_or_else(|error| panic!("{error}"));
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+    let run = Command::new(&executable).output().unwrap();
+    assert!(run.status.success());
+    assert_eq!(String::from_utf8(run.stdout).unwrap(), printed);
+}

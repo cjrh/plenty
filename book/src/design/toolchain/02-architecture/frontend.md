@@ -110,7 +110,11 @@ each with its own condition, so no pass recurses once per arm and a chain costs
 linear time. Every pass does recurse once per level of block or expression
 nesting, as do the clone and drop of the syntax tree. The parser therefore
 [bounds that depth to 64](../../language/04-expressions/index.md#nesting) and
-later passes rely on it instead of checking again.
+later passes rely on it instead of checking again. Lowering is the deepest
+pass per level, so it walks the left spine of an `and`/`or` chain in a loop:
+an allow-list predicate at the limit then compiles on a 2 MiB thread stack,
+even in an unoptimized compiler. Other deep shapes, such as nested calls,
+need more stack there, which the compiler's 8 MiB main thread provides.
 
 Ownership checking tracks definite slot availability through branches and loop
 backedges. Borrow checking flattens typed access facts into a separate source-level

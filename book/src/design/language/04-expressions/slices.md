@@ -359,6 +359,10 @@ temporary arguments are evaluated once and stay alive through the containing
 full expression, including later arguments and error propagation. An annotated
 local still needs a borrow, such as `whole: &substr = &s`, or a literal;
 implicit borrowing applies to calls.
+The reverse does not hold: a `&str` parameter cannot take a `&substr`
+without a copy. Declare the parameter `&substr` to accept both a view and a
+whole string, or pass an owned copy, `f(s[a:b]?)`, which the call lends as a
+temporary.
 
 | Operation | Meaning |
 | --- | --- |
@@ -395,6 +399,7 @@ until stored references land (backlog B11).
 | `&xs[::2]` | `a slice view selects adjacent elements, so it takes no step` |
 | `&mut s[1:3]` on a `str` | ``a `str` is immutable, so a substring view is shared only; write `&s[a:b]` `` |
 | `def f(xs: &list[T]) -> &[T]` | `a function cannot return a slice view yet (backlog B11)` |
+| `f(&s[1:])` for `f(s: &str)` | ``this argument is a &substr view, but the parameter takes &str; declare the parameter `&substr` to borrow it without copying, or pass an owned copy, `s[a:b]?` `` |
 | `total(xs)` for `total(v: &[i64])` | ``this parameter takes a slice view: pass `&xs` for a whole list or buffer, or `&xs[a:b]` for part of it`` |
 | `x in v` for a view `v` | ``slice views do not support `in` yet`` |
 | `xs[1:3] = ys` | `slice assignment is not supported; assign elements by index, or build a new list` |
