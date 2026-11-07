@@ -346,6 +346,7 @@ fn included_paths_are_checked() {
     let dir = parent.path().join("project");
     std::fs::create_dir(&dir).unwrap();
     std::fs::write(dir.join("latin1.txt"), [b'a', 0xE9]).unwrap();
+    std::os::unix::fs::symlink(parent.path().join("outside.txt"), dir.join("link.txt")).unwrap();
     let main = dir.join("main.plenty");
     let absolute = parent.path().join("outside.txt");
     for (declaration, message) in [
@@ -358,6 +359,10 @@ fn included_paths_are_checked() {
         ),
         (
             "const S: str = include_str(\"../outside.txt\")".into(),
+            "outside the source root".into(),
+        ),
+        (
+            "const S: str = include_str(\"link.txt\")".into(),
             "outside the source root".into(),
         ),
         (
@@ -388,6 +393,8 @@ fn included_paths_are_checked() {
         .unwrap();
         let error = plenty::check_file(&main, None).unwrap_err().to_string();
         assert!(error.contains(&message), "{declaration}: {error}");
+        // A single file belongs to no package, so it has no assets directory.
+        assert!(!error.contains("assets"), "{declaration}: {error}");
     }
 }
 

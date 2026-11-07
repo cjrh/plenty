@@ -1415,3 +1415,107 @@ fn check_reports_unimported_sources() {
     let lines = status_lines(&app, &["check"]);
     assert!(!lines.contains("warning"), "{lines}");
 }
+
+/// Issue #788: a package's `include_str` and `include_bytes` read below its
+/// `src/` or `assets/`, and nowhere else. Asset files are build inputs.
+#[test]
+fn packages_include_files_from_their_assets_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    package(
+        dir.path(),
+        "util",
+        "",
+        &[
+            (
+                "src/lib.plenty",
+                "pub const BANNER: str = include_str(\"../assets/banner.txt\")\n",
+            ),
+            ("assets/banner.txt", "util banner"),
+        ],
+    );
+    package(
+        dir.path(),
+        "app",
+        "util = { path = \"../util\" }\n",
+        &[
+            (
+                "src/main.plenty",
+                "import util\nfrom ui.view import ICON\nconst GREETING: str = include_str(\"../assets/greeting.txt\")\n\ndef main() -> Result[(), IoError]:\n    print(GREETING)?\n    print(ICON)?\n    print(util.BANNER)?\n    Ok(())\n",
+            ),
+            (
+                "src/ui/view.plenty",
+                "pub const ICON: bytes = include_bytes(\"../../assets/icons/icon.bin\")\n",
+            ),
+            ("assets/greeting.txt", "hello"),
+            ("assets/icons/icon.bin", "\u{1}PNG"),
+            (
+                "tests/greeting.plenty",
+                "const GREETING: str = include_str(\"../assets/greeting.txt\")\n\ndef main() -> i32:\n    0 if GREETING == \"hello\" else 1\n",
+            ),
+        ],
+    );
+    let app = dir.path().join("app");
+    let expected = "hello\nb\"\\x01PNG\"\nutil banner\n";
+    assert_eq!(succeeds(&app, &["run"]), expected);
+    assert!(succeeds(&app, &["test"]).contains("test greeting ... ok"));
+
+    // An edited or added asset is a build input, as a source file is.
+    assert!(status_lines(&app, &["build"]).contains("Fresh"));
+    write(&dir.path().join("util/assets/banner.txt"), "new banner");
+    assert!(status_lines(&app, &["build"]).contains("Compiling"));
+    assert_eq!(
+        succeeds(&app, &["run"]),
+        "hello\nb\"\\x01PNG\"\nnew banner\n"
+    );
+    write(&app.join("assets/unused.txt"), "");
+    assert!(status_lines(&app, &["build"]).contains("Compiling"));
+
+    // `plentyc` reads the asset directories from the package graph.
+    write(&app.join("graph.toml"), &succeeds(&app, &["graph"]));
+    assert!(
+        std::fs::read_to_string(app.join("graph.toml"))
+            .unwrap()
+            .contains("assets = ")
+    );
+    let run = Command::new(env!("CARGO_BIN_EXE_plentyc"))
+        .args(["--package-graph", "graph.toml", "src/main.plenty"])
+        .current_dir(&app)
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "hello\nb\"\\x01PNG\"\nnew banner\n",
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+
+    // A relocated package resolves the same relative paths.
+    let moved = tempfile::tempdir().unwrap();
+    for name in ["util", "app"] {
+        std::fs::rename(dir.path().join(name), moved.path().join(name)).unwrap();
+    }
+    let app = moved.path().join("app");
+    assert_eq!(
+        succeeds(&app, &["run"]),
+        "hello\nb\"\\x01PNG\"\nnew banner\n"
+    );
+
+    // Other package files, other packages and symbolic links that leave
+    // both directories are outside.
+    write(&moved.path().join("secret.txt"), "secret");
+    std::os::unix::fs::symlink(moved.path().join("secret.txt"), app.join("assets/link.txt"))
+        .unwrap();
+    for path in [
+        "../plenty.toml",
+        "../assets/link.txt",
+        "../../util/assets/banner.txt",
+        "../assets/../../secret.txt",
+    ] {
+        write(
+            &app.join("src/main.plenty"),
+            &format!("const S: str = include_str({path:?})\n\ndef main() -> ():\n    pass\n"),
+        );
+        fails(&app, &["check"], "is outside the source root");
+        fails(&app, &["check"], "and the package assets");
+    }
+}

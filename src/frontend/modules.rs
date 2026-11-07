@@ -1076,6 +1076,7 @@ pub(super) fn file_graph(
         packages: vec![crate::project::SourcePackage {
             identity: String::new(),
             root,
+            assets: None,
             library: None,
             dependencies: vec![],
         }],
@@ -1149,14 +1150,24 @@ impl Loader {
             }
             let joined = path.parent().unwrap_or(Path::new("")).join(relative);
             let root = &self.packages[package].root;
+            let assets = self.packages[package].assets.as_ref();
             let file = joined
                 .canonicalize()
                 .map_err(|e| embed.at.error(format!("reading `{}`: {e}", embed.path)))?;
-            if !file.starts_with(root) {
+            // Both directories are canonical, so `..` and symbolic links are
+            // judged by where the file really is.
+            if !file.starts_with(root) && !assets.is_some_and(|a| file.starts_with(a)) {
+                let allowed = match assets {
+                    Some(assets) => format!(
+                        "the source root {} and the package assets {}",
+                        root.display(),
+                        assets.display()
+                    ),
+                    None => format!("the source root {}", root.display()),
+                };
                 return Err(embed.at.error(format!(
-                    "included path `{}` is outside the source root {}",
-                    embed.path,
-                    root.display()
+                    "included path `{}` is outside {allowed}",
+                    embed.path
                 )));
             }
             let data = std::fs::read(&file)
@@ -1547,6 +1558,18 @@ fn prepare_packages(
         let root = &package.root;
         if !root.is_dir() {
             return Err(format!("source root {} is not a directory", root.display()).into());
+        }
+        // A missing `assets/` keeps its declared path, below which no file
+        // exists, so every include from it fails and no build depends on it.
+        if let Some(assets) = &mut package.assets {
+            match assets.canonicalize() {
+                Ok(canonical) if canonical.is_dir() => *assets = canonical,
+                Ok(canonical) => {
+                    return Err(format!("assets {} is not a directory", canonical.display()).into());
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(format!("assets {}: {e}", assets.display()).into()),
+            }
         }
         if ["std", "std.plenty", "std.plentyi"]
             .iter()

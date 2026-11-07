@@ -172,7 +172,8 @@ way; `check` always checks again. The inputs are the content of every file below
 package's `src/` (not only the imported ones), the package graph, the entry
 file, the target kind, the profile and linker options, and the compiler
 executable (path, size, and modification time; the compiler embeds `std` and
-the runtime). Fingerprints live in `target/PROFILE/.fingerprint/`. A build
+the runtime). Every file below each graph package's [`assets/`](#assets) is an
+input too. Fingerprints live in `target/PROFILE/.fingerprint/`. A build
 forgets the old fingerprint before it starts, so a failed or interrupted build
 is never reused. Reuse is per target: a stale target is recompiled whole.
 
@@ -226,6 +227,34 @@ executable named after the package) when those files exist. `[lib]` and
 `[[bin]]` replace the defaults; their paths are `.plenty` files below `src/`. A
 package needs at least one target. A library entry may define `main`; it is an
 ordinary function there.
+
+## Assets
+
+Files that a package embeds with
+[`include_str` and `include_bytes`](../../language/02-source/modules.md#included-files)
+live below `src/` or below `assets/` beside it. An include may read no other
+file: not the manifest, not `tests/`, and not another package's files. Paths
+are relative to the including file, so `src/main.plenty` reads
+`assets/icon.png` as `include_bytes("../assets/icon.png")`. Test files in
+`tests/` may include the package's `assets/` the same way.
+
+Confinement is checked after resolving `..` and symbolic links, so a link in
+`assets/` to a file outside both directories is an error. A missing `assets/` directory is
+not an error until an include needs it. Every file below `assets/` counts
+toward [build reuse](#build-reuse), whether or not a target includes it, and
+the [program cache](../02-architecture/cache.md#program-objects) records each
+included file's contents. `plenty check` reports unreached `.plenty` files only
+below `src/`, so `assets/` can also hold `.plenty` text that a program embeds.
+
+```text
+app/
+  plenty.toml
+  assets/
+    icon.png
+    sql/schema.sql
+  src/
+    main.plenty
+```
 
 ## Dependencies
 
@@ -372,19 +401,22 @@ graph-version = 1
 [[package]]
 identity = "app"
 root = "/work/app/src"
+assets = "/work/app/assets"
 dependencies = { util = "util" }
 
 [[package]]
 identity = "util"
 root = "/work/util/src"
+assets = "/work/util/assets"
 library = "/work/util/src/lib.plenty"
 dependencies = {}
 ```
 
 The first package contains the entry file. `identity` is unique and qualifies
 the package's declarations in diagnostics; `dependencies` maps each alias to an
-identity whose package has a `library`. Relative paths are relative to the
-file. `--package-graph` works with `FILE`, `--check`, `--check-module`, and
+identity whose package has a `library`. The optional `assets` names the
+directory that the package's [included files](#assets) may also come from.
+Relative paths are relative to the file. `--package-graph` works with `FILE`, `--check`, `--check-module`, and
 `--compile`. It lets another build system compile a package without
 `plenty.toml`, and makes the compiler's input visible when debugging
 resolution.

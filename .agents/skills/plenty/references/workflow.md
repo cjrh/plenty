@@ -106,6 +106,13 @@ version = "0.1.0"
 geometry = { path = "../shapes" }
 ```
 
+Files embedded with `include_str`/`include_bytes` go in `assets/` beside
+`src/` (or under `src/`); a path is relative to the including file, such as
+`include_str("../assets/schema.sql")` from `src/main.plenty`. Includes cannot
+read other package files, other packages, or anything a symbolic link points to
+outside those two directories. See
+[package assets](../../../../book/src/design/toolchain/01-building/packages.md#assets).
+
 Other files under `src/` are the package's own modules, imported by path:
 
 ```plenty project-file app/src/report.plenty

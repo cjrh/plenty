@@ -20,6 +20,8 @@ use std::process::{Command, ExitCode};
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
 pub const LOCKFILE: &str = "plenty.lock";
+/// Files beside `src/` that `include_str` and `include_bytes` may read.
+pub const ASSETS: &str = "assets";
 /// Generated dependency sources, beside the lockfile.
 pub const PACKAGE_CACHE: &str = ".pkg";
 
@@ -31,6 +33,10 @@ pub struct SourcePackage {
     pub identity: String,
     /// Imports in this package resolve below this directory.
     pub root: PathBuf,
+    /// The package's `assets/` directory: `include_str` and `include_bytes`
+    /// may read below it as well as below `root`. `None` for a single file or
+    /// script, whose includes stay below `root`.
+    pub assets: Option<PathBuf>,
     /// The module that `import ALIAS` names, when another package depends on
     /// this one.
     pub library: Option<PathBuf>,
@@ -61,6 +67,12 @@ impl SourceGraph {
                 toml::quote(&package.identity),
                 toml::quote(&package.root.to_string_lossy())
             ));
+            if let Some(assets) = &package.assets {
+                out.push_str(&format!(
+                    "assets = {}\n",
+                    toml::quote(&assets.to_string_lossy())
+                ));
+            }
             if let Some(library) = &package.library {
                 out.push_str(&format!(
                     "library = {}\n",
@@ -125,7 +137,9 @@ impl SourceGraph {
                 Some(_) => Err(error(line, &format!("`{key}` must be a string"))),
             };
             for key in table.keys() {
-                if !["identity", "root", "library", "dependencies"].contains(&key.as_str()) {
+                if !["identity", "root", "assets", "library", "dependencies"]
+                    .contains(&key.as_str())
+                {
                     return Err(error(line, &format!("unknown key `{key}` in [[package]]")).into());
                 }
             }
@@ -158,6 +172,7 @@ impl SourceGraph {
             packages.push(SourcePackage {
                 identity,
                 root: base.join(root),
+                assets: string("assets")?.map(|assets| base.join(assets)),
                 library: string("library")?.map(|library| base.join(library)),
                 dependencies: vec![],
             });
@@ -959,6 +974,7 @@ impl Project {
         SourcePackage {
             identity: package.manifest.name.clone(),
             root: package.directory.join("src"),
+            assets: Some(package.directory.join(ASSETS)),
             library: package
                 .manifest
                 .library
@@ -1015,6 +1031,7 @@ impl Project {
             SourcePackage {
                 identity: format!("{}-tests", package.manifest.name),
                 root: package.directory.join("tests"),
+                assets: Some(package.directory.join(ASSETS)),
                 library: None,
                 dependencies,
             },
@@ -2199,12 +2216,14 @@ mod tests {
                 SourcePackage {
                     identity: "app".into(),
                     root: dir.path().join("app/src"),
+                    assets: Some(dir.path().join("app/assets")),
                     library: None,
                     dependencies: vec![("geo".into(), 1)],
                 },
                 SourcePackage {
                     identity: "shapes".into(),
                     root: dir.path().join("shapes/src"),
+                    assets: None,
                     library: Some(dir.path().join("shapes/src/lib.plenty")),
                     dependencies: vec![],
                 },
@@ -2222,6 +2241,7 @@ mod tests {
         .unwrap();
         let relative = SourceGraph::read(&path).unwrap();
         assert_eq!(relative.packages[0].root, dir.path().join("src"));
+        assert_eq!(relative.packages[0].assets, None);
         assert_eq!(
             relative.packages[0].library,
             Some(dir.path().join("src/lib.plenty"))

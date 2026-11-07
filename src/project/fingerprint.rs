@@ -1,9 +1,10 @@
 //! Build reuse: a target is rebuilt only when a digest of everything that can
 //! change its output differs from the one stored by its last successful build.
 //!
-//! The digest covers every file below each package's source root (not only
-//! the modules a build happened to read, so an added module that shadows
-//! nothing still counts), the package graph, the entry, the kind of target,
+//! The digest covers every file below each package's source root and
+//! `assets/` directory (not only the modules and included files a build
+//! happened to read, so an added module that shadows nothing still counts),
+//! the package graph, the entry, the kind of target,
 //! the code generation and linker options, and the compiler's identity. The
 //! compiler embeds `std` and the runtime, so its identity covers both.
 use super::SourceGraph;
@@ -60,9 +61,15 @@ pub(super) fn digest(
     for package in &graph.packages {
         field(&package.identity);
         field(&package.root.display().to_string());
-        field(&format!("{:?} {:?}", package.library, package.dependencies));
+        field(&format!(
+            "{:?} {:?} {:?}",
+            package.assets, package.library, package.dependencies
+        ));
         let mut files = vec![];
         walk(&package.root, &mut files)?;
+        if let Some(assets) = &package.assets {
+            walk(assets, &mut files)?;
+        }
         files.sort();
         for file in files {
             field(&file.display().to_string());
