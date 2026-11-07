@@ -62,6 +62,13 @@ has consumed on every path is not joined again at exit. A join is likewise
 rejected while the joining function holds a lock on a `Mutex[T]` that the
 worker can reach; see [mutexes](mutex.md#waits-the-compiler-rejects).
 
+A binding holds only the fields it still owns. After `wake = ends.wake` and
+`drop(ends.inbox)`, `ends` holds neither endpoint, as after destructuring it
+with `match`. A field moved out on only some paths still counts on the others,
+and assigning the field or the binding again restores the holder. In a loop,
+a binding or field assigned in the body still holds its value when the next
+iteration reaches a join earlier in the body, unless the body drops it first.
+
 ### Recommended patterns
 
 These patterns satisfy the rule on every path, and keep satisfying it when the

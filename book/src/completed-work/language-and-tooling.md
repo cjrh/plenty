@@ -17,6 +17,25 @@ operations that never block. Calls through values still count as waits.
 [Which workers can wait](../design/facilities/03-concurrency/channels.md#which-workers-can-wait)
 documents the rule.
 
+## Endpoints in moved fields (issue #794)
+
+Join, pool shutdown, and result-wait checks no longer count an endpoint in a
+field moved out of a binding on every path: `wake = ends.wake` and
+`drop(ends.inbox)` now release `ends` as a `match` destructure does. Moves on
+only some paths, and fields assigned again, still count, including nested
+fields. Loop bodies are checked again from the state their back edges
+reach, closing an earlier gap: a binding moved before a loop and assigned in
+its body was not counted at a join earlier in the body, so a program that
+hangs in its second iteration was accepted. A join after such a loop now
+also counts the assigned endpoint; before, the whole-binding form was
+accepted and hung. Merging paths where a value is
+partly moved on one and moved on another now leaves it partly moved; before,
+`if a: drop(sender) else: if b: drop(sender)` counted `sender` as moved on
+every path, so a later join was accepted although the remaining path still
+held it.
+[Joins and live endpoints](../design/facilities/03-concurrency/channels.md#joins-and-live-endpoints)
+states the rule.
+
 ## Handwritten serialization codecs (issue #781)
 
 [`std.serial`](../design/stdlib/serial.md) supplies statically specialized

@@ -257,7 +257,7 @@ follow-up. All candidates still require scope and acceptance checks.
 | B48 | Regex | Broader DFA/one-pass coverage (Unicode and assertions); full Unicode case folding, script and general-category properties. [Bounded ASCII accelerators delivered](completed-work/libraries.md#b48-regex-acceleration) (issue #742). |
 | B49 | Collections/iterators | User iterator protocol (B12, needs B11 stored references); `in` on user and std containers; `len()` method dispatch delivered ([record](completed-work/language-and-tooling.md#b49-length-method-dispatch), issue #623), Python `__len__`/`__contains__` names remain reserved (issue #645); further collections need use cases. |
 | B50 | Random/secrets | Jump/split streams, distributions/float ranges, weighted choice/element sampling, scratch-free secret integers and a zero-on-drop buffer. |
-| B51 | JSON | Bulk scans outside string runs, pretty-printing and JSON Lines. [Typed derived codecs (B77) delivered](completed-work/language-and-tooling.md#b77-derived-serialization-issue-781). |
+| B51 | JSON | Bulk scans outside string runs and JSON Lines. [Bounded pretty output delivered](completed-work/libraries.md#bounded-json-pretty-output-issue-782). [Typed derived codecs (B77) delivered](completed-work/language-and-tooling.md#b77-derived-serialization-issue-781). |
 | B52 | TOML | Independent conformance checks (`toml-test`/reference crate); evaluate TOML 1.1. |
 | B53 | CSV | Lenient parsing/recovery, header mapping/typed columns, non-UTF-8 encodings, multibyte delimiters and throughput benchmarks. |
 | B54 | Encodings | Bulk native codec/packing throughput, streaming codecs and varints. [IEEE float packing delivered](completed-work/libraries.md) (issue #656). |

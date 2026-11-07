@@ -158,3 +158,8 @@ arithmetic, ordering comparisons and calls remain unsupported.
 Issue #839 adds opt-in structural preflight and inferred text/quoted-attribute
 escaping for a bounded HTML subset. See [the contract](design/stdlib/template-html.md)
 and [the delivery record](completed-work/libraries.md#checked-html-template-rendering).
+
+## Bounded JSON pretty output
+
+Issue #782 adds shared bounded pretty output for JSON events, trees and typed
+values. See the [delivery record](completed-work/libraries.md#bounded-json-pretty-output-issue-782).

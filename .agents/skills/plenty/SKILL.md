@@ -67,7 +67,8 @@ rejects null dictionary values. Bytes use canonical padded base64; runtime
 decoding returns owning `Bytes`, not static `bytes` literals. Read the
 [codec contract](../../../book/src/design/stdlib/serial.md) and
 [JSON limits and options](../../../book/src/design/stdlib/json-codecs.md)
-before writing hooks. For class fields call `Encoder.field`; mapping keys use
+before writing hooks. JSON `dump`, tree encoding, and `encoder` accept
+`indent=Some(2)` for readable output within the same byte limit. For class fields call `Encoder.field`; mapping keys use
 `Encoder.key`. Typed failures carry `SerialError[JsonError]` or
 `SerialError[TomlError]` with an innermost-first path; propagate that complete
 type. `std.json.load_from` borrows an owning `CodecReader[R]` made with

@@ -1730,3 +1730,117 @@ print(first.to_text()?, second.to_text()?, encoder.written(), encoder.pending())
         );
     }
 }
+
+#[test]
+fn pretty_tree_and_typed_output_share_order_escaping_and_layout() {
+    let source = r#"
+import std.json
+@serial
+class Export:
+    z: list[i64]
+    empty: list[i64]
+    label: str
+
+def main() -> Result[(), AllocError | IoError]:
+    bounds = std.json.limits()
+    value = Export([1, 2]?, []?, "é\n\"\\")
+    pretty = std.json.dump(&value, &bounds, indent=Some(2)).unwrap()
+    print(pretty.to_text().unwrap())?
+    tree = std.json.to_value(&value, &std.json.tree_limits()).unwrap()
+    print(std.json.encode_text(&tree, &bounds, indent=Some(2)).unwrap() == pretty.to_text().unwrap())?
+    print(std.json.encode_text(&tree, &bounds, indent=Some(0)).unwrap())?
+    print(std.json.dump(&value, &bounds).unwrap().to_text().unwrap())?
+    print(std.json.encode_text(&std.json.parse(b"[{},[],[null]]", &bounds).unwrap(), &bounds, indent=Some(1)).unwrap())?
+    Ok(())
+"#;
+    support::assert_stdout(
+        source,
+        "{\n  \"z\": [\n    1,\n    2\n  ],\n  \"empty\": [],\n  \"label\": \"é\\n\\\"\\\\\"\n}\nTrue\n{\n\"z\": [\n1,\n2\n],\n\"empty\": [],\n\"label\": \"é\\n\\\"\\\\\"\n}\n{\"z\":[1,2],\"empty\":[],\"label\":\"é\\n\\\"\\\\\"}\n[\n {},\n [],\n [\n  null\n ]\n]\n",
+    );
+}
+
+#[test]
+fn pretty_output_bounds_include_whitespace_and_taken_bytes() {
+    native(
+        r#"
+mut bounds = std.json.limits()
+value = std.json.parse(b"[0]", &bounds)?
+for cap in range(1, 9):
+    bounds.max_output = NonNegative.try_from(cap).unwrap()
+    print(std.json.encode(&value, &bounds, indent=Some(2)).is_ok())?
+bounds.max_output = 8
+mut encoder = std.json.encoder(&bounds, indent=Some(2))?
+encoder.start_array()?
+print(encoder.take()?.to_text()?)?
+encoder.integer(0)?
+print(encoder.take()?.to_text()?)?
+encoder.end_array()?
+print(encoder.written(), encoder.is_complete(), encoder.take()?.to_text()?)?
+bounds.max_output = 6
+print(settled(std.json.encoder(&bounds, indent=Some(9223372036854775807))?.value(&value))?)?
+bounds.max_output = 3
+mut wrong = std.json.encoder(&bounds, indent=Some(0))?
+wrong.start_array()?
+wrong.integer(0)?
+print(settled(wrong.end_object())?, wrong.written())?
+bounds.max_output = 64
+bounds.max_depth = 1
+print(settled(std.json.encoder(&bounds, indent=Some(1))?.value(&std.json.parse(b"[[0]]", &wide())?))?)?
+"#,
+        "False\nFalse\nFalse\nFalse\nFalse\nFalse\nTrue\nTrue\n[\n\n  0\n7 True \n]\nOutputTooLarge 6 0 0\nInvalidState 3 0 0 3\nDepthExceeded 3 0 0",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn pretty_allocation_refusal_preserves_domain_error() {
+    native(
+        r#"
+bounds = std.json.limits()
+value = std.json.parse(b"{\"long key\":[\"long value\",{},[]]}", &bounds)?
+mut refused = 0
+mut succeeded = 0
+for count in range(100):
+    marker = "".join(&["__test_fail_allocations_after_", str.from(count)?, "__"]?)?
+    print(marker)?
+    result = std.json.encode(&value, &bounds, indent=Some(4))
+    print("__test_restore_allocations__")?
+    match result:
+        case Ok(_):
+            succeeded += 1
+        case Err(error):
+            match error.fault:
+                case JsonFault.Allocation(_):
+                    refused += 1
+                case _:
+                    print("unexpected fault")?
+print(refused > 5, succeeded > 0)?
+"#,
+        "True True",
+    );
+}
+
+#[test]
+fn pretty_streams_preserve_cumulative_limits_after_draining() {
+    native(
+        r#"
+mut bounds = std.json.limits()
+value = std.json.parse(b"[0]", &bounds)?
+mut sink = std.io.cursor(std.bytes.empty()?)
+std.json.write_value(&mut sink, &value, &bounds, indent=Some(2))?
+print(sink.data.to_text()?)?
+bounds.max_output = 6
+mut encoder = std.json.encoder(&bounds, indent=Some(2))?
+mut incremental = std.io.cursor(std.bytes.empty()?)
+encoder.start_array()?
+std.json.write_pending(&mut encoder, &mut incremental)?
+encoder.integer(0)?
+std.json.write_pending(&mut encoder, &mut incremental)?
+print(settled(encoder.end_array())?, encoder.written())?
+std.json.write_pending(&mut encoder, &mut incremental)?
+print(incremental.data.to_text()?)?
+print("end")?
+"#,
+        "[\n  0\n]\nOutputTooLarge 6 0 0 6\n[\n  0\n\nend",
+    );
+}
