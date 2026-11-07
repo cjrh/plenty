@@ -763,3 +763,56 @@ fn generic_helper_sites_survive_cold_warm_and_disabled_function_caches(#[case] o
         );
     }
 }
+
+/// Issue #842: user code that inlines `Bytes.get`/`set` names its call site
+/// in the std trap records instead of setting the caller context around each
+/// call. Each site keeps its own note, including two calls of one method in
+/// one function and a call in an imported module. The loop pushes, so it keeps
+/// the method calls rather than caching the buffer (issue #843).
+#[rstest]
+#[case::first_get([9, 1, 0, 0], "48:13: Bytes.get", "numbers.plenty:5:17")]
+#[case::second_get([0, 9, 0, 0], "48:13: Bytes.get", "numbers.plenty:6:25")]
+#[case::set([0, 1, 9, 0], "53:13: Bytes.set", "numbers.plenty:7:9")]
+#[case::main_get([0, 1, 0, 9], "48:13: Bytes.get", "main.plenty:6:11")]
+fn inlined_standard_traps_name_their_call_site_without_a_caller_scope(
+    #[case] indexes: [i64; 4],
+    #[case] site: &str,
+    #[case] caller: &str,
+) {
+    let [a, b, c, last] = indexes;
+    let numbers = "from std.bytes import Bytes\npub def mix(data: &mut Bytes, a: i64, b: i64, c: i64) -> Result[u8, AllocError]:\n    mut total = 0u8\n    for i in range(2):\n        total = data.get(a) ^ total\n        total = total ^ data.get(b)\n        data.set(c, total)\n        data.push(total)?\n    Ok(total)\n";
+    let main = format!(
+        "from numbers import mix\nfrom std.bytes import from_bytes\ndef main() -> Result[(), AllocError | IoError]:\n    mut data = from_bytes(b\"ab\")?\n    total = mix(&mut data, {a}, {b}, {c})?\n    print(data.get({last}) ^ total)?\n    Ok(())\n"
+    );
+    let error = trap(&[("numbers.plenty", numbers), ("main.plenty", &main)]);
+    assert_eq!(
+        error,
+        format!(
+            "error: std/bytes.plenty:{site}: index is outside 0..len()\nnote: called from {caller}\n"
+        )
+    );
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("numbers.plenty"), numbers).unwrap();
+    std::fs::write(dir.path().join("main.plenty"), &main).unwrap();
+    let dump = plenty::dump_file(
+        &dir.path().join("main.plenty"),
+        Some(dir.path()),
+        &plenty::CompileOptions {
+            optimize: true,
+            ..Default::default()
+        },
+        &plenty::DumpOptions {
+            stages: vec![plenty::DumpStage::Asm],
+            filter: Some("mix".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let (_, asm) = dump
+        .files
+        .iter()
+        .find(|(stage, _)| stage == "asm.txt")
+        .unwrap();
+    assert!(asm.contains("plenty_bytes_push"), "{asm}");
+    assert!(!asm.contains("plenty_caller_enter"), "{asm}");
+}

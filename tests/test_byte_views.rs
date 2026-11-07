@@ -62,7 +62,9 @@ fn range_loop_reads_bytes_directly() {
     for symbol in ["plenty_bytes_get", "plenty_bytes_set", "plenty_trap"] {
         assert_eq!(calls(symbol), 0, "{symbol}:\n{body}");
     }
-    assert_eq!(calls("plenty_caller_enter"), 1, "{body}");
+    // The hoisted `len()` names its call site in its own trap records
+    // (issue #842), so the function sets no caller context.
+    assert_eq!(calls("plenty_caller_enter"), 0, "{body}");
 }
 
 const RESIZING: &str = r#"

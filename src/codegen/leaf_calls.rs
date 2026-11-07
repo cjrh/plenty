@@ -113,11 +113,15 @@ impl Lowerer<'_, '_> {
         decl: &Leaf,
         args: &[cranelift_codegen::ir::Value],
         captures: &[cranelift_codegen::ir::Value],
+        caller: Option<sites::Key>,
     ) -> Result<()> {
         let body = &decl.body;
         let position = std::mem::replace(
             &mut self.position,
-            sites::Position::in_file(decl.source.clone(), decl.standard_library),
+            match caller {
+                Some(caller) => sites::Position::inlined(decl.source.clone(), caller),
+                None => sites::Position::in_file(decl.source.clone(), decl.standard_library),
+            },
         );
         let source_location = self.bcx.srcloc();
         let lowered: Result<()> = (|| {

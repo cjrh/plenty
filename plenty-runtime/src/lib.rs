@@ -73,12 +73,18 @@ fn fail_kind(kind: actor_heap::TrapKind, message: &str) -> ! {
 /// `file` is the distance in bytes from this record to the file's name, a
 /// `u32` length followed by that many UTF-8 bytes, or zero without a file. A
 /// relative offset keeps the table free of relocations.
+///
+/// `caller` is 0 in user code and 1 in std code, whose trap notes the site in
+/// the caller context. Any other value is the signed distance in bytes from
+/// this std record to the user call site's record: std code inlined into a
+/// user function names its caller statically instead of setting the context
+/// around the inlined body.
 #[repr(C)]
 pub(crate) struct Site {
     line: u32,
     column: u32,
     file: u32,
-    standard_library: u32,
+    caller: u32,
 }
 
 thread_local! {
@@ -189,10 +195,16 @@ fn fail_kind_at(kind: actor_heap::TrapKind, site: *const Site, message: std::fmt
     } else {
         eprintln!("error: {}: {message}", Position(site));
     }
-    // SAFETY: a non-null site is a record in the compiler's site table.
-    if unsafe { site.as_ref() }.is_some_and(|at| at.standard_library != 0)
-        && let Some(caller) = caller()
-    {
+    // SAFETY: a non-null site is a record in the compiler's site table, and
+    // a distance in it leads to another record of that table.
+    let caller = unsafe { site.as_ref() }.and_then(|at| match at.caller {
+        0 => None,
+        1 => caller(),
+        distance => Some(Position(unsafe {
+            site.byte_offset(distance as i32 as isize)
+        })),
+    });
+    if let Some(caller) = caller {
         eprintln!("note: called from {caller}");
     }
     actor_heap::recover(kind);
