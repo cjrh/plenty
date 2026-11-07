@@ -426,6 +426,11 @@ fn graph_errors_are_reported() {
             "dependency `util` collides with the local module",
         ),
         (
+            "util = { path = \"../util\" }\n",
+            vec![main, ("src/util/inner/helper.plenty", "")],
+            "dependency `util` collides with the local module",
+        ),
+        (
             "std = { path = \"../util\" }\n",
             vec![main],
             "`std` is reserved",
@@ -435,6 +440,23 @@ fn graph_errors_are_reported() {
         package(dir.path(), "app", dependencies, &files);
         fails(&dir.path().join("app"), &["check"], message);
     }
+    // A directory without Plenty modules, such as a Rust module or a
+    // non-Plenty `std/`, is not a namespace and collides with nothing.
+    let _ = std::fs::remove_dir_all(dir.path().join("app"));
+    package(
+        dir.path(),
+        "app",
+        "util = { path = \"../util\" }\n",
+        &[
+            (
+                "src/main.plenty",
+                "import util\ndef main() -> ():\n    drop(util.f())\n",
+            ),
+            ("src/util/mod.rs", ""),
+            ("src/std/README.md", ""),
+        ],
+    );
+    succeeds(&dir.path().join("app"), &["check"]);
     write(
         &dir.path().join("app/plenty.toml"),
         "manifest-version = 1\n[package]\nname = \"app\"\nversion = \"0.1.0\"\nplenty-version = \"999.0.0\"\n",

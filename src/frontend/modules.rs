@@ -1132,14 +1132,84 @@ fn module_path_of(relative: &Path) -> Option<String> {
         .collect::<Vec<_>>();
     names
         .iter()
-        .all(|name| {
-            let mut chars = name.chars();
-            chars
-                .next()
-                .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
-                && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-        })
+        .all(|name| is_module_name(name))
         .then(|| names.join("."))
+}
+
+/// Whether `name` can be one component of a module path.
+fn is_module_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// The namespace directory, source file or interface that `name` names at
+/// the top of `root`, if any.
+fn local_module(root: &Path, name: &str) -> Option<PathBuf> {
+    Some(root.join(name))
+        .filter(|path| is_namespace(path))
+        .or_else(|| {
+            ["plenty", "plentyi"]
+                .iter()
+                .map(|extension| root.join(name).with_extension(extension))
+                .find(|path| path.exists())
+        })
+}
+
+/// Whether `directory` is a module namespace: some module path through it
+/// names a file, because it or one of its subdirectories with a module-name
+/// component holds a `.plenty` or `.plentyi` file whose stem is a module name.
+/// Other directories, such as a Rust module or assets beside `a.plenty`, are
+/// not namespaces, so they neither make `a` ambiguous nor collide with a name.
+/// Links are followed as imports follow them; each directory is visited once,
+/// so a link cycle terminates. A directory that cannot be read counts as a
+/// namespace, keeping the conflict rather than guessing that it holds no
+/// modules.
+fn is_namespace(directory: &Path) -> bool {
+    if !directory.is_dir() {
+        return false;
+    }
+    let mut visited = HashSet::<PathBuf>::default();
+    let mut pending = vec![directory.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        let Ok(canonical) = directory.canonicalize() else {
+            return true;
+        };
+        if !visited.insert(canonical) {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(&directory) else {
+            return true;
+        };
+        for entry in entries {
+            let Ok(entry) = entry else {
+                return true;
+            };
+            let path = entry.path();
+            let name = entry.file_name();
+            let name = Path::new(&name);
+            let module = name
+                .extension()
+                .is_some_and(|e| e == "plenty" || e == "plentyi");
+            let stem = if module {
+                name.file_stem()
+            } else {
+                Some(name.as_os_str())
+            };
+            if !stem.and_then(|s| s.to_str()).is_some_and(is_module_name) {
+                continue;
+            }
+            if module && path.is_file() {
+                return true;
+            }
+            if !module && path.is_dir() {
+                pending.push(path);
+            }
+        }
+    }
+    false
 }
 
 struct Loader {
@@ -1409,7 +1479,7 @@ impl Loader {
         }
         Ok((
             ModuleSource::File(Self::local(&current.root, &parts, import).map_err(|e| -> Box<dyn Error> {
-                if self.packages.len() > 1 && !current.root.join(first).exists() {
+                if self.packages.len() > 1 && local_module(&current.root, first).is_none() {
                     let mut e = Diagnostic::from_boxed(e);
                     e.message += &format!(
                         "\nnote: `{first}` is neither a local module nor a dependency declared by package `{}`",
@@ -1431,7 +1501,7 @@ impl Loader {
             path.push(part);
             let file = path.with_extension("plenty");
             let interface = path.with_extension("plentyi");
-            if (path.is_dir() && (file.exists() || interface.exists()))
+            if ((file.exists() || interface.exists()) && is_namespace(&path))
                 || (file.exists() && interface.exists())
             {
                 return Err(import.at.error(format!(
@@ -1689,9 +1759,10 @@ fn prepare_packages(
             )
             .into());
         }
-        if ["std", "std.plenty", "std.plentyi"]
-            .iter()
-            .any(|name| root.join(name).exists())
+        if is_namespace(&root.join("std"))
+            || ["std.plenty", "std.plentyi"]
+                .iter()
+                .any(|name| root.join(name).exists())
         {
             return Err(format!(
                 "`std` is reserved for the toolchain standard library; rename the local module or namespace in {}",
@@ -1703,15 +1774,7 @@ fn prepare_packages(
             if alias == "std" {
                 return Err("`std` is reserved for the toolchain standard library and cannot name a dependency".into());
             }
-            if let Some(local) = [
-                alias.clone(),
-                format!("{alias}.plenty"),
-                format!("{alias}.plentyi"),
-            ]
-            .iter()
-            .map(|name| root.join(name))
-            .find(|path| path.exists())
-            {
+            if let Some(local) = local_module(root, alias) {
                 return Err(format!(
                     "dependency `{alias}` collides with the local module {}; rename the module or the dependency",
                     local.display()

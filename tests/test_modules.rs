@@ -841,6 +841,74 @@ fn import_failures_do_not_run_initializers_or_expose_transitive_names() {
     );
 }
 
+/// A directory is a namespace only when some module path through it names a
+/// `.plenty` or `.plentyi` file; others can sit beside a same-named module.
+#[test]
+fn directories_without_modules_do_not_conflict_with_same_named_modules() {
+    let main = "import oauth\ndef main() -> ():\n    print(oauth.NAME).unwrap()\n";
+    let module = "pub const NAME: str = \"oauth\"\n";
+    let dir = workspace(&[
+        ("main.plenty", main),
+        ("oauth.plenty", module),
+        ("oauth/mod.rs", "pub fn token() {}\n"),
+        ("oauth/assets/logo.svg", ""),
+        // Names that no import can spell.
+        ("oauth/not-a-module.plenty", ""),
+        ("oauth/not-a-namespace/x.plenty", ""),
+        ("oauth/.hidden/x.plenty", ""),
+        ("std/README.md", ""),
+    ]);
+    std::fs::create_dir(dir.path().join("oauth/empty")).unwrap();
+    std::os::unix::fs::symlink(".", dir.path().join("oauth/cycle")).unwrap();
+    // A directory named like a module is not one.
+    std::fs::create_dir(dir.path().join("oauth/dir.plenty")).unwrap();
+    let source = dir.path().join("main.plenty");
+    plenty::check_file(&source, None).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_plenty"))
+        .arg(&source)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout, b"oauth\n");
+
+    // Each of these makes `oauth/` a namespace again, so `import oauth` is
+    // ambiguous: a direct or nested module, an interface, or a module reached
+    // through a link.
+    for (path, link) in [
+        ("oauth/x.plenty", None),
+        ("oauth/x.plentyi", None),
+        ("oauth/inner/deeper/x.plenty", None),
+        ("oauth/linked", Some("../lib")),
+        ("oauth/linked.plenty", Some("../lib/x.plenty")),
+    ] {
+        let dir = workspace(&[
+            ("main.plenty", main),
+            ("oauth.plenty", module),
+            ("oauth/mod.rs", ""),
+            ("lib/x.plenty", ""),
+        ]);
+        let path = dir.path().join(path);
+        match link {
+            Some(target) => std::os::unix::fs::symlink(target, &path).unwrap(),
+            None => {
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(&path, "").unwrap();
+            }
+        }
+        let message = plenty::check_file(&dir.path().join("main.plenty"), None)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            message.contains("ambiguous module `oauth`"),
+            "{path:?}: {message}"
+        );
+    }
+}
+
 #[test]
 fn cycles_collisions_and_source_root_boundaries_are_diagnosed() {
     reject(

@@ -4,8 +4,9 @@
 [std.math](../../stdlib/math.md), [std.path](../../stdlib/path.md)
 and [std.fs](../../stdlib/fs.md) are available without local
 sources. Unknown `std` modules never
-fall back to the source root. Local files/directories and declarations named
-`std`, and imports binding a non-standard module as `std`, are rejected.
+fall back to the source root. Local modules, namespace directories and
+declarations named `std`, and imports binding a non-standard module as `std`,
+are rejected.
 
 ```plenty fragment
 import package.module
@@ -18,6 +19,16 @@ execute no initializers. Relative imports, wildcards, re-exports, and implicit
 transitive imports are unsupported. Directories are namespaces, without
 `__init__` execution.
 
+A directory is a namespace only when some module path through it names a
+file: it, or a subdirectory reached through components that are identifiers,
+holds a `.plenty` or `.plentyi` file whose stem is an identifier. Symbolic
+links are followed as imports follow them. Other directories, such as a Rust
+`src/oauth/` or an assets folder, are not namespaces: they never make a module
+ambiguous, collide with a dependency alias, or count as a local `std`, so
+`import oauth` reads `oauth.plenty` beside a Rust `oauth/`. Adding the first
+Plenty file to such a directory turns it into a namespace, and the import
+beside it then fails as ambiguous rather than changing what it reads.
+
 The source root defaults to the entry file's canonical directory; `--module-root
 DIR` selects another root. In a [package](../../toolchain/01-building/packages.md),
 the root is `src/`, and the first component of an import may instead be a
@@ -25,8 +36,8 @@ declared dependency alias, which names that dependency's library; an alias may
 not match a local top-level module. `a.b` resolves to `<root>/a/b.plenty` or the trusted
 interface `<root>/a/b.plentyi`. Having both is ambiguous. Imported canonical
 filenames and directories must have identifier components and cannot escape
-the root. File/directory name collisions and import cycles are errors; a cycle
-diagnostic names the actual dependency chain.
+the root. A module file beside a same-named namespace directory and import
+cycles are errors; a cycle diagnostic names the actual dependency chain.
 
 `import a.b` binds the path `a.b`, and `a.b.f` names a member of that module.
 A binding cannot reuse a name the file declares or imports with `from`, and an
