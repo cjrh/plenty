@@ -209,6 +209,12 @@ See [errors](references/errors.md), [ownership](references/ownership.md), and
   independently; only selected copies survive as extra descriptors. Read
   [explicit inheritance](../../../book/src/design/stdlib/process.md#explicit-file-inheritance).
 
+- For template layout, `{{- value -}}`, `{%- ... -%}` and `{#- ... -#}` trim
+  adjacent literal ASCII whitespace. Plain delimiters preserve it; Unicode
+  whitespace and rendered values are unchanged. Markers cannot trim through
+  another tag or from an overriding block into its base layout. See
+  [whitespace control](../../../book/src/design/stdlib/template.md#whitespace-control).
+
 ## References
 
 | Page | Use |

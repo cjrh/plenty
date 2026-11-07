@@ -217,6 +217,10 @@ def bounded_total(current: i64, amount: i64, limit: i64) -> Result[i64, Template
         case Err(_):
             Err(TemplateError.LimitExceeded)
 
+# Delimiter trimming is byte-local and deliberately narrower than Unicode strip.
+def trim_space(byte: u8) -> bool:
+    byte == 32u8 or (byte >= 9u8 and byte <= 13u8)
+
 def closing(source: &Bytes, start: i64, close: u8, comment: bool) -> Result[i64, TemplateError]:
     mut quote = 0u8
     mut escaped = False
@@ -264,24 +268,55 @@ def parse(name: str, source: &str, bounds: &Limits) -> Result[Template, Template
         if not has_pair(index, data.len()) or data[index] != 123u8 or (data[next] != 123u8 and data[next] != 37u8 and data[next] != 35u8):
             index = next
             continue
-        if index > start:
-            text = bytes_result(data.to_text_range(start, index))?
+        # Keep original byte endpoints for syntax errors and source budgets.
+        opening_end = unchecked:
+            index + 2
+        marker = data[next]
+        mut content_start = opening_end
+        mut literal_end = index
+        mut trim_left = opening_end < data.len() and data[opening_end] == 45u8
+        # Compact negative literals predate trimming; their sign stays content.
+        if trim_left and marker == 123u8 and has_pair(opening_end, data.len()):
+            following = unchecked:
+                opening_end + 1
+            byte = data[following]
+            if byte == 46u8 or (byte >= 48u8 and byte <= 57u8):
+                trim_left = False
+        if trim_left:
+            while literal_end > start:
+                previous = unchecked:
+                    literal_end - 1
+                if not trim_space(data[previous]):
+                    break
+                literal_end = previous
+            content_start = unchecked:
+                opening_end + 1
+        if literal_end > start:
+            text = bytes_result(data.to_text_range(start, literal_end))?
             if allocated(text.strip())? != "":
                 significant = True
                 if parent != "" and len(stack) == 0:
                     return Err(TemplateError.Syntax(start))
             push_token(&mut tokens, Token(0, text, empty_expression()?, -1, -1, start), bounds)?
-        marker = data[next]
-        # has_pair proved both opening bytes are present.
-        content_start = unchecked:
-            index + 2
         close = 125u8 if marker == 123u8 else marker
-        end = closing(&data, content_start, close, marker == 35u8)?
-        content = allocated(bytes_result(data.to_text_range(content_start, end))?.strip())?
+        end = closing(&data, opening_end, close, marker == 35u8)?
+        mut content_end = end
+        mut trim_right = False
+        if end > content_start:
+            previous = unchecked:
+                end - 1
+            if data[previous] == 45u8:
+                content_end = previous
+                trim_right = True
+        content = allocated(bytes_result(data.to_text_range(content_start, content_end))?.strip())?
         at = index
         # closing only returns an index with two bytes still present.
         unchecked:
             index = end + 2
+        if trim_right:
+            while index < data.len() and trim_space(data[index]):
+                index = unchecked:
+                    index + 1
         start = index
         if marker == 35u8:
             continue

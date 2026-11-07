@@ -42,6 +42,45 @@ lower `max_output` for a short notification. Registration and rendering are
 fallible, and the example propagates those failures to the caller. Keep the
 engine and render it again with different values to reuse its parsed templates.
 
+## Controlling literal spacing
+
+For adjacent inline navigation links, trim the source indentation around the
+loop while keeping its layout readable:
+
+```plenty
+import std.template
+from std.template import TemplateError
+from std.json import Json, Member
+
+def main() -> Result[(), TemplateError | AllocError | IoError]:
+    bounds = std.template.limits()
+    mut pages = std.template.engine(&bounds)?
+    pages.add("nav", """<nav>
+        {%- for name in names -%}
+            <a>{{ name }}</a>
+        {%- endfor -%}
+    </nav>""")?
+    values = Json.Object([Member("names", Json.Array([
+        Json.Text("Ada"), Json.Text("Grace"),
+    ]?))]?)
+    print(pages.render("nav", &values)?)?
+    Ok(())
+```
+```output
+<nav><a>Ada</a><a>Grace</a></nav>
+```
+
+The hyphen after `{%` removes the preceding literal whitespace; the one before
+`%}` removes the following literal whitespace. Expressions and comments support
+the same markers (`{{- value -}}` and `{#- comment -#}`). They trim ASCII
+space, tab and line/control whitespace only, leaving Unicode whitespace and
+rendered values unchanged. Use ordinary delimiters to preserve spacing, such
+as the newlines inside a `pre` element. A marker in an overriding block cannot
+trim the surrounding base layout. See [whitespace control](../../design/stdlib/template.md#whitespace-control)
+for exact boundaries, negative-literal spelling and resource limits.
+
+## Escaping individual fragments
+
 For a small fragment assembled in your program, use `std.template.escape`
 rather than a chain of string replacements. Choose `HtmlContext.Text` for text
 children or the quote-specific attribute mode for each attribute value. For

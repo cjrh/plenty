@@ -358,3 +358,14 @@ Group/session selection also composes with owned-file redirection and merged
 stderr after their integration (issue #778). Combined checks cover stream flags,
 cwd/environment flags, descendant pipe EOF and pre-spawn allocation-failure retry.
 See [the process contract](../design/stdlib/process.md#process-groups-and-sessions).
+
+## Template literal whitespace control
+
+Issue #837 adds opt-in `{{-`/`-}}`, `{%-`/`-%}` and `{#-`/`-#}` markers.
+The lexer trims adjacent ASCII literal whitespace while preserving default
+source bytes, Unicode whitespace and rendered values. Diagnostics and source
+budgets retain original byte positions; inheritance retains each defining
+source's boundaries. Executable checks cover inline navigation, comments,
+branches/loops, preformatted content, mixed line endings, Unicode, inheritance,
+syntax failures and exact source/token limits. See
+[the template contract](../design/stdlib/template.md#whitespace-control).
