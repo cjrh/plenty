@@ -546,25 +546,37 @@ def rows(grid: &mut list[set[str]]) -> ():
 def nested(grid: &mut list[list[set[str]]], other: &set[str], i: i64, j: i64) -> ():
     grid[i][j].difference_update(other)
 
-def main() -> Result[(), AllocError | IoError]:
+def text_rows() -> Result[(), AllocError | IoError]:
     mut grid = [{"a", "b"}?, {"b", "c"}?]?
     dropped = {"b"}?
     through_element(&mut grid, &dropped)
     print(grid, dropped)?
     every_row(&mut grid, &{"c"}?)
     print(grid)?
+    at(&mut grid, &dropped, -1)
+    print(grid)?
+    Ok(())
+
+def key_rows() -> Result[(), AllocError | IoError]:
     keep = {key("a")?}?
     mut keyed = [set[Key]()?, {key("a")?, key("b")?}?]?
     keys_through_element(&mut keyed, &keep)
     print("keyed", len(keyed[1]), len(keep))?
-    at(&mut grid, &dropped, -1)
-    print(grid)?
+    Ok(())
+
+def other_shapes() -> Result[(), AllocError | IoError]:
     mut pair = [{"a", "b"}?, {"b", "c"}?]?
     rows(&mut pair)
     print(pair)?
     mut nest = [[{"x"}?]?, [{"x", "y"}?, {"y"}?]?]?
     nested(&mut nest, &{"y"}?, 1, 0)
     print(nest)?
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError]:
+    text_rows()?
+    key_rows()?
+    other_shapes()?
     print("__test_small_live_heap__")?
     Ok(())
 "#;
@@ -631,13 +643,13 @@ fn set_updates_through_list_elements_read_the_argument_in_place() {
         [
             r#"[{"a"}, {"b", "c"}] {"b"}"#,
             r#"[{"a"}, {"b"}]"#,
+            r#"[{"a"}, set()]"#,
             "drop b-counted-label",
             "keyed 1 1",
-            r#"[{"a"}, set()]"#,
+            "drop a-counted-label",
+            "drop a-counted-label",
             r#"[{"a"}, {"b", "c"}]"#,
             r#"[[{"x"}], [{"x"}, {"y"}]]"#,
-            "drop a-counted-label",
-            "drop a-counted-label",
         ]
     );
     std::fs::write(dir.path().join("trap.plenty"), SET_UPDATE_ELEMENT_TRAP).unwrap();
