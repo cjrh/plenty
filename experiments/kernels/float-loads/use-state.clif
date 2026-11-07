@@ -3,6 +3,10 @@
 ; `exit_sum` passes the sum to the back edge and to the exit, as every
 ; rotated reduction loop does; `exit_count` passes it only to the back edge.
 
+test compile
+set opt_level=speed
+target x86_64
+
 function %exit_sum(i64, i64) -> f64 {
 block0(v0: i64, v1: i64):
     v2 = f64const 0.0

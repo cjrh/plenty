@@ -50,9 +50,24 @@ block arguments name `v14`.
 
 Propagate multiplicity only from values with at least one use as an
 instruction argument (`inst_args`, which excludes block-call arguments). The
-diff is [`use-state.patch`](use-state.patch); `cranelift-codegen`'s 200 unit
-tests pass with it. Return values and call arguments still count as merging
-uses, which is conservative.
+diff is [`use-state.patch`](use-state.patch). Return values and call
+arguments still count as merging uses, which is conservative.
+
+`inst_args` also excludes a `try_call`'s exception-table context values.
+Those do not merge either: `try_call_info` (`machinst/isle.rs`, line 695 in
+0.137.0) puts each one in a register with `put_in_reg`, so treating them like
+block-call arguments is sound.
+
+Only `cranelift-codegen`'s own unit tests were run with the patch (201 pass),
+not Cranelift's filetests; x64 precise-output filetests whose loads now fold
+will likely change. Before filing, add:
+
+- a `compute_use_states` unit test beside the existing ones in
+  `machinst/lower.rs`: a pure value used twice only as block-call arguments
+  stays `Multiple`, while its operand stays `Once`;
+- an x64 `test compile precise-output` filetest from
+  [`use-state.clif`](use-state.clif) showing `addsd (%rdi), %xmm0` in
+  `%exit_sum`.
 
 ## Reproduction
 
