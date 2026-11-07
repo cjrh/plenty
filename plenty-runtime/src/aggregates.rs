@@ -2312,7 +2312,7 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
             b'8' => write!(out, "{}", value as u64).unwrap(),
             b'f' => write!(out, "{:?}", f32::from_bits(value as u32)).unwrap(),
             b'd' => write!(out, "{:?}", f64::from_bits(value as u64)).unwrap(),
-            b'v' => out.extend_from_slice(b"()"),
+            b'u' | b'v' => out.extend_from_slice(b"()"),
             b'c' => out.extend_from_slice(b"<function>"),
             b'H' => out.extend_from_slice(b"<closure>"),
             b'J' => out.extend_from_slice(b"<boxed callable>"),

@@ -327,7 +327,10 @@ fn kind_code(ty: &Ty) -> u8 {
         Ty::U64 | Ty::ForeignPtr(_) => b'8',
         Ty::F32 => b'f',
         Ty::F64 => b'd',
-        Ty::Unit | Ty::Iter(..) => b'v',
+        // Unit has its own kind so the runtime can tell it from iterator
+        // and key-view values: a unit channel stores no queue slots.
+        Ty::Unit => b'u',
+        Ty::Iter(..) => b'v',
         Ty::Bool => b'b',
         Ty::Str => b's',
         Ty::ByteStr => b'y',

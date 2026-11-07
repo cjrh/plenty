@@ -89,7 +89,11 @@ The receivers remain yours after every outcome.
 
 When the arrival of a message is all it says, send `()`. A `channel[()]`
 stores no message data, only a count, so a stop request needs no placeholder
-value such as `True`:
+value such as `True`. Use a unit channel when the signal must be selected
+alongside other messages or counted, and a
+[cancellation token](cooperative-cancellation.md) when any code should be able
+to cancel a wait. This example sends from one thread to keep the output
+deterministic; the real sender is normally another thread:
 
 ```plenty
 type StopError = RecvError | SelectError | SendError[i64] | SendError[()] | AllocError
@@ -120,7 +124,7 @@ stop
 
 The loop handles the first number, then queues the stop request. The stop
 channel is first, so the stop request wins over the number still queued, which
-stays in its channel. `case Selected.First(_):`
-ignores the unit payload. Generic helpers that bind or take a `T` value, such
-as `std.sync.send_before`, do not yet accept `T = ()`; see
+stays in its channel. `case Selected.First(_):` ignores the unit payload.
+Generic helpers that bind or take a `T` value, such as `std.sync.send_before`,
+do not yet accept `T = ()`; see
 [unit messages](../../design/facilities/03-concurrency/channels.md#unit-messages).

@@ -75,14 +75,8 @@ impl Core {
 
 /// Ring words per message. Unit carries no information, so a unit channel
 /// stores nothing per message: its ring is the `len` count alone.
-///
-/// Descriptor kind `v` also describes `Iter` and `KeyView`
-/// (`src/codegen/metadata.rs`). Their value words are not empty; they never
-/// reach this function only because `Ty::storage_barrier` rejects them as
-/// channel messages in the compiler, so a `v` message here is unit.
 fn stride(message: &Type) -> usize {
-    if message.kind == b'v' {
-        debug_assert_eq!(message.payload_bytes(), 0, "unit messages have no payload");
+    if message.kind == b'u' {
         0
     } else {
         message.slot_words()

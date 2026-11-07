@@ -159,7 +159,7 @@ fn receiving_copies_inline_ranges_before_reusing_the_slot() {
 #[test]
 fn unit_messages_store_nothing_per_slot() {
     static UNIT: Type = Type {
-        kind: b'v',
+        kind: b'u',
         name: "()",
         ..NUMBER
     };

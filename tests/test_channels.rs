@@ -1515,6 +1515,8 @@ fn unit_signals_stop_workers_and_follow_the_join_rule() {
     );
 }
 
+// The sleeps make it likely, not guaranteed, that each receiver is already
+// blocked on an empty unit queue when the other thread sends or drops.
 #[test]
 fn blocking_unit_receives_wake_on_another_threads_send_or_drop() {
     runs(
@@ -1538,8 +1540,6 @@ def wait_then_report(stop: Receiver[()], done: Sender[str]) -> Result[(), SendEr
 def main() -> Result[(), AllocError | IoError | SpawnError[()] | SendError[()] | RecvError]:
     wake, woken = channel[()](1)?
     with spawn(wake_later, wake).drop_job()?, woken as inbox:
-        # Blocks on an empty unit queue until the worker's send wakes it,
-        # then until the worker's sender drops.
         print(str.repr(inbox.recv())?)?
         print(str.repr(inbox.recv())?)?
     stop, stopped = channel[()](1)?
