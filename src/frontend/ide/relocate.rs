@@ -799,6 +799,7 @@ impl<'a> Planner<'a> {
             destination_names,
             edits: BTreeMap::new(),
             span_edits: vec![],
+            rewrites: HashMap::default(),
             api_changes: vec![],
             imports: BTreeMap::new(),
             dependencies: BTreeSet::new(),
@@ -813,11 +814,11 @@ impl<'a> Planner<'a> {
     }
 
     /// Apply the plan's edits to the overlay and check the package again.
-    fn finish(&self, work: Work, reached_before: &BTreeSet<PathBuf>) -> Result<Move, String> {
-        let name = work.name;
+    fn finish(&self, mut work: Work, reached_before: &BTreeSet<PathBuf>) -> Result<Move, String> {
+        let name = work.name.clone();
         let mut overlay = self.overlay.clone();
         let mut files = vec![];
-        for (path, mut file_edits) in work.edits {
+        for (path, mut file_edits) in std::mem::take(&mut work.edits) {
             if file_edits.is_empty() {
                 continue;
             }
@@ -846,9 +847,10 @@ impl<'a> Planner<'a> {
                 edits: merged,
             });
         }
-        let (_, reached_after) = self
+        let (uses_after, reached_after) = self
             .analyze(&overlay)
             .map_err(|e| format!("after moving `{name}`, the package would not check: {e}"))?;
+        work.check_identities(&files, &overlay, &uses_after)?;
         // A module left without declarations may stop being imported; any
         // other file must stay checked.
         let empty = |path: &Path| {
@@ -870,7 +872,7 @@ impl<'a> Planner<'a> {
             source: self.source_module.clone(),
             destination: self.destination_module.clone(),
             files,
-            api_changes: work.api_changes,
+            api_changes: std::mem::take(&mut work.api_changes),
         })
     }
 }
@@ -900,6 +902,10 @@ struct Work<'p, 'a> {
     dependencies: BTreeSet<String>,
     /// Whether a module other than the destination uses the moved name.
     needs_public: bool,
+    /// Qualified references to the moved declaration that are rewritten,
+    /// by (file, line, column) of their location: the edit's start (from
+    /// 0) and the name's offset in its replacement.
+    rewrites: HashMap<(PathBuf, u32, u32), (u32, u32, u32)>,
 }
 
 fn is_declaration(kind: SymbolKind) -> bool {
@@ -1012,6 +1018,147 @@ impl Work<'_, '_> {
                 self.planner.relative(path),
                 import.line + 1
             ));
+        }
+        Ok(())
+    }
+
+    /// Check that the edited package names what it named before: each
+    /// reference to the moved declaration resolves to it at its new
+    /// position, and each reference in the moved text keeps its target. A
+    /// rewritten name can otherwise be captured, such as `geometry.SCALE`
+    /// written `SCALE` inside a function with a parameter `SCALE`.
+    fn check_identities(
+        &self,
+        files: &[FileEdits],
+        overlay: &HashMap<PathBuf, String>,
+        after: &[Use],
+    ) -> Result<(), String> {
+        let name = &self.name;
+        let edits: HashMap<&Path, &[TextEdit]> = files
+            .iter()
+            .map(|f| (f.path.as_path(), f.edits.as_slice()))
+            .collect();
+        let destination_text = overlay
+            .get(self.destination())
+            .ok_or("internal error: the destination was not edited")?;
+        let moved = items(destination_text)?
+            .into_iter()
+            .filter_map(|i| i.declaration.ok())
+            .find(|d| d.name == *name)
+            .ok_or("internal error: the moved declaration is missing")?;
+        // The moved text's first line (from 0) in the edited destination.
+        let moved_first = (moved.line - 1) - (self.declaration.line - 1 - self.span.0);
+        // Where a point (from 0) of the text before the move is afterwards.
+        let map = |path: &Path, line: u32, column: u32| -> Option<(PathBuf, u32, u32)> {
+            if path == self.source() && (self.span.0..=self.span.1).contains(&line) {
+                let (l, c) = map_point(&self.span_edits, line - self.span.0, column)?;
+                return Some((self.destination().to_owned(), moved_first + l, c));
+            }
+            let (l, c) = match edits.get(path) {
+                Some(edits) => map_point(edits, line, column)?,
+                None => (line, column),
+            };
+            Some((path.to_owned(), l, c))
+        };
+        let identity = |identity: &Option<(File, u32, u32)>| match identity {
+            Some((File::Path(path), line, column)) => map(path, line - 1, column - 1)
+                .map(|(path, line, column)| Some((File::Path(path), line + 1, column + 1))),
+            other => Some(other.clone()),
+        };
+        let mut by_line: HashMap<(&Path, u32), Vec<&Use>> = HashMap::default();
+        for u in after {
+            by_line
+                .entry((u.path.as_path(), location_line(&u.location)))
+                .or_default()
+                .push(u);
+        }
+        // Whether every reference covering the point names `expected`, and
+        // one does.
+        let names = |(path, line, column): (PathBuf, u32, u32), expected| {
+            let covering: Vec<&&Use> = by_line
+                .get(&(path.as_path(), line))
+                .into_iter()
+                .flatten()
+                .filter(|u| {
+                    (u.location.column - 1..u.location.column - 1 + u.location.length)
+                        .contains(&column)
+                })
+                .collect();
+            !covering.is_empty() && covering.iter().all(|u| u.identity == expected)
+        };
+        let target = Some(self.target.clone());
+        let moved_identity = Some((
+            File::Path(self.destination().to_owned()),
+            moved.line,
+            moved.column,
+        ));
+        let at = |u: &Use, column: u32| {
+            format!(
+                "{}:{}:{}",
+                self.planner.relative(&u.path),
+                u.location.line,
+                column + 1
+            )
+        };
+        for u in &self.uses {
+            let line = location_line(&u.location);
+            let in_span = self.in_span(u);
+            if !in_span && (u.target != target || self.import_lines(&u.path).contains(&line)) {
+                continue;
+            }
+            // Qualifiers are checked by the imports the move writes.
+            if in_span && u.kind == SymbolKind::Module {
+                continue;
+            }
+            let form = self.form_of(u);
+            let (start, column, written) = match &form {
+                Form::Qualified {
+                    column,
+                    qualifier,
+                    name,
+                } => (
+                    *column,
+                    column + qualifier.chars().count() as u32 + 1,
+                    format!("{qualifier}.{name}"),
+                ),
+                Form::Bare { column, name } => (*column, *column, name.clone()),
+                Form::Other => (u.location.column - 1, u.location.column - 1, name.clone()),
+            };
+            let point =
+                match self
+                    .rewrites
+                    .get(&(u.path.clone(), u.location.line, u.location.column))
+                {
+                    Some(&(l, c, offset)) => edits
+                        .get(u.path.as_path())
+                        .and_then(|e| map_point(e, l, c))
+                        .map(|(l, c)| (u.path.clone(), l, c + offset)),
+                    None => map(&u.path, line, column),
+                };
+            let expected = if in_span {
+                identity(&u.identity)
+            } else {
+                Some(moved_identity.clone())
+            };
+            let (Some(point), Some(expected)) = (point, expected) else {
+                return Err(format!(
+                    "{}: the move cannot check this reference",
+                    at(u, start)
+                ));
+            };
+            if !names(point, expected) {
+                return Err(if in_span {
+                    format!(
+                        "{}: after the move, `{written}` in `{name}` would name something else",
+                        at(u, start)
+                    )
+                } else {
+                    format!(
+                        "{}: after the move, `{written}` would no longer name `{name}`",
+                        at(u, start)
+                    )
+                });
+            }
         }
         Ok(())
     }
@@ -1281,6 +1428,7 @@ impl Work<'_, '_> {
             (prefix.is_empty() || prefix.ends_with('.')).then(|| prefix.to_owned())
         };
         let mut file_edits: Vec<(PathBuf, TextEdit)> = vec![];
+        let mut rewrites = vec![];
         let mut file_imports: Vec<(PathBuf, ImportChanges)> = vec![];
         for (path, file_uses) in &by_file {
             let lines = self.import_lines(path);
@@ -1400,6 +1548,14 @@ impl Work<'_, '_> {
                             });
                             format!("{qualifier}.{name}")
                         };
+                        rewrites.push((
+                            (path.clone(), u.location.line, u.location.column),
+                            (
+                                l,
+                                column,
+                                (replacement.chars().count() - name.chars().count()) as u32,
+                            ),
+                        ));
                         file_edits.push((path.clone(), replace(l, column, length, &replacement)));
                         // Remove `import source` when this was its last use.
                         let other_uses = self.uses.iter().any(|o| {
@@ -1417,6 +1573,7 @@ impl Work<'_, '_> {
             }
             file_imports.push((path.clone(), (removals, additions)));
         }
+        self.rewrites.extend(rewrites);
         for (path, edit) in file_edits {
             self.edits.entry(path).or_default().push(edit);
         }
@@ -1642,6 +1799,41 @@ impl Work<'_, '_> {
         }
         Ok(())
     }
+}
+
+/// Where the point (`line`, `column`), from 0, is after `edits`, which
+/// do not overlap; None when an edit replaces it. Text inserted at the point
+/// comes before it.
+fn map_point(edits: &[TextEdit], line: u32, column: u32) -> Option<(u32, u32)> {
+    let mut sorted: Vec<&TextEdit> = edits.iter().collect();
+    sorted.sort_by_key(|e| (e.line, e.column, e.end_line, e.end_column));
+    let mut point = (line, column);
+    // From the last edit, so each edit's own position is still valid.
+    for e in sorted.into_iter().rev() {
+        let start = (e.line, e.column);
+        let end = (e.end_line, e.end_column);
+        if point < end {
+            if start < point {
+                return None;
+            }
+            continue;
+        }
+        let breaks = e.text.matches('\n').count() as u32;
+        let tail = e
+            .text
+            .rsplit('\n')
+            .next()
+            .unwrap_or_default()
+            .chars()
+            .count() as u32;
+        point = if point.0 == end.0 {
+            let base = if breaks == 0 { start.1 + tail } else { tail };
+            (start.0 + breaks, base + point.1 - end.1)
+        } else {
+            (point.0 - end.0 + start.0 + breaks, point.1)
+        };
+    }
+    Some(point)
 }
 
 /// The line ending `text` uses.

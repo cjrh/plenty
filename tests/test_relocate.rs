@@ -948,3 +948,68 @@ fn line_breaks_inside_a_multi_line_string_keep_their_bytes() {
         assert_eq!(run(dir.path()), before);
     }
 }
+
+const PRINT_MAIN_PREFIX: &str = "def main() -> Result[(), AllocError | IoError]:\n";
+
+#[test]
+fn a_rewritten_name_captured_by_a_parameter_is_refused() {
+    // (a) In the moved text, `geometry.SCALE` would become `SCALE`, the
+    // parameter.
+    let dir = package(&[
+        (
+            "src/shapes.plenty",
+            "import geometry\n\npub def first(SCALE: i64) -> i64:\n    geometry.SCALE\n",
+        ),
+        ("src/geometry.plenty", "pub const SCALE: i64 = 10\n"),
+        (
+            "src/main.plenty",
+            &format!(
+                "import shapes\n\n{PRINT_MAIN_PREFIX}    print(shapes.first(1))?\n    Ok(())\n"
+            ),
+        ),
+    ]);
+    assert_eq!(run(dir.path()), "10\n");
+    assert_eq!(
+        refused(dir.path(), "src/shapes.plenty", 3, "src/geometry.plenty"),
+        "src/shapes.plenty:4:5: after the move, `geometry.SCALE` in `first` would name something else"
+    );
+
+    // (b) In the destination, `shapes.LIMIT` would become `LIMIT`, the
+    // parameter.
+    let dir = package(&[
+        ("src/shapes.plenty", "pub const LIMIT: i64 = 5\n"),
+        (
+            "src/geometry.plenty",
+            "import shapes\n\npub def limit(LIMIT: i64) -> i64:\n    shapes.LIMIT\n",
+        ),
+        (
+            "src/main.plenty",
+            &format!(
+                "import geometry\n\n{PRINT_MAIN_PREFIX}    print(geometry.limit(1))?\n    Ok(())\n"
+            ),
+        ),
+    ]);
+    assert_eq!(run(dir.path()), "5\n");
+    assert_eq!(
+        refused(dir.path(), "src/shapes.plenty", 1, "src/geometry.plenty"),
+        "src/geometry.plenty:4:5: after the move, `shapes.LIMIT` would no longer name `LIMIT`"
+    );
+
+    // (c) In another caller, `shapes.size()` would become `config.size()`,
+    // the method of the parameter `config`.
+    let dir = package(&[
+        ("src/shapes.plenty", "pub def size() -> i64:\n    3\n"),
+        ("src/config.plenty", GEOMETRY),
+        (
+            "src/main.plenty",
+            &format!(
+                "import shapes\n\nclass Crate:\n    pub n: i64\n\n    def size(self) -> i64:\n        self.n\n\ndef measure(config: Crate) -> i64:\n    shapes.size()\n\n{PRINT_MAIN_PREFIX}    print(measure(Crate(n=9)))?\n    Ok(())\n"
+            ),
+        ),
+    ]);
+    assert_eq!(run(dir.path()), "3\n");
+    assert_eq!(
+        refused(dir.path(), "src/shapes.plenty", 1, "src/config.plenty"),
+        "src/main.plenty:10:5: after the move, `shapes.size` would no longer name `size`"
+    );
+}
