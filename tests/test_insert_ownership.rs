@@ -52,9 +52,9 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut names: list[str] = []?
     for word in ["a", "b", "a"]?:
         key = (word + "!")?
-        add_moved(&mut seen, copy(&key)?)?
-        insert_moved(&mut counts, copy(&key)?)?
-        append_moved(&mut names, copy(&key)?)?
+        add_moved(&mut seen, key)?
+        insert_moved(&mut counts, key)?
+        append_moved(&mut names, key)?
         tally(&mut counts, key)?
     print(len(seen), counts, names)?
     add_moved(&mut seen, "c!")?
@@ -243,22 +243,22 @@ class Bag:
     tags: set[str]
 
     def put(self: &mut Bag, word: str) -> Result[(), AllocError]:
-        self.items.append(copy(&word)?)?
+        self.items.append(word)?
         self.items.sort()
         self.items.swap(0, 0)
-        self.tags.add(copy(&word)?)?
+        self.tags.add(word)?
         match self.index.get_mut(&word):
             case Some(row):
-                row.append(copy(&word)?)?
-                row.extend([copy(&word)?]?)?
+                row.append(word)?
+                row.extend([word]?)?
                 row.reverse()
                 row.pop()
             case Nothing:
-                self.index.insert(copy(&word)?, [word]?)?
+                self.index.insert(word, [word]?)?
         Ok(())
 
 def grow(grid: &mut list[set[str]], word: str) -> Result[(), AllocError]:
-    grid[0].add(copy(&word)?)?
+    grid[0].add(word)?
     grid[1].update(set[str]()?)?
     grid[1].add(word)?
     grid[0].intersection_update(&grid[1])

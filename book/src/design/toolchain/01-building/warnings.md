@@ -26,11 +26,15 @@ a replacement that keeps the program's behavior; apply it.
 methods report no warnings: a generic body is checked per instance, and code
 that is redundant for one type argument can be needed for another.
 
+Only top-level function bodies are checked today. Class and enum method
+bodies, including `copy(self)?`, and anonymous function bodies report no
+warnings, even when they are not generic (issue #846).
+
 ## Lints
 
 | Name | Reports |
 |---|---|
-| `redundant-copy` | `copy(x)?` when the type of `x` already copies |
+| `redundant-copy` | `copy(x)?` or `copy(&x)?` when the type of `x` already copies |
 
 ### `redundant-copy`
 
@@ -42,24 +46,30 @@ instantiated type, so `str`, numbers, `bool`, `bytes`, copyable tuples and
 sums, and `@copy` classes such as `Point[i64]` are reported, and a list or
 ordinary class is not.
 
-It reports `copy(x)?` only when writing `x` instead keeps the type, evaluates
-the same expression once, and moves nothing. `x` must be:
+It reports `copy(x)?` only when a plain expression instead keeps the type,
+evaluates the same expression once, and moves nothing. `x` must be one of:
 
 - a local that is not a reference or view;
-- a field path from such a local, such as `record.name`; a field read through
-  a reference, such as `self.name` in a `self` method, is left alone;
+- a field path from such a local, such as `record.name`;
 - a list, dictionary, or tuple element, such as `words[i]`;
-- a string, number, boolean, or bytes literal.
+- a string, number, boolean, or bytes literal;
+- a shared borrow of one of the first three, such as `copy(&s)?` or
+  `copy(&record.name)?`; write the place itself, `s` or `record.name`;
+- a local shared reference `r: &T`, such as a `&str` parameter or a loop
+  variable over `&words`; write `*r`, which reads the copyable value. Before
+  `.` or `[`, as in `copy(p)?.x`, the message suggests `(*p)`, because
+  `*p.x` dereferences the field instead.
 
 For a name or field path the message spells the replacement. These are left
 alone:
 
 - `copy(x)` used as a `Result`, for example matched or stored, rather than
   propagated with `?`;
-- a reference argument such as `copy(r)?` for `r: &str`, or `copy(&x)?`;
-  `*r` reads a copyable value through a reference;
+- an exclusive reference, such as `copy(m)?` for `m: &mut str`, a
+  dereference such as `copy(*r)?`, and a borrowed literal;
 - a call or other computed argument, such as `copy(f())?`;
-- `copy(x)?` of a type that moves, which makes an independent value.
+- `copy(x)?` of a type that moves, which makes an independent value,
+  including `copy(&items)?` for a list.
 
 ```plenty
 def main() -> Result[(), AllocError | IoError]:

@@ -164,8 +164,9 @@ See [workflow and packages](references/workflow.md).
   Define an enum only to add meaning, and map into it with `.map_error(...)`.
 - Prefer borrowed parameters (`&str`, `&list[T]`) unless the function keeps the
   value. Avoid `copy` unless two owners are needed. Never write `copy(x)?`
-  when `x` copies (`str`, numbers, `@copy` classes): write `x`. `plenty --check`
-  reports it as a `redundant-copy` warning; fix every warning.
+  or `copy(&x)?` when `x` copies (`str`, numbers, `@copy` classes): write `x`;
+  for a reference `r: &str`, write `*r` instead of `copy(r)?`. `plenty --check`
+  reports them as `redundant-copy` warnings; fix every warning.
 - Reserve capacity when the size is known: `list[i64].with_capacity(n)?`.
 - Mark a class or enum that holds a secret `@redacted`: `print`, `str.repr`
   and f-strings then show `ApiKey(@redacted)` at any depth, while field access is

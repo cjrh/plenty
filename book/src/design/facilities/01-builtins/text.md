@@ -247,7 +247,7 @@ the operations and lifetime limits of `&substr`.
 | `copy(s)` | **R** | Returns `Ok` containing another owning string value. No allocation or text-buffer duplication; immutable backing storage is shared. |
 | `copy(&s)` or `copy(r)` | **R** | Observes the borrowed string and returns an owning `str` inside `Ok`, not a reference. No allocation or text-buffer duplication. |
 | `copy(s)?` | `str` | Extracts the owning copy. Prefer `s`; this spelling produces a `redundant-copy` warning. |
-| `copy(&s)?` or `copy(r)?` | `str` | Extracts an owning copy of borrowed text. Prefer `s` or `*r`, respectively; no text-buffer duplication. |
+| `copy(&s)?` or `copy(r)?` | `str` | Extracts an owning copy of borrowed text. Prefer `s` or `*r`, respectively; this spelling produces a `redundant-copy` warning. No text-buffer duplication. |
 | `copy(s[a:b])` | `Result[R, AllocError]` | Evaluates the copying slice, then copies its result into an outer `Ok`. The successful string shares the slice's new buffer; there is no second text copy. A slice failure becomes `Ok(Err(...))`. |
 | `copy(s[a:b]?)` | **R** | Evaluates the copying slice and propagates its failure first, then returns another owning handle to the successful slice inside `Ok`. No second text copy. Prefer `s[a:b]?` when you want a `str`. |
 | `copy(&s[a:b])` | Rejected | `copy` does not accept a substring view. Bind `v = &s[a:b]`, then use `v[:]?` to create an owned `str`, or write `s[a:b]?` directly. |
