@@ -85,6 +85,7 @@ mod enums;
 mod executors;
 mod exits;
 mod exports;
+mod extending_loads;
 mod folding;
 mod foreign;
 mod formatting;
@@ -107,6 +108,7 @@ mod inline_calls;
 mod leaf_calls;
 mod reachability;
 mod scalar_captures;
+mod serial_stack;
 mod sites;
 mod small_calls;
 mod sorting;
@@ -795,6 +797,11 @@ fn object_module(
     let mut user_fns: HashMap<String, UserFn> = HashMap::default();
     let mut bodies = Vec::new();
     collect_user_fns(&ops, &mut out.module, &mut user_fns, &mut bodies)?;
+    let protected = serial_stack::Budgets::protected_names(&ops);
+    out.serial_stack.requests = Arc::clone(&runtime.serial_stack_budgets);
+    for name in &protected {
+        out.address_taken(user_fns[name].id);
+    }
     crate::threading::walk(&ops, &mut |op| {
         if let Op::FunctionAddress(name, _) = op
             && let Some(function) = user_fns.get(name)
@@ -804,7 +811,13 @@ fn object_module(
     });
     if build.optimize {
         leaf_calls::prepare(&bodies, &mut user_fns);
+        for name in &protected {
+            user_fns.get_mut(name).unwrap().inline = None;
+        }
         inline_calls::prepare(&bodies, &mut user_fns);
+        for name in &protected {
+            user_fns.get_mut(name).unwrap().inline_body = None;
+        }
         clist_simd::prepare(&bodies, &mut user_fns);
     }
     sites::mark_context_preserving(&bodies, &mut user_fns);
@@ -826,6 +839,8 @@ fn object_module(
         formatting::declare_adapters(&ops, workers, &mut out.module, &mut runtime.format_hooks)?;
     let box_releasers =
         box_release::declare_adapters(&ops, workers, &mut out.module, &mut runtime.box_releasers)?;
+    out.serial_stack
+        .prepare(&bodies, &user_fns, &protected, &box_releasers);
     let runtime = runtime;
     // `bodies` is in declaration order, as `FuncId`s are. The map's own order
     // changes from run to run, which would make the object differ between
@@ -1049,6 +1064,8 @@ pub(crate) fn baseline_isa(
 /// them all up-front so each call site is just `module.declare_func_in_func`
 /// plus an `ins().call`.
 struct Runtime {
+    serial_stack_budgets: std::sync::Arc<std::sync::Mutex<HashMap<(FuncId, FuncId), DataId>>>,
+    serial_stack_ready: FuncId,
     standard_calls: bool,
     caller_enter: FuncId,
     caller_leave: FuncId,
@@ -1215,6 +1232,13 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         Ok(module.declare_function(name, Linkage::Import, &sig)?)
     }
     Ok(Runtime {
+        serial_stack_budgets: Default::default(),
+        serial_stack_ready: helper(
+            module,
+            "plenty_serial_stack_ready",
+            &[types::I64],
+            Some(types::I8),
+        )?,
         standard_calls: false,
         caller_enter: {
             let mut sig = module.make_signature();
@@ -3112,8 +3136,10 @@ impl Lowerer<'_, '_> {
     }
 
     fn nonnegative_operand(&self, value: cranelift_codegen::ir::Value) -> bool {
+        let dfg = &self.bcx.func.dfg;
         self.counters.nonnegative.contains(&value)
-            || induction::nonnegative_constant(&self.bcx.func.dfg, value)
+            || induction::nonnegative_constant(dfg, value)
+            || known::zero_extended_max(dfg, value).is_some()
     }
 
     fn nonnegative_division(
@@ -3550,6 +3576,9 @@ impl Lowerer<'_, '_> {
         }
         let to_clif = clif_type(to);
         if to_bits > from_bits {
+            if let Some(word) = self.extended_word(v, is_signed(from.clone()), to_clif) {
+                return word;
+            }
             if is_signed(from) {
                 self.bcx.ins().sextend(to_clif, v)
             } else {
@@ -3558,6 +3587,41 @@ impl Lowerer<'_, '_> {
         } else {
             self.bcx.ins().ireduce(to_clif, v)
         }
+    }
+
+    /// The `wide` word `narrow` was just truncated from, when that word
+    /// extends `narrow`'s own bits as the cast would. A scalar read from
+    /// memory is a widened word truncated to its type, so `i64(*byte)` is
+    /// that word: extending the truncation again would leave a second
+    /// extension Cranelift does not fold (issue #760).
+    fn extended_word(
+        &self,
+        narrow: cranelift_codegen::ir::Value,
+        signed: bool,
+        wide: types::Type,
+    ) -> Option<cranelift_codegen::ir::Value> {
+        use cranelift_codegen::ir::{InstructionData, Opcode, ValueDef};
+        let dfg = &self.bcx.func.dfg;
+        let unary = |value| match dfg.value_def(dfg.resolve_aliases(value)) {
+            ValueDef::Result(inst, _) => match dfg.insts[inst] {
+                InstructionData::Unary { opcode, arg } => Some((opcode, arg)),
+                _ => None,
+            },
+            _ => None,
+        };
+        let (Opcode::Ireduce, word) = unary(narrow)? else {
+            return None;
+        };
+        let (extend, source) = unary(word)?;
+        let expected = if signed {
+            Opcode::Sextend
+        } else {
+            Opcode::Uextend
+        };
+        (extend == expected
+            && dfg.value_type(source) == dfg.value_type(narrow)
+            && dfg.value_type(word) == wide)
+            .then_some(word)
     }
 
     /// Lower `Op::PushStr` or `Op::PushBytes`: emit `global_value` for the

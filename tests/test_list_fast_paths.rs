@@ -2203,3 +2203,144 @@ fn versioned_while_and_nested_loops_have_an_unchecked_copy() {
         assert_eq!(traps_per_loop(&clif), loops, "{name}\n{clif}");
     }
 }
+
+/// A zero-extended byte or `u16` index is below the length of any table
+/// longer than its largest value, so the loop is versioned on one length
+/// test; a signed byte may be negative and keeps its check (issue #760).
+const BYTE_TABLES: &str = r#"
+def table_sum(data: &[u8], table: &[i64]) -> Result[i64, OverflowError[i64]]:
+    mut total = 0
+    for byte in data:
+        total += table[i64(*byte)]
+    Ok(total)
+
+def wide_sum(data: &[u16], table: &[i64]) -> Result[i64, OverflowError[i64]]:
+    mut total = 0
+    for item in data:
+        total += table[i64(*item)]
+    Ok(total)
+
+def signed_sum(data: &[i8], table: &[i64]) -> Result[i64, OverflowError[i64]]:
+    mut total = 0
+    for item in data:
+        total += table[i64(*item)]
+    Ok(total)
+
+def first_marked(data: &[u8], table: &[bool]) -> Result[(i64, u8), str]:
+    for at in range(len(data)):
+        if table[i64(data[at])]:
+            return Ok((at, data[at]))
+    Err("none")
+
+def swap_out(cell: &mut u8, replacement: u8) -> i64:
+    old = *cell
+    *cell = replacement
+    (i64(old) << 8) | i64(*cell)
+
+def widen(cell: &i8) -> i64:
+    i64(*cell)
+
+def twice(cell: &u8) -> (i64, u8):
+    (i64(*cell), *cell)
+
+def overwritten(cell: &mut u8, flag: bool) -> i64:
+    old = *cell
+    if flag:
+        *cell = 9u8
+    i64(old)
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | str]:
+    mut table = list[i64].new()?
+    mut marks = list[bool].new()?
+    for i in range(256):
+        table.append(i * 2)?
+        marks.append(i == 200)?
+    print(table_sum(&b"\x00\x01\xff\x80", &table)?)?
+    wide = [0u16, 255u16]?
+    print(wide_sum(&wide, &table)?)?
+    signed = [-1i8, 1i8, -128i8]?
+    print(signed_sum(&signed, &table)?)?
+    print(first_marked(&b"\x01\xc8\x02", &marks)?)?
+    print(first_marked(&b"\x01\x02", &marks).is_err())?
+    mut cell = 200u8
+    print(swap_out(&mut cell, 3u8), cell)?
+    small = -5i8
+    print(widen(&small))?
+    big = 250u8
+    print(twice(&big))?
+    mut late = 4u8
+    print(overwritten(&mut late, True), late)?
+    Ok(())
+"#;
+
+#[test]
+fn byte_indexed_table_loops_keep_their_results() {
+    support::assert_stdout(
+        BYTE_TABLES,
+        "768\n510\n768\n(1, 200)\nTrue\n51203 3\n-5\n(250, 250)\n4 9\n",
+    );
+}
+
+#[rstest]
+#[case(
+    "short = [0, 1]?\n    print(table_sum(&b\"\\x01\\x02\", &short)?)?",
+    "index 2, length 2"
+)]
+#[case(
+    "short = [0, 1]?\n    print(wide_sum(&[1u16, 300u16]?, &short)?)?",
+    "index 300, length 2"
+)]
+#[case(
+    "short = [0, 1]?\n    print(signed_sum(&[-3i8]?, &short)?)?",
+    "index -3, length 2"
+)]
+#[case(
+    "few = [False]?\n    print(first_marked(&b\"\\x00\\x05\", &few)?)?",
+    "index 5, length 1"
+)]
+fn byte_indexed_table_loops_trap_as_before(#[case] call: &str, #[case] message: &str) {
+    let source = BYTE_TABLES.replace(
+        "    mut table = list[i64].new()?",
+        &format!("    {call}\n    mut table = list[i64].new()?"),
+    );
+    let output = support::run(&source);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{call}\n{stderr}");
+    assert!(
+        stderr.contains(&format!("index out of bounds: {message}")),
+        "{call}\n{stderr}"
+    );
+    assert!(output.stdout.is_empty(), "{call}");
+}
+
+#[test]
+fn byte_indexed_table_loops_have_an_unchecked_copy() {
+    for (name, loops) in [
+        // The checked copy needs no negative-index normalization.
+        ("table_sum", &[0, 1][..]),
+        ("wide_sum", &[0, 1]),
+        // A signed byte may be negative: one checked loop, as before.
+        ("signed_sum", &[1]),
+        ("first_marked", &[0, 1]),
+    ] {
+        let clif = dump("clif-opt", &format!("__plenty_fn_{name}"), BYTE_TABLES);
+        assert_eq!(traps_per_loop(&clif), loops, "{name}\n{clif}");
+    }
+}
+
+/// `i64(*byte)` reads the byte with one extending load (issue #760).
+#[test]
+fn widened_narrow_reads_use_one_extending_load() {
+    for (name, fused) in [
+        ("table_sum", "uload8.i64"),
+        ("wide_sum", "uload16.i64"),
+        ("signed_sum", "sload8.i64"),
+        ("widen", "sload8.i64"),
+        ("swap_out", "uload8.i64"),
+    ] {
+        let clif = dump("clif-opt", &format!("__plenty_fn_{name}"), BYTE_TABLES);
+        assert!(clif.contains(fused), "{name}\n{clif}");
+        assert!(!clif.contains("uextend.i64"), "{name}\n{clif}");
+        assert!(!clif.contains("sextend.i64"), "{name}\n{clif}");
+    }
+}

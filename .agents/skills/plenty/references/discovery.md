@@ -9,7 +9,7 @@ and linked module references own the current API contracts.
 
 | Task | Where to look and what to distinguish |
 |---|---|
-| Write TOML configuration | [std.toml](../../../../book/src/design/stdlib/toml.md): `encode`, `encode_text`, `write_value` write value trees; `Document` preserves layout. A writer does not imply automatic class codecs or serde-compatible output. |
+| Write TOML configuration | [Typed TOML codecs](../../../../book/src/design/stdlib/toml-codecs.md): use `@serial` classes/enums with `load[T]` and `dump`; hooks are shared with JSON. `encode`, `encode_text`, `write_value` write dynamic value trees; `Document` preserves layout. Read TOML's null/integer/root restrictions before choosing a schema. |
 | Render HTML or text | [std.template](../../../../book/src/design/stdlib/template.md): `engine`, `Engine.add`, `Engine.render`; HTML escaping is the default; `escape_text` and quote-specific filters select per-placeholder contexts on raw values. `html=False` disables default escaping; explicit escape filters still apply. Read its supported syntax and escaping contexts before substituting for another engine. |
 | Locate per-user state | [std.fs.dirs](../../../../book/src/design/stdlib/fs/dirs.md): `state_dir`; returns an optional native-byte path, creates nothing, and has target/environment limits. |
 | Parse a submitted form | [std.http.body](../../../../book/src/design/stdlib/http-body.md): bounded `parse_form_text` and `read_form`. Parsing key/value pairs is distinct from deriving typed validation for a class. |

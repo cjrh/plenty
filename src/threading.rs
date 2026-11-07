@@ -754,6 +754,10 @@ pub fn walk_sited<'a>(
 /// derives from a type target generators only.
 pub fn function_references(op: &Op, require: &mut impl FnMut(&str)) {
     match op {
+        Op::Collection(crate::collection::CollectionOp::SerialStackReady { callee, failure }) => {
+            require(callee);
+            require(failure);
+        }
         Op::Call(name)
         | Op::TailCall(name)
         | Op::FunctionAddress(name, _)

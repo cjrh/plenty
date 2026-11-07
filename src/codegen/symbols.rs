@@ -68,6 +68,7 @@ impl Declared {
 /// A symbol declared on first use while lowering a body.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(super) enum Request {
+    SerialStackBudget(FuncId, FuncId),
     /// Type metadata, as [`metadata::declare`] defines it.
     Metadata(Ty),
     /// Static protocol adapters, in declaration order.
@@ -94,6 +95,20 @@ pub(super) struct Symbols {
 }
 
 impl Symbols {
+    pub(super) fn serial_stack_budget(
+        &mut self,
+        callee: FuncId,
+        failure: FuncId,
+        func: &mut ir::Function,
+    ) -> GlobalValue {
+        let number = self.request(Request::SerialStackBudget(callee, failure));
+        symbol(
+            func,
+            ir::UserExternalName::new(REQUESTED, number),
+            true,
+            false,
+        )
+    }
     pub(super) fn new(declared: Arc<Declared>) -> Self {
         Self {
             declared,
@@ -362,6 +377,18 @@ pub(super) fn resolve(
     let mut addends = vec![0; requests.len()];
     for (number, request) in requests.iter().enumerate() {
         targets.push(match request {
+            Request::SerialStackBudget(callee, failure) => {
+                let mut budgets = runtime.serial_stack_budgets.lock().unwrap();
+                let id = match budgets.get(&(*callee, *failure)) {
+                    Some(id) => *id,
+                    None => {
+                        let id = module.declare_anonymous_data(false, false)?;
+                        budgets.insert((*callee, *failure), id);
+                        id
+                    }
+                };
+                ModuleRelocTarget::user(1, id.as_u32())
+            }
             Request::Metadata(ty) => {
                 let id = metadata::declare(module, runtime, ty)?;
                 ModuleRelocTarget::user(1, id.as_u32())

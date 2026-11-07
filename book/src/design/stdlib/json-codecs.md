@@ -1,7 +1,7 @@
 # Typed JSON codecs
 
-[`std.serial`](serial.md) supplies built-in codecs and private handwritten
-class/enum hooks. `std.json` adapts those codecs to JSON events and to an
+[`std.serial`](serial.md) supplies built-in codecs, [`@serial`](serial-derive.md)
+derivation, and private handwritten class/enum hooks. `std.json` adapts those codecs to JSON events and to an
 owning `Json` cursor, without serializing and reparsing a tree.
 
 ## Complete documents
@@ -30,8 +30,45 @@ For adapter composition, `codec_decoder(source, options)` returns a
 checks that the codec consumed exactly one complete document. The existing
 `Encoder` satisfies `std.serial.Encoder[JsonError]`; check `is_complete()`
 after the codec succeeds and before calling `take()`. `take()` also supports
-incremental output and does not check document completeness itself. Incremental
-reader-based typed loading is not implemented.
+incremental output and does not check document completeness itself.
+
+## Incremental reader loading
+
+```text
+codec_reader[R: Reader](inner: R) -> CodecReader[R]
+load_from[T, R: Reader](source: &mut CodecReader[R], options: &CodecOptions)
+    -> Result[T, SerialError[JsonError]]
+```
+
+Create an owning adapter with `codec_reader(reader)`, then pass a mutable borrow
+of it to `load_from`. Its public `inner: R` retains the stream owner on success
+and failure. The infallible factory does not allocate or read; parser allocation
+happens inside `load_from` while the adapter is borrowed. This ownership follows
+[`std.io` stream adapters](io.md): Plenty classes cannot store a borrowed reader.
+
+`load_from` decodes directly from events, retaining the requested result, a
+4096-byte read window, the current token, and the bounded parser stack. It
+creates neither a complete input buffer nor an intermediate `Json` tree.
+`max_input` bounds total bytes read, including whitespace; `max_depth` bounds
+nesting. A token can require storage up to the input limit. Unknown values under
+`Ignore` are skipped through the same bounded parser. Typed collection storage
+belongs to the returned value and remains subject to fallible allocation.
+
+The loader accepts short reads, retries `StreamError.Interrupted`, and checks
+reader progress. Other stream failures retain `JsonFault.Stream(cause)` with
+input location and the available typed field/index path. It reads through EOF
+to validate exactly one complete document; trailing data, malformed skipped
+values and a read failure during completion still fail the load. An exact
+`max_input`-byte document succeeds only after the stream confirms EOF; one extra
+byte reports `InputTooLarge`.
+
+Each adapter accepts one `load_from` call after initialization. A second call
+returns `InvalidState` without reading. Discard the adapter after a parse,
+schema or stream error. Reads can prefetch bytes past the reported error, so
+`inner` exposes the physical stream position, not a restart point. Retrying an
+interrupted individual read is automatic; retrying the whole failed document
+requires a new adapter and a stream explicitly reset by its owner. Initialization
+allocation failure leaves the adapter uninitialized and the stream untouched.
 
 ## Direct value conversion
 
@@ -69,9 +106,11 @@ Use each adapter for one operation and discard it after a failure.
 
 ## Typed errors
 
-All entry points return `std.serial.SerialError[JsonError]`. Parsing/output
+Typed loading, dumping and value conversion return
+`std.serial.SerialError[JsonError]`. Parsing/output
 faults keep the existing typed `JsonError`; schema failures are
-`JsonFault.Serialization(std.serial.Fault)`. Collection and handwritten field
+`JsonFault.Serialization(std.serial.Fault)`. Collection and field
 paths identify nested failures without allocating path entries on success.
-Handwritten hooks control field defaults, constructor validation and enum
-representation. Derivation and automatic field metadata are not implemented.
+Derived hooks preserve constructor validation and absent-field defaults, with
+the representations described in [`@serial`](serial-derive.md). Handwritten
+hooks can override either codec direction.

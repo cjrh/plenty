@@ -196,6 +196,11 @@ pub enum CollectionOp {
     /// Std only: `(kind, count, code)` arms or, with a negative count,
     /// disarms failure injection. False outside `plenty test` builds.
     TestFault,
+    /// Compiler-only caller check before entering a checked codec frame.
+    SerialStackReady {
+        callee: String,
+        failure: String,
+    },
     /// std.actor heap operations: `plenty_actor_heap(op, argument) -> i64`.
     ActorHeap,
     FlushStdout,
@@ -711,6 +716,7 @@ impl CollectionOp {
             Trap => (vec![Ty::Str], Ty::Unit),
             IsTerminal => (vec![Ty::U8], Ty::Bool),
             TestFault => (vec![Ty::I64, Ty::I64, Ty::I32], Ty::Bool),
+            SerialStackReady { .. } => (vec![], Ty::Bool),
             ActorHeap => (vec![Ty::I64, Ty::I64], Ty::I64),
             WriteStdout | WriteStderr => (
                 vec![Ty::Str],
@@ -1164,7 +1170,11 @@ impl CollectionOp {
             Self::Net(op) => op.opcode(),
             Self::WriteStdout => 80,
             Self::FlushStdout => 81,
-            Self::CallerLocation | Self::Trap | Self::TestFault | Self::ActorHeap => {
+            Self::CallerLocation
+            | Self::Trap
+            | Self::TestFault
+            | Self::ActorHeap
+            | Self::SerialStackReady { .. } => {
                 unreachable!("lowered to direct calls, not the collection dispatcher")
             }
             Self::WriteStderr => 82,

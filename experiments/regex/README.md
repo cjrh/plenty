@@ -113,8 +113,7 @@ PLENTY_CACHE=off target/release/plenty --unchecked assume --dump asm \
   experiments/regex/prefix.plenty -o /tmp/prefix-dump
 ```
 
-Normalize Plenty's assembly with the recipe in `experiments/kernels/README.md`,
-then pass it to `experiments/kernels/loops.py`. There is no old version of this
+Pass Plenty's `asm.txt` to `experiments/kernels/loops.py`. There is no old version of this
 new filter kernel: the old engine's work is measured by the whole-program
 baseline. The largest improvement comes from changing the search algorithm,
 not from changing the generated instructions for a VM operation.
@@ -323,7 +322,7 @@ pair and those moves. d does not produce a LEA. Redundant extension and other
 instruction-selection/layout costs remain backend work. These variants and
 attribution are an upstream reproducer, not a patch to pinned dependencies.
 General unsigned-range/table-extent proofs and backend investigation are
-tracked separately in issue #760.
+tracked separately in issue #760; see the issue #760 section below.
 
 ```sh
 cargo build --locked --release --manifest-path experiments/kernels/harness/Cargo.toml \
@@ -375,3 +374,88 @@ with normal warm-up and `PLENTY_CACHE=off`, retire 133,856,935,718;
 These are candidate-only qualification runs, not a comparative improvement
 claim. The application compilation table supplies the before/after comparison.
 The stripped regex-redux executable grows from 482,632 to 519,944 bytes.
+
+## Issue #760: byte-indexed table proofs and extending loads
+
+Three compiler changes apply to `table[i64(*byte)]` in any loop:
+
+- A zero-extended index is nonnegative, so it skips negative-index
+  normalization.
+- A loop indexing a table by a zero-extended `u8` or `u16` is versioned on
+  `len(table) > 255` (or 65,535). A shorter table runs the checked copy, which
+  traps with the usual message and site.
+- `i64(*byte)` reuses the byte's widened word instead of narrowing and
+  extending it again, and `src/codegen/extending_loads.rs` turns the remaining
+  `uextend(load.i8)` into one `uload8`.
+
+Release builds (default trapping arithmetic) of `prefix-index.plenty`'s `scan`,
+measured on main 31a2e50b, which already rotates loops (so the
+#758 figure of 19 no longer applies):
+
+| Build | Instructions per byte |
+|---|---:|
+| C, GCC 16.2.1 `-O2` | 11 |
+| Plenty before | 16 |
+| Plenty after, checked copy (table shorter than 256) | 14 |
+| Plenty after, unchecked copy | 12 |
+
+Removed from the unchecked copy (−4): bounds `cmp`/`jae` (2), the separate
+`lea` for the mask address, now an addressing mode (1), and the second
+`movzbq` (1). The checked copy loses the address and extension instructions
+(−2) and keeps the bounds pair.
+
+Remaining difference from C (+1 net), all instruction selection in Cranelift
+0.137:
+
+| Cause | Instructions |
+|---|---:|
+| `shl` + `or` where GCC emits one `lea` | +1 |
+| Separate mask `mov` where GCC uses a memory-operand `and` | +1 |
+| One fewer induction update than C | −1 |
+
+`clif/prefix-{e,f,g,h}.clif` record the IR variants:
+
+| Variant | Change | Checked / unchecked copy |
+|---|---|---:|
+| e | Versioning on the byte's extent only | 15 / 13 |
+| f | e, `uload8` for the byte (the compiler's output) | 14 / 12 |
+| g | f, `band` operands swapped | 14 / 14 |
+| h | f, mask load moved next to the `band` | 14 / 12 |
+
+Neither g nor h makes Cranelift fold the mask load into the `and`. These, the
+missing `lea` (variant d) and the double extension of `load.i8` are upstream
+instruction-selection reports, not patches to the pinned backend.
+
+```sh
+target/kernel-harness/release/plenty-kernel-harness \
+  experiments/regex/clif/prefix-{e,f,g,h}.clif | python3 experiments/kernels/loops.py
+```
+
+Production loops (`--dump-std --dump-filter prefix_`), before → after
+(unchecked / checked copy):
+
+| Loop | Before | After |
+|---|---:|---:|
+| `prefix_candidate` probe | 21 | 12 / 14 |
+| `prefix_scalar_candidate` | 21 | 12 / 14 |
+| Scalar tail inlined in `prefix_native_candidate` | 21 | 12 / 14 |
+| Native batch loop in `prefix_native_candidate` | 81 | 84 |
+
+The batch loop's operations are unchanged. It gains three stack reloads and
+register moves because its function now holds both copies of the inlined
+tail. It runs once per 1024-byte window per literal.
+
+Whole-program regex-redux on the 5,000,000-line fasta input (`instructions:u`,
+two runs each, identical output):
+
+| Compiler | Run 1 | Run 2 |
+|---|---:|---:|
+| Before | 52,965,499,277 | 52,965,498,185 |
+| After | 52,033,985,123 | 52,033,977,849 |
+
+That is −1.76%. Application compilation with `PLENTY_CACHE=off` retires
+1,081,703,147 and 1,074,847,292 instructions before and 1,104,185,765 and
+1,096,070,678 after (+2.0%), mostly from the second copy of each newly
+versioned loop. Programs without such loops change by less than 1%:
+n-body 443.7M/445.4M → 446.2M/451.4M, fannkuch-redux 359.5M/360.7M →
+361.6M/363.3M.

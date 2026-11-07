@@ -68,6 +68,7 @@ fn branch_arguments(func: &Function) -> usize {
 }
 
 pub(super) struct Output {
+    pub(super) serial_stack: super::serial_stack::Budgets,
     pub module: ObjectModule,
     /// Scratch storage for building a function on the calling thread;
     /// `finalize` empties it for the next.
@@ -91,6 +92,7 @@ pub(super) struct Output {
 }
 
 struct Code {
+    stack_bytes: Option<u64>,
     alignment: u64,
     bytes: CodeBytes,
     relocs: Vec<ModuleReloc>,
@@ -150,6 +152,7 @@ impl Output {
             .per_function_section(true)
             .per_data_object_section(true);
         Ok(Self {
+            serial_stack: Default::default(),
             module: ObjectModule::new(builder),
             builder: FunctionBuilderContext::new(),
             targets,
@@ -184,6 +187,7 @@ impl Output {
         super::empty_slots::remove_empty_releases(&mut func, None);
         super::known::fold_constant_branches(&mut func);
         super::threading::thread_branches(&mut func);
+        super::extending_loads::fuse_extending_loads(&mut func);
         symbols::colocate(&self.module, &mut func);
         let mut capture = self
             .dump
@@ -210,6 +214,7 @@ impl Output {
         if let Some(cache) = &self.cache {
             cache.finish();
         }
+        self.serial_stack.define(&mut self.module)?;
         let sites = self.sites.data();
         let site_aliases = self.sites.define(&mut self.module)?;
         let traps = match self.traps {
@@ -375,6 +380,7 @@ impl Output {
             let name = symbol.strip_prefix("__plenty_fn_").unwrap_or(&symbol);
             format!("compiling `{name}`: {error}")
         })?;
+        self.serial_stack.frame(id, code.stack_bytes);
         let key = match self.fold(id, &code, requests, checks) {
             Some(Ok(into)) => {
                 return self.place_folded((id, into), code.alignment, capture, (requests, checks));
@@ -578,6 +584,7 @@ impl Worker {
         super::empty_slots::remove_empty_releases(&mut func, release);
         super::known::fold_constant_branches(&mut func);
         super::threading::thread_branches(&mut func);
+        super::extending_loads::fuse_extending_loads(&mut func);
         if self.coverage {
             super::coverage::instrument(&mut func, &mut symbols);
         }
@@ -665,11 +672,18 @@ fn compile(
                     .collect()
             };
             // Cached code was relaxed when the cache made it.
-            let (alignment, bytes, relocs, traps) = match compiled {
+            let (alignment, bytes, relocs, traps, stack_bytes) = match compiled {
                 Some(code) => {
                     let relocs = to_module(&code.relocs);
                     let traps = code.traps.clone();
-                    (code.alignment, CodeBytes::Cached(code), relocs, traps)
+                    let stack_bytes = code.stack_bytes;
+                    (
+                        code.alignment,
+                        CodeBytes::Cached(code),
+                        relocs,
+                        traps,
+                        stack_bytes,
+                    )
                 }
                 None => {
                     let buffer = &context.compiled_code().unwrap().buffer;
@@ -682,10 +696,14 @@ fn compile(
                         CodeBytes::Owned(bytes),
                         relocs,
                         super::trap_checks(buffer.traps()),
+                        buffer
+                            .frame_layout()
+                            .map(|layout| u64::from(layout.frame_to_fp_offset) + 16),
                     )
                 }
             };
             Code {
+                stack_bytes,
                 alignment,
                 bytes,
                 relocs,

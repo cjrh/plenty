@@ -80,6 +80,15 @@ loop also sees the lengths its enclosing loops never change: with
 `n = len(u)`, a `for j in range(n)` loop inside `for i in range(n)` reads
 `u[j]` and `u[i]` without checks.
 
+An index widened from a `u8` or `u16` value, as in the table lookup
+`table[i64(*byte)]`, is never negative and is at most 255 or 65,535. It needs
+no negative-index normalization, and the test before the loop compares that
+largest value with the table's length. A table with more entries than that
+value (at least 256 for a `u8` index, 65,536 for a `u16`) runs the copy
+without the check; a shorter one runs the checked copy, which reports an
+out-of-range index as before (issue #760). An `i8` or `i16` source
+may be negative and keeps its checks.
+
 ## Storage costs
 
 Scalar lists store elements at their declared widths: one byte for `bool`, `i8`

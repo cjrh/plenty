@@ -351,6 +351,7 @@ struct Module {
     slices: bool,
     /// See `Parser::mentions_bytes`.
     mentions_bytes: bool,
+    serial: HashSet<String>,
 }
 
 /// A constant initialized by `include_str("path")` or `include_bytes("path")`.
@@ -684,6 +685,23 @@ fn parse_items(
     Ok((module, parser.peek().clone()))
 }
 
+// A compiler-only namespace cannot collide with a user import or local.
+fn serial_import(module: &mut Module, at: &Token) {
+    if !module
+        .imports
+        .iter()
+        .any(|i| i.binding == serial_derive::BINDING)
+    {
+        module.imports.push(Import {
+            at: at.clone(),
+            binding_at: at.clone(),
+            module: "std.serial".into(),
+            item: None,
+            binding: serial_derive::BINDING.into(),
+        });
+    }
+}
+
 /// Parsing state for module items, shared with the items of `if const`
 /// branches.
 struct Items<'a, 's> {
@@ -704,7 +722,9 @@ impl Items<'_, '_> {
                 annotations::Annotation::ThreadSafe => token.is("extern"),
                 annotations::Annotation::ThreadMovable
                 | annotations::Annotation::ThreadShareable => token.is("opaque"),
-                annotations::Annotation::Redacted => token.is("class") || token.is("enum"),
+                annotations::Annotation::Redacted | annotations::Annotation::Serial => {
+                    token.is("class") || token.is("enum")
+                }
                 annotations::Annotation::Copy | annotations::Annotation::Newtype => {
                     token.is("class")
                 }
@@ -865,6 +885,13 @@ impl Items<'_, '_> {
                     ));
                 }
             }
+            if annotations
+                .iter()
+                .any(|(_, a)| *a == annotations::Annotation::Serial)
+            {
+                module.serial.insert(c.name.clone());
+                serial_import(module, &c.at);
+            }
             c.redacted = redacted;
             let name = c.name.clone();
             module.classes.push(c);
@@ -876,6 +903,13 @@ impl Items<'_, '_> {
             name
         } else if self.parser.peek().is("enum") {
             let mut e = self.parser.enum_decl()?;
+            if annotations
+                .iter()
+                .any(|(_, a)| *a == annotations::Annotation::Serial)
+            {
+                module.serial.insert(e.name.clone());
+                serial_import(module, &e.at);
+            }
             e.redacted = redacted;
             let name = e.name.clone();
             module.enums.push(e);
@@ -3125,6 +3159,46 @@ fn resolve(
             }
         }
         prelude_format_error(m, deps, &exports, &mut scope);
+        // Derive after imports are resolved so constructor eligibility uses
+        // expanded semantic aliases, including unit and Result error aliases.
+        if !m.serial.is_empty() {
+            let mut aliases: HashMap<String, TypeRef> = result
+                .declarations
+                .iter()
+                .map(|a| (a.name.clone(), a.target.clone()))
+                .collect();
+            for alias in &m.declarations {
+                let mut target = alias.target.clone();
+                scope.ty(&mut target)?;
+                aliases.insert(qualified(&m.name, &alias.name), target);
+            }
+            for c in &mut m.classes {
+                if !m.serial.contains(&c.name) {
+                    continue;
+                }
+                let mut owner_scope = scope.clone();
+                owner_scope
+                    .type_params
+                    .extend(c.type_params.iter().map(|(n, _)| n.clone()));
+                let mut owner_aliases = aliases.clone();
+                for (name, _) in &c.type_params {
+                    owner_aliases.remove(name);
+                }
+                let resolve = |ty: &TypeRef| {
+                    let mut ty = ty.clone();
+                    owner_scope.ty(&mut ty)?;
+                    serial_derive::expand_aliases(ty, &owner_aliases, 0)
+                };
+                let helpers = serial_derive::class(c, &resolve)?;
+                Arc::make_mut(&mut scope.declared).extend(helpers.iter().map(|f| f.name.clone()));
+                m.functions.extend(helpers);
+            }
+            for e in &mut m.enums {
+                if m.serial.contains(&e.name) {
+                    serial_derive::enumeration(e)?;
+                }
+            }
+        }
         // Resolving one function reads only the scope, so functions resolve
         // on several threads; the first error is still the first in source.
         // An editor check records what names refer to on this thread.

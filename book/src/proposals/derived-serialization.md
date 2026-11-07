@@ -1,15 +1,16 @@
 # Derived serialization for classes and enums
 
-**Status: Partially implemented.** [`std.serial`](../design/stdlib/serial.md)
-and [typed JSON codecs](../design/stdlib/json-codecs.md) provide the first
-usable handwritten-hook milestone of issue #781. The JSON adapter supports
-complete buffers and direct, owning `Json` conversion. `Decoder.allocation`
-adds the format-specific allocation-error bridge needed by built-in containers.
-`@serial` derivation, TOML codecs, byte representations, incremental typed
-reader loading, and the performance gate before derivation remain in
-[B77](../backlog.md). This page records the accepted overall design, including
-future syntax; the reference pages describe shipped behavior. Runtime
-reflection and user macros are not prerequisites.
+**Status: Implemented.** [`std.serial`](../design/stdlib/serial.md),
+[`@serial` derivation](../design/stdlib/serial-derive.md),
+[typed JSON codecs](../design/stdlib/json-codecs.md) and
+[typed TOML codecs](../design/stdlib/toml-codecs.md) deliver issue #781 / B77.
+JSON supports complete buffers, bounded incremental reader loading and direct
+owning tree conversion. TOML uses bounded owning trees. The
+[measurement record](../development/serialization-measurements.md) includes
+the pre-derivation gate and equivalent handwritten-hook comparisons. This
+proposal retains design rationale and historical probes; reference pages own
+the implemented contracts and limits. Runtime reflection and user macros are
+not required.
 
 ## Problem
 
@@ -154,6 +155,8 @@ adapter.
 
 ```text
 pub protocol Encoder[E]:
+    def reject(self, fault: Fault) -> E
+    def allocation(self, cause: AllocError) -> E
     def null(self: &mut Encoder) -> Result[(), E]
     def boolean(self: &mut Encoder, value: bool) -> Result[(), E]
     def integer(self: &mut Encoder, value: i64) -> Result[(), E]
@@ -164,9 +167,11 @@ pub protocol Encoder[E]:
     def end_array(self: &mut Encoder) -> Result[(), E]
     def start_object(self: &mut Encoder) -> Result[(), E]
     def key(self: &mut Encoder, name: &str) -> Result[(), E]
+    def field(self: &mut Encoder, name: &str) -> Result[(), E]
     def end_object(self: &mut Encoder) -> Result[(), E]
 
 pub protocol Decoder[E]:
+    def variant(self: &mut Decoder) -> Result[(str, bool), E]
     def null(self: &mut Decoder) -> Result[bool, E]       # consumes a null if next
     def boolean(self: &mut Decoder) -> Result[bool, E]
     def integer(self: &mut Decoder) -> Result[i64, E]
@@ -179,7 +184,16 @@ pub protocol Decoder[E]:
     def next_key(self: &mut Decoder) -> Result[Option[str], E]  # Nothing consumes the end
     def unknown_key(self: &mut Decoder, name: &str) -> Result[(), E]
     def reject(self: &Decoder, fault: Fault) -> E
+    def allocation(self, cause: AllocError) -> E
 ```
+
+The implementation also guards native codec call segments before entering
+their compiled frames. `Fault.StackLimit` can precede the configured format
+depth limit for wide records or small thread stacks; unavailable bounds and
+unbounded call segments fail conservatively. This closes the native-stack
+exhaustion gap that a document-depth counter alone cannot address. The
+[codec reference](../design/stdlib/serial.md#errors-and-costs) records the
+reporting-path and callback limits.
 
 The decoder is pull-based and typed: the derived code asks for the type it
 expects, so the format parses JSON number text directly into `i64`, `u64` or
@@ -201,14 +215,15 @@ option skips unknown members instead. The policy is never a per-type setting.
 | `WrongLength(i64, i64)` | A tuple or variant payload array has the wrong length |
 | `DuplicateElement` | A set element or dictionary key repeats |
 | `Unrepresentable` | Raised by an encoder for a value its format cannot hold, such as `null` in TOML |
+| `StackLimit` | A checked codec call cannot safely fit its native stack segment |
 
 Formats supply implementations in their own modules:
 
 | Format | Encoder | Decoder |
 | --- | --- | --- |
 | JSON | `json.Encoder` directly | An adapter over `json.Decoder`, fed from a buffer or through `read_event` |
-| JSON tree | A builder producing `Json` | A cursor over `&Json` |
-| TOML | A builder producing `Toml`, then the existing writer, which orders plain entries before sections | A cursor over `&Toml`, after `parse` |
+| JSON tree | A builder producing `Json` | An owning cursor over `Json` |
+| TOML | A builder producing `Toml`, then the existing writer, which orders plain entries before sections | An owning cursor over `Toml`, after `parse` |
 
 ### How types map
 
@@ -219,13 +234,13 @@ Formats supply implementations in their own modules:
 | `u8`..`u64` | unsigned; decoding checks the range | number | integer up to `i64.MAX`, else `Unrepresentable` |
 | `f32`, `f64` | decimal; an integer is accepted when decoding | number; non-finite is the encoder's existing `NonFiniteNumber` | float, including `inf` and `nan` |
 | `str` | text | string | string |
-| `Bytes`, `bytes` | text, standard base64 with padding | string | string |
+| `Bytes`; `bytes` when encoding | text, standard base64 with padding | string | string |
 | `list[T]`, `set[T]` | array | array | array, or array of tables |
 | `(A, B, ...)` | array of fixed length | array | array |
 | `dict[str, V]` | object, insertion order | object | table |
 | `Box[T]` | `T` | | |
 | Class | object, fields in declaration order | object | table |
-| `Option[T]` field | `null` when `Nothing`; absent or `null` decodes as `Nothing` | `null` | omitted |
+| `Option[T]` field | `null` when `Nothing`; absent uses its constructor default, or `Nothing`; `null` decodes as `Nothing` | `null` | omitted |
 | `Option[T]` elsewhere | `null` or `T` | `null` | `Unrepresentable` for `Nothing` |
 | Nullary variant | its name as text | `"Off"` | `"Off"` |
 | Variant with one payload | object with one key | `{"Fixed": 5}` | `{ Fixed = 5 }` |
@@ -244,11 +259,12 @@ error: `Config` cannot be decoded
   help: add `@serial` to `Server`, or write `__decode__`
 ```
 
-Recursive types through `Box`, lists or dictionaries are accepted, unlike
-automatic `==` and printing: the derived code recurses explicitly, and every
-format's `start_array` and `start_object` enforce its `max_depth` in both
-directions, so a hostile document or a deep value built by hand stops
-at the limit instead of overflowing the stack.
+Recursive types through `Box`, lists or dictionaries are accepted. Format
+boundaries enforce `max_depth` in both directions. Native caller guards can
+return `Fault.StackLimit` earlier when the compiled record shape or the
+thread's available stack cannot support another codec call. Checking both
+budgets avoids assuming that a document-depth limit alone bounds native
+stack use.
 
 Generic types derive per instance: `Page[T]` with `items: list[T]` is
 serializable exactly when `T` is, checked where it is used, with the usual
@@ -266,10 +282,14 @@ defaults, so a class without `__init__` has no other optional members.
 
 A `Nothing` field is written as `null` in JSON, so every declared member
 appears in the document. TOML has no `null`, so its encoder omits the member
-instead. Both formats decode an absent member as `Nothing`, so a document
-written by one shape reads back in either.
+instead. An absent optional member uses its constructor default, or `Nothing`
+when there is no default. If that default is `Some(...)`, omitting an explicit
+`Nothing` in TOML and reloading restores the default instead; that value cannot
+round-trip through TOML. JSON retains its explicit `null`.
 
-`Bytes` and `bytes` are written as standard base64 text with padding. This
+`Bytes` and `bytes` are written as standard base64 text with padding. Runtime
+decoding returns owning `Bytes`: static `bytes` literal storage has no runtime
+constructor. This
 suits JSON and TOML, which have no byte string; a future binary format can add
 a byte-string method to the model with a default that falls back to base64.
 
@@ -302,17 +322,20 @@ Formats add typed entry points named `dump` and `load` beside their existing
 ones. `options` carries the format's limits and the unknown-member policy:
 
 ```text
-json.dump(&value, &options) -> Result[Bytes, SerialError[JsonError]]
+json.dump(&value, &limits) -> Result[Bytes, SerialError[JsonError]]
 json.load[Config](&source, &options) -> Result[Config, SerialError[JsonError]]
-json.load_from[Config, R: Reader](&mut reader, &options)   # event-driven, bounded window
+json.load_from[Config, R: Reader](&mut codec_reader, &options)   # event-driven, bounded window
 toml.dump(&value, &options) -> Result[str, SerialError[TomlError]]
 toml.load[Config](&text, &options) -> Result[Config, SerialError[TomlError]]
 ```
 
-`json.load_from` decodes straight from events, so memory is the result plus
-the decoder's window. TOML parses to a tree first and writes from one, as its
-module already requires. The reader variant's name follows `dump`/`load`; it
-is settled when the entry points are implemented.
+`json.codec_reader(inner)` owns and exposes `inner`; `load_from` borrows that
+adapter, retaining the reader on every failure. Classes cannot store borrowed
+references, so borrowing this owning adapter implements the original
+reader-loading intent without changing the language's storage model.
+Decoding goes straight from events; memory includes the result, bounded
+window, current token and depth state. TOML parses to a tree first and writes
+from one, as its module already requires.
 
 ### Errors and field paths
 
@@ -336,8 +359,10 @@ successful encode or decode never touches the path. Field and variant names
 are string literals; a `Key` step moves the already decoded key. The implemented path is optional so a root error needs no list allocation.
 Adding a step lazily creates its list and is fallible: if memory is refused, `complete` becomes `False`
 and the cause is kept, so an out-of-memory condition never replaces the
-original error. `SerialError` displays as
-`servers[2].port: number out of range at line 7, column 12`.
+original error. Callers can reverse the collected steps to display a root-first
+path such as `servers[2].port` beside the typed format error. Automatic
+class formatting retains the structured fields rather than inventing a
+format-specific diagnostic sentence.
 
 ### Invariants and visibility
 
@@ -347,9 +372,12 @@ original error. `SerialError` displays as
   When the `__init__` parameters after `self` match the serialized fields
   exactly, by name and type, `@serial` derives `__decode__` by decoding each
   member and calling `__init__` with named arguments. A parameter with a
-  default makes its member optional; when the member is absent, the call omits
-  that argument and `__init__` applies the default. An error from `__init__`
-  propagates with the class's path. Otherwise, `@serial` derives only
+  default makes its member optional. Private generated helpers evaluate absent
+  defaults in constructor parameter order and in their original error domain,
+  then call the normal constructor with supplied values. Explicit null does
+  not invoke a default. A constructor returning `Fault` propagates through
+  `Decoder.reject` with the class's path; other constructor error domains
+  require a handwritten decoding hook to choose their mapping. Otherwise, `@serial` derives only
   `__encode__`, and the class must define `__decode__` by hand:
 
   ```text
@@ -450,8 +478,9 @@ The first deliverable is a usable codec interface with handwritten hooks, not
 automatic derivation. Establish the format-neutral contract independently of
 how hook bodies are produced. Stages 1 and 2 form that first deliverable;
 `@serial` follows only after handwritten codecs validate it. The detailed hook,
-constructor-error and default-handling contracts still need implementation
-probes against the current compiler before they are treated as proven APIs.
+constructor-error and default-handling contracts were exercised with private,
+generic, nested and worker-visible codecs and fallible defaults. The stages
+below record the delivery sequence.
 
 1. **`std.serial` in Plenty.** `Encoder`, `Decoder`, `Fault`, `Step`,
    `SerialError`, and the JSON decoder adapter. Verify that `json.Encoder`
@@ -475,8 +504,8 @@ probes against the current compiler before they are treated as proven APIs.
 4. **TOML.** Tree builder and tree cursor; `toml.dump` and `load`.
 5. **Docs.** Update reference pages, tutorial examples and guidance with each
    usable milestone; cover `std.serial`, the `json` and `toml` additions,
-   classes and enums. Once derivation lands, replace an appropriate handwritten
-   codec in the tutorial while retaining a custom-hook example.
+   classes and enums. Teach derived configuration in the tutorial and retain
+   custom-hook guidance with the fixed hook signatures in the reference.
 
 Runtime reflection and a user macro system are separate language decisions,
 not dependencies of issue #781. If compile-time reflection later has enough
