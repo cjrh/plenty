@@ -44,7 +44,7 @@ values copy; tuples containing collections move.
 
 A value that copies needs no `copy(...)?`: write `name = original` for a
 string. `plenty --check` [warns](../../design/toolchain/01-building/warnings.md#redundant-copy)
-about `copy(x)?` when the type of `x` already copies. Use `copy` for values
+about `copy(x)?` and `copy(&x)?` when the type of `x` already copies. Use `copy` for values
 that move, such as lists, when you need two independent owners.
 
 A mutable owner can receive a new value after moving its previous one.
