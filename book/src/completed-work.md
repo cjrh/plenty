@@ -38,6 +38,16 @@ claim. See the [library delivery record](completed-work/libraries.md#declared-te
 
 ## Text ownership comparison
 
+The [Text operation tables](design/facilities/01-builtins/text.md#passing-assigning-and-copying-text)
+spell out accepted and rejected argument, binding, slice, and explicit-copy
+forms, including borrow lifetimes, backing storage, and nested results.
+The function-argument table uses multiline signature/call excerpts and explains
+when borrowing avoids reference-count work. It also shows whole-string and
+substring arguments to `&substr`, including the explicit borrow needed for an
+owned binding, and explains the view interface's current operation limits.
+The binding table keeps expressions on one line, wrapping their explanations
+within the ordinary page width.
+
 The reference now compares [Plenty text with Python, Rust, and C](design/facilities/01-builtins/text-compared.md),
 including assignment costs, immutable storage, mutable construction, borrowed
 views, and Unicode indexing. The comparison tables use a wider screen layout
