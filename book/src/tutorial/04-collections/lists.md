@@ -38,11 +38,11 @@ allocation result:
 
 ```plenty
 def main() -> Result[(), AllocError | IoError]:
-    mut queue = ["b", "d"]?
-    queue.insert(0, "a")?
-    queue.insert(2, "c")?
-    queue.insert(len(queue), "e")?
-    print(queue)?
+    mut letters = ["b", "d"]?
+    letters.insert(0, "a")?
+    letters.insert(2, "c")?
+    letters.insert(len(letters), "e")?
+    print(letters)?
     Ok(())
 ```
 
@@ -51,7 +51,7 @@ def main() -> Result[(), AllocError | IoError]:
 ```
 
 An index beyond either end, such as `6` or `-6` for this five-element list, is
-a runtime error rather than a silent append.
+a runtime error; Python would instead clamp it to the nearest end.
 See [list insertion](../../design/facilities/01-builtins/lists.md#insertion)
 for the full contract.
 

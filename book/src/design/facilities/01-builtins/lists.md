@@ -133,7 +133,7 @@ before the element at `index`, so it then occupies that position; later
 elements move up one place. `index` may be any position from `0` to
 `len(items)`, where `len(items)` appends. Negative indices count from the
 end, so `-1` inserts before the last element and `-len(items)` at the front.
-Any other index traps, reporting `list.insert: index 5 is outside -2..=2`
+Any other index traps, reporting `list.insert: index 5 is out of range for length 2`
 and the calling line, before the list or its storage changes. Python instead
 clamps such an index to the nearest end; Plenty treats it as a bug in the
 caller, as it does an out-of-range read, write or `swap`.

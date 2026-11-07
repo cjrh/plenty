@@ -153,17 +153,21 @@ def main() -> Result[(), AllocError | IoError]:
         items.insert(-9223372036854775808, 0)?
     elif which == "4":
         guards.insert(2, Guard(2))?
+    elif which == "5":
+        mut empty = list[i64]()?
+        empty.insert(1, 0)?
     print(items)?
     Ok(())
 "#;
     support::assert_trap_cases(
         source,
         &[
-            "list.insert: index 3 is outside -2..=2".into(),
-            "list.insert: index -3 is outside -2..=2".into(),
-            "list.insert: index 9223372036854775807 is outside -2..=2".into(),
-            "list.insert: index -9223372036854775808 is outside -2..=2".into(),
-            "list.insert: index 2 is outside -1..=1".into(),
+            "list.insert: index 3 is out of range for length 2".into(),
+            "list.insert: index -3 is out of range for length 2".into(),
+            "list.insert: index 9223372036854775807 is out of range for length 2".into(),
+            "list.insert: index -9223372036854775808 is out of range for length 2".into(),
+            "list.insert: index 2 is out of range for length 1".into(),
+            "list.insert: index 1 is out of range for length 0".into(),
         ],
     );
 }
@@ -190,7 +194,10 @@ def main() -> Result[(), AllocError | IoError]:
     "mut items = [1].unwrap()\nitems.insert(0, \"a\").unwrap()",
     "expected i64, got str"
 )]
-#[case("mut items = {1}.unwrap()\nitems.insert(0, 0).unwrap()", "insert")]
+#[case(
+    "mut items = {1}.unwrap()\nitems.insert(0, 0).unwrap()",
+    "unsupported method `insert`"
+)]
 #[case(
     "mut items = [1].unwrap()\nloan = &items\nitems.insert(0, 0).unwrap()\nprint(loan).unwrap()",
     "borrow"

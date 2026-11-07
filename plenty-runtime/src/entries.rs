@@ -141,6 +141,21 @@ impl Words {
         };
         self.len += bytes.len();
     }
+    /// Move bytes `at..` up by `width` with one `memmove` and zero the
+    /// opened gap. Unlike `resize` followed by `copy_within`, the new tail is
+    /// written once, by the move.
+    fn open_gap(&mut self, at: usize, width: usize) {
+        assert!(at <= self.len && width <= self.capacity - self.len);
+        // SAFETY: both ranges lie in the owned allocation, `copy_to` permits
+        // overlap, and zeroing the gap initializes every byte below the new
+        // length.
+        unsafe {
+            let gap = self.ptr.as_ptr().cast::<u8>().add(at);
+            gap.copy_to(gap.add(width), self.len - at);
+            gap.write_bytes(0, width);
+        }
+        self.len += width;
+    }
     fn resize(&mut self, len: usize, value: u8) {
         assert!(len <= self.capacity);
         if len > self.len {
@@ -600,11 +615,7 @@ impl Entries {
         // Extraction scratch is dead at this mutation, as for `push`.
         self.data.truncate(len * self.stride);
         self.removed = false;
-        self.data.resize(self.data.len() + self.stride, 0);
-        let start = index * self.stride;
-        self.data
-            .copy_within(start..len * self.stride, start + self.stride);
-        self.data[start..start + self.stride].fill(0);
+        self.data.open_gap(index * self.stride, self.stride);
         self.relocate(index + 1);
         unsafe {
             self.set(index, false, entry.key);

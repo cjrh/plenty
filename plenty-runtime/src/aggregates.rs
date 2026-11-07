@@ -882,7 +882,7 @@ pub(crate) fn insertion_index(index: i64, len: usize, site: *const crate::Site) 
         crate::fail_kind_at(
             crate::actor_heap::TrapKind::Index,
             site,
-            format_args!("list.insert: index {index} is outside -{len}..={len}"),
+            format_args!("list.insert: index {index} is out of range for length {len}"),
         )
     }
 }
