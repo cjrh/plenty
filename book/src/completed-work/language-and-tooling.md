@@ -905,6 +905,10 @@ strings (issue #22), allocation-free unstable `sort_by_key`/fallible `sorted`
 (issue #64) and tuple relations/heap ordering (issue #111) shipped. Runtime
 introsort with heapsort fallback uses generated native key comparators and
 cached tuple field offsets (issue #331).
+`sort_stable_by_key` keeps equal keys in input order with a merge sort whose
+`floor(n/2)`-row workspace is reserved before any move, returning
+`AllocError` with the list unchanged; ordered input allocates nothing
+(issue #806).
 See [lists](../design/facilities/01-builtins/lists.md).
 Additional ordering contracts stay **B37** in the [backlog](../backlog.md).
 

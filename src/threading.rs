@@ -518,6 +518,16 @@ pub fn mutexes(roots: impl IntoIterator<Item = Ty>) -> Vec<Ty> {
     found
 }
 
+/// A value handed to a call that the call can wait on: a future, or a pool
+/// it owns or borrows, which the call can shut down.
+pub fn handed_wait(ty: &Ty) -> bool {
+    match ty {
+        Ty::Ref(inner, _) => handed_wait(inner),
+        Ty::Future(_) => true,
+        _ => owns_executor(ty),
+    }
+}
+
 /// A value of `ty` owns a pool, so its drop drains accepted work and joins the
 /// workers. A reference leaves that to the pool's owner.
 #[expect(

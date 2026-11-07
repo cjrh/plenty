@@ -467,6 +467,8 @@ mod test_shared_exits;
 mod test_short_circuit_branches;
 #[path = "test_slicing.rs"]
 mod test_slicing;
+#[path = "test_stable_sorting.rs"]
+mod test_stable_sorting;
 
 #[path = "test_slice_syntax.rs"]
 mod test_slice_syntax;

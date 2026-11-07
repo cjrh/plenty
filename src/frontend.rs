@@ -1793,7 +1793,7 @@ impl Lower<'_> {
         {
             return ty;
         }
-        if matches!(name.as_str(), "sort" | "sort_by_key")
+        if matches!(name.as_str(), "sort" | "sort_by_key" | "sort_stable_by_key")
             && let Some(named) = args.iter().find(
                 |arg| matches!(&arg.kind, Expression::NamedArgument(label, _) if label == "reverse"),
             )
@@ -1803,9 +1803,9 @@ impl Lower<'_> {
             })
         {
             return Err(named.at.error(if name == "sort" {
-                "`sort` takes the descending flag positionally: `items.sort(True)`"
+                "`sort` takes the descending flag positionally: `items.sort(True)`".to_owned()
             } else {
-                "`sort_by_key` takes the descending flag positionally: `items.sort_by_key(key, True)`"
+                format!("`{name}` takes the descending flag positionally: `items.{name}(key, True)`")
             }));
         }
         ide::enter_method(*pos, name);
@@ -2859,7 +2859,9 @@ impl Lower<'_> {
     /// future inside an aggregate is not named; an aggregate owning a pool is
     /// named only when the callee takes a pool (issue #855). The checker
     /// applies the waits, shutdowns and submissions the callee can reach to
-    /// them.
+    /// them. Slots owning a receiver that the arguments move are named too:
+    /// the callee's own checks see that receiver, so the caller's check of a
+    /// shutdown inside the call does not count it (issue #860).
     /// Goes before the call and its lifetime fact.
     pub(super) fn passes(
         &self,
@@ -2879,36 +2881,51 @@ impl Lower<'_> {
                 _ => false,
             }
         }
-        fn slots(ops: &[Op], out: &mut Vec<u8>) {
+        /// The slots `ops` move, or with `all` also load or borrow.
+        fn slots(ops: &[Op], all: bool, out: &mut Vec<u8>) {
             for op in ops {
                 match op {
-                    Op::MoveLocal(slot) | Op::LoadLocal(slot) | Op::BorrowLocal(slot, _)
-                        if !out.contains(slot) =>
+                    Op::MoveLocal(slot) if !out.contains(slot) => out.push(*slot),
+                    Op::LoadLocal(slot) | Op::BorrowLocal(slot, _)
+                        if all && !out.contains(slot) =>
                     {
                         out.push(*slot)
                     }
-                    Op::Match(arms) => arms.iter().for_each(|arm| slots(&arm.body, out)),
+                    Op::Match(arms) => arms.iter().for_each(|arm| slots(&arm.body, all, out)),
                     Op::If {
                         then,
                         elifs,
                         otherwise,
                     } => {
-                        slots(then, out);
+                        slots(then, all, out);
                         for arm in elifs.iter() {
-                            slots(&arm.condition, out);
-                            slots(&arm.body, out);
+                            slots(&arm.condition, all, out);
+                            slots(&arm.body, all, out);
                         }
-                        slots(otherwise, out);
+                        slots(otherwise, all, out);
                     }
                     _ => {}
                 }
             }
         }
+        // A value that also owns a pool stays a pool for the checker.
+        let receiver = |slot: u8| {
+            self.slot_type(slot).is_some_and(|(ty, _)| {
+                !crate::threading::owns_executor(ty)
+                    && !crate::threading::endpoints([ty.clone()], false, false).is_empty()
+            })
+        };
+        let mut moved = Vec::new();
+        slots(&ops[start..], false, &mut moved);
+        moved.retain(|&slot| receiver(slot));
         if !inputs.iter().any(|(_, ty)| handed(ty)) {
+            if !moved.is_empty() {
+                ops.push(Op::Passes(moved.into()));
+            }
             return;
         }
         let mut handed_slots = Vec::new();
-        slots(&ops[start..], &mut handed_slots);
+        slots(&ops[start..], true, &mut handed_slots);
         // A pool argument may be borrowed from a field, as in `&holder.pool`;
         // the holder then shuts the pool down (issue #855). Calls handed a
         // pool are rare, so searching an aggregate here stays cheap.
@@ -2921,8 +2938,10 @@ impl Lower<'_> {
         }
         let pools = inputs.iter().any(|(_, ty)| pool(ty));
         handed_slots.retain(|&slot| {
-            self.slot_type(slot)
-                .is_some_and(|(ty, _)| handed(ty) || pools && crate::threading::owns_executor(ty))
+            moved.contains(&slot)
+                || self.slot_type(slot).is_some_and(|(ty, _)| {
+                    handed(ty) || pools && crate::threading::owns_executor(ty)
+                })
         });
         if !handed_slots.is_empty() {
             ops.push(Op::Passes(handed_slots.into()));
@@ -3274,8 +3293,12 @@ impl Lower<'_> {
         };
         ops.iter().any(|op| match op {
             Op::Executor(ExecutorOp::Result(_) | ExecutorOp::Shutdown)
-            | Op::Thread(ThreadOp::Join(_) | ThreadOp::Finish(..))
-            | Op::Passes(_) => true,
+            | Op::Thread(ThreadOp::Join(_) | ThreadOp::Finish(..)) => true,
+            // A call handed only receivers waits for nothing it is handed.
+            Op::Passes(slots) => slots.iter().any(|slot| {
+                self.slot_type(*slot)
+                    .is_some_and(|(ty, _)| crate::threading::handed_wait(ty))
+            }),
             Op::MoveLocal(slot) | Op::StoreLocal(slot) | Op::DropLocal(slot) => executor(slot),
             Op::Match(arms) => arms.iter().any(|arm| self.waits(&arm.body)),
             Op::If {
