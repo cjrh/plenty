@@ -482,3 +482,113 @@ def main() -> Result[(), IoError]:
         "[std.serial.Step.Index(1), std.serial.Step.Variant(\"Pair\"), std.serial.Step.Index(0)]\n[std.serial.Step.Variant(\"Value\")]\n",
     );
 }
+
+#[test]
+fn constructor_const_arguments_compare_resolved_values() {
+    support::assert_stdout(
+        r#"
+import std.json
+const maximum: i64 = 4 * 4
+@serial
+class Tag[const N: i64]:
+    pass
+@serial
+class Holder:
+    value: Tag[maximum]
+    def __init__(self, value: Tag[16]) -> ():
+        self.value = value
+
+def main() -> Result[(), IoError]:
+    value = std.json.load[Holder](b"{\"value\":{}}", &std.json.codec_options()).unwrap()
+    print(std.json.dump(&value, &std.json.limits()).unwrap().to_text().unwrap())?
+    Ok(())
+"#,
+        "{\"value\":{}}\n",
+    );
+}
+
+#[test]
+fn recursive_enum_multi_payload_moves_affine_owners() {
+    support::assert_stdout(
+        r#"
+import std.json
+@serial
+enum Node[T]:
+    Empty
+    Pair(T, Box[Node[T]])
+
+def main() -> Result[(), IoError]:
+    options = std.json.codec_options()
+    value = std.json.load[Node[list[str]]](b"{\"Pair\":[[\"owned string\"],{\"Pair\":[[],\"Empty\"]}]}", &options).unwrap()
+    tree = std.json.to_value(&value, &std.json.tree_limits()).unwrap()
+    restored = std.json.from_value[Node[list[str]]](tree, &std.json.tree_limits()).unwrap()
+    print(std.json.dump(&restored, &std.json.limits()).unwrap().to_text().unwrap())?
+    Ok(())
+"#,
+        "{\"Pair\":[[\"owned string\"],{\"Pair\":[[],\"Empty\"]}]}\n",
+    );
+}
+
+#[test]
+fn unsupported_field_diagnostic_names_the_offending_field() {
+    let source = r#"
+import std.json
+@serial
+class Config:
+    secret: Result[i64, AllocError]
+def main() -> ():
+    drop(std.json.dump(&Config(Ok(1)), &std.json.limits()))
+"#;
+    let error = support::check_error(source);
+    assert!(error.contains("Config.secret"), "{error}");
+    let error = support::check_error(
+        r#"
+import std.json
+@serial
+class Config:
+    secret: Result[i64, AllocError]
+def main() -> ():
+    drop(std.json.load[Config](b"{}", &std.json.codec_options()))
+"#,
+    );
+    assert!(error.contains("Config.secret"), "{error}");
+}
+
+#[test]
+fn imported_constant_constructor_arguments_use_actual_type_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("model.plenty"),
+        r#"
+pub const maximum: i64 = 4 * 4
+@serial
+pub class Tag[const N: i64]:
+    pass
+"#,
+    )
+    .unwrap();
+    let executable = support::compile_file(
+        dir.path(),
+        r#"
+import std.json
+from model import Tag, maximum as limit
+@serial
+class Holder:
+    value: Tag[limit]
+    def __init__(self, value: Tag[16]) -> ():
+        self.value = value
+
+def main() -> Result[(), IoError]:
+    value=std.json.load[Holder](b"{\"value\":{}}", &std.json.codec_options()).unwrap()
+    print(std.json.dump(&value, &std.json.limits()).unwrap().to_text().unwrap())?
+    Ok(())
+"#,
+    );
+    let output = std::process::Command::new(executable).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout, b"{\"value\":{}}\n");
+}

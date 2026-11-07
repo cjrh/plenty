@@ -126,14 +126,13 @@ pub(super) fn class(
             writeln!(source,"    SER.at(SER.encode[FieldType{i}, ErrType, Adapter](&self.field{i}, out), SER.Step.Field({name:?}))?").unwrap();
         }
         source.push_str("    SER.wrap(out.end_object())\n");
-        c.methods.push(hook(
-            &source,
-            &c.name,
-            &c.type_params,
-            &c.at,
-            &names,
-            &types,
-        )?);
+        let mut generated = hook(&source, &c.name, &c.type_params, &c.at, &names, &types)?;
+        for (i, (_, ty)) in c.fields.iter().enumerate() {
+            stamp_statement(&mut generated.body[1 + 2 * i], &ty.at);
+            stamp_statement(&mut generated.body[2 + 2 * i], &ty.at);
+        }
+        c.derived_encode = true;
+        c.methods.push(generated);
     }
     if c.methods.iter().any(|f| f.name == "__decode__") {
         return Ok(vec![]);
@@ -148,12 +147,6 @@ pub(super) fn class(
             let Some(i) = c.fields.iter().position(|(field, _)| field == name) else {
                 return Ok(vec![]);
             };
-            if !same_type(
-                &resolve(&c.fields[i].1)?,
-                &resolve(&init.inputs[order.len() + 1].1)?,
-            ) {
-                return Ok(vec![]);
-            }
             order.push(i);
         }
         order
@@ -284,14 +277,23 @@ pub(super) fn class(
     } else {
         writeln!(source, "    Ok({ctor})").unwrap();
     }
-    c.methods.push(hook(
-        &source,
-        &c.name,
-        &c.type_params,
-        &c.at,
-        &names,
-        &types,
-    )?);
+    c.derived_decode = true;
+    let mut generated = hook(&source, &c.name, &c.type_params, &c.at, &names, &types)?;
+    if !c.fields.is_empty() {
+        let Statement::While { body, .. } = &mut generated.body[2].kind else {
+            unreachable!()
+        };
+        let Statement::Match { cases, .. } = &mut body[0].kind else {
+            unreachable!()
+        };
+        let Statement::Match { cases, .. } = &mut cases[0].body[0].kind else {
+            unreachable!()
+        };
+        for (case, (_, ty)) in cases.iter_mut().zip(&c.fields) {
+            stamp_statement(&mut case.body[0], &ty.at);
+        }
+    }
+    c.methods.push(generated);
     Ok(helpers)
 }
 
@@ -422,10 +424,14 @@ pub(super) fn enumeration(e: &mut enums::EnumDecl) -> Result<()> {
         let args = if fields.len() == 1 {
             "value".into()
         } else {
-            (0..fields.len())
-                .map(|i| format!("value[{i}]"))
-                .collect::<Vec<_>>()
-                .join(",")
+            let locals = (0..fields.len())
+                .map(|i| format!("decoded{v}item{i}"))
+                .collect::<Vec<_>>();
+            for local in &locals {
+                names.push((local.clone(), format!("${local}")));
+            }
+            writeln!(source, "            {} = value", locals.join(",")).unwrap();
+            locals.join(",")
         };
         writeln!(source, "            Ok({owner}.variant{v}({args}))").unwrap();
     }
@@ -441,41 +447,39 @@ pub(super) fn enumeration(e: &mut enums::EnumDecl) -> Result<()> {
     Ok(())
 }
 
-/// Compare expanded declaration types, ignoring source position and std-only
-/// parameter ceilings, which do not change the stored type.
-fn same_type(a: &TypeRef, b: &TypeRef) -> bool {
-    if a.name != b.name || a.concrete != b.concrete || a.args.len() != b.args.len() {
-        return false;
+/// Constructor eligibility is semantic, after constants and generic nominal
+/// identities have been resolved. Declaration AST spelling is not type identity.
+pub(super) fn constructor_matches(ty: &Ty, aliases: &TypeAliases) -> Result<bool> {
+    let Ty::Class(class) = ty else {
+        return Ok(true);
+    };
+    let Some((declaration, arguments)) = aliases.data.origin_class(ty) else {
+        return Ok(true);
+    };
+    if !declaration.derived_decode {
+        return Ok(true);
     }
-    match (a.value_expression(), b.value_expression()) {
-        (None, None) => (),
-        (Some(a), Some(b)) => match (&a.kind, &b.kind) {
-            (Expression::Number(a), Expression::Number(b))
-            | (Expression::Text(a), Expression::Text(b))
-            | (Expression::Name(a), Expression::Name(b))
-                if a == b => {}
-            (Expression::Bool(a), Expression::Bool(b)) if a == b => (),
-            _ => return false,
-        },
-        _ => return false,
-    }
-    if a.name.as_deref() == Some("|") {
-        let mut matched = vec![false; b.args.len()];
-        for arg in &a.args {
-            let Some(i) = b
-                .args
-                .iter()
-                .enumerate()
-                .position(|(i, other)| !matched[i] && same_type(arg, other))
-            else {
-                return false;
-            };
-            matched[i] = true;
+    let Some(init) = declaration.methods.iter().find(|f| f.name == "__init__") else {
+        return Ok(true);
+    };
+    let substitutions = declaration
+        .type_params
+        .iter()
+        .map(|(name, _)| name.clone())
+        .zip(arguments.iter().map(|t| t.reference(&init.at)))
+        .collect();
+    let definition = class.get();
+    for (name, written) in init.inputs.iter().skip(1) {
+        let Some((_, field)) = definition.fields.iter().find(|(n, _)| n == name) else {
+            return Ok(false);
+        };
+        let mut parameter = written.clone();
+        generics::substitute(&mut parameter, &substitutions)?;
+        if parameter.resolve(aliases)?.as_ref() != Some(field) {
+            return Ok(false);
         }
-        true
-    } else {
-        a.args.iter().zip(&b.args).all(|(a, b)| same_type(a, b))
     }
+    Ok(true)
 }
 
 pub(super) fn expand_aliases(
@@ -495,4 +499,45 @@ pub(super) fn expand_aliases(
         *arg = expand_aliases(arg.clone(), aliases, depth + 1)?;
     }
     Ok(ty)
+}
+
+// Generated field operations retain their original declaration span. Besides
+// useful source positions, generic diagnostics can name the offending field.
+fn stamp_statement(statement: &mut Stmt, at: &Token) {
+    statement.at = at.clone();
+    if let Statement::Expr(expr) = &mut statement.kind {
+        stamp_expr(expr, at);
+    }
+}
+fn stamp_expr(expr: &mut Expr, at: &Token) {
+    expr.at = at.clone();
+    match &mut expr.kind {
+        Expression::Call(_, args)
+        | Expression::GenericCall(_, _, args)
+        | Expression::Constructor(_, args) => {
+            for arg in args {
+                stamp_expr(arg, at);
+            }
+        }
+        Expression::Method(base, _, args, _) => {
+            stamp_expr(base, at);
+            for arg in args {
+                stamp_expr(arg, at);
+            }
+        }
+        Expression::Try(base) | Expression::Unary(_, base) | Expression::Member(base, _, _) => {
+            stamp_expr(base, at)
+        }
+        Expression::Index(base, index) => {
+            stamp_expr(base, at);
+            stamp_expr(index, at);
+        }
+        Expression::Ambiguous { generic, index } => {
+            stamp_expr(generic, at);
+            if let Ok(index) = index {
+                stamp_expr(index, at);
+            }
+        }
+        _ => (),
+    }
 }

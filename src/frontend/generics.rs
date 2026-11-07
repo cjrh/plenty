@@ -1735,12 +1735,20 @@ impl Engine {
                 if !self
                     .templates
                     .contains_key(&crate::record::method(owner, hook))
+                    || (name.ends_with("decode")
+                        && !serial_derive::constructor_matches(ty, aliases)?)
                 {
                     return Err(at.error(format!("{ty} has no {hook} serialization hook; use @serial, or write a private {hook}; automatic decoding requires initializer fields/types to match exactly and return () or Result[(), std.serial.Fault]; preserve constructor invariants in custom decoding")));
                 }
             }
         }
-        let generated = serial::expand(name, actual, template, &mut replacements, at)?;
+        let generated =
+            serial::expand(name, actual, template, &mut replacements, at).map_err(|error| {
+                match aliases.data.serial_field(at) {
+                    Some(field) => at.error(format!("field `{field}`: {error}")),
+                    None => error,
+                }
+            })?;
         let template = generated.as_ref().unwrap_or(template);
         let mut demanded = Vec::new();
         for ((_, bound), argument) in template.type_params.iter().zip(actual) {
@@ -1855,7 +1863,10 @@ impl Engine {
         for default in f.defaults.iter_mut().flatten() {
             substitute_expr(default, &replacements)?;
         }
-        let display = instance_name(name, actual);
+        let mut display = instance_name(name, actual);
+        if let Some(field) = aliases.data.serial_field(at) {
+            display = format!("field `{field}` in {display}");
+        }
         key.0 = match id {
             Some(id) => id,
             None => {

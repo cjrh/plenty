@@ -18,6 +18,9 @@ pub(super) struct ClassDecl {
     pub(super) newtype: Option<Token>,
     /// Declared `@redacted`: automatic formatting writes `Name(@redacted)`.
     pub(super) redacted: bool,
+    /// A generated decode hook must satisfy exact constructor types at specialization.
+    pub(super) derived_decode: bool,
+    pub(super) derived_encode: bool,
 }
 
 impl ClassDecl {
@@ -39,6 +42,8 @@ impl ClassDecl {
             copy: self.copy.clone(),
             newtype: self.newtype.clone(),
             redacted: self.redacted,
+            derived_decode: self.derived_decode,
+            derived_encode: self.derived_encode,
         }
     }
 }
@@ -136,6 +141,8 @@ impl Parser {
             copy: None,
             newtype: None,
             redacted: false,
+            derived_decode: false,
+            derived_encode: false,
         })
     }
 }

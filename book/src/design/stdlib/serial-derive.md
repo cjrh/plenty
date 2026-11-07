@@ -42,7 +42,7 @@ class fields because it has no null value. This omission applies to class fields
 it does not silently remove dictionary entries or array elements.
 
 A class without `__init__` uses its normal generated field constructor. An
-explicit initializer must accept exactly the fields by name and compatible type
+explicit initializer must accept exactly the fields by name and the same semantic type
 for automatic decoding. The generated hook calls the real initializer, with
 named arguments in its parameter declaration order, so validation is preserved.
 An initializer whose parameter names do not match the fields receives only an
