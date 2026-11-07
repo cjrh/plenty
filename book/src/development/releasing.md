@@ -148,6 +148,16 @@ symbol audits and glibc 2.28 execution evidence for both Linux architectures.
 | Smoke test (experimental) | On a fresh runner of the same kind, with Rust, Cargo and `PLENTY*` variables removed from the environment: checks the archive, then type-checks, compiles and runs a program from paths with spaces, before and after moving the installation (`smoke-native.py`) |
 | Publish | Tag pushes only. Creates a draft release with every target's archives and checksums, then publishes it (`publish.sh`) |
 
+The separate [native OS qualification workflow](ci-workflow.md#native-os-qualification)
+prepares the compiler and dataframe engine concurrently, then packages their
+artifacts on a fresh runner. `build-native.sh --out-dir DIR --test --phase prepare`
+only builds/tests the pinned compiler. `--phase package --engine-dir DIR`
+packages the prepared compiler binaries from `CARGO_TARGET_DIR/release/` with
+previously validated engines from that directory, retaining all packaging
+audits. Package mode requires `--engine-dir` and rejects `--test`; the caller
+must ensure both preparations succeeded. Omitting `--phase` keeps the complete
+local build, engine validation and packaging flow used by the release workflow.
+
 Native Ubuntu test runners and the x86-64 baseline build install the
 SHA-256-verified mold version pinned in `scripts/release/toolchain.env`, without
 requiring root. They check a linked program's `.comment` section before running
