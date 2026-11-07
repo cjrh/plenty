@@ -47,6 +47,25 @@ only to the [backlog](../backlog.md).
   (issues #18–#21). Layout and runtime constraints still follow the
   [reference](../design/toolchain/02-architecture/values.md), not these snapshots.
 
+### Byte method access (issue #741)
+
+`Bytes.get` and `Bytes.set` use narrow native helpers rather than the wide
+collection dispatcher. The helpers share the dispatcher's strict index checks;
+negative indices remain invalid for these methods. Slot/field receivers remain
+borrowed through the call, while owned temporaries retain their normal cleanup.
+The earlier ownership-copy and shared-inlining changes (issues #744 and #770)
+already removed the original retain/release pairs and out-of-line Plenty method
+calls. This change removes the remaining per-access argument/result scratch
+blocks without changing public signatures or diagnostics.
+
+The byte kernels (`experiments/kernels/bytes/README.md`) record the
+scalar C comparison, optimized CLIF variants, instruction attribution and
+whole-program/compilation measurements. The optimized caller kernel fell from
+62 to 38 instructions per byte; the quick reverse-complement input used 25.3%
+fewer instructions with identical
+output. Caller-site bookkeeping, repeated checks and unused owner-word loads
+remain (issues #842–#844); the result is not a claim of C-equivalent code.
+
 ### k-nucleotide counting-loop investigation (issue #743)
 
 The original issue was split into issues #744–#750, with follow-ups #755,

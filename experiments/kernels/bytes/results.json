@@ -1,0 +1,55 @@
+{
+  "runtime-before": [
+    5537861065,
+    5537861035,
+    5537861161
+  ],
+  "runtime-after": [
+    4134110522,
+    4134110350,
+    4134110442
+  ],
+  "compile-before": [
+    122409032663,
+    122418632728,
+    122394668272
+  ],
+  "compile-after": [
+    122391590164,
+    122408799557,
+    122417389282
+  ],
+  "compile-revcomp-before": [
+    168628519,
+    171564059,
+    171734437
+  ],
+  "compile-revcomp-after": [
+    168689317,
+    163561448,
+    168258046
+  ],
+  "compile-fannkuch-before": [
+    355431877,
+    357241000,
+    352159565
+  ],
+  "compile-fannkuch-after": [
+    357222715,
+    352836528,
+    352063024
+  ],
+  "baseline": "2ba554c3baf973512ed0495f6c43fac9e45d8076",
+  "reference_instructions": [
+    362148217,
+    362148280
+  ],
+  "machine": "AMD Ryzen 7 7840HS; x86_64 Linux; physical core 0 for runtime reruns",
+  "units": "perf instructions:u; PLENTY_CACHE=off",
+  "kernel_caller_instructions": {
+    "c_scalar": 4,
+    "baseline": 62,
+    "register_clif_variant": 38,
+    "after": 38
+  }
+}

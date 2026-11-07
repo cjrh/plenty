@@ -163,6 +163,8 @@ are recorded there.
   code size and compilation/link latency. Revisit match density/size policies
   only with application/CPU evidence. An opt-in CPU target such as x86-64-v2
   requires a decision against B17's fixed-baseline reproducibility contract.
+  Strict byte-method dispatcher removal (issue #741) is recorded in the
+  [byte-access delivery record](completed-work/performance.md#byte-method-access-issue-741).
 - **Layout/cleanup:** natural record-field packing beyond 16-byte slots, compact
   sum tags/niches, relocation/release plans for records holding ranges/sums/other
   managed fields, records over 192 bytes and tuple release plans. Measure inline
