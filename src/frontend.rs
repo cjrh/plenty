@@ -66,6 +66,7 @@ mod provenance;
 mod quantities;
 mod references;
 mod retention;
+mod serial;
 mod shared;
 mod slices;
 mod sorting;

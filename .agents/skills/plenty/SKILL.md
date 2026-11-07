@@ -49,6 +49,19 @@ Use a package (`plenty new NAME`) for several executables or tests. Single-file
 utilities can declare path/Git dependencies in an optional script header.
 See [workflow and packages](references/workflow.md).
 
+## Typed serialization
+
+Use `std.json.load[T]` and `dump` for built-in typed JSON values, or
+`to_value`/`from_value` for direct tree conversion. `from_value` owns the input
+`Json`. Classes and enums require private `__encode__` and receiver-less
+`__decode__` hooks with the fixed `std.serial` signatures; `@serial` derivation
+is not implemented. Preserve constructor invariants and use field slots to
+handle missing/default/duplicate fields. Read the
+[codec contract](../../../book/src/design/stdlib/serial.md) and
+[JSON limits and options](../../../book/src/design/stdlib/json-codecs.md)
+before writing hooks. Typed failures carry `SerialError[JsonError]` with an
+innermost-first path; unwrap intentionally or propagate that complete type.
+
 ## Rules that prevent most errors
 
 - `main` returns `()`, `i32`, `Result[(), E]`, or `Result[i32, E]`. Use

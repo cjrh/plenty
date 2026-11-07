@@ -167,3 +167,32 @@ writer; call it between events to keep the buffer small.
 
 The [`std.json` reference](../../design/stdlib/json.md) lists every fault,
 limit, and cost.
+
+## Decode typed values
+
+For supported built-in values, request the type directly. The codec checks
+integer widths and array structure, so application code can use the result
+without walking a `Json` tree.
+
+```plenty
+import std.json
+from std.json import JsonError
+from std.serial import SerialError
+
+def main() -> Result[(), IoError | SerialError[JsonError]]:
+    options = std.json.codec_options()
+    ports = std.json.load[list[u16]](b"[80,443,8080]", &options)?
+    for port in &ports:
+        print(port)?
+    Ok(())
+```
+```output
+80
+443
+8080
+```
+
+An out-of-range port returns a typed error carrying its array index. Classes
+and enums currently require handwritten hooks; automatic derivation is not
+implemented. See [typed JSON codecs](../../design/stdlib/json-codecs.md) for
+buffer encoding, direct tree conversion, unknown-field policy and limits.

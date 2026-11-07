@@ -61,7 +61,7 @@ fn unary(op: &str) -> Option<&'static str> {
 fn known_hook(name: &str) -> bool {
     matches!(
         name,
-        "__init__" | "__del__" | "__new__" | "__enter__" | "__exit__"
+        "__init__" | "__del__" | "__new__" | "__enter__" | "__exit__" | "__encode__" | "__decode__"
     ) || ["+", "-", "~"]
         .into_iter()
         .any(|op| unary(op) == Some(name))

@@ -5,6 +5,7 @@
 import std.bytes
 import std.error
 import std.io
+import std.serial
 from std.bytes import Bytes, BytesError
 from std.io import Reader, Writer, StreamError
 
@@ -27,6 +28,7 @@ pub enum JsonFault:
     InvalidState
     Stream(StreamError)
     Allocation(AllocError)
+    Serialization(std.serial.Fault)
 
 # Decoder errors locate the offending input byte: `offset` counts bytes from
 # zero, `line` and `column` count from one, and a column is one Unicode scalar.
@@ -1362,3 +1364,497 @@ pub def write_value[W: Writer](writer: &mut W, value: &Json, bounds: &Limits) ->
     target.value(value)?
     complete(&target)?
     write_pending(&mut target, writer)
+
+# Typed codecs keep the parser's number text until a requested width is known.
+# One lookahead event is enough for nullable values and container iteration.
+pub class CodecOptions:
+    pub limits: Limits
+    pub unknown_fields: std.serial.UnknownFields
+
+pub def codec_options() -> CodecOptions:
+    CodecOptions(limits(), std.serial.UnknownFields.Reject)
+
+pub class CodecDecoder:
+    _source: Decoder
+    _ahead: Option[Event]
+    _unknown: std.serial.UnknownFields
+
+    pub def reject(self, fault: std.serial.Fault) -> JsonError:
+        self._source.reject(JsonFault.Serialization(fault))
+
+    pub def allocation(self, cause: AllocError) -> JsonError:
+        self._source.reject(JsonFault.Allocation(cause))
+
+    def take(self: &mut CodecDecoder) -> Result[Event, JsonError]:
+        match replace(self._ahead, Nothing):
+            case Some(event):
+                Ok(event)
+            case Nothing:
+                self._source.next()
+
+    pub def null(self: &mut CodecDecoder) -> Result[bool, JsonError]:
+        event = self.take()?
+        match event:
+            case Event.Null:
+                Ok(True)
+            case _:
+                self._ahead = Some(event)
+                Ok(False)
+
+    pub def boolean(self: &mut CodecDecoder) -> Result[bool, JsonError]:
+        match self.take()?:
+            case Event.Bool(value):
+                Ok(value)
+            case _:
+                Err(self.reject(std.serial.Fault.UnexpectedKind))
+
+    pub def integer(self: &mut CodecDecoder) -> Result[i64, JsonError]:
+        match self.take()?:
+            case Event.Number(text):
+                match i64.parse(&text):
+                    case Ok(value):
+                        Ok(value)
+                    case Err(_):
+                        Err(self.reject(std.serial.Fault.OutOfRange))
+            case _:
+                Err(self.reject(std.serial.Fault.UnexpectedKind))
+
+    pub def unsigned(self: &mut CodecDecoder) -> Result[u64, JsonError]:
+        match self.take()?:
+            case Event.Number(text):
+                match u64.parse(&text):
+                    case Ok(value):
+                        Ok(value)
+                    case Err(_):
+                        Err(self.reject(std.serial.Fault.OutOfRange))
+            case _:
+                Err(self.reject(std.serial.Fault.UnexpectedKind))
+
+    pub def decimal(self: &mut CodecDecoder) -> Result[f64, JsonError]:
+        match self.take()?:
+            case Event.Number(text):
+                match f64.parse(&text):
+                    case Ok(value):
+                        if value != value or value == f64.INF or value == -f64.INF:
+                            return Err(self.reject(std.serial.Fault.OutOfRange))
+                        Ok(value)
+                    case Err(_):
+                        Err(self.reject(std.serial.Fault.OutOfRange))
+            case _:
+                Err(self.reject(std.serial.Fault.UnexpectedKind))
+
+    pub def text(self: &mut CodecDecoder) -> Result[str, JsonError]:
+        match self.take()?:
+            case Event.Text(value):
+                Ok(value)
+            case _:
+                Err(self.reject(std.serial.Fault.UnexpectedKind))
+
+    pub def start_array(self: &mut CodecDecoder) -> Result[(), JsonError]:
+        match self.take()?:
+            case Event.StartArray:
+                Ok(())
+            case _:
+                Err(self.reject(std.serial.Fault.UnexpectedKind))
+
+    pub def next_element(self: &mut CodecDecoder) -> Result[bool, JsonError]:
+        event = self.take()?
+        match event:
+            case Event.EndArray:
+                Ok(False)
+            case _:
+                self._ahead = Some(event)
+                Ok(True)
+
+    pub def start_object(self: &mut CodecDecoder) -> Result[(), JsonError]:
+        match self.take()?:
+            case Event.StartObject:
+                Ok(())
+            case _:
+                Err(self.reject(std.serial.Fault.UnexpectedKind))
+
+    pub def next_key(self: &mut CodecDecoder) -> Result[Option[str], JsonError]:
+        match self.take()?:
+            case Event.Key(name):
+                Ok(Some(name))
+            case Event.EndObject:
+                Ok(Nothing)
+            case _:
+                Err(self.reject(std.serial.Fault.UnexpectedKind))
+
+    pub def unknown_key(self: &mut CodecDecoder, name: &str) -> Result[(), JsonError]:
+        if self._unknown == std.serial.UnknownFields.Reject:
+            return Err(self.reject(std.serial.Fault.UnknownField(*name)))
+        mut depth = 0
+        while True:
+            match self.take()?:
+                case Event.StartArray | Event.StartObject:
+                    unchecked:
+                        depth += 1
+                case Event.EndArray | Event.EndObject:
+                    if depth == 0:
+                        return Err(self.reject(std.serial.Fault.UnexpectedKind))
+                    unchecked:
+                        depth -= 1
+                case Event.End | Event.Pending:
+                    return Err(self.reject(std.serial.Fault.UnexpectedKind))
+                case _:
+                    pass
+            if depth == 0:
+                break
+        Ok(())
+
+    pub def finish(self: &mut CodecDecoder) -> Result[(), JsonError]:
+        match self.take()?:
+            case Event.End:
+                Ok(())
+            case _:
+                Err(self._source.reject(JsonFault.TrailingData))
+
+pub def codec_decoder(source: &[u8], options: &CodecOptions) -> Result[CodecDecoder, JsonError]:
+    mut events = decoder(&options.limits)?
+    events.feed(source)?
+    events.finish()
+    Ok(CodecDecoder(events, Nothing, options.unknown_fields))
+
+pub def dump[T](value: &T, bounds: &Limits) -> Result[Bytes, std.serial.SerialError[JsonError]]:
+    mut output = std.serial.wrap(encoder(bounds))?
+    std.serial.encode[T, JsonError, Encoder](value, &mut output)?
+    std.serial.wrap(output.take())
+
+pub def load[T](source: &[u8], options: &CodecOptions) -> Result[T, std.serial.SerialError[JsonError]]:
+    mut input = std.serial.wrap(codec_decoder(source, options))?
+    value = std.serial.decode[T, JsonError, CodecDecoder](&mut input)?
+    std.serial.wrap(input.finish())?
+    Ok(value)
+
+# Tree conversion bounds storage independently of JSON text spelling. Every
+# scalar/container and every key counts as a node; text budgets count UTF-8.
+pub class TreeLimits:
+    pub max_depth: NonNegative[i64] __max(1024)
+    pub max_nodes: NonNegative[i64]
+    pub max_text_bytes: NonNegative[i64]
+
+pub def tree_limits() -> TreeLimits:
+    TreeLimits(64, 1048576, 67108864)
+
+class TreeBudget:
+    depth: i64
+    nodes: i64
+    text: i64
+    max_depth: i64
+    max_nodes: i64
+    max_text: i64
+
+    def node(self: &mut TreeBudget, text: i64 = 0) -> Result[(), JsonError]:
+        unchecked:
+            if self.nodes >= self.max_nodes or text > self.max_text - self.text:
+                return Err(JsonError(JsonFault.OutputTooLarge, 0, 0, 0))
+            self.nodes += 1
+            self.text += text
+        Ok(())
+
+    def enter(self: &mut TreeBudget) -> Result[(), JsonError]:
+        if self.depth >= self.max_depth:
+            return Err(JsonError(JsonFault.DepthExceeded, 0, 0, 0))
+        unchecked:
+            self.depth += 1
+        Ok(())
+
+    def leave(self: &mut TreeBudget) -> ():
+        unchecked:
+            self.depth -= 1
+
+def tree_budget(limits: &TreeLimits) -> TreeBudget:
+    if limits.max_depth.get() > depth_ceiling:
+        __trap("std.json.tree_limits: max_depth is above 1024")
+    TreeBudget(0, 0, 0, limits.max_depth.get(), limits.max_nodes.get(), limits.max_text_bytes.get())
+
+pub class TreeEncoder:
+    _tree: Builder
+    # 0 array; 1 object expecting a key; 2 object expecting its value.
+    _states: list[i64]
+    _root: bool
+    _budget: TreeBudget
+    _failed: bool
+
+    def slot(self: &mut TreeEncoder) -> Result[(), JsonError]:
+        if self._failed:
+            return Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+        if len(self._states) == 0:
+            if self._root:
+                return Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+            self._root = True
+        elif self._states[-1] == 2:
+            self._states[-1] = 1
+        elif self._states[-1] != 0:
+            return Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+        Ok(())
+
+    def scalar(self: &mut TreeEncoder, value: Json, text: i64 = 0) -> Result[(), JsonError]:
+        self.slot()?
+        self._budget.node(text)?
+        unplaced(self._tree.attach(value))
+
+    pub def null(self: &mut TreeEncoder) -> Result[(), JsonError]:
+        self.scalar(Json.Null)
+
+    pub def boolean(self: &mut TreeEncoder, value: bool) -> Result[(), JsonError]:
+        self.scalar(Json.Bool(value))
+
+    pub def integer(self: &mut TreeEncoder, value: i64) -> Result[(), JsonError]:
+        self.scalar(Json.Int(value))
+
+    pub def unsigned(self: &mut TreeEncoder, value: u64) -> Result[(), JsonError]:
+        if value > 9223372036854775807u64:
+            return Err(JsonError(JsonFault.Serialization(std.serial.Fault.Unrepresentable), 0, 0, 0))
+        self.scalar(Json.Int(i64(value)))
+
+    pub def decimal(self: &mut TreeEncoder, value: f64) -> Result[(), JsonError]:
+        if value != value or value == f64.INF or value == -f64.INF:
+            return Err(JsonError(JsonFault.NonFiniteNumber, 0, 0, 0))
+        self.scalar(Json.Float(value))
+
+    pub def text(self: &mut TreeEncoder, value: &str) -> Result[(), JsonError]:
+        self.scalar(Json.Text(*value), value.byte_len())
+
+    def begin(self: &mut TreeEncoder, state: i64, event: Event) -> Result[(), JsonError]:
+        self.slot()?
+        self._budget.node()?
+        self._budget.enter()?
+        unplaced(reserved(self._states.append(state)))?
+        unplaced(self._tree.accept(event))
+
+    pub def start_array(self: &mut TreeEncoder) -> Result[(), JsonError]:
+        self.begin(0, Event.StartArray)
+
+    pub def start_object(self: &mut TreeEncoder) -> Result[(), JsonError]:
+        self.begin(1, Event.StartObject)
+
+    pub def key(self: &mut TreeEncoder, name: &str) -> Result[(), JsonError]:
+        if len(self._states) == 0 or self._states[-1] != 1:
+            return Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+        self._budget.node(name.byte_len())?
+        self._states[-1] = 2
+        unplaced(self._tree.key(*name))
+
+    def end(self: &mut TreeEncoder, state: i64) -> Result[(), JsonError]:
+        if len(self._states) == 0 or self._states[-1] != state:
+            return Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+        drop(self._states.pop())
+        self._budget.leave()
+        unplaced(self._tree.finish())
+
+    pub def end_array(self: &mut TreeEncoder) -> Result[(), JsonError]:
+        self.end(0)
+
+    pub def end_object(self: &mut TreeEncoder) -> Result[(), JsonError]:
+        self.end(1)
+
+    pub def finish(self: &mut TreeEncoder) -> Result[Json, JsonError]:
+        if self._failed or not self._root or len(self._states) != 0:
+            return Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+        self._failed = True
+        match self._tree.root.pop():
+            case Some(value):
+                Ok(value)
+            case Nothing:
+                Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+
+pub def tree_encoder(limits: &TreeLimits) -> Result[TreeEncoder, JsonError]:
+    budget = tree_budget(limits)
+    tree = unplaced(builder(&Limits(0, 0, 0, DuplicateKeys.Reject)))?
+    states = unplaced(reserved(list[i64]()))?
+    Ok(TreeEncoder(tree, states, False, budget, False))
+
+enum TreeFrame:
+    Items(list[Json])
+    Members(list[Member])
+
+# Owns the source because classes cannot retain references. Moving a tree
+# through this cursor avoids copying it and never encodes numeric values.
+pub class TreeDecoder:
+    _value: Option[Json]
+    _frames: list[TreeFrame]
+    _unknown: std.serial.UnknownFields
+    _budget: TreeBudget
+
+    pub def reject(self, fault: std.serial.Fault) -> JsonError:
+        JsonError(JsonFault.Serialization(fault), 0, 0, 0)
+
+    pub def allocation(self, cause: AllocError) -> JsonError:
+        JsonError(JsonFault.Allocation(cause), 0, 0, 0)
+
+    def take(self: &mut TreeDecoder) -> Result[Json, JsonError]:
+        match replace(self._value, Nothing):
+            case Some(value):
+                self._budget.node()?
+                Ok(value)
+            case Nothing:
+                Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+
+    pub def null(self: &mut TreeDecoder) -> Result[bool, JsonError]:
+        match &self._value:
+            case Some(value):
+                match value:
+                    case Json.Null:
+                        drop(self.take()?)
+                        return Ok(True)
+                    case _:
+                        return Ok(False)
+            case Nothing:
+                Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+
+    pub def boolean(self: &mut TreeDecoder) -> Result[bool, JsonError]:
+        match self.take()?:
+            case Json.Bool(value):
+                Ok(value)
+            case _:
+                Err(self.reject(std.serial.Fault.UnexpectedKind))
+
+    pub def integer(self: &mut TreeDecoder) -> Result[i64, JsonError]:
+        match self.take()?:
+            case Json.Int(value):
+                Ok(value)
+            case _:
+                Err(self.reject(std.serial.Fault.UnexpectedKind))
+
+    pub def unsigned(self: &mut TreeDecoder) -> Result[u64, JsonError]:
+        number = self.integer()?
+        if number < 0:
+            return Err(self.reject(std.serial.Fault.OutOfRange))
+        Ok(u64(number))
+
+    pub def decimal(self: &mut TreeDecoder) -> Result[f64, JsonError]:
+        match self.take()?:
+            case Json.Int(value):
+                Ok(f64(value))
+            case Json.Float(value):
+                if value != value or value == f64.INF or value == -f64.INF:
+                    return Err(self.reject(std.serial.Fault.OutOfRange))
+                Ok(value)
+            case _:
+                Err(self.reject(std.serial.Fault.UnexpectedKind))
+
+    pub def text(self: &mut TreeDecoder) -> Result[str, JsonError]:
+        match self.take()?:
+            case Json.Text(value):
+                # The node was counted by take; count text without a second node.
+                unchecked:
+                    self._budget.nodes -= 1
+                self._budget.node(value.byte_len())?
+                Ok(value)
+            case _:
+                Err(self.reject(std.serial.Fault.UnexpectedKind))
+
+    pub def start_array(self: &mut TreeDecoder) -> Result[(), JsonError]:
+        match self.take()?:
+            case Json.Array(values):
+                self._budget.enter()?
+                mut items = values
+                items.reverse()
+                unplaced(reserved(self._frames.append(TreeFrame.Items(items))))
+            case _:
+                Err(self.reject(std.serial.Fault.UnexpectedKind))
+
+    pub def next_element(self: &mut TreeDecoder) -> Result[bool, JsonError]:
+        if self._value.is_some():
+            return Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+        match self._frames.pop():
+            case Some(TreeFrame.Items(values)):
+                mut items = values
+                match items.pop():
+                    case Some(value):
+                        self._value = Some(value)
+                        unplaced(reserved(self._frames.append(TreeFrame.Items(items))))?
+                        Ok(True)
+                    case Nothing:
+                        self._budget.leave()
+                        Ok(False)
+            case _:
+                Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+
+    pub def start_object(self: &mut TreeDecoder) -> Result[(), JsonError]:
+        match self.take()?:
+            case Json.Object(values):
+                self._budget.enter()?
+                mut members = values
+                members.reverse()
+                unplaced(reserved(self._frames.append(TreeFrame.Members(members))))
+            case _:
+                Err(self.reject(std.serial.Fault.UnexpectedKind))
+
+    pub def next_key(self: &mut TreeDecoder) -> Result[Option[str], JsonError]:
+        if self._value.is_some():
+            return Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+        match self._frames.pop():
+            case Some(TreeFrame.Members(values)):
+                mut members = values
+                match members.pop():
+                    case Some(member):
+                        self._budget.node(member.key.byte_len())?
+                        self._value = Some(member.value)
+                        unplaced(reserved(self._frames.append(TreeFrame.Members(members))))?
+                        Ok(Some(member.key))
+                    case Nothing:
+                        self._budget.leave()
+                        Ok(Nothing)
+            case _:
+                Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+
+    pub def unknown_key(self: &mut TreeDecoder, name: &str) -> Result[(), JsonError]:
+        if self._unknown == std.serial.UnknownFields.Reject:
+            return Err(self.reject(std.serial.Fault.UnknownField(*name)))
+        # Skipping uses the same typed traversal and budgets as decoding.
+        self.skip()
+
+    def skip(self: &mut TreeDecoder) -> Result[(), JsonError]:
+        match &self._value:
+            case Some(value):
+                match value:
+                    case Json.Null:
+                        drop(self.null()?)
+                    case Json.Bool(_):
+                        drop(self.boolean()?)
+                    case Json.Int(_):
+                        drop(self.integer()?)
+                    case Json.Float(_):
+                        drop(self.decimal()?)
+                    case Json.Text(_):
+                        drop(self.text()?)
+                    case Json.Array(_):
+                        self.start_array()?
+                        while self.next_element()?:
+                            self.skip()?
+                    case Json.Object(_):
+                        self.start_object()?
+                        while True:
+                            match self.next_key()?:
+                                case Some(_):
+                                    self.skip()?
+                                case Nothing:
+                                    break
+            case Nothing:
+                return Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+        Ok(())
+
+    pub def finish(self: &mut TreeDecoder) -> Result[(), JsonError]:
+        if self._value.is_some() or len(self._frames) != 0:
+            return Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+        Ok(())
+
+pub def tree_decoder(value: Json, limits: &TreeLimits, unknown_fields: std.serial.UnknownFields = std.serial.UnknownFields.Reject) -> Result[TreeDecoder, JsonError]:
+    budget = tree_budget(limits)
+    frames = unplaced(reserved(list[TreeFrame]()))?
+    Ok(TreeDecoder(Some(value), frames, unknown_fields, budget))
+
+pub def to_value[T](value: &T, limits: &TreeLimits) -> Result[Json, std.serial.SerialError[JsonError]]:
+    mut output = std.serial.wrap(tree_encoder(limits))?
+    std.serial.encode[T, JsonError, TreeEncoder](value, &mut output)?
+    std.serial.wrap(output.finish())
+
+pub def from_value[T](value: Json, limits: &TreeLimits, unknown_fields: std.serial.UnknownFields = std.serial.UnknownFields.Reject) -> Result[T, std.serial.SerialError[JsonError]]:
+    mut source = std.serial.wrap(tree_decoder(value, limits, unknown_fields))?
+    result = std.serial.decode[T, JsonError, TreeDecoder](&mut source)?
+    std.serial.wrap(source.finish())?
+    Ok(result)
