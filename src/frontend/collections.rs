@@ -4055,6 +4055,11 @@ impl Lower<'_> {
                     .at
                     .error("mutation requires a named binding or class field"));
             }
+            if name == "insert"
+                && matches!(self.place_type(base).map(classes::unbox), Some(Ty::List(_)))
+            {
+                return self.list_insert(base, args, ops);
+            }
             return self.fallible_mutation(base, name, args, ops);
         }
         if matches!(name, "into_values" | "into_keys") {
@@ -4387,7 +4392,10 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(Some(result));
         }
-        if matches!(name, "isascii" | "isspace" | "isdigit" | "isalpha") {
+        if matches!(
+            name,
+            "isascii" | "isspace" | "isdigit" | "isalpha" | "isalnum"
+        ) {
             self.same(Some(ty), Some(Ty::Str), &base.at)?;
             if !args.is_empty() {
                 return Err(base.at.error(format!("{name} takes no arguments")));
@@ -4396,7 +4404,9 @@ impl Lower<'_> {
                 "isascii" => CollectionOp::TextIsAscii,
                 "isspace" => CollectionOp::TextIsSpace,
                 "isdigit" => CollectionOp::TextIsDigit,
-                _ => CollectionOp::TextIsAlpha,
+                "isalpha" => CollectionOp::TextIsAlpha,
+                "isalnum" => CollectionOp::TextIsAlnum,
+                _ => unreachable!("text classification method"),
             };
             Self::push_query(operation, ops);
             Self::end_reads(loans, ops);
@@ -4960,6 +4970,35 @@ impl Lower<'_> {
         ops.push(Op::Drop);
         ops.push(Op::UseLoan(loan));
         Ok(None)
+    }
+
+    /// `items.insert(index, value) -> Result[(), AllocError]` (issue #798).
+    /// The index is observed, then the element evaluated, before the receiver
+    /// is borrowed exclusively, as for `swap` and `append`.
+    fn list_insert(&mut self, base: &Expr, args: &[Expr], ops: &mut Vec<Op>) -> Result<Type> {
+        let [index, value] = args else {
+            return Err(base.at.error("insert requires an i64 index and an element"));
+        };
+        let ty = classes::unbox(self.place_type(base).expect("collection place"));
+        let element = ty.element().expect("list element");
+        let (actual, loans) = self.observe_expected(index, Some(Ty::I64), ops)?;
+        self.same(Some(actual), Some(Ty::I64), &index.at)?;
+        let index_slot = self.slot(Ty::I64, &index.at)?;
+        ops.push(Op::StoreLocal(index_slot));
+        Self::end_reads(loans, ops);
+        // A hidden local owns the element if the receiver's loan cannot be
+        // taken, as `fallible_mutation` does for `append`.
+        let actual = self.expr_expected(value, Some(element.clone()), ops)?;
+        self.same(actual, Some(element.clone()), &value.at)?;
+        let value_slot = self.slot(element, &value.at)?;
+        ops.push(Op::StoreLocal(value_slot));
+        let loan = self.mutation_place(base, ops)?;
+        ops.push(Op::MoveLocal(index_slot));
+        ops.push(Op::MoveLocal(value_slot));
+        self.mark(&base.at, ops);
+        ops.push(Op::Collection(CollectionOp::ListTryInsert(ty)));
+        ops.push(Op::UseLoan(loan));
+        Ok(Some(crate::sum::allocation_result()))
     }
 
     fn list_swap(&mut self, base: &Expr, args: &[Expr], ops: &mut Vec<Op>) -> Result<Type> {

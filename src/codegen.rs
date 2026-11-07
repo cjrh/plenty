@@ -1086,6 +1086,8 @@ struct Runtime {
     /// Narrow byte and text queries on a borrowed owner (issue #364); see
     /// `CollectionCodegen::narrow_query`.
     bytes_len: FuncId,
+    bytes_get: FuncId,
+    bytes_set: FuncId,
     bytes_item: FuncId,
     bytes_set_item: FuncId,
     /// `plenty_bytes_push(owner, byte) -> high word of Result[(), AllocError]`.
@@ -1333,6 +1335,18 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         byte_view_len: helper(module, "plenty_byte_view_len", &[PTR_TY], Some(types::I64))?,
         // Owner or text word, then index and trap site where the query has them.
         bytes_len: helper(module, "plenty_bytes_len", &[PTR_TY], Some(types::I64))?,
+        bytes_get: helper(
+            module,
+            "plenty_bytes_get",
+            &[PTR_TY, types::I64],
+            Some(types::I64),
+        )?,
+        bytes_set: helper(
+            module,
+            "plenty_bytes_set",
+            &[PTR_TY, types::I64, types::I64],
+            None,
+        )?,
         bytes_item: helper(
             module,
             "plenty_bytes_item",
@@ -2191,11 +2205,20 @@ enum TrapKind {
 /// for the entry of a dict built by `collect()` (issue #826). A field
 /// reference only offsets the address of a record it neither counts nor
 /// releases, so a set update through `bag.tags` reads its borrowed argument in
-/// place (issue #825).
+/// place (issue #825). A list element reference computes a row address and
+/// can only trap, which exits the process or discards an actor's whole heap,
+/// so it releases nothing (issue #831). A dictionary element reference is
+/// excluded: the runtime only hashes and compares the key, but the key operand
+/// is released after the call, and an owned key may have a `__del__`. It is
+/// only ever shared (`&mut d[k]` is rejected), so no set update follows one.
 fn keeps_slot_copies(op: &Op) -> bool {
     matches!(
         op,
         Op::Class(crate::record::ClassOp::FieldRef(..))
+            | Op::Collection(
+                crate::collection::CollectionOp::ElementRef(Ty::List(_), _)
+                    | crate::collection::CollectionOp::ElementRefView(Ty::List(_), _)
+            )
             | Op::LoadLocal(_)
             | Op::MoveLocal(_)
             | Op::Swap

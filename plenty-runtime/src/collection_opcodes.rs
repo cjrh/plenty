@@ -51,6 +51,9 @@ pub const DICT_GET_OR_INSERT: i64 = 601;
 /// the caller still owns the copyable operands; on a miss the table owns them
 /// (issue #762).
 pub const GET_OR_INSERT_HIT: i64 = 2;
+/// `list.insert(index, element)`: the list, the index and the owned element
+/// (issue #798).
+pub const LIST_INSERT: i64 = 602;
 
 /// Operands after the three fixed input words of `plenty_op_<N>` calls.
 /// The result occupies word 3; only actual fourth/fifth inputs initialize

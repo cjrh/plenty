@@ -149,6 +149,27 @@ pub(super) fn range(start: u128, stop: u128, len: usize) -> std::ops::Range<usiz
     start..stop
 }
 
+/// Strict method indexing: negative offsets are invalid, unlike `bytes[i]`.
+#[inline]
+fn byte_at(bytes: &[u8], index: u128) -> u8 {
+    *bytes.get(size(index)).unwrap_or_else(|| {
+        crate::fail_kind(
+            crate::actor_heap::TrapKind::Index,
+            "byte index out of bounds",
+        )
+    })
+}
+
+#[inline]
+fn set_byte(bytes: &mut [u8], index: u128, value: u8) {
+    *bytes.get_mut(size(index)).unwrap_or_else(|| {
+        crate::fail_kind(
+            crate::actor_heap::TrapKind::Index,
+            "byte index out of bounds",
+        )
+    }) = value;
+}
+
 /// A found index, or -1: `std.bytes` turns the sentinel into an `Option`.
 fn found(index: Option<usize>) -> u128 {
     index.map_or(-1i64, |index| index as i64) as u128
@@ -203,23 +224,11 @@ pub(super) unsafe fn call(
             ) as u128,
             171 => storage(a).len() as u128,
             172 => storage(a).capacity() as u128,
-            173 => match storage(a).get(size(b)) {
-                Some(byte) => *byte as u128,
-                None => crate::fail_kind(
-                    crate::actor_heap::TrapKind::Index,
-                    "byte index out of bounds",
-                ),
-            },
-            174 => match storage(a).get_mut(size(b)) {
-                Some(byte) => {
-                    *byte = c as u8;
-                    0
-                }
-                None => crate::fail_kind(
-                    crate::actor_heap::TrapKind::Index,
-                    "byte index out of bounds",
-                ),
-            },
+            173 => byte_at(view(a), b) as u128,
+            174 => {
+                set_byte(storage(a), b, c as u8);
+                0
+            }
             175 => result(memory::try_reserve(storage(a), size(b)).map(|()| 0)),
             176 => {
                 let (bytes, len) = (storage(a), size(b));
@@ -406,6 +415,27 @@ pub(crate) unsafe extern "C" fn plenty_bytes_len(owner: *const u8) -> u64 {
     unsafe { (*owner.cast::<Storage>()).bytes.len() as u64 }
 }
 
+/// Strict byte access used by `Bytes.get`, without the wide dispatcher ABI.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_bytes_get(owner: *const u8, index: i64) -> u64 {
+    // SAFETY: the compiler keeps the shared storage owner alive through the call.
+    u64::from(byte_at(
+        unsafe { &(*owner.cast::<Storage>()).bytes },
+        index as u128,
+    ))
+}
+
+/// Strict byte update used by `Bytes.set`; it cannot allocate or call Plenty.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_bytes_set(owner: *mut u8, index: i64, value: u64) {
+    // SAFETY: the caller holds an exclusive loan of a live storage owner.
+    set_byte(
+        unsafe { &mut (*owner.cast::<Storage>()).bytes },
+        index as u128,
+        value as u8,
+    );
+}
+
 /// The address of the first byte of a live buffer or `bytes` literal, for a
 /// slice view. Its loan keeps the storage from growing while the view exists;
 /// a shared view of a literal only reads it.
@@ -573,6 +603,31 @@ mod tests {
             assert_eq!(run(236, [view_operand(mixed), 1, 0, 0, 0]), 4);
             assert_eq!(run(236, [view_operand(&mixed[5..]), 1, 0, 0, 0]), 1);
             assert_eq!(run(236, [view_operand(&mixed[..3]), 1, 0, 0, 0]), 2);
+        }
+    }
+
+    #[test]
+    fn strict_narrow_access_matches_dispatcher_for_every_byte() {
+        // SAFETY: the sole owner outlives every call; no reference into its
+        // buffer survives a mutable call.
+        unsafe {
+            let values: Vec<u8> = (0..=255).collect();
+            let owner = Owner(from_slice(&values).unwrap());
+            let pointer = owner.0 as *mut u8;
+            for index in 0..256 {
+                assert_eq!(
+                    plenty_bytes_get(pointer, index),
+                    run(173, [owner.0, index as u128, 0, 0, 0]) as u64
+                );
+                plenty_bytes_set(pointer, index, (255 - index) as u64);
+                assert_eq!(
+                    run(173, [owner.0, index as u128, 0, 0, 0]),
+                    (255 - index) as u128
+                );
+                run(174, [owner.0, index as u128, index as u128, 0, 0]);
+                assert_eq!(plenty_bytes_get(pointer, index), index as u64);
+            }
+            assert_eq!(bytes(&owner), values);
         }
     }
 

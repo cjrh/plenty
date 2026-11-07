@@ -311,6 +311,8 @@ mod test_lints;
 mod test_list_element_refs;
 #[path = "test_list_fast_paths.rs"]
 mod test_list_fast_paths;
+#[path = "test_list_insertion.rs"]
+mod test_list_insertion;
 #[path = "test_list_lookup.rs"]
 mod test_list_lookup;
 #[path = "test_list_ordering.rs"]
@@ -597,6 +599,8 @@ mod test_std_tempfile;
 mod test_std_template;
 #[path = "test_std_template_expressions.rs"]
 mod test_std_template_expressions;
+#[path = "test_std_template_html.rs"]
+mod test_std_template_html;
 #[path = "test_std_template_schema.rs"]
 mod test_std_template_schema;
 #[path = "test_std_template_whitespace.rs"]
