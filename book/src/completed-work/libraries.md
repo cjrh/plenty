@@ -448,3 +448,21 @@ ordinary typed handlers still reject these captures. The server controls fixed
 existing deadlines and cooperative cancellation. See the
 [contract](../design/stdlib/http-refusals.md). Other parsing refusals and actor
 servers retain their existing behavior.
+
+## Memory-mapping package experiment (issue #480)
+
+The unpublished `memmap` package prototype lives in
+`experiments/packages/memmap/`,
+ready to extract into an independent package. It uses a small Linux C shim and
+ordinary Plenty foreign ownership/loading primitives, with no compiler or runtime
+changes and no `std.memmap` commitment. Actual read-only file mappings are owned
+by affine wrappers; bounded reads copy into a caller-owned buffer through a
+kernel fault-contained read, including partial/error results after external
+truncation. The package README records the API, restrictions and native ABI.
+
+This delivers a mapping/package experiment, not issue #480's original zero-copy
+borrowed byte source. The cache-hot 64 KiB-buffer probe measured mapped copy-out
+at 5.39–5.55 GiB/s against 5.81–6.18 GiB/s for `pread` on the development x86-64
+Linux host; no application performance benefit is claimed. Other platforms and
+worker use are not qualified. Remaining design scope stays in
+[B38](../backlog.md#standard-library-follow-ups).

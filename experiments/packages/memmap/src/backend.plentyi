@@ -1,0 +1,98 @@
+# Experimental standalone Linux mmap package. Native code uses mmap and
+# process_vm_readv; no Rust crate or Plenty runtime layout is wrapped.
+opaque Lease
+opaque Address
+opaque RawMap
+extern def open_library(path: &str as utf8, output: &mut Lease) -> u32 = "plenty_library_open_v1"
+extern def close_library(lease: Lease) -> () = "plenty_library_close_v1"
+extern def check_library(lease: Lease, discovery: &str as utf8, expected: &str as utf8) -> u32 = "plenty_library_contract_v1"
+extern def lookup_library(lease: Lease, name: &str as utf8, output: &mut Address) -> u32 = "plenty_library_symbol_v1"
+extern def open_map(function: Address, path: &str as c_string, max_bytes: u64, output: &mut RawMap) -> Result[i32, CStrError] = function
+extern def map_length(function: Address, mapping: RawMap) -> u64 = function
+extern def read_map(function: Address, mapping: RawMap, offset: u64, output: &mut list[u8] as strided) -> i64 = function
+extern def drop_map(function: Address, mapping: RawMap) -> () = function
+
+pub enum MapError:
+    OperatingSystem(i32)
+    InvalidOffset
+    Path(CStrError)
+
+def load_error(status: u32) -> LoadError:
+    match status:
+        case 1u32:
+            LoadError.OutOfMemory
+        case 2u32:
+            LoadError.CapacityOverflow
+        case 3u32:
+            LoadError.InvalidPath
+        case 4u32:
+            LoadError.OpenFailed
+        case 5u32:
+            LoadError.InvalidSymbol
+        case 6u32:
+            LoadError.MissingSymbol
+        case _:
+            LoadError.IncompatibleContract
+
+class LookupLease:
+    handle: Lease
+    def __del__(self: &mut LookupLease) -> ():
+        close_library(self.handle)
+
+def lookup(lease: Lease, name: str) -> Result[Address, LoadError]:
+    mut address = Address.null()
+    status = lookup_library(lease, &name, &mut address)
+    if status != 0:
+        return Err(load_error(status))
+    Ok(address)
+
+pub class Mapping:
+    handle: RawMap
+    size: u64
+    read_address: Address
+    drop_address: Address
+
+    pub def length(self) -> u64:
+        self.size
+
+    # Fills at most len(output) bytes; does not resize or allocate. Short
+    # success is possible, and a later read can fail after external truncation.
+    pub def read_into(self, offset: NonNegative[i64], output: &mut list[u8]) -> Result[i64, MapError]:
+        if u64(offset.get()) > self.size:
+            return Err(MapError.InvalidOffset)
+        count = read_map(self.read_address, self.handle, u64(offset.get()), output)
+        if count < 0:
+            # Native errors are negative Linux errno values, never i64.MIN.
+            unchecked:
+                return Err(MapError.OperatingSystem(i32(-count)))
+        Ok(count)
+
+    def __del__(self: &mut Mapping) -> ():
+        if not self.handle.is_null():
+            drop_map(self.drop_address, self.handle)
+
+pub class Library:
+    open_address: Address
+    length_address: Address
+    read_address: Address
+    drop_address: Address
+
+    pub def open(self, path: &str, max_bytes: NonNegative[i64]) -> Result[Mapping, MapError]:
+        # Arm cleanup before acquiring any native resource. Native failures
+        # leave handle null. Successfully loaded code remains resident.
+        mut mapping = Mapping(RawMap.null(), 0, self.read_address, self.drop_address)
+        status = open_map(self.open_address, path, u64(max_bytes.get()), &mut mapping.handle).map_error(MapError.Path)?
+        if status != 0:
+            return Err(MapError.OperatingSystem(status))
+        mapping.size = map_length(self.length_address, mapping.handle)
+        Ok(mapping)
+
+pub def load(path: &str) -> Result[Library, LoadError]:
+    mut lease = LookupLease(Lease.null())
+    status = open_library(path, &mut lease.handle)
+    if status != 0:
+        return Err(load_error(status))
+    contract_status = check_library(lease.handle, "mm_discovery_v1", "memmap-experiment-linux-v1:open,length,read-strided,drop")
+    if contract_status != 0:
+        return Err(load_error(contract_status))
+    Ok(Library(lookup(lease.handle, "mm_open_v1")?, lookup(lease.handle, "mm_length_v1")?, lookup(lease.handle, "mm_read_v1")?, lookup(lease.handle, "mm_drop_v1")?))

@@ -29,3 +29,12 @@ error.
 Raw declarations cannot prove these policies. The wrapper and native implementation
 must agree, including partial effects, null handling, and thread restrictions.
 For Plenty objects exported to C, use the [generated handle contract](owned-exports.md).
+
+## Experimental mapped storage
+
+An opaque owner can retain a native mapping, but current foreign adapters cannot
+return a Plenty byte view into it. A shared borrow of an owner also cannot stop
+another process changing or truncating its backing file. The independent
+[mapping package experiment](../../../completed-work/libraries.md#memory-mapping-package-experiment-issue-480)
+keeps those limits explicit: its Linux backend uses bounded kernel copy-out, not
+ordinary userspace dereferences or a new standard-library byte-source contract.
