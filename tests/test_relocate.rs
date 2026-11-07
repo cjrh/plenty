@@ -764,3 +764,30 @@ fn documented_refusals() {
         );
     }
 }
+
+#[test]
+fn the_destinations_import_of_the_moved_declaration_is_removed() {
+    let geometry = "from shapes import ONE as one\n\npub def two() -> i64:\n    one\n";
+    let dir = package(&[
+        ("src/shapes.plenty", "pub const ONE: i64 = 1\n"),
+        ("src/geometry.plenty", geometry),
+        (
+            "src/main.plenty",
+            "import geometry\n\ndef main() -> Result[(), AllocError | IoError]:\n    print(geometry.two())?\n    Ok(())\n",
+        ),
+    ]);
+    assert_eq!(run(dir.path()), "1\n");
+    let moved = plan(dir.path(), "src/shapes.plenty", 1, "src/geometry.plenty").unwrap();
+    assert_eq!(
+        moved.files,
+        BTreeMap::from([
+            (
+                "src/geometry.plenty".to_string(),
+                "pub def two() -> i64:\n    ONE\n\npub const ONE: i64 = 1\n".to_string()
+            ),
+            ("src/shapes.plenty".to_string(), String::new()),
+        ])
+    );
+    write_moved(dir.path(), &moved);
+    assert_eq!(run(dir.path()), "1\n");
+}
