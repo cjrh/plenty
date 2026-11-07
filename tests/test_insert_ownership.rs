@@ -514,10 +514,11 @@ fn set_updates_read_field_local_and_temporary_shapes_in_place() {
     );
 }
 
-// The receiver may be a list element: its reference computes a row address
-// and can only trap, so the borrowed argument stays uncounted, in a single
-// access and in a loop over the rows (issue #831). An out-of-bounds element
-// traps before the update, with the list unchanged.
+// The receiver may be a list element, including a nested one: its reference
+// computes a row address and can only trap, so the borrowed argument stays
+// uncounted, in a single access, through a negative index and in a loop over
+// the rows (issue #831). The argument may itself be another row, whose copy
+// its row holds across the receiver's reference.
 const SET_UPDATE_ELEMENTS: &str = r#"class Key:
     label: str
     def __del__(self) -> ():
@@ -539,6 +540,12 @@ def every_row(grid: &mut list[set[str]], other: &set[str]) -> ():
 def at(grid: &mut list[set[str]], other: &set[str], i: i64) -> ():
     grid[i].difference_update(other)
 
+def rows(grid: &mut list[set[str]]) -> ():
+    grid[0].difference_update(&grid[1])
+
+def nested(grid: &mut list[list[set[str]]], other: &set[str], i: i64, j: i64) -> ():
+    grid[i][j].difference_update(other)
+
 def main() -> Result[(), AllocError | IoError]:
     mut grid = [{"a", "b"}?, {"b", "c"}?]?
     dropped = {"b"}?
@@ -552,6 +559,12 @@ def main() -> Result[(), AllocError | IoError]:
     print("keyed", len(keyed[1]), len(keep))?
     at(&mut grid, &dropped, -1)
     print(grid)?
+    mut pair = [{"a", "b"}?, {"b", "c"}?]?
+    rows(&mut pair)
+    print(pair)?
+    mut nest = [[{"x"}?]?, [{"x", "y"}?, {"y"}?]?]?
+    nested(&mut nest, &{"y"}?, 1, 0)
+    print(nest)?
     print("__test_small_live_heap__")?
     Ok(())
 "#;
@@ -560,6 +573,12 @@ def main() -> Result[(), AllocError | IoError]:
 // the earlier update's result is printed, and nothing after the trap runs.
 const SET_UPDATE_ELEMENT_TRAP: &str = r#"def at(grid: &mut list[set[str]], other: &set[str], i: i64) -> ():
     grid[i].difference_update(other)
+
+def rows(grid: &mut list[set[str]]) -> ():
+    grid[0].difference_update(&grid[1])
+
+def nested(grid: &mut list[list[set[str]]], other: &set[str], i: i64, j: i64) -> ():
+    grid[i][j].difference_update(other)
 
 def main() -> Result[(), AllocError | IoError]:
     mut grid = [{"a", "b"}?, {"b", "c"}?]?
@@ -587,6 +606,9 @@ fn set_updates_through_list_elements_read_the_argument_in_place() {
         ("through_element", "plenty_op_70"),
         ("keys_through_element", "plenty_op_69"),
         ("every_row", "plenty_op_70"),
+        ("at", "plenty_op_70"),
+        ("rows", "plenty_op_70"),
+        ("nested", "plenty_op_70"),
     ] {
         let body = support::asm_body(&asm, name);
         assert!(body.contains(op), "{name}:\n{body}");
@@ -612,6 +634,8 @@ fn set_updates_through_list_elements_read_the_argument_in_place() {
             "drop b-counted-label",
             "keyed 1 1",
             r#"[{"a"}, set()]"#,
+            r#"[{"a"}, {"b", "c"}]"#,
+            r#"[[{"x"}], [{"x"}, {"y"}]]"#,
             "drop a-counted-label",
             "drop a-counted-label",
         ]

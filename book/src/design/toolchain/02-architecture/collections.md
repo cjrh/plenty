@@ -184,12 +184,14 @@ collection under construction is loaded from its owner directly before the
 insert, so a counted element costs no retain or release (issue #826).
 `intersection_update` and `difference_update` also read their set argument in
 place when its source still holds it (issue #825). That source can be a `&set`
-parameter, a local, or a temporary parked in an expression local because its
-keys have `__del__`. The argument stays under its shared loan, and a removed
-member's `__del__` reaches only that member, since keys cannot hold
-collections. The receiver may be a local, a `&mut` parameter, a field of one,
-or a list element such as `grid[0]`: computing an element's address can only
-trap, which releases nothing (issue #831). Dictionary values cannot be borrowed
+parameter, a local, a temporary parked in an expression local because its
+keys have `__del__`, or an element or field reached through a reference, as in
+`grid[0].difference_update(&grid[1])` or `s.difference_update(&grid[i])`. The
+argument stays under its shared loan, and a removed member's `__del__` reaches
+only that member, since keys cannot hold collections. The receiver may be a
+local, a `&mut` parameter, a field of one, or a list element such as `grid[0]`
+or `grid[i][j]`: computing an element's address can only trap, which releases
+nothing (issue #831). Dictionary values cannot be borrowed
 mutably by index, so no dictionary element is such a receiver.
 
 An element reference (`&xs[i]`, `&mut xs[i]`, `&mut grid[i][j]`, and the
