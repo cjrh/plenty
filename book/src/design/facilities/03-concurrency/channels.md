@@ -217,3 +217,40 @@ and sender-based reply paths are supported, but recursive message-type paths
 back to a receiver are rejected: a queue retaining its last receiver could
 prevent destruction. This conservative check also rejects noncyclic instances of
 such a type. Zero-capacity rendezvous is unsupported.
+
+### Unit messages
+
+`()` can be a message type. `channel[()]`, `Sender[()]`, `Receiver[()]`, every
+builtin send, receive, timed and selection operation, and the
+[join checks](#joins-and-live-endpoints) accept it, and so do
+`std.sync.recv_before` and `std.sync.select_recv_before`. Send `()` when the
+message's arrival is the information, such as a stop request or a wakeup.
+`case Ok(_):` is the clearest way to match a received unit.
+
+A unit message has no storage. The queue keeps only its count of pending
+messages, so construction allocates the fixed queue header whatever the
+capacity, and no capacity reports `CapacityOverflow`. Every other message type
+takes at least one 16-byte slot per unit of capacity.
+
+Unit still follows the [unit type's limits](../../language/03-types/index.md):
+no by-value unit parameter, no unit binding, and no unit type argument to a
+user-defined generic enum or class. So a generic function that takes or binds a
+`T` value cannot be instantiated with `T = ()`:
+
+- `std.sync.send_before(&sender, (), &deadline, &cancel)` is rejected, because
+  `send_before` takes `value: T`, and `std.sync.SendBeforeError[()]` cannot be
+  named.
+- A user generic such as `relay[T]` that binds `value = receiver.recv()?` is
+  rejected for `T = ()`. Match the result instead of binding it.
+
+A unit channel rarely needs a bounded send. Its capacity costs nothing, so a
+channel created with a capacity larger than the number of signals it will carry
+never blocks in `send(())`. With a small capacity, such as 1,
+`send_nowait(())` returning `Full` means a signal is already pending, which is
+usually enough.
+Only code that must bound how long it waits for space needs a loop of
+`send_timeout_ms((), timeout_ms)` that checks its cancellation token between
+attempts.
+
+Lifting these limits is part of B16 in the [backlog](../../../backlog.md)
+(standalone unit bindings, parameters and storage).

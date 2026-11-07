@@ -1373,3 +1373,265 @@ def main() -> Result[(), AllocError | IoError | RangeError | SendError[i64] | Re
         "7 True\n",
     );
 }
+
+// Issue #790: a unit message is a wake-only signal. It is accepted wherever
+// another message type is, and its queue stores only a count.
+#[test]
+fn unit_messages_signal_through_every_channel_operation() {
+    runs(
+        r#"
+def pick(signals: &Receiver[()], numbers: &Receiver[i64]) -> Result[str, SelectError]:
+    selected: Selected[(), i64] = select_recv_nowait(signals, numbers)?
+    match selected:
+        case Selected.First(_):
+            return Ok("signal")
+        case Selected.Second(_):
+            return Ok("number")
+
+def main() -> Result[(), AllocError | IoError | SendError[()] | SendTimeoutError[()] | SendError[i64] | RecvError | SelectError]:
+    wake, woken = channel[()](2)?
+    wake.send(())?
+    wake.send_nowait(())?
+    print(str.repr(wake.send_nowait(()))?)?
+    print(str.repr(wake.send_timeout_ms((), 0))?)?
+    woken.recv()?
+    print(str.repr(woken.recv_nowait())?)?
+    print(str.repr(woken.recv_timeout_ms(0))?)?
+    print(str.repr(woken.recv_timeout_ms(0))?)?
+    send, numbers = channel[i64](1)?
+    print(str.repr(select_recv_nowait(woken, numbers))?)?
+    send.send(5)?
+    wake.send(())?
+    print(pick(woken, numbers)?)?
+    print(pick(woken, numbers)?)?
+    wake.send(())?
+    print(str.repr(select_recv_timeout_ms(numbers, woken, 0))?)?
+    wake.send(())?
+    wake.send(())?
+    # Dropping the receiver with queued signals releases no message storage.
+    drop(woken)
+    print(str.repr(wake.send(()))?)?
+    signal, signals = channel[()](1)?
+    signal.send(())?
+    drop(signal)
+    print(str.repr(signals.recv())?)?
+    print(str.repr(signals.recv())?)?
+    Ok(())
+"#,
+        "Result[(), SendError[()]].Err(SendError[()].Full(()))\n\
+         Result[(), SendTimeoutError[()]].Err(SendTimeoutError[()].TimedOut(()))\n\
+         Result[(), RecvError].Ok(())\n\
+         Result[(), RecvTimeoutError].Err(RecvTimeoutError.TimedOut)\n\
+         Result[(), RecvTimeoutError].Err(RecvTimeoutError.TimedOut)\n\
+         Result[Selected[(), i64], SelectError].Err(SelectError.Empty)\n\
+         signal\n\
+         number\n\
+         Result[Selected[i64, ()], SelectError].Ok(Selected[i64, ()].Second(()))\n\
+         Result[(), SendError[()]].Err(SendError[()].Disconnected(()))\n\
+         Result[(), RecvError].Ok(())\n\
+         Result[(), RecvError].Err(RecvError.Disconnected)\n",
+    );
+}
+
+#[test]
+fn unit_channels_allocate_only_the_queue_header() {
+    // A unit ring has no slots, so even the largest capacity is one
+    // fixed-size allocation, and every operation allocates nothing.
+    runs(
+        r#"
+print("__test_fail_allocations_after_1__").unwrap()
+huge = channel[()](9223372036854775807)
+print("__test_restore_allocations__").unwrap()
+print(str.repr(huge).unwrap()).unwrap()
+sender, receiver = huge.unwrap()
+print("__test_begin_no_allocations__").unwrap()
+print("__test_fail_allocations_after_0__").unwrap()
+other = sender.share()
+sender.send(()).unwrap()
+other.send_nowait(()).unwrap()
+receiver.recv().unwrap()
+drop(sender)
+drop(other)
+receiver.recv().unwrap()
+closed = receiver.recv()
+drop(receiver)
+print("__test_restore_allocations__").unwrap()
+print("__test_end_no_allocations__").unwrap()
+print(str.repr(closed).unwrap()).unwrap()
+"#,
+        "__test_fail_allocations_after_1__\n__test_restore_allocations__\n\
+         Result[tuple[Sender[()], Receiver[()]], AllocError].Ok((<sender>, <receiver>))\n\
+         __test_begin_no_allocations__\n__test_fail_allocations_after_0__\n\
+         __test_restore_allocations__\n__test_end_no_allocations__\n\
+         Result[(), RecvError].Err(RecvError.Disconnected)\n",
+    );
+}
+
+#[test]
+fn unit_signals_stop_workers_and_follow_the_join_rule() {
+    let worker =
+        "def wait_for_stop(stop: Receiver[()], done: Sender[i64]) -> Result[(), SendError[i64]]:
+    while True:
+        match stop.recv_timeout_ms(1):
+            case Ok(_):
+                break
+            case Err(RecvTimeoutError.TimedOut):
+                continue
+            case Err(RecvTimeoutError.Disconnected):
+                break
+    done.send(1)?
+    Ok(())
+
+";
+    runs(
+        &format!(
+            "{worker}def main() -> Result[(), AllocError | IoError | SpawnError[()] | SendError[()] | RecvError]:
+    stop, stopped = channel[()](1)?
+    done, finished = channel[i64](1)?
+    with spawn(wait_for_stop, stopped, done).drop_job()?, finished as inbox, stop as signal:
+        signal.send(())?
+        print(inbox.recv()?)?
+    Ok(())
+"
+        ),
+        "1\n",
+    );
+    // Keeping the unit sender alive through the join could leave the worker
+    // waiting for a signal forever.
+    let error = support::check_source(&format!(
+        "{worker}def main() -> Result[(), AllocError | IoError | SpawnError[()] | RecvError]:
+    stop, stopped = channel[()](1)?
+    done, finished = channel[i64](1)?
+    with spawn(wait_for_stop, stopped, done).drop_job()?, finished as inbox:
+        print(inbox.recv()?)?
+    Ok(())
+"
+    ))
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("whose worker holds `Receiver[()]` while `stop` still holds `Sender[()]`"),
+        "{error}"
+    );
+}
+
+// The sleeps make it likely, not guaranteed, that each receiver is already
+// blocked on an empty unit queue when the other thread sends or drops.
+#[test]
+fn blocking_unit_receives_wake_on_another_threads_send_or_drop() {
+    runs(
+        r#"
+import std.time
+
+def wake_later(wake: Sender[()]) -> Result[(), SendError[()]]:
+    std.time.sleep(&std.time.milliseconds(20u32))
+    wake.send(())?
+    std.time.sleep(&std.time.milliseconds(20u32))
+    Ok(())
+
+def wait_then_report(stop: Receiver[()], done: Sender[str]) -> Result[(), SendError[str]]:
+    match stop.recv():
+        case Ok(v):
+            done.send("woken")?
+        case Err(_):
+            done.send("closed")?
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | SpawnError[()] | SendError[()] | RecvError]:
+    wake, woken = channel[()](1)?
+    with spawn(wake_later, wake).drop_job()?, woken as inbox:
+        print(str.repr(inbox.recv())?)?
+        print(str.repr(inbox.recv())?)?
+    stop, stopped = channel[()](1)?
+    done, finished = channel[str](2)?
+    with spawn(wait_then_report, stopped, done).drop_job()?, finished as reports, stop as signal:
+        std.time.sleep(&std.time.milliseconds(20u32))
+        signal.send(())?
+        print(reports.recv()?)?
+    Ok(())
+"#,
+        "Result[(), RecvError].Ok(())\nResult[(), RecvError].Err(RecvError.Disconnected)\nwoken\n",
+    );
+}
+
+#[test]
+fn std_sync_receive_helpers_accept_unit_messages() {
+    runs(
+        r#"
+import std.sync
+import std.time
+
+def main() -> Result[(), AllocError | IoError | SendError[()] | SendError[i64]]:
+    cancel = CancellationToken()?
+    expired = std.time.deadline_at(&std.time.monotonic_now())
+    wake, woken = channel[()](1)?
+    numbers, data = channel[i64](1)?
+    print(str.repr(std.sync.recv_before(&woken, &expired, &cancel))?)?
+    wake.send(())?
+    print(str.repr(std.sync.recv_before(&woken, &expired, &cancel))?)?
+    numbers.send(4)?
+    wake.send(())?
+    print(str.repr(std.sync.select_recv_before(&woken, &data, &expired, &cancel))?)?
+    print(str.repr(std.sync.select_recv_before(&woken, &data, &expired, &cancel))?)?
+    cancel.cancel()
+    wake.send(())?
+    print(str.repr(std.sync.recv_before(&woken, &expired, &cancel))?)?
+    Ok(())
+"#,
+        "Result[(), std.sync.WaitError].Err(std.sync.WaitError.TimedOut)\n\
+         Result[(), std.sync.WaitError].Ok(())\n\
+         Result[Selected[(), i64], std.sync.WaitError].Ok(Selected[(), i64].First(()))\n\
+         Result[Selected[(), i64], std.sync.WaitError].Ok(Selected[(), i64].Second(4))\n\
+         Result[(), std.sync.WaitError].Err(std.sync.WaitError.Cancelled)\n",
+    );
+}
+
+// Phase guard (B16, standalone unit bindings/parameters/storage): unit
+// messages cannot instantiate generics that take or bind a `T` value, or be a
+// generic data argument. Delete these rejections when B16 lifts them.
+#[test]
+fn generic_unit_values_stay_rejected_until_b16() {
+    let program = |body: &str| {
+        format!(
+            "import std.sync
+import std.time
+
+def relay[T](rx: &Receiver[T], tx: &Sender[T]) -> Result[(), RecvError | SendError[T]]:
+    value = rx.recv()?
+    tx.send(value)?
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | RecvError | SendError[()]]:
+    cancel = CancellationToken()?
+    expired = std.time.deadline_at(&std.time.monotonic_now())
+    tx, rx = channel[()](1)?
+{body}    Ok(())
+"
+        )
+    };
+    for (body, expected) in [
+        (
+            "    print(str.repr(std.sync.send_before[()](&tx, (), &expired, &cancel))?)?\n",
+            "unit parameters are not supported yet",
+        ),
+        (
+            "    print(str.repr(std.sync.send_before(&tx, (), &expired, &cancel))?)?\n",
+            "expected a value, got ()",
+        ),
+        (
+            "    error: Option[std.sync.SendBeforeError[()]] = Option.Nothing\n",
+            "unit type arguments are not supported yet",
+        ),
+        ("    relay(&rx, &tx)?\n", "expected a value, got ()"),
+    ] {
+        let error = support::check_source(&program(body))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(expected), "{body}: {error}");
+    }
+    // A generic that matches instead of binding instantiates with unit.
+    support::check_source(&program(
+        "    std.sync.recv_before(&rx, &expired, &cancel).unwrap()\n",
+    ))
+    .unwrap();
+}

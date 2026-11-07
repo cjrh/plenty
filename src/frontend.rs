@@ -395,9 +395,8 @@ impl TypeRef {
             if self.args.len() != 1 {
                 return Err(self.at.error(format!("{name} requires one message type")));
             }
-            let message = self.args[0]
-                .resolve(aliases)?
-                .ok_or_else(|| self.at.error("channel messages cannot be unit"))?;
+            // Unit messages are wake-only signals; the queue stores no payload.
+            let message = self.args[0].resolve(aliases)?.unwrap_or(Ty::Unit);
             if !message.heap_storable() {
                 return Err(self.at.error("channel messages require a concrete wholly owned type without references or generator frames"));
             }

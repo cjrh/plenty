@@ -11,9 +11,7 @@ impl Lower<'_> {
         if ty.args.len() != 1 || args.len() != 1 {
             return Err(ty.at.error("use channel[T](positive_capacity)"));
         }
-        let message = ty.args[0]
-            .resolve(self.aliases)?
-            .ok_or_else(|| ty.at.error("channel messages cannot be unit"))?;
+        let message = ty.args[0].resolve(self.aliases)?.unwrap_or(Ty::Unit);
         if !message.heap_storable() {
             return Err(ty.at.error("channel messages require a concrete wholly owned type without references or generator frames"));
         }
