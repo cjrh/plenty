@@ -21,8 +21,13 @@ transitive imports are unsupported. Directories are namespaces, without
 
 A directory is a namespace only when some module path through it names a
 file: it, or a subdirectory reached through components that are identifiers,
-holds a `.plenty` or `.plentyi` file whose stem is an identifier. Symbolic
-links are followed as imports follow them. Other directories, such as a Rust
+holds a `.plenty` or `.plentyi` file whose stem is an identifier. A symbolic
+link counts only when its target is inside the source root, as for imports;
+links leaving the root are not followed. A directory that cannot be read
+keeps the conflict, and the diagnostic names it. The check walks a directory
+once per build and stops at its first Plenty file, so a large non-Plenty tree
+beside a same-named module costs one walk however many files import the
+module. Other directories, such as a Rust
 `src/oauth/` or an assets folder, are not namespaces: they never make a module
 ambiguous, collide with a dependency alias, or count as a local `std`, so
 `import oauth` reads `oauth.plenty` beside a Rust `oauth/`. Adding the first

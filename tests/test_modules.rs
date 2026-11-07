@@ -860,6 +860,16 @@ fn directories_without_modules_do_not_conflict_with_same_named_modules() {
     ]);
     std::fs::create_dir(dir.path().join("oauth/empty")).unwrap();
     std::os::unix::fs::symlink(".", dir.path().join("oauth/cycle")).unwrap();
+    // Links leaving the source root name nothing an import could load, and
+    // the walk does not follow them.
+    let outside = workspace(&[("x.plenty", "")]);
+    std::os::unix::fs::symlink(outside.path(), dir.path().join("oauth/ext")).unwrap();
+    std::os::unix::fs::symlink(
+        outside.path().join("x.plenty"),
+        dir.path().join("oauth/y.plenty"),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink("/", dir.path().join("oauth/sys")).unwrap();
     // A directory named like a module is not one.
     std::fs::create_dir(dir.path().join("oauth/dir.plenty")).unwrap();
     let source = dir.path().join("main.plenty");
@@ -906,6 +916,33 @@ fn directories_without_modules_do_not_conflict_with_same_named_modules() {
             message.contains("ambiguous module `oauth`"),
             "{path:?}: {message}"
         );
+    }
+
+    // An unreadable directory may hold modules, so it keeps the conflict, and
+    // the diagnostic names it.
+    let dir = workspace(&[
+        ("main.plenty", main),
+        ("oauth.plenty", module),
+        ("oauth/locked/mod.rs", ""),
+    ]);
+    let locked = dir.path().join("oauth/locked");
+    let mode = |mode| {
+        std::fs::set_permissions(&locked, std::os::unix::fs::PermissionsExt::from_mode(mode))
+            .unwrap()
+    };
+    mode(0o000);
+    let readable = std::fs::read_dir(&locked).is_ok();
+    let result = plenty::check_file(&dir.path().join("main.plenty"), None);
+    mode(0o755);
+    // A privileged user reads it anyway, and it holds no modules.
+    if !readable {
+        let message = result.unwrap_err().to_string();
+        assert!(message.contains("ambiguous module `oauth`"), "{message}");
+        let note = format!(
+            "note: {} could not be read",
+            locked.canonicalize().unwrap().display()
+        );
+        assert!(message.contains(&note), "{message}");
     }
 }
 

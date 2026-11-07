@@ -1035,6 +1035,7 @@ pub(super) fn single(source: &str) -> Result<Resolved> {
         appendix: None,
         inputs: vec![],
         script: false,
+        namespaces: Default::default(),
     };
     let mut entry = vec![];
     for import in &module.imports {
@@ -1146,10 +1147,14 @@ fn is_module_name(name: &str) -> bool {
 }
 
 /// The namespace directory, source file or interface that `name` names at
-/// the top of `root`, if any.
-fn local_module(root: &Path, name: &str) -> Option<PathBuf> {
+/// the top of `root`, if any. `namespace` decides whether a directory is one.
+fn local_module(
+    root: &Path,
+    name: &str,
+    namespace: impl Fn(&Path) -> Namespace,
+) -> Option<PathBuf> {
     Some(root.join(name))
-        .filter(|path| is_namespace(path))
+        .filter(|path| namespace(path) != Namespace::Absent)
         .or_else(|| {
             ["plenty", "plentyi"]
                 .iter()
@@ -1158,36 +1163,47 @@ fn local_module(root: &Path, name: &str) -> Option<PathBuf> {
         })
 }
 
-/// Whether `directory` is a module namespace: some module path through it
-/// names a file, because it or one of its subdirectories with a module-name
-/// component holds a `.plenty` or `.plentyi` file whose stem is a module name.
-/// Other directories, such as a Rust module or assets beside `a.plenty`, are
-/// not namespaces, so they neither make `a` ambiguous nor collide with a name.
-/// Links are followed as imports follow them; each directory is visited once,
-/// so a link cycle terminates. A directory that cannot be read counts as a
-/// namespace, keeping the conflict rather than guessing that it holds no
-/// modules.
-fn is_namespace(directory: &Path) -> bool {
-    if !directory.is_dir() {
-        return false;
+/// Whether a directory is a module namespace; see [`namespace`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Namespace {
+    Absent,
+    Modules,
+    /// This directory, at or below the one classified, could not be read,
+    /// so the classified directory may hold modules.
+    Unreadable(PathBuf),
+}
+
+/// Whether `directory`, below the canonical `root`, is a module namespace:
+/// some module path through it names a file, because it or one of its
+/// subdirectories with a module-name component holds a `.plenty` or
+/// `.plentyi` file whose stem is a module name. Other directories, such as a
+/// Rust module or assets beside `a.plenty`, are not namespaces, so they
+/// neither make `a` ambiguous nor collide with a name.
+///
+/// A link counts only when its canonical target is inside `root`, as for
+/// imports, so files outside the project never decide resolution and the walk
+/// never leaves the root. Each link target directory is visited once, so a
+/// link cycle terminates; without links the directories form a tree. The walk
+/// stops at the first module file. A directory that cannot be read keeps the
+/// conflict rather than guessing that it holds no modules.
+fn namespace(root: &Path, directory: &Path) -> Namespace {
+    let Ok(start) = directory.canonicalize() else {
+        return Namespace::Absent;
+    };
+    if !start.starts_with(root) || !start.is_dir() {
+        return Namespace::Absent;
     }
-    let mut visited = HashSet::<PathBuf>::default();
-    let mut pending = vec![directory.to_path_buf()];
+    let mut targets = HashSet::<PathBuf>::default();
+    targets.insert(start.clone());
+    let mut pending = vec![start];
     while let Some(directory) = pending.pop() {
-        let Ok(canonical) = directory.canonicalize() else {
-            return true;
-        };
-        if !visited.insert(canonical) {
-            continue;
-        }
         let Ok(entries) = std::fs::read_dir(&directory) else {
-            return true;
+            return Namespace::Unreadable(directory);
         };
         for entry in entries {
             let Ok(entry) = entry else {
-                return true;
+                return Namespace::Unreadable(directory);
             };
-            let path = entry.path();
             let name = entry.file_name();
             let name = Path::new(&name);
             let module = name
@@ -1201,15 +1217,31 @@ fn is_namespace(directory: &Path) -> bool {
             if !stem.and_then(|s| s.to_str()).is_some_and(is_module_name) {
                 continue;
             }
-            if module && path.is_file() {
-                return true;
+            let Ok(kind) = entry.file_type() else {
+                return Namespace::Unreadable(entry.path());
+            };
+            let (path, is_file, is_dir) = if kind.is_symlink() {
+                // A dangling link or one leaving the root names nothing an
+                // import could load.
+                match entry.path().canonicalize() {
+                    Ok(target) if target.starts_with(root) => {
+                        let (file, dir) = (target.is_file(), target.is_dir());
+                        (target, file, dir)
+                    }
+                    _ => continue,
+                }
+            } else {
+                (entry.path(), kind.is_file(), kind.is_dir())
+            };
+            if module && is_file {
+                return Namespace::Modules;
             }
-            if !module && path.is_dir() {
+            if !module && is_dir && (!kind.is_symlink() || targets.insert(path.clone())) {
                 pending.push(path);
             }
         }
     }
-    false
+    Namespace::Absent
 }
 
 struct Loader {
@@ -1227,8 +1259,23 @@ struct Loader {
     inputs: Vec<inputs::File>,
     /// Only the selected entry may carry an embedded script manifest.
     script: bool,
+    /// Each directory already classified by [`namespace`], so a large
+    /// non-Plenty directory is walked once per build however many files
+    /// import its same-named module.
+    namespaces: std::cell::RefCell<HashMap<PathBuf, Namespace>>,
 }
 impl Loader {
+    fn namespace(&self, root: &Path, directory: &Path) -> Namespace {
+        if let Some(known) = self.namespaces.borrow().get(directory) {
+            return known.clone();
+        }
+        let found = namespace(root, directory);
+        self.namespaces
+            .borrow_mut()
+            .insert(directory.to_path_buf(), found.clone());
+        found
+    }
+
     /// Reads the files named by `include_str` and `include_bytes` in the
     /// module at `path`, making each constant's initializer the literal it
     /// denotes. Each file is a program input, so the program cache notices
@@ -1473,13 +1520,16 @@ impl Loader {
                 return Ok((ModuleSource::File(library), owner));
             }
             return Ok((
-                ModuleSource::File(Self::local(&dependency.root, &parts[1..], import)?),
+                ModuleSource::File(self.local(&dependency.root, &parts[1..], import)?),
                 owner,
             ));
         }
         Ok((
-            ModuleSource::File(Self::local(&current.root, &parts, import).map_err(|e| -> Box<dyn Error> {
-                if self.packages.len() > 1 && local_module(&current.root, first).is_none() {
+            ModuleSource::File(self.local(&current.root, &parts, import).map_err(|e| -> Box<dyn Error> {
+                if self.packages.len() > 1 && local_module(&current.root, first, |path| {
+                        self.namespace(&current.root, path)
+                    })
+                    .is_none() {
                     let mut e = Diagnostic::from_boxed(e);
                     e.message += &format!(
                         "\nnote: `{first}` is neither a local module nor a dependency declared by package `{}`",
@@ -1495,21 +1545,33 @@ impl Loader {
     }
 
     /// Resolve `parts` below `root`, confined to that root.
-    fn local(root: &Path, parts: &[&str], import: &Import) -> Result<PathBuf> {
+    fn local(&self, root: &Path, parts: &[&str], import: &Import) -> Result<PathBuf> {
         let mut path = root.to_path_buf();
         for (i, part) in parts.iter().enumerate() {
             path.push(part);
             let file = path.with_extension("plenty");
             let interface = path.with_extension("plentyi");
-            if ((file.exists() || interface.exists()) && is_namespace(&path))
-                || (file.exists() && interface.exists())
-            {
-                return Err(import.at.error(format!(
+            let both = file.exists() && interface.exists();
+            let namespace = if !both && (file.exists() || interface.exists()) {
+                self.namespace(root, &path)
+            } else {
+                Namespace::Absent
+            };
+            if both || namespace != Namespace::Absent {
+                let mut message = format!(
                     "ambiguous module `{}`: conflicting namespace or .plenty/.plentyi files at {} and {}",
                     import.module,
                     path.display(),
                     file.display()
-                )));
+                );
+                if let Namespace::Unreadable(unreadable) = namespace {
+                    message += &format!(
+                        "\nnote: {} could not be read, so {} may hold Plenty modules",
+                        unreadable.display(),
+                        path.display()
+                    );
+                }
+                return Err(import.at.error(message));
             }
             if i + 1 != parts.len() && !path.is_dir() {
                 return Err(import.at.error(format!(
@@ -1591,6 +1653,7 @@ pub(super) fn load_graph_with(
         appendix: appendix.map(str::to_owned),
         inputs: vec![],
         script,
+        namespaces: Default::default(),
     };
     let (_, at) = loader.file(ModuleSource::File(entry), 0, String::new())?;
     loader.slice_bytes(None).map_err(|e| at.error(e))?;
@@ -1759,7 +1822,7 @@ fn prepare_packages(
             )
             .into());
         }
-        if is_namespace(&root.join("std"))
+        if namespace(root, &root.join("std")) != Namespace::Absent
             || ["std.plenty", "std.plentyi"]
                 .iter()
                 .any(|name| root.join(name).exists())
@@ -1774,7 +1837,7 @@ fn prepare_packages(
             if alias == "std" {
                 return Err("`std` is reserved for the toolchain standard library and cannot name a dependency".into());
             }
-            if let Some(local) = local_module(root, alias) {
+            if let Some(local) = local_module(root, alias, |path| namespace(root, path)) {
                 return Err(format!(
                     "dependency `{alias}` collides with the local module {}; rename the module or the dependency",
                     local.display()
