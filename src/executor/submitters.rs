@@ -4,13 +4,11 @@
 //! workers").
 use super::{ExecutorOp, Job};
 use crate::channel::{ChannelOp, SelectMode};
-use crate::collection::CollectionOp;
 use crate::control::ControlOp;
 use crate::hash::{HashMap, HashSet};
 use crate::mutex::MutexOp;
-use crate::net::NetOp;
 use crate::op::{CompiledFn, Op, Ty};
-use crate::threading::{Task, ThreadOp};
+use crate::threading::ThreadOp;
 use std::sync::Arc;
 
 /// Whether a value of one of `roots` can hold a value of type `wanted`.
@@ -67,6 +65,12 @@ fn visit_reachable<'p>(
                     pending.push(name.to_owned())
                 });
             }
+            // A join waits for everything the thread waits for, so the
+            // thread's code counts as the job's own, wherever it started.
+            if let Op::Thread(ThreadOp::Join(task) | ThreadOp::Finish(task, _)) = op {
+                pending.push(task.worker.clone());
+                pending.extend(task.closure.iter().map(|closure| closure.name.clone()));
+            }
             visit(op, key, function);
         });
     }
@@ -120,24 +124,6 @@ impl Reach {
             token: reaches(inputs, &Ty::CancellationToken),
         }
     }
-
-    /// What a joined task shares with these values, described as the task
-    /// holding it.
-    fn shared_with(&self, task: &Task) -> Option<String> {
-        let other = Self::of(task.inputs.iter().cloned());
-        let queue = other
-            .senders
-            .iter()
-            .chain(&other.receivers)
-            .find(|m| self.senders.contains(m) || self.receivers.contains(m));
-        if let Some(message) = queue {
-            return Some(format!("a channel endpoint for `{message}` messages"));
-        }
-        if let Some(element) = other.mutexes.iter().find(|m| self.mutexes.contains(m)) {
-            return Some(format!("a `Mutex[{element}]`"));
-        }
-        (other.token && self.token).then(|| "a `CancellationToken`".to_owned())
-    }
 }
 
 /// The type of local `slot` of `function`: parameters, then locals.
@@ -150,17 +136,18 @@ fn slot_type(function: &CompiledFn, slot: u8) -> Option<&Ty> {
     }
 }
 
-/// A job that can submit through a `Submitter` must not wait for anything
-/// that only a job it can submit might release, since when every worker waits
-/// so, the jobs that would release them stay queued behind them. Matched by
-/// type, it rejects a blocking or timed:
+/// A job that can submit through a `Submitter` must not wait without a time
+/// limit for anything that only a job it can submit might release, since when
+/// every worker waits so, the jobs that would release them stay queued behind
+/// them. Matched by type, it rejects an untimed:
 /// - receive or selection on a queue whose sender such a job can reach, and a
 ///   send on a queue whose receiver it can reach;
-/// - token wait, or readiness wait bounded by a token, when such a job can
-///   reach a token;
-/// - lock on a `Mutex[T]` such a job can reach;
-/// - join of a task that shares any of these with such a job.
+/// - token wait, when such a job can reach a token;
+/// - lock on a `Mutex[T]` such a job can reach; locks have no timed form.
 ///
+/// A timed form ends at its timeout, so it is allowed; socket readiness waits
+/// always take a deadline. A join is checked through the joined thread's
+/// code, which counts as the job's own. Futures cannot enter workers.
 /// Nonblocking operations and other I/O are allowed.
 pub fn check(
     jobs: &[&Arc<Job>],
@@ -187,10 +174,8 @@ pub fn check(
         if let Some(((reach, wait), function)) = error {
             let advice = if wait.starts_with("locks") {
                 "Keep the state in an atomic, or lock it on a thread that is not a pool worker"
-            } else if wait.starts_with("joins") {
-                "Join the thread from code that is not a pool worker"
             } else {
-                "Use a nonblocking form (`send_nowait`, `recv_nowait`, `select_recv_nowait`, `is_cancelled`), or wait on a thread that is not a pool worker"
+                "Use a timed form (`recv_timeout_ms`, `send_timeout_ms`, `select_recv_timeout_ms`, `select_recv_before`, `wait_timeout_ms`), a nonblocking form, or wait on a thread that is not a pool worker"
             };
             return Err(format!(
                 "executor worker {} can submit, through a Submitter, a job that can {reach}, and {} {wait}; if every worker waits so, the jobs that would release them stay queued behind them. {advice}",
@@ -207,40 +192,27 @@ pub fn check(
 fn conflict(reach: &Reach, op: &Op, function: &CompiledFn) -> Option<(String, String)> {
     let found = |child: String, wait: String| Some((child, wait));
     match op {
-        Op::Channel(ChannelOp::Recv(message, false) | ChannelOp::RecvTimeout(message))
-            if reach.senders.contains(message) =>
-        {
-            found(
-                format!("send on a `Sender[{message}]`"),
-                format!("receives from a `Receiver[{message}]` with a blocking or timed operation"),
-            )
-        }
-        Op::Channel(ChannelOp::Select(first, second, mode)) if *mode != SelectMode::Nowait => {
+        Op::Channel(ChannelOp::Recv(message, false)) if reach.senders.contains(message) => found(
+            format!("send on a `Sender[{message}]`"),
+            format!("receives from a `Receiver[{message}]` without a time limit"),
+        ),
+        Op::Channel(ChannelOp::Select(first, second, SelectMode::Wait)) => {
             let message = [&**first, &**second]
                 .into_iter()
                 .find(|m| reach.senders.contains(m))?;
             found(
                 format!("send on a `Sender[{message}]`"),
-                format!("receives from a `Receiver[{message}]` with a blocking or timed operation"),
+                format!("receives from a `Receiver[{message}]` without a time limit"),
             )
         }
-        Op::Channel(ChannelOp::Send(message, false) | ChannelOp::SendTimeout(message))
-            if reach.receivers.contains(message) =>
-        {
-            found(
-                format!("receive from a `Receiver[{message}]`"),
-                format!("sends on a `Sender[{message}]` with a blocking or timed operation"),
-            )
-        }
-        Op::Control(ControlOp::Wait | ControlOp::WaitTimeout)
-        | Op::Collection(CollectionOp::Net(NetOp::ReadyWait | NetOp::Select))
-            if reach.token =>
-        {
-            found(
-                "cancel a `CancellationToken`".to_owned(),
-                "waits on a `CancellationToken`".to_owned(),
-            )
-        }
+        Op::Channel(ChannelOp::Send(message, false)) if reach.receivers.contains(message) => found(
+            format!("receive from a `Receiver[{message}]`"),
+            format!("sends on a `Sender[{message}]` without a time limit"),
+        ),
+        Op::Control(ControlOp::Wait) if reach.token => found(
+            "cancel a `CancellationToken`".to_owned(),
+            "waits on a `CancellationToken` without a time limit".to_owned(),
+        ),
         Op::Mutex(MutexOp::Lock(slot)) => {
             let Some(Ty::Ref(mutex, _)) = slot_type(function, *slot) else {
                 return None;
@@ -252,13 +224,6 @@ fn conflict(reach: &Reach, op: &Op, function: &CompiledFn) -> Option<(String, St
                     format!("locks a `Mutex[{element}]`"),
                 )
             })
-        }
-        Op::Thread(ThreadOp::Join(task) | ThreadOp::Finish(task, _)) => {
-            let shared = reach.shared_with(task)?;
-            found(
-                format!("reach {shared}"),
-                format!("joins a thread that holds {shared}"),
-            )
         }
         _ => None,
     }

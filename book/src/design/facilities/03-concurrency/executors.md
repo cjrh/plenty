@@ -148,22 +148,36 @@ in a submitted job stops the program, as in any pool job.
 
 ### Waits in submitting jobs
 
-A job that can submit through a `Submitter` cannot wait for a job it queued:
-if every worker waits so, the jobs that would release them stay queued behind
-them. The compiler applies a rule matched by message type, as the shutdown
-rules are:
+A job that can submit through a `Submitter` cannot wait, without a time limit,
+for a job it queued: if every worker waits so, the jobs that would release them
+stay queued behind them. The compiler applies a rule matched by message type,
+as the shutdown rules are:
 
 > A pool job that can submit through a `Submitter`, directly or through jobs it
-> submits, cannot wait for anything a job it can submit can reach. It cannot,
-> with a blocking or timed operation:
+> submits, cannot wait without a time limit for anything a job it can submit
+> can reach. It cannot, with an untimed operation:
 >
 > - receive or select on a queue whose sender such a job can reach, or send on
 >   a queue whose receiver such a job can reach;
-> - wait on a `CancellationToken`, including a socket readiness wait bounded
->   by one, when such a job can reach a token;
-> - lock a `Mutex[T]` when such a job can reach a `Mutex[T]`;
-> - join a thread that holds a channel endpoint, `Mutex[T]`, or token of a
->   type such a job can reach.
+> - wait on a `CancellationToken` when such a job can reach a token;
+> - lock a `Mutex[T]` when such a job can reach a `Mutex[T]`.
+>
+> A timed form is allowed: one whose timeout or deadline always ends the wait.
+> A token alone does not count. Locks have no timed form. A thread the job
+> joins counts as part of the job: its waits are checked the same way.
+
+The timed forms are `recv_timeout_ms`, `send_timeout_ms`,
+`select_recv_timeout_ms`, `std.sync.select_recv_before`, and
+`wait_timeout_ms` (see [timed selection](timed-selection.md)). The
+[readiness](../../stdlib/ready.md) waits always take a deadline, so a job may
+wait for a socket until a deadline or its token, as a crawler does.
+
+A timed wait cannot hang the pool, but it has a cost: a cancellation or
+message that a queued job would deliver arrives no sooner than the timeout,
+since that job runs only once the wait ends. A loop that retries a timed wait
+until a submitted job acts can still hang, as a loop polling with
+`recv_nowait` or spinning on an atomic can; no static rule catches such a
+livelock.
 
 Everything is matched by type, as the shutdown rules match it. A job may
 still send blocking on a queue whose receiver only another thread holds, as
@@ -173,11 +187,8 @@ accepted. To share counters or flags with submitted jobs, use an
 [atomic](../../stdlib/atomic.md) rather than a mutex.
 
 A job waiting on something no submitted job can reach is outside the rule;
-such protocols can still deadlock, as for any pool job. Nor can a static rule
-catch a livelock: a job that polls with `recv_nowait`, or spins on an atomic,
-for work that a queued job would produce keeps its worker busy forever. Code
-started on a scoped thread, or `main`, is not a pool worker, so it may submit
-and then wait.
+such protocols can still deadlock, as for any pool job. Code started on a
+scoped thread, or `main`, is not a pool worker, so it may submit and then wait.
 
 For the [shutdown rules](#shutdown-and-live-receivers), a job that can
 submit through a `Submitter` can also hold every sender, and reach every mutex,

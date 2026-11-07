@@ -236,7 +236,7 @@ def main() -> Result[(), AllocError | PoolError | SubmitError[()]]:
         pool.submit_nowait(parent, handle).drop_job()?
     Ok(())
 "#,
-        "executor worker `parent` can submit, through a Submitter, a job that can send on a `Sender[i64]`, and `parent` receives from a `Receiver[i64]` with a blocking or timed operation",
+        "executor worker `parent` can submit, through a Submitter, a job that can send on a `Sender[i64]`, and `parent` receives from a `Receiver[i64]` without a time limit",
     );
     // Nonblocking operations on the same queue, and the child's own wait, are
     // allowed: the child cannot submit.
@@ -348,8 +348,71 @@ def main() -> Result[(), AllocError | PoolError | SubmitError[()]]:
         pool.submit_nowait(parent, handle).drop_job()?
     Ok(())
 "#,
-        "a job that can cancel a `CancellationToken`, and `parent` waits on a `CancellationToken`",
+        "a job that can cancel a `CancellationToken`, and `parent` waits on a `CancellationToken` without a time limit",
     );
+}
+
+#[test]
+fn timed_waits_are_allowed_and_untimed_waits_rejected() {
+    const MAIN: &str = "
+def main() -> Result[(), AllocError | PoolError | SubmitError[()]]:
+    with ThreadPoolExecutor(1, 4)? as pool:
+        handle = pool.submitter()
+        pool.submit_nowait(parent, handle).drop_job()?
+    Ok(())
+";
+    let program = |wait: &str| {
+        format!(
+            "import std.io
+from std.ready import Interest, wait
+from std.time import deadline_after, milliseconds, monotonic_now
+def child(stop: CancellationToken, out: Sender[i64]) -> ():
+    _ = out.send(1)
+    stop.cancel()
+
+def parent(handle: Submitter) -> Result[(), AllocError | RangeError]:
+    stop = CancellationToken()?
+    sender, receiver = channel[i64](1)?
+    other, idle = channel[i64](1)?
+    drop(handle.submit_nowait(child, stop.share(), sender))
+{wait}    drop(other)
+    Ok(())
+{MAIN}"
+        )
+    };
+    // A timed form ends at its timeout; the crawler shape waits for socket
+    // readiness until a deadline or the token.
+    for wait in [
+        "    drop(stop.wait_timeout_ms(10u64))\n",
+        "    drop(receiver.recv_timeout_ms(10u64))\n",
+        "    drop(select_recv_timeout_ms(&receiver, &idle, 10u64))\n",
+        "    stream = std.io.open_file(\"/dev/null\", \"r\").unwrap()
+    deadline = deadline_after(&monotonic_now(), &milliseconds(10))?
+    _ = wait(&stream.file, Interest.Read, &deadline, &stop)
+",
+    ] {
+        let source = program(wait);
+        support::check_source(&source).unwrap_or_else(|e| panic!("{source}\n{e}"));
+    }
+    for (wait, expected) in [
+        (
+            "    stop.wait()\n",
+            "`parent` waits on a `CancellationToken` without a time limit",
+        ),
+        (
+            "    drop(receiver.recv())\n",
+            "`parent` receives from a `Receiver[i64]` without a time limit",
+        ),
+        (
+            "    drop(select_recv(&receiver, &idle))\n",
+            "`parent` receives from a `Receiver[i64]` without a time limit",
+        ),
+    ] {
+        let source = program(wait);
+        let error = support::check_source(&source).unwrap_err().to_string();
+        assert!(error.contains(expected), "{source}\n{error}");
+        assert!(error.contains("Use a timed form"), "{error}");
+    }
 }
 
 #[test]
@@ -401,7 +464,7 @@ def main() -> Result[(), AllocError | IoError | PoolError | SubmitError[()]]:
 }
 
 #[test]
-fn a_job_cannot_join_a_thread_that_shares_a_queue_with_its_submitted_jobs() {
+fn a_joined_thread_counts_as_the_submitting_job() {
     rejects(
         r#"
 def child(out: Sender[i64]) -> ():
@@ -423,7 +486,40 @@ def main() -> Result[(), AllocError | PoolError | SubmitError[()]]:
         pool.submit_nowait(parent, handle).drop_job()?
     Ok(())
 "#,
-        "and `parent` joins a thread that holds a channel endpoint for `i64` messages",
+        "a job that can send on a `Sender[i64]`, and `wait_one` receives from a `Receiver[i64]`",
+    );
+    // A joined thread that only sends to `main`, as the submitted jobs do,
+    // waits for nothing they hold.
+    runs(
+        r#"
+def child(out: Sender[i64]) -> ():
+    _ = out.send(1)
+
+def report(out: Sender[i64]) -> ():
+    _ = out.send(2)
+
+def parent(handle: Submitter, out: Sender[i64]) -> Result[(), AllocError | SpawnError[()]]:
+    _ = handle.submit_nowait(child, out.share()).drop_job()
+    with spawn(report, out).drop_job()? as task:
+        task.join()
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | PoolError | SubmitError[()] | OverflowError[i64]]:
+    sender, receiver = channel[i64](1)?
+    with ThreadPoolExecutor(1, 4)? as pool, receiver as inbox:
+        handle = pool.submitter()
+        pool.submit_nowait(parent, handle, sender).drop_job()?
+        mut total = 0
+        while True:
+            match inbox.recv():
+                case Ok(n):
+                    total = total + n
+                case Err(_):
+                    break
+        print(total)?
+    Ok(())
+"#,
+        "3\n",
     );
     // A thread that shares nothing with the submitted jobs may be joined.
     runs(
