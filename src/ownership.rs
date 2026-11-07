@@ -346,6 +346,14 @@ fn submission(hazards: &[(Hazard, Option<Site>)], kind: &Kind) -> Option<Site> {
         .and_then(|(_, at)| *at)
 }
 
+/// The source name of a called function, for diagnostics.
+fn callee_name(callee: Option<&str>) -> Option<String> {
+    callee
+        .map(crate::record::method_display)
+        .filter(|name| !name.starts_with("__plenty_"))
+        .map(str::to_owned)
+}
+
 /// Message types and guarded types of `hazards`, in that order.
 fn split(hazards: &[(Hazard, Option<Site>)]) -> (Vec<Ty>, Vec<Ty>) {
     let mut sends = Vec::new();
@@ -728,6 +736,9 @@ struct Checker<'a, 'p> {
     /// How many wait checks have read binding state so far. A loop body that
     /// read none needs no second pass from a weaker entry state.
     state_waits: std::cell::Cell<usize>,
+    /// A binding can hold a receiver or the function takes a lock, so a
+    /// call's own pool shutdown can wait for this frame (issue #860).
+    holds_waited: std::cell::OnceCell<bool>,
 }
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
@@ -758,6 +769,7 @@ pub fn check(
         },
         fields,
         state_waits: Default::default(),
+        holds_waited: Default::default(),
         futures: crate::profile_block!(
             "ownership::prepare_futures",
             futures::Futures::new(ops, locals.len(), program)
@@ -1826,12 +1838,6 @@ impl Checker<'_, '_> {
     ) -> Result<()> {
         let effects = std::cell::OnceCell::new();
         let effects = || effects.get_or_init(|| self.program.effects(callee));
-        let named = || {
-            callee
-                .map(crate::record::method_display)
-                .filter(|name| !name.starts_with("__plenty_"))
-                .map(str::to_owned)
-        };
         // Every slot other than a future holds a pool. Its jobs count before
         // the shutdown checks: a pool moved into the call can shut down only
         // inside it, after the callee's submissions.
@@ -1860,11 +1866,75 @@ impl Checker<'_, '_> {
                 }),
             };
             result.map_err(|mut error| {
-                error.call = Some(named());
+                error.call = Some(callee_name(callee));
                 error
             })?;
         }
         Ok(())
+    }
+
+    /// A call to `callee` can submit jobs to a pool of its own and shut that
+    /// pool down before it returns, while this frame keeps the receivers and
+    /// locks those jobs can wait on (issue #860). The call is handed no pool,
+    /// so `call_waits` does not see it. `captures` are a closure's.
+    fn own_pool_call(
+        &self,
+        callee: &str,
+        captures: &[Ty],
+        state: &State,
+        site: Option<Site>,
+    ) -> Result<()> {
+        let holds = *self.holds_waited.get_or_init(|| {
+            !endpoints(self.locals.iter().cloned(), false, true).is_empty() || self.body_locks()
+        });
+        if !holds {
+            return Ok(());
+        }
+        let (jobs, receives) = self.program.own_pool_submissions(callee, captures);
+        if jobs.is_empty() {
+            return Ok(());
+        }
+        let jobs: Vec<_> = jobs.into_iter().map(|hazard| (hazard, None)).collect();
+        // A moved receiver in an unfinished expression may be an argument of
+        // this call, which the callee's own checks see. One the arguments
+        // cannot hold still keeps the queue alive through the call.
+        let unhandled = |&(slot, _): &(u8, Site)| {
+            let parameter = (slot as usize) < self.parameters;
+            !endpoints([self.locals[slot as usize].clone()], false, parameter)
+                .iter()
+                .any(|message| receives.contains(message))
+        };
+        let returning = self.returning.borrow().clone();
+        let building = self.building.borrow().clone();
+        self.returning.borrow_mut().retain(unhandled);
+        self.building.borrow_mut().retain(unhandled);
+        let (sends, locks) = split(&jobs);
+        let kind = |message| Kind::BlockedShutdown {
+            message,
+            automatic: false,
+        };
+        let advice = |_: Option<&str>| "drop it, or end its `with` block, before the call".into();
+        let blocked = self.blocked(&sends, state, site, kind, advice).or_else(|| {
+            let advice = "end the lock's `with` block before the call";
+            self.held_lock(&locks, Wait::Shutdown, false, advice, state, site)
+        });
+        self.returning.replace(returning);
+        self.building.replace(building);
+        match blocked {
+            Some(mut error) => {
+                error.call = Some(callee_name(Some(callee)));
+                Err(error)
+            }
+            None => Ok(()),
+        }
+    }
+
+    fn body_locks(&self) -> bool {
+        let mut locks = false;
+        crate::threading::walk(self.body, &mut |op| {
+            locks |= matches!(op, Op::Mutex(MutexOp::Lock(_)));
+        });
+        locks
     }
 
     /// A function exit releases every local, the last declared first.
@@ -1951,6 +2021,15 @@ impl Checker<'_, '_> {
             if let (Some(callee), Some(slots)) = (callee, passing) {
                 passing = None;
                 self.call_waits(callee, slots, state, site)?;
+            }
+            if let Some(Some(name)) = callee {
+                let captures: Vec<Ty> = match op {
+                    Op::ClosureCall(closure) => {
+                        closure.captures.iter().map(|(_, ty)| ty.clone()).collect()
+                    }
+                    _ => Vec::new(),
+                };
+                self.own_pool_call(name, &captures, state, site)?;
             }
             match op {
                 Op::Passes(slots) => passing = Some(slots),

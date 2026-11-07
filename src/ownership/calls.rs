@@ -302,6 +302,51 @@ impl<'p> Program<'p> {
         hazards
     }
 
+    /// What the jobs that a call to `callee` can submit can block on, when
+    /// the call can also shut down a pool, so that the jobs can still be
+    /// running at that shutdown inside the call although it is handed no
+    /// pool (issue #860). Only senders and mutexes of types that the call's
+    /// arguments, or a closure's `captures`, can reach count: a job of a
+    /// pool the callee makes can hold a caller's endpoint only through them.
+    /// The call is not checked to submit before it shuts down, nor to shut
+    /// down the pool it submitted to. Also returns the message types of the
+    /// receivers the arguments can hold, which the callee's own checks see.
+    pub(super) fn own_pool_submissions(
+        &self,
+        callee: &str,
+        captures: &[Ty],
+    ) -> (Vec<Hazard>, Vec<Ty>) {
+        let Some(function) = self.definitions().get(callee) else {
+            return Default::default();
+        };
+        let roots: Vec<Ty> = function
+            .sig
+            .inputs
+            .iter()
+            .map(|(_, ty)| ty.clone())
+            .chain(captures.iter().cloned())
+            .collect();
+        let sends = crate::threading::endpoints(roots.iter().cloned(), true, true);
+        let locks = crate::threading::mutexes(roots.iter().cloned());
+        if sends.is_empty() && locks.is_empty() {
+            return Default::default();
+        }
+        let hazards: Vec<Hazard> = self
+            .pool_submissions(Some(callee))
+            .into_iter()
+            .filter(|hazard| match hazard {
+                Hazard::Sends(message) => sends.contains(message),
+                Hazard::Locks(element) => locks.contains(element),
+                Hazard::Cancels(_) => false,
+            })
+            .collect();
+        if hazards.is_empty() || !self.effects(Some(callee)).shuts() {
+            return Default::default();
+        }
+        let receives = crate::threading::endpoints(roots, false, true);
+        (hazards, receives)
+    }
+
     fn reached_jobs(&self, callee: Option<&str>) -> Arc<[Job<'p>]> {
         let Some(callee) = callee else {
             return Arc::default();

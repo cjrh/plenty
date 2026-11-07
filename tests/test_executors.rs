@@ -1585,6 +1585,123 @@ fn jobs_a_call_submits_run_once_the_receiver_drops() {
     );
 }
 
+/// Helpers that submit a job holding the sender they are handed to a pool of
+/// their own and shut it down before returning, and are handed no pool
+/// (issue #860).
+const OWN_POOL: &str = "def scoped(sender: Sender[i64]) -> Result[(), PoolError | AllocError]:
+    own = ThreadPoolExecutor(1, 1)?
+    drop(own.submit(produce, sender).drop_job())
+    Ok(())
+
+def explicit(sender: Sender[i64]) -> Result[(), PoolError | AllocError]:
+    own = ThreadPoolExecutor(1, 1)?
+    drop(own.submit(produce, sender).drop_job())
+    own.shutdown()
+    Ok(())
+
+def further(sender: Sender[i64]) -> Result[(), PoolError | AllocError]:
+    scoped(sender)
+
+def drains(sender: Sender[i64], inbox: Receiver[i64]) -> Result[(), PoolError | AllocError]:
+    own = ThreadPoolExecutor(1, 1)?
+    drop(own.submit(produce, sender).drop_job())
+    drop(inbox)
+    Ok(())
+
+def private(count: i64) -> Result[(), PoolError | AllocError]:
+    sender, receiver = channel[i64](1)?
+    with ThreadPoolExecutor(1, 1)? as own, receiver as inbox:
+        drop(own.submit(produce, sender).drop_job())
+    Ok(())
+
+";
+
+fn own_pool_main(body: &str) -> String {
+    format!(
+        "{PRODUCE}{OWN_POOL}def main() -> Result[(), AllocError | IoError | PoolError | str]:
+    sender, receiver = channel[i64](1)?
+{body}    print(\"done\")?
+    Ok(())
+"
+    )
+}
+
+#[test]
+fn a_call_that_shuts_down_its_own_pool_blocks_on_live_receivers() {
+    for call in ["scoped", "explicit", "further"] {
+        let source = own_pool_main(&format!("    {call}(sender)?\n    drop(receiver)\n"));
+        let error = support::check_source(&source).unwrap_err().to_string();
+        assert!(
+            error.contains(&format!(
+                "this call to `{call}` can shut down a pool after a job that holds \
+                 `Sender[i64]` was submitted, while `receiver` still holds `Receiver[i64]`"
+            )),
+            "{call}\n{error}"
+        );
+        assert!(
+            error.contains("drop it, or end its `with` block, before the call"),
+            "{call}\n{error}"
+        );
+    }
+    // Handing the callee a share of the queue leaves the caller's own.
+    let source = own_pool_main("    drains(sender, receiver.share())?\n    drop(receiver)\n");
+    let error = support::check_source(&source).unwrap_err().to_string();
+    assert!(
+        error.contains("this call to `drains` can shut down a pool")
+            && error.contains("`receiver` holds `Receiver[i64]`"),
+        "{error}"
+    );
+    // A receiver moved into the call is the callee's to check.
+    runs(
+        &own_pool_main("    drop(drains(sender, receiver))\n"),
+        "done\n",
+    );
+}
+
+#[test]
+fn a_call_that_shuts_down_its_own_pool_blocks_under_a_lock() {
+    let source = "from std.sync import Mutex
+
+def bump(counter: Shared[Mutex[i64]]) -> Result[(), OverflowError[i64]]:
+    with counter.lock() as value:
+        *value = *value + 1
+    Ok(())
+
+def bumping(counter: Shared[Mutex[i64]]) -> Result[(), PoolError | AllocError]:
+    with ThreadPoolExecutor(1, 1)? as own:
+        drop(own.submit(bump, counter).drop_job())
+    Ok(())
+
+def main() -> Result[(), AllocError | PoolError]:
+    counter = Shared(Mutex(0))?
+    with counter.lock() as value:
+        bumping(counter.share())?
+    Ok(())
+";
+    let error = support::check_source(source).unwrap_err().to_string();
+    assert!(
+        error.contains(
+            "this call to `bumping` can shut down a pool after a job that can lock a \
+             `Mutex[i64]` was submitted, while this function holds a lock on a `Mutex[i64]`"
+        ),
+        "{error}"
+    );
+}
+
+/// The receiver is gone before the call, and a helper whose job holds only
+/// a sender it makes itself cannot hold the caller's.
+#[test]
+fn a_call_that_shuts_down_its_own_pool_runs_without_live_receivers() {
+    runs(
+        &own_pool_main("    drop(receiver)\n    further(sender)?\n"),
+        "done\n",
+    );
+    runs(
+        &own_pool_main("    private(0)?\n    drop(sender)\n    drop(receiver)\n"),
+        "done\n",
+    );
+}
+
 /// Helpers that return a future they are handed, or one they submit
 /// themselves (issue #352).
 const RETURNING: &str =
