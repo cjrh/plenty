@@ -5,6 +5,17 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## Handwritten serialization codecs (issue #781)
+
+[`std.serial`](../design/stdlib/serial.md) supplies statically specialized
+built-in codecs, private class/enum hooks and `SerialError[E]` with bounded
+error paths. [Typed JSON entry points](../design/stdlib/json-codecs.md) encode
+and decode complete buffers and convert directly to/from an owning `Json`
+tree under explicit depth, node and text budgets. Handwritten decoding retains
+control over defaults, unknown fields and validated construction. This is the
+first usable contract milestone; B77 retains derivation, TOML, byte support,
+reader loading and the performance gate before derivation.
+
 ## Native qualification build reuse (issue #850)
 
 [Native OS qualification](../development/ci-workflow.md#native-os-qualification)
