@@ -57,11 +57,13 @@ is checked first, just as for hover. No parameter-name hints are provided.
 
 ## Moving a declaration to another module
 
-On the line of a top-level `def`, `class`, `enum`, `protocol`, `const`, or
-`type`, the server offers one **Move `NAME` to module `MODULE`** action for
-each other module in the same `src/` directory. Choosing one resolves the
-action into a workspace edit; an editor that previews edits shows every file
-before applying any. The edit is computed from the unsaved text of open files.
+On any line of a top-level `def`, `class`, `enum`, `protocol`, `const`, or
+`type`, including its comments, docstring, and body, the server offers one
+**Move `NAME` to module `MODULE`** action for each other module of the
+package's `src/`. Choosing one resolves the action into a workspace edit; an
+editor that previews edits shows every file before applying any. The edit is
+computed from the unsaved text of open files, and an action offered before
+the file changed is refused; ask for code actions again.
 
 The move:
 
@@ -76,7 +78,12 @@ The move:
   names (`shapes.Point` becomes `geometry.Point`), adding or removing `import`
   lines as needed;
 - adds `pub` to the moved declaration, or to a source declaration it uses,
-  when another module now needs it.
+  when another module now needs it;
+- writes the destination's line endings, `\r\n` or `\n`.
+
+A source module left with only imports and comments stays in place, and the
+compiler then warns that no target imports it; delete it if it is no longer
+needed.
 
 Changes to a package's API are listed with the edit: a declaration made
 public, and a public library declaration whose import path changes, since
@@ -84,7 +91,13 @@ packages outside the workspace that import it must change. When the client
 supports change annotations, these edits carry an annotation that needs
 confirmation; otherwise the server shows the changes in a warning message.
 
-Before answering, the server checks the whole package with the edits applied.
+Before answering, the server checks the package without and then with the
+edits: each library, executable, and test file of the package and of the
+workspace members that depend on it is checked as an entry, and then each
+`src/` file no entry reached. Each entry checks the modules it imports, so
+the cost is about two checks of every entry, plus the unreached files. The check after the edits catches what the rewriting does not
+detect itself, such as an import binding the destination already uses for
+something else.
 A move is refused, with nothing edited and the reason returned as a request
 error, when:
 
@@ -92,12 +105,16 @@ error, when:
   the same `src/` directory;
 - the line is not a supported declaration: `extern`, `opaque`, `dimension`, and
   `if const` blocks are refused;
+- the declaration uses `include_str` or `include_bytes`, whose paths are
+  relative to its file's directory, and the destination is in another
+  directory;
 - the package does not check before the move;
 - the destination already declares or imports the name, or an import binding
   would conflict;
 - an import that must be rewritten carries a comment, or a touched file has an
   indented import;
-- a use of the declaration has a form the move cannot rewrite;
+- a use of the declaration has a form the move cannot rewrite, such as
+  `shapes . Point` with spaces or a member access split across lines;
 - the moved code needs the source module and the source needs the moved code,
   so the two modules would import each other;
 - the package would not check after the move, for example because of a

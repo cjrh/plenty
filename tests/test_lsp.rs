@@ -22,6 +22,11 @@ impl Client {
     }
 
     fn start_with_encodings(cache: &Path, encodings: Value) -> Client {
+        Self::start_with(cache, encodings, json!({}))
+    }
+
+    /// Start with the client's `workspace.workspaceEdit` capabilities.
+    fn start_with(cache: &Path, encodings: Value, workspace_edit: Value) -> Client {
         let mut child = Command::new(env!("CARGO_BIN_EXE_plenty"))
             .arg("lsp")
             .env("PLENTY_CACHE_DIR", cache)
@@ -43,6 +48,7 @@ impl Client {
             json!({"capabilities": {
                 "general": {"positionEncodings": encodings},
                 "textDocument": {"inlayHint": {"dynamicRegistration": false}},
+                "workspace": {"workspaceEdit": workspace_edit},
             }}),
         );
         assert_eq!(
@@ -174,6 +180,20 @@ impl Client {
             .iter()
             .map(|item| item["label"].as_str().unwrap().to_owned())
             .collect()
+    }
+
+    /// The error reply to a request that the server refuses.
+    fn refused(&mut self, method: &str, params: Value) -> Value {
+        self.next += 1;
+        let id = self.next;
+        self.send(json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}));
+        loop {
+            let message = self.receive();
+            if message["id"] == id {
+                assert!(message.get("result").is_none(), "{message}");
+                return message["error"].clone();
+            }
+        }
     }
 
     fn exit(mut self) {
@@ -807,7 +827,21 @@ fn a_declaration_moves_through_a_resolved_code_action() {
     );
     // Moving into `main` is also allowed: `shapes.one()` becomes `one()`.
     let into_main = client.request("codeAction/resolve", actions[1].clone());
-    assert!(into_main["edit"]["changes"][uri(&main)].is_array());
+    assert_eq!(
+        into_main["edit"]["changes"],
+        json!({
+            uri(&shapes): [{"range": {"start": {"line": 0, "character": 0}, "end": {"line": 2, "character": 0}},
+                "newText": ""}],
+            uri(&main): [
+                {"range": {"start": {"line": 0, "character": 0}, "end": {"line": 2, "character": 0}},
+                    "newText": ""},
+                {"range": {"start": {"line": 3, "character": 8}, "end": {"line": 3, "character": 18}},
+                    "newText": "one"},
+                {"range": {"start": {"line": 4, "character": 0}, "end": {"line": 4, "character": 0}},
+                    "newText": "\npub def one() -> i64:\n    3\n"},
+            ],
+        })
+    );
     // A refused move is a request error, and nothing is edited.
     client.open(&geometry);
     client.notify(
@@ -881,5 +915,179 @@ fn a_declaration_moves_through_a_resolved_code_action() {
             "context": {"diagnostics": []}}),
     );
     assert_eq!(none, json!([]));
+    client.exit();
+}
+
+fn app_package(root: &Path, files: &[(&str, &str)]) {
+    write(
+        &root.join("plenty.toml"),
+        "manifest-version = 1\n\n[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+    );
+    for (path, text) in files {
+        write(&root.join(path), text);
+    }
+}
+
+fn code_actions(client: &mut Client, uri: &str, line: u32) -> Value {
+    client.request(
+        "textDocument/codeAction",
+        json!({"textDocument": {"uri": uri},
+            "range": {"start": {"line": line, "character": 0}, "end": {"line": line, "character": 0}},
+            "context": {"diagnostics": []}}),
+    )
+}
+
+#[test]
+fn a_move_is_a_versioned_annotated_edit_in_utf16_columns() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    app_package(
+        root,
+        &[
+            (
+                "src/shapes.plenty",
+                "def base() -> i64:\n    3\n\npub def one() -> i64:\n    base()\n",
+            ),
+            ("src/geometry.plenty", "pub def two() -> i64:\n    2\n"),
+            (
+                "src/main.plenty",
+                "import shapes\n\ndef main() -> ():\n    x = (\"\u{1F600}\", shapes.one())\n",
+            ),
+        ],
+    );
+    let (shapes, geometry, main) = (
+        root.join("src/shapes.plenty"),
+        root.join("src/geometry.plenty"),
+        root.join("src/main.plenty"),
+    );
+    let mut client = Client::start_with(
+        &root.join("cache"),
+        json!([]),
+        json!({"documentChanges": true, "changeAnnotationSupport": {"groupsOnLabel": false}}),
+    );
+    client.open(&shapes);
+    client.open(&main);
+    let actions = code_actions(&mut client, &uri(&shapes), 4);
+    assert_eq!(actions[0]["title"], "Move `one` to module `geometry`");
+    let resolved = client.request("codeAction/resolve", actions[0].clone());
+    let api =
+        |range: Value, text: &str| json!({"range": range, "newText": text, "annotationId": "api"});
+    let at = |line: u32, start: u32, end_line: u32, end: u32| json!({"start": {"line": line, "character": start}, "end": {"line": end_line, "character": end}});
+    assert_eq!(
+        resolved["edit"],
+        json!({
+            "documentChanges": [
+                {"textDocument": {"uri": uri(&geometry), "version": null}, "edits": [
+                    api(at(0, 0, 0, 0), "from shapes import base\n\n"),
+                    api(at(2, 0, 2, 0), "\npub def one() -> i64:\n    base()\n"),
+                ]},
+                {"textDocument": {"uri": uri(&main), "version": 1}, "edits": [
+                    api(at(0, 0, 1, 0), ""),
+                    api(at(1, 0, 1, 0), "import geometry\n"),
+                    // The emoji is two UTF-16 units: `shapes.one` starts at
+                    // character 14 and unit 15.
+                    api(at(3, 15, 3, 25), "geometry.one"),
+                ]},
+                {"textDocument": {"uri": uri(&shapes), "version": 1}, "edits": [
+                    api(at(0, 0, 0, 0), "pub "),
+                    api(at(2, 0, 5, 0), ""),
+                ]},
+            ],
+            "changeAnnotations": {"api": {
+                "label": "Move `one` to `geometry`",
+                "needsConfirmation": true,
+                "description": "makes `shapes.base` public, because the moved code uses it",
+            }},
+        })
+    );
+    client.exit();
+}
+
+#[test]
+fn an_action_offered_before_an_edit_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    app_package(
+        root,
+        &[
+            ("src/shapes.plenty", "pub def one() -> i64:\n    1\n"),
+            ("src/geometry.plenty", "pub def two() -> i64:\n    2\n"),
+            (
+                "src/main.plenty",
+                "import shapes\n\ndef main() -> ():\n    x = shapes.one()\n",
+            ),
+        ],
+    );
+    let shapes = root.join("src/shapes.plenty");
+    let mut client = Client::start(&root.join("cache"));
+    client.open(&shapes);
+    let actions = code_actions(&mut client, &uri(&shapes), 0);
+    let stale = "the file has changed since this move was offered; ask for code actions again";
+    // Another declaration now starts on the offered line.
+    client.notify(
+        "textDocument/didChange",
+        json!({"textDocument": {"uri": uri(&shapes), "version": 2},
+            "contentChanges": [{"text": "pub def other() -> i64:\n    1\n\npub def one() -> i64:\n    1\n"}]}),
+    );
+    let error = client.refused("codeAction/resolve", actions[0].clone());
+    assert_eq!(error["message"], stale);
+    // The same declaration, edited since.
+    let actions = code_actions(&mut client, &uri(&shapes), 0);
+    assert_eq!(actions[0]["title"], "Move `other` to module `geometry`");
+    client.notify(
+        "textDocument/didChange",
+        json!({"textDocument": {"uri": uri(&shapes), "version": 3},
+            "contentChanges": [{"text": "pub def other() -> i64:\n    2\n\npub def one() -> i64:\n    1\n"}]}),
+    );
+    let error = client.refused("codeAction/resolve", actions[0].clone());
+    assert_eq!(error["message"], stale);
+    client.exit();
+}
+
+#[test]
+fn edits_name_open_documents_by_the_clients_uri() {
+    let dir = tempfile::tempdir().unwrap();
+    let real = dir.path().join("real");
+    app_package(
+        &real,
+        &[
+            ("src/shapes.plenty", "pub def one() -> i64:\n    1\n"),
+            ("src/geometry.plenty", "pub def two() -> i64:\n    2\n"),
+            (
+                "src/main.plenty",
+                "import shapes\n\ndef main() -> ():\n    x = shapes.one()\n",
+            ),
+        ],
+    );
+    let link = dir.path().join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let linked = |path: &str| format!("file://{}", link.join(path).display());
+    let mut client = Client::start(&dir.path().join("cache"));
+    let shapes = linked("src/shapes.plenty");
+    client.notify(
+        "textDocument/didOpen",
+        json!({"textDocument": {"uri": shapes, "languageId": "plenty", "version": 1,
+            "text": "pub def one() -> i64:\n    1\n"}}),
+    );
+    client.published(&shapes);
+    let actions = code_actions(&mut client, &shapes, 0);
+    let resolved = client.request("codeAction/resolve", actions[0].clone());
+    let uris: std::collections::BTreeSet<String> = resolved["edit"]["changes"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    // Closed files are named by their canonical path.
+    assert_eq!(
+        uris,
+        [
+            uri(&real.join("src/geometry.plenty")),
+            uri(&real.join("src/main.plenty")),
+            shapes,
+        ]
+        .into_iter()
+        .collect()
+    );
     client.exit();
 }
