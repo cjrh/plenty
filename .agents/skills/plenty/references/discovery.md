@@ -148,3 +148,11 @@ a field of a moved owner that `copy(x)` rejects) or `@thread_shareable` (crosses
 any form; no declared call may write through it, so build values on a movable
 type first); every `extern def` taking a marked type must be `@thread_safe`.
 `std.dataframe` and `std.linalg` values work on workers.
+
+For worker HTTP server routing policy, keep the typed `Router[R]` and handler.
+`set_fallback(Some(route))` and `set_method_not_allowed(Some(route))` select
+ordinary `R` values; `Nothing` restores the built-in response. A custom 405
+handler adds `Allow` from `exchange.allowed_methods`. Enable
+`TrailingSlash.Redirect` explicitly for method-preserving 308 redirects after
+an exact miss; exact routes and exact wrong-method responses win. `find` stays
+an exact matcher. See [HTTP routing](../../../../book/src/design/stdlib/http-server.md#routing).

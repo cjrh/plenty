@@ -72,7 +72,7 @@ assignments. Extensions retain their original B IDs in the
 | B61 / #98 | [TLS](../design/stdlib/tls.md): verified TLS 1.2/1.3 client/server streams over std.net using vendored rustls/ring; PEM/system roots, deadlines/cancellation, certificate errors, client certs, ALPN/SNI, version/cipher choice, CRLs and selector-driven try operations (local PRs #145/#147). Recoverable rustls allocation, resumption/0-RTT and OCSP were declined for this slice. |
 | B62 / #99 | [HTTP/1.1](../design/stdlib/http.md): bounded head read/write and content-length/chunked/close-delimited framing, strict ambiguous-frame rejection and mutation corpus (local PR #139). |
 | B63 / #100 | [HTTP client](../design/stdlib/http-client.md): pooling, bounded deadlines/redirects, cross-origin credential stripping, proxies and idempotent replay; verified HTTPS, CONNECT, streamed uploads/Expect (local PRs #146/#154). Shared-client locking/atomics (issue #326, local PR #369) and pool accounting/cancellation fixes (issue #333, local PR #378) landed. `ws`/`wss` clients shipped (issue #467, local PR #593). Cookie jar/content decoding were declined; callers retain their own policies. |
-| B64 / #101 | [HTTP server](../design/stdlib/http-server.md): ordered typed routing, bounded admission/fixed workers, deadlines/logging, transport abstraction, graceful shutdown, parked idle keep-alives and accept-timed HTTPS handshakes (local PRs #143/#148). WebSocket upgrades/shutdown (issue #466, local PR #593) and detached close-delimited [SSE](../design/stdlib/sse.md) shipped (issue #468, local PR #597). |
+| B64 / #101 | [HTTP server](../design/stdlib/http-server.md): typed customizable fallback/method handlers and opt-in method-preserving slash redirects (issue #784), ordered typed routing, bounded admission/fixed workers, deadlines/logging, transport abstraction, graceful shutdown, parked idle keep-alives and accept-timed HTTPS handshakes (local PRs #143/#148). WebSocket upgrades/shutdown (issue #466, local PR #593) and detached close-delimited [SSE](../design/stdlib/sse.md) shipped (issue #468, local PR #597). |
 | B65 / #102 | Bounded forms/JSON/multipart temporary uploads, validated signed cookies/rotation, reverse-proxy/direct-TLS guidance and root-confined conditional static files (local PRs #144/#152). See [body](../design/stdlib/http-body.md), [cookie](../design/stdlib/http-cookie.md), [proxy](../design/stdlib/http-proxy.md) and [files](../design/stdlib/http-files.md). |
 | B66 / #103 | [HTTP production qualification](../design/stdlib/http-qualification.md): framing mutations, curl/TLS interop, slow clients/load/shutdown, allocation/descriptor/heap failures, relocated tools and backend linkage (local PR #157). Host/absolute-form validation, parked heads/handshakes, signal drain, lingering close and TLS Finished acknowledgement fixes landed (issues #131–#133/#138/#142/#148). Nginx/Caddy reverse-proxy Docker checks, installed CLI/data and JSON-service workflows, HTTPS baselines and libFuzzer integration shipped (local PRs #171/#180/#183/#186). Production-ready label: 2026-10-18. Typed application routes shipped (issue #159, local PR #199). Proxy fixture port leases prevent cooperating same-process HTTP/TLS reuse across socket handoff and through cleanup (issue #719); deterministic non-Docker ownership tests cover concurrency and unwind. Separate parallel native qualification passes all ten worker/actor nginx/Caddy cases with authenticated removals and unchanged foreign containers (local PR #918), not a whole-workspace gate. External bind races remain; see [reverse proxies](../design/stdlib/http-qualification.md#reverse-proxies). |
 | B67 / #104 | [Crypto](../design/stdlib/crypto.md): SHA-1 protocol use, SHA-256/512, HMAC and constant-time comparison via RustCrypto; BLAKE3 incremental/keyed/derivation (issues #473/#483). AEAD, Ed25519, ephemeral X25519 and HKDF use ring (issue #464). RSA/P-256, SPKI/PKCS#8/JWK import, strict PEM and Wycheproof checks shipped (issue #561); [JWT](../design/stdlib/jwt.md) builds on them (issue #488, local PR #697). RSA arenas make allocation failure explicit (issue #567); Ed25519 small-order rejection uses `SmallOrderKey`, while mixed-order keys remain accepted (issue #569). |
@@ -343,7 +343,11 @@ drop. Focused tests cover concurrent selection, source close, failed exec,
 allocation failure and lock lifetime across runner death. Arbitrary descriptor
 remapping remains B43 scope. Explicit inheritance composes with owned-file
 standard-stream redirection, merged stderr and isolated groups/sessions; tests
-check that redirection-source descriptors remain close-on-exec.
+check that redirection-source descriptors remain close-on-exec. Issue #845
+makes the composed inheritance/redirection fixture distinguish its own file
+identities from unrelated host-inherited descriptors, with a child-only
+extra-descriptor regression. The exact selected-file and redirection-leak
+checks remain in place; the process runtime's inheritance behavior is unchanged.
 
 ## B43: Process groups and sessions
 
@@ -378,6 +382,21 @@ scopes without sample contexts. Checked rendering verifies actual JSON against
 required/optional fields, bounded arrays and unions, sharing the work budget with
 preflight. Optional reads and variant correlation remain deliberately conservative;
 ordinary dynamic rendering is unchanged.
+
+## HTTP routing policies
+
+Issue #784 adds explicit fallback and method-not-allowed values to the worker
+[HTTP router](../design/stdlib/http-server.md#fallback-and-method-policy), using
+the existing typed route and handler. Custom responses use the computed
+`exchange.allowed_methods`; malformed requests still bypass application dispatch.
+The opt-in slash policy returns method-preserving `308` redirects after exact
+route lookup, retaining raw query text. Default exact matching, built-in
+`404`/`405`, manual `find` dispatch and the actor server stay compatible.
+
+The [server lesson](../tutorial/11-concurrency/http-server.md) demonstrates typed
+fallbacks. Wire fixtures cover default/custom/cleared policies, explicit method
+handling, HEAD/OPTIONS, captures, redirect precedence and query preservation,
+unsafe reference spellings, and ordinary handler failure reporting.
 
 ## Checked HTML template rendering
 

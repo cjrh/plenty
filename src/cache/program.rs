@@ -23,8 +23,9 @@ use std::sync::OnceLock;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-/// Changes whenever the entry format or the meaning of the key changes.
-const SCHEMA: &str = "1";
+/// Changes whenever the entry format or the meaning of the key changes. 2:
+/// inputs mark included files, whose admissibility a lookup checks again.
+const SCHEMA: &str = "2";
 
 /// The compiler binary's path, size and modification time. The frontend's
 /// output depends on the compiler's whole code, not only on its version, and
@@ -94,9 +95,9 @@ impl Cache {
             let (inputs, rest) = split(&payload)?;
             let inputs = Inputs::decode(inputs)?;
             let start = payload.len() - rest.len();
-            current(&inputs).then_some((time, payload, start))
+            current(&inputs).then_some((time, payload, start, inputs))
         });
-        let Some((compile_time, payload, start)) = found else {
+        let Some((compile_time, payload, start, inputs)) = found else {
             self.program.store(2, Ordering::Relaxed);
             return Ok(Lookup::Miss { seen });
         };
@@ -107,7 +108,7 @@ impl Cache {
         let saved = compile_time.saturating_sub(started.elapsed());
         self.saved_ns
             .fetch_add(saved.as_nanos() as u64, Ordering::Relaxed);
-        Ok(Lookup::Hit)
+        Ok(Lookup::Hit(inputs))
     }
 
     /// Record `object`, built from `inputs` in `compile_time`, as `key`'s
@@ -155,11 +156,10 @@ impl Cache {
 
 /// What a lookup found.
 pub(crate) enum Lookup {
-    Hit,
+    /// With the inputs of the build that stored the object.
+    Hit(Inputs),
     /// `seen`: the request has an entry, perhaps only a marker or stale.
-    Miss {
-        seen: bool,
-    },
+    Miss { seen: bool },
 }
 
 /// The encoded inputs and the object after them; `None` for a marker.

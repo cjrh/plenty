@@ -97,8 +97,9 @@ The entry's name is a SHA-256 of:
   temporary objects omit unreachable user helpers; inspectable objects retain
   them);
 - the request: the canonical entry file and the package graph (each package's
-  canonical root, identity, library and dependencies), and the `main` that
-  `plenty test` appends; or, for a source compiled from memory, its text.
+  canonical root and package directory, identity, library and dependencies),
+  and the `main` that `plenty test` appends; or, for a source compiled from
+  memory, its text.
 
 Unlike a function's stencil, the frontend's output depends on the compiler's
 whole code, so the key names the compiler binary rather than its version. A
@@ -111,8 +112,10 @@ parsing. The entry records them instead: each source file read, with a
 SHA-256 of its text, the package whose root it resolves against, and where
 each of its imports resolved. A file read by
 [`include_str` or `include_bytes`](../../language/02-source/modules.md#included-files)
-is recorded the same way, with no imports. A lookup uses the entry only if every recorded
-file still has that text and every recorded import still resolves to the same
+is recorded the same way, with no imports, and a lookup checks again that the
+package may still include it, so a new nested `plenty.toml` or a retargeted
+link is noticed. A lookup uses the entry only if every recorded file still has
+that text and every recorded import still resolves to the same
 file or standard module. Resolving an import again repeats every existence
 check the loader made, so a new file that would make an import ambiguous, or
 change which file it names, is noticed though the program never read it. The

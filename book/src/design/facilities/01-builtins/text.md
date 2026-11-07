@@ -23,6 +23,93 @@ including every single character and the empty string, also require no heap
 allocation. Longer constructed results use fallible storage. This threshold does
 not change the public type or the result type of an operation.
 
+For ownership, assignment costs, mutation, and views across languages, see
+[Plenty Text Compared to Python, Rust, and C](text-compared.md).
+
+## Passing, assigning, and copying text
+
+`str` is a copyable **owning value**. In the local operations below, copying
+it keeps the source usable and never duplicates a large text buffer: heap
+strings retain shared immutable storage, tiny strings copy their inline bytes,
+and literals need no retain.
+A `&str` borrows a whole string; a `&substr` borrows a run within it. Neither
+borrow independently keeps the string alive.
+
+The tables assume `s: str`, `r: &str` initialized as `r = &s`, scalar bounds
+`a` and `b`, and a new, unannotated binding `x`. **R** abbreviates
+`Result[str, AllocError]`. Costs include evaluating the shown expression;
+compiler optimizations may remove unnecessary handle copies or retains.
+
+### Function arguments
+
+These are ordinary typed function parameters. Some built-ins and methods
+explicitly observe either values or references; their individual signatures
+and contracts describe that behavior.
+
+| Call and parameter | Accepted? | Ownership and storage |
+| --- | --- | --- |
+| `f(s)` with `value: str` | Yes | The parameter gets an owning string value; heap storage is shared without allocation. `s` stays usable. |
+| `f(&s)` or `f(r)` with `value: str` | No | A reference is not implicitly copied into an owning parameter. Write `f(*r)` (or `f(s)`); the resulting owning copy shares storage. |
+| `f(s)` with `value: &str` | Yes | Implicitly borrows `s` for the call; no owning copy, retain, or allocation. |
+| `f(&s)` or `f(r)` with `value: &str` | Yes | Explicitly borrows or reborrows the whole string; no owning copy, retain, or allocation. |
+| `f(&s[a:b])` with `value: &str` | No | A substring view is `&substr`, not `&str`. Use a `&substr` parameter, or create an owned slice with `s[a:b]?` and lend it to the call. |
+
+An owning `str` parameter can be returned or stored independently of the
+caller's binding. A `&str` parameter lends access; obtaining an owned string
+from it requires a value copy such as `*value`. See
+[borrowing](../../language/05-ownership/02-borrowing.md) and
+[returned references](../../language/05-ownership/04-returned-references.md).
+
+### Bindings and slices
+
+| Expression | Type of `x` | Ownership and storage |
+| --- | --- | --- |
+| `x = s` | `str` | Another owning value; no text-buffer copy or allocation. Both names remain usable. |
+| `x = r` | `&str` | Reborrows the reference; it does not turn the borrowed text into an owner. Use `x = *r` for an owning string value. |
+| `x = s[a:b]` | **R** | Evaluates the copying slice now. On success, owns a new string containing the selected text; it does not retain the original buffer. Handle the result later. |
+| `x = s[a:b]?` | `str` | The same copying slice, with its successful string extracted; allocation failure returns from the enclosing function. |
+| `x = &s` | `&str` | Borrows the whole string binding without copying its text or retaining its heap storage. |
+| `x = &s[a:b]` | `&substr` | Borrows the selected run in place, without a text copy, retain, or allocation. Finding scalar bounds may scan the text. |
+| `x: str = s[a:b]` | Rejected | The slice returns **R**, not `str`. Use `?` or match the result. |
+| `x = &mut s[a:b]` | Rejected | String contents are immutable; there is no mutable substring view. Use a shared view or construct changed text. |
+
+`?` handles a result; it does not request the allocation. Both copying-slice
+forms above evaluate the same operation. Successful slices of at most seven
+UTF-8 bytes fit inline; longer ones allocate a new buffer, even when the bounds
+select the entire string. Neither form leaves the original buffer pinned by
+the result. A result bound without `?` must still be handled or explicitly
+discarded; it is not an error merely to bind it.
+
+An owning copy remains valid if `s` is later reassigned or destroyed. A borrow
+requires `s` to remain valid and prevents reassignment while that borrow is
+still used. `mut s` permits replacing the binding, not editing the text. See
+[substring views](../../language/04-expressions/slices.md#substring-views) for
+the operations and lifetime limits of `&substr`.
+
+### Explicit `copy`
+
+| Expression | Return type / validity | Ownership and storage |
+| --- | --- | --- |
+| `copy(s)` | **R** | Returns `Ok` containing another owning string value. No allocation or text-buffer duplication; immutable backing storage is shared. |
+| `copy(&s)` or `copy(r)` | **R** | Observes the borrowed string and returns an owning `str` inside `Ok`, not a reference. No allocation or text-buffer duplication. |
+| `copy(s)?` | `str` | Extracts the owning copy. Prefer `s`; this spelling produces a `redundant-copy` warning. |
+| `copy(&s)?` or `copy(r)?` | `str` | Extracts an owning copy of borrowed text. Prefer `s` or `*r`, respectively; no text-buffer duplication. |
+| `copy(s[a:b])` | `Result[R, AllocError]` | Evaluates the copying slice, then copies its result into an outer `Ok`. The successful string shares the slice's new buffer; there is no second text copy. A slice failure becomes `Ok(Err(...))`. |
+| `copy(s[a:b]?)` | **R** | Evaluates the copying slice and propagates its failure first, then returns another owning handle to the successful slice inside `Ok`. No second text copy. Prefer `s[a:b]?` when you want a `str`. |
+| `copy(&s[a:b])` | Rejected | `copy` does not accept a substring view. Bind `v = &s[a:b]`, then use `v[:]?` to create an owned `str`, or write `s[a:b]?` directly. |
+
+The `Result` wrappers above do not themselves allocate. `copy` has a uniform
+fallible signature, but copying an existing `str` cannot fail: it only copies
+inline data or shares immutable storage. The slice expressions can still fail
+while constructing their new text. `copy` does not force a private buffer for
+a string, and adding it around a copying slice does not make that slice safer
+or more independent. Prefer ordinary assignment, dereferencing, or the copying
+slice itself. See [explicit copying](construction-copy.md#explicit-copying)
+and [moves and copies](../../language/05-ownership/01-bindings-moves-and-copies.md).
+
+[Actor message transfer](../../stdlib/actor.md#limits) has a separate ownership
+contract: it can duplicate string bytes into the receiving actor's heap.
+
 ## Escapes
 
 String literals and f-string text accept the escapes `\0`, `\n`, `\r`, `\t`,

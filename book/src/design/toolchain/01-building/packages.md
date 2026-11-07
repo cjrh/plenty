@@ -168,13 +168,23 @@ These are Plenty profiles, independent of Cargo's profiles for building the comp
 `build`, `run`, and `test` skip a target whose output exists and whose inputs
 are unchanged since its last successful build; the package's status line then
 reads `Fresh` instead of `Compiling`. `build` reuses a library check the same
-way; `check` always checks again. The inputs are the content of every file below each graph
-package's `src/` (not only the imported ones), the package graph, the entry
-file, the target kind, the profile and linker options, and the compiler
-executable (path, size, and modification time; the compiler embeds `std` and
-the runtime). Fingerprints live in `target/PROFILE/.fingerprint/`. A build
-forgets the old fingerprint before it starts, so a failed or interrupted build
-is never reused. Reuse is per target: a stale target is recompiled whole.
+way; `check` always checks again. The inputs are the name of every file below
+each graph package's `src/` (not only the imported ones, so an added module
+rebuilds), every file the last build read with its contents, the package graph,
+the entry file, the target kind, the profile and linker options, and the
+compiler executable (path, size, and modification time; the compiler embeds
+`std` and the runtime). A symbolic link below `src/` counts by the name of its
+target. The walk does not follow a link to a directory, so a module added
+inside a linked directory is noticed only when an import resolves to it, by the
+import checks below. Retargeting a linked `src/` or `tests/` itself rebuilds,
+since the canonical entry and source roots are inputs. Reuse makes the checks the [program
+cache](../02-architecture/cache.md#program-objects) makes: every import must
+still resolve to the same file, and every [included file](#included-files) must
+still be one the package may include. A file in the package directory that no
+target reads, such as a large data set, costs nothing. Fingerprints live in
+`target/PROFILE/.fingerprint/`. A build forgets the old fingerprint before it
+starts, so a failed or interrupted build is never reused. Reuse is per target: a
+stale target is recompiled whole.
 
 ## Manifest
 
@@ -226,6 +236,48 @@ executable named after the package) when those files exist. `[lib]` and
 `[[bin]]` replace the defaults; their paths are `.plenty` files below `src/`. A
 package needs at least one target. A library entry may define `main`; it is an
 ordinary function there.
+
+## Included files
+
+A package may embed any file in its package directory, the directory containing
+its `plenty.toml`, with [`include_str` and
+`include_bytes`](../../language/02-source/modules.md#included-files). Paths are
+relative to the including file, so `src/main.plenty` reads `data/icon.png` as
+`include_bytes("../data/icon.png")`. Test files in `tests/` include from the
+same directory.
+
+An include reads a file only if its real path, after resolving `..` and symbolic
+links, lies inside the package directory or inside the package's own source
+root; otherwise the error names the package directory. The source root counts
+separately because `src` may be a symbolic link to a directory elsewhere;
+whether such a link is allowed at all belongs to issue #840. Any other link,
+such as `data -> /etc`, is judged by its target.
+
+A file inside a nested directory that holds its own `plenty.toml`, such as a
+workspace member's, belongs to that package, and including it is an error that
+names both packages. This holds below `src/` too: a `plenty.toml` in a directory
+there that no graph package uses blocks includes from that directory, although
+imports from it still work. Another package's source root belongs to that
+package, even below the includer's package directory; a package and its `tests/`
+package share their files. `plenty check` reports unreached `.plenty` files only
+below `src/`, so another directory can hold `.plenty` text that a program
+embeds. The [program cache](../02-architecture/cache.md#program-objects) and
+[build reuse](#build-reuse) record each included file's contents and check again
+that it may be included.
+
+A [script](scripts.md) owns no package directory. It may include files below its
+own directory, even when that directory is inside a package's, and that
+package's includes are unaffected.
+
+```text
+app/
+  plenty.toml
+  data/
+    icon.png
+    sql/schema.sql
+  src/
+    main.plenty
+```
 
 ## Dependencies
 
@@ -383,8 +435,13 @@ dependencies = {}
 
 The first package contains the entry file. `identity` is unique and qualifies
 the package's declarations in diagnostics; `dependencies` maps each alias to an
-identity whose package has a `library`. Relative paths are relative to the
-file. `--package-graph` works with `FILE`, `--check`, `--check-module`, and
-`--compile`. It lets another build system compile a package without
-`plenty.toml`, and makes the compiler's input visible when debugging
-resolution.
+identity whose package has a `library`. A graph names no package directory: each
+package's is the directory containing its `root` as written, before symbolic
+links are resolved, as for a manifest, whether or not it holds a `plenty.toml`.
+Its [included files](#included-files) come from there. So a package whose root
+is `/work/src` may include any file below `/work`, except inside another
+package's directory or source root, or a directory holding a `plenty.toml`.
+Relative paths are relative to the file. `--package-graph` works with `FILE`,
+`--check`, `--check-module`, and `--compile`. It lets another build system
+compile a package without `plenty.toml`, and makes the compiler's input visible
+when debugging resolution.

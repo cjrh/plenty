@@ -1099,6 +1099,7 @@ pub(super) fn file_graph(
     let graph = crate::project::SourceGraph {
         packages: vec![crate::project::SourcePackage {
             identity: String::new(),
+            directory: None,
             root,
             library: None,
             dependencies: vec![],
@@ -1109,7 +1110,7 @@ pub(super) fn file_graph(
 
 /// The canonical entry and packages [`load_graph`] would use: what names a
 /// build of them in the program cache. `None` when loading would fail.
-pub(super) fn identity(path: &Path, graph: &crate::project::SourceGraph) -> Option<String> {
+pub(crate) fn identity(path: &Path, graph: &crate::project::SourceGraph) -> Option<String> {
     let entry = path.canonicalize().ok()?;
     let packages = prepare_packages(graph).ok()?;
     Some(format!("{entry:?}\n{packages:?}"))
@@ -1172,20 +1173,12 @@ impl Loader {
                 )));
             }
             let joined = path.parent().unwrap_or(Path::new("")).join(relative);
-            let root = &self.packages[package].root;
-            let file = joined
-                .canonicalize()
-                .map_err(|e| embed.at.error(format!("reading `{}`: {e}", embed.path)))?;
-            if !file.starts_with(root) {
-                return Err(embed.at.error(format!(
-                    "included path `{}` is outside the source root {}",
-                    embed.path,
-                    root.display()
-                )));
-            }
+            let file = included_file(&self.packages, package, &joined, &embed.path)
+                .map_err(|message| embed.at.error(message))?;
             let data = std::fs::read(&file)
                 .map_err(|e| embed.at.error(format!("reading `{}`: {e}", embed.path)))?;
-            self.inputs.push(inputs::File::new(&joined, package, &data));
+            self.inputs
+                .push(inputs::File::included(&joined, package, &data));
             let kind = if embed.text {
                 Expression::Text(String::from_utf8(data).map_err(|e| {
                     embed.at.error(format!(
@@ -1557,6 +1550,94 @@ pub(super) fn load_graph_with(
     Ok(result)
 }
 
+/// The canonical file at `joined` that `packages[package]` may include, or
+/// why not; `spelled` is the path as the source wrote it. The program cache
+/// and build reuse rerun this for each recorded include, so a hit never hides
+/// one of these errors.
+///
+/// A package may include files below its package directory and below its own
+/// canonical source root, which a symbolic `src` can put elsewhere (issue
+/// #840). Within that, a directory that holds a `plenty.toml`, or is another
+/// package's directory or source root, belongs to that package; the
+/// innermost one names the owner. A package and its `-tests` package share
+/// their files.
+pub(super) fn included_file(
+    packages: &[crate::project::SourcePackage],
+    package: usize,
+    joined: &Path,
+    spelled: &str,
+) -> std::result::Result<PathBuf, String> {
+    let file = joined
+        .canonicalize()
+        .map_err(|e| format!("reading `{spelled}`: {e}"))?;
+    let includer = &packages[package];
+    // Every path is canonical, so `..` and symbolic links are judged by where
+    // the file really is.
+    let base = if file.starts_with(&includer.root) {
+        &includer.root
+    } else {
+        match &includer.directory {
+            Some(directory) if file.starts_with(directory) => directory,
+            Some(directory) => {
+                return Err(format!(
+                    "included path `{spelled}` is outside the package directory {}",
+                    directory.display()
+                ));
+            }
+            None => {
+                return Err(format!(
+                    "included path `{spelled}` is outside the source root {}",
+                    includer.root.display()
+                ));
+            }
+        }
+    };
+    // A package and its tests share a directory. The tests package is named
+    // after the package and rooted at the directory's `tests/`, so a package
+    // that only borrows the name is not exempt.
+    let tests_of = |tests: &crate::project::SourcePackage, of: &crate::project::SourcePackage| {
+        tests.identity == format!("{}-tests", of.identity)
+            && tests.directory.as_ref().is_some_and(|directory| {
+                directory.join("tests").canonicalize().ok().as_ref() == Some(&tests.root)
+            })
+    };
+    let sibling = |other: &crate::project::SourcePackage| {
+        other.directory == includer.directory
+            && (tests_of(other, includer) || tests_of(includer, other))
+    };
+    let owner = file
+        .ancestors()
+        .skip(1)
+        .take_while(|directory| *directory != base.as_path())
+        .find_map(|directory| {
+            let other = packages.iter().enumerate().find(|&(index, other)| {
+                index != package
+                    && !sibling(other)
+                    // A script owns no directory, not even its root.
+                    && other.directory.is_some()
+                    && (other.root == directory || other.directory.as_deref() == Some(directory))
+            });
+            match other {
+                Some((_, other)) => Some(format!("package `{}`", other.identity)),
+                None => directory
+                    .join(crate::project::manifest::MANIFEST)
+                    .is_file()
+                    .then(|| format!("the package in {}", directory.display())),
+            }
+        });
+    match owner {
+        Some(owner) => Err(format!(
+            "included path `{spelled}` belongs to {owner}; {} may include only its own files",
+            if includer.identity.is_empty() {
+                "a file".to_string()
+            } else {
+                format!("package `{}`", includer.identity)
+            }
+        )),
+        None => Ok(file),
+    }
+}
+
 /// `graph`'s packages with canonical roots and library paths, after the checks
 /// every load makes: reserved and colliding names, and overlapping roots.
 fn prepare_packages(
@@ -1568,6 +1649,13 @@ fn prepare_packages(
             .root
             .canonicalize()
             .map_err(|e| format!("source root {}: {e}", package.root.display()))?;
+        if let Some(directory) = &package.directory {
+            package.directory = Some(
+                directory
+                    .canonicalize()
+                    .map_err(|e| format!("package directory {}: {e}", directory.display()))?,
+            );
+        }
         let root = &package.root;
         if !root.is_dir() {
             return Err(format!("source root {} is not a directory", root.display()).into());

@@ -1652,6 +1652,9 @@ for mode in [std.process.ProcessGroup.NewGroup, std.process.ProcessGroup.NewSess
 
 #[test]
 fn inherited_files_remain_distinct_from_redirection_with_groups_and_merged_streams() {
+    // Check both fixture file identities: the selected copy must survive, but
+    // neither original redirection source may leak. Host-owned inheritable
+    // descriptors are outside this command's ownership and may also survive.
     native(
         r#"
 with open("shared", "w")? as file:
@@ -1659,7 +1662,7 @@ with open("shared", "w")? as file:
 for mode in [std.process.ProcessGroup.NewGroup, std.process.ProcessGroup.NewSession]?:
     mut built = std.process.command("/usr/bin/python3")?
     built.arg("-c")?
-    built.arg("import os,sys; fd=int(sys.argv[1]); st=os.stat('shared'); seen=[]\nfor n in range(3,512):\n try: s=os.fstat(n)\n except OSError: continue\n seen.append(n)\nassert seen==[fd],seen\nassert os.getpgrp()==os.getpid()\nassert (os.getsid(0)==os.getpid())==(sys.argv[2]=='session')\nassert os.read(0,4)==b'data'\nassert os.read(fd,4)==b'data'\nos.lseek(fd,0,0)\nos.lseek(0,0,0)\nprint('out',flush=True);print('err',file=sys.stderr,flush=True)")?
+    built.arg("import os,sys; fd=int(sys.argv[1]); identities=[(os.stat(p).st_dev,os.stat(p).st_ino) for p in ['shared','combined.log']]; seen=[]\nfor n in range(3,512):\n try: s=os.fstat(n)\n except OSError: continue\n if (s.st_dev,s.st_ino) in identities: seen.append(n)\nassert seen==[fd],seen\nassert os.getpgrp()==os.getpid()\nassert (os.getsid(0)==os.getpid())==(sys.argv[2]=='session')\nassert os.read(0,4)==b'data'\nassert os.read(fd,4)==b'data'\nos.lseek(fd,0,0)\nos.lseek(0,0,0)\nprint('out',flush=True);print('err',file=sys.stderr,flush=True)")?
     with open("shared", "r")? as source:
         fd = built.inherit_file(&source)?
         built.arg(&str.from(fd)?)?
@@ -1684,6 +1687,46 @@ with open("combined.log", "r")? as log:
 "#,
         "True\nTrue\nTrue 0\nout\nerr\nTrue 0\nout\nerr\nTrue\nTrue\nTrue 0\nout\nerr\nTrue 0\nout\nerr\nout\nerr\nout\nerr\nout\nerr\nout\nerr",
     );
+}
+
+/// Host-owned inheritable descriptors must not be mistaken for leaked
+/// redirection sources (issue #845). Inject them only after fork so parallel
+/// tests cannot inherit this regression's extra descriptors.
+#[cfg(target_os = "linux")]
+#[test]
+fn inherited_redirection_checks_allow_unrelated_host_descriptors() {
+    use std::os::unix::process::CommandExt;
+
+    unsafe extern "C" {
+        fn dup(fd: i32) -> i32;
+    }
+
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command
+        .args([
+            "--exact",
+            "test_std_env_process::inherited_files_remain_distinct_from_redirection_with_groups_and_merged_streams",
+            "--test-threads=1",
+        ])
+        .stdin(Stdio::null());
+    // SAFETY: dup is async-signal-safe and clears close-on-exec on each new
+    // descriptor. The child inherits stdin, and exec/exit releases the copies.
+    unsafe {
+        command.pre_exec(|| {
+            if dup(0) < 0 || dup(0) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let output = command.output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("1 passed; 0 failed"), "{stdout}");
 }
 
 #[test]

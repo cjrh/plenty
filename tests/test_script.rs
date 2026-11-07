@@ -272,6 +272,42 @@ fn path_dependencies_locks_and_sibling_modules_are_isolated() {
     assert!(!f.root().join("scripts/target").exists());
 }
 
+#[test]
+fn a_script_inside_a_dependency_directory_owns_only_itself() {
+    // A script owns no package directory, so one stored in a dependency's
+    // directory leaves the dependency's includes from there alone, and its
+    // own includes stay below its directory.
+    let f = Fixture::new();
+    f.write(
+        "util/plenty.toml",
+        "manifest-version = 1\n[package]\nname = 'util'\nversion = '0.1.0'\n",
+    );
+    f.write(
+        "util/src/lib.plenty",
+        "const BANNER: str = include_str(\"../data/banner.txt\")\npub def answer() -> str:\n    BANNER\n",
+    );
+    f.write("util/data/banner.txt", "banner");
+    let script = |include: &str| {
+        format!(
+            "#!/usr/bin/env -S plenty script\n---plenty\n[dependencies]\nutil = {{ path = '..' }}\n---\nfrom util import answer\nconst OWN: str = include_str(\"{include}\")\ndef main() -> Result[(), IoError]:\n    print(answer())?\n    print(OWN)?\n    Ok(())\n"
+        )
+    };
+    f.write("util/data/app.plenty", &script("banner.txt"));
+    assert_eq!(
+        f.ok(&["script", "util/data/app.plenty"]),
+        "banner\nbanner\n"
+    );
+    f.write("util/data/app.plenty", &script("../src/lib.plenty"));
+    let root = f.root().join("util/data").canonicalize().unwrap();
+    f.fail(
+        &["script", "util/data/app.plenty"],
+        &format!(
+            "included path `../src/lib.plenty` is outside the source root {}",
+            root.display()
+        ),
+    );
+}
+
 fn git(directory: &Path, args: &[&str]) {
     let o = Command::new("git")
         .args(args)

@@ -179,10 +179,30 @@ pub enum Match:
     NotFound
     MethodNotAllowed(str)
 
+# Exact matching is the default. Redirect checks the other spelling only
+# after an exact path miss, and only for a method that spelling accepts.
+pub enum TrailingSlash:
+    Exact
+    Redirect
+
 # Routes map a method and path pattern to a value of the application's route
 # type `R`, normally an enum, which the handler receives.
 pub class Router[R]:
     _routes: list[Entry[R]]
+    _fallback: Option[R]
+    _method_not_allowed: Option[R]
+    _trailing_slash: TrailingSlash
+
+    # These values use the same typed handler as ordinary routes. Nothing
+    # restores the built-in response; replacing a value drops the old one.
+    pub def set_fallback(self: &mut Router[R], route: Option[R]) -> ():
+        self._fallback = route
+
+    pub def set_method_not_allowed(self: &mut Router[R], route: Option[R]) -> ():
+        self._method_not_allowed = route
+
+    pub def set_trailing_slash(self: &mut Router[R], policy: TrailingSlash) -> ():
+        self._trailing_slash = policy
 
     # Adds a route. `method` is a request method, or `*` for any; `pattern`
     # starts with `/`. Routes are tried in the order they were added. Several
@@ -218,13 +238,53 @@ pub class Router[R]:
             allocated(allowed.append("HEAD"))?
         Ok(Match.MethodNotAllowed(allocated(", ".join(&allowed))?))
 
+    # Serving calls this only after checking that the selected fallback exists.
+    def dispatch_route(self, index: i64) -> &R:
+        if index >= 0:
+            return self.route(index)
+        if index == -1:
+            match &self._fallback:
+                case Some(route):
+                    return route
+                case Nothing:
+                    __trap("Router: missing fallback")
+        match &self._method_not_allowed:
+            case Some(route):
+                route
+            case Nothing:
+                __trap("Router: missing method-not-allowed route")
+
+    # Called only after an exact NotFound. Never emit a network-path reference
+    # or a path browsers can reinterpret with a different authority/fragment.
+    def redirect_path(self, method: &str, path: &str) -> Result[Option[str], ServerError]:
+        match &self._trailing_slash:
+            case TrailingSlash.Exact:
+                return Ok(Nothing)
+            case TrailingSlash.Redirect:
+                pass
+        if path == "/" or not path.startswith("/") or path.startswith("//"):
+            return Ok(Nothing)
+        if "\\" in path or "#" in path:
+            return Ok(Nothing)
+        alternate = if path.endswith("/"):
+            allocated(path.slice(0, -1))?
+        else:
+            allocated(path.concat("/"))?
+        match self.find(method, &alternate)?:
+            case Match.Found(_, _):
+                Ok(Some(alternate))
+            case _:
+                Ok(Nothing)
+
     # The value of the route at `index`, as `Match.Found` reports it.
     pub def route(self, index: i64) -> &R:
         &self._routes[index].route
 
 # An empty router for route type `R`: `router[Route]()`.
 pub def router[R]() -> Result[Router[R], ServerError]:
-    Ok(Router(allocated(list[Entry[R]].new())?))
+    fallback: Option[R] = Nothing
+    method_not_allowed: Option[R] = Nothing
+    Ok(Router(allocated(list[Entry[R]].new())?, fallback, method_not_allowed, TrailingSlash.Exact))
 
 def valid_method(method: &str) -> bool:
     if method == "*":
@@ -645,6 +705,9 @@ pub class Exchange[T]:
     pub path: str
     pub query: str
     pub params: list[str]
+    # The exact path's Allow value for a method-not-allowed handler, empty
+    # for every other dispatch. Custom handlers choose their response fields.
+    pub allowed_methods: str
     # The connection's remote address: the client, or the proxy in front of
     # it (see std.http.proxy). `Nothing` when the transport has none.
     pub peer: Option[SocketAddress]
@@ -1512,6 +1575,7 @@ def request[T: Transport, R, E, H: Handler[T, R, E]](reader: BufReader[Conn[T]],
     head_only = head.method == "HEAD"
     mut route = -1
     mut allow = ""
+    mut location = ""
     mut params: list[str] = match list[str].new():
         case Ok(empty):
             empty
@@ -1526,7 +1590,27 @@ def request[T: Transport, R, E, H: Handler[T, R, E]](reader: BufReader[Conn[T]],
                 case Nothing:
                     route = -3
         case Ok(Match.NotFound):
-            route = -1
+            # Query bytes are copied verbatim, including an empty trailing ?.
+            # A literal fragment marker is not safe in a Location reference.
+            if not "#" in head.target:
+                match router.redirect_path(&head.method, &target.path):
+                    case Ok(Some(path)):
+                        location = path
+                        if "?" in head.target:
+                            location = match path.concat("?"):
+                                case Ok(prefix):
+                                    match prefix.concat(&target.query):
+                                        case Ok(value):
+                                            value
+                                        case Err(_):
+                                            return Nothing
+                                case Err(_):
+                                    return Nothing
+                        route = -4
+                    case Ok(Nothing):
+                        pass
+                    case Err(_):
+                        return Nothing
         case Ok(Match.MethodNotAllowed(methods)):
             route = -2
             allow = methods
@@ -1538,9 +1622,10 @@ def request[T: Transport, R, E, H: Handler[T, R, E]](reader: BufReader[Conn[T]],
         case Err(_):
             return Nothing
     unclaimed: Option[BufReader[Conn[T]]] = Nothing
-    mut exchange = Exchange(head, target.authority, target.path, target.query, params, copy_peer(peer), Some(body), unclaimed, framing, copy_limits(&config.limits), stop.share(), cancel.share(), unanswered, 0, head_only, keep, 0, 0, expects, False, 0)
-    if route >= 0:
-        match handler.handle(router.route(route), &mut exchange):
+    mut exchange = Exchange(head, target.authority, target.path, target.query, params, allow, copy_peer(peer), Some(body), unclaimed, framing, copy_limits(&config.limits), stop.share(), cancel.share(), unanswered, 0, head_only, keep, 0, 0, expects, False, 0)
+    custom = route >= 0 or (route == -1 and router._fallback.is_some()) or (route == -2 and router._method_not_allowed.is_some())
+    if custom:
+        match handler.handle(router.dispatch_route(route), &mut exchange):
             case Ok(_):
                 if exchange._state == unanswered:
                     report.handler_errors = counted(report.handler_errors, 1u64)
@@ -1564,7 +1649,10 @@ def request[T: Transport, R, E, H: Handler[T, R, E]](reader: BufReader[Conn[T]],
                 else:
                     exchange._state = broken
     elif route == -2:
-        drop(answer_with_allow(&mut exchange, &allow))
+        allowed = exchange.allowed_methods
+        drop(answer_with_allow(&mut exchange, &allowed))
+    elif route == -4:
+        drop(answer_redirect(&mut exchange, &location))
     elif route == -3:
         drop(plain(&mut exchange, 400))
     else:
@@ -1595,6 +1683,11 @@ def request[T: Transport, R, E, H: Handler[T, R, E]](reader: BufReader[Conn[T]],
 def plain[T: Transport](exchange: &mut Exchange[T], status: i64) -> Result[(), HttpError]:
     text = http_allocated(reason(status).concat("\n"))?
     exchange.send_text(status, &text)
+
+def answer_redirect[T: Transport](exchange: &mut Exchange[T], location: &str) -> Result[(), HttpError]:
+    mut head = std.http.response(308, reason(308))?
+    head.add("Location", *location)?
+    exchange.respond(head, b"")
 
 def answer_with_allow[T: Transport](exchange: &mut Exchange[T], allow: &str) -> Result[(), HttpError]:
     mut head = std.http.response(405, reason(405))?
