@@ -66,6 +66,15 @@ server shutdown behavior. [`std.sync`](design/stdlib/sync.md#typed-deadline-wait
 provides typed channel, future, token and two-channel selection waits; explicit
 millisecond primitives remain as low-level compatibility APIs (B42).
 
+## Registered template fragments
+
+Issue #835 adds [template includes](design/stdlib/template.md#reusable-fragments)
+with explicit object contexts, isolated loop and inheritance scopes, and shared
+render budgets. Reusable headers and row forms render directly without
+application string concatenation or raw-markup trust assertions. The
+[library record](completed-work/libraries.md#b38-library-breadth) also records
+the delivered template subset.
+
 ## CPU availability and system inspection assessment
 
 Delivered part of B38 in issue #716.

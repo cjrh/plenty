@@ -135,5 +135,38 @@ passing its output into a template would escape it again. Keep raw values in
 value when assembling HTML directly. The context is your choice; the library
 does not detect HTML positions or validate URLs, scripts, styles or names.
 
+## Reusable fragments
+
+Use registered fragments for repeated markup. An include with an explicit object
+context works inside a loop without rendering strings in your application:
+
+```plenty
+import std.template
+from std.template import TemplateError
+from std.json import Json, Member
+
+def main() -> Result[(), TemplateError | AllocError | IoError]:
+    bounds = std.template.limits()
+    mut pages = std.template.engine(&bounds)?
+    pages.add("action", "<form><button>{{ label }}</button></form>")?
+    pages.add("table", "<table>{% for action in actions %}<tr><td>{% include 'action' with action %}</td></tr>{% endfor %}</table>")?
+    values = Json.Object([
+        Member("actions", Json.Array([
+            Json.Object([Member("label", Json.Text("Save & continue"))]?),
+            Json.Object([Member("label", Json.Text("Cancel"))]?),
+        ]?)),
+    ]?)
+    print(pages.render("table", &values)?)?
+    Ok(())
+```
+```output
+<table><tr><td><form><button>Save &amp; continue</button></form></td></tr><tr><td><form><button>Cancel</button></form></td></tr></table>
+```
+
+The fragment receives raw values and escapes them normally. It has its own loop
+scope; `loop` metadata belongs to its own loops. Omit `with action` when a fragment
+should receive the current root object instead. Includes share the caller's
+render limits and cannot load files or call your program's functions.
+
 See the [`std.template` reference](../../design/stdlib/template.md) for the
 supported syntax, filters, inheritance rules and precise limits.

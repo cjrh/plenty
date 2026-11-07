@@ -192,7 +192,7 @@ def expression(source: &str, at: i64) -> Result[Expression, TemplateError]:
         allocated(filters.append(filter))?
     Ok(Expression(value, path, filters, negate))
 
-# Kinds: text, expression, if, else, endif, for, endfor, block, endblock.
+# Kinds: text, expression, if, else, endif, for, endfor, block, endblock, include.
 class Token:
     kind: i64
     text: str
@@ -258,6 +258,33 @@ def push_token(tokens: &mut list[Token], token: Token, bounds: &Limits) -> Resul
     if len(tokens) >= bounds.max_tokens.get():
         return Err(TemplateError.LimitExceeded)
     allocated(tokens.append(token))
+
+def include_expression(source: &str, at: i64) -> Result[(str, Expression, i64), TemplateError]:
+    if len(source) < 2 or (source[0] != "'" and source[0] != "\""):
+        return Err(TemplateError.Syntax(at))
+    mut escaped = False
+    for index, scalar in enumerate(source):
+        if index == 0:
+            continue
+        if escaped:
+            escaped = False
+        elif scalar == "\\":
+            escaped = True
+        elif scalar == source[0]:
+            # enumerate supplies a scalar position below len(source).
+            after = unchecked:
+                index + 1
+            name = quoted(&allocated(source.slice(0, after))?, at)?
+            if name == "":
+                return Err(TemplateError.Syntax(at))
+            rest = allocated(allocated(source.slice(after, len(source)))?.strip())?
+            if rest == "":
+                return Ok((name, empty_expression()?, 0))
+            if not rest.startswith("with "):
+                return Err(TemplateError.Syntax(at))
+            expr = expression(&allocated(allocated(rest.slice(5, len(rest)))?.strip())?, at)?
+            return Ok((name, expr, 1))
+    Err(TemplateError.Syntax(at))
 
 def parse(name: str, source: &str, bounds: &Limits) -> Result[Template, TemplateError]:
     data = allocated(std.bytes.from_text(source))?
@@ -348,6 +375,7 @@ def parse(name: str, source: &str, bounds: &Limits) -> Result[Template, Template
         mut kind = -1
         mut label = ""
         mut expr = empty_expression()?
+        mut alternate = -1
         if content.startswith("if "):
             kind = 2
             expr = expression(&allocated(content.slice(3, len(content)))?, at)?
@@ -358,6 +386,12 @@ def parse(name: str, source: &str, bounds: &Limits) -> Result[Template, Template
             kind = 5
             label = words[1]
             expr = expression(&words[3], at)?
+        elif content.startswith("include "):
+            kind = 9
+            (included_name, included_expr, explicit) = include_expression(&allocated(allocated(content.slice(8, len(content)))?.strip())?, at)?
+            label = included_name
+            expr = included_expr
+            alternate = explicit
         elif content.startswith("block "):
             label = allocated(allocated(content.slice(6, len(content)))?.strip())?
             if len(stack) != 0 or not identifier(&label) or label in blocks:
@@ -393,7 +427,7 @@ def parse(name: str, source: &str, bounds: &Limits) -> Result[Template, Template
             if len(stack) >= bounds.max_depth.get():
                 return Err(TemplateError.LimitExceeded)
             allocated(stack.append(len(tokens)))?
-        push_token(&mut tokens, Token(kind, label, expr, -1, -1, at), bounds)?
+        push_token(&mut tokens, Token(kind, label, expr, -1, alternate, at), bounds)?
     if len(stack) != 0:
         return Err(TemplateError.Syntax(tokens[stack[-1]].at))
     if index > start:
@@ -422,6 +456,9 @@ class Override:
 class State:
     nodes: list[Node]
     bindings: list[Binding]
+    root: i64
+    binding_start: i64
+    active: list[i64]
     bytes: i64
     steps: i64
     output: Bytes
@@ -499,10 +536,10 @@ def truth(value: &Value, state: &State) -> bool:
         len(state.nodes[value.node].children) != 0
 
 def path_value(path: &list[str], state: &mut State, bounds: &Limits) -> Result[Value, TemplateError]:
-    mut node = 0
+    mut node = state.root
     mut start = 0
     mut index = len(state.bindings)
-    while index > 0:
+    while index > state.binding_start:
         # The loop guard proves index > 0.
         unchecked:
             index -= 1
@@ -702,29 +739,44 @@ pub class Engine:
         Ok(())
 
     pub def render(self, name: &str, context: &Json, html: bool = True) -> Result[str, TemplateError]:
-        mut state = State(allocated(list[Node]())?, allocated(list[Binding]())?, 0, 0, allocated(std.bytes.empty())?, html)
+        mut state = State(allocated(list[Node]())?, allocated(list[Binding]())?, 0, 0, allocated(list[i64]())?, 0, 0, allocated(std.bytes.empty())?, html)
         match context:
             case Json.Object(_):
                 pass
             case _:
                 return Err(TemplateError.TypeMismatch)
         drop(flatten(&mut state, "", context, 0, &self._bounds)?)
+        self.render_registered(name, &mut state, 0)?
+        bytes_result(state.output.to_text())
+
+    # Each invocation owns its inheritance overrides and loop scope, while all
+    # invocations charge the same context, output and work budgets.
+    def render_registered(self, name: &str, state: &mut State, depth: i64) -> Result[(), TemplateError]:
+        if depth > self._bounds.max_depth.get():
+            return Err(TemplateError.LimitExceeded)
         mut current = self.find(name)?
+        active_start = len(state.active)
+        for position in range(len(state.active)):
+            step(state, &self._bounds)?
+            if state.active[position] == current:
+                return Err(TemplateError.InheritanceCycle)
+        allocated(state.active.append(current))?
         mut visited: list[i64] = allocated(list[i64]())?
         mut overrides: list[Override] = allocated(list[Override]())?
+        mut chain_depth = depth
         while True:
             if current in visited:
                 return Err(TemplateError.InheritanceCycle)
-            if len(visited) >= self._bounds.max_depth.get():
+            if chain_depth >= self._bounds.max_depth.get():
                 return Err(TemplateError.LimitExceeded)
             allocated(visited.append(current))?
             for token in range(len(self._templates[current].tokens)):
-                step(&mut state, &self._bounds)?
+                step(state, &self._bounds)?
                 if self._templates[current].tokens[token].kind == 7:
                     label = self._templates[current].tokens[token].text
                     mut found = False
                     for item in &overrides:
-                        step(&mut state, &self._bounds)?
+                        step(state, &self._bounds)?
                         if item.name == label:
                             found = True
                             break
@@ -734,8 +786,13 @@ pub class Engine:
             if parent == "":
                 break
             current = self.find(&parent)?
-        self.run(current, 0, len(self._templates[current].tokens), &mut state, &overrides, 0)?
-        bytes_result(state.output.to_text())
+            # chain_depth is strictly below the configured maximum (at most64).
+            unchecked:
+                chain_depth += 1
+        self.run(current, 0, len(self._templates[current].tokens), state, &overrides, chain_depth)?
+        while len(state.active) > active_start:
+            drop(state.active.pop())
+        Ok(())
 
     def find(self, name: &str) -> Result[i64, TemplateError]:
         for index in range(len(self._templates)):
@@ -790,6 +847,20 @@ pub class Engine:
                         token.alternate + 1
                     self.run(template, after_else, token.jump, state, overrides, next_depth)?
                 index = token.jump
+            elif token.kind == 9:
+                saved_root = state.root
+                saved_start = state.binding_start
+                if token.alternate == 1:
+                    value = evaluate(&token.expr, state, &self._bounds)?
+                    if value.kind != 6:
+                        return Err(TemplateError.TypeMismatch)
+                    state.root = value.node
+                # An include receives an object context, never the caller's
+                # loop locals. Explicit arguments are evaluated before hiding it.
+                state.binding_start = len(state.bindings)
+                self.render_registered(&token.text, state, next_depth)?
+                state.root = saved_root
+                state.binding_start = saved_start
             elif token.kind == 7:
                 for item in overrides:
                     step(state, &self._bounds)?
