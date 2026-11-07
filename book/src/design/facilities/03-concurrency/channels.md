@@ -148,7 +148,8 @@ a wait. A worker *can wait* if code it can run performs any operation except:
 
 - computation, memory, and collection operations, including atomics and
   creating queues, tokens, pools, and mutexes;
-- `send_nowait`, `recv_nowait`, `select_recv_nowait`, and `submit_nowait`;
+- `send_nowait`, `recv_nowait`, `select_recv_nowait`, and `submit_nowait`
+  on a pool or a [`Submitter`](executors.md#submit-from-workers);
 - unlocking a mutex, cancelling a token or future, checking a token or
   future, and starting a worker;
 - a sleep, which ends without another thread, and reading the clock,
@@ -172,7 +173,9 @@ queue the joining function holds. The compiler cannot tell a regular file
 from a socket, pipe, or FIFO whose other end that thread holds, and opening a
 FIFO waits for its other end. A database statement can wait for a lock another
 connection holds. An operation added to the language or the standard library
-counts as a wait until it is shown not to block.
+counts as a wait until it is shown not to block. A pool job that submits
+through a `Submitter` also may not wait for what its submitted jobs can reach;
+see [waits in submitting jobs](executors.md#waits-in-submitting-jobs).
 
 A worker that uses only the exceptions is joined while the function keeps the
 opposite endpoint:

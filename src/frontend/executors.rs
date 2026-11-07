@@ -94,59 +94,12 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(Some(output));
         }
+        if matches!(self.place_type(base), Some(Ty::Submitter)) {
+            return self.submitter_method(base, name, args, ops);
+        }
         let (_, loans) = self.observe(base, ops)?;
-        let arguments = ops.len();
         let op = if matches!(name, "submit" | "submit_nowait") {
-            let Some((worker, args)) = args.split_first() else {
-                return Err(base.at.error(
-                    "submit requires an owned closure or a named function and its arguments",
-                ));
-            };
-            let input = if let Expression::Name(function) = &ungroup(worker).kind {
-                if !self.names.contains_key(function) {
-                    self.executor_named_job(function, args, &worker.at, ops)?
-                } else {
-                    if !args.is_empty() {
-                        return Err(worker
-                            .at
-                            .error("capture inputs in a zero-argument owned job"));
-                    }
-                    self.value(worker, ops)?
-                }
-            } else {
-                if !args.is_empty() {
-                    return Err(worker
-                        .at
-                        .error("capture inputs in a zero-argument owned job"));
-                }
-                self.value(worker, ops)?
-            };
-            let Ty::Closure(closure) = &input else {
-                return Err(worker.at.error(
-                    "submit requires a concrete owned closure or a statically named function",
-                ));
-            };
-            if !input.heap_storable() || !closure.signature.inputs.is_empty() {
-                return Err(worker.at.error("executor jobs require wholly owned captures and no arguments, borrows, or generator frames"));
-            }
-            let output = closure.signature.output.clone().unwrap_or(Ty::Unit);
-            if !output.heap_storable() {
-                return Err(worker
-                    .at
-                    .error("executor results require a concrete wholly owned type"));
-            }
-            let job = Arc::new(Job {
-                adapter: format!(
-                    "__plenty_pool_{}_{}_{}",
-                    self.function_name, base.at.line, base.at.column
-                ),
-                worker: closure.name.clone(),
-                output,
-                closure: Some(closure.clone()),
-                shared: None,
-                input,
-            });
-            self.holds_tokens(arguments, ops);
+            let job = self.executor_job(base, args, false, ops)?;
             ExecutorOp::Submit(job, name == "submit_nowait")
         } else if matches!(name, "map" | "map_result" | "reduce_tree") {
             self.executor_parallel(args, &base.at, name, ops)?
@@ -162,9 +115,11 @@ impl Lower<'_> {
             ExecutorOp::Shutdown
         } else if name == "cancel_pending" && args.is_empty() {
             ExecutorOp::CancelPending
+        } else if name == "submitter" && args.is_empty() {
+            ExecutorOp::Submitter
         } else {
             return Err(base.at.error(
-                "ThreadPoolExecutor supports submit, submit_nowait, map, map_result, reduce_tree, cancel_pending, and shutdown",
+                "ThreadPoolExecutor supports submit, submit_nowait, submitter, map, map_result, reduce_tree, cancel_pending, and shutdown",
             ));
         };
         let output = op.signature().1;
@@ -176,6 +131,105 @@ impl Lower<'_> {
         } else {
             Ok(Some(output))
         }
+    }
+
+    /// `pool.submitter()`'s handle: `share()` and `submit_nowait(...)` only.
+    /// Blocking submission, futures and shutdown stay with the pool's owner, so
+    /// worker code holding a handle never waits for the pool.
+    fn submitter_method(
+        &mut self,
+        base: &Expr,
+        name: &str,
+        args: &[Expr],
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let (ty, loans) = self.observe(base, ops)?;
+        if name == "share" && args.is_empty() {
+            Self::end_reads(loans, ops);
+            return Ok(Some(ty));
+        }
+        if name != "submit_nowait" {
+            return Err(base.at.error(if name == "submit" {
+                "Submitter has no blocking submit: a worker waiting for space in its own pool's queue could wait forever; use submit_nowait and handle Full(job)"
+            } else {
+                "Submitter supports share() and submit_nowait(job); waiting, results, and shutdown stay with the ThreadPoolExecutor"
+            }));
+        }
+        let job = self.executor_job(base, args, true, ops)?;
+        let op = ExecutorOp::Submit(job, true);
+        let output = op.signature().1;
+        ops.push(Op::Executor(op));
+        Self::end_reads(loans, ops);
+        Ok(Some(output))
+    }
+
+    /// Bind a submitted job, owned closure or named function with its owned
+    /// arguments, and push it.
+    fn executor_job(
+        &mut self,
+        base: &Expr,
+        args: &[Expr],
+        handle: bool,
+        ops: &mut Vec<Op>,
+    ) -> Result<Arc<Job>> {
+        let arguments = ops.len();
+        let Some((worker, args)) = args.split_first() else {
+            return Err(base
+                .at
+                .error("submit requires an owned closure or a named function and its arguments"));
+        };
+        let input = if let Expression::Name(function) = &ungroup(worker).kind {
+            if !self.names.contains_key(function) {
+                self.executor_named_job(function, args, &worker.at, ops)?
+            } else {
+                if !args.is_empty() {
+                    return Err(worker
+                        .at
+                        .error("capture inputs in a zero-argument owned job"));
+                }
+                self.value(worker, ops)?
+            }
+        } else {
+            if !args.is_empty() {
+                return Err(worker
+                    .at
+                    .error("capture inputs in a zero-argument owned job"));
+            }
+            self.value(worker, ops)?
+        };
+        let Ty::Closure(closure) = &input else {
+            return Err(worker
+                .at
+                .error("submit requires a concrete owned closure or a statically named function"));
+        };
+        if !input.heap_storable() || !closure.signature.inputs.is_empty() {
+            return Err(worker.at.error("executor jobs require wholly owned captures and no arguments, borrows, or generator frames"));
+        }
+        let output = closure.signature.output.clone().unwrap_or(Ty::Unit);
+        if !output.heap_storable() {
+            return Err(worker
+                .at
+                .error("executor results require a concrete wholly owned type"));
+        }
+        if handle && output != Ty::Unit {
+            return Err(worker.at.error(format!(
+                "a Submitter job must return (), not {output}: it has no future, so a result would be dropped unseen; handle its errors in the job or send them on a channel"
+            )));
+        }
+        let job = Arc::new(Job {
+            adapter: format!(
+                "__plenty_pool_{}_{}_{}",
+                self.function_name, base.at.line, base.at.column
+            ),
+            worker: closure.name.clone(),
+            output,
+            closure: Some(closure.clone()),
+            shared: None,
+            input,
+            handle,
+        });
+        self.holds_tokens(arguments, ops);
+        Ok(job)
     }
 
     /// Bind named arguments into the same inline one-shot representation users
@@ -400,6 +454,7 @@ impl Lower<'_> {
                     },
                     closure: Some(closure),
                     shared: None,
+                    handle: false,
                 }),
                 input,
             ));
@@ -412,6 +467,7 @@ impl Lower<'_> {
                 output,
                 closure: None,
                 shared,
+                handle: false,
             }),
             input,
             fallible,

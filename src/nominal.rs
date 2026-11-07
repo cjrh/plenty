@@ -371,6 +371,7 @@ impl Clone for Ty {
             Self::File => Self::File,
             Self::Bool => Self::Bool,
             Self::Executor => Self::Executor,
+            Self::Submitter => Self::Submitter,
             Self::CancellationToken => Self::CancellationToken,
             Self::FsReadDir => Self::FsReadDir,
             Self::FsDirEntry => Self::FsDirEntry,

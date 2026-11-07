@@ -44,6 +44,7 @@ pub(super) fn blocks(op: &Op) -> bool {
             | ExecutorOp::Done(_)
             | ExecutorOp::Cancel(_)
             | ExecutorOp::CancelPending
+            | ExecutorOp::Submitter
             | ExecutorOp::Workers => false,
         },
         Op::Control(op) => match op {
