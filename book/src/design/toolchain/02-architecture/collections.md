@@ -187,9 +187,10 @@ place when its source still holds it (issue #825). That source can be a `&set`
 parameter, a local, or a temporary parked in an expression local because its
 keys have `__del__`. The argument stays under its shared loan, and a removed
 member's `__del__` reaches only that member, since keys cannot hold
-collections. The receiver must be a local, a `&mut` parameter, or a field of
-one. An element receiver such as `grid[0]` still counts the argument (issue
-#831).
+collections. The receiver may be a local, a `&mut` parameter, a field of one,
+or a list element such as `grid[0]`: computing an element's address can only
+trap, which releases nothing (issue #831). Dictionary values cannot be borrowed
+mutably by index, so no dictionary element is such a receiver.
 
 An element reference (`&xs[i]`, `&mut xs[i]`, `&mut grid[i][j]`, and the
 implicit one under `bodies[i].x`) of any element type checks the index inline
