@@ -241,6 +241,11 @@ disagree. One rule: `display` for people, `debug` for precision.
 
 ## Rule 3: an owner converts to its view
 
+Issue #847 adds implicit shared borrowing at `&substr` call parameters:
+`f(s)` and `f(make_text())` view the whole string, using the shared-call
+temporary lifetime rules. Explicit borrows and substring views remain accepted.
+Annotated view locals and non-text view parameters retain their existing rules.
+
 ### Today
 
 > **Update 2026-11-01:** phases 1 and 3 shipped. Owners convert to views at

@@ -165,7 +165,7 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     line = "name: Ada Lovelace"
     value = &line[6:]
     print(value, len(value))?
-    print(&line[:4] == "name", "Love" in value, count(&line, "a")?)?
+    print(&line[:4] == "name", "Love" in value, count(line, "a")?)?
     first = value[:3]?
     print(first)?
     Ok(())
@@ -177,8 +177,9 @@ True True 3
 Ada
 ```
 
-A function takes a substring as `&substr`, and a whole string as `&line` or
-a literal. Copy the text with `value[a:b]?` when you need an owned `str`,
+A function takes a substring as `&substr`. Passing a whole string as `line`
+implicitly borrows it for the call; `&line` or a literal also works. Copy the
+text with `value[a:b]?` when you need an owned `str`,
 for example to call a `str` method or keep it after the string changes. The
 [substring view reference](../../design/language/04-expressions/slices.md#substring-views)
 lists every operation.

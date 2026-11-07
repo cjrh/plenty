@@ -144,6 +144,85 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
 }
 
 #[test]
+fn substr_calls_implicitly_borrow_string_places_and_forward_references() {
+    support::assert_stdout(
+        r#"
+class Label:
+    text: str
+
+    def width(self, text: &substr) -> i64:
+        len(text)
+
+def width(text: &substr) -> i64:
+    len(text)
+
+def generic[T](text: &substr, other: T) -> i64:
+    len(text)
+
+def reference(text: &str) -> &str:
+    text
+
+def index() -> i64:
+    print("index").unwrap()
+    0
+
+def main() -> Result[(), AllocError | IoError]:
+    mut s = "é🙂"
+    heap = ("héllo, " + "wörld")?
+    label = Label(heap)
+    values = [heap]?
+    r = &heap
+    print(width(s), width(heap), width(r), width(reference(heap)))?
+    print(width(label.text), width(values[index()]), width(heap[7:]?))?
+    callable = width
+    closure = def(text: &substr) -> i64:
+        len(text)
+    print(width(text=s), generic(s, 1), label.width(s), callable(s), closure(s))?
+    s = "new"
+    print(s, heap)?
+    Ok(())
+"#,
+        "2 12 12 12\nindex\n12 12 5\n2 2 2 2 2\nnew héllo, wörld\n",
+    );
+}
+
+#[test]
+fn implicit_substr_temporaries_are_evaluated_once_and_cleaned_on_later_errors() {
+    support::assert_stdout(
+        r#"
+def make() -> str:
+    print("make").unwrap()
+    ("héllo" + " world").unwrap()
+
+def later() -> i64:
+    print("later").unwrap()
+    9
+
+def fail() -> Result[i64, str]:
+    print("fail").unwrap()
+    Err("stop")
+
+def width(text: &substr, extra: i64) -> i64:
+    print(text, extra).unwrap()
+    len(text)
+
+def attempt() -> Result[i64, str]:
+    Ok(width(make(), fail()?))
+
+def tail() -> i64:
+    width(make(), 9)
+
+def main() -> Result[(), IoError]:
+    print(width(make(), later()))?
+    print(attempt().is_err())?
+    print(tail())?
+    Ok(())
+"#,
+        "make\nlater\nhéllo world 9\n11\nmake\nfail\nTrue\nmake\nhéllo world 9\n11\n",
+    );
+}
+
+#[test]
 fn view_index_is_checked_against_the_view() {
     let output = support::run(
         r#"
@@ -192,8 +271,12 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     "a function cannot return a slice view yet (backlog B11)"
 )]
 #[case(
-    "def g(x: &substr) -> i64:\n    len(x)\n\ns = \"abc\"\nn = g(s)",
-    "this parameter takes a substring view: pass `&s` or a literal for a whole string, or `&s[a:b]` for part of it"
+    "def g(x: &substr, owner: &mut str) -> ():\n    pass\n\nmut s = \"abc\"\ng(s, &mut s)",
+    "conflicting borrow"
+)]
+#[case(
+    "def g(x: &substr, owner: &mut list[str]) -> ():\n    pass\n\nmut xs = [\"abc\"].unwrap()\ng(xs[0], &mut xs)",
+    "conflicting borrow"
 )]
 #[case(
     "def g(x: &substr) -> i64:\n    len(x)\n\nn = g(b\"abc\")",
@@ -229,11 +312,11 @@ def count(text: &substr, scalar: &str) -> Result[i64, OverflowError[i64]]:
     Ok(n)
 
 def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
-    s = "a longer heap string, with ünïcode"
+    s = ("a longer heap string, with " + "ünïcode")?
     mut sum = 0
     print("__test_begin_no_allocations__")?
     v = &s[2:8]
-    sum += count(&s[:], "n")? + len(v) + v.byte_len()
+    sum += count(s, "n")? + len(v) + v.byte_len()
     for c in reversed(&v[1:]):
         if c == "g":
             sum += 100

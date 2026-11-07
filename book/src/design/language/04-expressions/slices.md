@@ -352,8 +352,13 @@ stores its byte length and scalar count ahead of the text, and every `str`
 operation reads them. A run inside a string has no such prefix, so a view
 holds the run's address and byte length instead. `substr` is only written as
 `&substr`; there is no owned `substr` and no `&mut substr`, since a `str` is
-immutable. A `&substr` parameter or annotated local also takes a whole string
-as `&s`, a `&str` binding, or a `str` literal, converted as `&s[:]` would be.
+immutable. A `&substr` parameter also takes a whole string: `f(s)` implicitly
+borrows it, and `f(&s)`, a `&str` binding, or a `str` literal work too. Each
+converts as `&s[:]` would, without copying, retaining, or allocating. Owned
+temporary arguments are evaluated once and stay alive through the containing
+full expression, including later arguments and error propagation. An annotated
+local still needs a borrow, such as `whole: &substr = &s`, or a literal;
+implicit borrowing applies to calls.
 
 | Operation | Meaning |
 | --- | --- |

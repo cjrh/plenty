@@ -43,8 +43,8 @@ spell out accepted and rejected argument, binding, slice, and explicit-copy
 forms, including borrow lifetimes, backing storage, and nested results.
 The function-argument table uses multiline signature/call excerpts and explains
 when borrowing avoids reference-count work. It also shows whole-string and
-substring arguments to `&substr`, including the explicit borrow needed for an
-owned binding, and explains the view interface's current operation limits.
+substring arguments to `&substr`, including implicit borrowing of owned strings
+at calls (issue #847), and explains the view interface's current operation limits.
 The binding table keeps expressions on one line, wrapping their explanations
 within the ordinary page width.
 
