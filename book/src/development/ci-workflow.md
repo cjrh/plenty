@@ -95,8 +95,8 @@ shard saves it; both architectures have separate entries.
 The build script validates a SHA-256 key over the vendored source tree,
 build logic, lockfile, target, Rust compiler version and target standard-library
 contents. It checks each restored rlib's content before reuse and publishes
-complete entries atomically. Native C archives and the two runtime archives
-still rebuild: native headers/SDKs and runtime source need different inputs.
+complete entries atomically. Native compilation and finished runtime archives
+use the separate boundaries described under [native and runtime archive reuse](#native-and-runtime-archive-reuse).
 Custom `PLENTY_RUNTIME_RUSTFLAGS` bypass reuse because flags may name extra
 files that the key cannot infer. Unreadable or symlinked key inputs also bypass
 reuse; they do not prevent an otherwise valid compiler build.
@@ -115,7 +115,48 @@ build-script samples were 82.16 seconds before caching, 82.23 seconds with a
 cold cache and 108.21 seconds with a warm cache: native/runtime work varied on
 the shared machine. Those samples establish a dependency-stage saving, not an
 end-to-end speedup. Hosted restore/save overhead and CI savings remain to be
-measured. The native and runtime archive stages remain outside this cache.
+measured. The native and runtime archive stages use separate caches.
+
+### Native and runtime archive reuse
+
+Linux test shards install ccache and restore its object cache outside the Cargo
+workspace. Preprocessor mode checks actual source, flags and SDK/system-header
+contents on every invocation, including newly appearing headers. Compiler
+identity uses its contents, with discovered GCC backend, assembler and specs
+contents fingerprinted once per check into a ccache namespace. No global ccache
+configuration or sloppiness is loaded. Native archives are assembled each time with the selected archive
+tool, so its flags and identity do not need a separate archive cache key.
+[The ccache manual](https://ccache.dev/manual/latest.html#_the_preprocessor_mode)
+describes this boundary. Assembly that ccache cannot cache follows the ordinary
+compiler path.
+
+`build.rs` then keys each application/library runtime archive and its link
+metadata on the finished native archives and rlibs, runtime sources and manifest,
+recipe, target, Rust toolchain/standard-library contents and allocation-check
+mode. This avoids guessing native header inputs at the runtime archive boundary.
+Restored artifacts are content-validated; per-key locks and atomic publication
+protect concurrent builds. Custom `PLENTY_RUNTIME_RUSTFLAGS`, unsupported key
+inputs and `PLENTY_RUNTIME_ARCHIVE_CACHE=off` bypass archive reuse.
+
+Local archive entries live in the profile's `plenty-runtime-archive-cache/`;
+`PLENTY_RUNTIME_ARCHIVE_CACHE=/absolute/path` can share them across isolated
+targets. Delete the cache to reclaim entries. Hosted shards restore these
+archives separately from workspace cleanup. Only a successful `main` run's
+first shard saves native and runtime entries, independently for each architecture.
+The compiler build's verbose output reports SQLite, Brotli, ring and runtime
+archive durations; ccache statistics are also printed by hosted test shards.
+
+On Linux, `just test` and `just ci` automatically use an installed ccache, with
+objects under `target/native-ccache/` (or `CCACHE_DIR`). Without ccache (or with an older release lacking namespaces) they use
+the ordinary compiler. `PLENTY_NATIVE_CACHE=off` disables this automatic setup.
+Explicit compiler selections or wrappers, custom C flags or other ccache settings preserve
+the caller's environment. Only `HOST_CC` is selected automatically; cross-target
+compiler discovery remains with cc-rs. Direct Cargo commands do not configure
+ccache automatically, but do use the runtime archive cache.
+
+Measurements and invalidation probes for issue #832 are recorded in the
+[completed-work entry](../completed-work/language-and-tooling.md#native-and-runtime-archive-reuse-issue-832).
+Hosted cache transfer and overall CI savings still need measurement.
 
 ### Compiled-function cache
 

@@ -12,6 +12,8 @@ import subprocess
 import sys
 import time
 
+from native_cache import environment as native_cache_environment
+
 REPO = Path(__file__).resolve().parent.parent
 
 
@@ -104,12 +106,13 @@ def run_suite(args):
     started = time.monotonic()
     rows = []
     result = 0
+    env = native_cache_environment(REPO, os.environ)
     for name, command in [("Compile tests", base + ["--no-run", "--timings"]),
                           ("Run tests and doctests", base)]:
         print(f'== {name}: {" ".join(command)}', flush=True)
         before = time.monotonic()
         try:
-            result = subprocess.run(command, cwd=REPO).returncode
+            result = subprocess.run(command, cwd=REPO, env=env).returncode
         except OSError as error:
             print(error, file=sys.stderr)
             result = 127
