@@ -16,6 +16,11 @@ pub enum ClistOp {
     Clear(Ty),
     Get(Ty, usize),
     Set(Ty, usize),
+    /// `Get` with the enclosing loop's cached row count and column address
+    /// above its operands; see `IndexedLists` in `frontend/collections.rs`.
+    GetView(Ty, usize),
+    /// `Set` with the cached row count and column address above its operands.
+    SetView(Ty, usize),
     Column(Ty, usize),
     /// `rows[start:stop:step]`: a reference to the clist, the bounds, and the
     /// `SLICE_START`/`SLICE_STOP` flags.
@@ -57,6 +62,8 @@ impl ClistOp {
             | Self::Clear(t)
             | Self::Get(t, _)
             | Self::Set(t, _)
+            | Self::GetView(t, _)
+            | Self::SetView(t, _)
             | Self::Column(t, _)
             | Self::Slice(t) => t,
             Self::Load(_) => unreachable!("inline scalar load"),
@@ -100,11 +107,22 @@ impl ClistOp {
             ),
             Self::Get(_, i) => (vec![reference(false), Ty::I64], field(owner, *i)),
             Self::Set(_, i) => (vec![reference(true), Ty::I64, field(owner, *i)], Ty::Unit),
+            Self::GetView(_, i) => (
+                vec![reference(false), Ty::I64, Ty::I64, Ty::I64],
+                field(owner, *i),
+            ),
+            Self::SetView(_, i) => (
+                vec![reference(true), Ty::I64, field(owner, *i), Ty::I64, Ty::I64],
+                Ty::Unit,
+            ),
             Self::Load(_) => unreachable!(),
         }
     }
     pub fn traps(&self) -> bool {
-        matches!(self, Self::Get(..) | Self::Set(..))
+        matches!(
+            self,
+            Self::Get(..) | Self::Set(..) | Self::GetView(..) | Self::SetView(..)
+        )
     }
     pub fn opcode(&self) -> i64 {
         match self {
@@ -121,7 +139,9 @@ impl ClistOp {
             Self::Set(..) => 527,
             Self::Column(..) => 528,
             Self::Slice(_) => crate::collection_opcodes::CLIST_SLICE,
-            Self::Load(_) => unreachable!("inline load"),
+            Self::Load(_) | Self::GetView(..) | Self::SetView(..) => {
+                unreachable!("inline access")
+            }
         }
     }
 }

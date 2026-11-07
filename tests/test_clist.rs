@@ -946,3 +946,319 @@ print(rows[0].small, rows[0].unsigned, rows[0].x != rows[0].x, rows[0].y).unwrap
         "True 0 0\n-128 18446744073709551615 -0.0 True\n127 0 True -0.0",
     );
 }
+
+/// Field access on clist rows in loops (issue #759): each loop reads a row
+/// count and column address once per accessed field, shares one bounds check
+/// among the fields of a row, and reads the header at each access when the
+/// loop can append, reserve, remove, clear or pass the clist on.
+const LOOPS: &str = r#"class Body:
+    x: f64
+    v: f64
+    n: i64
+
+
+def step(bodies: &mut clist[Body], dt: f64) -> Result[(), OverflowError[i64]]:
+    for i in range(len(bodies)):
+        bodies[i].x += dt * bodies[i].v
+        for j in range(i + 1, len(bodies)):
+            bodies[j].v -= bodies[i].x
+            bodies[i].n += 1
+    Ok(())
+
+
+def total(bodies: &clist[Body]) -> f64:
+    mut sum = 0.0
+    for i in range(len(bodies)):
+        sum += bodies[i].x + bodies[i].v
+    sum
+
+
+def poke(bodies: &mut clist[Body], at: i64) -> f64:
+    mut sum = 0.0
+    for _ in range(2):
+        bodies[at].x += 1.0
+        sum += bodies[at].x + bodies[at].v
+    sum
+
+
+def touch(bodies: &mut clist[Body]) -> Result[(), AllocError | AppendError[Body]]:
+    bodies.append(Body(0.0, 0.0, -1))?
+    Ok(())
+
+
+def grow(bodies: &mut clist[Body]) -> Result[(), AllocError | AppendError[Body] | OverflowError[i64]]:
+    for i in range(2):
+        bodies[i].n += 10
+        bodies.append(Body(1.0, 1.0, i))?
+    Ok(())
+
+
+def call(bodies: &mut clist[Body]) -> Result[(), AllocError | AppendError[Body] | OverflowError[i64]]:
+    for i in range(2):
+        bodies[i].n += 100
+        touch(bodies)?
+    Ok(())
+
+
+def shrink(bodies: &mut clist[Body]) -> Result[(), OverflowError[i64]]:
+    for _ in range(2):
+        bodies[0].n += 1000
+        bodies.remove(0)
+    Ok(())
+
+
+def main() -> Result[(), AllocError | AppendError[Body] | IoError | OverflowError[i64]]:
+    mut bodies = clist[Body]()
+    for k in range(3):
+        bodies.append(Body(f64(2 * k + 1), f64(2 * k + 2), 0))?
+    step(&mut bodies, 0.5)?
+    print(f"{total(&bodies)} {bodies[0].n} {bodies[1].n} {bodies[2].n}"?)?
+    print(poke(&mut bodies, -1))?
+    grow(&mut bodies)?
+    call(&mut bodies)?
+    print(f"{len(bodies)} {bodies[0].n} {bodies[1].n} {bodies[4].n} {bodies[6].n}"?)?
+    shrink(&mut bodies)?
+    print(f"{len(bodies)} {bodies[0].n}"?)?
+    Ok(())
+"#;
+
+fn dump(dir: &std::path::Path, what: &str, function: &str) -> String {
+    let output = std::process::Command::new(support::plenty_bin())
+        .current_dir(dir)
+        .env("PLENTY_CACHE", "off")
+        .args(["--release", "--dump", what, "--dump-filter", function])
+        .args(["loops.plenty", "-o", "-"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
+}
+
+fn loops_dir(source: &str) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("loops.plenty"), source).unwrap();
+    dir
+}
+
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn row_fields_in_loops_keep_their_results(#[case] release: bool) {
+    let dir = loops_dir(LOOPS);
+    let mut command = std::process::Command::new(support::plenty_bin());
+    command.current_dir(dir.path()).env("PLENTY_CACHE", "off");
+    if !release {
+        command.arg("--fast-compile");
+    }
+    let output = command.arg("loops.plenty").output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "15.0 2 1 0\n13.0\n7 112 111 1 -1\n5 0\n"
+    );
+}
+
+#[test]
+fn row_fields_use_the_loop_cache_unless_the_loop_resizes() {
+    let dir = loops_dir(LOOPS);
+    let total = dump(dir.path(), "ops", "total");
+    assert_eq!(total.matches("GetView(").count(), 2, "{total}");
+    assert!(!total.contains("Get("), "{total}");
+    // Only innermost loops cache: the outer loop's three accesses read the
+    // header, the inner loop's five do not.
+    let step = dump(dir.path(), "ops", "step");
+    assert_eq!(
+        step.matches("GetView(").count() + step.matches("SetView(").count(),
+        5,
+        "{step}"
+    );
+    assert_eq!(
+        step.matches("Clist(Get(").count() + step.matches("Clist(Set(").count(),
+        3,
+        "{step}"
+    );
+    for function in ["grow", "call", "shrink"] {
+        let ops = dump(dir.path(), "ops", function);
+        assert!(ops.contains("Clist(Get("), "{function}: {ops}");
+        assert!(!ops.contains("View("), "{function}: {ops}");
+    }
+}
+
+/// The cached loops call nothing on their hot paths: `total` needs no check,
+/// and one cold trap call guards the three accesses to row `at` in `poke`.
+#[test]
+fn row_field_loops_call_nothing_and_check_each_row_once() {
+    let dir = loops_dir(LOOPS);
+    let total = dump(dir.path(), "clif", "total");
+    assert!(!total.contains(" call "), "{total}");
+    let asm = dump(dir.path(), "asm", "total");
+    assert!(!asm.lines().any(support::native_call), "{asm}");
+    let poke = dump(dir.path(), "clif", "poke");
+    let calls: Vec<_> = poke
+        .lines()
+        .filter(|line| line.contains(" call "))
+        .collect();
+    assert_eq!(calls.len(), 1, "{poke}");
+    assert!(poke.contains("; plenty_trap_clist_index"), "{poke}");
+}
+
+#[rstest]
+#[case("2", false)]
+#[case("-3", false)]
+#[case("3", true)]
+#[case("-4", true)]
+#[case("i64.MAX", true)]
+#[case("i64.MIN", true)]
+fn row_fields_in_loops_trap_out_of_bounds(#[case] index: &str, #[case] traps: bool) {
+    for (rows, at) in [(3, index), (0, "0")] {
+        let source = format!(
+            "class Body:\n    x: f64\n\n\
+             def poke(bodies: &mut clist[Body], at: i64) -> f64:\n    mut sum = 0.0\n    for _ in range(2):\n        bodies[at].x += 1.0\n        sum += bodies[at].x\n    sum\n\n\
+             def main() -> Result[(), AllocError | AppendError[Body] | IoError]:\n    mut bodies = clist[Body]()\n    for _ in range({rows}):\n        bodies.append(Body(1.0))?\n    print(poke(&mut bodies, {at}))?\n    Ok(())\n"
+        );
+        let dir = loops_dir(&source);
+        assert!(dump(dir.path(), "ops", "poke").contains("GetView("));
+        for release in [false, true] {
+            let mut command = std::process::Command::new(support::plenty_bin());
+            command.current_dir(dir.path()).env("PLENTY_CACHE", "off");
+            if !release {
+                command.arg("--fast-compile");
+            }
+            let output = command.arg("loops.plenty").output().unwrap();
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if rows == 0 || traps {
+                assert!(!output.status.success(), "{source}");
+                assert!(
+                    stderr.starts_with("error: loops.plenty:7:9: clist index out of bounds"),
+                    "{stderr}"
+                );
+            } else {
+                assert!(output.status.success(), "{stderr}");
+                assert_eq!(String::from_utf8_lossy(&output.stdout), "5.0\n");
+            }
+        }
+    }
+}
+
+/// A clist reached through a class field (issue #759) caches through a shared
+/// owner and falls back when the loop can resize or replace it through the
+/// owner: a `&mut self` method, `&mut h.rows`, a field store, or an indirect
+/// call.
+const OWNERS: &str = r#"class B:
+    x: f64
+
+
+class H:
+    rows: clist[B]
+
+    def shrink(self: &mut H) -> ():
+        self.rows.remove(0)
+        ()
+
+
+def make(n: i64, base: f64) -> Result[clist[B], AllocError | AppendError[B]]:
+    mut rows = clist[B]()
+    for k in range(n):
+        rows.append(B(base + f64(k)))?
+    Ok(rows)
+
+
+def shrink_ref(rows: &mut clist[B]) -> ():
+    rows.remove(0)
+    ()
+
+
+def read_owner(h: &H) -> f64:
+    mut s = 0.0
+    for i in range(len(h.rows)):
+        s += h.rows[i].x
+    s
+
+
+def via_method(h: &mut H) -> f64:
+    mut s = 0.0
+    for _ in range(3):
+        s += h.rows[0].x
+        h.shrink()
+    s
+
+
+def via_field_call(h: &mut H) -> f64:
+    mut s = 0.0
+    for _ in range(3):
+        s += h.rows[0].x
+        shrink_ref(&mut h.rows)
+    s
+
+
+def via_field_assign(h: &mut H) -> Result[f64, AllocError | AppendError[B]]:
+    mut s = 0.0
+    for _ in range(2):
+        s += h.rows[0].x
+        h.rows = make(2, 100.0)?
+    Ok(s)
+
+
+def via_callable(rows: &mut clist[B], f: Callable[[&mut clist[B]], ()]) -> f64:
+    mut s = 0.0
+    for _ in range(3):
+        s += rows[0].x
+        f(rows)
+    s
+
+
+def main() -> Result[(), AllocError | AppendError[B] | IoError]:
+    print(read_owner(&H(make(4, 10.0)?)))?
+    mut a = H(make(4, 10.0)?)
+    print(via_method(&mut a))?
+    mut b = H(make(4, 10.0)?)
+    print(via_field_call(&mut b))?
+    mut c = H(make(4, 10.0)?)
+    print(via_field_assign(&mut c)?)?
+    mut d = make(4, 10.0)?
+    print(via_callable(&mut d, shrink_ref))?
+    Ok(())
+"#;
+
+#[test]
+fn owner_paths_fall_back_when_the_loop_can_resize_the_clist() {
+    let dir = loops_dir(OWNERS);
+    let read = dump(dir.path(), "ops", "read_owner");
+    assert!(read.contains("GetView("), "{read}");
+    assert!(!read.contains("Clist(Get("), "{read}");
+    for function in [
+        "via_method",
+        "via_field_call",
+        "via_field_assign",
+        "via_callable",
+    ] {
+        let ops = dump(dir.path(), "ops", function);
+        assert!(ops.contains("Clist(Get("), "{function}: {ops}");
+        assert!(!ops.contains("View("), "{function}: {ops}");
+    }
+    for release in [false, true] {
+        let mut command = std::process::Command::new(support::plenty_bin());
+        command.current_dir(dir.path()).env("PLENTY_CACHE", "off");
+        if !release {
+            command.arg("--fast-compile");
+        }
+        let output = command.arg("loops.plenty").output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "46.0\n33.0\n33.0\n110.0\n33.0\n"
+        );
+    }
+}

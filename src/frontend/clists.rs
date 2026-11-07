@@ -23,6 +23,25 @@ pub(super) fn check_row(row: &Ty, at: &Token) -> Result<()> {
     Ok(())
 }
 
+/// Pushes the field access `op`, a `Get` or `Set`, through the loop's cached
+/// row count and column address `view` when there is one. `uncache` in
+/// `collections.rs` relies on this exact sequence.
+pub(super) fn field_access(op: ClistOp, view: Option<[u8; 2]>, ops: &mut Vec<Op>) {
+    let op = match (op, view) {
+        (op, None) => op,
+        (ClistOp::Get(ty, field), Some([length, column])) => {
+            ops.extend([Op::LoadLocal(length), Op::LoadLocal(column)]);
+            ClistOp::GetView(ty, field)
+        }
+        (ClistOp::Set(ty, field), Some([length, column])) => {
+            ops.extend([Op::LoadLocal(length), Op::LoadLocal(column)]);
+            ClistOp::SetView(ty, field)
+        }
+        _ => unreachable!("clist field access"),
+    };
+    ops.push(Op::Collection(CollectionOp::Clist(op)));
+}
+
 impl Lower<'_> {
     pub(super) fn check_clist_access(&self, ty: &Ty, at: &Token) -> Result<()> {
         let Ty::Class(class) = crate::clist::row(ty) else {
@@ -68,6 +87,7 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<()> {
         let (base, index, owner, field) = self.clist_projection(target)?.unwrap();
+        let view = self.indexed_clist_view(base, &owner, field)?;
         let ty = crate::clist::field(&owner, field);
         // Match ordinary field assignment: RHS, then index, then destination loan.
         let actual = self.expr_expected(value, Some(ty.clone()), ops)?;
@@ -82,13 +102,9 @@ impl Lower<'_> {
         ops.push(Op::StoreLocal(position));
         let (_, loan) = self.borrow_with_indices(base, true, &mut Some(indices.iter()), ops)?;
         self.mark(&target.at, ops);
-        ops.extend([
-            Op::MoveLocal(position),
-            Op::MoveLocal(input),
-            Op::Collection(CollectionOp::Clist(ClistOp::Set(owner, field))),
-            Op::Drop,
-            Op::UseLoan(loan),
-        ]);
+        ops.extend([Op::MoveLocal(position), Op::MoveLocal(input)]);
+        field_access(ClistOp::Set(owner, field), view, ops);
+        ops.extend([Op::Drop, Op::UseLoan(loan)]);
         Ok(())
     }
 
@@ -167,6 +183,7 @@ impl Lower<'_> {
                 .at
                 .error("augmented assignment requires a numeric destination"));
         }
+        let view = self.indexed_clist_view(base, &owner, field)?;
         let mut indices = Vec::new();
         self.access_indices(base, &mut indices, ops, false)?;
         let mut read_indices = Vec::new();
@@ -183,22 +200,16 @@ impl Lower<'_> {
         let (_, loan) =
             self.borrow_with_indices(base, false, &mut Some(read_indices.iter()), ops)?;
         self.mark(&target.at, ops);
-        ops.extend([
-            Op::LoadLocal(position),
-            Op::Collection(CollectionOp::Clist(ClistOp::Get(owner.clone(), field))),
-        ]);
+        ops.push(Op::LoadLocal(position));
+        field_access(ClistOp::Get(owner.clone(), field), view, ops);
         self.numeric_rhs(operator, &ty, value, &target.at, ops)?;
         let result = self.slot(ty, &target.at)?;
         ops.extend([Op::StoreLocal(result), Op::UseLoan(loan)]);
         let (_, loan) = self.borrow_with_indices(base, true, &mut Some(indices.iter()), ops)?;
         self.mark(&target.at, ops);
-        ops.extend([
-            Op::MoveLocal(position),
-            Op::MoveLocal(result),
-            Op::Collection(CollectionOp::Clist(ClistOp::Set(owner, field))),
-            Op::Drop,
-            Op::UseLoan(loan),
-        ]);
+        ops.extend([Op::MoveLocal(position), Op::MoveLocal(result)]);
+        field_access(ClistOp::Set(owner, field), view, ops);
+        ops.extend([Op::Drop, Op::UseLoan(loan)]);
         Ok(())
     }
 

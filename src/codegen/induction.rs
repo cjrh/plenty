@@ -943,6 +943,8 @@ fn allowed_op(op: &Op) -> bool {
                 | C::ViewRow(..)
                 | C::ViewItem(..)
                 | C::ElementRefView(..)
+                // Inline checks, loads and stores through a cached column.
+                | C::Clist(crate::clist::ClistOp::GetView(..) | crate::clist::ClistOp::SetView(..))
         ) | Op::Class(crate::record::ClassOp::FieldRef(..))
             | Op::WriteRef(_)
             | Op::Integer(_)
