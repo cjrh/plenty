@@ -21,6 +21,15 @@ def main() -> Result[(), TemplateError | AllocError | IoError]:
 <p>Hello Ada &amp; Grace!</p>
 ```
 
+## Declared context validation
+
+Use `validate(name, schema)` to check every reachable field path and operation
+against a declared `Shape`, including branches that a sample render skips.
+`render_checked(name, context, schema, html=True)` additionally verifies the
+actual JSON request before rendering. See [declared context shapes](template-schema.md)
+for nullable/optional fields, unions, arrays, composition, errors and bounds.
+Ordinary `add` and `render` keep their existing dynamic contracts.
+
 ## Language
 
 The syntax is a small Jinja-style subset, using [Tera](https://keats.github.io/tera/)
@@ -343,7 +352,10 @@ zero-based source location, missing/duplicate template names, missing values,
 type mismatches, cycles, allocation failures and byte-buffer errors. Syntax
 locations are UTF-8 byte offsets at the containing template construct, rather
 than at an individual expression character. Allocation errors remain explicit, including those
-wrapped by `BytesError`. Checked HTML additionally reports
+wrapped by `BytesError`. Declared-shape preflight additionally reports
+`InvalidShape`, `SchemaPath`, `SchemaOptional`, `SchemaType` and `ContextShape`;
+see [their guarantees and locations](template-schema.md).
+Checked HTML additionally reports
 `InvalidHtml(name, offset)` with the defining registered source and an original
 UTF-8 byte position; see [its contract](template-html.md#composition-and-failure).
 

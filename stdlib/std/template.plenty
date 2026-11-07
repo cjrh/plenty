@@ -14,9 +14,33 @@ pub enum TemplateError:
     MissingValue(str)
     TypeMismatch
     InheritanceCycle
+    InvalidShape(str)
+    SchemaPath(str, i64, str)
+    SchemaOptional(str, i64, str)
+    SchemaType(str, i64)
+    ContextShape(str)
     InvalidHtml(str, i64)
     Allocation(AllocError)
     Bytes(BytesError)
+
+pub enum Presence:
+    Required
+    Optional
+
+pub enum Shape:
+    Null
+    Bool
+    Int
+    Float
+    Text
+    Array(Box[Shape], NonNegative[i64])
+    Object(list[Field])
+    OneOf(list[Shape])
+
+pub class Field:
+    pub name: str
+    pub shape: Shape
+    pub presence: Presence
 
 pub enum HtmlContext:
     Text
@@ -938,6 +962,253 @@ def emit(state: &mut State, value: &Value, bounds: &Limits, name: &str, at: i64)
             text = escape_bounded(&text, mode, remaining)?
     append(state, &text, bounds)
 
+# Schemas are flattened independently from request data. Integer edges allow
+# alternative sets without copying recursive owners or manufacturing samples.
+class ShapeNode:
+    kind: i64
+    name: str
+    optional: bool
+    minimum: i64
+    children: list[i64]
+
+class ShapeBinding:
+    name: str
+    nodes: list[i64]
+
+class SchemaState:
+    nodes: list[ShapeNode]
+    bindings: list[ShapeBinding]
+    root: list[i64]
+    binding_start: i64
+    active: list[i64]
+    bytes: i64
+    steps: i64
+
+def schema_step(state: &mut SchemaState, bounds: &Limits) -> Result[(), TemplateError]:
+    state.steps = bounded_total(state.steps, 1, bounds.max_steps.get())?
+    Ok(())
+
+def shape_flatten(shape: &Shape, name: str, optional: bool, depth: i64, state: &mut SchemaState, bounds: &Limits) -> Result[i64, TemplateError]:
+    # Seven canonical result types precede the actual declared nodes.
+    count = unchecked:
+        len(state.nodes) - 7
+    if depth > bounds.max_depth.get() or count >= bounds.max_context_nodes.get():
+        return Err(TemplateError.LimitExceeded)
+    schema_step(state, bounds)?
+    state.bytes = bounded_total(state.bytes, name.byte_len(), bounds.max_context_bytes.get())?
+    node = len(state.nodes)
+    allocated(state.nodes.append(ShapeNode(0, name, optional, 0, allocated(list[i64]())?)))?
+    next_depth = unchecked:
+        depth + 1
+    match shape:
+        case Shape.Null:
+            pass
+        case Shape.Bool:
+            state.nodes[node].kind = 1
+        case Shape.Int:
+            state.nodes[node].kind = 2
+        case Shape.Float:
+            state.nodes[node].kind = 3
+        case Shape.Text:
+            state.nodes[node].kind = 4
+        case Shape.Array(item, minimum):
+            state.nodes[node].kind = 5
+            state.nodes[node].minimum = minimum.get()
+            child = shape_flatten(item, "", False, next_depth, state, bounds)?
+            allocated(state.nodes[node].children.append(child))?
+        case Shape.Object(fields):
+            state.nodes[node].kind = 6
+            for field in fields:
+                for position in range(len(state.nodes[node].children)):
+                    schema_step(state, bounds)?
+                    child = state.nodes[node].children[position]
+                    if state.nodes[child].name == field.name:
+                        return Err(TemplateError.InvalidShape(field.name))
+                child = shape_flatten(&field.shape, field.name, field.presence == Presence.Optional, next_depth, state, bounds)?
+                allocated(state.nodes[node].children.append(child))?
+        case Shape.OneOf(arms):
+            if len(arms) == 0:
+                return Err(TemplateError.InvalidShape("empty OneOf"))
+            state.nodes[node].kind = 7
+            for arm in arms:
+                child = shape_flatten(arm, "", False, next_depth, state, bounds)?
+                allocated(state.nodes[node].children.append(child))?
+    Ok(node)
+
+def shape_expand(node: i64, output: &mut list[i64], state: &mut SchemaState, bounds: &Limits, depth: i64 = 0) -> Result[(), TemplateError]:
+    if depth > bounds.max_depth.get():
+        return Err(TemplateError.LimitExceeded)
+    schema_step(state, bounds)?
+    if state.nodes[node].kind == 7:
+        next_depth = unchecked:
+            depth + 1
+        for index in range(len(state.nodes[node].children)):
+            child = state.nodes[node].children[index]
+            shape_expand(child, output, state, bounds, next_depth)?
+    else:
+        allocated(output.append(node))?
+    Ok(())
+
+def schema_state(shape: &Shape, bounds: &Limits) -> Result[SchemaState, TemplateError]:
+    mut state = SchemaState(allocated(list[ShapeNode]())?, allocated(list[ShapeBinding]())?, allocated(list[i64]())?, 0, allocated(list[i64]())?, 0, 0)
+    for kind in range(7):
+        allocated(state.nodes.append(ShapeNode(kind, "", False, 0, allocated(list[i64]())?)))?
+    root = shape_flatten(shape, "", False, 0, &mut state, bounds)?
+    mut roots: list[i64] = allocated(list[i64]())?
+    shape_expand(root, &mut roots, &mut state, bounds)?
+    for item in &roots:
+        if state.nodes[*item].kind != 6:
+            return Err(TemplateError.InvalidShape("root must be an object"))
+    state.root = roots
+    Ok(state)
+
+def schema_path(path: &list[str], template: str, at: i64, state: &mut SchemaState, bounds: &Limits) -> Result[list[i64], TemplateError]:
+    label = allocated(".".join(path))?
+    state.steps = bounded_total(state.steps, len(state.root), bounds.max_steps.get())?
+    mut nodes = allocated(copy(state.root))?
+    mut start = 0
+    mut index = len(state.bindings)
+    while index > state.binding_start:
+        unchecked:
+            index -= 1
+        schema_step(state, bounds)?
+        if path[0] == "loop":
+            if len(path) == 2:
+                if path[1] == "index" or path[1] == "index0" or path[1] == "length":
+                    return Ok(allocated([2])?)
+                if path[1] == "first" or path[1] == "last":
+                    return Ok(allocated([1])?)
+            return Err(TemplateError.SchemaPath(template, at, label))
+        if state.bindings[index].name == path[0]:
+            state.steps = bounded_total(state.steps, len(state.bindings[index].nodes), bounds.max_steps.get())?
+            nodes = allocated(copy(state.bindings[index].nodes))?
+            start = 1
+            break
+    for part in range(start, len(path)):
+        mut next: list[i64] = allocated(list[i64]())?
+        for node in &nodes:
+            schema_step(state, bounds)?
+            kind = state.nodes[*node].kind
+            mut child = -1
+            if kind == 6:
+                for position in range(len(state.nodes[*node].children)):
+                    schema_step(state, bounds)?
+                    candidate = state.nodes[*node].children[position]
+                    if state.nodes[candidate].name == path[part]:
+                        child = candidate
+                        break
+                if child >= 0 and state.nodes[child].optional:
+                    return Err(TemplateError.SchemaOptional(template, at, label))
+            elif kind == 5:
+                match i64.parse(path[part]):
+                    case Ok(position):
+                        if position >= 0 and position < state.nodes[*node].minimum:
+                            child = state.nodes[*node].children[0]
+                    case Err(_):
+                        pass
+            else:
+                return Err(TemplateError.SchemaType(template, at))
+            if child < 0:
+                return Err(TemplateError.SchemaPath(template, at, label))
+            shape_expand(child, &mut next, state, bounds)?
+        nodes = next
+    Ok(nodes)
+
+def schema_filters(nodes: list[i64], filters: &list[str], template: str, at: i64, state: &mut SchemaState, bounds: &Limits) -> Result[list[i64], TemplateError]:
+    mut result = nodes
+    for filter in filters:
+        schema_step(state, bounds)?
+        for node in &result:
+            schema_step(state, bounds)?
+            kind = state.nodes[*node].kind
+            if filter == "length":
+                if kind != 4 and kind != 5 and kind != 6:
+                    return Err(TemplateError.SchemaType(template, at))
+            elif kind != 4:
+                return Err(TemplateError.SchemaType(template, at))
+        result = allocated([2 if filter == "length" else 4])?
+    Ok(result)
+
+def schema_expression(expr: &Expression, template: str, at: i64, state: &mut SchemaState, bounds: &Limits) -> Result[list[i64], TemplateError]:
+    # Registration builds an acyclic postorder tree. Visit every node even
+    # when runtime boolean short circuiting would skip one of its operands.
+    mut results: list[list[i64]] = allocated(list[list[i64]]())?
+    for node in &expr.nodes:
+        schema_step(state, bounds)?
+        mut nodes: list[i64] = allocated(list[i64]())?
+        if node.kind == 0:
+            nodes = if len(node.path) > 0:
+                schema_path(&node.path, template, at, state, bounds)?
+            else:
+                allocated([node.literal.kind])?
+        else:
+            if node.kind == 2 or node.kind == 3:
+                for candidate in &results[node.left]:
+                    schema_step(state, bounds)?
+                    if state.nodes[*candidate].kind > 4:
+                        return Err(TemplateError.SchemaType(template, at))
+                for candidate in &results[node.right]:
+                    schema_step(state, bounds)?
+                    if state.nodes[*candidate].kind > 4:
+                        return Err(TemplateError.SchemaType(template, at))
+            nodes = allocated([1])?
+        filtered = schema_filters(nodes, &node.filters, template, at, state, bounds)?
+        allocated(results.append(filtered))?
+    state.steps = bounded_total(state.steps, len(results[expr.root]), bounds.max_steps.get())?
+    allocated(copy(results[expr.root]))
+
+# A failed union candidate is ordinary mismatch; resource failures always
+# propagate. Matching never retries flattening or allocates sample contexts.
+def shape_match(schema: i64, actual: i64, path: str, shapes: &SchemaState, state: &mut State, bounds: &Limits, depth: i64) -> Result[Option[str], TemplateError]:
+    if depth > bounds.max_depth.get():
+        return Err(TemplateError.LimitExceeded)
+    step(state, bounds)?
+    node = &shapes.nodes[schema]
+    next_depth = unchecked:
+        depth + 1
+    if node.kind == 7:
+        for child in &node.children:
+            match shape_match(*child, actual, path, shapes, state, bounds, next_depth)?:
+                case Nothing:
+                    return Ok(Nothing)
+                case Some(_):
+                    pass
+        return Ok(Some(path))
+    if node.kind != state.nodes[actual].value.kind:
+        return Ok(Some(path))
+    if node.kind == 5:
+        if len(state.nodes[actual].children) < node.minimum:
+            return Ok(Some(path))
+        for position in range(len(state.nodes[actual].children)):
+            child = state.nodes[actual].children[position]
+            location = allocated(f"{path}.{position}")?
+            match shape_match(node.children[0], child, location, shapes, state, bounds, next_depth)?:
+                case Some(error):
+                    return Ok(Some(error))
+                case Nothing:
+                    pass
+    elif node.kind == 6:
+        for field in &node.children:
+            step(state, bounds)?
+            mut found = -1
+            for position in range(len(state.nodes[actual].children)):
+                step(state, bounds)?
+                child = state.nodes[actual].children[position]
+                if state.nodes[child].key == shapes.nodes[*field].name:
+                    found = child
+                    break
+            location = allocated(f"{path}.{shapes.nodes[*field].name}")?
+            if found < 0:
+                if not shapes.nodes[*field].optional:
+                    return Ok(Some(location))
+            else:
+                match shape_match(*field, found, location, shapes, state, bounds, next_depth)?:
+                    case Some(error):
+                        return Ok(Some(error))
+                    case Nothing:
+                        pass
+    Ok(Nothing)
+
 # A conservative streaming recognizer, not the HTML5 tree-construction algorithm.
 # Token offsets and the scalar's UTF-8 byte width retain original diagnostics.
 class HtmlState:
@@ -971,17 +1242,29 @@ def html_name(text: &str) -> bool:
 def html_tag(name: &str) -> bool:
     # Unknown/custom, foreign, scripting, raw-text and parser-special elements
     # are excluded. title is the only supported escapable raw-text element.
-    if name == "a" or name == "abbr" or name == "address" or name == "article" or name == "aside" or name == "audio" or name == "b" or name == "bdi" or name == "bdo" or name == "blockquote" or name == "body" or name == "br" or name == "button" or name == "caption" or name == "cite" or name == "code":
+    if name == "a" or name == "abbr" or name == "address" or name == "article" or name == "aside" or name == "audio" or name == "b" or name == "bdi":
         return True
-    if name == "col" or name == "colgroup" or name == "data" or name == "datalist" or name == "dd" or name == "del" or name == "details" or name == "dfn" or name == "dialog" or name == "div" or name == "dl" or name == "dt" or name == "em" or name == "fieldset" or name == "figcaption" or name == "figure":
+    if name == "bdo" or name == "blockquote" or name == "body" or name == "br" or name == "button" or name == "caption" or name == "cite" or name == "code":
         return True
-    if name == "footer" or name == "form" or name == "h1" or name == "h2" or name == "h3" or name == "h4" or name == "h5" or name == "h6" or name == "head" or name == "header" or name == "hgroup" or name == "hr" or name == "html" or name == "i" or name == "img" or name == "input":
+    if name == "col" or name == "colgroup" or name == "data" or name == "datalist" or name == "dd" or name == "del" or name == "details" or name == "dfn":
         return True
-    if name == "ins" or name == "kbd" or name == "label" or name == "legend" or name == "li" or name == "link" or name == "main" or name == "map" or name == "mark" or name == "menu" or name == "meta" or name == "meter" or name == "nav" or name == "ol" or name == "optgroup" or name == "option":
+    if name == "dialog" or name == "div" or name == "dl" or name == "dt" or name == "em" or name == "fieldset" or name == "figcaption" or name == "figure":
         return True
-    if name == "output" or name == "p" or name == "picture" or name == "pre" or name == "progress" or name == "q" or name == "rp" or name == "rt" or name == "ruby" or name == "s" or name == "samp" or name == "search" or name == "section" or name == "select" or name == "slot" or name == "small":
+    if name == "footer" or name == "form" or name == "h1" or name == "h2" or name == "h3" or name == "h4" or name == "h5" or name == "h6":
         return True
-    if name == "source" or name == "span" or name == "strong" or name == "sub" or name == "summary" or name == "sup" or name == "table" or name == "tbody" or name == "td" or name == "tfoot" or name == "th" or name == "thead" or name == "time" or name == "title" or name == "tr" or name == "track":
+    if name == "head" or name == "header" or name == "hgroup" or name == "hr" or name == "html" or name == "i" or name == "img" or name == "input":
+        return True
+    if name == "ins" or name == "kbd" or name == "label" or name == "legend" or name == "li" or name == "link" or name == "main" or name == "map":
+        return True
+    if name == "mark" or name == "menu" or name == "meta" or name == "meter" or name == "nav" or name == "ol" or name == "optgroup" or name == "option":
+        return True
+    if name == "output" or name == "p" or name == "picture" or name == "pre" or name == "progress" or name == "q" or name == "rp" or name == "rt":
+        return True
+    if name == "ruby" or name == "s" or name == "samp" or name == "search" or name == "section" or name == "select" or name == "slot" or name == "small":
+        return True
+    if name == "source" or name == "span" or name == "strong" or name == "sub" or name == "summary" or name == "sup" or name == "table" or name == "tbody":
+        return True
+    if name == "td" or name == "tfoot" or name == "th" or name == "thead" or name == "time" or name == "title" or name == "tr" or name == "track":
         return True
     if name == "u" or name == "ul" or name == "var" or name == "video" or name == "wbr":
         return True
@@ -995,7 +1278,19 @@ def html_attribute(name: &str) -> bool:
     # separately rejects interpolation there; no URL policy is inferred.
     if name.startswith("data-") or name.startswith("aria-"):
         return len(name) > 5
-    name == "id" or name == "class" or name == "title" or name == "role" or name == "lang" or name == "dir" or name == "name" or name == "value" or name == "type" or name == "placeholder" or name == "alt" or name == "for" or name == "tabindex" or name == "width" or name == "height" or name == "disabled" or name == "checked" or name == "selected" or name == "multiple" or name == "required" or name == "readonly" or name == "hidden" or name == "open" or name == "method" or name == "enctype" or name == "autocomplete" or name == "min" or name == "max" or name == "step" or name == "rows" or name == "cols" or name == "colspan" or name == "rowspan" or name == "scope" or name == "datetime" or name == "rel" or name == "target" or name == "media" or name == "href" or name == "src" or name == "action" or name == "formaction" or name == "poster" or name == "cite" or name == "srcset"
+    if name == "id" or name == "class" or name == "title" or name == "role" or name == "lang" or name == "dir" or name == "name" or name == "value":
+        return True
+    if name == "type" or name == "placeholder" or name == "alt" or name == "for" or name == "tabindex" or name == "width" or name == "height" or name == "disabled":
+        return True
+    if name == "checked" or name == "selected" or name == "multiple" or name == "required" or name == "readonly" or name == "hidden" or name == "open" or name == "method":
+        return True
+    if name == "enctype" or name == "autocomplete" or name == "min" or name == "max" or name == "step" or name == "rows" or name == "cols" or name == "colspan":
+        return True
+    if name == "rowspan" or name == "scope" or name == "datetime" or name == "rel" or name == "target" or name == "media" or name == "href" or name == "src":
+        return True
+    if name == "action" or name == "formaction" or name == "poster" or name == "cite" or name == "srcset":
+        return True
+    False
 
 def html_url(name: &str) -> bool:
     name == "href" or name == "src" or name == "action" or name == "formaction" or name == "poster" or name == "cite" or name == "srcset"
@@ -1230,6 +1525,24 @@ pub class Engine:
         self._expression_nodes = expression_nodes
         Ok(())
 
+    pub def validate(self, name: &str, schema: &Shape) -> Result[(), TemplateError]:
+        mut shapes = schema_state(schema, &self._bounds)?
+        self.schema_registered(name, &mut shapes, 0)
+
+    pub def render_checked(self, name: &str, context: &Json, schema: &Shape, html: bool = True) -> Result[str, TemplateError]:
+        mut shapes = schema_state(schema, &self._bounds)?
+        self.schema_registered(name, &mut shapes, 0)?
+        mut state = State(allocated(list[Node]())?, allocated(list[Binding]())?, 0, 0, allocated(list[i64]())?, 0, shapes.steps, allocated(std.bytes.empty())?, html, Nothing)
+        drop(flatten(&mut state, "", context, 0, &self._bounds)?)
+        # The first declared node follows the seven canonical result types.
+        match shape_match(7, 0, "$", &shapes, &mut state, &self._bounds, 0)?:
+            case Some(path):
+                return Err(TemplateError.ContextShape(path))
+            case Nothing:
+                pass
+        self.render_registered(name, &mut state, 0)?
+        bytes_result(state.output.to_text())
+
     pub def render(self, name: &str, context: &Json, html: bool = True) -> Result[str, TemplateError]:
         mut state = State(allocated(list[Node]())?, allocated(list[Binding]())?, 0, 0, allocated(list[i64]())?, 0, 0, allocated(std.bytes.empty())?, html, Nothing)
         match context:
@@ -1432,6 +1745,49 @@ pub class Engine:
             drop(state.active.pop())
         Ok(())
 
+    def schema_registered(self, name: &str, state: &mut SchemaState, depth: i64) -> Result[(), TemplateError]:
+        if depth > self._bounds.max_depth.get():
+            return Err(TemplateError.LimitExceeded)
+        mut current = self.find(name)?
+        active_start = len(state.active)
+        for position in range(len(state.active)):
+            schema_step(state, &self._bounds)?
+            if state.active[position] == current:
+                return Err(TemplateError.InheritanceCycle)
+        allocated(state.active.append(current))?
+        mut visited: list[i64] = allocated(list[i64]())?
+        mut overrides: list[Override] = allocated(list[Override]())?
+        mut chain_depth = depth
+        while True:
+            if current in visited:
+                return Err(TemplateError.InheritanceCycle)
+            if chain_depth >= self._bounds.max_depth.get():
+                return Err(TemplateError.LimitExceeded)
+            allocated(visited.append(current))?
+            for token in range(len(self._templates[current].tokens)):
+                schema_step(state, &self._bounds)?
+                if self._templates[current].tokens[token].kind == 7:
+                    label = self._templates[current].tokens[token].text
+                    mut found = False
+                    for item in &overrides:
+                        schema_step(state, &self._bounds)?
+                        if item.name == label:
+                            found = True
+                            break
+                    if not found:
+                        allocated(overrides.append(Override(label, current, token)))?
+            parent = self._templates[current].parent
+            if parent == "":
+                break
+            current = self.find(&parent)?
+            # chain_depth is strictly below the configured maximum (at most64).
+            unchecked:
+                chain_depth += 1
+        self.schema_run(current, 0, len(self._templates[current].tokens), state, &overrides, chain_depth)?
+        while len(state.active) > active_start:
+            drop(state.active.pop())
+        Ok(())
+
     def find(self, name: &str) -> Result[i64, TemplateError]:
         for index in range(len(self._templates)):
             if self._templates[index].name == name:
@@ -1532,6 +1888,95 @@ pub class Engine:
                 return Err(TemplateError.Syntax(token.at))
             # A jump targets an existing closing token; otherwise index was
             # already below end. Both endpoints are below their token length.
+            unchecked:
+                index += 1
+        Ok(())
+
+    def schema_run(self, template: i64, begin: i64, end: i64, state: &mut SchemaState, overrides: &list[Override], depth: i64) -> Result[(), TemplateError]:
+        if depth > self._bounds.max_depth.get():
+            return Err(TemplateError.LimitExceeded)
+        next_depth = unchecked:
+            depth + 1
+        mut index = begin
+        while index < end:
+            next = unchecked:
+                index + 1
+            schema_step(state, &self._bounds)?
+            token = &self._templates[template].tokens[index]
+            name = self._templates[template].name
+            if token.kind == 0:
+                pass
+            elif token.kind == 1:
+                nodes = schema_expression(&token.expr, name, token.at, state, &self._bounds)?
+                for node in &nodes:
+                    schema_step(state, &self._bounds)?
+                    if state.nodes[*node].kind > 4:
+                        return Err(TemplateError.SchemaType(name, token.at))
+            elif token.kind == 2:
+                mut branch = index
+                while True:
+                    candidate = &self._templates[template].tokens[branch]
+                    drop(schema_expression(&candidate.expr, name, candidate.at, state, &self._bounds)?)
+                    stop = candidate.jump if candidate.alternate < 0 else candidate.alternate
+                    after_branch = unchecked:
+                        branch + 1
+                    self.schema_run(template, after_branch, stop, state, overrides, next_depth)?
+                    if candidate.alternate < 0:
+                        break
+                    alternate = candidate.alternate
+                    if self._templates[template].tokens[alternate].kind == 3:
+                        after_else = unchecked:
+                            alternate + 1
+                        self.schema_run(template, after_else, candidate.jump, state, overrides, next_depth)?
+                        break
+                    # Like rendering, a flat elif chain uses one depth frame.
+                    schema_step(state, &self._bounds)?
+                    branch = alternate
+                index = token.jump
+            elif token.kind == 5:
+                nodes = schema_expression(&token.expr, name, token.at, state, &self._bounds)?
+                mut items: list[i64] = allocated(list[i64]())?
+                for node in &nodes:
+                    schema_step(state, &self._bounds)?
+                    if state.nodes[*node].kind != 5:
+                        return Err(TemplateError.SchemaType(name, token.at))
+                    shape_expand(state.nodes[*node].children[0], &mut items, state, &self._bounds)?
+                stop = token.jump if token.alternate < 0 else token.alternate
+                allocated(state.bindings.append(ShapeBinding(token.text, items)))?
+                self.schema_run(template, next, stop, state, overrides, next_depth)?
+                drop(state.bindings.pop())
+                if token.alternate >= 0:
+                    after_else = unchecked:
+                        token.alternate + 1
+                    self.schema_run(template, after_else, token.jump, state, overrides, next_depth)?
+                index = token.jump
+            elif token.kind == 9:
+                state.steps = bounded_total(state.steps, len(state.root), self._bounds.max_steps.get())?
+                mut roots = allocated(copy(state.root))?
+                if token.alternate == 1:
+                    roots = schema_expression(&token.expr, name, token.at, state, &self._bounds)?
+                for root in &roots:
+                    schema_step(state, &self._bounds)?
+                    if state.nodes[*root].kind != 6:
+                        return Err(TemplateError.SchemaType(name, token.at))
+                saved_root = replace(state.root, roots)
+                saved_start = state.binding_start
+                state.binding_start = len(state.bindings)
+                self.schema_registered(&token.text, state, next_depth)?
+                state.root = saved_root
+                state.binding_start = saved_start
+            elif token.kind == 7:
+                for item in overrides:
+                    schema_step(state, &self._bounds)?
+                    if item.name == token.text:
+                        stop = self._templates[item.template].tokens[item.token].jump
+                        after_block = unchecked:
+                            item.token + 1
+                        self.schema_run(item.template, after_block, stop, state, overrides, next_depth)?
+                        break
+                index = token.jump
+            else:
+                return Err(TemplateError.Syntax(token.at))
             unchecked:
                 index += 1
         Ok(())

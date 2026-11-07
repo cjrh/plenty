@@ -370,6 +370,15 @@ branches/loops, preformatted content, mixed line endings, Unicode, inheritance,
 syntax failures and exact source/token limits. See
 [the template contract](../design/stdlib/template.md#whitespace-control).
 
+## Declared template context shapes
+
+Issue #838: [recursive Shape declarations](../design/stdlib/template-schema.md)
+check all reachable branches, loop element shapes and effective inheritance/include
+scopes without sample contexts. Checked rendering verifies actual JSON against
+required/optional fields, bounded arrays and unions, sharing the work budget with
+preflight. Optional reads and variant correlation remain deliberately conservative;
+ordinary dynamic rendering is unchanged.
+
 ## Checked HTML template rendering
 
 Issue #839 delivers `Engine.validate_html` and `render_html`: static names, exact

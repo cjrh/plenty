@@ -71,41 +71,41 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.jwt`](#stdjwt): 2398-2445
 - [`std.log`](#stdlog): 2447-2514
 - [`std.markdown`](#stdmarkdown): 2516-2550
-- [`std.template`](#stdtemplate): 2552-2577
-- [`std.math`](#stdmath): 2579-2650
-- [`std.mime`](#stdmime): 2652-2678
-- [`std.net`](#stdnet): 2680-2762
-- [`std.path`](#stdpath): 2764-2781
-- [`std.process`](#stdprocess): 2783-2841
-- [`std.random`](#stdrandom): 2843-2864
-- [`std.ready`](#stdready): 2866-2897
-- [`std.regex`](#stdregex): 2899-2952
-- [`std.report`](#stdreport): 2954-2961
-- [`std.secrets`](#stdsecrets): 2963-2989
-- [`std.shlex`](#stdshlex): 2991-3000
-- [`std.sketch`](#stdsketch): 3002-3040
-- [`std.sketch.xor`](#stdsketchxor): 3042-3053
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3055-3070
-- [`std.signal`](#stdsignal): 3072-3089
-- [`std.simd`](#stdsimd): 3091-3192
-- [`std.stat`](#stdstat): 3194-3227
-- [`std.plot`](#stdplot): 3229-3318
-- [`std.linalg`](#stdlinalg): 3320-3361
-- [`std.sync`](#stdsync): 3363-3381
-- [`std.system`](#stdsystem): 3383-3442
-- [`std.tempfile`](#stdtempfile): 3444-3476
-- [`std.test`](#stdtest): 3478-3520
-- [`std.text`](#stdtext): 3522-3565
-- [`std.thread`](#stdthread): 3567-3571
-- [`std.time`](#stdtime): 3573-3617
-- [`std.tls`](#stdtls): 3619-3701
-- [`std.toml`](#stdtoml): 3703-3752
-- [`std.unicode`](#stdunicode): 3754-3766
-- [`std.units`](#stdunits): 3768-4005
-- [`std.units.catalogue`](#stdunitscatalogue): 4007-4785
-- [`std.url`](#stdurl): 4787-4815
-- [`std.uuid`](#stduuid): 4817-4840
-- [`std.xml`](#stdxml): 4842-4875
+- [`std.template`](#stdtemplate): 2552-2589
+- [`std.math`](#stdmath): 2591-2662
+- [`std.mime`](#stdmime): 2664-2690
+- [`std.net`](#stdnet): 2692-2774
+- [`std.path`](#stdpath): 2776-2793
+- [`std.process`](#stdprocess): 2795-2853
+- [`std.random`](#stdrandom): 2855-2876
+- [`std.ready`](#stdready): 2878-2909
+- [`std.regex`](#stdregex): 2911-2964
+- [`std.report`](#stdreport): 2966-2973
+- [`std.secrets`](#stdsecrets): 2975-3001
+- [`std.shlex`](#stdshlex): 3003-3012
+- [`std.sketch`](#stdsketch): 3014-3052
+- [`std.sketch.xor`](#stdsketchxor): 3054-3065
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3067-3082
+- [`std.signal`](#stdsignal): 3084-3101
+- [`std.simd`](#stdsimd): 3103-3204
+- [`std.stat`](#stdstat): 3206-3239
+- [`std.plot`](#stdplot): 3241-3330
+- [`std.linalg`](#stdlinalg): 3332-3373
+- [`std.sync`](#stdsync): 3375-3393
+- [`std.system`](#stdsystem): 3395-3454
+- [`std.tempfile`](#stdtempfile): 3456-3488
+- [`std.test`](#stdtest): 3490-3532
+- [`std.text`](#stdtext): 3534-3577
+- [`std.thread`](#stdthread): 3579-3583
+- [`std.time`](#stdtime): 3585-3629
+- [`std.tls`](#stdtls): 3631-3713
+- [`std.toml`](#stdtoml): 3715-3764
+- [`std.unicode`](#stdunicode): 3766-3778
+- [`std.units`](#stdunits): 3780-4017
+- [`std.units.catalogue`](#stdunitscatalogue): 4019-4797
+- [`std.url`](#stdurl): 4799-4827
+- [`std.uuid`](#stduuid): 4829-4852
+- [`std.xml`](#stdxml): 4854-4887
 
 ## `std.actor`
 
@@ -2555,7 +2555,15 @@ Bounded Jinja-style text templates with explicit JSON values, HTML escaping, con
 
 ```text
 enum TemplateError
-    LimitExceeded | Syntax(i64) | UnknownTemplate(str) | DuplicateTemplate(str) | MissingValue(str) | TypeMismatch | InheritanceCycle | Allocation(AllocError) | Bytes(BytesError)
+    LimitExceeded | Syntax(i64) | UnknownTemplate(str) | DuplicateTemplate(str) | MissingValue(str) | TypeMismatch | InheritanceCycle | InvalidShape(str) | SchemaPath(str, i64, str) | SchemaOptional(str, i64, str) | SchemaType(str, i64) | ContextShape(str) | InvalidHtml(str, i64) | Allocation(AllocError) | Bytes(BytesError)
+enum Presence
+    Required | Optional
+enum Shape
+    Null | Bool | Int | Float | Text | Array(Box[Shape], NonNegative[i64]) | Object(list[Field]) | OneOf(list[Shape])
+class Field
+    name: str
+    shape: Shape
+    presence: Presence
 enum HtmlContext
     Text | DoubleQuotedAttribute | SingleQuotedAttribute | TextAndAttributes
 class Limits
@@ -2572,7 +2580,11 @@ def limits() -> Limits
 def escape(text: &str, context: HtmlContext, max_bytes: NonNegative[i64] = 16777216) -> Result[str, TemplateError]
 class Engine
     def add(self: &mut Engine, name: &str, source: &str) -> Result[(), TemplateError]
+    def validate(self, name: &str, schema: &Shape) -> Result[(), TemplateError]
+    def render_checked(self, name: &str, context: &Json, schema: &Shape, html: bool = True) -> Result[str, TemplateError]
     def render(self, name: &str, context: &Json, html: bool = True) -> Result[str, TemplateError]
+    def validate_html(self, name: &str) -> Result[(), TemplateError]
+    def render_html(self, name: &str, context: &Json) -> Result[str, TemplateError]
 def engine(bounds: &Limits) -> Result[Engine, TemplateError]
 ```
 

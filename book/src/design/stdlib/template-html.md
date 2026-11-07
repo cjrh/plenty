@@ -100,8 +100,9 @@ byte position, retaining removed whitespace and trim-marker bytes. Rendering
 returns no partial text. Validation/rendering borrow the engine and context;
 allocation, budget, value or preflight failures leave them reusable.
 
-All existing limits still apply. HTML nesting uses `max_depth`; names are capped
-at 64 ASCII bytes and each start tag at 128 attributes. Preflight traversals,
+All existing limits still apply. HTML nesting uses `max_depth`; names and static
+doctype declarations are capped at 64 ASCII bytes, and each start tag at 128
+attributes. Preflight traversals,
 filter inspection and literal source bytes consume `max_steps`. `render_html`
 shares that spent work with context indexing, execution and a second literal
 scan for emission positions. `max_output` includes final entity expansion.
