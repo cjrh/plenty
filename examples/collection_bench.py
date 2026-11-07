@@ -45,18 +45,34 @@ def workloads():
         yield "hash-pattern", n, f"words = {words}\nkeys = {keys}\nxs = {{keys[i]: i for i in range({n})}}.unwrap()\nmut total = 0\nfor key in &keys:\n    total = total + xs[key]\nprint(total).unwrap()", n * (n - 1) // 2
 
 
+def write_source(directory, name, n, body):
+    # Default arithmetic is checked: `%` may report ZeroDivisionError and `+`
+    # OverflowError[i64], so main must admit both. The workloads therefore
+    # measure the default checked operators, not `unchecked:` suites.
+    source = directory / f"{name}-{n}.plenty"
+    lines = "".join(f"    {line}\n" for line in body.splitlines())
+    source.write_text(f"def main() -> Result[(), ZeroDivisionError | OverflowError[i64]]:\n{lines}    Ok(())\n")
+    return source
+
+
 def main():
     parser = argparse.ArgumentParser(__doc__)
     parser.add_argument("--compiler", required=True, type=pathlib.Path)
     parser.add_argument("--baseline-compiler", type=pathlib.Path, help="Compare by alternating execution order each repetition")
     parser.add_argument("--output", required=True, type=pathlib.Path)
     parser.add_argument("--runs", type=int, default=5)
+    parser.add_argument("--check-only", action="store_true", help="Type-check each generated source with --check; compile and run nothing")
     args = parser.parse_args()
     if args.runs < 1:
         parser.error("--runs must be positive")
     compiler = args.compiler.resolve()
-    baseline = args.baseline_compiler.resolve() if args.baseline_compiler else None
     args.output.mkdir(parents=True, exist_ok=True)
+    if args.check_only:
+        for name, n, body, _ in workloads():
+            source = write_source(args.output, name, n, body)
+            subprocess.run([compiler, "--check", source], check=True, stdout=subprocess.DEVNULL)
+        return
+    baseline = args.baseline_compiler.resolve() if args.baseline_compiler else None
     metadata = {"compiler": str(compiler), "sha256": hashlib.sha256(compiler.read_bytes()).hexdigest(), "host": platform.platform(), "machine": platform.machine(), "options": "--compile FILE -o OUT", "runs": args.runs, "cpu_affinity": sorted(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else None, "plenty_cache": os.environ.get("PLENTY_CACHE", "default")}
     if baseline:
         metadata["baseline"] = {"compiler": str(baseline), "sha256": hashlib.sha256(baseline.read_bytes()).hexdigest()}
@@ -65,9 +81,8 @@ def main():
     print(json.dumps(metadata))
     results = []
     for name, n, body, expected in workloads():
-        source = args.output / f"{name}-{n}.plenty"
+        source = write_source(args.output, name, n, body)
         executable = source.with_suffix("")
-        source.write_text("def main() -> ():\n" + "\n".join("    " + line for line in body.splitlines()) + "\n")
         variants = [("candidate", compiler, executable)]
         if baseline:
             variants.append(("baseline", baseline, executable.with_name(executable.name + "-baseline")))

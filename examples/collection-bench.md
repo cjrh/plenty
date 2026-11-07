@@ -79,7 +79,16 @@ each checksum, and saves `results.json` with compiler SHA-256, platform, options
 input sizes, separate compilation timings, and every execution timing. Execution
 includes process startup and construction; compilation includes native linking.
 Use separate output directories and compiler binaries for before/after runs.
-There are no timing assertions in ordinary tests.
+There are no timing assertions in ordinary tests; `--check-only` type-checks
+every generated source without compiling or running it, and the integration
+suite runs that mode.
+
+Each generated `main` returns `Result[(), ZeroDivisionError |
+OverflowError[i64]]`, because default integer `+` and `%` report those errors.
+The workloads measure the default checked operators. The results recorded
+on this page predate issue #756 and came from `def main() -> ():` programs whose
+operators trapped on failure; compare new runs only with runs of the same
+generator.
 
 The baseline is local `main` at `509bda2`. Both compilers use Cargo's release
 profile, Cranelift 0.131.3, the default native compiler options (`--compile FILE

@@ -2203,3 +2203,32 @@ fn versioned_while_and_nested_loops_have_an_unchecked_copy() {
         assert_eq!(traps_per_loop(&clif), loops, "{name}\n{clif}");
     }
 }
+
+/// `examples/collection_bench.py` generates its programs, so the ordinary
+/// example checks never see them (issue #756). Type-check every workload.
+#[test]
+fn collection_benchmark_workloads_type_check() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = std::process::Command::new("python3")
+        .arg("-B")
+        .arg(root.join("examples/collection_bench.py"))
+        .arg("--compiler")
+        .arg(env!("CARGO_BIN_EXE_plenty"))
+        .arg("--output")
+        .arg(dir.path())
+        .arg("--check-only")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let generated = std::fs::read_dir(dir.path()).unwrap().count();
+    assert_eq!(
+        generated, 20,
+        "every workload should be generated and checked"
+    );
+}
