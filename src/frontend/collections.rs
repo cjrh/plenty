@@ -1312,6 +1312,7 @@ impl Lower<'_> {
         expected: Type,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        self.note_postfix_operand(e);
         let mut hint = expected.clone();
         if let Some(Ty::Enum(sum)) = &expected
             && sum.anonymous()

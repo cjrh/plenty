@@ -977,6 +977,8 @@ struct Lower<'a> {
     tail_candidates: Vec<tail_calls::Candidate>,
     closure_loans: HashMap<String, Vec<usize>>,
     captures: HashSet<String>,
+    /// Positions of `?` operands of `.` or `[`; see `note_postfix_operand`.
+    postfix_tries: HashSet<Position>,
     heap: &'a mut Heap,
     sigs: &'a mut functions::Functions,
     generics: &'a mut generics::Engine,
@@ -1435,7 +1437,7 @@ impl Lower<'_> {
         let target = self.check_propagation(e, &source, target, literal)?;
         let success = usize::from(source.is_option());
         let payload = source.get().variants[success].fields[0].clone();
-        self.redundant_copy(value, &payload);
+        self.redundant_copy(e, value, &payload);
         let mut cleanup = Vec::new();
         if !self.contexts.is_empty() {
             self.cleanup(0, &mut cleanup);
@@ -1548,6 +1550,7 @@ impl Lower<'_> {
         Ok(target)
     }
     fn expr(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
+        self.note_postfix_operand(e);
         if self.is_pipeline(e) && !self.is_dictionary_projection(e) {
             return Err(e.at.error("iterator pipelines cannot escape their creating scope; bind locally or consume with a loop or terminal"));
         }
@@ -4665,6 +4668,7 @@ fn lower_body(
                 value_origins: HashMap::default(),
                 site: Default::default(),
                 forwarded: Default::default(),
+                postfix_tries: HashSet::default(),
             };
             for ((_, ty), (_, written)) in sig.inputs.iter().zip(&f.inputs) {
                 ide::local_type(&written.at, ty);
