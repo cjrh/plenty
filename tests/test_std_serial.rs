@@ -412,3 +412,33 @@ def main() -> Result[(), IoError | AllocError | SerialError[JsonError]]:
         "True True False\nTrue True False\nTrue True False\nTrue True False",
     );
 }
+
+#[test]
+fn dump_rejects_incomplete_handwritten_output() {
+    support::assert_stdout(
+        &format!(
+            r#"{IMPORTS}
+class Broken:
+    mode: i64
+
+    def __encode__[E, S: std.serial.Encoder[E]](self, output: &mut S) -> Result[(), SerialError[E]]:
+        if self.mode == 1:
+            std.serial.wrap(output.start_array())?
+        elif self.mode == 2:
+            std.serial.wrap(output.start_object())?
+            std.serial.wrap(output.key("unfinished"))?
+        Ok(())
+
+def main() -> Result[(), IoError]:
+    for mode in range(3):
+        match std.json.dump(&Broken(mode), &std.json.limits()):
+            case Ok(_):
+                print("unexpected success")?
+            case Err(error):
+                print(error.cause.fault)?
+    Ok(())
+"#
+        ),
+        "std.json.JsonFault.InvalidState\nstd.json.JsonFault.InvalidState\nstd.json.JsonFault.InvalidState\n",
+    );
+}

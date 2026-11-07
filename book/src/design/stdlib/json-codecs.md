@@ -19,7 +19,8 @@ A custom hook must call `unknown_key` for this policy to apply.
 
 `load` feeds one complete buffer to the existing event decoder, decodes the
 requested type, and checks that the document is complete. It creates no
-intermediate `Json` tree. `dump` uses the existing validating encoder. Both
+intermediate `Json` tree. `dump` uses the existing validating encoder and rejects
+hooks that leave an empty or unfinished document. Both
 retain existing [JSON limits and faults](json.md#limits). Duplicate-key policy
 in `Limits` applies to tree parsing; typed dictionaries and field slots reject
 duplicates themselves even when it is `Keep`.
@@ -27,8 +28,10 @@ duplicates themselves even when it is `Keep`.
 For adapter composition, `codec_decoder(source, options)` returns a
 `CodecDecoder` satisfying `std.serial.Decoder[JsonError]`. Its `finish()`
 checks that the codec consumed exactly one complete document. The existing
-`Encoder` satisfies `std.serial.Encoder[JsonError]`; call `take()` after the
-codec finishes. Incremental reader-based typed loading is not implemented.
+`Encoder` satisfies `std.serial.Encoder[JsonError]`; check `is_complete()`
+after the codec succeeds and before calling `take()`. `take()` also supports
+incremental output and does not check document completeness itself. Incremental
+reader-based typed loading is not implemented.
 
 ## Direct value conversion
 

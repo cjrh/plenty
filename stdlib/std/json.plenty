@@ -1520,6 +1520,7 @@ pub def codec_decoder(source: &[u8], options: &CodecOptions) -> Result[CodecDeco
 pub def dump[T](value: &T, bounds: &Limits) -> Result[Bytes, std.serial.SerialError[JsonError]]:
     mut output = std.serial.wrap(encoder(bounds))?
     std.serial.encode[T, JsonError, Encoder](value, &mut output)?
+    std.serial.wrap(complete(&output))?
     std.serial.wrap(output.take())
 
 pub def load[T](source: &[u8], options: &CodecOptions) -> Result[T, std.serial.SerialError[JsonError]]:
