@@ -58,7 +58,8 @@ is checked first, just as for hover. No parameter-name hints are provided.
 ## Moving a declaration to another module
 
 On any line of a top-level `def`, `class`, `enum`, `protocol`, `const`, or
-`type`, including its comments, docstring, and body, the server offers one
+`type`, including its decorators, docstring, and body and the comment lines
+attached to it, the server offers one
 **Move `NAME` to module `MODULE`** action for each other module of the
 package's `src/`. Choosing one resolves the action into a workspace edit; an
 editor that previews edits shows every file before applying any. The edit is
@@ -67,37 +68,57 @@ the file changed is refused; ask for code actions again.
 
 The move:
 
-- carries the declaration's docstring and the comment lines
-  directly above it, and appends it to the destination after a blank line;
+- carries the declaration with its decorators, its docstring, and the comment
+  lines at the left margin directly above it or above its first decorator,
+  with no blank line between; a comment after a blank line, or after the
+  body, belongs to the next declaration. The declaration is appended to the
+  destination after a blank line;
 - copies the imports the moved code uses, and removes them from the source
   when nothing else there uses them;
 - imports the source module's declarations that the moved code still uses,
-  and names the destination's own declarations directly;
+  and names the destination's own declarations directly. When the module
+  that now needs a declaration already has a plain `import` of its module,
+  the name is qualified (`colors.name`) instead of adding a `from` import;
+  a new `from` import joins one of the same module already there, in order
+  when its names are sorted;
 - rewrites every caller in the package's `src/` and `tests/` files, and in
   workspace members that depend on it: `from` imports, aliases, and qualified
   names (`shapes.Point` becomes `geometry.Point`), adding or removing `import`
   lines as needed;
 - adds `pub` to the moved declaration, or to a source declaration it uses,
   when another module now needs it;
-- writes the destination's line endings, `\r\n` or `\n`.
+- writes the destination's line endings, `\r\n` or `\n`;
+- moving into the package's library (`src/lib.plenty`) writes imports of it
+  from `tests/` and other packages as the package name (`from tools import
+  Point`). Moving out of the library is refused, since code outside `src/`
+  imports its declarations by the package name.
 
 A source module left with only imports and comments stays in place, and the
 compiler then warns that no target imports it; delete it if it is no longer
 needed.
 
 Changes to a package's API are listed with the edit: a declaration made
-public, and a public library declaration whose import path changes, since
-packages outside the workspace that import it must change. When the client
+public; a public library declaration whose import path changes, since
+packages outside the workspace that import it must change; and a moved
+`class` or `enum`, whose printed name includes its module: printing a moved
+`Point` writes `geometry.Point(x=1, y=2)` instead of `shapes.Point(x=1, y=2)`,
+and a type from a dependency keeps its package prefix
+(`tools::geometry.Point(x=5)`). When the client
 supports change annotations, these edits carry an annotation that needs
 confirmation; otherwise the server shows the changes in a warning message.
 
 Before answering, the server checks the package without and then with the
 edits: each library, executable, and test file of the package and of the
 workspace members that depend on it is checked as an entry, and then each
-`src/` file no entry reached. Each entry checks the modules it imports, so
-the cost is about two checks of every entry, plus the unreached files. The check after the edits catches what the rewriting does not
+`src/` file no entry reached. Each entry checks the modules it imports,
+including `std` modules, again; after the edits, an entry that reaches no
+edited file is not checked again. The cost grows with the number of entries:
+with a test file that imports the library and `std.test`, a move took about
+0.07 s with no tests, 1 s with 10, 3.9 s with 40, and 16 s with 160, on a
+release build. The check after the edits catches what the rewriting does not
 detect itself, such as an import binding the destination already uses for
 something else.
+
 A move is refused, with nothing edited and the reason returned as a request
 error, when:
 
@@ -105,6 +126,8 @@ error, when:
   the same `src/` directory;
 - the line is not a supported declaration: `extern`, `opaque`, `dimension`, and
   `if const` blocks are refused;
+- the declaration is `main` in a target's entry file, which runs it;
+- the source is the package's library;
 - the declaration uses `include_str` or `include_bytes`, whose paths are
   relative to its file's directory, and the destination is in another
   directory;
@@ -164,8 +187,14 @@ differs.
   between checks. A program importing `std.http.server`, `std.json`, and five
   other large `std` modules checks in about 0.2 s with a release build.
 - Find references, rename, document symbols, and signature help are not
-  implemented. Moving a declaration is the only refactoring; it checks the
-  package twice, so it takes about as long as two checks of every file.
+  implemented. Moving a declaration is the only refactoring. It checks each
+  entry twice, so a package with many test files takes seconds; see
+  [moving a declaration](#moving-a-declaration-to-another-module).
+- Moving a declaration and then moving it back does not always restore the
+  text. The declaration returns to the end of its module, and stays `pub` if
+  the first move made it public; an import alias the first move removed, or
+  a qualified name it made bare, is not restored. Moving it there and back
+  again then changes nothing.
 - A message body that is not valid JSON is answered with a `-32700` parse
   error and the session continues. A header without a valid `Content-Length`
   leaves the stream unframed, so the server exits as if the input had ended.
