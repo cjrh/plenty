@@ -3430,11 +3430,7 @@ impl Lower<'_> {
                         self.names = saved;
                         result
                     });
-                    let setup = self
-                        .indexed_lists
-                        .pop()
-                        .unwrap()
-                        .finish(&mut [&mut test, &mut lowered]);
+                    let setup = self.finish_loop(&mut [&mut test, &mut lowered]);
                     result?;
                     ops.extend(setup);
                     ops.push(Op::Loop {

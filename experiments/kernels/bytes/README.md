@@ -105,8 +105,51 @@ Repeat the compile probe and each `plenty --compile` command three times with
 `PLENTY_CACHE=off`, counting `instructions:u`. These compile counts include the
 probe's warm-up, its ten measured iterations, and linker subprocesses.
 
-Remaining measured costs are local issues #842 (trapping std caller scopes),
+Remaining measured costs were local issues #842 (trapping std caller scopes),
 #843 (repeated length/bounds checks and native byte access), and #844 (unused
 high-word loads). Removing guards or scopes requires new proofs and diagnostic
 coverage; this change removes neither. No backend dependency patch is needed
 for the ABI improvement demonstrated here.
+
+## Loop-cached access (issue #843)
+
+Measured on 2026-11-07, baseline `4cfb5440`, same machine and toolchain. A
+loop that cannot resize or replace the buffer reads its length (here the
+range's stop) and first-byte address once; `get` and `set` lower to
+`BytesGetView`/`BytesSetView`. The range proves `i` in bounds, so each access
+is one byte load or store.
+
+| Build | Caller instructions per byte |
+|---|---:|
+| Scalar C, flags above | 4 |
+| Plenty before | 38 |
+| Plenty after | 7 |
+
+| Cause | Before | After | Explanation |
+|---|---:|---:|---|
+| Caller trap-site scopes (#842) | 10 | 0 | The method calls leave the hot loop; the scope around the hoisted `len()` runs once |
+| Strict index checks and repeated length queries | 12 | 0 | The range bounds `i` by the cached length, which no operation in the loop can change |
+| Unused high-word owner loads (#844) | 2 | 0 | The owner is read once, before the loop |
+| Native access, arguments, result and XOR | 10 | 3 | `movzbq` load, XOR and byte store; C folds them into one `xorb` to memory |
+| Loop control | 4 | 4 | Down-counter decrement, index increment, test and branch; C uses three |
+| Total | 38 | 7 | |
+
+An index the loop cannot prove in range, such as `range(start, stop)` with
+parameter bounds, adds one unsigned comparison and branch per access (10
+instructions per byte for a single `get` loop). A failing index calls the
+method from a cold block, so messages, std positions and caller notes are
+unchanged. Loops that may resize the buffer, through `push` or a call taking
+`&mut Bytes`, keep the method calls and their #842/#844 costs.
+
+| Workload | Before instructions | After instructions |
+|---|---:|---:|
+| Reverse-complement, quick FASTA size 2,500,000 | 4,133,999,769–4,133,999,784 | 765,707,632–765,707,639 |
+| `compile_bench 1000 10 --workload aot` | 125,050,332,769–125,070,177,029 | 125,000,957,090–125,037,322,651 |
+| Compile reverse-complement | 163,152,628–168,593,317 | 165,684,193–169,826,176 |
+| Compile `examples/fannkuch_redux.plenty` | 352,970,411–367,450,272 | 353,865,405–358,970,620 |
+
+Reverse-complement executes **81.5% fewer instructions** with identical output.
+C's quick input uses 362,036,283–362,036,296 instructions: the Plenty/C ratio
+falls from 11.42 to 2.11. Compile counts are unchanged within their spread.
+The before compile probe was built from the baseline source in a separate
+target directory. Raw repetitions are under `issue-843` in `results.json`.

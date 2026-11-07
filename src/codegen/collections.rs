@@ -410,6 +410,7 @@ impl Lowerer<'_, '_> {
             CollectionOp::QueryRef(query) => {
                 let helper = match query {
                     Query::BytesLen => runtime.bytes_len,
+                    Query::BytesRows => runtime.byte_view_rows,
                     Query::TextLen => runtime.text_len,
                     Query::TextByteLen => runtime.text_byte_len,
                     Query::TextIsAscii => runtime.text_is_ascii,
@@ -879,6 +880,9 @@ impl Lowerer<'_, '_> {
     pub(super) fn lower_collection(&mut self, operation: &CollectionOp) -> Result<()> {
         if let CollectionOp::Clist(op) = operation {
             return self.lower_clist(op);
+        }
+        if let CollectionOp::BytesGetView(_) | CollectionOp::BytesSetView(_) = operation {
+            return self.lower_bytes_view(operation);
         }
         if let CollectionOp::Regex(crate::regex::RegexOp::TextBytes) = operation {
             // Substrings already carry a byte address and byte count. Their

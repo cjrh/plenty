@@ -96,6 +96,9 @@ pub enum Query {
     TextPrevByte,
     /// `ord(text)`: the code point of a one-scalar text, or a `ParseError`.
     TextOrd,
+    /// The address of a byte buffer's first byte, which stays valid while
+    /// the buffer is neither resized nor replaced (issue #843).
+    BytesRows,
 }
 
 impl Query {
@@ -115,7 +118,7 @@ impl Query {
     /// shared reference.
     pub fn operand(self) -> Ty {
         match self {
-            Self::BytesLen => Ty::ByteStorage,
+            Self::BytesLen | Self::BytesRows => Ty::ByteStorage,
             _ => Ty::Str,
         }
     }
@@ -137,6 +140,7 @@ impl Query {
             Self::TextAt | Self::TextAtByte => Ty::Str,
             Self::TextOrd => crate::sum::result(Ty::U32, crate::sum::parse_error()),
             Self::BytesLen
+            | Self::BytesRows
             | Self::TextLen
             | Self::TextByteLen
             | Self::TextNextByte
@@ -299,6 +303,16 @@ pub enum CollectionOp {
     ListScalarSetView(Ty),
     /// Exclusive scalar row exchange: list reference, two indices -> ().
     ListScalarSwapRef(Ty),
+    /// `Bytes.get` in a loop that cannot resize or replace the buffer:
+    /// `&Bytes` of class `Ty`, index, then the length and first-byte address
+    /// the loop read before it started -> u8. An index the compiler cannot
+    /// prove in range is compared with the cached length; one outside it
+    /// calls `Bytes.get`, which traps with its own message and site
+    /// (issue #843).
+    BytesGetView(Ty),
+    /// `Bytes.set` with the loop's cached length and first-byte address:
+    /// `&mut Bytes`, index, value, length, address -> ().
+    BytesSetView(Ty),
     /// A [`Query`] of the value behind a shared reference, which the
     /// frontend keeps alive under its loan; nothing is retained or released.
     QueryRef(Query),
@@ -512,6 +526,22 @@ impl Ty {
 }
 
 impl CollectionOp {
+    /// The `Bytes` method a cached byte access stands for: what it calls for
+    /// an index outside the cached length, and what it becomes again when
+    /// the loop turns out to change the buffer.
+    pub(crate) fn bytes_view_method(&self) -> Option<String> {
+        let (Self::BytesGetView(Ty::Class(class)) | Self::BytesSetView(Ty::Class(class))) = self
+        else {
+            return None;
+        };
+        let name = if matches!(self, Self::BytesGetView(_)) {
+            "get"
+        } else {
+            "set"
+        };
+        Some(crate::record::method(&class.name, name))
+    }
+
     /// Index syntax whose caller may assert a nonnegative, in-range index.
     /// Methods, slices, strings, dictionaries and iteration keep their own contracts.
     pub(crate) fn assumable_index(&self) -> bool {
@@ -971,6 +1001,25 @@ impl CollectionOp {
                 ],
                 Ty::Unit,
             ),
+            BytesGetView(t) => (
+                vec![
+                    Ty::Ref(Arc::new(t.clone()), false),
+                    Ty::I64,
+                    Ty::I64,
+                    Ty::I64,
+                ],
+                Ty::U8,
+            ),
+            BytesSetView(t) => (
+                vec![
+                    Ty::Ref(Arc::new(t.clone()), true),
+                    Ty::I64,
+                    Ty::U8,
+                    Ty::I64,
+                    Ty::I64,
+                ],
+                Ty::Unit,
+            ),
             ListSortBy(sort) => (
                 vec![
                     Ty::Ref(Arc::new(sort.list.clone()), true),
@@ -1264,6 +1313,8 @@ impl CollectionOp {
             | Self::ListScalarGetView(_)
             | Self::ListScalarSetRef(_)
             | Self::ListScalarSetView(_)
+            | Self::BytesGetView(_)
+            | Self::BytesSetView(_)
             | Self::ElementRefView(..)
             | Self::ListScalarSwapRef(_)
             | Self::ListRowsRef(_)

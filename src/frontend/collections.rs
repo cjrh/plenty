@@ -8,7 +8,9 @@ const KEY_VIEW_COLLECTION: &str = "collection constructors do not accept borrowe
 /// Per-loop row metadata (length, row-0 address) for scalar lists already in
 /// scope, read once before the loop instead of at every `xs[i]` (issues #429,
 /// #715, #717), and likewise the row count and column addresses of clists
-/// for `rows[i].field` (issue #759). A list is a local or a field path on one
+/// for `rows[i].field` (issue #759) and the length and first-byte address of
+/// `Bytes` buffers for `data.get(i)` and `data.set(i, v)` (issue #843). A
+/// list is a local or a field path on one
 /// (`self.items`). An immutable shared reference is stable for the whole
 /// loop. Owned lists, exclusive references and retargetable bindings are
 /// cached provisionally:
@@ -102,9 +104,13 @@ impl IndexedLists {
     /// Ends the loop whose `parts` (condition, body, step) were lowered under
     /// this context; returns the setup to run before it. Rewrites the parts
     /// to ordinary indexed access for lists whose rows the loop may change.
-    pub(super) fn finish(mut self, parts: &mut [&mut Vec<Op>]) -> Vec<Op> {
+    ///
+    /// Also returns the `Bytes` methods it restored as calls, which enclosing
+    /// loops must classify like any other call.
+    pub(super) fn finish(mut self, parts: &mut [&mut Vec<Op>]) -> (Vec<Op>, Vec<String>) {
+        let mut restored = Vec::new();
         if self.provisional.is_empty() {
-            return self.setup;
+            return (self.setup, restored);
         }
         let mut scan = Scan {
             stable: true,
@@ -129,10 +135,10 @@ impl IndexedLists {
         }
         if !lengths.is_empty() {
             for ops in parts {
-                uncache(ops, &lengths);
+                uncache(ops, &lengths, &mut restored);
             }
         }
-        self.setup
+        (self.setup, restored)
     }
 }
 
@@ -192,7 +198,10 @@ impl Scan {
                     | C::ViewNew(..)
                     | C::ViewRow(..)
                     | C::ViewItem(..)
-                    | C::ViewSwap(_),
+                    | C::ViewSwap(_)
+                    // Its fallback call only traps.
+                    | C::BytesGetView(_)
+                    | C::BytesSetView(_),
                 ) => true,
                 // Field reads and writes, counts and copies of one row move
                 // no column; only appends, reserves, removals and clears do.
@@ -264,23 +273,24 @@ impl Scan {
 
 /// Rewrites the cached row accesses of the lists whose length slots are in
 /// `lengths` back to the ordinary helpers, which read the list header at
-/// each access.
-fn uncache(ops: &mut Vec<Op>, lengths: &[u8]) {
+/// each access. A cached `Bytes` access becomes its method call again, and
+/// the callee is added to `restored`.
+fn uncache(ops: &mut Vec<Op>, lengths: &[u8], restored: &mut Vec<String>) {
     use crate::collection::CollectionOp as C;
-    let nested = |ops: &Arc<[Op]>| -> Arc<[Op]> {
+    fn nested(ops: &Arc<[Op]>, lengths: &[u8], restored: &mut Vec<String>) -> Arc<[Op]> {
         let mut ops = ops.to_vec();
-        uncache(&mut ops, lengths);
+        uncache(&mut ops, lengths, restored);
         ops.into()
-    };
+    }
     let mut i = 0;
     while i < ops.len() {
-        let restored = match &ops[i..] {
+        let op = match &ops[i..] {
             [Op::LoadLocal(length), Op::LoadLocal(_), op, ..] if lengths.contains(length) => {
                 let (inner, assumed) = match op {
                     Op::Assumed(inner) => (&**inner, true),
                     op => (op, false),
                 };
-                let restored = match inner {
+                let operation = match inner {
                     Op::Collection(C::ListScalarGetView(ty)) => {
                         Some(C::ListScalarGetRef(ty.clone()))
                     }
@@ -296,9 +306,18 @@ fn uncache(ops: &mut Vec<Op>, lengths: &[u8]) {
                     Op::Collection(C::Clist(ClistOp::SetView(ty, field))) => {
                         Some(C::Clist(ClistOp::Set(ty.clone(), *field)))
                     }
+                    Op::Collection(view @ (C::BytesGetView(_) | C::BytesSetView(_))) => {
+                        let method = view.bytes_view_method().unwrap();
+                        restored.push(method.clone());
+                        // The call leaves no unit result to drop.
+                        let end = i + 3 + usize::from(matches!(view, C::BytesSetView(_)));
+                        ops.splice(i..end, [Op::Call(method)]);
+                        i += 1;
+                        continue;
+                    }
                     _ => None,
                 };
-                restored.map(|operation| {
+                operation.map(|operation| {
                     let op = Op::Collection(operation);
                     if assumed {
                         Op::Assumed(Box::new(op))
@@ -309,9 +328,10 @@ fn uncache(ops: &mut Vec<Op>, lengths: &[u8]) {
             }
             _ => None,
         };
-        if let Some(restored) = restored {
-            ops.splice(i..i + 3, [restored]);
+        if let Some(op) = op {
+            ops.splice(i..i + 3, [op]);
         } else {
+            let mut nested = |ops: &Arc<[Op]>| nested(ops, lengths, restored);
             match &mut ops[i] {
                 Op::Loop { condition, body } => {
                     *condition = nested(condition);
@@ -3206,11 +3226,7 @@ impl Lower<'_> {
         let result = self.block(statements, &mut body, &Tail::Discard);
         let mut condition = condition;
         let mut step = step;
-        let setup =
-            self.indexed_lists
-                .pop()
-                .unwrap()
-                .finish(&mut [&mut condition, &mut body, &mut step]);
+        let setup = self.finish_loop(&mut [&mut condition, &mut body, &mut step]);
         ops.extend(setup);
         self.loop_steps.pop();
         self.loop_scopes.pop();
@@ -3225,6 +3241,18 @@ impl Lower<'_> {
         ops.extend(cleanup);
         self.cleanup(start, ops);
         Ok(())
+    }
+
+    /// Ends the innermost loop's list cache; see [`IndexedLists::finish`].
+    pub(super) fn finish_loop(&mut self, parts: &mut [&mut Vec<Op>]) -> Vec<Op> {
+        let (setup, restored) = self.indexed_lists.pop().unwrap().finish(parts);
+        // A byte access is not resizing, so the call reaches nothing.
+        for callee in &restored {
+            for context in &mut self.indexed_lists {
+                context.call(callee, &[]);
+            }
+        }
+        setup
     }
 
     /// The cached (length, rows) slots for indexing the list `base` inside
@@ -3316,16 +3344,60 @@ impl Lower<'_> {
         Ok(Some(view))
     }
 
-    /// The innermost loop's cacheable place for the list or clist `base` of
-    /// type `ty`: a binding declared before the loop, or a field path on one,
+    /// The cached (length, first-byte address) slots for `base.get(i)` and
+    /// `base.set(i, value)` on a `Bytes` place `base` of type `ty` inside the
+    /// innermost loop, if it qualifies; see [`IndexedLists`]. Called before
+    /// `base` is borrowed for the call, since caching borrows it.
+    pub(super) fn indexed_bytes_view(&mut self, base: &Expr, ty: &Ty) -> Result<Option<[u8; 2]>> {
+        let Some(class) = byte_buffers::byte_buffer(ty) else {
+            return Ok(None);
+        };
+        let Some(place) = self.cached_place(base, ty) else {
+            return Ok(None);
+        };
+        let context = self.indexed_lists.last().unwrap();
+        if let Some(view) = context.views.get(&place.key) {
+            return Ok(Some(*view));
+        }
+        let view = [self.slot(Ty::I64, &base.at)?, self.slot(Ty::I64, &base.at)?];
+        let mut setup = Vec::new();
+        self.mark(&base.at, &mut setup);
+        let mut reads = vec![(Query::BytesLen, view[0]), (Query::BytesRows, view[1])];
+        if let Some(stop) = self.cached_stop(&place.key) {
+            setup.extend([Op::LoadLocal(stop), Op::StoreLocal(view[0])]);
+            reads.remove(0);
+        }
+        for (query, slot) in reads {
+            let loan = self.byte_storage_place(&class, base, false, &mut setup)?;
+            setup.extend([
+                Op::Collection(CollectionOp::QueryRef(query)),
+                Op::StoreLocal(slot),
+                Op::UseLoan(loan),
+            ]);
+        }
+        let context = self.indexed_lists.last_mut().unwrap();
+        context.views.insert(place.key.clone(), view);
+        Self::cache_setup(context, &place, view, setup);
+        Ok(Some(view))
+    }
+
+    /// The innermost loop's cacheable place for the list, clist or `Bytes`
+    /// `base` of type `ty`: a binding declared before the loop, or a field path on one,
     /// that no closure captures, outside generators.
     fn cached_place(&self, base: &Expr, ty: &Ty) -> Option<CachedPlace> {
         let (name, path) = self.list_path(base)?;
         let local = self.names.get(&name)?;
         let source = local.slot;
         let context = self.indexed_lists.last()?;
-        let kind = |other: &Ty| std::mem::discriminant(other) == std::mem::discriminant(ty);
-        if !matches!(ty, Ty::List(_) | Ty::Clist(_)) {
+        let bytes = byte_buffers::byte_buffer(ty).is_some();
+        let kind = |other: &Ty| {
+            if bytes {
+                other == ty
+            } else {
+                std::mem::discriminant(other) == std::mem::discriminant(ty)
+            }
+        };
+        if !matches!(ty, Ty::List(_) | Ty::Clist(_)) && !bytes {
             return None;
         }
         let stable = match (&local.ty, path.is_empty()) {
@@ -5316,6 +5388,19 @@ impl Lower<'_> {
     /// The list place `xs` of a builtin `len(xs)` call, keyed as
     /// [`IndexedLists`] keys its cached lists.
     fn length_place(&self, e: &Expr) -> Option<(u8, Vec<usize>)> {
+        if let Expression::Method(receiver, name, args, _) = &ungroup(e).kind {
+            // `data.len()` of a `Bytes` place is the length its cache reads.
+            if name != "len"
+                || !args.is_empty()
+                || !self
+                    .place_type(receiver)
+                    .is_some_and(|ty| byte_buffers::byte_buffer(&classes::unbox(ty)).is_some())
+            {
+                return None;
+            }
+            let (name, path) = self.list_path(receiver)?;
+            return Some((self.names.get(&name)?.slot, path));
+        }
         let Expression::Call(name, args) = &ungroup(e).kind else {
             return None;
         };

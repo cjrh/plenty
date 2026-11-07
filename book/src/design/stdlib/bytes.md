@@ -350,9 +350,15 @@ buffer, same machine, pinned to one core:
 
 | Loop | Wall time |
 |---|---|
-| `buffer.get(i)?` over `range(n)` | 0.56 s |
+| `buffer.get(i)` over `range(n)` | 0.56 s |
 | `buffer[i]` over `range(n)` | 0.43 s |
 | `for b in &buffer` | 0.15 s |
+
+These timings predate issues #741 and #843. A `get` or `set` loop that cannot
+resize or replace the buffer now reads its length and first-byte address once
+and accesses each byte directly, with one comparison for an index the loop
+does not prove in range; see the
+[collections architecture](../toolchain/02-architecture/collections.md).
 
 `fill` over 67,108,864 bytes takes about 5 ms.
 
