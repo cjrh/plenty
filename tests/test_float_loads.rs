@@ -1,8 +1,9 @@
 //! Scalar float loads from list rows, views, references and fields load as
 //! `f32`/`f64` rather than as an integer word and a bitcast, so x86-64 needs
-//! no GPR-to-XMM move and can fold the load into arithmetic (issue #812).
-//! Loads move raw bits: `EXPECTED` is the output of the compiler before the
-//! change, identical in debug and release, including NaN and zero signs.
+//! no GPR-to-XMM move (issue #812). Folding the load into arithmetic as a
+//! memory operand is issue #853. `EXPECTED` is the output of the compiler
+//! before the change, identical in debug and release. Plenty cannot observe
+//! NaN payloads, so the program checks NaN and zero signs.
 mod support;
 
 const PROGRAM: &str = r#"
@@ -16,6 +17,11 @@ class Point:
 @copy
 class Meters:
     value: f64
+
+@newtype
+@copy
+class Grams:
+    value: f32
 
 def index64(xs: &[f64], i: i64) -> f64:
     xs[i]
@@ -53,6 +59,25 @@ def wrapped(ms: &[Meters], i: i64) -> f64:
 def quantity(qs: &[Quantity[f64, Length]], i: i64) -> f64:
     qs[i].get()
 
+def wrapped32(gs: &[Grams], i: i64) -> f32:
+    gs[i].value
+
+def quantity32(qs: &[Quantity[f32, Length]], i: i64) -> f32:
+    qs[i].get()
+
+def payload(o: &Option[f64], fallback: f64) -> f64:
+    match o:
+        case Some(x):
+            *x
+        case Nothing:
+            fallback
+
+def pair_field(t: &(i8, f64, f32)) -> f64:
+    t[1]
+
+def pair_field32(t: &(i8, f64, f32)) -> f32:
+    t[2]
+
 def sign(x: f64) -> f64:
     (1.0).copysign(x)
 
@@ -77,6 +102,14 @@ def main() -> Result[(), AllocError | IoError]:
     qs = [Quantity[f64, Length](-0.0), Quantity[f64, Length](4.5)]?
     for i in range(2):
         print(wrapped(&ms, i), sign(wrapped(&ms, i)), quantity(&qs, i), sign(quantity(&qs, i)))?
+    gs = [Grams(-0.0f32), Grams(1.5f32)]?
+    rs = [Quantity[f32, Length](-0.0f32), Quantity[f32, Length](3.5f32)]?
+    for i in range(2):
+        print(wrapped32(&gs, i), sign32(wrapped32(&gs, i)), quantity32(&rs, i), sign32(quantity32(&rs, i)))?
+    o: Option[f64] = Some(-0.0)
+    print(payload(&o, 1.0), sign(payload(&o, 1.0)))?
+    t = (3i8, -0.0, -f32.NAN)
+    print(pair_field(&t), sign(pair_field(&t)), pair_field32(&t), sign32(pair_field32(&t)))?
     Ok(())
 "#;
 
@@ -100,10 +133,14 @@ inf 1.0
 -0.0 -1.0 -0.0 -1.0
 -0.0 -1.0 -0.0 -1.0
 2.5 1.0 4.5 1.0
+-0.0 -1.0 -0.0 -1.0
+1.5 1.0 3.5 1.0
+-0.0 -1.0
+-0.0 -1.0 NaN -1.0
 ";
 
 /// Functions whose body is one or more scalar float loads.
-const LOADS: [&str; 10] = [
+const LOADS: [&str; 15] = [
     "index64",
     "index32",
     "list_index",
@@ -114,6 +151,11 @@ const LOADS: [&str; 10] = [
     "field32",
     "wrapped",
     "quantity",
+    "wrapped32",
+    "quantity32",
+    "payload",
+    "pair_field",
+    "pair_field32",
 ];
 
 fn plenty(dir: &std::path::Path, args: &[&str]) -> String {
