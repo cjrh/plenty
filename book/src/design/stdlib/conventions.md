@@ -84,7 +84,10 @@ A method returning `bool` about the value's state or contents starts with
 `is_` or `has_`: `is_empty`, `is_terminal`, `is_done`, `is_cancelled`.
 `Deadline.expired(now)` is an established exception. Flags that report what an
 event was (`std.fs.watch` `created()`, `deleted()`) are read like fields and
-need no prefix.
+need no prefix. The
+[builtin `str` predicates](../facilities/01-builtins/text.md#classification)
+(`isascii`, `isspace`, `isdigit`, `isalpha`, `isalnum`) keep Python's `isX`
+spelling and are outside this rule.
 
 Existing deviations: `closed()` on `std.actor.net`, `std.actor.tls` and
 `std.fs` readers; `is_finished()` in `std.cli.progress`; `is_complete()` on
