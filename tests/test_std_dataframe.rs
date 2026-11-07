@@ -531,3 +531,41 @@ fn dataframe_fixtures_typecheck_without_optional_engine() {
             .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
     }
 }
+
+/// Every engine type is `@thread_shareable` and every call `@thread_safe`
+/// (issue #833), so worker certification needs no engine.
+#[test]
+fn dataframe_values_are_certified_for_workers_without_engine() {
+    let temp = tempfile::tempdir().unwrap();
+    let input = temp.path().join("main.plenty");
+    std::fs::write(&input, include_str!("fixtures/dataframe_workers.plenty")).unwrap();
+    plenty::check_file(&input, None).unwrap();
+}
+
+#[test]
+fn dataframe_values_move_share_and_drop_on_workers_with_real_engine() {
+    if std::env::var_os("PLENTY_DATAFRAME_TESTS").is_none() {
+        eprintln!("worker execution requires PLENTY_DATAFRAME_TESTS=1");
+        return;
+    }
+    let engine = engine_under_test();
+    let temp = tempfile::tempdir().unwrap();
+    let binary = compile(
+        temp.path(),
+        include_str!("fixtures/dataframe_workers.plenty"),
+        Some(engine.clone()),
+    )
+    .unwrap();
+    let output = assert_success(
+        Command::new(binary)
+            .current_dir(temp.path())
+            .env("LD_LIBRARY_PATH", engine.parent().unwrap())
+            .env("POLARS_MAX_THREADS", "2")
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "4\n168.0\n3\n[\"north\", \"south\", \"north\", \"south\"]\n85.0\n4\n84.0\ndataframe workers ok\n"
+    );
+}

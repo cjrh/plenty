@@ -240,6 +240,7 @@ impl Lowerer<'_, '_> {
             ThreadOp::Forget(ty) => {
                 self.pop_typed(ty.clone())?;
             }
+            ThreadOp::Rows(..) => {}
         }
         Ok(())
     }

@@ -1,0 +1,21 @@
+# Native kernels run on spawned and pool workers, concurrently.
+import std.linalg as la
+from std.linalg import LinalgError, Matrix
+
+def solve(a: Shared[Matrix]) -> Result[Matrix, LinalgError | AllocError]:
+    a.solve(&la.vector(&[4.0, 7.0]?)?)
+
+def product(a: Matrix) -> Result[f64, LinalgError | AllocError | OverflowError[i64]]:
+    a.matmul(&a)?.get(1, 1)
+
+def main() -> Result[(), LinalgError | AllocError | IoError | OverflowError[i64] | SpawnError[()] | PoolError | SubmitError[()] | FutureError]:
+    a = Shared(la.matrix(2, 2, &[0.0, 2.0, 1.0, 3.0]?)?)?
+    with spawn(solve, a.share()).drop_job()? as first, spawn(solve, a.share()).drop_job()? as second:
+        print(first.join()?.get(1, 0)? + second.join()?.get(1, 0)?)?
+    with ThreadPoolExecutor(2, 2)? as pool:
+        squared = pool.submit(product, la.identity(2)?).drop_job()?
+        solved = pool.submit(solve, a.share()).drop_job()?
+        print(squared.result()??)?
+        print(solved.result()??.get(0, 0)?)?
+    print("linalg workers ok")?
+    Ok(())

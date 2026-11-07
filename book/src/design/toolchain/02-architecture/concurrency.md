@@ -11,7 +11,11 @@ Each native primitive (`CollectionOp`) reports an effect from one exhaustive
 match in `src/effects.rs`; the certification walk rejects a worker that can
 reach a denied effect and names the call. A foreign call has no native
 contract; it is rejected unless its declaration carries the binding author's
-`@thread_safe` promise (`foreign::Declaration::thread_safe`). See
+`@thread_safe` promise (`foreign::Declaration::thread_safe`). An opaque type
+carries its declaration's contract (`foreign::Threads`) in `Ty::ForeignPtr`;
+the walk tags each pending type with how it reaches the worker (held locally,
+moved, an owning class field, or lent) and accepts a `Movable` pointer only
+locally or as such a field. See
 [native effects on worker threads](../../facilities/03-concurrency/effects.md).
 
 ## Tasks and queues

@@ -1,178 +1,373 @@
 # Optional Polars engine. All native owners are private and uniquely released.
 # Views are borrowed for one call. Native allocation failure can abort the process.
+# Threads: every call is @thread_safe, as the engine keeps no mutable global
+# state. Each @thread_shareable type is read-only through every declared call
+# and Send + Sync in plenty-dataframe. Mutation happens only on the four
+# @thread_movable builders (Send only); finishing one consumes it and yields
+# its shareable type without copying.
 import std.bytes as buffers
 from std.bytes import Bytes
 
+@thread_shareable
 opaque RawBinaryValues
+@thread_shareable
 opaque RawStrings
+@thread_shareable
 opaque RawError
+@thread_shareable
 opaque RawColumn
+@thread_shareable
 opaque RawFrame
+@thread_shareable
 opaque RawExpr
+@thread_shareable
 opaque RawExprs
+@thread_shareable
 opaque RawQuery
+@thread_shareable
 opaque RawSortKeys
+@thread_shareable
 opaque RawCsvSchema
+@thread_shareable
 opaque RawSchemaTree
+@thread_movable
+opaque RawFrameBuilder
+@thread_movable
+opaque RawExprsBuilder
+@thread_movable
+opaque RawSortKeysBuilder
+@thread_movable
+opaque RawCsvSchemaBuilder
 
+@thread_safe
 extern def nested_list_raw(name: &str as utf8, child: RawColumn, offsets: &list[i64] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_list"
+@thread_safe
 extern def nested_struct_raw(name: &str as utf8, fields: RawFrame, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_struct"
+@thread_safe
 extern def frame_column_raw(frame: RawFrame, name: &str as utf8, out: &mut RawColumn) -> RawError = "pldf_v1_frame_column"
+@thread_safe
 extern def column_frame_raw(column: RawColumn, out: &mut RawFrame) -> RawError = "pldf_v1_column_frame"
+@thread_safe
 extern def column_len_raw(column: RawColumn, out: &mut i64) -> RawError = "pldf_v1_column_len"
+@thread_safe
 extern def list_parts_raw(column: RawColumn, child: &mut RawColumn, offsets: &mut list[i64] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_list_parts"
+@thread_safe
 extern def struct_parts_raw(column: RawColumn, fields: &mut RawFrame, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_struct_parts"
+@thread_safe
 extern def schema_tree_drop(tree: RawSchemaTree) -> () = "pldf_v1_schema_tree_drop"
+@thread_safe
 extern def frame_schema_tree_raw(frame: RawFrame, out: &mut RawSchemaTree) -> RawError = "pldf_v1_frame_schema_tree"
+@thread_safe
 extern def query_schema_tree_raw(query: RawQuery, out: &mut RawSchemaTree) -> RawError = "pldf_v1_query_schema_tree"
+@thread_safe
 extern def schema_tree_len_raw(tree: RawSchemaTree, out: &mut i64) -> RawError = "pldf_v1_schema_tree_len"
+@thread_safe
 extern def schema_tree_copy_raw(tree: RawSchemaTree, parents: &mut list[i64] as strided, fields: &mut RawStrings) -> RawError = "pldf_v1_schema_tree_copy"
+@thread_safe
 extern def list_len_raw(expr: RawExpr, out: &mut RawExpr) -> RawError = "pldf_v1_list_len"
+@thread_safe
 extern def list_get_raw(expr: RawExpr, index: i64, out: &mut RawExpr) -> RawError = "pldf_v1_list_get"
+@thread_safe
 extern def struct_field_raw(expr: RawExpr, name: &str as utf8, out: &mut RawExpr) -> RawError = "pldf_v1_struct_field"
 
+@thread_safe
 extern def native_i8(name: &str as utf8, values: &list[i8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_i8"
+@thread_safe
 extern def native_i8_nullable(name: &str as utf8, values: &list[i8] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_i8_nullable"
+@thread_safe
 extern def get_i8_raw(frame: RawFrame, name: &str as utf8, row: i64, out: &mut i8, valid: &mut u8) -> RawError = "pldf_v1_get_i8"
+@thread_safe
 extern def values_i8_raw(frame: RawFrame, name: &str as utf8, values: &mut list[i8] as strided) -> RawError = "pldf_v1_values_i8"
+@thread_safe
 extern def values_i8_nullable_raw(frame: RawFrame, name: &str as utf8, values: &mut list[i8] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_values_i8_nullable"
+@thread_safe
 extern def lit_i8_raw(value: i8, out: &mut RawExpr) -> RawError = "pldf_v1_lit_i8"
+@thread_safe
 extern def native_i16(name: &str as utf8, values: &list[i16] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_i16"
+@thread_safe
 extern def native_i16_nullable(name: &str as utf8, values: &list[i16] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_i16_nullable"
+@thread_safe
 extern def get_i16_raw(frame: RawFrame, name: &str as utf8, row: i64, out: &mut i16, valid: &mut u8) -> RawError = "pldf_v1_get_i16"
+@thread_safe
 extern def values_i16_raw(frame: RawFrame, name: &str as utf8, values: &mut list[i16] as strided) -> RawError = "pldf_v1_values_i16"
+@thread_safe
 extern def values_i16_nullable_raw(frame: RawFrame, name: &str as utf8, values: &mut list[i16] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_values_i16_nullable"
+@thread_safe
 extern def lit_i16_raw(value: i16, out: &mut RawExpr) -> RawError = "pldf_v1_lit_i16"
+@thread_safe
 extern def native_i32(name: &str as utf8, values: &list[i32] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_i32"
+@thread_safe
 extern def native_i32_nullable(name: &str as utf8, values: &list[i32] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_i32_nullable"
+@thread_safe
 extern def get_i32_raw(frame: RawFrame, name: &str as utf8, row: i64, out: &mut i32, valid: &mut u8) -> RawError = "pldf_v1_get_i32"
+@thread_safe
 extern def values_i32_raw(frame: RawFrame, name: &str as utf8, values: &mut list[i32] as strided) -> RawError = "pldf_v1_values_i32"
+@thread_safe
 extern def values_i32_nullable_raw(frame: RawFrame, name: &str as utf8, values: &mut list[i32] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_values_i32_nullable"
+@thread_safe
 extern def lit_i32_raw(value: i32, out: &mut RawExpr) -> RawError = "pldf_v1_lit_i32"
+@thread_safe
 extern def native_u8(name: &str as utf8, values: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_u8"
+@thread_safe
 extern def native_u8_nullable(name: &str as utf8, values: &list[u8] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_u8_nullable"
+@thread_safe
 extern def get_u8_raw(frame: RawFrame, name: &str as utf8, row: i64, out: &mut u8, valid: &mut u8) -> RawError = "pldf_v1_get_u8"
+@thread_safe
 extern def values_u8_raw(frame: RawFrame, name: &str as utf8, values: &mut list[u8] as strided) -> RawError = "pldf_v1_values_u8"
+@thread_safe
 extern def values_u8_nullable_raw(frame: RawFrame, name: &str as utf8, values: &mut list[u8] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_values_u8_nullable"
+@thread_safe
 extern def lit_u8_raw(value: u8, out: &mut RawExpr) -> RawError = "pldf_v1_lit_u8"
+@thread_safe
 extern def native_u16(name: &str as utf8, values: &list[u16] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_u16"
+@thread_safe
 extern def native_u16_nullable(name: &str as utf8, values: &list[u16] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_u16_nullable"
+@thread_safe
 extern def get_u16_raw(frame: RawFrame, name: &str as utf8, row: i64, out: &mut u16, valid: &mut u8) -> RawError = "pldf_v1_get_u16"
+@thread_safe
 extern def values_u16_raw(frame: RawFrame, name: &str as utf8, values: &mut list[u16] as strided) -> RawError = "pldf_v1_values_u16"
+@thread_safe
 extern def values_u16_nullable_raw(frame: RawFrame, name: &str as utf8, values: &mut list[u16] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_values_u16_nullable"
+@thread_safe
 extern def lit_u16_raw(value: u16, out: &mut RawExpr) -> RawError = "pldf_v1_lit_u16"
+@thread_safe
 extern def native_u32(name: &str as utf8, values: &list[u32] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_u32"
+@thread_safe
 extern def native_u32_nullable(name: &str as utf8, values: &list[u32] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_u32_nullable"
+@thread_safe
 extern def get_u32_raw(frame: RawFrame, name: &str as utf8, row: i64, out: &mut u32, valid: &mut u8) -> RawError = "pldf_v1_get_u32"
+@thread_safe
 extern def values_u32_raw(frame: RawFrame, name: &str as utf8, values: &mut list[u32] as strided) -> RawError = "pldf_v1_values_u32"
+@thread_safe
 extern def values_u32_nullable_raw(frame: RawFrame, name: &str as utf8, values: &mut list[u32] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_values_u32_nullable"
+@thread_safe
 extern def lit_u32_raw(value: u32, out: &mut RawExpr) -> RawError = "pldf_v1_lit_u32"
+@thread_safe
 extern def native_u64(name: &str as utf8, values: &list[u64] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_u64"
+@thread_safe
 extern def native_u64_nullable(name: &str as utf8, values: &list[u64] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_u64_nullable"
+@thread_safe
 extern def get_u64_raw(frame: RawFrame, name: &str as utf8, row: i64, out: &mut u64, valid: &mut u8) -> RawError = "pldf_v1_get_u64"
+@thread_safe
 extern def values_u64_raw(frame: RawFrame, name: &str as utf8, values: &mut list[u64] as strided) -> RawError = "pldf_v1_values_u64"
+@thread_safe
 extern def values_u64_nullable_raw(frame: RawFrame, name: &str as utf8, values: &mut list[u64] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_values_u64_nullable"
+@thread_safe
 extern def lit_u64_raw(value: u64, out: &mut RawExpr) -> RawError = "pldf_v1_lit_u64"
+@thread_safe
 extern def native_f32(name: &str as utf8, values: &list[f32] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_f32"
+@thread_safe
 extern def native_f32_nullable(name: &str as utf8, values: &list[f32] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_f32_nullable"
+@thread_safe
 extern def get_f32_raw(frame: RawFrame, name: &str as utf8, row: i64, out: &mut f32, valid: &mut u8) -> RawError = "pldf_v1_get_f32"
+@thread_safe
 extern def values_f32_raw(frame: RawFrame, name: &str as utf8, values: &mut list[f32] as strided) -> RawError = "pldf_v1_values_f32"
+@thread_safe
 extern def values_f32_nullable_raw(frame: RawFrame, name: &str as utf8, values: &mut list[f32] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_values_f32_nullable"
+@thread_safe
 extern def lit_f32_raw(value: f32, out: &mut RawExpr) -> RawError = "pldf_v1_lit_f32"
 
+@thread_safe
 extern def error_drop(raw: RawError) -> () = "pldf_v1_error_drop"
+@thread_safe
 extern def binary_values_drop(raw: RawBinaryValues) -> () = "pldf_v1_binary_values_drop"
+@thread_safe
 extern def binary_values_meta(raw: RawBinaryValues, rows: &mut i64, bytes: &mut i64) -> RawError = "pldf_v1_binary_values_meta"
+@thread_safe
 extern def binary_values_copy(raw: RawBinaryValues, bytes: &mut list[u8] as strided, offsets: &mut list[i64] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_binary_values_copy"
+@thread_safe
 extern def native_binary(name: &str as utf8, bytes: &[u8] as strided, offsets: &list[i64] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_binary_column"
+@thread_safe
 extern def get_binary_raw(frame: RawFrame, name: &str as utf8, row: i64, out: &mut RawBinaryValues) -> RawError = "pldf_v1_get_binary"
+@thread_safe
 extern def values_binary_raw(frame: RawFrame, name: &str as utf8, nullable: u8, out: &mut RawBinaryValues) -> RawError = "pldf_v1_values_binary"
+@thread_safe
 extern def lit_binary_raw(bytes: &[u8] as strided, out: &mut RawExpr) -> RawError = "pldf_v1_lit_binary"
+@thread_safe
 extern def column_drop(raw: RawColumn) -> () = "pldf_v1_column_drop"
+@thread_safe
 extern def frame_drop(raw: RawFrame) -> () = "pldf_v1_frame_drop"
+@thread_safe
 extern def expr_drop(raw: RawExpr) -> () = "pldf_v1_expr_drop"
+@thread_safe
 extern def exprs_drop(raw: RawExprs) -> () = "pldf_v1_exprs_drop"
+@thread_safe
 extern def query_drop(raw: RawQuery) -> () = "pldf_v1_query_drop"
+@thread_safe
 extern def error_kind(raw: RawError) -> i32 = "pldf_v1_error_kind"
+@thread_safe
 extern def error_len(raw: RawError) -> i64 = "pldf_v1_error_len"
+@thread_safe
 extern def error_copy(raw: RawError, bytes: &mut list[u8] as strided) -> () = "pldf_v1_error_copy"
+@thread_safe
 extern def native_i64(name: &str as utf8, values: &list[i64] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_i64"
+@thread_safe
 extern def get_i64_raw(frame: RawFrame, name: &str as utf8, row: i64, out: &mut i64, valid: &mut u8) -> RawError = "pldf_v1_get_i64"
+@thread_safe
 extern def values_i64_raw(frame: RawFrame, name: &str as utf8, values: &mut list[i64] as strided) -> RawError = "pldf_v1_values_i64"
+@thread_safe
 extern def lit_i64_raw(value: i64, out: &mut RawExpr) -> RawError = "pldf_v1_lit_i64"
+@thread_safe
 extern def native_f64(name: &str as utf8, values: &list[f64] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_f64"
+@thread_safe
 extern def get_f64_raw(frame: RawFrame, name: &str as utf8, row: i64, out: &mut f64, valid: &mut u8) -> RawError = "pldf_v1_get_f64"
+@thread_safe
 extern def values_f64_raw(frame: RawFrame, name: &str as utf8, values: &mut list[f64] as strided) -> RawError = "pldf_v1_values_f64"
+@thread_safe
 extern def lit_f64_raw(value: f64, out: &mut RawExpr) -> RawError = "pldf_v1_lit_f64"
-extern def frame_new_raw(out: &mut RawFrame) -> RawError = "pldf_v1_frame_new"
-extern def frame_add_raw(frame: RawFrame, column: RawColumn) -> RawError = "pldf_v1_frame_add"
+@thread_safe
+extern def frame_builder_new(out: &mut RawFrameBuilder) -> RawError = "pldf_v1_frame_builder_new"
+@thread_safe
+extern def frame_builder_add(builder: RawFrameBuilder, column: RawColumn) -> RawError = "pldf_v1_frame_builder_add"
+@thread_safe
+extern def frame_builder_finish(builder: RawFrameBuilder) -> RawFrame = "pldf_v1_frame_builder_finish"
+@thread_safe
+extern def frame_builder_drop(builder: RawFrameBuilder) -> () = "pldf_v1_frame_builder_drop"
+@thread_safe
 extern def height_raw(frame: RawFrame, out: &mut i64) -> RawError = "pldf_v1_height"
+@thread_safe
 extern def write_raw(frame: RawFrame, path: &str as utf8) -> RawError = "pldf_v1_write"
+@thread_safe
 extern def scan_raw(path: &str as utf8, out: &mut RawQuery) -> RawError = "pldf_v1_scan"
+@thread_safe
 extern def lazy_raw(frame: RawFrame, out: &mut RawQuery) -> RawError = "pldf_v1_lazy"
+@thread_safe
 extern def col_raw(name: &str as utf8, out: &mut RawExpr) -> RawError = "pldf_v1_col"
+@thread_safe
 extern def null_f64_raw(out: &mut RawExpr) -> RawError = "pldf_v1_null_f64"
+@thread_safe
 extern def binary_raw(a: RawExpr, b: RawExpr, op: i32, out: &mut RawExpr) -> RawError = "pldf_v1_binary"
+@thread_safe
 extern def unary_raw(expr: RawExpr, op: i32, out: &mut RawExpr) -> RawError = "pldf_v1_unary"
+@thread_safe
 extern def alias_raw(expr: RawExpr, name: &str as utf8, out: &mut RawExpr) -> RawError = "pldf_v1_alias"
-extern def exprs_new_raw(out: &mut RawExprs) -> RawError = "pldf_v1_exprs_new"
-extern def exprs_add_raw(exprs: RawExprs, expr: RawExpr) -> RawError = "pldf_v1_exprs_add"
+@thread_safe
+extern def exprs_builder_new(out: &mut RawExprsBuilder) -> RawError = "pldf_v1_exprs_builder_new"
+@thread_safe
+extern def exprs_builder_add(builder: RawExprsBuilder, expr: RawExpr) -> RawError = "pldf_v1_exprs_builder_add"
+@thread_safe
+extern def exprs_builder_finish(builder: RawExprsBuilder) -> RawExprs = "pldf_v1_exprs_builder_finish"
+@thread_safe
+extern def exprs_builder_drop(builder: RawExprsBuilder) -> () = "pldf_v1_exprs_builder_drop"
+@thread_safe
 extern def filter_raw(query: RawQuery, expr: RawExpr, out: &mut RawQuery) -> RawError = "pldf_v1_filter"
+@thread_safe
 extern def with_columns_raw(query: RawQuery, exprs: RawExprs, out: &mut RawQuery) -> RawError = "pldf_v1_with_columns"
+@thread_safe
 extern def select_raw(query: RawQuery, exprs: RawExprs, out: &mut RawQuery) -> RawError = "pldf_v1_select"
+@thread_safe
 extern def group_raw(query: RawQuery, keys: RawExprs, aggregates: RawExprs, out: &mut RawQuery) -> RawError = "pldf_v1_group"
+@thread_safe
 extern def collect_raw(query: RawQuery, out: &mut RawFrame) -> RawError = "pldf_v1_collect"
+@thread_safe
 extern def join_raw(left: RawQuery, right: RawQuery, left_keys: RawExprs, right_keys: RawExprs, kind: i32, suffix: &str as utf8, nulls_equal: u8, out: &mut RawQuery) -> RawError = "pldf_v1_join"
+@thread_safe
 extern def join_asof_raw(left: RawQuery, right: RawQuery, left_on: &str as utf8, right_on: &str as utf8, strategy: i32, has_tolerance: u8, tolerance: i64, allow_exact_matches: u8, suffix: &str as utf8, out: &mut RawQuery) -> RawError = "pldf_v1_join_asof"
-extern def sort_keys_new(out: &mut RawSortKeys) -> RawError = "pldf_v1_sort_keys_new"
-extern def sort_keys_add(keys: RawSortKeys, expr: RawExpr, descending: u8, nulls_last: u8) -> RawError = "pldf_v1_sort_keys_add"
+@thread_safe
+extern def sort_keys_builder_new(out: &mut RawSortKeysBuilder) -> RawError = "pldf_v1_sort_keys_builder_new"
+@thread_safe
+extern def sort_keys_builder_add(builder: RawSortKeysBuilder, expr: RawExpr, descending: u8, nulls_last: u8) -> RawError = "pldf_v1_sort_keys_builder_add"
+@thread_safe
+extern def sort_keys_builder_finish(builder: RawSortKeysBuilder) -> RawSortKeys = "pldf_v1_sort_keys_builder_finish"
+@thread_safe
+extern def sort_keys_builder_drop(builder: RawSortKeysBuilder) -> () = "pldf_v1_sort_keys_builder_drop"
+@thread_safe
 extern def sort_keys_drop(keys: RawSortKeys) -> () = "pldf_v1_sort_keys_drop"
+@thread_safe
 extern def sort_raw(query: RawQuery, keys: RawSortKeys, out: &mut RawQuery) -> RawError = "pldf_v1_sort"
+@thread_safe
 extern def slice_raw(query: RawQuery, offset: i64, length: i64, out: &mut RawQuery) -> RawError = "pldf_v1_slice"
+@thread_safe
 extern def lit_str_raw(value: &str as utf8, out: &mut RawExpr) -> RawError = "pldf_v1_lit_str"
+@thread_safe
 extern def lit_bool_raw(value: u8, out: &mut RawExpr) -> RawError = "pldf_v1_lit_bool"
+@thread_safe
 extern def when_raw(predicate: RawExpr, then_value: RawExpr, otherwise: RawExpr, out: &mut RawExpr) -> RawError = "pldf_v1_when"
+@thread_safe
 extern def cast_raw(expr: RawExpr, dtype: i32, strict: u8, out: &mut RawExpr) -> RawError = "pldf_v1_cast"
+@thread_safe
 extern def string_unary_raw(expr: RawExpr, op: i32, out: &mut RawExpr) -> RawError = "pldf_v1_string_unary"
+@thread_safe
 extern def string_binary_raw(expr: RawExpr, pattern: RawExpr, op: i32, out: &mut RawExpr) -> RawError = "pldf_v1_string_binary"
+@thread_safe
 extern def n_unique_raw(expr: RawExpr, out: &mut RawExpr) -> RawError = "pldf_v1_n_unique"
+@thread_safe
 extern def over_raw(expr: RawExpr, partition_by: RawExprs, out: &mut RawExpr) -> RawError = "pldf_v1_over"
-extern def csv_schema_new(out: &mut RawCsvSchema) -> RawError = "pldf_v1_csv_schema_new"
-extern def csv_schema_add(schema: RawCsvSchema, name: &str as utf8, dtype: i32) -> RawError = "pldf_v1_csv_schema_add"
+@thread_safe
+extern def csv_schema_builder_new(out: &mut RawCsvSchemaBuilder) -> RawError = "pldf_v1_csv_schema_builder_new"
+@thread_safe
+extern def csv_schema_builder_add(builder: RawCsvSchemaBuilder, name: &str as utf8, dtype: i32) -> RawError = "pldf_v1_csv_schema_builder_add"
+@thread_safe
+extern def csv_schema_builder_finish(builder: RawCsvSchemaBuilder) -> RawCsvSchema = "pldf_v1_csv_schema_builder_finish"
+@thread_safe
+extern def csv_schema_builder_drop(builder: RawCsvSchemaBuilder) -> () = "pldf_v1_csv_schema_builder_drop"
+@thread_safe
 extern def csv_schema_drop(schema: RawCsvSchema) -> () = "pldf_v1_csv_schema_drop"
+@thread_safe
 extern def scan_csv_raw(path: &str as utf8, has_header: u8, separator: &str as utf8, infer_rows: i64, null_value: &str as utf8, has_null: u8, schema: RawCsvSchema, out: &mut RawQuery) -> RawError = "pldf_v1_scan_csv"
+@thread_safe
 extern def write_csv_raw(frame: RawFrame, path: &str as utf8, has_header: u8, separator: &str as utf8, null_value: &str as utf8) -> RawError = "pldf_v1_write_csv"
+@thread_safe
 extern def collect_streaming_raw(query: RawQuery, out: &mut RawFrame) -> RawError = "pldf_v1_collect_streaming"
+@thread_safe
 extern def sink_parquet_raw(query: RawQuery, path: &str as utf8) -> RawError = "pldf_v1_sink_parquet"
 
+@thread_safe
 extern def strings_drop(raw: RawStrings) -> () = "pldf_v1_strings_drop"
+@thread_safe
 extern def strings_meta(raw: RawStrings, rows: &mut i64, bytes: &mut i64) -> RawError = "pldf_v1_strings_meta"
+@thread_safe
 extern def strings_copy(raw: RawStrings, bytes: &mut list[u8] as strided, offsets: &mut list[i64] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_strings_copy"
+@thread_safe
 extern def get_str_raw(frame: RawFrame, name: &str as utf8, row: i64, out: &mut RawStrings) -> RawError = "pldf_v1_get_str"
+@thread_safe
 extern def values_str_raw(frame: RawFrame, name: &str as utf8, nullable: u8, out: &mut RawStrings) -> RawError = "pldf_v1_values_str"
+@thread_safe
 extern def frame_schema_raw(frame: RawFrame, out: &mut RawStrings) -> RawError = "pldf_v1_frame_schema"
+@thread_safe
 extern def query_schema_raw(query: RawQuery, out: &mut RawStrings) -> RawError = "pldf_v1_query_schema"
+@thread_safe
 extern def native_str(name: &str as utf8, packed: &str as utf8, offsets: &list[i64] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_str"
+@thread_safe
 extern def native_str_nullable(name: &str as utf8, packed: &str as utf8, offsets: &list[i64] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_str_nullable"
+@thread_safe
 extern def native_bool(name: &str as utf8, values: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_bool"
+@thread_safe
 extern def get_bool_raw(frame: RawFrame, name: &str as utf8, row: i64, out: &mut u8, valid: &mut u8) -> RawError = "pldf_v1_get_bool"
+@thread_safe
 extern def values_bool_raw(frame: RawFrame, name: &str as utf8, values: &mut list[u8] as strided) -> RawError = "pldf_v1_values_bool"
+@thread_safe
 extern def native_i64_nullable(name: &str as utf8, values: &list[i64] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_i64_nullable"
+@thread_safe
 extern def values_i64_nullable_raw(frame: RawFrame, name: &str as utf8, values: &mut list[i64] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_values_i64_nullable"
+@thread_safe
 extern def native_f64_nullable(name: &str as utf8, values: &list[f64] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_f64_nullable"
+@thread_safe
 extern def values_f64_nullable_raw(frame: RawFrame, name: &str as utf8, values: &mut list[f64] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_values_f64_nullable"
+@thread_safe
 extern def native_bool_nullable(name: &str as utf8, values: &list[u8] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_bool_nullable"
+@thread_safe
 extern def values_bool_nullable_raw(frame: RawFrame, name: &str as utf8, values: &mut list[u8] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_values_bool_nullable"
 
+@thread_safe
 extern def date_raw(name: &str as utf8, days: &list[i32] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_date"
+@thread_safe
 extern def datetime_raw(name: &str as utf8, ticks: &list[i64] as strided, valid: &list[u8] as strided, unit: i32, utc: u8, out: &mut RawColumn) -> RawError = "pldf_v1_datetime"
+@thread_safe
 extern def get_date_raw(frame: RawFrame, name: &str as utf8, row: i64, out: &mut i32, valid: &mut u8) -> RawError = "pldf_v1_get_date"
+@thread_safe
 extern def get_datetime_raw(frame: RawFrame, name: &str as utf8, row: i64, unit: i32, utc: u8, out: &mut i64, valid: &mut u8) -> RawError = "pldf_v1_get_datetime"
+@thread_safe
 extern def values_date_raw(frame: RawFrame, name: &str as utf8, nullable: u8, out: &mut list[i32] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_values_date"
+@thread_safe
 extern def values_datetime_raw(frame: RawFrame, name: &str as utf8, unit: i32, utc: u8, nullable: u8, out: &mut list[i64] as strided, valid: &mut list[u8] as strided) -> RawError = "pldf_v1_values_datetime"
+@thread_safe
 extern def str_to_date_raw(expr: RawExpr, format: &str as utf8, strict: u8, out: &mut RawExpr) -> RawError = "pldf_v1_str_to_date"
+@thread_safe
 extern def str_to_datetime_raw(expr: RawExpr, format: &str as utf8, unit: i32, utc: u8, strict: u8, out: &mut RawExpr) -> RawError = "pldf_v1_str_to_datetime"
+@thread_safe
 extern def dt_component_raw(expr: RawExpr, kind: i32, out: &mut RawExpr) -> RawError = "pldf_v1_dt_component"
+@thread_safe
 extern def dt_format_raw(expr: RawExpr, format: &str as utf8, out: &mut RawExpr) -> RawError = "pldf_v1_dt_format"
 
 pub enum TimeUnit:
@@ -280,6 +475,19 @@ class CsvSchema:
         self.raw = RawCsvSchema.null()
     def __del__(self) -> ():
         csv_schema_drop(self.raw)
+
+class CsvSchemaBuilder:
+    raw: RawCsvSchemaBuilder
+    def __init__(self) -> ():
+        self.raw = RawCsvSchemaBuilder.null()
+    def __del__(self) -> ():
+        csv_schema_builder_drop(self.raw)
+    # Ownership of the pointee moves to the result, so the builder releases nothing.
+    def finish(self: &mut CsvSchemaBuilder) -> CsvSchema:
+        mut out = CsvSchema()
+        out.raw = csv_schema_builder_finish(self.raw)
+        self.raw = RawCsvSchemaBuilder.null()
+        out
 
 pub enum JoinKind:
     Inner
@@ -993,6 +1201,45 @@ class SortKeys:
     def __del__(self) -> ():
         sort_keys_drop(self.raw)
 
+class ExprsBuilder:
+    raw: RawExprsBuilder
+    def __init__(self) -> ():
+        self.raw = RawExprsBuilder.null()
+    def __del__(self) -> ():
+        exprs_builder_drop(self.raw)
+    # Ownership of the pointee moves to the result, so the builder releases nothing.
+    def finish(self: &mut ExprsBuilder) -> Exprs:
+        mut out = Exprs()
+        out.raw = exprs_builder_finish(self.raw)
+        self.raw = RawExprsBuilder.null()
+        out
+
+class SortKeysBuilder:
+    raw: RawSortKeysBuilder
+    def __init__(self) -> ():
+        self.raw = RawSortKeysBuilder.null()
+    def __del__(self) -> ():
+        sort_keys_builder_drop(self.raw)
+    # Ownership of the pointee moves to the result, so the builder releases nothing.
+    def finish(self: &mut SortKeysBuilder) -> SortKeys:
+        mut out = SortKeys()
+        out.raw = sort_keys_builder_finish(self.raw)
+        self.raw = RawSortKeysBuilder.null()
+        out
+
+class FrameBuilder:
+    raw: RawFrameBuilder
+    def __init__(self) -> ():
+        self.raw = RawFrameBuilder.null()
+    def __del__(self) -> ():
+        frame_builder_drop(self.raw)
+    # Ownership of the pointee moves to the result, so the builder releases nothing.
+    def finish(self: &mut FrameBuilder) -> DataFrame:
+        mut out = DataFrame()
+        out.raw = frame_builder_finish(self.raw)
+        self.raw = RawFrameBuilder.null()
+        out
+
 pub class Query:
     raw: RawQuery
     pub def schema_tree(self) -> Result[list[SchemaNode], DataFrameError]:
@@ -1066,10 +1313,11 @@ pub class Query:
         checked(join_asof_raw(self.raw, other.raw, left_on, right_on, kind, 1u8 if tolerance.is_some() else 0u8, tolerance.unwrap_or(0), 1u8 if allow_exact_matches else 0u8, suffix, &mut out.raw))?
         Ok(out)
     pub def sort(self, keys: &list[SortKey]) -> Result[Query, DataFrameError]:
-        mut native_keys = SortKeys()
-        checked(sort_keys_new(&mut native_keys.raw))?
+        mut builder = SortKeysBuilder()
+        checked(sort_keys_builder_new(&mut builder.raw))?
         for key in keys:
-            checked(sort_keys_add(native_keys.raw, key.expr.raw, 1u8 if key.descending else 0u8, 1u8 if key.nulls_last else 0u8))?
+            checked(sort_keys_builder_add(builder.raw, key.expr.raw, 1u8 if key.descending else 0u8, 1u8 if key.nulls_last else 0u8))?
+        native_keys = builder.finish()
         mut out = Query()
         checked(sort_raw(self.raw, native_keys.raw, &mut out.raw))?
         Ok(out)
@@ -1081,11 +1329,11 @@ pub class Query:
         self.slice(0, count)
 
 def expression_list(expressions: &list[Expr]) -> Result[Exprs, DataFrameError]:
-    mut out = Exprs()
-    checked(exprs_new_raw(&mut out.raw))?
+    mut builder = ExprsBuilder()
+    checked(exprs_builder_new(&mut builder.raw))?
     for expr in expressions:
-        checked(exprs_add_raw(out.raw, expr.raw))?
-    Ok(out)
+        checked(exprs_builder_add(builder.raw, expr.raw))?
+    Ok(builder.finish())
 
 pub def column_list(name: &str, values: &Column, offsets: &list[i64]) -> Result[Column, DataFrameError]:
     # List lengths are nonnegative; an empty offsets list yields -1 (no flags).
@@ -1112,11 +1360,11 @@ pub def column_struct_nullable(name: &str, fields: &DataFrame, valid: &list[bool
     Ok(out)
 
 pub def frame(columns: &list[Column]) -> Result[DataFrame, DataFrameError]:
-    mut out = DataFrame()
-    checked(frame_new_raw(&mut out.raw))?
+    mut builder = FrameBuilder()
+    checked(frame_builder_new(&mut builder.raw))?
     for column in columns:
-        checked(frame_add_raw(out.raw, column.raw))?
-    Ok(out)
+        checked(frame_builder_add(builder.raw, column.raw))?
+    Ok(builder.finish())
 
 pub def column_i8(name: &str, values: &list[i8]) -> Result[Column, DataFrameError]:
     mut out = Column()
@@ -1336,14 +1584,15 @@ pub def scan_parquet(path: &str) -> Result[Query, DataFrameError]:
     Ok(out)
 
 pub def scan_csv(path: &str, has_header: bool = True, separator: &str = ",", infer_rows: i64 = 100, null_value: Option[str] = Nothing, schema_overrides: Option[list[Field]] = Nothing) -> Result[Query, DataFrameError]:
-    mut schema = CsvSchema()
-    checked(csv_schema_new(&mut schema.raw))?
+    mut builder = CsvSchemaBuilder()
+    checked(csv_schema_builder_new(&mut builder.raw))?
     match schema_overrides:
         case Some(fields):
             for field in &fields:
-                checked(csv_schema_add(schema.raw, field.name, scalar_dtype(field.dtype)?))?
+                checked(csv_schema_builder_add(builder.raw, field.name, scalar_dtype(field.dtype)?))?
         case Nothing:
             pass
+    schema = builder.finish()
     mut out = Query()
     checked(scan_csv_raw(path, 1u8 if has_header else 0u8, separator, infer_rows, null_value.unwrap_or(""), 1u8 if null_value.is_some() else 0u8, schema.raw, &mut out.raw))?
     Ok(out)

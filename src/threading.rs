@@ -1,4 +1,5 @@
 //! Closed-world worker eligibility and the compiler-owned scoped task contract.
+use crate::foreign::Threads;
 use crate::hash::{HashMap, HashSet};
 use crate::op::{CompiledFn, Op, Ty};
 use std::sync::Arc;
@@ -53,6 +54,11 @@ pub enum ThreadOp {
     /// std.actor: pop an owned value without releasing it; its actor heap is
     /// discarded as a whole.
     Forget(Ty),
+    /// A parallel pipeline's chunk jobs take items of this type from the
+    /// caller's list in place, or borrow them when `true`. The chunks cross
+    /// as integers, so this marker is the items' root for `check`; it emits
+    /// no code.
+    Rows(Ty, bool),
 }
 
 impl Task {
@@ -81,12 +87,20 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
         if let Op::Thread(ThreadOp::Start(task, _, _)) = op {
             let mut types = task.inputs.clone();
             types.push(task.output.clone());
-            roots.push(("worker", vec![task.worker.clone()], types));
+            roots.push(("worker", vec![task.worker.clone()], moved(types)));
+        }
+        if let Op::Thread(ThreadOp::Rows(item, borrowed)) = op {
+            let reach = if *borrowed { Reach::Lent } else { Reach::Moved };
+            roots.push((
+                "parallel pipeline items",
+                vec![],
+                vec![(item.clone(), reach)],
+            ));
         }
         if let Op::Channel(operation) = op {
             let (mut types, output) = operation.signature();
             types.push(output);
-            roots.push(("channel message", vec![], types));
+            roots.push(("channel message", vec![], moved(types)));
         }
         if let Op::Executor(operation) = op
             && let Some(job) = operation.job()
@@ -94,10 +108,18 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
             roots.push((
                 "executor worker",
                 vec![job.worker.clone()],
-                std::iter::once(job.input.clone())
-                    .chain(std::iter::once(job.output.clone()))
-                    .chain(job.shared.iter().map(|t| Ty::Closure(t.clone())))
-                    .collect(),
+                [
+                    (job.input.clone(), Reach::Moved),
+                    (job.output.clone(), Reach::Moved),
+                ]
+                .into_iter()
+                // Every worker of the map calls one environment at once.
+                .chain(
+                    job.shared
+                        .iter()
+                        .map(|t| (Ty::Closure(t.clone()), Reach::Lent)),
+                )
+                .collect(),
             ));
         }
     });
@@ -125,9 +147,10 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
         let root = queue.first().cloned().unwrap_or_default();
         loop {
             let queued = queue.len();
-            while let Some(ty) = types.pop() {
+            while let Some((ty, reach)) = types.pop() {
                 check_type(
                     &ty,
+                    reach,
                     &mut seen_types,
                     &mut checked_receivers,
                     &mut types,
@@ -165,7 +188,10 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
                 .get(name.as_str())
                 .ok_or_else(|| format!("{origin}: unavailable function `{name}`"))?;
             let queued = queue.len();
-            inspect(function, &mut types, &mut queue).map_err(|reason| {
+            let mut local = Vec::new();
+            let inspected = inspect(function, &mut local, &mut queue);
+            types.extend(local.into_iter().map(|ty| (ty, Reach::Local)));
+            inspected.map_err(|reason| {
                 format!(
                     "{origin} reaches {}{}: {reason}",
                     describe(&name, &functions),
@@ -262,14 +288,45 @@ fn path(
     format!(" through {}", names.join(" -> "))
 }
 
+/// How a value of a pending type reaches worker code. Only `Shareable`
+/// opaque values may be copied, borrowed or `Shared` across threads; a
+/// `Movable` one crosses only as a field of an owning class moved there,
+/// which `copy(x)` must reject.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Reach {
+    /// Held by worker code itself: an inspected signature or local. Any value
+    /// it received crossed through a root and was checked there.
+    Local,
+    /// Moved to the worker, or into a channel.
+    Moved,
+    /// A field of a moved class value that cannot be copied.
+    Field,
+    /// Copied, borrowed or shared, so another thread may still use it.
+    Lent,
+}
+
+fn moved(types: Vec<Ty>) -> Vec<(Ty, Reach)> {
+    types.into_iter().map(|ty| (ty, Reach::Moved)).collect()
+}
+
 fn check_type(
     ty: &Ty,
+    reach: Reach,
     seen: &mut HashSet<String>,
     checked_receivers: &mut HashSet<String>,
-    types: &mut Vec<Ty>,
+    types: &mut Vec<(Ty, Reach)>,
     functions: &mut Vec<String>,
     targets: &CallableTargets,
 ) -> Result<(), String> {
+    // Containers move their contents with them; borrows lend them.
+    let within = match reach {
+        Reach::Field => Reach::Moved,
+        reach => reach,
+    };
+    let lent = match reach {
+        Reach::Local => Reach::Local,
+        _ => Reach::Lent,
+    };
     match ty {
         Ty::Executor | Ty::Future(_) => {
             return Err("executor and future handles cannot enter worker threads; wait and submit on the owning thread".into())
@@ -279,19 +336,25 @@ fn check_type(
         {
             return Err(format!("recursive channel ownership through {ty} could retain its own receiver; keep receiving handles outside queued message cycles"));
         }
-        // Native handles are affine owners whose mutating operations need an
-        // exclusive loan, so a worker can own or borrow one like any value.
-        // Their operations are certified per call in `inspect`.
-        Ty::ForeignPtr(_) => {
-            return Err(format!("{ty} has no cross-thread ownership contract"))
-        }
+        // The declaration's thread contract is the only fact about the C
+        // resource; its operations are certified per call in `inspect`.
+        Ty::ForeignPtr(_, threads) => match (threads, reach) {
+            (Threads::None, _) => {
+                return Err(format!("{ty} has no thread contract; worker code may hold an opaque value only if its .plentyi declaration is `@thread_movable` or `@thread_shareable`"))
+            }
+            (Threads::Movable, Reach::Moved | Reach::Lent) => {
+                return Err(format!("{ty} is `@thread_movable`, not `@thread_shareable`: it may cross threads only as a field of a moved class value that `copy(x)` rejects, such as an owner with `__del__`; not copied, borrowed or `Shared`"))
+            }
+            _ => {}
+        },
         Ty::Callable(signature) if seen.insert(format!("callable:{}", ty.identity_name())) => {
             let Some(names) = targets.by_signature.get(&ty.identity_name()) else {
                 return Err(format!("indirect callable effects are not certified for worker threads: no statically known targets for {ty}"));
             };
             functions.extend(names.iter().cloned());
-            types.extend(signature.inputs.iter().cloned());
-            types.extend(signature.output.iter().cloned());
+            // Arguments and results exist on the calling thread.
+            types.extend(signature.inputs.iter().map(|t| (t.clone(), Reach::Local)));
+            types.extend(signature.output.iter().map(|t| (t.clone(), Reach::Local)));
         }
         Ty::BoxedProtocol(_) => return Err("boxed protocol payloads and effects are not certified for worker threads".into()),
         Ty::BoxedCallable(_) => {
@@ -302,31 +365,48 @@ fn check_type(
         }
         Ty::Ref(t, _)
         | Ty::View(t, _)
-        | Ty::Clist(t)
-        | Ty::List(t)
-        | Ty::Set(t)
-        | Ty::Range(t)
-        | Ty::Channel(t, _)
-        | Ty::Box(t)
         // The last owner can drop on any holder's thread, so the content's
         // destructors are certified as if every holder could run them.
-        | Ty::Shared(t) => types.push((**t).clone()),
-        Ty::Dict(k, v) => types.extend([(**k).clone(), (**v).clone()]),
-        Ty::Class(t) if seen.insert(format!("class:{}", t.name)) => {
-            let t = t.get();
-            types.extend(t.fields.iter().map(|(_, t)| t.clone()));
+        | Ty::Shared(t)
+        // Local-only projections and iterator tokens cannot reach a worker
+        // today; walked as borrows in case one ever does.
+        | Ty::KeyView(t)
+        | Ty::DictView(t, _)
+        | Ty::Iter(t, _) => types.push(((**t).clone(), lent)),
+        // Messages move through the queue whichever handle reached it.
+        Ty::Channel(t, _) => types.push((
+            (**t).clone(),
+            if reach == Reach::Local { Reach::Local } else { Reach::Moved },
+        )),
+        Ty::Clist(t) | Ty::List(t) | Ty::Set(t) | Ty::Range(t) | Ty::Box(t) | Ty::Atomic(t) => {
+            types.push(((**t).clone(), within))
+        }
+        Ty::Dict(k, v) => types.extend([((**k).clone(), within), ((**v).clone(), within)]),
+        Ty::Class(c) if seen.insert(format!("class:{}:{reach:?}", c.name)) => {
+            let t = c.get();
+            let fields = match reach {
+                Reach::Local => Reach::Local,
+                // A lock makes its holder the value's only accessor.
+                _ if crate::mutex::class(ty).is_some() => Reach::Moved,
+                Reach::Lent => Reach::Lent,
+                // A copy leaves the original fields behind. `copy(x)` accepts
+                // any class without a destructor, not only `@copy` ones.
+                _ if t.copy || ty.copy_facts().copyable => Reach::Lent,
+                Reach::Moved | Reach::Field => Reach::Field,
+            };
+            types.extend(t.fields.iter().map(|(_, t)| (t.clone(), fields)));
             functions.extend(t.destructor.iter().cloned());
         }
-        Ty::Enum(t) if seen.insert(format!("enum:{}", t.name)) => {
+        Ty::Enum(t) if seen.insert(format!("enum:{}:{reach:?}", t.name)) => {
             types.extend(
                 t.get()
                     .variants
                     .iter()
-                    .flat_map(|v| v.fields.iter().cloned()),
+                    .flat_map(|v| v.fields.iter().map(|t| (t.clone(), within))),
             );
         }
-        Ty::Closure(t) if seen.insert(format!("closure:{}", t.name)) => {
-            types.extend(t.captures.iter().map(|(_, t)| t.clone()));
+        Ty::Closure(t) if seen.insert(format!("closure:{}:{reach:?}", t.name)) => {
+            types.extend(t.captures.iter().map(|(_, t)| (t.clone(), within)));
             functions.push(t.name.clone());
         }
         // Task values are lexical tokens; their bodies are independently checked.

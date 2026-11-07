@@ -19,6 +19,25 @@ pub enum Target {
     Parameter(usize),
 }
 
+/// The binding author's promise about values of an opaque type, written as
+/// an annotation on its `opaque` declaration. Opaque values copy, so a copy
+/// that leaves the thread is a share: only `Shareable` values may cross by
+/// copy, borrow or `Shared`. A `Movable` value crosses only as a field of a
+/// moved class value that `copy(x)` rejects, whose author promises the field
+/// holds the only copy. See
+/// book/src/design/facilities/04-interop/trusted-declarations.md#opaque-types-on-worker-threads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Threads {
+    /// No promise: worker code may not hold the value.
+    None,
+    /// `@thread_movable`: the pointee may be used and released on any one
+    /// thread at a time, like Rust's `Send`.
+    Movable,
+    /// `@thread_shareable`: the pointee may also be used by several threads
+    /// at once, like Rust's `Send + Sync`.
+    Shareable,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Declaration {
     pub target: Target,

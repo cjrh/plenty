@@ -165,5 +165,8 @@ cargo test --locked --test integration test_tutorial::dataframe_examples_with_op
 Regular tutorial checks type-check dataframe examples without the engine.
 The separate dataframe CI job builds it and executes those examples and
 the real-engine integration tests. These tests cover bulk transfer, query
-plans, nulls, errors and Parquet, as well as absence of the dynamic dependency
-from programs that do not use it.
+plans, nulls, errors, Parquet and worker threads, as well as absence of the dynamic dependency
+from programs that do not use it. The engine crate's own tests run with
+`python3 -B scripts/build_native_engine.py dataframe --out target/release --validate`.
+[How std.dataframe wraps its engine](../facilities/04-interop/dataframe-binding.md)
+describes the thread contract each engine type and call must keep.

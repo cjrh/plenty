@@ -373,6 +373,7 @@
             - [Trusted declarations and ABI types](design/facilities/04-interop/trusted-declarations.md)
             - [Borrowed arguments and text adapters](design/facilities/04-interop/borrowing-text.md)
             - [Owning foreign resources](design/facilities/04-interop/foreign-owners.md)
+            - [How std.dataframe wraps its engine](design/facilities/04-interop/dataframe-binding.md)
             - [Exports and generated C contracts](design/facilities/04-interop/exports.md)
             - [Owned library objects](design/facilities/04-interop/owned-exports.md)
             - [Embedded contracts and compatibility](design/facilities/04-interop/contracts.md)
