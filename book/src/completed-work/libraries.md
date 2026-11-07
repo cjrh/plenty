@@ -462,6 +462,16 @@ ill-formed subpart with U+FFFD, as Unicode and WHATWG specify. Strict
 `to_text` stays the default. The result is at most three bytes per input byte,
 and allocation failure is `AllocError`. See [lossy text](../design/stdlib/bytes.md#lossy-text).
 
+## Nonblocking mutex lock (issue #791, part 1)
+
+`with mutex.lock_now()? as value:` takes a `Mutex[T]` only if it is free and
+otherwise propagates `std.sync.LockError.WouldBlock`. It is an inline
+compare-exchange with no allocation or waiting. It may nest under a lock on a
+place that might alias it, such as `cells[i]` then `cells[j]`. Relocking a held
+place is still rejected, and the wait checks treat the lock as held. See
+[locking without waiting](../design/facilities/03-concurrency/mutex.md#locking-without-waiting).
+Condition waiting remains in B56.
+
 ## Memory-mapping package experiment (issue #480)
 
 The unpublished `memmap` package prototype lives in

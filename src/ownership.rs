@@ -1664,7 +1664,7 @@ impl Checker<'_, '_> {
         self.state_waits.set(self.state_waits.get() + 1);
         let mut guards = Vec::new();
         crate::threading::walk(self.body, &mut |op| {
-            if let Op::Mutex(MutexOp::Lock(slot)) = op {
+            if let Op::Mutex(MutexOp::Lock(slot) | MutexOp::LockNow(slot)) = op {
                 guards.push(*slot as usize);
             }
         });
@@ -2028,6 +2028,9 @@ impl Checker<'_, '_> {
                     cleanup,
                 } => {
                     let mut failed = state.clone();
+                    if let Some(slot) = attempted_lock(&ops[..index]) {
+                        failed[slot as usize] = Slot::Unset;
+                    }
                     let residual = (source.is_result() && !target.discards_error())
                         .then(|| (source.get().variants[1].fields[0].clone(), site));
                     let outer = self.propagating.replace(residual);
@@ -2805,5 +2808,19 @@ fn unrecorded_borrows(ops: &[Op], unrecorded: &mut [bool; 256]) {
             _ => {}
         }
         previous = Some(op);
+    }
+}
+
+/// The guard of a `lock_now()?` whose `Try` follows `before`: the frontend
+/// emits `LockNow(guard)` and the branch building its `Result` immediately
+/// before the `Try`. On the failing path that guard holds no lock.
+fn attempted_lock(before: &[Op]) -> Option<u8> {
+    let mut ops = before
+        .iter()
+        .rev()
+        .filter(|op| !matches!(op, Op::Site(_) | Op::CallerSite(_)));
+    match (ops.next(), ops.next()) {
+        (Some(Op::Match(_)), Some(Op::Mutex(MutexOp::LockNow(slot)))) => Some(*slot),
+        _ => None,
     }
 }

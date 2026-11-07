@@ -1,6 +1,7 @@
-//! `std.sync.Mutex` surface: `with mutex.lock() as value:` and `into_inner`.
-//! A lock is a `with` manager only, so its unlock is ordinary context cleanup
-//! on every exit and the guarded reference never outlives the block.
+//! `std.sync.Mutex` surface: `with mutex.lock() as value:`,
+//! `with mutex.lock_now()? as value:`, and `into_inner`. A lock is a `with`
+//! manager only, so its unlock is ordinary context cleanup on every exit and
+//! the guarded reference never outlives the block.
 use super::*;
 use crate::mutex::{MutexOp, STATE, VALUE};
 use crate::nominal::Nominal;
@@ -10,11 +11,49 @@ use contexts::{Context, Kind};
 pub(super) const FORMAT: &str =
     "mutexes cannot be formatted; format a value read inside `with mutex.lock() as value:`";
 const LOCK_FORM: &str = "lock() is valid only as a `with` manager: `with mutex.lock() as value:`";
+const LOCK_NOW_FORM: &str =
+    "lock_now() is valid only as a propagated `with` manager: `with mutex.lock_now()? as value:`";
+const LOCK_ERROR: &str = "std.sync.LockError";
 
-/// `base.lock(args)`, before its receiver is known to be a mutex.
-pub(super) fn lock_expression(manager: &Expr) -> Option<(&Expr, &[Expr])> {
+/// How a lock manager acquires its mutex.
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum Acquire {
+    /// `lock()` waits for the lock.
+    Wait,
+    /// `lock_now()?` fails with `LockError.WouldBlock` instead of waiting.
+    Now,
+}
+
+impl Acquire {
+    pub(super) fn method(self) -> &'static str {
+        match self {
+            Self::Wait => "lock",
+            Self::Now => "lock_now",
+        }
+    }
+}
+
+/// The arguments and acquisition of a lock manager.
+#[derive(Clone, Copy)]
+pub(super) struct LockCall<'a> {
+    pub(super) args: &'a [Expr],
+    pub(super) acquire: Acquire,
+}
+
+/// `base.lock(args)` or `base.lock_now(args)?`, before its receiver is known
+/// to be a mutex.
+pub(super) fn lock_expression(manager: &Expr) -> Option<(&Expr, LockCall<'_>)> {
+    let call = |args, acquire| LockCall { args, acquire };
     match &ungroup(manager).kind {
-        Expression::Method(base, name, args, _) if name == "lock" => Some((base, args)),
+        Expression::Method(base, name, args, _) if name == "lock" => {
+            Some((base, call(args, Acquire::Wait)))
+        }
+        Expression::Try(inner) => match &ungroup(inner).kind {
+            Expression::Method(base, name, args, _) if name == "lock_now" => {
+                Some((base, call(args, Acquire::Now)))
+            }
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -53,7 +92,7 @@ pub(super) fn holds_mutex(ty: &Ty) -> bool {
 
 fn other_method(name: &str, at: &Token) -> Box<dyn Error> {
     at.error(format!(
-        "Mutex has no method `{name}`; it supports `with mutex.lock() as value:` and into_inner()"
+        "Mutex has no method `{name}`; it supports `with mutex.lock() as value:`, `with mutex.lock_now()? as value:`, and into_inner()"
     ))
 }
 
@@ -86,7 +125,7 @@ impl Lower<'_> {
         &mut self,
         manager: &Expr,
         base: &Expr,
-        args: &[Expr],
+        LockCall { args, acquire }: LockCall<'_>,
         name: Option<&str>,
         body: &[Stmt],
         ops: &mut Vec<Op>,
@@ -99,8 +138,9 @@ impl Lower<'_> {
         else {
             unreachable!("caller checked the receiver type")
         };
+        let method = acquire.method();
         if !args.is_empty() {
-            return Err(manager.at.error("lock takes no arguments"));
+            return Err(manager.at.error(format!("{method} takes no arguments")));
         }
         if generators::yields(body) {
             return Err(manager.at.error(
@@ -108,8 +148,9 @@ impl Lower<'_> {
             ));
         }
         let place = place_key(self, base).ok_or_else(|| {
-            base.at
-                .error("lock() requires a named mutex or a field of one")
+            base.at.error(format!(
+                "{method}() requires a named mutex or a field of one"
+            ))
         })?;
         let element = crate::mutex::element(&class);
         let aliasable = self.aliasable(base);
@@ -118,14 +159,20 @@ impl Lower<'_> {
                 continue;
             };
             if *held == place && !place.contains("[?]") {
+                let outcome = match acquire {
+                    Acquire::Wait => "this lock would wait for itself forever",
+                    Acquire::Now => "this lock_now() always fails",
+                };
                 return Err(manager.at.error(format!(
-                    "`{place}` is already locked by an enclosing `with` block, so this lock would wait for itself forever; use the existing binding, or release the lock before relocking"
+                    "`{place}` is already locked by an enclosing `with` block, so {outcome}; use the existing binding, or release the lock before relocking"
                 )));
             }
             // References, shared handles, and computed indices can name one
             // mutex through different places; there, mutexes are told apart
-            // only by type. Distinct owned places are distinct mutexes.
-            if *guarded == element && (aliasable || *other) {
+            // only by type. Distinct owned places are distinct mutexes. A
+            // `lock_now()` cannot wait, so it may name the held mutex: it
+            // then fails with `WouldBlock`.
+            if acquire == Acquire::Wait && *guarded == element && (aliasable || *other) {
                 return Err(manager.at.error(format!(
                     "this locks `{place}` while an enclosing `with` block holds a lock on `{held}`; both are a `Mutex[{element}]`, and a reference, shared handle, or computed index can make them one mutex, so this lock could wait for itself forever; lock them one at a time, or wrap one value in a distinct class"
                 )));
@@ -141,7 +188,10 @@ impl Lower<'_> {
         let guard = self.slot(reference, &manager.at)?;
         ops.push(Op::StoreLocal(guard));
         ops.extend(state_word(&class, guard));
-        ops.extend([Op::Mutex(MutexOp::Lock(guard)), Op::Drop]);
+        match acquire {
+            Acquire::Wait => ops.extend([Op::Mutex(MutexOp::Lock(guard)), Op::Drop]),
+            Acquire::Now => self.lock_now(manager, guard, ops)?,
+        }
         // The value's exclusive loan is rooted at the guard, not the mutex,
         // which this block and the workers keep borrowed shared.
         let value_loan = self.new_loan(guard, true, None, ops);
@@ -192,6 +242,50 @@ impl Lower<'_> {
         Ok(result)
     }
 
+    /// Attempt the lock whose state word is on the stack, and propagate
+    /// `LockError.WouldBlock` with `?` when another holder has it. The block's
+    /// context is not pushed yet, so a failure unwinds only enclosing ones.
+    /// Ownership recognises this `LockNow`, branch, `Try` sequence to know
+    /// that the guard holds no lock on the failing path.
+    fn lock_now(&mut self, manager: &Expr, guard: u8, ops: &mut Vec<Op>) -> Result<()> {
+        use crate::sum::EnumOp;
+        let target = self.propagation_target(manager)?;
+        let Some(Some(Ty::Enum(error))) = lookup_type(LOCK_ERROR, self.aliases) else {
+            unreachable!("std.sync declares LockError beside Mutex")
+        };
+        let would_block = error
+            .get()
+            .variants
+            .iter()
+            .position(|variant| variant.name == "WouldBlock")
+            .expect("LockError has WouldBlock");
+        let Ty::Enum(source) = crate::sum::result(Ty::Unit, Ty::Enum(error.clone())) else {
+            unreachable!("a Result is an enum")
+        };
+        let target = self.check_propagation(manager, &source, target, None)?;
+        ops.push(Op::Mutex(MutexOp::LockNow(guard)));
+        ops.push(branch(
+            vec![Op::PushUnit, Op::Enum(EnumOp::New(source.clone(), 0))],
+            vec![
+                Op::Enum(EnumOp::New(error, would_block)),
+                Op::Enum(EnumOp::New(source.clone(), 1)),
+            ],
+        ));
+        let mut cleanup = Vec::new();
+        if !self.contexts.is_empty() {
+            self.cleanup(0, &mut cleanup);
+        }
+        ops.extend([
+            Op::Try {
+                source: Box::new(source),
+                target: Box::new(target),
+                cleanup: cleanup.into(),
+            },
+            Op::Drop,
+        ]);
+        Ok(())
+    }
+
     /// A method on a mutex place.
     pub(super) fn mutex_method(
         &mut self,
@@ -210,6 +304,7 @@ impl Lower<'_> {
         };
         match name {
             "lock" => Err(base.at.error(LOCK_FORM)),
+            "lock_now" => Err(base.at.error(LOCK_NOW_FORM)),
             "into_inner" => {
                 if !args.is_empty() {
                     return Err(base.at.error("into_inner takes no arguments"));
@@ -241,6 +336,7 @@ impl Lower<'_> {
     ) -> Result<Type> {
         match name {
             "lock" => Err(base.at.error(LOCK_FORM)),
+            "lock_now" => Err(base.at.error(LOCK_NOW_FORM)),
             "into_inner" if args.is_empty() && loans.is_empty() => Ok(Some(into_inner(class, ops))),
             "into_inner" if !args.is_empty() => Err(base.at.error("into_inner takes no arguments")),
             "into_inner" => Err(base

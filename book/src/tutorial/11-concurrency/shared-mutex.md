@@ -99,7 +99,38 @@ def main() -> Result[(), SpawnError[()] | IoError | OverflowError[i64]]:
 Nesting a lock inside the block of another mutex of the same type is also
 rejected when either one is reached through a reference or a computed index:
 two references can name one mutex. Two separately owned mutexes, such as two
-local names, may nest. The compiler cannot see a relock inside a called
+local names, may nest. When two indices may name one mutex, take the inner lock
+with `lock_now()?`. It never waits: it fails with `LockError.WouldBlock` when
+the mutex is held, including by the outer block, and leaving through `?`
+unlocks the outer lock too:
+
+```plenty
+from std.sync import Mutex, LockError
+
+def transfer(accounts: &list[Mutex[i64]], source: i64, target: i64) -> Result[(), LockError | OverflowError[i64]]:
+    with accounts[source].lock() as paid, accounts[target].lock_now()? as received:
+        *paid = *paid - 5
+        *received = *received + 5
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    accounts = [Mutex(20), Mutex(20)]?
+    print(transfer(&accounts, 0, 1).is_ok())?
+    print(transfer(&accounts, 1, 1).is_ok())?
+    with accounts[1].lock() as balance:
+        print(*balance)?
+    Ok(())
+```
+```output
+True
+False
+25
+```
+
+Another thread holding the inner mutex also gives `WouldBlock`, so a caller
+can retry later or skip the work.
+
+The compiler cannot see a relock inside a called
 function, a join inside a function called while the lock is held, or two
 threads taking two locks in opposite orders. Keep lock blocks short and take
 nested locks in one fixed order. See
