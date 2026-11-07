@@ -128,7 +128,7 @@ Create two Plenty packages in the current directory.
 
 # Strings that mean the agent looked past its intended context.
 LEAK_PATTERNS = [str(REPO), "plenty-worktrees", "book/src", "/.claude/", "issues.db"]
-SOURCE_SUFFIXES = {".plenty", ".toml", ".lock", ".txt"}
+SOURCE_SUFFIXES = {".plenty", ".p", ".plentyi", ".pi", ".toml", ".lock", ".txt"}
 
 
 def outside_repository(path):
@@ -220,8 +220,8 @@ def tool_calls(transcript):
 
 
 # A compiler invocation, as opposed to a command that only mentions a path.
-COMPILER = re.compile(r"(?:^|[\s;&|(])plenty\s+(?:--check|--compile|check|run|test|build|new|add|init|\S+\.plenty)")
-DIAGNOSTIC = re.compile(r"^error: (?:\S*/)?(\S+\.plenty:\d+:\d+: .*)$", re.MULTILINE)
+COMPILER = re.compile(r"(?:^|[\s;&|(])plenty\s+(?:--check|--compile|check|run|test|build|new|add|init|\S+\.(?:plentyi?|pi?)(?=\s|$|[;&|)\"']))")
+DIAGNOSTIC = re.compile(r"^error: (?:\S*/)?(\S+\.(?:plentyi?|pi?):\d+:\d+: .*)$", re.MULTILINE)
 
 
 def compiler_calls(calls):

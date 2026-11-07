@@ -48,7 +48,7 @@ commands.
 
 A target's check covers the files its import graph reaches: its entry, the
 package modules it imports, and the dependency libraries those import.
-`plenty check` checks every target, then reports each `.plenty` file below the
+`plenty check` checks every target, then reports each `.plenty` or `.p` file below the
 package's `src/` that no target reached. Such a file was not parsed or
 type-checked, so it may contain errors:
 
@@ -61,13 +61,16 @@ warning: src/util/orphan.plenty is not imported by any target of `tools`; it was
 The warning does not change the exit status. The summary names the targets
 checked and counts the files below `src/` that they reached. Test files are
 not targets: `plenty test` checks `tests/` when it compiles them, and
-`plenty check` ignores that directory. Every `.plenty` file below `src/` is
+`plenty check` ignores that directory. Every `.plenty` or `.p` file below `src/` is
 package source, which [build reuse](#build-reuse) also fingerprints; keep
 fixtures, generated samples and other intentionally unbuilt `.plenty` files in
 another directory, such as `tests/fixtures/` or `fixtures/`. Files without the
-`.plenty` extension are never reported.
+`.plenty` or `.p` extension are never reported.
 
 ## Tests
+
+Test discovery also accepts `.p` files in `tests/`; two spellings with the same
+stem are rejected rather than producing duplicate test names.
 
 Each file directly in `tests/` is a test file; files in subdirectories are
 helper modules. A test file defines either `main` or `test_` functions, not
@@ -232,9 +235,11 @@ a subset of TOML 1.0: basic and literal strings, decimal integers, booleans,
 arrays, tables, inline tables, and arrays of tables. Dotted keys, dates, floats,
 and multi-line strings are errors.
 
-Targets default to `src/lib.plenty` (the library) and `src/main.plenty` (an
-executable named after the package) when those files exist. `[lib]` and
-`[[bin]]` replace the defaults; their paths are `.plenty` files below `src/`. A
+Targets default to `src/lib.plenty` or `src/lib.p` (the library) and
+`src/main.plenty` or `src/main.p` (an executable named after the package) when
+those files exist. Both spellings of an inferred target are ambiguous; remove
+one or declare its path explicitly. `[lib]` and `[[bin]]` replace the defaults;
+their paths are `.plenty` or `.p` files below `src/`. A
 package needs at least one target. A library entry may define `main`; it is an
 ordinary function there.
 
@@ -258,7 +263,7 @@ names both packages. This holds below `src/` too: a `plenty.toml` in a directory
 there that no graph package uses blocks includes from that directory, although
 imports from it still work. Another package's source root belongs to that
 package, even below the includer's package directory; a package and its `tests/`
-package share their files. `plenty check` reports unreached `.plenty` files only
+package share their files. `plenty check` reports unreached `.plenty`/`.p` files only
 below `src/`, so another directory can hold `.plenty` text that a program
 embeds. The [program cache](../02-architecture/cache.md#program-objects) and
 [build reuse](#build-reuse) record each included file's contents and check again

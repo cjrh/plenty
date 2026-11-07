@@ -205,7 +205,7 @@ fn jobs(fences: &[Fence]) -> Vec<Job<'_>> {
                         .all(|c| matches!(c, std::path::Component::Normal(_)))
                     && path
                         .extension()
-                        .is_some_and(|e| e == "plenty" || e == "plentyi")
+                        .is_some_and(|e| e == "plenty" || e == "p" || e == "plentyi" || e == "pi")
                     && path != std::path::Path::new("lesson.plenty"),
                 "invalid module path at {}",
                 source.line

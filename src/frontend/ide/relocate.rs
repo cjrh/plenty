@@ -670,7 +670,7 @@ fn source_files(directory: &Path, files: &mut Vec<PathBuf>) {
         let path = entry.path();
         if path.is_dir() {
             source_files(&path, files);
-        } else if path.extension().is_some_and(|e| e == "plenty")
+        } else if crate::source_path::is_source(&path)
             && let Ok(path) = path.canonicalize()
         {
             files.push(path);
@@ -728,8 +728,7 @@ impl<'a> Planner<'a> {
             .join("src")
             .canonicalize()
             .map_err(|e| e.to_string())?;
-        if !destination_path.starts_with(&src)
-            || destination_path.extension().is_none_or(|e| e != "plenty")
+        if !destination_path.starts_with(&src) || !crate::source_path::is_source(&destination_path)
         {
             return Err("the destination must be a module of the same package's src/".into());
         }
@@ -810,7 +809,7 @@ impl<'a> Planner<'a> {
         };
         let file = |module: &str| {
             let base = src.join(module.replace('.', "/"));
-            ["plenty", "plentyi"]
+            crate::source_path::EXTENSIONS
                 .iter()
                 .find_map(|e| base.with_extension(e).canonicalize().ok())
         };

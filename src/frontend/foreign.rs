@@ -1,4 +1,4 @@
-//! Trusted declarations live only in explicit .plentyi interface modules.
+//! Trusted declarations live only in explicit .plentyi or .pi interface modules.
 use super::*;
 
 pub(super) fn loader_symbol(name: &str) -> bool {

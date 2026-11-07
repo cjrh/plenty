@@ -1,5 +1,10 @@
 # Compiler commands
 
+Source paths accept `.plenty` or `.p`; interface paths accept `.plentyi` or
+`.pi`. Generated library companions keep the `.plentyi` spelling by default;
+`--runtime-interface` can explicitly write either interface extension.
+
+
 These commands compile single files. `plentyc` accepts exactly these commands;
 `plenty` accepts them too, alongside the [project commands](packages.md).
 

@@ -27,6 +27,20 @@ default behavior; explicit prepare/package phases support the CI split.
 Release baselines and custom-runtime-flag cache safeguards are preserved.
 Hosted cold/warm savings remain to be measured.
 
+## Short file extensions (issue #851)
+
+Source files accept `.p` as an alias for `.plenty`, and trusted interfaces
+accept `.pi` as an alias for `.plentyi`. Module lookup, package targets and
+tests, declaration moves, runtime-interface output, and Neovim detection
+recognize the aliases. Multiple spellings of one imported module are rejected
+with the conflicting paths; a source and interface with the same stem remain
+ambiguous. Inferred package targets and test modules reject duplicate spellings
+as well. Existing extensions and generated companion names remain supported.
+
+Package initialization refuses an existing short default source before writing
+a scaffold. Agent skill trials preserve all source/interface spellings in saved
+artifacts and recognize their compiler invocations and diagnostics.
+
 ## Source roots are real directories (issue #840)
 
 A package's `src/`, and the `tests/` of a package under test, can no longer be

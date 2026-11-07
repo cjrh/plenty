@@ -5,6 +5,10 @@ description: Write, fix, and explain programs in the Plenty programming language
 
 # Writing Plenty programs
 
+Source files accept `.plenty` or `.p`; trusted interfaces accept `.plentyi` or
+`.pi`. Different modules may mix spellings, but multiple spellings of the same
+imported module are ambiguous. Package default targets and tests accept `.p`.
+
 Plenty is statically typed, with Python-shaped syntax, single ownership with
 checked borrows, no exceptions, and no hidden allocation. It compiles ahead of
 time to native code. Code that looks like correct Python is usually wrong

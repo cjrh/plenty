@@ -31,7 +31,7 @@ import subprocess
 import sys
 
 REPO = Path(__file__).resolve().parent.parent
-TEXT_SUFFIXES = {".md", ".plenty", ".plentyi", ".rs", ".toml", ".vim", ".lua"}
+TEXT_SUFFIXES = {".md", ".plenty", ".p", ".plentyi", ".pi", ".rs", ".toml", ".vim", ".lua"}
 # Proposals and experiments record history and rejected designs; old syntax
 # there is expected. Checked only with --include-history.
 HISTORY = ("book/src/proposals/", "experiments/")

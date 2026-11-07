@@ -21,7 +21,7 @@ transitive imports are unsupported. Directories are namespaces, without
 
 A directory is a namespace only when some module path through it names a
 file: it, or a subdirectory reached through components that are identifiers,
-holds a `.plenty` or `.plentyi` file whose stem is an identifier. A symbolic
+holds a `.plenty`, `.p`, `.plentyi`, or `.pi` file whose stem is an identifier. A symbolic
 link counts only when its target is inside the source root, as for imports;
 links leaving the root are not followed. A directory that cannot be read
 keeps the conflict, and the diagnostic names it. The check walks a directory
@@ -39,7 +39,11 @@ DIR` selects another root. In a [package](../../toolchain/01-building/packages.m
 the root is `src/`, and the first component of an import may instead be a
 declared dependency alias, which names that dependency's library; an alias may
 not match a local top-level module. `a.b` resolves to `<root>/a/b.plenty` or the trusted
-interface `<root>/a/b.plentyi`. Having both is ambiguous. Imported canonical
+interface `<root>/a/b.plentyi`. The aliases `.p` and `.pi` work in the same
+positions. More than one of these four files is ambiguous, including a source
+and an interface with the same stem: interfaces do not accompany source files
+under the same module name. Different modules can freely mix long and short
+spellings. Imported canonical
 filenames and directories must have identifier components and cannot escape
 the root. A module file beside a same-named namespace directory and import
 cycles are errors; a cycle diagnostic names the actual dependency chain.

@@ -1377,3 +1377,105 @@ fn local_shadowing_and_identical_builtin_imports_are_allowed() {
         }
     }
 }
+
+#[test]
+fn short_extensions_preserve_module_identity_and_interface_trust() {
+    let untrusted = workspace(&[(
+        "main.p",
+        "extern def call() -> () = \"call\"\ndef main() -> ():\n    pass\n",
+    )]);
+    assert!(
+        plenty::check_file(&untrusted.path().join("main.p"), None)
+            .unwrap_err()
+            .to_string()
+            .contains("trusted .plentyi or .pi")
+    );
+    for entry in ["main.plenty", "main.p"] {
+        for source in ["helper.plenty", "helper.p"] {
+            for interface in ["native.plentyi", "native.pi"] {
+                let dir = workspace(&[
+                    (
+                        entry,
+                        "import helper\nimport native\ndef main() -> ():\n    pass\n",
+                    ),
+                    (source, "pub def value() -> i64:\n    42\n"),
+                    (interface, "extern def abs(value: i32) -> i32 = \"abs\"\n"),
+                ]);
+                plenty::check_file(&dir.path().join(entry), None).unwrap();
+            }
+        }
+    }
+}
+
+#[test]
+fn every_extension_collision_is_ambiguous_and_names_both_files() {
+    let extensions = ["plenty", "p", "plentyi", "pi"];
+    for (i, first) in extensions.iter().enumerate() {
+        for second in &extensions[i + 1..] {
+            let a = format!("helper.{first}");
+            let b = format!("helper.{second}");
+            let dir = workspace(&[
+                ("main.p", "import helper\ndef main() -> ():\n    pass\n"),
+                (&a, "pub def value() -> i64:\n    1\n"),
+                (&b, "pub def value() -> i64:\n    2\n"),
+            ]);
+            let error = plenty::check_file(&dir.path().join("main.p"), None)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("ambiguous module"), "{error}");
+            assert!(error.contains(&a) && error.contains(&b), "{error}");
+        }
+    }
+}
+
+#[test]
+fn short_extensions_keep_namespace_and_standard_library_boundaries() {
+    for name in ["std.p", "std.pi"] {
+        let dir = workspace(&[("main.p", "def main() -> ():\n    pass\n"), (name, "")]);
+        assert!(
+            plenty::check_file(&dir.path().join("main.p"), None)
+                .unwrap_err()
+                .to_string()
+                .contains("reserved")
+        );
+    }
+    for name in ["helper.p", "helper.pi"] {
+        let dir = workspace(&[
+            (
+                "main.p",
+                "import helper.child\ndef main() -> ():\n    pass\n",
+            ),
+            (name, ""),
+            ("helper/child.p", ""),
+        ]);
+        assert!(
+            plenty::check_file(&dir.path().join("main.p"), None)
+                .unwrap_err()
+                .to_string()
+                .contains("ambiguous module")
+        );
+    }
+}
+
+#[test]
+fn short_files_distinguish_asset_directories_from_module_namespaces() {
+    for extension in ["plenty", "p", "plentyi", "pi"] {
+        let dir = workspace(&[
+            ("main.p", "import helper\ndef main() -> ():\n    pass\n"),
+            ("helper.p", "pub def value() -> i64:\n    1\n"),
+            ("helper/readme.txt", "assets only"),
+        ]);
+        let entry = dir.path().join("main.p");
+        plenty::check_file(&entry, None).unwrap();
+        let nested = dir.path().join(format!("helper/child.{extension}"));
+        std::fs::write(&nested, "").unwrap();
+        let error = plenty::check_file(&entry, None).unwrap_err().to_string();
+        assert!(error.contains("ambiguous module `helper`"), "{error}");
+        std::fs::remove_file(nested).unwrap();
+        let standard = dir.path().join("std");
+        std::fs::create_dir(&standard).unwrap();
+        std::fs::write(standard.join(format!("child.{extension}")), "").unwrap();
+        let error = plenty::check_file(&entry, None).unwrap_err().to_string();
+        assert!(error.contains("`std` is reserved"), "{error}");
+    }
+}

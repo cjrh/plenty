@@ -1315,7 +1315,7 @@ fn title(package: &Package) -> String {
 
 /// Check every target of the selected packages, printing each package's lint
 /// warnings once on stderr after its targets pass. A target's check covers the
-/// files its import graph reaches, so afterwards each `.plenty` file below the
+/// files its import graph reaches, so afterwards each `.plenty` or `.p` file below the
 /// package's `src/` that no target reached is reported as unchecked.
 pub fn check(directory: &Path, options: &BuildOptions) -> Result<()> {
     let project = open(directory, options)?;
@@ -1392,7 +1392,7 @@ fn describe_targets(manifest: &Manifest) -> String {
     }
 }
 
-/// The canonical paths of the `.plenty` files below `directory`.
+/// The canonical paths of the `.plenty`/`.p` files below `directory`.
 fn source_files(directory: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
     if !directory.is_dir() {
         return Ok(());
@@ -1401,7 +1401,7 @@ fn source_files(directory: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
         let path = entry?.path();
         if path.is_dir() {
             source_files(&path, files)?;
-        } else if path.is_file() && path.extension().is_some_and(|e| e == "plenty") {
+        } else if path.is_file() && crate::source_path::is_source(&path) {
             files.push(path.canonicalize()?);
         }
     }
@@ -1714,12 +1714,23 @@ fn discover_tests(
     if tests_directory.is_dir() {
         for entry in std::fs::read_dir(&tests_directory)? {
             let path = entry?.path();
-            if path.is_file() && path.extension().is_some_and(|e| e == "plenty") {
+            if path.is_file() && crate::source_path::is_source(&path) {
                 paths.push(path);
             }
         }
     }
     paths.sort();
+    let mut stems = BTreeMap::new();
+    for path in &paths {
+        if let Some(previous) = stems.insert(path.file_stem().unwrap(), path) {
+            return Err(format!(
+                "ambiguous test module: {} and {}",
+                previous.display(),
+                path.display()
+            )
+            .into());
+        }
+    }
     for path in paths {
         let kind = crate::frontend::discover_tests(&path)?;
         let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
@@ -2180,8 +2191,11 @@ pub fn init(directory: &Path, name: Option<&str>, template: Template) -> Result<
         ),
     };
     let source_path = directory.join(file);
-    if source_path.exists() {
-        return Err(format!("{} already exists", source_path.display()).into());
+    for extension in ["plenty", "p"] {
+        let existing = source_path.with_extension(extension);
+        if existing.exists() {
+            return Err(format!("{} already exists", existing.display()).into());
+        }
     }
     std::fs::create_dir_all(directory.join("src"))?;
     std::fs::write(&source_path, source)?;
