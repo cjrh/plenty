@@ -741,7 +741,7 @@ pub class Exchange[T]:
         match taken:
             case Some(conn):
                 mut owned = conn
-                head = std.http.response(100, "Continue")?
+                head = std.http.response(100, reason(100))?
                 std.http.write_response(&mut owned.inner, &head)?
                 flushed(owned.inner.flush())?
                 self._body = Some(std.http.body_reader(owned, &self._framing, &self._limits)?)
