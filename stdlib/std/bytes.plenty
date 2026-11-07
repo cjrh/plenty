@@ -210,6 +210,19 @@ pub class Bytes:
             __trap("Bytes.to_text_range: start..stop is outside 0..=len()")
         text_in(&self[start:stop])
 
+    # Each maximal subpart of an ill-formed sequence becomes U+FFFD, as in
+    # Unicode chapter 3 ("U+FFFD Substitution of Maximal Subparts") and the
+    # WHATWG Encoding Standard's UTF-8 decoder. The result holds at most three
+    # bytes per input byte.
+    pub def to_text_lossy(self) -> Result[str, AllocError]:
+        lossy_in(&self[:])
+
+    # A sequence that `stop` cuts short is a truncated, replaced subpart.
+    pub def to_text_lossy_range(self, start: i64, stop: i64) -> Result[str, AllocError]:
+        if not within(start, stop, __bytes_len(self._owner)):
+            __trap("Bytes.to_text_lossy_range: start..stop is outside 0..=len()")
+        lossy_in(&self[start:stop])
+
     # Direct transport. Each call makes at most one native read or write and
     # returns the bytes moved, so a short count is success. std.io adds the
     # retry, end-of-input and partial-progress policy. A range outside the
@@ -243,6 +256,79 @@ def text_in(source: &[u8]) -> Result[str, BytesError]:
             Ok(text)
         case Nothing:
             Err(BytesError.InvalidUtf8)
+
+def lossy_in(source: &[u8]) -> Result[str, AllocError]:
+    count = len(source)
+    first_run = __bytes_run(source, 1u8)
+    if first_run == count:
+        return valid_text(source)
+    # Size the output first so the scratch buffer is allocated once, exactly.
+    # Each step consumes at least one byte and adds at most three, so the
+    # total is at most 3 * count, which fits for any in-memory view.
+    unchecked:
+        mut size = first_run
+        mut at = first_run
+        while at < count:
+            at += invalid_prefix(source, at)
+            run = __bytes_run(&source[at:count], 1u8)
+            size += 3 + run
+            at += run
+        mut owner = __bytes_new(size)?
+        __bytes_append(owner, &source[0:first_run])?
+        at = first_run
+        while at < count:
+            at += invalid_prefix(source, at)
+            __bytes_append(owner, b"\xef\xbf\xbd")?
+            run = __bytes_run(&source[at:count], 1u8)
+            __bytes_append(owner, &source[at:at + run])?
+            at += run
+        output = Bytes(owner)
+        valid_text(&output[:])
+
+# `source` is known to be valid UTF-8, so only allocation can fail.
+def valid_text(source: &[u8]) -> Result[str, AllocError]:
+    match __bytes_to_text(source)?:
+        case Some(text):
+            Ok(text)
+        case Nothing:
+            __trap("Bytes.to_text_lossy: replacement produced invalid UTF-8")
+
+# Length of the maximal subpart at `at`: the longest prefix of a well-formed
+# sequence, or one byte when `source[at]` cannot start one. Only called where
+# the UTF-8 run stopped, so the subpart is never a complete sequence.
+def invalid_prefix(source: &[u8], at: i64) -> i64:
+    count = len(source)
+    lead = source[at]
+    # The second byte's range narrows for E0, ED, F0 and F4 (Unicode table 3-7),
+    # which excludes overlong forms, surrogates and scalars above U+10FFFF.
+    mut low = 0x80u8
+    mut high = 0xBFu8
+    mut needed = 0
+    if lead >= 0xC2u8 and lead <= 0xDFu8:
+        needed = 1
+    elif lead >= 0xE0u8 and lead <= 0xEFu8:
+        needed = 2
+        if lead == 0xE0u8:
+            low = 0xA0u8
+        elif lead == 0xEDu8:
+            high = 0x9Fu8
+    elif lead >= 0xF0u8 and lead <= 0xF4u8:
+        needed = 3
+        if lead == 0xF0u8:
+            low = 0x90u8
+        elif lead == 0xF4u8:
+            high = 0x8Fu8
+    # At most four steps from a valid index into the view.
+    unchecked:
+        mut length = 1
+        while length <= needed and at + length < count:
+            byte = source[at + length]
+            if byte < low or byte > high:
+                break
+            low = 0x80u8
+            high = 0xBFu8
+            length += 1
+        length
 
 def allocated[T](result: Result[T, AllocError]) -> Result[T, BytesError]:
     match result:

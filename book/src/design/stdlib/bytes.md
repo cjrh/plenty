@@ -6,7 +6,8 @@ checked byte-range operations and byte-oriented I/O. A `list[u8]` also stores
 one byte per element and provides ordinary list operations and element
 references; its capacity is rounded to allocation units as described under
 [list storage costs](../facilities/01-builtins/lists.md#storage-costs).
-Bytes are never text: converting to `str` is an explicit, validated operation.
+Bytes are never text: converting to `str` is an explicit operation, validated
+by default or [lossy](#lossy-text) on request.
 
 The module is embedded Plenty code over a private native storage owner. It is
 available on the supported x86-64 Linux GNU target.
@@ -57,6 +58,8 @@ are unsupported on `Bytes`; use the explicit search methods below.
 | `to_list()` | shared | `Result[list[u8], AllocError]` | Independent `list[u8]` for the transport builtins |
 | `to_text()` | shared | `Result[str, BytesError]` | Strictly validated UTF-8 copy; otherwise `InvalidUtf8` |
 | `to_text_range(start, stop)` | shared | `Result[str, BytesError]` | `to_text` of one range, validated and copied once with no intermediate `Bytes`; a range that splits a UTF-8 sequence is `InvalidUtf8` |
+| `to_text_lossy()` | shared | `Result[str, AllocError]` | Copy as text, replacing each ill-formed subpart with U+FFFD; see [lossy text](#lossy-text) |
+| `to_text_lossy_range(start, stop)` | shared | `Result[str, AllocError]` | `to_text_lossy` of one range; a sequence that `stop` cuts short is replaced |
 | `set(index, value)` | exclusive | `()` | Replace one byte |
 | `write_float(value: f64)` | exclusive | `i64` | Write shortest scientific ASCII into existing bytes at zero; requires `len() >= 32` and traps otherwise; returns bytes written, never allocates or changes length |
 | `write_float_spec(value: f64, style: i64, precision: i64, offset: i64)` | exclusive | `i64` | Write a Python format-spec spelling at `offset` for [`std.fmt`](fmt.md): style 1 fixed, 2 exponent, 3 general, 4 general keeping `.0`, 5 f64 and 6 f32 `print` spelling, plus 16 for `#`; a negative value starts with `-`. Returns bytes written, or the negated total length needed when shorter, writing nothing. Other styles, precision outside `0..=4096`, or an offset past the length trap. Never allocates |
@@ -189,6 +192,49 @@ stop)` method keeps the [range rule](#the-range-rule): a range outside the
 buffer traps instead of clamping. A [slice view](#views),
 `&buffer[a:b]`, borrows the bytes without a copy.
 
+## Lossy text
+
+`to_text` and `to_text_range` are the default: they reject bytes that are not
+UTF-8. When text must be shown whatever its bytes, such as the output of a
+[subprocess](process.md), `to_text_lossy` and `to_text_lossy_range` keep every
+valid sequence and replace each *maximal subpart* of an ill-formed one with
+U+FFFD, the replacement character. This is the practice the Unicode Standard
+recommends (chapter 3, "U+FFFD Substitution of Maximal Subparts") and the
+[WHATWG Encoding Standard](https://encoding.spec.whatwg.org/#utf-8-decoder)
+requires, and matches Rust's `String::from_utf8_lossy` and Python's
+`errors="replace"`:
+
+- a byte that cannot start a sequence (`80`..`BF`, `C0`, `C1`, `F5`..`FF`)
+  is one replacement;
+- otherwise the replaced subpart is the longest prefix of a well-formed
+  sequence, so `E2 82` followed by `41` or by the end of the range is one
+  replacement, then `A`;
+- overlong forms (`C0 AF`, `E0 80 AF`), surrogates (`ED A0 80`) and scalars
+  above U+10FFFF (`F4 90 80 80`) are ill-formed from the second byte, so each
+  byte is a separate replacement.
+
+NUL and other control bytes are valid UTF-8 and are kept.
+
+```plenty
+import std.bytes
+
+def main() -> Result[(), AllocError | IoError]:
+    output = std.bytes.from_bytes(b"ok \xe2\x82 \xed\xa0\x80 \xc3\xa9")?
+    print(output.to_text_lossy()?)?
+    print(str.repr(output.to_text_lossy_range(0, 4)?)?)?
+    Ok(())
+```
+```output
+ok � ��� é
+"ok �"
+```
+
+Allocation is the only failure, as `AllocError`. The result holds at most
+three bytes per input byte. Valid input is copied once, as `to_text` does;
+otherwise the module sizes the result first, builds it in one exactly sized
+temporary buffer and copies that into the text, so peak storage is twice the
+result. A range outside the buffer traps under [the range rule](#the-range-rule).
+
 ## Scanning
 
 `find`, `find_in`, `find_not_in`, `find_bytes`, `count`, `matches`,
@@ -253,6 +299,7 @@ pub enum BytesError:
 The constructors and the methods that can fail only to allocate (`push`,
 `extend`, `reserve`, `resize`, `copy`, `slice`, `to_list`) return
 `AllocError`; a negative `reserve` or `resize` count is `CapacityOverflow`.
+`to_text_lossy` and `to_text_lossy_range` also return `AllocError`.
 `to_text` and `to_text_range` return `BytesError` for `InvalidUtf8`. A range
 outside the buffer traps. The only other result shape is
 `pop`, whose `Option[u8]` reports an empty buffer.
@@ -301,7 +348,7 @@ may over-reserve; `reserve` requests an exact total.
 
 | Allocates | Does not allocate |
 |---|---|
-| Constructors, `slice`, `copy`, `to_list`, `to_text`, `to_text_range` | `len`, `is_empty`, `capacity`, `get`, index syntax, iteration, every scan, `==`, transport |
+| Constructors, `slice`, `copy`, `to_list`, `to_text`, `to_text_range`, `to_text_lossy`, `to_text_lossy_range` | `len`, `is_empty`, `capacity`, `get`, index syntax, iteration, every scan, `==`, transport |
 | `push`, `extend`, `resize`, `reserve` beyond capacity | The same operations within capacity |
 | | `set`, `fill`, `overwrite`, `copy_within`, `truncate`, `pop`, `clear` |
 

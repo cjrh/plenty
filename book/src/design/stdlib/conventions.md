@@ -58,6 +58,7 @@ not add it.
 | `to_<type>()` | New owned value; may allocate and fail |
 | `as_<type>()` | Cheap view or reinterpretation; never allocates |
 | `to_text()` | Validated conversion of byte content to `str` (`Bytes`, `Path`) |
+| `to_text_lossy()` | Conversion of byte content to `str` that replaces ill-formed UTF-8 with U+FFFD (`Bytes`) |
 | `to_string()` | Canonical text of a structured value, as an owned `str` |
 | `encode` / `encode_text` | Serialize to `Bytes` / to `str` |
 | `describe()` | One-line error description as `Result[str, AllocError]` |

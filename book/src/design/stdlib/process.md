@@ -338,7 +338,9 @@ holds 64 KiB. Use `communicate`, which serves all three in one loop.
 `communicate` writes `input` to a piped stdin, appends piped stdout and stderr
 to two new buffers as data arrives, closes each stream at its end, then waits.
 `Output` has public fields `status: ExitStatus`, `stdout: Bytes`, and
-`stderr: Bytes`.
+`stderr: Bytes`. Output is bytes, not text: `to_text()` rejects bytes that are
+not UTF-8, and [`to_text_lossy()`](bytes.md#lossy-text) replaces them with
+U+FFFD for display or logging.
 
 - Streams that are not piped, or whose end was taken, are skipped and their
   buffers stay empty.
