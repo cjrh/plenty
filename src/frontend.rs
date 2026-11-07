@@ -2689,6 +2689,11 @@ impl Lower<'_> {
                     .error("mutable reference arguments require explicit &mut borrowing or an existing exclusive reference"))
             }
         };
+        if let Some(inner) = &expected
+            && let Some(message) = self.view_at_owner_reference(arg, base, inner, mutable)
+        {
+            return Err(arg.at.error(message));
+        }
         if mutable {
             if let Some(expected) = &expected
                 && let Some(ty) = self.constructor_expected(base, expected, ops)?
