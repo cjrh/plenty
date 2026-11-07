@@ -298,9 +298,13 @@ fn a_script_inside_a_dependency_directory_owns_only_itself() {
         "banner\nbanner\n"
     );
     f.write("util/data/app.plenty", &script("../src/lib.plenty"));
+    let root = f.root().join("util/data").canonicalize().unwrap();
     f.fail(
         &["script", "util/data/app.plenty"],
-        "is outside the source root",
+        &format!(
+            "included path `../src/lib.plenty` is outside the source root {}",
+            root.display()
+        ),
     );
 }
 

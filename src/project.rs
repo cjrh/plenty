@@ -162,11 +162,17 @@ impl SourceGraph {
                 return Err(error(line, &format!("identity `{identity}` appears twice")).into());
             }
             let root = base.join(root);
+            // The lexical parent, as for a manifest: a dependency's symbolic
+            // `src` must not choose its own package directory.
+            let directory = match root.parent() {
+                Some(parent) if parent.as_os_str().is_empty() => Path::new("."),
+                Some(parent) => parent,
+                None => &root,
+            }
+            .to_path_buf();
             packages.push(SourcePackage {
                 identity,
-                // Canonicalized when loading, `src/..` is the parent of the
-                // root's real path, even for a bare relative `src`.
-                directory: Some(root.join("..")),
+                directory: Some(directory),
                 root,
                 library: string("library")?.map(|library| base.join(library)),
                 dependencies: vec![],
@@ -1281,23 +1287,22 @@ pub fn check_entry(
     check_sources(entry, graph, require_main, options).map(|(warnings, ..)| warnings)
 }
 
-/// [`check_entry`], also returning the canonical paths of every source file
-/// the check read, in all packages of `graph`, and its inputs.
+/// [`check_entry`], also returning what the check read, in all packages of
+/// `graph`.
 fn check_sources(
     entry: &Path,
     graph: &SourceGraph,
     require_main: bool,
     options: &crate::CheckOptions,
-) -> Result<(Vec<crate::Warning>, Vec<PathBuf>, crate::frontend::Inputs)> {
+) -> Result<(Vec<crate::Warning>, crate::frontend::Inputs)> {
     let mut heap = crate::value::Heap::default();
     let mut program =
         crate::frontend::compile_graph(entry, graph, require_main, &mut heap, *options)?;
     let checked = crate::op::check(&program.ops);
     let warnings = std::mem::take(&mut program.warnings);
-    let sources = std::mem::take(&mut program.source_paths);
     let inputs = std::mem::take(&mut program.inputs);
     crate::teardown((program, heap), options);
-    checked.map(|()| (warnings, sources, inputs))
+    checked.map(|()| (warnings, inputs))
 }
 
 fn status(verb: &str, message: impl std::fmt::Display) {
@@ -1334,14 +1339,14 @@ pub fn check(directory: &Path, options: &BuildOptions) -> Result<()> {
                     .map(|(_, entry)| (entry, true)),
             );
         for (entry, require_main) in entries {
-            let (found, sources, _) = check_sources(
+            let (found, inputs) = check_sources(
                 &package.directory.join(entry),
                 &graph,
                 require_main,
                 &options.check,
             )?;
             warnings.extend(found);
-            reached.extend(sources);
+            reached.extend(inputs.sources().map(Path::to_path_buf));
         }
         crate::diagnostic::settle(&mut warnings);
         for warning in &warnings {
@@ -1446,10 +1451,11 @@ impl Progress<'_> {
 fn reuse_or_build(
     fingerprint: Fingerprint,
     output: Option<&Path>,
+    graph: &SourceGraph,
     progress: &mut Progress,
     build: impl FnOnce() -> Result<crate::frontend::Inputs>,
 ) -> Result<()> {
-    if fingerprint.fresh(output) {
+    if fingerprint.fresh(output, graph) {
         return Ok(());
     }
     progress.building();
@@ -1488,10 +1494,11 @@ fn build_member(
                 digest,
             ),
             None,
+            &graph,
             &mut progress,
             || {
                 check_sources(&entry, &graph, false, &crate::CheckOptions::default())
-                    .map(|(_, _, inputs)| inputs)
+                    .map(|(_, inputs)| inputs)
             },
         )?;
     }
@@ -1506,12 +1513,9 @@ fn build_member(
         reuse_or_build(
             Fingerprint::new(&directory, &format!("bin-{name}"), digest),
             Some(&output),
+            &graph,
             &mut progress,
-            || {
-                crate::codegen::compile_graph_to_executable(
-                    &entry, &graph, &output, &compile, false,
-                )
-            },
+            || crate::codegen::compile_graph_to_executable(&entry, &graph, &output, &compile),
         )?;
         outputs.push((name.clone(), output));
     }
@@ -1799,6 +1803,7 @@ pub fn test(directory: &Path, options: &TestOptions) -> Result<TestSummary> {
             reuse_or_build(
                 Fingerprint::new(&directory, &stem, digest),
                 Some(&executable),
+                &graph,
                 &mut progress,
                 || match kind {
                     crate::frontend::TestFile::Program => {
@@ -2219,14 +2224,14 @@ mod tests {
                 SourcePackage {
                     identity: "app".into(),
                     root: dir.path().join("app/src"),
-                    directory: Some(dir.path().join("app/src/..")),
+                    directory: Some(dir.path().join("app")),
                     library: None,
                     dependencies: vec![("geo".into(), 1)],
                 },
                 SourcePackage {
                     identity: "shapes".into(),
                     root: dir.path().join("shapes/src"),
-                    directory: Some(dir.path().join("shapes/src/..")),
+                    directory: Some(dir.path().join("shapes")),
                     library: Some(dir.path().join("shapes/src/lib.plenty")),
                     dependencies: vec![],
                 },

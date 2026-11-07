@@ -23,8 +23,9 @@ use std::sync::OnceLock;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-/// Changes whenever the entry format or the meaning of the key changes.
-const SCHEMA: &str = "1";
+/// Changes whenever the entry format or the meaning of the key changes. 2:
+/// inputs mark included files, whose admissibility a lookup checks again.
+const SCHEMA: &str = "2";
 
 /// The compiler binary's path, size and modification time. The frontend's
 /// output depends on the compiler's whole code, not only on its version, and

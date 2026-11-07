@@ -1173,57 +1173,12 @@ impl Loader {
                 )));
             }
             let joined = path.parent().unwrap_or(Path::new("")).join(relative);
-            let file = joined
-                .canonicalize()
-                .map_err(|e| embed.at.error(format!("reading `{}`: {e}", embed.path)))?;
-            let includer = &self.packages[package];
-            let (boundary, kind) = match &includer.directory {
-                Some(directory) => (directory, "package directory"),
-                None => (&includer.root, "source root"),
-            };
-            // The boundary is canonical, so `..` and symbolic links are judged
-            // by where the file really is.
-            if !file.starts_with(boundary) {
-                return Err(embed.at.error(format!(
-                    "included path `{}` is outside the {kind} {}",
-                    embed.path,
-                    boundary.display()
-                )));
-            }
-            // A directory below the boundary that holds a `plenty.toml`, or
-            // is another graph package's directory, belongs to that package.
-            // The innermost one names the owner.
-            let owner = file
-                .ancestors()
-                .skip(1)
-                .take_while(|directory| directory != boundary)
-                .find_map(|directory| {
-                    let other = self
-                        .packages
-                        .iter()
-                        .find(|other| other.directory.as_deref() == Some(directory));
-                    match other {
-                        Some(other) => Some(format!("package `{}`", other.identity)),
-                        None => directory
-                            .join(crate::project::manifest::MANIFEST)
-                            .is_file()
-                            .then(|| format!("the package in {}", directory.display())),
-                    }
-                });
-            if let Some(owner) = owner {
-                return Err(embed.at.error(format!(
-                    "included path `{}` belongs to {owner}; {} may include only its own files",
-                    embed.path,
-                    if includer.identity.is_empty() {
-                        "a file".to_string()
-                    } else {
-                        format!("package `{}`", includer.identity)
-                    }
-                )));
-            }
+            let file = included_file(&self.packages, package, &joined, &embed.path)
+                .map_err(|message| embed.at.error(message))?;
             let data = std::fs::read(&file)
                 .map_err(|e| embed.at.error(format!("reading `{}`: {e}", embed.path)))?;
-            self.inputs.push(inputs::File::new(&joined, package, &data));
+            self.inputs
+                .push(inputs::File::included(&joined, package, &data));
             let kind = if embed.text {
                 Expression::Text(String::from_utf8(data).map_err(|e| {
                     embed.at.error(format!(
@@ -1593,6 +1548,86 @@ pub(super) fn load_graph_with(
     result.source_paths.sort();
     result.source_root = Some(root);
     Ok(result)
+}
+
+/// The canonical file at `joined` that `packages[package]` may include, or
+/// why not; `spelled` is the path as the source wrote it. The program cache
+/// and build reuse rerun this for each recorded include, so a hit never hides
+/// one of these errors.
+///
+/// A package may include files below its package directory and below its own
+/// canonical source root, which a symbolic `src` can put elsewhere (issue
+/// #840). Within that, a directory that holds a `plenty.toml`, or is another
+/// package's directory or source root, belongs to that package; the
+/// innermost one names the owner. A package and its `-tests` package share
+/// their files.
+pub(super) fn included_file(
+    packages: &[crate::project::SourcePackage],
+    package: usize,
+    joined: &Path,
+    spelled: &str,
+) -> std::result::Result<PathBuf, String> {
+    let file = joined
+        .canonicalize()
+        .map_err(|e| format!("reading `{spelled}`: {e}"))?;
+    let includer = &packages[package];
+    // Every path is canonical, so `..` and symbolic links are judged by where
+    // the file really is.
+    let base = if file.starts_with(&includer.root) {
+        &includer.root
+    } else {
+        match &includer.directory {
+            Some(directory) if file.starts_with(directory) => directory,
+            Some(directory) => {
+                return Err(format!(
+                    "included path `{spelled}` is outside the package directory {}",
+                    directory.display()
+                ));
+            }
+            None => {
+                return Err(format!(
+                    "included path `{spelled}` is outside the source root {}",
+                    includer.root.display()
+                ));
+            }
+        }
+    };
+    let sibling = |other: &crate::project::SourcePackage| {
+        other.directory == includer.directory
+            && (other.identity == format!("{}-tests", includer.identity)
+                || includer.identity == format!("{}-tests", other.identity))
+    };
+    let owner = file
+        .ancestors()
+        .skip(1)
+        .take_while(|directory| *directory != base.as_path())
+        .find_map(|directory| {
+            let other = packages.iter().enumerate().find(|&(index, other)| {
+                index != package
+                    && !sibling(other)
+                    // A script owns no directory, not even its root.
+                    && other.directory.is_some()
+                    && (other.root == directory || other.directory.as_deref() == Some(directory))
+            });
+            match other {
+                Some((_, other)) => Some(format!("package `{}`", other.identity)),
+                None => directory
+                    .join(crate::project::manifest::MANIFEST)
+                    .is_file()
+                    .then(|| format!("the package in {}", directory.display())),
+            }
+        });
+    match owner {
+        Some(owner) => Err(format!(
+            "included path `{spelled}` belongs to {owner}; {} may include only its own files",
+            if includer.identity.is_empty() {
+                "a file".to_string()
+            } else {
+                format!("package `{}`", includer.identity)
+            }
+        )),
+        None => Ok(file),
+    }
 }
 
 /// `graph`'s packages with canonical roots and library paths, after the checks

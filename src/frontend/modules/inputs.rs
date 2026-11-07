@@ -11,8 +11,11 @@
 //! Standard modules are part of the compiler: the cache key covers the
 //! compiler's identity and [`standard_digest`]. A file that a constant reads
 //! with `include_str` or `include_bytes` is recorded like a source file with
-//! no imports.
-use super::{Import, Kind, Loader, ModuleSource, STANDARD_MODULES, Token, prepare_packages};
+//! no imports, and is current only while the including package may still
+//! include it.
+use super::{
+    Import, Kind, Loader, ModuleSource, STANDARD_MODULES, Token, included_file, prepare_packages,
+};
 use crate::hash::HashMap;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -40,6 +43,8 @@ pub(crate) struct File {
     package: usize,
     digest: [u8; 32],
     imports: Vec<Resolution>,
+    /// Read by `include_str` or `include_bytes`, as `path` before resolving.
+    included: bool,
 }
 
 /// Where one import of a file resolved.
@@ -51,14 +56,22 @@ struct Resolution {
 }
 
 impl File {
-    /// A file with contents `data`: a source file, whose imports are then
-    /// recorded, or a file a constant includes, which has none.
+    /// A source file with contents `data`, whose imports are then recorded.
     pub(super) fn new(path: &Path, package: usize, data: &[u8]) -> File {
         File {
             path: path.to_path_buf(),
             package,
             digest: Sha256::digest(data).into(),
             imports: vec![],
+            included: false,
+        }
+    }
+
+    /// A file with contents `data` that a constant of `package` includes.
+    pub(super) fn included(path: &Path, package: usize, data: &[u8]) -> File {
+        File {
+            included: true,
+            ..File::new(path, package, data)
         }
     }
 
@@ -101,7 +114,9 @@ impl Inputs {
             script: false,
         };
         self.files.iter().all(|file| {
-            std::fs::read(&file.path).is_ok_and(|text| *Sha256::digest(text) == file.digest)
+            (!file.included
+                || included_file(&loader.packages, file.package, &file.path, "").is_ok())
+                && std::fs::read(&file.path).is_ok_and(|text| *Sha256::digest(text) == file.digest)
                 && file.imports.iter().all(|import| {
                     let at = Token {
                         kind: Kind::Eof,
@@ -125,11 +140,12 @@ impl Inputs {
         })
     }
 
-    /// Each file read, with the SHA-256 digest of the contents read.
-    pub(crate) fn files(&self) -> impl Iterator<Item = (&Path, &[u8; 32])> {
+    /// The canonical path of each source file read, excluding included files.
+    pub(crate) fn sources(&self) -> impl Iterator<Item = &Path> {
         self.files
             .iter()
-            .map(|file| (file.path.as_path(), &file.digest))
+            .filter(|file| !file.included)
+            .map(|file| file.path.as_path())
     }
 
     /// The inputs as bytes, or `None` when a path is not UTF-8 and so has no
@@ -140,6 +156,7 @@ impl Inputs {
         for file in &self.files {
             put_text(&mut out, file.path.to_str()?);
             put_count(&mut out, file.package);
+            out.push(file.included.into());
             out.extend_from_slice(&file.digest);
             put_count(&mut out, file.imports.len());
             for import in &file.imports {
@@ -168,6 +185,11 @@ impl Inputs {
         for _ in 0..reader.count()? {
             let path = PathBuf::from(reader.text()?);
             let package = reader.count()?;
+            let included = match reader.take(1)?[0] {
+                0 => false,
+                1 => true,
+                _ => return None,
+            };
             let digest = reader.take(32)?.try_into().ok()?;
             let mut imports = Vec::new();
             for _ in 0..reader.count()? {
@@ -193,6 +215,7 @@ impl Inputs {
                 package,
                 digest,
                 imports,
+                included,
             });
         }
         reader.0.is_empty().then_some(Inputs { files })
@@ -239,7 +262,10 @@ mod tests {
         let mut file = File::new(Path::new("/src/main.plenty"), 0, b"import a\n");
         file.import("a", &ModuleSource::File("/src/a.plenty".into()), 0);
         file.import("std.json", &ModuleSource::Standard("std.json"), 0);
-        let inputs = Inputs::new(vec![file]);
+        let inputs = Inputs::new(vec![
+            file,
+            File::included(Path::new("/src/../data/a.txt"), 0, b"a"),
+        ]);
         let bytes = inputs.encode().unwrap();
         assert_eq!(Inputs::decode(&bytes), Some(inputs));
         assert_eq!(Inputs::decode(&bytes[..bytes.len() - 1]), None);

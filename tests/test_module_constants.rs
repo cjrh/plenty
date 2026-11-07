@@ -349,6 +349,7 @@ fn included_paths_are_checked() {
     std::os::unix::fs::symlink(parent.path().join("outside.txt"), dir.join("link.txt")).unwrap();
     let main = dir.join("main.plenty");
     let absolute = parent.path().join("outside.txt");
+    let root = dir.canonicalize().unwrap();
     for (declaration, message) in [
         (
             format!(
@@ -359,11 +360,17 @@ fn included_paths_are_checked() {
         ),
         (
             "const S: str = include_str(\"../outside.txt\")".into(),
-            "outside the source root".into(),
+            format!(
+                "included path `../outside.txt` is outside the source root {}",
+                root.display()
+            ),
         ),
         (
             "const S: str = include_str(\"link.txt\")".into(),
-            "outside the source root".into(),
+            format!(
+                "included path `link.txt` is outside the source root {}",
+                root.display()
+            ),
         ),
         (
             "const S: str = include_str(\"missing.txt\")".into(),

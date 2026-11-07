@@ -223,7 +223,7 @@ pub fn compile_package_to_executable(
     output: &Path,
     options: &crate::CompileOptions,
 ) -> Result<()> {
-    compile_graph_to_executable(path, graph, output, options, false).map(drop)
+    compile_graph_to_executable(path, graph, output, options).map(drop)
 }
 
 pub(crate) fn compile_script_to_executable(
@@ -248,6 +248,15 @@ pub(crate) fn compile_graph_to_executable(
     graph: &crate::project::SourceGraph,
     output: &Path,
     options: &crate::CompileOptions,
+) -> Result<crate::frontend::Inputs> {
+    compile_graph(path, graph, output, options, false)
+}
+
+fn compile_graph(
+    path: &Path,
+    graph: &crate::project::SourceGraph,
+    output: &Path,
+    options: &crate::CompileOptions,
     test_hooks: bool,
 ) -> Result<crate::frontend::Inputs> {
     crate::validate_target(options.target.as_deref())?;
@@ -268,7 +277,7 @@ pub(crate) fn compile_test_program_to_executable(
     output: &Path,
     options: &crate::CompileOptions,
 ) -> Result<crate::frontend::Inputs> {
-    compile_graph_to_executable(path, graph, output, options, true)
+    compile_graph(path, graph, output, options, true)
 }
 
 /// Compile a file of test functions with the runner's generated `main` and
