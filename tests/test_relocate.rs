@@ -1594,3 +1594,128 @@ def main() -> Result[(), IoError]:
     let moved = plan(dir.path(), "src/geometry.plenty", 1, "src/report.plenty").unwrap();
     assert!(moved.files["src/main.plenty"].contains("report.scale(2)"));
 }
+
+#[test]
+fn an_import_only_an_arm_had_is_new_when_the_move_adds_it_at_top_level() {
+    // The caller's rewritten import makes its arm's `import report` hold on
+    // every target.
+    let caller = "\
+from geometry import scale
+
+if const target.os == \"linux\":
+    import report
+
+pub def run() -> i64:
+    scale(2)
+";
+    let report = "\
+pub const R: i64 = 1
+
+if const target.os == \"windows\":
+    import caller
+";
+    let main = "\
+import caller
+import report
+
+def main() -> Result[(), IoError]:
+    print(caller.run(), report.R)?
+    Ok(())
+";
+    let dir = package(&[
+        (
+            "src/geometry.plenty",
+            "pub def scale(x: i64) -> i64:\n    x\n",
+        ),
+        ("src/caller.plenty", caller),
+        ("src/report.plenty", report),
+        ("src/main.plenty", main),
+    ]);
+    assert_eq!(
+        refused(dir.path(), "src/geometry.plenty", 1, "src/report.plenty"),
+        "after moving `scale`, an import in an `if const` block would close a circular import: caller -> report -> caller"
+    );
+
+    // A carried import the destination's arm already had.
+    let geometry = "\
+from util import x
+
+pub def scale() -> i64:
+    x()
+";
+    let util = "\
+pub def x() -> i64:
+    1
+
+if const target.os == \"windows\":
+    import report
+";
+    let report = "\
+pub const R: i64 = 1
+
+if const target.os == \"windows\":
+    import util
+";
+    let main = "\
+import geometry
+import report
+
+def main() -> Result[(), IoError]:
+    print(geometry.scale(), report.R)?
+    Ok(())
+";
+    let dir = package(&[
+        ("src/geometry.plenty", geometry),
+        ("src/util.plenty", util),
+        ("src/report.plenty", report),
+        ("src/main.plenty", main),
+    ]);
+    assert_eq!(
+        refused(dir.path(), "src/geometry.plenty", 3, "src/report.plenty"),
+        "after moving `scale`, an import in an `if const` block would close a circular import: report -> util -> report"
+    );
+}
+
+#[test]
+fn a_cycle_through_a_plentyi_module_is_refused() {
+    let caller = "\
+from geometry import scale
+
+pub def run() -> i64:
+    scale(2)
+";
+    let report = "\
+pub const R: i64 = 1
+
+if const target.os == \"windows\":
+    import native
+";
+    let native = "\
+import caller
+
+pub def twice() -> i64:
+    caller.run()
+";
+    let main = "\
+import caller
+import report
+
+def main() -> Result[(), IoError]:
+    print(caller.run(), report.R)?
+    Ok(())
+";
+    let dir = package(&[
+        (
+            "src/geometry.plenty",
+            "pub def scale(x: i64) -> i64:\n    x\n",
+        ),
+        ("src/caller.plenty", caller),
+        ("src/report.plenty", report),
+        ("src/native.plentyi", native),
+        ("src/main.plenty", main),
+    ]);
+    assert_eq!(
+        refused(dir.path(), "src/geometry.plenty", 1, "src/report.plenty"),
+        "after moving `scale`, an import in an `if const` block would close a circular import: caller -> report -> native -> caller"
+    );
+}

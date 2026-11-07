@@ -856,16 +856,23 @@ impl<'a> Planner<'a> {
         after: &HashMap<PathBuf, String>,
         edited: &BTreeSet<PathBuf>,
     ) -> Result<(), String> {
-        let mut graph: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
+        let mut graph: BTreeMap<PathBuf, Vec<(PathBuf, bool)>> = BTreeMap::new();
         let mut any_arm = false;
-        for (path, _) in &self.files {
-            let text = match after.get(path) {
+        // The package's `.plenty` files, then each module they import that
+        // is not one of them, such as a `.plentyi` module.
+        let mut pending: Vec<PathBuf> = self.files.iter().map(|f| f.0.clone()).collect();
+        while let Some(path) = pending.pop() {
+            if graph.contains_key(&path) {
+                continue;
+            }
+            let text = match after.get(&path) {
                 Some(text) => text.clone(),
-                None => self.text(path)?,
+                None => self.text(&path)?,
             };
-            let edges = self.module_imports(path, &text)?;
+            let edges = self.module_imports(&path, &text)?;
             any_arm |= edges.iter().any(|e| e.1);
-            graph.insert(path.clone(), edges.into_iter().map(|e| e.0).collect());
+            pending.extend(edges.iter().map(|e| e.0.clone()));
+            graph.insert(path, edges);
         }
         if !any_arm {
             return Ok(());
@@ -877,13 +884,16 @@ impl<'a> Planner<'a> {
                 .unwrap_or_else(|| self.relative(path))
         };
         for from in edited {
+            // An edge is new unless it was a top-level import before: one
+            // that only an arm had now holds on every target.
             let before: HashSet<PathBuf> = self
                 .module_imports(from, &self.text(from)?)?
                 .into_iter()
+                .filter(|e| !e.1)
                 .map(|e| e.0)
                 .collect();
-            for to in graph.get(from).into_iter().flatten() {
-                if before.contains(to) {
+            for (to, arm) in graph.get(from).into_iter().flatten() {
+                if *arm || before.contains(to) {
                     continue;
                 }
                 // A path back from `to` to `from`, breadth first.
@@ -906,7 +916,7 @@ impl<'a> Planner<'a> {
                             cycle.join(" -> ")
                         ));
                     }
-                    for next in graph.get(at).into_iter().flatten() {
+                    for (next, _) in graph.get(at).into_iter().flatten() {
                         if next.as_path() != to.as_path() && !previous.contains_key(next.as_path())
                         {
                             previous.insert(next, at);
