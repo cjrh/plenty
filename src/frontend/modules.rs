@@ -1556,10 +1556,10 @@ pub(super) fn load_graph_with(
 /// one of these errors.
 ///
 /// A package may include files below its package directory; a single file or
-/// script, below its source root. Within that, a directory that holds a `plenty.toml`, or is another
-/// package's directory or source root, belongs to that package; the
-/// innermost one names the owner. A package and its `-tests` package share
-/// their files.
+/// script, below its source root. Within that, a directory that holds a
+/// `plenty.toml`, or is another package's directory or source root, belongs
+/// to that package; the innermost one names the owner. A package and its
+/// `-tests` package share their files.
 pub(super) fn included_file(
     packages: &[crate::project::SourcePackage],
     package: usize,
@@ -1647,10 +1647,14 @@ fn prepare_packages(
         // link would send it: imports and includes are bounded by the
         // canonical root, so a linked root could expose any directory to a
         // dependency (issue #840). Single files and scripts own no package
-        // directory and may be reached through linked directories.
+        // directory and may be reached through linked directories. Collecting
+        // the components drops a trailing `/` or `.`, through which `lstat`
+        // would follow the link.
         if package.directory.is_some()
             && package
                 .root
+                .components()
+                .collect::<PathBuf>()
                 .symlink_metadata()
                 .is_ok_and(|metadata| metadata.file_type().is_symlink())
         {

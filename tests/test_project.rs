@@ -1778,6 +1778,50 @@ fn graph_packages_with_one_parent_include_only_their_own_sources() {
 }
 
 #[test]
+fn graph_roots_are_checked_as_written() {
+    let dir = tempfile::tempdir().unwrap();
+    let work = dir.path().join("work");
+    write(
+        &work.join("other/main.plenty"),
+        "def main() -> ():\n    pass\n",
+    );
+    std::fs::create_dir_all(work.join("app")).unwrap();
+    std::os::unix::fs::symlink("../other", work.join("app/src")).unwrap();
+    std::fs::create_dir_all(work.join("sub")).unwrap();
+    let check = |root: &str, entry: &str| {
+        write(
+            &work.join("graph.toml"),
+            &format!(
+                "graph-version = 1\n\n[[package]]\nidentity = \"a\"\nroot = \"{root}\"\ndependencies = {{}}\n"
+            ),
+        );
+        let output = Command::new(env!("CARGO_BIN_EXE_plentyc"))
+            .args(["--package-graph", "graph.toml", "--check", entry])
+            .current_dir(&work)
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{root}");
+        String::from_utf8_lossy(&output.stderr).into_owned()
+    };
+    // A trailing separator does not hide the link.
+    for root in ["app/src", "app/src/", "app/src/."] {
+        let stderr = check(root, "other/main.plenty");
+        assert!(stderr.contains("is a symbolic link"), "{root}: {stderr}");
+    }
+    // The package directory is the lexical parent `work/sub`, which does not
+    // contain the real root `work`.
+    let stderr = check("sub/..", "other/main.plenty");
+    assert!(
+        stderr.contains(&format!(
+            "source root {} must be inside the package directory {}",
+            work.canonicalize().unwrap().display(),
+            work.join("sub").canonicalize().unwrap().display()
+        )),
+        "{stderr}"
+    );
+}
+
+#[test]
 fn reuse_rechecks_where_included_files_may_come_from() {
     // Neither build reuse nor the program cache may keep an include that a
     // build now would refuse.

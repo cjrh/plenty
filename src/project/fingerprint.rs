@@ -10,14 +10,14 @@
 //! identity covers both.
 //!
 //! It also covers the canonical entry and source roots. A package's source
-//! root must not be a symbolic link. The contents are not hashed here. The stored fingerprint holds the
-//! frontend's [`Inputs`](crate::frontend::Inputs): every source and included
-//! file the build read, with its digest. A target is fresh only while they
-//! are [current](crate::frontend::Inputs::current), the check the program
-//! cache makes, which also reruns each include's boundary and ownership
-//! checks. Includes may read any file in the package directory, which also
-//! holds build outputs, `.pkg/` and perhaps version control data, so that
-//! directory is never walked.
+//! root must not be a symbolic link. The contents are not hashed here. The
+//! stored fingerprint holds the frontend's [`Inputs`](crate::frontend::Inputs):
+//! every source and included file the build read, with its digest. A target
+//! is fresh only while they are [current](crate::frontend::Inputs::current),
+//! the check the program cache makes, which also reruns each include's
+//! boundary and ownership checks. Includes may read any file in the package
+//! directory, which also holds build outputs, `.pkg/` and perhaps version
+//! control data, so that directory is never walked.
 use super::SourceGraph;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
