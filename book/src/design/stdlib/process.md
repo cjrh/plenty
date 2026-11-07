@@ -12,7 +12,7 @@ passing each resulting word to `arg`; it does not execute or expand shell syntax
 
 Request encoding, pipe draining, status decoding, and the reaping rules are
 checked Plenty. Five native primitives spawn, hand over a pipe end, wait,
-signal, and poll. The module is available on the supported x86-64 Linux GNU
+signal a child or its isolated group, and poll. The module is available on the supported x86-64 Linux GNU
 target; elsewhere `spawn` reports `IoError.Unsupported`.
 
 ```plenty
@@ -61,6 +61,7 @@ input. Pass such data as an argument or a variable instead.
 | `env_remove(name: &str)`, `env_remove_bytes(name: &list[u8])` | `Result[(), IoError]` | The child does not inherit it |
 | `env_clear()` | `()` | The child inherits nothing; earlier edits are dropped |
 | `current_dir(path: &Path)` | `Result[(), IoError]` | The child's working directory |
+| `process_group(mode: ProcessGroup)` | `()` | Select inherited group, new group or new session before execution |
 | `stdin(mode: Stdio)`, `stdout(mode: Stdio)`, `stderr(mode: Stdio)` | `()` | Choose a stream |
 | `stderr_to_stdout()` | `()` | The child's stderr goes wherever its stdout goes |
 
@@ -155,6 +156,41 @@ token. Waiting allocates nothing; each attempt repeats the brief host
 allocation described under [Limits](#limits). A program another process keeps
 open for writing still fails after the last wait.
 
+### Process groups and sessions
+
+`ProcessGroup.Inherit` is the default. `ProcessGroup.NewGroup` creates a new
+process group in the parent's session; `ProcessGroup.NewSession` creates a new
+session and its initial process group. In both isolated modes the child is the
+group leader and its group ID equals `child.id()`. Select the mode with
+`command.process_group(mode)`; selecting another mode replaces the choice.
+Setup happens in the child **before execution**, without a shell, a `setsid`
+executable or a parent-side polling race. Setup failures are spawn errors, with
+no child returned. Session setup uses a narrow native `setsid` call; no user
+pre-execution callback is exposed.
+
+Descendants normally inherit the group. `signal_group(number)`,
+`terminate_group()` and `kill_group()` signal every process still in it.
+Inherited-group children return `IoError.InvalidInput` from these methods:
+they cannot accidentally signal the parent's group. Ordinary `signal`,
+`terminate` and `kill` still target only the direct child.
+
+Send every required group signal **before reaping the leader**. While it is
+unreaped, including after it exits, its PID pins the group ID against reuse.
+After reaping, group signals return `Ok(())` and send nothing. Consequently a
+`try_wait` loop that reaps the leader cannot then clean up its surviving group;
+apply cleanup before that wait, or use a supervisor that keeps the leader
+alive. A timeout or cancellation that returns without a status preserves the
+child for group cleanup. A successful wait that returns a status has reaped it.
+Signalling does not wait for descendants to finish or reap them; only the
+owned direct child can be waited for here. OS signal errors remain
+`IoError.System(code)`.
+
+A process group is not a containment boundary: a descendant can escape by
+creating another group or session. Session creation does not detach the child,
+redirect streams or change the explicit reaping requirement. Group/session
+selection composes with file redirection and `stderr_to_stdout()`; both merged
+pipe writers close when their owning group members exit.
+
 ## Child
 
 A `Child` is the single owner of one process. It is not copyable.
@@ -170,6 +206,8 @@ A `Child` is the single owner of one process. It is not copyable.
 | `signal(number: i32)` | `Result[(), IoError]` | Send signal 1 to 64 |
 | `terminate()` | `Result[(), IoError]` | `SIGTERM`: a request the child may ignore |
 | `kill()` | `Result[(), IoError]` | `SIGKILL`: cannot be caught |
+| `signal_group(number: i32)` | `Result[(), IoError]` | Send signal 1 to 64 to an isolated group, before reaping its leader |
+| `terminate_group()`, `kill_group()` | `Result[(), IoError]` | Group `SIGTERM` or `SIGKILL` |
 | `communicate(input: &[u8], limit: NonNegative[i64])` | `Result[Output, StreamError]` | Feed stdin, collect both outputs, wait |
 | `output(limit: NonNegative[i64])` | `Result[Output, StreamError]` | `communicate` with no input |
 
@@ -263,13 +301,15 @@ A child that outlives the program is adopted by the system as usual.
 ## Limits
 
 - Linux x86-64 GNU only. Starting a child uses the host allocator briefly for
-  its argument vector; that one allocation is outside fallible accounting.
+  its argument vector and the fixed session-setup callback when selected;
+  these host allocations are outside fallible accounting.
 - No redirection of a stream to another child; `shell` can build a pipeline.
   A file redirection takes a `File`, so open it before setting the stream.
 - Timed child waits poll; scheduling and lock contention can delay return
   beyond the 10 ms polling interval.
-- No process groups, sessions, user or group changes, resource limits, or
-  detached children.
+- No joining arbitrary process groups, user or group changes, resource limits,
+  or detached children. Groups cannot be signalled after their leader is reaped,
+  and descendants can escape a group or session.
 - `communicate` holds whole outputs in memory. For streaming, take the pipes
   and give each its own [thread](thread.md).
 

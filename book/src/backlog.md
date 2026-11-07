@@ -242,7 +242,7 @@ follow-up. All candidates still require scope and acceptance checks.
 | B39 | Bytes | Stored/returned views (B11); OS strings in `std.path`, `std.env`, `std.process` and `std.cli` are `list[u8]`. Text APIs accepting `&substr` are B12. [Dataframe byte-view inputs delivered](completed-work/libraries.md#dataframe-byte-view-inputs-issue-657). |
 | B40 | Binary streams | Unscheduled nonblocking descriptors, vectored I/O, peeking and erased streams. |
 | B41 | Error context | Native-cause OS description text (B14/B71). |
-| B43 | Processes | Native process-readiness wakeups for deadline waits, child-to-child redirection, dropped-child reaping policy and process groups. [Polling deadline/cancellation waits delivered](completed-work.md#typed-time-and-cancellable-waits). |
+| B43 | Processes | Native process-readiness wakeups for deadline waits, child-to-child redirection, dropped-child reaping policy. [Isolated process groups and sessions delivered](completed-work/libraries.md#b43-process-groups-and-sessions) (issue #776). [Polling deadline/cancellation waits delivered](completed-work.md#typed-time-and-cancellable-waits). |
 | B46 | Logs | JSON-lines sink, sampling/rate limits, per-module thresholds and span context. |
 | B47 | Text/Unicode | Grapheme-aware text wrapping and broader classification; keep the external `unicode_text` package's Unicode version aligned with `std.unicode`. [Delivered paragraph tools](design/stdlib/text-wrapping.md). |
 | B48 | Regex | Broader DFA/one-pass coverage (Unicode and assertions), remaining scalar scan lowering (issue #760); full Unicode case folding, script and general-category properties. [Bounded ASCII accelerators delivered](completed-work/libraries.md#b48-regex-acceleration) (issue #742). |

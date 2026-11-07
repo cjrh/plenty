@@ -1135,6 +1135,135 @@ print(child.wait()?.success())?
     );
 }
 
+#[test]
+fn process_groups_and_sessions_are_established_before_exec() {
+    native(
+        r#"
+mut built = piped("/usr/bin/python3", &list[str].new()?)?
+built.arg("-c")?
+built.arg("import os,sys; print(os.getpgrp()==os.getpid(), os.getsid(0)==os.getpid(), sys.argv[1])")?
+built.arg("literal ; '$HOME' | *")?
+built.process_group(std.process.ProcessGroup.NewGroup)
+print(out_text(&built)?)?
+built.process_group(std.process.ProcessGroup.NewSession)
+print(out_text(&built)?)?
+# Resetting the mode restores inheritance; a reusable command makes fresh leaders.
+built.process_group(std.process.ProcessGroup.Inherit)
+print(out_text(&built)?)?
+built.process_group(std.process.ProcessGroup.NewSession)
+print(out_text(&built)?)?
+"#,
+        "True False literal ; '$HOME' | *\n\nTrue True literal ; '$HOME' | *\n\nFalse False literal ; '$HOME' | *\n\nTrue True literal ; '$HOME' | *",
+    );
+}
+
+#[test]
+fn group_termination_reaches_descendants_and_reaping_disables_signals() {
+    // The forked descendant and leader both retain stdout. EOF proves that
+    // group termination stopped both. Alarms bound a broken implementation.
+    native(
+        r#"
+mut built = piped("/usr/bin/python3", &list[str].new()?)?
+built.arg("-c")?
+built.arg("import os,signal; pid=os.fork(); signal.alarm(10); print('ready', flush=True) if pid==0 else None; signal.pause()")?
+built.process_group(std.process.ProcessGroup.NewSession)
+mut child = built.spawn()?
+mut reader = std.io.from_file(child.take_stdout().unwrap())
+mut ready = std.bytes.empty()?
+print(std.io.read_up_to(&mut reader, &mut ready, 6).unwrap(), text(&ready)?)?
+print(str.repr(child.signal_group(0))?, str.repr(child.signal_group(65))?)?
+cleanup_start = std.time.monotonic_now()
+child.terminate_group()?
+# Do not reap the leader until every required group signal has been sent.
+show(&child.wait()?)?
+mut end = std.bytes.empty()?
+print(std.io.read_up_to(&mut reader, &mut end, 1).unwrap(), elapsed(&cleanup_start) < 5000000000u64)?
+print(str.repr(child.terminate_group())?, str.repr(child.kill_group())?)?
+# Inherited groups must never be targeted, even after their child was reaped.
+mut inherited = std.process.command("true")?.spawn()?
+print(str.repr(inherited.kill_group())?)?
+inherited.wait()?
+print(str.repr(inherited.kill_group())?)?
+"#,
+        "6 ready\n\nResult[(), IoError].Err(IoError.InvalidInput) Result[(), IoError].Err(IoError.InvalidInput)\nFalse Option[i32].Nothing Option[i32].Some(15)\n0 True\nResult[(), IoError].Ok(()) Result[(), IoError].Ok(())\nResult[(), IoError].Err(IoError.InvalidInput)\nResult[(), IoError].Err(IoError.InvalidInput)",
+    );
+}
+
+#[test]
+fn timeout_and_cancellation_keep_an_isolated_group_available_for_cleanup() {
+    native(
+        r#"
+mut built = piped("/usr/bin/python3", &list[str].new()?)?
+built.arg("-c")?
+built.arg("import os,signal; signal.signal(signal.SIGTERM, signal.SIG_IGN); pid=os.fork(); signal.alarm(10); print('ready', flush=True) if pid==0 else None; signal.pause()")?
+built.process_group(std.process.ProcessGroup.NewGroup)
+mut child = built.spawn()?
+mut reader = std.io.from_file(child.take_stdout().unwrap())
+mut ready = std.bytes.empty()?
+print(std.io.read_up_to(&mut reader, &mut ready, 6).unwrap(), text(&ready)?)?
+child.terminate_group()?
+cancel = CancellationToken()?
+print(child.wait_timeout(&std.time.milliseconds(30u32), &cancel)?.is_none())?
+cancel.cancel()
+match child.wait_timeout(&std.time.seconds(30u32), &cancel):
+    case Err(std.process.WaitError.Cancelled):
+        print("cancelled")?
+    case _:
+        print("wrong result")?
+cleanup_start = std.time.monotonic_now()
+child.kill_group()?
+show(&child.wait()?)?
+mut end = std.bytes.empty()?
+print(std.io.read_up_to(&mut reader, &mut end, 1).unwrap(), elapsed(&cleanup_start) < 5000000000u64)?
+"#,
+        "6 ready\n\nTrue\ncancelled\nFalse Option[i32].Nothing Option[i32].Some(9)\n0 True",
+    );
+}
+
+#[test]
+fn isolated_spawn_failure_is_reported_and_command_remains_reusable() {
+    native(
+        r#"
+mut built = std.process.command("/plenty-no-such-directory/program")?
+built.process_group(std.process.ProcessGroup.NewGroup)
+print(str.repr(built.spawn())?)?
+built.process_group(std.process.ProcessGroup.NewSession)
+print(str.repr(built.spawn())?)?
+mut good = std.process.command("true")?
+good.process_group(std.process.ProcessGroup.NewSession)
+mut first = good.spawn()?
+show(&first.wait()?)?
+mut second = good.spawn()?
+show(&second.wait()?)?
+"#,
+        "Result[std.process.Child, IoError].Err(IoError.System(2))\nResult[std.process.Child, IoError].Err(IoError.System(2))\nTrue Option[i32].Some(0) Option[i32].Nothing\nTrue Option[i32].Some(0) Option[i32].Nothing",
+    );
+}
+
+#[test]
+fn exited_unreaped_leader_still_anchors_descendant_cleanup() {
+    native(
+        r#"
+mut built = piped("/usr/bin/python3", &list[str].new()?)?
+built.arg("-c")?
+# The descendant reports ready only after /proc proves the leader is a zombie.
+# Its alarm bounds failures without relying on a shell or an orphan's cleanup.
+built.arg("import os,signal,time\nleader=os.getpid()\npid=os.fork()\nif pid: os._exit(0)\nsignal.alarm(10)\nwhile open('/proc/%d/stat'%leader).read().split()[2]!='Z': time.sleep(.001)\nprint('ready',flush=True)\nsignal.pause()")?
+built.process_group(std.process.ProcessGroup.NewSession)
+mut child = built.spawn()?
+mut reader = std.io.from_file(child.take_stdout().unwrap())
+mut ready = std.bytes.empty()?
+print(std.io.read_up_to(&mut reader, &mut ready, 6).unwrap(), text(&ready)?)?
+cleanup_start = std.time.monotonic_now()
+child.kill_group()?
+show(&child.wait()?)?
+mut end = std.bytes.empty()?
+print(std.io.read_up_to(&mut reader, &mut end, 1).unwrap(), elapsed(&cleanup_start) < 5000000000u64)?
+"#,
+        "6 ready\n\nTrue Option[i32].Some(0) Option[i32].Nothing\n0 True",
+    );
+}
+
 /// Issue #778: a stream redirected to a file keeps the file's open mode, so
 /// an append-mode log keeps its earlier bytes and a reused command appends
 /// every child's output.
@@ -1318,4 +1447,101 @@ def main() -> Result[(), AllocError | IoError | SpawnError[()] | OverflowError[i
 "##
     );
     assert_eq!(run(&source), "40\n40");
+}
+
+#[test]
+fn isolated_groups_preserve_file_redirection_cwd_environment_and_stream_merging() {
+    native(
+        r#"
+drop(out_text(&sh("mkdir child-dir")?)?)
+with open("input", "w")? as file:
+    file.write("data\n")?
+for mode in [std.process.ProcessGroup.NewGroup, std.process.ProcessGroup.NewSession]?:
+    mut missing = std.process.command("/plenty-no-such-directory/program")?
+    missing.stdout(Stdio.File(open("log", "a")?))
+    missing.stderr_to_stdout()
+    missing.process_group(mode)
+    print(bad(&missing.spawn()), bad(&missing.spawn()))?
+    mut built = std.process.command("/usr/bin/python3")?
+    built.arg("-c")?
+    built.arg("import os,sys; assert os.getpgrp()==os.getpid(); assert (os.getsid(0)==os.getpid())==(sys.argv[1]=='session'); assert os.path.basename(os.getcwd())=='child-dir'; assert os.environ['ONLY']=='set' and 'HOME' not in os.environ; data=os.read(0,100); os.write(1,b'out '+data); os.write(2,b'err\\n')")?
+    built.arg("session" if mode == std.process.ProcessGroup.NewSession else "group")?
+    built.current_dir(&std.path.from_text("child-dir")?)?
+    built.env_clear()
+    built.env("ONLY", "set")?
+    built.stdin(Stdio.File(open("input", "r")?))
+    built.stderr_to_stdout()
+    built.process_group(mode)
+    built.stdout(Stdio.File(open("input", "r")?))
+    print(bad(&built.spawn()))?
+    built.stdout(Stdio.File(open("log", "a")?))
+    mut child = built.spawn()?
+    print(absent(&child.take_stdout()), absent(&child.take_stderr()), child.wait()?.success())?
+print(out_text(&sh("cat log")?)?)?
+"#,
+        "True True\nTrue\nTrue True True\nTrue True\nTrue\nTrue True True\nout data\nerr\nout data\nerr\n",
+    );
+}
+
+#[test]
+fn isolated_group_cleanup_closes_a_merged_pipe_held_by_descendants() {
+    native(
+        r#"
+for mode in [std.process.ProcessGroup.NewGroup, std.process.ProcessGroup.NewSession]?:
+    mut built = std.process.command("/usr/bin/python3")?
+    built.arg("-c")?
+    built.arg("import os,signal; pid=os.fork(); signal.alarm(10); os.write(2,b'ready\\n') if pid==0 else None; signal.pause()")?
+    built.stdin(Stdio.Null)
+    built.stdout(Stdio.Piped)
+    built.stderr_to_stdout()
+    built.process_group(mode)
+    mut child = built.spawn()?
+    print(absent(&child.take_stderr()))?
+    mut reader = std.io.from_file(child.take_stdout().unwrap())
+    mut ready = std.bytes.empty()?
+    print(std.io.read_up_to(&mut reader, &mut ready, 6).unwrap(), text(&ready)?)?
+    cleanup_start = std.time.monotonic_now()
+    child.kill_group()?
+    print(child.wait()?.signal())?
+    mut end = std.bytes.empty()?
+    print(std.io.read_up_to(&mut reader, &mut end, 1).unwrap(), elapsed(&cleanup_start) < 5000000000u64)?
+"#,
+        "True\n6 ready\n\nOption[i32].Some(9)\n0 True\nTrue\n6 ready\n\nOption[i32].Some(9)\n0 True",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn isolated_merged_pipe_pre_spawn_allocation_failure_preserves_configuration() {
+    // Fault only the fallible Plenty request allocation. Rust Command's host
+    // allocations remain outside the recoverable-allocation contract.
+    native(
+        r#"
+for mode in [std.process.ProcessGroup.NewGroup, std.process.ProcessGroup.NewSession]?:
+    mut built = std.process.command("/bin/sleep")?
+    built.arg("60")?
+    built.stdout(Stdio.Piped)
+    built.stderr_to_stdout()
+    built.process_group(mode)
+    print("__test_fail_allocations_after_0__")?
+    result = built.spawn()
+    print("__test_restore_allocations__")?
+    failed = match result:
+        case Err(IoError.Data(DataError.Allocation(AllocError.OutOfMemory))):
+            True
+        case Ok(child):
+            mut unexpected = child
+            unexpected.kill_group()?
+            unexpected.wait()?
+            False
+        case Err(error):
+            return Err(error)
+    print(failed)?
+    # The same configuration remains valid after request allocation failed.
+    mut retry = built.spawn()?
+    retry.kill_group()?
+    print(retry.wait()?.signal())?
+"#,
+        "True\nOption[i32].Some(9)\nTrue\nOption[i32].Some(9)",
+    );
 }

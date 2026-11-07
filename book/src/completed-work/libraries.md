@@ -328,3 +328,17 @@ resolving issue #677 for both Windows and macOS bundles. Broader B18.7 library
 qualification, linear algebra on these platforms and signing/notarization
 remain outside this delivery. See
 [macOS engine installation](../design/stdlib/dataframe-engine.md#macos-application-linking).
+
+## B43: Process groups and sessions
+
+Issue #776 adds declarative `Command.process_group` modes for a child-led
+process group or a new session, established before execution. Group signalling
+reaches descendants that retain group membership, without shell wrappers or
+parent-side setup polling. The unreaped leader pins the group ID; after reaping,
+group signals send nothing. Timeout/cancellation preserve cleanup ownership when
+they return without a status. This Linux-only slice does not contain escaping
+descendants, signal groups after reaping, or change dropped-child reaping policy.
+Group/session selection also composes with owned-file redirection and merged
+stderr after their integration (issue #778). Combined checks cover stream flags,
+cwd/environment flags, descendant pipe EOF and pre-spawn allocation-failure retry.
+See [the process contract](../design/stdlib/process.md#process-groups-and-sessions).
