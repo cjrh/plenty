@@ -141,7 +141,8 @@ returns `OverflowError[T]` for `T.MIN // -1`. The contract follows the
 operators and operand types, with one exception: a divisor written as an
 integer literal rules out what it cannot cause. `n // 3` and `n % 3` can fail
 with neither error, and `n // -1` only with overflow. A divisor held in a
-variable or constant still requires both, even when you know it is nonzero.
+variable or constant still requires `ZeroDivisionError`, and for a signed
+type `OverflowError[T]`, even when you know it is nonzero or not `-1`.
 Use `/` for floating-point division.
 
 Integers also support bitwise operations and shifts. A shift count must be

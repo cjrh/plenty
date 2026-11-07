@@ -259,17 +259,16 @@ A [class pattern](../04-expressions/matching.md#class-patterns) names each
 error and binds the wrapped result:
 
 ```plenty fragment
-def share(total: i64, people: i64) -> i64:
+def halve_sum(a: i64, b: i64) -> i64:
     result = checked:
-        (total + 1) // people
+        (a + b) // 2
     match result:
-        case Ok(each):
-            each
+        case Ok(half):
+            half
         case Err(OverflowError(wrapped)):
-            # A literal divisor rules out zero and MIN // -1.
-            wrapped // 2
-        case Err(ZeroDivisionError()):
-            0
+            # The exact sum is wrapped ± 2**64, so its half differs from
+            # wrapped // 2 by 2**63: flip the sign bit.
+            (wrapped // 2) ^ i64.MIN
 ```
 
 The error type follows the operators and operand types, not their values,
@@ -281,7 +280,13 @@ and `n % -3` add no error, `n // -1` adds only `OverflowError[T]` for a signed
 divisor's spelling only. A module constant, a variable assigned from a literal,
 a guard such as `if d != 0:` and arithmetic such as `1 + 1` prove nothing; use
 a [`NonZero[T]`](#nonzero-integers) or [`Positive[T]`](#positive-and-non-negative-integers)
-divisor to carry a proof checked elsewhere. A block whose only failing
+divisor to carry a proof checked elsewhere. Guards do not narrow other
+operations either: `-x` adds `OverflowError[T]` even inside
+`if x != T.MIN:`. Handle that error, or use
+[`unchecked:`](#unchecked-blocks) where the guard makes the failure
+impossible. Because `// 2` above cannot divide by zero, `result` is a
+`Result[i64, OverflowError[i64]]` and the match needs no
+`ZeroDivisionError` arm. A block whose only failing
 operation was such a division is a block with no arithmetic that can fail. A declared
 `Result` whose error includes every possible failure is kept, so a block can
 be the body of a function that returns `Result[i64, OverflowError[i64] |
