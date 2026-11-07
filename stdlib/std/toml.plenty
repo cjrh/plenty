@@ -1899,6 +1899,9 @@ pub class TreeEncoder:
     _budget: CodecBudget
     _done: bool
 
+    pub def reject(self, fault: std.serial.Fault) -> TomlError:
+        codec_fault(fault)
+
     pub def allocation(self, cause: AllocError) -> TomlError:
         TomlError(TomlFault.Allocation(cause), 0, 0, 0)
 

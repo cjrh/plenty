@@ -943,6 +943,7 @@ impl Lowerer<'_, '_> {
             return Ok(());
         }
         if let CollectionOp::TestFault = operation {
+            // Failure injection is independent of codec stack checks.
             let (code, _) = self.pop_typed(Ty::I32)?;
             let (count, _) = self.pop_typed(Ty::I64)?;
             let (kind, _) = self.pop_typed(Ty::I64)?;
@@ -955,6 +956,26 @@ impl Lowerer<'_, '_> {
                 None => self.bcx.ins().iconst(types::I8, 0),
             };
             self.stack.push((armed, Ty::Bool));
+            return Ok(());
+        }
+        if let CollectionOp::SerialStackReady { callee, failure } = operation {
+            let budget = self.module.serial_stack_budget(
+                self.user_fns[callee].id,
+                self.user_fns[failure].id,
+                self.bcx.func,
+            );
+            let address = self.bcx.ins().symbol_value(PTR_TY, budget);
+            let required = self.bcx.ins().load(
+                types::I64,
+                cranelift_codegen::ir::MemFlagsData::trusted(),
+                address,
+                0,
+            );
+            let function = self
+                .module
+                .declare_func_in_func(self.runtime.serial_stack_ready, self.bcx.func);
+            let call = self.bcx.ins().call(function, &[required]);
+            self.stack.push((self.bcx.inst_results(call)[0], Ty::Bool));
             return Ok(());
         }
         if let CollectionOp::ListLenRef(ty) = operation {

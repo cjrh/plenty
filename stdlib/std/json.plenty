@@ -1002,6 +1002,9 @@ pub class Encoder:
     _max_depth: i64
     _max_output: i64
 
+    pub def reject(self, fault: std.serial.Fault) -> JsonError:
+        JsonError(JsonFault.Serialization(fault), self._written, 0, 0)
+
     pub def allocation(self, cause: AllocError) -> JsonError:
         JsonError(JsonFault.Allocation(cause), self._written, 0, 0)
 
@@ -1780,6 +1783,9 @@ pub class TreeEncoder:
     _root: bool
     _budget: TreeBudget
     _failed: bool
+
+    pub def reject(self, fault: std.serial.Fault) -> JsonError:
+        JsonError(JsonFault.Serialization(fault), 0, 0, 0)
 
     pub def allocation(self, cause: AllocError) -> JsonError:
         JsonError(JsonFault.Allocation(cause), 0, 0, 0)

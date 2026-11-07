@@ -107,6 +107,7 @@ mod inline_calls;
 mod leaf_calls;
 mod reachability;
 mod scalar_captures;
+mod serial_stack;
 mod sites;
 mod small_calls;
 mod sorting;
@@ -795,6 +796,11 @@ fn object_module(
     let mut user_fns: HashMap<String, UserFn> = HashMap::default();
     let mut bodies = Vec::new();
     collect_user_fns(&ops, &mut out.module, &mut user_fns, &mut bodies)?;
+    let protected = serial_stack::Budgets::protected_names(&ops);
+    out.serial_stack.requests = Arc::clone(&runtime.serial_stack_budgets);
+    for name in &protected {
+        out.address_taken(user_fns[name].id);
+    }
     crate::threading::walk(&ops, &mut |op| {
         if let Op::FunctionAddress(name, _) = op
             && let Some(function) = user_fns.get(name)
@@ -804,9 +810,16 @@ fn object_module(
     });
     if build.optimize {
         leaf_calls::prepare(&bodies, &mut user_fns);
+        for name in &protected {
+            user_fns.get_mut(name).unwrap().inline = None;
+        }
         inline_calls::prepare(&bodies, &mut user_fns);
+        for name in &protected {
+            user_fns.get_mut(name).unwrap().inline_body = None;
+        }
         clist_simd::prepare(&bodies, &mut user_fns);
     }
+    out.serial_stack.prepare(&bodies, &user_fns, &protected);
     sites::mark_context_preserving(&bodies, &mut user_fns);
     runtime.drop_hooks = user_fns
         .iter()
@@ -1049,6 +1062,8 @@ pub(crate) fn baseline_isa(
 /// them all up-front so each call site is just `module.declare_func_in_func`
 /// plus an `ins().call`.
 struct Runtime {
+    serial_stack_budgets: std::sync::Arc<std::sync::Mutex<HashMap<(FuncId, FuncId), DataId>>>,
+    serial_stack_ready: FuncId,
     standard_calls: bool,
     caller_enter: FuncId,
     caller_leave: FuncId,
@@ -1215,6 +1230,13 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         Ok(module.declare_function(name, Linkage::Import, &sig)?)
     }
     Ok(Runtime {
+        serial_stack_budgets: Default::default(),
+        serial_stack_ready: helper(
+            module,
+            "plenty_serial_stack_ready",
+            &[types::I64],
+            Some(types::I8),
+        )?,
         standard_calls: false,
         caller_enter: {
             let mut sig = module.make_signature();

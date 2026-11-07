@@ -15,6 +15,7 @@ pub enum Fault:
     DuplicateElement
     Unrepresentable
     InvalidBase64(std.encoding.EncodingError)
+    StackLimit
 
 pub enum Step:
     Field(str)
@@ -73,6 +74,8 @@ pub def at[T, E](result: Result[T, SerialError[E]], step: Step) -> Result[T, Ser
             Err(cause.at(step))
 
 pub protocol Encoder[E]:
+    def reject(self, fault: Fault) -> E:
+        pass
     def allocation(self, cause: AllocError) -> E:
         pass
     def null(self: &mut Encoder) -> Result[(), E]:
@@ -141,6 +144,20 @@ pub def encode[T, E, S: Encoder[E]](value: &T, out: &mut S) -> Result[(), Serial
 
 pub def decode[T, E, D: Decoder[E]](source: &mut D) -> Result[T, SerialError[E]]:
     __serial_decode[T, E, D](source)
+
+# Caller guards report through the same typed adapter bridge. These helpers
+# remain unguarded so an exhausted codec segment can always report its cause.
+def decode_stack_error_mut[E, D: Decoder[E]](source: &mut D) -> SerialError[E]:
+    error(source.reject(Fault.StackLimit))
+
+def decode_stack_error_ref[E, D: Decoder[E]](source: &D) -> SerialError[E]:
+    error(source.reject(Fault.StackLimit))
+
+def encode_stack_error_mut[E, S: Encoder[E]](out: &mut S) -> SerialError[E]:
+    error(out.reject(Fault.StackLimit))
+
+def encode_stack_error_ref[E, S: Encoder[E]](out: &S) -> SerialError[E]:
+    error(out.reject(Fault.StackLimit))
 
 # Missing-field behavior is selected after aliases and generic arguments are
 # resolved, so an Option hidden by either still receives Nothing.
