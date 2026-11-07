@@ -84,3 +84,47 @@ stops this kind of wait on `SIGTERM`.
 Selection skips a drained channel whose senders have all gone away. It reports
 `SelectError.Disconnected` only when both channels are drained and disconnected.
 The receivers remain yours after every outcome.
+
+## Signal with a unit message
+
+When the arrival of a message is all it says, send `()`. A `channel[()]`
+stores no message data, only a count, so a stop request needs no placeholder
+value such as `True`. Use a unit channel when the signal must be selected
+alongside other messages or counted, and a
+[cancellation token](cooperative-cancellation.md) when any code should be able
+to cancel a wait. This example sends from one thread to keep the output
+deterministic; the real sender is normally another thread:
+
+```plenty
+type StopError = RecvError | SelectError | SendError[i64] | SendError[()] | AllocError
+
+def main() -> Result[(), IoError | StopError]:
+    stop, stopped = channel[()](1)?
+    numbers, data = channel[i64](4)?
+    numbers.send(1)?
+    numbers.send(2)?
+    while True:
+        match select_recv(stopped, data)?:
+            case Selected.First(_):
+                print("stop")?
+                break
+            case Selected.Second(number):
+                print(number)?
+                if number == 1:
+                    stop.send(())?
+    print(data.recv()?)?
+    Ok(())
+```
+
+```output
+1
+stop
+2
+```
+
+The loop handles the first number, then queues the stop request. The stop
+channel is first, so the stop request wins over the number still queued, which
+stays in its channel. `case Selected.First(_):` ignores the unit payload.
+Generic helpers that bind or take a `T` value, such as `std.sync.send_before`,
+do not yet accept `T = ()`; see
+[unit messages](../../design/facilities/03-concurrency/channels.md#unit-messages).
