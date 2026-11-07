@@ -3897,7 +3897,10 @@ impl Lower<'_> {
         {
             return self.mutex_method(base, name, args, ops);
         }
-        if matches!(self.place_type(base), Some(Ty::Executor | Ty::Future(_))) {
+        if matches!(
+            self.place_type(base),
+            Some(Ty::Executor | Ty::Submitter | Ty::Future(_))
+        ) {
             return self.executor_method(base, name, args, ops);
         }
         if matches!(
@@ -4440,7 +4443,7 @@ impl Lower<'_> {
         if classes::inherent_receiver(&ty) {
             return self.temporary_class_method(base, name, None, args, (ty, loans), ops);
         }
-        if matches!(ty, Ty::Executor | Ty::Future(_)) {
+        if matches!(ty, Ty::Executor | Ty::Submitter | Ty::Future(_)) {
             return self.temporary_executor_method(base, name, args, (ty, loans), ops);
         }
         if let Ty::BoxedProtocol(protocol) = &ty {

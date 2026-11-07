@@ -397,6 +397,7 @@ impl Ty {
                     | Self::Channel(..)
                     | Self::CancellationToken
                     | Self::Executor
+                    | Self::Submitter
                     | Self::Future(_)
             )
     }

@@ -668,7 +668,7 @@ def decompressor[R](format: Format, inner: R, limit: NonNegative[i64]) -> Result
 
 Executors, futures and parallel operations. Errors: Pool/submission/future/parallel errors. [Reference](concurrent.md).
 
-Compiler-provided: `ThreadPoolExecutor`, `Future`, `PoolError`, `SubmitError`, `FutureError`, `PoolMapError`, `ParallelError`. Their signatures are on the reference page.
+Compiler-provided: `ThreadPoolExecutor`, `Future`, `PoolError`, `SubmitError`, `FutureError`, `PoolMapError`, `ParallelError`, `Submitter`. Their signatures are on the reference page.
 
 ## `std.crypto`
 

@@ -589,6 +589,7 @@ fn named_type(name: &str) -> Type {
         "FutureError" => crate::sum::future_error(),
         "PoolMapError" => crate::sum::pool_map_error(),
         "ThreadPoolExecutor" => Ty::Executor,
+        "Submitter" => Ty::Submitter,
         _ => return None,
     })
 }

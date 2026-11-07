@@ -313,6 +313,7 @@ fn kind_code(ty: &Ty) -> u8 {
         Ty::Channel(_, true) => b'X',
         Ty::Channel(_, false) => b'Y',
         Ty::Executor => b'P',
+        Ty::Submitter => b'p',
         Ty::CancellationToken => b'K',
         Ty::Future(_) => b'Z',
         Ty::Closure(_) => b'H',

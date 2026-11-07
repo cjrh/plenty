@@ -112,7 +112,11 @@ impl Ty {
     fn is_concurrent_handle(&self) -> bool {
         matches!(
             self,
-            Self::Channel(..) | Self::CancellationToken | Self::Executor | Self::Future(_)
+            Self::Channel(..)
+                | Self::CancellationToken
+                | Self::Executor
+                | Self::Submitter
+                | Self::Future(_)
         )
     }
     /// Facts of a collection or box, combined from those of its contents
@@ -458,6 +462,7 @@ mod tests {
             Ty::Unit,
             Ty::File,
             Ty::Executor,
+            Ty::Submitter,
             Ty::CancellationToken,
             Ty::ForeignPtr("handle".into(), crate::foreign::Threads::None),
             Ty::Range(Arc::new(Ty::I64)),

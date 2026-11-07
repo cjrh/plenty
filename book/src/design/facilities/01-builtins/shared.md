@@ -64,6 +64,8 @@ borrow at and must be named first.
   box: no references, generators, or borrowed environments.
 - `T` cannot reach a `ThreadPoolExecutor` or `Future`. The last owner could
   drop on one of the pool's own workers, which would then wait for its own pool.
+  A [`Submitter`](../03-concurrency/executors.md#submit-from-workers) is
+  accepted: dropping it never waits.
 - `T` cannot reach `Shared[T]` again through a `Mutex` or a channel endpoint.
   Their contents change after construction, so a value could come to hold a
   share of itself and never be released. Immutable sharing, as in a tree or DAG

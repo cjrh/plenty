@@ -556,3 +556,31 @@ fn cancel_pending_skips_queued_jobs_and_keeps_accepting() {
         plenty_release(pool.cast());
     }
 }
+
+#[test]
+#[cfg(not(miri))]
+fn submitter_outlives_its_owner_and_reports_shutdown() {
+    static RUNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    unsafe extern "C" fn count(_: *const u128, _: *mut u128, _: *const u128) {
+        RUNS.fetch_add(1, Ordering::Relaxed);
+    }
+    static UNIT: Type = Type {
+        kind: b'u',
+        name: "()",
+        ..NUMBER
+    };
+    let pool = create(2, 4).unwrap();
+    unsafe {
+        let handle = submitter(pool);
+        for value in 0..3 {
+            submit_detached(pool_of(handle), value, &NUMBER, &UNIT, count).unwrap();
+        }
+        // The owner's drop shuts down and drains, but keeps the allocation
+        // while the handle lives.
+        plenty_release(pool.cast());
+        assert_eq!(RUNS.load(Ordering::Relaxed), 3);
+        let closed = submit_detached(pool_of(handle), 9, &NUMBER, &UNIT, count).unwrap_err();
+        assert_eq!(closed, 1, "Shutdown");
+        plenty_release(handle);
+    }
+}

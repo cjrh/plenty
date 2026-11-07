@@ -2,6 +2,8 @@
 use crate::op::Ty;
 use std::sync::Arc;
 
+pub mod submitters;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Job {
     pub adapter: String,
@@ -13,6 +15,9 @@ pub struct Job {
     pub closure: Option<Arc<crate::closure::ClosureType>>,
     /// One caller-owned immutable environment shared until the map drains.
     pub shared: Option<Arc<crate::closure::ClosureType>>,
+    /// Submitted through a `Submitter`: nonblocking, with no future, so the
+    /// job returns `()` and the worker is its only owner.
+    pub handle: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -30,6 +35,8 @@ pub enum ExecutorOp {
     CancelPending,
     /// The pool's worker count: a parallel pipeline's default chunk count.
     Workers,
+    /// `pool.submitter()`: a new reference to the pool's submission handle.
+    Submitter,
 }
 
 impl ExecutorOp {
@@ -38,6 +45,10 @@ impl ExecutorOp {
             Self::New => (
                 vec![Ty::I64, Ty::I64],
                 crate::sum::result(Ty::Executor, crate::sum::pool_error()),
+            ),
+            Self::Submit(job, _) if job.handle => (
+                vec![Ty::Submitter, job.input.clone()],
+                crate::sum::result(Ty::Unit, crate::sum::submit_error(job.input.clone())),
             ),
             Self::Submit(job, _) => (
                 vec![Ty::Executor, job.input.clone()],
@@ -93,11 +104,13 @@ impl ExecutorOp {
             Self::Shutdown => (vec![Ty::Executor, Ty::Bool], Ty::Unit),
             Self::CancelPending => (vec![Ty::Executor], Ty::Unit),
             Self::Workers => (vec![Ty::Executor], Ty::I64),
+            Self::Submitter => (vec![Ty::Executor], Ty::Submitter),
         }
     }
     pub fn opcode(&self) -> i64 {
         match self {
             Self::New => 0,
+            Self::Submit(job, _) if job.handle => 13,
             Self::Submit(_, false) => 1,
             Self::Submit(_, true) => 2,
             Self::Result(_) => 3,
@@ -110,6 +123,7 @@ impl ExecutorOp {
             Self::WaitTimeout(_) => 10,
             Self::Workers => 11,
             Self::CancelPending => 12,
+            Self::Submitter => 14,
         }
     }
 

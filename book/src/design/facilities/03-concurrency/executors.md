@@ -13,6 +13,7 @@ has `Allocation(AllocError)` and `Thread(ThreadError)`.
 | `pool.submit(function, arguments...)` | Same, with a bound job type | Bind a statically named function and owned arguments |
 | `pool.submit_nowait(...)` | Same | Return `Full(job)` if the queue is full |
 | `pool.cancel_pending()` | `()` | Cancel every queued job; running jobs continue and the pool stays open |
+| `pool.submitter()` | `Submitter` | A handle that workers can use to submit; see [submit from workers](#submit-from-workers) |
 | `pool.shutdown()` | `()` | Stop accepting, drain accepted work, join workers |
 
 `cancel_pending()` does not wait for running jobs. It removes the queued jobs,
@@ -32,7 +33,8 @@ Inputs and results must be wholly owned and satisfy the [worker checks](index.md
 Jobs share state through [`Shared[T]`](../01-builtins/shared.md) handles:
 pass each job its own `handle.share()`.
 Borrowed captures/arguments, generator frames, and uncertified indirect effects
-are rejected. Executors and futures cannot enter workers.
+are rejected. Executors and futures cannot enter workers; a
+[`Submitter`](#submit-from-workers) can.
 
 User jobs must own their inputs because a future can outlive the borrow that
 would feed it. [Parallel pipelines](../../language/09-iteration/06-pipelines.md#parallel-pipelines)
@@ -72,6 +74,109 @@ cancels it on every exit. See
 Workers must finish their communication before the scope can close. See
 [futures](futures.md) for result ownership and
 [parallel operations](parallel-map.md) for batched work.
+
+## Submit from workers
+
+A worker cannot hold the pool: it could wait for its own queue, its own
+shutdown, or a future only it would run. `pool.submitter()` returns a
+`Submitter` instead, a handle that can only submit without waiting. It can
+enter workers, channel messages, and [`Shared[T]`](../01-builtins/shared.md).
+
+| Operation | Result | Behavior |
+| --- | --- | --- |
+| `pool.submitter()` | `Submitter` | Another handle to the pool's queue |
+| `submitter.share()` | `Submitter` | Another handle to the same queue |
+| `submitter.submit_nowait(job)` | `Result[(), SubmitError[F]]` | Queue an owned zero-argument job, or return it |
+| `submitter.submit_nowait(function, arguments...)` | Same, with a bound job type | Bind a statically named function and owned arguments |
+
+```plenty
+from std.atomic import Atomic, Ordering
+from std.time import milliseconds, sleep
+
+def visit(submitter: Submitter, visited: Shared[Atomic[u64]], depth: i64) -> ():
+    if depth > 0:
+        for _ in range(2):
+            handle = submitter.share()
+            counter = visited.share()
+            child = def once [handle, counter, depth]() -> ():
+                # depth > 0, so this cannot overflow.
+                unchecked:
+                    visit(handle, counter, depth - 1)
+            match submitter.submit_nowait(child):
+                case Ok(_):
+                    pass
+                case Err(SubmitError.Full(job) | SubmitError.Shutdown(job) | SubmitError.OutOfMemory(job) | SubmitError.CapacityOverflow(job)):
+                    job()
+    _ = visited.fetch_add(1, Ordering.Release)
+
+def main() -> Result[(), AllocError | IoError | PoolError | SubmitError[()]]:
+    visited = Shared[Atomic[u64]](Atomic(0))?
+    with ThreadPoolExecutor(3, 2)? as pool:
+        submitter = pool.submitter()
+        submitter.submit_nowait(visit, submitter.share(), visited.share(), 4).drop_job()?
+        # Recursive submission must finish before the pool shuts down.
+        while visited.load(Ordering.Acquire) < 31:
+            sleep(&milliseconds(1))
+    print(visited.load(Ordering.Acquire))?
+    Ok(())
+```
+```output
+31
+```
+
+A `Submitter` job returns `()`. It has no future, so a result or error would
+be dropped unseen; handle errors in the job, or send them on a channel. There
+is no blocking `submit`: a worker waiting for space in its own pool's queue
+could wait forever. A full queue returns `Full(job)` with the whole unstarted
+job, which the caller can run inline, as above, retry later, or drop with
+`drop_job()`. Waiting, results, cancellation, and shutdown stay with the
+`ThreadPoolExecutor`; `pool.cancel_pending()` also cancels queued jobs that a
+`Submitter` submitted, dropping their captures.
+
+Shutdown closes the queue and drains the jobs it accepted. A `Submitter`
+submission after that, including one from a job running during the drain,
+returns `Shutdown(job)`. Recursive work must therefore reach quiescence before
+the pool's owner leaves its block: wait until every job has reported, as the
+example counts visited nodes, or the jobs submitted after the close are never
+queued. The owner's drop shuts the pool down even while submitters live. A
+`Submitter` keeps only the queue's memory, which the last handle frees; its
+drop never waits.
+
+Taking or sharing a handle updates a reference count and allocates nothing.
+Each accepted job needs one fallible cell, as for `pool.submit_nowait`. A trap
+in a submitted job stops the program, as in any pool job.
+
+### Waits in submitting jobs
+
+A job that can submit through a `Submitter` cannot wait for a job it queued:
+if every worker waits so, the jobs that would release them stay queued behind
+them. The compiler applies a rule matched by message type, as the shutdown
+rules are:
+
+> A pool job that can submit through a `Submitter`, directly or through jobs it
+> submits, cannot do a blocking or timed receive or selection on a queue whose
+> sender a job it can submit can reach, nor a blocking or timed send on a queue
+> whose receiver such a job can reach.
+
+Queues are matched by message type. A job may still send blocking on a queue
+whose receiver only another thread holds, as the
+[tutorial lesson](../../../tutorial/11-concurrency/submit-from-workers.md)
+does. The `_nowait` operations are accepted, as are I/O and locks.
+A lock's holder is running, so it releases the lock unless it waits on a
+queue, which this rule or the job's own protocol covers. A job waiting on a
+channel no submitted job can reach is outside the rule; such channel protocols
+can still deadlock, as for any pool job. Code started on a scoped thread, or
+`main`, is not a pool worker, so it may submit and then wait.
+
+For the [shutdown rules](#shutdown-and-live-receivers), a job that can
+submit through a `Submitter` can also hold every sender, and reach every mutex,
+that a job it can submit can. A job that holds a `Submitter` but never sends
+blocking still blocks a shutdown while a live receiver remains, when a job it
+submits can send blocking on that receiver's queue.
+
+The rule follows calls and closure calls; a closure made in a job runs where it
+is called. It does not see submissions in a function compiled elsewhere, and it
+matches queues by type, not identity.
 
 ## Shutdown and live receivers
 

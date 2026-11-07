@@ -777,7 +777,10 @@ may be held by worker code and cross as their contract allows; every
 `std.dataframe` and `std.linalg` call is `@thread_safe`, and dataframe values
 built in steps use movable builders so no call writes through a shareable
 pointer (issue #833). Channels accept unit messages as wake-only signals; a
-unit queue stores only a count (issue #790).
+unit queue stores only a count (issue #790). Workers submit through a
+nonblocking [`Submitter`](../design/facilities/03-concurrency/executors.md#submit-from-workers),
+with a check that a submitting job does not wait on a queue its submitted jobs
+can reach (issue #789).
 
 See [threads](../design/facilities/03-concurrency/threads.md),
 [channels](../design/facilities/03-concurrency/channels.md),

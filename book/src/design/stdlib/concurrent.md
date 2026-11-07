@@ -5,7 +5,7 @@ Explicit imports for [executors](../facilities/03-concurrency/executors.md),
 [parallel map](../facilities/03-concurrency/parallel-map.md), and
 [tree reduction](../facilities/03-concurrency/parallel-reduce.md).
 Exports: `ThreadPoolExecutor`, `Future[T]`, `PoolError`, `SubmitError[F]`,
-`FutureError`, `PoolMapError`, and `ParallelError[E]`. Imports preserve prelude
+`FutureError`, `PoolMapError`, `ParallelError[E]`, and `Submitter`. Imports preserve prelude
 identity and add no allocation or wrapper. Supported target: x86_64 Linux GNU.
 
 ```plenty
@@ -34,8 +34,9 @@ choose a fallback explicitly; preserve any user-configured count.
 `PoolError` has `Allocation(AllocError)` and `Thread(ThreadError)`.
 The linked pages specify submission, mapping, reduction and shutdown signatures.
 Accepted jobs and results are wholly owned; borrowing belongs in scoped threads.
-Pools and futures cannot enter workers. All reachable code still passes worker
-effect checking.
+Pools and futures cannot enter workers; a worker submits through a
+[`Submitter`](../facilities/03-concurrency/executors.md#submit-from-workers).
+All reachable code still passes worker effect checking.
 
 Construction makes one allocation and starts the requested OS workers. Each
 accepted job needs one fallible cell; a full queue bounds outstanding queued

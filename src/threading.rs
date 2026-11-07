@@ -77,6 +77,7 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
     // program with roots indexes them by name.
     let mut definitions = Vec::with_capacity(ops.len());
     let mut addresses = Vec::new();
+    let mut jobs = Vec::new();
     walk(ops, &mut |op| {
         if let Op::DefineFn(name, function) = op {
             definitions.push((name.as_str(), function.as_ref()));
@@ -105,6 +106,7 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
         if let Op::Executor(operation) = op
             && let Some(job) = operation.job()
         {
+            jobs.push(job);
             roots.push((
                 "executor worker",
                 vec![job.worker.clone()],
@@ -206,6 +208,7 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
             current = Some(name);
         }
     }
+    crate::executor::submitters::check(&jobs, &functions, |name| describe(name, &functions))?;
     Ok(())
 }
 
@@ -329,7 +332,7 @@ fn check_type(
     };
     match ty {
         Ty::Executor | Ty::Future(_) => {
-            return Err("executor and future handles cannot enter worker threads; wait and submit on the owning thread".into())
+            return Err("executor and future handles cannot enter worker threads; wait and submit on the owning thread, or give the worker a `pool.submitter()` to submit without waiting".into())
         }
         Ty::Channel(message, false)
             if checked_receivers.insert(ty.identity_name()) && receiver_cycle(message, ty) =>
