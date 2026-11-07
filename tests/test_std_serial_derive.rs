@@ -672,7 +672,7 @@ def main() -> Result[(), IoError]:
         case Err(error):
             match error.cause.fault:
                 case std.json.JsonFault.Serialization(std.serial.Fault.StackLimit):
-                    print("stack limit", error.complete, error.path.unwrap().len() > 0)?
+                    print("stack limit", error.complete, len(error.path.unwrap()) > 0)?
                 case _:
                     print(error.cause.fault)?
     Ok(())
