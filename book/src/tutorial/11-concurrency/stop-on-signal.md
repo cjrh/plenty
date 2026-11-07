@@ -86,3 +86,76 @@ A program that is not a server can wait on the handle directly with
 [selector](tcp-sockets.md#wait-on-many-connections) with
 `signals.watch(&mut selector, key)` and take the signal with
 `signals.received()`.
+
+## Stop a long wait on a signal
+
+A worker loop that waits for messages, such as a long poll, stops the same
+way. Give its wait a deadline and the same token, through
+[`std.sync.select_recv_before`](channel-selection.md#wait-until-a-deadline-or-a-stop-request)
+or `recv_before`. Here the wait may last a minute, but `SIGTERM` ends it at
+once:
+
+```plenty
+import std.process
+import std.ready
+import std.signal
+import std.sync
+from std.signal import Signal
+from std.sync import CancellationToken
+from std.time import deadline_after, monotonic_now, seconds
+
+def supervisor() -> Result[(), AllocError | IoError]:
+    mut command = std.process.shell("kill -TERM $PPID")?
+    command.spawn()?.wait()?
+    Ok(())
+
+type ShutdownError = std.signal.SignalError | std.ready.WaitError | RangeError
+
+def main() -> Result[(), SpawnError[()] | IoError | AllocError | ShutdownError]:
+    signals = std.signal.listen()?
+    commands_in, commands = channel[str](4)?
+    jobs_in, jobs = channel[str](4)?
+    stop = CancellationToken()?
+    start = monotonic_now()
+    deadline = deadline_after(&start, &seconds(60))?
+    with spawn(std.signal.cancel_on, signals, stop.share()).drop_job()? as watcher, stop.cancel_on_exit(), spawn(supervisor).drop_job()? as stopper:
+        match std.sync.select_recv_before(&commands, &jobs, &deadline, &stop):
+            case Ok(Selected.First(command)):
+                print(command)?
+            case Ok(Selected.Second(job)):
+                print(job)?
+            case Err(std.sync.WaitError.Cancelled):
+                print("stop requested")?
+            case Err(std.sync.WaitError.TimedOut) | Err(std.sync.WaitError.Disconnected):
+                print("no more work")?
+        stop.cancel()
+        stopper.join()?
+        match watcher.join()?:
+            case Some(Signal.Terminate):
+                print("on SIGTERM")?
+            case Some(Signal.Interrupt):
+                print("on SIGINT")?
+            case Nothing:
+                print("without a signal")?
+    print(monotonic_now().duration_since(&start)?.as_seconds() < 1u64)?
+    Ok(())
+```
+```output
+stop requested
+on SIGTERM
+True
+```
+
+The watcher cancels `stop`, and `select_recv_before` sees it within about one
+10 ms polling slice. The program stops in well under a second, as the last line
+checks. Two error types share the name `WaitError`: `std.sync.WaitError` comes
+from the selection, and `std.ready.WaitError` from `cancel_on`, through
+`watcher.join()?`. The example names both by module.
+
+Do not write this wait as `select_recv_timeout_ms(&commands, &jobs,
+seconds(60).as_timeout_ms())`. That low-level wait takes no token, so after
+`SIGTERM` the program would keep waiting for the rest of the minute, or until a
+message arrived. A real long poll may wait much longer. The same holds for `recv_timeout_ms`, `send_timeout_ms` and a
+future's `wait_timeout_ms`; the
+[timed wait reference](../../design/facilities/03-concurrency/timed-selection.md)
+lists them.

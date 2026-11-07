@@ -20,7 +20,7 @@ scope decision, not a second task list.
 | [XML](../design/stdlib/xml.md) | Bounded UTF-8 events and validating writes without DTDs/external entities (issue #462). |
 | [Advisory file locks](../design/stdlib/fs/lock.md) | Owned shared/exclusive Linux locks, nonblocking acquisition and cancellable deadline waits; close-only lifetime preserves inherited descriptions (issue #774), with [explicit child inheritance](#explicit-child-file-inheritance) (issue #777). |
 | [Filesystem watch](../design/stdlib/fs/watch.md) | Bounded Linux inotify batches, overflow reporting and readiness integration (issue #484). |
-| [Templates](../design/stdlib/template.md) | Bounded Jinja-style interpolation, filters, conditions, named inheritance and HTML escaping over explicit JSON (issue #499); reusable bounded text and quote-specific attribute escaping (issue #823); raw-value per-placeholder escape contexts with explicit filter chaining (issue #834); registered fragment composition with isolated object/loop/inheritance scopes and shared render budgets (issue #835). |
+| [Templates](../design/stdlib/template.md) | Bounded Jinja-style interpolation, filters, conditions, named inheritance and HTML escaping over explicit JSON (issue #499); reusable bounded text and quote-specific attribute escaping (issue #823); raw-value per-placeholder escape contexts with explicit filter chaining (issue #834); registered fragment composition with isolated object/loop/inheritance scopes and shared render budgets (issue #835); bounded scalar comparisons, boolean composition and flat `elif` chains (issue #836). |
 | [Linalg](../design/stdlib/linalg.md) | Finite f64 matrices, solves and dense decompositions over allocation-safe faer kernels, with engine-parameterized build/packaging/CI (issue #490). |
 | [MIME](../design/stdlib/mime.md) | RFC 9110 media parsing/building/formatting/matching and the extension table used by HTTP files (issue #485). |
 | [Images](../design/stdlib/image.md) | Plenty over `std.compress`: bounded owned 8-bit buffers, all PNG colour types/depths/Adam7 decoding, encoding, crop, conversion and nearest/bilinear resizing; dimensions/bytes checked before allocation (issue #476). |
@@ -369,3 +369,12 @@ source's boundaries. Executable checks cover inline navigation, comments,
 branches/loops, preformatted content, mixed line endings, Unicode, inheritance,
 syntax failures and exact source/token limits. See
 [the template contract](../design/stdlib/template.md#whitespace-control).
+
+## Declared template context shapes
+
+Issue #838: [recursive Shape declarations](../design/stdlib/template-schema.md)
+check all reachable branches, loop element shapes and effective inheritance/include
+scopes without sample contexts. Checked rendering verifies actual JSON against
+required/optional fields, bounded arrays and unions, sharing the work budget with
+preflight. Optional reads and variant correlation remain deliberately conservative;
+ordinary dynamic rendering is unchanged.
