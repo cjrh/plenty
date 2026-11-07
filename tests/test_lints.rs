@@ -289,6 +289,136 @@ def main() -> Result[(), AllocError | IoError]:
     assert_eq!(messages(source), Vec::<String>::new());
 }
 
+/// Method, anonymous function, and closure bodies (issue #846), with every
+/// warning's suggestion; `BODIES_REPLACED` applies them.
+const BODIES: &str = r#"
+@copy
+class Point:
+    x: i64
+    y: i64
+
+    def again(self) -> Result[Point, AllocError]:
+        Ok(copy(self)?)
+
+    def first(self) -> Result[i64, AllocError]:
+        Ok(copy(self)?.x)
+
+    def label(self, name: str) -> Result[str, AllocError]:
+        Ok(copy(name)?)
+
+class Named:
+    name: str
+
+    def shown(self) -> Result[str, AllocError]:
+        Ok(copy(self.name)?)
+
+enum Shape:
+    Circle(f64)
+    Square(f64)
+
+    def same(self) -> Result[Shape, AllocError]:
+        Ok(copy(self)?)
+
+def main() -> Result[(), AllocError | IoError]:
+    p = Point(1, 2)
+    inner = def(s: str) -> Result[str, AllocError]:
+        Ok(copy(s)?)
+    k = 3
+    word = "w"
+    held = def[k, p]() -> Result[tuple[i64, i64], AllocError]:
+        Ok((copy(k)?, copy(p)?.y))
+    borrowed = def[&word]() -> Result[str, AllocError]:
+        Ok(copy(&word)?)
+    match Shape.Square(2.0).same()?:
+        case Shape.Circle(r):
+            print(r)?
+        case Shape.Square(s):
+            print(s)?
+    print(p.again()?.x, p.first()?, p.label("n")?, Named("m").shown()?, inner("b")?, held()?[0], held()?[1], borrowed()?)?
+    Ok(())
+"#;
+
+const BODIES_REPLACED: [(&str, &str); 9] = [
+    ("copy(self)?", "*self"),
+    ("copy(self)?", "(*self)"),
+    ("copy(name)?", "name"),
+    ("copy(self.name)?", "self.name"),
+    ("copy(self)?", "*self"),
+    ("copy(s)?", "s"),
+    ("copy(k)?", "k"),
+    ("copy(p)?", "p"),
+    ("copy(&word)?", "word"),
+];
+
+#[test]
+fn method_anonymous_function_and_closure_bodies_are_reported() {
+    assert_eq!(
+        messages(BODIES),
+        [
+            redundant_replaced("self", "Point", "*self"),
+            redundant_replaced("self", "Point", "(*self)"),
+            redundant("name", "str"),
+            redundant("self.name", "str"),
+            redundant_replaced("self", "Shape", "*self"),
+            redundant("s", "str"),
+            redundant("k", "i64"),
+            redundant("p", "Point"),
+            redundant_replaced("&word", "str", "word"),
+        ]
+    );
+}
+
+#[test]
+fn applying_body_suggestions_checks_and_keeps_behavior() {
+    let mut replaced = BODIES.to_owned();
+    for (from, to) in BODIES_REPLACED {
+        assert!(replaced.contains(from), "{from}");
+        replaced = replaced.replacen(from, to, 1);
+    }
+    assert!(!replaced.contains("copy("), "{replaced}");
+    assert_eq!(messages(&replaced), Vec::<String>::new());
+    let expected = "2.0\n1 1 n m b 3 2 w\n";
+    assert_eq!(support::run_stdout(BODIES), expected);
+    assert_eq!(support::run_stdout(&replaced), expected);
+}
+
+#[test]
+fn generic_method_and_closure_bodies_are_left_alone() {
+    let source = r#"
+class Holder[T]:
+    item: T
+
+    def dup(self) -> Result[T, AllocError]:
+        Ok(copy(self.item)?)
+
+enum Maybe[T]:
+    Some(T)
+    Nothing
+
+    def get(self, fallback: T) -> Result[T, AllocError]:
+        match self:
+            case Maybe.Some(v):
+                return Ok(copy(v)?)
+            case Maybe.Nothing:
+                return Ok(copy(fallback)?)
+
+def twice[T](value: T) -> Result[T, AllocError]:
+    f = def(x: T) -> Result[T, AllocError]:
+        Ok(copy(x)?)
+    g = def[&value]() -> Result[T, AllocError]:
+        Ok(copy(value)?)
+    g()?
+    f(copy(&value)?)
+
+def main() -> Result[(), AllocError | IoError]:
+    h = Holder(5)
+    m = Maybe[str].Some("a")
+    print(h.dup()?, m.get("b")?, twice("c")?, len(twice([1]?)?))?
+    Ok(())
+"#;
+    assert_eq!(messages(source), Vec::<String>::new());
+}
+
 #[test]
 fn checking_prints_warnings_and_succeeds_but_running_does_not_print_them() {
     let dir = tempfile::tempdir().unwrap();
