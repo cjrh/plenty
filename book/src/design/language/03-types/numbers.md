@@ -136,6 +136,22 @@ def main() -> Result[(), IoError]:
 12 True
 ```
 
+Native arithmetic uses the function as its default error boundary so that
+numeric expressions stay readable. Unlike a conversion call such as
+`T.try_from(value)?`, an operator has no visible call boundary. Requiring a
+separate `Result`, parentheses and `?` for each potentially failing operation
+would obscure formulas and algorithms. Ordinary arithmetic values therefore
+flow through the expression, while the function's declared error type records
+the failures that can escape. A `checked:` block gives arithmetic a nearer
+boundary when local recovery is needed.
+
+This keeps the local arithmetic syntax as clean as in an exception-based
+language, but propagation returns an error through the same function signature.
+It does not search the call stack for an exception handler or unwind the stack.
+Callers see the error contract and handle the returned `Result` explicitly.
+The special propagation rule is for native arithmetic errors; `checked:` does
+not catch arbitrary errors from calls.
+
 Each named or anonymous function has its own boundary, independent of its
 definition or call site. The declared error type must contain every escaping
 arithmetic error; a plain or `Option` return cannot implicitly propagate them.

@@ -444,6 +444,12 @@ block; float `div_checked` and nontrapping `MIN % -1` accompanied them
 (issue #557). The lexical private callback channel from issue #614 (B93)
 is superseded by independent declared function/closure error contracts in the
 [checked-default compiler core](../proposals/checked-by-default/implementation.md#current-implementation).
+The [reference rationale](../design/language/03-types/numbers.md#function-arithmetic-contracts)
+and [numeric tutorial](../tutorial/02-values/numeric-operations.md#recover-from-overflow)
+explain why native arithmetic uses the function's declared error boundary:
+formulas stay readable without per-operator propagation syntax, while callers
+handle explicit error contracts rather than stack-unwinding exceptions
+(issue #861).
 That core also supports lexical `unchecked:` suites. Their
 [build modes](../design/language/03-types/numbers.md#unchecked-blocks) followed
 (local PR #924): `--unchecked trap` checks the preconditions by default,
