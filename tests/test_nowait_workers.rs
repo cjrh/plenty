@@ -505,3 +505,38 @@ def main() -> ():
         "could block the job's send",
     );
 }
+
+#[test]
+fn handle_operations_that_never_block_keep_a_worker_nonblocking() {
+    // Each operation here is in `never_blocks`; removing an entry fails this
+    // test. The selector is made by the caller because `selector` converts
+    // errors through a function value, which counts as a wait.
+    let source = format!(
+        "import std.fs
+import std.path
+from std.fs.lock import Mode, acquire_now
+from std.ready import Interest, Selector, selector
+{NOTIFY}def worker(sender: Sender[i64], root: std.fs.Root, events: Selector) -> ():
+    notify(sender)
+    name = std.path.from_text(\"data\").unwrap()
+    match root.read_file(&name):
+        case Ok(stream):
+            mut watched = events
+            drop(watched.watch(&stream.file, 1u64, Interest.Read))
+        case Err(_):
+            pass
+    drop(root.create_file(&std.path.from_text(\"new\").unwrap()))
+    drop(acquire_now(&std.path.from_text(\"lock\").unwrap(), Mode.Exclusive))
+
+def main() -> Result[(), AllocError | IoError | RecvError | SpawnError[()]]:
+    root = std.fs.root(&std.path.from_text(\".\")?)?
+    watched = selector(4).unwrap()
+    sender, receiver = channel[i64](1)?
+    with spawn(worker, sender, root, watched).drop_job()?:
+        pass
+    print(receiver.recv()?)?
+    Ok(())
+"
+    );
+    support::check_source(&source).unwrap_or_else(|e| panic!("{source}\n{e}"));
+}

@@ -190,10 +190,15 @@ fn never_blocks(op: &CollectionOp) -> bool {
             | CollectionOp::FileReadable
             | CollectionOp::FileWritable
             // Root reads open with `O_NONBLOCK` and reject non-regular files;
-            // exclusive creation cannot open a FIFO; a lock attempt does not
-            // wait for the holder.
+            // exclusive creation cannot open a FIFO; a lock file opens with
+            // `O_NONBLOCK`, and a lock attempt does not wait for the holder.
             | CollectionOp::Filesystem(
-                FsOp::Close | FsOp::Closed | FsOp::ReadFile | FsOp::CreateFile | FsOp::LockTry
+                FsOp::Close
+                    | FsOp::Closed
+                    | FsOp::ReadFile
+                    | FsOp::CreateFile
+                    | FsOp::LockOpen
+                    | FsOp::LockTry
             )
             | CollectionOp::Net(
                 NetOp::Address
