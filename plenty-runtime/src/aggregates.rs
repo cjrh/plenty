@@ -2686,7 +2686,7 @@ operation_entries! {
     73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99
     100 101 102 103 104 105 106 107 110 111 112 113 114 117 118 119 120 121 122 123 124
     125 126 127 128 129 130 131 132 133 134 135 136 137 138 140 166 167 366 510 511 580 581 582
-    583 584 585 590 591 592 593 594 595 596 597 598 599 600 601 602
+    583 584 585 590 591 592 593 594 595 596 597 598 599 600 601 602 603
 }
 // `std.bytes` storage and single-call byte transport.
 operation_entries! {
@@ -3698,6 +3698,18 @@ pub(crate) unsafe fn collection_at(
                 },
             ) as u128,
             117 => ranges::copy_payload(a, &*descriptor, b as *mut Range),
+            crate::collection_opcodes::C_STRINGS => {
+                let list = &*(a as *const Collection);
+                match strings::try_c_strings(list.entries.len(), |index| {
+                    list.entries.get(index).key as *const Text
+                }) {
+                    Ok(text) => wrap(text as u128, 0),
+                    Err(strings::CStrError::EmbeddedNul) => wrap(wrap(0, 0), 1),
+                    Err(strings::CStrError::Allocation(error)) => {
+                        wrap(wrap(wrap(0, error as u64), 1), 1)
+                    }
+                }
+            }
             118 => match strings::try_c_string(a as *const Text) {
                 Ok(text) => wrap(text as u128, 0),
                 Err(strings::CStrError::EmbeddedNul) => wrap(wrap(0, 0), 1),

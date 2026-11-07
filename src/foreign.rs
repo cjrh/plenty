@@ -6,6 +6,10 @@ pub enum Argument {
     Utf8,
     /// Validate NULs and allocate a temporary terminated byte buffer.
     CString,
+    /// Pack a call-scoped null-terminated vector of terminated UTF-8 strings.
+    CStrings,
+    /// Plenty-only mutable i32 output: snapshot errno immediately after C returns.
+    Errno,
     /// Borrow numeric list elements or a shared byte view as (data, length,
     /// byte stride). Views have stride 1. A mutable list loan permits scalar
     /// writes only; no form permits retention/resizing.
@@ -58,7 +62,9 @@ impl Declaration {
     }
 
     pub fn fallible(&self) -> bool {
-        self.arguments.contains(&Argument::CString)
+        self.arguments
+            .iter()
+            .any(|mode| matches!(mode, Argument::CString | Argument::CStrings))
     }
 
     /// The declared Plenty return wraps the C return when conversion can fail.

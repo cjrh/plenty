@@ -81,24 +81,46 @@ pub(super) fn check_signature(f: &Function, inputs: &[(String, Ty)], output: &Ty
             .at
             .error("C function-address parameter must have an opaque pointer type"));
     }
+    if declaration
+        .arguments
+        .iter()
+        .filter(|mode| **mode == Argument::Errno)
+        .count()
+        > 1
+    {
+        return Err(f
+            .at
+            .error("a C declaration permits only one errno output adapter"));
+    }
     let scalar = |ty: &Ty| ty.is_numeric() || matches!(ty, Ty::ForeignPtr(..));
     for ((_, ty), mode) in inputs.iter().zip(&declaration.arguments) {
         let valid = match mode {
             Argument::Direct => scalar(ty) || matches!(ty, Ty::Ref(t, _) if scalar(t)),
             Argument::Utf8 | Argument::CString => matches!(ty, Ty::Ref(t, false) if **t == Ty::Str),
+            Argument::Errno => matches!(ty, Ty::Ref(t, true) if **t == Ty::I32),
+            Argument::CStrings => {
+                matches!(ty, Ty::Ref(t, false) if matches!(t.as_ref(), Ty::List(element) if **element == Ty::Str))
+            }
             Argument::Strided => {
                 matches!(ty, Ty::Ref(t, _) if matches!(t.as_ref(), Ty::List(element) if element.is_numeric()))
                     || matches!(ty, Ty::View(element, false) if **element == Ty::U8)
             }
         };
         if !valid {
-            return Err(f.at.error(format!("`{ty}` has no supported C ABI for {mode:?}; text adapters require &str, raw pointers require scalars or opaque types")));
+            let requirement = match mode {
+                Argument::Errno => "errno requires &mut i32",
+                Argument::CStrings => "c_strings requires &list[str]",
+                _ => "text adapters require &str, raw pointers require scalars or opaque types",
+            };
+            return Err(f.at.error(format!(
+                "`{ty}` has no supported C ABI for {mode:?}; {requirement}"
+            )));
         }
     }
     let output = if declaration.fallible() {
         let Some(Ty::Enum(t)) = output else {
             return Err(f.at.error(
-                "c_string adapters require Result[T, CStrError] as the declared return type",
+                "c_string/c_strings adapters require Result[T, CStrError] as the declared return type",
             ));
         };
         if !t.propagatable()
@@ -106,7 +128,7 @@ pub(super) fn check_signature(f: &Function, inputs: &[(String, Ty)], output: &Ty
             || t.get().variants[1].fields != [crate::sum::c_str_error()]
         {
             return Err(f.at.error(
-                "c_string adapters require Result[T, CStrError] as the declared return type",
+                "c_string/c_strings adapters require Result[T, CStrError] as the declared return type",
             ));
         }
         Some(&t.get().variants[0].fields[0])
@@ -172,7 +194,10 @@ pub(super) fn check_symbols<'a>(
                     crate::foreign::Argument::Utf8 => {
                         inputs.extend(["pointer".into(), "u64".into()])
                     }
-                    crate::foreign::Argument::CString => inputs.push("pointer".into()),
+                    crate::foreign::Argument::CString | crate::foreign::Argument::CStrings => {
+                        inputs.push("pointer".into())
+                    }
+                    crate::foreign::Argument::Errno => {}
                     crate::foreign::Argument::Strided => {
                         inputs.extend(["pointer".into(), "u64".into(), "u64".into()])
                     }

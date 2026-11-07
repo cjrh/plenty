@@ -1090,6 +1090,7 @@ struct Runtime {
     /// Compiled releases of box content by content type, linked into box
     /// descriptors; see [`box_release`].
     box_releasers: HashMap<Ty, FuncId>,
+    ffi_errno: FuncId,
     list_len: FuncId,
     /// `plenty_list_rows(list) -> first row address` and
     /// `plenty_list_row_bytes(list) -> row size`, for borrowed iteration.
@@ -1306,6 +1307,12 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         box_releasers: HashMap::default(),
         retain: one_arg(module, "plenty_retain", PTR_TY)?,
         release: one_arg(module, "plenty_release", PTR_TY)?,
+        ffi_errno: {
+            let mut sig = module.make_signature();
+            sig.call_conv = crate::target::native_call_conv();
+            sig.returns.push(AbiParam::new(types::I32));
+            module.declare_function("plenty_ffi_errno", Linkage::Import, &sig)?
+        },
         list_len: {
             let mut sig = module.make_signature();
             sig.call_conv = crate::target::native_call_conv();

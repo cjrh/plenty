@@ -54,6 +54,8 @@ pub const GET_OR_INSERT_HIT: i64 = 2;
 /// `list.insert(index, element)`: the list, the index and the owned element
 /// (issue #798).
 pub const LIST_INSERT: i64 = 602;
+/// Borrowed list[str] to a private packed C pointer table and string owner.
+pub const C_STRINGS: i64 = 603;
 
 /// Operands after the three fixed input words of `plenty_op_<N>` calls.
 /// The result occupies word 3; only actual fourth/fifth inputs initialize

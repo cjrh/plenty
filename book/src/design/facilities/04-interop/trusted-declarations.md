@@ -127,7 +127,7 @@ The rules have no exceptions:
   a borrowed one lends them.
 - `@thread_shareable` already includes `@thread_movable`; writing both is an error.
 - Every `extern def` with a C symbol that takes or returns a marked type,
-  directly, through a borrow or as the success value of a `c_string`
+  directly, through a borrow or as the success value of a `c_string` or `c_strings`
   adapter's `Result`, must be `@thread_safe`. Worker code can call anything
   that accepts a value it holds, including the release function an owner's
   `__del__` calls. A function-address declaration (`= function`) cannot be

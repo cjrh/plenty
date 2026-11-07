@@ -853,12 +853,16 @@ impl Parser {
                     crate::foreign::Argument::Utf8
                 } else if token.is("c_string") {
                     crate::foreign::Argument::CString
+                } else if token.is("c_strings") {
+                    crate::foreign::Argument::CStrings
+                } else if token.is("errno") {
+                    crate::foreign::Argument::Errno
                 } else if token.is("strided") {
                     crate::foreign::Argument::Strided
                 } else {
-                    return Err(
-                        token.error("expected utf8, c_string or strided C argument adapter")
-                    );
+                    return Err(token.error(
+                        "expected utf8, c_string, c_strings, errno or strided C argument adapter",
+                    ));
                 }
             } else {
                 crate::foreign::Argument::Direct

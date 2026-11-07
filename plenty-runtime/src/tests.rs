@@ -2827,3 +2827,69 @@ fn slice_positions_match_python_including_extreme_bounds() {
         }
     }
 }
+
+#[test]
+fn packed_c_strings_have_exact_pointer_table_and_no_source_aliases() {
+    // SAFETY: source texts stay live; table and CStr reads are bounded by the
+    // owning buffer, which is released only after all reads.
+    unsafe {
+        let sources = [
+            strings::new(b""),
+            strings::new("é".as_bytes()),
+            strings::new(b"longer than inline"),
+        ];
+        for count in [0, sources.len()] {
+            let buffer = strings::try_c_strings(count, |i| sources[i]).ok().unwrap();
+            let raw = strings::heap_bytes(buffer);
+            let table = raw.as_ptr().cast::<*const std::ffi::c_char>();
+            for (i, text) in sources.iter().take(count).enumerate() {
+                let value = *table.add(i);
+                assert_eq!(
+                    std::ffi::CStr::from_ptr(value).to_bytes(),
+                    strings::bytes(&text.cast_const())
+                );
+                assert!(
+                    (value as usize) >= raw.as_ptr() as usize + (count + 1) * size_of::<usize>()
+                );
+                assert!((value as usize) < raw.as_ptr() as usize + raw.len());
+            }
+            assert!((*table.add(count)).is_null());
+            plenty_release(buffer.cast());
+        }
+        let bad = strings::new(b"bad\0text");
+        assert!(matches!(
+            strings::try_c_strings(2, |i| if i == 0 { sources[0] } else { bad }),
+            Err(strings::CStrError::EmbeddedNul)
+        ));
+        plenty_release(bad.cast());
+        for text in sources {
+            plenty_release(text.cast());
+        }
+    }
+}
+
+#[cfg(feature = "allocation-checks")]
+#[test]
+fn packed_c_strings_refuse_allocation_and_capacity_without_losing_sources() {
+    // SAFETY: failure returns no owner and never modifies the borrowed source.
+    unsafe {
+        let text = strings::new(b"source");
+        crate::accounting::fail_after(Some(0));
+        let result = strings::try_c_strings(1, |_| text);
+        crate::accounting::fail_after(None);
+        assert!(matches!(
+            result,
+            Err(strings::CStrError::Allocation(
+                crate::memory::AllocError::OutOfMemory
+            ))
+        ));
+        assert_eq!(strings::text_bytes(text), b"source");
+        assert!(matches!(
+            strings::try_c_strings(usize::MAX, |_| panic!("overflow before reading")),
+            Err(strings::CStrError::Allocation(
+                crate::memory::AllocError::CapacityOverflow
+            ))
+        ));
+        plenty_release(text.cast());
+    }
+}
