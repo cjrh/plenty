@@ -228,6 +228,12 @@ See [errors](references/errors.md), [ownership](references/ownership.md), and
   another tag or from an overriding block into its base layout. See
   [whitespace control](../../../book/src/design/stdlib/template.md#whitespace-control).
 
+- For reusable template contexts, declare `std.template.Shape` and call
+  `Engine.validate(name, &schema)` to check every reachable path without samples.
+  `render_checked(name, &context, &schema)` also checks actual JSON. Prefer required
+  nullable fields over optional reads; preflight checks all union alternatives
+  and loop element shapes. See [declared context shapes](../../../book/src/design/stdlib/template-schema.md).
+
 ## References
 
 | Page | Use |

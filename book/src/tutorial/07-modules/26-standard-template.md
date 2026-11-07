@@ -70,6 +70,16 @@ lower `max_output` for a short notification. Registration and rendering are
 fallible, and the example propagates those failures to the caller. Keep the
 engine and render it again with different values to reuse its parsed templates.
 
+## Checking a declared context
+
+For reusable layouts, declare a `Shape` and call `validate` after registration
+to catch misspelled fields in every reachable branch and loop body, even with
+no sample values. Use `render_checked` to verify each dynamic JSON request too.
+Required nullable fields can render null as empty text; optional absent fields
+cannot be read safely by a template. The [declared-shape example](../../design/stdlib/template-schema.md)
+shows the fallible list/box construction, exact guarantees and limits. This is
+runtime preflight for declared data, not compile-time checking of template strings.
+
 ## Comparing raw values
 
 Keep IDs and labels in the context and compare them in the template. There is
