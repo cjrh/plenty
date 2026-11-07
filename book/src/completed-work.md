@@ -95,6 +95,15 @@ whitespace, preserving default output, compact negative literals and original
 byte diagnostics. See [the reference](design/stdlib/template.md#whitespace-control)
 and [the library delivery record](completed-work/libraries.md#template-literal-whitespace-control).
 
+## Bounded template conditions
+
+Issue #836 adds [scalar comparisons, boolean expressions and `elif`](design/stdlib/template.md#expressions-and-conditional-branches)
+so navigation and selection markup can use raw JSON IDs. Registered postorder
+expression trees have an aggregate node cap and bounded depth; runtime boolean
+operators short-circuit under the shared work budget. Strict scalar equality,
+filter precedence and atomic registration remain explicit. Filter arguments,
+arithmetic, ordering comparisons and calls remain unsupported.
+
 ## Checked HTML template rendering
 
 Issue #839 adds opt-in structural preflight and inferred text/quoted-attribute

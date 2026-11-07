@@ -204,6 +204,27 @@ capped.validate_html("name64")?
     );
 }
 
+#[test]
+fn strict_html_checks_all_expression_arms_and_flat_elif_branches() {
+    check(
+        r#"
+bounds = std.template.limits()
+for source in ["{{ true or (missing | safe) }}", "{{ false and (missing | escape) }}", "{% if true %}<b>yes</b>{% elif false %}<p title='{{ missing | escape_double_quoted }}'></p>{% endif %}", "{% if false %}<b>yes</b>{% elif false %}<i>{% else %}none{% endif %}"]?:
+    mut pages = std.template.engine(&bounds)?
+    pages.add("bad", &source)?
+    match pages.render_html("bad", &Json.Object([]?)):
+        case Err(TemplateError.InvalidHtml(_, _)):
+            pass
+        case _:
+            std.test.check(False, &source)?
+mut pages = std.template.engine(&bounds)?
+pages.add("good", "<p title='{{ true or missing }}'>{{ not (value | escape_single_quoted) }}|{{ (value | escape_single_quoted) == value }}</p>{% if false %}<b>first</b>{% elif false %}<i>second</i>{% elif true %}<span>{{ value | escape_single_quoted | escape_text }}</span>{% else %}<u>last</u>{% endif %}")?
+values = Json.Object([Member("value", Json.Text("<&'"))]?)
+std.test.check(pages.render_html("good", &values)? == "<p title='true'>false|true</p><span>&lt;&amp;'</span>", "operators revoke operand selectors and elif stays neutral")?
+"#,
+    );
+}
+
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn strict_html_allocation_failures_preserve_engine_and_context() {

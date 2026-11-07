@@ -74,7 +74,7 @@ def main() -> Result[(), SpawnError[()] | std.http.server.ServerError | std.net.
 | `serve_connection_from[T, R, E, H](stream: T, peer: Option[SocketAddress], router, handler, config, stop, cancel)` | `serve_connection` that records the connection's peer address in each exchange |
 | `protocol Handler[T, R, E]` | `def handle(self, route: &R, exchange: &mut Exchange[T]) -> Result[(), E]` |
 | `protocol Transport` | `read_before`, `write_before` and `shutdown` with the signatures of `TcpStream`'s; `write_before` takes its source as `&[u8]` |
-| `reason(status: i64)` | `str`: the reason phrase for a common status, or `""` |
+| `reason(status: i64)` | `str`: the phrase of `status` in the [IANA status code registry](https://www.iana.org/assignments/http-status-codes/), or `""` for an unregistered, `(Unused)` (306, 418) or provisional code and for values outside 100..=599; obsolete 510 keeps "Not Extended" |
 
 `E` is the handler's own error type: `HttpError`, or a sum such as
 `AllocError | HttpError`. Calls infer it from `handle`, as they

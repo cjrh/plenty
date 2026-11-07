@@ -75,11 +75,13 @@ selection must match the inferred position. Filter chains retain their ordinary
 semantics: the last selector wins, `upper`/`lower`/`length` reset the selection,
 and `trim` preserves it. Checked templates reject `safe` and the immediate
 legacy `escape` filter syntactically, even if another filter would later reset
-that trust. Data should stay raw and be encoded once at final emission.
+that trust. Every expression arm is inspected, including operands skipped by
+boolean short-circuiting. Operators produce default-policy boolean values; a
+selector on an operand does not select the enclosing result. Data should stay raw and be encoded once at final emission.
 
 ## Composition and failure
 
-Every `if`, `for`, include and effective inheritance block must begin and finish
+Every `if`/`elif` chain, `for`, include and effective inheritance block must begin and finish
 in ordinary text with the **same exact element stack**. Each branch, loop body
 and loop `else` is checked independently, including branches that never execute.
 A balanced fragment can render inside an already open element. A fragment cannot

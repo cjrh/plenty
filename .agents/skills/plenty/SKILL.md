@@ -210,6 +210,11 @@ See [errors](references/errors.md), [ownership](references/ownership.md), and
   around attributes. Put selectors after `upper`/`lower` (which reset policy);
   `trim` preserves selection, the last selector wins, and explicit selectors
   still escape with `html=False`. Reserve `safe` for deliberate trusted markup.
+  Conditions accept strict scalar `==`/`!=`, `not`, short-circuit `and`/`or`,
+  parentheses and `elif`; keep raw IDs in JSON instead of precomputing flags.
+  Boolean operators return booleans; integers, floats and booleans are distinct
+  equality kinds. Filters bind before equality, then `not`, `and`, `or`.
+  Bound aggregate syntax with `max_expression_nodes` as well as `max_tokens`.
 
 - For child descriptor protocols, use `Command.inherit_file(&file)` or
   `Lock.inherit_into(&mut command)` and pass the returned number through argv

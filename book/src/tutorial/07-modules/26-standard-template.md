@@ -102,6 +102,49 @@ lower `max_output` for a short notification. Registration and rendering are
 fallible, and the example propagates those failures to the caller. Keep the
 engine and render it again with different values to reuse its parsed templates.
 
+## Comparing raw values
+
+Keep IDs and labels in the context and compare them in the template. There is
+no need to build a separate active flag for every navigation item or selected
+option:
+
+```plenty
+import std.template
+from std.template import TemplateError
+from std.json import Json, Member
+
+def main() -> Result[(), TemplateError | AllocError | IoError]:
+    bounds = std.template.limits()
+    mut pages = std.template.engine(&bounds)?
+    pages.add("nav", "{% for item in items %}<a class=\"{% if current == item.id %}active{% elif signed_in and item.id == 'profile' %}member{% else %}other{% endif %}\">{{ item.label | escape_text }}</a>{% endfor %}")?
+    pages.add("options", "{% for item in items %}<option{% if selected == item.id %} selected{% endif %}>{{ item.label | escape_text }}</option>{% endfor %}")?
+    values = Json.Object([
+        Member("current", Json.Text("home")),
+        Member("selected", Json.Text("profile")),
+        Member("signed_in", Json.Bool(True)),
+        Member("items", Json.Array([
+            Json.Object([Member("id", Json.Text("home")), Member("label", Json.Text("Home & news"))]?),
+            Json.Object([Member("id", Json.Text("profile")), Member("label", Json.Text("Profile"))]?),
+        ]?)),
+    ]?)
+    print(pages.render("nav", &values)?)?
+    print(pages.render("options", &values)?)?
+    Ok(())
+```
+```output
+<a class="active">Home &amp; news</a><a class="member">Profile</a>
+<option>Home &amp; news</option><option selected>Profile</option>
+```
+
+Equality is strict: text IDs compare with text IDs, and `1 == 1.0` is false.
+Only scalars can be compared. `not`, `and` and `or` use truthiness and produce
+booleans; `and` and `or` skip an unnecessary right operand. For example,
+`false and absent` does not look up `absent`. Missing fields still fail when
+evaluated. Use parentheses to clarify combined conditions. Filters bind before
+comparisons, followed by `not`, `and` and `or`; `not name | trim == 'Ada'`
+negates the comparison. See [expressions and branches](../../design/stdlib/template.md#expressions-and-conditional-branches)
+for precedence, strict scalar kinds and bounded expression trees.
+
 ## Controlling literal spacing
 
 For adjacent inline navigation links, trim the source indentation around the
