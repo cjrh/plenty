@@ -393,3 +393,14 @@ The [server lesson](../tutorial/11-concurrency/http-server.md) demonstrates type
 fallbacks. Wire fixtures cover default/custom/cleared policies, explicit method
 handling, HEAD/OPTIONS, captures, redirect precedence and query preservation,
 unsafe reference spellings, and ordinary handler failure reporting.
+
+## Checked HTML template rendering
+
+Issue #839 delivers `Engine.validate_html` and `render_html`: static names, exact
+written element stacks, ordinary quoted attributes, title text, literal URLs and
+Data-only balanced composition through conditions, loops, includes and inherited
+blocks. Mandatory preflight checks every branch and escaping policy before
+rendering; work, depth, output and allocation errors preserve engine/context
+reuse. Existing rendering remains unchanged. The [bounded contract](../design/stdlib/template-html.md)
+excludes HTML5 tree repair, scripting/style/foreign content, comments, dynamic
+URLs and sanitization.

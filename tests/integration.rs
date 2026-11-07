@@ -599,6 +599,8 @@ mod test_std_tempfile;
 mod test_std_template;
 #[path = "test_std_template_expressions.rs"]
 mod test_std_template_expressions;
+#[path = "test_std_template_html.rs"]
+mod test_std_template_html;
 #[path = "test_std_template_schema.rs"]
 mod test_std_template_schema;
 #[path = "test_std_template_whitespace.rs"]

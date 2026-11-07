@@ -154,12 +154,17 @@ These belong to B17 and are not scheduled implementation commitments:
 B19 is evidence-driven; these are candidates, not an approved optimization batch.
 Use [profiling](development/profiling.md), [faster-linking evidence](proposals/faster-linking.md)
 and the [completed measurements](completed-work/performance.md) as baselines.
+The [k-nucleotide counting-loop investigation](completed-work/performance.md#k-nucleotide-counting-loop-investigation-issue-743)
+(issue #743) is concluded; its delivered fixes and rejected counting experiment
+are recorded there.
 
 - **Generated code:** retain/release for text operands computed by calls or loaded
   in another block; dispatcher copies of sums with inline-record payloads;
   code size and compilation/link latency. Revisit match density/size policies
   only with application/CPU evidence. An opt-in CPU target such as x86-64-v2
   requires a decision against B17's fixed-baseline reproducibility contract.
+  Strict byte-method dispatcher removal (issue #741) is recorded in the
+  [byte-access delivery record](completed-work/performance.md#byte-method-access-issue-741).
 - **Layout/cleanup:** natural record-field packing beyond 16-byte slots, compact
   sum tags/niches, relocation/release plans for records holding ranges/sums/other
   managed fields, records over 192 bytes and tuple release plans. Measure inline

@@ -71,41 +71,41 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.jwt`](#stdjwt): 2404-2451
 - [`std.log`](#stdlog): 2453-2520
 - [`std.markdown`](#stdmarkdown): 2522-2556
-- [`std.template`](#stdtemplate): 2558-2593
-- [`std.math`](#stdmath): 2595-2666
-- [`std.mime`](#stdmime): 2668-2694
-- [`std.net`](#stdnet): 2696-2778
-- [`std.path`](#stdpath): 2780-2797
-- [`std.process`](#stdprocess): 2799-2857
-- [`std.random`](#stdrandom): 2859-2880
-- [`std.ready`](#stdready): 2882-2913
-- [`std.regex`](#stdregex): 2915-2968
-- [`std.report`](#stdreport): 2970-2977
-- [`std.secrets`](#stdsecrets): 2979-3005
-- [`std.shlex`](#stdshlex): 3007-3016
-- [`std.sketch`](#stdsketch): 3018-3056
-- [`std.sketch.xor`](#stdsketchxor): 3058-3069
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3071-3086
-- [`std.signal`](#stdsignal): 3088-3105
-- [`std.simd`](#stdsimd): 3107-3208
-- [`std.stat`](#stdstat): 3210-3243
-- [`std.plot`](#stdplot): 3245-3334
-- [`std.linalg`](#stdlinalg): 3336-3377
-- [`std.sync`](#stdsync): 3379-3397
-- [`std.system`](#stdsystem): 3399-3458
-- [`std.tempfile`](#stdtempfile): 3460-3492
-- [`std.test`](#stdtest): 3494-3536
-- [`std.text`](#stdtext): 3538-3581
-- [`std.thread`](#stdthread): 3583-3587
-- [`std.time`](#stdtime): 3589-3633
-- [`std.tls`](#stdtls): 3635-3717
-- [`std.toml`](#stdtoml): 3719-3768
-- [`std.unicode`](#stdunicode): 3770-3782
-- [`std.units`](#stdunits): 3784-4021
-- [`std.units.catalogue`](#stdunitscatalogue): 4023-4801
-- [`std.url`](#stdurl): 4803-4831
-- [`std.uuid`](#stduuid): 4833-4856
-- [`std.xml`](#stdxml): 4858-4891
+- [`std.template`](#stdtemplate): 2558-2595
+- [`std.math`](#stdmath): 2597-2668
+- [`std.mime`](#stdmime): 2670-2696
+- [`std.net`](#stdnet): 2698-2780
+- [`std.path`](#stdpath): 2782-2799
+- [`std.process`](#stdprocess): 2801-2859
+- [`std.random`](#stdrandom): 2861-2882
+- [`std.ready`](#stdready): 2884-2915
+- [`std.regex`](#stdregex): 2917-2970
+- [`std.report`](#stdreport): 2972-2979
+- [`std.secrets`](#stdsecrets): 2981-3007
+- [`std.shlex`](#stdshlex): 3009-3018
+- [`std.sketch`](#stdsketch): 3020-3058
+- [`std.sketch.xor`](#stdsketchxor): 3060-3071
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3073-3088
+- [`std.signal`](#stdsignal): 3090-3107
+- [`std.simd`](#stdsimd): 3109-3210
+- [`std.stat`](#stdstat): 3212-3245
+- [`std.plot`](#stdplot): 3247-3336
+- [`std.linalg`](#stdlinalg): 3338-3379
+- [`std.sync`](#stdsync): 3381-3399
+- [`std.system`](#stdsystem): 3401-3460
+- [`std.tempfile`](#stdtempfile): 3462-3494
+- [`std.test`](#stdtest): 3496-3538
+- [`std.text`](#stdtext): 3540-3583
+- [`std.thread`](#stdthread): 3585-3589
+- [`std.time`](#stdtime): 3591-3635
+- [`std.tls`](#stdtls): 3637-3719
+- [`std.toml`](#stdtoml): 3721-3770
+- [`std.unicode`](#stdunicode): 3772-3784
+- [`std.units`](#stdunits): 3786-4023
+- [`std.units.catalogue`](#stdunitscatalogue): 4025-4803
+- [`std.url`](#stdurl): 4805-4833
+- [`std.uuid`](#stduuid): 4835-4858
+- [`std.xml`](#stdxml): 4860-4893
 
 ## `std.actor`
 
@@ -2561,7 +2561,7 @@ Bounded Jinja-style text templates with explicit JSON values, HTML escaping, con
 
 ```text
 enum TemplateError
-    LimitExceeded | Syntax(i64) | UnknownTemplate(str) | DuplicateTemplate(str) | MissingValue(str) | TypeMismatch | InheritanceCycle | InvalidShape(str) | SchemaPath(str, i64, str) | SchemaOptional(str, i64, str) | SchemaType(str, i64) | ContextShape(str) | Allocation(AllocError) | Bytes(BytesError)
+    LimitExceeded | Syntax(i64) | UnknownTemplate(str) | DuplicateTemplate(str) | MissingValue(str) | TypeMismatch | InheritanceCycle | InvalidShape(str) | SchemaPath(str, i64, str) | SchemaOptional(str, i64, str) | SchemaType(str, i64) | ContextShape(str) | InvalidHtml(str, i64) | Allocation(AllocError) | Bytes(BytesError)
 enum Presence
     Required | Optional
 enum Shape
@@ -2589,6 +2589,8 @@ class Engine
     def validate(self, name: &str, schema: &Shape) -> Result[(), TemplateError]
     def render_checked(self, name: &str, context: &Json, schema: &Shape, html: bool = True) -> Result[str, TemplateError]
     def render(self, name: &str, context: &Json, html: bool = True) -> Result[str, TemplateError]
+    def validate_html(self, name: &str) -> Result[(), TemplateError]
+    def render_html(self, name: &str, context: &Json) -> Result[str, TemplateError]
 def engine(bounds: &Limits) -> Result[Engine, TemplateError]
 ```
 
