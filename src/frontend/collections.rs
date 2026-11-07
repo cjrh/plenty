@@ -1373,9 +1373,24 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         self.note_postfix_operand(e);
-        let mut hint = expected.clone();
-        if let Some(Ty::Enum(sum)) = &expected
-            && sum.anonymous()
+        let hint = match &expected {
+            Some(Ty::Enum(sum)) if sum.anonymous() => self.anonymous_member_hint(e, sum)?,
+            _ => expected.clone(),
+        };
+        let ty = self.expr_hinted(e, hint, ops)?;
+        self.widen_to_expected(ty, expected, ops)
+    }
+
+    /// The member of an anonymous sum that a constructor-like `e` builds, or
+    /// the sum itself. Outlined from `expr_expected`, which every operand of a
+    /// nested call recurses through (issue #849).
+    #[inline(never)]
+    fn anonymous_member_hint(
+        &self,
+        e: &Expr,
+        sum: &crate::nominal::Nominal<crate::sum::EnumType>,
+    ) -> Result<Type> {
+        let mut hint = Some(Ty::Enum(sum.clone()));
         {
             let candidates: Option<Vec<Ty>> = match &ungroup(e).kind {
                     Expression::Call(name, _) | Expression::Name(name)
@@ -1415,7 +1430,12 @@ impl Lower<'_> {
                 hint = candidates.pop();
             }
         }
-        let ty = self.expr_hinted(e, hint, ops)?;
+        Ok(hint)
+    }
+
+    /// Widens a lowered value to the anonymous sum its context expects.
+    #[inline(never)]
+    fn widen_to_expected(&mut self, ty: Type, expected: Type, ops: &mut Vec<Op>) -> Result<Type> {
         Ok(match (ty, expected) {
             (None, Some(expected)) if crate::sum::accepts(&expected, &Ty::Unit) => {
                 ops.push(Op::PushUnit);
@@ -1451,18 +1471,51 @@ impl Lower<'_> {
         })
     }
 
+    /// Lowers `e` given the type its context expects. Operands of nested calls
+    /// and operator chains recurse through this frame, so the arms are decided
+    /// by `hinted_form`, whose frame is gone before an operand is lowered
+    /// (issue #849).
     pub(super) fn expr_hinted(
         &mut self,
         e: &Expr,
         expected: Type,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        match self.hinted_form(e, expected, ops)? {
+            Hinted::Done(ty) => Ok(ty),
+            Hinted::Expr => self.expr(e, ops),
+            Hinted::Expected(inner, expected) => self.expr_expected(inner, expected, ops),
+            Hinted::Arithmetic(ty) => self.hinted_arithmetic(e, ty, ops),
+        }
+    }
+
+    /// `left op right` for an arithmetic operator in a numeric context.
+    fn hinted_arithmetic(&mut self, e: &Expr, ty: Ty, ops: &mut Vec<Op>) -> Result<Type> {
+        let Expression::Binary(op, left, right) = &e.kind else {
+            unreachable!("hinted_arithmetic lowers binary nodes")
+        };
+        if let Some(result) = self.overloaded_binary(op, left, right, &e.at, ops)? {
+            return Ok(result);
+        }
+        self.numeric_binary(op, left, right, ty, &e.at, ops)
+            .map(Some)
+    }
+
+    /// Lowers the forms of `e` that use `expected` and do not recurse per
+    /// level of a chain, or says which lowering `expr_hinted` should run.
+    #[inline(never)]
+    fn hinted_form<'e>(
+        &mut self,
+        e: &'e Expr,
+        expected: Type,
+        ops: &mut Vec<Op>,
+    ) -> Result<Hinted<'e>> {
         if let Some(expected) = &expected
             && let Some(ty) = self.constructor_expected(e, expected, ops)?
         {
-            return Ok(Some(ty));
+            return Ok(Hinted::Done(Some(ty)));
         }
-        match &e.kind {
+        let ty = match &e.kind {
             Expression::Method(base, name, args, _)
                 if matches!(name.as_str(), "collect" | "try_collect")
                     && (self.is_pipeline(base) || self.is_generator_source(base)) =>
@@ -1581,15 +1634,11 @@ impl Lower<'_> {
                 self.number(&format!("{n}{}", expected.unwrap()), true, &e.at, ops)
                     .map(Some)
             }
-            Expression::Binary(op, left, right)
+            Expression::Binary(op, ..)
                 if matches!(op.as_str(), "+" | "-" | "*" | "/" | "//" | "%")
                     && expected.as_ref().is_some_and(Ty::is_numeric) =>
             {
-                if let Some(result) = self.overloaded_binary(op, left, right, &e.at, ops)? {
-                    return Ok(result);
-                }
-                self.numeric_binary(op, left, right, expected.unwrap(), &e.at, ops)
-                    .map(Some)
+                return Ok(Hinted::Arithmetic(expected.unwrap()));
             }
             Expression::Tuple(values) => self.tuple(values, expected, &e.at, ops).map(Some),
             Expression::Call(name, args)
@@ -1622,7 +1671,7 @@ impl Lower<'_> {
                 }
                 self.construct(ty, args, &e.at, ops).map(Some)
             }
-            Expression::Group(inner) => self.expr_expected(inner, expected, ops),
+            Expression::Group(inner) => return Ok(Hinted::Expected(inner, expected)),
             Expression::Conditional { condition, yes, no } => {
                 let cond = self.expr(condition, ops)?;
                 self.same(cond, Some(Ty::Bool), &condition.at)?;
@@ -1633,8 +1682,9 @@ impl Lower<'_> {
                 ops.push(branch(a, b));
                 Ok(ty)
             }
-            _ => self.expr(e, ops),
-        }
+            _ => return Ok(Hinted::Expr),
+        };
+        ty.map(Hinted::Done)
     }
 
     pub(super) fn fallible_display(
@@ -3896,8 +3946,41 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        if let Some(result) = self.method_before_receiver(base, name, args, ops)? {
+            return Ok(result);
+        }
+        if let Some((receiver, root)) = self.hold_receiver_root(base, ops)? {
+            let result = self.method(&receiver, name, args, ops);
+            self.names.remove(&root);
+            return result;
+        }
+        let (ty, loans) = if matches!(self.place_type(base), Some(Ty::Box(_))) {
+            let (reference, loan) = self.borrow(base, false, ops)?;
+            let Ty::Ref(content, _) = self.unbox_reference(reference, ops) else {
+                unreachable!()
+            };
+            ops.push(Op::ReadRef((*content).clone()));
+            ((*content).clone(), vec![loan])
+        } else {
+            self.observe_method_receiver(base, ops)?
+        };
+        self.observed_method(base, name, args, ty, loans, ops)
+    }
+
+    /// The forms of `base.name(args)` decided before the receiver is lowered.
+    /// `None` lowers the receiver. Outlined, with `observed_method`, so that a
+    /// method chain recurses through a small `method` frame: this body used
+    /// about 50 KiB of unoptimized stack per call (issue #849).
+    #[inline(never)]
+    fn method_before_receiver(
+        &mut self,
+        base: &Expr,
+        name: &str,
+        args: &[Expr],
+        ops: &mut Vec<Op>,
+    ) -> Result<Option<Type>> {
         if self.has_par(base) || (name == "par" && self.is_pipeline(base)) {
-            return self.parallel_pipeline(base, name, args, ops);
+            return self.parallel_pipeline(base, name, args, ops).map(Some);
         }
         if self.is_pipeline(base)
             || (self.is_generator_source(base)
@@ -3919,7 +4002,7 @@ impl Lower<'_> {
                         | "max"
                 ))
         {
-            return self.pipeline_terminal(base, name, args, ops);
+            return self.pipeline_terminal(base, name, args, ops).map(Some);
         }
         if let Some(source) = self.adapter_on_source(base, name, args) {
             return Err(base.at.error(format!(
@@ -3929,11 +4012,11 @@ impl Lower<'_> {
             )));
         }
         if self.is_text_view(base) {
-            return self.text_view_method(base, name, args, ops);
+            return self.text_view_method(base, name, args, ops).map(Some);
         }
         if self.is_view(base) {
             if name == "swap" {
-                return self.view_swap(base, args, ops);
+                return self.view_swap(base, args, ops).map(Some);
             }
             return Err(base.at.error(format!(
                 "a slice view has no method `{name}`; {}",
@@ -3941,25 +4024,27 @@ impl Lower<'_> {
             )));
         }
         if matches!(self.place_type(base), Some(Ty::Clist(_))) {
-            return self.clist_method(base, name, args, ops);
+            return self.clist_method(base, name, args, ops).map(Some);
         }
         if matches!(self.place_type(base), Some(Ty::Shared(_))) {
-            return self.shared_method(base, name, args, ops);
+            return self.shared_method(base, name, args, ops).map(Some);
         }
         if matches!(self.place_type(base), Some(Ty::Task(_))) {
-            return self.join_thread(base, name, args, ops);
+            return self.join_thread(base, name, args, ops).map(Some);
         }
         if let Some(Ty::BoxedProtocol(protocol)) = self.place_type(base) {
-            return self.protocol_method(base, protocol, name, args, ops);
+            return self
+                .protocol_method(base, protocol, name, args, ops)
+                .map(Some);
         }
         if matches!(self.place_type(base), Some(Ty::Channel(..))) {
-            return self.channel_method(base, name, args, ops);
+            return self.channel_method(base, name, args, ops).map(Some);
         }
         if matches!(self.place_type(base), Some(Ty::CancellationToken)) {
-            return self.control_method(base, name, args, ops);
+            return self.control_method(base, name, args, ops).map(Some);
         }
         if matches!(self.place_type(base), Some(Ty::Atomic(_))) {
-            return self.atomic_method(base, name, args, ops);
+            return self.atomic_method(base, name, args, ops).map(Some);
         }
         if self
             .place_type(base)
@@ -3967,13 +4052,13 @@ impl Lower<'_> {
             .and_then(crate::mutex::class)
             .is_some()
         {
-            return self.mutex_method(base, name, args, ops);
+            return self.mutex_method(base, name, args, ops).map(Some);
         }
         if matches!(
             self.place_type(base),
             Some(Ty::Executor | Ty::Submitter | Ty::Future(_))
         ) {
-            return self.executor_method(base, name, args, ops);
+            return self.executor_method(base, name, args, ops).map(Some);
         }
         if matches!(
             self.field_type(base, name),
@@ -3983,7 +4068,7 @@ impl Lower<'_> {
                 at: base.at.clone(),
                 kind: Expression::Member(Box::new(base.clone()), name.into(), Pos::default()),
             };
-            return self.call_value(&field, args, ops);
+            return self.call_value(&field, args, ops).map(Some);
         }
         if name == "null"
             && let Some(ty @ Ty::ForeignPtr(..)) = self.qualified_type(base)?
@@ -3992,7 +4077,7 @@ impl Lower<'_> {
                 return Err(base.at.error("null takes no arguments"));
             }
             ops.push(Op::ForeignNull(ty.clone()));
-            return Ok(Some(ty));
+            return Ok(Some(Some(ty)));
         }
         if name == "unwrap"
             && !self
@@ -4001,7 +4086,7 @@ impl Lower<'_> {
                 .as_ref()
                 .is_some_and(classes::inherent_receiver)
         {
-            return self.unwrap_result(base, args, None, ops);
+            return self.unwrap_result(base, args, None, ops).map(Some);
         }
         if sum_methods::method(name)
             && !self
@@ -4010,7 +4095,7 @@ impl Lower<'_> {
                 .as_ref()
                 .is_some_and(classes::inherent_receiver)
         {
-            return self.sum_method(base, name, args, None, ops);
+            return self.sum_method(base, name, args, None, ops).map(Some);
         }
         if matches!(name, "unwrap_or" | "ok_or")
             && !self
@@ -4019,7 +4104,7 @@ impl Lower<'_> {
                 .as_ref()
                 .is_some_and(classes::inherent_receiver)
         {
-            return self.sum_default(base, name, args, None, ops);
+            return self.sum_default(base, name, args, None, ops).map(Some);
         }
         if name == "map_error"
             && !self
@@ -4028,21 +4113,21 @@ impl Lower<'_> {
                 .as_ref()
                 .is_some_and(classes::inherent_receiver)
         {
-            return self.result_map_error(base, args, &base.at, ops);
+            return self.result_map_error(base, args, &base.at, ops).map(Some);
         }
         if name == "drop_job"
             && self.place_type(base).map(classes::unbox).is_none_or(|ty| {
                 crate::sum::job_free(&ty).is_some() || !classes::inherent_receiver(&ty)
             })
         {
-            return self.drop_job_method(base, args, ops);
+            return self.drop_job_method(base, args, ops).map(Some);
         }
         if name == "new" {
             if let Expression::Name(function) = &ungroup(base).kind
                 && !self.names.contains_key(function)
                 && self.sigs.declared(function).is_some_and(|f| f.yields)
             {
-                return self.call_named(function, args, &base.at, ops);
+                return self.call_named(function, args, &base.at, ops).map(Some);
             }
             if let Expression::Member(owner, variant, _) = &ungroup(base).kind
                 && let Some(Ty::Enum(t)) = self.qualified_type(owner)?
@@ -4067,7 +4152,7 @@ impl Lower<'_> {
                     &base.at,
                     ops,
                 )?;
-                return Ok(result);
+                return Ok(Some(result));
             }
         }
         if let Expression::Name(n) = &base.kind
@@ -4075,25 +4160,33 @@ impl Lower<'_> {
             && let Some(domain) = crate::op::IntegerDomain::named(n)
         {
             if name == "try_from" {
-                return self.domain_try_from(domain, None, args, &base.at, ops);
+                return self
+                    .domain_try_from(domain, None, args, &base.at, ops)
+                    .map(Some);
             }
             if name == "from" && domain != crate::op::IntegerDomain::Positive {
-                return self.domain_from_positive(domain, None, args, &base.at, ops);
+                return self
+                    .domain_from_positive(domain, None, args, &base.at, ops)
+                    .map(Some);
             }
         }
         if let Some(ty) = self.qualified_type(base)? {
             if name == "try_from" && self.aliases.bounded(&ty).is_some() {
-                return self.bounded_try_from(&ty, args, &base.at, ops);
+                return self.bounded_try_from(&ty, args, &base.at, ops).map(Some);
             }
             if let Some(result) = self.quantity_static(&ty, name, args, &base.at, ops)? {
-                return Ok(result);
+                return Ok(Some(result));
             }
             if let Some((domain, element)) = ty.integer_domain() {
                 if name == "try_from" {
-                    return self.domain_try_from(domain, Some(element), args, &base.at, ops);
+                    return self
+                        .domain_try_from(domain, Some(element), args, &base.at, ops)
+                        .map(Some);
                 }
                 if name == "from" && domain != crate::op::IntegerDomain::Positive {
-                    return self.domain_from_positive(domain, Some(element), args, &base.at, ops);
+                    return self
+                        .domain_from_positive(domain, Some(element), args, &base.at, ops)
+                        .map(Some);
                 }
             }
             if matches!(ty, Ty::Clist(_)) {
@@ -4113,7 +4206,7 @@ impl Lower<'_> {
                 };
                 let output = operation.signature().1;
                 ops.push(Op::Collection(CollectionOp::Clist(operation)));
-                return Ok(Some(output));
+                return Ok(Some(Some(output)));
             }
             if let Ty::Class(class) = &ty {
                 if name != "new" {
@@ -4127,12 +4220,14 @@ impl Lower<'_> {
                         .error("type nesting exceeds the implementation limit of 64"));
                 }
                 modules::check_member(self.access, &class.name, "__new__", &base.at)?;
-                return self.call_named(
-                    &crate::record::method(&class.name, "new"),
-                    args,
-                    &base.at,
-                    ops,
-                );
+                return self
+                    .call_named(
+                        &crate::record::method(&class.name, "new"),
+                        args,
+                        &base.at,
+                        ops,
+                    )
+                    .map(Some);
             }
             if ty == Ty::Str && name == "repr" {
                 if args.len() != 1 {
@@ -4152,7 +4247,7 @@ impl Lower<'_> {
                 let output = operation.signature().1;
                 ops.push(Op::Collection(operation));
                 Self::end_reads(loans, ops);
-                return Ok(Some(output));
+                return Ok(Some(Some(output)));
             }
             if ty == Ty::Str && name == "from" {
                 if args.len() != 1 {
@@ -4179,7 +4274,7 @@ impl Lower<'_> {
                 let (_, result) = operation.signature();
                 ops.push(Op::Collection(operation));
                 Self::end_reads(loans, ops);
-                return Ok(Some(result));
+                return Ok(Some(Some(result)));
             }
             if ty.is_numeric() && name == "parse" {
                 if args.len() != 1 {
@@ -4191,7 +4286,7 @@ impl Lower<'_> {
                 let (_, result) = operation.signature();
                 ops.push(Op::Collection(operation));
                 Self::end_reads(loans, ops);
-                return Ok(Some(result));
+                return Ok(Some(Some(result)));
             }
             if ty.is_numeric() && name == "try_from" {
                 if !ty.is_int() {
@@ -4213,30 +4308,39 @@ impl Lower<'_> {
                     ));
                 }
                 ops.push(Op::TryCast(ty.clone()));
-                return Ok(Some(crate::sum::result(ty, crate::sum::range_error())));
+                return Ok(Some(Some(crate::sum::result(
+                    ty,
+                    crate::sum::range_error(),
+                ))));
             }
             if name == "wrapping_from" && !matches!(ty, Ty::Enum(_)) {
-                return self.wrapping_from(ty, args, &base.at, ops).map(Some);
+                return self
+                    .wrapping_from(ty, args, &base.at, ops)
+                    .map(|ty| Some(Some(ty)));
             }
             if matches!(ty, Ty::List(_) | Ty::Set(_) | Ty::Dict(_, _)) {
-                return self.fallible_constructor(ty, name, args, &base.at, ops);
+                return self
+                    .fallible_constructor(ty, name, args, &base.at, ops)
+                    .map(Some);
             }
-            return self.variant(ty, name, Some(args), &base.at, ops);
+            return self.variant(ty, name, Some(args), &base.at, ops).map(Some);
         }
         if let Some(ty) = self.place_type(base).map(classes::unbox)
             && classes::inherent_receiver(&ty)
         {
-            return self.class_method(
-                base,
-                classes::method_owner(&ty).unwrap(),
-                name,
-                None,
-                args,
-                ops,
-            );
+            return self
+                .class_method(
+                    base,
+                    classes::method_owner(&ty).unwrap(),
+                    name,
+                    None,
+                    args,
+                    ops,
+                )
+                .map(Some);
         }
         if self.place_type(base) == Some(Ty::File) {
-            return self.file_method(base, name, args, ops);
+            return self.file_method(base, name, args, ops).map(Some);
         }
         if matches!(name, "__init__" | "__del__" | "__new__") {
             return Err(base.at.error("lifecycle methods cannot be called directly"));
@@ -4245,7 +4349,9 @@ impl Lower<'_> {
             if self.place_type(base).is_none() {
                 let observed = self.observe_method_receiver(base, ops)?;
                 if classes::inherent_receiver(&observed.0) {
-                    return self.temporary_class_method(base, name, None, args, observed, ops);
+                    return self
+                        .temporary_class_method(base, name, None, args, observed, ops)
+                        .map(Some);
                 }
                 return Err(base
                     .at
@@ -4254,16 +4360,18 @@ impl Lower<'_> {
             if name == "insert"
                 && matches!(self.place_type(base).map(classes::unbox), Some(Ty::List(_)))
             {
-                return self.list_insert(base, args, ops);
+                return self.list_insert(base, args, ops).map(Some);
             }
-            return self.fallible_mutation(base, name, args, ops);
+            return self.fallible_mutation(base, name, args, ops).map(Some);
         }
         if matches!(name, "into_values" | "into_keys") {
             let ty = self.value(base, ops)?;
             let class = classes::unbox(ty.clone());
             if classes::inherent_receiver(&class) {
                 self.unbox_to(ty, &class, ops);
-                return self.temporary_class_method(base, name, None, args, (class, vec![]), ops);
+                return self
+                    .temporary_class_method(base, name, None, args, (class, vec![]), ops)
+                    .map(Some);
             }
             if !args.is_empty() {
                 return Err(base.at.error(format!("{name} takes no arguments")));
@@ -4280,46 +4388,50 @@ impl Lower<'_> {
             };
             let output = operation.signature().1;
             ops.push(Op::Collection(operation));
-            return Ok(Some(output));
+            return Ok(Some(Some(output)));
         }
         let collection = self.place_type(base).map(classes::unbox);
         if name == "pop" && matches!(collection, Some(Ty::Dict(..) | Ty::List(_))) {
-            return self.collection_removal(base, args, ops);
+            return self.collection_removal(base, args, ops).map(Some);
         }
         if name == "get_mut" && matches!(collection, Some(Ty::Dict(..))) {
-            return self.dict_get_mut(base, args, ops);
+            return self.dict_get_mut(base, args, ops).map(Some);
         }
         if name == "get_or_insert" && matches!(collection, Some(Ty::Dict(..))) {
-            return self.dict_get_or_insert(base, args, ops);
+            return self.dict_get_or_insert(base, args, ops).map(Some);
         }
         if name == "reverse" && matches!(collection, Some(Ty::List(_))) {
-            return self.collection_unit_mutation(base, name, args, ops);
+            return self
+                .collection_unit_mutation(base, name, args, ops)
+                .map(Some);
         }
         if name == "sort" && matches!(collection, Some(Ty::List(_))) {
-            return self.list_sort(base, args, ops);
+            return self.list_sort(base, args, ops).map(Some);
         }
         if name == "sort_by_key" && matches!(collection, Some(Ty::List(_))) {
-            return self.list_sort_by_key(base, args, ops);
+            return self.list_sort_by_key(base, args, ops).map(Some);
         }
         if name == "swap" && matches!(collection, Some(Ty::List(_))) {
-            return self.list_swap(base, args, ops);
+            return self.list_swap(base, args, ops).map(Some);
         }
         if name == "extend" && matches!(collection, Some(Ty::List(_))) {
-            return self.fallible_mutation(base, name, args, ops);
+            return self.fallible_mutation(base, name, args, ops).map(Some);
         }
         if name == "update" && matches!(collection, Some(Ty::Dict(..) | Ty::Set(_))) {
-            return self.fallible_mutation(base, name, args, ops);
+            return self.fallible_mutation(base, name, args, ops).map(Some);
         }
         if name == "clear" && matches!(collection, Some(Ty::List(_) | Ty::Set(_) | Ty::Dict(..))) {
-            return self.collection_unit_mutation(base, name, args, ops);
+            return self
+                .collection_unit_mutation(base, name, args, ops)
+                .map(Some);
         }
         if name == "discard" && matches!(collection, Some(Ty::Set(_))) {
-            return self.collection_removal(base, args, ops);
+            return self.collection_removal(base, args, ops).map(Some);
         }
         if matches!(name, "intersection_update" | "difference_update")
             && matches!(collection, Some(Ty::Set(_)))
         {
-            return self.set_filter_mutation(base, name, args, ops);
+            return self.set_filter_mutation(base, name, args, ops).map(Some);
         }
         if name == "keys"
             || matches!(name, "values" | "items")
@@ -4336,14 +4448,16 @@ impl Lower<'_> {
             };
             if classes::inherent_receiver(&owner) {
                 ops.push(Op::ReadRef((*owner).clone()));
-                return self.temporary_class_method(
-                    base,
-                    name,
-                    None,
-                    args,
-                    ((*owner).clone(), vec![loan]),
-                    ops,
-                );
+                return self
+                    .temporary_class_method(
+                        base,
+                        name,
+                        None,
+                        args,
+                        ((*owner).clone(), vec![loan]),
+                        ops,
+                    )
+                    .map(Some);
             }
             if !args.is_empty() {
                 return Err(base.at.error(format!("{name} takes no arguments")));
@@ -4375,23 +4489,22 @@ impl Lower<'_> {
             };
             ops.push(Op::Collection(operation));
             ops.push(Op::UseLoan(loan));
-            return Ok(Some(result));
+            return Ok(Some(Some(result)));
         }
-        if let Some((receiver, root)) = self.hold_receiver_root(base, ops)? {
-            let result = self.method(&receiver, name, args, ops);
-            self.names.remove(&root);
-            return result;
-        }
-        let (ty, loans) = if matches!(self.place_type(base), Some(Ty::Box(_))) {
-            let (reference, loan) = self.borrow(base, false, ops)?;
-            let Ty::Ref(content, _) = self.unbox_reference(reference, ops) else {
-                unreachable!()
-            };
-            ops.push(Op::ReadRef((*content).clone()));
-            ((*content).clone(), vec![loan])
-        } else {
-            self.observe_method_receiver(base, ops)?
-        };
+        Ok(None)
+    }
+
+    /// `name(args)` on an already lowered receiver of type `ty`.
+    #[inline(never)]
+    fn observed_method(
+        &mut self,
+        base: &Expr,
+        name: &str,
+        args: &[Expr],
+        ty: Ty,
+        loans: Vec<usize>,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
         if matches!(ty, Ty::DictView(..)) {
             return Err(base.at.error(format!(
                 "dictionary views do not support `{name}`; use iter(view) for pipeline methods"
@@ -6343,4 +6456,15 @@ pub(super) fn repr_rejection(source: &Ty) -> Option<String> {
         );
     }
     None
+}
+
+/// What `expr_hinted` lowers once `hinted_form` has returned.
+enum Hinted<'e> {
+    Done(Type),
+    /// Lowered without the expected type.
+    Expr,
+    /// A group, lowered as its content.
+    Expected(&'e Expr, Type),
+    /// An arithmetic operator lowered at this numeric type.
+    Arithmetic(Ty),
 }

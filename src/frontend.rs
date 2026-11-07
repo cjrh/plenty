@@ -1561,21 +1561,48 @@ impl Lower<'_> {
         }
         Ok(target)
     }
+    /// Lowers an expression. Each operand of a nested call, method chain or
+    /// operator chain recurses through this frame, so it only dispatches: an
+    /// unoptimized build gives every local of every arm its own stack slot,
+    /// and 62 levels must fit a 2 MiB thread (issues #841 and #849). Arms
+    /// that recurse per level are outlined; the rest are in `expr_other`.
     fn expr(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
         self.note_postfix_operand(e);
         if self.is_pipeline(e) && !self.is_dictionary_projection(e) {
             return Err(e.at.error("iterator pipelines cannot escape their creating scope; bind locally or consume with a loop or terminal"));
         }
-        let ty = match &e.kind {
-            Expression::Name(name) | Expression::Call(name, _)
-                if !self.names.contains_key(name)
-                    && !self.captures.contains(name)
-                    && (name == "One"
-                        || matches!(
-                            lookup_type(name, self.aliases),
-                            Some(Some(Ty::Dimension(_)))
-                        )) =>
+        match &e.kind {
+            Expression::Call(name, _) if !self.names_dimension(name) => {
+                self.call_expression(e, ops)
+            }
+            Expression::Method(..) => self.method_expression(e, ops),
+            Expression::Binary(op, ..)
+                if !matches!(op.as_str(), "in" | "not in" | "and" | "or") =>
             {
+                self.binary_expression(e, ops)
+            }
+            Expression::Group(inner) => self.expr(inner, ops),
+            Expression::Unary(..) => self.unary_expression(e, ops),
+            _ => self.expr_other(e, ops),
+        }
+    }
+
+    /// Whether `name` here is a dimension, which has no values.
+    fn names_dimension(&self, name: &str) -> bool {
+        !self.names.contains_key(name)
+            && !self.captures.contains(name)
+            && (name == "One"
+                || matches!(
+                    lookup_type(name, self.aliases),
+                    Some(Some(Ty::Dimension(_)))
+                ))
+    }
+
+    /// The expression kinds that `expr` does not dispatch itself.
+    #[inline(never)]
+    fn expr_other(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
+        let ty = match &e.kind {
+            Expression::Name(name) | Expression::Call(name, _) if self.names_dimension(name) => {
                 return Err(e.at.error(format!(
                     "dimension `{name}` has no values; use it only as a dimension argument"
                 )));
@@ -1697,35 +1724,6 @@ impl Lower<'_> {
                     Some(ty)
                 }
             }
-            Expression::Method(base, name, args, pos) => {
-                if let Some(result) = self.quantity_format_method(base, name, args, &e.at, ops) {
-                    return result;
-                }
-                if name == "format"
-                    && let Some(ty) = self.format_method(base, args, &e.at, ops)
-                {
-                    return ty;
-                }
-                if matches!(name.as_str(), "sort" | "sort_by_key")
-                    && let Some(named) = args.iter().find(
-                        |arg| matches!(&arg.kind, Expression::NamedArgument(label, _) if label == "reverse"),
-                    )
-                    && self.place_type(base).is_some_and(|ty| match ty {
-                        Ty::Ref(inner, _) => matches!(&*inner, Ty::List(_)),
-                        other => matches!(other, Ty::List(_)),
-                    })
-                {
-                    return Err(named.at.error(if name == "sort" {
-                        "`sort` takes the descending flag positionally: `items.sort(True)`"
-                    } else {
-                        "`sort_by_key` takes the descending flag positionally: `items.sort_by_key(key, True)`"
-                    }));
-                }
-                ide::enter_method(*pos, name);
-                let ty = self.method(base, name, args, ops);
-                ide::leave_method();
-                ty?
-            }
             Expression::GenericMethod(base, name, types, args, pos) => {
                 ide::enter_method(*pos, name);
                 let ty = self.generic_method(base, name, types, args, ops);
@@ -1754,35 +1752,11 @@ impl Lower<'_> {
             }
             Expression::Unit => None,
             Expression::Ambiguous { .. } => unreachable!("resolved with module names"),
-            Expression::Group(inner) => self.expr(inner, ops)?,
             Expression::Name(_) => self.name_expression(e, ops)?,
-            Expression::Unary(..) => self.unary_expression(e, ops)?,
             Expression::Binary(op, ..) if op == "in" || op == "not in" => {
                 self.membership_expression(e, ops)?
             }
-            Expression::Binary(op, ..) if op == "and" || op == "or" => {
-                return self.logical(e, ops);
-            }
-            Expression::Binary(op, left, right) => {
-                if let Some(result) = self.overloaded_binary(op, left, right, &e.at, ops)? {
-                    return Ok(result);
-                }
-                if op == "*"
-                    && let Some(display) = [left, right].into_iter().find_map(|e| list_display(e))
-                {
-                    return Err(display.at.error(LIST_REPETITION));
-                }
-                if let Some(hint) = self.numeric_hint(left).or_else(|| self.numeric_hint(right)) {
-                    return self
-                        .numeric_binary(op, left, right, hint, &e.at, ops)
-                        .map(Some);
-                }
-                let (a, mut loans) = self.observe(left, ops)?;
-                let mut rhs = Vec::new();
-                let (b, other_loans) = self.observe_right(op, &a, right, &mut rhs)?;
-                loans.extend(other_loans);
-                return self.binary_values(e, (a, b), rhs, loans, ops);
-            }
+            Expression::Binary(..) => return self.logical(e, ops),
             Expression::Conditional { condition, yes, no } => {
                 let cond = self.expr(condition, ops)?;
                 self.same(cond, Some(Ty::Bool), &condition.at)?;
@@ -1793,10 +1767,77 @@ impl Lower<'_> {
                 ops.push(branch(a, b));
                 ty
             }
-            Expression::Call(..) => self.call_expression(e, ops)?,
+            Expression::Call(..)
+            | Expression::Method(..)
+            | Expression::Group(_)
+            | Expression::Unary(..) => {
+                unreachable!("expr dispatches these kinds")
+            }
             Expression::Invoke(callee, args) => self.call_value(callee, args, ops)?,
         };
         Ok(ty)
+    }
+    /// A method call. Outlined so that its locals do not enlarge the frame of
+    /// every recursive `expr` call (issue #849).
+    #[inline(never)]
+    fn method_expression(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
+        let Expression::Method(base, name, args, pos) = &e.kind else {
+            unreachable!("method_expression lowers its own expression kind")
+        };
+        if let Some(result) = self.quantity_format_method(base, name, args, &e.at, ops) {
+            return result;
+        }
+        if name == "format"
+            && let Some(ty) = self.format_method(base, args, &e.at, ops)
+        {
+            return ty;
+        }
+        if matches!(name.as_str(), "sort" | "sort_by_key")
+            && let Some(named) = args.iter().find(
+                |arg| matches!(&arg.kind, Expression::NamedArgument(label, _) if label == "reverse"),
+            )
+            && self.place_type(base).is_some_and(|ty| match ty {
+                Ty::Ref(inner, _) => matches!(&*inner, Ty::List(_)),
+                other => matches!(other, Ty::List(_)),
+            })
+        {
+            return Err(named.at.error(if name == "sort" {
+                "`sort` takes the descending flag positionally: `items.sort(True)`"
+            } else {
+                "`sort_by_key` takes the descending flag positionally: `items.sort_by_key(key, True)`"
+            }));
+        }
+        ide::enter_method(*pos, name);
+        let ty = self.method(base, name, args, ops);
+        ide::leave_method();
+        ty
+    }
+    /// A binary operator other than `in`, `not in`, `and` and `or`. Outlined
+    /// so that its locals do not enlarge the frame of every recursive `expr`
+    /// call (issue #849).
+    #[inline(never)]
+    fn binary_expression(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
+        let Expression::Binary(op, left, right) = &e.kind else {
+            unreachable!("binary_expression lowers its own expression kind")
+        };
+        if let Some(result) = self.overloaded_binary(op, left, right, &e.at, ops)? {
+            return Ok(result);
+        }
+        if op == "*"
+            && let Some(display) = [left, right].into_iter().find_map(|e| list_display(e))
+        {
+            return Err(display.at.error(LIST_REPETITION));
+        }
+        if let Some(hint) = self.numeric_hint(left).or_else(|| self.numeric_hint(right)) {
+            return self
+                .numeric_binary(op, left, right, hint, &e.at, ops)
+                .map(Some);
+        }
+        let (a, mut loans) = self.observe(left, ops)?;
+        let mut rhs = Vec::new();
+        let (b, other_loans) = self.observe_right(op, &a, right, &mut rhs)?;
+        loans.extend(other_loans);
+        self.binary_values(e, (a, b), rhs, loans, ops)
     }
     /// A field read or a qualified module name. Outlined so that its locals do
     /// not enlarge the frame of every recursive `expr` call (issue #841).
@@ -2164,14 +2205,26 @@ impl Lower<'_> {
         })
     }
     /// A call of a name: a builtin, function, class or variant constructor.
-    /// Outlined so that its locals do not enlarge the frame of every recursive
-    /// `expr` call (issue #841).
-    #[inline(never)]
+    /// Nested calls recurse through this frame into `call_named`, so the
+    /// builtins are decided by `call_builtin`, whose frame is gone by then
+    /// (issues #841 and #849).
     fn call_expression(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
+        if let Some(result) = self.call_builtin(e, ops)? {
+            return Ok(result);
+        }
         let Expression::Call(name, args) = &e.kind else {
             unreachable!("call_expression lowers its own expression kind")
         };
-        Ok({
+        self.call_named(name, args, &e.at, ops)
+    }
+    /// Lowers a call of a builtin, a class or variant constructor, or a cast.
+    /// `None` is a call of a function, which `call_expression` lowers.
+    #[inline(never)]
+    fn call_builtin(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Option<Type>> {
+        let Expression::Call(name, args) = &e.kind else {
+            unreachable!("call_builtin lowers call expressions")
+        };
+        Ok(Some({
             if name == "print"
                 && !self.names.contains_key(name)
                 && let Some(named) = args
@@ -2220,19 +2273,21 @@ impl Lower<'_> {
                 self.same(Some(actual), Some(inputs[0].clone()), &argument.at)?;
                 Self::push_query(operation, ops);
                 Self::end_reads(loans, ops);
-                return Ok(Some(output));
+                return Ok(Some(Some(output)));
             }
             if matches!(name.as_str(), "__min_replaces" | "__max_replaces") {
-                return self.extremum_call(name, args, &e.at, ops).map(Some);
+                return self
+                    .extremum_call(name, args, &e.at, ops)
+                    .map(|ty| Some(Some(ty)));
             }
             if name == "CancellationToken" {
-                return self.control_new(args, &e.at, ops);
+                return self.control_new(args, &e.at, ops).map(Some);
             }
             if name == crate::atomic::ATOMIC {
-                return self.atomic_new(None, args, None, &e.at, ops);
+                return self.atomic_new(None, args, None, &e.at, ops).map(Some);
             }
             if name == crate::atomic::FENCE {
-                return self.atomic_fence(args, &e.at, ops);
+                return self.atomic_fence(args, &e.at, ops).map(Some);
             }
             if matches!(
                 name.as_str(),
@@ -2241,10 +2296,10 @@ impl Lower<'_> {
                     | "select_recv_timeout"
                     | "select_recv_timeout_ms"
             ) {
-                return self.channel_select(name, args, &e.at, ops);
+                return self.channel_select(name, args, &e.at, ops).map(Some);
             }
             if name == "ThreadPoolExecutor" {
-                return self.executor_new(args, &e.at, ops);
+                return self.executor_new(args, &e.at, ops).map(Some);
             }
             if name == "spawn" {
                 return Err(e.at.error(
@@ -2265,18 +2320,19 @@ impl Lower<'_> {
                         .at
                         .error(format!("`{name}` is reserved for the standard library")));
                 }
-                return if name == "__actor_run" {
+                return (if name == "__actor_run" {
                     self.actor_run(args, &e.at, ops)
                 } else {
                     self.actor_forget(args, &e.at, ops)
-                };
+                })
+                .map(Some);
             }
             if self.names.contains_key(name) {
                 let callee = Expr {
                     at: e.at.clone(),
                     kind: Expression::Name(name.clone()),
                 };
-                return self.call_value(&callee, args, ops);
+                return self.call_value(&callee, args, ops).map(Some);
             }
             if name == "print" {
                 let mut types = Vec::new();
@@ -2335,16 +2391,16 @@ impl Lower<'_> {
                 let output = operation.signature().1;
                 ops.push(Op::Collection(operation));
                 Self::end_reads(reads, ops);
-                return Ok(Some(output));
+                return Ok(Some(Some(output)));
             }
             if name == "open" {
-                return self.open_file(args, &e.at, ops);
+                return self.open_file(args, &e.at, ops).map(Some);
             }
             if let Some(operation) = crate::filesystem::FsOp::named(name) {
-                return self.filesystem_call(operation, args, &e.at, ops);
+                return self.filesystem_call(operation, args, &e.at, ops).map(Some);
             }
             if let Some(operation) = crate::bytes::BytesOp::named(name) {
-                return self.bytes_call(operation, args, &e.at, ops);
+                return self.bytes_call(operation, args, &e.at, ops).map(Some);
             }
             if std_only_intrinsic(name) && !self.names.contains_key(name) {
                 // Native back ends of std modules; their std callers
@@ -2359,7 +2415,7 @@ impl Lower<'_> {
                         .error(format!("`{name}` is reserved for the standard library")));
                 }
                 if name == BYTES_ADOPT {
-                    return self.bytes_adopt(args, &e.at, ops);
+                    return self.bytes_adopt(args, &e.at, ops).map(Some);
                 }
                 if name == TRAP {
                     return Err(e
@@ -2368,39 +2424,53 @@ impl Lower<'_> {
                 }
             }
             if let Some(operation) = crate::numeric::FloatBits::named(name) {
-                return self.float_bits_call(operation, args, &e.at, ops).map(Some);
+                return self
+                    .float_bits_call(operation, args, &e.at, ops)
+                    .map(|ty| Some(Some(ty)));
             }
             if let Some(operation) = crate::stream::StreamOp::named(name) {
                 let exclusive = |index| operation.exclusive(index);
                 let call = CollectionOp::Stream(operation);
-                return self.exclusive_call(call, &exclusive, args, &e.at, ops);
+                return self
+                    .exclusive_call(call, &exclusive, args, &e.at, ops)
+                    .map(Some);
             }
             if let Some(operation) = crate::crypto::CryptoOp::named(name) {
                 let exclusive = |index| operation.exclusive(index);
                 let call = CollectionOp::Crypto(operation);
-                return self.exclusive_call(call, &exclusive, args, &e.at, ops);
+                return self
+                    .exclusive_call(call, &exclusive, args, &e.at, ops)
+                    .map(Some);
             }
             if let Some(operation) = crate::compress::CompressOp::named(name) {
                 let exclusive = |index| operation.exclusive(index);
                 let call = CollectionOp::Compress(operation);
-                return self.exclusive_call(call, &exclusive, args, &e.at, ops);
+                return self
+                    .exclusive_call(call, &exclusive, args, &e.at, ops)
+                    .map(Some);
             }
             if let Some(operation) = crate::process::ProcessOp::named(name) {
-                return self.system_call(CollectionOp::Process(operation), args, &e.at, ops);
+                return self
+                    .system_call(CollectionOp::Process(operation), args, &e.at, ops)
+                    .map(Some);
             }
             if let Some(operation) = crate::system::SystemOp::named(name) {
-                return self.system_call(CollectionOp::System(operation), args, &e.at, ops);
+                return self
+                    .system_call(CollectionOp::System(operation), args, &e.at, ops)
+                    .map(Some);
             }
             if let Some(operation) = crate::time::TimeOp::named(name) {
                 let output = self.system_call(CollectionOp::Time(operation), args, &e.at, ops)?;
                 if output == Some(Ty::Unit) {
                     ops.push(Op::Drop);
-                    return Ok(None);
+                    return Ok(Some(None));
                 }
-                return Ok(output);
+                return Ok(Some(output));
             }
             if let Some(operation) = crate::unicode::UnicodeOp::named(name) {
-                return self.system_call(CollectionOp::Unicode(operation), args, &e.at, ops);
+                return self
+                    .system_call(CollectionOp::Unicode(operation), args, &e.at, ops)
+                    .map(Some);
             }
             if let Some(operation) = crate::regex::RegexOp::named(name) {
                 if operation == crate::regex::RegexOp::TextBytes {
@@ -2408,11 +2478,13 @@ impl Lower<'_> {
                         "__regex_text_bytes is only supported at a shared byte-view parameter",
                     ));
                 }
-                return self.system_call(CollectionOp::Regex(operation), args, &e.at, ops);
+                return self
+                    .system_call(CollectionOp::Regex(operation), args, &e.at, ops)
+                    .map(Some);
             }
             if let Some(operation) = crate::text::TextOp::named(name) {
                 if operation == crate::text::TextOp::FindIn {
-                    return self.text_find_in(args, &e.at, ops);
+                    return self.text_find_in(args, &e.at, ops).map(Some);
                 }
                 if args.len() == 2 && args.iter().all(|arg| self.place_type(arg) == Some(Ty::Str)) {
                     // Compare text places in place (issue #364).
@@ -2424,25 +2496,35 @@ impl Lower<'_> {
                         crate::collection::Query::TextAsciiEqualFolded,
                     )));
                     Self::end_reads(loans, ops);
-                    return Ok(Some(Ty::Bool));
+                    return Ok(Some(Some(Ty::Bool)));
                 }
-                return self.system_call(CollectionOp::Text(operation), args, &e.at, ops);
+                return self
+                    .system_call(CollectionOp::Text(operation), args, &e.at, ops)
+                    .map(Some);
             }
             if let Some(operation) = crate::net::NetOp::named(name) {
                 let exclusive = |index| operation.exclusive(index);
                 let call = CollectionOp::Net(operation);
-                return self.exclusive_call(call, &exclusive, args, &e.at, ops);
+                return self
+                    .exclusive_call(call, &exclusive, args, &e.at, ops)
+                    .map(Some);
             }
             if let Some(operation) = crate::sqlite::SqliteOp::named(name) {
-                return self.system_call(CollectionOp::Sqlite(operation), args, &e.at, ops);
+                return self
+                    .system_call(CollectionOp::Sqlite(operation), args, &e.at, ops)
+                    .map(Some);
             }
             if let Some(operation) = crate::tls::TlsOp::named(name) {
                 let exclusive = |index| operation.exclusive(index);
                 let call = CollectionOp::Tls(operation);
-                return self.exclusive_call(call, &exclusive, args, &e.at, ops);
+                return self
+                    .exclusive_call(call, &exclusive, args, &e.at, ops)
+                    .map(Some);
             }
             if enums::prelude_variant(name) {
-                return self.prelude_constructor(name, Some(args), None, &e.at, ops);
+                return self
+                    .prelude_constructor(name, Some(args), None, &e.at, ops)
+                    .map(Some);
             }
             if matches!(name.as_str(), "copy" | "drop") {
                 if name == "drop"
@@ -2451,25 +2533,29 @@ impl Lower<'_> {
                 {
                     let plan = self.pipeline(value, ops)?;
                     self.finish_pipeline(&plan, ops);
-                    return Ok(None);
+                    return Ok(Some(None));
                 }
-                return self.copy_or_drop(name, args, &e.at, ops);
+                return self.copy_or_drop(name, args, &e.at, ops).map(Some);
             }
             if name == "sorted" {
-                return self.sorted(args, &e.at, ops);
+                return self.sorted(args, &e.at, ops).map(Some);
             }
             if name == "replace"
                 && !self.sigs.contains_key(name)
                 && !self.generics.templates.contains_key(name)
                 && !self.aliases.contains_key(name)
             {
-                return self.replace_field(args, &e.at, ops).map(Some);
+                return self
+                    .replace_field(args, &e.at, ops)
+                    .map(|ty| Some(Some(ty)));
             }
             if name == "BoxedCallable" {
-                return self.boxed_callable(args, &e.at, ops).map(Some);
+                return self
+                    .boxed_callable(args, &e.at, ops)
+                    .map(|ty| Some(Some(ty)));
             }
             if name == "Shared" {
-                return self.shared_new(None, args, &e.at, ops);
+                return self.shared_new(None, args, &e.at, ops).map(Some);
             }
             if name == "Box" {
                 let [content] = args.as_slice() else {
@@ -2482,10 +2568,10 @@ impl Lower<'_> {
                 let operation = crate::boxed::BoxOp::New(ty);
                 let output = operation.signature().1;
                 ops.push(Op::Box(operation));
-                return Ok(Some(output));
+                return Ok(Some(Some(output)));
             }
             if name == "next" {
-                return self.next(args, &e.at, ops);
+                return self.next(args, &e.at, ops).map(Some);
             }
             if name == fstrings::REPR_IF_FORMATTABLE {
                 let standard =
@@ -2497,7 +2583,9 @@ impl Lower<'_> {
                         .at
                         .error(format!("`{name}` is reserved for the standard library")));
                 }
-                return self.repr_if_formattable(args, &e.at, ops).map(Some);
+                return self
+                    .repr_if_formattable(args, &e.at, ops)
+                    .map(|ty| Some(Some(ty)));
             }
             if let Some(operation) = match name.as_str() {
                 "__caller_location" => Some(CollectionOp::CallerLocation),
@@ -2517,7 +2605,7 @@ impl Lower<'_> {
                         .at
                         .error(format!("`{name}` is reserved for the standard library")));
                 }
-                return self.system_call(operation, args, &e.at, ops);
+                return self.system_call(operation, args, &e.at, ops).map(Some);
             }
             if let Some(operation) = match name.as_str() {
                 "write_stdout" => Some(CollectionOp::WriteStdout),
@@ -2539,10 +2627,12 @@ impl Lower<'_> {
                 "append_text" => Some(CollectionOp::AppendText),
                 _ => None,
             } {
-                return self.system_call(operation, args, &e.at, ops);
+                return self.system_call(operation, args, &e.at, ops).map(Some);
             }
             if matches!(name.as_str(), "len" | "range" | "list" | "set" | "dict") {
-                return self.builtin_collection(name, args, &e.at, ops).map(Some);
+                return self
+                    .builtin_collection(name, args, &e.at, ops)
+                    .map(|ty| Some(Some(ty)));
             }
             if let Some(Some(Ty::Class(t))) = lookup_type(name, self.aliases) {
                 if Ty::Class(t.clone()).layout_depth() >= 64 {
@@ -2551,7 +2641,9 @@ impl Lower<'_> {
                         .error("type nesting exceeds the implementation limit of 64"));
                 }
                 modules::check_member(self.access, &t.name, "__new__", &e.at)?;
-                return self.call_named(&crate::record::method(&t.name, "new"), args, &e.at, ops);
+                return self
+                    .call_named(&crate::record::method(&t.name, "new"), args, &e.at, ops)
+                    .map(Some);
             }
             match lookup_type(name, self.aliases) {
                 Some(target) => {
@@ -2559,7 +2651,9 @@ impl Lower<'_> {
                         .as_ref()
                         .filter(|t| t.is_collection() || matches!(t, Ty::Clist(_)))
                     {
-                        return self.construct(target.clone(), args, &e.at, ops).map(Some);
+                        return self
+                            .construct(target.clone(), args, &e.at, ops)
+                            .map(|ty| Some(Some(ty)));
                     }
                     let target = target.filter(|ty| ty.is_numeric()).ok_or_else(|| {
                     e.at.error(if lookup_type(name, self.aliases) == Some(Some(Ty::Str)) {
@@ -2599,11 +2693,11 @@ impl Lower<'_> {
                         Self::end_reads(loans, ops);
                         Some(Ty::Bool)
                     } else {
-                        self.call_named(name, args, &e.at, ops)?
+                        return Ok(None);
                     }
                 }
             }
-        })
+        }))
     }
     fn call_named(
         &mut self,

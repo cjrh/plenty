@@ -283,6 +283,13 @@ fn methods(calls: usize) -> String {
     value("i64", &format!("x{}", ".wrapping_add(1)".repeat(calls)))
 }
 
+/// `(x & 0) | (x & 1) | ...`: a left-associated chain whose operands are
+/// themselves operators, as in a bit-packing expression (issue #849).
+fn bitwise(operators: usize) -> String {
+    let operands: Vec<String> = (0..=operators).map(|i| format!("(x & {i})")).collect();
+    value("i64", &operands.join(" | "))
+}
+
 fn indexes(depth: usize) -> String {
     fallible(
         &format!(
@@ -336,8 +343,8 @@ fn clauses(conditions: usize) -> String {
     )
 }
 
-/// The compiler as a process: on a test thread's 2 MB stack an unoptimized
-/// compiler cannot reach the limit that its 8 MB main thread can.
+/// The compiler as a process, as a user runs it, so diagnostics carry the
+/// file path. Worker-stack depth is checked by `limit_shapes_compile_on_a_worker_stack`.
 fn compile_and_run(source: &str) -> (bool, String, String) {
     let workspace = tempfile::tempdir().unwrap();
     let path = workspace.path().join("nesting.plenty");
@@ -373,6 +380,7 @@ fn compile_and_run(source: &str) -> (bool, String, String) {
 #[case::conditionals(conditionals, 61, "7\n", "2:1152")]
 #[case::calls(calls, 62, "7\n", "4:131")]
 #[case::methods(methods, 62, "69\n", "2:998")]
+#[case::bitwise(bitwise, 60, "7\n", "2:664")]
 #[case::indexes(indexes, 62, "7\n", "6:199")]
 #[case::propagations(propagations, 31, "7\n", "5:231")]
 #[case::tuples(tuples, 62, "7\n", "2:72")]
@@ -438,15 +446,34 @@ fn predicates(operators: usize) -> String {
 /// The default stack of a spawned Rust thread, including a test worker.
 const WORKER_STACK: usize = 2 << 20;
 
-/// Boolean chains at the nesting limit compile in-process on a default
-/// worker stack. Lowering walks an `and`/`or` chain's left spine in a loop
-/// rather than recursing per operand; 45 `or` comparisons used to overflow
-/// this stack (issue #841).
+/// Every shape at the nesting limit compiles in-process on a default worker
+/// stack with an unoptimized compiler. Lowering walks an `and`/`or` chain's
+/// left spine in a loop; 45 `or` comparisons used to overflow this stack
+/// (issue #841). Calls, bitwise chains and method chains within the limit
+/// overflowed it until the large arms of `expr`, `call_expression`, `method`,
+/// `observe_inner` and `expr_hinted` were outlined (issue #849).
 #[rstest]
+#[case::ifs(ifs, 62, "1\n")]
+#[case::elses(elses, 62, "1\n")]
+#[case::whiles(whiles, 62, "1\n")]
+#[case::fors(fors, 62, "1\n")]
+#[case::matches(matches, 62, "1\n")]
+#[case::sums(sums, 62, "69\n")]
 #[case::conjunctions(conjunctions, 61, "True\n")]
 #[case::disjunctions(disjunctions, 61, "True\n")]
 #[case::predicates(predicates, 61, "True\n")]
-fn boolean_chains_compile_on_a_worker_stack(
+#[case::parentheses(parentheses, 62, "7\n")]
+#[case::negations(negations, 61, "False\n")]
+#[case::conditionals(conditionals, 61, "7\n")]
+#[case::calls(calls, 62, "7\n")]
+#[case::methods(methods, 62, "69\n")]
+#[case::bitwise(bitwise, 60, "7\n")]
+#[case::indexes(indexes, 62, "7\n")]
+#[case::propagations(propagations, 31, "7\n")]
+#[case::tuples(tuples, 62, "7\n")]
+#[case::managers(managers, 62, "7\n")]
+#[case::clauses(clauses, 59, "7\n")]
+fn limit_shapes_compile_on_a_worker_stack(
     #[case] shape: fn(usize) -> String,
     #[case] operators: usize,
     #[case] printed: &str,
@@ -458,7 +485,13 @@ fn boolean_chains_compile_on_a_worker_stack(
     std::thread::Builder::new()
         .stack_size(WORKER_STACK)
         .spawn(move || {
-            support::compile_source_to_executable(&source, &output)
+            // Without the cache: a cached program object would skip lowering.
+            let options = plenty::CompileOptions {
+                optimize: false,
+                cache: plenty::cache::CacheMode::Off,
+                ..Default::default()
+            };
+            plenty::compile_source_to_executable_with_options(&source, &output, &options)
                 .unwrap_or_else(|error| panic!("{error}"));
         })
         .unwrap()

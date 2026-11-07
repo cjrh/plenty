@@ -1070,6 +1070,8 @@ impl Lower<'_> {
         }
         Ok(result)
     }
+    /// Every operand of a method chain or arithmetic chain recurses through
+    /// this frame, so arms with many locals are outlined (issue #849).
     fn observe_inner(
         &mut self,
         e: &Expr,
@@ -1093,53 +1095,7 @@ impl Lower<'_> {
                 ops.push(Op::ReadRef((*inner).clone()));
                 Ok(((*inner).clone(), vec![loan]))
             }
-            Expression::Name(name) => {
-                if !self.names.contains_key(name)
-                    && (enums::prelude_variant(name)
-                        || self.sigs.contains_key(name)
-                        || self.generics.templates.contains_key(name))
-                {
-                    return self.value(e, ops).map(|ty| (ty, vec![]));
-                }
-                let local = self.named_place(e)?;
-                self.mark(&e.at, ops);
-                self.use_carried(&local, ops);
-                if matches!(local.ty, Ty::KeyView(_) | Ty::DictView(..) | Ty::View(..)) {
-                    let loan = self.reference_locals[&local.slot];
-                    ops.push(Op::LoadLocal(local.slot));
-                    return Ok((local.ty, vec![loan]));
-                }
-                if let Ty::Ref(ty, _) = &local.ty {
-                    let parent = self.reference_locals[&local.slot];
-                    if !ty.affine() {
-                        ops.push(Op::Access(self.loans[parent].root, false, Some(parent)));
-                        ops.push(Op::LoadLocal(local.slot));
-                        ops.push(Op::ReadRef((**ty).clone()));
-                        ops.push(Op::UseLoan(parent));
-                        return Ok((
-                            (**ty).clone(),
-                            if matches!(**ty, Ty::KeyView(_) | Ty::DictView(..)) {
-                                vec![parent]
-                            } else {
-                                vec![]
-                            },
-                        ));
-                    }
-                    let loan = self.new_loan(self.loans[parent].root, false, Some(parent), ops);
-                    ops.push(Op::LoadLocal(local.slot));
-                    ops.push(Op::ReadRef((**ty).clone()));
-                    Ok(((**ty).clone(), vec![loan]))
-                } else {
-                    if !local.ty.affine() {
-                        ops.push(Op::Access(local.slot, false, None));
-                        ops.push(Op::LoadLocal(local.slot));
-                        return Ok((local.ty, vec![]));
-                    }
-                    let loan = self.new_loan(local.slot, false, None, ops);
-                    ops.push(Op::LoadLocal(local.slot));
-                    Ok((local.ty, vec![loan]))
-                }
-            }
+            Expression::Name(_) => self.observe_name(e, ops),
             Expression::Member(base, _, _) if self.qualified_type(base)?.is_none() => {
                 self.field(e, ops)
             }
@@ -1153,83 +1109,7 @@ impl Lower<'_> {
                 ops.push(Op::ReadRef((*content).clone()));
                 Ok(((*content).clone(), vec![loan]))
             }
-            Expression::Index(base, index) => {
-                if matches!(self.place_type(base), Some(Ty::Shared(_))) {
-                    let element = Expr {
-                        at: e.at.clone(),
-                        kind: Expression::Index(Box::new(shared::content(base)), index.clone()),
-                    };
-                    return self.observe_inner(&element, expected, ops);
-                }
-                // A literal list index reads through an element loan, which
-                // stays disjoint from loans of other literal indices.
-                if matches!(self.place_type(base), Some(Ty::Enum(t)) if t.tuple())
-                    || self
-                        .place_type(base)
-                        .and_then(|ty| literal_index(&ty, index))
-                        .is_some()
-                {
-                    let (reference, loan) = self.borrow(e, false, ops)?;
-                    let Ty::Ref(value, _) = reference else {
-                        unreachable!()
-                    };
-                    if *value == Ty::Unit {
-                        return Err(e.at.error("expected a value, got ()"));
-                    }
-                    ops.push(Op::ReadRef((*value).clone()));
-                    return Ok(((*value).clone(), vec![loan]));
-                }
-                if self.byte_place(base).is_some()
-                    || matches!(self.place_type(base), Some(Ty::List(element))
-                    if element.is_numeric() || *element == Ty::Bool)
-                    || self.place_type(base) == Some(Ty::Str)
-                {
-                    return self.index(e, ops).map(|ty| (ty, vec![]));
-                }
-                let (ty, loans) = self.observe(base, ops)?;
-                if let Ty::Enum(t) = &ty
-                    && t.tuple()
-                {
-                    let fields = &t.get().variants[0].fields;
-                    let i = slices::tuple_position(index, fields.len())?;
-                    let value = fields[i].clone();
-                    if value == Ty::Unit {
-                        return Err(e.at.error("expected a value, got ()"));
-                    }
-                    ops.push(Op::Enum(crate::sum::EnumOp::Field(t.clone(), 0, i)));
-                    return Ok((value, loans));
-                }
-                if let Some(class) = byte_buffers::byte_buffer(&ty) {
-                    let reads = self.byte_value_item(&class, index, &e.at, ops)?;
-                    let mut loans = loans;
-                    loans.extend(reads);
-                    return Ok((Ty::U8, loans));
-                }
-                if let Ty::View(..) = ty {
-                    let (value, reads) = self.view_get(&ty, index, &e.at, ops)?;
-                    let mut loans = loans;
-                    loans.extend(reads);
-                    return Ok((value, loans));
-                }
-                let (key, value) = match &ty {
-                    Ty::Dict(k, v) => ((**k).clone(), (**v).clone()),
-                    Ty::List(_) | Ty::Str | Ty::ByteStr | Ty::Range(_) => {
-                        (Ty::I64, ty.element().unwrap())
-                    }
-                    _ => {
-                        return Err(e
-                            .at
-                            .error("indexing requires list, dict, str, bytes, range, or Bytes"));
-                    }
-                };
-                let (actual, reads) = self.observe_expected(index, Some(key.clone()), ops)?;
-                self.same(Some(actual), Some(key), &index.at)?;
-                self.mark(&e.at, ops);
-                ops.push(self.index_op(CollectionOp::Get(ty)));
-                let mut loans = loans;
-                loans.extend(reads);
-                Ok((value, loans))
-            }
+            Expression::Index(..) => self.observe_index(e, expected, ops),
             _ => {
                 let ty = self
                     .expr_expected(e, expected, ops)?
@@ -1246,6 +1126,141 @@ impl Lower<'_> {
                 }
             }
         }
+    }
+    #[inline(never)]
+    fn observe_name(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<(Ty, Vec<usize>)> {
+        let Expression::Name(name) = &e.kind else {
+            unreachable!("observe_name observes names")
+        };
+        if !self.names.contains_key(name)
+            && (enums::prelude_variant(name)
+                || self.sigs.contains_key(name)
+                || self.generics.templates.contains_key(name))
+        {
+            return self.value(e, ops).map(|ty| (ty, vec![]));
+        }
+        let local = self.named_place(e)?;
+        self.mark(&e.at, ops);
+        self.use_carried(&local, ops);
+        if matches!(local.ty, Ty::KeyView(_) | Ty::DictView(..) | Ty::View(..)) {
+            let loan = self.reference_locals[&local.slot];
+            ops.push(Op::LoadLocal(local.slot));
+            return Ok((local.ty, vec![loan]));
+        }
+        if let Ty::Ref(ty, _) = &local.ty {
+            let parent = self.reference_locals[&local.slot];
+            if !ty.affine() {
+                ops.push(Op::Access(self.loans[parent].root, false, Some(parent)));
+                ops.push(Op::LoadLocal(local.slot));
+                ops.push(Op::ReadRef((**ty).clone()));
+                ops.push(Op::UseLoan(parent));
+                return Ok((
+                    (**ty).clone(),
+                    if matches!(**ty, Ty::KeyView(_) | Ty::DictView(..)) {
+                        vec![parent]
+                    } else {
+                        vec![]
+                    },
+                ));
+            }
+            let loan = self.new_loan(self.loans[parent].root, false, Some(parent), ops);
+            ops.push(Op::LoadLocal(local.slot));
+            ops.push(Op::ReadRef((**ty).clone()));
+            Ok(((**ty).clone(), vec![loan]))
+        } else {
+            if !local.ty.affine() {
+                ops.push(Op::Access(local.slot, false, None));
+                ops.push(Op::LoadLocal(local.slot));
+                return Ok((local.ty, vec![]));
+            }
+            let loan = self.new_loan(local.slot, false, None, ops);
+            ops.push(Op::LoadLocal(local.slot));
+            Ok((local.ty, vec![loan]))
+        }
+    }
+    #[inline(never)]
+    fn observe_index(
+        &mut self,
+        e: &Expr,
+        expected: Type,
+        ops: &mut Vec<Op>,
+    ) -> Result<(Ty, Vec<usize>)> {
+        let Expression::Index(base, index) = &e.kind else {
+            unreachable!("observe_index observes index expressions")
+        };
+        if matches!(self.place_type(base), Some(Ty::Shared(_))) {
+            let element = Expr {
+                at: e.at.clone(),
+                kind: Expression::Index(Box::new(shared::content(base)), index.clone()),
+            };
+            return self.observe_inner(&element, expected, ops);
+        }
+        // A literal list index reads through an element loan, which
+        // stays disjoint from loans of other literal indices.
+        if matches!(self.place_type(base), Some(Ty::Enum(t)) if t.tuple())
+            || self
+                .place_type(base)
+                .and_then(|ty| literal_index(&ty, index))
+                .is_some()
+        {
+            let (reference, loan) = self.borrow(e, false, ops)?;
+            let Ty::Ref(value, _) = reference else {
+                unreachable!()
+            };
+            if *value == Ty::Unit {
+                return Err(e.at.error("expected a value, got ()"));
+            }
+            ops.push(Op::ReadRef((*value).clone()));
+            return Ok(((*value).clone(), vec![loan]));
+        }
+        if self.byte_place(base).is_some()
+            || matches!(self.place_type(base), Some(Ty::List(element))
+            if element.is_numeric() || *element == Ty::Bool)
+            || self.place_type(base) == Some(Ty::Str)
+        {
+            return self.index(e, ops).map(|ty| (ty, vec![]));
+        }
+        let (ty, loans) = self.observe(base, ops)?;
+        if let Ty::Enum(t) = &ty
+            && t.tuple()
+        {
+            let fields = &t.get().variants[0].fields;
+            let i = slices::tuple_position(index, fields.len())?;
+            let value = fields[i].clone();
+            if value == Ty::Unit {
+                return Err(e.at.error("expected a value, got ()"));
+            }
+            ops.push(Op::Enum(crate::sum::EnumOp::Field(t.clone(), 0, i)));
+            return Ok((value, loans));
+        }
+        if let Some(class) = byte_buffers::byte_buffer(&ty) {
+            let reads = self.byte_value_item(&class, index, &e.at, ops)?;
+            let mut loans = loans;
+            loans.extend(reads);
+            return Ok((Ty::U8, loans));
+        }
+        if let Ty::View(..) = ty {
+            let (value, reads) = self.view_get(&ty, index, &e.at, ops)?;
+            let mut loans = loans;
+            loans.extend(reads);
+            return Ok((value, loans));
+        }
+        let (key, value) = match &ty {
+            Ty::Dict(k, v) => ((**k).clone(), (**v).clone()),
+            Ty::List(_) | Ty::Str | Ty::ByteStr | Ty::Range(_) => (Ty::I64, ty.element().unwrap()),
+            _ => {
+                return Err(e
+                    .at
+                    .error("indexing requires list, dict, str, bytes, range, or Bytes"));
+            }
+        };
+        let (actual, reads) = self.observe_expected(index, Some(key.clone()), ops)?;
+        self.same(Some(actual), Some(key), &index.at)?;
+        self.mark(&e.at, ops);
+        ops.push(self.index_op(CollectionOp::Get(ty)));
+        let mut loans = loans;
+        loans.extend(reads);
+        Ok((value, loans))
     }
     pub(super) fn copy_or_drop(
         &mut self,
