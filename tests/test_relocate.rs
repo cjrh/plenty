@@ -266,7 +266,10 @@ fn moved_code_names_the_destinations_declarations_directly() {
     let moved = plan(dir.path(), "src/shapes.plenty", 4, "src/geometry.plenty");
     // `+` can overflow, which `two` does not declare.
     let message = moved.err().unwrap();
-    assert!(message.starts_with("fix this error"), "{message}");
+    assert_eq!(
+        message,
+        "fix this error before moving `two`: src/shapes.plenty:5:5: arithmetic can fail with OverflowError[i64], which is not included in this function's return type i64; declare Result[_, OverflowError[i64]], handle a local `checked:` result, or deliberately use `unchecked:`"
+    );
 
     std::fs::write(
         dir.path().join("src/shapes.plenty"),
@@ -351,7 +354,10 @@ fn a_cycle_is_refused() {
         ("src/geometry.plenty", GEOMETRY),
     ]);
     let message = refused(dir.path(), "src/shapes.plenty", 4, "src/geometry.plenty");
-    assert!(message.contains("import each other"), "{message}");
+    assert_eq!(
+        message,
+        "moving `twice` would make `shapes` and `geometry` import each other: `twice` uses `double` and the rest of `shapes` uses `twice`"
+    );
 
     // The destination already imports the source, which would then import it.
     let dir = package(&[
@@ -369,8 +375,17 @@ fn a_cycle_is_refused() {
         ),
     ]);
     let message = refused(dir.path(), "src/shapes.plenty", 1, "src/geometry.plenty");
-    assert!(message.contains("would not check"), "{message}");
-    assert!(message.contains("circular import"), "{message}");
+    let src = dir.path().canonicalize().unwrap().join("src");
+    let (geometry, shapes) = (
+        src.join("geometry.plenty").display().to_string(),
+        src.join("shapes.plenty").display().to_string(),
+    );
+    assert_eq!(
+        message,
+        format!(
+            "after moving `one`, the package would not check: src/main.plenty:1:1: {geometry}:1:1: {shapes}:1:1: circular import: {geometry} -> {shapes} -> {geometry}"
+        )
+    );
 }
 
 #[test]
@@ -397,7 +412,10 @@ fn unsupported_moves_are_refused() {
         ("src/geometry.plenty", GEOMETRY),
     ]);
     let message = refused(dir.path(), "src/shapes.plenty", 4, "src/geometry.plenty");
-    assert!(message.contains("an import with a comment"), "{message}");
+    assert_eq!(
+        message,
+        "src/main.plenty:2: an import with a comment cannot be rewritten"
+    );
 
     // `shapes` keeps `norm`, which no target would import afterwards.
     let dir = package(&[
@@ -416,7 +434,10 @@ fn unsupported_moves_are_refused() {
     std::fs::write(loose.path().join("a.plenty"), "def f() -> ():\n    pass\n").unwrap();
     std::fs::write(loose.path().join("b.plenty"), "").unwrap();
     let message = refused(loose.path(), "a.plenty", 1, "b.plenty");
-    assert!(message.contains("needs a package"), "{message}");
+    assert_eq!(
+        message,
+        "moving a declaration needs a package: this file has no plenty.toml"
+    );
 }
 
 /// Write a planned move's files into the package.

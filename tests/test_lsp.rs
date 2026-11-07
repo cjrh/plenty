@@ -789,86 +789,69 @@ fn a_declaration_moves_through_a_resolved_code_action() {
             "range": {"start": {"line": 1, "character": 4}, "end": {"line": 1, "character": 4}},
             "context": {"diagnostics": []}}),
     );
-    let titles: Vec<&str> = actions
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|a| a["title"].as_str().unwrap())
-        .collect();
     assert_eq!(
-        titles,
-        [
-            "Move `one` to module `geometry`",
-            "Move `one` to module `main`"
-        ]
+        actions,
+        json!([
+            move_action(&uri(&shapes), &uri(&geometry), "geometry", "one", 2, 2),
+            move_action(&uri(&shapes), &uri(&main), "main", "one", 2, 2),
+        ])
     );
     let resolved = client.request("codeAction/resolve", actions[0].clone());
-    let changes = &resolved["edit"]["changes"];
-    assert_eq!(
-        changes[uri(&geometry)],
-        json!([{"range": {"start": {"line": 2, "character": 0}, "end": {"line": 2, "character": 0}},
-            "newText": "\npub def one() -> i64:\n    3\n"}])
-    );
-    assert_eq!(
-        changes[uri(&shapes)],
-        json!([{"range": {"start": {"line": 0, "character": 0}, "end": {"line": 2, "character": 0}},
-            "newText": ""}])
-    );
-    assert_eq!(
-        changes[uri(&main)],
-        json!([
+    let mut action = actions[0].clone();
+    action["edit"] = json!({"changes": {
+        uri(&geometry): [{"range": {"start": {"line": 2, "character": 0}, "end": {"line": 2, "character": 0}},
+            "newText": "\npub def one() -> i64:\n    3\n"}],
+        uri(&shapes): [{"range": {"start": {"line": 0, "character": 0}, "end": {"line": 2, "character": 0}},
+            "newText": ""}],
+        uri(&main): [
             {"range": {"start": {"line": 0, "character": 0}, "end": {"line": 1, "character": 0}},
                 "newText": ""},
             {"range": {"start": {"line": 1, "character": 0}, "end": {"line": 1, "character": 0}},
                 "newText": "import geometry\n"},
             {"range": {"start": {"line": 3, "character": 8}, "end": {"line": 3, "character": 18}},
                 "newText": "geometry.one"},
-        ])
-    );
+        ],
+    }});
+    assert_eq!(resolved, action);
     // Moving into `main` is also allowed: `shapes.one()` becomes `one()`.
     let into_main = client.request("codeAction/resolve", actions[1].clone());
-    assert_eq!(
-        into_main["edit"]["changes"],
-        json!({
-            uri(&shapes): [{"range": {"start": {"line": 0, "character": 0}, "end": {"line": 2, "character": 0}},
-                "newText": ""}],
-            uri(&main): [
-                {"range": {"start": {"line": 0, "character": 0}, "end": {"line": 2, "character": 0}},
-                    "newText": ""},
-                {"range": {"start": {"line": 3, "character": 8}, "end": {"line": 3, "character": 18}},
-                    "newText": "one"},
-                {"range": {"start": {"line": 4, "character": 0}, "end": {"line": 4, "character": 0}},
-                    "newText": "\npub def one() -> i64:\n    3\n"},
-            ],
-        })
-    );
-    // A refused move is a request error, and nothing is edited.
+    let mut action = actions[1].clone();
+    action["edit"] = json!({"changes": {
+        uri(&shapes): [{"range": {"start": {"line": 0, "character": 0}, "end": {"line": 2, "character": 0}},
+            "newText": ""}],
+        uri(&main): [
+            {"range": {"start": {"line": 0, "character": 0}, "end": {"line": 2, "character": 0}},
+                "newText": ""},
+            {"range": {"start": {"line": 3, "character": 8}, "end": {"line": 3, "character": 18}},
+                "newText": "one"},
+            {"range": {"start": {"line": 4, "character": 0}, "end": {"line": 4, "character": 0}},
+                "newText": "\npub def one() -> i64:\n    3\n"},
+        ],
+    }});
+    assert_eq!(into_main, action);
+    // A refused move is a request error, and nothing is edited. Asking
+    // again gives the same error.
     client.open(&geometry);
     client.notify(
         "textDocument/didChange",
         json!({"textDocument": {"uri": uri(&geometry), "version": 2},
             "contentChanges": [{"text": "pub def one() -> i64:\n    2\n"}]}),
     );
-    client.next += 1;
-    let id = client.next;
-    client.send(
-        json!({"jsonrpc": "2.0", "id": id, "method": "codeAction/resolve",
-        "params": actions[0].clone()}),
-    );
-    let reply = loop {
-        let message = client.receive();
-        if message["id"] == id {
-            break message;
-        }
+    let on_disk = |paths: &[&Path]| -> Vec<String> {
+        paths
+            .iter()
+            .map(|p| std::fs::read_to_string(p).unwrap())
+            .collect()
     };
-    assert_eq!(reply["error"]["code"], -32803, "{reply}");
-    assert!(
-        reply["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("`geometry` already declares `one`"),
-        "{reply}"
-    );
+    let files_before = on_disk(&[&shapes, &geometry, &main]);
+    for _ in 0..2 {
+        let error = client.refused("codeAction/resolve", actions[0].clone());
+        assert_eq!(
+            error,
+            json!({"code": -32803, "message": "`geometry` already declares `one`"})
+        );
+        assert_eq!(on_disk(&[&shapes, &geometry, &main]), files_before);
+    }
     // A client without change annotations is told about API changes.
     client.notify(
         "textDocument/didChange",
@@ -899,7 +882,25 @@ fn a_declaration_moves_through_a_resolved_code_action() {
             shown = message["params"]["message"].as_str().map(str::to_owned);
         }
         if message["id"] == id {
-            assert!(message["result"]["edit"].is_object(), "{message}");
+            let at = |line: u32, start: u32, end_line: u32, end: u32| json!({"start": {"line": line, "character": start}, "end": {"line": end_line, "character": end}});
+            assert_eq!(
+                message["result"]["edit"],
+                json!({"changes": {
+                    uri(&geometry): [
+                        {"range": at(0, 0, 0, 0), "newText": "from shapes import base\n\n"},
+                        {"range": at(2, 0, 2, 0), "newText": "\npub def one() -> i64:\n    base()\n"},
+                    ],
+                    uri(&main): [
+                        {"range": at(0, 0, 1, 0), "newText": ""},
+                        {"range": at(1, 0, 1, 0), "newText": "import geometry\n"},
+                        {"range": at(3, 8, 3, 18), "newText": "geometry.one"},
+                    ],
+                    uri(&shapes): [
+                        {"range": at(0, 0, 0, 0), "newText": "pub "},
+                        {"range": at(2, 0, 5, 0), "newText": ""},
+                    ],
+                }})
+            );
             break;
         }
     }
@@ -926,6 +927,22 @@ fn app_package(root: &Path, files: &[(&str, &str)]) {
     for (path, text) in files {
         write(&root.join(path), text);
     }
+}
+
+/// An unresolved move action, as the server offers it.
+fn move_action(
+    source: &str,
+    destination: &str,
+    module: &str,
+    name: &str,
+    line: u32,
+    version: u32,
+) -> Value {
+    json!({
+        "title": format!("Move `{name}` to module `{module}`"),
+        "kind": "refactor.move",
+        "data": {"uri": source, "destination": destination, "line": line, "name": name, "version": version},
+    })
 }
 
 fn code_actions(client: &mut Client, uri: &str, line: u32) -> Value {
@@ -968,7 +985,13 @@ fn a_move_is_a_versioned_annotated_edit_in_utf16_columns() {
     client.open(&shapes);
     client.open(&main);
     let actions = code_actions(&mut client, &uri(&shapes), 4);
-    assert_eq!(actions[0]["title"], "Move `one` to module `geometry`");
+    assert_eq!(
+        actions,
+        json!([
+            move_action(&uri(&shapes), &uri(&geometry), "geometry", "one", 5, 1),
+            move_action(&uri(&shapes), &uri(&main), "main", "one", 5, 1),
+        ])
+    );
     let resolved = client.request("codeAction/resolve", actions[0].clone());
     let api =
         |range: Value, text: &str| json!({"range": range, "newText": text, "annotationId": "api"});
@@ -1029,18 +1052,35 @@ fn an_action_offered_before_an_edit_is_refused() {
         json!({"textDocument": {"uri": uri(&shapes), "version": 2},
             "contentChanges": [{"text": "pub def other() -> i64:\n    1\n\npub def one() -> i64:\n    1\n"}]}),
     );
-    let error = client.refused("codeAction/resolve", actions[0].clone());
-    assert_eq!(error["message"], stale);
+    let stale_error = json!({"code": -32803, "message": stale});
+    for _ in 0..2 {
+        let error = client.refused("codeAction/resolve", actions[0].clone());
+        assert_eq!(error, stale_error);
+    }
     // The same declaration, edited since.
     let actions = code_actions(&mut client, &uri(&shapes), 0);
-    assert_eq!(actions[0]["title"], "Move `other` to module `geometry`");
+    let geometry = root.join("src/geometry.plenty");
+    let main = root.join("src/main.plenty");
+    assert_eq!(
+        actions,
+        json!([
+            move_action(&uri(&shapes), &uri(&geometry), "geometry", "other", 1, 2),
+            move_action(&uri(&shapes), &uri(&main), "main", "other", 1, 2),
+        ])
+    );
     client.notify(
         "textDocument/didChange",
         json!({"textDocument": {"uri": uri(&shapes), "version": 3},
             "contentChanges": [{"text": "pub def other() -> i64:\n    2\n\npub def one() -> i64:\n    1\n"}]}),
     );
-    let error = client.refused("codeAction/resolve", actions[0].clone());
-    assert_eq!(error["message"], stale);
+    for _ in 0..2 {
+        let error = client.refused("codeAction/resolve", actions[0].clone());
+        assert_eq!(error, stale_error);
+    }
+    assert_eq!(
+        std::fs::read_to_string(&shapes).unwrap(),
+        "pub def one() -> i64:\n    1\n"
+    );
     client.exit();
 }
 
@@ -1072,22 +1112,21 @@ fn edits_name_open_documents_by_the_clients_uri() {
     client.published(&shapes);
     let actions = code_actions(&mut client, &shapes, 0);
     let resolved = client.request("codeAction/resolve", actions[0].clone());
-    let uris: std::collections::BTreeSet<String> = resolved["edit"]["changes"]
-        .as_object()
-        .unwrap()
-        .keys()
-        .cloned()
-        .collect();
     // Closed files are named by their canonical path.
+    let at = |line: u32, start: u32, end_line: u32, end: u32| json!({"start": {"line": line, "character": start}, "end": {"line": end_line, "character": end}});
     assert_eq!(
-        uris,
-        [
-            uri(&real.join("src/geometry.plenty")),
-            uri(&real.join("src/main.plenty")),
-            shapes,
-        ]
-        .into_iter()
-        .collect()
+        resolved["edit"],
+        json!({"changes": {
+            shapes.clone(): [{"range": at(0, 0, 2, 0), "newText": ""}],
+            uri(&real.join("src/geometry.plenty")): [
+                {"range": at(2, 0, 2, 0), "newText": "\npub def one() -> i64:\n    1\n"},
+            ],
+            uri(&real.join("src/main.plenty")): [
+                {"range": at(0, 0, 1, 0), "newText": ""},
+                {"range": at(1, 0, 1, 0), "newText": "import geometry\n"},
+                {"range": at(3, 8, 3, 18), "newText": "geometry.one"},
+            ],
+        }})
     );
     client.exit();
 }
