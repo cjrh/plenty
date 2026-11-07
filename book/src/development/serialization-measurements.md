@@ -88,3 +88,65 @@ Median times were 15.95, 50.86 and 202.30 ms. These loops isolate name
 dispatch; a separate actual typed 64-field load checks that wide records
 compile and decode correctly. The numbers do not establish a need for a
 different name-dispatch algorithm.
+
+## Final equivalent handwritten and derived hooks
+
+The final compiler includes checked native-stack budgets, the constructor
+phase split and all reviewed fixes. The measured checkout was `f9d02b27da`.
+The compiler hash, all samples, source, objects and binaries are retained in
+`results.json` and its companion artifacts. Three cold samples for the same
+200 ten-field classes gave:
+
+| Format | Plain | Handwritten | Derived | Handwritten object | Derived object |
+|---|---:|---:|---:|---:|---:|
+| JSON | 1.228 s | 9.664 s | 10.237 s | 16,674,392 bytes | 16,204,392 bytes |
+| TOML | 1.111 s | 12.655 s | 15.846 s | 20,988,344 bytes | 20,571,744 bytes |
+
+Derived cold compilation took **5.9% more time for JSON and 25.2% more for
+TOML** than the equivalent handwritten hooks in these samples. Its application
+objects were 2.8% and 2.0% smaller, respectively. These costs are part of the
+delivered implementation; ordinary hook generation does not promise equal
+compile time or eliminate per-type specialization costs. The final plain
+objects were 690,968 bytes for JSON and 690,568 bytes for TOML.
+
+For the [structured 8,388,872-byte fixture](#structured-8-mb-json-workload),
+the final three-sample process medians for one operation were:
+
+| Operation | Handwritten | Derived |
+|---|---:|---:|
+| Typed decode | 1160.21 ms | 1200.82 ms |
+| Parse to a `Json` tree | 1426.08 ms | 1477.97 ms |
+| Scan all events | 728.65 ms | 755.55 ms |
+| Typed encode | 195.39 ms | 202.18 ms |
+| Encode an existing `Json` tree | 140.54 ms | 141.29 ms |
+
+Every mixed sample produced checksum `17534392`. Derived typed decoding and
+encoding medians were both about 3.5% slower. The third derived sample also
+made every control operation substantially faster. These shared-host samples
+therefore do not isolate an abstraction overhead or establish a historical
+speedup. All individual measurements remain in the report.
+
+For five operations on the single 8 MiB text field, final medians were:
+
+| Operation | Handwritten | Derived |
+|---|---:|---:|
+| Typed decode | 76.74 ms | 86.38 ms |
+| Tree parse | 28.57 ms | 38.11 ms |
+| Minimal event decode | 18.63 ms | 28.31 ms |
+| Typed encode | 16.96 ms | 23.93 ms |
+| Tree encode | 14.27 ms | 23.74 ms |
+| Event encode | 15.23 ms | 23.94 ms |
+
+String-workload checksums were `255942483` in every sample. Control timings
+also differ considerably between the two executable runs, so these elapsed
+differences cannot be attributed solely to derivation. The retained samples
+make that variability visible.
+
+The raw 4/16/64-name dispatch medians were 15.92, 52.55, 232.90 ms
+in the handwritten executable and 14.70, 50.67, 203.98 ms in the derived executable.
+Those dispatch loops themselves are handwritten in both executables; they are
+controls, not measurements of a generated typed decoder. Both executables
+additionally completed the actual typed 64-field load.
+
+Independent review accepted the measured tradeoffs with these costs and
+limitations stated explicitly. No exact performance parity is claimed.
