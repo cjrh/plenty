@@ -188,9 +188,10 @@ source file that contains it. The file must resolve below the source root or,
 in a [package](../../toolchain/01-building/packages.md#assets), below the
 package's `assets/` directory, which must be a directory and not a symbolic
 link. The file's real path is checked after resolving `..` and symbolic links,
-so neither can leave those directories. Absolute paths are errors. From
-`src/ui/view.plenty` in a package, `include_bytes("../../assets/icon.png")`
-reads `assets/icon.png`. A single file compiled without a package, or a
+so neither can leave those directories. A file inside another package's source
+root or `assets/` belongs to that package and cannot be included by this one.
+Absolute paths are errors. From `src/ui/view.plenty` in a package,
+`include_bytes("../../assets/icon.png")` reads `assets/icon.png`. A single file compiled without a package, or a
 [script](../../toolchain/01-building/scripts.md), has no `assets/` directory:
 it includes only files below its source root.
 `include_str` rejects a file that is not valid UTF-8 and names the first

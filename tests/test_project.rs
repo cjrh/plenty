@@ -1571,23 +1571,43 @@ def main() -> Result[(), IoError]:
 }
 
 #[test]
-fn a_package_inside_another_packages_assets_is_rejected() {
-    // Otherwise the outer package could include the inner package's sources.
+fn a_package_includes_only_its_own_files() {
+    // A workspace member at `assets/` is a layout that builds. The root
+    // package may include other files there, but not files in the member's
+    // source root.
     let dir = tempfile::tempdir().unwrap();
-    package(
-        &dir.path().join("app/assets"),
-        "util",
-        "",
-        &[("src/lib.plenty", "pub const N: int = 1\n")],
+    let ws = dir.path().join("ws");
+    write(
+        &ws.join("plenty.toml"),
+        "manifest-version = 1\n[package]\nname = \"game\"\nversion = \"0.1.0\"\n\n[dependencies]\nlevels = { path = \"assets\" }\n\n[workspace]\nmembers = [\"assets\"]\n",
     );
-    package(
-        dir.path(),
-        "app",
-        "util = { path = \"assets/util\" }\n",
-        &[(
-            "src/main.plenty",
-            "import util\n\ndef main() -> ():\n    pass\n",
-        )],
+    write(
+        &ws.join("assets/plenty.toml"),
+        "manifest-version = 1\n[package]\nname = \"levels\"\nversion = \"0.1.0\"\n",
     );
-    fails(&dir.path().join("app"), &["check"], "overlap");
+    write(&ws.join("assets/src/lib.plenty"), "pub const N: i64 = 1\n");
+    write(&ws.join("assets/notes.txt"), "notes");
+    let main = |include: &str| {
+        format!(
+            "import levels\n{include}\ndef main() -> Result[(), IoError]:\n    print(levels.N)?\n    Ok(())\n"
+        )
+    };
+    write(&ws.join("src/main.plenty"), &main(""));
+    assert_eq!(succeeds(&ws, &["run"]), "1\n");
+    write(
+        &ws.join("src/main.plenty"),
+        &main("const NOTES: str = include_str(\"../assets/notes.txt\")\n"),
+    );
+    assert_eq!(succeeds(&ws, &["run"]), "1\n");
+    write(
+        &ws.join("src/main.plenty"),
+        &main("const S: str = include_str(\"../assets/src/lib.plenty\")\n"),
+    );
+    for command in ["check", "build"] {
+        fails(
+            &ws,
+            &[command],
+            "included path `../assets/src/lib.plenty` belongs to package `levels`; package `game` may include only its own files",
+        );
+    }
 }

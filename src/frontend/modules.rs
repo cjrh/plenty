@@ -1170,6 +1170,24 @@ impl Loader {
                     embed.path
                 )));
             }
+            // A package includes only its own files, even when another
+            // package's directory lies inside its own, as a workspace member
+            // at `assets/` does. A package and its `tests/` package share one
+            // `assets/`, so an identical assets directory is not another's.
+            let owner = self.packages.iter().enumerate().find(|(i, other)| {
+                *i != package
+                    && (file.starts_with(&other.root)
+                        || other
+                            .assets
+                            .as_ref()
+                            .is_some_and(|a| Some(a) != assets && file.starts_with(a)))
+            });
+            if let Some((_, other)) = owner {
+                return Err(embed.at.error(format!(
+                    "included path `{}` belongs to package `{}`; package `{}` may include only its own files",
+                    embed.path, other.identity, self.packages[package].identity
+                )));
+            }
             let data = std::fs::read(&file)
                 .map_err(|e| embed.at.error(format!("reading `{}`: {e}", embed.path)))?;
             self.inputs.push(inputs::File::new(&joined, package, &data));
@@ -1559,13 +1577,16 @@ fn prepare_packages(
         if !root.is_dir() {
             return Err(format!("source root {} is not a directory", root.display()).into());
         }
-        if let Some(assets) = &mut package.assets
-            && crate::project::real_assets(assets)?
-        {
-            *assets = assets
-                .canonicalize()
-                .map_err(|e| format!("assets {}: {e}", assets.display()))?;
-        }
+        // A missing `assets/` holds no file, so it is dropped rather than
+        // left as an uncanonical path in checks, the identity and errors.
+        package.assets = match package.assets.take() {
+            Some(assets) if crate::project::real_assets(&assets)? => Some(
+                assets
+                    .canonicalize()
+                    .map_err(|e| format!("assets {}: {e}", assets.display()))?,
+            ),
+            _ => None,
+        };
         if ["std", "std.plenty", "std.plentyi"]
             .iter()
             .any(|name| root.join(name).exists())
@@ -1624,30 +1645,6 @@ fn prepare_packages(
                     b.root.display()
                 )
                 .into());
-            }
-            // A package and its `tests/` package share one `assets/`; any
-            // other overlap would let one package include another's files.
-            let mut pairs = vec![];
-            if let Some(assets) = &a.assets {
-                pairs.push((assets, &b.root));
-            }
-            if let Some(assets) = &b.assets {
-                pairs.push((assets, &a.root));
-            }
-            if let (Some(x), Some(y)) = (&a.assets, &b.assets)
-                && x != y
-            {
-                pairs.push((x, y));
-            }
-            for (x, y) in pairs {
-                if x.starts_with(y) || y.starts_with(x) {
-                    return Err(format!(
-                        "package directories {} and {} overlap",
-                        x.display(),
-                        y.display()
-                    )
-                    .into());
-                }
             }
         }
     }

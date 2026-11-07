@@ -97,8 +97,9 @@ The entry's name is a SHA-256 of:
   temporary objects omit unreachable user helpers; inspectable objects retain
   them);
 - the request: the canonical entry file and the package graph (each package's
-  canonical root and `assets/` directory, identity, library and dependencies), and the `main` that
-  `plenty test` appends; or, for a source compiled from memory, its text.
+  canonical root and `assets/` directory, identity, library and dependencies),
+  and the `main` that `plenty test` appends; or, for a source compiled from
+  memory, its text.
 
 Unlike a function's stencil, the frontend's output depends on the compiler's
 whole code, so the key names the compiler binary rather than its version. A
