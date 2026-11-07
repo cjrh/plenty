@@ -234,9 +234,10 @@ Jobs are not matched to pools and are never assumed to have finished. A job
 submitted with `submit` or `submit_nowait` counts at every later shutdown in the
 function, and at every shutdown in a loop that contains the submission. A
 `submit(...)?` or `submit(...).drop_job()?` that fails has submitted nothing on
-the path that leaves. A call that receives a pool, by value or by reference,
-counts as submitting, at the call, every job that a function it reaches submits
-directly or through further calls, to that pool or any other.
+the path that leaves. A call that receives a pool, by value, by reference, or
+borrowed from a field such as `&holder.pool`, counts as submitting, at the call,
+every job that a function it reaches submits directly or through further calls,
+to that pool or any other. A shutdown inside that call sees those jobs too.
 `map`, `map_result`, and `reduce_tree` finish their jobs before returning and do
 not count. What a job and a binding *can hold* is defined as for tasks.
 
@@ -285,6 +286,8 @@ It does not cover:
 - a job submitted by a function compiled elsewhere or reached through a
   callable value;
 - a job submitted by another function to a pool it returns;
+- a job that a called function submits to a pool of its own and shuts down,
+  when the call is handed no pool (issue #860);
 - a pool passed to a call inside a class, tuple, or collection;
 - a `map`, `map_result`, or `reduce_tree` callback that waits to send.
 

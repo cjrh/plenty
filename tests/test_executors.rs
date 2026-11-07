@@ -1477,6 +1477,12 @@ const SUBMITTING: &str = "def go(pool: &ThreadPoolExecutor, sender: Sender[i64])
 def via(pool: &ThreadPoolExecutor, sender: Sender[i64]) -> ():
     go(pool, sender)
 
+def give(pool: ThreadPoolExecutor, sender: Sender[i64]) -> ():
+    go(&pool, sender)
+
+class Holder:
+    pool: ThreadPoolExecutor
+
 ";
 
 fn submitting_main(body: &str) -> String {
@@ -1513,6 +1519,35 @@ fn jobs_a_call_submits_to_a_passed_pool_block_its_shutdown() {
             );
         }
     }
+}
+
+/// A pool moved into the call shuts down inside it, after the job it submits;
+/// a pool borrowed from a field shuts down with its holder.
+#[test]
+fn jobs_a_call_submits_block_a_moved_or_field_pool() {
+    for (body, expected) in [
+        (
+            "    give(pool, sender)\n    drop(receiver)\n",
+            "this call to `give` can shut down a pool after a job that holds `Sender[i64]` \
+             was submitted, while `receiver` still holds `Receiver[i64]`",
+        ),
+        (
+            "    holder = Holder(pool)\n    go(&holder.pool, sender)\n    drop(holder)\n    drop(receiver)\n",
+            "this shuts down a pool after a job that holds `Sender[i64]` was submitted, \
+             while `receiver` still holds `Receiver[i64]`",
+        ),
+    ] {
+        let error = support::check_source(&submitting_main(body))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(expected), "{body}\n{error}");
+    }
+    runs(
+        &submitting_main(
+            "    holder = Holder(pool)\n    go(&holder.pool, sender)\n    drop(receiver)\n    drop(holder)\n",
+        ),
+        "done\n",
+    );
 }
 
 /// The issue #855 reproduction: a later iteration replaces the pool that an

@@ -871,14 +871,14 @@ fn in_body(ops: &[Op], visit: &mut impl FnMut(&Op)) {
     }
 }
 
-/// A value is owned after a join only if every continuing path owns it. One
-/// moving path is kept as the move to report.
 /// A loop condition that is the literal `True`, which never exits the loop.
 fn always_true(condition: &[Op]) -> bool {
     let mut ops = condition.iter().filter(|op| !matches!(op, Op::Site(_)));
     matches!((ops.next(), ops.next()), (Some(Op::PushBool(true)), None))
 }
 
+/// A value is owned after a join only if every continuing path owns it. One
+/// moving path is kept as the move to report.
 fn merge(states: &[State], into: &mut State) {
     let Some(first) = states.first() else {
         return;
@@ -1832,6 +1832,16 @@ impl Checker<'_, '_> {
                 .filter(|name| !name.starts_with("__plenty_"))
                 .map(str::to_owned)
         };
+        // Every slot other than a future holds a pool. Its jobs count before
+        // the shutdown checks: a pool moved into the call can shut down only
+        // inside it, after the callee's submissions.
+        if slots
+            .iter()
+            .any(|&slot| !matches!(self.locals[slot as usize], Ty::Future(_)))
+        {
+            let jobs = self.program.pool_submissions(callee);
+            self.submit(jobs.into_iter().map(|hazard| (hazard, site)));
+        }
         for &slot in slots {
             let result = match &self.locals[slot as usize] {
                 Ty::Future(result) => {
@@ -1853,17 +1863,6 @@ impl Checker<'_, '_> {
                 error.call = Some(named());
                 error
             })?;
-        }
-        fn pool(ty: &Ty) -> bool {
-            match ty {
-                Ty::Executor => true,
-                Ty::Ref(inner, _) => pool(inner),
-                _ => false,
-            }
-        }
-        if slots.iter().any(|&slot| pool(&self.locals[slot as usize])) {
-            let jobs = self.program.pool_submissions(callee);
-            self.submit(jobs.into_iter().map(|hazard| (hazard, site)));
         }
         Ok(())
     }

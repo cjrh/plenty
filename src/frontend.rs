@@ -2811,7 +2811,21 @@ impl Lower<'_> {
         }
         let mut handed_slots = Vec::new();
         slots(&ops[start..], &mut handed_slots);
-        handed_slots.retain(|&slot| self.slot_type(slot).is_some_and(|(ty, _)| handed(ty)));
+        // A pool argument may be borrowed from a field, as in `&holder.pool`;
+        // the holder then shuts the pool down (issue #855). Calls handed a
+        // pool are rare, so searching an aggregate here stays cheap.
+        fn pool(ty: &Ty) -> bool {
+            match ty {
+                Ty::Executor => true,
+                Ty::Ref(inner, _) => pool(inner),
+                _ => false,
+            }
+        }
+        let pools = inputs.iter().any(|(_, ty)| pool(ty));
+        handed_slots.retain(|&slot| {
+            self.slot_type(slot)
+                .is_some_and(|(ty, _)| handed(ty) || pools && crate::threading::owns_executor(ty))
+        });
         if !handed_slots.is_empty() {
             ops.push(Op::Passes(handed_slots.into()));
         }
