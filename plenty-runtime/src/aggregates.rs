@@ -2770,6 +2770,11 @@ unsafe fn operation(op: i64, args: *const u128, descriptor: *const Type, site: *
             });
             return;
         }
+        if op == 197 {
+            let operands = read_operands::<4>(op, args);
+            out.write(process::spawn_call(operands, descriptor));
+            return;
+        }
         if (419..424).contains(&op) {
             let operands = read_operands::<5>(op, args);
             out.write(readiness::call(op, operands, descriptor));

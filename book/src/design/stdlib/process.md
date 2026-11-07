@@ -62,6 +62,7 @@ input. Pass such data as an argument or a variable instead.
 | `env_clear()` | `()` | The child inherits nothing; earlier edits are dropped |
 | `current_dir(path: &Path)` | `Result[(), IoError]` | The child's working directory |
 | `stdin(mode: Stdio)`, `stdout(mode: Stdio)`, `stderr(mode: Stdio)` | `()` | Choose a stream |
+| `stderr_to_stdout()` | `()` | The child's stderr goes wherever its stdout goes |
 
 - A child inherits the parent's environment and working directory unless the
   command says otherwise. Edits apply in order, so the last one for a name
@@ -84,6 +85,45 @@ input. Pass such data as an argument or a variable instead.
 | `Stdio.Inherit` | The parent's own stream. The default |
 | `Stdio.Null` | `/dev/null` |
 | `Stdio.Piped` | A new pipe whose other end the `Child` owns |
+| `Stdio.File(file)` | A duplicate of `file`'s descriptor |
+
+`Stdio.File` moves the [`File`](../facilities/02-io/files.md) into the
+command, which keeps it for every later `spawn`. The open mode decides what
+the child writes over: open with `"a"` to append to a log and keep its bytes,
+`"w"` to truncate it once when it is opened. The child shares the file's open
+description, so a file opened for appending stays in append mode and every
+write by a child, another child, or the program lands at the end. A stdout or
+stderr file must be writable and a stdin file readable. Choosing another mode
+for that stream closes the file; dropping the command closes all of them.
+Setting a stream never allocates.
+
+`stderr_to_stdout()` makes stderr the same stream as stdout, whatever stdout
+is when the child starts: the same file, the parent's stdout, `/dev/null`, or
+the one pipe, so `communicate` and `output` return both streams in `stdout`
+and `stderr` stays empty. A later `stderr(mode)` replaces it.
+
+```plenty
+import std.process
+from std.process import Stdio
+
+def main() -> Result[(), AllocError | IoError]:
+    with open("build.log", "w")? as log:
+        log.write("earlier run\n")?
+    mut build = std.process.shell("echo compiled; echo warning >&2")?
+    build.stdout(Stdio.File(open("build.log", "a")?))
+    build.stderr_to_stdout()
+    mut child = build.spawn()?
+    print(child.wait()?.success())?
+    with open("build.log")? as log:
+        print(log.read()?.strip()?)?
+    Ok(())
+```
+```output
+True
+earlier run
+compiled
+warning
+```
 
 ## Spawning
 
@@ -93,10 +133,14 @@ command is reusable: each call starts another child.
 A program that cannot be started is an error value, not a child that exits
 with a conventional code: a missing program or directory is
 `IoError.System(2)`, a file without execute permission `IoError.System(13)`.
-A failed spawn leaves no process and no open pipe.
+A failed spawn leaves no process and no open pipe. A redirection file that
+is closed is `IoError.Closed`; one without the needed access is
+`IoError.NotWritable` for stdout or stderr and `IoError.NotReadable` for
+stdin. The command keeps its files either way.
 
-Pipe ends are close-on-exec, so one child never inherits another child's
-pipes. Other descriptors the program opened are close-on-exec as well.
+Pipe ends, and the duplicates of redirection files, are close-on-exec, so
+one child never inherits another child's pipes or files. Other descriptors
+the program opened are close-on-exec as well.
 
 Close-on-exec still leaves a short window: a child forked by one thread holds
 a copy of every descriptor open at that moment until its exec closes them. If
@@ -220,8 +264,8 @@ A child that outlives the program is adopted by the system as usual.
 
 - Linux x86-64 GNU only. Starting a child uses the host allocator briefly for
   its argument vector; that one allocation is outside fallible accounting.
-- No redirection of a stream to a file or to another child, and no merging of
-  stderr into stdout. `shell` can do both.
+- No redirection of a stream to another child; `shell` can build a pipeline.
+  A file redirection takes a `File`, so open it before setting the stream.
 - Timed child waits poll; scheduling and lock contention can delay return
   beyond the 10 ms polling interval.
 - No process groups, sessions, user or group changes, resource limits, or

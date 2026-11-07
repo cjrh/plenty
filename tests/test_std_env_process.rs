@@ -1134,3 +1134,188 @@ print(child.wait()?.success())?
         "cancelled\nTrue\nFalse",
     );
 }
+
+/// Issue #778: a stream redirected to a file keeps the file's open mode, so
+/// an append-mode log keeps its earlier bytes and a reused command appends
+/// every child's output.
+#[test]
+fn a_stream_redirected_to_an_append_mode_file_keeps_existing_bytes() {
+    native(
+        r#"
+with open("log", "w")? as seed:
+    seed.write("earlier\n")?
+mut logged = std.process.shell("echo out; echo err >&2")?
+logged.stdout(Stdio.File(open("log", "a")?))
+logged.stderr(Stdio.File(open("log", "a")?))
+for _ in range(2):
+    mut child = logged.spawn()?
+    print(absent(&child.take_stdout()), absent(&child.take_stderr()))?
+    show(&child.wait()?)?
+print(out_text(&sh("cat log")?)?)?
+# Mode "w" truncates when the file is opened, before any child runs.
+mut fresh = std.process.shell("echo replaced")?
+fresh.stdout(Stdio.File(open("log", "w")?))
+show(&fresh.spawn()?.wait()?)?
+print(out_text(&sh("cat log")?)?)?
+"#,
+        r#"
+True True
+True Option[i32].Some(0) Option[i32].Nothing
+True True
+True Option[i32].Some(0) Option[i32].Nothing
+earlier
+out
+err
+out
+err
+
+True Option[i32].Some(0) Option[i32].Nothing
+replaced
+"#,
+    );
+}
+
+#[test]
+fn stderr_to_stdout_shares_a_file_a_pipe_or_null() {
+    native(
+        r#"
+script = "echo one; echo two >&2; echo three"
+mut to_file = std.process.shell(script)?
+to_file.stdout(Stdio.File(open("both", "a")?))
+to_file.stderr_to_stdout()
+show(&to_file.spawn()?.wait()?)?
+print(out_text(&sh("cat both")?)?)?
+# One pipe carries both streams; stderr is not piped separately.
+mut to_pipe = std.process.shell(script)?
+to_pipe.stdout(Stdio.Piped)
+to_pipe.stderr_to_stdout()
+mut child = to_pipe.spawn()?
+output = child.output(1000)?
+print(text(&output.stdout)?, output.stderr.len())?
+mut quiet = std.process.shell(script)?
+quiet.stdout(Stdio.Null)
+quiet.stderr_to_stdout()
+show(&quiet.spawn()?.wait()?)?
+# A later stderr choice replaces the merge.
+mut split = sh(script)?
+split.stderr_to_stdout()
+split.stderr(Stdio.Piped)
+parts = collected(&split)?
+print(text(&parts.stdout)?, text(&parts.stderr)?)?
+"#,
+        r#"
+True Option[i32].Some(0) Option[i32].Nothing
+one
+two
+three
+
+one
+two
+three
+ 0
+True Option[i32].Some(0) Option[i32].Nothing
+one
+three
+ two
+"#,
+    );
+}
+
+#[test]
+fn redirected_stdin_reads_a_file_and_replacing_a_file_closes_it() {
+    native(
+        r#"
+with open("input", "w")? as seed:
+    seed.write("from a file\n")?
+mut reader = std.process.command("cat")?
+reader.stdin(Stdio.File(open("input")?))
+reader.stdout(Stdio.Piped)
+print(out_text(&reader)?)?
+# Each replacement drops the file it supersedes; the remaining files keep
+# their streams.
+mut built = std.process.shell("cat; echo err >&2")?
+built.stdin(Stdio.File(open("input")?))
+built.stdout(Stdio.File(open("first", "w")?))
+built.stderr(Stdio.File(open("errors", "w")?))
+built.stdout(Stdio.File(open("second", "w")?))
+built.stdin(Stdio.Null)
+built.stdin(Stdio.File(open("input")?))
+show(&built.spawn()?.wait()?)?
+print(out_text(&sh("wc -c < first; cat second errors")?)?)?
+"#,
+        r#"
+from a file
+
+True Option[i32].Some(0) Option[i32].Nothing
+0
+from a file
+err
+"#,
+    );
+}
+
+#[test]
+fn a_redirection_with_the_wrong_direction_or_a_closed_file_fails_to_spawn() {
+    native(
+        r#"
+with open("existing", "w")? as seed:
+    seed.write("kept\n")?
+mut to_reader = std.process.command("true")?
+to_reader.stdout(Stdio.File(open("existing")?))
+match to_reader.spawn():
+    case Ok(_):
+        print("started")?
+    case Err(error):
+        print(str.repr(error)?)?
+mut from_writer = std.process.command("true")?
+from_writer.stdin(Stdio.File(open("existing", "a")?))
+match from_writer.spawn():
+    case Ok(_):
+        print("started")?
+    case Err(error):
+        print(str.repr(error)?)?
+mut closed = open("existing", "a")?
+closed.close()?
+mut to_closed = std.process.command("true")?
+to_closed.stderr(Stdio.File(closed))
+match to_closed.spawn():
+    case Ok(_):
+        print("started")?
+    case Err(error):
+        print(str.repr(error)?)?
+print(out_text(&sh("cat existing")?)?)?
+"#,
+        r#"
+IoError.NotWritable
+IoError.NotReadable
+IoError.Closed
+kept
+"#,
+    );
+}
+
+#[test]
+fn a_worker_thread_spawns_a_child_that_appends_to_a_file() {
+    let source = format!(
+        r##"{PRELUDE}
+def logged(rounds: i64) -> Result[i64, AllocError | IoError | OverflowError[i64]]:
+    mut built = std.process.shell("echo line")?
+    built.stdout(Stdio.File(open("log", "a")?))
+    built.stderr_to_stdout()
+    mut ran = 0
+    for _ in range(rounds):
+        mut child = built.spawn()?
+        if child.wait()?.success():
+            ran += 1
+    Ok(ran)
+
+def main() -> Result[(), AllocError | IoError | SpawnError[()] | OverflowError[i64] | std.io.StreamError | std.bytes.BytesError]:
+    with spawn(logged, 20).drop_job()? as a:
+        with spawn(logged, 20).drop_job()? as b:
+            print(a.join()? + b.join()?)?
+    print(out_text(&sh("wc -l < log")?)?)?
+    Ok(())
+"##
+    );
+    assert_eq!(run(&source), "40\n40");
+}
