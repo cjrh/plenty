@@ -30,7 +30,7 @@ of each inner loop:
 
 | Kernel | C | Before | After |
 |---|---:|---:|---:|
-| velocity (14 field accesses) | 32 | 307 | 93 |
+| velocity (14 field accesses) | 32 | 307 | 93 (84 with #812) |
 | positions (9 field accesses) | 15 | 132 | 19 |
 | potential (8 field reads) | 19 | 121 | 30 |
 
@@ -44,8 +44,9 @@ access to a row checks the index and later fields of that row reuse the check.
 cached row count. Its remaining four instructions are a register copy of `dt`
 for each field and a separate trip counter.
 
-The velocity loop's remaining 61 instructions over C are not clist header
-work: four list bounds checks on `k` (`lea`, `cmp`, `jae`), list floats
-loaded through an integer register (issue #812), the inner-loop check of the
-outer index `i`, the overflow check of `k += 1`, and spills of the column
-addresses, which exceed the free registers.
+The velocity loop's remaining instructions over C are not clist header
+work: four list bounds checks on `k` (`lea`, `cmp`, `jae`), the inner-loop
+check of the outer index `i`, the overflow check of `k += 1`, and spills of
+the column addresses, which exceed the free registers. Before issue #812 the
+list floats also loaded through an integer register, which cost nine more
+instructions per pass.
