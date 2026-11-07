@@ -277,6 +277,7 @@ impl CollectionOp {
             | TextIsSpace
             | TextIsDigit
             | TextIsAlpha
+            | TextIsAlnum
             | TextTryLower
             | TextTryUpper
             | TextTrySplitWhitespace

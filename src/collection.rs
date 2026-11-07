@@ -370,6 +370,7 @@ pub enum CollectionOp {
     TextIsSpace,
     TextIsDigit,
     TextIsAlpha,
+    TextIsAlnum,
     TextTryLower,
     TextTryUpper,
     TextTrySplitWhitespace,
@@ -762,7 +763,9 @@ impl CollectionOp {
                 crate::sum::option(t.element().expect("generator element")),
             ),
             TextByteLen => (vec![Ty::Str], Ty::I64),
-            TextIsAscii | TextIsSpace | TextIsDigit | TextIsAlpha => (vec![Ty::Str], Ty::Bool),
+            TextIsAscii | TextIsSpace | TextIsDigit | TextIsAlpha | TextIsAlnum => {
+                (vec![Ty::Str], Ty::Bool)
+            }
             TextCompare => (vec![Ty::Str, Ty::Str], Ty::I64),
             OrderCompare(t) => (vec![t.clone(), t.clone()], Ty::I64),
             TextOrd => (
@@ -1288,6 +1291,7 @@ impl CollectionOp {
             Self::TextCompare => 132,
             Self::TextIsDigit => 133,
             Self::TextIsAlpha => 134,
+            Self::TextIsAlnum => 138,
             Self::TextTryLower => 135,
             Self::TextTryUpper => 136,
             Self::TextTrySplitLines => 107,

@@ -4387,7 +4387,10 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(Some(result));
         }
-        if matches!(name, "isascii" | "isspace" | "isdigit" | "isalpha") {
+        if matches!(
+            name,
+            "isascii" | "isspace" | "isdigit" | "isalpha" | "isalnum"
+        ) {
             self.same(Some(ty), Some(Ty::Str), &base.at)?;
             if !args.is_empty() {
                 return Err(base.at.error(format!("{name} takes no arguments")));
@@ -4396,7 +4399,8 @@ impl Lower<'_> {
                 "isascii" => CollectionOp::TextIsAscii,
                 "isspace" => CollectionOp::TextIsSpace,
                 "isdigit" => CollectionOp::TextIsDigit,
-                _ => CollectionOp::TextIsAlpha,
+                "isalpha" => CollectionOp::TextIsAlpha,
+                _ => CollectionOp::TextIsAlnum,
             };
             Self::push_query(operation, ops);
             Self::end_reads(loans, ops);

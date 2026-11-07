@@ -65,6 +65,40 @@ def main() -> ():
     );
 }
 
+/// `isalnum` is ASCII-only like `isalpha` and `isdigit` (issue #799).
+#[test]
+fn alphanumeric_classification_is_ascii_only() {
+    let output = support::run(
+        r#"
+def main() -> ():
+    text = "Abc123"
+    print(text.isalnum()).unwrap()
+    print((&text).isalnum()).unwrap()
+    print("09azAZ".isalnum()).unwrap()
+    print("".isalnum()).unwrap()
+    print("a_1".isalnum()).unwrap()
+    print("a-1".isalnum()).unwrap()
+    print("a 1".isalnum()).unwrap()
+    print("é".isalnum()).unwrap()
+    print("e\u{301}".isalnum()).unwrap()
+    print("١٢".isalnum()).unwrap()
+    print("１２".isalnum()).unwrap()
+    print("a\0".isalnum()).unwrap()
+    for character in "a1é":
+        print(character.isalnum()).unwrap()
+"#,
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "True\nTrue\nTrue\nFalse\nFalse\nFalse\nFalse\nFalse\nFalse\nFalse\nFalse\nFalse\nTrue\nTrue\nFalse\n"
+    );
+}
+
 #[test]
 fn invalid_character_calls_are_static_errors() {
     for source in [
@@ -74,6 +108,8 @@ fn invalid_character_calls_are_static_errors() {
         "ord(\"a\", \"b\")",
         "\"a\".lower(1)",
         "\"a\".isalpha(1)",
+        "\"a\".isalnum(1)",
+        "[1].unwrap().isalnum()",
         "\"a\" < 1",
     ] {
         assert!(support::check_source(source).is_err(), "{source}");
@@ -92,12 +128,13 @@ def main() -> ():
     ordered = "a" < "é"
     alpha = "abc".isalpha()
     digits = "09".isdigit()
+    alnum = "a9".isalnum()
     lower = "ABC".lower().unwrap()
     upper = "ß".upper().unwrap()
     print("__test_end_no_allocations__").unwrap()
     print(code).unwrap()
     print(character).unwrap()
-    print(ordered and alpha and digits).unwrap()
+    print(ordered and alpha and digits and alnum).unwrap()
     print(lower).unwrap()
     print(upper).unwrap()
 "#,
