@@ -206,6 +206,11 @@ See [errors](references/errors.md), [ownership](references/ownership.md), and
   around attributes. Put selectors after `upper`/`lower` (which reset policy);
   `trim` preserves selection, the last selector wins, and explicit selectors
   still escape with `html=False`. Reserve `safe` for deliberate trusted markup.
+  Conditions accept strict scalar `==`/`!=`, `not`, short-circuit `and`/`or`,
+  parentheses and `elif`; keep raw IDs in JSON instead of precomputing flags.
+  Boolean operators return booleans; integers, floats and booleans are distinct
+  equality kinds. Filters bind before equality, then `not`, `and`, `or`.
+  Bound aggregate syntax with `max_expression_nodes` as well as `max_tokens`.
 
 - For child descriptor protocols, use `Command.inherit_file(&file)` or
   `Lock.inherit_into(&mut command)` and pass the returned number through argv
@@ -222,6 +227,12 @@ See [errors](references/errors.md), [ownership](references/ownership.md), and
   whitespace and rendered values are unchanged. Markers cannot trim through
   another tag or from an overriding block into its base layout. See
   [whitespace control](../../../book/src/design/stdlib/template.md#whitespace-control).
+
+- For reusable template contexts, declare `std.template.Shape` and call
+  `Engine.validate(name, &schema)` to check every reachable path without samples.
+  `render_checked(name, &context, &schema)` also checks actual JSON. Prefer required
+  nullable fields over optional reads; preflight checks all union alternatives
+  and loop element shapes. See [declared context shapes](../../../book/src/design/stdlib/template-schema.md).
 
 ## References
 
