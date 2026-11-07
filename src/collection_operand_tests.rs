@@ -31,7 +31,7 @@ fn scratch_operand_contract_matches_typed_primitives() {
         KeySize, KeyPublic, KeySign, RsaVerify, P256Verify, P256Check);
     check_family!(CompressOp: New, Step, Flush, Ended, Restart, Crc32);
     check_family!(StreamOp: FileRead, FileWrite, StdinRead, StdWrite, FileSeek,
-        EntropyRead, Wait);
+        EntropyRead, Wait, Poll);
     check_family!(NetOp: Open, Accept, FinishConnect, Address, Shutdown,
         SetOption, SendTo, ReceiveFrom, Resolve, ReadyWait, SelectorOpen,
         SelectorWatch, Select, ReadyNumber);

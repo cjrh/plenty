@@ -187,6 +187,7 @@ impl Output {
         super::empty_slots::remove_empty_releases(&mut func, None);
         super::known::fold_constant_branches(&mut func);
         super::threading::thread_branches(&mut func);
+        super::extending_loads::fuse_extending_loads(&mut func);
         symbols::colocate(&self.module, &mut func);
         let mut capture = self
             .dump
@@ -583,6 +584,7 @@ impl Worker {
         super::empty_slots::remove_empty_releases(&mut func, release);
         super::known::fold_constant_branches(&mut func);
         super::threading::thread_branches(&mut func);
+        super::extending_loads::fuse_extending_loads(&mut func);
         if self.coverage {
             super::coverage::instrument(&mut func, &mut symbols);
         }

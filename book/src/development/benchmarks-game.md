@@ -126,9 +126,14 @@ frames, returns through a future and is released on the main thread.
 
 n-body's clist variant also postdates the baseline. It stores the bodies in a
 `clist[Body]`, one column per field, instead of a `list[Body]`, and tracks the
-cost of indexed clist field access in loops (issue #759): at 1,000,000 steps it
-runs 5.66 billion instructions against 2.95 billion for the `list[Body]`
-program and 0.23 billion for the reference.
+cost of indexed clist field access in loops (issue #759). At 1,000,000 steps it
+runs 2.59 billion instructions against 2.05 billion for the `list[Body]`
+program and 0.23 billion for the reference; before inner loops cached the row
+count and column addresses it ran 5.28 billion. Its energy loop runs fewer
+instructions per pass than the list program's, but its velocity loop runs 85
+against 72, mostly spills of the column addresses. The rest of the gap is the
+per-entry setup of those short inner loops, which read seven column addresses
+for at most four iterations.
 
 n-body's unchecked variant also postdates the baseline. It is the idiomatic
 program with the index arithmetic of `energy` and `advance` in

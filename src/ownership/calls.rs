@@ -1,8 +1,9 @@
 //! What a called function can wait for: the results of futures and pool
 //! shutdowns it reaches, directly or through further calls (issue #349), and
-//! the jobs it can submit (issue #352).
+//! the jobs it can submit (issue #352), and whether a worker can wait at all
+//! (issue #793).
 use super::Hazard;
-use crate::executor::ExecutorOp;
+use crate::executor::{ExecutorOp, Job as Submitted};
 use crate::hash::{HashMap, HashSet};
 use crate::op::{CompiledFn, Op, Ty};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -16,6 +17,13 @@ pub struct Program<'p> {
     table: OnceLock<HashMap<&'p str, Body<'p>>>,
     /// The jobs each callee reaches, so every function is searched once.
     jobs: Mutex<HashMap<&'p str, Arc<[Job<'p>]>>>,
+    /// Every function body by name, for `waits`. Separate from `table`,
+    /// whose construction asks what each submitted job can block on.
+    definitions: OnceLock<HashMap<&'p str, &'p CompiledFn>>,
+    /// `waits` by worker and closure names and input types. The names fix
+    /// the inputs today, since generic workers are named per instance; the
+    /// types are part of the key so a reused name cannot reuse a stale answer.
+    waits: Mutex<HashMap<(String, Vec<Ty>), bool>>,
 }
 
 /// What a submitted job can block on, with the job's result type.
@@ -62,6 +70,8 @@ impl<'p> Program<'p> {
             ops,
             table: OnceLock::new(),
             jobs: Mutex::default(),
+            definitions: OnceLock::new(),
+            waits: Mutex::default(),
         }
     }
 
@@ -70,11 +80,133 @@ impl<'p> Program<'p> {
             let mut table = HashMap::default();
             crate::threading::walk(self.ops, &mut |op| {
                 if let Op::DefineFn(name, function) = op {
-                    table.insert(name.as_str(), body(function));
+                    table.insert(name.as_str(), body(function, self));
                 }
             });
             table
         })
+    }
+
+    fn definitions(&self) -> &HashMap<&'p str, &'p CompiledFn> {
+        self.definitions.get_or_init(|| {
+            let mut definitions = HashMap::default();
+            crate::threading::walk(self.ops, &mut |op| {
+                if let Op::DefineFn(name, function) = op {
+                    definitions.insert(name.as_str(), &**function);
+                }
+            });
+            definitions
+        })
+    }
+
+    /// Whether a scoped task's worker can wait for anything.
+    pub(super) fn task_waits(&self, task: &crate::threading::Task) -> bool {
+        let roots: Vec<&str> = std::iter::once(task.worker.as_str())
+            .chain(task.closure.iter().map(|closure| closure.name.as_str()))
+            .collect();
+        self.waits(&roots, &task.inputs)
+    }
+
+    /// What a pool job can block on: the senders it can hold, unless it
+    /// cannot wait for anything, and the mutexes it can reach.
+    pub(super) fn job_hazards(&self, job: &Submitted) -> Vec<Hazard> {
+        let mut sends = crate::threading::endpoints([job.input.clone()], true, true);
+        if !sends.is_empty() {
+            let roots: Vec<&str> = std::iter::once(job.worker.as_str())
+                .chain(
+                    job.closure
+                        .iter()
+                        .chain(&job.shared)
+                        .map(|c| c.name.as_str()),
+                )
+                .collect();
+            if !self.waits(&roots, std::slice::from_ref(&job.input)) {
+                sends.clear();
+            }
+        }
+        sends
+            .into_iter()
+            .map(Hazard::Sends)
+            .chain(
+                crate::threading::mutexes([job.input.clone()])
+                    .into_iter()
+                    .map(Hazard::Locks),
+            )
+            .collect()
+    }
+
+    /// Whether code started at `roots`, holding values of `inputs`, can wait
+    /// for another thread (issue #793). Any wait counts, not only one on the
+    /// held endpoint's queue: a worker waiting on a lock or another queue can
+    /// wait for a thread that is itself blocked on the held queue. Only
+    /// `send_nowait`, `recv_nowait`, nowait selection, and `submit_nowait`
+    /// never wait; a timed operation's bound can be arbitrarily long. Waits
+    /// for tokens, readiness, and child processes count, as do file, socket,
+    /// and datagram transfers and foreign calls. A sleep is not counted: it
+    /// ends without another thread. Nor are standard-stream reads and writes,
+    /// whose other end is outside the program.
+    ///
+    /// Calls follow `function_references`, which also names the workers a
+    /// function starts and the destructors it arms; the destructor of every
+    /// class it can hold, receive or build is followed as well. Calls through
+    /// values, erased types, and functions without a body count as waits.
+    #[expect(
+        clippy::mutable_key_type,
+        reason = "nominal identities exclude definition cells"
+    )]
+    fn waits(&self, roots: &[&str], inputs: &[Ty]) -> bool {
+        let key = (roots.join("\n"), inputs.to_vec());
+        if let Some(&cached) = self.waits.lock().unwrap().get(&key) {
+            return cached;
+        }
+        let definitions = self.definitions();
+        let mut functions: Vec<String> = roots.iter().map(|&name| name.to_owned()).collect();
+        let mut types = inputs.to_vec();
+        let mut seen_functions = HashSet::default();
+        let mut seen_types = HashSet::default();
+        let waits = 'search: loop {
+            while let Some(ty) = types.pop() {
+                if !seen_types.insert(ty.clone()) {
+                    continue;
+                }
+                match &ty {
+                    Ty::Class(class) => functions.extend(class.get().destructor.iter().cloned()),
+                    // Their destructors and calls are erased.
+                    Ty::BoxedCallable(_) | Ty::BoxedProtocol(_) | Ty::Generator(_) => {
+                        break 'search true;
+                    }
+                    _ => {}
+                }
+                crate::threading::contained(&ty, &mut types);
+            }
+            let Some(name) = functions.pop() else {
+                break false;
+            };
+            if !seen_functions.insert(name.clone()) {
+                continue;
+            }
+            // A function compiled elsewhere has no body to inspect.
+            let Some(function) = definitions.get(name.as_str()) else {
+                break true;
+            };
+            // Only the types and calls matter here; worker eligibility
+            // reports the error separately.
+            let mut calls = Vec::new();
+            let _ = crate::threading::inspect(function, &mut types, &mut calls);
+            functions.extend(calls);
+            let mut waits = false;
+            crate::threading::walk(&function.body, &mut |op| {
+                crate::threading::function_references(op, &mut |name| {
+                    functions.push(name.to_owned())
+                });
+                waits |= super::blocking::blocks(op);
+            });
+            if waits {
+                break true;
+            }
+        };
+        self.waits.lock().unwrap().insert(key, waits);
+        waits
     }
 
     /// Visit the body of every function a call to `callee` can reach, or
@@ -189,7 +321,7 @@ pub fn future_results(ty: &Ty) -> Vec<Ty> {
     found
 }
 
-fn body(function: &CompiledFn) -> Body<'_> {
+fn body<'p>(function: &'p CompiledFn, program: &Program<'p>) -> Body<'p> {
     let mut body = Body {
         shuts: function
             .sig
@@ -208,7 +340,7 @@ fn body(function: &CompiledFn) -> Body<'_> {
         }
         Op::Executor(ExecutorOp::Shutdown) => body.shuts = true,
         Op::Executor(ExecutorOp::Submit(job, _)) => {
-            for hazard in Hazard::of(&job.input) {
+            for hazard in program.job_hazards(job) {
                 let job = (&job.output, hazard);
                 if !body.jobs.contains(&job) {
                     body.jobs.push(job);

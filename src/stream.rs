@@ -13,6 +13,9 @@ pub enum StreamOp {
     FileSeek,
     EntropyRead,
     Wait,
+    /// A readiness check that never blocks, so it is not a wait for the
+    /// live-endpoint join rule.
+    Poll,
 }
 
 impl StreamOp {
@@ -25,6 +28,7 @@ impl StreamOp {
             "__io_file_seek" => Self::FileSeek,
             "__io_entropy_read" => Self::EntropyRead,
             "__io_wait" => Self::Wait,
+            "__io_poll" => Self::Poll,
             _ => return None,
         })
     }
@@ -41,6 +45,7 @@ impl StreamOp {
             // Interest mask and a timeout in nanoseconds; readiness only
             // observes the handle.
             Self::Wait => vec![Ty::File, Ty::U8, Ty::U64],
+            Self::Poll => vec![Ty::File, Ty::U8],
         };
         (inputs, sum::result(Ty::I64, sum::io_error()))
     }
@@ -52,7 +57,7 @@ impl StreamOp {
             Self::FileRead => operand == 0 || operand == 3,
             Self::FileWrite => operand == 1,
             Self::StdinRead | Self::FileSeek | Self::EntropyRead => operand == 0,
-            Self::StdWrite | Self::Wait => false,
+            Self::StdWrite | Self::Wait | Self::Poll => false,
         }
     }
 
@@ -61,6 +66,7 @@ impl StreamOp {
             // Outside the contiguous stream block, which later opcodes follow.
             Self::EntropyRead => 248,
             Self::Wait => 390,
+            Self::Poll => 391,
             _ => 188 + self as i64,
         }
     }

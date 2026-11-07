@@ -46,12 +46,14 @@ the last receiver. A join that waits for such a worker while the joining
 function keeps a receiver alive, and does not receive, never returns. The
 compiler therefore rejects a join that could wait this way:
 
-> A scoped task whose worker can hold `Sender[T]` cannot be joined while a live
-> binding of the joining function can hold `Receiver[T]`.
+> A scoped task whose worker can hold `Sender[T]` cannot be joined while a
+> live binding of the joining function can hold `Receiver[T]`.
 >
 > Likewise, a worker that can hold `Receiver[T]` cannot be joined while a live
 > binding of the joining function can hold `Sender[T]`: an empty queue could
 > leave the worker waiting forever for a message or the last sender's drop.
+>
+> Neither applies to a worker that [cannot wait](#which-workers-can-wait).
 
 The rule applies to `task.join()` and to the automatic join on every exit from
 the task's `with` block: its end, `return`, `?`, `break`, `continue`, and the
@@ -132,6 +134,73 @@ Pools follow the same patterns, with `pool.submit(...)` in place of the start;
 see [shutdown](executors.md#shutdown-and-live-receivers) and
 [result waits](futures.md#result-waits-and-live-receivers).
 
+### Which workers can wait
+
+Every operation that can block until another thread or process acts counts as
+a wait. A worker *can wait* if code it can run performs any operation except:
+
+- computation, memory, and collection operations, including atomics and
+  creating queues, tokens, pools, and mutexes;
+- `send_nowait`, `recv_nowait`, `select_recv_nowait`, and `submit_nowait`;
+- unlocking a mutex, cancelling a token or future, checking a token or
+  future, and starting a worker;
+- a sleep, which ends without another thread, and reading the clock,
+  environment variables, or the system's random source;
+- reading standard input or writing standard output or standard error,
+  including `print`; see
+  [what the rule does not decide](#what-the-rule-does-not-decide);
+- `std.ready.wait_now`, which polls once and returns;
+- closing a file, querying or moving its position, reading a file through a
+  [`Root`](../../stdlib/fs.md), which refuses pipes and FIFOs, creating a new
+  file, and trying a file lock without waiting;
+- socket addresses, socket options, and creating or registering with a
+  selector.
+
+So a worker waits when it uses a blocking or timed queue operation, a lock, a
+pool or future wait, a token wait, a readiness wait, a join, a child process,
+any other file, stream, or socket operation, a database statement, or a
+foreign call. A timeout bounds the wait, but the bound can be arbitrarily long.
+The thread that would end any of these waits could itself be blocked on the
+queue the joining function holds. The compiler cannot tell a regular file
+from a socket, pipe, or FIFO whose other end that thread holds, and opening a
+FIFO waits for its other end. A database statement can wait for a lock another
+connection holds. An operation added to the language or the standard library
+counts as a wait until it is shown not to block.
+
+A worker that uses only the exceptions is joined while the function keeps the
+opposite endpoint:
+
+```plenty
+def notify(sender: Sender[i64]) -> ():
+    match sender.send_nowait(1):
+        case Ok(_):
+            pass
+        case Err(_):
+            pass
+
+def main() -> Result[(), AllocError | IoError | RecvError | SpawnError[()]]:
+    sender, receiver = channel[i64](1)?
+    with spawn(notify, sender).drop_job()?:
+        pass
+    print(receiver.recv()?)?
+    Ok(())
+```
+
+```output
+1
+```
+
+The code a worker can run includes:
+
+- every function it calls, directly or through further calls, closures, sort
+  keys, and formatting hooks;
+- the `__del__` of every class it can hold, receive, or build, at any depth;
+- every worker it starts, which it joins, and every pool job it submits.
+
+A call through a `Callable`, a boxed callable, or a protocol box, a held
+boxed value or generator, and a function without a body to inspect, such as
+one compiled elsewhere, count as waits.
+
 ### What can hold an endpoint
 
 A worker *can hold* a sender that is an argument or capture, a field or element
@@ -189,21 +258,32 @@ count messages. These safe programs are rejected:
 - the parent receives everything the worker sends, or drains to disconnection,
   through a receiver that is still alive at the join;
 - the live receiver belongs to a different queue of the same message type;
-- the worker sends only with `send_nowait` or `send_timeout`, or its sends
-  always fit the queue's capacity;
+- the worker sends only with `send_timeout_ms`, or its blocking sends always
+  fit the queue's capacity, or run only on paths the program never takes;
+- the worker's only waits are on other queues, locks, tokens, handles, files,
+  sockets, databases, or foreign calls that no thread blocked on this queue can
+  hold up, such as reads of a regular file;
 - another thread also receives from the queue;
 - the receiver's caller-side owner would have received.
 
 The receiving-worker rule likewise rejects a sender for an unrelated queue of
-the same message type, a worker that only receives with `recv_nowait` or
-`recv_timeout`, and a worker whose receives are already satisfied by buffered
-messages or another thread. It does not count sends or receives.
+the same message type, a worker that only receives with `recv_timeout_ms`, and
+a worker whose receives are already satisfied by buffered messages or another
+thread. It does not count sends or receives.
 
 The rule is not a deadlock-freedom guarantee. It does not cover:
 
 - an endpoint captured by a `Callable` or boxed callable held by the joining
   function, whose captures have no type;
 - endpoints held by the function's callers through bindings it was not passed;
+- a worker that retries a `nowait` operation until it succeeds, which waits
+  without blocking;
+- a worker blocked reading standard input or writing standard output or
+  standard error, such as `print` into a full pipe. The other end of a
+  standard stream belongs to another process, so no thread blocked on the
+  queue can hold it up, unless the program connects its own standard streams
+  to a pipe it drains. Counting these streams would make every printing worker
+  one that can wait;
 - a worker blocked for any other reason.
 
 Dropping or guarding the surviving endpoints removes the rejection. Workers

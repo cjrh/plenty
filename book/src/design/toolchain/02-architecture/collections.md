@@ -107,7 +107,10 @@ emits the header reads before the loop and lowers `xs[i]` in the loop to
 operands. A list of any other element type gets the same cache for the row
 references that field access and element references take (`bodies[i].x`,
 `&mut bodies[i]`): `ElementRefView` takes the cached values and computes the
-row address inline (issue #739). An immutable shared reference cannot change during the loop. For an
+row address inline (issue #739). Field access on a named clist (`rows[i].x`)
+caches the row count and each accessed field's column address:
+clist `GetView` and `SetView` take them as operands, and the fields of
+one row share a bounds check (issue #759). An immutable shared reference cannot change during the loop. For an
 owned list or owner, an exclusive reference, or a retargetable binding, the
 frontend checks the finished loop's operations against a list that cannot
 resize or replace any list (arithmetic, control flow, loan bookkeeping, `?`,
@@ -120,7 +123,8 @@ list or class argument, including a method receiver, that reaches the cached
 list or its owner or that is borrowed from a reference parameter; for a
 by-value argument that holds references; for indirect and closure calls; and
 for any other operation. The fallback rewrites those accesses to `ListScalarGetRef`,
-`ListScalarSetRef` and `ElementRef`, which read the header at each access. The cache is held in
+`ListScalarSetRef`, `ElementRef`, and clist `Get` and `Set`, which read the
+header at each access. The cache is held in
 ordinary locals rather than in loads marked `readonly`: Cranelift treats a
 `readonly` load as valid for the whole function, which a later `append` would
 violate.

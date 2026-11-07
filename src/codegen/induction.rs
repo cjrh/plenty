@@ -876,6 +876,12 @@ pub(super) enum LengthOf {
 /// Largest constant offset a versioned access may add to the counter.
 pub(super) const VERSION_OFFSET: i64 = 64;
 
+/// Largest value range of a zero-extended index a versioned access may
+/// assume below a length, `0..=u16::MAX`. A wider source, such as a `u32`,
+/// would need a table so large that the test before the loop would almost
+/// always choose the checked copy.
+pub(super) const VERSION_EXTENT: u64 = u16::MAX as u64;
+
 /// Largest body, in operations, that is lowered twice; it bounds the code
 /// size and compile time versioning adds.
 const VERSION_OPS: usize = 256;
@@ -920,6 +926,11 @@ fn allowed_op(op: &Op) -> bool {
         let element = super::views::view_element(view);
         return element.is_numeric() || element == Ty::Bool;
     }
+    if let Op::Enum(crate::sum::EnumOp::New(sum, _)) = op {
+        // Building a copy value, such as a returned tuple or error, is
+        // stores to a stack slot; it retains and releases nothing.
+        return Ty::Enum(sum.clone()).can_copy();
+    }
     matches!(
         op,
         Op::Collection(
@@ -932,12 +943,16 @@ fn allowed_op(op: &Op) -> bool {
                 | C::ViewRow(..)
                 | C::ViewItem(..)
                 | C::ElementRefView(..)
+                // Inline checks, loads and stores through a cached column.
+                | C::Clist(crate::clist::ClistOp::GetView(..) | crate::clist::ClistOp::SetView(..))
         ) | Op::Class(crate::record::ClassOp::FieldRef(..))
             | Op::WriteRef(_)
             | Op::Integer(_)
             | Op::Numeric(_)
             | Op::CheckedArith { .. }
             | Op::Cast(_)
+            // A range check traps as a checked arithmetic operation does.
+            | Op::CheckedCast(_)
             | Op::PushInt(_)
             | Op::PushFloat { .. }
             | Op::PushBool(_)

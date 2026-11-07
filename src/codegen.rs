@@ -85,6 +85,7 @@ mod enums;
 mod executors;
 mod exits;
 mod exports;
+mod extending_loads;
 mod folding;
 mod foreign;
 mod formatting;
@@ -3135,8 +3136,10 @@ impl Lowerer<'_, '_> {
     }
 
     fn nonnegative_operand(&self, value: cranelift_codegen::ir::Value) -> bool {
+        let dfg = &self.bcx.func.dfg;
         self.counters.nonnegative.contains(&value)
-            || induction::nonnegative_constant(&self.bcx.func.dfg, value)
+            || induction::nonnegative_constant(dfg, value)
+            || known::zero_extended_max(dfg, value).is_some()
     }
 
     fn nonnegative_division(
@@ -3573,6 +3576,9 @@ impl Lowerer<'_, '_> {
         }
         let to_clif = clif_type(to);
         if to_bits > from_bits {
+            if let Some(word) = self.extended_word(v, is_signed(from.clone()), to_clif) {
+                return word;
+            }
             if is_signed(from) {
                 self.bcx.ins().sextend(to_clif, v)
             } else {
@@ -3581,6 +3587,41 @@ impl Lowerer<'_, '_> {
         } else {
             self.bcx.ins().ireduce(to_clif, v)
         }
+    }
+
+    /// The `wide` word `narrow` was just truncated from, when that word
+    /// extends `narrow`'s own bits as the cast would. A scalar read from
+    /// memory is a widened word truncated to its type, so `i64(*byte)` is
+    /// that word: extending the truncation again would leave a second
+    /// extension Cranelift does not fold (issue #760).
+    fn extended_word(
+        &self,
+        narrow: cranelift_codegen::ir::Value,
+        signed: bool,
+        wide: types::Type,
+    ) -> Option<cranelift_codegen::ir::Value> {
+        use cranelift_codegen::ir::{InstructionData, Opcode, ValueDef};
+        let dfg = &self.bcx.func.dfg;
+        let unary = |value| match dfg.value_def(dfg.resolve_aliases(value)) {
+            ValueDef::Result(inst, _) => match dfg.insts[inst] {
+                InstructionData::Unary { opcode, arg } => Some((opcode, arg)),
+                _ => None,
+            },
+            _ => None,
+        };
+        let (Opcode::Ireduce, word) = unary(narrow)? else {
+            return None;
+        };
+        let (extend, source) = unary(word)?;
+        let expected = if signed {
+            Opcode::Sextend
+        } else {
+            Opcode::Uextend
+        };
+        (extend == expected
+            && dfg.value_type(source) == dfg.value_type(narrow)
+            && dfg.value_type(word) == wide)
+            .then_some(word)
     }
 
     /// Lower `Op::PushStr` or `Op::PushBytes`: emit `global_value` for the

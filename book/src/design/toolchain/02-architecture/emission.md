@@ -618,6 +618,17 @@ operands still run in order, only when needed, with their traps and `?`
 propagation. A short-circuit result stored in a variable and read after the
 condition keeps its join block.
 
+## Extending loads
+
+A byte read lowers to `load.i8`, and widening it with `i64(*byte)` to
+`uextend`. Cranelift's x64 backend zero-extends the narrow load and then
+extends its result again; it emits one `movzbq` only when the IR names the
+extending load. `src/codegen/extending_loads.rs` rewrites a `uextend` or
+`sextend` of an `i8`, `i16` or `i32` load into `uload8`, `sload16` and the
+like when the load cannot trap, the extension is its only use, and nothing
+between them in the block stores, calls or has other side effects (issue
+#760). The unused narrow load is not lowered.
+
 ## Measuring compilation
 
 A local run of [compiler-benchmark](https://github.com/nordlow/compiler-benchmark)
