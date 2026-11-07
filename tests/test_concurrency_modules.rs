@@ -229,7 +229,7 @@ def main() -> Result[(), AllocError | SpawnError[()]]:
     .unwrap();
     let error = plenty::check_file(&path, None).unwrap_err().to_string();
     assert!(
-        error.contains("foreign calls have no worker-thread effect contract"),
+        error.contains("C function `external` has no worker-thread effect contract"),
         "{error}"
     );
 }

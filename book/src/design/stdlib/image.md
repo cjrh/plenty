@@ -222,8 +222,10 @@ the same checks, and allocates nothing.
 ## Encoding
 
 `encode_png` writes an 8-bit, non-interlaced PNG of the image's colour type:
-the signature, `IHDR`, the image data in `IDAT` chunks of about 64 KiB, and
-`IEND`, with no ancillary chunks. `level` is the zlib level, 0 to 9;
+the signature, `IHDR`, the image data in `IDAT` chunks of at most 64 KiB, and
+`IEND`, with no ancillary chunks. Rows are compressed and framed in pieces of
+at most 64 KiB, so a scanline longer than PNG's 2^31-1 chunk-length limit still
+yields valid chunks. `level` is the zlib level, 0 to 9;
 anything else is `OutOfRange`. PNG filter differences and reconstruction use
 explicit modulo-256 byte arithmetic; cursor and filter-score arithmetic stays
 bounded by the validated dimensions and held buffers. Level 0 stores rows unfiltered and
@@ -301,7 +303,7 @@ ordinary worker-effect checks, and may be used from any thread.
 | `new`, `copy`, `crop`, `convert`, `resize` with `Nearest` | The result |
 | `resize` with `Bilinear` | The result; for each resampled axis, 16 bytes plus 8 bytes per tap for each target position, with 4 taps when enlarging and about 2 × the reduction factor + 2 when shrinking; and an intermediate image of the target width and source height when the height changes and either the width changes or the image has alpha |
 | `decode` | The result, two scanlines, the palette, and an `Inflater`; see [Decoding limits](#decoding-limits) |
-| `encode_png` | The file, which grows by doubling; a zlib `Compressor` (about 387 KiB); five filtered copies of a row and a zero row, or one row at level 0; and about 64 KiB of compressed data before each `IDAT` is framed |
+| `encode_png` | The file, which grows by doubling; a zlib `Compressor` (about 387 KiB); five filtered copies of a row and a zero row, or one row at level 0; and about 64 KiB of compressed data before it is framed into `IDAT` chunks |
 | `detect`, `info`, `from_pixels`, `into_pixels`, `get`, `set`, `Limits.check` | Nothing |
 
 Decoding is linear in the file size and pixel count. Encoding is linear in

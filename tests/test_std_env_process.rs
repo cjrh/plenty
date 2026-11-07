@@ -1263,3 +1263,285 @@ print(std.io.read_up_to(&mut reader, &mut end, 1).unwrap(), elapsed(&cleanup_sta
         "6 ready\n\nTrue Option[i32].Some(0) Option[i32].Nothing\n0 True",
     );
 }
+
+/// Issue #778: a stream redirected to a file keeps the file's open mode, so
+/// an append-mode log keeps its earlier bytes and a reused command appends
+/// every child's output.
+#[test]
+fn a_stream_redirected_to_an_append_mode_file_keeps_existing_bytes() {
+    native(
+        r#"
+with open("log", "w")? as seed:
+    seed.write("earlier\n")?
+mut logged = std.process.shell("echo out; echo err >&2")?
+logged.stdout(Stdio.File(open("log", "a")?))
+logged.stderr(Stdio.File(open("log", "a")?))
+for _ in range(2):
+    mut child = logged.spawn()?
+    print(absent(&child.take_stdout()), absent(&child.take_stderr()))?
+    show(&child.wait()?)?
+print(out_text(&sh("cat log")?)?)?
+# Mode "w" truncates when the file is opened, before any child runs.
+mut fresh = std.process.shell("echo replaced")?
+fresh.stdout(Stdio.File(open("log", "w")?))
+show(&fresh.spawn()?.wait()?)?
+print(out_text(&sh("cat log")?)?)?
+"#,
+        r#"
+True True
+True Option[i32].Some(0) Option[i32].Nothing
+True True
+True Option[i32].Some(0) Option[i32].Nothing
+earlier
+out
+err
+out
+err
+
+True Option[i32].Some(0) Option[i32].Nothing
+replaced
+"#,
+    );
+}
+
+#[test]
+fn stderr_to_stdout_shares_a_file_a_pipe_or_null() {
+    native(
+        r#"
+script = "echo one; echo two >&2; echo three"
+mut to_file = std.process.shell(script)?
+to_file.stdout(Stdio.File(open("both", "a")?))
+to_file.stderr_to_stdout()
+show(&to_file.spawn()?.wait()?)?
+print(out_text(&sh("cat both")?)?)?
+# One pipe carries both streams; stderr is not piped separately.
+mut to_pipe = std.process.shell(script)?
+to_pipe.stdout(Stdio.Piped)
+to_pipe.stderr_to_stdout()
+mut child = to_pipe.spawn()?
+output = child.output(1000)?
+print(text(&output.stdout)?, output.stderr.len())?
+mut quiet = std.process.shell(script)?
+quiet.stdout(Stdio.Null)
+quiet.stderr_to_stdout()
+show(&quiet.spawn()?.wait()?)?
+# A later stderr choice replaces the merge.
+mut split = sh(script)?
+split.stderr_to_stdout()
+split.stderr(Stdio.Piped)
+parts = collected(&split)?
+print(text(&parts.stdout)?, text(&parts.stderr)?)?
+"#,
+        r#"
+True Option[i32].Some(0) Option[i32].Nothing
+one
+two
+three
+
+one
+two
+three
+ 0
+True Option[i32].Some(0) Option[i32].Nothing
+one
+three
+ two
+"#,
+    );
+}
+
+#[test]
+fn redirected_stdin_reads_a_file_and_replacing_a_file_closes_it() {
+    native(
+        r#"
+with open("input", "w")? as seed:
+    seed.write("from a file\n")?
+mut reader = std.process.command("cat")?
+reader.stdin(Stdio.File(open("input")?))
+reader.stdout(Stdio.Piped)
+print(out_text(&reader)?)?
+# Each replacement drops the file it supersedes; the remaining files keep
+# their streams.
+mut built = std.process.shell("cat; echo err >&2")?
+built.stdin(Stdio.File(open("input")?))
+built.stdout(Stdio.File(open("first", "w")?))
+built.stderr(Stdio.File(open("errors", "w")?))
+built.stdout(Stdio.File(open("second", "w")?))
+built.stdin(Stdio.Null)
+built.stdin(Stdio.File(open("input")?))
+show(&built.spawn()?.wait()?)?
+print(out_text(&sh("wc -c < first; cat second errors")?)?)?
+"#,
+        r#"
+from a file
+
+True Option[i32].Some(0) Option[i32].Nothing
+0
+from a file
+err
+"#,
+    );
+}
+
+#[test]
+fn a_redirection_with_the_wrong_direction_or_a_closed_file_fails_to_spawn() {
+    native(
+        r#"
+with open("existing", "w")? as seed:
+    seed.write("kept\n")?
+mut to_reader = std.process.command("true")?
+to_reader.stdout(Stdio.File(open("existing")?))
+match to_reader.spawn():
+    case Ok(_):
+        print("started")?
+    case Err(error):
+        print(str.repr(error)?)?
+mut from_writer = std.process.command("true")?
+from_writer.stdin(Stdio.File(open("existing", "a")?))
+match from_writer.spawn():
+    case Ok(_):
+        print("started")?
+    case Err(error):
+        print(str.repr(error)?)?
+mut closed = open("existing", "a")?
+closed.close()?
+mut to_closed = std.process.command("true")?
+to_closed.stderr(Stdio.File(closed))
+match to_closed.spawn():
+    case Ok(_):
+        print("started")?
+    case Err(error):
+        print(str.repr(error)?)?
+print(out_text(&sh("cat existing")?)?)?
+"#,
+        r#"
+IoError.NotWritable
+IoError.NotReadable
+IoError.Closed
+kept
+"#,
+    );
+}
+
+#[test]
+fn a_worker_thread_spawns_a_child_that_appends_to_a_file() {
+    let source = format!(
+        r##"{PRELUDE}
+def logged(rounds: i64) -> Result[i64, AllocError | IoError | OverflowError[i64]]:
+    mut built = std.process.shell("echo line")?
+    built.stdout(Stdio.File(open("log", "a")?))
+    built.stderr_to_stdout()
+    mut ran = 0
+    for _ in range(rounds):
+        mut child = built.spawn()?
+        if child.wait()?.success():
+            ran += 1
+    Ok(ran)
+
+def main() -> Result[(), AllocError | IoError | SpawnError[()] | OverflowError[i64] | std.io.StreamError | std.bytes.BytesError]:
+    with spawn(logged, 20).drop_job()? as a:
+        with spawn(logged, 20).drop_job()? as b:
+            print(a.join()? + b.join()?)?
+    print(out_text(&sh("wc -l < log")?)?)?
+    Ok(())
+"##
+    );
+    assert_eq!(run(&source), "40\n40");
+}
+
+#[test]
+fn isolated_groups_preserve_file_redirection_cwd_environment_and_stream_merging() {
+    native(
+        r#"
+drop(out_text(&sh("mkdir child-dir")?)?)
+with open("input", "w")? as file:
+    file.write("data\n")?
+for mode in [std.process.ProcessGroup.NewGroup, std.process.ProcessGroup.NewSession]?:
+    mut missing = std.process.command("/plenty-no-such-directory/program")?
+    missing.stdout(Stdio.File(open("log", "a")?))
+    missing.stderr_to_stdout()
+    missing.process_group(mode)
+    print(bad(&missing.spawn()), bad(&missing.spawn()))?
+    mut built = std.process.command("/usr/bin/python3")?
+    built.arg("-c")?
+    built.arg("import os,sys; assert os.getpgrp()==os.getpid(); assert (os.getsid(0)==os.getpid())==(sys.argv[1]=='session'); assert os.path.basename(os.getcwd())=='child-dir'; assert os.environ['ONLY']=='set' and 'HOME' not in os.environ; data=os.read(0,100); os.write(1,b'out '+data); os.write(2,b'err\\n')")?
+    built.arg("session" if mode == std.process.ProcessGroup.NewSession else "group")?
+    built.current_dir(&std.path.from_text("child-dir")?)?
+    built.env_clear()
+    built.env("ONLY", "set")?
+    built.stdin(Stdio.File(open("input", "r")?))
+    built.stderr_to_stdout()
+    built.process_group(mode)
+    built.stdout(Stdio.File(open("input", "r")?))
+    print(bad(&built.spawn()))?
+    built.stdout(Stdio.File(open("log", "a")?))
+    mut child = built.spawn()?
+    print(absent(&child.take_stdout()), absent(&child.take_stderr()), child.wait()?.success())?
+print(out_text(&sh("cat log")?)?)?
+"#,
+        "True True\nTrue\nTrue True True\nTrue True\nTrue\nTrue True True\nout data\nerr\nout data\nerr\n",
+    );
+}
+
+#[test]
+fn isolated_group_cleanup_closes_a_merged_pipe_held_by_descendants() {
+    native(
+        r#"
+for mode in [std.process.ProcessGroup.NewGroup, std.process.ProcessGroup.NewSession]?:
+    mut built = std.process.command("/usr/bin/python3")?
+    built.arg("-c")?
+    built.arg("import os,signal; pid=os.fork(); signal.alarm(10); os.write(2,b'ready\\n') if pid==0 else None; signal.pause()")?
+    built.stdin(Stdio.Null)
+    built.stdout(Stdio.Piped)
+    built.stderr_to_stdout()
+    built.process_group(mode)
+    mut child = built.spawn()?
+    print(absent(&child.take_stderr()))?
+    mut reader = std.io.from_file(child.take_stdout().unwrap())
+    mut ready = std.bytes.empty()?
+    print(std.io.read_up_to(&mut reader, &mut ready, 6).unwrap(), text(&ready)?)?
+    cleanup_start = std.time.monotonic_now()
+    child.kill_group()?
+    print(child.wait()?.signal())?
+    mut end = std.bytes.empty()?
+    print(std.io.read_up_to(&mut reader, &mut end, 1).unwrap(), elapsed(&cleanup_start) < 5000000000u64)?
+"#,
+        "True\n6 ready\n\nOption[i32].Some(9)\n0 True\nTrue\n6 ready\n\nOption[i32].Some(9)\n0 True",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn isolated_merged_pipe_pre_spawn_allocation_failure_preserves_configuration() {
+    // Fault only the fallible Plenty request allocation. Rust Command's host
+    // allocations remain outside the recoverable-allocation contract.
+    native(
+        r#"
+for mode in [std.process.ProcessGroup.NewGroup, std.process.ProcessGroup.NewSession]?:
+    mut built = std.process.command("/bin/sleep")?
+    built.arg("60")?
+    built.stdout(Stdio.Piped)
+    built.stderr_to_stdout()
+    built.process_group(mode)
+    print("__test_fail_allocations_after_0__")?
+    result = built.spawn()
+    print("__test_restore_allocations__")?
+    failed = match result:
+        case Err(IoError.Data(DataError.Allocation(AllocError.OutOfMemory))):
+            True
+        case Ok(child):
+            mut unexpected = child
+            unexpected.kill_group()?
+            unexpected.wait()?
+            False
+        case Err(error):
+            return Err(error)
+    print(failed)?
+    # The same configuration remains valid after request allocation failed.
+    mut retry = built.spawn()?
+    retry.kill_group()?
+    print(retry.wait()?.signal())?
+"#,
+        "True\nOption[i32].Some(9)\nTrue\nOption[i32].Some(9)",
+    );
+}

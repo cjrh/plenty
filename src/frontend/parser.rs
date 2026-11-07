@@ -706,6 +706,7 @@ impl Parser {
                         None => crate::foreign::Target::Symbol(symbol.unwrap()),
                     },
                     arguments: adapters,
+                    thread_safe: false,
                 }),
                 export: None,
                 type_params,

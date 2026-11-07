@@ -685,7 +685,11 @@ join checks (issue #108) and blocking future-result checks (issue #109) landed.
 Atomics/mutexes can be shared through scoped loans or `Shared`, with cycle and
 lock-held wait checks (issue #326, local PR #366); HTTP client sharing followed
 (local PR #369). Parallel terminals drain before return and borrow list sources
-in place (issue #455, local PR #571).
+in place (issue #455, local PR #571). Foreign calls whose `.plentyi`
+declaration carries the binding author's
+[`@thread_safe`](../design/facilities/04-interop/trusted-declarations.md#worker-threads)
+promise are certified on workers, including from destructors; unannotated
+calls and opaque pointers stay rejected (issue #772).
 
 See [threads](../design/facilities/03-concurrency/threads.md),
 [channels](../design/facilities/03-concurrency/channels.md),
