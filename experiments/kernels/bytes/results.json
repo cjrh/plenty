@@ -104,5 +104,66 @@
       "before": 38,
       "after": 7
     }
+  },
+  "issue-844": {
+    "baseline": "43b31dfd",
+    "units": "perf instructions:u; PLENTY_CACHE=off; taskset -c 0",
+    "input": "fasta.reference 250000 output; fasta takes 250000 as its argument",
+    "fasta-before": [
+      352111889,
+      352111887
+    ],
+    "fasta-after": [
+      349361779,
+      349361861
+    ],
+    "reverse-complement-before": [
+      77021775,
+      77021786
+    ],
+    "reverse-complement-after": [
+      76963407,
+      76963406
+    ],
+    "k-nucleotide-before": [
+      6534971921,
+      6537360960,
+      6534457299,
+      6540820121,
+      6536191093
+    ],
+    "k-nucleotide-after": [
+      6539262038,
+      6542984882,
+      6547648903,
+      6536123848,
+      6539423360
+    ],
+    "loop_caller_instructions": {
+      "transform_call": [
+        38,
+        36
+      ],
+      "push": [
+        35,
+        34
+      ],
+      "while": [
+        50,
+        48
+      ],
+      "pushes": [
+        51,
+        49
+      ],
+      "truncated": [
+        70,
+        67
+      ],
+      "inner_clears": [
+        42,
+        38
+      ]
+    }
   }
 }

@@ -98,6 +98,31 @@ impl Lowerer<'_, '_> {
         self.read_reference(reference)
     }
 
+    /// Read a value of type `ty` through `reference`, unpacked. A value whose
+    /// native type is one word (an owner such as `ByteStorage`, a list or a
+    /// text) is the slot's low word: `unpack` would discard the high word, but
+    /// Cranelift does not narrow a dead half of an `i128` load, so each read
+    /// would keep a second load (issue #844). Wide values, scalars and flat
+    /// records keep [`read_typed_reference`](Self::read_typed_reference).
+    pub(super) fn read_unpacked_reference(
+        &mut self,
+        reference: NativeValue,
+        ty: &Ty,
+    ) -> NativeValue {
+        let base = ty.newtype_base();
+        let one_word = !(base.is_numeric() || *base == Ty::Bool)
+            && !ty.flat_field()
+            && !ty.wide()
+            && !matches!(ty, Ty::Ref(..) | Ty::View(..))
+            && ty.quantity_storage().is_none()
+            && clif_type(ty.clone()) == types::I64;
+        if one_word {
+            return self.reference_word(reference);
+        }
+        let packed = self.read_typed_reference(reference, ty);
+        self.unpack(packed, ty)
+    }
+
     pub(super) fn read_reference(&mut self, reference: NativeValue) -> NativeValue {
         let (address, shift) = self.reference_parts(reference);
         let packed = self

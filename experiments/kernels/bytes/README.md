@@ -139,7 +139,8 @@ parameter bounds, adds one unsigned comparison and branch per access (10
 instructions per byte for a single `get` loop). A failing index calls the
 method from a cold block, so messages, std positions and caller notes are
 unchanged. Loops that may resize the buffer, through `push` or a call taking
-`&mut Bytes`, keep the method calls and their #842/#844 costs.
+`&mut Bytes`, keep the method calls and their #842 costs; the
+[one-word owner reads](#one-word-owner-reads-issue-844) removed the #844 loads.
 
 | Workload | Before instructions | After instructions |
 |---|---:|---:|
@@ -153,3 +154,50 @@ C's quick input uses 362,036,283–362,036,296 instructions: the Plenty/C ratio
 falls from 11.42 to 2.11. Compile counts are unchanged within their spread.
 The before compile probe was built from the baseline source in a separate
 target directory. Raw repetitions are under `issue-843` in `results.json`.
+
+## One-word owner reads (issue #844)
+
+Measured on 2026-11-07, baseline `43b31dfd`, same machine and toolchain.
+Since issue #843, `kernels.plenty` caches the buffer and runs 7 instructions
+per byte with no owner loads in the loop. A loop that may resize the buffer
+keeps the method calls; add a call that takes `&mut Bytes` to the kernel loop:
+
+```plenty fragment
+def touch(data: &mut std.bytes.Bytes) -> ():
+    pass
+
+def transform_call(data: &mut std.bytes.Bytes) -> ():
+    for i in range(data.len()):
+        data.set(i, data.get(i) ^ 32u8)
+        touch(data)
+```
+
+Each inlined `get` and `set` read `self._owner` with `load.i128` and passed
+only the low word (`isplit`) to the native helper. Cranelift does not narrow
+the dead half, so x86-64 kept `mov 8(%r12), %rax` per method call. A
+`ReadRef` or `ReplaceRef` of a type whose native value is one word now loads
+only that word, as the length query already did.
+
+| Loop, caller instructions per iteration | Before | After |
+|---|---:|---:|
+| `transform_call` above | 38 | 36 |
+| `out.push(data.get(i) ^ 32u8)?` | 35 | 34 |
+| `while i < data.len()` with `get`, `set` and the call | 50 | 48 |
+| `pushes` in `tests/test_byte_views.rs` | 51 | 49 |
+| `truncated` in `tests/test_byte_views.rs` | 70 | 67 |
+| `inner_clears` in `tests/test_byte_views.rs` | 42 | 38 |
+
+Count with `loops.py` as above. Executables built by `benchmarks/game/bench.py
+check` with each compiler, run pinned to core 0 on the reference fasta output
+for size 250,000 (fasta takes the size argument instead):
+
+| Workload | Before instructions | After instructions |
+|---|---:|---:|
+| fasta 250,000 | 352,111,887–352,111,889 | 349,361,779–349,361,861 |
+| reverse-complement | 77,021,775–77,021,786 | 76,963,406–76,963,407 |
+| k-nucleotide | 6,534,457,299–6,540,820,121 | 6,536,123,848–6,547,648,903 |
+
+fasta executes 0.8% fewer instructions; reverse-complement's hot loops are
+cached, so it changes by 0.08%. k-nucleotide's ranges overlap. Outputs are
+identical. Raw repetitions are under `issue-844` in `results.json`.
+

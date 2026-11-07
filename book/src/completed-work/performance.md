@@ -79,6 +79,16 @@ reverse-complement input used 81.5% fewer instructions with identical output.
 In cached loops the caller scopes and unused owner-word loads (issues #842 and
 #844) leave the loop with the calls; they remain for uncached calls.
 
+### One-word reference reads (issue #844)
+
+A read through a reference of a one-word value, such as the `Bytes` owner the
+inlined `get` and `set` read through `self`, loads only the low slot word;
+Cranelift kept the dead high word of a two-word load. Loops that keep the
+`Bytes` method calls lose one instruction per method call (the byte-kernel
+variant with a `&mut Bytes` call fell from 38 to 36 per byte), and other
+one-word reads through references benefit likewise. The quick fasta input used
+0.8% fewer instructions; see `experiments/kernels/bytes/README.md`.
+
 ### k-nucleotide counting-loop investigation (issue #743)
 
 The original issue was split into issues #744–#750, with follow-ups #755,
