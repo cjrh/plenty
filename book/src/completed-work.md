@@ -115,3 +115,9 @@ filter precedence and atomic registration remain explicit. A compatibility
 follow-up preserves all 16,384 legacy negated placeholders under default limits
 with a 32,768-node budget. Filter arguments,
 arithmetic, ordering comparisons and calls remain unsupported.
+
+## Checked HTML template rendering
+
+Issue #839 adds opt-in structural preflight and inferred text/quoted-attribute
+escaping for a bounded HTML subset. See [the contract](design/stdlib/template-html.md)
+and [the delivery record](completed-work/libraries.md#checked-html-template-rendering).
