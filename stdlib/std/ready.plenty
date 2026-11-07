@@ -66,7 +66,7 @@ def ready(bits: i64) -> Readiness:
 
 # Tests readiness once, without waiting or allocating a cancellation token.
 pub def wait_now(file: &File, interest: Interest) -> Result[Readiness, WaitError]:
-    bits = polled(__io_wait(file, mask(&interest), 0u64))?
+    bits = polled(__io_poll(file, mask(&interest)))?
     if bits == 0:
         return Err(WaitError.TimedOut)
     Ok(ready(bits))

@@ -667,3 +667,38 @@ fn fallible_outputs_follow_the_consistency_rule() {
         &["C function taking or returning `native.Raw` must be `@thread_safe`"],
     );
 }
+
+#[test]
+fn a_foreign_call_counts_as_a_wait_for_a_live_endpoint() {
+    // Issue #793: a worker whose queue operations never wait may still be
+    // joined while the opposite endpoint lives, but a foreign function, even
+    // a `@thread_safe` one, can block on anything.
+    let program = |call: &str, wait: &str| {
+        format!(
+            "import native
+def worker(sender: Sender[i64]) -> ():
+    drop(sender.send_nowait(0))
+{call}def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+{wait}"
+        )
+    };
+    let start = "    with spawn(worker, sender).unwrap():
+        pass
+";
+    let submit = "    with ThreadPoolExecutor(1, 1).unwrap() as pool:
+        future = pool.submit(worker, sender).unwrap()
+        future.result().unwrap()
+";
+    for (wait, expected) in [
+        (start, "could block the worker's send"),
+        (submit, "could block the job's send"),
+    ] {
+        check_with(ANNOTATED, &program("", wait)).unwrap();
+        rejected(
+            ANNOTATED,
+            &program("    drop(native.pid())\n", wait),
+            &[expected],
+        );
+    }
+}

@@ -31,6 +31,12 @@ Result[list[i64], RecvError].Err(RecvError.Disconnected)
 `recv_nowait()` similarly reports `RecvError.Empty` when the channel is connected
 but has no message ready. Neither `nowait` operation waits for the queue to change
 state, though both synchronize access to the queue.
+Because they never wait, a worker that uses only `nowait` operations, and no
+other operation that can wait, such as a lock, a token wait, file, socket, or
+database I/O, or a foreign call, can be joined while you keep the other
+endpoint;
+see
+[which workers can wait](../../design/facilities/03-concurrency/channels.md#which-workers-can-wait).
 
 If you need only part of a stream, the receiver guard handles shutdown:
 

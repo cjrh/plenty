@@ -293,14 +293,13 @@ fn sender_guard_order_and_message_type_are_conservative() {
         pass
 ",
     );
-    // Availability and nonblocking calls are not inferred from worker bodies.
+    // Buffered messages are not counted: this worker could wait. A worker that
+    // only receives with `recv_nowait` is accepted; see `test_nowait_workers`.
     rejected(
-        "def nowait(receiver: Receiver[i64]) -> ():
-    drop(receiver.recv_nowait())
-def main() -> ():
+        "def main() -> ():
     sender, receiver = channel[i64](1).unwrap()
     sender.send(1).unwrap()
-    with spawn(nowait, receiver).unwrap():
+    with spawn(consume, receiver).unwrap():
         pass
 ",
     );

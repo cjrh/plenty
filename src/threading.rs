@@ -537,7 +537,10 @@ pub fn owns_executor(ty: &Ty) -> bool {
     false
 }
 
-fn inspect(
+/// Collect the types `function` stores, receives, or builds and the functions
+/// it calls. An error names an operation without a worker-thread contract;
+/// the walk still completes.
+pub(crate) fn inspect(
     function: &CompiledFn,
     types: &mut Vec<Ty>,
     calls: &mut Vec<String>,
