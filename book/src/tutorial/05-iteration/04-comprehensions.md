@@ -4,7 +4,7 @@ A comprehension produces a new collection from an iterable and optional filters.
 The element expression runs only after the filters pass.
 
 ```plenty
-def main() -> Result[(), AllocError | IoError | ZeroDivisionError | OverflowError[i64]]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     squares = [n * n for n in range(8) if n % 2 == 0]?
     print(squares)?
     print({n: n * n for n in [2, 3]?}?)?

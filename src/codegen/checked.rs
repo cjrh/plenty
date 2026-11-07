@@ -253,7 +253,7 @@ impl Lowerer<'_, '_> {
         ty: &Ty,
         proof: crate::numeric::Divisor,
     ) -> (Option<NativeValue>, Option<NativeValue>) {
-        let signed = proof != crate::numeric::Divisor::Positive
+        let signed = proof.may_be_minus_one()
             && is_signed(ty.clone())
             && !self.nonnegative_division(a, b, proof);
         if let Some(divisor) = known::known_signed(&self.bcx.func.dfg, b) {

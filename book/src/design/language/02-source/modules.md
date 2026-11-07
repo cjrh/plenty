@@ -161,7 +161,7 @@ no code.
 const PAGE: i64 = 4096
 assert PAGE % 64 == 0, "pages hold whole cache lines"
 
-def main() -> Result[(), IoError | OverflowError[i64] | ZeroDivisionError]:
+def main() -> Result[(), IoError]:
     print(PAGE // 64)?
     Ok(())
 ```
