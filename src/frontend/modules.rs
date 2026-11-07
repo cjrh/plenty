@@ -1099,6 +1099,7 @@ pub(super) fn file_graph(
     let graph = crate::project::SourceGraph {
         packages: vec![crate::project::SourcePackage {
             identity: String::new(),
+            directory: root.clone(),
             root,
             assets: None,
             library: None,
@@ -1194,24 +1195,26 @@ impl Loader {
                     embed.path
                 )));
             }
-            // The most deeply nested package owns a file, so a package
-            // includes only its own files even when another package lies
-            // inside its directory, as a workspace member at `assets/` does.
-            // A package and its `tests/` package share one `assets/`, so an
-            // identical assets directory is not another's.
+            // A package includes no file below another package's directory
+            // nested within its own source root or assets, as a workspace
+            // member at `assets/` is. A package and its `tests/` package share
+            // a directory, so neither blocks the other. The innermost such
+            // directory names the owner.
             let own = match assets {
                 Some(assets) if !file.starts_with(root) => assets,
                 _ => root,
             };
-            let owner = self.packages.iter().enumerate().find(|(i, other)| {
-                let nested = |d: &PathBuf| file.starts_with(d) && d.starts_with(own) && d != own;
-                *i != package
-                    && (nested(&other.root)
-                        || other
-                            .assets
-                            .as_ref()
-                            .is_some_and(|a| Some(a) != assets && nested(a)))
-            });
+            let directory = &self.packages[package].directory;
+            let owner = self
+                .packages
+                .iter()
+                .enumerate()
+                .filter(|(_, other)| {
+                    &other.directory != directory
+                        && file.starts_with(&other.directory)
+                        && other.directory.starts_with(own)
+                })
+                .max_by_key(|(_, other)| other.directory.components().count());
             if let Some((_, other)) = owner {
                 return Err(embed.at.error(format!(
                     "included path `{}` belongs to package `{}`; package `{}` may include only its own files",
@@ -1603,6 +1606,10 @@ fn prepare_packages(
             .root
             .canonicalize()
             .map_err(|e| format!("source root {}: {e}", package.root.display()))?;
+        package.directory = package
+            .directory
+            .canonicalize()
+            .map_err(|e| format!("package directory {}: {e}", package.directory.display()))?;
         let root = &package.root;
         if !root.is_dir() {
             return Err(format!("source root {} is not a directory", root.display()).into());

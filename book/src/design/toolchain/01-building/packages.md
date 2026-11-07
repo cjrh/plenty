@@ -242,18 +242,15 @@ including file, so `src/main.plenty` reads `assets/icon.png` as
 package's `assets/` the same way.
 
 An include reads a file only if its real path, after resolving `..` and symbolic
-links, lies inside the source root or inside `assets/`. So it cannot read the
-manifest, `tests/`, another package's files, or a file that a link in either
-directory points to elsewhere. The source root is the target of `src`, as for
-imports. `assets` itself must be a directory, not a symbolic link: a package
-whose `assets` is a link or a file fails to load, even when nothing includes
-from it. The most deeply nested package's source root or `assets/` that contains
-a file owns it, and a package may include only files it owns. So when a
-workspace member lies at `assets/`, the outer package may include other files
-there but not the member's, and the member includes its own; including another
-package's file is an error that names both packages. In the reverse layout, a
-package inside a dependency's `assets/` owns only its source root and `assets/`,
-so the dependency can include the package's other files, such as its manifest.
+links, lies inside the source root or inside `assets/`, and not inside another
+package's directory nested within them. So it cannot read the package's own
+manifest or `tests/`, or a file that a link in either directory points to
+elsewhere. Another package's directory is where its manifest is; when one lies
+inside `assets/`, as a workspace member at `assets/` does, none of its files can
+be included, and the error names both packages. The source root is the target of
+`src`, as for imports. `assets` itself must be a directory, not a symbolic link:
+a package whose `assets` is a link or a file fails to load, even when nothing
+includes from it.
 
 Every regular file below `assets/` counts toward [build reuse](#build-reuse),
 whether or not a target includes it, so an unreadable file there fails the
@@ -432,13 +429,11 @@ The first package contains the entry file. `identity` is unique and qualifies
 the package's declarations in diagnostics; `dependencies` maps each alias to an
 identity whose package has a `library`. The optional `assets` names the
 directory that the package's [included files](#assets) may also come from;
-`plenty graph` writes it only for a package that has `assets`. Packages may
-share an identical `assets` directory, as a package and its `tests/` package do,
-and both may include from it. Otherwise the most deeply nested package's source
-root or `assets` that contains a file owns it, and a package may include only
-files it owns. Optional keys added later, such as `assets`, leave
-`graph-version` at 1. Older compilers reject unknown keys, so they still read a
-graph that does not use them. Relative paths are relative to the file.
-`--package-graph` works with `FILE`, `--check`, `--check-module`, and
-`--compile`. It lets another build system compile a package without
-`plenty.toml`, and makes the compiler's input visible when debugging resolution.
+`plenty graph` writes it only for a package that has `assets`. A package's
+directory, below which other packages may not include files, is its `root`'s
+parent. Optional keys added later, such as `assets`, leave `graph-version` at 1.
+Older compilers reject unknown keys, so they still read a graph that does not
+use them. Relative paths are relative to the file. `--package-graph` works with
+`FILE`, `--check`, `--check-module`, and `--compile`. It lets another build
+system compile a package without `plenty.toml`, and makes the compiler's input
+visible when debugging resolution.

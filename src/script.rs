@@ -279,6 +279,7 @@ pub fn run(args: Vec<OsString>) -> Result<ExitCode> {
     }
     let mut graph = project.source_graph(0);
     graph.packages[0].root = directory.to_path_buf();
+    graph.packages[0].directory = directory.to_path_buf();
     graph.packages[0].assets = None;
     if options.check {
         eprintln!("  Checking {}", path.display());
@@ -422,6 +423,7 @@ pub(crate) fn editor_graph(path: &Path, text: &str) -> Option<project::SourceGra
     .ok()?;
     let mut graph = project.source_graph(0);
     graph.packages[0].root = directory.to_path_buf();
+    graph.packages[0].directory = directory.to_path_buf();
     graph.packages[0].assets = None;
     Some(graph)
 }

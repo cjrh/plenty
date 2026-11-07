@@ -65,8 +65,8 @@ pub(super) fn digest(
         field(&package.identity);
         field(&package.root.display().to_string());
         field(&format!(
-            "{:?} {:?} {:?}",
-            package.assets, package.library, package.dependencies
+            "{:?} {:?} {:?} {:?}",
+            package.directory, package.assets, package.library, package.dependencies
         ));
         let mut files = vec![];
         walk(&package.root, &mut files)?;

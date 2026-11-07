@@ -1572,31 +1572,44 @@ def main() -> Result[(), IoError]:
 
 #[test]
 fn a_package_includes_only_its_own_files() {
-    // A workspace member at `assets/` is a layout that builds. The most
-    // deeply nested package owns a file: the root package may include other
-    // files there, but not the member's, and the member includes its own.
+    // `ws/` holds `game`, whose `assets/` is the member package `levels`,
+    // whose `assets/` holds `deep`. Each includes its own files; none
+    // includes a file inside a package directory nested in its own.
     let dir = tempfile::tempdir().unwrap();
     let ws = dir.path().join("ws");
+    let levels = ws.join("assets");
+    let deep = levels.join("assets/deep");
     write(
         &ws.join("plenty.toml"),
         "manifest-version = 1\n[package]\nname = \"game\"\nversion = \"0.1.0\"\n\n[dependencies]\nlevels = { path = \"assets\" }\n\n[workspace]\nmembers = [\"assets\"]\n",
     );
     write(
-        &ws.join("assets/plenty.toml"),
-        "manifest-version = 1\n[package]\nname = \"levels\"\nversion = \"0.1.0\"\n",
+        &levels.join("plenty.toml"),
+        "manifest-version = 1\n[package]\nname = \"levels\"\nversion = \"0.1.0\"\n\n[dependencies]\ndeep = { path = \"assets/deep\" }\n",
     );
+    let lib = |include: &str| {
+        format!(
+            "import deep\nconst DATA: str = include_str(\"data.txt\")\nconst LEVEL: str = include_str(\"../assets/lvl.txt\")\n{include}pub const N: i64 = deep.N if DATA == \"data\" and LEVEL == \"level\" else 0\n"
+        )
+    };
+    write(&levels.join("src/lib.plenty"), &lib(""));
+    write(&levels.join("src/data.txt"), "data");
+    write(&levels.join("assets/lvl.txt"), "level");
+    write(&levels.join("tests/f.txt"), "fixture");
     write(
-        &ws.join("assets/src/lib.plenty"),
-        "const DATA: str = include_str(\"data.txt\")\nconst LEVEL: str = include_str(\"../assets/lvl.txt\")\npub const N: i64 = 1 if DATA == \"data\" and LEVEL == \"level\" else 0\n",
-    );
-    write(&ws.join("assets/src/data.txt"), "data");
-    write(&ws.join("assets/assets/lvl.txt"), "level");
-    write(&ws.join("assets/tests/f.txt"), "fixture");
-    write(
-        &ws.join("assets/tests/fixture.plenty"),
+        &levels.join("tests/fixture.plenty"),
         "const F: str = include_str(\"f.txt\")\n\ndef main() -> i32:\n    0 if F == \"fixture\" else 1\n",
     );
-    write(&ws.join("assets/notes.txt"), "notes");
+    write(
+        &deep.join("plenty.toml"),
+        "manifest-version = 1\n[package]\nname = \"deep\"\nversion = \"0.1.0\"\n",
+    );
+    write(
+        &deep.join("src/lib.plenty"),
+        "const ONE: str = include_str(\"../assets/one.txt\")\npub const N: i64 = 1 if ONE == \"one\" else 0\n",
+    );
+    write(&deep.join("assets/one.txt"), "one");
+    std::os::unix::fs::symlink("src/data.txt", levels.join("l.txt")).unwrap();
     let main = |include: &str| {
         format!(
             "import levels\n{include}\ndef main() -> Result[(), IoError]:\n    print(levels.N)?\n    Ok(())\n"
@@ -1604,23 +1617,41 @@ fn a_package_includes_only_its_own_files() {
     };
     write(&ws.join("src/main.plenty"), &main(""));
     assert_eq!(succeeds(&ws, &["run"]), "1\n");
-    assert!(
-        succeeds(&ws.join("assets"), &["test"]).ends_with("test result: ok. 1 passed; 0 failed\n")
-    );
-    write(
-        &ws.join("src/main.plenty"),
-        &main("const NOTES: str = include_str(\"../assets/notes.txt\")\n"),
-    );
-    assert_eq!(succeeds(&ws, &["run"]), "1\n");
-    write(
-        &ws.join("src/main.plenty"),
-        &main("const S: str = include_str(\"../assets/src/lib.plenty\")\n"),
-    );
     for command in ["check", "build"] {
-        fails(
-            &ws,
-            &[command],
-            "included path `../assets/src/lib.plenty` belongs to package `levels`; package `game` may include only its own files",
-        );
+        succeeds(&levels, &[command]);
     }
+    assert!(succeeds(&levels, &["test"]).ends_with("test result: ok. 1 passed; 0 failed\n"));
+
+    for (path, owner) in [
+        ("../assets/src/lib.plenty", "levels"),
+        ("../assets/assets/lvl.txt", "levels"),
+        ("../assets/l.txt", "levels"),
+        ("../assets/tests/f.txt", "levels"),
+        ("../assets/plenty.toml", "levels"),
+        ("../assets/assets/deep/assets/one.txt", "deep"),
+    ] {
+        write(
+            &ws.join("src/main.plenty"),
+            &main(&format!("const S: str = include_str({path:?})\n")),
+        );
+        for command in ["check", "build"] {
+            fails(
+                &ws,
+                &[command],
+                &format!(
+                    "included path `{path}` belongs to package `{owner}`; package `game` may include only its own files"
+                ),
+            );
+        }
+    }
+    write(&ws.join("src/main.plenty"), &main(""));
+    write(
+        &levels.join("src/lib.plenty"),
+        &lib("const S: str = include_str(\"../assets/deep/plenty.toml\")\n"),
+    );
+    fails(
+        &levels,
+        &["check"],
+        "included path `../assets/deep/plenty.toml` belongs to package `deep`; package `levels` may include only its own files",
+    );
 }

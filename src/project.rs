@@ -62,6 +62,10 @@ pub struct SourcePackage {
     pub identity: String,
     /// Imports in this package resolve below this directory.
     pub root: PathBuf,
+    /// The directory the package owns: its manifest's, or, in a graph file,
+    /// the source root's parent. Another package's includes may not read
+    /// below it. A package and its `tests/` package share it.
+    pub directory: PathBuf,
     /// The package's `assets/` directory: `include_str` and `include_bytes`
     /// may read below it as well as below `root`. `None` for a single file or
     /// script, whose includes stay below `root`.
@@ -198,9 +202,11 @@ impl SourceGraph {
             {
                 return Err(error(line, &format!("identity `{identity}` appears twice")).into());
             }
+            let root = base.join(root);
             packages.push(SourcePackage {
                 identity,
-                root: base.join(root),
+                directory: root.parent().unwrap_or(&root).to_path_buf(),
+                root,
                 assets: string("assets")?.map(|assets| base.join(assets)),
                 library: string("library")?.map(|library| base.join(library)),
                 dependencies: vec![],
@@ -1003,6 +1009,7 @@ impl Project {
         SourcePackage {
             identity: package.manifest.name.clone(),
             root: package.directory.join("src"),
+            directory: package.directory.clone(),
             assets: assets_of(&package.directory),
             library: package
                 .manifest
@@ -1060,6 +1067,7 @@ impl Project {
             SourcePackage {
                 identity: format!("{}-tests", package.manifest.name),
                 root: package.directory.join("tests"),
+                directory: package.directory.clone(),
                 assets: assets_of(&package.directory),
                 library: None,
                 dependencies,
@@ -2245,6 +2253,7 @@ mod tests {
                 SourcePackage {
                     identity: "app".into(),
                     root: dir.path().join("app/src"),
+                    directory: dir.path().join("app"),
                     assets: Some(dir.path().join("app/assets")),
                     library: None,
                     dependencies: vec![("geo".into(), 1)],
@@ -2252,6 +2261,7 @@ mod tests {
                 SourcePackage {
                     identity: "shapes".into(),
                     root: dir.path().join("shapes/src"),
+                    directory: dir.path().join("shapes"),
                     assets: None,
                     library: Some(dir.path().join("shapes/src/lib.plenty")),
                     dependencies: vec![],
