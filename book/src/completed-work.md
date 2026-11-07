@@ -41,6 +41,10 @@ claim. See the [library delivery record](completed-work/libraries.md#declared-te
 The [Text operation tables](design/facilities/01-builtins/text.md#passing-assigning-and-copying-text)
 spell out accepted and rejected argument, binding, slice, and explicit-copy
 forms, including borrow lifetimes, backing storage, and nested results.
+The function-argument table uses multiline signature/call excerpts and explains
+when borrowing avoids reference-count work.
+The binding table keeps expressions on one line, wrapping their explanations
+within the ordinary page width.
 
 The reference now compares [Plenty text with Python, Rust, and C](design/facilities/01-builtins/text-compared.md),
 including assignment costs, immutable storage, mutable construction, borrowed

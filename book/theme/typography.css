@@ -83,3 +83,13 @@ h1, h2, h3, h4, h5, h6 {
         padding: 0.4em;
     }
 }
+
+/* Give complete binding expressions room before wrapping their explanations. */
+.text-bindings-table table {
+    width: 100%;
+}
+
+.text-bindings-table th:first-child,
+.text-bindings-table td:first-child {
+    white-space: nowrap;
+}
