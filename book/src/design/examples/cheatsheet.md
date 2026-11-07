@@ -652,6 +652,7 @@ def main() -> Result[(), IoError | OverflowError[i64]]:
 | `del xs[i]` | `xs.pop(i)`, which returns an `Option` |
 | `assert x` in a function | Return an error: `if not x: return Err(...)` |
 | `xs.sort(reverse=True)` | `xs.sort(True)` |
+| `open(path, "rb")` | `std.io.open_file(path, "r")?` for bytes; [modes](../facilities/02-io/files.md) take no `b` suffix |
 
 Three of the most common rejections:
 

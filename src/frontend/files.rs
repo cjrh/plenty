@@ -204,6 +204,28 @@ impl Lower<'_> {
         Ok(Some(output))
     }
 
+    /// Builtin `open` and std parameters marked `__open_mode` reject the same
+    /// literal and module-constant modes; others fail at run time.
+    pub(super) fn check_open_mode(&self, mode: &Expr) -> Result<()> {
+        let Some(text) = consts::known_text(mode, &self.generics.constants, self.aliases) else {
+            return Ok(());
+        };
+        if open_modes::OpenMode::parse(&text).is_some() {
+            return Ok(());
+        }
+        // Python's `b` suffix selects binary access; Plenty selects it by
+        // the type (`std.io.FileStream`) rather than the mode.
+        let hint = if open_modes::OpenMode::parse(&text.replace('b', "")).is_some() {
+            "; modes take no `b` suffix (`std.io` file streams already read and write bytes)"
+        } else {
+            ""
+        };
+        Err(mode.at.error(format!(
+            "unknown open mode `{text}`; use one of {}{hint}",
+            open_modes::NAMES
+        )))
+    }
+
     pub(super) fn open_file(
         &mut self,
         args: &[Expr],
@@ -213,13 +235,8 @@ impl Lower<'_> {
         if !(1..=2).contains(&args.len()) {
             return Err(at.error("open takes a path and optional mode string"));
         }
-        if let Some(Expression::Text(mode)) = args.get(1).map(|mode| &ungroup(mode).kind)
-            && open_modes::OpenMode::parse(mode).is_none()
-        {
-            return Err(args[1].at.error(format!(
-                "unknown open mode `{mode}`; use one of {}",
-                open_modes::NAMES
-            )));
+        if let Some(mode) = args.get(1) {
+            self.check_open_mode(mode)?;
         }
         let mut loans = Vec::new();
         for arg in args {

@@ -161,6 +161,11 @@ fn std_ceiling_marker_cannot_be_written_by_user_code() {
             "{diagnostic}"
         );
     }
+    let diagnostic = support::check_file_error("def f(mode: &str __open_mode) -> ():\n    pass\n");
+    assert!(
+        diagnostic.contains("`__open_mode` is reserved for standard-library"),
+        "{diagnostic}"
+    );
 }
 
 #[test]

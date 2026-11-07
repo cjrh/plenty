@@ -10,8 +10,8 @@ impl Lower<'_> {
         let signature = self.sigs[&function.name].clone();
         for (index, default) in function.defaults.iter().enumerate() {
             let Some(default) = default else { continue };
-            if let Some(ceiling) = function.inputs[index].1.ceiling() {
-                self.check_ceiling(default, &function.name, &function.inputs[index].0, ceiling)?;
+            if let Some(check) = function.inputs[index].1.static_check() {
+                self.check_static(default, &function.name, &function.inputs[index].0, check)?;
             }
             let ty = &signature.inputs[index].1;
             let ty = if let Ty::Ref(inner, _) = ty {

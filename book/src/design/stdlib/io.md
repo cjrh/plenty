@@ -214,10 +214,16 @@ is no method returning the inner stream; exchange it with
 | `stdout()`, `stderr()` | `Stdout`, `Stderr` | `Writer` |
 | `cursor(data: Bytes)` | `Cursor` | `Reader`, `Writer`, `Seeker` |
 
+`open_file` and `open_path` take the [modes of builtin `open`](../facilities/02-io/files.md),
+with no `b` suffix: a `FileStream` always reads and writes bytes. As with
+`open`, a literal or module-constant mode outside that set is a compile error.
+A mode computed at run time that is invalid is
+`StreamError.Io(IoError.InvalidMode)`, reported before the path is opened.
+
 `open_path` accepts a [`std.path.Path`](path.md) without decoding its bytes.
 It has the same modes, permissions, symlink behavior, and ownership as
 `open_file`. Embedded NUL is `StreamError.Io(IoError.InvalidInput)` rather than
-a truncated filename; an invalid mode is `StreamError.Io(IoError.InvalidMode)`.
+a truncated filename.
 Owner and path allocations are fallible and occur before opening or truncating.
 Use [`std.cli.fileinput`](cli-fileinput.md) for buffered fallible text-line
 iteration across multiple native paths or stdin.

@@ -267,7 +267,7 @@ pub(super) struct Engine {
     pub(super) templates: HashMap<String, Arc<Function>>,
     /// Retained after lowering without keeping complete function bodies alive.
     pub(super) defaults: HashMap<String, Vec<Option<Expr>>>,
-    pub(super) ceilings: HashMap<String, Vec<(String, Option<i64>)>>,
+    pub(super) ceilings: HashMap<String, Vec<(String, Option<StaticCheck>)>>,
     pub(super) constants: HashMap<String, Arc<Function>>,
     pub(super) call_wrappers: HashMap<(String, Vec<usize>), String>,
     /// Conditional Context methods retain their declarations without lowering
@@ -553,12 +553,12 @@ impl Engine {
         if f.name.starts_with("$const.") {
             self.constants.insert(f.name.clone(), Arc::new(f.clone()));
         }
-        if f.inputs.iter().any(|(_, ty)| ty.ceiling().is_some()) {
+        if f.inputs.iter().any(|(_, ty)| ty.static_check().is_some()) {
             self.ceilings.insert(
                 f.name.clone(),
                 f.inputs
                     .iter()
-                    .map(|(n, t)| (n.clone(), t.ceiling()))
+                    .map(|(n, t)| (n.clone(), t.static_check()))
                     .collect(),
             );
         }

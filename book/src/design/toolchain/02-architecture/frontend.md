@@ -170,6 +170,13 @@ HKDF output size, image dimensions, actor heaps and procfs read sizes. Decoded s
 `max_capacity` has no ceiling. General bounded integers and lower bounds above
 one remain [B96](../../../backlog.md).
 
+The same mechanism checks open modes. `__open_mode` after a `str` or `&str`
+parameter or field makes a literal or module-constant argument pass the
+runtime's `OpenMode::parse`, the check builtin `open` applies to its mode.
+`std.io.open_file` and `open_path` use it, so their invalid literal modes are
+compile errors with the builtin's diagnostic. Like `__max`, it is reserved for
+std declarations and hidden from public signatures.
+
 ## Embedding APIs
 
 Source-string checking and compilation accept Plenty source and reject imports.

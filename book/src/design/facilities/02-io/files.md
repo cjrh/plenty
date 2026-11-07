@@ -10,8 +10,15 @@ for reading, equivalent to `open(path, "r")`. Like other builtins, `open`
 takes positional arguments only: `open(path, mode="w")` is rejected. Named
 functions and methods accept named arguments and defaults; see
 [signatures and calls](../../language/06-functions/01-signatures-and-calls.md).
-Pass an explicit mode positionally. Literal modes are checked at
-compile time; computed invalid modes return `IoError.InvalidMode`.
+Pass an explicit mode positionally. Literal and module-constant modes are
+checked at compile time; a mode computed at run time that is invalid returns
+`IoError.InvalidMode` before the path is opened, created or truncated. The
+[`std.io`](../../stdlib/io.md#adapters) wrappers `open_file` and `open_path`
+accept the same modes with the same checks.
+
+Modes take no Python `b` or `t` suffix: `"rb"` is rejected. Choose binary
+access by type instead. `File` reads and writes text; a
+[`std.io.FileStream`](../../stdlib/io.md#adapters) reads and writes bytes.
 
 | Mode | Capabilities | Opening behavior |
 | --- | --- | --- |
