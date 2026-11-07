@@ -299,6 +299,88 @@ fn invalid_substr_views_are_rejected(#[case] source: &str, #[case] expected: &st
     assert!(error.contains(expected), "{source}\n{error}");
 }
 
+/// Owner-reference parameters for the view mismatch cases below.
+const OWNER_PARAMETERS: &str = r#"
+def f(s: &str) -> i64:
+    s.byte_len()
+
+class Holder:
+    n: i64
+
+    def take(self: &Holder, s: &str) -> i64:
+        s.byte_len()
+
+def total(xs: &list[i64]) -> i64:
+    xs[0]
+
+def bump(xs: &mut list[i64]) -> ():
+    xs[0] = 5
+
+s = "hello"
+"#;
+
+/// A view at a `&str` or `&list[T]` parameter names the mismatch and both
+/// remedies, instead of asking for a `?` that the view rejects (issue #802).
+#[rstest]
+#[case(
+    "n = f(&s[1:])",
+    "a &substr view, but the parameter takes &str; declare the parameter `&substr` to borrow it without copying, or pass an owned copy, `s[a:b]?`"
+)]
+#[case("n = f(s=&s[1:3])", "a &substr view, but the parameter takes &str")]
+#[case("i = 1\nn = f(&s[i:len(s)])", "or pass an owned copy, `s[a:b]?`")]
+#[case("n = f(&(s[:2]))", "declare the parameter `&substr`")]
+#[case("n = f(&s[1:]?)", "copy the elements with `xs[a:b]?`")]
+#[case("n = f(&\"abc\"[1:])", "a &substr view")]
+#[case("v = &s[1:]\nn = f(v)", "or pass an owned copy, `v[:]?`")]
+#[case("v = &s[1:]\nn = f(&v)", "or pass an owned copy, `v[:]?`")]
+#[case(
+    "h = Holder(n=1)\nn = h.take(&s[1:])",
+    "a &substr view, but the parameter takes &str"
+)]
+#[case(
+    "xs = [1, 2].unwrap()\nn = total(&xs[1:])",
+    "a &[i64] view, but the parameter takes &list[i64]; declare the parameter `&[i64]` to borrow it without copying, or pass an owned copy, `xs[a:b]?`"
+)]
+#[case(
+    "xs = [1, 2].unwrap()\nv = &xs[1:]\nn = total(v)",
+    "`xs[a:b]?` from the owner"
+)]
+#[case(
+    "mut xs = [1, 2].unwrap()\nbump(&mut xs[1:])",
+    "a &mut [i64] view, but the parameter takes &mut list[i64]; declare the parameter `&mut [i64]` to change the elements in place"
+)]
+fn views_at_owner_reference_parameters_name_the_mismatch(
+    #[case] call: &str,
+    #[case] expected: &str,
+) {
+    let source = format!("{OWNER_PARAMETERS}{call}");
+    let error = support::check_diagnostic(&source);
+    assert!(error.contains(expected), "{source}\n{error}");
+    assert!(!error.contains("use `?`"), "{source}\n{error}");
+}
+
+/// Both remedies the mismatch diagnostic names compile (issue #802).
+#[test]
+fn view_mismatch_remedies_compile() {
+    support::assert_stdout(
+        r#"
+def borrowed(s: &substr) -> i64:
+    s.byte_len()
+
+def owned(s: &str) -> i64:
+    s.byte_len()
+
+def main() -> Result[(), AllocError | IoError]:
+    s = "hello"
+    v = &s[1:]
+    print(borrowed(&s[1:]), borrowed(s=&s[1:3]), borrowed(v), borrowed(&s))?
+    print(owned(s[1:]?), owned(s=s[1:3]?), owned(v[:]?))?
+    Ok(())
+"#,
+        "4 2 4 5\n4 2 4\n",
+    );
+}
+
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn views_add_no_allocations() {

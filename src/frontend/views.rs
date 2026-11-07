@@ -21,7 +21,45 @@ pub(super) const TEXT_OPERATIONS: &str = "a `&substr` supports `len(v)`, `v.byte
 
 pub(super) const RETURN: &str = "a function cannot return a slice view yet (backlog B11): a view borrows its owner only while the caller holds it; return the bounds, or an owned copy `xs[a:b]?`";
 
+/// Advice for a slice view passed where a reference parameter expects its
+/// owner type (issue #802). The view cannot become the reference without a
+/// copy, so name both remedies: a view parameter keeps the borrow, and the
+/// copy, which the parameter lends as a full-expression temporary, does not.
+pub(super) fn view_at_reference(view: &Ty, expected: &Ty, copy: &str) -> String {
+    let remedy = if matches!(view, Ty::View(_, true)) {
+        "to change the elements in place".to_owned()
+    } else {
+        format!("to borrow it without copying, or pass an owned copy, {copy}")
+    };
+    format!(
+        "this argument is a {view} view, but the parameter takes {expected}; declare the parameter `{view}` {remedy}"
+    )
+}
+
 impl Lower<'_> {
+    /// The view type `&base[a:b]` (or `&mut`) borrows, when `base` is an
+    /// owner that [`Self::slice_view`] accepts.
+    pub(super) fn slice_view_type(&self, base: &Expr, mutable: bool) -> Option<Ty> {
+        let owner = match &ungroup(base).kind {
+            Expression::Text(_) if !mutable => Ty::Str,
+            Expression::Bytes(_) if !mutable => Ty::ByteStr,
+            _ => match self.place_type(base).map(classes::unbox)? {
+                Ty::Shared(content) if !mutable => (*content).clone(),
+                owner => owner,
+            },
+        };
+        match owner {
+            Ty::Str if !mutable => Some(text_view()),
+            ref view if *view == text_view() => (!mutable).then(text_view),
+            Ty::List(element) | Ty::View(element, _) => Some(Ty::View(element, mutable)),
+            Ty::ByteStr if !mutable => Some(Ty::View(Arc::new(Ty::U8), false)),
+            ref owner if byte_buffers::byte_buffer(owner).is_some() => {
+                Some(Ty::View(Arc::new(Ty::U8), mutable))
+            }
+            _ => None,
+        }
+    }
+
     /// `&base[start:stop]` or `&mut base[start:stop]` (issue #581): a view of
     /// the selected rows of a named list, `Bytes`, `bytes`, or view, in
     /// place. The view holds a loan of the whole owner, so no row moves
