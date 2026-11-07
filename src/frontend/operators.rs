@@ -178,6 +178,253 @@ pub(super) fn validate(f: &Function, aliases: &TypeAliases) -> Result<()> {
 }
 
 impl Lower<'_> {
+    /// Lowers a left-associated `and`/`or` chain such as `a or b or c` by
+    /// walking its left spine in a loop. Recursing per operand through
+    /// `expr`, `observe` and their callers used about 77 KiB of debug-build
+    /// stack per operand, so 45 operands overflowed a 2 MiB thread (issue
+    /// #841). Each node still runs the checks and emits the ops that lowering
+    /// it on its own would: an inner chain is a `bool` value with no loans.
+    pub(super) fn logical(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
+        let mut spine = Vec::new();
+        let mut node = e;
+        let (mut a, mut loans) = loop {
+            let Expression::Binary(op, left, right) = &node.kind else {
+                unreachable!("logical chains are binary nodes")
+            };
+            if let Some(result) = self.overloaded_binary(op, left, right, &node.at, ops)? {
+                if spine.is_empty() {
+                    return Ok(result);
+                }
+                let ty = result.ok_or_else(|| node.at.error("expected a value, got ()"))?;
+                break (ty, Vec::new());
+            }
+            spine.push(node);
+            match &left.kind {
+                Expression::Binary(inner, ..) if inner == "and" || inner == "or" => node = left,
+                _ => break self.observe(left, ops)?,
+            }
+        };
+        let mut result = None;
+        for node in spine.into_iter().rev() {
+            let Expression::Binary(op, _, right) = &node.kind else {
+                unreachable!("logical chains are binary nodes")
+            };
+            let mut rhs = Vec::new();
+            let (b, right_loans) = self.observe_right(op, &a, right, &mut rhs)?;
+            Self::end_reads(right_loans, &mut rhs);
+            result = self.binary_values(node, (a, b), rhs, std::mem::take(&mut loans), ops)?;
+            a = result
+                .clone()
+                .ok_or_else(|| node.at.error("expected a value, got ()"))?;
+        }
+        Ok(result)
+    }
+
+    /// Observes a binary operator's right operand, given the left's type.
+    pub(super) fn observe_right(
+        &mut self,
+        op: &str,
+        a: &Ty,
+        right: &Expr,
+        rhs: &mut Vec<Op>,
+    ) -> Result<(Ty, Vec<usize>)> {
+        if a.is_numeric() {
+            self.observe_expected(right, Some(a.clone()), rhs)
+        } else if matches!(a, Ty::KeyView(_))
+            && matches!(op, "==" | "!=")
+            && list_display(right).is_none()
+        {
+            self.observe_expected(right, Some(Ty::Set(Arc::new(a.element().unwrap()))), rhs)
+        } else {
+            self.observe(right, rhs)
+        }
+    }
+
+    /// Checks and emits a non-overloaded binary operator over observed
+    /// operands. It is separate from `expr` so the many locals here do not
+    /// enlarge the frame of every recursive `expr` call.
+    #[inline(never)]
+    pub(super) fn binary_values(
+        &mut self,
+        e: &Expr,
+        (a, b): (Ty, Ty),
+        rhs: Vec<Op>,
+        loans: Vec<usize>,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let Expression::Binary(op, left, right) = &e.kind else {
+            unreachable!("binary_values lowers binary nodes")
+        };
+        if matches!(op.as_str(), "==" | "!=")
+            && (matches!(a, Ty::KeyView(_)) || matches!(b, Ty::KeyView(_)))
+        {
+            if !matches!(a, Ty::Set(_) | Ty::KeyView(_))
+                || !matches!(b, Ty::Set(_) | Ty::KeyView(_))
+                || a.element() != b.element()
+            {
+                return Err(e
+                    .at
+                    .error("KeyView equality requires a set or KeyView with the same key type"));
+            }
+            ops.extend(rhs);
+            ops.push(Op::Collection(CollectionOp::key_set_relation(
+                a,
+                b,
+                crate::collection_opcodes::KEY_VIEW_EQUAL,
+            )));
+            Self::end_reads(loans, ops);
+            if op == "!=" {
+                ops.push(Op::Not);
+            }
+            return Ok(Some(Ty::Bool));
+        }
+        if matches!(a, Ty::KeyView(_)) || matches!(b, Ty::KeyView(_)) {
+            return Err(e.at.error(format!("KeyView does not support binary operator `{op}`; use ==/!= for set equality or the set relationship/algebra methods")));
+        }
+        if matches!(a, Ty::View(..)) || matches!(b, Ty::View(..)) {
+            return self.view_equality(op, (a, b), rhs, loans, &e.at, ops);
+        }
+        if a.restricted_storage() {
+            if matches!(a, Ty::Closure(_)) {
+                return Err(e.at.error("closures do not support binary operators"));
+            }
+            return Err(e.at.error("generators do not support binary operators"));
+        }
+        if a.is_numeric() && b.is_numeric() && a != b {
+            return Err(mixed_numeric(left, &a, right, &b));
+        }
+        if op == "*" {
+            match (&a, &b) {
+                (Ty::List(_), other) if other.is_int() => {
+                    return Err(left.at.error(LIST_REPETITION));
+                }
+                (other, Ty::List(_)) if other.is_int() => {
+                    return Err(right.at.error(LIST_REPETITION));
+                }
+                (Ty::Str, other) if other.is_int() => {
+                    return Err(left.at.error(STR_REPETITION));
+                }
+                (other, Ty::Str) if other.is_int() => {
+                    return Err(right.at.error(STR_REPETITION));
+                }
+                _ => {}
+            }
+        }
+        self.same(Some(b.clone()), Some(a.clone()), &e.at)?;
+        if matches!(op.as_str(), "==" | "!=") && a.facts().closure {
+            return Err(e
+                .at
+                .error("values containing closures do not support equality"));
+        }
+        if matches!(op.as_str(), "==" | "!=") && a.facts().concurrent_handle {
+            return Err(e
+                .at
+                .error("values containing channel endpoints, executors, or futures do not support equality"));
+        }
+        if matches!(op.as_str(), "==" | "!=") && a.facts().shared {
+            return Err(e.at.error(shared::EQUALITY));
+        }
+        if matches!(op.as_str(), "==" | "!=") && a.facts().atomic {
+            if mutex::holds_mutex(&a) {
+                return Err(e.at.error(
+                    "values containing mutexes do not support equality; compare values read inside `with mutex.lock() as value:`",
+                ));
+            }
+            return Err(e.at.error(
+                "values containing atomics do not support equality; compare values read with load()",
+            ));
+        }
+        if matches!(op.as_str(), "==" | "!=") && a.recursive_data() {
+            return Err(e.at.error(
+                "automatic equality is not supported for recursive data; compare fields explicitly",
+            ));
+        }
+        Ok(if op == "and" || op == "or" {
+            self.same(Some(a.clone()), Some(Ty::Bool), &e.at)?;
+            let constant = vec![Op::PushBool(op == "or")];
+            let (yes, no) = if op == "and" {
+                (rhs, constant)
+            } else {
+                (constant, rhs)
+            };
+            ops.push(branch(yes, no));
+            Self::end_reads(loans, ops);
+            Some(Ty::Bool)
+        } else {
+            if !a.is_numeric()
+                && !(matches!(op.as_str(), "==" | "!=")
+                    || (a == Ty::Str && op == "+")
+                    || (a.is_orderable() && is_comparison(op)))
+            {
+                return Err(self.value_demand_error(
+                    &e.at,
+                    e,
+                    format!(
+                        "operator `{op}` does not accept {}{}",
+                        type_name(Some(a.clone())),
+                        operators::newtype_hint(&a)
+                    ),
+                    crate::ownership::Demand::Operator(op.clone(), a.clone()),
+                    false,
+                ));
+            }
+            if op == "/" && !a.is_float() {
+                return Err(e
+                    .at
+                    .error("use `//` for integer division; `/` requires floats"));
+            }
+            if matches!(op.as_str(), "//" | "%") && a.is_float() {
+                return Err(e
+                    .at
+                    .error("floor division and modulo currently require integers"));
+            }
+            ops.extend(rhs);
+            if let Some(kind) = IntegerOp::binary(op) {
+                if !a.is_int() {
+                    return Err(e.at.error("bitwise operations require integers"));
+                }
+                self.push_trapping(Op::Integer(kind), &a, ops);
+                Self::end_reads(loans, ops);
+                return Ok(Some(a));
+            }
+            if op == "+" && a == Ty::Str {
+                ops.push(Op::Collection(CollectionOp::TextTryConcat));
+                Self::end_reads(loans, ops);
+                return Ok(Some(crate::sum::result(Ty::Str, crate::sum::alloc_error())));
+            }
+            self.mark_arithmetic(op, &a, &e.at, ops);
+            if a.is_int()
+                && let Some(operation) = crate::numeric::Checked::named(op)
+                && self.checked_arith(operation, &a, &e.at, ops)?
+            {
+                Self::end_reads(loans, ops);
+                return Ok(Some(a));
+            }
+            let operation = match op.as_str() {
+                "+" => Op::Add,
+                "-" => Op::Sub,
+                "*" => Op::Mul,
+                "/" => Op::Div,
+                "//" => Op::FloorDiv(crate::numeric::Divisor::Any),
+                "%" => Op::Modulo(crate::numeric::Divisor::Any),
+                "==" => Op::Eq,
+                "!=" => Op::Ne,
+                "<" => Op::Lt,
+                ">" => Op::Gt,
+                "<=" => Op::Le,
+                ">=" => Op::Ge,
+                _ => unreachable!(),
+            };
+            self.push_trapping(operation, &a, ops);
+            Self::end_reads(loans, ops);
+            if is_comparison(op) {
+                Some(Ty::Bool)
+            } else {
+                Some(a.clone())
+            }
+        })
+    }
+
     // Hints avoid materializing operands solely for dispatch. An unknown result
     // is evaluated once and lent below; hints never decide whether code is legal.
     pub(super) fn operator_hint(&self, e: &Expr) -> Type {
@@ -235,6 +482,9 @@ impl Lower<'_> {
                     Some(ty)
                 }
             }
+            // Always `bool` when legal; not recursing keeps hints for long
+            // chains constant-time and shallow (issue #841).
+            Expression::Binary(op, ..) if op == "and" || op == "or" => Some(Ty::Bool),
             Expression::Binary(op, left, right) => {
                 let a = self.operator_hint(left)?;
                 let b = self.operator_hint(right)?;
@@ -247,7 +497,7 @@ impl Lower<'_> {
                         }
                     }
                 }
-                if is_comparison(op) || matches!(op.as_str(), "and" | "or" | "in" | "not in") {
+                if is_comparison(op) || matches!(op.as_str(), "in" | "not in") {
                     Some(Ty::Bool)
                 } else if a == Ty::Str && b == Ty::Str && op == "+" {
                     Some(crate::sum::result(Ty::Str, crate::sum::alloc_error()))
