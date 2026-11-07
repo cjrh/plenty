@@ -60,7 +60,7 @@ pub class Limits:
     pub max_output: NonNegative[i64]
 
 pub def limits() -> Limits:
-    Limits(1048576, 16384, 16384, 128, 65536, 16777216, 64, 1000000, 16777216)
+    Limits(1048576, 16384, 32768, 128, 65536, 16777216, 64, 1000000, 16777216)
 
 def allocated[T](value: Result[T, AllocError]) -> Result[T, TemplateError]:
     match value:

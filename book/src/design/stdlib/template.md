@@ -323,7 +323,7 @@ is currently a proposal, not an implemented conversion.
 | --- | --- | ---: | --- |
 | `max_source` | `NonNegative[i64]` | 1,048,576 | Total UTF-8 bytes of registered names and sources |
 | `max_tokens` | `NonNegative[i64]` | 16,384 | Total compiled tokens across templates |
-| `max_expression_nodes` | `NonNegative[i64]` | 16,384 | Total expression AST nodes across registered templates |
+| `max_expression_nodes` | `NonNegative[i64]` | 32,768 | Total expression AST nodes across registered templates |
 | `max_templates` | `NonNegative[i64]` | 128 | Registered template count |
 | `max_context_nodes` | `Positive[i64]` | 65,536 | Values in a render context, including its root |
 | `max_context_bytes` | `NonNegative[i64]` | 16,777,216 | UTF-8 bytes of context keys and text values |
@@ -341,7 +341,11 @@ quota or wall-clock deadline. Budget totals remain exact: an unrepresentable
 source, token, expression-node, context-byte or work total returns `TemplateError.LimitExceeded`,
 without wrapping or saturating. Registration commits its totals only after the
 compiled template is appended successfully. Expression nodes have their own aggregate
-cap; adding an operator does not change the meaning of `max_tokens`. Parser
+cap; adding an operator does not change the meaning of `max_tokens`. Its default
+is twice the default token cap to preserve the full legacy capacity of 16,384 adjacent
+negated placeholders: each now needs a value node and a `not` node. Custom token
+and expression-node limits remain independent; raising one does not raise the
+other. Parser
 recursion and expression-tree depth are bounded by `max_depth`, while render
 steps charge only evaluated nodes and filters. Registration failures, including
 allocation failures, consume none of the engine's node budget. Text filters may

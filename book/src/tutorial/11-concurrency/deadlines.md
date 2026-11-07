@@ -39,13 +39,15 @@ True
 0
 ```
 
-`recv_before` checks caller cancellation between bounded waits and shares
-one deadline. The loop makes four waits against one 20-millisecond budget instead of
+`recv_before` shares one deadline and checks the token about every 10 ms,
+so another thread's `cancel.cancel()` ends the wait with
+`WaitError.Cancelled`. Prefer it to `recv_timeout_ms` in any loop that must
+stop on request: a stop request cannot end a millisecond wait early. The loop makes four waits against one 20-millisecond budget instead of
 granting each wait its own. `remaining` takes the current instant and returns
 zero once the deadline has passed. A zero budget still receives a message that
 is already queued, so the three sent values always arrive.
 
-`as_timeout_ms()` is available for the low-level `_timeout_ms` methods.
+`as_timeout_ms()` is for the low-level `_timeout_ms` methods.
 It converts a span to the `u64` milliseconds that
 [timed waits](channel-timeouts.md) accept. It rounds up: a wait never returns
 before its deadline, and a remainder below a millisecond does not turn the loop
