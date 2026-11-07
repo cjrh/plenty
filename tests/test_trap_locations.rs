@@ -768,7 +768,9 @@ fn generic_helper_sites_survive_cold_warm_and_disabled_function_caches(#[case] o
 /// in the std trap records instead of setting the caller context around each
 /// call. Each site keeps its own note, including two calls of one method in
 /// one function and a call in an imported module. The loop pushes, so it keeps
-/// the method calls rather than caching the buffer (issue #843).
+/// the method calls rather than caching the buffer (issue #843). `trap` also
+/// runs an unoptimized build, which inlines nothing and so checks only the
+/// unchanged caller-scope path.
 #[rstest]
 #[case::first_get([9, 1, 0, 0], "48:13: Bytes.get", "numbers.plenty:5:17")]
 #[case::second_get([0, 9, 0, 0], "48:13: Bytes.get", "numbers.plenty:6:25")]

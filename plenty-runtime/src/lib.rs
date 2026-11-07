@@ -200,9 +200,11 @@ fn fail_kind_at(kind: actor_heap::TrapKind, site: *const Site, message: std::fmt
     let caller = unsafe { site.as_ref() }.and_then(|at| match at.caller {
         0 => None,
         1 => caller(),
-        distance => Some(Position(unsafe {
-            site.byte_offset(distance as i32 as isize)
-        })),
+        distance => {
+            let distance = distance as i32;
+            debug_assert_eq!(distance % 16, 0, "site caller distance {distance}");
+            Some(Position(site.wrapping_byte_offset(distance as isize)))
+        }
     });
     if let Some(caller) = caller {
         eprintln!("note: called from {caller}");

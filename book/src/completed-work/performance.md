@@ -82,9 +82,9 @@ calls.
 
 ### Caller sites in inlined byte access (issue #842)
 
-A user function that inlines `Bytes.get`, `Bytes.set`, `Bytes.len` or
-`Bytes.push`, in optimized builds or as a leaf call in any build, no longer saves and restores the thread-local caller around each
-call. The inlined trap records name the user call site themselves; see
+In optimized builds (the default), a user function that inlines `Bytes.get`,
+`Bytes.set`, `Bytes.len` or `Bytes.push` no longer saves and restores the
+thread-local caller around each call. The inlined trap records name the user call site themselves; see
 [trap sites](../design/toolchain/02-architecture/runtime.md#trap-sites).
 Trap messages and caller notes are unchanged. A loop that pushes to its buffer,
 and so keeps the method calls, fell from 68 to 45 instructions per byte, with

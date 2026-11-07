@@ -496,38 +496,35 @@ pub(super) fn names_caller_in_sites(body: &[Op], sig: &FnSig, locals: &[Ty]) -> 
         return false;
     }
     let mut eligible = true;
-    let mut pending = vec![body];
-    while let Some(ops) = pending.pop() {
-        for (index, op) in ops.iter().enumerate() {
-            eligible &= match op {
-                // A discarded byte primitive result, such as `Bytes.set`'s
-                // unit; the stack value's type is otherwise unknown here.
-                Op::Drop => matches!(
-                    ops[..index].iter().rev().find(|op| !matches!(
-                        op,
-                        Op::Site(_) | Op::UseLoan(_) | Op::EndLoan(_)
-                    )),
-                    Some(Op::Collection(C::Bytes(primitive)))
-                        if !primitive.signature().1.release_runs_code()
-                ),
-                _ => primitive_reads_no_caller(op),
-            };
-            match op {
-                Op::Match(arms) => pending.extend(arms.iter().map(|arm| arm.body.as_ref())),
-                Op::If {
-                    then,
-                    elifs,
-                    otherwise,
-                } => {
-                    pending.extend([then.as_ref(), otherwise.as_ref()]);
-                    for arm in elifs.iter() {
-                        pending.extend([arm.condition.as_ref(), arm.body.as_ref()]);
-                    }
-                }
-                _ => {}
-            }
+    // The last op before the current one in the same slice that is not a
+    // marker. `walk_body` visits each slice in order and its nested bodies
+    // later, so a visited op that does not follow the previous one in memory
+    // starts another slice.
+    let mut previous: Option<&Op> = None;
+    let mut produced: Option<&Op> = None;
+    walk_body(body, &mut |op| {
+        if !previous
+            .is_some_and(|previous| std::ptr::eq(std::ptr::from_ref(previous).wrapping_add(1), op))
+        {
+            produced = None;
         }
-    }
+        previous = Some(op);
+        eligible &= match op {
+            // A discarded byte primitive result, such as `Bytes.set`'s
+            // unit; the stack value's type is otherwise unknown here.
+            Op::Drop => matches!(
+                produced,
+                Some(Op::Collection(C::Bytes(primitive)))
+                    if !primitive.signature().1.release_runs_code()
+            ),
+            // `walk_body` also enters loop, try and checked bodies; the
+            // whitelist rejects those ops themselves.
+            _ => primitive_reads_no_caller(op),
+        };
+        if !matches!(op, Op::Site(_) | Op::UseLoan(_) | Op::EndLoan(_)) {
+            produced = Some(op);
+        }
+    });
     eligible
 }
 
