@@ -184,8 +184,36 @@ pub(super) fn known_integer(
     constants: &HashMap<String, Arc<Function>>,
     aliases: &TypeAliases,
 ) -> Option<i128> {
-    // Most std calls forward a local domain value. It is dynamic, and needs
-    // neither a constants table nor speculative evaluation.
+    match known(e, &Ty::I64, constants, aliases)? {
+        Value::Int(n, _) => Some(n),
+        _ => None,
+    }
+}
+
+/// A literal or module-constant string, for open-mode diagnostics. Other
+/// strings are checked when the runtime receives them.
+pub(super) fn known_text(
+    e: &Expr,
+    constants: &HashMap<String, Arc<Function>>,
+    aliases: &TypeAliases,
+) -> Option<String> {
+    if let Expression::Text(text) = &ungroup(e).kind {
+        return Some(text.clone());
+    }
+    match known(e, &Ty::Str, constants, aliases)? {
+        Value::Str(text) => Some(text.to_string()),
+        _ => None,
+    }
+}
+
+fn known(
+    e: &Expr,
+    expected: &Ty,
+    constants: &HashMap<String, Arc<Function>>,
+    aliases: &TypeAliases,
+) -> Option<Value> {
+    // Most std calls forward a local value. It is dynamic, and needs neither
+    // a constants table nor speculative evaluation.
     if matches!(ungroup(e).kind, Expression::Name(_)) {
         return None;
     }
@@ -202,15 +230,11 @@ pub(super) fn known_integer(
         unselected: 0,
         domain_arguments: true,
     };
-    let value = match folder.domain_read(e) {
+    match folder.domain_read(e) {
         Some(f) => folder.constant(f),
-        None => folder.eval(e, Some(&Ty::I64)),
+        None => folder.eval(e, Some(expected)),
     }
-    .ok()?;
-    match value {
-        Value::Int(n, _) => Some(n),
-        _ => None,
-    }
+    .ok()
 }
 
 fn is_assert(f: &Function) -> bool {

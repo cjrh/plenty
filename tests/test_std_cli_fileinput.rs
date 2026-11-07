@@ -151,7 +151,9 @@ fn native_paths_symlinks_and_open_path_modes() {
     io.write_all(&mut file, b"safe").unwrap()
     file.close()?
     print(io.open_path(&path, "x").is_err())?
-    print(io.open_path(&path, "bad").is_err())?
+    # A local's value reaches the runtime check, not the compiler's.
+    mode = "bad"
+    print(io.open_path(&path, mode).is_err())?
     bad = paths.from_bytes([109u8, 111u8, 100u8, 101u8, 115u8, 0u8, 120u8]?)
     print(io.open_path(&bad, "w").is_err())?
     print(read_text("modes")?)?"#,
