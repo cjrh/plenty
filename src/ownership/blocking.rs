@@ -89,7 +89,7 @@ pub(super) fn blocks(op: &Op) -> bool {
         | Op::Site { .. }
         | Op::CallerSite { .. }
         | Op::Returning { .. }
-        | Op::Leaving { .. }
+        | Op::Leaving
         | Op::Building { .. }
         | Op::Passes { .. }
         | Op::Forwards { .. }
@@ -104,7 +104,7 @@ pub(super) fn blocks(op: &Op) -> bool {
         | Op::Box { .. }
         | Op::Split { .. }
         | Op::SplitClass { .. }
-        | Op::Unreachable { .. }
+        | Op::Unreachable
         | Op::Numeric { .. }
         | Op::CheckedBlock { .. }
         | Op::CheckedFunction { .. }
@@ -114,37 +114,37 @@ pub(super) fn blocks(op: &Op) -> bool {
         | Op::If { .. }
         | Op::PushInt { .. }
         | Op::PushFloat { .. }
-        | Op::PushUnit { .. }
+        | Op::PushUnit
         | Op::PipelineToken { .. }
-        | Op::FloatNeg { .. }
+        | Op::FloatNeg
         | Op::PushStr { .. }
         | Op::PushBytes { .. }
         | Op::PushBool { .. }
-        | Op::Add { .. }
-        | Op::Sub { .. }
-        | Op::Mul { .. }
-        | Op::Div { .. }
+        | Op::Add
+        | Op::Sub
+        | Op::Mul
+        | Op::Div
         | Op::FloorDiv { .. }
         | Op::Modulo { .. }
         | Op::Integer { .. }
-        | Op::Eq { .. }
-        | Op::Lt { .. }
-        | Op::Gt { .. }
-        | Op::Not { .. }
-        | Op::Ne { .. }
-        | Op::Le { .. }
-        | Op::Ge { .. }
-        | Op::Drop { .. }
-        | Op::Dup { .. }
-        | Op::Swap { .. }
+        | Op::Eq
+        | Op::Lt
+        | Op::Gt
+        | Op::Not
+        | Op::Ne
+        | Op::Le
+        | Op::Ge
+        | Op::Drop
+        | Op::Dup
+        | Op::Swap
         | Op::DefineFn { .. }
         | Op::Call { .. }
         | Op::ForeignNull { .. }
         | Op::TailCall { .. }
-        | Op::ForwardsReferences { .. }
-        | Op::Return { .. }
-        | Op::Break { .. }
-        | Op::Continue { .. }
+        | Op::ForwardsReferences
+        | Op::Return
+        | Op::Break
+        | Op::Continue
         | Op::LoadLocal { .. }
         | Op::StoreLocal { .. }
         | Op::Match { .. }
@@ -153,7 +153,7 @@ pub(super) fn blocks(op: &Op) -> bool {
         | Op::TryCast { .. }
         | Op::RangeLength { .. }
         | Op::RangeParts { .. }
-        | Op::Contains { .. } => false,
+        | Op::Contains => false,
     }
 }
 
