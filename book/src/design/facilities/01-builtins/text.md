@@ -144,6 +144,8 @@ in every case; measure when the cost matters.
 
 ### Bindings and slices
 
+<div class="text-bindings-table">
+
 | Expression | Type of `x` | Ownership and storage |
 | --- | --- | --- |
 | `x = s` | `str` | Another owning value; no text-buffer copy or allocation. Both names remain usable. |
@@ -154,6 +156,8 @@ in every case; measure when the cost matters.
 | `x = &s[a:b]` | `&substr` | Borrows the selected run in place, without a text copy, retain, or allocation. Finding scalar bounds may scan the text. |
 | `x: str = s[a:b]` | Rejected | The slice returns **R**, not `str`. Use `?` or match the result. |
 | `x = &mut s[a:b]` | Rejected | String contents are immutable; there is no mutable substring view. Use a shared view or construct changed text. |
+
+</div>
 
 `?` handles a result; it does not request the allocation. Both copying-slice
 forms above evaluate the same operation. Successful slices of at most seven
