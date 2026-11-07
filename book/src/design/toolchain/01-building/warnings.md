@@ -1,7 +1,6 @@
 # Warnings
 
-A warning reports code the checker accepts but that has a simpler correct
-form. Warnings never reject a program and never change an exit status.
+A warning reports accepted code that may warrant a change. Warnings never reject a program and never change an exit status.
 
 Checking reports them: `plenty --check`, `plenty --check-module`,
 `plenty check`, and the [language server](language-server.md). Compiling and
@@ -17,23 +16,27 @@ main.plenty:3:14: warning: `copy(original)?` is redundant: `str` copies on assig
 
 The bracketed name is the lint's stable identifier. The language server
 publishes the same text with warning severity and the name as the diagnostic
-code. A check that fails reports only its errors.
+code. A command-line check that fails reports only its errors. Editor checks
+can retain warnings established independently of an error elsewhere.
 
-There is no option to disable a warning or silence one site. Every warning has
-a replacement that keeps the program's behavior; apply it.
+There is no option to disable a warning or silence one site. A warning is advice:
+review its suggestion before changing the program, especially when an import
+intentionally keeps a module in checking.
 
-`std` code and the bodies of generic functions and generic class or enum
-methods report no warnings: a generic body is checked per instance, and code
-that is redundant for one type argument can be needed for another.
+`std` code reports no warnings. The `redundant-copy` lint also excludes
+the bodies of generic functions and generic class or enum methods: a generic
+body is checked per instance, and code that is redundant for one type argument
+can be needed for another.
 
-Only top-level function bodies are checked today. Class and enum method
-bodies, including `copy(self)?`, and anonymous function bodies report no
+For `redundant-copy`, only top-level function bodies are checked today. Class
+and enum method bodies, including `copy(self)?`, and anonymous function bodies report no
 warnings, even when they are not generic (issue #846).
 
 ## Lints
 
 | Name | Reports |
 |---|---|
+| `unused-import` | An explicit import binding has no resolved use in its module |
 | `redundant-copy` | `copy(x)?` or `copy(&x)?` when the type of `x` already copies |
 
 ### `redundant-copy`
@@ -85,3 +88,25 @@ hello hello
 
 Removing a `copy(...)?` can leave a function's `AllocError` unused. The
 function still checks; narrow its declared error type if nothing else needs it.
+
+### `unused-import`
+
+Each explicit import binding is checked in its defining module, independently
+of whether an executable calls that module's declarations. Uses in signatures,
+type aliases, class and enum declarations, methods, closures, patterns and generic
+bodies count. Aliases are tracked by the binding actually resolved; a local
+variable with the same spelling does not use the import. Compiler-inserted
+imports and standard-library sources report no import warnings.
+
+Only the selected `if const` branches participate. An import used only on another
+target can therefore warn on this target; put both the import and its uses under
+the corresponding target condition when appropriate. Package checking checks each
+library and executable target's import graph; tests use their own checked graph.
+A warning about one target does not mean that another target's import is unused.
+
+The warning points to the imported name or alias and uses the stable identifier
+`unused-import`. It neither removes an import nor stops loading its module.
+Imports also determine validation coverage: retain an unused import when it
+intentionally includes a module in checking. Removing that import can make the
+module unreachable from all package targets; `plenty check` then reports the
+unimported source separately. No automatic removal is offered.

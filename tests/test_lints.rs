@@ -323,3 +323,74 @@ fn checking_prints_warnings_and_succeeds_but_running_does_not_print_them() {
     assert_eq!(ran.stdout, b"hi\n");
     assert!(ran.stderr.is_empty());
 }
+
+fn unused_import(binding: &str) -> String {
+    format!(
+        "import binding `{binding}` is unused; remove it unless the import intentionally includes the module in checking [unused-import]"
+    )
+}
+
+#[test]
+fn unused_imports_report_each_binding_at_its_name() {
+    let warnings = check_warnings(
+        "import std.math as m\nfrom std.bytes import Bytes as B, BytesError\ndef main() -> ():\n    pass\n",
+    );
+    assert_eq!(warnings.len(), 3, "{warnings:?}");
+    for (warning, prefix, binding) in [
+        (&warnings[0], "1:20: warning: ", "m"),
+        (&warnings[1], "2:32: warning: ", "B"),
+        (&warnings[2], "2:35: warning: ", "BytesError"),
+    ] {
+        assert_eq!(warning, &format!("{prefix}{}", unused_import(binding)));
+    }
+}
+
+#[test]
+fn imported_types_and_uninstantiated_generic_bodies_count_as_uses() {
+    assert!(
+        messages(
+            r#"
+from std.bytes import Bytes as B, BytesError
+from std.sync import Mutex
+import std.math as m
+class Buffer:
+    value: B
+
+def unused_generic[T](value: T, bytes: &B, mutex: &Mutex[i64]) -> Result[i64, BytesError]:
+    Ok(m.min(1, 2))
+
+def main() -> ():
+    pass
+"#
+        )
+        .is_empty()
+    );
+}
+
+#[test]
+fn local_shadowing_does_not_count_as_using_an_import() {
+    assert_eq!(
+        messages("import std.math as m\ndef main() -> ():\n    m = 2\n    drop(m)\n"),
+        [unused_import("m")]
+    );
+}
+
+#[test]
+fn only_selected_target_imports_and_uses_are_linted() {
+    assert!(messages("if const target.pointer_width == 64:\n    import std.math as m\nelse:\n    import nonexistent\ndef main() -> ():\n    if const target.pointer_width == 64:\n        drop(m.min(1, 2))\n").is_empty());
+}
+
+#[test]
+fn aliases_of_the_same_symbol_and_namespaces_are_tracked_independently() {
+    assert_eq!(
+        messages(
+            "from std.math import min as first, min as second\nimport std.math as m\ndef main() -> ():\n    drop(first(1, 2))\n"
+        ),
+        [unused_import("second"), unused_import("m")]
+    );
+}
+
+#[test]
+fn builtin_type_reimports_count_type_uses() {
+    assert!(messages("from std.channel import Sender\ndef unused(sender: Sender[i64]) -> ():\n    drop(sender)\ndef main() -> ():\n    pass\n").is_empty());
+}

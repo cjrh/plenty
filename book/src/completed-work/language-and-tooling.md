@@ -758,6 +758,13 @@ Compile-time constants/static assertions, embedded data and `if const target.*`
 shipped (local PR #628). Module constant indexing and import/module diagnostics
 were improved (issues #562/#568/#587).
 
+Import-binding warnings use the existing CLI/LSP warning channel (issue #818).
+Resolution counts uses in all declarations, including type positions and generic
+bodies, independently of executable reachability. Package targets keep their
+own import scopes, and an unused binding still loads and checks its module.
+The [warning contract](../design/toolchain/01-building/warnings.md#unused-import)
+explains intentional validation imports and target-conditional scope.
+
 The local [semantic-search trial](../development/semantic-search.md) has
 repository extraction, incremental synchronization/deletion detection and hybrid
 queries in Plenty; a pinned Python/FastEmbed subprocess performs inference.
