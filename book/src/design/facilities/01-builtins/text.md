@@ -23,6 +23,9 @@ including every single character and the empty string, also require no heap
 allocation. Longer constructed results use fallible storage. This threshold does
 not change the public type or the result type of an operation.
 
+For ownership, assignment costs, mutation, and views across languages, see
+[Plenty Text Compared to Python, Rust, and C](text-compared.md).
+
 ## Escapes
 
 String literals and f-string text accept the escapes `\0`, `\n`, `\r`, `\t`,

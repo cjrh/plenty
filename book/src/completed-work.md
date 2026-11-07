@@ -36,6 +36,13 @@ for every reachable field path, union alternative, loop and effective composed
 layout. Runtime JSON rendering stays available; validation makes no compile-time
 claim. See the [library delivery record](completed-work/libraries.md#declared-template-context-shapes).
 
+## Text ownership comparison
+
+The reference now compares [Plenty text with Python, Rust, and C](design/facilities/01-builtins/text-compared.md),
+including assignment costs, immutable storage, mutable construction, borrowed
+views, and Unicode indexing. The comparison tables use a wider screen layout
+and independently scroll on narrow screens. This documents existing behavior.
+
 ## Reconciliation history
 
 The backlog's full reconciliation on 2026-10-22 covered local `main` and merged

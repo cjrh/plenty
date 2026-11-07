@@ -338,6 +338,7 @@
             - [Shared owners](design/facilities/01-builtins/shared.md)
             - [Formatting values](design/facilities/01-builtins/formatting.md)
             - [Text](design/facilities/01-builtins/text.md)
+            - [Plenty Text Compared to Python, Rust, and C](design/facilities/01-builtins/text-compared.md)
             - [Text search](design/facilities/01-builtins/text-search.md)
             - [Building text](design/facilities/01-builtins/text-building.md)
             - [Splitting text](design/facilities/01-builtins/text-splitting.md)
