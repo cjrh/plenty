@@ -1,4 +1,6 @@
 # A deliberately bounded Jinja-style language, not an evaluator for Plenty.
+# Strict HTML grammar terminology follows WHATWG HTML syntax (independent code):
+# https://html.spec.whatwg.org/multipage/syntax.html
 import std.bytes
 import std.math
 from std.bytes import Bytes, BytesError
@@ -17,6 +19,7 @@ pub enum TemplateError:
     SchemaOptional(str, i64, str)
     SchemaType(str, i64)
     ContextShape(str)
+    InvalidHtml(str, i64)
     Allocation(AllocError)
     Bytes(BytesError)
 
@@ -652,6 +655,7 @@ class State:
     steps: i64
     output: Bytes
     html: bool
+    strict: Option[HtmlState]
 
 def step(state: &mut State, bounds: &Limits) -> Result[(), TemplateError]:
     if state.steps >= bounds.max_steps.get():
@@ -914,7 +918,7 @@ def append(state: &mut State, text: &str, bounds: &Limits) -> Result[(), Templat
     encoded = allocated(std.bytes.from_text(text))?
     allocated(state.output.extend(&encoded))
 
-def emit(state: &mut State, value: &Value, bounds: &Limits) -> Result[(), TemplateError]:
+def emit(state: &mut State, value: &Value, bounds: &Limits, name: &str, at: i64) -> Result[(), TemplateError]:
     mut text = ""
     if value.kind == 1:
         text = "true" if value.integer != 0 else "false"
@@ -926,13 +930,28 @@ def emit(state: &mut State, value: &Value, bounds: &Limits) -> Result[(), Templa
         text = value.text
     elif value.kind != 0:
         return Err(TemplateError.TypeMismatch)
-    context: Option[HtmlContext] = match value.emission:
+    mut context: Option[HtmlContext] = match value.emission:
         case Emission.Default:
             Some(HtmlContext.TextAndAttributes) if state.html else Nothing
         case Emission.Trusted:
             Nothing
         case Emission.Escape(context):
             Some(context)
+    match &mut state.strict:
+        case Some(html):
+            inferred = html_context(html, name, at)?
+            match value.emission:
+                case Emission.Trusted:
+                    return Err(TemplateError.InvalidHtml(*name, at))
+                case Emission.Escape(selected):
+                    if selected != inferred:
+                        return Err(TemplateError.InvalidHtml(*name, at))
+                case Emission.Default:
+                    pass
+            context = Some(inferred)
+            html.start = False
+        case Nothing:
+            pass
     match context:
         case Nothing:
             pass
@@ -1190,6 +1209,290 @@ def shape_match(schema: i64, actual: i64, path: str, shapes: &SchemaState, state
                         pass
     Ok(Nothing)
 
+# A conservative streaming recognizer, not the HTML5 tree-construction algorithm.
+# Token offsets and the scalar's UTF-8 byte width retain original diagnostics.
+class HtmlState:
+    mode: i64
+    tag: str
+    attribute: str
+    closing: bool
+    attributes: list[str]
+    stack: list[str]
+    start: bool
+    source: str
+    offset: i64
+
+class HtmlCheck:
+    html: HtmlState
+    active: list[i64]
+    steps: i64
+
+def html_state() -> Result[HtmlState, TemplateError]:
+    Ok(HtmlState(0, "", "", False, allocated(list[str]())?, allocated(list[str]())?, True, "", 0))
+
+def html_space(text: &str) -> bool:
+    text in " \t\n\r\u{c}"
+
+def html_letter(text: &str) -> bool:
+    text in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+def html_name(text: &str) -> bool:
+    html_letter(text) or text in "0123456789-_"
+
+def html_tag(name: &str) -> bool:
+    # Unknown/custom, foreign, scripting, raw-text and parser-special elements
+    # are excluded. title is the only supported escapable raw-text element.
+    if name == "a" or name == "abbr" or name == "address" or name == "article" or name == "aside" or name == "audio" or name == "b" or name == "bdi":
+        return True
+    if name == "bdo" or name == "blockquote" or name == "body" or name == "br" or name == "button" or name == "caption" or name == "cite" or name == "code":
+        return True
+    if name == "col" or name == "colgroup" or name == "data" or name == "datalist" or name == "dd" or name == "del" or name == "details" or name == "dfn":
+        return True
+    if name == "dialog" or name == "div" or name == "dl" or name == "dt" or name == "em" or name == "fieldset" or name == "figcaption" or name == "figure":
+        return True
+    if name == "footer" or name == "form" or name == "h1" or name == "h2" or name == "h3" or name == "h4" or name == "h5" or name == "h6":
+        return True
+    if name == "head" or name == "header" or name == "hgroup" or name == "hr" or name == "html" or name == "i" or name == "img" or name == "input":
+        return True
+    if name == "ins" or name == "kbd" or name == "label" or name == "legend" or name == "li" or name == "link" or name == "main" or name == "map":
+        return True
+    if name == "mark" or name == "menu" or name == "meta" or name == "meter" or name == "nav" or name == "ol" or name == "optgroup" or name == "option":
+        return True
+    if name == "output" or name == "p" or name == "picture" or name == "pre" or name == "progress" or name == "q" or name == "rp" or name == "rt":
+        return True
+    if name == "ruby" or name == "s" or name == "samp" or name == "search" or name == "section" or name == "select" or name == "slot" or name == "small":
+        return True
+    if name == "source" or name == "span" or name == "strong" or name == "sub" or name == "summary" or name == "sup" or name == "table" or name == "tbody":
+        return True
+    if name == "td" or name == "tfoot" or name == "th" or name == "thead" or name == "time" or name == "title" or name == "tr" or name == "track":
+        return True
+    if name == "u" or name == "ul" or name == "var" or name == "video" or name == "wbr":
+        return True
+    False
+
+def html_void(name: &str) -> bool:
+    name == "br" or name == "col" or name == "hr" or name == "img" or name == "input" or name == "link" or name == "meta" or name == "source" or name == "track" or name == "wbr"
+
+def html_attribute(name: &str) -> bool:
+    # URL attributes are allowed only as trusted literal source. The emitter
+    # separately rejects interpolation there; no URL policy is inferred.
+    if name.startswith("data-") or name.startswith("aria-"):
+        return len(name) > 5
+    if name == "id" or name == "class" or name == "title" or name == "role" or name == "lang" or name == "dir" or name == "name" or name == "value":
+        return True
+    if name == "type" or name == "placeholder" or name == "alt" or name == "for" or name == "tabindex" or name == "width" or name == "height" or name == "disabled":
+        return True
+    if name == "checked" or name == "selected" or name == "multiple" or name == "required" or name == "readonly" or name == "hidden" or name == "open" or name == "method":
+        return True
+    if name == "enctype" or name == "autocomplete" or name == "min" or name == "max" or name == "step" or name == "rows" or name == "cols" or name == "colspan":
+        return True
+    if name == "rowspan" or name == "scope" or name == "datetime" or name == "rel" or name == "target" or name == "media" or name == "href" or name == "src":
+        return True
+    if name == "action" or name == "formaction" or name == "poster" or name == "cite" or name == "srcset":
+        return True
+    False
+
+def html_url(name: &str) -> bool:
+    name == "href" or name == "src" or name == "action" or name == "formaction" or name == "poster" or name == "cite" or name == "srcset"
+
+def html_piece(current: &str, text: &str) -> Result[str, TemplateError]:
+    if current.byte_len() >= 64:
+        return Err(TemplateError.LimitExceeded)
+    allocated(*current + allocated(text.lower())?)
+
+def html_finish(html: &mut HtmlState, name: &str, at: i64, bounds: &Limits) -> Result[(), TemplateError]:
+    if html.closing:
+        if len(html.stack) == 0 or html.stack[-1] != html.tag:
+            return Err(TemplateError.InvalidHtml(*name, at))
+        drop(html.stack.pop())
+        html.mode = 0
+    elif html_void(&html.tag):
+        html.mode = 0
+    else:
+        if len(html.stack) >= bounds.max_depth.get():
+            return Err(TemplateError.LimitExceeded)
+        allocated(html.stack.append(html.tag))?
+        html.mode = 14 if html.tag == "title" else 0
+    html.start = False
+    Ok(())
+
+def html_attribute_end(html: &mut HtmlState, name: &str, at: i64) -> Result[(), TemplateError]:
+    if len(html.attributes) >= 128:
+        return Err(TemplateError.LimitExceeded)
+    if not html_attribute(&html.attribute) or html.attribute in html.attributes:
+        return Err(TemplateError.InvalidHtml(*name, at))
+    allocated(html.attributes.append(html.attribute))
+
+def html_text(html: &mut HtmlState, text: &str, name: &str, start: i64, bounds: &Limits) -> Result[(), TemplateError]:
+    mut offset = start
+    for scalar in text:
+        html.source = *name
+        html.offset = offset
+        if scalar == "\0":
+            return Err(TemplateError.InvalidHtml(*name, offset))
+        mut again = True
+        while again:
+            again = False
+            if html.mode == 0 or html.mode == 14:
+                if scalar == "<":
+                    html.closing = html.mode == 14
+                    html.tag = ""
+                    html.attributes.clear()
+                    html.mode = 1
+                elif not html_space(scalar):
+                    html.start = False
+            elif html.mode == 1:
+                if scalar == "/":
+                    html.closing = True
+                    html.mode = 2
+                elif html.closing:
+                    return Err(TemplateError.InvalidHtml(*name, offset))
+                elif scalar == "!" and html.start and len(html.stack) == 0:
+                    html.tag = "!"
+                    html.mode = 13
+                elif html_letter(scalar):
+                    html.mode = 2
+                    again = True
+                else:
+                    return Err(TemplateError.InvalidHtml(*name, offset))
+            elif html.mode == 2:
+                if html_letter(scalar) or scalar in "0123456789":
+                    html.tag = html_piece(&html.tag, scalar)?
+                else:
+                    if not html_tag(&html.tag) or (len(html.stack) > 0 and html.stack[-1] == "title" and (not html.closing or html.tag != "title")):
+                        return Err(TemplateError.InvalidHtml(*name, offset))
+                    html.mode = 10 if html.closing else 3
+                    again = True
+            elif html.mode == 3:
+                if html_space(scalar):
+                    pass
+                elif scalar == ">":
+                    html_finish(html, name, offset, bounds)?
+                elif scalar == "/" and html_void(&html.tag):
+                    html.mode = 11
+                elif html_letter(scalar):
+                    html.attribute = ""
+                    html.mode = 4
+                    again = True
+                else:
+                    return Err(TemplateError.InvalidHtml(*name, offset))
+            elif html.mode == 4:
+                if html_name(scalar):
+                    html.attribute = html_piece(&html.attribute, scalar)?
+                else:
+                    html_attribute_end(html, name, offset)?
+                    html.mode = 5
+                    again = True
+            elif html.mode == 5:
+                if html_space(scalar):
+                    pass
+                elif scalar == "=":
+                    html.mode = 6
+                elif scalar == ">" or scalar == "/" or html_letter(scalar):
+                    html.mode = 3
+                    again = True
+                else:
+                    return Err(TemplateError.InvalidHtml(*name, offset))
+            elif html.mode == 6:
+                if html_space(scalar):
+                    pass
+                elif scalar == "\"":
+                    html.mode = 7
+                elif scalar == "'":
+                    html.mode = 8
+                else:
+                    return Err(TemplateError.InvalidHtml(*name, offset))
+            elif html.mode == 7 or html.mode == 8:
+                if (html.mode == 7 and scalar == "\"") or (html.mode == 8 and scalar == "'"):
+                    html.mode = 9
+            elif html.mode == 9:
+                if html_space(scalar):
+                    html.mode = 3
+                elif scalar == ">" or scalar == "/":
+                    html.mode = 3
+                    again = True
+                else:
+                    return Err(TemplateError.InvalidHtml(*name, offset))
+            elif html.mode == 10:
+                if html_space(scalar):
+                    pass
+                elif scalar == ">":
+                    html_finish(html, name, offset, bounds)?
+                else:
+                    return Err(TemplateError.InvalidHtml(*name, offset))
+            elif html.mode == 11:
+                if scalar != ">":
+                    return Err(TemplateError.InvalidHtml(*name, offset))
+                html_finish(html, name, offset, bounds)?
+            elif html.mode == 13:
+                if scalar == ">":
+                    words = allocated(html.tag.split())?
+                    if len(words) != 2 or words[0] != "!doctype" or words[1] != "html":
+                        return Err(TemplateError.InvalidHtml(*name, offset))
+                    html.start = False
+                    html.mode = 0
+                elif html_letter(scalar) or html_space(scalar):
+                    html.tag = html_piece(&html.tag, scalar)?
+                else:
+                    return Err(TemplateError.InvalidHtml(*name, offset))
+            else:
+                return Err(TemplateError.InvalidHtml(*name, offset))
+        # offset begins inside the registered original UTF-8 source and each
+        # scalar advances by its original width, never by rendered/entity bytes.
+        unchecked:
+            offset += scalar.byte_len()
+    Ok(())
+
+def html_context(html: &HtmlState, name: &str, at: i64) -> Result[HtmlContext, TemplateError]:
+    if html.mode == 0 or html.mode == 14:
+        return Ok(HtmlContext.Text)
+    if (html.mode == 7 or html.mode == 8) and not html_url(&html.attribute):
+        return Ok(HtmlContext.DoubleQuotedAttribute if html.mode == 7 else HtmlContext.SingleQuotedAttribute)
+    Err(TemplateError.InvalidHtml(*name, at))
+
+def html_policy(expr: &Expression, context: HtmlContext, name: &str, at: i64, check: &mut HtmlCheck, bounds: &Limits) -> Result[(), TemplateError]:
+    # Inspect every syntactic arm, including short-circuited operands. Parent
+    # operators produce fresh default-policy booleans, so only the root's final
+    # selector reaches emission. Legacy trust filters remain wholly excluded.
+    mut selected: Option[HtmlContext] = Nothing
+    for index in range(len(expr.nodes)):
+        check.steps = bounded_total(check.steps, 1, bounds.max_steps.get())?
+        for filter in &expr.nodes[index].filters:
+            check.steps = bounded_total(check.steps, 1, bounds.max_steps.get())?
+            if filter == "safe" or filter == "escape":
+                return Err(TemplateError.InvalidHtml(*name, at))
+            if index != expr.root:
+                continue
+            if filter == "upper" or filter == "lower" or filter == "length":
+                selected = Nothing
+            elif filter == "escape_text":
+                selected = Some(HtmlContext.Text)
+            elif filter == "escape_double_quoted":
+                selected = Some(HtmlContext.DoubleQuotedAttribute)
+            elif filter == "escape_single_quoted":
+                selected = Some(HtmlContext.SingleQuotedAttribute)
+    match selected:
+        case Some(mode):
+            if mode != context:
+                return Err(TemplateError.InvalidHtml(*name, at))
+        case Nothing:
+            pass
+    Ok(())
+
+def html_boundary(check: &mut HtmlCheck, name: &str, at: i64) -> Result[list[str], TemplateError]:
+    if check.html.mode != 0:
+        return Err(TemplateError.InvalidHtml(*name, at))
+    check.html.start = False
+    allocated(copy(check.html.stack))
+
+def html_preserved(check: &HtmlCheck, stack: &list[str], name: &str, at: i64) -> Result[(), TemplateError]:
+    if check.html.mode != 0 or len(check.html.stack) != len(stack):
+        return Err(TemplateError.InvalidHtml(*name, at))
+    for index in range(len(stack)):
+        if check.html.stack[index] != stack[index]:
+            return Err(TemplateError.InvalidHtml(*name, at))
+    Ok(())
+
 pub class Engine:
     _bounds: Limits
     _templates: list[Template]
@@ -1229,7 +1532,7 @@ pub class Engine:
     pub def render_checked(self, name: &str, context: &Json, schema: &Shape, html: bool = True) -> Result[str, TemplateError]:
         mut shapes = schema_state(schema, &self._bounds)?
         self.schema_registered(name, &mut shapes, 0)?
-        mut state = State(allocated(list[Node]())?, allocated(list[Binding]())?, 0, 0, allocated(list[i64]())?, 0, shapes.steps, allocated(std.bytes.empty())?, html)
+        mut state = State(allocated(list[Node]())?, allocated(list[Binding]())?, 0, 0, allocated(list[i64]())?, 0, shapes.steps, allocated(std.bytes.empty())?, html, Nothing)
         drop(flatten(&mut state, "", context, 0, &self._bounds)?)
         # The first declared node follows the seven canonical result types.
         match shape_match(7, 0, "$", &shapes, &mut state, &self._bounds, 0)?:
@@ -1241,7 +1544,7 @@ pub class Engine:
         bytes_result(state.output.to_text())
 
     pub def render(self, name: &str, context: &Json, html: bool = True) -> Result[str, TemplateError]:
-        mut state = State(allocated(list[Node]())?, allocated(list[Binding]())?, 0, 0, allocated(list[i64]())?, 0, 0, allocated(std.bytes.empty())?, html)
+        mut state = State(allocated(list[Node]())?, allocated(list[Binding]())?, 0, 0, allocated(list[i64]())?, 0, 0, allocated(std.bytes.empty())?, html, Nothing)
         match context:
             case Json.Object(_):
                 pass
@@ -1250,6 +1553,152 @@ pub class Engine:
         drop(flatten(&mut state, "", context, 0, &self._bounds)?)
         self.render_registered(name, &mut state, 0)?
         bytes_result(state.output.to_text())
+
+    # Preflight visits every reachable syntactic branch before values/output.
+    # It validates the effective inheritance layout, not unused registry entries.
+    pub def validate_html(self, name: &str) -> Result[(), TemplateError]:
+        drop(self.html_preflight(name)?)
+        Ok(())
+
+    pub def render_html(self, name: &str, context: &Json) -> Result[str, TemplateError]:
+        check = self.html_preflight(name)?
+        mut state = State(allocated(list[Node]())?, allocated(list[Binding]())?, 0, 0, allocated(list[i64]())?, 0, check.steps, allocated(std.bytes.empty())?, True, Some(html_state()?))
+        match context:
+            case Json.Object(_):
+                pass
+            case _:
+                return Err(TemplateError.TypeMismatch)
+        drop(flatten(&mut state, "", context, 0, &self._bounds)?)
+        self.render_registered(name, &mut state, 0)?
+        bytes_result(state.output.to_text())
+
+    def html_preflight(self, name: &str) -> Result[HtmlCheck, TemplateError]:
+        mut check = HtmlCheck(html_state()?, allocated(list[i64]())?, 0)
+        self.html_registered(name, &mut check, 0)?
+        if check.html.mode != 0 or len(check.html.stack) != 0:
+            return Err(TemplateError.InvalidHtml(check.html.source, check.html.offset))
+        Ok(check)
+
+    def html_registered(self, name: &str, check: &mut HtmlCheck, depth: i64) -> Result[(), TemplateError]:
+        if depth > self._bounds.max_depth.get():
+            return Err(TemplateError.LimitExceeded)
+        mut current = self.find(name)?
+        for item in &check.active:
+            check.steps = bounded_total(check.steps, 1, self._bounds.max_steps.get())?
+            if *item == current:
+                return Err(TemplateError.InheritanceCycle)
+        allocated(check.active.append(current))?
+        mut visited = allocated(list[i64]())?
+        mut overrides = allocated(list[Override]())?
+        mut chain_depth = depth
+        while True:
+            if current in visited:
+                return Err(TemplateError.InheritanceCycle)
+            if chain_depth >= self._bounds.max_depth.get():
+                return Err(TemplateError.LimitExceeded)
+            allocated(visited.append(current))?
+            for token in range(len(self._templates[current].tokens)):
+                check.steps = bounded_total(check.steps, 1, self._bounds.max_steps.get())?
+                if self._templates[current].tokens[token].kind == 7:
+                    label = self._templates[current].tokens[token].text
+                    mut found = False
+                    for item in &overrides:
+                        check.steps = bounded_total(check.steps, 1, self._bounds.max_steps.get())?
+                        if item.name == label:
+                            found = True
+                            break
+                    if not found:
+                        allocated(overrides.append(Override(label, current, token)))?
+            parent = self._templates[current].parent
+            if parent == "":
+                break
+            current = self.find(&parent)?
+            # chain_depth < configured maximum <=64.
+            unchecked:
+                chain_depth += 1
+        self.html_run(current, 0, len(self._templates[current].tokens), check, &overrides, chain_depth)?
+        drop(check.active.pop())
+        Ok(())
+
+    def html_run(self, template: i64, begin: i64, end: i64, check: &mut HtmlCheck, overrides: &list[Override], depth: i64) -> Result[(), TemplateError]:
+        if depth > self._bounds.max_depth.get():
+            return Err(TemplateError.LimitExceeded)
+        next_depth = unchecked:
+            depth + 1
+        name = self._templates[template].name
+        mut index = begin
+        while index < end:
+            next = unchecked:
+                index + 1
+            token = &self._templates[template].tokens[index]
+            check.steps = bounded_total(check.steps, 1, self._bounds.max_steps.get())?
+            if token.kind == 0:
+                check.steps = bounded_total(check.steps, token.text.byte_len(), self._bounds.max_steps.get())?
+                html_text(&mut check.html, &token.text, &name, token.at, &self._bounds)?
+            elif token.kind == 1:
+                context = html_context(&check.html, &name, token.at)?
+                html_policy(&token.expr, context, &name, token.at, check, &self._bounds)?
+                check.html.start = False
+            elif token.kind == 2:
+                stack = html_boundary(check, &name, token.at)?
+                mut branch = index
+                while True:
+                    candidate = &self._templates[template].tokens[branch]
+                    html_policy(&candidate.expr, HtmlContext.Text, &name, candidate.at, check, &self._bounds)?
+                    stop = candidate.jump if candidate.alternate < 0 else candidate.alternate
+                    after_branch = unchecked:
+                        branch + 1
+                    self.html_run(template, after_branch, stop, check, overrides, next_depth)?
+                    html_preserved(check, &stack, &name, candidate.at)?
+                    if candidate.alternate < 0:
+                        break
+                    alternate = candidate.alternate
+                    if self._templates[template].tokens[alternate].kind == 3:
+                        after_else = unchecked:
+                            alternate + 1
+                        self.html_run(template, after_else, candidate.jump, check, overrides, next_depth)?
+                        html_preserved(check, &stack, &name, candidate.at)?
+                        break
+                    # Each flat elif is visited once, without recursive depth.
+                    check.steps = bounded_total(check.steps, 1, self._bounds.max_steps.get())?
+                    branch = alternate
+                index = token.jump
+            elif token.kind == 5:
+                stack = html_boundary(check, &name, token.at)?
+                html_policy(&token.expr, HtmlContext.Text, &name, token.at, check, &self._bounds)?
+                stop = token.jump if token.alternate < 0 else token.alternate
+                self.html_run(template, next, stop, check, overrides, next_depth)?
+                html_preserved(check, &stack, &name, token.at)?
+                if token.alternate >= 0:
+                    after_else = unchecked:
+                        token.alternate + 1
+                    self.html_run(template, after_else, token.jump, check, overrides, next_depth)?
+                    html_preserved(check, &stack, &name, token.at)?
+                index = token.jump
+            elif token.kind == 9:
+                stack = html_boundary(check, &name, token.at)?
+                if token.alternate == 1:
+                    html_policy(&token.expr, HtmlContext.Text, &name, token.at, check, &self._bounds)?
+                self.html_registered(&token.text, check, next_depth)?
+                html_preserved(check, &stack, &name, token.at)?
+            elif token.kind == 7:
+                stack = html_boundary(check, &name, token.at)?
+                for item in overrides:
+                    check.steps = bounded_total(check.steps, 1, self._bounds.max_steps.get())?
+                    if item.name == token.text:
+                        stop = self._templates[item.template].tokens[item.token].jump
+                        after_block = unchecked:
+                            item.token + 1
+                        self.html_run(item.template, after_block, stop, check, overrides, next_depth)?
+                        break
+                html_preserved(check, &stack, &name, token.at)?
+                index = token.jump
+            else:
+                return Err(TemplateError.InvalidHtml(name, token.at))
+            # Each jump references a closing token below len(tokens).
+            unchecked:
+                index += 1
+        Ok(())
 
     # Each invocation owns its inheritance overrides and loop scope, while all
     # invocations charge the same context, output and work budgets.
@@ -1359,10 +1808,16 @@ pub class Engine:
             step(state, &self._bounds)?
             token = &self._templates[template].tokens[index]
             if token.kind == 0:
+                match &mut state.strict:
+                    case Some(html):
+                        state.steps = bounded_total(state.steps, token.text.byte_len(), self._bounds.max_steps.get())?
+                        html_text(html, &token.text, &self._templates[template].name, token.at, &self._bounds)?
+                    case Nothing:
+                        pass
                 append(state, &token.text, &self._bounds)?
             elif token.kind == 1:
                 value = evaluate(&token.expr, state, &self._bounds)?
-                emit(state, &value, &self._bounds)?
+                emit(state, &value, &self._bounds, &self._templates[template].name, token.at)?
             elif token.kind == 2:
                 mut branch = index
                 while True:
