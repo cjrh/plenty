@@ -118,7 +118,9 @@ thread bounds, or a call segment whose stack use cannot be bounded. It can
 occur before the format's configured depth limit. Opaque callbacks and
 unguarded recursive call segments are conservatively rejected; rejection
 helpers must themselves have a bounded reporting path. A rejection path that
-cannot be budgeted is a compile error.
+cannot be budgeted is a compile error. Hosts embedding compiled Plenty code
+must keep the executing thread's stack mapping and stack resource limit
+unchanged; Unix stack bounds are cached per thread.
 
 Call `encode` and `decode` directly. To pass codec work as a function value,
 write an ordinary wrapper with concrete adapter types, keeping the checked

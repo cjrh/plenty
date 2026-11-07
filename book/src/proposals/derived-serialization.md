@@ -215,14 +215,15 @@ option skips unknown members instead. The policy is never a per-type setting.
 | `WrongLength(i64, i64)` | A tuple or variant payload array has the wrong length |
 | `DuplicateElement` | A set element or dictionary key repeats |
 | `Unrepresentable` | Raised by an encoder for a value its format cannot hold, such as `null` in TOML |
+| `StackLimit` | A checked codec call cannot safely fit its native stack segment |
 
 Formats supply implementations in their own modules:
 
 | Format | Encoder | Decoder |
 | --- | --- | --- |
 | JSON | `json.Encoder` directly | An adapter over `json.Decoder`, fed from a buffer or through `read_event` |
-| JSON tree | A builder producing `Json` | A cursor over `&Json` |
-| TOML | A builder producing `Toml`, then the existing writer, which orders plain entries before sections | A cursor over `&Toml`, after `parse` |
+| JSON tree | A builder producing `Json` | An owning cursor over `Json` |
+| TOML | A builder producing `Toml`, then the existing writer, which orders plain entries before sections | An owning cursor over `Toml`, after `parse` |
 
 ### How types map
 
@@ -239,7 +240,7 @@ Formats supply implementations in their own modules:
 | `dict[str, V]` | object, insertion order | object | table |
 | `Box[T]` | `T` | | |
 | Class | object, fields in declaration order | object | table |
-| `Option[T]` field | `null` when `Nothing`; absent or `null` decodes as `Nothing` | `null` | omitted |
+| `Option[T]` field | `null` when `Nothing`; absent uses its constructor default, or `Nothing`; `null` decodes as `Nothing` | `null` | omitted |
 | `Option[T]` elsewhere | `null` or `T` | `null` | `Unrepresentable` for `Nothing` |
 | Nullary variant | its name as text | `"Off"` | `"Off"` |
 | Variant with one payload | object with one key | `{"Fixed": 5}` | `{ Fixed = 5 }` |
@@ -281,8 +282,10 @@ defaults, so a class without `__init__` has no other optional members.
 
 A `Nothing` field is written as `null` in JSON, so every declared member
 appears in the document. TOML has no `null`, so its encoder omits the member
-instead. Both formats decode an absent member as `Nothing`, so a document
-written by one shape reads back in either.
+instead. An absent optional member uses its constructor default, or `Nothing`
+when there is no default. If that default is `Some(...)`, omitting an explicit
+`Nothing` in TOML and reloading restores the default instead; that value cannot
+round-trip through TOML. JSON retains its explicit `null`.
 
 `Bytes` and `bytes` are written as standard base64 text with padding. Runtime
 decoding returns owning `Bytes`: static `bytes` literal storage has no runtime
@@ -501,8 +504,8 @@ below record the delivery sequence.
 4. **TOML.** Tree builder and tree cursor; `toml.dump` and `load`.
 5. **Docs.** Update reference pages, tutorial examples and guidance with each
    usable milestone; cover `std.serial`, the `json` and `toml` additions,
-   classes and enums. Once derivation lands, replace an appropriate handwritten
-   codec in the tutorial while retaining a custom-hook example.
+   classes and enums. Teach derived configuration in the tutorial and retain
+   custom-hook guidance with the fixed hook signatures in the reference.
 
 Runtime reflection and a user macro system are separate language decisions,
 not dependencies of issue #781. If compile-time reflection later has enough

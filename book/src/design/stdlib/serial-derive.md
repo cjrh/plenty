@@ -39,7 +39,9 @@ Option[u16].Nothing
 
 JSON writes every field, including `Nothing` as `null`. TOML omits `Nothing`
 class fields because it has no null value. This omission applies to class fields;
-it does not silently remove dictionary entries or array elements.
+it does not silently remove dictionary entries or array elements. If an optional
+field has a constructor default of `Some(...)`, reloading an omitted `Nothing`
+uses that default; see [TOML representation limits](toml-codecs.md#representation).
 
 A class without `__init__` uses its normal generated field constructor. An
 explicit initializer must accept exactly the fields by name and the same semantic type

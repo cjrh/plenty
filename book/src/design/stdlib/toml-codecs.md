@@ -33,7 +33,10 @@ document root and reports `NotATable` for a scalar or array root.
 TOML has no null. A null emitted after `Encoder.field` is omitted. A null map value, root, or
 array element fails with `Serialization(Unrepresentable)`. An absent optional
 field is handled by the type's decoding hook; the adapter does not invent
-missing fields. Date-time values remain available through the
+missing fields. With derivation, a constructor default of `Some(...)` therefore
+replaces an omitted `Nothing` on reload: that value cannot round-trip through
+TOML. Use `Nothing` as the optional default when its absence must round-trip.
+Date-time values remain available through the
 [TOML value tree](toml.md#value-tree), but have no implicit scalar conversion
 in the format-neutral protocol.
 

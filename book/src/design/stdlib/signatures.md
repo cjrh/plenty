@@ -67,46 +67,46 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.image`](#stdimage): 2143-2189
 - [`std.io`](#stdio): 2191-2297
 - [`std.io.typed`](#stdiotyped): 2299-2337
-- [`std.serial`](#stdserial): 2339-2396
-- [`std.json`](#stdjson): 2398-2546
-- [`std.jwt`](#stdjwt): 2548-2595
-- [`std.log`](#stdlog): 2597-2664
-- [`std.markdown`](#stdmarkdown): 2666-2700
-- [`std.template`](#stdtemplate): 2702-2739
-- [`std.math`](#stdmath): 2741-2812
-- [`std.mime`](#stdmime): 2814-2840
-- [`std.net`](#stdnet): 2842-2924
-- [`std.path`](#stdpath): 2926-2943
-- [`std.process`](#stdprocess): 2945-3003
-- [`std.random`](#stdrandom): 3005-3026
-- [`std.ready`](#stdready): 3028-3059
-- [`std.regex`](#stdregex): 3061-3114
-- [`std.report`](#stdreport): 3116-3123
-- [`std.secrets`](#stdsecrets): 3125-3151
-- [`std.shlex`](#stdshlex): 3153-3162
-- [`std.sketch`](#stdsketch): 3164-3202
-- [`std.sketch.xor`](#stdsketchxor): 3204-3215
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3217-3232
-- [`std.signal`](#stdsignal): 3234-3251
-- [`std.simd`](#stdsimd): 3253-3354
-- [`std.stat`](#stdstat): 3356-3389
-- [`std.plot`](#stdplot): 3391-3480
-- [`std.linalg`](#stdlinalg): 3482-3523
-- [`std.sync`](#stdsync): 3525-3543
-- [`std.system`](#stdsystem): 3545-3604
-- [`std.tempfile`](#stdtempfile): 3606-3638
-- [`std.test`](#stdtest): 3640-3682
-- [`std.text`](#stdtext): 3684-3727
-- [`std.thread`](#stdthread): 3729-3733
-- [`std.time`](#stdtime): 3735-3779
-- [`std.tls`](#stdtls): 3781-3863
-- [`std.toml`](#stdtoml): 3865-3961
-- [`std.unicode`](#stdunicode): 3963-3975
-- [`std.units`](#stdunits): 3977-4214
-- [`std.units.catalogue`](#stdunitscatalogue): 4216-4994
-- [`std.url`](#stdurl): 4996-5024
-- [`std.uuid`](#stduuid): 5026-5049
-- [`std.xml`](#stdxml): 5051-5084
+- [`std.serial`](#stdserial): 2339-2397
+- [`std.json`](#stdjson): 2399-2549
+- [`std.jwt`](#stdjwt): 2551-2598
+- [`std.log`](#stdlog): 2600-2667
+- [`std.markdown`](#stdmarkdown): 2669-2703
+- [`std.template`](#stdtemplate): 2705-2742
+- [`std.math`](#stdmath): 2744-2815
+- [`std.mime`](#stdmime): 2817-2843
+- [`std.net`](#stdnet): 2845-2927
+- [`std.path`](#stdpath): 2929-2946
+- [`std.process`](#stdprocess): 2948-3006
+- [`std.random`](#stdrandom): 3008-3029
+- [`std.ready`](#stdready): 3031-3062
+- [`std.regex`](#stdregex): 3064-3117
+- [`std.report`](#stdreport): 3119-3126
+- [`std.secrets`](#stdsecrets): 3128-3154
+- [`std.shlex`](#stdshlex): 3156-3165
+- [`std.sketch`](#stdsketch): 3167-3205
+- [`std.sketch.xor`](#stdsketchxor): 3207-3218
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3220-3235
+- [`std.signal`](#stdsignal): 3237-3254
+- [`std.simd`](#stdsimd): 3256-3357
+- [`std.stat`](#stdstat): 3359-3392
+- [`std.plot`](#stdplot): 3394-3483
+- [`std.linalg`](#stdlinalg): 3485-3526
+- [`std.sync`](#stdsync): 3528-3546
+- [`std.system`](#stdsystem): 3548-3607
+- [`std.tempfile`](#stdtempfile): 3609-3641
+- [`std.test`](#stdtest): 3643-3685
+- [`std.text`](#stdtext): 3687-3730
+- [`std.thread`](#stdthread): 3732-3736
+- [`std.time`](#stdtime): 3738-3782
+- [`std.tls`](#stdtls): 3784-3866
+- [`std.toml`](#stdtoml): 3868-3965
+- [`std.unicode`](#stdunicode): 3967-3979
+- [`std.units`](#stdunits): 3981-4218
+- [`std.units.catalogue`](#stdunitscatalogue): 4220-4998
+- [`std.url`](#stdurl): 5000-5028
+- [`std.uuid`](#stduuid): 5030-5053
+- [`std.xml`](#stdxml): 5055-5088
 
 ## `std.actor`
 
@@ -2342,7 +2342,7 @@ Format-neutral typed codecs, derived or handwritten class/enum hooks, canonical 
 
 ```text
 enum Fault
-    UnexpectedKind | MissingField(str) | DuplicateField(str) | UnknownField(str) | UnknownVariant(str) | OutOfRange | WrongLength(i64, i64) | DuplicateElement | Unrepresentable | InvalidBase64(std.encoding.EncodingError)
+    UnexpectedKind | MissingField(str) | DuplicateField(str) | UnknownField(str) | UnknownVariant(str) | OutOfRange | WrongLength(i64, i64) | DuplicateElement | Unrepresentable | InvalidBase64(std.encoding.EncodingError) | StackLimit
 enum Step
     Field(str) | Index(i64) | Key(str) | Variant(str)
 class SerialError[E]
@@ -2354,6 +2354,7 @@ def error[E](cause: E) -> SerialError[E]
 def wrap[T, E](result: Result[T, E]) -> Result[T, SerialError[E]]
 def at[T, E](result: Result[T, SerialError[E]], step: Step) -> Result[T, SerialError[E]]
 protocol Encoder[E]
+    def reject(self, fault: Fault) -> E
     def allocation(self, cause: AllocError) -> E
     def null(self: &mut Encoder) -> Result[(), E]
     def boolean(self: &mut Encoder, value: bool) -> Result[(), E]
@@ -2436,6 +2437,7 @@ def parse_text(text: &str, bounds: &Limits) -> Result[Json, JsonError]
 def read_value[R: Reader](reader: &mut R, bounds: &Limits) -> Result[Json, JsonError]
 def find(members: &list[Member], key: &str) -> Option[i64]
 class Encoder
+    def reject(self, fault: std.serial.Fault) -> JsonError
     def allocation(self, cause: AllocError) -> JsonError
     def pending(self) -> i64
     def written(self) -> i64
@@ -2509,6 +2511,7 @@ class TreeLimits
     max_text_bytes: NonNegative[i64]
 def tree_limits() -> TreeLimits
 class TreeEncoder
+    def reject(self, fault: std.serial.Fault) -> JsonError
     def allocation(self, cause: AllocError) -> JsonError
     def null(self: &mut TreeEncoder) -> Result[(), JsonError]
     def boolean(self: &mut TreeEncoder, value: bool) -> Result[(), JsonError]
@@ -3922,6 +3925,7 @@ class CodecOptions
     unknown_fields: std.serial.UnknownFields
 def codec_options() -> CodecOptions
 class TreeEncoder
+    def reject(self, fault: std.serial.Fault) -> TomlError
     def allocation(self, cause: AllocError) -> TomlError
     def null(self: &mut TreeEncoder) -> Result[(), TomlError]
     def boolean(self: &mut TreeEncoder, value: bool) -> Result[(), TomlError]
