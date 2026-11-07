@@ -146,7 +146,7 @@ fn a_class_moves_with_its_comment_and_every_caller_follows() {
     assert_eq!(
         moved.api_changes,
         [
-            "moves public `tools.shapes.Point` to `tools.geometry.Point`; packages outside this workspace that import it must change",
+            "moves public `tools.shapes.Point` to `tools.geometry.Point`, so packages outside this workspace that import it must change",
             "changes the printed type name `shapes.Point` to `geometry.Point`",
         ]
     );
@@ -329,7 +329,7 @@ fn moving_a_public_library_declaration_reports_the_path_change() {
     assert_eq!(
         moved.api_changes,
         [
-            "moves public `tools.shapes.Point` to `tools.geometry.Point`; packages outside this workspace that import it must change",
+            "moves public `tools.shapes.Point` to `tools.geometry.Point`, so packages outside this workspace that import it must change",
             "changes the printed type name `shapes.Point` to `geometry.Point`",
         ]
     );
@@ -1065,7 +1065,7 @@ fn moving_into_the_library_imports_it_under_the_package_name() {
     assert_eq!(
         moved.api_changes,
         [
-            "moves public `tools.shapes.Point` to `tools.Point`; packages outside this workspace that import it must change",
+            "moves public `tools.shapes.Point` to `tools.Point`, so packages outside this workspace that import it must change",
             "changes the printed type name `shapes.Point` to `lib.Point`",
         ]
     );
@@ -1290,7 +1290,7 @@ def main() -> Result[(), IoError]:
 }
 
 #[test]
-fn an_if_const_block_naming_the_source_module_is_refused() {
+fn an_if_const_block_naming_the_moved_declaration_is_refused() {
     let a = "\
 pub def moved() -> i64:
     1
@@ -1323,4 +1323,199 @@ def main() -> Result[(), IoError]:
         .replace("print(y)", "print(a.moved())?\n    print(y)");
     std::fs::write(dir.path().join("src/main.plenty"), unrelated).unwrap();
     plan(dir.path(), "src/a.plenty", 1, "src/b.plenty").unwrap();
+}
+
+/// A package where `src/main.plenty` holds `main` and every other file is
+/// given; `moved` in `src/a.plenty` moves to `src/b.plenty`.
+fn conditional_package(a: &str, main: &str) -> tempfile::TempDir {
+    package(&[
+        ("src/a.plenty", a),
+        ("src/b.plenty", "pub const B: i64 = 1\n"),
+        ("src/main.plenty", main),
+    ])
+}
+
+const MOVED: &str = "\
+pub def moved(x: i64) -> i64:
+    x
+";
+
+#[test]
+fn an_arm_naming_only_the_source_modules_binding_is_refused() {
+    let main = "\
+import a as g
+
+def main() -> Result[(), IoError]:
+    if const target.os == \"windows\":
+        print(g.other())?
+    print(g.moved(1))?
+    Ok(())
+";
+    let dir = conditional_package(MOVED, main);
+    assert_eq!(
+        refused(dir.path(), "src/a.plenty", 1, "src/b.plenty"),
+        "src/main.plenty:4: an `if const` block names `g`; the move cannot check its unselected arms"
+    );
+}
+
+#[test]
+fn an_arm_naming_only_an_alias_of_the_declaration_is_refused() {
+    let main = "\
+from a import moved as sc
+
+def main() -> Result[(), IoError]:
+    if const target.os == \"windows\":
+        print(sc(1))?
+    print(sc(2))?
+    Ok(())
+";
+    let dir = conditional_package(MOVED, main);
+    assert_eq!(
+        refused(dir.path(), "src/a.plenty", 1, "src/b.plenty"),
+        "src/main.plenty:4: an `if const` block names `sc`; the move cannot check its unselected arms"
+    );
+}
+
+#[test]
+fn an_arm_using_an_import_the_move_removes_is_refused() {
+    let geometry = "\
+import calc
+
+pub def scale(x: i64) -> i64:
+    calc.double(x)
+
+pub def other() -> i64:
+    if const target.os == \"windows\":
+        return calc.double(1)
+    0
+";
+    let main = "\
+import geometry
+
+def main() -> Result[(), IoError]:
+    print(geometry.scale(2), geometry.other())?
+    Ok(())
+";
+    let dir = package(&[
+        ("src/calc.plenty", "pub def double(x: i64) -> i64:\n    x\n"),
+        ("src/geometry.plenty", geometry),
+        ("src/report.plenty", "pub const R: i64 = 1\n"),
+        ("src/main.plenty", main),
+    ]);
+    assert_eq!(
+        refused(dir.path(), "src/geometry.plenty", 3, "src/report.plenty"),
+        "src/geometry.plenty:7: an `if const` block names `calc`; the move cannot check its unselected arms"
+    );
+}
+
+#[test]
+fn an_arm_declaring_a_name_the_move_imports_is_refused() {
+    let geometry = "\
+import calc
+
+def helper(x: i64) -> i64:
+    x
+
+pub def scale(x: i64) -> i64:
+    calc.double(x)
+
+pub def shift(x: i64) -> i64:
+    helper(x)
+";
+    let report = "\
+pub const R: i64 = 1
+
+if const target.os == \"windows\":
+    def calc() -> i64:
+        1
+
+    def helper() -> i64:
+        2
+";
+    let main = "\
+import geometry
+import report
+
+def main() -> Result[(), IoError]:
+    print(geometry.scale(2), geometry.shift(3), report.R)?
+    Ok(())
+";
+    let dir = package(&[
+        ("src/calc.plenty", "pub def double(x: i64) -> i64:\n    x\n"),
+        ("src/geometry.plenty", geometry),
+        ("src/report.plenty", report),
+        ("src/main.plenty", main),
+    ]);
+    // The move adds `import calc` to report.
+    assert_eq!(
+        refused(dir.path(), "src/geometry.plenty", 6, "src/report.plenty"),
+        "src/report.plenty:3: an `if const` block names `calc`; the move cannot check its unselected arms"
+    );
+    // The move adds `from geometry import helper` to report.
+    assert_eq!(
+        refused(dir.path(), "src/geometry.plenty", 9, "src/report.plenty"),
+        "src/report.plenty:3: an `if const` block names `helper`; the move cannot check its unselected arms"
+    );
+}
+
+#[test]
+fn an_if_const_block_ends_where_the_parser_ends_it() {
+    // `else :` with a space continues the block.
+    let spaced = "\
+import a
+
+def main() -> Result[(), IoError]:
+    if const target.os == \"linux\":
+        print(1)?
+    else :
+        print(a.moved(2))?
+    print(a.moved(1))?
+    Ok(())
+";
+    let dir = conditional_package(MOVED, spaced);
+    assert_eq!(
+        refused(dir.path(), "src/a.plenty", 1, "src/b.plenty"),
+        "src/main.plenty:4: an `if const` block names `moved`; the move cannot check its unselected arms"
+    );
+    // A bracketed continuation at column 0 stays inside its arm.
+    let continued = "\
+import a
+
+def main() -> Result[(), IoError]:
+    if const target.os == \"windows\":
+        print(1,
+2)?
+        print(a.moved(2))?
+    print(a.moved(1))?
+    Ok(())
+";
+    let dir = conditional_package(MOVED, continued);
+    assert_eq!(
+        refused(dir.path(), "src/a.plenty", 1, "src/b.plenty"),
+        "src/main.plenty:4: an `if const` block names `moved`; the move cannot check its unselected arms"
+    );
+}
+
+#[test]
+fn a_comment_after_an_if_const_block_belongs_to_the_next_declaration() {
+    let a = "\
+pub def other() -> i64:
+    if const target.os == \"windows\":
+        return 1
+    0
+
+# Returns its argument.
+pub def moved(x: i64) -> i64:
+    x
+";
+    let main = "\
+import a
+
+def main() -> Result[(), IoError]:
+    print(a.moved(1), a.other())?
+    Ok(())
+";
+    let dir = conditional_package(a, main);
+    let moved = plan(dir.path(), "src/a.plenty", 7, "src/b.plenty").unwrap();
+    assert!(moved.files["src/b.plenty"].contains("# Returns its argument.\npub def moved"));
 }

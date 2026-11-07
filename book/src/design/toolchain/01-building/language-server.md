@@ -129,9 +129,13 @@ error, when:
 - the declaration is `main` in a target's entry file, which runs it;
 - the moved text contains an [`if const`](../../language/02-source/target-conditionals.md)
   block, or an `if const` block in a file the check reaches names the moved
-  declaration, the source module's import binding in that file, or the
-  source module's last path component. Unselected arms are not checked on
-  the current target, so the move could neither rewrite nor check them;
+  declaration, a `from` import alias of it, the source module's import
+  binding in that file, the source module's last path component, or a
+  binding of an import line the move adds, removes or rewrites in that file.
+  Unselected arms are not checked on the current target, so the move could
+  neither rewrite nor check them. The match is a whole-word text match over
+  every arm of the block, including the selected arm, comments and strings,
+  so it can refuse a move that no arm needs;
 - the source is the package's library;
 - the declaration uses `include_str` or `include_bytes`, whose paths are
   relative to its file's directory, and the destination is in another

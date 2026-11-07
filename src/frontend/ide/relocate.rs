@@ -126,6 +126,8 @@ struct Lexed {
     /// The first and last line (from 1) of each string token that spans
     /// lines.
     strings: Vec<(u32, u32)>,
+    /// Every token, with layout tokens: an `if const` block's extent.
+    all: Vec<Token>,
 }
 
 impl Lexed {
@@ -147,6 +149,7 @@ fn lex(text: &str) -> Result<Lexed, String> {
     // A token has no end position; the token after a string sits on the
     // string's last line.
     let mut open_string: Option<u32> = None;
+    let mut all = vec![];
     loop {
         let mut tokens = VecDeque::new();
         lexer
@@ -163,6 +166,7 @@ fn lex(text: &str) -> Result<Lexed, String> {
                 open_string = Some(t.line);
             }
         }
+        all.extend(tokens.iter().cloned());
         let tokens: Vec<Token> = tokens
             .into_iter()
             .filter(|t| {
@@ -179,45 +183,95 @@ fn lex(text: &str) -> Result<Lexed, String> {
             break;
         }
     }
-    Ok(Lexed { items, strings })
+    Ok(Lexed {
+        items,
+        strings,
+        all,
+    })
 }
 
 /// The lines (from 0) of each `if const` conditional in `text`, from its
-/// `if const` line to the end of its last arm. The analysis does not see
-/// unselected arms, so names there are neither found nor checked.
+/// `if const` line to the last line of its last arm. The analysis does not
+/// see unselected arms, so names there are neither found nor checked. The
+/// lexer's layout tokens give each arm's extent: an indented suite ends at
+/// its matching dedent and a one-line arm at its newline, and neither
+/// breaks inside brackets.
 fn conditionals(text: &str) -> Result<Vec<(u32, u32)>, String> {
     let lexed = lex(text)?;
-    let lines: Vec<&str> = text.lines().collect();
-    let indent = |line: &str| line.len() - line.trim_start().len();
+    let tokens = &lexed.all;
+    let layout = |t: &Token| {
+        matches!(
+            t.kind,
+            Kind::Newline | Kind::Indent | Kind::Dedent | Kind::Eof
+        )
+    };
+    // The last line a token covers, counting a string's lines.
+    let end = |t: &Token| {
+        lexed
+            .strings
+            .iter()
+            .find(|&&(a, _)| a == t.line)
+            .map_or(t.line, |&(_, b)| b)
+    };
     let mut out = vec![];
-    for tokens in &lexed.items {
-        for pair in tokens.windows(2) {
-            if !(pair[0].is("if") && pair[1].is("const") && pair[0].line == pair[1].line) {
-                continue;
-            }
-            let first = pair[0].line - 1;
-            let Some(head) = lines.get(first as usize) else {
-                continue;
-            };
-            let base = indent(head);
-            let mut last = first;
-            for (i, line) in lines.iter().enumerate().skip(first as usize + 1) {
-                let trimmed = line.trim_start();
-                let continues = trimmed.is_empty()
-                    || trimmed.starts_with('#')
-                    || lexed.inside_string(i as u32 + 1)
-                    || indent(line) > base
-                    || (indent(line) == base
-                        && (trimmed.starts_with("elif ") || trimmed.starts_with("else:")));
-                if !continues {
+    for start in 0..tokens.len() {
+        if !(tokens[start].is("if") && tokens.get(start + 1).is_some_and(|t| t.is("const"))) {
+            continue;
+        }
+        let mut last = tokens[start].line;
+        let mut i = start;
+        loop {
+            // The header's `:` outside brackets.
+            let mut depth = 0i32;
+            while i < tokens.len() {
+                let t = &tokens[i];
+                if t.is("(") || t.is("[") || t.is("{") {
+                    depth += 1;
+                } else if t.is(")") || t.is("]") || t.is("}") {
+                    depth -= 1;
+                } else if depth == 0 && t.is(":") {
                     break;
                 }
-                if !trimmed.is_empty() {
-                    last = i as u32;
-                }
+                i += 1;
             }
-            out.push((first, last));
+            i += 1;
+            // The arm: an indented suite or the rest of the line.
+            let mut indents = 0i32;
+            while i < tokens.len() {
+                let t = &tokens[i];
+                match t.kind {
+                    Kind::Indent => indents += 1,
+                    Kind::Dedent => {
+                        indents -= 1;
+                        if indents == 0 {
+                            i += 1;
+                            break;
+                        }
+                    }
+                    Kind::Newline if indents == 0 => {
+                        // A suite follows on the next line.
+                        if !tokens.get(i + 1).is_some_and(|t| t.kind == Kind::Indent) {
+                            i += 1;
+                            break;
+                        }
+                    }
+                    Kind::Eof => break,
+                    _ => {}
+                }
+                if !layout(t) {
+                    last = last.max(end(t));
+                }
+                i += 1;
+            }
+            let next = tokens[i.min(tokens.len() - 1)..]
+                .iter()
+                .find(|t| t.kind != Kind::Newline);
+            if next.is_some_and(|t| t.is("elif") || t.is("else")) {
+                continue;
+            }
+            break;
         }
+        out.push((tokens[start].line - 1, last - 1));
     }
     Ok(out)
 }
@@ -953,11 +1007,12 @@ impl<'a> Planner<'a> {
             dependencies: BTreeSet::new(),
             needs_public: false,
         };
-        work.conditional_arms(&reach_before)?;
+        work.conditional_in_moved_text()?;
         work.moved_references()?;
         work.carried_imports()?;
         work.callers()?;
         work.move_text()?;
+        work.conditional_arms(&reach_before)?;
         work.import_edits()?;
         self.finish(work, &reach_before)
     }
@@ -1182,10 +1237,9 @@ impl Work<'_, '_> {
             && matches!(self.form_of(u), Form::Qualified { qualifier, .. } if qualifier == binding)
     }
 
-    /// Refuse when an `if const` conditional could hold a use the analysis
-    /// cannot see: one in the moved text, or one elsewhere whose text
-    /// mentions the moved name or a binding of the source module.
-    fn conditional_arms(&self, reach: &Reach) -> Result<(), String> {
+    /// Refuse when the moved text holds an `if const` conditional, whose
+    /// unselected arms the analysis cannot see.
+    fn conditional_in_moved_text(&self) -> Result<(), String> {
         let name = &self.name;
         let source_text = &self.sources[self.source()].text;
         if let Some((first, _)) = conditionals(source_text)?
@@ -1198,6 +1252,16 @@ impl Work<'_, '_> {
                 first + 1
             ));
         }
+        Ok(())
+    }
+
+    /// Refuse when an `if const` conditional could hold a use the analysis
+    /// cannot see: one whose text, in any arm, mentions the moved name, a
+    /// binding of the source module, or a binding of an import line the
+    /// move adds, removes or rewrites in that file. Runs once the import
+    /// changes are known.
+    fn conditional_arms(&self, reach: &Reach) -> Result<(), String> {
+        let name = &self.name;
         let source_leaf = self
             .planner
             .source_module
@@ -1209,6 +1273,7 @@ impl Work<'_, '_> {
         files.extend(reach.files.values().flatten().cloned());
         files.insert(self.source().to_owned());
         files.insert(self.destination().to_owned());
+        files.extend(self.imports.keys().cloned());
         for path in &files {
             let text = match self.sources.get(path) {
                 Some(source) => source.text.clone(),
@@ -1231,6 +1296,14 @@ impl Work<'_, '_> {
                                 .filter(|item| import.from.is_some() && item.0 == *name)
                                 .map(|item| Import::binding(item).to_owned()),
                         );
+                    }
+                }
+            }
+            if let Some((removals, additions)) = self.imports.get(path) {
+                names.extend(removals.iter().map(|(_, binding)| binding.clone()));
+                for addition in additions {
+                    for import in imports(addition)? {
+                        names.extend(import.items.iter().map(|i| Import::binding(i).to_owned()));
                     }
                 }
             }
@@ -1959,7 +2032,7 @@ impl Work<'_, '_> {
         if self.declaration.private_at.is_none() && member.manifest.library.is_some() {
             let package = &member.manifest.name;
             self.api_changes.push(format!(
-                "moves public `{package}.{}.{name}` to `{}.{name}`; packages outside this workspace that import it must change",
+                "moves public `{package}.{}.{name}` to `{}.{name}`, so packages outside this workspace that import it must change",
                 self.planner.source_module,
                 self.planner.destination_import(&format!("{package}."))
             ));
