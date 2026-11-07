@@ -142,8 +142,11 @@ is closed is `IoError.Closed`; one without the needed access is
 stdin. The command keeps its files either way.
 
 Pipe ends and redirection-source duplicates are close-on-exec. Standard streams
-follow `Stdio`; above them only copies explicitly selected with `inherit_file`
-survive that command's exec. Other commands do not inherit those selected copies.
+follow `Stdio`; among files owned by Plenty, only copies explicitly selected with
+`inherit_file` survive above stderr across that command's exec. Other commands
+do not inherit those selected copies. This does not close unrelated inheritable
+descriptors supplied by an embedding host or parent process; those follow the
+OS close-on-exec rules.
 
 ### Explicit file inheritance
 
