@@ -343,7 +343,11 @@ drop. Focused tests cover concurrent selection, source close, failed exec,
 allocation failure and lock lifetime across runner death. Arbitrary descriptor
 remapping remains B43 scope. Explicit inheritance composes with owned-file
 standard-stream redirection, merged stderr and isolated groups/sessions; tests
-check that redirection-source descriptors remain close-on-exec.
+check that redirection-source descriptors remain close-on-exec. Issue #845
+makes the composed inheritance/redirection fixture distinguish its own file
+identities from unrelated host-inherited descriptors, with a child-only
+extra-descriptor regression. The exact selected-file and redirection-leak
+checks remain in place; the process runtime's inheritance behavior is unchanged.
 
 ## B43: Process groups and sessions
 
