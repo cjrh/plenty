@@ -512,7 +512,7 @@ fn adapters_reject_invalid_types_and_preserve_borrow_rules() {
     rejected(
         "extern def bad(text: &str as bytes) -> i64 = \"bad\"\n",
         main,
-        "expected utf8, c_string or strided",
+        "expected utf8, c_string, c_strings, errno or strided",
     );
     rejected(
         "pub extern def write(a: &mut i64, b: &i64) -> () = \"write_both\"\n",
@@ -529,4 +529,248 @@ fn adapters_reject_invalid_types_and_preserve_borrow_rules() {
         "import native\ndef main() -> ():\n    source = native.create(0).unwrap()\n    copy(source).unwrap()\n",
         "cannot be copied",
     );
+}
+
+#[test]
+fn packed_string_vectors_and_errno_capture_preserve_native_abi() {
+    for shared in [false, true] {
+        for optimize in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let library = fixture(temp.path(), shared);
+            std::fs::write(temp.path().join("native.plentyi"), r#"
+@thread_safe
+pub extern def vector(values: &list[str] as c_strings, tail: &str as c_string) -> Result[u64, CStrError] = "fixture_c_strings"
+@thread_safe
+pub extern def capture(error: &mut i32 as errno, text: &str as c_string, code: i32) -> Result[i32, CStrError] = "fixture_errno_text"
+"#).unwrap();
+            let output = run_with_optimization(
+                temp.path(),
+                r#"
+import native
+def main() -> Result[(), AllocError | CStrError | IoError]:
+    values = ["", "é", "longer than inline"]?
+    empty: list[str] = []?
+    tail = "z"
+    print(native.vector(&values, &tail)?, native.vector(&empty, &tail)?, values)?
+    mut error = 999i32
+    print(native.capture(&mut error, &tail, 42i32)?, error)?
+    blank = ""
+    print(native.capture(&mut error, &blank, 73i32)?, error)?
+    bad = "a\0b"
+    print(native.capture(&mut error, &bad, 5i32).is_err(), error)?
+    bad_values = ["valid", "a\0b"]?
+    print(native.vector(&bad_values, &tail).is_err(), bad_values)?
+    Ok(())
+"#,
+                library,
+                optimize,
+            );
+            assert_eq!(
+                visible(output),
+                "321 1 [\"\", \"é\", \"longer than inline\"]\n-1 42\n0 73\nTrue 73\nTrue [\"valid\", \"a\\0b\"]",
+                "shared={shared}, optimize={optimize}"
+            );
+        }
+    }
+}
+
+#[test]
+fn errno_and_vector_adapters_reject_invalid_shapes() {
+    let main = "import native\ndef main() -> ():\n    pass\n";
+    for ty in ["&i32", "&mut i64", "i32", "&mut list[i32]"] {
+        rejected(
+            &format!("extern def bad(error: {ty} as errno) -> i32 = \"bad\"\n"),
+            main,
+            "no supported C ABI",
+        );
+    }
+    for ty in ["&mut list[str]", "list[str]", "&list[i64]", "&str"] {
+        rejected(
+            &format!(
+                "extern def bad(values: {ty} as c_strings) -> Result[i32, CStrError] = \"bad\"\n"
+            ),
+            main,
+            "no supported C ABI",
+        );
+    }
+    rejected(
+        "extern def bad(a: &mut i32 as errno, b: &mut i32 as errno) -> () = \"bad\"\n",
+        main,
+        "only one errno",
+    );
+    rejected(
+        "extern def bad(values: &list[str] as c_strings) -> i32 = \"bad\"\n",
+        main,
+        "Result[T, CStrError]",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn packed_vector_allocation_failure_rolls_back_and_keeps_errno_output() {
+    for budget in 0..=2 {
+        for optimize in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let library = fixture(temp.path(), false);
+            std::fs::write(temp.path().join("native.plentyi"), r#"
+pub extern def vector(values: &list[str] as c_strings, tail: &str as c_string, error: &mut i32 as errno) -> Result[u64, CStrError] = "fixture_c_strings"
+"#).unwrap();
+            let source = format!(
+                r#"
+import native
+def main() -> Result[(), AllocError | IoError]:
+    values = ["one", "é"]?
+    tail = "last"
+    mut error = 999i32
+    print("__test_fail_allocations_after_{budget}__")?
+    value = native.vector(&values, &tail, &mut error)
+    print("__test_restore_allocations__")?
+    print(value.is_ok(), values)?
+    if value.is_err():
+        print(error)?
+    Ok(())
+"#
+            );
+            let output = visible(run_with_optimization(
+                temp.path(),
+                &source,
+                library,
+                optimize,
+            ));
+            assert_eq!(
+                output,
+                if budget == 2 {
+                    "True [\"one\", \"é\"]"
+                } else {
+                    "False [\"one\", \"é\"]\n999"
+                }
+            );
+        }
+    }
+}
+
+#[test]
+fn errno_capture_is_thread_local_and_keeps_worker_certification() {
+    let temp = tempfile::tempdir().unwrap();
+    let library = fixture(temp.path(), false);
+    std::fs::write(temp.path().join("native.plentyi"), r#"
+@thread_safe
+pub extern def capture(text: &str as c_string, code: i32, error: &mut i32 as errno) -> Result[i32, CStrError] = "fixture_errno_text"
+"#).unwrap();
+    let source = r#"
+import native
+def work(code: i32) -> Result[bool, CStrError]:
+    text = "worker"
+    mut error = 0i32
+    for _ in range(1000):
+        if native.capture(&text, code, &mut error)? != -1i32 or error != code:
+            return Ok(False)
+    Ok(True)
+def main() -> Result[(), AllocError | CStrError | IoError | SpawnError[()]]:
+    with spawn(work, 42i32).drop_job()? as a, spawn(work, 73i32).drop_job()? as b:
+        print(a.join()?, b.join()?)?
+    Ok(())
+"#;
+    assert_eq!(visible(run(temp.path(), source, library)), "True True");
+    rejected(
+        "pub extern def capture(error: &mut i32 as errno) -> i32 = \"getpid\"\n",
+        "import native\ndef worker() -> i32:\n    mut error = 0i32\n    native.capture(&mut error)\ndef main() -> Result[(), SpawnError[()]]:\n    with spawn(worker).drop_job()? as task:\n        drop(task.join())\n    Ok(())\n",
+        "thread",
+    );
+}
+
+#[test]
+fn errno_snapshot_precedes_every_post_call_helper_in_native_ir() {
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::write(temp.path().join("native.plentyi"), "pub extern def capture(text: &str as c_string, code: i32, error: &mut i32 as errno) -> Result[i32, CStrError] = \"fixture_errno_text\"\n").unwrap();
+    let input = temp.path().join("main.plenty");
+    std::fs::write(&input, "import native\ndef main() -> Result[(), CStrError]:\n    text = \"hello\"\n    mut error = 0i32\n    drop(native.capture(&text, 42i32, &mut error)?)\n    Ok(())\n").unwrap();
+    for optimize in [false, true] {
+        let dump = plenty::dump_file(
+            &input,
+            None,
+            &plenty::CompileOptions {
+                optimize,
+                ..Default::default()
+            },
+            &plenty::DumpOptions {
+                stages: vec![plenty::DumpStage::Clif, plenty::DumpStage::ClifOpt],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        for (name, text) in dump.files {
+            if !name.starts_with("clif") {
+                continue;
+            }
+            let mut found = false;
+            for section in text.split("==== ") {
+                let Some(native) = section
+                    .lines()
+                    .find(|line| line.contains("fixture_errno_text"))
+                else {
+                    continue;
+                };
+                let Some(errno) = section
+                    .lines()
+                    .find(|line| line.contains("plenty_ffi_errno"))
+                else {
+                    continue;
+                };
+                let native_id = native.split('=').next().unwrap().trim();
+                let errno_id = errno.split('=').next().unwrap().trim();
+                let calls: Vec<_> = section
+                    .lines()
+                    .filter(|line| line.contains(" call "))
+                    .collect();
+                if let Some(index) = calls
+                    .iter()
+                    .position(|line| line.contains(&format!("call {native_id}(")))
+                {
+                    assert!(
+                        calls[index + 1].contains(&format!("call {errno_id}(")),
+                        "errno is not the first call after native return: {section}"
+                    );
+                    found = true;
+                }
+            }
+            assert!(found, "missing native errno call in {name}: {text}");
+        }
+    }
+}
+
+#[test]
+fn errno_supports_void_scalar_and_function_address_calls_without_buffers() {
+    let temp = tempfile::tempdir().unwrap();
+    let library = fixture(temp.path(), false);
+    std::fs::write(
+        temp.path().join("native.plentyi"),
+        r#"
+pub opaque Function
+pub extern def address() -> Function = "fixture_errno_address"
+pub extern def direct(code: i32, error: &mut i32 as errno) -> () = "fixture_errno_void"
+pub extern def indirect(target: Function, error: &mut i32 as errno, code: i32) -> () = target
+"#,
+    )
+    .unwrap();
+    for optimize in [false, true] {
+        assert_eq!(
+            visible(run_with_optimization(
+                temp.path(),
+                r#"
+import native
+def main() -> Result[(), IoError]:
+    mut error = 0i32
+    native.direct(42i32, &mut error)
+    print(error)?
+    native.indirect(native.address(), &mut error, 73i32)
+    print(error)?
+    Ok(())
+"#,
+                library.clone(),
+                optimize
+            )),
+            "42\n73"
+        );
+    }
 }

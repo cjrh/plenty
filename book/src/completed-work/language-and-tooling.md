@@ -1111,3 +1111,19 @@ literal other than `-1` adds no signed `OverflowError[T]`, so `x // 2` needs
 no error contract. Constants, variables and guards still prove nothing; typed
 `NonZero[T]` and `Positive[T]` divisors carry other proofs. See
 [checked blocks](../design/language/03-types/numbers.md#checked-blocks).
+
+## Call-scoped FFI string vectors and native errors (issues #779/#780)
+
+Trusted interfaces accept `&list[str] as c_strings`: one fallible packed owner
+holds a null-terminated pointer table and NUL-terminated UTF-8 copies. Empty
+vectors, embedded NUL refusal, layout overflow and left-to-right cleanup follow
+the existing `CStrError` contract. The temporary never becomes a Plenty pointer.
+
+A Plenty-only `&mut i32 as errno` output captures the calling thread's native
+C error immediately after native return, before any adapter cleanup. Conversion
+failure leaves it unchanged; wrappers retain responsibility for interpreting the
+native status and whether errno is meaningful. Existing scalar return ABIs and
+worker certification remain intact. Windows support concerns CRT errno, not
+`GetLastError` or a separate foreign CRT. Neither operation adds arbitrary pointer
+dereference, retained pointers or C record support. See the
+[adapter contracts](../design/facilities/04-interop/borrowing-text.md).

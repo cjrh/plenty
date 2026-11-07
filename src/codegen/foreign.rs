@@ -37,7 +37,10 @@ impl Lowerer<'_, '_> {
                 Argument::Utf8 => signature
                     .params
                     .extend([AbiParam::new(PTR_TY), AbiParam::new(types::I64)]),
-                Argument::CString => signature.params.push(AbiParam::new(PTR_TY)),
+                Argument::CString | Argument::CStrings => {
+                    signature.params.push(AbiParam::new(PTR_TY))
+                }
+                Argument::Errno => {}
                 Argument::Strided => signature.params.extend([
                     AbiParam::new(PTR_TY),
                     AbiParam::new(types::I64),
@@ -55,6 +58,7 @@ impl Lowerer<'_, '_> {
         let address = address_index.map(|index| arguments[index]);
         let mut native_arguments = Vec::new();
         let mut buffers = Vec::new();
+        let mut errno_output = None;
         for (index, (argument, mode)) in arguments
             .into_iter()
             .zip(&declaration.arguments)
@@ -70,6 +74,7 @@ impl Lowerer<'_, '_> {
             };
             match mode {
                 Argument::Direct => native_arguments.push(argument),
+                Argument::Errno => errno_output = Some(argument),
                 Argument::Strided if matches!(sig.inputs[index].1, Ty::View(..)) => {
                     // Byte views already carry their borrowed address and count.
                     let (data, length) = self.bcx.ins().isplit(argument);
@@ -93,7 +98,10 @@ impl Lowerer<'_, '_> {
                         native_arguments.push(self.bcx.inst_results(call)[0]);
                     }
                 }
-                Argument::Utf8 | Argument::CString => {
+                Argument::Utf8 | Argument::CString | Argument::CStrings => {
+                    // Both borrowed strings and lists hold their owner in the
+                    // first word. CStrings returns a private text-header owner
+                    // solely for release; its packed bytes are never text.
                     let text = self
                         .bcx
                         .ins()
@@ -120,8 +128,13 @@ impl Lowerer<'_, '_> {
                         native_arguments.push(self.bcx.ins().select(inline, inline_len, raw));
                         continue;
                     }
-                    let text = if *mode == Argument::CString {
-                        let converted = self.collection_call(118, &[text], None)?;
+                    let text = if matches!(mode, Argument::CString | Argument::CStrings) {
+                        let opcode = if *mode == Argument::CStrings {
+                            crate::collection_opcodes::C_STRINGS
+                        } else {
+                            118
+                        };
+                        let converted = self.collection_call(opcode, &[text], None)?;
                         let failed = self.sum_tag(converted);
                         let failure = self.bcx.create_block();
                         let ready = self.bcx.create_block();
@@ -160,6 +173,18 @@ impl Lowerer<'_, '_> {
             self.bcx.ins().call(callee, &native_arguments)
         };
         let result = self.bcx.inst_results(call).first().copied();
+        if let Some(output) = errno_output {
+            // This must be the first call after native return: releases and
+            // adapter cleanup may invoke native code and change errno.
+            let callee = self
+                .module
+                .declare_func_in_func(self.runtime.ffi_errno, self.bcx.func);
+            let capture = self.bcx.ins().call(callee, &[]);
+            let error = self.bcx.inst_results(capture)[0];
+            self.bcx
+                .ins()
+                .store(MemFlagsData::trusted(), error, output, 0);
+        }
         for buffer in buffers {
             self.release(buffer, &Ty::Str);
         }
