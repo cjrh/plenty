@@ -123,9 +123,75 @@ f(&amp;s[a:b])</code></pre></td>
 <td>No</td>
 <td>A substring view is <code>&amp;substr</code>, not <code>&amp;str</code>. Use a <code>&amp;substr</code> parameter, or create an owned slice with <code>s[a:b]?</code> and lend it to the call.</td>
 </tr>
+<tr>
+<td><pre><code class="language-plenty">def f(val: &amp;substr) -&gt; ():
+    ...
+&#10;s: str
+f(s)</code></pre></td>
+<td>No</td>
+<td>An owned binding is not implicitly converted to a substring view. Write <code>f(&amp;s)</code> to borrow the whole string.</td>
+</tr>
+<tr>
+<td><pre><code class="language-plenty">def f(val: &amp;substr) -&gt; ():
+    ...
+&#10;s: str
+f(&amp;s)</code></pre></td>
+<td>Yes</td>
+<td>Converts the whole string borrow to a view; no text copy, retain, or allocation.</td>
+</tr>
+<tr>
+<td><pre><code class="language-plenty">def f(val: &amp;substr) -&gt; ():
+    ...
+&#10;s: str
+r = &amp;s
+f(r)</code></pre></td>
+<td>Yes</td>
+<td>Converts the existing <code>&amp;str</code> to a view of the whole string; no text copy, retain, or allocation.</td>
+</tr>
+<tr>
+<td><pre><code class="language-plenty">def f(val: &amp;substr) -&gt; ():
+    ...
+&#10;f("hello")</code></pre></td>
+<td>Yes</td>
+<td>Borrows the whole literal as a view; no text copy, retain, or allocation.</td>
+</tr>
+<tr>
+<td><pre><code class="language-plenty">def f(val: &amp;substr) -&gt; ():
+    ...
+&#10;s: str
+f(&amp;s[a:b])</code></pre></td>
+<td>Yes</td>
+<td>Borrows just the selected text; no text copy, retain, or allocation. Finding scalar bounds may scan the text.</td>
+</tr>
+<tr>
+<td><pre><code class="language-plenty">def f(val: &amp;substr) -&gt; ():
+    ...
+&#10;s: str
+v = &amp;s[a:b]
+f(v)</code></pre></td>
+<td>Yes</td>
+<td>Reborrows the existing substring view; no text copy, retain, or allocation.</td>
+</tr>
+<tr>
+<td><pre><code class="language-plenty">def f(val: &amp;substr) -&gt; ():
+    ...
+&#10;def make_text() -&gt; str:
+    ...
+&#10;f(&amp;make_text())</code></pre></td>
+<td>Yes</td>
+<td>Borrows the returned string as a whole view. The temporary owner lives through the call. View conversion adds no text copy, retain, or allocation; producing the string has its own costs.</td>
+</tr>
 </tbody>
 </table>
 </div>
+
+A `&substr` parameter is the most general borrowed text interface among these
+three types: it accepts whole strings and substring views. Use it when its
+supported operations are sufficient. It currently has fewer operations than
+`&str`: for example, it supports `find`, but not `rfind`, `strip`, or `upper`.
+See [substring views](../../language/04-expressions/slices.md#substring-views)
+for the complete operation list. A view does not provide an owning string
+handle; use `val[:]?` when an owned copy is needed.
 
 An owning `str` parameter can be returned or stored independently of the
 caller's binding. A `&str` parameter lends access; obtaining an owned string
@@ -134,11 +200,13 @@ from it requires a value copy such as `*value`. See
 [returned references](../../language/05-ownership/04-returned-references.md).
 
 **Efficiency note:** For a heap-backed string, an owning copy can require an
-atomic reference-count increment and a later release. Borrowing as `&str`
-avoids that ownership bookkeeping. Tiny inline strings and literals need no
+atomic reference-count increment and a later release. Borrowing as `&str` or
+`&substr` avoids that ownership bookkeeping. Tiny inline strings and literals need no
 reference counting, and compiler optimizations can eliminate unnecessary
-retains and releases. Prefer `&str` parameters when a function only reads text;
-use `str` when it needs an owning value, for example to keep it after the call.
+retains and releases. Prefer `&substr` when its supported operations suffice
+and the function should accept both whole strings and substrings; use `&str`
+when it needs the full string operations. Use `str` when it needs an owning
+value, for example to keep it after the call.
 References can introduce indirection, so they are not guaranteed to be faster
 in every case; measure when the cost matters.
 
