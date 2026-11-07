@@ -170,10 +170,12 @@ are recorded there.
   managed fields, records over 192 bytes and tuple release plans. Measure inline
   copies beyond current runtime-copy paths; owned temporaries and nonscalar list
   rows still use runtime helpers. [Flat-layout rationale](proposals/completed/flat-class-layout.md).
-  Box size (issue #814): a box's class-record slot still keeps a value word that
-  only addresses the record after it, and `Option[Box[T]]` keeps a tag word
-  rather than a null niche; dropping both would take a binary-trees node from a
-  96-byte malloc chunk to 64 (C: 32). A size-class free list for fixed-size boxes
+  Box size (issue #814): a plain box of a class stores its record flat, so a
+  binary-trees node is an 80-byte malloc chunk (C: 32). `Option[Box[T]]` still
+  keeps a tag word rather than a null niche; a niche needs 8-byte sum slots
+  rather than uniform 16-byte ones and would make the node a 64-byte chunk. The
+  box's descriptor and padding words (16 bytes) could move to a per-type
+  allocation or a tagged header. A size-class free list for fixed-size boxes
   is unmeasured.
 - **Serial frontend efficiency:** module-scope name hashing, builtin-sum
   interning and `Ty`/nominal-handle clone traffic (about 10% of check samples with

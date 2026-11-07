@@ -37,8 +37,11 @@ all-zero flat record is an empty field, so moving a field out zeroes its bytes
 and releasing an empty field does nothing. The rule has these exceptions, which
 keep the slot word followed by the record:
 
-- top-level class values (locals, list elements, boxes, captures), because
+- top-level class values (locals, list elements, captures), because
   runtime operations and sum payloads receive one 128-bit value;
+- a protocol box (`Box[P](value)`) of a class, whose adapters receive the
+  content slot without its type. A plain `Box[T]` of such a class stores the
+  record flat after the box's descriptor and padding words (issue #814);
 - the payload of a single-field variant, such as `Some(point)` or
   `Ok(point)`, which is that one 128-bit value with the sum's tags stacked in
   its high word: the record follows it, and moving the sum fixes only that
