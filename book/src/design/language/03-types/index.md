@@ -7,11 +7,14 @@ as `b"\x89PNG"`. There is no built-in `int`; use a width or a
 inference and explicit conversions rather than implicit widening.
 
 The unit type `()` denotes completion without data. It can be an expression,
-function result, or enum or tuple component, including `Option[()]` and
-`Result[(), E]`. Standalone unit bindings, parameters, collection elements, and
-class fields are unsupported. A reference to unit, `&()` or `&mut ()`, is an
-ordinary reference: borrowed unit payloads have this type, and a `&()` parameter
-lends a unit argument like any other temporary. There is no `None` type or value.
+function result, enum or tuple component, a type argument to a builtin type
+such as `Option[()]`, `Result[(), E]` or `SendError[()]`, or a
+[channel message type](../../facilities/03-concurrency/channels.md#unit-messages).
+Unsupported uses are a by-value unit parameter, a unit binding, a collection
+element, a class field, and a unit type argument to a user-defined generic enum
+or class, such as `std.sync.SendBeforeError[()]`. A reference to unit, `&()`
+or `&mut ()`, is an ordinary reference: borrowed unit payloads have this type,
+and a `&()` parameter lends a unit argument like any other temporary. There is no `None` type or value.
 
 [Tuples](tuples.md) are structural products. [Classes](classes.md) and
 [enums](enums.md) are nominal: identical fields or payloads do not make separately

@@ -155,3 +155,44 @@ fn receiving_copies_inline_ranges_before_reusing_the_slot() {
     release(sender);
     release(receiver);
 }
+
+#[test]
+fn unit_messages_store_nothing_per_slot() {
+    static UNIT: Type = Type {
+        kind: b'u',
+        name: "()",
+        ..NUMBER
+    };
+    let (sender, receiver) = create(&UNIT, 1 << 20).unwrap();
+    let channel = unsafe { core(sender) };
+    // A million-message capacity costs no ring words: the count is the queue.
+    assert_eq!((channel.stride, channel.words), (0, 0));
+    let mut out = 1u128;
+    unsafe {
+        assert_eq!(send(sender, 0, false), 0);
+        assert_eq!(send(sender, 0, true), 0);
+        recv(receiver, false, &mut out);
+        assert_eq!(out, 0); // Ok(())
+    }
+    release(sender);
+    unsafe {
+        recv(receiver, false, &mut out);
+        assert_eq!(out, 0);
+        recv(receiver, false, &mut out);
+        assert_eq!(out, aggregates::wrap(aggregates::wrap(0, 1), 1));
+    }
+    release(receiver);
+
+    // Dropping the receiver with queued unit messages releases no slots.
+    let (sender, receiver) = create(&UNIT, 2).unwrap();
+    unsafe {
+        assert_eq!(send(sender, 0, false), 0);
+        assert_eq!(send(sender, 0, false), 0);
+        assert_eq!(
+            send(sender, 0, true),
+            aggregates::wrap(aggregates::wrap(0, 0), 1)
+        );
+    }
+    release(receiver);
+    release(sender);
+}
