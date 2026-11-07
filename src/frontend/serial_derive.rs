@@ -160,7 +160,6 @@ pub(super) fn class(
         } else if output.name.as_deref() == Some("Result")
             && output.args.len() == 2
             && output.args[0].name.is_none()
-            && output.args[1].name.as_deref() == Some("std.serial.Fault")
         {
             true
         } else {
@@ -253,6 +252,10 @@ pub(super) fn class(
         source.push_str("                    case _:\n                        SER.at(SER.wrap(source.unknown_key(&name)), SER.Step.Field(name))?\n");
     }
     source.push_str("            case Nothing:\n                break\n");
+    // Constructor temporaries are only needed after recursive decoding has
+    // returned. Keep them in a separate ordinary checked function rather than
+    // retaining their native stack frame at every recursive member.
+    let mut construction = String::new();
     let mut args = vec![];
     for &i in &order {
         let name = &c.fields[i].0;
@@ -270,12 +273,45 @@ pub(super) fn class(
     let ctor = format!("OwnerType({})", args.join(", "));
     if fallible {
         writeln!(
-            source,
+            construction,
             "    SER.constructed[OwnerType, ErrType, Adapter]({ctor}, source)"
         )
         .unwrap();
     } else {
-        writeln!(source, "    Ok({ctor})").unwrap();
+        writeln!(construction, "    Ok({ctor})").unwrap();
+    }
+    if c.fields.is_empty() {
+        source.push_str(&construction);
+    } else {
+        let helper = format!("$serial_construct_{}", c.name);
+        names.push(("ConstructOwner".into(), helper));
+        let tys = (0..c.fields.len())
+            .map(|i| format!("Option[FieldType{i}]"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let mut function = parsed(
+            &format!(
+                "def ConstructOwner[ErrType, Adapter: SER.Decoder[ErrType]](slots: &mut ({tys},), source: &Adapter) -> Result[OwnerType, SER.SerialError[ErrType]]:\n{construction}"
+            ),
+            None,
+            &c.at,
+            &names,
+            &types,
+        )?;
+        let mut parameters = c.type_params.clone();
+        parameters.append(&mut function.type_params);
+        function.type_params = parameters;
+        helpers.push(function);
+        let mut arguments = (0..c.type_params.len())
+            .map(|i| format!("OwnerParam{i}"))
+            .collect::<Vec<_>>();
+        arguments.extend(["ErrType".into(), "Adapter".into()]);
+        writeln!(
+            source,
+            "    ConstructOwner[{}](&mut slots, source)",
+            arguments.join(",")
+        )
+        .unwrap();
     }
     c.derived_decode = true;
     let mut generated = hook(&source, &c.name, &c.type_params, &c.at, &names, &types)?;
@@ -468,6 +504,17 @@ pub(super) fn constructor_matches(ty: &Ty, aliases: &TypeAliases) -> Result<bool
         .map(|(name, _)| name.clone())
         .zip(arguments.iter().map(|t| t.reference(&init.at)))
         .collect();
+    let mut output = init.output.clone();
+    generics::substitute(&mut output, &substitutions)?;
+    if let Some(output) = output.resolve(aliases)? {
+        let fault = type_ref(&init.at, "std.serial.Fault").resolve(aliases)?;
+        if !matches!(output, Ty::Enum(ref result) if result.is_result()
+            && result.get().variants[0].fields == [Ty::Unit]
+            && Some(&result.get().variants[1].fields[0]) == fault.as_ref())
+        {
+            return Ok(false);
+        }
+    }
     let definition = class.get();
     for (name, written) in init.inputs.iter().skip(1) {
         let Some((_, field)) = definition.fields.iter().find(|(n, _)| n == name) else {

@@ -599,8 +599,46 @@ fn missing_nested_hook_diagnostic_names_the_offending_field() {
         "drop(std.json.dump(&Config(Plain()), &std.json.limits()))",
         "drop(std.json.load[Config](b\"{}\", &std.json.codec_options()))",
     ] {
-        let source = format!("import std.json\nclass Plain:\n    pass\n@serial\nclass Config:\n    secret: Plain\ndef main() -> ():\n    {operation}\n");
+        let source = format!(
+            "import std.json\nclass Plain:\n    pass\n@serial\nclass Config:\n    secret: Plain\ndef main() -> ():\n    {operation}\n"
+        );
         let error = support::check_error(&source);
         assert!(error.contains("Config.secret"), "{error}");
     }
+}
+
+#[test]
+fn generic_constructor_error_domain_is_checked_at_specialization() {
+    support::assert_stdout(
+        r#"
+import std.json
+import std.serial
+@serial
+class Config[E]:
+    value: i64
+    def __init__(self, value: i64 = 7) -> Result[(), E]:
+        self.value = value
+        Ok(())
+def main() -> Result[(), AllocError | IoError]:
+    options = std.json.codec_options()
+    value = std.json.load[Config[std.serial.Fault]](b"{}", &options).unwrap()
+    print(value.value)?
+    Ok(())
+"#,
+        "7\n",
+    );
+    let error = support::check_error(
+        r#"
+import std.json
+@serial
+class Config[E]:
+    value: i64
+    def __init__(self, value: i64) -> Result[(), E]:
+        self.value = value
+        Ok(())
+def main() -> ():
+    drop(std.json.load[Config[AllocError]](b"{}", &std.json.codec_options()))
+"#,
+    );
+    assert!(error.contains("private __decode__"), "{error}");
 }
