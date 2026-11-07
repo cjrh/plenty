@@ -54,6 +54,11 @@ pub enum ThreadOp {
     /// std.actor: pop an owned value without releasing it; its actor heap is
     /// discarded as a whole.
     Forget(Ty),
+    /// A parallel pipeline's chunk jobs take items of this type from the
+    /// caller's list in place, or borrow them when `true`. The chunks cross
+    /// as integers, so this marker is the items' root for `check`; it emits
+    /// no code.
+    Rows(Ty, bool),
 }
 
 impl Task {
@@ -83,6 +88,14 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
             let mut types = task.inputs.clone();
             types.push(task.output.clone());
             roots.push(("worker", vec![task.worker.clone()], moved(types)));
+        }
+        if let Op::Thread(ThreadOp::Rows(item, borrowed)) = op {
+            let reach = if *borrowed { Reach::Lent } else { Reach::Moved };
+            roots.push((
+                "parallel pipeline items",
+                vec![],
+                vec![(item.clone(), reach)],
+            ));
         }
         if let Op::Channel(operation) = op {
             let (mut types, output) = operation.signature();
@@ -277,7 +290,8 @@ fn path(
 
 /// How a value of a pending type reaches worker code. Only `Shareable`
 /// opaque values may be copied, borrowed or `Shared` across threads; a
-/// `Movable` one crosses only as a field of an owning class moved there.
+/// `Movable` one crosses only as a field of an owning class moved there,
+/// which `copy(x)` must reject.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Reach {
     /// Held by worker code itself: an inspected signature or local. Any value
@@ -285,7 +299,7 @@ enum Reach {
     Local,
     /// Moved to the worker, or into a channel.
     Moved,
-    /// A field of a non-`@copy` class value that was moved.
+    /// A field of a moved class value that cannot be copied.
     Field,
     /// Copied, borrowed or shared, so another thread may still use it.
     Lent,
@@ -329,7 +343,7 @@ fn check_type(
                 return Err(format!("{ty} has no thread contract; worker code may hold an opaque value only if its .plentyi declaration is `@thread_movable` or `@thread_shareable`"))
             }
             (Threads::Movable, Reach::Moved | Reach::Lent) => {
-                return Err(format!("{ty} is `@thread_movable`, not `@thread_shareable`: it may cross threads only as a field of a non-`@copy` class moved there, not copied, borrowed or `Shared`"))
+                return Err(format!("{ty} is `@thread_movable`, not `@thread_shareable`: it may cross threads only as a field of a moved class value that `copy(x)` rejects, such as an owner with `__del__`; not copied, borrowed or `Shared`"))
             }
             _ => {}
         },
@@ -353,13 +367,18 @@ fn check_type(
         | Ty::View(t, _)
         // The last owner can drop on any holder's thread, so the content's
         // destructors are certified as if every holder could run them.
-        | Ty::Shared(t) => types.push(((**t).clone(), lent)),
+        | Ty::Shared(t)
+        // Local-only projections and iterator tokens cannot reach a worker
+        // today; walked as borrows in case one ever does.
+        | Ty::KeyView(t)
+        | Ty::DictView(t, _)
+        | Ty::Iter(t, _) => types.push(((**t).clone(), lent)),
         // Messages move through the queue whichever handle reached it.
         Ty::Channel(t, _) => types.push((
             (**t).clone(),
             if reach == Reach::Local { Reach::Local } else { Reach::Moved },
         )),
-        Ty::Clist(t) | Ty::List(t) | Ty::Set(t) | Ty::Range(t) | Ty::Box(t) => {
+        Ty::Clist(t) | Ty::List(t) | Ty::Set(t) | Ty::Range(t) | Ty::Box(t) | Ty::Atomic(t) => {
             types.push(((**t).clone(), within))
         }
         Ty::Dict(k, v) => types.extend([((**k).clone(), within), ((**v).clone(), within)]),
@@ -370,8 +389,9 @@ fn check_type(
                 // A lock makes its holder the value's only accessor.
                 _ if crate::mutex::class(ty).is_some() => Reach::Moved,
                 Reach::Lent => Reach::Lent,
-                // A copy leaves the original fields behind.
-                _ if t.copy => Reach::Lent,
+                // A copy leaves the original fields behind. `copy(x)` accepts
+                // any class without a destructor, not only `@copy` ones.
+                _ if t.copy || ty.copy_facts().copyable => Reach::Lent,
                 Reach::Moved | Reach::Field => Reach::Field,
             };
             types.extend(t.fields.iter().map(|(_, t)| (t.clone(), fields)));

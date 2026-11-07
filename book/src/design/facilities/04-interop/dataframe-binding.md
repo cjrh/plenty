@@ -103,9 +103,17 @@ which is why the engine-side bounds and the audit below matter.
 
 ## Own every pointer in one class
 
-Each raw type has one private owner class that is not `@copy`. Its field holds
-the only copy of the pointer, and `__del__` releases it. Release functions
-accept null, so an owner whose construction failed releases nothing.
+Each raw type has one owner class whose private field holds the only copy of
+the pointer, and `__del__` releases it. Release functions accept null, so an
+owner whose construction failed releases nothing. The destructor also makes
+`copy(x)` reject the owner, which is the form the compiler accepts for a
+`@thread_movable` field crossing threads.
+
+Keep the `opaque` declarations private, as `std.dataframe` does, and the
+pointers behind private owner fields. The compiler checks the type a pointer
+crosses in, not how many owners hold it; privacy is what confines the code
+that could copy a pointer into a second owner to the binding module, where
+the audit below covers it.
 
 ```plenty fragment
 pub class DataFrame:
@@ -145,7 +153,7 @@ On every error path the builder has not been finished, and its `__del__` frees
 it. After `finish` nothing can fail, so no path leaks or double-frees.
 
 A `@thread_movable` builder may only cross threads as a field of a moved
-owner. The facade never lets one escape, but the contract keeps a future
+owner that `copy(x)` rejects. The facade never lets one escape, but the contract keeps a future
 change honest: sharing a builder is a compile error.
 
 ## Audit each call

@@ -112,20 +112,27 @@ share, so the contracts differ in how a value may cross:
 | Contract | Like Rust | Worker code may hold it | It may cross threads |
 |---|---|---|---|
 | none | | never | never |
-| `@thread_movable` | `Send` | yes | only as a field of a non-`@copy` class value moved there |
+| `@thread_movable` | `Send` | yes | only as a field of a moved class value that `copy(x)` rejects |
 | `@thread_shareable` | `Send + Sync` | yes | in any form: copied, moved, borrowed, in `Shared` or a channel |
 
 The rules have no exceptions:
 
-- A `@thread_movable` pointer that is copied, borrowed, put in `Shared`, sent
-  as a bare message or held in a `@copy` class is rejected where it crosses.
-  A [`Mutex`](../03-concurrency/mutex.md) guarding the owner restores the moved
-  form, as Rust's `Mutex<T>` needs only `T: Send`.
+- A `@thread_movable` type is rejected in the form a value crosses in when
+  that form is a copy, a borrow, a `Shared` value, a bare message, or a class
+  value that `copy(x)` accepts: any `@copy` class, and any class with no
+  destructor anywhere in it. A [`Mutex`](../03-concurrency/mutex.md) guarding
+  the owner restores the moved form, as Rust's `Mutex<T>` needs only `T: Send`.
+- Items of a [parallel pipeline](../../language/09-iteration/06-pipelines.md#parallel-pipelines) cross as
+  `pool.map` inputs do: an owned source list moves them to the chunk jobs and
+  a borrowed one lends them.
 - `@thread_shareable` already includes `@thread_movable`; writing both is an error.
-- Every `extern def` that takes or returns a marked type, directly or through
-  a borrow, must be `@thread_safe`. Worker code can call anything that
-  accepts a value it holds, including the release function an owner's
-  `__del__` calls.
+- Every `extern def` with a C symbol that takes or returns a marked type,
+  directly, through a borrow or as the success value of a `c_string`
+  adapter's `Result`, must be `@thread_safe`. Worker code can call anything
+  that accepts a value it holds, including the release function an owner's
+  `__del__` calls. A function-address declaration (`= function`) cannot be
+  `@thread_safe` and needs no annotation: worker code may never make that
+  call.
 - An unmarked type keeps its unrestricted single-thread bindings.
 
 Destructors are checked as for scalar owners: a worker that moves, receives
@@ -140,10 +147,14 @@ Mark a type `@thread_movable` only if every pointee:
   library context bound to its creating thread;
 - shares no unsynchronized mutable state with other pointees.
 
-Then keep the pointer in a private field of one owner class that is not
-`@copy`, holds the only copy and releases it in `__del__`. The compiler checks
-the class, not this uniqueness: an owner that also stores the pointer
-elsewhere breaks the promise.
+Then keep the pointer in a private field of one owner class that holds the
+only copy and releases it in `__del__`. The compiler checks only the type a
+value crosses in: that the pointer is inside a moved class value that
+`copy(x)` rejects. It does not check that the field is private, that this
+class's own `__del__` releases the pointer, or that no other value holds a
+copy of it. Plenty code that copies the pointer into a second owner breaks the
+promise without a diagnostic, so keep the `opaque` declaration and the code
+that builds owners private to the binding module.
 
 Mark a type `@thread_shareable` only if, in addition, any number of threads
 may call every declared function on the same pointee at once. The rule for

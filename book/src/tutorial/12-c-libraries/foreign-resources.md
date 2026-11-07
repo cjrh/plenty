@@ -135,8 +135,8 @@ def main() -> Result[(), IoError | SpawnError[()]]:
 6
 ```
 
-A movable pointer crosses only inside an owner like `Scratch`: a class that is
-not `@copy` and holds the only copy. Passing the bare `RawFile`, borrowing the
+A movable pointer crosses only inside an owner like `Scratch`: a class that
+holds the only copy and has a `__del__`, so `copy(x)` rejects it. Passing the bare `RawFile`, borrowing the
 owner or putting it in `Shared` is rejected, because a copy left behind would
 let two threads use one stream. Mark a type `@thread_shareable` only when any
 number of threads may use one pointee at once and no declared call writes

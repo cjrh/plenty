@@ -95,26 +95,6 @@ pub(super) fn check_signature(f: &Function, inputs: &[(String, Ty)], output: &Ty
             return Err(f.at.error(format!("`{ty}` has no supported C ABI for {mode:?}; text adapters require &str, raw pointers require scalars or opaque types")));
         }
     }
-    // Worker code may hold a marked value and so may call anything that
-    // takes it, including the release function its owner's `__del__` calls.
-    let marked = |ty: &Ty| {
-        let ty = match ty {
-            Ty::Ref(inner, _) => inner.as_ref(),
-            ty => ty,
-        };
-        matches!(ty, Ty::ForeignPtr(_, threads) if *threads != crate::foreign::Threads::None)
-    };
-    if !declaration.thread_safe
-        && let Some(ty) = inputs
-            .iter()
-            .map(|(_, ty)| ty)
-            .chain(output.iter())
-            .find(|ty| marked(ty))
-    {
-        return Err(f.at.error(format!(
-            "C function taking or returning `{ty}` must be `@thread_safe`: its opaque type has a thread contract, so worker code may call it"
-        )));
-    }
     let output = if declaration.fallible() {
         let Some(Ty::Enum(t)) = output else {
             return Err(f.at.error(
@@ -133,6 +113,29 @@ pub(super) fn check_signature(f: &Function, inputs: &[(String, Ty)], output: &Ty
     } else {
         output.as_ref()
     };
+    // Worker code may hold a marked value and so may call anything that
+    // takes it, including the release function its owner's `__del__` calls.
+    // A function-address call has no symbol to certify; `threading::inspect`
+    // rejects it in worker code instead.
+    let marked = |ty: &Ty| {
+        let ty = match ty {
+            Ty::Ref(inner, _) => inner.as_ref(),
+            ty => ty,
+        };
+        matches!(ty, Ty::ForeignPtr(_, threads) if *threads != crate::foreign::Threads::None)
+    };
+    if !declaration.thread_safe
+        && declaration.symbol().is_some()
+        && let Some(ty) = inputs
+            .iter()
+            .map(|(_, ty)| ty)
+            .chain(output)
+            .find(|ty| marked(ty))
+    {
+        return Err(f.at.error(format!(
+            "C function taking or returning `{ty}` must be `@thread_safe`: its opaque type has a thread contract, so worker code may call it"
+        )));
+    }
     if let Some(ty) = output
         && *ty != Ty::Unit
         && !scalar(ty)

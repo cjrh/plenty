@@ -247,6 +247,7 @@ fn step(
                     return Err("invalid forgotten value".into());
                 }
             }
+            crate::threading::ThreadOp::Rows(..) => {}
         },
         Op::Try {
             source,

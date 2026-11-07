@@ -23,8 +23,8 @@ pub enum Target {
 /// an annotation on its `opaque` declaration. Opaque values copy, so a copy
 /// that leaves the thread is a share: only `Shareable` values may cross by
 /// copy, borrow or `Shared`. A `Movable` value crosses only as a field of a
-/// non-`@copy` class moved there, whose author promises the field holds the
-/// only copy. See
+/// moved class value that `copy(x)` rejects, whose author promises the field
+/// holds the only copy. See
 /// book/src/design/facilities/04-interop/trusted-declarations.md#opaque-types-on-worker-threads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Threads {
