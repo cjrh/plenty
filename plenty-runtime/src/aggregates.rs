@@ -868,6 +868,25 @@ pub(crate) fn slice_positions(
     (first as usize, step, count as usize)
 }
 
+/// `list.insert`'s position: one of `0..=len`, with negative indices counted
+/// from the end as other list indices are. Anything else traps (issue #798).
+pub(crate) fn insertion_index(index: i64, len: usize, site: *const crate::Site) -> usize {
+    let i = if index < 0 {
+        index as i128 + len as i128
+    } else {
+        index as i128
+    };
+    if (0..=len as i128).contains(&i) {
+        i as usize
+    } else {
+        crate::fail_kind_at(
+            crate::actor_heap::TrapKind::Index,
+            site,
+            format_args!("list.insert: index {index} is out of range for length {len}"),
+        )
+    }
+}
+
 /// The `k`th position of a non-empty slice from `slice_positions`.
 pub(crate) fn slice_position(first: usize, step: i64, k: usize) -> usize {
     (first as i128 + k as i128 * step as i128) as usize
@@ -1255,6 +1274,20 @@ impl Collection {
             stored
         }
     }
+    /// `list.insert`: store the owned element at `index`, an insertion
+    /// position already checked against the length, shifting later rows with
+    /// one move. Growth is geometric, as for `append`; a failed reservation
+    /// drops the element once and leaves the list unchanged (issue #798).
+    unsafe fn try_insert_at(&mut self, index: usize, key: u128) -> Result<(), AllocError> {
+        unsafe {
+            if let Err(error) = self.try_reserve(self.growth()) {
+                release(key, self.ty().key());
+                return Err(error);
+            }
+            self.entries.insert(index, Entry { key, value: 0 });
+            Ok(())
+        }
+    }
     /// Insert owned operands without adjusting their ownership.
     unsafe fn try_store(&mut self, key: u128, value: u128) -> Result<(), AllocError> {
         unsafe {
@@ -1330,23 +1363,26 @@ impl Collection {
             slot
         }
     }
+    /// Rows to reserve before adding one: geometric growth when full, without
+    /// making explicit reserve speculative.
+    fn growth(&self) -> usize {
+        if self.entries.len() == self.entries.capacity() {
+            self.entries
+                .len()
+                .max(4)
+                .min(
+                    (isize::MAX as usize / self.entries.row_bytes())
+                        .saturating_sub(self.entries.len()),
+                )
+                .max(1)
+        } else {
+            1
+        }
+    }
     /// Append owned operands for a key `locate` missed, and return the row.
     unsafe fn try_add(&mut self, key: u128, value: u128, slot: Slot) -> Result<usize, AllocError> {
         unsafe {
-            let additional = if self.entries.len() == self.entries.capacity() {
-                // Geometric growth without making explicit reserve speculative.
-                self.entries
-                    .len()
-                    .max(4)
-                    .min(
-                        (isize::MAX as usize / self.entries.row_bytes())
-                            .saturating_sub(self.entries.len()),
-                    )
-                    .max(1)
-            } else {
-                1
-            };
-            self.try_reserve(additional)?;
+            self.try_reserve(self.growth())?;
             if slot.hashed {
                 // Reservation either leaves the table untouched, keeping the
                 // probed bucket empty, or rebuilds it strictly larger.
@@ -2603,7 +2639,7 @@ operation_entries! {
     73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99
     100 101 102 103 104 105 106 107 110 111 112 113 114 117 118 119 120 121 122 123 124
     125 126 127 128 129 130 131 132 133 134 135 136 137 140 166 167 366 510 511 580 581 582
-    583 584 585 590 591 592 593 594 595 596 597 598 599 600 601
+    583 584 585 590 591 592 593 594 595 596 597 598 599 600 601 602
 }
 // `std.bytes` storage and single-call byte transport.
 operation_entries! {
@@ -2917,6 +2953,16 @@ pub(crate) unsafe fn collection_at(
                     })
                 };
                 c.entries.slot(position, c.ty().kind != b'L') as u128
+            }
+            // `list.insert`: the position is checked before any reservation,
+            // so an out-of-range index traps with the list unchanged.
+            LIST_INSERT => {
+                let c = &mut *(a as *mut Collection);
+                let position = insertion_index(b as i64, c.entries.len(), site);
+                match c.try_insert_at(position, value) {
+                    Ok(()) => wrap(0, 0),
+                    Err(error) => wrap(wrap(0, error as u64), 1),
+                }
             }
             // `dict.get_or_insert`: Ok(the value slot's address) or Err(AllocError).
             // A hit sets the high word to `GET_OR_INSERT_HIT`, which generated

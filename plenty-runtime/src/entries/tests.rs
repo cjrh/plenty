@@ -200,6 +200,22 @@ fn push(entries: &mut Entries, number: u128) {
     unsafe { entries.push(Entry { key, value: 0 }) };
 }
 
+fn insert(entries: &mut Entries, index: usize, number: u128) {
+    let range = Range::new(number as u64, number as u64 + 3, 1, false);
+    let mut record = [0; 3];
+    // SAFETY: as for `push`.
+    unsafe {
+        ranges::store(record.as_mut_ptr(), &range as *const Range as u128, &RANGE);
+    }
+    let key = match entries.key.kind {
+        b'R' => &range as *const Range as u128,
+        b'C' => record.as_ptr() as u128,
+        _ => number,
+    };
+    // SAFETY: as for `push`.
+    unsafe { entries.insert(index, Entry { key, value: 0 }) };
+}
+
 fn filled(ty: &'static Type, count: usize) -> Entries {
     let mut entries = Entries::new(ty, None);
     entries.try_reserve(count).unwrap();
@@ -451,6 +467,42 @@ fn non_tail_removal_repairs_suffix_and_extraction_scratch() {
             let removed = unsafe { entries.remove(entries.len() - 1) };
             assert_eq!(number(removed, ty), 4);
             assert_addresses(&entries, entries.len(), removed);
+        }
+    }
+}
+
+/// `list.insert` (issue #798): the row lands at its position, later rows
+/// shift intact, and every inline address points into its own row, including
+/// after a removal left extraction scratch behind.
+#[test]
+fn insertion_shifts_later_rows_and_repairs_inline_addresses() {
+    for ty in [&INTEGER, &RANGE, &NESTED] {
+        for index in 0..=4 {
+            let mut entries = filled(ty, 4);
+            entries.try_reserve(1).unwrap();
+            insert(&mut entries, index, 99);
+            assert_eq!(entries.len(), 5);
+            for (i, entry) in entries.iter().enumerate() {
+                let expected = match i.cmp(&index) {
+                    Ordering::Less => i as u128,
+                    Ordering::Equal => 99,
+                    Ordering::Greater => i as u128 - 1,
+                };
+                assert_eq!(number(entry, ty), expected);
+                assert_addresses(&entries, i, entry);
+            }
+        }
+        let mut entries = filled(ty, 4);
+        // SAFETY: the row is live; the fixtures retain no owners.
+        let removed = unsafe { entries.remove(1) };
+        assert_eq!(number(removed, ty), 1);
+        let capacity = entries.capacity();
+        insert(&mut entries, 0, 7);
+        assert_eq!(entries.capacity(), capacity);
+        let numbers: Vec<_> = entries.iter().map(|entry| number(entry, ty)).collect();
+        assert_eq!(numbers, [7, 0, 2, 3]);
+        for (i, entry) in entries.iter().enumerate() {
+            assert_addresses(&entries, i, entry);
         }
     }
 }
