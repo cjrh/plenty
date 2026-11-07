@@ -32,8 +32,9 @@ wait. Workers must return cooperatively, using bounded waits where needed.
 
 ## Typed deadline waits
 
-Prefer these waits when a caller supplies a total budget and cancellation.
-They borrow the handles, allocate nothing, and preserve the deadline across
+Use these waits for channels, futures and tokens in application code, and
+always in a loop that must stop on request: a worker, a long poll, or a server
+that drains on a signal. They borrow the handles, allocate nothing, and preserve the deadline across
 wakeups. `deadline` and `cancel` are the last two parameters.
 
 | Operation | Result |
@@ -61,7 +62,13 @@ wait, so a final slice can overrun by less than 1 ms. No deadline is restarted.
 Low-level millisecond methods have explicit unit names: `send_timeout_ms`,
 `recv_timeout_ms`, `wait_timeout_ms` on futures and tokens, and
 `select_recv_timeout_ms`. The original `_timeout` spellings remain compatibility
-aliases with the same millisecond units. They do not accept a separate token.
+aliases with the same millisecond units. They are
+[noncancellable](../facilities/03-concurrency/timed-selection.md): they accept
+no token, so a stop request waits for the whole budget. Only a token's own
+`wait_timeout_ms` ends early, when that token is cancelled. Do not pass a long
+budget to a channel, selection or future primitive where shutdown must be
+prompt; the [signal lesson](../../tutorial/11-concurrency/stop-on-signal.md#stop-a-long-wait-on-a-signal)
+stops an hour-long `select_recv_before` on `SIGTERM` instead.
 
 ## `Mutex[T]`
 

@@ -14,7 +14,7 @@ and linked module references own the current API contracts.
 | Locate per-user state | [std.fs.dirs](../../../../book/src/design/stdlib/fs/dirs.md): `state_dir`; returns an optional native-byte path, creates nothing, and has target/environment limits. |
 | Parse a submitted form | [std.http.body](../../../../book/src/design/stdlib/http-body.md): bounded `parse_form_text` and `read_form`. Parsing key/value pairs is distinct from deriving typed validation for a class. |
 | Preserve a partial I/O failure | [std.io](../../../../book/src/design/stdlib/io.md): `Partial` records completed work and the cause; it can be a member of an error union. [Typed streams](../../../../book/src/design/stdlib/io-typed.md) preserve a caller-chosen cause type. |
-| Stop a worker or bounded wait | [Cancellation](../../../../book/src/design/facilities/03-concurrency/cancellation.md), [std.sync](../../../../book/src/design/stdlib/sync.md) deadline wrappers and [std.ready](../../../../book/src/design/stdlib/ready.md) handle readiness. A token does not interrupt arbitrary blocking calls. |
+| Stop a worker or bounded wait | [Cancellation](../../../../book/src/design/facilities/03-concurrency/cancellation.md), [std.sync](../../../../book/src/design/stdlib/sync.md) deadline waits (`recv_before`, `select_recv_before`) and [std.ready](../../../../book/src/design/stdlib/ready.md) handle readiness. `_timeout_ms` waits are not cancellable. A token does not interrupt arbitrary blocking calls. |
 | Call native code from a worker | [Worker effects](../../../../book/src/design/facilities/03-concurrency/effects.md): a reachable foreign call, including from a destructor, is rejected unless its `extern def` is [`@thread_safe`](../../../../book/src/design/facilities/04-interop/trusted-declarations.md#worker-threads); opaque pointers stay ineligible. Standard helpers also undergo certification; they have no blanket exemption. |
 
 ## Verify the report
@@ -100,9 +100,15 @@ def main() -> Result[(), AllocError | SpawnError[()] | IoError]:
 stopped
 ```
 
-For channels/futures with a total budget, use the `std.sync` `*_before` helpers;
-for I/O handles, use `std.ready`. Their deadline and cancellation behavior is
-specified separately from this token delay. Never assume cancellation releases
+Any other wait in a loop that must stop on request takes the token too. For
+channels and futures, use the `std.sync` waits `recv_before`, `send_before`,
+`select_recv_before` and `future_before`; for I/O handles, use `std.ready` and
+the `_before` methods. They return `WaitError.Cancelled` after `cancel()`. Do
+not pick `recv_timeout_ms`, `send_timeout_ms`, `select_recv_timeout_ms` or a
+future's `wait_timeout_ms` for such a loop: these low-level waits take no token,
+so a long budget delays shutdown by that long. The
+[signal lesson](../../../../book/src/tutorial/11-concurrency/stop-on-signal.md#stop-a-long-wait-on-a-signal)
+stops an hour-long selection on `SIGTERM`. Never assume cancellation releases
 an unbounded child wait or foreign call.
 
 ## A confirmed worker restriction
