@@ -1099,9 +1099,8 @@ pub(super) fn file_graph(
     let graph = crate::project::SourceGraph {
         packages: vec![crate::project::SourcePackage {
             identity: String::new(),
-            directory: root.clone(),
+            directory: None,
             root,
-            assets: None,
             library: None,
             dependencies: vec![],
         }],
@@ -1174,51 +1173,52 @@ impl Loader {
                 )));
             }
             let joined = path.parent().unwrap_or(Path::new("")).join(relative);
-            let root = &self.packages[package].root;
-            let assets = self.packages[package].assets.as_ref();
             let file = joined
                 .canonicalize()
                 .map_err(|e| embed.at.error(format!("reading `{}`: {e}", embed.path)))?;
-            // Both directories are canonical, so `..` and symbolic links are
-            // judged by where the file really is.
-            if !file.starts_with(root) && !assets.is_some_and(|a| file.starts_with(a)) {
-                let allowed = match assets {
-                    Some(assets) => format!(
-                        "the source root {} and the package assets {}",
-                        root.display(),
-                        assets.display()
-                    ),
-                    None => format!("the source root {}", root.display()),
-                };
+            let includer = &self.packages[package];
+            let (boundary, kind) = match &includer.directory {
+                Some(directory) => (directory, "package directory"),
+                None => (&includer.root, "source root"),
+            };
+            // The boundary is canonical, so `..` and symbolic links are judged
+            // by where the file really is.
+            if !file.starts_with(boundary) {
                 return Err(embed.at.error(format!(
-                    "included path `{}` is outside {allowed}",
-                    embed.path
+                    "included path `{}` is outside the {kind} {}",
+                    embed.path,
+                    boundary.display()
                 )));
             }
-            // A package includes no file below another package's directory
-            // nested within its own source root or assets, as a workspace
-            // member at `assets/` is. A package and its `tests/` package share
-            // a directory, so neither blocks the other. The innermost such
-            // directory names the owner.
-            let own = match assets {
-                Some(assets) if !file.starts_with(root) => assets,
-                _ => root,
-            };
-            let directory = &self.packages[package].directory;
-            let owner = self
-                .packages
-                .iter()
-                .enumerate()
-                .filter(|(_, other)| {
-                    &other.directory != directory
-                        && file.starts_with(&other.directory)
-                        && other.directory.starts_with(own)
-                })
-                .max_by_key(|(_, other)| other.directory.components().count());
-            if let Some((_, other)) = owner {
+            // A directory below the boundary that holds a `plenty.toml`, or
+            // is another graph package's directory, belongs to that package.
+            // The innermost one names the owner.
+            let owner = file
+                .ancestors()
+                .skip(1)
+                .take_while(|directory| directory != boundary)
+                .find_map(|directory| {
+                    let other = self
+                        .packages
+                        .iter()
+                        .find(|other| other.directory.as_deref() == Some(directory));
+                    match other {
+                        Some(other) => Some(format!("package `{}`", other.identity)),
+                        None => directory
+                            .join(crate::project::manifest::MANIFEST)
+                            .is_file()
+                            .then(|| format!("the package in {}", directory.display())),
+                    }
+                });
+            if let Some(owner) = owner {
                 return Err(embed.at.error(format!(
-                    "included path `{}` belongs to package `{}`; package `{}` may include only its own files",
-                    embed.path, other.identity, self.packages[package].identity
+                    "included path `{}` belongs to {owner}; {} may include only its own files",
+                    embed.path,
+                    if includer.identity.is_empty() {
+                        "a file".to_string()
+                    } else {
+                        format!("package `{}`", includer.identity)
+                    }
                 )));
             }
             let data = std::fs::read(&file)
@@ -1606,24 +1606,17 @@ fn prepare_packages(
             .root
             .canonicalize()
             .map_err(|e| format!("source root {}: {e}", package.root.display()))?;
-        package.directory = package
-            .directory
-            .canonicalize()
-            .map_err(|e| format!("package directory {}: {e}", package.directory.display()))?;
+        if let Some(directory) = &package.directory {
+            package.directory = Some(
+                directory
+                    .canonicalize()
+                    .map_err(|e| format!("package directory {}: {e}", directory.display()))?,
+            );
+        }
         let root = &package.root;
         if !root.is_dir() {
             return Err(format!("source root {} is not a directory", root.display()).into());
         }
-        // A missing `assets/` holds no file, so it is dropped rather than
-        // left as an uncanonical path in checks, the identity and errors.
-        package.assets = match package.assets.take() {
-            Some(assets) if crate::project::real_assets(&assets)? => Some(
-                assets
-                    .canonicalize()
-                    .map_err(|e| format!("assets {}: {e}", assets.display()))?,
-            ),
-            _ => None,
-        };
         if ["std", "std.plenty", "std.plentyi"]
             .iter()
             .any(|name| root.join(name).exists())

@@ -169,17 +169,15 @@ These are Plenty profiles, independent of Cargo's profiles for building the comp
 are unchanged since its last successful build; the package's status line then
 reads `Fresh` instead of `Compiling`. `build` reuses a library check the same
 way; `check` always checks again. The inputs are the content of every file below
-each graph package's `src/` (not only the imported ones), the package graph, the
+each graph package's `src/` (not only the imported ones), every file the last
+build read, including [included files](#included-files), the package graph, the
 entry file, the target kind, the profile and linker options, and the compiler
 executable (path, size, and modification time; the compiler embeds `std` and the
-runtime). Every file below each graph package's [`assets/`](#assets) is an input
-too: each build reads and hashes all of them, so keep large files that no target
-includes elsewhere, and a file there that cannot be read fails the build even if
-nothing includes it. A symbolic link below `src/` or `assets/` counts by the
-name of its target; it is not followed. Fingerprints live in
-`target/PROFILE/.fingerprint/`. A build forgets the old fingerprint before it
-starts, so a failed or interrupted build is never reused. Reuse is per target: a
-stale target is recompiled whole.
+runtime). A file in the package directory that no target reads, such as a large
+data set, costs nothing. A symbolic link below `src/` counts by the name of its
+target; it is not followed. Fingerprints live in `target/PROFILE/.fingerprint/`.
+A build forgets the old fingerprint before it starts, so a failed or interrupted
+build is never reused. Reuse is per target: a stale target is recompiled whole.
 
 ## Manifest
 
@@ -232,37 +230,28 @@ executable named after the package) when those files exist. `[lib]` and
 package needs at least one target. A library entry may define `main`; it is an
 ordinary function there.
 
-## Assets
+## Included files
 
-Files that a package embeds with
-[`include_str` and `include_bytes`](../../language/02-source/modules.md#included-files)
-live below `src/` or below `assets/` beside it. Paths are relative to the
-including file, so `src/main.plenty` reads `assets/icon.png` as
-`include_bytes("../assets/icon.png")`. Test files in `tests/` may include the
-package's `assets/` the same way.
+A package may embed any file in its package directory, the directory containing
+its `plenty.toml`, with [`include_str` and
+`include_bytes`](../../language/02-source/modules.md#included-files). Paths are
+relative to the including file, so `src/main.plenty` reads `data/icon.png` as
+`include_bytes("../data/icon.png")`. Test files in `tests/` include from the
+same directory.
 
 An include reads a file only if its real path, after resolving `..` and symbolic
-links, lies inside the source root or inside `assets/`, and not inside another
-package's directory nested within them. So it cannot read the package's own
-manifest or `tests/`, or a file that a link in either directory points to
-elsewhere. Another package's directory is where its manifest is; when one lies
-inside `assets/`, as a workspace member at `assets/` does, none of its files can
-be included, and the error names both packages. The source root is the target of
-`src`, as for imports. `assets` itself must be a directory, not a symbolic link:
-a package whose `assets` is a link or a file fails to load, even when nothing
-includes from it.
-
-Every regular file below `assets/` counts toward [build reuse](#build-reuse),
-whether or not a target includes it, so an unreadable file there fails the
-build. The [program cache](../02-architecture/cache.md#program-objects) records
-each included file's contents. `plenty check` reports unreached `.plenty` files
-only below `src/`, so `assets/` can also hold `.plenty` text that a program
-embeds.
+links, lies inside the package directory; otherwise the error names that
+directory. A file inside a nested directory that holds its own `plenty.toml`,
+such as a workspace member's, belongs to that package, and including it is an
+error that names both packages. `plenty check` reports unreached `.plenty` files
+only below `src/`, so another directory can hold `.plenty` text that a program
+embeds. The [program cache](../02-architecture/cache.md#program-objects) and
+[build reuse](#build-reuse) record each included file's contents.
 
 ```text
 app/
   plenty.toml
-  assets/
+  data/
     icon.png
     sql/schema.sql
   src/
@@ -414,26 +403,22 @@ graph-version = 1
 [[package]]
 identity = "app"
 root = "/work/app/src"
-assets = "/work/app/assets"
 dependencies = { util = "util" }
 
 [[package]]
 identity = "util"
 root = "/work/util/src"
-assets = "/work/util/assets"
 library = "/work/util/src/lib.plenty"
 dependencies = {}
 ```
 
 The first package contains the entry file. `identity` is unique and qualifies
 the package's declarations in diagnostics; `dependencies` maps each alias to an
-identity whose package has a `library`. The optional `assets` names the
-directory that the package's [included files](#assets) may also come from;
-`plenty graph` writes it only for a package that has `assets`. A package's
-directory, below which other packages may not include files, is its `root`'s
-parent. Optional keys added later, such as `assets`, leave `graph-version` at 1.
-Older compilers reject unknown keys, so they still read a graph that does not
-use them. Relative paths are relative to the file. `--package-graph` works with
-`FILE`, `--check`, `--check-module`, and `--compile`. It lets another build
-system compile a package without `plenty.toml`, and makes the compiler's input
-visible when debugging resolution.
+identity whose package has a `library`. A graph names no package directory: each
+package's is the parent of its root's real path, whether or not that directory
+holds a `plenty.toml`, and its [included files](#included-files) come from
+there. So a package whose root is `/work/src` may include any file below
+`/work`, except inside another package's directory. Relative paths are relative
+to the file. `--package-graph` works with `FILE`, `--check`, `--check-module`,
+and `--compile`. It lets another build system compile a package without
+`plenty.toml`, and makes the compiler's input visible when debugging resolution.

@@ -106,13 +106,13 @@ version = "0.1.0"
 geometry = { path = "../shapes" }
 ```
 
-Files embedded with `include_str`/`include_bytes` go in `assets/` beside
-`src/` (or under `src/`); a path is relative to the including file, such as
-`include_str("../assets/schema.sql")` from `src/main.plenty`. A file is
-accepted only if its real path, after `..` and symbolic links, is inside the
-source root or `assets/`; `assets` must be a real directory, not a link or a
-file. See
-[package assets](../../../../book/src/design/toolchain/01-building/packages.md#assets).
+Files embedded with `include_str`/`include_bytes` may live anywhere in the
+package directory (the one holding `plenty.toml`), such as `data/` beside
+`src/`; a path is relative to the including file, such as
+`include_str("../data/schema.sql")` from `src/main.plenty`. A file is accepted
+only if its real path, after `..` and symbolic links, is inside the package
+directory and not inside a nested package's directory. See [included
+files](../../../../book/src/design/toolchain/01-building/packages.md#included-files).
 
 Other files under `src/` are the package's own modules, imported by path:
 

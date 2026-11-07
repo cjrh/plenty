@@ -20,39 +20,8 @@ use std::process::{Command, ExitCode};
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
 pub const LOCKFILE: &str = "plenty.lock";
-/// Files beside `src/` that `include_str` and `include_bytes` may read.
-pub const ASSETS: &str = "assets";
 /// Generated dependency sources, beside the lockfile.
 pub const PACKAGE_CACHE: &str = ".pkg";
-
-/// A package's `assets/`, if anything is at that path. A missing one is left
-/// out of the graph, so graph files of packages without assets stay readable
-/// by compilers that predate the `assets` key; a file or symbolic link there
-/// is kept, so loading reports it.
-fn assets_of(directory: &Path) -> Option<PathBuf> {
-    let assets = directory.join(ASSETS);
-    std::fs::symlink_metadata(&assets).is_ok().then_some(assets)
-}
-
-/// Whether a package's `assets` exists, failing unless it is a real
-/// directory. As a symbolic link it could name any directory, such as another
-/// package's or `/`. Build reuse and loading both check it before reading
-/// anything below it.
-pub fn real_assets(assets: &Path) -> Result<bool> {
-    match std::fs::symlink_metadata(assets) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(e) => Err(format!("assets {}: {e}", assets.display()).into()),
-        Ok(meta) if meta.file_type().is_symlink() => Err(format!(
-            "assets {} is a symbolic link; it must be a directory in the package",
-            assets.display()
-        )
-        .into()),
-        Ok(meta) if !meta.is_dir() => {
-            Err(format!("assets {} is not a directory", assets.display()).into())
-        }
-        Ok(_) => Ok(true),
-    }
-}
 
 /// One package's source tree as the compiler sees it.
 #[derive(Clone, Debug)]
@@ -62,14 +31,12 @@ pub struct SourcePackage {
     pub identity: String,
     /// Imports in this package resolve below this directory.
     pub root: PathBuf,
-    /// The directory the package owns: its manifest's, or, in a graph file,
-    /// the source root's parent. Another package's includes may not read
-    /// below it. A package and its `tests/` package share it.
-    pub directory: PathBuf,
-    /// The package's `assets/` directory: `include_str` and `include_bytes`
-    /// may read below it as well as below `root`. `None` for a single file or
-    /// script, whose includes stay below `root`.
-    pub assets: Option<PathBuf>,
+    /// The package directory, which holds its `plenty.toml`; a graph file
+    /// names none, so there it is the source root's parent. `include_str`
+    /// and `include_bytes` read files below it, except inside a nested
+    /// package's directory. `None` for a single file or script: its includes
+    /// stay below `root`, and it owns no directory.
+    pub directory: Option<PathBuf>,
     /// The module that `import ALIAS` names, when another package depends on
     /// this one.
     pub library: Option<PathBuf>,
@@ -100,12 +67,6 @@ impl SourceGraph {
                 toml::quote(&package.identity),
                 toml::quote(&package.root.to_string_lossy())
             ));
-            if let Some(assets) = &package.assets {
-                out.push_str(&format!(
-                    "assets = {}\n",
-                    toml::quote(&assets.to_string_lossy())
-                ));
-            }
             if let Some(library) = &package.library {
                 out.push_str(&format!(
                     "library = {}\n",
@@ -170,9 +131,7 @@ impl SourceGraph {
                 Some(_) => Err(error(line, &format!("`{key}` must be a string"))),
             };
             for key in table.keys() {
-                if !["identity", "root", "assets", "library", "dependencies"]
-                    .contains(&key.as_str())
-                {
+                if !["identity", "root", "library", "dependencies"].contains(&key.as_str()) {
                     return Err(error(line, &format!("unknown key `{key}` in [[package]]")).into());
                 }
             }
@@ -205,9 +164,10 @@ impl SourceGraph {
             let root = base.join(root);
             packages.push(SourcePackage {
                 identity,
-                directory: root.parent().unwrap_or(&root).to_path_buf(),
+                // Canonicalized when loading, `src/..` is the parent of the
+                // root's real path, even for a bare relative `src`.
+                directory: Some(root.join("..")),
                 root,
-                assets: string("assets")?.map(|assets| base.join(assets)),
                 library: string("library")?.map(|library| base.join(library)),
                 dependencies: vec![],
             });
@@ -1009,8 +969,7 @@ impl Project {
         SourcePackage {
             identity: package.manifest.name.clone(),
             root: package.directory.join("src"),
-            directory: package.directory.clone(),
-            assets: assets_of(&package.directory),
+            directory: Some(package.directory.clone()),
             library: package
                 .manifest
                 .library
@@ -1067,8 +1026,7 @@ impl Project {
             SourcePackage {
                 identity: format!("{}-tests", package.manifest.name),
                 root: package.directory.join("tests"),
-                directory: package.directory.clone(),
-                assets: assets_of(&package.directory),
+                directory: Some(package.directory.clone()),
                 library: None,
                 dependencies,
             },
@@ -1320,25 +1278,26 @@ pub fn check_entry(
     require_main: bool,
     options: &crate::CheckOptions,
 ) -> Result<Vec<crate::Warning>> {
-    check_sources(entry, graph, require_main, options).map(|(warnings, _)| warnings)
+    check_sources(entry, graph, require_main, options).map(|(warnings, ..)| warnings)
 }
 
 /// [`check_entry`], also returning the canonical paths of every source file
-/// the check read, in all packages of `graph`.
+/// the check read, in all packages of `graph`, and its inputs.
 fn check_sources(
     entry: &Path,
     graph: &SourceGraph,
     require_main: bool,
     options: &crate::CheckOptions,
-) -> Result<(Vec<crate::Warning>, Vec<PathBuf>)> {
+) -> Result<(Vec<crate::Warning>, Vec<PathBuf>, crate::frontend::Inputs)> {
     let mut heap = crate::value::Heap::default();
     let mut program =
         crate::frontend::compile_graph(entry, graph, require_main, &mut heap, *options)?;
     let checked = crate::op::check(&program.ops);
     let warnings = std::mem::take(&mut program.warnings);
     let sources = std::mem::take(&mut program.source_paths);
+    let inputs = std::mem::take(&mut program.inputs);
     crate::teardown((program, heap), options);
-    checked.map(|()| (warnings, sources))
+    checked.map(|()| (warnings, sources, inputs))
 }
 
 fn status(verb: &str, message: impl std::fmt::Display) {
@@ -1375,7 +1334,7 @@ pub fn check(directory: &Path, options: &BuildOptions) -> Result<()> {
                     .map(|(_, entry)| (entry, true)),
             );
         for (entry, require_main) in entries {
-            let (found, sources) = check_sources(
+            let (found, sources, _) = check_sources(
                 &package.directory.join(entry),
                 &graph,
                 require_main,
@@ -1488,15 +1447,15 @@ fn reuse_or_build(
     fingerprint: Fingerprint,
     output: Option<&Path>,
     progress: &mut Progress,
-    build: impl FnOnce() -> Result<()>,
+    build: impl FnOnce() -> Result<crate::frontend::Inputs>,
 ) -> Result<()> {
     if fingerprint.fresh(output) {
         return Ok(());
     }
     progress.building();
     fingerprint.invalidate()?;
-    build()?;
-    fingerprint.record()
+    let inputs = build()?;
+    fingerprint.record(&inputs)
 }
 
 /// Check the library and build each executable of `member`, reusing
@@ -1530,7 +1489,10 @@ fn build_member(
             ),
             None,
             &mut progress,
-            || check_entry(&entry, &graph, false, &crate::CheckOptions::default()).map(drop),
+            || {
+                check_sources(&entry, &graph, false, &crate::CheckOptions::default())
+                    .map(|(_, _, inputs)| inputs)
+            },
         )?;
     }
     let mut outputs = vec![];
@@ -1545,7 +1507,11 @@ fn build_member(
             Fingerprint::new(&directory, &format!("bin-{name}"), digest),
             Some(&output),
             &mut progress,
-            || crate::compile_package_to_executable(&entry, &graph, &output, &compile),
+            || {
+                crate::codegen::compile_graph_to_executable(
+                    &entry, &graph, &output, &compile, false,
+                )
+            },
         )?;
         outputs.push((name.clone(), output));
     }
@@ -2253,16 +2219,14 @@ mod tests {
                 SourcePackage {
                     identity: "app".into(),
                     root: dir.path().join("app/src"),
-                    directory: dir.path().join("app"),
-                    assets: Some(dir.path().join("app/assets")),
+                    directory: Some(dir.path().join("app/src/..")),
                     library: None,
                     dependencies: vec![("geo".into(), 1)],
                 },
                 SourcePackage {
                     identity: "shapes".into(),
                     root: dir.path().join("shapes/src"),
-                    directory: dir.path().join("shapes"),
-                    assets: None,
+                    directory: Some(dir.path().join("shapes/src/..")),
                     library: Some(dir.path().join("shapes/src/lib.plenty")),
                     dependencies: vec![],
                 },
@@ -2280,7 +2244,6 @@ mod tests {
         .unwrap();
         let relative = SourceGraph::read(&path).unwrap();
         assert_eq!(relative.packages[0].root, dir.path().join("src"));
-        assert_eq!(relative.packages[0].assets, None);
         assert_eq!(
             relative.packages[0].library,
             Some(dir.path().join("src/lib.plenty"))

@@ -125,6 +125,13 @@ impl Inputs {
         })
     }
 
+    /// Each file read, with the SHA-256 digest of the contents read.
+    pub(crate) fn files(&self) -> impl Iterator<Item = (&Path, &[u8; 32])> {
+        self.files
+            .iter()
+            .map(|file| (file.path.as_path(), &file.digest))
+    }
+
     /// The inputs as bytes, or `None` when a path is not UTF-8 and so has no
     /// portable spelling; such a build is not cached.
     pub(crate) fn encode(&self) -> Option<Vec<u8>> {

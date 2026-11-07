@@ -393,8 +393,6 @@ fn included_paths_are_checked() {
         .unwrap();
         let error = plenty::check_file(&main, None).unwrap_err().to_string();
         assert!(error.contains(&message), "{declaration}: {error}");
-        // A single file belongs to no package, so it has no assets directory.
-        assert!(!error.contains("assets"), "{declaration}: {error}");
     }
 }
 

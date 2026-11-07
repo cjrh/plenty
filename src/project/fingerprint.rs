@@ -2,12 +2,16 @@
 //! change its output differs from the one stored by its last successful build.
 //!
 //! The digest covers every regular file and symbolic link (its target's
-//! name, not its contents) below each package's source root and `assets/`
-//! directory (not only the modules and included files a build
-//! happened to read, so an added module that shadows nothing still counts),
-//! the package graph, the entry, the kind of target,
-//! the code generation and linker options, and the compiler's identity. The
-//! compiler embeds `std` and the runtime, so its identity covers both.
+//! name, not its contents) below each package's source root (not only the
+//! modules a build happened to read, so an added module that shadows nothing
+//! still counts), the package graph, the entry, the kind of target, the code
+//! generation and linker options, and the compiler's identity. The compiler
+//! embeds `std` and the runtime, so its identity covers both.
+//!
+//! Includes may read any file in the package directory, which also holds
+//! build outputs, `.pkg/` and perhaps version control data, so it is not
+//! walked. Instead the stored fingerprint lists each file the last build read,
+//! with its digest, and the target is fresh only while each still has it.
 use super::SourceGraph;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -59,23 +63,15 @@ pub(super) fn digest(
             options.automatic_linker()
         }
     ));
-    // A package and its `tests/` package share `assets/`; hash it once.
-    let mut walked = std::collections::HashSet::new();
     for package in &graph.packages {
         field(&package.identity);
         field(&package.root.display().to_string());
         field(&format!(
-            "{:?} {:?} {:?} {:?}",
-            package.directory, package.assets, package.library, package.dependencies
+            "{:?} {:?} {:?}",
+            package.directory, package.library, package.dependencies
         ));
         let mut files = vec![];
         walk(&package.root, &mut files)?;
-        if let Some(assets) = &package.assets
-            && super::real_assets(assets)?
-            && walked.insert(assets)
-        {
-            walk(assets, &mut files)?;
-        }
         files.sort();
         for file in files {
             field(&file.display().to_string());
@@ -86,9 +82,8 @@ pub(super) fn digest(
                 .file_type()
                 .is_symlink()
             {
-                // The target is either inside a walked directory, and hashed
-                // there, or outside, where neither imports nor includes may
-                // read it.
+                // A module or included file it names is hashed as read: below
+                // the root by this walk, elsewhere through the stored list.
                 field(&format!(
                     "link {:?}",
                     std::fs::read_link(&file).map_err(error)?
@@ -103,8 +98,7 @@ pub(super) fn digest(
 }
 
 /// The regular files and symbolic links below `directory`. Links are not
-/// followed, so a loop or a link to `/` or a device costs one entry. The
-/// caller rejects a top-level `assets` link before walking it.
+/// followed, so a loop or a link to `/` or a device costs one entry.
 fn walk(directory: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
     if !directory.is_dir() {
         return Ok(());
@@ -122,7 +116,8 @@ fn walk(directory: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
     Ok(())
 }
 
-/// One target's stored digest, under `target/PROFILE/.fingerprint/`.
+/// One target's stored digest, under `target/PROFILE/.fingerprint/`, followed
+/// by one `DIGEST PATH` line per file its last build read.
 pub(super) struct Fingerprint {
     path: PathBuf,
     digest: String,
@@ -139,8 +134,18 @@ impl Fingerprint {
     /// Whether the last successful build had these inputs and its output
     /// (if any) still exists.
     pub(super) fn fresh(&self, output: Option<&Path>) -> bool {
+        let Ok(stored) = std::fs::read_to_string(&self.path) else {
+            return false;
+        };
+        let mut lines = stored.lines();
         output.is_none_or(Path::is_file)
-            && std::fs::read_to_string(&self.path).is_ok_and(|stored| stored == self.digest)
+            && lines.next() == Some(&self.digest)
+            && lines.all(|line| {
+                line.split_once(' ').is_some_and(|(digest, path)| {
+                    std::fs::read(path)
+                        .is_ok_and(|bytes| format!("{:x}", Sha256::digest(bytes)) == digest)
+                })
+            })
     }
 
     /// Forget the stored digest before building, so an interrupted build
@@ -152,9 +157,22 @@ impl Fingerprint {
         }
     }
 
-    pub(super) fn record(&self) -> Result<()> {
+    /// Store the digest and the files `inputs` lists. A path that is not
+    /// UTF-8 has no line, so such a build is not recorded and always reruns.
+    pub(super) fn record(&self, inputs: &crate::frontend::Inputs) -> Result<()> {
+        let mut text = self.digest.clone();
+        for (path, digest) in inputs.files() {
+            let Some(path) = path.to_str().filter(|path| !path.contains('\n')) else {
+                return Ok(());
+            };
+            text.push_str(&format!("\n{} {path}", hex(digest)));
+        }
         std::fs::create_dir_all(self.path.parent().unwrap())?;
-        std::fs::write(&self.path, &self.digest)?;
+        std::fs::write(&self.path, text)?;
         Ok(())
     }
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }

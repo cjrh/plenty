@@ -195,7 +195,7 @@ pub fn compile_source_to_executable_with_options(
     options: &crate::CompileOptions,
 ) -> Result<()> {
     crate::validate_target(options.target.as_deref())?;
-    compile_sources_to_executable(&Sources::Text(source), output, options, false)
+    compile_sources_to_executable(&Sources::Text(source), output, options, false).map(drop)
 }
 
 /// Compile a file and its absolute imports. The source root defaults to the
@@ -212,7 +212,7 @@ pub fn compile_file_to_executable_with_options(
     options: &crate::CompileOptions,
 ) -> Result<()> {
     crate::validate_target(options.target.as_deref())?;
-    compile_sources_to_executable(&Sources::file(path, root)?, output, options, false)
+    compile_sources_to_executable(&Sources::file(path, root)?, output, options, false).map(drop)
 }
 
 /// Compile the entry file of `graph.packages[0]`; each package sees only its
@@ -223,7 +223,7 @@ pub fn compile_package_to_executable(
     output: &Path,
     options: &crate::CompileOptions,
 ) -> Result<()> {
-    compile_graph_to_executable(path, graph, output, options, false)
+    compile_graph_to_executable(path, graph, output, options, false).map(drop)
 }
 
 pub(crate) fn compile_script_to_executable(
@@ -239,16 +239,17 @@ pub(crate) fn compile_script_to_executable(
         appendix: None,
         script: true,
     };
-    compile_sources_to_executable(&sources, output, options, false)
+    compile_sources_to_executable(&sources, output, options, false).map(drop)
 }
 
-fn compile_graph_to_executable(
+/// [`compile_package_to_executable`], returning what the build read.
+pub(crate) fn compile_graph_to_executable(
     path: &Path,
     graph: &crate::project::SourceGraph,
     output: &Path,
     options: &crate::CompileOptions,
     test_hooks: bool,
-) -> Result<()> {
+) -> Result<crate::frontend::Inputs> {
     crate::validate_target(options.target.as_deref())?;
     let sources = Sources::Graph {
         entry: path.to_path_buf(),
@@ -266,7 +267,7 @@ pub(crate) fn compile_test_program_to_executable(
     graph: &crate::project::SourceGraph,
     output: &Path,
     options: &crate::CompileOptions,
-) -> Result<()> {
+) -> Result<crate::frontend::Inputs> {
     compile_graph_to_executable(path, graph, output, options, true)
 }
 
@@ -278,7 +279,7 @@ pub(crate) fn compile_tests_to_executable(
     tests: &[(String, crate::frontend::TestReturn)],
     output: &Path,
     options: &crate::CompileOptions,
-) -> Result<()> {
+) -> Result<crate::frontend::Inputs> {
     crate::validate_target(options.target.as_deref())?;
     let sources = Sources::Graph {
         entry: path.to_path_buf(),
@@ -322,22 +323,27 @@ fn compile_sources_to_executable(
     output: &Path,
     options: &crate::CompileOptions,
     test_hooks: bool,
-) -> Result<()> {
+) -> Result<crate::frontend::Inputs> {
     let test_hooks = test_hooks || options.test_hooks;
     let workspace = tempfile::tempdir()?;
     let obj_path = workspace.path().join("program.o");
     let build = Build::new(options, test_hooks).for_executable();
     let cache = build.cache.clone();
-    program_object(sources, &obj_path, build)?;
+    let inputs = program_object(sources, &obj_path, build)?;
     report_cache(options, cache.as_deref());
-    link_object(&workspace, &obj_path, output, options, test_hooks)
+    link_object(&workspace, &obj_path, output, options, test_hooks)?;
+    Ok(inputs)
 }
 
 /// Write the object for `sources` to `object`: the program cache's, when its
 /// entry for them is current, or else a new build's, which then becomes the
-/// entry (issue #317).
+/// entry (issue #317). Returns the inputs the object was built from.
 #[cfg_attr(feature = "profile", hotpath::measure)]
-fn program_object(sources: &Sources, object: &Path, build: Build) -> Result<()> {
+fn program_object(
+    sources: &Sources,
+    object: &Path,
+    build: Build,
+) -> Result<crate::frontend::Inputs> {
     let started = std::time::Instant::now();
     // Builds that check cache hits recompile every function; they are tests
     // of the function cache.
@@ -360,7 +366,7 @@ fn program_object(sources: &Sources, object: &Path, build: Build) -> Result<()> 
     let mut seen = script;
     if let Some((cache, key)) = &cached {
         match cache.load_program(key, |inputs| sources.current(inputs), object)? {
-            Lookup::Hit => return Ok(()),
+            Lookup::Hit(inputs) => return Ok(inputs),
             Lookup::Miss { seen: before } => seen = before || script,
         }
     }
@@ -379,7 +385,7 @@ fn program_object(sources: &Sources, object: &Path, build: Build) -> Result<()> 
     if let Some((cache, key)) = &cached {
         cache.store_program(key, &program.inputs, object, started.elapsed(), seen);
     }
-    Ok(())
+    Ok(program.inputs)
 }
 
 /// Link the application object at `obj_path` with the runtime, and the fuzz
@@ -590,7 +596,7 @@ pub(crate) const RUNTIME_LINK_ARGS: &str =
 /// `plenty_main`; link exactly one application object with the matching runtime.
 pub fn compile_source_to_object(source: &str, output: &Path) -> Result<()> {
     crate::validate_target(None)?;
-    program_object(&Sources::Text(source), output, Build::from_environment())
+    program_object(&Sources::Text(source), output, Build::from_environment()).map(drop)
 }
 
 /// Emit an application object, resolving absolute Plenty imports.
