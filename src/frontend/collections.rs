@@ -4409,6 +4409,9 @@ impl Lower<'_> {
         if name == "sort_by_key" && matches!(collection, Some(Ty::List(_))) {
             return self.list_sort_by_key(base, args, ops).map(Some);
         }
+        if name == "sort_stable_by_key" && matches!(collection, Some(Ty::List(_))) {
+            return self.list_sort_stable_by_key(base, args, ops).map(Some);
+        }
         if name == "swap" && matches!(collection, Some(Ty::List(_))) {
             return self.list_swap(base, args, ops).map(Some);
         }
@@ -6406,7 +6409,7 @@ fn receiver_requirement(name: &str, ty: &Ty) -> Option<&'static str> {
         }
         "reverse" | "extend" => "a mutable list binding or class field",
         // Of the collections, only lists have these methods.
-        "sort" | "sort_by_key" | "swap" if matches!(ty, Ty::List(_)) => {
+        "sort" | "sort_by_key" | "sort_stable_by_key" | "swap" if matches!(ty, Ty::List(_)) => {
             "a mutable list binding or class field"
         }
         "update" => "a mutable dictionary or set binding or class field",

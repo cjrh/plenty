@@ -75,6 +75,22 @@ pub struct KeySort {
     pub key: Ty,
     /// Public key callback error, if it returns Result[K, E].
     pub error: Option<Ty>,
+    /// A stable merge sort, which reserves workspace and so adds `AllocError`.
+    pub stable: bool,
+}
+
+/// An unstable key sort returns `()` or the key's `Result[(), E]`; a stable
+/// sort adds `AllocError` for its merge workspace.
+pub fn key_sort_output(stable: bool, error: Option<&Ty>) -> Option<Ty> {
+    let error = match (stable, error) {
+        (false, None) => return None,
+        (false, Some(error)) => error.clone(),
+        (true, None) => crate::sum::alloc_error(),
+        (true, Some(error)) => {
+            crate::sum::anonymous(vec![crate::sum::alloc_error(), error.clone()])
+        }
+    };
+    Some(crate::sum::result(Ty::Unit, error))
 }
 
 /// A read-only scalar query that a narrow runtime helper answers without
@@ -1027,9 +1043,7 @@ impl CollectionOp {
                     sort.callback.clone(),
                     Ty::Bool,
                 ],
-                sort.error.as_ref().map_or(Ty::Unit, |error| {
-                    crate::sum::result(Ty::Unit, error.clone())
-                }),
+                key_sort_output(sort.stable, sort.error.as_ref()).unwrap_or(Ty::Unit),
             ),
             ListScalarSetRef(t) => (
                 vec![

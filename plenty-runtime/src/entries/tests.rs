@@ -579,3 +579,141 @@ fn benchmark_tail_drain() {
         }
     }
 }
+
+/// Rows are tagged `key * 10_000 + position`; the comparator sees only `key`,
+/// so a stable sort must leave positions ascending within each key.
+fn stable_values(count: usize, pattern: usize) -> Vec<u128> {
+    (0..count)
+        .map(|i| {
+            let key = match pattern {
+                0 => i,
+                1 => count - i,
+                2 => 7,
+                3 => i % 5,
+                4 => i.min(count - i),
+                _ => (i * 7919 + 97) % 31,
+            };
+            (key * 10_000 + i) as u128
+        })
+        .collect()
+}
+
+#[test]
+fn stable_sort_keeps_equal_rows_in_order_and_inline_addresses() {
+    for ty in [&SCALARS[3], &RANGE, &NESTED] {
+        for count in [0, 1, 2, 15, 16, 17, 33, 127, 1024] {
+            for pattern in 0..6 {
+                for descending in [false, true] {
+                    let values = stable_values(count, pattern);
+                    let mut expected = values.clone();
+                    // Rust's slice sort is stable: the reference order.
+                    if descending {
+                        expected.sort_by_key(|v| std::cmp::Reverse(v / 10_000));
+                    } else {
+                        expected.sort_by_key(|v| v / 10_000);
+                    }
+                    let mut entries = Entries::new(ty, None);
+                    entries.try_reserve(count).unwrap();
+                    for &value in &values {
+                        push(&mut entries, value);
+                    }
+                    let key = |a| number(Entry { key: a, value: 0 }, ty) / 10_000;
+                    let mut comparisons = 0usize;
+                    entries
+                        .sort_stable_rows_by(|a, b| {
+                            comparisons += 1;
+                            let order = key(a).cmp(&key(b));
+                            if descending { order.reverse() } else { order }
+                        })
+                        .unwrap();
+                    for (i, entry) in entries.iter().enumerate() {
+                        assert_eq!(number(entry, ty), expected[i], "{count} {pattern}");
+                        assert_addresses(&entries, i, entry);
+                    }
+                    // Probe plus a top-down merge sort: at most n - 1 probe
+                    // comparisons and n * ceil(log2 n) for the sort itself,
+                    // where 16-row insertion runs cost at most 120 each.
+                    let bound = count + count * (usize::BITS - count.leading_zeros()) as usize;
+                    assert!(
+                        comparisons <= bound + 120 * count.div_ceil(16),
+                        "{comparisons}"
+                    );
+                    let ordered = (pattern == 0 && !descending)
+                        || (pattern == 1 && descending)
+                        || pattern == 2;
+                    if ordered {
+                        assert_eq!(comparisons, count.saturating_sub(1));
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn stable_sort_reports_allocation_failure_before_moving_rows() {
+    let mut entries = filled(&NESTED, 64);
+    entries.reverse();
+    let compare = |a, b| {
+        number(Entry { key: a, value: 0 }, &NESTED)
+            .cmp(&number(Entry { key: b, value: 0 }, &NESTED))
+    };
+    #[cfg(feature = "allocation-checks")]
+    {
+        let before: Vec<_> = entries.iter().map(|entry| number(entry, &NESTED)).collect();
+        crate::accounting::fail_after(Some(0));
+        let failed = entries.sort_stable_rows_by(compare);
+        crate::accounting::fail_after(None);
+        assert_eq!(failed, Err(memory::AllocError::OutOfMemory));
+        let after: Vec<_> = entries.iter().map(|entry| number(entry, &NESTED)).collect();
+        assert_eq!(after, before);
+    }
+    entries.sort_stable_rows_by(compare).unwrap();
+    for (i, entry) in entries.iter().enumerate() {
+        assert_eq!(number(entry, &NESTED), i as u128);
+        assert_addresses(&entries, i, entry);
+    }
+}
+
+#[test]
+fn inconsistent_or_panicking_stable_comparison_keeps_every_row_and_address() {
+    let mut entries = filled(&NESTED, 4096);
+    entries.reverse();
+    let mut count = 0;
+    entries
+        .sort_stable_rows_by(|_, _| {
+            count += 1;
+            if count % 3 == 0 {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            }
+        })
+        .unwrap();
+    let check = |entries: &Entries, rows: u128| {
+        let mut values = Vec::new();
+        for (i, entry) in entries.iter().enumerate() {
+            assert_addresses(entries, i, entry);
+            values.push(number(entry, &NESTED));
+        }
+        values.sort_unstable();
+        assert_eq!(values, (0..rows).collect::<Vec<_>>());
+    };
+    check(&entries, 4096);
+    let mut entries = filled(&NESTED, 257);
+    for i in 0..257 {
+        entries.swap(i, (i * 97) % 257);
+    }
+    let mut calls = 0;
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        entries.sort_stable_rows_by(|a, b| {
+            calls += 1;
+            // Past the probe and the first insertion runs: inside a merge.
+            assert!(calls != 1500, "injected comparator panic");
+            number(Entry { key: a, value: 0 }, &NESTED)
+                .cmp(&number(Entry { key: b, value: 0 }, &NESTED))
+        })
+    }));
+    assert!(result.is_err());
+    check(&entries, 257);
+}
