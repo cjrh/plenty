@@ -220,13 +220,29 @@ such a type. Zero-capacity rendezvous is unsupported.
 
 ### Unit messages
 
-`()` is a message type like any other: `channel[()]`, `Sender[()]`,
-`Receiver[()]`, every send, receive, timed and selection operation, and the
-[join checks](#joins-and-live-endpoints) accept it. Send `()` when the message's
-arrival is the information, such as a stop request or a wakeup. Match a received
-unit with `_`, as in `case Ok(_):` or `case Selected.First(_):`.
+`()` can be a message type. `channel[()]`, `Sender[()]`, `Receiver[()]`, every
+builtin send, receive, timed and selection operation, and the
+[join checks](#joins-and-live-endpoints) accept it, and so do
+`std.sync.recv_before` and `std.sync.select_recv_before`. Send `()` when the
+message's arrival is the information, such as a stop request or a wakeup.
+`case Ok(_):` is the clearest way to match a received unit.
 
 A unit message has no storage. The queue keeps only its count of pending
 messages, so construction allocates the fixed queue header whatever the
 capacity, and no capacity reports `CapacityOverflow`. Every other message type
 takes at least one 16-byte slot per unit of capacity.
+
+Unit still follows the [unit type's limits](../../language/03-types/index.md):
+it cannot be a standalone binding, a parameter, or a generic data argument. So
+a generic function whose body binds or takes a `T` value cannot be instantiated
+with `T = ()`:
+
+- `std.sync.send_before(&sender, (), &deadline, &cancel)` is rejected, because
+  `send_before` takes `value: T`; and `std.sync.SendBeforeError[()]` cannot be
+  named. Use `sender.send_timeout_ms((), timeout_ms)` or `send_nowait(())` and
+  check the token between attempts.
+- A user generic such as `relay[T]` that binds `value = receiver.recv()?` is
+  rejected for `T = ()`. Match the result instead of binding it.
+
+Lifting these limits is part of B16 in the [backlog](../../../backlog.md) (standalone unit bindings,
+parameters and storage).

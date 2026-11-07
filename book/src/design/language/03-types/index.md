@@ -7,9 +7,10 @@ as `b"\x89PNG"`. There is no built-in `int`; use a width or a
 inference and explicit conversions rather than implicit widening.
 
 The unit type `()` denotes completion without data. It can be an expression,
-function result, or enum or tuple component, including `Option[()]` and
-`Result[(), E]`. Standalone unit bindings, parameters, collection elements, and
-class fields are unsupported. A reference to unit, `&()` or `&mut ()`, is an
+function result, enum or tuple component, including `Option[()]` and
+`Result[(), E]`, or a [channel message type](../../facilities/03-concurrency/channels.md#unit-messages).
+Standalone unit bindings, parameters, collection elements, class fields and
+generic data arguments are unsupported. A reference to unit, `&()` or `&mut ()`, is an
 ordinary reference: borrowed unit payloads have this type, and a `&()` parameter
 lends a unit argument like any other temporary. There is no `None` type or value.
 

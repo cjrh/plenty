@@ -1514,3 +1514,124 @@ fn unit_signals_stop_workers_and_follow_the_join_rule() {
         "{error}"
     );
 }
+
+#[test]
+fn blocking_unit_receives_wake_on_another_threads_send_or_drop() {
+    runs(
+        r#"
+import std.time
+
+def wake_later(wake: Sender[()]) -> Result[(), SendError[()]]:
+    std.time.sleep(&std.time.milliseconds(20u32))
+    wake.send(())?
+    std.time.sleep(&std.time.milliseconds(20u32))
+    Ok(())
+
+def wait_then_report(stop: Receiver[()], done: Sender[str]) -> Result[(), SendError[str]]:
+    match stop.recv():
+        case Ok(v):
+            done.send("woken")?
+        case Err(_):
+            done.send("closed")?
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | SpawnError[()] | SendError[()] | RecvError]:
+    wake, woken = channel[()](1)?
+    with spawn(wake_later, wake).drop_job()?, woken as inbox:
+        # Blocks on an empty unit queue until the worker's send wakes it,
+        # then until the worker's sender drops.
+        print(str.repr(inbox.recv())?)?
+        print(str.repr(inbox.recv())?)?
+    stop, stopped = channel[()](1)?
+    done, finished = channel[str](2)?
+    with spawn(wait_then_report, stopped, done).drop_job()?, finished as reports, stop as signal:
+        std.time.sleep(&std.time.milliseconds(20u32))
+        signal.send(())?
+        print(reports.recv()?)?
+    Ok(())
+"#,
+        "Result[(), RecvError].Ok(())\nResult[(), RecvError].Err(RecvError.Disconnected)\nwoken\n",
+    );
+}
+
+#[test]
+fn std_sync_receive_helpers_accept_unit_messages() {
+    runs(
+        r#"
+import std.sync
+import std.time
+
+def main() -> Result[(), AllocError | IoError | SendError[()] | SendError[i64]]:
+    cancel = CancellationToken()?
+    expired = std.time.deadline_at(&std.time.monotonic_now())
+    wake, woken = channel[()](1)?
+    numbers, data = channel[i64](1)?
+    print(str.repr(std.sync.recv_before(&woken, &expired, &cancel))?)?
+    wake.send(())?
+    print(str.repr(std.sync.recv_before(&woken, &expired, &cancel))?)?
+    numbers.send(4)?
+    wake.send(())?
+    print(str.repr(std.sync.select_recv_before(&woken, &data, &expired, &cancel))?)?
+    print(str.repr(std.sync.select_recv_before(&woken, &data, &expired, &cancel))?)?
+    cancel.cancel()
+    wake.send(())?
+    print(str.repr(std.sync.recv_before(&woken, &expired, &cancel))?)?
+    Ok(())
+"#,
+        "Result[(), std.sync.WaitError].Err(std.sync.WaitError.TimedOut)\n\
+         Result[(), std.sync.WaitError].Ok(())\n\
+         Result[Selected[(), i64], std.sync.WaitError].Ok(Selected[(), i64].First(()))\n\
+         Result[Selected[(), i64], std.sync.WaitError].Ok(Selected[(), i64].Second(4))\n\
+         Result[(), std.sync.WaitError].Err(std.sync.WaitError.Cancelled)\n",
+    );
+}
+
+// Phase guard (B16, standalone unit bindings/parameters/storage): unit
+// messages cannot instantiate generics that take or bind a `T` value, or be a
+// generic data argument. Delete these rejections when B16 lifts them.
+#[test]
+fn generic_unit_values_stay_rejected_until_b16() {
+    let program = |body: &str| {
+        format!(
+            "import std.sync
+import std.time
+
+def relay[T](rx: &Receiver[T], tx: &Sender[T]) -> Result[(), RecvError | SendError[T]]:
+    value = rx.recv()?
+    tx.send(value)?
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | RecvError | SendError[()]]:
+    cancel = CancellationToken()?
+    expired = std.time.deadline_at(&std.time.monotonic_now())
+    tx, rx = channel[()](1)?
+{body}    Ok(())
+"
+        )
+    };
+    for (body, expected) in [
+        (
+            "    print(str.repr(std.sync.send_before[()](&tx, (), &expired, &cancel))?)?\n",
+            "unit parameters are not supported yet",
+        ),
+        (
+            "    print(str.repr(std.sync.send_before(&tx, (), &expired, &cancel))?)?\n",
+            "expected a value, got ()",
+        ),
+        (
+            "    error: Option[std.sync.SendBeforeError[()]] = Option.Nothing\n",
+            "unit type arguments are not supported yet",
+        ),
+        ("    relay(&rx, &tx)?\n", "expected a value, got ()"),
+    ] {
+        let error = support::check_source(&program(body))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(expected), "{body}: {error}");
+    }
+    // A generic that matches instead of binding instantiates with unit.
+    support::check_source(&program(
+        "    std.sync.recv_before(&rx, &expired, &cancel).unwrap()\n",
+    ))
+    .unwrap();
+}
