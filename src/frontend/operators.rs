@@ -497,7 +497,7 @@ impl Lower<'_> {
                         }
                     }
                 }
-                if is_comparison(op) || matches!(op.as_str(), "and" | "or" | "in" | "not in") {
+                if is_comparison(op) || matches!(op.as_str(), "in" | "not in") {
                     Some(Ty::Bool)
                 } else if a == Ty::Str && b == Ty::Str && op == "+" {
                     Some(crate::sum::result(Ty::Str, crate::sum::alloc_error()))

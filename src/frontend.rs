@@ -1786,8 +1786,8 @@ impl Lower<'_> {
         };
         Ok(ty)
     }
-    /// A field read or a qualified module name. Outlined so that its locals do not enlarge the frame of
-    /// every recursive `expr` call (issue #841).
+    /// A field read or a qualified module name. Outlined so that its locals do
+    /// not enlarge the frame of every recursive `expr` call (issue #841).
     #[inline(never)]
     fn member_expression(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
         let Expression::Member(base, name, _) = &e.kind else {
@@ -1866,8 +1866,9 @@ impl Lower<'_> {
             }
         })
     }
-    /// A local, function value, constant or prelude variant. Outlined so that its locals do not enlarge the frame of
-    /// every recursive `expr` call (issue #841).
+    /// A local, function value, constant or prelude variant. Outlined so that
+    /// its locals do not enlarge the frame of every recursive `expr` call
+    /// (issue #841).
     #[inline(never)]
     fn name_expression(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
         let Expression::Name(name) = &e.kind else {
@@ -1937,8 +1938,8 @@ impl Lower<'_> {
             }
         })
     }
-    /// A prefix operator. Outlined so that its locals do not enlarge the frame of
-    /// every recursive `expr` call (issue #841).
+    /// A prefix operator. Outlined so that its locals do not enlarge the frame
+    /// of every recursive `expr` call (issue #841).
     #[inline(never)]
     fn unary_expression(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
         let Expression::Unary(op, value) = &e.kind else {
@@ -2043,8 +2044,8 @@ impl Lower<'_> {
             Some(ty.clone())
         })
     }
-    /// `in` and `not in`. Outlined so that its locals do not enlarge the frame of
-    /// every recursive `expr` call (issue #841).
+    /// `in` and `not in`. Outlined so that its locals do not enlarge the frame
+    /// of every recursive `expr` call (issue #841).
     #[inline(never)]
     fn membership_expression(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
         let Expression::Binary(op, left, right) = &e.kind else {
@@ -2150,8 +2151,9 @@ impl Lower<'_> {
             Some(Ty::Bool)
         })
     }
-    /// A call of a name: a builtin, function, class or variant constructor. Outlined so that its locals do not enlarge the frame of
-    /// every recursive `expr` call (issue #841).
+    /// A call of a name: a builtin, function, class or variant constructor.
+    /// Outlined so that its locals do not enlarge the frame of every recursive
+    /// `expr` call (issue #841).
     #[inline(never)]
     fn call_expression(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
         let Expression::Call(name, args) = &e.kind else {
