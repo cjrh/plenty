@@ -46,19 +46,101 @@ These are ordinary typed function parameters. Some built-ins and methods
 explicitly observe either values or references; their individual signatures
 and contracts describe that behavior.
 
-| Call and parameter | Accepted? | Ownership and storage |
-| --- | --- | --- |
-| `f(s)` with `value: str` | Yes | The parameter gets an owning string value; heap storage is shared without allocation. `s` stays usable. |
-| `f(&s)` or `f(r)` with `value: str` | No | A reference is not implicitly copied into an owning parameter. Write `f(*r)` (or `f(s)`); the resulting owning copy shares storage. |
-| `f(s)` with `value: &str` | Yes | Implicitly borrows `s` for the call; no owning copy, retain, or allocation. |
-| `f(&s)` or `f(r)` with `value: &str` | Yes | Explicitly borrows or reborrows the whole string; no owning copy, retain, or allocation. |
-| `f(&s[a:b])` with `value: &str` | No | A substring view is `&substr`, not `&str`. Use a `&substr` parameter, or create an owned slice with `s[a:b]?` and lend it to the call. |
+The code cells are schematic excerpts: `...` stands for the function body,
+and `s: str` stands for an existing string binding. Calls belong inside a
+function; bounds `a` and `b` are assumed to be available.
+
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Call and parameter</th><th>Accepted?</th><th>Ownership and storage</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><pre><code class="language-plenty">def f(val: str) -&gt; ():
+    ...
+&#10;s: str
+f(s)</code></pre></td>
+<td>Yes</td>
+<td>The parameter gets an owning string value; heap storage is shared without allocation. <code>s</code> stays usable.</td>
+</tr>
+<tr>
+<td><pre><code class="language-plenty">def f(val: str) -&gt; ():
+    ...
+&#10;s: str
+f(&amp;s)</code></pre></td>
+<td>No</td>
+<td>A reference is not implicitly copied into an owning parameter. Write <code>f(s)</code> instead.</td>
+</tr>
+<tr>
+<td><pre><code class="language-plenty">def f(val: str) -&gt; ():
+    ...
+&#10;s: str
+r = &amp;s
+f(r)</code></pre></td>
+<td>No</td>
+<td>Naming the reference does not turn it into an owning value. Write <code>f(*r)</code> to copy the string handle.</td>
+</tr>
+<tr>
+<td><pre><code class="language-plenty">def f(val: str) -&gt; ():
+    ...
+&#10;s: str
+r = &amp;s
+f(*r)</code></pre></td>
+<td>Yes</td>
+<td>Dereferencing obtains an owning copy without duplicating the text buffer. Both <code>s</code> and <code>r</code> stay usable.</td>
+</tr>
+<tr>
+<td><pre><code class="language-plenty">def f(val: &amp;str) -&gt; ():
+    ...
+&#10;s: str
+f(s)</code></pre></td>
+<td>Yes</td>
+<td>Implicitly borrows <code>s</code> for the call; no owning copy, retain, or allocation.</td>
+</tr>
+<tr>
+<td><pre><code class="language-plenty">def f(val: &amp;str) -&gt; ():
+    ...
+&#10;s: str
+f(&amp;s)</code></pre></td>
+<td>Yes</td>
+<td>Explicitly borrows the whole string; no owning copy, retain, or allocation.</td>
+</tr>
+<tr>
+<td><pre><code class="language-plenty">def f(val: &amp;str) -&gt; ():
+    ...
+&#10;s: str
+r = &amp;s
+f(r)</code></pre></td>
+<td>Yes</td>
+<td>Reborrows the existing reference; no owning copy, retain, or allocation.</td>
+</tr>
+<tr>
+<td><pre><code class="language-plenty">def f(val: &amp;str) -&gt; ():
+    ...
+&#10;s: str
+f(&amp;s[a:b])</code></pre></td>
+<td>No</td>
+<td>A substring view is <code>&amp;substr</code>, not <code>&amp;str</code>. Use a <code>&amp;substr</code> parameter, or create an owned slice with <code>s[a:b]?</code> and lend it to the call.</td>
+</tr>
+</tbody>
+</table>
+</div>
 
 An owning `str` parameter can be returned or stored independently of the
 caller's binding. A `&str` parameter lends access; obtaining an owned string
 from it requires a value copy such as `*value`. See
 [borrowing](../../language/05-ownership/02-borrowing.md) and
 [returned references](../../language/05-ownership/04-returned-references.md).
+
+**Efficiency note:** For a heap-backed string, an owning copy can require an
+atomic reference-count increment and a later release. Borrowing as `&str`
+avoids that ownership bookkeeping. Tiny inline strings and literals need no
+reference counting, and compiler optimizations can eliminate unnecessary
+retains and releases. Prefer `&str` parameters when a function only reads text;
+use `str` when it needs an owning value, for example to keep it after the call.
+References can introduce indirection, so they are not guaranteed to be faster
+in every case; measure when the cost matters.
 
 ### Bindings and slices
 
