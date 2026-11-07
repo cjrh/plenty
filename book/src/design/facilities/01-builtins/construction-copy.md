@@ -51,6 +51,7 @@ These exclusive methods return `Result[(), AllocError]`:
 | --- | --- | --- |
 | Any collection | `reserve(additional: i64)` | Room for at least this many entries beyond current length |
 | List | `append(value: T)` | Append one element |
+| List | `insert(index: i64, value: T)` | Insert before position `index`; see [list insertion](lists.md#insertion) |
 | Set | `add(value: T)` | Insert if absent |
 | Dictionary | `insert(key: K, value: V)` | Insert or replace without changing existing key order |
 

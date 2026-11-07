@@ -260,7 +260,7 @@ print(len(guards), len(empty)).unwrap()
 #[rstest]
 #[case("values = [1].unwrap()\nvalues.append(2)", "immutable")]
 #[case("mut values = [1].unwrap()\nvalues.reserve(1u8)", "expected i64")]
-#[case("mut values = [1].unwrap()\nvalues.insert(1, 2)", "unsupported method")]
+#[case("mut values = {1}.unwrap()\nvalues.insert(1, 2)", "unsupported method")]
 #[case("mut values = [1].unwrap()\nvalues.append()", "requires 1 argument")]
 #[case(
     "def bad() -> AllocError:\n    AllocError.OutOfMemory?",
