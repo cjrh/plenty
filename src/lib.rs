@@ -100,7 +100,7 @@ mod value;
 pub mod ide {
     pub use crate::frontend::ide::{
         Analysis, Diagnostic, File, InferredBinding, Location, Reference, Symbol, SymbolKind,
-        analyze, standard_modules,
+        analyze, relocate, standard_modules,
     };
 }
 

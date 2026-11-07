@@ -1,7 +1,9 @@
 //! `plenty lsp`: a language server over stdio (issue #155). It answers hover,
 //! go to definition, completion, and inferred-type inlay hints from
 //! [`crate::ide::analyze`], which checks a file with the compiler's own front
-//! end, and publishes that check's errors.
+//! end, and publishes that check's errors. Its one refactoring, moving a
+//! top-level declaration to another module, is planned by
+//! [`crate::ide::relocate`] (issue #822).
 //!
 //! The protocol needs only JSON-RPC framing and a handful of messages, so they
 //! are written here over `serde_json` values rather than through an LSP crate.
@@ -119,6 +121,8 @@ enum Encoding {
 struct Document {
     path: PathBuf,
     text: String,
+    /// The client's version, for edits it must apply to this text.
+    version: Option<i64>,
 }
 
 #[derive(Default)]
@@ -129,6 +133,10 @@ struct Server {
     /// Documents edited since their last check.
     dirty: HashSet<String>,
     shutdown: bool,
+    /// Client support for `documentChanges` and change annotations in a
+    /// workspace edit.
+    document_changes: bool,
+    change_annotations: bool,
 }
 
 impl Server {
@@ -161,7 +169,15 @@ impl Server {
                 let uri = document["uri"].as_str().unwrap_or_default().to_owned();
                 if let Some(path) = uri_path(&uri) {
                     let text = document["text"].as_str().unwrap_or_default().to_owned();
-                    self.documents.insert(uri.clone(), Document { path, text });
+                    let version = document["version"].as_i64();
+                    self.documents.insert(
+                        uri.clone(),
+                        Document {
+                            path,
+                            text,
+                            version,
+                        },
+                    );
                     self.check(&uri, output)?;
                 }
                 None
@@ -175,6 +191,7 @@ impl Server {
                     .and_then(|change| change["text"].as_str());
                 if let (Some(document), Some(text)) = (self.documents.get_mut(uri), text) {
                     document.text = text.to_owned();
+                    document.version = params["textDocument"]["version"].as_i64();
                     self.dirty.insert(uri.to_owned());
                 }
                 None
@@ -198,6 +215,30 @@ impl Server {
             "textDocument/hover" => Some(self.query(params, output, Self::hover)?),
             "textDocument/definition" => Some(self.query(params, output, Self::definition)?),
             "textDocument/completion" => Some(self.query(params, output, Self::completion)?),
+            "textDocument/codeAction" => Some(self.code_actions(params)),
+            "codeAction/resolve" => match self.resolve_action(params) {
+                Ok((action, api_changes)) => {
+                    // Without change annotations the edit cannot carry the API
+                    // changes, so the editor shows them as a message instead.
+                    if !self.change_annotations && !api_changes.is_empty() {
+                        write_message(
+                            output,
+                            &json!({"jsonrpc": "2.0", "method": "window/showMessage",
+                                "params": {"type": 2, "message": api_changes.join("; ")}}),
+                        )?;
+                    }
+                    Some(action)
+                }
+                Err(message) => {
+                    // RequestFailed: the move was refused and nothing changes.
+                    write_message(
+                        output,
+                        &json!({"jsonrpc": "2.0", "id": id, "error": {
+                            "code": -32803, "message": message}}),
+                    )?;
+                    None
+                }
+            },
             _ if id.is_some() => {
                 write_message(
                     output,
@@ -230,6 +271,10 @@ impl Server {
             (Encoding::Utf16, "utf-16")
         };
         self.encoding = encoding;
+        let workspace_edit = &params["capabilities"]["workspace"]["workspaceEdit"];
+        self.document_changes = workspace_edit["documentChanges"].as_bool() == Some(true);
+        self.change_annotations =
+            self.document_changes && workspace_edit["changeAnnotationSupport"].is_object();
         json!({
             "capabilities": {
                 "positionEncoding": name,
@@ -238,6 +283,10 @@ impl Server {
                 "inlayHintProvider": {"resolveProvider": false},
                 "definitionProvider": true,
                 "completionProvider": {"triggerCharacters": ["."]},
+                "codeActionProvider": {
+                    "codeActionKinds": ["refactor.move"],
+                    "resolveProvider": true,
+                },
             },
             "serverInfo": {"name": "plenty", "version": env!("CARGO_PKG_VERSION")},
         })
@@ -355,7 +404,14 @@ impl Server {
                 return Ok(None);
             };
             let text = std::fs::read_to_string(&path).unwrap_or_default();
-            self.documents.insert(uri.clone(), Document { path, text });
+            self.documents.insert(
+                uri.clone(),
+                Document {
+                    path,
+                    text,
+                    version: None,
+                },
+            );
             self.check(&uri, output)?;
         } else if self.dirty.remove(&uri) || !self.analyses.contains_key(&uri) {
             self.check(&uri, output)?;
@@ -528,6 +584,146 @@ impl Server {
             None => names(analysis, file, line),
         };
         Ok(json!({"isIncomplete": false, "items": items}))
+    }
+
+    /// One unresolved `refactor.move` action per other module of the
+    /// package, for the declaration at the range's start. Planning the move
+    /// checks the whole package, so it waits for `codeAction/resolve`.
+    fn code_actions(&self, params: &Value) -> Value {
+        let wanted = params["context"]["only"].as_array().is_none_or(|kinds| {
+            kinds
+                .iter()
+                .filter_map(Value::as_str)
+                .any(|k| "refactor.move".starts_with(k) || k.starts_with("refactor.move"))
+        });
+        let uri = params["textDocument"]["uri"].as_str().unwrap_or_default();
+        let Some(path) = uri_path(uri) else {
+            return json!([]);
+        };
+        let document = self.documents.get(uri);
+        let text = match document {
+            Some(document) => document.text.clone(),
+            None => std::fs::read_to_string(&path).unwrap_or_default(),
+        };
+        let version = document.and_then(|d| d.version);
+        let line = params["range"]["start"]["line"].as_u64().unwrap_or(0) as u32 + 1;
+        let candidate = wanted
+            .then(|| ide::relocate::candidates(&path, &text, line))
+            .flatten();
+        let Some(candidate) = candidate else {
+            return json!([]);
+        };
+        let actions: Vec<Value> = candidate
+            .destinations
+            .iter()
+            .map(|(module, file)| {
+                json!({
+                    "title": format!("Move `{}` to module `{module}`", candidate.name),
+                    "kind": "refactor.move",
+                    // The name and version let resolve refuse an action
+                    // offered for text that has changed since.
+                    "data": {"uri": uri, "line": line, "destination": path_uri(file),
+                        "name": candidate.name, "version": version},
+                })
+            })
+            .collect();
+        json!(actions)
+    }
+
+    /// The action's workspace edit, or why the move is refused.
+    fn resolve_action(&self, action: &Value) -> std::result::Result<(Value, Vec<String>), String> {
+        let data = &action["data"];
+        let path = data["uri"].as_str().and_then(uri_path);
+        let destination = data["destination"].as_str().and_then(uri_path);
+        let line = data["line"].as_u64().and_then(|l| u32::try_from(l).ok());
+        let (Some(path), Some(destination), Some(line)) = (path, destination, line) else {
+            return Err("this code action has no move to resolve".into());
+        };
+        let document = data["uri"].as_str().and_then(|uri| self.documents.get(uri));
+        let text = match document {
+            Some(document) => document.text.clone(),
+            None => std::fs::read_to_string(&path).map_err(|e| e.to_string())?,
+        };
+        let current = ide::relocate::candidates(&path, &text, line).map(|c| c.name);
+        if document.and_then(|d| d.version) != data["version"].as_i64()
+            || current.as_deref() != data["name"].as_str()
+        {
+            return Err(
+                "the file has changed since this move was offered; ask for code actions again"
+                    .into(),
+            );
+        }
+        let overlay: HashMap<PathBuf, String> = self
+            .documents
+            .values()
+            .filter_map(|d| Some((d.path.canonicalize().ok()?, d.text.clone())))
+            .collect();
+        let plan = ide::relocate::plan(&path, line, &destination, &overlay)?;
+        let annotation = "api";
+        let mut changes = serde_json::Map::new();
+        let mut document_changes = vec![];
+        for file in &plan.files {
+            // An open document's edits name the client's URI, which can
+            // differ from the canonical path through a symbolic link.
+            let open = self
+                .documents
+                .iter()
+                .find(|(_, d)| d.path.canonicalize().ok().as_ref() == Some(&file.path));
+            let document = open.map(|(_, d)| d);
+            let text = match document {
+                Some(document) => document.text.clone(),
+                None => std::fs::read_to_string(&file.path).map_err(|e| e.to_string())?,
+            };
+            let lines: Vec<&str> = text.split('\n').collect();
+            let units = |line: u32, column: u32| -> u32 {
+                lines
+                    .get(line as usize)
+                    .map(|l| l.chars().take(column as usize).map(|c| self.width(c)).sum())
+                    .unwrap_or(0)
+            };
+            let edits: Vec<Value> = file
+                .edits
+                .iter()
+                .map(|e| {
+                    let mut edit = json!({
+                        "range": {
+                            "start": {"line": e.line, "character": units(e.line, e.column)},
+                            "end": {"line": e.end_line, "character": units(e.end_line, e.end_column)},
+                        },
+                        "newText": e.text,
+                    });
+                    if self.change_annotations && !plan.api_changes.is_empty() {
+                        edit["annotationId"] = json!(annotation);
+                    }
+                    edit
+                })
+                .collect();
+            let uri = open.map_or_else(|| path_uri(&file.path), |(uri, _)| uri.clone());
+            if self.document_changes {
+                document_changes.push(json!({
+                    "textDocument": {"uri": uri, "version": document.and_then(|d| d.version)},
+                    "edits": edits,
+                }));
+            } else {
+                changes.insert(uri, json!(edits));
+            }
+        }
+        let edit = if self.document_changes {
+            let mut edit = json!({"documentChanges": document_changes});
+            if self.change_annotations && !plan.api_changes.is_empty() {
+                edit["changeAnnotations"] = json!({annotation: {
+                    "label": format!("Move `{}` to `{}`", plan.name, plan.destination),
+                    "needsConfirmation": true,
+                    "description": plan.api_changes.join("; "),
+                }});
+            }
+            edit
+        } else {
+            json!({"changes": changes})
+        };
+        let mut resolved = action.clone();
+        resolved["edit"] = edit;
+        Ok((resolved, plan.api_changes))
     }
 
     /// The character offset of `units` client units into `text`.
@@ -916,6 +1112,7 @@ mod tests {
                 Document {
                     path: path.clone(),
                     text,
+                    version: None,
                 },
             );
             server.analyses.insert(
