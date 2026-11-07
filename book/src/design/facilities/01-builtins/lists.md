@@ -237,7 +237,7 @@ One-shot and mutable-call closures and reference-valued keys are unsupported.
 Elements are moved by row exchange, with no copying or early destruction.
 
 `items.sort_stable_by_key(key) -> Result[(), AllocError]` takes the same keys
-and positional descending flag as `sort_by_key`, and keeps elements with equal
+and the same optional `descending` flag as `sort_by_key`, and keeps elements with equal
 keys in their original relative order, including in descending order. Records
 ordered by a timestamp need no position tie breaker. `Timestamp` is not itself
 a key; use the tuple `(t.seconds, t.nanoseconds)`, which orders the same way.
@@ -255,7 +255,10 @@ A key returning `Result[K, E]` makes the result `Result[(), AllocError | E]`,
 or `Result[(), AllocError]` when `E` is `AllocError`. As with `sort_by_key`,
 the first key error stops further key calls, the runtime finishes its safe
 moves, and the call returns that error; the list may be partly reordered.
-An allocation failure returns before any key is called.
+On allocation failure the list is unchanged, but the ordered-input check may
+already have called the key. The two errors never occur together: the
+allocation is attempted only after that check finds an out-of-order pair, and
+after a key error every comparison reports equal, so the check cannot find one.
 
 `sorted(items) -> Result[list[T], AllocError]` observes a list and explicitly
 copies it before sorting by natural order. `sorted(items, True)` gives a

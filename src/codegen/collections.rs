@@ -1110,9 +1110,11 @@ impl Lowerer<'_, '_> {
                     self.stack.push((reserved, output));
                     return Ok(());
                 };
-                // A failed reservation runs no key, so the key result stays
-                // Ok; otherwise the reservation is Ok and the key result
-                // decides. Widen both and select the one that failed, if any.
+                // At most one result fails. The runtime reserves only after
+                // its ordered-input check finds an out-of-order pair, and
+                // after a key error the comparator reports every pair equal,
+                // so a key error means no reservation was attempted. Widen
+                // both and select the one that failed, if any.
                 let key_result = self.bcx.ins().load(
                     types::I128,
                     cranelift_codegen::ir::MemFlagsData::trusted(),
