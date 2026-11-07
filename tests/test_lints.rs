@@ -77,6 +77,161 @@ def main() -> Result[(), AllocError | IoError]:
     );
 }
 
+fn redundant_replaced(text: &str, ty: &str, replacement: &str) -> String {
+    format!(
+        "`copy({text})?` is redundant: `{ty}` copies on assignment and when passed or returned; write `{replacement}` [redundant-copy]"
+    )
+}
+
+fn redundant_borrowed_place(ty: &str) -> String {
+    format!(
+        "this `copy(&...)?` is redundant: `{ty}` copies on assignment and when passed or returned; write the borrowed place without `copy(&...)?` [redundant-copy]"
+    )
+}
+
+/// Borrows and shared references of copyable values, with every warning's
+/// suggestion; `BORROWS_REPLACED` applies them.
+const BORROWS: &str = r#"
+@copy
+class Point:
+    x: i64
+    y: i64
+
+class Named:
+    name: str
+
+def through(word: &str) -> Result[str, AllocError]:
+    Ok(copy(word)?)
+
+def field(named: &Named) -> Result[str, AllocError]:
+    Ok(copy(&named.name)?)
+
+def element(words: &list[str]) -> Result[str, AllocError]:
+    Ok(copy(&words[0])?)
+
+def point(p: &Point) -> Result[Point, AllocError]:
+    Ok(copy(p)?)
+
+def x_of(q: &Point) -> Result[i64, AllocError]:
+    Ok(copy(q)?.x)
+
+def grouped(g: &Point) -> Result[i64, AllocError]:
+    Ok((copy(g)?).y)
+
+def last(t: &tuple[i64, str]) -> Result[str, AllocError]:
+    Ok(copy(t)?[1])
+
+def shout(u: &str) -> Result[str, AllocError]:
+    Ok(copy(u)?.upper()?)
+
+def size(r: &str) -> Result[i64, AllocError]:
+    Ok(copy(r)?.byte_len())
+
+def main() -> Result[(), AllocError | IoError]:
+    s = "hi"
+    a = copy(&s)?
+    named = Named("x")
+    b = copy(&named.name)?
+    words = ["a", "b"]?
+    c = copy(&words[1])?
+    n = 7
+    d = copy((&n))?
+    mut total = ""
+    for w in &words:
+        total = (total + copy(w)?)?
+    print(a, b, c, d, total, through(s)?, field(&named)?, element(&words)?, point(&Point(1, 2))?.y)?
+    print(x_of(&Point(3, 4))?, grouped(&Point(3, 4))?, last(&(5, "z"))?, shout("ab")?, size("abc")?)?
+    Ok(())
+"#;
+
+const BORROWS_REPLACED: [(&str, &str); 14] = [
+    ("copy(word)?", "*word"),
+    ("copy(&named.name)?", "named.name"),
+    ("copy(&words[0])?", "words[0]"),
+    ("copy(p)?", "*p"),
+    ("copy(q)?", "(*q)"),
+    ("copy(g)?", "*g"),
+    ("copy(t)?", "(*t)"),
+    ("copy(u)?", "(*u)"),
+    ("copy(r)?", "(*r)"),
+    ("copy(&s)?", "s"),
+    ("copy(&named.name)?", "named.name"),
+    ("copy(&words[1])?", "words[1]"),
+    ("copy((&n))?", "n"),
+    ("copy(w)?", "*w"),
+];
+
+#[test]
+fn borrows_and_references_of_copyable_values_are_reported() {
+    assert_eq!(
+        messages(BORROWS),
+        [
+            redundant_replaced("word", "str", "*word"),
+            redundant_replaced("&named.name", "str", "named.name"),
+            redundant_borrowed_place("str"),
+            redundant_replaced("p", "Point", "*p"),
+            redundant_replaced("q", "Point", "(*q)"),
+            redundant_replaced("g", "Point", "*g"),
+            redundant_replaced("t", "tuple[i64, str]", "(*t)"),
+            redundant_replaced("u", "str", "(*u)"),
+            redundant_replaced("r", "str", "(*r)"),
+            redundant_replaced("&s", "str", "s"),
+            redundant_replaced("&named.name", "str", "named.name"),
+            redundant_borrowed_place("str"),
+            redundant_replaced("&n", "i64", "n"),
+            redundant_replaced("w", "str", "*w"),
+        ]
+    );
+}
+
+#[test]
+fn applying_borrow_suggestions_checks_and_keeps_behavior() {
+    let mut replaced = BORROWS.to_owned();
+    for (from, to) in BORROWS_REPLACED {
+        assert!(replaced.contains(from), "{from}");
+        replaced = replaced.replacen(from, to, 1);
+    }
+    assert!(!replaced.contains("copy("), "{replaced}");
+    assert_eq!(messages(&replaced), Vec::<String>::new());
+    let expected = "hi x b 7 ab hi x a 2\n3 4 z AB 3\n";
+    assert_eq!(support::run_stdout(BORROWS), expected);
+    assert_eq!(support::run_stdout(&replaced), expected);
+}
+
+#[test]
+fn borrows_of_moving_values_and_exclusive_references_are_left_alone() {
+    let source = r#"
+class Record:
+    values: list[i64]
+
+def peek(text: &mut str) -> Result[str, AllocError]:
+    Ok(copy(text)?)
+
+def main() -> Result[(), AllocError | IoError]:
+    items = [1, 2]?
+    kept = copy(&items)?
+    record = Record(copy(&items)?)
+    again = copy(&record)?
+    values = copy(&record.values)?
+    nested = [[1]?]?
+    inner = copy(&nested[0])?
+    r = &items
+    through = copy(r)?
+    bytes = copy(&b"z")?
+    mut text = "a"
+    peeked = peek(&mut text)?
+    borrowed = copy(&text)
+    print(len(kept), len(again.values), len(values), len(inner), len(through), len(bytes), peeked)?
+    match borrowed:
+        case Ok(t):
+            print(t)?
+        case Err(error):
+            return Err(error)
+    Ok(())
+"#;
+    assert_eq!(messages(source), Vec::<String>::new());
+}
+
 #[test]
 fn warnings_point_at_the_copy_call() {
     let warnings = check_warnings(&format!("{MAIN}    x = 1\n    y = copy(x)?\n    Ok(())\n"));
@@ -87,7 +242,7 @@ fn warnings_point_at_the_copy_call() {
 }
 
 #[test]
-fn moving_values_references_results_and_computed_arguments_are_left_alone() {
+fn moving_values_dereferences_results_and_computed_arguments_are_left_alone() {
     let source = r#"
 class Record:
     values: list[i64]
@@ -96,7 +251,7 @@ def make() -> str:
     return "made"
 
 def through(word: &str) -> Result[str, AllocError]:
-    Ok(copy(word)?)
+    Ok(copy(*word)?)
 
 def main() -> Result[(), AllocError | IoError]:
     items = [1, 2]?
@@ -105,7 +260,7 @@ def main() -> Result[(), AllocError | IoError]:
     again = copy(record)?
     original = "hello"
     r = &original
-    rc = copy(r)?
+    rc = copy(*r)?
     direct = copy(original)
     made = copy(make())?
     print(len(kept), len(again.values), rc, made, through(original)?)?
