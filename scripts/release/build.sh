@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Build, audit, and package a release inside the pinned glibc 2.28 image.
 #
-# Usage: build.sh --out-dir DIR [--test]
+# Usage: build.sh --out-dir DIR [--test] [--phase all|setup]
+#                 [--engine-workspace-targets]
 #
 # A relative DIR is resolved against the caller's working directory.
 #
@@ -12,6 +13,10 @@
 # toolchain, builds the dataframe and linalg engines, rejects binaries above the
 # glibc baseline, and packages one archive with the engines beside the compiler.
 # Set CARGO_TARGET_DIR to keep these outputs apart from host builds.
+# --phase setup installs/selects the pinned tools without compiling.
+# --engine-workspace-targets places engines in their own workspace target/
+# directories, outside the compiler target, for non-overlapping CI caches.
+# Tests use the same debug-checked ci profile as the main Cargo workflow.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,14 +28,20 @@ repo="$(cd "$here/../.." && pwd)"
 
 out_dir=""
 run_tests=0
+phase=all
+engine_workspace_targets=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --out-dir) out_dir="$2"; shift 2 ;;
         --test) run_tests=1; shift ;;
+        --phase) phase="$2"; shift 2 ;;
+        --engine-workspace-targets) engine_workspace_targets=1; shift ;;
         *) echo "build.sh: unknown argument $1" >&2; exit 2 ;;
     esac
 done
 [ -n "$out_dir" ] || { echo "usage: build.sh --out-dir DIR [--test]" >&2; exit 2; }
+
+case "$phase" in all|setup) ;; *) echo "unknown release build phase: $phase" >&2; exit 2 ;; esac
 
 glibc="$(ldd --version | sed -n '1s/.* //p')"
 if [ "$glibc" != 2.28 ]; then
@@ -81,22 +92,27 @@ export PLENTY_RUNTIME_RUSTFLAGS="-C target-cpu=$release_cpu"
 export CFLAGS="$release_cflags" CXXFLAGS="$release_cflags"
 host="$(rustc -vV | sed -n 's/^host: //p')"
 [ "$host" = "$PLENTY_RELEASE_TARGET" ] || { echo "build.sh: target $PLENTY_RELEASE_TARGET differs from host $host" >&2; exit 1; }
+# Setup runs before CI cache restoration so its rustc identity is pinned.
+# The complete invocation still performs every check when run locally.
+if [ "$run_tests" = 1 ]; then rustup component add rustfmt clippy; fi
+if [ "$phase" = setup ]; then exit 0; fi
 cargo build --locked --release --bins
 "$here/check-elf.sh" "$target_dir/release/plenty" "$target_dir/release/plentyc"
 if [ "$run_tests" = 1 ]; then
     # Keep the tests' compiled-function cache with this build's outputs.
-    PLENTY_CACHE_DIR="$target_dir/plenty-cache" cargo test --locked --workspace --all-features
+    PLENTY_CACHE_DIR="$target_dir/plenty-cache" cargo test --locked --workspace --all-features --profile ci
 fi
 # The engines use the same pinned toolchain, libc and source as the compiler.
 engine_validation=()
 if [ "$run_tests" = 1 ]; then
-    rustup component add rustfmt clippy
     engine_validation+=(--validate)
 fi
 engine_args=()
 for engine in $release_engines; do
+    engine_target="$target_dir/$engine-engine"
+    if [ "$engine_workspace_targets" = 1 ]; then engine_target="$repo/plenty-$engine/target"; fi
     python3 -B scripts/build_native_engine.py "$engine" --out "$target_dir/$engine-install" \
-        --target-dir "$target_dir/$engine-engine" --jobs "${CARGO_BUILD_JOBS:-3}" "${engine_validation[@]}"
+        --target-dir "$engine_target" --jobs "${CARGO_BUILD_JOBS:-3}" "${engine_validation[@]}"
     engine_args+=(--engine "$engine=$target_dir/$engine-install/libplenty_${engine}_v1.so")
 done
 "$here/package.sh" --bin-dir "$target_dir/release" --out-dir "$out_dir" \

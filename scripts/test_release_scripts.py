@@ -536,6 +536,74 @@ class ReleaseMatrices(unittest.TestCase):
             self.assertRegex(uses, r"@[0-9a-f]{40}$", uses)
 
 
+class ReleasePreparation(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        self.log = self.root / "calls"
+        commands = {
+            "ldd": 'echo "ldd (GNU libc) ${FAKE_GLIBC:-2.28}"',
+            "rustc": 'if [ "$1" = -vV ]; then echo "host: ${FAKE_HOST:-aarch64-unknown-linux-gnu}"; else echo "rustc pinned"; fi',
+            "cc": 'if [ "$1" = -print-prog-name=ld ]; then echo "$FAKE_BIN/ld"; else echo "cc pinned"; fi',
+            "ld": 'echo "GNU ld pinned"',
+            "rustup": 'echo "rustup $*" >> "$FAKE_LOG"',
+            "cargo": 'echo "cargo $*" >> "$FAKE_LOG"; exit 99',
+        }
+        for name, body in commands.items():
+            path = self.bin / name
+            path.write_text("#!/usr/bin/env bash\nset -eu\n" + body + "\n")
+            path.chmod(0o755)
+        self.env = {**os.environ, "PATH": f"{self.bin}:{os.environ['PATH']}",
+                    "PLENTY_RELEASE_TARGET": "aarch64-unknown-linux-gnu",
+                    "CARGO_TARGET_DIR": str(self.root / "target"),
+                    "CARGO_HOME": str(self.root),
+                    "FAKE_BIN": str(self.bin), "FAKE_LOG": str(self.log)}
+
+    def setup(self, **env):
+        return run(["bash", RELEASE / "build.sh", "--out-dir", self.root / "dist",
+                    "--test", "--phase", "setup"], env={**self.env, **env})
+
+    def test_setup_pins_tools_without_building_or_packaging(self):
+        result = self.setup()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.log.read_text().splitlines(), ["rustup component add rustfmt clippy"])
+        self.assertEqual(list((self.root / "dist").iterdir()), [])
+
+    def test_setup_still_rejects_wrong_libc_and_host(self):
+        for env, message in [({"FAKE_GLIBC": "2.39"}, "release builds need the glibc 2.28 image"),
+                             ({"FAKE_HOST": "x86_64-unknown-linux-gnu"}, "differs from host")]:
+            with self.subTest(env=env):
+                result = self.setup(**env)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+        self.assertFalse(self.log.exists())
+
+    def test_native_packaging_and_publication_require_both_preparations(self):
+        workflow = (REPO / ".github/workflows/release.yml").read_text()
+        def job(name):
+            return re.search(rf"^  {name}:\n(.*?)(?=^  [a-z][a-z-]*:|\Z)",
+                             workflow, re.M | re.S).group(1)
+        self.assertIn("needs: plan", job("native-build"))
+        self.assertIn("needs: plan", job("native-engine"))
+        self.assertNotIn("needs: [", job("native-engine"))
+        self.assertIn("--test --phase prepare", job("native-build"))
+        self.assertIn("--validate", job("native-engine"))
+        self.assertIn("needs: [plan, native-build, native-engine]", job("native-package"))
+        self.assertIn("--phase package --engine-dir", job("native-package"))
+        self.assertIn("needs: [plan, native-package]", job("native-smoke"))
+        self.assertIn("native-engine, native-package, native-smoke]", job("publish"))
+        # New tags can restore the compatible default-branch qualification cache:
+        # the cache action's default job-id suffix otherwise prevents that.
+        qualification = (REPO / ".github/workflows/portability.yml").read_text()
+        shared = re.findall(r"shared-key: (.+)", workflow)
+        self.assertEqual(len(shared), 2)
+        for key in shared:
+            self.assertIn("shared-key: " + key, qualification)
+        self.assertIn(". -> target/release-compiler\n            plenty-dataframe -> target\n            plenty-linalg -> target", job("build"))
+        self.assertIn("--engine-workspace-targets", job("build"))
+
+
 class TargetFacts(unittest.TestCase):
     def facts(self, target):
         script = ('. "$1"; printf "%s|%s|%s|%s|%s|%s" "$release_os" "$release_cpu" "$release_exe" '
