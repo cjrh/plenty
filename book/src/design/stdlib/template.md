@@ -37,6 +37,7 @@ as a syntax reference, not a Tera/Jinja compatibility implementation.
 | `{% for item in items %}{{ item.name }}{% else %}empty{% endfor %}` | Array loop; optional `else` renders only for an empty array |
 | `{% block title %}Title{% endblock %}` | Define a top-level named block |
 | `{% extends 'base' %}` | Inherit from a registered template |
+| `{% include 'form' with row %}` | Render a registered fragment using an object context |
 
 Names use ASCII letters, digits and underscores, starting with a letter or
 underscore. A path's later segments may be nonnegative array indices. Text
@@ -55,7 +56,7 @@ Filters are `upper`, `lower`, `trim`, `length`, `escape` and `safe`. Text filter
 require text. `length` counts Unicode scalars for text and entries for arrays
 or objects. Filters do not accept arguments. Arithmetic, comparisons, boolean
 operators other than `not`, calls, bracket indexing, `elif`, assignments,
-includes, macros, raw blocks and whitespace-trimming delimiters are not part
+macros, raw blocks and whitespace-trimming delimiters are not part
 of this version. Unsupported syntax is rejected when registering a template,
 including inside branches that would never execute.
 
@@ -140,6 +141,29 @@ be nested or repeated within a template. The most-derived definition replaces
 its ancestor's entire block; no `super()` call is provided. Blocks absent from
 the base's layout are not rendered. Parent names are literal registry names,
 not filesystem paths. Missing parents and inheritance cycles are render errors.
+
+### Reusable fragments
+
+`{% include 'header' %}` renders another registered template with the current
+object context. `{% include 'form' with row %}` instead uses the object selected
+by `row`; the expression is evaluated in the caller before entering the fragment.
+The context expression must produce an object. The name is a quoted literal,
+not a filename or a computed path, and no filesystem access occurs.
+
+An include has its own loop scope and inheritance overrides. Pass an object
+explicitly to use a caller's loop variable; the fragment does not inherit the
+caller's loop locals or `loop` metadata. Its own loops work normally, and the
+caller regains its original root and loop metadata afterward. A fragment may
+inherit from another registered template. Inheritance and inclusion cycles
+return `InheritanceCycle`; missing names return `UnknownTemplate`.
+
+Fragments render directly into the same output with normal escaping. Keep raw
+values in their contexts: composition requires neither pre-escaping nor `safe`.
+Nested calls share the original context index and all render budgets; each
+invocation also charges inheritance resolution and cycle checks to `max_steps`.
+Include and inheritance nesting contribute to the same `max_depth` bound.
+Errors return no partial output and leave the engine and input context reusable.
+Parameterized macros and arbitrary function calls remain unsupported.
 
 ## Values, limits and errors
 

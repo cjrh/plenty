@@ -50,6 +50,177 @@ print(templates.render("page", &context)?)?
 }
 
 #[test]
+fn includes_compose_registered_fragments_with_isolated_object_contexts() {
+    let source = program(
+        r#"
+bounds = std.template.limits()
+mut templates = std.template.engine(&bounds)?
+templates.add("header", "<h1>{{ title }}</h1>")?
+templates.add("form", "<form><button>{{ label }}</button>{% for part in parts %}{{ loop.index }}={{ part }};{% endfor %}</form>")?
+templates.add("page", "{% include 'header' %}{% for row in rows %}[{{ loop.index }}:{% include 'form' with row %}:{{ loop.index }}]{% endfor %}:{{ title }}")?
+context = Json.Object([Member("title", Json.Text("A & B")), Member("rows", Json.Array([Json.Object([Member("label", Json.Text("<edit>")), Member("parts", Json.Array([Json.Text("one"), Json.Text("two")]?))]?), Json.Object([Member("label", Json.Text("save")), Member("parts", Json.Array([]?))]?)]?))]?)
+print(templates.render("page", &context)?)?
+print(templates.render("page", &context, html=False)?)?
+templates.add("needs_loop", "{{ loop.index }}")?
+templates.add("isolated", "{% for row in rows %}{% include 'needs_loop' with row %}{% endfor %}")?
+match templates.render("isolated", &context):
+    case Err(TemplateError.MissingValue(_)):
+        print("no caller loop")?
+    case _:
+        print("wrong")?
+print(templates.render("header", &context)?)?
+"#,
+    );
+    let expected = "<h1>A &amp; B</h1>[1:<form><button>&lt;edit&gt;</button>1=one;2=two;</form>:1][2:<form><button>save</button></form>:2]:A &amp; B\n<h1>A & B</h1>[1:<form><button><edit></button>1=one;2=two;</form>:1][2:<form><button>save</button></form>:2]:A & B\nno caller loop\n<h1>A &amp; B</h1>";
+    for optimize in [false, true] {
+        assert_eq!(output_with_optimization(&source, optimize), expected);
+    }
+}
+
+#[test]
+fn included_inheritance_has_its_own_overrides_and_detects_real_cycles() {
+    let source = program(
+        r#"
+bounds = std.template.limits()
+mut templates = std.template.engine(&bounds)?
+templates.add("base", "<{% block body %}base{% endblock %}>")?
+templates.add("card", "{% extends 'base' %}{% block body %}{{ title }}{% endblock %}")?
+templates.add("page", "{% extends 'base' %}{% block body %}page:{% include 'card' %}:{% include 'base' %}{% endblock %}")?
+context = Json.Object([Member("title", Json.Text("<&>"))]?)
+print(templates.render("page", &context)?)?
+templates.add("a", "{% include 'b' %}")?
+templates.add("b", "{% include 'a' %}")?
+templates.add("self", "{% include 'self' %}")?
+templates.add("derived", "{% extends 'base' %}{% block body %}{% include 'derived' %}{% endblock %}")?
+for name in ["a", "self", "derived"]?:
+    match templates.render(&name, &context):
+        case Err(TemplateError.InheritanceCycle):
+            print("cycle")?
+        case _:
+            print("wrong")?
+print(templates.render("page", &context)?)?
+"#,
+    );
+    assert_eq!(
+        support::run_file_stdout(&source),
+        "<page:<&lt;&amp;&gt;>:<base>>\ncycle\ncycle\ncycle\n<page:<&lt;&amp;&gt;>:<base>>"
+    );
+}
+
+#[test]
+fn includes_preserve_syntax_and_shared_resource_limits() {
+    let source = program(
+        r#"
+mut bounds = std.template.limits()
+mut templates = std.template.engine(&bounds)?
+for bad in ["{% include name %}", "{% include '' %}", "{% include 'card' extra %}", "{% include 'card' with %}", "{% if false %}{% include 'card' with foo() %}{% endif %}"]?:
+    match templates.add("retry", &bad):
+        case Err(TemplateError.Syntax(_)):
+            print("syntax")?
+        case _:
+            print("wrong")?
+templates.add("retry", "ok")?
+templates.add("missing", "before{% include 'absent' %}")?
+templates.add("wrong", "{% include 'retry' with 4 %}")?
+context = Json.Object([]?)
+match templates.render("missing", &context):
+    case Err(TemplateError.UnknownTemplate(_)):
+        print("missing")?
+    case _:
+        print("wrong")?
+match templates.render("wrong", &context):
+    case Err(TemplateError.TypeMismatch):
+        print("object required")?
+    case _:
+        print("wrong")?
+bounds.max_output = 3
+mut short = std.template.engine(&bounds)?
+short.add("x", "xx")?
+short.add("large", "{% include 'x' %}{% include 'x' %}")?
+match short.render("large", &context):
+    case Err(TemplateError.LimitExceeded):
+        print("output limit")?
+    case _:
+        print("wrong")?
+print(short.render("x", &context)?)?
+bounds.max_output = 100
+bounds.max_depth = 1
+mut shallow = std.template.engine(&bounds)?
+shallow.add("x", "x")?
+shallow.add("outer", "{% include 'x' %}")?
+match shallow.render("outer", &context):
+    case Err(TemplateError.LimitExceeded):
+        print("depth limit")?
+    case _:
+        print("wrong")?
+print(shallow.render("x", &context)?)?
+bounds.max_depth = 64
+bounds.max_steps = 8
+mut slow = std.template.engine(&bounds)?
+slow.add("x", "x")?
+slow.add("outer", "{% include 'x' %}{% include 'x' %}")?
+match slow.render("outer", &context):
+    case Err(TemplateError.LimitExceeded):
+        print("step limit")?
+    case _:
+        print("wrong")?
+print(slow.render("x", &context)?)?
+"#,
+    );
+    assert_eq!(
+        support::run_file_stdout(&source),
+        "syntax\nsyntax\nsyntax\nsyntax\nsyntax\nmissing\nobject required\noutput limit\nxx\ndepth limit\nx\nstep limit\nx"
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn include_allocation_failures_leave_the_engine_and_context_reusable() {
+    let source = format!(
+        "from std.bytes import BytesError\n{}",
+        program(
+            r#"
+bounds = std.template.limits()
+mut templates = std.template.engine(&bounds)?
+templates.add("part", "<p>{{ title }}</p>")?
+templates.add("page", "{% include 'part' with row %}")?
+context = Json.Object([Member("row", Json.Object([Member("title", Json.Text("A & B long enough to require storage"))]?))]?)
+for budget in [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 128, 256]?:
+    marker = f"__test_fail_allocations_after_{budget}__"?
+    print(marker)?
+    result = templates.render("page", &context)
+    print("__test_restore_allocations__")?
+    match result:
+        case Err(TemplateError.Allocation(_)):
+            print("allocation")?
+        case Err(TemplateError.Bytes(BytesError.Allocation(_))):
+            print("allocation")?
+        case Ok(value):
+            print(value == "<p>A &amp; B long enough to require storage</p>")?
+        case _:
+            print("wrong")?
+    print(templates.render("page", &context)? == "<p>A &amp; B long enough to require storage</p>")?
+"#
+        )
+    );
+    let output = support::run_file_stdout(&source);
+    let lines: Vec<_> = output.lines().collect();
+    assert_eq!(lines.len(), 44, "{output}");
+    assert!(lines.iter().any(|line| *line == "allocation"), "{output}");
+    assert!(
+        lines
+            .iter()
+            .all(|line| ["allocation", "True"].contains(line)),
+        "{output}"
+    );
+    assert!(
+        lines.chunks_exact(2).all(|pair| pair[1] == "True"),
+        "{output}"
+    );
+    assert_eq!(&lines[42..], &["True", "True"], "{output}");
+}
+
+#[test]
 fn inheritance_is_named_and_most_derived_wins() {
     let source = program(
         r#"
