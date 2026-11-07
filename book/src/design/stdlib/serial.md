@@ -84,6 +84,11 @@ and collected prefix remain intact. A root error needs no backing allocation.
 `Nothing` represents a path with no collected steps; this avoids allocating
 an empty list while constructing the error. Success does not allocate path entries.
 
+`Fault.KindMismatch(expected, found)` retains `Kind` values without copying
+rejected scalar contents. Legacy `UnexpectedKind` remains usable in custom
+hooks. [Bounded diagnostics](serial-diagnostics.md) render causes and root-first
+paths through `std.report`; source excerpts are opt-in.
+
 `Fault` distinguishes unexpected kinds, missing/duplicate/unknown fields,
 unknown variants, range failures, wrong tuple lengths, duplicate set elements,
 values a format cannot represent, invalid base64, and native `StackLimit`.

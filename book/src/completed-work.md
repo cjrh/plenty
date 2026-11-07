@@ -163,3 +163,8 @@ and [the delivery record](completed-work/libraries.md#checked-html-template-rend
 
 Issue #782 adds shared bounded pretty output for JSON events, trees and typed
 values. See the [delivery record](completed-work/libraries.md#bounded-json-pretty-output-issue-782).
+
+## Serialization diagnostics
+
+Issue #783 adds bounded readable JSON/TOML causes, typed field paths and opt-in
+source excerpts. See the [delivery record](completed-work/libraries.md#serialization-diagnostics-issue-783).

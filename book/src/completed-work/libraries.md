@@ -418,3 +418,13 @@ counts against cumulative output limits even across incremental drains;
 indentation requires no separate proportional buffer. See
 [pretty output](../design/stdlib/json.md#pretty-output). B51 retains bulk scans
 and JSON Lines in the [backlog](../backlog.md).
+
+## Serialization diagnostics (issue #783)
+
+JSON/TOML errors and typed serial failures now render readable typed causes,
+expected/actual kinds and root-first paths through the shared bounded formatter.
+An opt-in `std.report.diagnostic` helper adds a bounded, escaped Unicode-aware
+source excerpt when coordinates are known, including EOF. Formatting failure
+preserves the borrowed structured error. TOML schema/tree errors retain paths
+without invented source coordinates. See
+[serialization diagnostics](../design/stdlib/serial-diagnostics.md).

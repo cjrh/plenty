@@ -115,3 +115,8 @@ paths identify nested failures without allocating path entries on success.
 Derived hooks preserve constructor validation and absent-field defaults, with
 the representations described in [`@serial`](serial-derive.md). Handwritten
 hooks can override either codec direction.
+
+Use [serialization diagnostics](serial-diagnostics.md) to render the complete
+typed cause and root-first path with explicit byte limits. Kind mismatches
+retain expected and actual kinds; source snippets are opt-in and only appear
+when input coordinates are known.

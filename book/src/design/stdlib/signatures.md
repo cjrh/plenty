@@ -67,46 +67,46 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.image`](#stdimage): 2143-2189
 - [`std.io`](#stdio): 2191-2297
 - [`std.io.typed`](#stdiotyped): 2299-2337
-- [`std.serial`](#stdserial): 2339-2397
-- [`std.json`](#stdjson): 2399-2549
-- [`std.jwt`](#stdjwt): 2551-2598
-- [`std.log`](#stdlog): 2600-2667
-- [`std.markdown`](#stdmarkdown): 2669-2703
-- [`std.template`](#stdtemplate): 2705-2742
-- [`std.math`](#stdmath): 2744-2815
-- [`std.mime`](#stdmime): 2817-2843
-- [`std.net`](#stdnet): 2845-2927
-- [`std.path`](#stdpath): 2929-2946
-- [`std.process`](#stdprocess): 2948-3006
-- [`std.random`](#stdrandom): 3008-3029
-- [`std.ready`](#stdready): 3031-3062
-- [`std.regex`](#stdregex): 3064-3117
-- [`std.report`](#stdreport): 3119-3126
-- [`std.secrets`](#stdsecrets): 3128-3154
-- [`std.shlex`](#stdshlex): 3156-3165
-- [`std.sketch`](#stdsketch): 3167-3205
-- [`std.sketch.xor`](#stdsketchxor): 3207-3218
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3220-3235
-- [`std.signal`](#stdsignal): 3237-3254
-- [`std.simd`](#stdsimd): 3256-3357
-- [`std.stat`](#stdstat): 3359-3392
-- [`std.plot`](#stdplot): 3394-3483
-- [`std.linalg`](#stdlinalg): 3485-3526
-- [`std.sync`](#stdsync): 3528-3546
-- [`std.system`](#stdsystem): 3548-3607
-- [`std.tempfile`](#stdtempfile): 3609-3641
-- [`std.test`](#stdtest): 3643-3685
-- [`std.text`](#stdtext): 3687-3730
-- [`std.thread`](#stdthread): 3732-3736
-- [`std.time`](#stdtime): 3738-3782
-- [`std.tls`](#stdtls): 3784-3866
-- [`std.toml`](#stdtoml): 3868-3965
-- [`std.unicode`](#stdunicode): 3967-3979
-- [`std.units`](#stdunits): 3981-4218
-- [`std.units.catalogue`](#stdunitscatalogue): 4220-4998
-- [`std.url`](#stdurl): 5000-5028
-- [`std.uuid`](#stduuid): 5030-5053
-- [`std.xml`](#stdxml): 5055-5088
+- [`std.serial`](#stdserial): 2339-2403
+- [`std.json`](#stdjson): 2405-2557
+- [`std.jwt`](#stdjwt): 2559-2606
+- [`std.log`](#stdlog): 2608-2675
+- [`std.markdown`](#stdmarkdown): 2677-2711
+- [`std.template`](#stdtemplate): 2713-2750
+- [`std.math`](#stdmath): 2752-2823
+- [`std.mime`](#stdmime): 2825-2851
+- [`std.net`](#stdnet): 2853-2935
+- [`std.path`](#stdpath): 2937-2954
+- [`std.process`](#stdprocess): 2956-3014
+- [`std.random`](#stdrandom): 3016-3037
+- [`std.ready`](#stdready): 3039-3070
+- [`std.regex`](#stdregex): 3072-3125
+- [`std.report`](#stdreport): 3127-3138
+- [`std.secrets`](#stdsecrets): 3140-3166
+- [`std.shlex`](#stdshlex): 3168-3177
+- [`std.sketch`](#stdsketch): 3179-3217
+- [`std.sketch.xor`](#stdsketchxor): 3219-3230
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3232-3247
+- [`std.signal`](#stdsignal): 3249-3266
+- [`std.simd`](#stdsimd): 3268-3369
+- [`std.stat`](#stdstat): 3371-3404
+- [`std.plot`](#stdplot): 3406-3495
+- [`std.linalg`](#stdlinalg): 3497-3538
+- [`std.sync`](#stdsync): 3540-3558
+- [`std.system`](#stdsystem): 3560-3619
+- [`std.tempfile`](#stdtempfile): 3621-3653
+- [`std.test`](#stdtest): 3655-3697
+- [`std.text`](#stdtext): 3699-3742
+- [`std.thread`](#stdthread): 3744-3748
+- [`std.time`](#stdtime): 3750-3794
+- [`std.tls`](#stdtls): 3796-3878
+- [`std.toml`](#stdtoml): 3880-3979
+- [`std.unicode`](#stdunicode): 3981-3993
+- [`std.units`](#stdunits): 3995-4232
+- [`std.units.catalogue`](#stdunitscatalogue): 4234-5012
+- [`std.url`](#stdurl): 5014-5042
+- [`std.uuid`](#stduuid): 5044-5067
+- [`std.xml`](#stdxml): 5069-5102
 
 ## `std.actor`
 
@@ -2341,14 +2341,20 @@ def copy_all[E, G, R: Reader[E], W: Writer[G]](reader: &mut R, writer: &mut W, s
 Format-neutral typed codecs, derived or handwritten class/enum hooks, canonical bytes, and typed error paths. Errors: `SerialError[E]`. [Reference](serial.md).
 
 ```text
+enum Kind
+    Null | Boolean | Integer | Number | Text | Array | Object | DateTime | Variant | Key | End
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
 enum Fault
-    UnexpectedKind | MissingField(str) | DuplicateField(str) | UnknownField(str) | UnknownVariant(str) | OutOfRange | WrongLength(i64, i64) | DuplicateElement | Unrepresentable | InvalidBase64(std.encoding.EncodingError) | StackLimit
+    UnexpectedKind | KindMismatch(Kind, Kind) | MissingField(str) | DuplicateField(str) | UnknownField(str) | UnknownVariant(str) | OutOfRange | WrongLength(i64, i64) | DuplicateElement | Unrepresentable | InvalidBase64(std.encoding.EncodingError) | StackLimit
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
 enum Step
     Field(str) | Index(i64) | Key(str) | Variant(str)
 class SerialError[E]
     cause: E
     path: Option[list[Step]]
     complete: bool
+    def source_offset(self) -> Option[i64]
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
     def at(self: SerialError[E], step: Step) -> SerialError[E]
 def error[E](cause: E) -> SerialError[E]
 def wrap[T, E](result: Result[T, E]) -> Result[T, SerialError[E]]
@@ -2408,6 +2414,8 @@ class JsonError
     offset: i64
     line: i64
     column: i64
+    def source_offset(self) -> Option[i64]
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
 enum DuplicateKeys
     Reject | Keep
 class Limits
@@ -3123,6 +3131,10 @@ Bounded human-readable report rendering with `std.fmt`. Errors: `FormatError`. [
 ```text
 def render[T: Formattable, W](value: &T, output: &mut Formatter[W]) -> Result[(), FormatError]
 def to_string[T: Formattable](value: &T, max_bytes: NonNegative[i64], max_depth: NonNegative[i64]) -> Result[str, FormatError]
+protocol Diagnostic
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
+    def source_offset(self) -> Option[i64]
+def diagnostic[T: Diagnostic](value: &T, source: &[u8], max_bytes: NonNegative[i64] = 4096, max_context: NonNegative[i64] = 80) -> Result[str, FormatError]
 ```
 
 ## `std.secrets`
@@ -3877,6 +3889,8 @@ class TomlError
     offset: i64
     line: i64
     column: i64
+    def source_offset(self) -> Option[i64]
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
 class Limits
     max_depth: NonNegative[i64]
     max_input: NonNegative[i64]
