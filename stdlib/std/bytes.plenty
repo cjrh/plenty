@@ -215,13 +215,13 @@ pub class Bytes:
     # WHATWG Encoding Standard's UTF-8 decoder. The result holds at most three
     # bytes per input byte.
     pub def to_text_lossy(self) -> Result[str, AllocError]:
-        lossy_in(&self[:])
+        lossy_in(&self[:], True)
 
     # A sequence that `stop` cuts short is a truncated, replaced subpart.
     pub def to_text_lossy_range(self, start: i64, stop: i64) -> Result[str, AllocError]:
         if not within(start, stop, __bytes_len(self._owner)):
             __trap("Bytes.to_text_lossy_range: start..stop is outside 0..=len()")
-        lossy_in(&self[start:stop])
+        lossy_in(&self[start:stop], False)
 
     # Direct transport. Each call makes at most one native read or write and
     # returns the bytes moved, so a short count is success. std.io adds the
@@ -257,11 +257,12 @@ def text_in(source: &[u8]) -> Result[str, BytesError]:
         case Nothing:
             Err(BytesError.InvalidUtf8)
 
-def lossy_in(source: &[u8]) -> Result[str, AllocError]:
+# `whole` only selects the method named by the unreachable trap.
+def lossy_in(source: &[u8], whole: bool) -> Result[str, AllocError]:
     count = len(source)
     first_run = __bytes_run(source, 1u8)
     if first_run == count:
-        return valid_text(source)
+        return valid_text(source, whole)
     # Size the output first so the scratch buffer is allocated once, exactly.
     # Each step consumes at least one byte and adds at most three, so the
     # total is at most 3 * count, which fits for any in-memory view.
@@ -283,15 +284,17 @@ def lossy_in(source: &[u8]) -> Result[str, AllocError]:
             __bytes_append(owner, &source[at:at + run])?
             at += run
         output = Bytes(owner)
-        valid_text(&output[:])
+        valid_text(&output[:], whole)
 
 # `source` is known to be valid UTF-8, so only allocation can fail.
-def valid_text(source: &[u8]) -> Result[str, AllocError]:
+def valid_text(source: &[u8], whole: bool) -> Result[str, AllocError]:
     match __bytes_to_text(source)?:
         case Some(text):
             Ok(text)
         case Nothing:
-            __trap("Bytes.to_text_lossy: replacement produced invalid UTF-8")
+            if whole:
+                __trap("Bytes.to_text_lossy: replacement produced invalid UTF-8")
+            __trap("Bytes.to_text_lossy_range: replacement produced invalid UTF-8")
 
 # Length of the maximal subpart at `at`: the longest prefix of a well-formed
 # sequence, or one byte when `source[at]` cannot start one. Only called where
