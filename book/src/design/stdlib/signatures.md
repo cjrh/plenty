@@ -76,36 +76,36 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.mime`](#stdmime): 2650-2676
 - [`std.net`](#stdnet): 2678-2760
 - [`std.path`](#stdpath): 2762-2779
-- [`std.process`](#stdprocess): 2781-2830
-- [`std.random`](#stdrandom): 2832-2853
-- [`std.ready`](#stdready): 2855-2886
-- [`std.regex`](#stdregex): 2888-2941
-- [`std.report`](#stdreport): 2943-2950
-- [`std.secrets`](#stdsecrets): 2952-2978
-- [`std.shlex`](#stdshlex): 2980-2989
-- [`std.sketch`](#stdsketch): 2991-3029
-- [`std.sketch.xor`](#stdsketchxor): 3031-3042
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3044-3059
-- [`std.signal`](#stdsignal): 3061-3078
-- [`std.simd`](#stdsimd): 3080-3181
-- [`std.stat`](#stdstat): 3183-3216
-- [`std.plot`](#stdplot): 3218-3307
-- [`std.linalg`](#stdlinalg): 3309-3350
-- [`std.sync`](#stdsync): 3352-3370
-- [`std.system`](#stdsystem): 3372-3430
-- [`std.tempfile`](#stdtempfile): 3432-3464
-- [`std.test`](#stdtest): 3466-3508
-- [`std.text`](#stdtext): 3510-3553
-- [`std.thread`](#stdthread): 3555-3559
-- [`std.time`](#stdtime): 3561-3605
-- [`std.tls`](#stdtls): 3607-3689
-- [`std.toml`](#stdtoml): 3691-3740
-- [`std.unicode`](#stdunicode): 3742-3754
-- [`std.units`](#stdunits): 3756-3993
-- [`std.units.catalogue`](#stdunitscatalogue): 3995-4773
-- [`std.url`](#stdurl): 4775-4803
-- [`std.uuid`](#stduuid): 4805-4828
-- [`std.xml`](#stdxml): 4830-4863
+- [`std.process`](#stdprocess): 2781-2831
+- [`std.random`](#stdrandom): 2833-2854
+- [`std.ready`](#stdready): 2856-2887
+- [`std.regex`](#stdregex): 2889-2942
+- [`std.report`](#stdreport): 2944-2951
+- [`std.secrets`](#stdsecrets): 2953-2979
+- [`std.shlex`](#stdshlex): 2981-2990
+- [`std.sketch`](#stdsketch): 2992-3030
+- [`std.sketch.xor`](#stdsketchxor): 3032-3043
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3045-3060
+- [`std.signal`](#stdsignal): 3062-3079
+- [`std.simd`](#stdsimd): 3081-3182
+- [`std.stat`](#stdstat): 3184-3217
+- [`std.plot`](#stdplot): 3219-3308
+- [`std.linalg`](#stdlinalg): 3310-3351
+- [`std.sync`](#stdsync): 3353-3371
+- [`std.system`](#stdsystem): 3373-3431
+- [`std.tempfile`](#stdtempfile): 3433-3465
+- [`std.test`](#stdtest): 3467-3509
+- [`std.text`](#stdtext): 3511-3554
+- [`std.thread`](#stdthread): 3556-3560
+- [`std.time`](#stdtime): 3562-3606
+- [`std.tls`](#stdtls): 3608-3690
+- [`std.toml`](#stdtoml): 3692-3741
+- [`std.unicode`](#stdunicode): 3743-3755
+- [`std.units`](#stdunits): 3757-3994
+- [`std.units.catalogue`](#stdunitscatalogue): 3996-4774
+- [`std.url`](#stdurl): 4776-4804
+- [`std.uuid`](#stduuid): 4806-4829
+- [`std.xml`](#stdxml): 4831-4864
 
 ## `std.actor`
 
@@ -2784,7 +2784,7 @@ Children spawned from an argument vector with no implicit shell, piped streams, 
 
 ```text
 enum Stdio
-    Inherit | Null | Piped
+    Inherit | Null | Piped | File(File)
 class ExitStatus
     def success(self) -> bool
     def code(self) -> Option[i32]
@@ -2806,6 +2806,7 @@ class Command
     def stdin(self: &mut Command, mode: Stdio) -> ()
     def stdout(self: &mut Command, mode: Stdio) -> ()
     def stderr(self: &mut Command, mode: Stdio) -> ()
+    def stderr_to_stdout(self: &mut Command) -> ()
     def spawn(self) -> Result[Child, IoError]
 def command_bytes(program: &list[u8]) -> Result[Command, IoError]
 def command(program: &str) -> Result[Command, IoError]

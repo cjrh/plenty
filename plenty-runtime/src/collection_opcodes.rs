@@ -76,6 +76,8 @@ pub const fn scratch_operand_count(op: i64) -> usize {
         | 345 | 346
         // Readiness and selectors.
         | 419 | 421 | 422
+        // Child spawn: its redirection files.
+        | 197
         // TLS buffer transfers and details; primitive column assignment.
         | 477 | 478 | 490..=492 | 527 => 1,
         _ => 0,

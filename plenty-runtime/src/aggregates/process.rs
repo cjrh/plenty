@@ -11,7 +11,7 @@ use crate::text_io::{self, Error, Kind};
 mod native {
     use super::*;
     use std::ffi::{CStr, OsStr};
-    use std::os::fd::{AsRawFd, OwnedFd};
+    use std::os::fd::{AsFd, AsRawFd, OwnedFd};
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::process::ExitStatusExt;
     use std::process::{Child, Command, Stdio};
@@ -35,9 +35,18 @@ mod native {
     static NEXT: AtomicU32 = AtomicU32::new(1);
 
     const RUNNING: u128 = 1 << 16;
-    const STDIN_PIPE: u64 = 0b11;
-    const CHANGE_DIR: u64 = 1 << 6;
-    const CLEAR_ENV: u64 = 1 << 7;
+    /// Each stream code is 8 bits of `flags`: a mode in bits 0..3 and, for
+    /// `REDIRECTED`, the index of its file from bit 3 (see `std.process`).
+    const STREAM_BITS: u64 = 8;
+    const MODE: u64 = 0b111;
+    const INDEX_SHIFT: u64 = 3;
+    const INHERIT: u64 = 0;
+    const NULL: u64 = 1;
+    const PIPED: u64 = 2;
+    const REDIRECTED: u64 = 3;
+    const MERGED: u64 = 4;
+    const CHANGE_DIR: u64 = 1 << 24;
+    const CLEAR_ENV: u64 = 1 << 25;
 
     /// Exec fails with ETXTBSY while any process has the program open for
     /// writing. A child forked by another thread holds a copy of each
@@ -82,19 +91,55 @@ mod native {
         entry
     }
 
-    fn stdio(code: u64) -> Result<Stdio, Error> {
-        match code & STDIN_PIPE {
-            0 => Ok(Stdio::inherit()),
-            1 => Ok(Stdio::null()),
-            2 => Ok(Stdio::piped()),
+    /// Stream `stream`'s code. Only stderr may follow stdout.
+    fn stream_code(flags: u64, stream: u64) -> Result<u64, Error> {
+        let code = flags >> (stream * STREAM_BITS) & 0xff;
+        match code & MODE {
+            INHERIT | NULL | PIPED | REDIRECTED => Ok(code),
+            MERGED if stream == 2 => Ok(code),
             _ => Err(Kind::InvalidInput.into()),
         }
     }
 
+    /// The file a `REDIRECTED` code names, duplicated for the child.
+    ///
+    /// # Safety
+    /// `files` is a live borrowed `list[File]`.
+    unsafe fn redirected(files: u128, code: u64, write: bool) -> Result<std::fs::File, Error> {
+        // SAFETY: per the contract, each entry key is a live file owner.
+        unsafe {
+            let list = &*(files as *const Collection);
+            let at = (code >> INDEX_SHIFT) as usize;
+            let file = list.entries.iter().nth(at).ok_or(Kind::InvalidInput)?.key;
+            crate::files::child_stream(file as *const crate::files::File, write)
+        }
+    }
+
+    /// # Safety
+    /// `files` is a live borrowed `list[File]`.
+    unsafe fn stdio(code: u64, files: u128, write: bool) -> Result<Stdio, Error> {
+        Ok(match code & MODE {
+            INHERIT => Stdio::inherit(),
+            NULL => Stdio::null(),
+            PIPED => Stdio::piped(),
+            // SAFETY: forwarded from the caller.
+            _ => Stdio::from(unsafe { redirected(files, code, write)? }),
+        })
+    }
+
     /// `spec` is NUL-terminated strings: the program, `argc` arguments, the
     /// working directory when flagged, then environment edits, `NAME=value`
-    /// to set and a bare `NAME` to remove.
-    fn spawn(spec: &[u8], argc: u128, flags: u64) -> Result<u128, Error> {
+    /// to set and a bare `NAME` to remove. `files` holds the files that
+    /// redirected stream codes name.
+    ///
+    /// # Safety
+    /// `files` is a live borrowed `list[File]`.
+    pub(super) unsafe fn spawn(
+        spec: &[u8],
+        argc: u128,
+        flags: u64,
+        files: u128,
+    ) -> Result<u128, Error> {
         let spec = spec.strip_suffix(&[0]).ok_or(Kind::InvalidInput)?;
         let mut parts = spec.split(|byte| *byte == 0);
         let mut next = || parts.next().ok_or(Kind::InvalidInput);
@@ -127,10 +172,41 @@ mod native {
                 }
             }
         }
-        command
-            .stdin(stdio(flags)?)
-            .stdout(stdio(flags >> 2)?)
-            .stderr(stdio(flags >> 4)?);
+        let (input, output, error) = (
+            stream_code(flags, 0)?,
+            stream_code(flags, 1)?,
+            stream_code(flags, 2)?,
+        );
+        // A merged stderr shares stdout's destination. For a pipe this
+        // module creates it, so both ends write to the one the Child reads.
+        let mut merged_pipe = None;
+        // SAFETY: `files` is live per this function's contract.
+        unsafe {
+            command.stdin(stdio(input, files, false)?);
+            if error & MODE == MERGED {
+                let (same, other) = match output & MODE {
+                    INHERIT => {
+                        let out = std::io::stdout().as_fd().try_clone_to_owned()?;
+                        (Stdio::inherit(), Stdio::from(out))
+                    }
+                    NULL => (Stdio::null(), Stdio::null()),
+                    PIPED => {
+                        let (reader, writer) = std::io::pipe()?;
+                        merged_pipe = Some(reader);
+                        (Stdio::from(writer.try_clone()?), Stdio::from(writer))
+                    }
+                    _ => {
+                        let file = redirected(files, output, true)?;
+                        (Stdio::from(file.try_clone()?), Stdio::from(file))
+                    }
+                };
+                command.stdout(same).stderr(other);
+            } else {
+                command
+                    .stdout(stdio(output, files, true)?)
+                    .stderr(stdio(error, files, true)?);
+            }
+        }
         let mut table = children();
         // Reserved before the child exists, so a started child is always recorded.
         table
@@ -141,7 +217,7 @@ mod native {
             return Err(Kind::Other.into());
         }
         let mut waits = BUSY_WAITS_MS.iter();
-        let child = loop {
+        let mut child = loop {
             match command.spawn() {
                 Ok(child) => break child,
                 Err(error) => {
@@ -160,6 +236,12 @@ mod native {
                 }
             }
         };
+        // The parent's copies of redirected and merged write ends close here,
+        // so a merged pipe reaches end of input when the child's copies close.
+        drop(command);
+        if let Some(reader) = merged_pipe {
+            child.stdout = Some(OwnedFd::from(reader).into());
+        }
         NEXT.store(id + 1, Ordering::Relaxed);
         let pipes = [
             child.stdin.as_ref().map_or(-1, AsRawFd::as_raw_fd),
@@ -378,7 +460,6 @@ mod native {
                     std::env::set_current_dir(OsStr::from_bytes(&contiguous(a)?))?;
                     Ok(0)
                 }
-                197 => spawn(&contiguous(a)?, b, c as u64),
                 198 => pipe(a, b, output[0]),
                 199 => wait(a, b != 0),
                 228 => signal(a, b),
@@ -387,6 +468,26 @@ mod native {
                 _ => crate::fail("invalid process operation"),
             }
         }
+    }
+}
+
+/// `__process_spawn`, the one process operation with a fourth operand.
+#[inline(always)]
+pub(super) unsafe fn spawn_call(operands: [u128; 4], descriptor: *const Type) -> u128 {
+    #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+    {
+        let [spec, argc, flags, files] = operands;
+        let _ = descriptor;
+        // SAFETY: the compiler signature supplies a live list[u8] and a live
+        // borrowed list[File] for the duration of the call.
+        text_io::result(unsafe {
+            contiguous(spec).and_then(|spec| native::spawn(&spec, argc, flags as u64, files))
+        })
+    }
+    #[cfg(not(all(target_os = "linux", target_pointer_width = "64")))]
+    {
+        let _ = (operands, descriptor);
+        text_io::result(Err(Kind::Unsupported.into()))
     }
 }
 

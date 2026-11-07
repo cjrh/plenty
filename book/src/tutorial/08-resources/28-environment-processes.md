@@ -103,6 +103,40 @@ exit status. A nonzero exit code is a normal result: the program ran. Never
 put text you did not write into a `shell` script; pass it as an argument or a
 variable.
 
+To keep a child's output in a log, give the stream a file. The file's open
+mode decides what happens to earlier content: `"a"` appends, `"w"` truncates.
+`stderr_to_stdout` sends both streams to the same place:
+
+```plenty
+import std.process
+from std.process import Stdio
+
+def main() -> Result[(), AllocError | IoError]:
+    mut job = std.process.shell("echo started; echo warning >&2")?
+    job.stdout(Stdio.File(open("job.log", "a")?))
+    job.stderr_to_stdout()
+    for _ in range(2):
+        mut child = job.spawn()?
+        print(child.wait()?.success())?
+    with open("job.log")? as log:
+        print(log.read()?)?
+    Ok(())
+```
+```output
+True
+True
+started
+warning
+started
+warning
+
+```
+
+The command owns the file and hands each child a copy of it, so both runs
+append to the same log. See
+[redirecting a stream](../../design/stdlib/process.md#building-a-command) for
+the access each stream needs.
+
 A program that cannot be started is an error, and a child that runs too long
 can be stopped:
 
