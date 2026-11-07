@@ -611,7 +611,8 @@ const TRAP: &str = "__trap";
 /// Native intrinsics that only std modules call. Each family belongs to the
 /// std module that validates its operands and maps its results.
 fn std_only_intrinsic(name: &str) -> bool {
-    name == BYTES_ADOPT
+    name == "__system_available_parallelism"
+        || name == BYTES_ADOPT
         || name == TRAP
         || crate::numeric::FloatBits::named(name).is_some()
         || name == "__io_entropy_read"
@@ -637,6 +638,7 @@ pub(crate) fn builtin(name: &str) -> bool {
         || crate::compress::CompressOp::named(name).is_some()
         || crate::process::ProcessOp::named(name).is_some()
         || crate::time::TimeOp::named(name).is_some()
+        || crate::system::SystemOp::named(name).is_some()
         || crate::unicode::UnicodeOp::named(name).is_some()
         || crate::regex::RegexOp::named(name).is_some()
         || crate::text::TextOp::named(name).is_some()
@@ -2497,6 +2499,9 @@ impl Lower<'_> {
                 }
                 if let Some(operation) = crate::process::ProcessOp::named(name) {
                     return self.system_call(CollectionOp::Process(operation), args, &e.at, ops);
+                }
+                if let Some(operation) = crate::system::SystemOp::named(name) {
+                    return self.system_call(CollectionOp::System(operation), args, &e.at, ops);
                 }
                 if let Some(operation) = crate::time::TimeOp::named(name) {
                     let output =

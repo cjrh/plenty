@@ -57,3 +57,16 @@ readiness and child deadline waits accept caller cancellation while preserving
 server shutdown behavior. [`std.sync`](design/stdlib/sync.md#typed-deadline-waits)
 provides typed channel, future, token and two-channel selection waits; explicit
 millisecond primitives remain as low-level compatibility APIs (B42).
+
+## CPU availability and system inspection assessment
+
+Delivered part of B38 in issue #716.
+
+[`std.system.available_parallelism`](design/stdlib/system.md#available-parallelism)
+provides a positive, fallible worker-count estimate, with bounded Linux affinity
+and visible cgroup quota handling plus native Apple/Windows backends. Pool
+examples teach explicit caller fallback. The
+[coverage/backend assessment](design/stdlib/system-backends.md) records the
+psutil-style platform gaps and Rust backend tradeoffs; the
+[library delivery record](completed-work/libraries.md#b38-library-breadth) links
+to the remaining B38 scope.

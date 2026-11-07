@@ -589,6 +589,8 @@ mod test_std_stat;
 mod test_std_sync_mutex;
 #[path = "test_std_system.rs"]
 mod test_std_system;
+#[path = "test_std_system_available.rs"]
+mod test_std_system_available;
 #[path = "test_std_tempfile.rs"]
 mod test_std_tempfile;
 #[path = "test_std_template.rs"]

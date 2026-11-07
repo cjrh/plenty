@@ -1,8 +1,72 @@
 # `std.system`
 
-Bounded Linux system-information snapshots, implemented in Plenty over
-[`std.fs`](fs.md) and [`std.io`](io.md). No subprocess, background sampler,
-native dependency, or global cache is involved.
+CPU availability estimates and bounded Linux system-information snapshots.
+Snapshots are implemented in Plenty over [`std.fs`](fs.md) and
+[`std.io`](io.md). A small native bridge queries platform CPU availability.
+There is no subprocess, background sampler, monitoring dependency or global cache.
+
+## Available parallelism
+
+```text
+available_parallelism() -> Result[Positive[i64], SystemError]
+```
+
+This is an estimate of usable CPU parallelism for sizing a worker pool, distinct
+from online logical CPUs (`Procfs.cpu_count()`) and physical cores (not exposed).
+Success is always positive and can be passed directly to `ThreadPoolExecutor`.
+Query once when configuring a pool; the result is recomputed on each call and
+can change as affinity and resource limits change. It is not a reservation,
+thread-creation guarantee, utilization measurement or hot-loop operation.
+
+```plenty
+import std.system
+
+def main() -> Result[(), IoError]:
+    # One worker is this application's deliberate fallback, not library policy.
+    workers = std.system.available_parallelism().unwrap_or(1)
+    print("positive worker count:", workers.get() > 0)?
+    Ok(())
+```
+```output
+positive worker count: True
+```
+
+Keep an explicit user-configured count when supplied. CPU-bound workloads often
+start with this estimate; I/O-bound workloads may need a different measured
+count. See [executor sizing](../../tutorial/11-concurrency/executors-and-futures.md).
+The function takes no owned input, allocates no heap storage and starts no
+threads. Linux uses bounded stack buffers (less than 160 KiB total), caps
+membership/controller files at 65536 bytes, quota files at 512 bytes and paths
+at 4096 bytes, and closes every temporary descriptor. It returns `Limit` on
+exhaustion, `Unavailable` on inaccessible/unknown data, and `Unsupported` when
+there is no backend. It never silently substitutes a CPU count on failure.
+
+| Native release target | Estimate and limitations |
+| --- | --- |
+| `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` | Calling thread's affinity mask, capped by visible cgroup CPU quota. A pinned thread may undercount what the whole process could use. Affinity masks up to 65536 CPUs are supported; a larger required mask returns `Limit`. |
+| `aarch64-apple-darwin` | Rust's native available-parallelism estimate; no Linux cgroup quota semantics. |
+| `x86_64-pc-windows-msvc` | Rust's native estimate; systems with more than 64 logical CPUs may be undercounted by processor groups, while process affinity/job-object limits may be overcounted. |
+| Targets outside Linux, Apple and Windows | `Unsupported`; backend presence does not add compiler/release support for new targets. |
+
+Linux reads `/proc/self/cgroup` and conventional cgroup mounts:
+`/sys/fs/cgroup` for v2 and `/sys/fs/cgroup/cpu` or
+`/sys/fs/cgroup/cpu,cpuacct` for v1. It takes the minimum visible ancestor quota,
+floored to whole CPUs with a minimum of one for fractional quotas. Missing
+`cpu.max` files in an existing v2 hierarchy mean no quota at that level, as when
+the CPU controller is not enabled. Nonstandard mountpoints, escaped or
+namespace-relative parent paths and unavailable membership/hierarchy reads
+return `Unavailable`. Hidden ancestors outside a cgroup namespace can still
+impose an unobservable tighter quota. VM oversubscription, unequal cores,
+simultaneous multithreading, scheduler competition, CPU shares and thread-count
+resource limits are not modelled. No call can promise exact effective capacity.
+
+The Linux bridge avoids Rust's allocating cgroup-discovery implementation;
+Apple/Windows use its scalar native backend. The [Rust API's platform
+limitations](https://doc.rust-lang.org/std/thread/fn.available_parallelism.html#limitations)
+remain relevant. Native Linux and deterministic quota fixtures are tested;
+Apple/Windows execution requires their native qualification environments.
+
+## Procfs sources
 
 ```text
 local() -> Result[Procfs, IoError]
@@ -85,7 +149,8 @@ print(memory.total_bytes, memory.available_bytes)?
   command line or executable path. Missing memory fields, for example on kernel
   threads, yield `Nothing`. Resident memory is an approximate kernel counter.
 
-The CPU count is **not** an affinity/cgroup-aware worker-pool size. Memory,
+`Procfs.cpu_count()` is **not** an affinity/cgroup-aware worker-pool size; use
+[`available_parallelism`](#available-parallelism) for an estimate. Memory,
 load, uptime and devices describe what the mounted files expose, often the
 host even in a container. PIDs follow the mount's PID namespace and permissions.
 This API does not infer a container's effective CPU or memory quota.
@@ -107,6 +172,8 @@ enum SystemError:
     Allocation(AllocError)
     Limit
     Malformed(str)
+    Unavailable
+    Unsupported
 ```
 
 I/O errors keep their original cause, including missing and inaccessible files.
@@ -124,11 +191,17 @@ or access denial. It opens the PID directory once before reading status, avoidin
 mixing files from a reused path; the process may still exit and the read may fail.
 A returned PID is neither a stable identity nor authority to signal a process.
 
-This first interface has no CPU-utilization sampling, filesystem free-space
-query, command-line decoding, cgroup accounting, or process control. For children
+Snapshots have no CPU-utilization sampling, filesystem free-space
+query, command-line decoding, general cgroup accounting, or process control. For children
 owned by the program, use [`std.process`](process.md).
 
 Formats follow the kernel's [procfs documentation](https://docs.kernel.org/filesystems/proc.html),
 [disk I/O accounting](https://docs.kernel.org/admin-guide/iostats.html), and
 [partitions ABI](https://man7.org/linux/man-pages/man5/proc_partitions.5.html).
 See the [tutorial](../../tutorial/08-resources/system-information.md).
+The [coverage and backend assessment](system-backends.md) compares this scope
+with psutil-style inspection.
+
+## Acknowledgements
+
+- [Rust's `std::thread::available_parallelism`](https://doc.rust-lang.org/std/thread/fn.available_parallelism.html) models the CPU-availability API and supplies the Apple/Windows backend. The embedded Rust standard library is covered by the release's existing MIT/Apache-2.0 notices; no upstream source is copied here.
