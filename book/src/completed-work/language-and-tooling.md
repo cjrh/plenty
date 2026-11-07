@@ -1,5 +1,10 @@
 # Completed language and tooling work
 
+[Completed-work index](../completed-work.md) · [Remaining work](../backlog.md)
+
+These records describe delivered subsets and concluded decisions. References
+own current contracts; extensions of a mixed B item stay in the backlog.
+
 ## Native qualification build reuse (issue #850)
 
 [Native OS qualification](../development/ci-workflow.md#native-os-qualification)
@@ -20,12 +25,6 @@ recognize the aliases. Multiple spellings of one imported module are rejected
 with the conflicting paths; a source and interface with the same stem remain
 ambiguous. Inferred package targets and test modules reject duplicate spellings
 as well. Existing extensions and generated companion names remain supported.
-
-
-[Completed-work index](../completed-work.md) · [Remaining work](../backlog.md)
-
-These records describe delivered subsets and concluded decisions. References
-own current contracts; extensions of a mixed B item stay in the backlog.
 
 Package initialization refuses an existing short default source before writing
 a scaffold. Agent skill trials preserve all source/interface spellings in saved
