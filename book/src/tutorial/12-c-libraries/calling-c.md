@@ -74,7 +74,11 @@ True
 ```
 
 Without the annotation, checking rejects the program and names `getpid`. Leave
-it off when the C documentation does not state thread safety. Opaque pointers
-stay on the thread that holds them even when every call is annotated; see
+it off when the C documentation does not state thread safety. An opaque
+pointer also needs a thread contract on its type before worker code may hold
+it; [own a foreign handle](foreign-resources.md#move-the-owner-to-a-worker)
+shows one. See
 [worker threads](../../design/facilities/04-interop/trusted-declarations.md#worker-threads)
-for the full rules.
+for the full rules and binding guidelines, and
+[how std.dataframe wraps its engine](../../design/facilities/04-interop/dataframe-binding.md)
+for a complete library binding that follows them.

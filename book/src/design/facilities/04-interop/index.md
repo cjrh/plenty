@@ -8,7 +8,8 @@ nonlocal jump may cross Plenty frames.
 
 - [Trusted declarations and ABI types](trusted-declarations.md).
 - [Borrowed arguments and text adapters](borrowing-text.md).
-- [Owning foreign resources](foreign-owners.md).
+- [Owning foreign resources](foreign-owners.md), and
+  [how std.dataframe wraps its engine](dataframe-binding.md) for worker threads.
 - [Exports and generated C contracts](exports.md), including
   [owned library objects](owned-exports.md).
 - [Embedded contracts and compatibility](contracts.md).

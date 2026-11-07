@@ -262,6 +262,12 @@ impl Lower<'_> {
             Source::List(element, false) => (element.clone(), false),
             Source::Range => (Ty::I64, false),
         };
+        if let Source::List(element, borrowed) = &kind {
+            ops.push(Op::Thread(crate::threading::ThreadOp::Rows(
+                element.clone(),
+                *borrowed,
+            )));
+        }
         // Hold the source while the remaining construction arguments run.
         let range_parts = if let Source::Range = kind {
             ops.push(Op::RangeParts(Ty::I64));
