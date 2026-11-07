@@ -1,0 +1,180 @@
+function u0:59(i128) tail {
+    ss0 = explicit_slot 96, align = 16
+    gv0 = symbol colocated userextname0 ; .Ldata15 (trap sites: 5)
+    gv1 = symbol colocated userextname4 ; plenty_str_1 "Bytes.get: index is outside 0..len()"
+    gv2 = symbol colocated userextname7 ; .Ldata16 (metadata u8)
+    gv3 = symbol colocated userextname9 ; plenty_str_2 "Bytes.set: index is outside 0..len()"
+    gv4 = symbol colocated userextname10 ; .Ldata19 (metadata ())
+    sig0 = (i64) -> i64 system_v
+    sig1 = (i64) -> i64 system_v
+    sig2 = (i64) system_v
+    sig3 = (i64) -> i64 system_v
+    sig4 = (i64) -> i64 system_v
+    sig5 = (i64, i64) system_v
+    sig6 = (i64) system_v
+    sig7 = (i64, i64) -> i64 system_v
+    sig8 = (i64) system_v
+    sig9 = (i64) -> i64 system_v
+    sig10 = (i64) -> i64 system_v
+    sig11 = (i64, i64) system_v
+    sig12 = (i64) system_v
+    sig13 = (i64, i64, i64) system_v
+    sig14 = (i64) system_v
+    fn0 = colocated u0:0 sig0 ; plenty_caller_enter
+    fn1 = colocated u0:23 sig1 ; plenty_bytes_len
+    fn2 = colocated u0:1 sig2 ; plenty_caller_leave
+    fn3 = colocated u0:0 sig3 ; plenty_caller_enter
+    fn4 = colocated u0:23 sig4 ; plenty_bytes_len
+    fn5 = colocated u0:53 sig5 ; plenty_trap_message
+    fn6 = colocated u0:11 sig6 ; plenty_retain
+    fn7 = colocated u2:2 sig7 ; plenty_op_173
+    fn8 = colocated u0:1 sig8 ; plenty_caller_leave
+    fn9 = colocated u0:0 sig9 ; plenty_caller_enter
+    fn10 = colocated u0:23 sig10 ; plenty_bytes_len
+    fn11 = colocated u0:53 sig11 ; plenty_trap_message
+    fn12 = colocated u0:11 sig12 ; plenty_retain
+    fn13 = colocated u2:4 sig13 ; plenty_op_174
+    fn14 = colocated u0:1 sig14 ; plenty_caller_leave
+
+block0(v0: i128):
+    ; line 4
+    v5 = symbol_value.i64 gv0
+    v6 = call fn0(v5)
+    ; line 19
+    v9, v10 = isplit v0
+    v11 = load.i64 notrap aligned v9
+    v12 = call fn1(v11)
+    jump block1
+
+block1:
+    ; line 4
+    call fn2(v6)
+    jump block3
+
+block3:
+    v1 = iconst.i64 0
+    v147 = smax v1, v12  ; v1 = 0
+    v27 = icmp sle v147, v1  ; v1 = 0
+    ; line 5
+    v33 = iconst.i64 16
+    v34 = iadd.i64 v5, v33  ; v33 = 16
+    ; line 49
+    v69 = stack_addr.i64 ss0
+    v68 = symbol_value.i64 gv2
+    ; line 5
+    v76 = iconst.i64 48
+    v77 = iadd.i64 v5, v76  ; v76 = 48
+    v73 = iconst.i8 32
+    ; line 54
+    v113 = symbol_value.i64 gv4
+    ; line 4
+    v13 = iconst.i64 1
+    brif v27, block2, block4(v1, v147)  ; v1 = 0
+
+block4(v30: i64, v119: i64):
+    v155 = iadd.i64 v5, v33  ; v33 = 16
+    ; line 5
+    v35 = call fn3(v155)
+    v156 = iconst.i64 0
+    v157 = icmp slt v30, v156  ; v156 = 0
+    ; line 47
+    brif v157, block12, block10
+
+block10:
+    jump block8
+
+block8:
+    v42, v43 = isplit.i128 v0
+    v44 = load.i64 notrap aligned v42
+    v45 = call fn4(v44)
+    v46 = icmp.i64 sge v30, v45
+    brif v46, block12, block13
+
+block12:
+    ; line 48
+    v47 = symbol_value.i64 gv1
+    v49 = iconst.i64 32
+    v50 = iadd.i64 v5, v49  ; v49 = 32
+    call fn5(v47, v50)
+    trap user3
+
+block13:
+    jump block11
+
+block11:
+    ; line 49
+    v53, v54 = isplit.i128 v0
+    v55 = load.i128 notrap aligned v53
+    v56, v57 = isplit v55
+    v66 = uextend.i128 v56
+    v65 = uextend.i128 v30
+    v158 = iconst.i64 0
+    v200 = call fn7(v56, v30)
+    v70 = uextend.i128 v200
+    jump block6
+
+block6:
+    ; line 5
+    call fn8(v35)
+    v159 = iadd.i64 v5, v76  ; v76 = 48
+    v78 = call fn9(v159)
+    ; line 52
+    brif.i8 v157, block20, block18
+
+block18:
+    jump block16
+
+block16:
+    v84, v85 = isplit.i128 v0
+    v86 = load.i64 notrap aligned v84
+    v87 = call fn10(v86)
+    v88 = icmp.i64 sge v30, v87
+    brif v88, block20, block21
+
+block20:
+    ; line 53
+    v89 = symbol_value.i64 gv3
+    ; line 49
+    v59 = iconst.i64 64
+    ; line 53
+    v92 = iadd.i64 v5, v59  ; v59 = 64
+    call fn11(v89, v92)
+    trap user3
+
+block21:
+    jump block19
+
+block19:
+    ; line 54
+    v95, v96 = isplit.i128 v0
+    v97 = load.i128 notrap aligned v95
+    v98, v99 = isplit v97
+    v111 = uextend.i128 v98
+    v151 = ireduce.i8 v70
+    v160 = iconst.i8 32
+    v161 = bxor v151, v160  ; v160 = 32
+    v153 = uextend.i128 v161
+    v162 = iconst.i64 0
+    v201 = uextend.i64 v161
+    call fn13(v98, v30, v201)
+    ; line 55
+    jump block14
+
+block14:
+    ; line 5
+    call fn14(v78)
+    jump block5
+
+block5:
+    v163 = iconst.i64 1
+    v164 = isub.i64 v119, v163  ; v163 = 1
+    v165 = iconst.i64 0
+    v166 = icmp sgt v164, v165  ; v165 = 0
+    v167 = iadd.i64 v30, v163  ; v163 = 1
+    ; line 4
+    brif v166, block4(v167, v164), block2
+
+block2:
+    ; line 5
+    return
+}

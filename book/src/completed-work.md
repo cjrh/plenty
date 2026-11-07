@@ -12,6 +12,8 @@ Delivery history and retired backlog entries live here, separate from the
   slices, HTTP acceptance, dataframes, plotting and actors.
 - [Compiler performance and SIMD](completed-work/performance.md): delivered
   optimizations, measurements and investigations that were closed or deferred.
+  [Byte method access](completed-work/performance.md#byte-method-access-issue-741)
+  records the narrow checked helpers delivered for issue #741.
 
 B IDs are stable. A record here means the **described subset** shipped or its
 investigation concluded; it does not mean every conceivable extension of that

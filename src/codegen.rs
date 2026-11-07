@@ -1080,6 +1080,8 @@ struct Runtime {
     /// Narrow byte and text queries on a borrowed owner (issue #364); see
     /// `CollectionCodegen::narrow_query`.
     bytes_len: FuncId,
+    bytes_get: FuncId,
+    bytes_set: FuncId,
     bytes_item: FuncId,
     bytes_set_item: FuncId,
     /// `plenty_bytes_push(owner, byte) -> high word of Result[(), AllocError]`.
@@ -1327,6 +1329,18 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         byte_view_len: helper(module, "plenty_byte_view_len", &[PTR_TY], Some(types::I64))?,
         // Owner or text word, then index and trap site where the query has them.
         bytes_len: helper(module, "plenty_bytes_len", &[PTR_TY], Some(types::I64))?,
+        bytes_get: helper(
+            module,
+            "plenty_bytes_get",
+            &[PTR_TY, types::I64],
+            Some(types::I64),
+        )?,
+        bytes_set: helper(
+            module,
+            "plenty_bytes_set",
+            &[PTR_TY, types::I64, types::I64],
+            None,
+        )?,
         bytes_item: helper(
             module,
             "plenty_bytes_item",
