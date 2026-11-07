@@ -26,7 +26,9 @@ only some paths, and fields assigned again, still count, including nested
 fields. Loop bodies are checked again from the state their back edges
 reach, closing an earlier gap: a binding moved before a loop and assigned in
 its body was not counted at a join earlier in the body, so a program that
-hangs in its second iteration was accepted. Merging paths where a value is
+hangs in its second iteration was accepted. A join after such a loop now
+also counts the assigned endpoint; before, the whole-binding form was
+accepted and hung. Merging paths where a value is
 partly moved on one and moved on another now leaves it partly moved; before,
 `if a: drop(sender) else: if b: drop(sender)` counted `sender` as moved on
 every path, so a later join was accepted although the remaining path still
