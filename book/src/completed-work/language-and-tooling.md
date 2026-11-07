@@ -1,5 +1,16 @@
 # Completed language and tooling work
 
+## Native qualification build reuse (issue #850)
+
+[Native OS qualification](../development/ci-workflow.md#native-os-qualification)
+now builds the compiler and dataframe engine concurrently, with separate
+stable-qualification, pinned-release compiler and isolated engine dependency
+caches. A dependent native job packages and audits the same-run products and
+runs the existing smoke checks. Local release builds keep their complete
+default behavior; explicit prepare/package phases support the CI split.
+Release baselines and custom-runtime-flag cache safeguards are preserved.
+Hosted cold/warm savings remain to be measured.
+
 ## Short file extensions (issue #851)
 
 Source files accept `.p` as an alias for `.plenty`, and trusted interfaces
@@ -19,17 +30,6 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 Package initialization refuses an existing short default source before writing
 a scaffold. Agent skill trials preserve all source/interface spellings in saved
 artifacts and recognize their compiler invocations and diagnostics.
-
-## Native qualification build reuse (issue #850)
-
-[Native OS qualification](../development/ci-workflow.md#native-os-qualification)
-now builds the compiler and dataframe engine concurrently, with separate
-stable-qualification, pinned-release compiler and isolated engine dependency
-caches. A dependent native job packages and audits the same-run products and
-runs the existing smoke checks. Local release builds keep their complete
-default behavior; explicit prepare/package phases support the CI split.
-Release baselines and custom-runtime-flag cache safeguards are preserved.
-Hosted cold/warm savings remain to be measured.
 
 ## Source roots are real directories (issue #840)
 
