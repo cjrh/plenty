@@ -1671,79 +1671,7 @@ impl Lower<'_> {
                 ops.push(Op::Drop);
                 None
             }
-            Expression::Member(base, name, _) => {
-                self.ide_member(e);
-                match self.qualified_type(base)? {
-                    Some(ty) => {
-                        if ty.is_numeric() {
-                            return self.numeric_constant(ty, name, &e.at, ops).map(Some);
-                        }
-                        self.variant(ty, name, None, &e.at, ops)?
-                    }
-                    _ => {
-                        if let Expression::Name(owner) = &base.kind
-                            && !self.names.contains_key(owner)
-                            && self.aliases.data.is_enum(owner)
-                        {
-                            return Err(e.at.error(format!(
-                                "generic enum `{owner}` needs type arguments here, such as `{owner}[i64].{name}`"
-                            )));
-                        }
-                        let moving = self.place_type(e).is_some_and(|ty| ty.affine());
-                        let owner = if moving {
-                            self.field_owner(e)?
-                        } else {
-                            classes::FieldOwner::Other
-                        };
-                        if let classes::FieldOwner::Owned(field) = owner {
-                            return self.move_field(e, field, ops).map(Some);
-                        }
-                        let (ty, loans) = self.field(e, ops)?;
-                        if ty.affine() {
-                            // Borrowing and replacement come first: they keep one
-                            // owner. Copying allocates, so it is last and
-                            // propagates its AllocError (issue #576).
-                            let borrow = if matches!(ty, Ty::Enum(_)) && ty.recursive_data() {
-                                "borrow it by matching &value.field (or &mut value.field)"
-                            } else {
-                                "borrow it with &value.field (or &mut value.field)"
-                            };
-                            let replace = if matches!(owner, classes::FieldOwner::Reference) {
-                                "take it with replace(value.field, replacement) through a mutable reference"
-                            } else {
-                                "take it with replace(value.field, replacement) on a mutable owner"
-                            };
-                            let copies = ty.copy_facts();
-                            let rest = if copies.copyable
-                                && !copies.recursive
-                                && !matches!(ty, Ty::Shared(_))
-                            {
-                                format!("{replace}, or copy it with copy(value.field)?")
-                            } else {
-                                format!("or {replace}")
-                            };
-                            let message = if matches!(owner, classes::FieldOwner::Reference) {
-                                format!(
-                                    "cannot move out of a field through a reference; {borrow}, {rest}"
-                                )
-                            } else {
-                                format!(
-                                    "cannot move out of a field here: fields move out only from a named class binding, not through a Box, Shared handle, element, capture, or temporary; {borrow}, {rest}"
-                                )
-                            };
-                            return Err(self.value_demand_error(
-                                &e.at,
-                                e,
-                                message,
-                                crate::ownership::Demand::Copy(ty, "cannot move out of a field"),
-                                false,
-                            ));
-                        }
-                        Self::end_reads(loans, ops);
-                        Some(ty)
-                    }
-                }
-            }
+            Expression::Member(..) => self.member_expression(e, ops)?,
             Expression::Tuple(values) => Some(self.tuple(values, None, &e.at, ops)?),
             Expression::Format(format) => self.format(format, &e.at, ops)?,
             Expression::Collection { .. } => Some(self.fallible_display(e, None, ops)?),
@@ -1815,263 +1743,13 @@ impl Lower<'_> {
             Expression::Unit => None,
             Expression::Ambiguous { .. } => unreachable!("resolved with module names"),
             Expression::Group(inner) => self.expr(inner, ops)?,
-            Expression::Name(name) => {
-                if self.captures.contains(name) {
-                    let ty = self.place_type(e).expect("capture parameter");
-                    if ty.affine() {
-                        return Err(e
-                            .at
-                            .error("cannot move out of a closure capture; borrow it or use copy"));
-                    }
-                    let (ty, loans) = self.observe(e, ops)?;
-                    Self::end_reads(loans, ops);
-                    return Ok(Some(ty));
-                }
-                if enums::prelude_variant(name) && !self.names.contains_key(name) {
-                    return self.prelude_constructor(name, None, None, &e.at, ops);
-                }
-                if !self.names.contains_key(name)
-                    && let Some(Some(ty @ Ty::Class(_))) = lookup_type(name, self.aliases)
-                {
-                    return self.class_constructor_value(ty, &e.at, ops).map(Some);
-                }
-                if !self.names.contains_key(name) && self.sigs.contains_key(name) {
-                    return self.function_value(name, &e.at, ops).map(Some);
-                }
-                if !self.names.contains_key(name) && self.aliases.data.is_class(name) {
-                    return Err(e.at.error(format!("generic constructor `{name}` requires explicit type arguments or an expected Callable type")));
-                }
-                if !self.names.contains_key(name) && self.generics.templates.contains_key(name) {
-                    return Err(e.at.error("generic function values require explicit type arguments, such as function[u8]"));
-                }
-                let local = self
-                    .names
-                    .get(name)
-                    .ok_or_else(|| e.at.error(self.unknown_binding(name)))?;
-                if matches!(local.ty, Ty::Task(_)) {
-                    return Err(e.at.error("scoped tasks cannot escape or be copied; use task.join() inside its with block"));
-                }
-                ide::local_type(&e.at, &local.ty);
-                self.mark(&e.at, ops);
-                if let Some(loan) = self.reference_locals.get(&local.slot) {
-                    ops.push(Op::UseLoan(*loan));
-                }
-                if let Ty::Closure(t) = &local.ty
-                    && let Some(loans) = self.closure_loans.get(&t.name)
-                {
-                    ops.extend(loans.iter().copied().map(Op::UseLoan));
-                }
-                if local.ty.affine() {
-                    ops.push(Op::MoveLocal(local.slot));
-                } else {
-                    if !matches!(local.ty, Ty::Ref(..)) {
-                        ops.push(Op::Access(local.slot, false, None));
-                    }
-                    ops.push(Op::LoadLocal(local.slot));
-                }
-                if local.ty == Ty::Unit {
-                    ops.push(Op::Drop);
-                    None
-                } else {
-                    Some(local.ty.clone())
-                }
+            Expression::Name(_) => self.name_expression(e, ops)?,
+            Expression::Unary(..) => self.unary_expression(e, ops)?,
+            Expression::Binary(op, ..) if op == "in" || op == "not in" => {
+                self.membership_expression(e, ops)?
             }
-            Expression::Unary(op, value) => {
-                if let Some(result) = self.overloaded_unary(op, value, &e.at, ops)? {
-                    return Ok(result);
-                }
-                if op == "&" || op == "&mut" {
-                    return self
-                        .borrow(value, op == "&mut", ops)
-                        .map(|(ty, _)| Some(ty));
-                }
-                if op == "*" && matches!(self.place_type(value), Some(Ty::Shared(_))) {
-                    return self.shared_read(e, ops);
-                }
-                if op == "*" {
-                    let ty = match self.value(value, ops)? {
-                        // Moving the content out consumes the box.
-                        Ty::Box(content) => {
-                            ops.push(Op::Box(crate::boxed::BoxOp::Take((*content).clone())));
-                            return Ok(Some((*content).clone()));
-                        }
-                        Ty::Ref(ty, _) => ty,
-                        Ty::Shared(_) => {
-                            return Err(value.at.error(
-                                "a temporary Shared owner has no place to borrow from; bind it to a name first",
-                            ))
-                        }
-                        _ => {
-                            return Err(value
-                                .at
-                                .error("dereference requires a reference, a Box, or a Shared handle"))
-                        }
-                    };
-                    let loan = self.reference_origin(value, ops)?;
-                    if let Ty::Atomic(_) = &*ty {
-                        return Err(e.at.error("an atomic is read with load(), not through `*`"));
-                    }
-                    if ty.affine() {
-                        return Err(self.value_demand_error(
-                            &e.at,
-                            e,
-                            "cannot move out of a reference; use the reference instead of dereferencing it, or copy the value with copy(reference)?",
-                            crate::ownership::Demand::Copy(
-                                (*ty).clone(),
-                                "cannot move out of a reference",
-                            ),
-                            false,
-                        ));
-                    }
-                    ops.push(Op::Access(self.loans[loan].root, false, Some(loan)));
-                    ops.push(Op::ReadRef((*ty).clone()));
-                    ops.push(Op::UseLoan(loan));
-                    if *ty == Ty::Unit {
-                        ops.push(Op::Drop);
-                        return Ok(None);
-                    }
-                    return Ok(Some((*ty).clone()));
-                }
-                if op == "-"
-                    && let Expression::Number(n) = &value.kind
-                {
-                    return self.number(n, true, &e.at, ops).map(Some);
-                }
-                let mut body = Vec::new();
-                let ty = self.value(value, &mut body)?;
-                if op == "~" {
-                    if !ty.is_int() {
-                        return Err(e.at.error("bitwise complement requires an integer"));
-                    }
-                    ops.extend(body);
-                    ops.push(Op::Integer(IntegerOp::Not));
-                } else if op == "not" {
-                    self.same(Some(ty.clone()), Some(Ty::Bool), &e.at)?;
-                    ops.extend(body);
-                    ops.push(Op::Not);
-                } else {
-                    if !ty.is_numeric() {
-                        return Err(e.at.error("unary arithmetic requires a number"));
-                    }
-                    if ty.is_float() {
-                        ops.extend(body);
-                        if op == "-" {
-                            ops.push(Op::FloatNeg);
-                        }
-                        return Ok(Some(ty));
-                    }
-                    if op == "-" {
-                        reject_unsigned_negation(&ty, &e.at)?;
-                        ops.push(Op::PushInt(integer(&format!("0{ty}"), false, &e.at)?));
-                    }
-                    ops.extend(body);
-                    if op == "-" {
-                        self.mark(&e.at, ops);
-                        if !self.checked_arith(crate::numeric::Checked::Sub, &ty, &e.at, ops)? {
-                            self.push_trapping(Op::Sub, &ty, ops);
-                        }
-                    }
-                }
-                Some(ty.clone())
-            }
-            Expression::Binary(op, left, right) if op == "in" || op == "not in" => {
-                let (a, mut loans) = self.observe(left, ops)?;
-                let (b, other_loans) = self.observe(right, ops)?;
-                loans.extend(other_loans);
-                if b == text_view() {
-                    let needle_text = match a {
-                        Ty::Str => true,
-                        _ if a == text_view() => false,
-                        _ => {
-                            return Err(e.at.error(format!(
-                                "`{op}` on a `&substr` looks for a `str` or `&substr`, not {a}"
-                            )));
-                        }
-                    };
-                    ops.push(Op::Swap);
-                    let mode = crate::collection_opcodes::TEXT_SEARCH_CONTAINS << 1;
-                    ops.push(Op::PushInt(Value::I64(mode | i64::from(needle_text))));
-                    ops.push(Op::Collection(CollectionOp::TextView(
-                        crate::text::TextViewOp::Search {
-                            needle_text,
-                            find: false,
-                        },
-                    )));
-                    Self::end_reads(loans, ops);
-                    if op == "not in" {
-                        ops.push(Op::Not);
-                    }
-                    return Ok(Some(Ty::Bool));
-                }
-                if a == text_view() && b == Ty::Str {
-                    return Err(e.at.error(format!(
-                        "`{op}` on a `str` looks for a `str`; search for a `&substr` with `&s[:]`, as `v in &s[:]`"
-                    )));
-                }
-                if let Ty::View(..) = b {
-                    return Err(e.at.error(format!(
-                        "slice views do not support `{op}` yet; compare the elements in a loop"
-                    )));
-                }
-                if b.restricted_storage() && !matches!(b, Ty::KeyView(_)) {
-                    return Err(e
-                        .at
-                        .error("membership does not consume generators; use a loop"));
-                }
-                let element = b
-                    .element()
-                    .ok_or_else(|| {
-                        e.at.error(format!(
-                            "membership is not defined for `{b}`; `in` and `not in` do not call user methods; search explicitly using the container's API"
-                        ))
-                    })?;
-                if element.recursive_data() {
-                    return Err(e.at.error("automatic equality is not supported for recursive data; search using selected fields"));
-                }
-                if element.facts().closure {
-                    return Err(e
-                        .at
-                        .error("values containing closures do not support membership equality"));
-                }
-                if element.facts().concurrent_handle {
-                    return Err(e.at.error(
-                        "values containing channel endpoints, executors, or futures do not support membership equality",
-                    ));
-                }
-                if element.facts().shared {
-                    return Err(e.at.error(shared::EQUALITY));
-                }
-                if element.facts().atomic {
-                    let subject = if mutex::holds_mutex(&element) {
-                        "mutexes"
-                    } else {
-                        "atomics"
-                    };
-                    return Err(e.at.error(format!(
-                        "values containing {subject} do not support membership equality"
-                    )));
-                }
-                // Preserve left-to-right evaluation: the observed collection is
-                // already on top, so retag the probe beneath it in place.
-                let a = if a != element && matches!(&element, Ty::Enum(sum) if sum.anonymous()) {
-                    ops.push(Op::Swap);
-                    let injected = self.inject_observed_sum(a, &element, ops);
-                    ops.push(Op::Swap);
-                    injected
-                } else {
-                    a
-                };
-                self.same(
-                    Some(a),
-                    Some(if b == Ty::Str { Ty::Str } else { element }),
-                    &e.at,
-                )?;
-                ops.push(Op::Collection(CollectionOp::Contains(b)));
-                Self::end_reads(loans, ops);
-                if op == "not in" {
-                    ops.push(Op::Not);
-                }
-                Some(Ty::Bool)
+            Expression::Binary(op, ..) if op == "and" || op == "or" => {
+                return self.logical(e, ops);
             }
             Expression::Binary(op, left, right) => {
                 if let Some(result) = self.overloaded_binary(op, left, right, &e.at, ops)? {
@@ -2082,201 +1760,16 @@ impl Lower<'_> {
                 {
                     return Err(display.at.error(LIST_REPETITION));
                 }
-                if op != "and"
-                    && op != "or"
-                    && let Some(hint) = self.numeric_hint(left).or_else(|| self.numeric_hint(right))
-                {
+                if let Some(hint) = self.numeric_hint(left).or_else(|| self.numeric_hint(right)) {
                     return self
                         .numeric_binary(op, left, right, hint, &e.at, ops)
                         .map(Some);
                 }
                 let (a, mut loans) = self.observe(left, ops)?;
                 let mut rhs = Vec::new();
-                let (b, other_loans) = if a.is_numeric() {
-                    self.observe_expected(right, Some(a.clone()), &mut rhs)?
-                } else if matches!(a, Ty::KeyView(_))
-                    && matches!(op.as_str(), "==" | "!=")
-                    && list_display(right).is_none()
-                {
-                    self.observe_expected(
-                        right,
-                        Some(Ty::Set(Arc::new(a.element().unwrap()))),
-                        &mut rhs,
-                    )?
-                } else {
-                    self.observe(right, &mut rhs)?
-                };
-                if op == "and" || op == "or" {
-                    Self::end_reads(other_loans, &mut rhs);
-                } else {
-                    loans.extend(other_loans);
-                }
-                if matches!(op.as_str(), "==" | "!=")
-                    && (matches!(a, Ty::KeyView(_)) || matches!(b, Ty::KeyView(_)))
-                {
-                    if !matches!(a, Ty::Set(_) | Ty::KeyView(_))
-                        || !matches!(b, Ty::Set(_) | Ty::KeyView(_))
-                        || a.element() != b.element()
-                    {
-                        return Err(e.at.error(
-                            "KeyView equality requires a set or KeyView with the same key type",
-                        ));
-                    }
-                    ops.extend(rhs);
-                    ops.push(Op::Collection(CollectionOp::key_set_relation(
-                        a,
-                        b,
-                        crate::collection_opcodes::KEY_VIEW_EQUAL,
-                    )));
-                    Self::end_reads(loans, ops);
-                    if op == "!=" {
-                        ops.push(Op::Not);
-                    }
-                    return Ok(Some(Ty::Bool));
-                }
-                if matches!(a, Ty::KeyView(_)) || matches!(b, Ty::KeyView(_)) {
-                    return Err(e.at.error(format!("KeyView does not support binary operator `{op}`; use ==/!= for set equality or the set relationship/algebra methods")));
-                }
-                if matches!(a, Ty::View(..)) || matches!(b, Ty::View(..)) {
-                    return self.view_equality(op, (a, b), rhs, loans, &e.at, ops);
-                }
-                if a.restricted_storage() {
-                    if matches!(a, Ty::Closure(_)) {
-                        return Err(e.at.error("closures do not support binary operators"));
-                    }
-                    return Err(e.at.error("generators do not support binary operators"));
-                }
-                if a.is_numeric() && b.is_numeric() && a != b {
-                    return Err(mixed_numeric(left, &a, right, &b));
-                }
-                if op == "*" {
-                    match (&a, &b) {
-                        (Ty::List(_), other) if other.is_int() => {
-                            return Err(left.at.error(LIST_REPETITION));
-                        }
-                        (other, Ty::List(_)) if other.is_int() => {
-                            return Err(right.at.error(LIST_REPETITION));
-                        }
-                        (Ty::Str, other) if other.is_int() => {
-                            return Err(left.at.error(STR_REPETITION));
-                        }
-                        (other, Ty::Str) if other.is_int() => {
-                            return Err(right.at.error(STR_REPETITION));
-                        }
-                        _ => {}
-                    }
-                }
-                self.same(Some(b.clone()), Some(a.clone()), &e.at)?;
-                if matches!(op.as_str(), "==" | "!=") && a.facts().closure {
-                    return Err(e
-                        .at
-                        .error("values containing closures do not support equality"));
-                }
-                if matches!(op.as_str(), "==" | "!=") && a.facts().concurrent_handle {
-                    return Err(e
-                        .at
-                        .error("values containing channel endpoints, executors, or futures do not support equality"));
-                }
-                if matches!(op.as_str(), "==" | "!=") && a.facts().shared {
-                    return Err(e.at.error(shared::EQUALITY));
-                }
-                if matches!(op.as_str(), "==" | "!=") && a.facts().atomic {
-                    if mutex::holds_mutex(&a) {
-                        return Err(e.at.error(
-                            "values containing mutexes do not support equality; compare values read inside `with mutex.lock() as value:`",
-                        ));
-                    }
-                    return Err(e.at.error(
-                        "values containing atomics do not support equality; compare values read with load()",
-                    ));
-                }
-                if matches!(op.as_str(), "==" | "!=") && a.recursive_data() {
-                    return Err(e.at.error("automatic equality is not supported for recursive data; compare fields explicitly"));
-                }
-                if op == "and" || op == "or" {
-                    self.same(Some(a.clone()), Some(Ty::Bool), &e.at)?;
-                    let constant = vec![Op::PushBool(op == "or")];
-                    let (yes, no) = if op == "and" {
-                        (rhs, constant)
-                    } else {
-                        (constant, rhs)
-                    };
-                    ops.push(branch(yes, no));
-                    Self::end_reads(loans, ops);
-                    Some(Ty::Bool)
-                } else {
-                    if !a.is_numeric()
-                        && !(matches!(op.as_str(), "==" | "!=")
-                            || (a == Ty::Str && op == "+")
-                            || (a.is_orderable() && is_comparison(op)))
-                    {
-                        return Err(self.value_demand_error(
-                            &e.at,
-                            e,
-                            format!(
-                                "operator `{op}` does not accept {}{}",
-                                type_name(Some(a.clone())),
-                                operators::newtype_hint(&a)
-                            ),
-                            crate::ownership::Demand::Operator(op.clone(), a.clone()),
-                            false,
-                        ));
-                    }
-                    if op == "/" && !a.is_float() {
-                        return Err(e
-                            .at
-                            .error("use `//` for integer division; `/` requires floats"));
-                    }
-                    if matches!(op.as_str(), "//" | "%") && a.is_float() {
-                        return Err(e
-                            .at
-                            .error("floor division and modulo currently require integers"));
-                    }
-                    ops.extend(rhs);
-                    if let Some(kind) = IntegerOp::binary(op) {
-                        if !a.is_int() {
-                            return Err(e.at.error("bitwise operations require integers"));
-                        }
-                        self.push_trapping(Op::Integer(kind), &a, ops);
-                        Self::end_reads(loans, ops);
-                        return Ok(Some(a));
-                    }
-                    if op == "+" && a == Ty::Str {
-                        ops.push(Op::Collection(CollectionOp::TextTryConcat));
-                        Self::end_reads(loans, ops);
-                        return Ok(Some(crate::sum::result(Ty::Str, crate::sum::alloc_error())));
-                    }
-                    self.mark_arithmetic(op, &a, &e.at, ops);
-                    if a.is_int()
-                        && let Some(operation) = crate::numeric::Checked::named(op)
-                        && self.checked_arith(operation, &a, &e.at, ops)?
-                    {
-                        Self::end_reads(loans, ops);
-                        return Ok(Some(a));
-                    }
-                    let operation = match op.as_str() {
-                        "+" => Op::Add,
-                        "-" => Op::Sub,
-                        "*" => Op::Mul,
-                        "/" => Op::Div,
-                        "//" => Op::FloorDiv(crate::numeric::Divisor::Any),
-                        "%" => Op::Modulo(crate::numeric::Divisor::Any),
-                        "==" => Op::Eq,
-                        "!=" => Op::Ne,
-                        "<" => Op::Lt,
-                        ">" => Op::Gt,
-                        "<=" => Op::Le,
-                        ">=" => Op::Ge,
-                        _ => unreachable!(),
-                    };
-                    self.push_trapping(operation, &a, ops);
-                    Self::end_reads(loans, ops);
-                    if is_comparison(op) {
-                        Some(Ty::Bool)
-                    } else {
-                        Some(a.clone())
-                    }
-                }
+                let (b, other_loans) = self.observe_right(op, &a, right, &mut rhs)?;
+                loans.extend(other_loans);
+                return self.binary_values(e, (a, b), rhs, loans, ops);
             }
             Expression::Conditional { condition, yes, no } => {
                 let cond = self.expr(condition, ops)?;
@@ -2288,448 +1781,815 @@ impl Lower<'_> {
                 ops.push(branch(a, b));
                 ty
             }
-            Expression::Call(name, args) => {
-                if name == "print"
-                    && !self.names.contains_key(name)
-                    && let Some(named) = args
-                        .iter()
-                        .find(|arg| matches!(arg.kind, Expression::NamedArgument(..)))
-                {
-                    return Err(named.at.error("`print` takes no named arguments such as `end` or `sep`: it separates values with one space and ends the line; build the line first, such as with an f-string, and print it once"));
-                }
-                if matches!(name.as_str(), "enumerate" | "zip" | "reversed")
-                    && !self.names.contains_key(name)
-                    && !self.sigs.contains_key(name)
-                    && !self.generics.templates.contains_key(name)
-                    && !self.aliases.contains_key(name)
-                {
-                    return Err(e.at.error(format!(
-                        "{name} is supported directly in for loops and comprehensions"
-                    )));
-                }
-                if matches!(name.as_str(), "any" | "all")
-                    && !self.names.contains_key(name)
-                    && !self.sigs.contains_key(name)
-                    && !self.generics.templates.contains_key(name)
-                    && !self.aliases.contains_key(name)
-                {
-                    // B75 replaced the free boolean reductions with pipeline terminals.
-                    return Err(e.at.error(format!(
-                        "{name} is not a builtin function; use the pipeline terminal: \
-                         iter(flags).{name}() for bool items, or iter(source).{name}(predicate)"
-                    )));
-                }
-                if matches!(name.as_str(), "ord" | "chr")
-                    && !self.names.contains_key(name)
-                    && !self.sigs.contains_key(name)
-                {
-                    let [argument] = args.as_slice() else {
-                        return Err(e.at.error(format!("{name} takes one argument")));
-                    };
-                    let operation = if name == "ord" {
-                        CollectionOp::TextOrd
-                    } else {
-                        CollectionOp::TextChr
-                    };
-                    let (inputs, output) = operation.signature();
-                    let (actual, loans) =
-                        self.observe_expected(argument, Some(inputs[0].clone()), ops)?;
-                    self.same(Some(actual), Some(inputs[0].clone()), &argument.at)?;
-                    Self::push_query(operation, ops);
-                    Self::end_reads(loans, ops);
-                    return Ok(Some(output));
-                }
-                if matches!(name.as_str(), "__min_replaces" | "__max_replaces") {
-                    return self.extremum_call(name, args, &e.at, ops).map(Some);
-                }
-                if name == "CancellationToken" {
-                    return self.control_new(args, &e.at, ops);
-                }
-                if name == crate::atomic::ATOMIC {
-                    return self.atomic_new(None, args, None, &e.at, ops);
-                }
-                if name == crate::atomic::FENCE {
-                    return self.atomic_fence(args, &e.at, ops);
-                }
-                if matches!(
-                    name.as_str(),
-                    "select_recv"
-                        | "select_recv_nowait"
-                        | "select_recv_timeout"
-                        | "select_recv_timeout_ms"
-                ) {
-                    return self.channel_select(name, args, &e.at, ops);
-                }
-                if name == "ThreadPoolExecutor" {
-                    return self.executor_new(args, &e.at, ops);
-                }
-                if name == "spawn" {
-                    return Err(e.at.error("spawn is a scoped operation; use with spawn(worker, arguments...)? as task:"));
-                }
-                if matches!(name.as_str(), "__actor_run" | "__actor_forget")
-                    && !self.names.contains_key(name)
-                    && !self.sigs.contains_key(name)
-                {
-                    // Raw heap entry and release; std.actor wraps them.
-                    let standard =
-                        e.at.source()
-                            .as_ref()
-                            .is_some_and(|source| self.generics.source_facts(source).1);
-                    if !standard {
-                        return Err(e
-                            .at
-                            .error(format!("`{name}` is reserved for the standard library")));
-                    }
-                    return if name == "__actor_run" {
-                        self.actor_run(args, &e.at, ops)
-                    } else {
-                        self.actor_forget(args, &e.at, ops)
-                    };
-                }
-                if self.names.contains_key(name) {
-                    let callee = Expr {
-                        at: e.at.clone(),
-                        kind: Expression::Name(name.clone()),
-                    };
-                    return self.call_value(&callee, args, ops);
-                }
-                if name == "print" {
-                    let mut types = Vec::new();
-                    let mut reads = Vec::new();
-                    for argument in args {
-                        let (ty, loans) = self.observe(argument, ops)?;
-                        if ty.dictionary_view() {
-                            return Err(argument.at.error("dictionary key views cannot be printed; iterate the view or materialise keys_snapshot(), into_keys(), or to_set()"));
-                        }
-                        if ty.prints_generator_frame() {
-                            return Err(e.at.error("generators cannot be printed"));
-                        }
-                        if ty.facts().shared {
-                            return Err(e.at.error(
-                                "Shared owners cannot be printed; print values read through the handle",
-                            ));
-                        }
-                        if ty.facts().atomic && mutex::holds_mutex(&ty) {
-                            return Err(e.at.error(
-                                "mutexes cannot be printed; print a value read inside `with mutex.lock() as value:`",
-                            ));
-                        }
-                        if ty.facts().atomic {
-                            return Err(e.at.error(
-                                "atomics cannot be printed; print a value read with load()",
-                            ));
-                        }
-                        if ty.recursive_data() {
-                            return Err(e.at.error("automatic formatting is not supported for recursive data; print selected fields"));
-                        }
-                        if matches!(&ty, Ty::Enum(t) if t.is_result()) {
-                            // Observation also accepts references and borrowed owners.
-                            // Do not advise moving them with `?` based on type alone.
-                            let unborrowed = loans.is_empty()
-                                && !matches!(&ungroup(argument).kind, Expression::Name(name)
-                                if self.names.get(name).is_some_and(|local| matches!(local.ty, Ty::Ref(..))));
-                            let hint = self.result_success(&ty).filter(|success| {
-                                unborrowed
-                                    && *success != Ty::Unit
-                                    && !matches!(success, Ty::Enum(t) if t.is_result())
-                            });
-                            return Err(argument.at.error(format!(
-                            "print cannot print a Result directly; {}match the result explicitly, or use `str.repr` for intentional wrapper formatting",
-                            if hint.is_some() { "use `?` on the argument to propagate its error, " } else { "" }
-                        )));
-                        }
-                        types.push(ty);
-                        reads.extend(loans);
-                    }
-                    let operation = if args.len() == 1 {
-                        CollectionOp::TryPrint(types[0].clone())
-                    } else {
-                        CollectionOp::TryPrintMany(types.clone())
-                    };
-                    let operation = self.formatted(operation, &types, true, &e.at)?;
-                    let output = operation.signature().1;
-                    ops.push(Op::Collection(operation));
-                    Self::end_reads(reads, ops);
-                    return Ok(Some(output));
-                }
-                if name == "open" {
-                    return self.open_file(args, &e.at, ops);
-                }
-                if let Some(operation) = crate::filesystem::FsOp::named(name) {
-                    return self.filesystem_call(operation, args, &e.at, ops);
-                }
-                if let Some(operation) = crate::bytes::BytesOp::named(name) {
-                    return self.bytes_call(operation, args, &e.at, ops);
-                }
-                if std_only_intrinsic(name) && !self.names.contains_key(name) {
-                    // Native back ends of std modules; their std callers
-                    // check ranges and map results to the public errors.
-                    let standard =
-                        e.at.source()
-                            .as_ref()
-                            .is_some_and(|source| self.generics.source_facts(source).1);
-                    if !standard {
-                        return Err(e
-                            .at
-                            .error(format!("`{name}` is reserved for the standard library")));
-                    }
-                    if name == BYTES_ADOPT {
-                        return self.bytes_adopt(args, &e.at, ops);
-                    }
-                    if name == TRAP {
-                        return Err(e
-                            .at
-                            .error("`__trap` is a statement; it does not produce a value"));
-                    }
-                }
-                if let Some(operation) = crate::numeric::FloatBits::named(name) {
-                    return self.float_bits_call(operation, args, &e.at, ops).map(Some);
-                }
-                if let Some(operation) = crate::stream::StreamOp::named(name) {
-                    let exclusive = |index| operation.exclusive(index);
-                    let call = CollectionOp::Stream(operation);
-                    return self.exclusive_call(call, &exclusive, args, &e.at, ops);
-                }
-                if let Some(operation) = crate::crypto::CryptoOp::named(name) {
-                    let exclusive = |index| operation.exclusive(index);
-                    let call = CollectionOp::Crypto(operation);
-                    return self.exclusive_call(call, &exclusive, args, &e.at, ops);
-                }
-                if let Some(operation) = crate::compress::CompressOp::named(name) {
-                    let exclusive = |index| operation.exclusive(index);
-                    let call = CollectionOp::Compress(operation);
-                    return self.exclusive_call(call, &exclusive, args, &e.at, ops);
-                }
-                if let Some(operation) = crate::process::ProcessOp::named(name) {
-                    return self.system_call(CollectionOp::Process(operation), args, &e.at, ops);
-                }
-                if let Some(operation) = crate::system::SystemOp::named(name) {
-                    return self.system_call(CollectionOp::System(operation), args, &e.at, ops);
-                }
-                if let Some(operation) = crate::time::TimeOp::named(name) {
-                    let output =
-                        self.system_call(CollectionOp::Time(operation), args, &e.at, ops)?;
-                    if output == Some(Ty::Unit) {
-                        ops.push(Op::Drop);
-                        return Ok(None);
-                    }
-                    return Ok(output);
-                }
-                if let Some(operation) = crate::unicode::UnicodeOp::named(name) {
-                    return self.system_call(CollectionOp::Unicode(operation), args, &e.at, ops);
-                }
-                if let Some(operation) = crate::regex::RegexOp::named(name) {
-                    if operation == crate::regex::RegexOp::TextBytes {
-                        return Err(e.at.error(
-                            "__regex_text_bytes is only supported at a shared byte-view parameter",
-                        ));
-                    }
-                    return self.system_call(CollectionOp::Regex(operation), args, &e.at, ops);
-                }
-                if let Some(operation) = crate::text::TextOp::named(name) {
-                    if operation == crate::text::TextOp::FindIn {
-                        return self.text_find_in(args, &e.at, ops);
-                    }
-                    if args.len() == 2
-                        && args.iter().all(|arg| self.place_type(arg) == Some(Ty::Str))
-                    {
-                        // Compare text places in place (issue #364).
-                        let mut loans = Vec::new();
-                        for arg in args {
-                            loans.push(self.borrow(arg, false, ops)?.1);
-                        }
-                        ops.push(Op::Collection(CollectionOp::QueryRef(
-                            crate::collection::Query::TextAsciiEqualFolded,
-                        )));
-                        Self::end_reads(loans, ops);
-                        return Ok(Some(Ty::Bool));
-                    }
-                    return self.system_call(CollectionOp::Text(operation), args, &e.at, ops);
-                }
-                if let Some(operation) = crate::net::NetOp::named(name) {
-                    let exclusive = |index| operation.exclusive(index);
-                    let call = CollectionOp::Net(operation);
-                    return self.exclusive_call(call, &exclusive, args, &e.at, ops);
-                }
-                if let Some(operation) = crate::sqlite::SqliteOp::named(name) {
-                    return self.system_call(CollectionOp::Sqlite(operation), args, &e.at, ops);
-                }
-                if let Some(operation) = crate::tls::TlsOp::named(name) {
-                    let exclusive = |index| operation.exclusive(index);
-                    let call = CollectionOp::Tls(operation);
-                    return self.exclusive_call(call, &exclusive, args, &e.at, ops);
-                }
-                if enums::prelude_variant(name) {
-                    return self.prelude_constructor(name, Some(args), None, &e.at, ops);
-                }
-                if matches!(name.as_str(), "copy" | "drop") {
-                    if name == "drop"
-                        && let [value] = args.as_slice()
-                        && self.is_pipeline(value)
-                    {
-                        let plan = self.pipeline(value, ops)?;
-                        self.finish_pipeline(&plan, ops);
-                        return Ok(None);
-                    }
-                    return self.copy_or_drop(name, args, &e.at, ops);
-                }
-                if name == "sorted" {
-                    return self.sorted(args, &e.at, ops);
-                }
-                if name == "replace"
-                    && !self.sigs.contains_key(name)
-                    && !self.generics.templates.contains_key(name)
-                    && !self.aliases.contains_key(name)
-                {
-                    return self.replace_field(args, &e.at, ops).map(Some);
-                }
-                if name == "BoxedCallable" {
-                    return self.boxed_callable(args, &e.at, ops).map(Some);
-                }
-                if name == "Shared" {
-                    return self.shared_new(None, args, &e.at, ops);
-                }
-                if name == "Box" {
-                    let [content] = args.as_slice() else {
-                        return Err(e.at.error("Box takes one value"));
-                    };
-                    let ty = self.value(content, ops)?;
-                    if let Some(barrier) = ty.storage_barrier() {
-                        return Err(content.at.error(barrier.message("a box")));
-                    }
-                    let operation = crate::boxed::BoxOp::New(ty);
-                    let output = operation.signature().1;
-                    ops.push(Op::Box(operation));
-                    return Ok(Some(output));
-                }
-                if name == "next" {
-                    return self.next(args, &e.at, ops);
-                }
-                if name == fstrings::REPR_IF_FORMATTABLE {
-                    let standard =
-                        e.at.source()
-                            .as_ref()
-                            .is_some_and(|source| self.generics.source_facts(source).1);
-                    if !standard {
-                        return Err(e
-                            .at
-                            .error(format!("`{name}` is reserved for the standard library")));
-                    }
-                    return self.repr_if_formattable(args, &e.at, ops).map(Some);
-                }
-                if let Some(operation) = match name.as_str() {
-                    "__caller_location" => Some(CollectionOp::CallerLocation),
-                    "__test_fault" => Some(CollectionOp::TestFault),
-                    "__actor_heap" => Some(CollectionOp::ActorHeap),
-                    "__report_write" => Some(CollectionOp::ReportWrite),
-                    "__io_is_terminal" => Some(CollectionOp::IsTerminal),
-                    _ => None,
-                } {
-                    // Trusted std hooks are not user-visible API.
-                    let standard =
-                        e.at.source()
-                            .as_ref()
-                            .is_some_and(|source| self.generics.source_facts(source).1);
-                    if !standard {
-                        return Err(e
-                            .at
-                            .error(format!("`{name}` is reserved for the standard library")));
-                    }
-                    return self.system_call(operation, args, &e.at, ops);
-                }
-                if let Some(operation) = match name.as_str() {
-                    "write_stdout" => Some(CollectionOp::WriteStdout),
-                    "write_stderr" => Some(CollectionOp::WriteStderr),
-                    "flush_stdout" => Some(CollectionOp::FlushStdout),
-                    "flush_stderr" => Some(CollectionOp::FlushStderr),
-                    "input" => Some(CollectionOp::Input),
-                    "args" => Some(CollectionOp::Args),
-                    "args_bytes" => Some(CollectionOp::ArgsBytes),
-                    "input_bytes" => Some(CollectionOp::InputBytes),
-                    "encode_utf8" => Some(CollectionOp::EncodeUtf8),
-                    "decode_utf8" => Some(CollectionOp::DecodeUtf8),
-                    "write_stdout_bytes" => Some(CollectionOp::WriteStdoutBytes),
-                    "write_stderr_bytes" => Some(CollectionOp::WriteStderrBytes),
-                    "read_bytes" => Some(CollectionOp::ReadBytes),
-                    "write_bytes" => Some(CollectionOp::WriteBytes),
-                    "read_text" => Some(CollectionOp::ReadText),
-                    "write_text" => Some(CollectionOp::WriteText),
-                    "append_text" => Some(CollectionOp::AppendText),
-                    _ => None,
-                } {
-                    return self.system_call(operation, args, &e.at, ops);
-                }
-                if matches!(name.as_str(), "len" | "range" | "list" | "set" | "dict") {
-                    return self.builtin_collection(name, args, &e.at, ops).map(Some);
-                }
-                if let Some(Some(Ty::Class(t))) = lookup_type(name, self.aliases) {
-                    if Ty::Class(t.clone()).layout_depth() >= 64 {
-                        return Err(e
-                            .at
-                            .error("type nesting exceeds the implementation limit of 64"));
-                    }
-                    modules::check_member(self.access, &t.name, "__new__", &e.at)?;
-                    return self.call_named(
-                        &crate::record::method(&t.name, "new"),
-                        args,
-                        &e.at,
-                        ops,
-                    );
-                }
-                match lookup_type(name, self.aliases) {
-                    Some(target) => {
-                        if let Some(target) = target
-                            .as_ref()
-                            .filter(|t| t.is_collection() || matches!(t, Ty::Clist(_)))
-                        {
-                            return self.construct(target.clone(), args, &e.at, ops).map(Some);
-                        }
-                        let target = target.filter(|ty| ty.is_numeric()).ok_or_else(|| {
-                        e.at.error(if lookup_type(name, self.aliases) == Some(Some(Ty::Str)) {
-                            "only numeric types support cast syntax; format a number or boolean as text with `str.from(value)?`"
-                        } else {
-                            "only numeric types support cast syntax"
-                        })
-                    })?;
-                        if args.len() != 1 {
-                            return Err(e.at.error("numeric casts take one argument"));
-                        }
-                        let source = self.value(&args[0], ops)?;
-                        if !source.is_numeric() {
-                            return Err(casts::operand_error(
-                                "numeric casts require a number",
-                                &source,
-                                Ty::is_numeric,
-                                &args[0],
-                                &e.at,
-                            ));
-                        }
-                        self.checked_cast(&source, &target, &args[0], &e.at, ops)?;
-                        Some(target)
-                    }
-                    _ => {
-                        if name == "contains" {
-                            if args.len() != 2 {
-                                return Err(e.at.error("contains takes two strings"));
-                            }
-                            let mut loans = Vec::new();
-                            for arg in args {
-                                let (ty, reads) = self.observe_expected(arg, Some(Ty::Str), ops)?;
-                                self.same(Some(ty), Some(Ty::Str), &arg.at)?;
-                                loans.extend(reads);
-                            }
-                            ops.push(Op::Contains);
-                            Self::end_reads(loans, ops);
-                            Some(Ty::Bool)
-                        } else {
-                            self.call_named(name, args, &e.at, ops)?
-                        }
-                    }
-                }
-            }
+            Expression::Call(..) => self.call_expression(e, ops)?,
             Expression::Invoke(callee, args) => self.call_value(callee, args, ops)?,
         };
         Ok(ty)
+    }
+    /// A field read or a qualified module name. Outlined so that its locals do not enlarge the frame of
+    /// every recursive `expr` call (issue #841).
+    #[inline(never)]
+    fn member_expression(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
+        let Expression::Member(base, name, _) = &e.kind else {
+            unreachable!("member_expression lowers its own expression kind")
+        };
+        Ok({
+            self.ide_member(e);
+            match self.qualified_type(base)? {
+                Some(ty) => {
+                    if ty.is_numeric() {
+                        return self.numeric_constant(ty, name, &e.at, ops).map(Some);
+                    }
+                    self.variant(ty, name, None, &e.at, ops)?
+                }
+                _ => {
+                    if let Expression::Name(owner) = &base.kind
+                        && !self.names.contains_key(owner)
+                        && self.aliases.data.is_enum(owner)
+                    {
+                        return Err(e.at.error(format!(
+                            "generic enum `{owner}` needs type arguments here, such as `{owner}[i64].{name}`"
+                        )));
+                    }
+                    let moving = self.place_type(e).is_some_and(|ty| ty.affine());
+                    let owner = if moving {
+                        self.field_owner(e)?
+                    } else {
+                        classes::FieldOwner::Other
+                    };
+                    if let classes::FieldOwner::Owned(field) = owner {
+                        return self.move_field(e, field, ops).map(Some);
+                    }
+                    let (ty, loans) = self.field(e, ops)?;
+                    if ty.affine() {
+                        // Borrowing and replacement come first: they keep one
+                        // owner. Copying allocates, so it is last and
+                        // propagates its AllocError (issue #576).
+                        let borrow = if matches!(ty, Ty::Enum(_)) && ty.recursive_data() {
+                            "borrow it by matching &value.field (or &mut value.field)"
+                        } else {
+                            "borrow it with &value.field (or &mut value.field)"
+                        };
+                        let replace = if matches!(owner, classes::FieldOwner::Reference) {
+                            "take it with replace(value.field, replacement) through a mutable reference"
+                        } else {
+                            "take it with replace(value.field, replacement) on a mutable owner"
+                        };
+                        let copies = ty.copy_facts();
+                        let rest =
+                            if copies.copyable && !copies.recursive && !matches!(ty, Ty::Shared(_))
+                            {
+                                format!("{replace}, or copy it with copy(value.field)?")
+                            } else {
+                                format!("or {replace}")
+                            };
+                        let message = if matches!(owner, classes::FieldOwner::Reference) {
+                            format!(
+                                "cannot move out of a field through a reference; {borrow}, {rest}"
+                            )
+                        } else {
+                            format!(
+                                "cannot move out of a field here: fields move out only from a named class binding, not through a Box, Shared handle, element, capture, or temporary; {borrow}, {rest}"
+                            )
+                        };
+                        return Err(self.value_demand_error(
+                            &e.at,
+                            e,
+                            message,
+                            crate::ownership::Demand::Copy(ty, "cannot move out of a field"),
+                            false,
+                        ));
+                    }
+                    Self::end_reads(loans, ops);
+                    Some(ty)
+                }
+            }
+        })
+    }
+    /// A local, function value, constant or prelude variant. Outlined so that its locals do not enlarge the frame of
+    /// every recursive `expr` call (issue #841).
+    #[inline(never)]
+    fn name_expression(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
+        let Expression::Name(name) = &e.kind else {
+            unreachable!("name_expression lowers its own expression kind")
+        };
+        Ok({
+            if self.captures.contains(name) {
+                let ty = self.place_type(e).expect("capture parameter");
+                if ty.affine() {
+                    return Err(e
+                        .at
+                        .error("cannot move out of a closure capture; borrow it or use copy"));
+                }
+                let (ty, loans) = self.observe(e, ops)?;
+                Self::end_reads(loans, ops);
+                return Ok(Some(ty));
+            }
+            if enums::prelude_variant(name) && !self.names.contains_key(name) {
+                return self.prelude_constructor(name, None, None, &e.at, ops);
+            }
+            if !self.names.contains_key(name)
+                && let Some(Some(ty @ Ty::Class(_))) = lookup_type(name, self.aliases)
+            {
+                return self.class_constructor_value(ty, &e.at, ops).map(Some);
+            }
+            if !self.names.contains_key(name) && self.sigs.contains_key(name) {
+                return self.function_value(name, &e.at, ops).map(Some);
+            }
+            if !self.names.contains_key(name) && self.aliases.data.is_class(name) {
+                return Err(e.at.error(format!("generic constructor `{name}` requires explicit type arguments or an expected Callable type")));
+            }
+            if !self.names.contains_key(name) && self.generics.templates.contains_key(name) {
+                return Err(e.at.error(
+                    "generic function values require explicit type arguments, such as function[u8]",
+                ));
+            }
+            let local = self
+                .names
+                .get(name)
+                .ok_or_else(|| e.at.error(self.unknown_binding(name)))?;
+            if matches!(local.ty, Ty::Task(_)) {
+                return Err(e.at.error("scoped tasks cannot escape or be copied; use task.join() inside its with block"));
+            }
+            ide::local_type(&e.at, &local.ty);
+            self.mark(&e.at, ops);
+            if let Some(loan) = self.reference_locals.get(&local.slot) {
+                ops.push(Op::UseLoan(*loan));
+            }
+            if let Ty::Closure(t) = &local.ty
+                && let Some(loans) = self.closure_loans.get(&t.name)
+            {
+                ops.extend(loans.iter().copied().map(Op::UseLoan));
+            }
+            if local.ty.affine() {
+                ops.push(Op::MoveLocal(local.slot));
+            } else {
+                if !matches!(local.ty, Ty::Ref(..)) {
+                    ops.push(Op::Access(local.slot, false, None));
+                }
+                ops.push(Op::LoadLocal(local.slot));
+            }
+            if local.ty == Ty::Unit {
+                ops.push(Op::Drop);
+                None
+            } else {
+                Some(local.ty.clone())
+            }
+        })
+    }
+    /// A prefix operator. Outlined so that its locals do not enlarge the frame of
+    /// every recursive `expr` call (issue #841).
+    #[inline(never)]
+    fn unary_expression(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
+        let Expression::Unary(op, value) = &e.kind else {
+            unreachable!("unary_expression lowers its own expression kind")
+        };
+        Ok({
+            if let Some(result) = self.overloaded_unary(op, value, &e.at, ops)? {
+                return Ok(result);
+            }
+            if op == "&" || op == "&mut" {
+                return self
+                    .borrow(value, op == "&mut", ops)
+                    .map(|(ty, _)| Some(ty));
+            }
+            if op == "*" && matches!(self.place_type(value), Some(Ty::Shared(_))) {
+                return self.shared_read(e, ops);
+            }
+            if op == "*" {
+                let ty = match self.value(value, ops)? {
+                    // Moving the content out consumes the box.
+                    Ty::Box(content) => {
+                        ops.push(Op::Box(crate::boxed::BoxOp::Take((*content).clone())));
+                        return Ok(Some((*content).clone()));
+                    }
+                    Ty::Ref(ty, _) => ty,
+                    Ty::Shared(_) => {
+                        return Err(value.at.error(
+                            "a temporary Shared owner has no place to borrow from; bind it to a name first",
+                        ))
+                    }
+                    _ => {
+                        return Err(value
+                            .at
+                            .error("dereference requires a reference, a Box, or a Shared handle"))
+                    }
+                };
+                let loan = self.reference_origin(value, ops)?;
+                if let Ty::Atomic(_) = &*ty {
+                    return Err(e.at.error("an atomic is read with load(), not through `*`"));
+                }
+                if ty.affine() {
+                    return Err(self.value_demand_error(
+                        &e.at,
+                        e,
+                        "cannot move out of a reference; use the reference instead of dereferencing it, or copy the value with copy(reference)?",
+                        crate::ownership::Demand::Copy(
+                            (*ty).clone(),
+                            "cannot move out of a reference",
+                        ),
+                        false,
+                    ));
+                }
+                ops.push(Op::Access(self.loans[loan].root, false, Some(loan)));
+                ops.push(Op::ReadRef((*ty).clone()));
+                ops.push(Op::UseLoan(loan));
+                if *ty == Ty::Unit {
+                    ops.push(Op::Drop);
+                    return Ok(None);
+                }
+                return Ok(Some((*ty).clone()));
+            }
+            if op == "-"
+                && let Expression::Number(n) = &value.kind
+            {
+                return self.number(n, true, &e.at, ops).map(Some);
+            }
+            let mut body = Vec::new();
+            let ty = self.value(value, &mut body)?;
+            if op == "~" {
+                if !ty.is_int() {
+                    return Err(e.at.error("bitwise complement requires an integer"));
+                }
+                ops.extend(body);
+                ops.push(Op::Integer(IntegerOp::Not));
+            } else if op == "not" {
+                self.same(Some(ty.clone()), Some(Ty::Bool), &e.at)?;
+                ops.extend(body);
+                ops.push(Op::Not);
+            } else {
+                if !ty.is_numeric() {
+                    return Err(e.at.error("unary arithmetic requires a number"));
+                }
+                if ty.is_float() {
+                    ops.extend(body);
+                    if op == "-" {
+                        ops.push(Op::FloatNeg);
+                    }
+                    return Ok(Some(ty));
+                }
+                if op == "-" {
+                    reject_unsigned_negation(&ty, &e.at)?;
+                    ops.push(Op::PushInt(integer(&format!("0{ty}"), false, &e.at)?));
+                }
+                ops.extend(body);
+                if op == "-" {
+                    self.mark(&e.at, ops);
+                    if !self.checked_arith(crate::numeric::Checked::Sub, &ty, &e.at, ops)? {
+                        self.push_trapping(Op::Sub, &ty, ops);
+                    }
+                }
+            }
+            Some(ty.clone())
+        })
+    }
+    /// `in` and `not in`. Outlined so that its locals do not enlarge the frame of
+    /// every recursive `expr` call (issue #841).
+    #[inline(never)]
+    fn membership_expression(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
+        let Expression::Binary(op, left, right) = &e.kind else {
+            unreachable!("membership_expression lowers its own expression kind")
+        };
+        Ok({
+            let (a, mut loans) = self.observe(left, ops)?;
+            let (b, other_loans) = self.observe(right, ops)?;
+            loans.extend(other_loans);
+            if b == text_view() {
+                let needle_text = match a {
+                    Ty::Str => true,
+                    _ if a == text_view() => false,
+                    _ => {
+                        return Err(e.at.error(format!(
+                            "`{op}` on a `&substr` looks for a `str` or `&substr`, not {a}"
+                        )));
+                    }
+                };
+                ops.push(Op::Swap);
+                let mode = crate::collection_opcodes::TEXT_SEARCH_CONTAINS << 1;
+                ops.push(Op::PushInt(Value::I64(mode | i64::from(needle_text))));
+                ops.push(Op::Collection(CollectionOp::TextView(
+                    crate::text::TextViewOp::Search {
+                        needle_text,
+                        find: false,
+                    },
+                )));
+                Self::end_reads(loans, ops);
+                if op == "not in" {
+                    ops.push(Op::Not);
+                }
+                return Ok(Some(Ty::Bool));
+            }
+            if a == text_view() && b == Ty::Str {
+                return Err(e.at.error(format!(
+                    "`{op}` on a `str` looks for a `str`; search for a `&substr` with `&s[:]`, as `v in &s[:]`"
+                )));
+            }
+            if let Ty::View(..) = b {
+                return Err(e.at.error(format!(
+                    "slice views do not support `{op}` yet; compare the elements in a loop"
+                )));
+            }
+            if b.restricted_storage() && !matches!(b, Ty::KeyView(_)) {
+                return Err(e
+                    .at
+                    .error("membership does not consume generators; use a loop"));
+            }
+            let element = b
+                .element()
+                .ok_or_else(|| {
+                    e.at.error(format!(
+                        "membership is not defined for `{b}`; `in` and `not in` do not call user methods; search explicitly using the container's API"
+                    ))
+                })?;
+            if element.recursive_data() {
+                return Err(e.at.error("automatic equality is not supported for recursive data; search using selected fields"));
+            }
+            if element.facts().closure {
+                return Err(e
+                    .at
+                    .error("values containing closures do not support membership equality"));
+            }
+            if element.facts().concurrent_handle {
+                return Err(e.at.error(
+                    "values containing channel endpoints, executors, or futures do not support membership equality",
+                ));
+            }
+            if element.facts().shared {
+                return Err(e.at.error(shared::EQUALITY));
+            }
+            if element.facts().atomic {
+                let subject = if mutex::holds_mutex(&element) {
+                    "mutexes"
+                } else {
+                    "atomics"
+                };
+                return Err(e.at.error(format!(
+                    "values containing {subject} do not support membership equality"
+                )));
+            }
+            // Preserve left-to-right evaluation: the observed collection is
+            // already on top, so retag the probe beneath it in place.
+            let a = if a != element && matches!(&element, Ty::Enum(sum) if sum.anonymous()) {
+                ops.push(Op::Swap);
+                let injected = self.inject_observed_sum(a, &element, ops);
+                ops.push(Op::Swap);
+                injected
+            } else {
+                a
+            };
+            self.same(
+                Some(a),
+                Some(if b == Ty::Str { Ty::Str } else { element }),
+                &e.at,
+            )?;
+            ops.push(Op::Collection(CollectionOp::Contains(b)));
+            Self::end_reads(loans, ops);
+            if op == "not in" {
+                ops.push(Op::Not);
+            }
+            Some(Ty::Bool)
+        })
+    }
+    /// A call of a name: a builtin, function, class or variant constructor. Outlined so that its locals do not enlarge the frame of
+    /// every recursive `expr` call (issue #841).
+    #[inline(never)]
+    fn call_expression(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Type> {
+        let Expression::Call(name, args) = &e.kind else {
+            unreachable!("call_expression lowers its own expression kind")
+        };
+        Ok({
+            if name == "print"
+                && !self.names.contains_key(name)
+                && let Some(named) = args
+                    .iter()
+                    .find(|arg| matches!(arg.kind, Expression::NamedArgument(..)))
+            {
+                return Err(named.at.error("`print` takes no named arguments such as `end` or `sep`: it separates values with one space and ends the line; build the line first, such as with an f-string, and print it once"));
+            }
+            if matches!(name.as_str(), "enumerate" | "zip" | "reversed")
+                && !self.names.contains_key(name)
+                && !self.sigs.contains_key(name)
+                && !self.generics.templates.contains_key(name)
+                && !self.aliases.contains_key(name)
+            {
+                return Err(e.at.error(format!(
+                    "{name} is supported directly in for loops and comprehensions"
+                )));
+            }
+            if matches!(name.as_str(), "any" | "all")
+                && !self.names.contains_key(name)
+                && !self.sigs.contains_key(name)
+                && !self.generics.templates.contains_key(name)
+                && !self.aliases.contains_key(name)
+            {
+                // B75 replaced the free boolean reductions with pipeline terminals.
+                return Err(e.at.error(format!(
+                    "{name} is not a builtin function; use the pipeline terminal: \
+                     iter(flags).{name}() for bool items, or iter(source).{name}(predicate)"
+                )));
+            }
+            if matches!(name.as_str(), "ord" | "chr")
+                && !self.names.contains_key(name)
+                && !self.sigs.contains_key(name)
+            {
+                let [argument] = args.as_slice() else {
+                    return Err(e.at.error(format!("{name} takes one argument")));
+                };
+                let operation = if name == "ord" {
+                    CollectionOp::TextOrd
+                } else {
+                    CollectionOp::TextChr
+                };
+                let (inputs, output) = operation.signature();
+                let (actual, loans) =
+                    self.observe_expected(argument, Some(inputs[0].clone()), ops)?;
+                self.same(Some(actual), Some(inputs[0].clone()), &argument.at)?;
+                Self::push_query(operation, ops);
+                Self::end_reads(loans, ops);
+                return Ok(Some(output));
+            }
+            if matches!(name.as_str(), "__min_replaces" | "__max_replaces") {
+                return self.extremum_call(name, args, &e.at, ops).map(Some);
+            }
+            if name == "CancellationToken" {
+                return self.control_new(args, &e.at, ops);
+            }
+            if name == crate::atomic::ATOMIC {
+                return self.atomic_new(None, args, None, &e.at, ops);
+            }
+            if name == crate::atomic::FENCE {
+                return self.atomic_fence(args, &e.at, ops);
+            }
+            if matches!(
+                name.as_str(),
+                "select_recv"
+                    | "select_recv_nowait"
+                    | "select_recv_timeout"
+                    | "select_recv_timeout_ms"
+            ) {
+                return self.channel_select(name, args, &e.at, ops);
+            }
+            if name == "ThreadPoolExecutor" {
+                return self.executor_new(args, &e.at, ops);
+            }
+            if name == "spawn" {
+                return Err(e.at.error(
+                    "spawn is a scoped operation; use with spawn(worker, arguments...)? as task:",
+                ));
+            }
+            if matches!(name.as_str(), "__actor_run" | "__actor_forget")
+                && !self.names.contains_key(name)
+                && !self.sigs.contains_key(name)
+            {
+                // Raw heap entry and release; std.actor wraps them.
+                let standard =
+                    e.at.source()
+                        .as_ref()
+                        .is_some_and(|source| self.generics.source_facts(source).1);
+                if !standard {
+                    return Err(e
+                        .at
+                        .error(format!("`{name}` is reserved for the standard library")));
+                }
+                return if name == "__actor_run" {
+                    self.actor_run(args, &e.at, ops)
+                } else {
+                    self.actor_forget(args, &e.at, ops)
+                };
+            }
+            if self.names.contains_key(name) {
+                let callee = Expr {
+                    at: e.at.clone(),
+                    kind: Expression::Name(name.clone()),
+                };
+                return self.call_value(&callee, args, ops);
+            }
+            if name == "print" {
+                let mut types = Vec::new();
+                let mut reads = Vec::new();
+                for argument in args {
+                    let (ty, loans) = self.observe(argument, ops)?;
+                    if ty.dictionary_view() {
+                        return Err(argument.at.error("dictionary key views cannot be printed; iterate the view or materialise keys_snapshot(), into_keys(), or to_set()"));
+                    }
+                    if ty.prints_generator_frame() {
+                        return Err(e.at.error("generators cannot be printed"));
+                    }
+                    if ty.facts().shared {
+                        return Err(e.at.error(
+                            "Shared owners cannot be printed; print values read through the handle",
+                        ));
+                    }
+                    if ty.facts().atomic && mutex::holds_mutex(&ty) {
+                        return Err(e.at.error(
+                            "mutexes cannot be printed; print a value read inside `with mutex.lock() as value:`",
+                        ));
+                    }
+                    if ty.facts().atomic {
+                        return Err(e
+                            .at
+                            .error("atomics cannot be printed; print a value read with load()"));
+                    }
+                    if ty.recursive_data() {
+                        return Err(e.at.error("automatic formatting is not supported for recursive data; print selected fields"));
+                    }
+                    if matches!(&ty, Ty::Enum(t) if t.is_result()) {
+                        // Observation also accepts references and borrowed owners.
+                        // Do not advise moving them with `?` based on type alone.
+                        let unborrowed = loans.is_empty()
+                            && !matches!(&ungroup(argument).kind, Expression::Name(name)
+                            if self.names.get(name).is_some_and(|local| matches!(local.ty, Ty::Ref(..))));
+                        let hint = self.result_success(&ty).filter(|success| {
+                            unborrowed
+                                && *success != Ty::Unit
+                                && !matches!(success, Ty::Enum(t) if t.is_result())
+                        });
+                        return Err(argument.at.error(format!(
+                        "print cannot print a Result directly; {}match the result explicitly, or use `str.repr` for intentional wrapper formatting",
+                        if hint.is_some() { "use `?` on the argument to propagate its error, " } else { "" }
+                    )));
+                    }
+                    types.push(ty);
+                    reads.extend(loans);
+                }
+                let operation = if args.len() == 1 {
+                    CollectionOp::TryPrint(types[0].clone())
+                } else {
+                    CollectionOp::TryPrintMany(types.clone())
+                };
+                let operation = self.formatted(operation, &types, true, &e.at)?;
+                let output = operation.signature().1;
+                ops.push(Op::Collection(operation));
+                Self::end_reads(reads, ops);
+                return Ok(Some(output));
+            }
+            if name == "open" {
+                return self.open_file(args, &e.at, ops);
+            }
+            if let Some(operation) = crate::filesystem::FsOp::named(name) {
+                return self.filesystem_call(operation, args, &e.at, ops);
+            }
+            if let Some(operation) = crate::bytes::BytesOp::named(name) {
+                return self.bytes_call(operation, args, &e.at, ops);
+            }
+            if std_only_intrinsic(name) && !self.names.contains_key(name) {
+                // Native back ends of std modules; their std callers
+                // check ranges and map results to the public errors.
+                let standard =
+                    e.at.source()
+                        .as_ref()
+                        .is_some_and(|source| self.generics.source_facts(source).1);
+                if !standard {
+                    return Err(e
+                        .at
+                        .error(format!("`{name}` is reserved for the standard library")));
+                }
+                if name == BYTES_ADOPT {
+                    return self.bytes_adopt(args, &e.at, ops);
+                }
+                if name == TRAP {
+                    return Err(e
+                        .at
+                        .error("`__trap` is a statement; it does not produce a value"));
+                }
+            }
+            if let Some(operation) = crate::numeric::FloatBits::named(name) {
+                return self.float_bits_call(operation, args, &e.at, ops).map(Some);
+            }
+            if let Some(operation) = crate::stream::StreamOp::named(name) {
+                let exclusive = |index| operation.exclusive(index);
+                let call = CollectionOp::Stream(operation);
+                return self.exclusive_call(call, &exclusive, args, &e.at, ops);
+            }
+            if let Some(operation) = crate::crypto::CryptoOp::named(name) {
+                let exclusive = |index| operation.exclusive(index);
+                let call = CollectionOp::Crypto(operation);
+                return self.exclusive_call(call, &exclusive, args, &e.at, ops);
+            }
+            if let Some(operation) = crate::compress::CompressOp::named(name) {
+                let exclusive = |index| operation.exclusive(index);
+                let call = CollectionOp::Compress(operation);
+                return self.exclusive_call(call, &exclusive, args, &e.at, ops);
+            }
+            if let Some(operation) = crate::process::ProcessOp::named(name) {
+                return self.system_call(CollectionOp::Process(operation), args, &e.at, ops);
+            }
+            if let Some(operation) = crate::system::SystemOp::named(name) {
+                return self.system_call(CollectionOp::System(operation), args, &e.at, ops);
+            }
+            if let Some(operation) = crate::time::TimeOp::named(name) {
+                let output = self.system_call(CollectionOp::Time(operation), args, &e.at, ops)?;
+                if output == Some(Ty::Unit) {
+                    ops.push(Op::Drop);
+                    return Ok(None);
+                }
+                return Ok(output);
+            }
+            if let Some(operation) = crate::unicode::UnicodeOp::named(name) {
+                return self.system_call(CollectionOp::Unicode(operation), args, &e.at, ops);
+            }
+            if let Some(operation) = crate::regex::RegexOp::named(name) {
+                if operation == crate::regex::RegexOp::TextBytes {
+                    return Err(e.at.error(
+                        "__regex_text_bytes is only supported at a shared byte-view parameter",
+                    ));
+                }
+                return self.system_call(CollectionOp::Regex(operation), args, &e.at, ops);
+            }
+            if let Some(operation) = crate::text::TextOp::named(name) {
+                if operation == crate::text::TextOp::FindIn {
+                    return self.text_find_in(args, &e.at, ops);
+                }
+                if args.len() == 2 && args.iter().all(|arg| self.place_type(arg) == Some(Ty::Str)) {
+                    // Compare text places in place (issue #364).
+                    let mut loans = Vec::new();
+                    for arg in args {
+                        loans.push(self.borrow(arg, false, ops)?.1);
+                    }
+                    ops.push(Op::Collection(CollectionOp::QueryRef(
+                        crate::collection::Query::TextAsciiEqualFolded,
+                    )));
+                    Self::end_reads(loans, ops);
+                    return Ok(Some(Ty::Bool));
+                }
+                return self.system_call(CollectionOp::Text(operation), args, &e.at, ops);
+            }
+            if let Some(operation) = crate::net::NetOp::named(name) {
+                let exclusive = |index| operation.exclusive(index);
+                let call = CollectionOp::Net(operation);
+                return self.exclusive_call(call, &exclusive, args, &e.at, ops);
+            }
+            if let Some(operation) = crate::sqlite::SqliteOp::named(name) {
+                return self.system_call(CollectionOp::Sqlite(operation), args, &e.at, ops);
+            }
+            if let Some(operation) = crate::tls::TlsOp::named(name) {
+                let exclusive = |index| operation.exclusive(index);
+                let call = CollectionOp::Tls(operation);
+                return self.exclusive_call(call, &exclusive, args, &e.at, ops);
+            }
+            if enums::prelude_variant(name) {
+                return self.prelude_constructor(name, Some(args), None, &e.at, ops);
+            }
+            if matches!(name.as_str(), "copy" | "drop") {
+                if name == "drop"
+                    && let [value] = args.as_slice()
+                    && self.is_pipeline(value)
+                {
+                    let plan = self.pipeline(value, ops)?;
+                    self.finish_pipeline(&plan, ops);
+                    return Ok(None);
+                }
+                return self.copy_or_drop(name, args, &e.at, ops);
+            }
+            if name == "sorted" {
+                return self.sorted(args, &e.at, ops);
+            }
+            if name == "replace"
+                && !self.sigs.contains_key(name)
+                && !self.generics.templates.contains_key(name)
+                && !self.aliases.contains_key(name)
+            {
+                return self.replace_field(args, &e.at, ops).map(Some);
+            }
+            if name == "BoxedCallable" {
+                return self.boxed_callable(args, &e.at, ops).map(Some);
+            }
+            if name == "Shared" {
+                return self.shared_new(None, args, &e.at, ops);
+            }
+            if name == "Box" {
+                let [content] = args.as_slice() else {
+                    return Err(e.at.error("Box takes one value"));
+                };
+                let ty = self.value(content, ops)?;
+                if let Some(barrier) = ty.storage_barrier() {
+                    return Err(content.at.error(barrier.message("a box")));
+                }
+                let operation = crate::boxed::BoxOp::New(ty);
+                let output = operation.signature().1;
+                ops.push(Op::Box(operation));
+                return Ok(Some(output));
+            }
+            if name == "next" {
+                return self.next(args, &e.at, ops);
+            }
+            if name == fstrings::REPR_IF_FORMATTABLE {
+                let standard =
+                    e.at.source()
+                        .as_ref()
+                        .is_some_and(|source| self.generics.source_facts(source).1);
+                if !standard {
+                    return Err(e
+                        .at
+                        .error(format!("`{name}` is reserved for the standard library")));
+                }
+                return self.repr_if_formattable(args, &e.at, ops).map(Some);
+            }
+            if let Some(operation) = match name.as_str() {
+                "__caller_location" => Some(CollectionOp::CallerLocation),
+                "__test_fault" => Some(CollectionOp::TestFault),
+                "__actor_heap" => Some(CollectionOp::ActorHeap),
+                "__report_write" => Some(CollectionOp::ReportWrite),
+                "__io_is_terminal" => Some(CollectionOp::IsTerminal),
+                _ => None,
+            } {
+                // Trusted std hooks are not user-visible API.
+                let standard =
+                    e.at.source()
+                        .as_ref()
+                        .is_some_and(|source| self.generics.source_facts(source).1);
+                if !standard {
+                    return Err(e
+                        .at
+                        .error(format!("`{name}` is reserved for the standard library")));
+                }
+                return self.system_call(operation, args, &e.at, ops);
+            }
+            if let Some(operation) = match name.as_str() {
+                "write_stdout" => Some(CollectionOp::WriteStdout),
+                "write_stderr" => Some(CollectionOp::WriteStderr),
+                "flush_stdout" => Some(CollectionOp::FlushStdout),
+                "flush_stderr" => Some(CollectionOp::FlushStderr),
+                "input" => Some(CollectionOp::Input),
+                "args" => Some(CollectionOp::Args),
+                "args_bytes" => Some(CollectionOp::ArgsBytes),
+                "input_bytes" => Some(CollectionOp::InputBytes),
+                "encode_utf8" => Some(CollectionOp::EncodeUtf8),
+                "decode_utf8" => Some(CollectionOp::DecodeUtf8),
+                "write_stdout_bytes" => Some(CollectionOp::WriteStdoutBytes),
+                "write_stderr_bytes" => Some(CollectionOp::WriteStderrBytes),
+                "read_bytes" => Some(CollectionOp::ReadBytes),
+                "write_bytes" => Some(CollectionOp::WriteBytes),
+                "read_text" => Some(CollectionOp::ReadText),
+                "write_text" => Some(CollectionOp::WriteText),
+                "append_text" => Some(CollectionOp::AppendText),
+                _ => None,
+            } {
+                return self.system_call(operation, args, &e.at, ops);
+            }
+            if matches!(name.as_str(), "len" | "range" | "list" | "set" | "dict") {
+                return self.builtin_collection(name, args, &e.at, ops).map(Some);
+            }
+            if let Some(Some(Ty::Class(t))) = lookup_type(name, self.aliases) {
+                if Ty::Class(t.clone()).layout_depth() >= 64 {
+                    return Err(e
+                        .at
+                        .error("type nesting exceeds the implementation limit of 64"));
+                }
+                modules::check_member(self.access, &t.name, "__new__", &e.at)?;
+                return self.call_named(&crate::record::method(&t.name, "new"), args, &e.at, ops);
+            }
+            match lookup_type(name, self.aliases) {
+                Some(target) => {
+                    if let Some(target) = target
+                        .as_ref()
+                        .filter(|t| t.is_collection() || matches!(t, Ty::Clist(_)))
+                    {
+                        return self.construct(target.clone(), args, &e.at, ops).map(Some);
+                    }
+                    let target = target.filter(|ty| ty.is_numeric()).ok_or_else(|| {
+                    e.at.error(if lookup_type(name, self.aliases) == Some(Some(Ty::Str)) {
+                        "only numeric types support cast syntax; format a number or boolean as text with `str.from(value)?`"
+                    } else {
+                        "only numeric types support cast syntax"
+                    })
+                })?;
+                    if args.len() != 1 {
+                        return Err(e.at.error("numeric casts take one argument"));
+                    }
+                    let source = self.value(&args[0], ops)?;
+                    if !source.is_numeric() {
+                        return Err(casts::operand_error(
+                            "numeric casts require a number",
+                            &source,
+                            Ty::is_numeric,
+                            &args[0],
+                            &e.at,
+                        ));
+                    }
+                    self.checked_cast(&source, &target, &args[0], &e.at, ops)?;
+                    Some(target)
+                }
+                _ => {
+                    if name == "contains" {
+                        if args.len() != 2 {
+                            return Err(e.at.error("contains takes two strings"));
+                        }
+                        let mut loans = Vec::new();
+                        for arg in args {
+                            let (ty, reads) = self.observe_expected(arg, Some(Ty::Str), ops)?;
+                            self.same(Some(ty), Some(Ty::Str), &arg.at)?;
+                            loans.extend(reads);
+                        }
+                        ops.push(Op::Contains);
+                        Self::end_reads(loans, ops);
+                        Some(Ty::Bool)
+                    } else {
+                        self.call_named(name, args, &e.at, ops)?
+                    }
+                }
+            }
+        })
     }
     fn call_named(
         &mut self,
