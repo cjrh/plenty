@@ -2,6 +2,7 @@
 # deadlines, cancellation and error policy live here. File destruction closes
 # the descriptor without LOCK_UN, preserving any inherited open description.
 from std.path import Path
+from std.process import Command
 from std.sync import CancellationToken
 from std.time import Deadline, monotonic_now
 
@@ -26,13 +27,17 @@ def io[T](result: Result[T, IoError]) -> Result[T, LockError]:
         case Err(error):
             Err(LockError.Io(error))
 
-# The private File is the sole owner. Do not expose an unlock operation: flock
-# unlock would affect children sharing this open file description as well.
+# The private File owns the original descriptor. Do not expose unlock:
+# flock unlock would affect children sharing this open description as well.
 pub class Lock:
     _file: File
 
     pub def close(self: &mut Lock) -> Result[(), LockError]:
         io(self._file.close())
+
+    # A child copy keeps the lock after this owner closes or its process dies.
+    pub def inherit_into(self, command: &mut Command) -> Result[i32, LockError]:
+        io(command.inherit_file(&self._file))
 
     pub def is_closed(self) -> bool:
         self._file.closed

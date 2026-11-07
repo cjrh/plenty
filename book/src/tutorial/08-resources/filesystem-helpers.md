@@ -78,7 +78,11 @@ for the protected work. `acquire_now` reports contention immediately;
 lockfile in a trusted directory and leave that file in place after releasing
 the lock: removing it while another process owns it can split coordination
 across different inodes. Locks close automatically, and normal subprocesses
-do not inherit them across exec.
+do not inherit them across exec. When a child must keep the lock after its
+runner exits, use `owner.inherit_into(&mut command)` and pass the returned
+number through the child's descriptor protocol. After spawning, clear the
+command's copies with `clear_inherited_files()`; the original owner and the
+child then control the remaining lifetime. See [explicit lock inheritance](../../design/stdlib/fs/lock.md#ownership-and-release).
 
 ## Create a private named file
 

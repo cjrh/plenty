@@ -1,8 +1,8 @@
 //! Cross-check shared native scratch arity against independently typed APIs.
 //! Exhaustive matches make a newly added primitive require a test decision.
 use crate::{
-    bytes::BytesOp, compress::CompressOp, crypto::CryptoOp, net::NetOp, sqlite::SqliteOp,
-    stream::StreamOp, tls::TlsOp,
+    bytes::BytesOp, compress::CompressOp, crypto::CryptoOp, net::NetOp, process::ProcessOp,
+    sqlite::SqliteOp, stream::StreamOp, tls::TlsOp,
 };
 
 macro_rules! check_family {
@@ -18,6 +18,8 @@ macro_rules! check_family {
 
 #[test]
 fn scratch_operand_contract_matches_typed_primitives() {
+    check_family!(ProcessOp: EnvGet, EnvVars, CurrentDir, ChangeDir, Spawn, Pipe, Wait,
+        Signal, Poll, SignalListen, DuplicateFile, FileDescriptor);
     check_family!(BytesOp: New, Len, Capacity, Get, Set, Reserve, Resize, Push,
         Append, Overwrite, FromList, ToList, FromText, ToText, WriteFloat,
         WriteFloatSpec, Find, FindIn, FindBytes, Count, Matches, MatchesText,

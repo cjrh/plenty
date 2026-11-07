@@ -2622,7 +2622,7 @@ operation_entries! {
 }
 // `std.process` and `std.signal`.
 operation_entries! {
-    193 194 195 196 197 198 199 228 229 500
+    193 194 195 196 197 198 199 228 229 500 501 502
 }
 // `std.unicode`.
 operation_entries! {
@@ -2705,6 +2705,11 @@ unsafe fn operation(op: i64, args: *const u128, descriptor: *const Type, site: *
     // operations that cannot trap.
     unsafe {
         let out = args.add(3).cast_mut();
+        if op == 197 {
+            let [a, b, c, inherited] = read_operands::<4>(op, args);
+            out.write(process::call(op, a, b, c, inherited, descriptor));
+            return;
+        }
         if matches!(op, 300..350 | 440..500) {
             let operands = read_operands::<4>(op, args);
             out.write(match op {
@@ -2878,7 +2883,7 @@ pub(crate) unsafe fn collection_at(
             }
             512..=514 => watch::call(op, a, b, descriptor),
             184..=187 => crate::time::call(op, a),
-            193..=199 | 228..=229 | 500 => process::call(op, a, b, value, descriptor),
+            193..=199 | 228..=229 | 500..=502 => process::call(op, a, b, value, 0, descriptor),
             224..=227 => crate::unicode::call(op, a, b, value),
             390 => crate::text_io::result(crate::files::wait_ready(
                 a as *const crate::files::File,

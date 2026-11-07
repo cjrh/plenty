@@ -68,6 +68,8 @@ pub const fn scratch_operand_count(op: i64) -> usize {
         LIST_SLICE | TEXT_SLICE | BYTES_SLICE | CLIST_SLICE => 2,
         // A text view's source, start, stop and the bound flags.
         TEXT_VIEW_SUBVIEW | TEXT_VIEW_OF_STR => 1,
+        // Child spawn includes its borrowed inherited-file list.
+        197 => 1,
         // File input, fill and copy_within.
         188 | 237 | 282
         // AEAD and HKDF.

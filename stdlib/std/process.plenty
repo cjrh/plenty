@@ -106,6 +106,7 @@ pub class Command:
     _stderr: i64
     _change_dir: bool
     _clear_env: bool
+    _inherited: list[File]
 
     pub def arg_bytes(self: &mut Command, value: &list[u8]) -> Result[(), IoError]:
         terminated(&mut self._spec, value)?
@@ -169,6 +170,19 @@ pub class Command:
     pub def stderr(self: &mut Command, mode: Stdio) -> ():
         self._stderr = stdio_code(mode)
 
+    # Own a close-on-exec copy until cleared or dropped. Its descriptor is
+    # inherited by this command's children only; use the number in argv/env.
+    pub def inherit_file(self: &mut Command, file: &File) -> Result[i32, IoError]:
+        if len(self._inherited) >= 64:
+            return Err(IoError.InvalidInput)
+        copy = __process_duplicate_file(file)?
+        descriptor = __process_file_descriptor(copy)?
+        allocated(self._inherited.append(copy))?
+        Ok(descriptor)
+
+    pub def clear_inherited_files(self: &mut Command) -> ():
+        self._inherited.clear()
+
     # The command is reusable: each call starts another child.
     pub def spawn(self) -> Result[Child, IoError]:
         mut spec = allocated(list[u8].with_capacity(extent(extent(len(self._spec), len(self._dir))?, len(self._env))?))?
@@ -183,7 +197,7 @@ pub class Command:
             flags = flags | 128
         for index in range(len(self._env)):
             allocated(spec.append(self._env[index]))?
-        handle = __process_spawn(spec, self._argc, flags)?
+        handle = __process_spawn(spec, self._argc, flags, self._inherited)?
         mut child = Child(handle, unreaped, Nothing, Nothing, Nothing)
         if self._stdin == piped:
             child._stdin = Some(pipe_end(handle, 0u8)?)
@@ -215,7 +229,7 @@ pub def command_bytes(program: &list[u8]) -> Result[Command, IoError]:
         return Err(IoError.InvalidInput)
     mut spec = allocated(list[u8].new())?
     terminated(&mut spec, program)?
-    Ok(Command(spec, allocated(list[u8].new())?, allocated(list[u8].new())?, 0, 0, 0, 0, False, False))
+    Ok(Command(spec, allocated(list[u8].new())?, allocated(list[u8].new())?, 0, 0, 0, 0, False, False, allocated(list[File].new())?))
 
 pub def command(program: &str) -> Result[Command, IoError]:
     encoded = encode_utf8(program)?

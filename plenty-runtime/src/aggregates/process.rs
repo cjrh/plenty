@@ -1,8 +1,9 @@
 //! Environment reads and child processes for `std.env` and `std.process`.
 //! Spawning goes through Rust's `Command`, so there is no shell, the exec
 //! failure is reported to the parent, and every pipe end is close-on-exec.
-//! `Command` builds its argument vector with the host allocator; that short
-//! transient is the one allocation here outside Plenty's fallible accounting.
+//! `Command` builds its argument vector and optional fixed pre-exec callback
+//! with the host allocator; those short transients are outside Plenty's
+//! fallible accounting.
 use super::filesystem::{byte_list, contiguous};
 use super::{Collection, OwnedValue, Type, wrap};
 use crate::text_io::{self, Error, Kind};
@@ -13,7 +14,7 @@ mod native {
     use std::ffi::{CStr, OsStr};
     use std::os::fd::{AsRawFd, OwnedFd};
     use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::process::ExitStatusExt;
+    use std::os::unix::process::{CommandExt, ExitStatusExt};
     use std::process::{Child, Command, Stdio};
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -57,6 +58,7 @@ mod native {
 
     unsafe extern "C" {
         fn kill(pid: i32, signal: i32) -> i32;
+        fn fcntl(fd: i32, command: i32, ...) -> i32;
         fn poll(fds: *mut PollFd, count: u64, timeout: i32) -> i32;
     }
 
@@ -94,7 +96,7 @@ mod native {
     /// `spec` is NUL-terminated strings: the program, `argc` arguments, the
     /// working directory when flagged, then environment edits, `NAME=value`
     /// to set and a bare `NAME` to remove.
-    fn spawn(spec: &[u8], argc: u128, flags: u64) -> Result<u128, Error> {
+    fn spawn(spec: &[u8], argc: u128, flags: u64, inherited: &Collection) -> Result<u128, Error> {
         let spec = spec.strip_suffix(&[0]).ok_or(Kind::InvalidInput)?;
         let mut parts = spec.split(|byte| *byte == 0);
         let mut next = || parts.next().ok_or(Kind::InvalidInput);
@@ -131,6 +133,35 @@ mod native {
             .stdin(stdio(flags)?)
             .stdout(stdio(flags >> 2)?)
             .stderr(stdio(flags >> 4)?);
+        // Owners stay borrowed through exec, so none of these slots can be
+        // reused by Command's internal error pipe. Parent flags never change.
+        let count = inherited.entries.len();
+        if count > 64 {
+            return Err(Kind::InvalidInput.into());
+        }
+        let mut descriptors = [0i32; 64];
+        for (slot, entry) in descriptors.iter_mut().zip(inherited.entries.iter()) {
+            // SAFETY: the compiler checks the borrowed list[File] operand.
+            *slot = unsafe { crate::files::descriptor(entry.key as *const crate::files::File)? };
+            if *slot < 3 {
+                return Err(Kind::InvalidInput.into());
+            }
+        }
+        if count != 0 {
+            // SAFETY: after fork this callback only uses async-signal-safe
+            // fcntl and errno access, with stack data and no allocation/locks.
+            // F_SETFD=2; clearing FD_CLOEXEC affects only the child's table.
+            unsafe {
+                command.pre_exec(move || {
+                    for &fd in &descriptors[..count] {
+                        if fcntl(fd, 2, 0) == -1 {
+                            return Err(std::io::Error::last_os_error());
+                        }
+                    }
+                    Ok(())
+                });
+            }
+        }
         let mut table = children();
         // Reserved before the child exists, so a started child is always recorded.
         table
@@ -364,6 +395,7 @@ mod native {
         a: u128,
         b: u128,
         c: u128,
+        inherited: u128,
         descriptor: &'static Type,
     ) -> Result<u128, Error> {
         let output = descriptor.variants[0].fields;
@@ -378,12 +410,19 @@ mod native {
                     std::env::set_current_dir(OsStr::from_bytes(&contiguous(a)?))?;
                     Ok(0)
                 }
-                197 => spawn(&contiguous(a)?, b, c as u64),
+                197 => spawn(
+                    &contiguous(a)?,
+                    b,
+                    c as u64,
+                    &*(inherited as *const Collection),
+                ),
                 198 => pipe(a, b, output[0]),
                 199 => wait(a, b != 0),
                 228 => signal(a, b),
                 229 => ready(a, b as u64, c as i64),
                 500 => crate::signals::listen(output[0]),
+                501 => crate::files::duplicate(a as *const crate::files::File, output[0]),
+                502 => Ok(crate::files::descriptor(a as *const crate::files::File)? as u128),
                 _ => crate::fail("invalid process operation"),
             }
         }
@@ -392,15 +431,24 @@ mod native {
 
 // Inlined so each operation's entry symbol keeps only its own arm.
 #[inline(always)]
-pub(super) unsafe fn call(op: i64, a: u128, b: u128, c: u128, descriptor: *const Type) -> u128 {
+pub(super) unsafe fn call(
+    op: i64,
+    a: u128,
+    b: u128,
+    c: u128,
+    inherited: u128,
+    descriptor: *const Type,
+) -> u128 {
     #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
     {
         // SAFETY: codegen supplies process-lifetime output metadata.
-        text_io::result(unsafe { native::call(op, a, b, c, &*descriptor) })
+        text_io::result(unsafe { native::call(op, a, b, c, inherited, &*descriptor) })
     }
     #[cfg(not(all(target_os = "linux", target_pointer_width = "64")))]
     {
-        let _ = (op, a, b, c, descriptor, wrap, contiguous, byte_list);
+        let _ = (
+            op, a, b, c, inherited, descriptor, wrap, contiguous, byte_list,
+        );
         text_io::result(Err(Kind::Unsupported.into()))
     }
 }

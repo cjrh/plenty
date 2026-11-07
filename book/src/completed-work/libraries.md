@@ -18,7 +18,7 @@ scope decision, not a second task list.
 | Delivery | Contract / evidence |
 | --- | --- |
 | [XML](../design/stdlib/xml.md) | Bounded UTF-8 events and validating writes without DTDs/external entities (issue #462). |
-| [Advisory file locks](../design/stdlib/fs/lock.md) | Owned shared/exclusive Linux locks, nonblocking acquisition and cancellable deadline waits; close-only lifetime preserves inherited descriptions (issue #774). |
+| [Advisory file locks](../design/stdlib/fs/lock.md) | Owned shared/exclusive Linux locks, nonblocking acquisition and cancellable deadline waits; close-only lifetime preserves inherited descriptions (issue #774), with [explicit child inheritance](#explicit-child-file-inheritance) (issue #777). |
 | [Filesystem watch](../design/stdlib/fs/watch.md) | Bounded Linux inotify batches, overflow reporting and readiness integration (issue #484). |
 | [Templates](../design/stdlib/template.md) | Bounded Jinja-style interpolation, filters, conditions, named inheritance and HTML escaping over explicit JSON (issue #499); reusable bounded text and quote-specific attribute escaping (issue #823). |
 | [Linalg](../design/stdlib/linalg.md) | Finite f64 matrices, solves and dense decompositions over allocation-safe faer kernels, with engine-parameterized build/packaging/CI (issue #490). |
@@ -50,7 +50,7 @@ assignments. Extensions retain their original B IDs in the
 | B40 / #77 | [Binary streams](../design/stdlib/io.md): statically dispatched reader/writer/seek/close, explicit partial progress, exact/bounded reads/writes/copy, fixed buffering and distinct flush/close failures, with file/process/memory adapters over Bytes. [Sequential binary Cursor fields](../design/stdlib/io-binary.md) add checked reads/writes, payload caps and contextual truncation (issue #658). |
 | B41 / #78 | [Error context](../design/stdlib/error.md): typed operation/path/cause, explicit conversion, descriptions, stderr fallback reports, unit Results (issue #110), `Formattable` causes and readable entrypoint reports. |
 | B42 / #79 | [Time](../design/stdlib/time.md): checked durations, monotonic instants/deadlines, timestamps and sleep; [typed std time APIs and cancellable waits](../completed-work.md#typed-time-and-cancellable-waits) (issue #635). Calendar/time-zone/RFC 3339 support is the official external `plentylang/tz` package (issue #463); `Zoned.until`/`since` calendar differences shipped in v0.3.0 (issue #566). |
-| B43 / #80 | [Environment](../design/stdlib/env.md)/[process](../design/stdlib/process.md): lossless variables/snapshots/cwd, argument-vector spawning without a shell, child env/cwd, piped streams, bounded deadlock-free collection, exit/signal status, termination and reaping. [Shlex](../design/stdlib/shlex.md) splits/quotes shell words without executing/expanding (issue #478). |
+| B43 / #80 | [Environment](../design/stdlib/env.md)/[process](../design/stdlib/process.md): lossless variables/snapshots/cwd, argument-vector spawning without a shell, child env/cwd, piped streams, bounded deadlock-free collection, exit/signal status, termination and reaping. [Explicit child-file inheritance](#explicit-child-file-inheritance) selects owned files and lock copies (issue #777). [Shlex](../design/stdlib/shlex.md) splits/quotes shell words without executing/expanding (issue #478). |
 | B44 / #81 | [CLI](../design/stdlib/cli.md): validated schemas, typed/repeatable arguments, `--`, help/errors and lossless paths. [Progress](../design/stdlib/cli-progress.md) adds terminal-only throttled bars/spinners/counts/rates/ETA (issue #477); [fileinput](../design/stdlib/cli-fileinput.md) adds buffered fallible line iteration over native/raw command-line paths and stdin fallback (issue #553). |
 | B45 / #82 | [Formatting](../design/stdlib/fmt.md): static display/debug contracts, scalar/callback aggregate formatting, bounded partial-progress streaming and fallible strings. F-strings add field expressions, conversions, debug `=`, checked Python-style specs and nested fill/alignment/width/precision, returning `FormatError`; formatter output avoids intermediate strings (issue #157, local PRs #200/#202). |
 | B46 / #83 | [Logs](../design/stdlib/log.md): leveled typed events and generic caller-selected sinks (logfmt text, bounded memory and nonblocking channel/drain), clock policies and bounded lines. |
@@ -328,3 +328,16 @@ resolving issue #677 for both Windows and macOS bundles. Broader B18.7 library
 qualification, linear algebra on these platforms and signing/notarization
 remain outside this delivery. See
 [macOS engine installation](../design/stdlib/dataframe-engine.md#macos-application-linking).
+
+
+## Explicit child-file inheritance
+
+B43/B55, issue #777: [`std.process.Command.inherit_file`](../design/stdlib/process.md#explicit-file-inheritance)
+owns close-on-exec copies for a selected child, and
+[`std.fs.lock.Lock.inherit_into`](../design/stdlib/fs/lock.md#ownership-and-release)
+keeps advisory locks alive after runner death. Child-only flag changes preserve
+parent flags and isolate concurrent spawns; commands cap selection at 64 files,
+retain copies for reuse, and release them through `clear_inherited_files()` or
+drop. Focused tests cover concurrent selection, source close, failed exec,
+allocation failure and lock lifetime across runner death. Arbitrary descriptor
+remapping and standard-stream redirection remain B43 scope.

@@ -1134,3 +1134,97 @@ print(child.wait()?.success())?
         "cancelled\nTrue\nFalse",
     );
 }
+
+#[test]
+fn inherited_files_are_selected_per_command_during_concurrent_spawns() {
+    let source = format!(
+        r#"{PRELUDE}
+import std.test
+
+def launch(built: Command) -> ():
+    for attempt in range(8):
+        mut child = built.spawn().unwrap()
+        output = child.output(4096).unwrap()
+        if not output.status.success():
+            print(output.stderr.to_text().unwrap()).unwrap()
+            std.test.check(False, "child descriptor selection failed").unwrap()
+
+def main() -> Result[(), AllocError | IoError]:
+    with open("a", "w")? as file:
+        file.write("a")?
+    with open("b", "w")? as file:
+        file.write("b")?
+    # Both original files and both command copies are open during every fork.
+    # Each exec must see exactly the requested copy, not an original or its peer.
+    with open("a", "r")? as a:
+        with open("b", "r")? as b:
+            mut first = std.process.command("/usr/bin/python3")?
+            mut second = std.process.command("/usr/bin/python3")?
+            script = "import os,sys\nwanted=int(sys.argv[1])\nassert os.read(wanted,1)==sys.argv[2].encode()\nidentities=[(os.stat(p).st_dev,os.stat(p).st_ino) for p in ['a','b']]\nseen=[]\nfor fd in range(3,256):\n try:\n  st=os.fstat(fd)\n except OSError:\n  continue\n if (st.st_dev,st.st_ino) in identities: seen.append(fd)\nassert seen==[wanted], seen\nos.lseek(wanted,0,0)"
+            first.arg("-c")?
+            first.arg(script)?
+            first_fd = first.inherit_file(&a)?
+            first.arg(&str.from(first_fd)?)?
+            first.arg("a")?
+            first.stdout(Stdio.Piped)
+            first.stderr(Stdio.Piped)
+            second.arg("-c")?
+            second.arg(script)?
+            second_fd = second.inherit_file(&b)?
+            second.arg(&str.from(second_fd)?)?
+            second.arg("b")?
+            second.stdout(Stdio.Piped)
+            second.stderr(Stdio.Piped)
+            with spawn(launch, first).unwrap() as left:
+                with spawn(launch, second).unwrap() as right:
+                    left.join()
+                    right.join()
+    print("ok")?
+    Ok(())
+"#
+    );
+    for optimize in [false, true] {
+        assert_eq!(run_with_optimization(&source, optimize), "ok");
+    }
+}
+
+#[test]
+fn inherited_files_outlive_source_close_and_validate_limits_and_spawn_failure() {
+    native(
+        r#"
+mut file = open("/dev/null", "r")?
+mut built = std.process.command("/usr/bin/python3")?
+built.arg("-c")?
+built.arg("import os,sys; assert os.read(int(sys.argv[1]),1)==b''")?
+for index in range(64):
+    drop(built.inherit_file(&file)?)
+limit_rejected = match built.inherit_file(&file):
+    case Err(IoError.InvalidInput):
+        True
+    case _:
+        False
+print(limit_rejected)?
+built.clear_inherited_files()
+fd = built.inherit_file(&file)?
+built.arg(&str.from(fd)?)?
+mut missing = std.process.command("/definitely/not/a/program")?
+drop(missing.inherit_file(&file)?)
+file.close()?
+closed_rejected = match built.inherit_file(&file):
+    case Err(IoError.Closed):
+        True
+    case _:
+        False
+print(closed_rejected)?
+print(bad(&missing.spawn()), bad(&missing.spawn()))?
+missing.clear_inherited_files()
+mut child = built.spawn()?
+built.clear_inherited_files()
+print(child.wait()?.success())?
+# Clearing is idempotent and the released configuration remains reusable.
+built.clear_inherited_files()
+print(bad(&std.process.command("/definitely/not/a/program")?.spawn()))?
+"#,
+        "True\nTrue\nTrue True\nTrue\nTrue",
+    );
+}

@@ -47,65 +47,65 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.fmt`](#stdfmt): 1275-1342
 - [`std.fs`](#stdfs): 1344-1443
 - [`std.fs.dirs`](#stdfsdirs): 1445-1455
-- [`std.fs.lock`](#stdfslock): 1457-1471
-- [`std.fs.watch`](#stdfswatch): 1473-1508
-- [`std.graph`](#stdgraph): 1510-1598
-- [`std.http`](#stdhttp): 1600-1670
-- [`std.http.decoder`](#stdhttpdecoder): 1672-1689
-- [`std.http.body`](#stdhttpbody): 1691-1726
-- [`std.http.client`](#stdhttpclient): 1728-1838
-- [`std.http.cookie`](#stdhttpcookie): 1840-1872
-- [`std.http.files`](#stdhttpfiles): 1874-1887
-- [`std.http.https`](#stdhttphttps): 1889-1903
-- [`std.http.proxy`](#stdhttpproxy): 1905-1926
-- [`std.http.server`](#stdhttpserver): 1928-2013
-- [`std.http.sse`](#stdhttpsse): 2015-2034
-- [`std.http.tls`](#stdhttptls): 2036-2053
-- [`std.http.typed`](#stdhttptyped): 2055-2088
-- [`std.http.websocket`](#stdhttpwebsocket): 2090-2125
-- [`std.http.wss`](#stdhttpwss): 2127-2133
-- [`std.image`](#stdimage): 2135-2181
-- [`std.io`](#stdio): 2183-2289
-- [`std.io.typed`](#stdiotyped): 2291-2329
-- [`std.json`](#stdjson): 2331-2395
-- [`std.jwt`](#stdjwt): 2397-2444
-- [`std.log`](#stdlog): 2446-2513
-- [`std.markdown`](#stdmarkdown): 2515-2549
-- [`std.template`](#stdtemplate): 2551-2575
-- [`std.math`](#stdmath): 2577-2648
-- [`std.mime`](#stdmime): 2650-2676
-- [`std.net`](#stdnet): 2678-2760
-- [`std.path`](#stdpath): 2762-2779
-- [`std.process`](#stdprocess): 2781-2830
-- [`std.random`](#stdrandom): 2832-2853
-- [`std.ready`](#stdready): 2855-2886
-- [`std.regex`](#stdregex): 2888-2941
-- [`std.report`](#stdreport): 2943-2950
-- [`std.secrets`](#stdsecrets): 2952-2978
-- [`std.shlex`](#stdshlex): 2980-2989
-- [`std.sketch`](#stdsketch): 2991-3029
-- [`std.sketch.xor`](#stdsketchxor): 3031-3042
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3044-3059
-- [`std.signal`](#stdsignal): 3061-3078
-- [`std.simd`](#stdsimd): 3080-3181
-- [`std.stat`](#stdstat): 3183-3216
-- [`std.plot`](#stdplot): 3218-3307
-- [`std.linalg`](#stdlinalg): 3309-3350
-- [`std.sync`](#stdsync): 3352-3370
-- [`std.system`](#stdsystem): 3372-3430
-- [`std.tempfile`](#stdtempfile): 3432-3464
-- [`std.test`](#stdtest): 3466-3508
-- [`std.text`](#stdtext): 3510-3553
-- [`std.thread`](#stdthread): 3555-3559
-- [`std.time`](#stdtime): 3561-3605
-- [`std.tls`](#stdtls): 3607-3689
-- [`std.toml`](#stdtoml): 3691-3740
-- [`std.unicode`](#stdunicode): 3742-3754
-- [`std.units`](#stdunits): 3756-3993
-- [`std.units.catalogue`](#stdunitscatalogue): 3995-4773
-- [`std.url`](#stdurl): 4775-4803
-- [`std.uuid`](#stduuid): 4805-4828
-- [`std.xml`](#stdxml): 4830-4863
+- [`std.fs.lock`](#stdfslock): 1457-1472
+- [`std.fs.watch`](#stdfswatch): 1474-1509
+- [`std.graph`](#stdgraph): 1511-1599
+- [`std.http`](#stdhttp): 1601-1671
+- [`std.http.decoder`](#stdhttpdecoder): 1673-1690
+- [`std.http.body`](#stdhttpbody): 1692-1727
+- [`std.http.client`](#stdhttpclient): 1729-1839
+- [`std.http.cookie`](#stdhttpcookie): 1841-1873
+- [`std.http.files`](#stdhttpfiles): 1875-1888
+- [`std.http.https`](#stdhttphttps): 1890-1904
+- [`std.http.proxy`](#stdhttpproxy): 1906-1927
+- [`std.http.server`](#stdhttpserver): 1929-2014
+- [`std.http.sse`](#stdhttpsse): 2016-2035
+- [`std.http.tls`](#stdhttptls): 2037-2054
+- [`std.http.typed`](#stdhttptyped): 2056-2089
+- [`std.http.websocket`](#stdhttpwebsocket): 2091-2126
+- [`std.http.wss`](#stdhttpwss): 2128-2134
+- [`std.image`](#stdimage): 2136-2182
+- [`std.io`](#stdio): 2184-2290
+- [`std.io.typed`](#stdiotyped): 2292-2330
+- [`std.json`](#stdjson): 2332-2396
+- [`std.jwt`](#stdjwt): 2398-2445
+- [`std.log`](#stdlog): 2447-2514
+- [`std.markdown`](#stdmarkdown): 2516-2550
+- [`std.template`](#stdtemplate): 2552-2576
+- [`std.math`](#stdmath): 2578-2649
+- [`std.mime`](#stdmime): 2651-2677
+- [`std.net`](#stdnet): 2679-2761
+- [`std.path`](#stdpath): 2763-2780
+- [`std.process`](#stdprocess): 2782-2833
+- [`std.random`](#stdrandom): 2835-2856
+- [`std.ready`](#stdready): 2858-2889
+- [`std.regex`](#stdregex): 2891-2944
+- [`std.report`](#stdreport): 2946-2953
+- [`std.secrets`](#stdsecrets): 2955-2981
+- [`std.shlex`](#stdshlex): 2983-2992
+- [`std.sketch`](#stdsketch): 2994-3032
+- [`std.sketch.xor`](#stdsketchxor): 3034-3045
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3047-3062
+- [`std.signal`](#stdsignal): 3064-3081
+- [`std.simd`](#stdsimd): 3083-3184
+- [`std.stat`](#stdstat): 3186-3219
+- [`std.plot`](#stdplot): 3221-3310
+- [`std.linalg`](#stdlinalg): 3312-3353
+- [`std.sync`](#stdsync): 3355-3373
+- [`std.system`](#stdsystem): 3375-3433
+- [`std.tempfile`](#stdtempfile): 3435-3467
+- [`std.test`](#stdtest): 3469-3511
+- [`std.text`](#stdtext): 3513-3556
+- [`std.thread`](#stdthread): 3558-3562
+- [`std.time`](#stdtime): 3564-3608
+- [`std.tls`](#stdtls): 3610-3692
+- [`std.toml`](#stdtoml): 3694-3743
+- [`std.unicode`](#stdunicode): 3745-3757
+- [`std.units`](#stdunits): 3759-3996
+- [`std.units.catalogue`](#stdunitscatalogue): 3998-4776
+- [`std.url`](#stdurl): 4778-4806
+- [`std.uuid`](#stduuid): 4808-4831
+- [`std.xml`](#stdxml): 4833-4866
 
 ## `std.actor`
 
@@ -1465,6 +1465,7 @@ enum LockError
     WouldBlock | TimedOut | Cancelled | InvalidPath | Io(IoError) | Allocation(AllocError)
 class Lock
     def close(self: &mut Lock) -> Result[(), LockError]
+    def inherit_into(self, command: &mut Command) -> Result[i32, LockError]
     def is_closed(self) -> bool
 def acquire_now(path: &Path, mode: Mode) -> Result[Lock, LockError]
 def acquire_before(path: &Path, mode: Mode, deadline: &Deadline, cancel: &CancellationToken) -> Result[Lock, LockError]
@@ -2806,6 +2807,8 @@ class Command
     def stdin(self: &mut Command, mode: Stdio) -> ()
     def stdout(self: &mut Command, mode: Stdio) -> ()
     def stderr(self: &mut Command, mode: Stdio) -> ()
+    def inherit_file(self: &mut Command, file: &File) -> Result[i32, IoError]
+    def clear_inherited_files(self: &mut Command) -> ()
     def spawn(self) -> Result[Child, IoError]
 def command_bytes(program: &list[u8]) -> Result[Command, IoError]
 def command(program: &str) -> Result[Command, IoError]
