@@ -5,6 +5,18 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## Joins with nonblocking workers (issue #793)
+
+A join, pool shutdown, or result wait is no longer rejected for a live opposite
+endpoint when the worker or job cannot wait for anything: its code, including
+helpers, destructors, and workers it starts, performs no operation that can
+block until another thread or process acts. Every operation counts as a wait
+except an explicit list: computation, `nowait` queue operations, sleeps,
+standard-stream I/O including `print`, `std.ready.wait_now`, and a few handle
+operations that never block. Calls through values still count as waits.
+[Which workers can wait](../design/facilities/03-concurrency/channels.md#which-workers-can-wait)
+documents the rule.
+
 ## Handwritten serialization codecs (issue #781)
 
 [`std.serial`](../design/stdlib/serial.md) supplies statically specialized

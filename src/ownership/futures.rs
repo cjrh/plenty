@@ -136,9 +136,7 @@ impl Futures {
         let mut nodes = vec![Node::default()];
         graph(body, None, 0, None, None, &mut nodes);
         if !nodes.iter().any(|node| match &node.op {
-            Some(Op::Executor(ExecutorOp::Submit(job, _))) => {
-                Hazard::of(&job.input).next().is_some()
-            }
+            Some(Op::Executor(ExecutorOp::Submit(job, _))) => !program.job_hazards(job).is_empty(),
             Some(Op::Forwards(Forward::Call(..)) | Op::Tokens(TokenMark::Holds(_))) => true,
             _ => false,
         }) {
@@ -196,7 +194,7 @@ impl Futures {
                         continue;
                     }
                     (Some(Op::Executor(ExecutorOp::Submit(job, _))), _) => {
-                        for hazard in Hazard::of(&job.input) {
+                        for hazard in program.job_hazards(job) {
                             add((hazard, node.site));
                         }
                         // The frontend places the job's token marker directly before it.
