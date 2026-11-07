@@ -685,6 +685,9 @@ impl Live {
 struct Loop {
     entry: State,
     breaks: Vec<State>,
+    /// The state at each path back to the condition: the body's end and
+    /// each `continue`.
+    backedges: Vec<State>,
 }
 
 struct Checker<'a, 'p> {
@@ -1342,8 +1345,8 @@ impl Checker<'_, '_> {
     }
 
     /// The types of the parts of `slot`'s value that its fields' moves leave
-    /// in place (issue #794). A field moved out on every path is gone; one
-    /// moved on only some paths is gone too unless `possibly` keeps it.
+    /// in place (issue #794). A field moved out on every path is gone. With
+    /// `possibly`, a field moved on only some paths still counts.
     fn remaining(&self, slot: usize, state: &State, possibly: bool) -> Vec<Ty> {
         let moved: Vec<&[usize]> = self
             .fields
@@ -2156,27 +2159,49 @@ impl Checker<'_, '_> {
                     merge(&continuing, state);
                 }
                 Op::Loop { condition, body } => {
-                    let entry = state.clone();
-                    self.sequence(condition, state, &mut Vec::new(), site)?;
-                    let zero = state.clone();
+                    let mut entry = state.clone();
+                    let mut exits = Vec::new();
                     let submitted = self.submitted.borrow().len();
-                    loops.push(Loop {
-                        entry,
-                        breaks: vec![zero.clone()],
-                    });
-                    if self.sequence(body, state, loops, site)? {
-                        self.backedge(state, &loops.last().unwrap().entry, site)?;
-                    }
-                    let Loop {
-                        entry,
-                        breaks: exits,
-                    } = loops.pop().unwrap();
+                    // A later iteration starts with what an earlier one
+                    // assigned: a binding or field moved before the loop and
+                    // assigned in the body holds its endpoint at a join
+                    // earlier in the body. Check again from the merged state
+                    // while a back edge's ownership changes it. Merging only
+                    // weakens `Owned` and `definite`, so this terminates.
+                    let zero = loop {
+                        let mut pass = entry.clone();
+                        self.sequence(condition, &mut pass, &mut Vec::new(), site)?;
+                        let zero = pass.clone();
+                        loops.push(Loop {
+                            entry: entry.clone(),
+                            breaks: vec![zero.clone()],
+                            backedges: Vec::new(),
+                        });
+                        if self.sequence(body, &mut pass, loops, site)? {
+                            self.backedge(&pass, &entry, site)?;
+                            loops.last_mut().unwrap().backedges.push(pass);
+                        }
+                        let Loop {
+                            breaks, backedges, ..
+                        } = loops.pop().unwrap();
+                        exits.extend(breaks);
+                        let mut next = State::new();
+                        merge(&[&[entry.clone()][..], &backedges].concat(), &mut next);
+                        let gained = |i: usize| {
+                            next[i] != entry[i]
+                                && backedges.iter().any(|edge| edge[i] == Slot::Owned)
+                        };
+                        if !(0..next.len()).any(gained) {
+                            break zero;
+                        }
+                        entry = next;
+                    };
                     // A job submitted in one iteration can still be in its pool
                     // in the next, so shutdowns before the submit see it too.
                     if self.submitted.borrow().len() > submitted {
                         loops.push(Loop {
                             entry,
-                            breaks: Vec::new(),
+                            ..Loop::default()
                         });
                         let again = self.sequence(body, &mut zero.clone(), loops, site);
                         loops.pop();
@@ -2185,8 +2210,9 @@ impl Checker<'_, '_> {
                     merge(&exits, state);
                 }
                 Op::Continue => {
-                    let target = loops.last().expect("continue inside a loop");
+                    let target = loops.last_mut().expect("continue inside a loop");
                     self.backedge(state, &target.entry, site)?;
+                    target.backedges.push(state.clone());
                     return Ok(false);
                 }
                 Op::Break => {

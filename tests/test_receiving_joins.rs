@@ -471,3 +471,138 @@ fn moved_fields_release_their_endpoints_at_joins() {
         assert!(error.contains(note), "{body}\n{error}");
     }
 }
+
+#[test]
+fn moved_fields_of_generic_classes_release_only_themselves() {
+    let pair = "class Pair[T]:
+    a: T
+    b: T
+
+";
+    let source = |drops: &str| {
+        format!(
+            "{CONSUME}{pair}def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    spare, unused = channel[i64](1).unwrap()
+    p = Pair[Sender[i64]](sender, spare)
+{drops}    with spawn(consume, receiver).unwrap():
+        pass
+"
+        )
+    };
+    let error = support::check_source(&source("    drop(p.a)\n"))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("`p` holds `Sender[i64]`;"), "{error}");
+    support::check_source(&source("    drop(p.a)\n    drop(p.b)\n")).unwrap();
+}
+
+const RX_ENDS: &str = "def produce(sender: Sender[i64]) -> ():
+    match sender.send(1):
+        case Ok(_):
+            pass
+        case Err(_):
+            pass
+
+class RxEnds:
+    rx: Receiver[i64]
+    names: Sender[str]
+
+";
+
+/// Pool shutdowns and result waits share the join's holder check.
+#[test]
+fn moved_fields_release_their_endpoints_at_shutdowns_and_result_waits() {
+    let shutdown = |moved: &str| {
+        format!(
+            "{RX_ENDS}def main() -> Result[(), AllocError | PoolError | SubmitError[OnceClosure[[], ()]]]:
+    sender, receiver = channel[i64](1)?
+    names, labels = channel[str](1)?
+    ends = RxEnds(receiver, names)
+    with ThreadPoolExecutor(1, 1)? as pool:
+        future = pool.submit(produce, sender)?
+        drop(ends.{moved})
+    Ok(())
+"
+        )
+    };
+    let result = |moved: &str| {
+        format!(
+            "{RX_ENDS}def main() -> Result[(), AllocError | FutureError | PoolError | SubmitError[OnceClosure[[], ()]]]:
+    sender, receiver = channel[i64](1)?
+    names, labels = channel[str](1)?
+    ends = RxEnds(receiver, names)
+    drop(ends.{moved})
+    with ThreadPoolExecutor(1, 1)? as pool:
+        future = pool.submit(produce, sender)?
+        future.result()?
+    Ok(())
+"
+        )
+    };
+    support::check_source(&shutdown("rx")).unwrap();
+    support::check_source(&result("rx")).unwrap();
+    for (source, wait) in [
+        (shutdown("names"), "shuts down this pool"),
+        (result("names"), "this result() waits"),
+    ] {
+        let error = support::check_source(&source).unwrap_err().to_string();
+        assert!(error.contains(wait), "{error}");
+        assert!(error.contains("`ends` holds `Receiver[i64]`;"), "{error}");
+    }
+}
+
+/// A later iteration starts with what the body assigned, so a binding or field
+/// moved before the loop and assigned in its body holds an endpoint at a join
+/// earlier in the body.
+#[test]
+fn loop_bodies_see_endpoints_assigned_by_earlier_iterations() {
+    let looped = |setup: &str, refill: &str| {
+        format!(
+            "{CONSUME}{ENDS}def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    names, labels = channel[str](1).unwrap()
+{setup}    mut inbox = receiver
+    for i in range(2):
+        with spawn(consume, inbox).unwrap():
+            pass
+        s2, r2 = channel[i64](1).unwrap()
+        inbox = r2
+        {refill}
+"
+        )
+    };
+    let field = "    mut ends = Ends(sender, names)\n    drop(ends.sender)\n";
+    let whole = "    mut held = sender\n    drop(held)\n";
+    for (source, note) in [
+        (
+            looped(field, "ends.sender = s2"),
+            "`ends` holds `Sender[i64]` on some paths;",
+        ),
+        (
+            looped(whole, "held = s2"),
+            "`held` holds `Sender[i64]` on some paths;",
+        ),
+        (
+            looped(
+                whole,
+                "held = s2\n        if i == 0:\n            continue\n        drop(held)",
+            ),
+            "`held` holds `Sender[i64]` on some paths;",
+        ),
+    ] {
+        let error = support::check_source(&source).unwrap_err().to_string();
+        assert!(
+            error.contains("could block the worker's receive"),
+            "{source}\n{error}"
+        );
+        assert!(error.contains(note), "{source}\n{error}");
+    }
+    // Dropping the endpoint before the next iteration releases it.
+    support::check_source(&looped(
+        field,
+        "ends.sender = s2\n        drop(ends.sender)",
+    ))
+    .unwrap();
+    support::check_source(&looped(whole, "held = s2\n        drop(held)")).unwrap();
+}

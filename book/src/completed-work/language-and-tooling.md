@@ -23,7 +23,11 @@ Join, pool shutdown, and result-wait checks no longer count an endpoint in a
 field moved out of a binding on every path: `wake = ends.wake` and
 `drop(ends.inbox)` now release `ends` as a `match` destructure does. Moves on
 only some paths, and fields assigned again, still count, including nested
-fields. [Joins and live endpoints](../design/facilities/03-concurrency/channels.md#joins-and-live-endpoints)
+fields. Loop bodies are checked again from the state their back edges
+reach, closing an earlier gap: a binding moved before a loop and assigned in
+its body was not counted at a join earlier in the body, so a program that
+hangs in its second iteration was accepted.
+[Joins and live endpoints](../design/facilities/03-concurrency/channels.md#joins-and-live-endpoints)
 states the rule.
 
 ## Handwritten serialization codecs (issue #781)
