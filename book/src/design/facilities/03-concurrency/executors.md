@@ -154,19 +154,30 @@ them. The compiler applies a rule matched by message type, as the shutdown
 rules are:
 
 > A pool job that can submit through a `Submitter`, directly or through jobs it
-> submits, cannot do a blocking or timed receive or selection on a queue whose
-> sender a job it can submit can reach, nor a blocking or timed send on a queue
-> whose receiver such a job can reach.
+> submits, cannot wait for anything a job it can submit can reach. It cannot,
+> with a blocking or timed operation:
+>
+> - receive or select on a queue whose sender such a job can reach, or send on
+>   a queue whose receiver such a job can reach;
+> - wait on a `CancellationToken`, including a socket readiness wait bounded
+>   by one, when such a job can reach a token;
+> - lock a `Mutex[T]` when such a job can reach a `Mutex[T]`;
+> - join a thread that holds a channel endpoint, `Mutex[T]`, or token of a
+>   type such a job can reach.
 
-Queues are matched by message type. A job may still send blocking on a queue
-whose receiver only another thread holds, as the
-[tutorial lesson](../../../tutorial/11-concurrency/submit-from-workers.md)
-does. The `_nowait` operations are accepted, as are I/O and locks.
-A lock's holder is running, so it releases the lock unless it waits on a
-queue, which this rule or the job's own protocol covers. A job waiting on a
-channel no submitted job can reach is outside the rule; such channel protocols
-can still deadlock, as for any pool job. Code started on a scoped thread, or
-`main`, is not a pool worker, so it may submit and then wait.
+Everything is matched by type, as the shutdown rules match it. A job may
+still send blocking on a queue whose receiver only another thread holds, as
+the [tutorial lesson](../../../tutorial/11-concurrency/submit-from-workers.md)
+does. The `_nowait` operations, `is_cancelled()`, atomics, and other I/O are
+accepted. To share counters or flags with submitted jobs, use an
+[atomic](../../stdlib/atomic.md) rather than a mutex.
+
+A job waiting on something no submitted job can reach is outside the rule;
+such protocols can still deadlock, as for any pool job. Nor can a static rule
+catch a livelock: a job that polls with `recv_nowait`, or spins on an atomic,
+for work that a queued job would produce keeps its worker busy forever. Code
+started on a scoped thread, or `main`, is not a pool worker, so it may submit
+and then wait.
 
 For the [shutdown rules](#shutdown-and-live-receivers), a job that can
 submit through a `Submitter` can also hold every sender, and reach every mutex,

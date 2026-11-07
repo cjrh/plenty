@@ -166,7 +166,9 @@ queue the joining function holds. The compiler cannot tell a regular file
 from a socket, pipe, or FIFO whose other end that thread holds, and opening a
 FIFO waits for its other end. A database statement can wait for a lock another
 connection holds. An operation added to the language or the standard library
-counts as a wait until it is shown not to block.
+counts as a wait until it is shown not to block. A pool job that submits
+through a `Submitter` also may not wait for what its submitted jobs can reach;
+see [waits in submitting jobs](executors.md#waits-in-submitting-jobs).
 
 A worker that uses only the exceptions is joined while the function keeps the
 opposite endpoint:

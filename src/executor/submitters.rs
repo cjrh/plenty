@@ -4,21 +4,25 @@
 //! workers").
 use super::{ExecutorOp, Job};
 use crate::channel::{ChannelOp, SelectMode};
+use crate::collection::CollectionOp;
+use crate::control::ControlOp;
 use crate::hash::{HashMap, HashSet};
+use crate::mutex::MutexOp;
+use crate::net::NetOp;
 use crate::op::{CompiledFn, Op, Ty};
+use crate::threading::{Task, ThreadOp};
 use std::sync::Arc;
 
-/// Whether a value of `ty` can hold a `Submitter`. A job has no other way to
-/// reach one: pools cannot enter workers.
+/// Whether a value of one of `roots` can hold a value of type `wanted`.
 #[expect(
     clippy::mutable_key_type,
     reason = "nominal identities exclude definition cells"
 )]
-fn holds_submitter(ty: &Ty) -> bool {
-    let mut pending = vec![ty.clone()];
+fn reaches(roots: impl IntoIterator<Item = Ty>, wanted: &Ty) -> bool {
+    let mut pending: Vec<Ty> = roots.into_iter().collect();
     let mut seen = HashSet::default();
     while let Some(ty) = pending.pop() {
-        if matches!(ty, Ty::Submitter) {
+        if ty == *wanted {
             return true;
         }
         if seen.insert(ty.clone()) {
@@ -43,7 +47,7 @@ fn roots(job: &Job) -> impl Iterator<Item = &str> {
 fn visit_reachable<'p>(
     definitions: &HashMap<&str, &'p CompiledFn>,
     job: &Job,
-    visit: &mut impl FnMut(&'p Op, &str),
+    visit: &mut impl FnMut(&'p Op, &str, &'p CompiledFn),
 ) {
     let mut pending: Vec<String> = roots(job).map(str::to_owned).collect();
     let mut seen = HashSet::default();
@@ -63,7 +67,7 @@ fn visit_reachable<'p>(
                     pending.push(name.to_owned())
                 });
             }
-            visit(op, key);
+            visit(op, key, function);
         });
     }
 }
@@ -79,10 +83,12 @@ pub fn descendants<'p>(
     let mut pending = vec![job];
     let mut index = 0;
     while let Some(parent) = pending.pop() {
-        if !holds_submitter(&parent.input) {
+        // A job has no other way to reach a `Submitter`: pools cannot enter
+        // workers.
+        if !reaches([parent.input.clone()], &Ty::Submitter) {
             continue;
         }
-        visit_reachable(definitions, parent, &mut |op, _| {
+        visit_reachable(definitions, parent, &mut |op, _, _| {
             if let Op::Executor(ExecutorOp::Submit(child, _)) = op
                 && child.handle
                 && !found.iter().any(|seen| Arc::ptr_eq(seen, child))
@@ -96,14 +102,66 @@ pub fn descendants<'p>(
     found
 }
 
-/// A job that can submit through a `Submitter` must not wait on a queue that
-/// only a job it can submit might release: a receive on a queue such a job can
-/// send to, or a send to a queue such a job can receive from. Queues are
-/// matched by type, as the join and shutdown rules match them. When every
-/// worker waits so, the jobs that would release them stay queued behind them.
-/// Locks are not restricted: a lock's holder is running, so it releases the
-/// lock unless it waits on a queue, which this rule or the job's own protocol
-/// covers. Nonblocking operations and I/O are allowed.
+/// The coordination objects a set of values can reach, matched by type as the
+/// join and shutdown rules match them.
+struct Reach {
+    senders: Vec<Ty>,
+    receivers: Vec<Ty>,
+    mutexes: Vec<Ty>,
+    token: bool,
+}
+
+impl Reach {
+    fn of(inputs: impl Iterator<Item = Ty> + Clone) -> Self {
+        Self {
+            senders: crate::threading::endpoints(inputs.clone(), true, true),
+            receivers: crate::threading::endpoints(inputs.clone(), false, true),
+            mutexes: crate::threading::mutexes(inputs.clone()),
+            token: reaches(inputs, &Ty::CancellationToken),
+        }
+    }
+
+    /// What a joined task shares with these values, described as the task
+    /// holding it.
+    fn shared_with(&self, task: &Task) -> Option<String> {
+        let other = Self::of(task.inputs.iter().cloned());
+        let queue = other
+            .senders
+            .iter()
+            .chain(&other.receivers)
+            .find(|m| self.senders.contains(m) || self.receivers.contains(m));
+        if let Some(message) = queue {
+            return Some(format!("a channel endpoint for `{message}` messages"));
+        }
+        if let Some(element) = other.mutexes.iter().find(|m| self.mutexes.contains(m)) {
+            return Some(format!("a `Mutex[{element}]`"));
+        }
+        (other.token && self.token).then(|| "a `CancellationToken`".to_owned())
+    }
+}
+
+/// The type of local `slot` of `function`: parameters, then locals.
+fn slot_type(function: &CompiledFn, slot: u8) -> Option<&Ty> {
+    let slot = slot as usize;
+    let inputs = &function.sig.inputs;
+    match inputs.get(slot) {
+        Some((_, ty)) => Some(ty),
+        None => function.locals.get(slot - inputs.len()),
+    }
+}
+
+/// A job that can submit through a `Submitter` must not wait for anything
+/// that only a job it can submit might release, since when every worker waits
+/// so, the jobs that would release them stay queued behind them. Matched by
+/// type, it rejects a blocking or timed:
+/// - receive or selection on a queue whose sender such a job can reach, and a
+///   send on a queue whose receiver it can reach;
+/// - token wait, or readiness wait bounded by a token, when such a job can
+///   reach a token;
+/// - lock on a `Mutex[T]` such a job can reach;
+/// - join of a task that shares any of these with such a job.
+///
+/// Nonblocking operations and other I/O are allowed.
 pub fn check(
     jobs: &[&Arc<Job>],
     definitions: &HashMap<&str, &CompiledFn>,
@@ -119,51 +177,89 @@ pub fn check(
         if children.is_empty() {
             continue;
         }
-        let inputs = || children.iter().map(|child| child.input.clone());
-        let senders = crate::threading::endpoints(inputs(), true, true);
-        let receivers = crate::threading::endpoints(inputs(), false, true);
+        let reach = Reach::of(children.iter().map(|child| child.input.clone()));
         let mut error = None;
-        visit_reachable(definitions, job, &mut |op, function| {
-            if error.is_some() {
-                return;
-            }
-            // The message types of the queues this operation waits to
-            // receive from and to send to.
-            let (received, sent): ([Option<&Ty>; 2], Option<&Ty>) = match op {
-                Op::Channel(ChannelOp::Recv(message, false) | ChannelOp::RecvTimeout(message)) => {
-                    ([Some(message), None], None)
-                }
-                Op::Channel(ChannelOp::Send(message, false) | ChannelOp::SendTimeout(message)) => {
-                    ([None, None], Some(message))
-                }
-                Op::Channel(ChannelOp::Select(first, second, mode))
-                    if *mode != SelectMode::Nowait =>
-                {
-                    ([Some(&**first), Some(&**second)], None)
-                }
-                _ => return,
-            };
-            if let Some(message) = received.into_iter().flatten().find(|m| senders.contains(m)) {
-                error = Some((
-                    format!("send on a `Sender[{message}]`"),
-                    format!("receives from a `Receiver[{message}]`"),
-                    function.to_owned(),
-                ));
-            } else if let Some(message) = sent.filter(|m| receivers.contains(m)) {
-                error = Some((
-                    format!("receive from a `Receiver[{message}]`"),
-                    format!("sends on a `Sender[{message}]`"),
-                    function.to_owned(),
-                ));
+        visit_reachable(definitions, job, &mut |op, name, function| {
+            if error.is_none() {
+                error = conflict(&reach, op, function).map(|found| (found, name.to_owned()));
             }
         });
-        if let Some((reach, wait, function)) = error {
+        if let Some(((reach, wait), function)) = error {
+            let advice = if wait.starts_with("locks") {
+                "Keep the state in an atomic, or lock it on a thread that is not a pool worker"
+            } else if wait.starts_with("joins") {
+                "Join the thread from code that is not a pool worker"
+            } else {
+                "Use a nonblocking form (`send_nowait`, `recv_nowait`, `select_recv_nowait`, `is_cancelled`), or wait on a thread that is not a pool worker"
+            };
             return Err(format!(
-                "executor worker {} can submit, through a Submitter, a job that can {reach}, and {} {wait} with a blocking or timed operation; if every worker waits so, the jobs that would release them stay queued behind them. Use the nonblocking form (`send_nowait`, `recv_nowait`, `select_recv_nowait`), or wait on a thread that is not a pool worker",
+                "executor worker {} can submit, through a Submitter, a job that can {reach}, and {} {wait}; if every worker waits so, the jobs that would release them stay queued behind them. {advice}",
                 describe(&job.worker),
                 describe(&function),
             ));
         }
     }
     Ok(())
+}
+
+/// What a submitted job can reach and what `op` waits for, if `op` waits on
+/// something such a job may have to release.
+fn conflict(reach: &Reach, op: &Op, function: &CompiledFn) -> Option<(String, String)> {
+    let found = |child: String, wait: String| Some((child, wait));
+    match op {
+        Op::Channel(ChannelOp::Recv(message, false) | ChannelOp::RecvTimeout(message))
+            if reach.senders.contains(message) =>
+        {
+            found(
+                format!("send on a `Sender[{message}]`"),
+                format!("receives from a `Receiver[{message}]` with a blocking or timed operation"),
+            )
+        }
+        Op::Channel(ChannelOp::Select(first, second, mode)) if *mode != SelectMode::Nowait => {
+            let message = [&**first, &**second]
+                .into_iter()
+                .find(|m| reach.senders.contains(m))?;
+            found(
+                format!("send on a `Sender[{message}]`"),
+                format!("receives from a `Receiver[{message}]` with a blocking or timed operation"),
+            )
+        }
+        Op::Channel(ChannelOp::Send(message, false) | ChannelOp::SendTimeout(message))
+            if reach.receivers.contains(message) =>
+        {
+            found(
+                format!("receive from a `Receiver[{message}]`"),
+                format!("sends on a `Sender[{message}]` with a blocking or timed operation"),
+            )
+        }
+        Op::Control(ControlOp::Wait | ControlOp::WaitTimeout)
+        | Op::Collection(CollectionOp::Net(NetOp::ReadyWait | NetOp::Select))
+            if reach.token =>
+        {
+            found(
+                "cancel a `CancellationToken`".to_owned(),
+                "waits on a `CancellationToken`".to_owned(),
+            )
+        }
+        Op::Mutex(MutexOp::Lock(slot)) => {
+            let Some(Ty::Ref(mutex, _)) = slot_type(function, *slot) else {
+                return None;
+            };
+            let element = crate::mutex::element(crate::mutex::class(mutex)?);
+            reach.mutexes.contains(&element).then(|| {
+                (
+                    format!("lock a `Mutex[{element}]`"),
+                    format!("locks a `Mutex[{element}]`"),
+                )
+            })
+        }
+        Op::Thread(ThreadOp::Join(task) | ThreadOp::Finish(task, _)) => {
+            let shared = reach.shared_with(task)?;
+            found(
+                format!("reach {shared}"),
+                format!("joins a thread that holds {shared}"),
+            )
+        }
+        _ => None,
+    }
 }

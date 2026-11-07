@@ -76,9 +76,11 @@ begins returns `Shutdown(job)`. Here the receive loop ends only when every
 sender has dropped, which happens only after every job has finished, so no job
 is still splitting when the pool's block ends.
 
-The compiler rejects a job that waits on a queue a job it submits would
-release. If `add` received its children's sums itself with `recv()`, every
-worker could wait while the children sat queued behind them. Sending to `main`,
-which is not a pool worker, avoids that. See
+The compiler rejects a job that waits for something a job it submits would
+release: a queue, a token, a mutex, or a thread joined on them. If `add`
+received its children's sums itself with `recv()`, every worker could wait
+while the children sat queued behind them. Sending to `main`, which is not a
+pool worker, avoids that. For a running total, an atomic counter works where a
+`Shared[Mutex[i64]]` would be rejected. See
 [submit from workers](../../design/facilities/03-concurrency/executors.md#submit-from-workers)
 for the full rules.

@@ -779,8 +779,8 @@ built in steps use movable builders so no call writes through a shareable
 pointer (issue #833). Channels accept unit messages as wake-only signals; a
 unit queue stores only a count (issue #790). Workers submit through a
 nonblocking [`Submitter`](../design/facilities/03-concurrency/executors.md#submit-from-workers),
-with a check that a submitting job does not wait on a queue its submitted jobs
-can reach (issue #789).
+with a check that a submitting job does not wait on a queue, token, mutex, or
+joined thread its submitted jobs can reach (issue #789).
 
 See [threads](../design/facilities/03-concurrency/threads.md),
 [channels](../design/facilities/03-concurrency/channels.md),

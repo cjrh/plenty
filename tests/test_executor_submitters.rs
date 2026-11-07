@@ -327,6 +327,132 @@ def main() -> Result[(), AllocError | PoolError | SubmitError[()]]:
 }
 
 #[test]
+fn a_job_cannot_wait_on_a_token_its_submitted_jobs_can_reach() {
+    rejects(
+        r#"
+def child(stop: CancellationToken) -> ():
+    stop.cancel()
+
+def parent(handle: Submitter) -> Result[(), AllocError]:
+    stop = CancellationToken()?
+    match handle.submit_nowait(child, stop.share()):
+        case Ok(_):
+            stop.wait()
+        case Err(_):
+            pass
+    Ok(())
+
+def main() -> Result[(), AllocError | PoolError | SubmitError[()]]:
+    with ThreadPoolExecutor(1, 4)? as pool:
+        handle = pool.submitter()
+        pool.submit_nowait(parent, handle).drop_job()?
+    Ok(())
+"#,
+        "a job that can cancel a `CancellationToken`, and `parent` waits on a `CancellationToken`",
+    );
+}
+
+#[test]
+fn a_job_cannot_lock_a_mutex_type_its_submitted_jobs_can_reach() {
+    rejects(
+        r#"
+from std.sync import Mutex
+def child(m: Shared[Mutex[i64]]) -> ():
+    with m.lock() as data:
+        *data = 2
+
+def parent(handle: Submitter, m: Shared[Mutex[i64]]) -> ():
+    with m.lock() as data:
+        *data = 1
+    _ = handle.submit_nowait(child, m).drop_job()
+
+def main() -> Result[(), AllocError | PoolError | SubmitError[()]]:
+    m = Shared[Mutex[i64]](Mutex(0))?
+    with ThreadPoolExecutor(1, 4)? as pool:
+        handle = pool.submitter()
+        pool.submit_nowait(parent, handle, m).drop_job()?
+    Ok(())
+"#,
+        "a job that can lock a `Mutex[i64]`, and `parent` locks a `Mutex[i64]`",
+    );
+    // A mutex of a type no submitted job can reach may be locked.
+    runs(
+        r#"
+from std.sync import Mutex
+def child(m: Shared[Mutex[i64]]) -> ():
+    pass
+
+def parent(handle: Submitter, m: Shared[Mutex[str]], n: Shared[Mutex[i64]]) -> ():
+    with m.lock() as data:
+        pass
+    _ = handle.submit_nowait(child, n).drop_job()
+
+def main() -> Result[(), AllocError | IoError | PoolError | SubmitError[()]]:
+    m = Shared[Mutex[str]](Mutex("a"))?
+    n = Shared[Mutex[i64]](Mutex(0))?
+    with ThreadPoolExecutor(1, 4)? as pool:
+        handle = pool.submitter()
+        pool.submit_nowait(parent, handle, m, n).drop_job()?
+    print("ok")?
+    Ok(())
+"#,
+        "ok\n",
+    );
+}
+
+#[test]
+fn a_job_cannot_join_a_thread_that_shares_a_queue_with_its_submitted_jobs() {
+    rejects(
+        r#"
+def child(out: Sender[i64]) -> ():
+    _ = out.send(1)
+
+def wait_one(inbox: Receiver[i64]) -> ():
+    _ = inbox.recv()
+
+def parent(handle: Submitter) -> Result[(), AllocError | SpawnError[()]]:
+    sender, receiver = channel[i64](1)?
+    with spawn(wait_one, receiver).drop_job()? as task:
+        _ = handle.submit_nowait(child, sender).drop_job()
+        task.join()
+    Ok(())
+
+def main() -> Result[(), AllocError | PoolError | SubmitError[()]]:
+    with ThreadPoolExecutor(1, 4)? as pool:
+        handle = pool.submitter()
+        pool.submit_nowait(parent, handle).drop_job()?
+    Ok(())
+"#,
+        "and `parent` joins a thread that holds a channel endpoint for `i64` messages",
+    );
+    // A thread that shares nothing with the submitted jobs may be joined.
+    runs(
+        r#"
+def child(out: Sender[i64]) -> ():
+    _ = out.send(1)
+
+def idle() -> ():
+    pass
+
+def parent(handle: Submitter) -> Result[(), AllocError | SpawnError[()]]:
+    sender, _ = channel[i64](1)?
+    with spawn(idle).drop_job()? as task:
+        _ = handle.submit_nowait(child, sender).drop_job()
+        task.join()
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | PoolError | SubmitError[()]]:
+    with ThreadPoolExecutor(1, 4)? as pool:
+        handle = pool.submitter()
+        pool.submit_nowait(parent, handle).drop_job()?
+    print("ok")?
+    Ok(())
+"#,
+        "ok\n",
+    );
+}
+
+#[test]
 fn a_shutdown_sees_the_senders_of_jobs_a_job_can_submit() {
     // `parent` holds no sender; the job it submits does.
     rejects(
