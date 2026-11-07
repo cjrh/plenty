@@ -4400,7 +4400,8 @@ impl Lower<'_> {
                 "isspace" => CollectionOp::TextIsSpace,
                 "isdigit" => CollectionOp::TextIsDigit,
                 "isalpha" => CollectionOp::TextIsAlpha,
-                _ => CollectionOp::TextIsAlnum,
+                "isalnum" => CollectionOp::TextIsAlnum,
+                _ => unreachable!("text classification method"),
             };
             Self::push_query(operation, ops);
             Self::end_reads(loans, ops);

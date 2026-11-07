@@ -3416,7 +3416,8 @@ pub(crate) unsafe fn collection_at(
                     && source.bytes().all(|byte| match op {
                         133 => byte.is_ascii_digit(),
                         134 => byte.is_ascii_alphabetic(),
-                        _ => byte.is_ascii_alphanumeric(),
+                        138 => byte.is_ascii_alphanumeric(),
+                        _ => unreachable!("text classification operation"),
                     })) as u128
             }
             135 | 136 => match strings::try_case(a as *const Text, op == 136) {

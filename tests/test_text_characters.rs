@@ -84,6 +84,7 @@ def main() -> ():
     print("١٢".isalnum()).unwrap()
     print("１２".isalnum()).unwrap()
     print("a\0".isalnum()).unwrap()
+    print("a1é2".isalnum()).unwrap()
     for character in "a1é":
         print(character.isalnum()).unwrap()
 "#,
@@ -95,7 +96,7 @@ def main() -> ():
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "True\nTrue\nTrue\nFalse\nFalse\nFalse\nFalse\nFalse\nFalse\nFalse\nFalse\nFalse\nTrue\nTrue\nFalse\n"
+        "True\nTrue\nTrue\nFalse\nFalse\nFalse\nFalse\nFalse\nFalse\nFalse\nFalse\nFalse\nFalse\nTrue\nTrue\nFalse\n"
     );
 }
 
