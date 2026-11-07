@@ -108,5 +108,7 @@ Issue #836 adds [scalar comparisons, boolean expressions and `elif`](design/stdl
 so navigation and selection markup can use raw JSON IDs. Registered postorder
 expression trees have an aggregate node cap and bounded depth; runtime boolean
 operators short-circuit under the shared work budget. Strict scalar equality,
-filter precedence and atomic registration remain explicit. Filter arguments,
+filter precedence and atomic registration remain explicit. A compatibility
+follow-up preserves all 16,384 legacy negated placeholders under default limits
+with a 32,768-node budget. Filter arguments,
 arithmetic, ordering comparisons and calls remain unsupported.

@@ -247,3 +247,22 @@ print(failures > 0, successes > 0, correct)?
     );
     assert_eq!(output(&source, false), "True True True");
 }
+
+#[test]
+fn default_node_cap_preserves_full_legacy_negated_placeholder_capacity() {
+    let template = "{{ not false }}".repeat(16_384);
+    let source = program(&format!(
+        r#"
+bounds = std.template.limits()
+mut templates = std.template.engine(&bounds)?
+text = {template:?}
+print(text.byte_len(), bounds.max_tokens.get())?
+templates.add("legacy", &text)?
+print("registered")?
+"#
+    ));
+    assert_eq!(
+        support::run_file_stdout(&source),
+        "245760 16384\nregistered"
+    );
+}
