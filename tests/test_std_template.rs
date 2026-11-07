@@ -206,7 +206,7 @@ for budget in [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80,
     let output = support::run_file_stdout(&source);
     let lines: Vec<_> = output.lines().collect();
     assert_eq!(lines.len(), 44, "{output}");
-    assert!(lines.iter().any(|line| *line == "allocation"), "{output}");
+    assert!(lines.contains(&"allocation"), "{output}");
     assert!(
         lines
             .iter()
@@ -214,7 +214,7 @@ for budget in [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80,
         "{output}"
     );
     assert!(
-        lines.chunks_exact(2).all(|pair| pair[1] == "True"),
+        lines.iter().skip(1).step_by(2).all(|line| *line == "True"),
         "{output}"
     );
     assert_eq!(&lines[42..], &["True", "True"], "{output}");
