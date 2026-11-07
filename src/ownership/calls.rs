@@ -3,16 +3,9 @@
 //! the jobs it can submit (issue #352), and whether a worker can wait at all
 //! (issue #793).
 use super::Hazard;
-use crate::channel::{ChannelOp, SelectMode};
-use crate::collection::CollectionOp;
-use crate::control::ControlOp;
 use crate::executor::{ExecutorOp, Job as Submitted};
 use crate::hash::{HashMap, HashSet};
-use crate::mutex::MutexOp;
-use crate::net::NetOp;
 use crate::op::{CompiledFn, Op, Ty};
-use crate::process::ProcessOp;
-use crate::stream::StreamOp;
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// The functions of a program whose bodies are being checked. The call table
@@ -206,62 +199,7 @@ impl<'p> Program<'p> {
                 crate::threading::function_references(op, &mut |name| {
                     functions.push(name.to_owned())
                 });
-                waits |= match op {
-                    Op::Channel(
-                        ChannelOp::Send(_, false)
-                        | ChannelOp::Recv(_, false)
-                        | ChannelOp::SendTimeout(_)
-                        | ChannelOp::RecvTimeout(_)
-                        | ChannelOp::Select(_, _, SelectMode::Wait | SelectMode::Timeout),
-                    )
-                    | Op::Mutex(MutexOp::Lock(_))
-                    | Op::Executor(
-                        ExecutorOp::Submit(_, false)
-                        | ExecutorOp::Map(..)
-                        | ExecutorOp::Reduce(..)
-                        | ExecutorOp::Result(_)
-                        | ExecutorOp::WaitTimeout(_)
-                        | ExecutorOp::Shutdown,
-                    )
-                    // Token and readiness waits end when another thread
-                    // cancels or writes. A file can be a socket, pipe, or
-                    // FIFO whose peer is another thread, and opening a FIFO
-                    // waits for one. A child can wait on a pipe this program
-                    // drains, and a foreign function can do anything.
-                    // Standard streams are not counted: their other end is
-                    // outside the program.
-                    | Op::Control(ControlOp::Wait | ControlOp::WaitTimeout)
-                    | Op::Collection(
-                        CollectionOp::Net(
-                            NetOp::ReadyWait
-                            | NetOp::Select
-                            | NetOp::Accept
-                            | NetOp::SendTo
-                            | NetOp::ReceiveFrom
-                            | NetOp::Resolve,
-                        )
-                        | CollectionOp::Stream(
-                            StreamOp::Wait | StreamOp::FileRead | StreamOp::FileWrite,
-                        )
-                        | CollectionOp::OpenFile
-                        | CollectionOp::FileRead
-                        | CollectionOp::FileWrite
-                        | CollectionOp::FileFlush
-                        | CollectionOp::FileReadLine
-                        | CollectionOp::FileReadSized
-                        | CollectionOp::FileReadLineSized
-                        | CollectionOp::FileReadLines
-                        | CollectionOp::FileWriteLines
-                        | CollectionOp::Process(ProcessOp::Wait),
-                    )
-                    | Op::ForeignCall { .. }
-                    | Op::CallIndirect(_)
-                    | Op::TailCallIndirect(_)
-                    | Op::BoxedCallableCall(_)
-                    | Op::ProtocolBoxCall(..) => true,
-                    Op::ClosureCall(closure) => closure.name.is_empty(),
-                    _ => false,
-                };
+                waits |= super::blocking::blocks(op);
             });
             if waits {
                 break true;

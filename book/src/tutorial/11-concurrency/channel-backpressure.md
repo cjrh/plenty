@@ -32,8 +32,9 @@ Result[list[i64], RecvError].Err(RecvError.Disconnected)
 but has no message ready. Neither `nowait` operation waits for the queue to change
 state, though both synchronize access to the queue.
 Because they never wait, a worker that uses only `nowait` operations, and no
-other wait such as a lock, a token wait, file or socket I/O, or a foreign call,
-can be joined while you keep the other endpoint;
+other operation that can wait, such as a lock, a token wait, file, socket, or
+database I/O, or a foreign call, can be joined while you keep the other
+endpoint;
 see
 [which workers can wait](../../design/facilities/03-concurrency/channels.md#which-workers-can-wait).
 

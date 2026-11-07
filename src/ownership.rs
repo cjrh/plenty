@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use crate::diagnostic::{Diagnostic, Position};
 
+mod blocking;
 mod calls;
 mod cancel;
 mod futures;

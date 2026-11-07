@@ -438,3 +438,70 @@ def main() -> Result[(), AllocError | IoError | RecvError | SpawnError[()]]:
         "sent\n0\n",
     );
 }
+
+#[test]
+fn whole_file_and_database_operations_count() {
+    // Opening a FIFO by path waits for its other end, which a thread blocked
+    // on the queue could be about to open (review of local PR #1039).
+    rejected(
+        "def waiter(sender: Sender[i64]) -> ():
+    notify(sender)
+    drop(read_text(\"fifo\"))
+def filler(sender: Sender[i64]) -> ():
+    drop(sender.send(1))
+    drop(sender.send(2))
+    drop(write_text(\"fifo\", \"x\"))
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
+    sender, receiver = channel[i64](1)?
+    with spawn(filler, sender.share()).drop_job()?:
+        with spawn(waiter, sender).unwrap() as task:
+            task.join()
+        drop(receiver)
+    Ok(())
+",
+        "could block the worker's send",
+    );
+    // A busy timeout waits for another connection's lock, which a thread
+    // blocked on the queue could hold.
+    rejected(
+        "import std.db.sqlite as sqlite
+from std.time import seconds
+def waiter(sender: Sender[i64]) -> ():
+    notify(sender)
+    mut db = sqlite.connect(\"lock.db\", sqlite.Mode.Create, 65536).unwrap()
+    db.set_busy_timeout(&seconds(1000)).unwrap()
+    drop(db.execute(\"INSERT INTO t VALUES (2)\"))
+def filler(sender: Sender[i64]) -> ():
+    mut db = sqlite.connect(\"lock.db\", sqlite.Mode.Create, 65536).unwrap()
+    db.execute(\"BEGIN IMMEDIATE\").unwrap()
+    drop(sender.send(1))
+    drop(sender.send(2))
+    db.execute(\"COMMIT\").unwrap()
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
+    sender, receiver = channel[i64](1)?
+    with spawn(filler, sender.share()).drop_job()?:
+        with spawn(waiter, sender).unwrap() as task:
+            task.join()
+        drop(receiver)
+    Ok(())
+",
+        "could block the worker's send",
+    );
+    // `std.io.open_path` opens without `O_NONBLOCK`, in a pool job too.
+    rejected(
+        "import std.io
+import std.path
+def forward(sender: Sender[i64]) -> ():
+    notify(sender)
+    fifo = std.path.from_text(\"fifo\").unwrap()
+    drop(std.io.open_path(&fifo, \"r\"))
+def start() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    with ThreadPoolExecutor(1, 1).unwrap() as pool:
+        future = pool.submit(def once [sender]() -> (): forward(sender)).unwrap()
+def main() -> ():
+    pass
+",
+        "could block the job's send",
+    );
+}

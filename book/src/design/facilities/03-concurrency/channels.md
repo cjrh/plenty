@@ -136,35 +136,39 @@ see [shutdown](executors.md#shutdown-and-live-receivers) and
 
 ### Which workers can wait
 
-A worker *can wait* if code it can run makes any blocking or timed wait, on any
-queue, lock, token, handle, file, or socket, or calls a foreign function:
+Every operation that can block until another thread or process acts counts as
+a wait. A worker *can wait* if code it can run performs any operation except:
 
-- `send(value)`, `send_timeout_ms`, `recv()`, `recv_timeout_ms`, or a blocking
-  or timed `select_recv`, whatever the message type;
-- `lock()` on any mutex;
-- a blocking `pool.submit`, `future.result()`, a timed future wait, a pool
-  shutdown, or a parallel map or reduce;
-- `wait()` or `wait_timeout_ms` on any `CancellationToken`, including through
-  `std.sync.cancelled_before`;
-- a [readiness wait](../../stdlib/ready.md), such as `std.ready.wait`, a
-  selector wait, or `Signals.wait`;
-- waiting for a child process;
-- opening, reading, writing, or flushing a file or stream, or waiting for its
-  readiness, other than a standard stream;
-- accepting a connection, sending or receiving a datagram, or resolving a
-  host name;
-- any call to a foreign function, including a `@thread_safe` one.
+- computation, memory, and collection operations, including atomics and
+  creating queues, tokens, pools, and mutexes;
+- `send_nowait`, `recv_nowait`, `select_recv_nowait`, and `submit_nowait`;
+- unlocking a mutex, cancelling a token or future, checking a token or
+  future, and starting a worker;
+- a sleep, which ends without another thread, and reading the clock,
+  environment variables, or the system's random source;
+- reading standard input or writing standard output or standard error,
+  including `print`; see
+  [what the rule does not decide](#what-the-rule-does-not-decide);
+- `std.ready.wait_now`, which polls once and returns;
+- closing a file, querying or moving its position, reading a file through a
+  [`Root`](../../stdlib/fs.md), which refuses pipes and FIFOs, creating a new
+  file, and trying a file lock without waiting;
+- socket addresses, socket options, and creating or registering with a
+  selector.
 
-A timeout bounds the wait, but the bound can be arbitrarily long. A wait on
-another queue, a lock, a token, or a handle counts because the thread that
-would end it could itself be blocked on the queue the joining function holds; a
-child process could be blocked on a pipe that thread drains. File I/O counts
-because the compiler cannot tell a regular file from a socket, pipe, or FIFO
-whose other end that thread holds. `std.ready.wait_now` does not wait: it polls
-once and returns. Only `send_nowait`,
-`recv_nowait`, `select_recv_nowait`, and `submit_nowait` never wait, so a
-worker that uses only these is joined while the function keeps the opposite
-endpoint:
+So a worker waits when it uses a blocking or timed queue operation, a lock, a
+pool or future wait, a token wait, a readiness wait, a join, a child process,
+any other file, stream, or socket operation, a database statement, or a
+foreign call. A timeout bounds the wait, but the bound can be arbitrarily long.
+The thread that would end any of these waits could itself be blocked on the
+queue the joining function holds. The compiler cannot tell a regular file
+from a socket, pipe, or FIFO whose other end that thread holds, and opening a
+FIFO waits for its other end. A database statement can wait for a lock another
+connection holds. An operation added to the language or the standard library
+counts as a wait until it is shown not to block.
+
+A worker that uses only the exceptions is joined while the function keeps the
+opposite endpoint:
 
 ```plenty
 def notify(sender: Sender[i64]) -> ():
@@ -195,10 +199,7 @@ The code a worker can run includes:
 
 A call through a `Callable`, a boxed callable, or a protocol box, a held
 boxed value or generator, and a function without a body to inspect, such as
-one compiled elsewhere, count as waits. A sleep does not: it ends without
-another thread. Nor does reading standard input or writing standard output or
-standard error, including `print`; see
-[what the rule does not decide](#what-the-rule-does-not-decide).
+one compiled elsewhere, count as waits.
 
 ### What can hold an endpoint
 
@@ -260,8 +261,8 @@ count messages. These safe programs are rejected:
 - the worker sends only with `send_timeout_ms`, or its blocking sends always
   fit the queue's capacity, or run only on paths the program never takes;
 - the worker's only waits are on other queues, locks, tokens, handles, files,
-  sockets, or foreign calls that no thread blocked on this queue can hold up,
-  such as reads of a regular file;
+  sockets, databases, or foreign calls that no thread blocked on this queue can
+  hold up, such as reads of a regular file;
 - another thread also receives from the queue;
 - the receiver's caller-side owner would have received.
 
