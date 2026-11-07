@@ -564,7 +564,7 @@ HTTP/1.1 405 Method Not Allowed|Allow: POST|Content-Type: text/plain; charset=ut
 HTTP/1.1 404 Not Found|Content-Type: text/plain; charset=utf-8|Content-Length: 10||Not Found
 HTTP/1.1 400 Bad Request|Content-Type: text/plain; charset=utf-8|Content-Length: 12||Bad Request
 
-connections=1 requests=3 handler_errors=0 protocol_errors=0 timeouts=0 cancelled=0 rejected=0
+connections=1 requests=3 handler_errors=0 protocol_errors=1 timeouts=0 cancelled=0 rejected=0
 --- max
 HTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 4||homeHTTP/1.1 200 OK|Content-Type: text/plain; charset=utf-8|Content-Length: 4|Connection: close||home
 connections=1 requests=2 handler_errors=0 protocol_errors=0 timeouts=0 cancelled=0 rejected=0
@@ -2360,4 +2360,284 @@ def main() -> Result[(), HttpError | AllocError | IoError]:
         support::http_program_output(&source),
         "True True True True True True 0 1 0\nSun, 06 Nov 1994 08:49:37 GMT\nTrue True\nTrue True"
     );
+}
+
+/// Malformed captures use an isolated renderer, never the typed handler.
+#[test]
+fn path_refusal_renderer_keeps_invalid_captures_out_of_handlers() {
+    let source = SCRIPTED.to_owned()
+        + r##"
+from std.http.server import PathRefusal, RefusalResponse, RefusalError
+
+def bad_path(why: &PathRefusal, response: &mut RefusalResponse) -> Result[(), RefusalError]:
+    response.set_content_type("text/html; charset=utf-8")?
+    match why:
+        case PathRefusal.InvalidEscape:
+            response.append(b"<p>escape</p>")?
+        case PathRefusal.InvalidUtf8:
+            response.append(b"<p>utf8</p>")?
+    Ok(())
+
+pub class RefusalApp:
+    pub def handle(self, route: &i64, exchange: &mut Exchange[Script]) -> Result[(), HttpError]:
+        exchange.send_text(200, "ordinary")
+
+def main() -> Result[(), ServerError | AllocError | IoError]:
+    mut table = std.http.server.router[i64]()?
+    table.add("*", "/bad/{name}", 0)?
+    table.set_fallback(Some(1))
+    table.set_path_refusal(Some(bad_path), 64)
+    for line in ["GET /bad/%", "GET /bad/%2", "GET /bad/%zz", "GET /bad/%ff", "GET /bad/%C3%28", "HEAD /bad/%zz", "GET /bad/good", "GET /missing/%zz"]?:
+        print("CASE", line)?
+        request = line.concat(" HTTP/1.1\r\nHost: x\r\n\r\n")?
+        stop = CancellationToken()?
+        report = std.http.server.serve_connection(Script(std.bytes.from_text(&request)?, 0, 1, False, True), &table, &RefusalApp(), &std.http.server.config(), &stop, &stop)
+        print("")?
+        print(counts(&report)?)?
+    print("CASE framing")?
+    stop = CancellationToken()?
+    drop(std.http.server.serve_connection(Script(std.bytes.from_text("GET /bad/%zz HTTP/1.1\r\nHost: x\r\nContent-Length: 1\r\nTransfer-Encoding: chunked\r\n\r\n")?, 0, 1, False, True), &table, &RefusalApp(), &std.http.server.config(), &stop, &stop))
+    print("")?
+    print("CASE host")?
+    drop(std.http.server.serve_connection(Script(std.bytes.from_text("GET /bad/%zz HTTP/1.1\r\nHost: x@y\r\n\r\n")?, 0, 1, False, True), &table, &RefusalApp(), &std.http.server.config(), &stop, &stop))
+    print("")?
+    print("CASE body-limit")?
+    mut limited = std.http.server.config()
+    limited.limits.max_body = 0
+    drop(std.http.server.serve_connection(Script(std.bytes.from_text("GET /bad/%zz HTTP/1.1\r\nHost: x\r\nContent-Length: 1\r\n\r\n")?, 0, 1, False, True), &table, &RefusalApp(), &limited, &stop, &stop))
+    print("")?
+    print("CASE pipeline")?
+    drop(std.http.server.serve_connection(Script(std.bytes.from_text("POST /bad/%zz HTTP/1.1\r\nHost: x\r\nContent-Length: 99\r\nExpect: 100-continue\r\n\r\nGET /bad/good HTTP/1.1\r\nHost: x\r\n\r\n")?, 0, 1, False, True), &table, &RefusalApp(), &std.http.server.config(), &stop, &stop))
+    print("")?
+    table.set_path_refusal(Nothing, 64)
+    print("CASE reset")?
+    drop(std.http.server.serve_connection(Script(std.bytes.from_text("GET /bad/%zz HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")?, 0, 1, False, True), &table, &RefusalApp(), &std.http.server.config(), &stop, &stop))
+    print("")?
+    mut workers = routes()?
+    workers.set_path_refusal(Some(bad_path), 64)
+    listener = std.net.listen(&std.net.loopback_v4(0u16), 4).unwrap()
+    stop.cancel()
+    drop(std.http.server.serve(listener, &workers, &NetApp("worker"), &std.http.server.config(), &stop)?)
+    Ok(())
+"##;
+    let result = support::http_program_output(&source);
+    let sections: Vec<_> = result.split("CASE ").skip(1).collect();
+    assert_eq!(sections.len(), 13, "{result}");
+    for section in &sections[..6] {
+        assert!(section.contains("HTTP/1.1 400 Bad Request|"), "{section}");
+        assert!(
+            section.contains("Content-Type: text/html; charset=utf-8|"),
+            "{section}"
+        );
+        assert!(section.contains("Connection: close|"), "{section}");
+        assert!(section.contains("protocol_errors=1"), "{section}");
+        assert!(!section.contains("ordinary"), "{section}");
+        if section.starts_with("HEAD") {
+            assert!(section.contains("Content-Length: 13|"), "{section}");
+            assert!(!section.contains("<p>"), "{section}");
+        } else if section.contains("%ff") || section.contains("%C3%28") {
+            assert!(section.contains("Content-Length: 11|"), "{section}");
+            assert!(section.contains("<p>utf8</p>"), "{section}");
+        } else {
+            assert!(section.contains("Content-Length: 13|"), "{section}");
+            assert!(section.contains("<p>escape</p>"), "{section}");
+        }
+    }
+    for section in &sections[6..8] {
+        assert!(section.contains("HTTP/1.1 200 OK|"), "{section}");
+        assert!(section.contains("ordinary"), "{section}");
+    }
+    assert!(!sections[8].contains("<p>"), "{}", sections[8]);
+    assert!(sections[8].contains("400 Bad Request"), "{}", sections[8]);
+    assert!(sections[9].contains("400 Bad Request"), "{}", sections[9]);
+    assert!(
+        sections[10].contains("413 Content Too Large"),
+        "{}",
+        sections[10]
+    );
+    assert!(!sections[9].contains("<p>"), "{}", sections[9]);
+    assert!(!sections[10].contains("<p>"), "{}", sections[10]);
+    assert_eq!(
+        sections[11].matches("HTTP/1.1 ").count(),
+        1,
+        "{}",
+        sections[11]
+    );
+    assert!(!sections[11].contains("ordinary"), "{}", sections[11]);
+    assert!(sections[12].contains("||Bad Request"), "{}", sections[12]);
+    assert!(!sections[12].contains("<p>"), "{}", sections[12]);
+}
+
+#[test]
+fn path_refusal_render_failures_publish_no_partial_response() {
+    let source = SCRIPTED.to_owned()
+        + r##"
+from std.http.server import PathRefusal, RefusalResponse, RefusalError
+
+def oversized(why: &PathRefusal, response: &mut RefusalResponse) -> Result[(), RefusalError]:
+    response.append(b"abcdef")
+
+def ignored(why: &PathRefusal, response: &mut RefusalResponse) -> Result[(), RefusalError]:
+    drop(response.append(b"abcdef"))
+    Ok(())
+
+def injection(why: &PathRefusal, response: &mut RefusalResponse) -> Result[(), RefusalError]:
+    response.set_content_type("text/html\r\nContent-Length: 99")
+
+def empty(why: &PathRefusal, response: &mut RefusalResponse) -> Result[(), RefusalError]:
+    response.append(b"")
+
+def main() -> Result[(), ServerError | AllocError | IoError]:
+    mut table = std.http.server.router[Route]()?
+    table.add("GET", "/bad/{name}", Route.Home)?
+    config = std.http.server.config()
+    for kind in range(5):
+        print("CASE", kind)?
+        if kind == 0:
+            table.set_path_refusal(Some(oversized), 5)
+        elif kind == 1:
+            table.set_path_refusal(Some(ignored), 5)
+        elif kind == 2:
+            table.set_path_refusal(Some(injection), 5)
+        elif kind == 3:
+            table.set_path_refusal(Some(empty), 0)
+        else:
+            table.set_path_refusal(Some(oversized), 100)
+        mut limits = std.http.server.config()
+        if kind == 4:
+            limits.limits.max_body = 1
+        stop = CancellationToken()?
+        report = std.http.server.serve_connection(Script(std.bytes.from_text("GET /bad/%zz HTTP/1.1\r\nHost: x\r\n\r\n")?, 0, 1, False, True), &table, &App("ordinary"), &limits, &stop, &stop)
+        print("")?
+        print(counts(&report)?)?
+    print("CASE expired")?
+    table.set_path_refusal(Some(empty), 0)
+    mut expires = std.http.server.config()
+    expires.response_timeout = std.time.nanoseconds(1u64)
+    stop = CancellationToken()?
+    report = std.http.server.serve_connection(Script(std.bytes.from_text("GET /bad/%zz HTTP/1.1\r\nHost: x\r\n\r\n")?, 0, 1, False, True), &table, &App("ordinary"), &expires, &stop, &stop)
+    print("")?
+    print(counts(&report)?)?
+    Ok(())
+"##;
+    let result = support::http_program_output(&source);
+    let sections: Vec<_> = result.split("CASE ").skip(1).collect();
+    assert_eq!(sections.len(), 6, "{result}");
+    for index in [0, 1, 2, 4] {
+        let section = sections[index];
+        assert!(!section.contains("HTTP/1.1"), "{section}");
+        assert!(section.contains("handler_errors=1"), "{section}");
+    }
+    assert!(
+        sections[3].contains("Content-Length: 0|"),
+        "{}",
+        sections[3]
+    );
+    assert!(!sections[5].contains("HTTP/1.1"), "{}", sections[5]);
+    assert!(sections[5].contains("timeouts=1"), "{}", sections[5]);
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn path_refusal_buffer_preserves_allocation_cancellation_and_failure_limits() {
+    let module = include_str!("../stdlib/std/http/server.plenty");
+    let types = &module[module.find("pub enum PathRefusal:").unwrap()
+        ..module.find("# Routes map a method").unwrap()];
+    let helpers = ["def decoded(", "def http_allocated[T]("]
+        .iter()
+        .map(|marker| {
+            let start = module.find(marker).unwrap();
+            module[start..].split("\n\n").next().unwrap()
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let source = format!(
+        r##"import std.bytes
+import std.text
+import std.url
+import std.time
+from std.bytes import Bytes
+from std.http import HttpError
+from std.sync import CancellationToken
+from std.time import monotonic_now, instant_at
+{types}
+{helpers}
+
+def now_ns() -> u64:
+    monotonic_now().saturating_duration_since(&instant_at(0u64)).as_nanoseconds()
+
+def main() -> Result[(), AllocError | IoError]:
+    token = CancellationToken()?
+    mut limited = RefusalResponse(std.bytes.empty()?, "text/plain", 5, u64.MAX, token.share(), False)
+    limited.append(b"123").unwrap()
+    print(limited.append(b"456").is_err(), limited._body.len(), limited.check().is_err())?
+    mut header = RefusalResponse(std.bytes.empty()?, "text/plain", 5, u64.MAX, token.share(), False)
+    print(header.set_content_type("text/\nhtml").is_err(), header.check().is_err())?
+    mut allocation = RefusalResponse(std.bytes.empty()?, "text/plain", 5, u64.MAX, token.share(), False)
+    print("__test_fail_allocations_after_0__")?
+    failed = match allocation.append(b"a"):
+        case Err(RefusalError.Allocation(_)):
+            True
+        case _:
+            False
+    print("__test_restore_allocations__")?
+    print(failed, allocation._body.len(), allocation.check().is_err())?
+    expired = RefusalResponse(std.bytes.empty()?, "text/plain", 5, 0u64, token.share(), False)
+    timed_out = match expired.check_at(&std.time.instant_at(0u64)):
+        case Err(RefusalError.TimedOut):
+            True
+        case _:
+            False
+    print(timed_out)?
+    cancelled = RefusalResponse(std.bytes.empty()?, "text/plain", 5, u64.MAX, token.share(), False)
+    boundary = RefusalResponse(std.bytes.empty()?, "text/plain", 5, 100u64, token.share(), False)
+    print(boundary.check_at(&std.time.instant_at(99u64)).is_ok(), boundary.check_at(&std.time.instant_at(100u64)).is_err())?
+    captures = ["valid"]?
+    print("__test_fail_allocations_after_0__")?
+    decode_failed = match decoded(&captures):
+        case Err(HttpError.Allocation(_)):
+            True
+        case _:
+            False
+    print("__test_restore_allocations__")?
+    print(decode_failed)?
+    token.cancel()
+    stopped = match cancelled.check():
+        case Err(RefusalError.Cancelled):
+            True
+        case _:
+            False
+    print(stopped)?
+    Ok(())
+"##
+    );
+    assert_eq!(
+        support::http_program_output(&source),
+        "True 3 True\nTrue True\nTrue 0 True\nTrue\nTrue True\nTrue\nTrue"
+    );
+}
+
+#[test]
+fn path_refusal_renderer_is_checked_as_worker_code() {
+    let source = SCRIPTED.to_owned()
+        + r##"
+import std.env
+from std.http.server import PathRefusal, RefusalResponse, RefusalError
+
+def unsafe_renderer(why: &PathRefusal, response: &mut RefusalResponse) -> Result[(), RefusalError]:
+    path = std.env.current_dir().unwrap()
+    std.env.set_current_dir(&path).unwrap()
+    Ok(())
+
+def main() -> ():
+    mut table = routes().unwrap()
+    table.set_path_refusal(Some(unsafe_renderer), 64)
+    stop = CancellationToken().unwrap()
+    stop.cancel()
+    listener = std.net.listen(&std.net.loopback_v4(0u16), 4).unwrap()
+    drop(std.http.server.serve(listener, &table, &NetApp("worker"), &std.http.server.config(), &stop).unwrap())
+"##;
+    let error = support::check_diagnostic(&source);
+    assert!(error.contains("changing the working directory"), "{error}");
+    assert!(error.contains("unsafe_renderer"), "{error}");
 }

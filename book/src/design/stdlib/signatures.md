@@ -58,55 +58,55 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.http.files`](#stdhttpfiles): 1877-1890
 - [`std.http.https`](#stdhttphttps): 1892-1906
 - [`std.http.proxy`](#stdhttpproxy): 1908-1929
-- [`std.http.server`](#stdhttpserver): 1931-2022
-- [`std.http.sse`](#stdhttpsse): 2024-2043
-- [`std.http.tls`](#stdhttptls): 2045-2062
-- [`std.http.typed`](#stdhttptyped): 2064-2097
-- [`std.http.websocket`](#stdhttpwebsocket): 2099-2134
-- [`std.http.wss`](#stdhttpwss): 2136-2142
-- [`std.image`](#stdimage): 2144-2190
-- [`std.io`](#stdio): 2192-2298
-- [`std.io.typed`](#stdiotyped): 2300-2338
-- [`std.serial`](#stdserial): 2340-2404
-- [`std.json`](#stdjson): 2406-2558
-- [`std.jwt`](#stdjwt): 2560-2607
-- [`std.log`](#stdlog): 2609-2676
-- [`std.markdown`](#stdmarkdown): 2678-2712
-- [`std.template`](#stdtemplate): 2714-2751
-- [`std.math`](#stdmath): 2753-2824
-- [`std.mime`](#stdmime): 2826-2852
-- [`std.net`](#stdnet): 2854-2936
-- [`std.path`](#stdpath): 2938-2955
-- [`std.process`](#stdprocess): 2957-3015
-- [`std.random`](#stdrandom): 3017-3038
-- [`std.ready`](#stdready): 3040-3071
-- [`std.regex`](#stdregex): 3073-3126
-- [`std.report`](#stdreport): 3128-3139
-- [`std.secrets`](#stdsecrets): 3141-3167
-- [`std.shlex`](#stdshlex): 3169-3178
-- [`std.sketch`](#stdsketch): 3180-3218
-- [`std.sketch.xor`](#stdsketchxor): 3220-3231
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3233-3248
-- [`std.signal`](#stdsignal): 3250-3267
-- [`std.simd`](#stdsimd): 3269-3370
-- [`std.stat`](#stdstat): 3372-3405
-- [`std.plot`](#stdplot): 3407-3496
-- [`std.linalg`](#stdlinalg): 3498-3539
-- [`std.sync`](#stdsync): 3541-3559
-- [`std.system`](#stdsystem): 3561-3620
-- [`std.tempfile`](#stdtempfile): 3622-3654
-- [`std.test`](#stdtest): 3656-3698
-- [`std.text`](#stdtext): 3700-3743
-- [`std.thread`](#stdthread): 3745-3749
-- [`std.time`](#stdtime): 3751-3795
-- [`std.tls`](#stdtls): 3797-3879
-- [`std.toml`](#stdtoml): 3881-3980
-- [`std.unicode`](#stdunicode): 3982-3994
-- [`std.units`](#stdunits): 3996-4233
-- [`std.units.catalogue`](#stdunitscatalogue): 4235-5013
-- [`std.url`](#stdurl): 5015-5043
-- [`std.uuid`](#stduuid): 5045-5068
-- [`std.xml`](#stdxml): 5070-5103
+- [`std.http.server`](#stdhttpserver): 1931-2032
+- [`std.http.sse`](#stdhttpsse): 2034-2053
+- [`std.http.tls`](#stdhttptls): 2055-2072
+- [`std.http.typed`](#stdhttptyped): 2074-2107
+- [`std.http.websocket`](#stdhttpwebsocket): 2109-2144
+- [`std.http.wss`](#stdhttpwss): 2146-2152
+- [`std.image`](#stdimage): 2154-2200
+- [`std.io`](#stdio): 2202-2308
+- [`std.io.typed`](#stdiotyped): 2310-2348
+- [`std.serial`](#stdserial): 2350-2414
+- [`std.json`](#stdjson): 2416-2568
+- [`std.jwt`](#stdjwt): 2570-2617
+- [`std.log`](#stdlog): 2619-2686
+- [`std.markdown`](#stdmarkdown): 2688-2722
+- [`std.template`](#stdtemplate): 2724-2761
+- [`std.math`](#stdmath): 2763-2834
+- [`std.mime`](#stdmime): 2836-2862
+- [`std.net`](#stdnet): 2864-2946
+- [`std.path`](#stdpath): 2948-2965
+- [`std.process`](#stdprocess): 2967-3025
+- [`std.random`](#stdrandom): 3027-3048
+- [`std.ready`](#stdready): 3050-3081
+- [`std.regex`](#stdregex): 3083-3136
+- [`std.report`](#stdreport): 3138-3149
+- [`std.secrets`](#stdsecrets): 3151-3177
+- [`std.shlex`](#stdshlex): 3179-3188
+- [`std.sketch`](#stdsketch): 3190-3228
+- [`std.sketch.xor`](#stdsketchxor): 3230-3241
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3243-3258
+- [`std.signal`](#stdsignal): 3260-3277
+- [`std.simd`](#stdsimd): 3279-3380
+- [`std.stat`](#stdstat): 3382-3415
+- [`std.plot`](#stdplot): 3417-3506
+- [`std.linalg`](#stdlinalg): 3508-3549
+- [`std.sync`](#stdsync): 3551-3569
+- [`std.system`](#stdsystem): 3571-3630
+- [`std.tempfile`](#stdtempfile): 3632-3664
+- [`std.test`](#stdtest): 3666-3708
+- [`std.text`](#stdtext): 3710-3753
+- [`std.thread`](#stdthread): 3755-3759
+- [`std.time`](#stdtime): 3761-3805
+- [`std.tls`](#stdtls): 3807-3889
+- [`std.toml`](#stdtoml): 3891-3990
+- [`std.unicode`](#stdunicode): 3992-4004
+- [`std.units`](#stdunits): 4006-4243
+- [`std.units.catalogue`](#stdunitscatalogue): 4245-5023
+- [`std.url`](#stdurl): 5025-5053
+- [`std.uuid`](#stduuid): 5055-5078
+- [`std.xml`](#stdxml): 5080-5113
 
 ## `std.actor`
 
@@ -1970,10 +1970,20 @@ enum Match
     Found(i64, list[str]) | NotFound | MethodNotAllowed(str)
 enum TrailingSlash
     Exact | Redirect
+enum PathRefusal
+    InvalidEscape | InvalidUtf8
+enum RefusalError
+    Allocation(AllocError) | BodyTooLarge | InvalidContentType | Cancelled | TimedOut | Broken | Http(HttpError)
+class RefusalResponse
+    def check(self) -> Result[(), RefusalError]
+    def check_at(self, now: &std.time.Instant) -> Result[(), RefusalError]
+    def append(self: &mut RefusalResponse, source: &[u8]) -> Result[(), RefusalError]
+    def set_content_type(self: &mut RefusalResponse, value: str) -> Result[(), RefusalError]
 class Router[R]
     def set_fallback(self: &mut Router[R], route: Option[R]) -> ()
     def set_method_not_allowed(self: &mut Router[R], route: Option[R]) -> ()
     def set_trailing_slash(self: &mut Router[R], policy: TrailingSlash) -> ()
+    def set_path_refusal(self: &mut Router[R], renderer: Option[Callable[[&PathRefusal, &mut RefusalResponse], Result[(), RefusalError]]], max_bytes: NonNegative[i64]) -> ()
     def add(self: &mut Router[R], method: &str, pattern: &str, route: R) -> Result[(), ServerError]
     def find(self, method: &str, path: &str) -> Result[Match, ServerError]
     def route(self, index: i64) -> &R

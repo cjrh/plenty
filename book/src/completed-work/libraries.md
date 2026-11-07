@@ -437,3 +437,14 @@ source excerpt when coordinates are known, including EOF. Formatting failure
 preserves the borrowed structured error. TOML schema/tree errors retain paths
 without invented source coordinates. See
 [serialization diagnostics](../design/stdlib/serial-diagnostics.md).
+
+## HTTP malformed-capture responses (issue #787)
+
+Worker HTTP servers support a separate capture-free renderer for malformed
+percent escapes and invalid decoded UTF-8 in matched captures. The callback
+gets only a validated reason and a bounded, failure-poisoned response buffer;
+ordinary typed handlers still reject these captures. The server controls fixed
+400 status, Date, length framing, HEAD suppression and connection close, with
+existing deadlines and cooperative cancellation. See the
+[contract](../design/stdlib/http-refusals.md). Other parsing refusals and actor
+servers retain their existing behavior.

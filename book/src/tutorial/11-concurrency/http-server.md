@@ -166,6 +166,12 @@ routes. Passing `Nothing` to either setter restores the built-in `404`, or
 `405` with `Allow`, without calling the handler. A custom method handler can
 also answer `OPTIONS`; the server does not invent an OPTIONS response.
 
+A matched capture with a malformed percent escape or invalid decoded UTF-8
+gets `400` before this handler runs. To give it an application error page,
+register the separate [bounded refusal renderer](../../design/stdlib/http-refusals.md).
+It receives a validated reason and an output buffer, keeping malformed captures
+outside the typed route and fallback handlers.
+
 The explicit `TrailingSlash.Redirect` policy redirects `/hello/Ada/` to the
 registered `/hello/Ada` spelling with `308`; query text is preserved and the
 method stays the same. An exact route or exact path's wrong-method response
