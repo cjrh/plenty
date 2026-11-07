@@ -20,13 +20,15 @@ import std.bytes
 import std.http.server
 import std.net
 import std.time
-from std.http.server import Exchange
+from std.http.server import Exchange, TrailingSlash
 from std.net import TcpStream
 from std.sync import CancellationToken
 
 pub enum Route:
     Home
     Hello(Greeting)
+    NotFound
+    MethodNotAllowed
 
 pub class Greeting:
     pub opening: str
@@ -43,6 +45,12 @@ pub class App:
                 exchange.send_text(200, "home\n")?
             case Route.Hello(greeting):
                 greeting.handle(exchange)?
+            case Route.NotFound:
+                exchange.send_text(404, "that page is missing\n")?
+            case Route.MethodNotAllowed:
+                mut head = std.http.response(405, "Method Not Allowed")?
+                head.add("Allow", exchange.allowed_methods)?
+                exchange.respond(head, b"choose an allowed method\n")?
         Ok(())
 
 type FetchError = AllocError | IoError | std.bytes.BytesError | std.net.NetError | RangeError
@@ -81,6 +89,9 @@ def main() -> Result[(), SpawnError[()] | IoError | AllocError | ServerSetupErro
     routes.add("GET", "/", Route.Home)?
     routes.add("GET", "/index.html", Route.Home)?
     routes.add("GET", "/hello/{name}", Route.Hello(Greeting("hello, ")))?
+    routes.set_fallback(Some(Route.NotFound))
+    routes.set_method_not_allowed(Some(Route.MethodNotAllowed))
+    routes.set_trailing_slash(TrailingSlash.Redirect)
     listener = std.net.listen(&std.net.loopback_v4(0u16), 16)?
     port = listener.local_address()?.port
     stop = CancellationToken()?
@@ -94,7 +105,7 @@ def main() -> Result[(), SpawnError[()] | IoError | AllocError | ServerSetupErro
 HTTP/1.1 200 OK | home
 HTTP/1.1 200 OK | home
 HTTP/1.1 200 OK | hello, Ada L
-HTTP/1.1 404 Not Found | Not Found
+HTTP/1.1 404 Not Found | that page is missing
 4
 ```
 
@@ -147,8 +158,20 @@ A variant can carry the route's own handler and its state, as `Hello`
 carries a `Greeting` here; `App` only forwards to it. Several patterns may
 share a variant, such as `/` and `/index.html` both adding `Route.Home`.
 
-A path with no route gets `404` without reaching the handler, and a path
-whose route has another method gets `405` with an `Allow` field.
+`set_fallback(Some(Route.NotFound))` sends an unknown path to the same typed
+handler. `set_method_not_allowed(Some(Route.MethodNotAllowed))` does the same
+for a known path with another method; `exchange.allowed_methods` supplies the
+`Allow` field. Both variants are checked exhaustively like the ordinary
+routes. Passing `Nothing` to either setter restores the built-in `404`, or
+`405` with `Allow`, without calling the handler. A custom method handler can
+also answer `OPTIONS`; the server does not invent an OPTIONS response.
+
+The explicit `TrailingSlash.Redirect` policy redirects `/hello/Ada/` to the
+registered `/hello/Ada` spelling with `308`; query text is preserved and the
+method stays the same. An exact route or exact path's wrong-method response
+wins before any redirect, and redirects win before the unknown-path fallback.
+The default `TrailingSlash.Exact` performs no alternate lookup. See
+[redirect limits and precedence](../../design/stdlib/http-server.md#trailing-slash-redirects).
 
 The client sends a `Host` field because HTTP/1.1 requires exactly one: a
 request without it, with two, or with a malformed value gets `400` before
