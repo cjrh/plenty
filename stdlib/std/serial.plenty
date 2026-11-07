@@ -1,0 +1,143 @@
+# Format-neutral, statically dispatched codecs. Formats own parsing, output
+# and limits; codecs own field policy and constructor invariants.
+# See book/src/design/stdlib/serial.md and issue #781.
+
+pub enum Fault:
+    UnexpectedKind
+    MissingField(str)
+    DuplicateField(str)
+    UnknownField(str)
+    UnknownVariant(str)
+    OutOfRange
+    WrongLength(i64, i64)
+    DuplicateElement
+    Unrepresentable
+
+pub enum Step:
+    Field(str)
+    Index(i64)
+    Key(str)
+    Variant(str)
+
+pub class SerialError[E]:
+    pub cause: E
+    # Innermost first: propagating outwards appends without shifting.
+    pub path: Option[list[Step]]
+    pub complete: bool
+
+    pub def at(self: SerialError[E], step: Step) -> SerialError[E]:
+        mut error = self
+        if not error.complete:
+            return error
+        mut path = match replace(error.path, Nothing):
+            case Some(steps):
+                steps
+            case Nothing:
+                match list[Step]():
+                    case Ok(steps):
+                        steps
+                    case Err(_):
+                        error.complete = False
+                        return error
+        if len(path) >= 1024:
+            error.complete = False
+        else:
+            match path.append(step):
+                case Ok(_):
+                    pass
+                case Err(_):
+                    error.complete = False
+        error.path = Some(path)
+        error
+
+# Root errors need no list allocation. Lazily allocate storage on the first
+# contextual step; failure keeps the typed cause and marks the path incomplete.
+pub def error[E](cause: E) -> SerialError[E]:
+    SerialError(cause, Nothing, True)
+
+pub def wrap[T, E](result: Result[T, E]) -> Result[T, SerialError[E]]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(error(cause))
+
+pub def at[T, E](result: Result[T, SerialError[E]], step: Step) -> Result[T, SerialError[E]]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(cause.at(step))
+
+pub protocol Encoder[E]:
+    def null(self: &mut Encoder) -> Result[(), E]:
+        pass
+    def boolean(self: &mut Encoder, value: bool) -> Result[(), E]:
+        pass
+    def integer(self: &mut Encoder, value: i64) -> Result[(), E]:
+        pass
+    def unsigned(self: &mut Encoder, value: u64) -> Result[(), E]:
+        pass
+    def decimal(self: &mut Encoder, value: f64) -> Result[(), E]:
+        pass
+    def text(self: &mut Encoder, value: &str) -> Result[(), E]:
+        pass
+    def start_array(self: &mut Encoder) -> Result[(), E]:
+        pass
+    def end_array(self: &mut Encoder) -> Result[(), E]:
+        pass
+    def start_object(self: &mut Encoder) -> Result[(), E]:
+        pass
+    def key(self: &mut Encoder, name: &str) -> Result[(), E]:
+        pass
+    def end_object(self: &mut Encoder) -> Result[(), E]:
+        pass
+
+pub protocol Decoder[E]:
+    def null(self: &mut Decoder) -> Result[bool, E]:
+        pass
+    def boolean(self: &mut Decoder) -> Result[bool, E]:
+        pass
+    def integer(self: &mut Decoder) -> Result[i64, E]:
+        pass
+    def unsigned(self: &mut Decoder) -> Result[u64, E]:
+        pass
+    def decimal(self: &mut Decoder) -> Result[f64, E]:
+        pass
+    def text(self: &mut Decoder) -> Result[str, E]:
+        pass
+    def start_array(self: &mut Decoder) -> Result[(), E]:
+        pass
+    def next_element(self: &mut Decoder) -> Result[bool, E]:
+        pass
+    def start_object(self: &mut Decoder) -> Result[(), E]:
+        pass
+    def next_key(self: &mut Decoder) -> Result[Option[str], E]:
+        pass
+    def unknown_key(self: &mut Decoder, name: &str) -> Result[(), E]:
+        pass
+    def reject(self, fault: Fault) -> E:
+        pass
+    def allocation(self, cause: AllocError) -> E:
+        pass
+
+# The compiler specializes these bodies for built-in values or checked hooks.
+# Protocols alone cannot admit scalars and collection types.
+pub def encode[T, E, S: Encoder[E]](value: &T, out: &mut S) -> Result[(), SerialError[E]]:
+    value.__encode__[E, S](out)
+
+pub def decode[T, E, D: Decoder[E]](source: &mut D) -> Result[T, SerialError[E]]:
+    __serial_decode[T, E, D](source)
+
+pub enum UnknownFields:
+    Reject
+    Ignore
+
+# Allocation is part of the decoder's error domain, preserving the adapter's
+# position just as a parse or schema rejection does.
+pub def allocated[T, E, D: Decoder[E]](result: Result[T, AllocError], source: &D) -> Result[T, SerialError[E]]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(cause):
+            Err(error(source.allocation(cause)))

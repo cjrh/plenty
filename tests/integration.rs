@@ -773,3 +773,6 @@ mod test_sum_fallbacks;
 
 #[path = "../plenty-runtime/native/vendor_cache.rs"]
 mod test_runtime_vendor_cache;
+
+#[path = "test_std_serial.rs"]
+mod test_std_serial;

@@ -1714,12 +1714,14 @@ impl Engine {
         key.1.shrink_to_fit();
         let actual = &key.1;
         let count = id.map_or(0, |id| self.instantiated[id as usize].1);
-        let replacements: Substitution = template
+        let mut replacements: Substitution = template
             .type_params
             .iter()
             .map(|(n, _)| n.clone())
             .zip(actual.iter().map(|ty| ty.reference(at)))
             .collect();
+        let generated = serial::expand(name, actual, template, &mut replacements, at)?;
+        let template = generated.as_ref().unwrap_or(template);
         let mut demanded = Vec::new();
         for ((_, bound), argument) in template.type_params.iter().zip(actual) {
             let Some(ty) = argument.as_type() else {

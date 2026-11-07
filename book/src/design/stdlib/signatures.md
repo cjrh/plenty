@@ -18,94 +18,95 @@ After changing a standard module, regenerate this page with
 
 Each section's lines in this file, so one module can be read alone.
 
-- [`std.actor`](#stdactor): 110-187
-- [`std.actor.net`](#stdactornet): 189-252
-- [`std.actor.tls`](#stdactortls): 254-283
-- [`std.actor.http.server`](#stdactorhttpserver): 285-348
-- [`std.archive`](#stdarchive): 350-416
-- [`std.atomic`](#stdatomic): 418-427
-- [`std.bytes`](#stdbytes): 429-476
-- [`std.cache.lru`](#stdcachelru): 478-500
-- [`std.channel`](#stdchannel): 502-506
-- [`std.cli`](#stdcli): 508-538
-- [`std.cli.fileinput`](#stdclifileinput): 540-549
-- [`std.cli.progress`](#stdcliprogress): 551-575
-- [`std.collections`](#stdcollections): 577-604
-- [`std.complex`](#stdcomplex): 606-632
-- [`std.compress`](#stdcompress): 634-664
-- [`std.concurrent`](#stdconcurrent): 666-670
-- [`std.crypto`](#stdcrypto): 672-753
-- [`std.csv`](#stdcsv): 755-818
-- [`std.dataframe`](#stddataframe): 820-1019
-- [`std.db.kv`](#stddbkv): 1021-1053
-- [`std.db.sqlite`](#stddbsqlite): 1055-1119
-- [`std.deque`](#stddeque): 1121-1135
-- [`std.diff`](#stddiff): 1137-1166
-- [`std.encoding`](#stdencoding): 1168-1235
-- [`std.env`](#stdenv): 1237-1251
-- [`std.error`](#stderror): 1253-1273
-- [`std.fmt`](#stdfmt): 1275-1342
-- [`std.fs`](#stdfs): 1344-1443
-- [`std.fs.dirs`](#stdfsdirs): 1445-1455
-- [`std.fs.lock`](#stdfslock): 1457-1472
-- [`std.fs.watch`](#stdfswatch): 1474-1509
-- [`std.graph`](#stdgraph): 1511-1599
-- [`std.http`](#stdhttp): 1601-1671
-- [`std.http.decoder`](#stdhttpdecoder): 1673-1690
-- [`std.http.body`](#stdhttpbody): 1692-1727
-- [`std.http.client`](#stdhttpclient): 1729-1839
-- [`std.http.cookie`](#stdhttpcookie): 1841-1873
-- [`std.http.files`](#stdhttpfiles): 1875-1888
-- [`std.http.https`](#stdhttphttps): 1890-1904
-- [`std.http.proxy`](#stdhttpproxy): 1906-1927
-- [`std.http.server`](#stdhttpserver): 1929-2020
-- [`std.http.sse`](#stdhttpsse): 2022-2041
-- [`std.http.tls`](#stdhttptls): 2043-2060
-- [`std.http.typed`](#stdhttptyped): 2062-2095
-- [`std.http.websocket`](#stdhttpwebsocket): 2097-2132
-- [`std.http.wss`](#stdhttpwss): 2134-2140
-- [`std.image`](#stdimage): 2142-2188
-- [`std.io`](#stdio): 2190-2296
-- [`std.io.typed`](#stdiotyped): 2298-2336
-- [`std.json`](#stdjson): 2338-2402
-- [`std.jwt`](#stdjwt): 2404-2451
-- [`std.log`](#stdlog): 2453-2520
-- [`std.markdown`](#stdmarkdown): 2522-2556
-- [`std.template`](#stdtemplate): 2558-2595
-- [`std.math`](#stdmath): 2597-2668
-- [`std.mime`](#stdmime): 2670-2696
-- [`std.net`](#stdnet): 2698-2780
-- [`std.path`](#stdpath): 2782-2799
-- [`std.process`](#stdprocess): 2801-2859
-- [`std.random`](#stdrandom): 2861-2882
-- [`std.ready`](#stdready): 2884-2915
-- [`std.regex`](#stdregex): 2917-2970
-- [`std.report`](#stdreport): 2972-2979
-- [`std.secrets`](#stdsecrets): 2981-3007
-- [`std.shlex`](#stdshlex): 3009-3018
-- [`std.sketch`](#stdsketch): 3020-3058
-- [`std.sketch.xor`](#stdsketchxor): 3060-3071
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3073-3088
-- [`std.signal`](#stdsignal): 3090-3107
-- [`std.simd`](#stdsimd): 3109-3210
-- [`std.stat`](#stdstat): 3212-3245
-- [`std.plot`](#stdplot): 3247-3336
-- [`std.linalg`](#stdlinalg): 3338-3379
-- [`std.sync`](#stdsync): 3381-3399
-- [`std.system`](#stdsystem): 3401-3460
-- [`std.tempfile`](#stdtempfile): 3462-3494
-- [`std.test`](#stdtest): 3496-3538
-- [`std.text`](#stdtext): 3540-3583
-- [`std.thread`](#stdthread): 3585-3589
-- [`std.time`](#stdtime): 3591-3635
-- [`std.tls`](#stdtls): 3637-3719
-- [`std.toml`](#stdtoml): 3721-3770
-- [`std.unicode`](#stdunicode): 3772-3784
-- [`std.units`](#stdunits): 3786-4023
-- [`std.units.catalogue`](#stdunitscatalogue): 4025-4803
-- [`std.url`](#stdurl): 4805-4833
-- [`std.uuid`](#stduuid): 4835-4858
-- [`std.xml`](#stdxml): 4860-4893
+- [`std.actor`](#stdactor): 111-188
+- [`std.actor.net`](#stdactornet): 190-253
+- [`std.actor.tls`](#stdactortls): 255-284
+- [`std.actor.http.server`](#stdactorhttpserver): 286-349
+- [`std.archive`](#stdarchive): 351-417
+- [`std.atomic`](#stdatomic): 419-428
+- [`std.bytes`](#stdbytes): 430-477
+- [`std.cache.lru`](#stdcachelru): 479-501
+- [`std.channel`](#stdchannel): 503-507
+- [`std.cli`](#stdcli): 509-539
+- [`std.cli.fileinput`](#stdclifileinput): 541-550
+- [`std.cli.progress`](#stdcliprogress): 552-576
+- [`std.collections`](#stdcollections): 578-605
+- [`std.complex`](#stdcomplex): 607-633
+- [`std.compress`](#stdcompress): 635-665
+- [`std.concurrent`](#stdconcurrent): 667-671
+- [`std.crypto`](#stdcrypto): 673-754
+- [`std.csv`](#stdcsv): 756-819
+- [`std.dataframe`](#stddataframe): 821-1020
+- [`std.db.kv`](#stddbkv): 1022-1054
+- [`std.db.sqlite`](#stddbsqlite): 1056-1120
+- [`std.deque`](#stddeque): 1122-1136
+- [`std.diff`](#stddiff): 1138-1167
+- [`std.encoding`](#stdencoding): 1169-1236
+- [`std.env`](#stdenv): 1238-1252
+- [`std.error`](#stderror): 1254-1274
+- [`std.fmt`](#stdfmt): 1276-1343
+- [`std.fs`](#stdfs): 1345-1444
+- [`std.fs.dirs`](#stdfsdirs): 1446-1456
+- [`std.fs.lock`](#stdfslock): 1458-1473
+- [`std.fs.watch`](#stdfswatch): 1475-1510
+- [`std.graph`](#stdgraph): 1512-1600
+- [`std.http`](#stdhttp): 1602-1672
+- [`std.http.decoder`](#stdhttpdecoder): 1674-1691
+- [`std.http.body`](#stdhttpbody): 1693-1728
+- [`std.http.client`](#stdhttpclient): 1730-1840
+- [`std.http.cookie`](#stdhttpcookie): 1842-1874
+- [`std.http.files`](#stdhttpfiles): 1876-1889
+- [`std.http.https`](#stdhttphttps): 1891-1905
+- [`std.http.proxy`](#stdhttpproxy): 1907-1928
+- [`std.http.server`](#stdhttpserver): 1930-2021
+- [`std.http.sse`](#stdhttpsse): 2023-2042
+- [`std.http.tls`](#stdhttptls): 2044-2061
+- [`std.http.typed`](#stdhttptyped): 2063-2096
+- [`std.http.websocket`](#stdhttpwebsocket): 2098-2133
+- [`std.http.wss`](#stdhttpwss): 2135-2141
+- [`std.image`](#stdimage): 2143-2189
+- [`std.io`](#stdio): 2191-2297
+- [`std.io.typed`](#stdiotyped): 2299-2337
+- [`std.serial`](#stdserial): 2339-2387
+- [`std.json`](#stdjson): 2389-2512
+- [`std.jwt`](#stdjwt): 2514-2561
+- [`std.log`](#stdlog): 2563-2630
+- [`std.markdown`](#stdmarkdown): 2632-2666
+- [`std.template`](#stdtemplate): 2668-2705
+- [`std.math`](#stdmath): 2707-2778
+- [`std.mime`](#stdmime): 2780-2806
+- [`std.net`](#stdnet): 2808-2890
+- [`std.path`](#stdpath): 2892-2909
+- [`std.process`](#stdprocess): 2911-2969
+- [`std.random`](#stdrandom): 2971-2992
+- [`std.ready`](#stdready): 2994-3025
+- [`std.regex`](#stdregex): 3027-3080
+- [`std.report`](#stdreport): 3082-3089
+- [`std.secrets`](#stdsecrets): 3091-3117
+- [`std.shlex`](#stdshlex): 3119-3128
+- [`std.sketch`](#stdsketch): 3130-3168
+- [`std.sketch.xor`](#stdsketchxor): 3170-3181
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3183-3198
+- [`std.signal`](#stdsignal): 3200-3217
+- [`std.simd`](#stdsimd): 3219-3320
+- [`std.stat`](#stdstat): 3322-3355
+- [`std.plot`](#stdplot): 3357-3446
+- [`std.linalg`](#stdlinalg): 3448-3489
+- [`std.sync`](#stdsync): 3491-3509
+- [`std.system`](#stdsystem): 3511-3570
+- [`std.tempfile`](#stdtempfile): 3572-3604
+- [`std.test`](#stdtest): 3606-3648
+- [`std.text`](#stdtext): 3650-3693
+- [`std.thread`](#stdthread): 3695-3699
+- [`std.time`](#stdtime): 3701-3745
+- [`std.tls`](#stdtls): 3747-3829
+- [`std.toml`](#stdtoml): 3831-3880
+- [`std.unicode`](#stdunicode): 3882-3894
+- [`std.units`](#stdunits): 3896-4133
+- [`std.units.catalogue`](#stdunitscatalogue): 4135-4913
+- [`std.url`](#stdurl): 4915-4943
+- [`std.uuid`](#stduuid): 4945-4968
+- [`std.xml`](#stdxml): 4970-5003
 
 ## `std.actor`
 
@@ -2335,13 +2336,63 @@ def write_all[E, W: Writer[E]](writer: &mut W, buffer: &[u8]) -> Result[(), Part
 def copy_all[E, G, R: Reader[E], W: Writer[G]](reader: &mut R, writer: &mut W, scratch: &mut Bytes) -> Result[i64, CopyFailure[E, G]]
 ```
 
+## `std.serial`
+
+Format-neutral typed codecs, handwritten class/enum hooks, and typed error paths. Errors: `SerialError[E]`. [Reference](serial.md).
+
+```text
+enum Fault
+    UnexpectedKind | MissingField(str) | DuplicateField(str) | UnknownField(str) | UnknownVariant(str) | OutOfRange | WrongLength(i64, i64) | DuplicateElement | Unrepresentable
+enum Step
+    Field(str) | Index(i64) | Key(str) | Variant(str)
+class SerialError[E]
+    cause: E
+    path: Option[list[Step]]
+    complete: bool
+    def at(self: SerialError[E], step: Step) -> SerialError[E]
+def error[E](cause: E) -> SerialError[E]
+def wrap[T, E](result: Result[T, E]) -> Result[T, SerialError[E]]
+def at[T, E](result: Result[T, SerialError[E]], step: Step) -> Result[T, SerialError[E]]
+protocol Encoder[E]
+    def null(self: &mut Encoder) -> Result[(), E]
+    def boolean(self: &mut Encoder, value: bool) -> Result[(), E]
+    def integer(self: &mut Encoder, value: i64) -> Result[(), E]
+    def unsigned(self: &mut Encoder, value: u64) -> Result[(), E]
+    def decimal(self: &mut Encoder, value: f64) -> Result[(), E]
+    def text(self: &mut Encoder, value: &str) -> Result[(), E]
+    def start_array(self: &mut Encoder) -> Result[(), E]
+    def end_array(self: &mut Encoder) -> Result[(), E]
+    def start_object(self: &mut Encoder) -> Result[(), E]
+    def key(self: &mut Encoder, name: &str) -> Result[(), E]
+    def end_object(self: &mut Encoder) -> Result[(), E]
+protocol Decoder[E]
+    def null(self: &mut Decoder) -> Result[bool, E]
+    def boolean(self: &mut Decoder) -> Result[bool, E]
+    def integer(self: &mut Decoder) -> Result[i64, E]
+    def unsigned(self: &mut Decoder) -> Result[u64, E]
+    def decimal(self: &mut Decoder) -> Result[f64, E]
+    def text(self: &mut Decoder) -> Result[str, E]
+    def start_array(self: &mut Decoder) -> Result[(), E]
+    def next_element(self: &mut Decoder) -> Result[bool, E]
+    def start_object(self: &mut Decoder) -> Result[(), E]
+    def next_key(self: &mut Decoder) -> Result[Option[str], E]
+    def unknown_key(self: &mut Decoder, name: &str) -> Result[(), E]
+    def reject(self, fault: Fault) -> E
+    def allocation(self, cause: AllocError) -> E
+def encode[T, E, S: Encoder[E]](value: &T, out: &mut S) -> Result[(), SerialError[E]]
+def decode[T, E, D: Decoder[E]](source: &mut D) -> Result[T, SerialError[E]]
+enum UnknownFields
+    Reject | Ignore
+def allocated[T, E, D: Decoder[E]](result: Result[T, AllocError], source: &D) -> Result[T, SerialError[E]]
+```
+
 ## `std.json`
 
 Strict JSON under depth, input, and output limits: resumable event decoder, validating encoder, and a value tree. Errors: `JsonError`. [Reference](json.md).
 
 ```text
 enum JsonFault
-    UnexpectedByte | UnexpectedEnd | TrailingData | InvalidLiteral | InvalidNumber | NumberOutOfRange | InvalidEscape | InvalidSurrogate | ControlCharacter | InvalidUtf8 | DuplicateKey | DepthExceeded | InputTooLarge | OutputTooLarge | NonFiniteNumber | InvalidState | Stream(StreamError) | Allocation(AllocError)
+    UnexpectedByte | UnexpectedEnd | TrailingData | InvalidLiteral | InvalidNumber | NumberOutOfRange | InvalidEscape | InvalidSurrogate | ControlCharacter | InvalidUtf8 | DuplicateKey | DepthExceeded | InputTooLarge | OutputTooLarge | NonFiniteNumber | InvalidState | Stream(StreamError) | Allocation(AllocError) | Serialization(std.serial.Fault)
 class JsonError
     fault: JsonFault
     offset: i64
@@ -2399,6 +2450,65 @@ def write_pending[W: Writer](source: &mut Encoder, writer: &mut W) -> Result[(),
 def encode(value: &Json, bounds: &Limits) -> Result[Bytes, JsonError]
 def encode_text(value: &Json, bounds: &Limits) -> Result[str, JsonError]
 def write_value[W: Writer](writer: &mut W, value: &Json, bounds: &Limits) -> Result[(), JsonError]
+class CodecOptions
+    limits: Limits
+    unknown_fields: std.serial.UnknownFields
+def codec_options() -> CodecOptions
+class CodecDecoder
+    def reject(self, fault: std.serial.Fault) -> JsonError
+    def allocation(self, cause: AllocError) -> JsonError
+    def null(self: &mut CodecDecoder) -> Result[bool, JsonError]
+    def boolean(self: &mut CodecDecoder) -> Result[bool, JsonError]
+    def integer(self: &mut CodecDecoder) -> Result[i64, JsonError]
+    def unsigned(self: &mut CodecDecoder) -> Result[u64, JsonError]
+    def decimal(self: &mut CodecDecoder) -> Result[f64, JsonError]
+    def text(self: &mut CodecDecoder) -> Result[str, JsonError]
+    def start_array(self: &mut CodecDecoder) -> Result[(), JsonError]
+    def next_element(self: &mut CodecDecoder) -> Result[bool, JsonError]
+    def start_object(self: &mut CodecDecoder) -> Result[(), JsonError]
+    def next_key(self: &mut CodecDecoder) -> Result[Option[str], JsonError]
+    def unknown_key(self: &mut CodecDecoder, name: &str) -> Result[(), JsonError]
+    def finish(self: &mut CodecDecoder) -> Result[(), JsonError]
+def codec_decoder(source: &[u8], options: &CodecOptions) -> Result[CodecDecoder, JsonError]
+def dump[T](value: &T, bounds: &Limits) -> Result[Bytes, std.serial.SerialError[JsonError]]
+def load[T](source: &[u8], options: &CodecOptions) -> Result[T, std.serial.SerialError[JsonError]]
+class TreeLimits
+    max_depth: NonNegative[i64]
+    max_nodes: NonNegative[i64]
+    max_text_bytes: NonNegative[i64]
+def tree_limits() -> TreeLimits
+class TreeEncoder
+    def null(self: &mut TreeEncoder) -> Result[(), JsonError]
+    def boolean(self: &mut TreeEncoder, value: bool) -> Result[(), JsonError]
+    def integer(self: &mut TreeEncoder, value: i64) -> Result[(), JsonError]
+    def unsigned(self: &mut TreeEncoder, value: u64) -> Result[(), JsonError]
+    def decimal(self: &mut TreeEncoder, value: f64) -> Result[(), JsonError]
+    def text(self: &mut TreeEncoder, value: &str) -> Result[(), JsonError]
+    def start_array(self: &mut TreeEncoder) -> Result[(), JsonError]
+    def start_object(self: &mut TreeEncoder) -> Result[(), JsonError]
+    def key(self: &mut TreeEncoder, name: &str) -> Result[(), JsonError]
+    def end_array(self: &mut TreeEncoder) -> Result[(), JsonError]
+    def end_object(self: &mut TreeEncoder) -> Result[(), JsonError]
+    def finish(self: &mut TreeEncoder) -> Result[Json, JsonError]
+def tree_encoder(limits: &TreeLimits) -> Result[TreeEncoder, JsonError]
+class TreeDecoder
+    def reject(self, fault: std.serial.Fault) -> JsonError
+    def allocation(self, cause: AllocError) -> JsonError
+    def null(self: &mut TreeDecoder) -> Result[bool, JsonError]
+    def boolean(self: &mut TreeDecoder) -> Result[bool, JsonError]
+    def integer(self: &mut TreeDecoder) -> Result[i64, JsonError]
+    def unsigned(self: &mut TreeDecoder) -> Result[u64, JsonError]
+    def decimal(self: &mut TreeDecoder) -> Result[f64, JsonError]
+    def text(self: &mut TreeDecoder) -> Result[str, JsonError]
+    def start_array(self: &mut TreeDecoder) -> Result[(), JsonError]
+    def next_element(self: &mut TreeDecoder) -> Result[bool, JsonError]
+    def start_object(self: &mut TreeDecoder) -> Result[(), JsonError]
+    def next_key(self: &mut TreeDecoder) -> Result[Option[str], JsonError]
+    def unknown_key(self: &mut TreeDecoder, name: &str) -> Result[(), JsonError]
+    def finish(self: &mut TreeDecoder) -> Result[(), JsonError]
+def tree_decoder(value: Json, limits: &TreeLimits, unknown_fields: std.serial.UnknownFields = std.serial.UnknownFields.Reject) -> Result[TreeDecoder, JsonError]
+def to_value[T](value: &T, limits: &TreeLimits) -> Result[Json, std.serial.SerialError[JsonError]]
+def from_value[T](value: Json, limits: &TreeLimits, unknown_fields: std.serial.UnknownFields = std.serial.UnknownFields.Reject) -> Result[T, std.serial.SerialError[JsonError]]
 ```
 
 ## `std.jwt`
