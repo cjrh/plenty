@@ -185,6 +185,7 @@ impl CollectionOp {
             | Clist(_)
             | TryReserve(_)
             | TryInsert(_)
+            | ListTryInsert(_)
             | TryExtend(_)
             | DictTryUpdate(_)
             | SetTryUpdate(_)

@@ -1,7 +1,7 @@
 # Lists
 
 Lists use the [common collection rules](collections.md). Growth through
-`append`, `reserve`, and `extend` is recoverable; indexed replacement allocates
+`append`, `insert`, `reserve`, and `extend` is recoverable; indexed replacement allocates
 nothing and traps on a missing index. Lists have no `*` repetition; a
 comprehension such as `[0.0 for _ in range(count)]?` builds repeated elements.
 
@@ -125,6 +125,46 @@ Search/count accept exactly the element type, including references, and support
 integers, floats, booleans, and strings. They observe both operands once, allocate
 nothing, and use IEEE float equality (NaN never matches; signed zeros do).
 Aggregate searches, optional bounds, and throwing `index` are unsupported.
+
+## Insertion
+
+`items.insert(index: i64, value: T) -> Result[(), AllocError]` places `value`
+before the element at `index`, so it then occupies that position; later
+elements move up one place. `index` may be any position from `0` to
+`len(items)`, where `len(items)` appends. Negative indices count from the
+end, so `-1` inserts before the last element and `-len(items)` at the front.
+Any other index traps, reporting `list.insert: index 5 is out of range for length 2`
+and the calling line, before the list or its storage changes. Python instead
+clamps such an index to the nearest end; Plenty treats it as a bug in the
+caller, as it does an out-of-range read, write or `swap`.
+
+Insertion requires exclusive access and accepts every element type. The index,
+which may be a reference, is evaluated first, then the value, both before the
+list is borrowed, so either may read the list. Growth follows `append`: storage
+is reserved before any element moves, capacity grows geometrically, and a
+failure leaves the list unchanged and drops `value`. Reserve first to keep an
+owned value that must survive a storage failure. With spare capacity, insertion
+allocates nothing.
+
+The later elements shift with one memory move, without copying, retaining, or
+dropping them; inserting at `len(items)` moves none. Inline payload addresses of
+the shifted rows are repaired afterwards, as for `pop(index)`. Insertion is
+O(n - index) in time, so repeated insertion at the front is quadratic; a
+[deque](../../stdlib/deque.md) adds at either end in amortized constant time.
+
+```plenty
+def main() -> Result[(), AllocError | IoError]:
+    mut steps = ["mix", "bake"]?
+    steps.insert(0, "measure")?
+    steps.insert(-1, "pour")?
+    steps.insert(len(steps), "cool")?
+    print(steps)?
+    Ok(())
+```
+
+```output
+["measure", "mix", "pour", "bake", "cool"]
+```
 
 ## Reordering and extending
 
