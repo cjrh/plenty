@@ -343,8 +343,14 @@ zero-based source location, missing/duplicate template names, missing values,
 type mismatches, cycles, allocation failures and byte-buffer errors. Syntax
 locations are UTF-8 byte offsets at the containing template construct, rather
 than at an individual expression character. Allocation errors remain explicit, including those
-wrapped by `BytesError`.
+wrapped by `BytesError`. Checked HTML additionally reports
+`InvalidHtml(name, offset)` with the defining registered source and an original
+UTF-8 byte position; see [its contract](template-html.md#composition-and-failure).
 
 ## Acknowledgements
 
 - Syntax is a subset of [Jinja](https://jinja.palletsprojects.com/), with [Tera](https://keats.github.io/tera/) as the syntax and behaviour reference.
+
+- [WHATWG HTML syntax](https://html.spec.whatwg.org/multipage/syntax.html) supplies
+  the checked HTML grammar vocabulary; the restricted recognizer is independently
+  implemented and bundles no specification code or data.
