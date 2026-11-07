@@ -301,6 +301,8 @@ fn invalid_substr_views_are_rejected(#[case] source: &str, #[case] expected: &st
 
 /// Owner-reference parameters for the view mismatch cases below.
 const OWNER_PARAMETERS: &str = r#"
+from std.bytes import Bytes, from_text
+
 def f(s: &str) -> i64:
     s.byte_len()
 
@@ -316,7 +318,14 @@ def total(xs: &list[i64]) -> i64:
 def bump(xs: &mut list[i64]) -> ():
     xs[0] = 5
 
-s = "hello"
+def raw(b: &bytes) -> i64:
+    len(b)
+
+def buffer(b: &Bytes) -> i64:
+    b.len()
+
+def main() -> Result[(), AllocError | IoError]:
+    s = "hello"
 "#;
 
 /// A view at a `&str` or `&list[T]` parameter names the mismatch and both
@@ -343,7 +352,30 @@ s = "hello"
 )]
 #[case(
     "xs = [1, 2].unwrap()\nv = &xs[1:]\nn = total(v)",
-    "`xs[a:b]?` from the owner"
+    "`xs[a:b]?` from the list or buffer the view borrows"
+)]
+#[case(
+    "xs = [1, 2, 3].unwrap()\nv = &xs[:]\nn = total(&v[1:])",
+    "`xs[a:b]?` from the list or buffer the view borrows"
+)]
+#[case(
+    "b = b\"abc\"\nn = raw(&b[1:])",
+    "a &[u8] view, but the parameter takes &bytes; declare the parameter `&[u8]` to borrow it without copying"
+)]
+#[case(
+    "buf = from_text(\"abc\").unwrap()\nn = buffer(&buf[1:])",
+    "declare the parameter `&[u8]` to borrow it without copying, or pass an owned copy, `xs[a:b]?`"
+)]
+#[case("xs = [1, 2].unwrap()\nn = f(&xs[1:])", "expected &str, got &[i64]")]
+#[case("n = total(&s[1:])", "expected &list[i64], got &substr")]
+#[case("b = b\"abc\"\nn = f(&b[1:])", "expected &str, got &[u8]")]
+#[case(
+    "n = f(&s[::2])",
+    "a slice view selects adjacent elements, so it takes no step"
+)]
+#[case(
+    "xs = [1, 2].unwrap()\nn = total(&xs[::2])",
+    "a slice view selects adjacent elements, so it takes no step"
 )]
 #[case(
     "mut xs = [1, 2].unwrap()\nbump(&mut xs[1:])",
@@ -353,10 +385,16 @@ fn views_at_owner_reference_parameters_name_the_mismatch(
     #[case] call: &str,
     #[case] expected: &str,
 ) {
-    let source = format!("{OWNER_PARAMETERS}{call}");
-    let error = support::check_diagnostic(&source);
+    let source = format!(
+        "{OWNER_PARAMETERS}    {}\n    Ok(())\n",
+        call.replace('\n', "\n    ")
+    );
+    let error = support::check_file_error(&source);
     assert!(error.contains(expected), "{source}\n{error}");
     assert!(!error.contains("use `?`"), "{source}\n{error}");
+    if call.contains("raw(") {
+        assert!(!error.contains("owned copy"), "{source}\n{error}");
+    }
 }
 
 /// Both remedies the mismatch diagnostic names compile (issue #802).
@@ -364,20 +402,36 @@ fn views_at_owner_reference_parameters_name_the_mismatch(
 fn view_mismatch_remedies_compile() {
     support::assert_stdout(
         r#"
+from std.bytes import Bytes, from_text
+
 def borrowed(s: &substr) -> i64:
     s.byte_len()
 
 def owned(s: &str) -> i64:
     s.byte_len()
 
+def listed(xs: &[i64]) -> i64:
+    len(xs)
+
+def whole(xs: &list[i64]) -> i64:
+    len(xs)
+
+def buffer(b: &Bytes) -> i64:
+    b.len()
+
 def main() -> Result[(), AllocError | IoError]:
     s = "hello"
     v = &s[1:]
     print(borrowed(&s[1:]), borrowed(s=&s[1:3]), borrowed(v), borrowed(&s))?
-    print(owned(s[1:]?), owned(s=s[1:3]?), owned(v[:]?))?
+    print(owned(s[1:]?), owned(s=s[1:3]?), owned(v[:]?), owned(v[1:]?))?
+    xs = [1, 2, 3]?
+    rows = &xs[:]
+    print(listed(&rows[1:]), whole(xs[1:]?))?
+    buf = from_text("abc")?
+    print(buffer(buf[1:]?))?
     Ok(())
 "#,
-        "4 2 4 5\n4 2 4\n",
+        "4 2 4 5\n4 2 4 3\n2 2\n2\n",
     );
 }
 

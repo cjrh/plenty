@@ -2689,34 +2689,10 @@ impl Lower<'_> {
                     .error("mutable reference arguments require explicit &mut borrowing or an existing exclusive reference"))
             }
         };
-        // A view cannot become the owner reference without a copy (issue #802).
-        if let Some(inner) = expected.as_ref().filter(|ty| !matches!(ty, Ty::View(..))) {
-            let view = match &ungroup(base).kind {
-                Expression::Slice(owner, _) if !std::ptr::eq(base, arg) => self
-                    .slice_view_type(owner, mutable)
-                    .map(|view| (view, false)),
-                Expression::Name(name) => match self.names.get(name) {
-                    Some(Local {
-                        ty: view @ Ty::View(..),
-                        ..
-                    }) => Some((view.clone(), true)),
-                    _ => None,
-                },
-                _ => None,
-            };
-            if let Some((view, named)) = view {
-                let copy = match (view == text_view(), named) {
-                    (true, false) => "`s[a:b]?`",
-                    (true, true) => "`v[:]?`",
-                    (false, false) => "`xs[a:b]?`",
-                    // A list view has no copying slice; copy from its owner.
-                    (false, true) => "`xs[a:b]?` from the owner",
-                };
-                let expected = Ty::Ref(Arc::new(inner.clone()), mutable);
-                return Err(arg
-                    .at
-                    .error(views::view_at_reference(&view, &expected, copy)));
-            }
+        if let Some(inner) = &expected
+            && let Some(message) = self.view_at_owner_reference(arg, base, inner, mutable)
+        {
+            return Err(arg.at.error(message));
         }
         if mutable {
             if let Some(expected) = &expected

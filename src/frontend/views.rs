@@ -19,24 +19,75 @@ pub(super) const OPERATIONS: &str = "a view supports `len(v)`, `v[i]`, `&v[a:b]`
 /// The operations a `&substr` supports, for diagnostics that reject others.
 pub(super) const TEXT_OPERATIONS: &str = "a `&substr` supports `len(v)`, `v.byte_len()`, `v[i]`, `&v[a:b]`, `v[a:b]?`, comparisons, `in`, `startswith`, `endswith`, `find`, `for c in v`, and `print(v)`; copy it to a `str` with `v[:]?` for other `str` methods";
 
+const STEPPED_VIEW: &str = "a slice view selects adjacent elements, so it takes no step; copy every k-th element with `xs[a:b:k]?`";
+
 pub(super) const RETURN: &str = "a function cannot return a slice view yet (backlog B11): a view borrows its owner only while the caller holds it; return the bounds, or an owned copy `xs[a:b]?`";
 
-/// Advice for a slice view passed where a reference parameter expects its
-/// owner type (issue #802). The view cannot become the reference without a
-/// copy, so name both remedies: a view parameter keeps the borrow, and the
-/// copy, which the parameter lends as a full-expression temporary, does not.
-pub(super) fn view_at_reference(view: &Ty, expected: &Ty, copy: &str) -> String {
-    let remedy = if matches!(view, Ty::View(_, true)) {
-        "to change the elements in place".to_owned()
-    } else {
-        format!("to borrow it without copying, or pass an owned copy, {copy}")
-    };
-    format!(
-        "this argument is a {view} view, but the parameter takes {expected}; declare the parameter `{view}` {remedy}"
-    )
-}
-
 impl Lower<'_> {
+    /// Advice for a view argument at a reference parameter whose type is
+    /// the view's owner type, `&str`, `&list[T]`, `&bytes`, or `&Bytes`
+    /// (issue #802). The view cannot become that reference without a copy,
+    /// so name the view parameter that keeps the borrow and, where one
+    /// compiles, the owned copy that the call lends as a temporary. A view
+    /// of another type is a plain type mismatch, and a stepped slice reports
+    /// the step as [`Self::slice_view`] does.
+    pub(super) fn view_at_owner_reference(
+        &self,
+        arg: &Expr,
+        base: &Expr,
+        inner: &Ty,
+        mutable: bool,
+    ) -> Option<String> {
+        let (view, named, of_view) = match &ungroup(base).kind {
+            Expression::Slice(owner, bounds) if !std::ptr::eq(base, arg) => {
+                let view = self.slice_view_type(owner, mutable)?;
+                if bounds.step.is_some() {
+                    return Some(STEPPED_VIEW.to_owned());
+                }
+                let of_view = matches!(self.place_type(owner), Some(Ty::View(..)));
+                (view, false, of_view)
+            }
+            Expression::Name(name) => match &self.names.get(name)?.ty {
+                view @ Ty::View(..) => (view.clone(), true, true),
+                _ => return None,
+            },
+            _ => return None,
+        };
+        let text = view == text_view();
+        let Ty::View(element, _) = &view else {
+            unreachable!()
+        };
+        let expected = Ty::Ref(Arc::new(inner.clone()), mutable);
+        let owner_view = match inner {
+            Ty::Str if text => text_view(),
+            Ty::List(wanted) if !text && wanted == element => Ty::View(element.clone(), mutable),
+            Ty::ByteStr if **element == Ty::U8 && !mutable => view.clone(),
+            owner if **element == Ty::U8 && byte_buffers::byte_buffer(owner).is_some() => {
+                Ty::View(element.clone(), mutable)
+            }
+            // Name the view rather than the copy the argument would otherwise
+            // be lowered to.
+            _ => return Some(format!("expected {expected}, got {view}")),
+        };
+        // A slice of `bytes` or of a byte view copies to `Bytes`, not `bytes`.
+        let copy = match (text, named, of_view) {
+            _ if mutable || *inner == Ty::ByteStr => None,
+            (true, true, _) => Some("`v[:]?`"),
+            (true, false, _) => Some("`s[a:b]?`"),
+            // A list or byte view has no copying slice; copy from its owner.
+            (false, _, true) => Some("`xs[a:b]?` from the list or buffer the view borrows"),
+            (false, _, false) => Some("`xs[a:b]?`"),
+        };
+        let remedy = match copy {
+            Some(copy) => format!("to borrow it without copying, or pass an owned copy, {copy}"),
+            None if mutable => "to change the elements in place".to_owned(),
+            None => "to borrow it without copying".to_owned(),
+        };
+        Some(format!(
+            "this argument is a {view} view, but the parameter takes {expected}; declare the parameter `{owner_view}` {remedy}"
+        ))
+    }
+
     /// The view type `&base[a:b]` (or `&mut`) borrows, when `base` is an
     /// owner that [`Self::slice_view`] accepts.
     pub(super) fn slice_view_type(&self, base: &Expr, mutable: bool) -> Option<Ty> {
@@ -73,9 +124,7 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, usize)> {
         if let Some(step) = &bounds.step {
-            return Err(step.at.error(
-                "a slice view selects adjacent elements, so it takes no step; copy every k-th element with `xs[a:b:k]?`",
-            ));
+            return Err(step.at.error(STEPPED_VIEW));
         }
         // `&b"abc"[1:]` views static data, as `&b"abc"` does at a `&[u8]`
         // parameter; `&mut` still reports that a literal is read-only.
