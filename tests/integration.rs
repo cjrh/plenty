@@ -423,6 +423,8 @@ mod test_reference_rebinding;
 mod test_reference_tail_calls;
 #[path = "test_release_stores.rs"]
 mod test_release_stores;
+#[path = "test_relocate.rs"]
+mod test_relocate;
 #[path = "test_result_handling.rs"]
 mod test_result_handling;
 #[path = "test_retained_job_errors.rs"]

@@ -737,3 +737,149 @@ fn warnings_are_published_with_warning_severity_and_their_lint_name() {
     );
     client.exit();
 }
+
+#[test]
+fn a_declaration_moves_through_a_resolved_code_action() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(
+        &root.join("plenty.toml"),
+        "manifest-version = 1\n\n[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+    );
+    let shapes = root.join("src/shapes.plenty");
+    let geometry = root.join("src/geometry.plenty");
+    let main = root.join("src/main.plenty");
+    write(&shapes, "pub def one() -> i64:\n    1\n");
+    write(&geometry, "pub def two() -> i64:\n    2\n");
+    write(
+        &main,
+        "import shapes\n\ndef main() -> ():\n    x = shapes.one()\n",
+    );
+    let mut client = Client::start(&root.join("cache"));
+    assert_eq!(client.open(&shapes), json!([]));
+    // The unsaved text is what moves.
+    client.notify(
+        "textDocument/didChange",
+        json!({"textDocument": {"uri": uri(&shapes), "version": 2},
+            "contentChanges": [{"text": "pub def one() -> i64:\n    3\n"}]}),
+    );
+    let actions = client.request(
+        "textDocument/codeAction",
+        json!({"textDocument": {"uri": uri(&shapes)},
+            "range": {"start": {"line": 1, "character": 4}, "end": {"line": 1, "character": 4}},
+            "context": {"diagnostics": []}}),
+    );
+    let titles: Vec<&str> = actions
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["title"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "Move `one` to module `geometry`",
+            "Move `one` to module `main`"
+        ]
+    );
+    let resolved = client.request("codeAction/resolve", actions[0].clone());
+    let changes = &resolved["edit"]["changes"];
+    assert_eq!(
+        changes[uri(&geometry)],
+        json!([{"range": {"start": {"line": 2, "character": 0}, "end": {"line": 2, "character": 0}},
+            "newText": "\npub def one() -> i64:\n    3\n"}])
+    );
+    assert_eq!(
+        changes[uri(&shapes)],
+        json!([{"range": {"start": {"line": 0, "character": 0}, "end": {"line": 2, "character": 0}},
+            "newText": ""}])
+    );
+    assert_eq!(
+        changes[uri(&main)],
+        json!([
+            {"range": {"start": {"line": 0, "character": 0}, "end": {"line": 1, "character": 0}},
+                "newText": ""},
+            {"range": {"start": {"line": 1, "character": 0}, "end": {"line": 1, "character": 0}},
+                "newText": "import geometry\n"},
+            {"range": {"start": {"line": 3, "character": 8}, "end": {"line": 3, "character": 18}},
+                "newText": "geometry.one"},
+        ])
+    );
+    // Moving into `main` is also allowed: `shapes.one()` becomes `one()`.
+    let into_main = client.request("codeAction/resolve", actions[1].clone());
+    assert!(into_main["edit"]["changes"][uri(&main)].is_array());
+    // A refused move is a request error, and nothing is edited.
+    client.open(&geometry);
+    client.notify(
+        "textDocument/didChange",
+        json!({"textDocument": {"uri": uri(&geometry), "version": 2},
+            "contentChanges": [{"text": "pub def one() -> i64:\n    2\n"}]}),
+    );
+    client.next += 1;
+    let id = client.next;
+    client.send(
+        json!({"jsonrpc": "2.0", "id": id, "method": "codeAction/resolve",
+        "params": actions[0].clone()}),
+    );
+    let reply = loop {
+        let message = client.receive();
+        if message["id"] == id {
+            break message;
+        }
+    };
+    assert_eq!(reply["error"]["code"], -32803, "{reply}");
+    assert!(
+        reply["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("`geometry` already declares `one`"),
+        "{reply}"
+    );
+    // A client without change annotations is told about API changes.
+    client.notify(
+        "textDocument/didChange",
+        json!({"textDocument": {"uri": uri(&shapes), "version": 3},
+            "contentChanges": [{"text": "def base() -> i64:\n    3\n\npub def one() -> i64:\n    base()\n"}]}),
+    );
+    client.notify(
+        "textDocument/didChange",
+        json!({"textDocument": {"uri": uri(&geometry), "version": 3},
+            "contentChanges": [{"text": "pub def two() -> i64:\n    2\n"}]}),
+    );
+    let actions = client.request(
+        "textDocument/codeAction",
+        json!({"textDocument": {"uri": uri(&shapes)},
+            "range": {"start": {"line": 3, "character": 0}, "end": {"line": 3, "character": 0}},
+            "context": {"diagnostics": []}}),
+    );
+    client.next += 1;
+    let id = client.next;
+    client.send(
+        json!({"jsonrpc": "2.0", "id": id, "method": "codeAction/resolve",
+        "params": actions[0].clone()}),
+    );
+    let mut shown = None;
+    loop {
+        let message = client.receive();
+        if message["method"] == "window/showMessage" {
+            shown = message["params"]["message"].as_str().map(str::to_owned);
+        }
+        if message["id"] == id {
+            assert!(message["result"]["edit"].is_object(), "{message}");
+            break;
+        }
+    }
+    assert_eq!(
+        shown.as_deref(),
+        Some("makes `shapes.base` public, because the moved code uses it")
+    );
+    // Outside a declaration there is nothing to move.
+    let none = client.request(
+        "textDocument/codeAction",
+        json!({"textDocument": {"uri": uri(&main)},
+            "range": {"start": {"line": 1, "character": 0}, "end": {"line": 1, "character": 0}},
+            "context": {"diagnostics": []}}),
+    );
+    assert_eq!(none, json!([]));
+    client.exit();
+}

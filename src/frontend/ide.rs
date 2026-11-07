@@ -14,6 +14,8 @@ use super::*;
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 
+pub mod relocate;
+
 thread_local! {
     static ACTIVE: Cell<bool> = const { Cell::new(false) };
     static RECORDER: RefCell<Recorder> = RefCell::new(Recorder::default());

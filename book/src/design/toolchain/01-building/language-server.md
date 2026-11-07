@@ -14,6 +14,7 @@ is the supported editor; see [Neovim support](neovim.md) for its setup.
 | Go to definition | The declaration's name, in the same file, another module, a dependency, or `std` |
 | Inlay hints | Inferred types after unannotated simple local binding names, when the current check succeeds |
 | Completion | Names in scope and keywords; fields, methods, enum variants, and module members after `.` |
+| Code actions | `refactor.move`: move a top-level declaration to another module of the package, previewed before it is applied |
 
 Hover and definition work on functions, methods, classes, enums, enum
 variants, protocols, fields, constants, type aliases, imported names, modules
@@ -53,6 +54,56 @@ Hint positions are immediately after the binding name, within the requested
 half-open range, using the negotiated UTF-8, UTF-16 (default), or UTF-32
 position encoding. Hint requests reuse the document's analysis; a pending edit
 is checked first, just as for hover. No parameter-name hints are provided.
+
+## Moving a declaration to another module
+
+On the line of a top-level `def`, `class`, `enum`, `protocol`, `const`, or
+`type`, the server offers one **Move `NAME` to module `MODULE`** action for
+each other module in the same `src/` directory. Choosing one resolves the
+action into a workspace edit; an editor that previews edits shows every file
+before applying any. The edit is computed from the unsaved text of open files.
+
+The move:
+
+- carries the declaration's docstring and the comment lines
+  directly above it, and appends it to the destination after a blank line;
+- copies the imports the moved code uses, and removes them from the source
+  when nothing else there uses them;
+- imports the source module's declarations that the moved code still uses,
+  and names the destination's own declarations directly;
+- rewrites every caller in the package's `src/` and `tests/` files, and in
+  workspace members that depend on it: `from` imports, aliases, and qualified
+  names (`shapes.Point` becomes `geometry.Point`), adding or removing `import`
+  lines as needed;
+- adds `pub` to the moved declaration, or to a source declaration it uses,
+  when another module now needs it.
+
+Changes to a package's API are listed with the edit: a declaration made
+public, and a public library declaration whose import path changes, since
+packages outside the workspace that import it must change. When the client
+supports change annotations, these edits carry an annotation that needs
+confirmation; otherwise the server shows the changes in a warning message.
+
+Before answering, the server checks the whole package with the edits applied.
+A move is refused, with nothing edited and the reason returned as a request
+error, when:
+
+- the file is not in a package, or the destination is not another module in
+  the same `src/` directory;
+- the line is not a supported declaration: `extern`, `opaque`, `dimension`, and
+  `if const` blocks are refused;
+- the package does not check before the move;
+- the destination already declares or imports the name, or an import binding
+  would conflict;
+- an import that must be rewritten carries a comment, or a touched file has an
+  indented import;
+- a use of the declaration has a form the move cannot rewrite;
+- the moved code needs the source module and the source needs the moved code,
+  so the two modules would import each other;
+- the package would not check after the move, for example because of a
+  circular import or a private name the destination cannot reach;
+- a file reached by a target or test before the move would no longer be
+  reached, unless it is left with only imports and comments.
 
 ## How a file is checked
 
@@ -95,7 +146,9 @@ differs.
 - Each check reads the whole program again; there is no incremental reuse
   between checks. A program importing `std.http.server`, `std.json`, and five
   other large `std` modules checks in about 0.2 s with a release build.
-- Find references, document symbols, and signature help are not implemented.
+- Find references, rename, document symbols, and signature help are not
+  implemented. Moving a declaration is the only refactoring; it checks the
+  package twice, so it takes about as long as two checks of every file.
 - A message body that is not valid JSON is answered with a `-32700` parse
   error and the session continues. A header without a valid `Content-Length`
   leaves the stream unframed, so the server exits as if the input had ended.

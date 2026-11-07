@@ -54,7 +54,8 @@ vim.api.nvim_create_autocmd('LspAttach', {
 `K` shows the hover. `gd` goes to the definition, into a read-only copy of a
 `std` module when the definition is there; `CTRL-]` does the same through
 Neovim's default LSP tag function. Errors appear as diagnostics; `]d` and `[d`
-move between them. Completion triggers after `.` and with `CTRL-X CTRL-O`.
+move between them. `gra` lists code actions, including
+[moving a declaration to another module](language-server.md#moving-a-declaration-to-another-module). Completion triggers after `.` and with `CTRL-X CTRL-O`.
 With nvim-cmp instead of the built-in completion, leave out the
 `vim.lsp.completion.enable` line and add the `nvim_lsp` source.
 
