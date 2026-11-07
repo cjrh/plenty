@@ -196,6 +196,10 @@ pub const LIMIT: i64 = 3
         "\
 from limits import LIMIT
 
+# An import in an arm, which no move rewrites.
+if const target.os == \"windows\":
+    import std.path
+
 # The comprehension binds its own `LIMIT`.
 pub def firsts(n: i64) -> Result[list[i64], AllocError]:
     [LIMIT for LIMIT in range(n)]
@@ -374,6 +378,32 @@ fn write(dir: &Path, files: &Files) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, text).unwrap();
     }
+}
+
+/// `files` with the target names `\"windows\"` and `\"linux\"` exchanged in
+/// every source file, so `plenty check` on this machine checks the arms it
+/// would otherwise skip.
+fn swapped(files: &Files) -> Files {
+    files
+        .iter()
+        .map(|(path, text)| {
+            let text = if path.ends_with(".plenty") || path.ends_with(".plentyi") {
+                text.replace("\"windows\"", "\u{0}")
+                    .replace("\"linux\"", "\"windows\"")
+                    .replace('\u{0}', "\"linux\"")
+            } else {
+                text.clone()
+            };
+            (path.clone(), text)
+        })
+        .collect()
+}
+
+/// Whether `plenty check` accepts `files`.
+fn checks(files: &Files) -> Result<(), String> {
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), files);
+    warnings(dir.path()).map(|_| ())
 }
 
 /// What `plenty run` and, with tests, `plenty test` print in `dir`.
@@ -640,6 +670,9 @@ struct Counts {
     round_trips: usize,
     /// Round trips that give back the original text exactly.
     exact_round_trips: usize,
+    /// Applied moves, and inexact texts moved back, checked again with the
+    /// other target's arms selected.
+    swapped_checks: usize,
 }
 
 struct Applied {
@@ -668,6 +701,10 @@ fn every_move(fixture: &[(&str, &str)], package: &str, tests: bool) -> Report {
     write(&root, &original);
     let output = behaviour(&root, tests).unwrap();
     let warned = warnings(&root).unwrap();
+    // A fixture with `if const` blocks whose other arms check is checked
+    // again after each move with those arms selected.
+    let swap = original.values().any(|text| text.contains("if const"))
+        && checks(&swapped(&original)).is_ok();
     let on_disk = listing(&root);
     let stable = |message: &str| {
         message
@@ -737,6 +774,9 @@ fn every_move(fixture: &[(&str, &str)], package: &str, tests: bool) -> Report {
     // Planning reads the files and never writes or creates one.
     assert_eq!(listing(&root), on_disk);
 
+    if swap {
+        counts.swapped_checks = applied.len();
+    }
     // Build and run each applied move in its own copy, a few at a time.
     let queue = Mutex::new(applied.into_iter());
     let found = Mutex::new(vec![]);
@@ -752,7 +792,16 @@ fn every_move(fixture: &[(&str, &str)], package: &str, tests: bool) -> Report {
                     let expected = expected_output(&output, &moved.api_changes);
                     let failure = match behaviour(copy.path(), tests) {
                         Ok(actual) if actual == expected => match warnings(copy.path()) {
-                            Ok(after) if after == warned => continue,
+                            Ok(after) if after == warned => match swap {
+                                false => continue,
+                                true => match checks(&swapped(&moved.files)) {
+                                    Ok(()) => continue,
+                                    Err(error) => format!(
+                                        "{}: with the other arms selected: {error}",
+                                        moved.label
+                                    ),
+                                },
+                            },
                             Ok(after) => {
                                 format!("{}: warned {after:?}, not {warned:?}", moved.label)
                             }
@@ -793,6 +842,7 @@ fn every_move_in_a_package_with_shadowed_names_keeps_its_output() {
             refused: 15,
             round_trips: 18,
             exact_round_trips: 5,
+            swapped_checks: 0,
         },
         r##"`SCALE` from src/geometry.plenty to src/main.plenty: after moving `SCALE`, the package would not check: src/main.plenty:1:1: src/geometry.plenty:2:1: circular import: src/main.plenty -> src/geometry.plenty -> src/main.plenty
 `SCALE` from src/geometry.plenty to src/report.plenty: after moving `SCALE`, the package would not check: src/main.plenty:1:1: src/geometry.plenty:2:1: src/report.plenty:1:1: circular import: src/geometry.plenty -> src/report.plenty -> src/geometry.plenty
@@ -928,6 +978,7 @@ fn every_move_in_a_package_with_nested_crlf_modules_keeps_its_output() {
             refused: 12,
             round_trips: 5,
             exact_round_trips: 1,
+            swapped_checks: 0,
         },
         r##"`version` from src/lib.plenty to src/main.plenty: `lib` is the package's library, which tests and other packages import under the package name; moving declarations out of it is not supported
 `version` from src/lib.plenty to src/text/format.plenty: `lib` is the package's library, which tests and other packages import under the package name; moving declarations out of it is not supported
@@ -988,14 +1039,15 @@ fn every_move_in_a_package_with_aliases_protocols_and_conditionals_keeps_its_out
             refused: 20,
             round_trips: 24,
             exact_round_trips: 3,
+            swapped_checks: 59,
         },
         r##"`firsts` from src/calc.plenty to src/lib.plenty: back refused: `lib` is the package's library, which tests and other packages import under the package name; moving declarations out of it is not supported
 `clamp` from src/calc.plenty to src/lib.plenty: back refused: `lib` is the package's library, which tests and other packages import under the package name; moving declarations out of it is not supported
 `cap` from src/calc.plenty to src/lib.plenty: back refused: `lib` is the package's library, which tests and other packages import under the package name; moving declarations out of it is not supported
-`platform` from src/calc.plenty to src/lib.plenty: src/calc.plenty:19: `platform` has an `if const` block, whose unselected arms the move cannot check
-`platform` from src/calc.plenty to src/limits.plenty: src/calc.plenty:19: `platform` has an `if const` block, whose unselected arms the move cannot check
-`platform` from src/calc.plenty to src/main.plenty: src/calc.plenty:19: `platform` has an `if const` block, whose unselected arms the move cannot check
-`platform` from src/calc.plenty to src/shapes.plenty: src/calc.plenty:19: `platform` has an `if const` block, whose unselected arms the move cannot check
+`platform` from src/calc.plenty to src/lib.plenty: src/calc.plenty:23: `platform` has an `if const` block, whose unselected arms the move cannot check
+`platform` from src/calc.plenty to src/limits.plenty: src/calc.plenty:23: `platform` has an `if const` block, whose unselected arms the move cannot check
+`platform` from src/calc.plenty to src/main.plenty: src/calc.plenty:23: `platform` has an `if const` block, whose unselected arms the move cannot check
+`platform` from src/calc.plenty to src/shapes.plenty: src/calc.plenty:23: `platform` has an `if const` block, whose unselected arms the move cannot check
 `version` from src/lib.plenty to src/calc.plenty: `lib` is the package's library, which tests and other packages import under the package name; moving declarations out of it is not supported
 `version` from src/lib.plenty to src/limits.plenty: `lib` is the package's library, which tests and other packages import under the package name; moving declarations out of it is not supported
 `version` from src/lib.plenty to src/main.plenty: `lib` is the package's library, which tests and other packages import under the package name; moving declarations out of it is not supported
@@ -1228,6 +1280,7 @@ fn every_move_in_a_workspace_library_keeps_its_dependents_output() {
             refused: 6,
             round_trips: 3,
             exact_round_trips: 1,
+            swapped_checks: 0,
         },
         r##"`Color` from tools/src/colors.plenty to tools/src/lib.plenty: after moving `Color`, the package would not check: tools/src/lib.plenty:1:1: tools/src/shapes.plenty:1:1: tools/src/colors.plenty:1:1: circular import: tools/src/lib.plenty -> tools/src/shapes.plenty -> tools/src/colors.plenty -> tools/src/lib.plenty
 `Color` from tools/src/colors.plenty to tools/src/shapes.plenty: after moving `Color`, the package would not check: tools/src/lib.plenty:1:1: tools/src/shapes.plenty:1:1: tools/src/colors.plenty:1:1: circular import: tools/src/shapes.plenty -> tools/src/colors.plenty -> tools/src/shapes.plenty
