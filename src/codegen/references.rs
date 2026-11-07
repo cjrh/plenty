@@ -104,16 +104,22 @@ impl Lowerer<'_, '_> {
     /// Cranelift does not narrow a dead half of an `i128` load, so each read
     /// would keep a second load (issue #844). Wide values, scalars and flat
     /// records keep [`read_typed_reference`](Self::read_typed_reference).
+    ///
+    /// Only reads that unpack at once may use this. `WriteRef` releases the
+    /// old value packed and must keep the full-slot read: releasing a closure
+    /// or generator, whose native value is also one word, uses the high word.
     pub(super) fn read_unpacked_reference(
         &mut self,
         reference: NativeValue,
         ty: &Ty,
     ) -> NativeValue {
         let base = ty.newtype_base();
+        // Exactly the types `unpack` reduces to the low word with
+        // `raw_word`: a two-word native type (wide, reference, view) is not
+        // `I64`, and quantities unpack through their storage. Scalars and
+        // flat records are read by `read_typed_reference`'s own paths.
         let one_word = !(base.is_numeric() || *base == Ty::Bool)
             && !ty.flat_field()
-            && !ty.wide()
-            && !matches!(ty, Ty::Ref(..) | Ty::View(..))
             && ty.quantity_storage().is_none()
             && clif_type(ty.clone()) == types::I64;
         if one_word {
