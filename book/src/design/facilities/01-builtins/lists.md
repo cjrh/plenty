@@ -236,11 +236,36 @@ For example, a negating key declares
 One-shot and mutable-call closures and reference-valued keys are unsupported.
 Elements are moved by row exchange, with no copying or early destruction.
 
+`items.sort_stable_by_key(key) -> Result[(), AllocError]` takes the same keys
+and the same optional `descending` flag as `sort_by_key`, and keeps elements with equal
+keys in their original relative order, including in descending order. Records
+ordered by a timestamp need no position tie breaker. `Timestamp` is not itself
+a key; use the tuple `(t.seconds, t.nanoseconds)`, which orders the same way.
+Workspace is the cost of stability: a single scratch block of `floor(n / 2)`
+rows is reserved before any row moves. If that allocation fails the list is
+unchanged and the call returns `AllocError`. Input already in key order is
+detected with `n - 1` comparisons and returns without allocating or moving.
+Otherwise a top-down merge sort uses insertion sort for runs of at most 16
+rows, skips merging two runs already in order, and takes O(n log n)
+comparisons, each computing two keys, plus O(log n) stack. The scratch block
+is freed before the call returns. Moves into and out of scratch repair inline
+addresses, and every element stays owned exactly once, even when a key is
+inconsistent; an inconsistent key yields an unspecified order.
+A key returning `Result[K, E]` makes the result `Result[(), AllocError | E]`,
+or `Result[(), AllocError]` when `E` is `AllocError`. As with `sort_by_key`,
+the first key error stops further key calls, the runtime finishes its safe
+moves, and the call returns that error; the list may be partly reordered.
+On allocation failure the list is unchanged, but the ordered-input check may
+already have called the key. The two errors never occur together: the
+allocation is attempted only after that check finds an out-of-order pair, and
+after a key error every comparison reports equal, so the check cannot find one.
+
 `sorted(items) -> Result[list[T], AllocError]` observes a list and explicitly
 copies it before sorting by natural order. `sorted(items, True)` gives a
 descending copy. The source survives either result; the element type must
 support copying and natural ordering. For key ordering of a copy, use
-`mut result = copy(items)?` followed by `result.sort_by_key(key)`.
+`mut result = copy(items)?` followed by `result.sort_by_key(key)` or
+`result.sort_stable_by_key(key)?`.
 User-defined comparison functions and class ordering protocols are unsupported.
 
 `items.extend(other) -> Result[(), AllocError]` consumes a same-typed owned list
@@ -274,7 +299,10 @@ slice, one for an empty owner.
 
 ## Sorting design alternatives
 
-[User-defined ordering](../../../proposals/user-type-ordering.md) and
-[Timsort](../../../proposals/timsort.md) are unimplemented proposals for
-comparison semantics and stable sorting respectively. They do not change
-the current sorting contract above.
+[User-defined ordering](../../../proposals/user-type-ordering.md) is an
+unimplemented proposal for comparison semantics. The
+[Timsort proposal](../../../proposals/timsort.md) records the stable-sort
+alternatives; `sort_stable_by_key` implements its explicit stable key sort with
+a plain merge sort, without Timsort's run detection or galloping. Natural-order
+`sort` has no stable form because elements that compare equal are
+indistinguishable.

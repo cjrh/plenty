@@ -2619,6 +2619,37 @@ pub(crate) unsafe extern "C" fn plenty_list_sort_by(
     }
 }
 
+/// Narrow ABI: stably sort a live, exclusively borrowed list by a generated
+/// key comparator, as [`plenty_list_sort_by`] does, and return the high word
+/// of `Result[(), AllocError]`. Merge workspace is reserved before any row
+/// moves, so an allocation failure leaves the list unchanged.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_list_sort_stable_by(
+    owner: *mut u8,
+    compare: KeyOrder,
+    environment: *const u128,
+    descending: i64,
+) -> u64 {
+    // SAFETY: as for `plenty_list_sort_by`.
+    let sorted = unsafe {
+        let entries = &mut (*owner.cast::<Collection>()).entries;
+        entries.sort_stable_rows_by(|a, b| {
+            let order = {
+                let _caller = crate::CallerScope::save();
+                compare(environment, &a, &b).cmp(&0)
+            };
+            // Reversing the comparison, not the output, keeps equal rows in
+            // input order when descending.
+            if descending != 0 {
+                order.reverse()
+            } else {
+                order
+            }
+        })
+    };
+    (byte_storage::result(sorted.map(|()| 0)) >> 64) as u64
+}
+
 /// Returns the low 64 payload bits of an integer, float, or boolean list row.
 /// No pointer into the buffer escapes, including across later growing mutations.
 /// Generated code reads a borrowed list's rows inline (issue #509); this
