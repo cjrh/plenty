@@ -317,8 +317,8 @@ pub enum Wait {
 }
 
 /// Types that a job accepted by a pool can block on: the message types of
-/// the senders it holds and can wait to send on, and the guarded types of
-/// the mutexes it can lock.
+/// the senders it holds unless it cannot wait for anything, and the guarded
+/// types of the mutexes it can lock.
 #[derive(Clone, Debug, PartialEq)]
 enum Hazard {
     Sends(Ty),
@@ -1507,23 +1507,19 @@ impl Checker<'_, '_> {
     }
 
     /// Reject a join while this function retains the opposite endpoint of a
-    /// queue type that the worker can wait on.
+    /// queue type the worker can hold, unless the worker cannot wait.
     fn join(&self, task: &Task, state: &State, site: Option<Site>, automatic: bool) -> Result<()> {
         let waits = std::cell::OnceCell::new();
         let blocked = |worker_sends| {
-            // A worker whose operations on a queue's type cannot wait, such
-            // as `send_nowait`, finishes without the opposite endpoint's drop.
-            let waits = waits.get_or_init(|| self.program.task_blocking(task));
-            let messages: Vec<Ty> = endpoints(task.inputs.iter().cloned(), worker_sends, true)
-                .into_iter()
-                .filter(|message| {
-                    if worker_sends {
-                        waits.sends(message)
-                    } else {
-                        waits.receives(message)
-                    }
-                })
-                .collect();
+            // A worker that cannot wait for anything, using only operations
+            // such as `send_nowait`, finishes without the opposite endpoint's
+            // drop. Any other wait counts: it can be on a thread that is
+            // blocked on this queue.
+            let messages: Vec<Ty> = if *waits.get_or_init(|| self.program.task_waits(task)) {
+                endpoints(task.inputs.iter().cloned(), worker_sends, true)
+            } else {
+                Vec::new()
+            };
             let kind = |message| Kind::BlockedJoin {
                 message,
                 worker_sends,

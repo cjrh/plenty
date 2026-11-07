@@ -8,10 +8,9 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 ## Joins with nonblocking workers (issue #793)
 
 A join, pool shutdown, or result wait is no longer rejected for a live opposite
-endpoint when the worker or job cannot wait on that message type's queues: its
-code, including helpers, destructors, and workers it starts, uses only
-`send_nowait`, `recv_nowait`, and `select_recv_nowait` there. Timed operations
-and calls through values still count as waits. [Which workers can
+endpoint when the worker or job cannot wait for anything: its code, including
+helpers, destructors, and workers it starts, makes no blocking or timed wait on
+any queue, lock, future, or pool. Calls through values still count as waits. [Which workers can
 wait](../design/facilities/03-concurrency/channels.md#which-workers-can-wait)
 documents the rule.
 

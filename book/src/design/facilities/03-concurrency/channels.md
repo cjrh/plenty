@@ -46,14 +46,14 @@ the last receiver. A join that waits for such a worker while the joining
 function keeps a receiver alive, and does not receive, never returns. The
 compiler therefore rejects a join that could wait this way:
 
-> A scoped task whose worker can hold `Sender[T]` and can wait to send a `T`
-> cannot be joined while a live binding of the joining function can hold
-> `Receiver[T]`.
+> A scoped task whose worker can hold `Sender[T]` cannot be joined while a
+> live binding of the joining function can hold `Receiver[T]`.
 >
-> Likewise, a worker that can hold `Receiver[T]` and can wait to receive a `T`
-> cannot be joined while a live binding of the joining function can hold
-> `Sender[T]`: an empty queue could leave the worker waiting forever for a
-> message or the last sender's drop.
+> Likewise, a worker that can hold `Receiver[T]` cannot be joined while a live
+> binding of the joining function can hold `Sender[T]`: an empty queue could
+> leave the worker waiting forever for a message or the last sender's drop.
+>
+> Neither applies to a worker that [cannot wait](#which-workers-can-wait).
 
 The rule applies to `task.join()` and to the automatic join on every exit from
 the task's `with` block: its end, `return`, `?`, `break`, `continue`, and the
@@ -136,13 +136,21 @@ see [shutdown](executors.md#shutdown-and-live-receivers) and
 
 ### Which workers can wait
 
-A worker *can wait* to send a `T` if code it can run calls `send(value)` or
-`send_timeout_ms` on a `Sender[T]`, and to receive a `T` if that code calls
-`recv()`, `recv_timeout_ms`, or a blocking or timed `select_recv` on a
-`Receiver[T]`. A timeout bounds the wait, but the bound can be arbitrarily long.
-Only `send_nowait`, `recv_nowait`, and `select_recv_nowait` never wait, so a
-worker that uses only these on a queue's message type is joined while the
-function keeps the opposite endpoint:
+A worker *can wait* if code it can run makes any blocking or timed wait, on any
+queue or lock:
+
+- `send(value)`, `send_timeout_ms`, `recv()`, `recv_timeout_ms`, or a blocking
+  or timed `select_recv`, whatever the message type;
+- `lock()` on any mutex;
+- a blocking `pool.submit`, `future.result()`, a timed future wait, a pool
+  shutdown, or a parallel map or reduce.
+
+A timeout bounds the wait, but the bound can be arbitrarily long. A wait on
+another queue or a lock counts because the thread it waits for could itself be
+blocked on the queue the joining function holds. Only `send_nowait`,
+`recv_nowait`, `select_recv_nowait`, and `submit_nowait` never wait, so a
+worker that uses only these is joined while the function keeps the opposite
+endpoint:
 
 ```plenty
 def notify(sender: Sender[i64]) -> ():
@@ -173,7 +181,8 @@ The code a worker can run includes:
 
 A call through a `Callable`, a boxed callable, or a protocol box, a held
 boxed value or generator, and a function without a body to inspect, such as
-one compiled elsewhere, count as waits on every message type.
+one compiled elsewhere, count as waits. Other blocking, such as reading a
+socket or sleeping, does not.
 
 ### What can hold an endpoint
 
@@ -234,6 +243,8 @@ count messages. These safe programs are rejected:
 - the live receiver belongs to a different queue of the same message type;
 - the worker sends only with `send_timeout_ms`, or its blocking sends always
   fit the queue's capacity, or run only on paths the program never takes;
+- the worker's only waits are on other queues or locks that no thread blocked
+  on this queue holds;
 - another thread also receives from the queue;
 - the receiver's caller-side owner would have received.
 
@@ -249,8 +260,6 @@ The rule is not a deadlock-freedom guarantee. It does not cover:
 - endpoints held by the function's callers through bindings it was not passed;
 - a worker that retries a `nowait` operation until it succeeds, which waits
   without blocking;
-- a worker that waits for another thread, through a lock or a queue of another
-  message type, while that thread waits on a queue the function holds;
 - a worker blocked for any other reason.
 
 Dropping or guarding the surviving endpoints removes the rejection. Workers

@@ -1,8 +1,9 @@
 //! Issue #793: a worker, or pool job, that holds an endpoint but cannot wait
-//! on its queue does not block a join or shutdown while the joining function
-//! keeps the opposite endpoint. Only `send_nowait`, `recv_nowait`, and nowait
-//! selection are nonblocking; helpers, destructors, started workers, and
-//! calls through values count.
+//! for anything does not block a join or shutdown while the joining function
+//! keeps the opposite endpoint. Only `send_nowait`, `recv_nowait`, nowait
+//! selection, and `submit_nowait` never wait; any other wait counts, on any
+//! queue or lock, through helpers, destructors, started workers, and calls
+//! through values.
 mod support;
 
 const NOTIFY: &str = "def notify(sender: Sender[i64]) -> ():
@@ -30,7 +31,7 @@ fn runs(source: &str, expected: &str) {
 }
 
 fn rejected(source: &str, expected: &str) {
-    let source = format!("{NOTIFY}{source}");
+    let source = format!("from std.sync import Mutex\n{NOTIFY}{source}");
     let error = support::check_source(&source).unwrap_err().to_string();
     assert!(error.contains(expected), "{source}\n{error}");
 }
@@ -215,4 +216,57 @@ def main() -> ():
             expected,
         );
     }
+}
+
+#[test]
+fn a_worker_that_waits_on_anything_else_keeps_the_endpoint_rule() {
+    // The worker's own queue operations never wait, but it can wait for a
+    // third thread that is itself blocked on the function's receiver.
+    const SEND: &str = "could block the worker's send";
+    for worker in [
+        // Another queue: its producer could be sending on `sender`'s queue.
+        "def worker(sender: Sender[i64], inbox: Receiver[bool]) -> ():
+    notify(sender)
+    drop(inbox.recv())
+",
+        // A lock: its holder could be sending on `sender`'s queue.
+        "def worker(sender: Sender[i64], inbox: Receiver[bool]) -> ():
+    notify(sender)
+    drop(inbox.recv_nowait())
+    cell = Mutex[i64](0)
+    with cell.lock() as value:
+        *value = 1
+",
+        // A blocking submit waits for space in a pool's queue.
+        "def worker(sender: Sender[i64], inbox: Receiver[bool]) -> ():
+    drop(inbox.recv_nowait())
+    with ThreadPoolExecutor(1, 1).unwrap() as pool:
+        drop(pool.submit(notify, sender))
+",
+    ] {
+        rejected(
+            &format!(
+                "{worker}def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    outbox, inbox = channel[bool](1).unwrap()
+    with spawn(worker, sender, inbox).unwrap():
+        pass
+"
+            ),
+            SEND,
+        );
+    }
+    // A pool job that waits on another queue keeps the shutdown rule.
+    rejected(
+        "def forward(sender: Sender[i64], inbox: Receiver[bool]) -> ():
+    notify(sender)
+    drop(inbox.recv())
+def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    outbox, inbox = channel[bool](1).unwrap()
+    with ThreadPoolExecutor(1, 1).unwrap() as pool:
+        future = pool.submit(def once [sender, inbox]() -> (): forward(sender, inbox)).unwrap()
+",
+        "could block the job's send",
+    );
 }
