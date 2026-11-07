@@ -22,13 +22,12 @@ code. A check that fails reports only its errors.
 There is no option to disable a warning or silence one site. Every warning has
 a replacement that keeps the program's behavior; apply it.
 
-`std` code and the bodies of generic functions and generic class or enum
-methods report no warnings: a generic body is checked per instance, and code
-that is redundant for one type argument can be needed for another.
-
-Only top-level function bodies are checked today. Class and enum method
-bodies, including `copy(self)?`, and anonymous function bodies report no
-warnings, even when they are not generic (issue #846).
+Function bodies, class and enum method bodies, and anonymous function and
+closure bodies are checked. `std` code, code the compiler generates, and the
+bodies of generic functions, of generic class or enum methods, and of
+anonymous functions and closures inside them report no warnings: a generic
+body is checked per instance, and code that is redundant for one type
+argument can be needed for another.
 
 ## Lints
 
@@ -58,7 +57,11 @@ evaluates the same expression once, and moves nothing. `x` must be one of:
 - a local shared reference `r: &T`, such as a `&str` parameter or a loop
   variable over `&words`; write `*r`, which reads the copyable value. Before
   `.` or `[`, as in `copy(p)?.x`, the message suggests `(*p)`, because
-  `*p.x` dereferences the field instead.
+  `*p.x` dereferences the field instead. A shared `self` receiver is such a
+  reference, so `copy(self)?` in a method of a `@copy` class suggests
+  `*self`;
+- a closure capture, such as `k` in `def[k]` or `def[&k]`; write `k`, since
+  the closure body reads the captured value by name.
 
 For a name or field path the message spells the replacement. These are left
 alone:

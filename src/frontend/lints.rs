@@ -18,10 +18,12 @@ impl Lower<'_> {
     ///   local, field path or element, suggested as `place`; or a local
     ///   shared reference `r`, suggested as `*r`, which reads the copyable
     ///   value, or `(*r)` when `try_expr` is the operand of `.` or `[`
-    ///   (see `note_postfix_operand`). A `&mut` reference, a dereference or a
-    ///   call is left alone;
-    /// - the body is ordinary code: an instance of generic code is checked
-    ///   per type argument, and another instance may need the copy.
+    ///   (see `note_postfix_operand`); or a closure capture, suggested as
+    ///   itself. A `&mut` reference, a dereference or a call is left alone;
+    /// - the body is ordinary code written in the program: a function,
+    ///   method, anonymous function or closure, not `std` or a generated
+    ///   helper. An instance of generic code is checked per type argument,
+    ///   and another instance may need the copy.
     pub(super) fn redundant_copy(&mut self, try_expr: &Expr, value: &Expr, payload: &Ty) {
         let Expression::Call(name, args) = &ungroup(value).kind else {
             return;
@@ -33,7 +35,7 @@ impl Lower<'_> {
             || payload.restricted_storage()
             || payload.has_destructor()
             || self.generics.requirement(self.symbol).is_some()
-            || self.function_name.starts_with("__plenty_")
+            || !written_body(&self.function_name)
         {
             return;
         }
@@ -50,8 +52,10 @@ impl Lower<'_> {
         // (as written, replacement) for a name or field path.
         let spelled = match &place.kind {
             // The payload checks above make `*name` a copy of a copyable value.
+            // A capture is a reference only internally; see `copied_place`.
             Expression::Name(name)
                 if borrow.is_empty()
+                    && !self.captures.contains(name)
                     && matches!(
                         self.names.get(name),
                         Some(Local {
@@ -133,6 +137,9 @@ impl Lower<'_> {
             | Expression::Number(_)
             | Expression::Bool(_)
             | Expression::Bytes(_) => Some(None),
+            // A closure reads a capture through a hidden reference, but its
+            // body names the value, which the payload checks make copyable.
+            Expression::Name(name) if self.captures.contains(name) => Some(Some(name.clone())),
             Expression::Name(name) => {
                 let local = self.names.get(name)?;
                 (!local.ty.affine() && !local.ty.restricted_storage()).then(|| Some(name.clone()))
@@ -150,6 +157,18 @@ impl Lower<'_> {
             _ => None,
         }
     }
+}
+
+/// Whether a body named `symbol` is one its author wrote: a function, a
+/// method, or an anonymous function or closure. Other `__plenty_` bodies are
+/// generated, and a generic instance is excluded by its requirement instead,
+/// including methods of generic classes and enums and closures lifted from
+/// generic code (issue #846).
+fn written_body(symbol: &str) -> bool {
+    !symbol.starts_with("__plenty_")
+        || crate::record::is_method(symbol)
+        || symbol.starts_with("__plenty_anonymous_")
+        || symbol.starts_with("__plenty_closure_")
 }
 
 /// `a.b.c` for a field path from a name, as written.
