@@ -261,7 +261,7 @@ follow-up. All candidates still require scope and acceptance checks.
 | B56 | Concurrency primitives | Condition variables, rwlocks and semaphores only with a concrete use case. |
 | B60 | URLs | Relative resolution, normalization/equivalence, IDNA and form encoding. |
 | B63 | HTTP client | WebSocket `permessage-deflate` and proxy tunnels; cookie jars/content decoding were declined, not scheduled. |
-| B64 | HTTP server | SSE client reader; waking SSE streams from channel messages rather than polling. |
+| B64 | HTTP server | [Typed fallback/method policy and opt-in slash redirects delivered](completed-work/libraries.md#http-routing-policies) (issue #784). SSE client reader; waking SSE streams from channel messages rather than polling. |
 | B65 | HTTP helpers | Static-file `Range` requests and directory indexes. |
 | B66 | HTTP qualification | Generated route dispatch without user `match` waits on enum methods or existential protocol values; preserve existing qualification suites and [proxy fixture ownership](design/stdlib/http-qualification.md#reverse-proxies) (issue #719; [delivered scope](completed-work/libraries.md#b39b70-initial-delivery-slices)). |
 | B67 | Crypto | P-384/JWT ES384 and SHA-384 HMAC/JWT HS384; password KDFs need separate use-case/API review. |
