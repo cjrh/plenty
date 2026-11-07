@@ -112,6 +112,21 @@ def element(words: &list[str]) -> Result[str, AllocError]:
 def point(p: &Point) -> Result[Point, AllocError]:
     Ok(copy(p)?)
 
+def x_of(q: &Point) -> Result[i64, AllocError]:
+    Ok(copy(q)?.x)
+
+def grouped(g: &Point) -> Result[i64, AllocError]:
+    Ok((copy(g)?).y)
+
+def last(t: &tuple[i64, str]) -> Result[str, AllocError]:
+    Ok(copy(t)?[1])
+
+def shout(u: &str) -> Result[str, AllocError]:
+    Ok(copy(u)?.upper()?)
+
+def size(r: &str) -> Result[i64, AllocError]:
+    Ok(copy(r)?.byte_len())
+
 def main() -> Result[(), AllocError | IoError]:
     s = "hi"
     a = copy(&s)?
@@ -125,14 +140,20 @@ def main() -> Result[(), AllocError | IoError]:
     for w in &words:
         total = (total + copy(w)?)?
     print(a, b, c, d, total, through(s)?, field(&named)?, element(&words)?, point(&Point(1, 2))?.y)?
+    print(x_of(&Point(3, 4))?, grouped(&Point(3, 4))?, last(&(5, "z"))?, shout("ab")?, size("abc")?)?
     Ok(())
 "#;
 
-const BORROWS_REPLACED: [(&str, &str); 9] = [
+const BORROWS_REPLACED: [(&str, &str); 14] = [
     ("copy(word)?", "*word"),
     ("copy(&named.name)?", "named.name"),
     ("copy(&words[0])?", "words[0]"),
     ("copy(p)?", "*p"),
+    ("copy(q)?", "(*q)"),
+    ("copy(g)?", "*g"),
+    ("copy(t)?", "(*t)"),
+    ("copy(u)?", "(*u)"),
+    ("copy(r)?", "(*r)"),
     ("copy(&s)?", "s"),
     ("copy(&named.name)?", "named.name"),
     ("copy(&words[1])?", "words[1]"),
@@ -149,6 +170,11 @@ fn borrows_and_references_of_copyable_values_are_reported() {
             redundant_replaced("&named.name", "str", "named.name"),
             redundant_borrowed_place("str"),
             redundant_replaced("p", "Point", "*p"),
+            redundant_replaced("q", "Point", "(*q)"),
+            redundant_replaced("g", "Point", "*g"),
+            redundant_replaced("t", "tuple[i64, str]", "(*t)"),
+            redundant_replaced("u", "str", "(*u)"),
+            redundant_replaced("r", "str", "(*r)"),
             redundant_replaced("&s", "str", "s"),
             redundant_replaced("&named.name", "str", "named.name"),
             redundant_borrowed_place("str"),
@@ -167,7 +193,7 @@ fn applying_borrow_suggestions_checks_and_keeps_behavior() {
     }
     assert!(!replaced.contains("copy("), "{replaced}");
     assert_eq!(messages(&replaced), Vec::<String>::new());
-    let expected = "hi x b 7 ab hi x a 2\n";
+    let expected = "hi x b 7 ab hi x a 2\n3 4 z AB 3\n";
     assert_eq!(support::run_stdout(BORROWS), expected);
     assert_eq!(support::run_stdout(&replaced), expected);
 }

@@ -17,10 +17,12 @@ impl Lower<'_> {
     ///   literal, suggested as itself; a shared borrow `&place` of such a
     ///   local, field path or element, suggested as `place`; or a local
     ///   shared reference `r`, suggested as `*r`, which reads the copyable
-    ///   value. A `&mut` reference, a dereference or a call is left alone;
+    ///   value, or `(*r)` when `try_expr` is the operand of `.` or `[`
+    ///   (see `note_postfix_operand`). A `&mut` reference, a dereference or a
+    ///   call is left alone;
     /// - the body is ordinary code: an instance of generic code is checked
     ///   per type argument, and another instance may need the copy.
-    pub(super) fn redundant_copy(&mut self, value: &Expr, payload: &Ty) {
+    pub(super) fn redundant_copy(&mut self, try_expr: &Expr, value: &Expr, payload: &Ty) {
         let Expression::Call(name, args) = &ungroup(value).kind else {
             return;
         };
@@ -47,8 +49,23 @@ impl Lower<'_> {
         };
         // (as written, replacement) for a name or field path.
         let spelled = match &place.kind {
-            Expression::Name(name) if borrow.is_empty() && self.shared_reference(name) => {
-                Some((name.clone(), format!("*{name}")))
+            // The payload checks above make `*name` a copy of a copyable value.
+            Expression::Name(name)
+                if borrow.is_empty()
+                    && matches!(
+                        self.names.get(name),
+                        Some(Local {
+                            ty: Ty::Ref(_, false),
+                            ..
+                        })
+                    ) =>
+            {
+                let replacement = if self.postfix_tries.contains(&try_expr.at.position()) {
+                    format!("(*{name})")
+                } else {
+                    format!("*{name}")
+                };
+                Some((name.clone(), replacement))
             }
             // A borrowed literal is left alone: `&b"..."` is a view, not bytes.
             Expression::Text(_)
@@ -90,11 +107,22 @@ impl Lower<'_> {
         ));
     }
 
-    /// Whether `name` is a local `&T` reference to a type that copies, so
-    /// `*name` reads the same value `copy(name)?` makes.
-    fn shared_reference(&self, name: &str) -> bool {
-        matches!(self.names.get(name), Some(Local { ty: Ty::Ref(t, false), .. })
-            if !t.affine() && !t.restricted_storage())
+    /// Records a `?` written directly as the operand of `e`'s `.` or `[`, as
+    /// in `copy(r)?.x`: `*r.x` would dereference the field, so
+    /// `redundant_copy` suggests `(*r)` there. Called by both expression
+    /// entry points before lowering `e`, which lowers the operand.
+    pub(super) fn note_postfix_operand(&mut self, e: &Expr) {
+        let (Expression::Member(base, ..)
+        | Expression::Method(base, ..)
+        | Expression::GenericMethod(base, ..)
+        | Expression::Index(base, _)
+        | Expression::Slice(base, _)) = &e.kind
+        else {
+            return;
+        };
+        if matches!(base.kind, Expression::Try(_)) {
+            self.postfix_tries.insert(base.at.position());
+        }
     }
 
     /// `Some` when `e` is an argument whose plain use is the copy: the
