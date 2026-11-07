@@ -154,6 +154,9 @@ These belong to B17 and are not scheduled implementation commitments:
 B19 is evidence-driven; these are candidates, not an approved optimization batch.
 Use [profiling](development/profiling.md), [faster-linking evidence](proposals/faster-linking.md)
 and the [completed measurements](completed-work/performance.md) as baselines.
+The [k-nucleotide counting-loop investigation](completed-work/performance.md#k-nucleotide-counting-loop-investigation-issue-743)
+(issue #743) is concluded; its delivered fixes and rejected counting experiment
+are recorded there.
 
 - **Generated code:** retain/release for text operands computed by calls or loaded
   in another block; dispatcher copies of sums with inline-record payloads;

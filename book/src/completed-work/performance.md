@@ -60,10 +60,38 @@ blocks without changing public signatures or diagnostics.
 
 The byte kernels (`experiments/kernels/bytes/README.md`) record the
 scalar C comparison, optimized CLIF variants, instruction attribution and
-whole-program/compilation measurements. The optimized caller kernel fell from 62 to 38 instructions per byte; the
-quick reverse-complement input used 25.3% fewer instructions with identical
+whole-program/compilation measurements. The optimized caller kernel fell from
+62 to 38 instructions per byte; the quick reverse-complement input used 25.3%
+fewer instructions with identical
 output. Caller-site bookkeeping, repeated checks and unused owner-word loads
 remain (issues #842–#844); the result is not a claim of C-equivalent code.
+
+### k-nucleotide counting-loop investigation (issue #743)
+
+The original issue was split into issues #744–#750, with follow-ups #755,
+#757, #761 and #762. Their fixes or investigation decisions are delivered:
+
+| Cost in the original report | Delivered outcome | Local PRs |
+| --- | --- | --- |
+| Count pairs around borrowed collection operands | Lookup operands stay in place; last reads move after their loans end; inserts adopt owned operands. | #939, #950, #971 |
+| Atomic final release | A sole owner skips the locked decrement. The proposed plain retain was rejected as unsound because uncounted borrows can retain concurrently. | #938 |
+| Thread-local counting | Design recorded; the single-threaded experiment removed locked counts without a measurable cycle gain on Zen 4, so it was closed unmerged. | #937, #944 |
+| Generic key hashing | Top-level text/bytes and scalar keys use direct SipHash-1-3 paths. | #945 |
+| Rehashing on a miss, growth and collisions | `dict.get_or_insert` performs one lookup; buckets retain hash bits for growth and reject unequal hashes before comparing keys. | #954, #956, #976 |
+| Text-range allocation and validation | Builders fill uninitialized storage; ASCII ranges avoid separate UTF-8 validation and scalar counting; matched sum values avoid rebuilding wrapper payloads. | #943, #953 |
+| Trap-site bookkeeping | Code-free releases and proven read-only std accessors omit caller-site bookkeeping. | #948 |
+
+Both serial and parallel k-nucleotide benchmarks use `get_or_insert` for
+counting. This closes the original investigation, not every possible counting
+optimization: required UTF-8 validation, eager default construction and
+bookkeeping for helpers that can trap retain their contracts. See
+[dictionary operations](../design/facilities/01-builtins/collections.md),
+[sole-owner release](../design/toolchain/02-architecture/memory.md#sole-owner-release)
+and the [rejected counting experiment](../proposals/thread-local-reference-counts.md#measured-result).
+The child issue/PR records retain their measurements against different intermediate
+revisions; their percentages must not be added or treated as a fresh combined
+speedup. The original serial-versus-seven-thread wall-time ratio is likewise
+not a current per-core comparison.
 
 ## B19: Compiler scale and caching
 
