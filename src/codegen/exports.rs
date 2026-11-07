@@ -85,22 +85,28 @@ pub(super) fn emit(
         let mut writebacks = Vec::new();
         for (argument, (_, ty)) in arguments.iter_mut().zip(&export.signature.inputs) {
             // A C handle is a box holding the instance. A borrow lends the
-            // box's content slot; an owned argument moves the content out.
+            // box's content; an owned argument moves the content out.
             if let Ty::Ref(inner, _) = ty
                 && matches!(inner.as_ref(), Ty::Class(_))
             {
-                let slot = b.ins().iadd_imm_s(*argument, 32);
+                let offset = enums::box_content_offset(inner);
+                let slot = b.ins().iadd_imm_s(*argument, offset);
                 *argument = b.ins().uextend(types::I128, slot);
                 continue;
             }
             if matches!(ty, Ty::Class(_)) {
                 let storage = stack_storage(&mut b, ty.inline_bytes());
-                let value = b.ins().load(
-                    types::I128,
-                    cranelift_codegen::ir::MemFlagsData::trusted(),
-                    *argument,
-                    32,
-                );
+                let value = if ty.flat_field() {
+                    let record = b.ins().iadd_imm_s(*argument, 32);
+                    b.ins().uextend(types::I128, record)
+                } else {
+                    b.ins().load(
+                        types::I128,
+                        cranelift_codegen::ir::MemFlagsData::trusted(),
+                        *argument,
+                        32,
+                    )
+                };
                 let value = collection(&mut b, module, runtime, 117, &[value, storage], Some(ty))?;
                 collection(&mut b, module, runtime, 120, &[*argument], None)?;
                 *argument = value;
@@ -167,15 +173,20 @@ pub(super) fn emit(
             let tags = b.ins().ushr_imm_s(tags, 1);
             let instance = b.ins().iconcat(word, tags);
             let slot = b.ins().iadd_imm_s(handle, 32);
-            let storage = b.ins().iadd_imm_s(handle, 48);
-            let instance =
-                collection(&mut b, module, runtime, 117, &[instance, storage], Some(ok))?;
-            b.ins().store(
-                cranelift_codegen::ir::MemFlagsData::trusted(),
-                instance,
-                slot,
-                0,
-            );
+            if ok.flat_field() {
+                // The record takes the slot's place in the box.
+                collection(&mut b, module, runtime, 117, &[instance, slot], Some(ok))?;
+            } else {
+                let storage = b.ins().iadd_imm_s(handle, 48);
+                let instance =
+                    collection(&mut b, module, runtime, 117, &[instance, storage], Some(ok))?;
+                b.ins().store(
+                    cranelift_codegen::ir::MemFlagsData::trusted(),
+                    instance,
+                    slot,
+                    0,
+                );
+            }
             let handle = b.ins().uextend(types::I128, handle);
             b.ins().jump(done, &[handle.into()]);
             b.switch_to_block(done);

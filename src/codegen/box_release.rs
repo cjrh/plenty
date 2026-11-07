@@ -59,7 +59,11 @@ fn children(content: &Ty) -> Option<Children> {
     }
     let Ty::Class(t) = content else { return None };
     let class = t.try_get()?;
-    if class.destructor.is_some() || class.newtype_field().is_some() || !content.flat_record() {
+    if class.destructor.is_some()
+        || class.newtype_field().is_some()
+        || !content.flat_record()
+        || !content.flat_field()
+    {
         return None;
     }
     let mut fields = Vec::new();
@@ -78,7 +82,7 @@ fn children(content: &Ty) -> Option<Children> {
 enum Children {
     /// The slot holds the child itself.
     Slot(Ty),
-    /// The slot's value word addresses a class record with these fields.
+    /// The box holds a flat class record with these fields.
     Record(Vec<(i32, Ty)>),
 }
 
@@ -179,21 +183,13 @@ pub(super) fn build_adapter(
             lower.release(value, &ty);
         }
         Children::Record(fields) => {
-            // A box whose content was moved out keeps a zero value word.
-            let base = lower.bcx.ins().load(PTR_TY, flags, slot, 0);
-            let release = lower.bcx.create_block();
-            let done = lower.bcx.create_block();
-            lower.bcx.ins().brif(base, release, &[], done, &[]);
-            lower.bcx.switch_to_block(release);
-            lower.bcx.seal_block(release);
+            // The record is stored flat in the box (`box_content_offset`).
+            // Moving it out zeroes it, and zero fields release nothing.
             for (offset, ty) in fields {
-                let packed = lower.bcx.ins().load(types::I128, flags, base, offset);
+                let packed = lower.bcx.ins().load(types::I128, flags, slot, offset);
                 let value = lower.unpack(packed, &ty);
                 lower.release(value, &ty);
             }
-            lower.bcx.ins().jump(done, &[]);
-            lower.bcx.switch_to_block(done);
-            lower.bcx.seal_block(done);
         }
     }
     lower.bcx.ins().return_(&[]);
@@ -243,7 +239,12 @@ impl Lowerer<'_, '_> {
         self.bcx.switch_to_block(store);
         self.bcx.seal_block(store);
         let slot = self.bcx.ins().iadd_imm_s(word, 32);
-        self.store_slot(slot, value, content);
+        if content.flat_field() {
+            // The record takes the slot's place; see `box_content_offset`.
+            self.copy_inline_to(value, content, slot);
+        } else {
+            self.store_slot(slot, value, content);
+        }
         self.bcx.ins().jump(done, &[]);
         self.bcx.switch_to_block(done);
         self.bcx.seal_block(done);

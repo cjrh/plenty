@@ -396,3 +396,64 @@ def main() -> Result[(), AllocError | IoError]:
          True Box(Option[Big].Nothing)\n",
     );
 }
+
+/// A box of a class with a record stores the record with no value word
+/// (issue #814): construction copies the record, a borrow names the bytes
+/// before it, and moving out clears it. A protocol box of the same class
+/// keeps the word, since its adapters receive the slot without the type.
+#[test]
+fn flat_class_boxes_hold_the_record_itself() {
+    runs(
+        r#"
+class Named:
+    name: str
+    count: i64
+class Pair:
+    first: Named
+    second: Named
+class Guard:
+    n: i64
+    def __del__(self) -> ():
+        print(f"drop {self.n}".unwrap()).unwrap()
+protocol Total:
+    def total(self) -> i64:
+        pass
+class Sum:
+    a: i64
+    b: i64
+    def total(self) -> i64:
+        unchecked: # Small values.
+            self.a + self.b
+def rename(named: &mut Named) -> ():
+    named.name = "renamed"
+def main() -> Result[(), AllocError | IoError]:
+    mut b = Box(Named("x", 1))?
+    rename(&mut *b)
+    b.count = 42
+    c = copy(b)?
+    print(c == b, c)?
+    taken = *b
+    print(taken.name)?
+    pair = Box(Pair(Named("a", 1), Named("b", 2)))?
+    print(pair.second.name, copy(pair)? == pair)?
+    drop(Box(Guard(7))?)
+    held = *Box(Guard(8))?
+    print(held.n)?
+    drop(held)
+    erased = Box[Total](Sum(2, 3))?
+    plain = Box(Sum(4, 5))?
+    print(erased.total(), plain.total())?
+    maybe: Option[Box[Named]] = Some(Box(Named("opt", 1))?)
+    print(maybe)?
+    Ok(())
+"#,
+        "True Box(Named(name=\"renamed\", count=42))\n\
+         renamed\n\
+         b True\n\
+         drop 7\n\
+         8\n\
+         drop 8\n\
+         5 9\n\
+         Option[Box[Named]].Some(Box(Named(name=\"opt\", count=1)))\n",
+    );
+}
