@@ -592,3 +592,15 @@ def main() -> Result[(), IoError]:
     );
     assert_eq!(output.stdout, b"{\"value\":{}}\n");
 }
+
+#[test]
+fn missing_nested_hook_diagnostic_names_the_offending_field() {
+    for operation in [
+        "drop(std.json.dump(&Config(Plain()), &std.json.limits()))",
+        "drop(std.json.load[Config](b\"{}\", &std.json.codec_options()))",
+    ] {
+        let source = format!("import std.json\nclass Plain:\n    pass\n@serial\nclass Config:\n    secret: Plain\ndef main() -> ():\n    {operation}\n");
+        let error = support::check_error(&source);
+        assert!(error.contains("Config.secret"), "{error}");
+    }
+}
