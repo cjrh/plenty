@@ -1561,8 +1561,33 @@ def main() -> Result[(), IoError]:
     for target in ["../app/assets", "/"] {
         std::os::unix::fs::symlink(target, util.join("assets")).unwrap();
         fails(&app, &["check"], "is a symbolic link");
+        // Build reuse rejects the link before walking it.
+        fails(&app, &["build"], "is a symbolic link");
         std::fs::remove_file(util.join("assets")).unwrap();
     }
     write(&util.join("assets"), "not a directory");
     fails(&app, &["check"], "is not a directory");
+    fails(&app, &["build"], "is not a directory");
+}
+
+#[test]
+fn a_package_inside_another_packages_assets_is_rejected() {
+    // Otherwise the outer package could include the inner package's sources.
+    let dir = tempfile::tempdir().unwrap();
+    package(
+        &dir.path().join("app/assets"),
+        "util",
+        "",
+        &[("src/lib.plenty", "pub const N: int = 1\n")],
+    );
+    package(
+        dir.path(),
+        "app",
+        "util = { path = \"assets/util\" }\n",
+        &[(
+            "src/main.plenty",
+            "import util\n\ndef main() -> ():\n    pass\n",
+        )],
+    );
+    fails(&dir.path().join("app"), &["check"], "overlap");
 }

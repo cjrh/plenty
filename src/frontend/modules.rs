@@ -1559,30 +1559,12 @@ fn prepare_packages(
         if !root.is_dir() {
             return Err(format!("source root {} is not a directory", root.display()).into());
         }
-        // `assets` must be a real directory: as a symbolic link it could name
-        // any directory, such as another package's or `/`. A missing one
-        // keeps its declared path, below which no file exists, so every
-        // include from it fails and no build depends on it.
-        if let Some(assets) = &mut package.assets {
-            match std::fs::symlink_metadata(&*assets) {
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => return Err(format!("assets {}: {e}", assets.display()).into()),
-                Ok(meta) if meta.file_type().is_symlink() => {
-                    return Err(format!(
-                        "assets {} is a symbolic link; it must be a directory in the package",
-                        assets.display()
-                    )
-                    .into());
-                }
-                Ok(meta) if !meta.is_dir() => {
-                    return Err(format!("assets {} is not a directory", assets.display()).into());
-                }
-                Ok(_) => {
-                    *assets = assets
-                        .canonicalize()
-                        .map_err(|e| format!("assets {}: {e}", assets.display()))?;
-                }
-            }
+        if let Some(assets) = &mut package.assets
+            && crate::project::real_assets(assets)?
+        {
+            *assets = assets
+                .canonicalize()
+                .map_err(|e| format!("assets {}: {e}", assets.display()))?;
         }
         if ["std", "std.plenty", "std.plentyi"]
             .iter()
@@ -1642,6 +1624,30 @@ fn prepare_packages(
                     b.root.display()
                 )
                 .into());
+            }
+            // A package and its `tests/` package share one `assets/`; any
+            // other overlap would let one package include another's files.
+            let mut pairs = vec![];
+            if let Some(assets) = &a.assets {
+                pairs.push((assets, &b.root));
+            }
+            if let Some(assets) = &b.assets {
+                pairs.push((assets, &a.root));
+            }
+            if let (Some(x), Some(y)) = (&a.assets, &b.assets)
+                && x != y
+            {
+                pairs.push((x, y));
+            }
+            for (x, y) in pairs {
+                if x.starts_with(y) || y.starts_with(x) {
+                    return Err(format!(
+                        "package directories {} and {} overlap",
+                        x.display(),
+                        y.display()
+                    )
+                    .into());
+                }
             }
         }
     }

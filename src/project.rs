@@ -34,6 +34,26 @@ fn assets_of(directory: &Path) -> Option<PathBuf> {
     std::fs::symlink_metadata(&assets).is_ok().then_some(assets)
 }
 
+/// Whether a package's `assets` exists, failing unless it is a real
+/// directory. As a symbolic link it could name any directory, such as another
+/// package's or `/`. Build reuse and loading both check it before reading
+/// anything below it.
+pub fn real_assets(assets: &Path) -> Result<bool> {
+    match std::fs::symlink_metadata(assets) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(format!("assets {}: {e}", assets.display()).into()),
+        Ok(meta) if meta.file_type().is_symlink() => Err(format!(
+            "assets {} is a symbolic link; it must be a directory in the package",
+            assets.display()
+        )
+        .into()),
+        Ok(meta) if !meta.is_dir() => {
+            Err(format!("assets {} is not a directory", assets.display()).into())
+        }
+        Ok(_) => Ok(true),
+    }
+}
+
 /// One package's source tree as the compiler sees it.
 #[derive(Clone, Debug)]
 pub struct SourcePackage {

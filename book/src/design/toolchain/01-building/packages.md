@@ -174,9 +174,10 @@ file, the target kind, the profile and linker options, and the compiler
 executable (path, size, and modification time; the compiler embeds `std` and
 the runtime). Every file below each graph package's [`assets/`](#assets) is an
 input too: each build reads and hashes all of them, so keep large files that
-no target includes elsewhere. A symbolic link below `src/` or `assets/` counts
-by the name of its target; it is not followed. Fingerprints live in `target/PROFILE/.fingerprint/`. A build
-forgets the old fingerprint before it starts, so a failed or interrupted build
+no target includes elsewhere, and a file there that cannot be read fails the
+build even if nothing includes it. A symbolic link below `src/` or `assets/`
+counts by the name of its target; it is not followed. Fingerprints live in
+`target/PROFILE/.fingerprint/`. A build forgets the old fingerprint before it starts, so a failed or interrupted build
 is never reused. Reuse is per target: a stale target is recompiled whole.
 
 ## Manifest
@@ -246,10 +247,12 @@ either directory points to elsewhere. The source root is the target of `src`,
 as for imports. `assets` itself must be a directory, not a symbolic link: a
 package whose `assets` is a link or a file fails to load, even when nothing
 includes from it. A package without `assets` is not affected until an include
-names a file there.
+names a file there. No other package's source root or `assets/` may lie inside
+a package's `assets/`.
 
 Every regular file below `assets/` counts toward [build reuse](#build-reuse),
-whether or not a target includes it, and the
+whether or not a target includes it, so an unreadable file there fails the
+build. The
 [program cache](../02-architecture/cache.md#program-objects) records each
 included file's contents. `plenty check` reports unreached `.plenty` files only
 below `src/`, so `assets/` can also hold `.plenty` text that a program embeds.
@@ -426,7 +429,8 @@ identity whose package has a `library`. The optional `assets` names the
 directory that the package's [included files](#assets) may also come from;
 `plenty graph` writes it only for a package that has `assets`. Optional keys
 added later, such as `assets`, keep `graph-version` 1. Older compilers reject
-unknown keys, so they still read a graph that does not use them. Relative paths are relative to the file. `--package-graph` works with `FILE`, `--check`, `--check-module`, and
-`--compile`. It lets another build system compile a package without
+unknown keys, so they still read a graph that does not use them. Relative
+paths are relative to the file. `--package-graph` works with `FILE`, `--check`,
+`--check-module`, and `--compile`. It lets another build system compile a package without
 `plenty.toml`, and makes the compiler's input visible when debugging
 resolution.

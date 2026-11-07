@@ -59,6 +59,8 @@ pub(super) fn digest(
             options.automatic_linker()
         }
     ));
+    // A package and its `tests/` package share `assets/`; hash it once.
+    let mut walked = std::collections::HashSet::new();
     for package in &graph.packages {
         field(&package.identity);
         field(&package.root.display().to_string());
@@ -68,7 +70,10 @@ pub(super) fn digest(
         ));
         let mut files = vec![];
         walk(&package.root, &mut files)?;
-        if let Some(assets) = &package.assets {
+        if let Some(assets) = &package.assets
+            && super::real_assets(assets)?
+            && walked.insert(assets)
+        {
             walk(assets, &mut files)?;
         }
         files.sort();
@@ -98,14 +103,16 @@ pub(super) fn digest(
 }
 
 /// The regular files and symbolic links below `directory`. Links are not
-/// followed, so a loop or a link to `/` or a device costs one entry.
+/// followed, so a loop or a link to `/` or a device costs one entry. The
+/// caller rejects a top-level `assets` link before walking it.
 fn walk(directory: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
     if !directory.is_dir() {
         return Ok(());
     }
-    for entry in std::fs::read_dir(directory)? {
-        let entry = entry?;
-        let kind = entry.file_type()?;
+    let error = |e: std::io::Error| format!("reading {}: {e}", directory.display());
+    for entry in std::fs::read_dir(directory).map_err(error)? {
+        let entry = entry.map_err(error)?;
+        let kind = entry.file_type().map_err(error)?;
         if kind.is_dir() {
             walk(&entry.path(), files)?;
         } else if kind.is_file() || kind.is_symlink() {
