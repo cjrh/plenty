@@ -685,6 +685,24 @@ def flushed(result: Result[(), StreamError]) -> Result[(), HttpError]:
                 case _ as other:
                     Err(HttpError.Stream(other))
 
+# A caller-supplied Date wins, including its spelling and value. An
+# unrepresentable wall reading omits the automatic field; allocation failure
+# stays an ordinary response error before any bytes are written.
+def dated(head: &mut ResponseHead, timestamp: &std.time.Timestamp) -> Result[(), HttpError]:
+    if head.status < 200 and head.status != 101:
+        return Ok(())
+    if std.http.find(&head.headers, "date").is_some():
+        return Ok(())
+    match std.http.http_date(timestamp)?:
+        case Some(value):
+            head.add("Date", value)?
+        case Nothing:
+            pass
+    Ok(())
+
+def date(head: &mut ResponseHead) -> Result[(), HttpError]:
+    dated(head, &std.time.wall_now())
+
 # Response states.
 const unanswered: i64 = 0
 const sized: i64 = 1
@@ -846,6 +864,7 @@ pub class Exchange[T]:
             return Err(HttpError.Broken)
         if head.status < 200 or head.status > 999:
             return Err(HttpError.InvalidStatusLine)
+        date(head)?
         self.connection()?
         if self._stop.is_cancelled():
             self._keep = False
@@ -999,7 +1018,9 @@ pub class Exchange[T]:
             return Err(HttpError.Broken)
         if head.status != 101:
             return Err(HttpError.InvalidStatusLine)
-        self.hand_over(&head)
+        mut owned = head
+        date(&mut owned)?
+        self.hand_over(&owned)
 
     # Answers with `head` and hands the connection to the caller, which writes
     # a body that ends when it closes the connection: a long-lived stream
@@ -1020,6 +1041,7 @@ pub class Exchange[T]:
             return Err(HttpError.ConflictingFraming)
         mut owned = head
         owned.add("Connection", "close")?
+        date(&mut owned)?
         stream, _ = self.hand_over(&owned)?
         Ok(stream)
 
@@ -1292,6 +1314,7 @@ def refuse[T: Transport](conn: &mut Conn[T], status: i64, allow: &str) -> Result
     if allow.byte_len() > 0:
         head.add("Allow", *allow)?
     head.add("Connection", "close")?
+    date(&mut head)?
     std.http.write_response(conn, &head)?
     body = http_allocated(std.bytes.from_text(&http_allocated(text.concat("\n"))?))?
     match std.io.write_all(conn, &body):
@@ -1948,7 +1971,7 @@ def worker[T: Transport, O: Opener[T], R, E, H: Handler[T, R, E]](inbox: Receive
 # Answers a connection on the accepting thread with a whole response that
 # closes it. Request bytes that have already arrived are read first so that
 # closing does not reset the connection before the client sees the answer.
-def answer[T: Transport](stream: &mut T, text: &str, write_ns: u64, token: &CancellationToken) -> ():
+def answer[T: Transport](stream: &mut T, status: i64, write_ns: u64, token: &CancellationToken) -> ():
     match std.bytes.with_capacity(4096):
         case Ok(scratch):
             mut buffer = scratch
@@ -1956,15 +1979,37 @@ def answer[T: Transport](stream: &mut T, text: &str, write_ns: u64, token: &Canc
                 drop(stream.read_before(&mut buffer, 0, 4096, &deadline_of(0u64), token))
         case Err(_):
             pass
-    match std.bytes.from_text(text):
+    outcome = admission_response(status)
+    match outcome:
         case Ok(bytes):
             drop(send_all(stream, &bytes, write_ns, after(now_ns(), write_ns), token))
         case Err(_):
             pass
 
+# The head and fixed ASCII body are small and independent of request input.
+def admission_response(status: i64) -> Result[Bytes, HttpError]:
+    mut head = std.http.response(status, reason(status))?
+    head.add("Content-Type", "text/plain; charset=utf-8")?
+    length = unchecked:
+        reason(status).byte_len() + 1
+    head.add("Content-Length", http_allocated(str.from(length))?)?
+    if status == 503:
+        head.add("Retry-After", "1")?
+    head.add("Connection", "close")?
+    date(&mut head)?
+    mut output = std.io.cursor(http_allocated(std.bytes.empty())?)
+    std.http.write_response(&mut output, &head)?
+    body = http_allocated(std.bytes.from_text(&http_allocated(reason(status).concat("\n"))?))?
+    match std.io.write_all(&mut output, &body):
+        case Ok(_):
+            Ok(output.data)
+        case Err(partial):
+            flushed(Err(partial.cause))?
+            Err(HttpError.Broken)
+
 # Answers a connection the server has no room for.
 def busy[T: Transport](stream: &mut T, write_ns: u64, token: &CancellationToken) -> ():
-    answer(stream, "HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 20\r\nRetry-After: 1\r\nConnection: close\r\n\r\nService Unavailable\n", write_ns, token)
+    answer(stream, 503, write_ns, token)
 
 def reject(stream: TcpStream, write_ns: u64) -> ():
     mut owned = stream
@@ -2143,7 +2188,7 @@ def time_out[T: Transport, O: Opener[T]](state: &mut Admission[T], job: Job[T], 
     match replace(closing.resumed, Nothing):
         case Some(stream):
             mut owned = stream
-            answer(&mut owned, "HTTP/1.1 408 Request Timeout\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 16\r\nConnection: close\r\n\r\nRequest Timeout\n", state.reject_ns, token)
+            answer(&mut owned, 408, state.reject_ns, token)
             if owned.shutdown(Shutdown.Write).is_ok():
                 fresh: Option[TcpStream] = Nothing
                 until = after(now_ns(), state.linger_ns)

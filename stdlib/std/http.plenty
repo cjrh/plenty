@@ -3,11 +3,14 @@
 # connection reuse rules. Every read is bounded by caller limits, and framing
 # that two implementations could read differently is an error rather than a
 # guess. Transport, deadlines and routing belong to the caller.
+# HTTP-date calendar arithmetic follows Howard Hinnant's civil algorithms,
+# retained from the original std.http.files formatter.
 # See book/src/design/stdlib/http.md.
 import std.bytes
 import std.io
 from std.bytes import Bytes
 from std.io import BufReader, Reader, StreamError, Writer
+from std.time import Timestamp
 
 pub enum HttpError:
     Stream(StreamError)
@@ -1081,3 +1084,60 @@ pub def write_body[W: Writer](writer: &mut W, framing: &Framing, source: &[u8]) 
             write_last_chunk(writer, &trailers)
         case Framing.UntilClose:
             deliver(writer, source)
+
+# Dates shared by server-generated Date and static-file Last-Modified.
+def date_day_names() -> str:
+    return "ThuFriSatSunMonTueWed"
+
+def date_month_names() -> str:
+    return "JanFebMarAprMayJunJulAugSepOctNovDec"
+
+def date_two(out: &str, value: i64) -> Result[str, HttpError]:
+    mut text = listed(str.from(value))?
+    if value < 10:
+        text = listed("0".concat(&text))?
+    listed(out.concat(&text))
+
+pub def http_date(timestamp: &Timestamp) -> Result[Option[str], HttpError]:
+    # The guard bounds seconds to 0..253402300799. days<=2932896,
+    # z<=3652364, era<=24, doe<146097, yoe<=399, mp<=11. Calendar
+    # arithmetic stays below four million; clock<=86399. Month=1..12
+    # and weekday=0..6 bound the name indexes; all divisors are positive.
+    unchecked:
+        seconds = timestamp.seconds
+        if timestamp.nanoseconds >= 1000000000u32 or seconds < 0 or seconds > 253402300799:
+            return Ok(Nothing)
+        days = seconds // 86400
+        clock = seconds % 86400
+        # Howard Hinnant's civil_from_days, for days on or after 1970-01-01.
+        z = days + 719468
+        era = z // 146097
+        doe = z - era * 146097
+        yoe = (doe - doe // 1460 + doe // 36524 - doe // 146096) // 365
+        doy = doe - (365 * yoe + yoe // 4 - yoe // 100)
+        mp = (5 * doy + 2) // 153
+        day = doy - (153 * mp + 2) // 5 + 1
+        mut month = mp + 3
+        if mp >= 10:
+            month = mp - 9
+        mut year = yoe + era * 400
+        if month <= 2:
+            year += 1
+        weekday = days % 7
+        names = listed(std.bytes.from_text(date_day_names()))?
+        mut out = text_of(&names, weekday * 3, weekday * 3 + 3, HttpError.InvalidHeader)?
+        out = listed(out.concat(", "))?
+        out = date_two(&out, day)?
+        months = listed(std.bytes.from_text(date_month_names()))?
+        out = listed(out.concat(" "))?
+        out = listed(out.concat(&text_of(&months, month * 3 - 3, month * 3, HttpError.InvalidHeader)?))?
+        out = listed(out.concat(" "))?
+        out = listed(out.concat(&listed(str.from(year))?))?
+        out = listed(out.concat(" "))?
+        out = date_two(&out, clock // 3600)?
+        out = listed(out.concat(":"))?
+        out = date_two(&out, clock % 3600 // 60)?
+        out = listed(out.concat(":"))?
+        out = date_two(&out, clock % 60)?
+        out = listed(out.concat(" GMT"))?
+        Ok(Some(out))

@@ -247,6 +247,16 @@ mod tests {
 
     #[test]
     fn small_workers_initialize_independent_bounds() {
+        let parent = bounds().expect("parent native bounds");
+        // A requested stack size is not an upper bound. Platforms may impose
+        // a larger minimum, and libc can reuse this larger cached stack for
+        // either smaller request below.
+        std::thread::Builder::new()
+            .stack_size(256 * 1024)
+            .spawn(|| {})
+            .expect("create stack-cache worker")
+            .join()
+            .expect("stack-cache worker completes");
         for size in [64 * 1024, 128 * 1024] {
             std::thread::Builder::new()
                 .stack_size(size)
@@ -256,8 +266,12 @@ mod tests {
                     let bounds = bounds().expect("worker native bounds");
                     // An independent worker must not inherit the main thread's
                     // TLS limits, even after the main thread queried its stack.
-                    assert!(bounds.high - bounds.low <= size);
-                    assert_eq!(plenty_serial_stack_ready(size as u64), 0);
+                    assert!(bounds.high <= parent.low || parent.high <= bounds.low);
+                    assert!(fits(bounds, stack_pointer(), 0));
+                    assert_eq!(
+                        plenty_serial_stack_ready((bounds.high - bounds.low) as u64),
+                        0
+                    );
                 })
                 .expect("create small-stack worker")
                 .join()

@@ -2,6 +2,8 @@
 //! memory through `serve_connection`; nothing needs a network. The multipart
 //! allocation tests run under `plenty test`, whose builds inject failures.
 
+mod support;
+
 use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, SystemTime};
@@ -159,8 +161,7 @@ fn run(main: &str) -> String {
         output.status,
         String::from_utf8_lossy(&output.stderr)
     );
-    String::from_utf8_lossy(&output.stdout)
-        .replace("\r\n", "|")
+    support::without_http_dates(&String::from_utf8_lossy(&output.stdout).replace("\r\n", "|"))
         .replace("Connection: close|", "")
 }
 
@@ -732,7 +733,10 @@ HTTP/1.1 401 Unauthorized|Content-Type: text/plain; charset=utf-8|Content-Length
 4
 "
     );
-    assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
+    assert_eq!(
+        support::without_http_dates(&String::from_utf8_lossy(&output.stdout)),
+        expected
+    );
 }
 
 /// Extract the actual metadata/conditional/date path without the MIME-table
@@ -753,6 +757,7 @@ fn file_size_precedes_conditionals_and_date_bounds_are_checked() {
     source.push_str("\n\n");
     for name in [
         "allocated[T]",
+        "http[T]",
         "lifted[T]",
         "file_size",
         "prepared",
@@ -765,7 +770,6 @@ fn file_size_precedes_conditionals_and_date_bounds_are_checked() {
         "digits",
         "http_date",
         "days_from_civil",
-        "two",
         "day_names",
         "month_names",
     ] {
