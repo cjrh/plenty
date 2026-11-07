@@ -44,7 +44,8 @@ Interpolated text is HTML-escaped by default. Keep user text in HTML text or
 quoted ordinary attributes. HTML escaping does not validate links or JavaScript;
 do not place user values in scripts, styles or tag names. For a plain-text
 message, call `pages.render("report", &values, html=False)` with a plain-text
-template. The `safe` filter deliberately disables escaping for trusted markup.
+template. With the existing `render` API, `safe` deliberately disables escaping
+for trusted markup; checked rendering rejects it.
 
 For checked rendering, no context filter is needed:
 
@@ -106,7 +107,9 @@ engine and render it again with different values to reuse its parsed templates.
 
 Keep IDs and labels in the context and compare them in the template. There is
 no need to build a separate active flag for every navigation item or selected
-option:
+option. These trusted templates branch inside tag/attribute syntax, so they use
+the existing `render` API. Checked rendering instead requires each branch to
+contain balanced elements at ordinary-text boundaries:
 
 ```plenty
 import std.template
@@ -206,9 +209,10 @@ def main() -> Result[(), TemplateError | AllocError | IoError]:
 
 `max_bytes` includes the expanded entities. The helper returns ordinary text:
 passing its output into a template would escape it again. Keep raw values in
-`Json.Text` when using `Engine.render`, and use these helpers once per original
-value when assembling HTML directly. The context is your choice; the library
-does not detect HTML positions or validate URLs, scripts, styles or names.
+`Json.Text` when using `Engine.render` or `render_html`, and use these helpers
+once per original value when assembling HTML directly. The helper context is
+your choice; these functions do not detect HTML positions or validate URLs,
+scripts, styles or names.
 
 ## Reusable fragments
 
