@@ -71,41 +71,41 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.jwt`](#stdjwt): 2398-2445
 - [`std.log`](#stdlog): 2447-2514
 - [`std.markdown`](#stdmarkdown): 2516-2550
-- [`std.template`](#stdtemplate): 2552-2576
-- [`std.math`](#stdmath): 2578-2649
-- [`std.mime`](#stdmime): 2651-2677
-- [`std.net`](#stdnet): 2679-2761
-- [`std.path`](#stdpath): 2763-2780
-- [`std.process`](#stdprocess): 2782-2840
-- [`std.random`](#stdrandom): 2842-2863
-- [`std.ready`](#stdready): 2865-2896
-- [`std.regex`](#stdregex): 2898-2951
-- [`std.report`](#stdreport): 2953-2960
-- [`std.secrets`](#stdsecrets): 2962-2988
-- [`std.shlex`](#stdshlex): 2990-2999
-- [`std.sketch`](#stdsketch): 3001-3039
-- [`std.sketch.xor`](#stdsketchxor): 3041-3052
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3054-3069
-- [`std.signal`](#stdsignal): 3071-3088
-- [`std.simd`](#stdsimd): 3090-3191
-- [`std.stat`](#stdstat): 3193-3226
-- [`std.plot`](#stdplot): 3228-3317
-- [`std.linalg`](#stdlinalg): 3319-3360
-- [`std.sync`](#stdsync): 3362-3380
-- [`std.system`](#stdsystem): 3382-3441
-- [`std.tempfile`](#stdtempfile): 3443-3475
-- [`std.test`](#stdtest): 3477-3519
-- [`std.text`](#stdtext): 3521-3564
-- [`std.thread`](#stdthread): 3566-3570
-- [`std.time`](#stdtime): 3572-3616
-- [`std.tls`](#stdtls): 3618-3700
-- [`std.toml`](#stdtoml): 3702-3751
-- [`std.unicode`](#stdunicode): 3753-3765
-- [`std.units`](#stdunits): 3767-4004
-- [`std.units.catalogue`](#stdunitscatalogue): 4006-4784
-- [`std.url`](#stdurl): 4786-4814
-- [`std.uuid`](#stduuid): 4816-4839
-- [`std.xml`](#stdxml): 4841-4874
+- [`std.template`](#stdtemplate): 2552-2577
+- [`std.math`](#stdmath): 2579-2650
+- [`std.mime`](#stdmime): 2652-2678
+- [`std.net`](#stdnet): 2680-2762
+- [`std.path`](#stdpath): 2764-2781
+- [`std.process`](#stdprocess): 2783-2841
+- [`std.random`](#stdrandom): 2843-2864
+- [`std.ready`](#stdready): 2866-2897
+- [`std.regex`](#stdregex): 2899-2952
+- [`std.report`](#stdreport): 2954-2961
+- [`std.secrets`](#stdsecrets): 2963-2989
+- [`std.shlex`](#stdshlex): 2991-3000
+- [`std.sketch`](#stdsketch): 3002-3040
+- [`std.sketch.xor`](#stdsketchxor): 3042-3053
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3055-3070
+- [`std.signal`](#stdsignal): 3072-3089
+- [`std.simd`](#stdsimd): 3091-3192
+- [`std.stat`](#stdstat): 3194-3227
+- [`std.plot`](#stdplot): 3229-3318
+- [`std.linalg`](#stdlinalg): 3320-3361
+- [`std.sync`](#stdsync): 3363-3381
+- [`std.system`](#stdsystem): 3383-3442
+- [`std.tempfile`](#stdtempfile): 3444-3476
+- [`std.test`](#stdtest): 3478-3520
+- [`std.text`](#stdtext): 3522-3565
+- [`std.thread`](#stdthread): 3567-3571
+- [`std.time`](#stdtime): 3573-3617
+- [`std.tls`](#stdtls): 3619-3701
+- [`std.toml`](#stdtoml): 3703-3752
+- [`std.unicode`](#stdunicode): 3754-3766
+- [`std.units`](#stdunits): 3768-4005
+- [`std.units.catalogue`](#stdunitscatalogue): 4007-4785
+- [`std.url`](#stdurl): 4787-4815
+- [`std.uuid`](#stduuid): 4817-4840
+- [`std.xml`](#stdxml): 4842-4875
 
 ## `std.actor`
 
@@ -2561,6 +2561,7 @@ enum HtmlContext
 class Limits
     max_source: NonNegative[i64]
     max_tokens: NonNegative[i64]
+    max_expression_nodes: NonNegative[i64]
     max_templates: NonNegative[i64]
     max_context_nodes: Positive[i64]
     max_context_bytes: NonNegative[i64]
