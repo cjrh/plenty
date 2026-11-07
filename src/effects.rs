@@ -119,7 +119,9 @@ impl FsOp {
 impl StreamOp {
     pub fn effect(self) -> Effect {
         match self {
-            Self::FileRead | Self::FileWrite | Self::FileSeek | Self::Wait => Effect::Handle,
+            Self::FileRead | Self::FileWrite | Self::FileSeek | Self::Wait | Self::Poll => {
+                Effect::Handle
+            }
             Self::StdinRead | Self::StdWrite => Effect::ProcessStream,
             Self::EntropyRead => Effect::Entropy,
         }

@@ -160,8 +160,8 @@ another queue, a lock, a token, or a handle counts because the thread that
 would end it could itself be blocked on the queue the joining function holds; a
 child process could be blocked on a pipe that thread drains. File I/O counts
 because the compiler cannot tell a regular file from a socket, pipe, or FIFO
-whose other end that thread holds. A zero-timeout readiness check such as
-`std.ready.wait_now` does not wait. Only `send_nowait`,
+whose other end that thread holds. `std.ready.wait_now` does not wait: it polls
+once and returns. Only `send_nowait`,
 `recv_nowait`, `select_recv_nowait`, and `submit_nowait` never wait, so a
 worker that uses only these is joined while the function keeps the opposite
 endpoint:

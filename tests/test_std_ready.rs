@@ -96,6 +96,25 @@ def main() -> Result[(), AllocError | IoError | RangeError | std.bytes.BytesErro
 }
 
 #[test]
+fn wait_now_polls_without_blocking() {
+    runs(
+        &with_show(
+            r#"
+from std.ready import wait_now
+def main() -> Result[(), AllocError | IoError]:
+    mut child = piped("sleep 0.2; printf hi")?
+    out = std.io.from_file(child.take_stdout().unwrap())
+    show(wait_now(&out.file, Interest.Read))?
+    child.wait()?
+    show(wait_now(&out.file, Interest.Read))?
+    Ok(())
+"#,
+        ),
+        "timed out\nTrue False True False\n",
+    );
+}
+
+#[test]
 fn writes_wait_for_space_and_closed_handles_are_errors() {
     runs(
         &with_show(

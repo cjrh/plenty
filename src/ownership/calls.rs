@@ -13,7 +13,6 @@ use crate::net::NetOp;
 use crate::op::{CompiledFn, Op, Ty};
 use crate::process::ProcessOp;
 use crate::stream::StreamOp;
-use crate::value::Value;
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// The functions of a program whose bodies are being checked. The call table
@@ -203,16 +202,7 @@ impl<'p> Program<'p> {
             let _ = crate::threading::inspect(function, &mut types, &mut calls);
             functions.extend(calls);
             let mut waits = false;
-            let mut previous: Option<&Op> = None;
             crate::threading::walk(&function.body, &mut |op| {
-                // A readiness poll with a literal zero timeout, as in
-                // `std.ready.wait_now`, returns at once. Adjacency in memory
-                // proves the literal is the last argument of this call.
-                let polls = previous.is_some_and(|before| {
-                    std::ptr::eq((before as *const Op).wrapping_add(1), op)
-                        && matches!(before, Op::PushInt(Value::U64(0)))
-                });
-                previous = Some(op);
                 crate::threading::function_references(op, &mut |name| {
                     functions.push(name.to_owned())
                 });
@@ -250,7 +240,9 @@ impl<'p> Program<'p> {
                             | NetOp::ReceiveFrom
                             | NetOp::Resolve,
                         )
-                        | CollectionOp::Stream(StreamOp::FileRead | StreamOp::FileWrite)
+                        | CollectionOp::Stream(
+                            StreamOp::Wait | StreamOp::FileRead | StreamOp::FileWrite,
+                        )
                         | CollectionOp::OpenFile
                         | CollectionOp::FileRead
                         | CollectionOp::FileWrite
@@ -267,7 +259,6 @@ impl<'p> Program<'p> {
                     | Op::TailCallIndirect(_)
                     | Op::BoxedCallableCall(_)
                     | Op::ProtocolBoxCall(..) => true,
-                    Op::Collection(CollectionOp::Stream(StreamOp::Wait)) => !polls,
                     Op::ClosureCall(closure) => closure.name.is_empty(),
                     _ => false,
                 };
