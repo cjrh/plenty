@@ -1555,9 +1555,8 @@ pub(super) fn load_graph_with(
 /// and build reuse rerun this for each recorded include, so a hit never hides
 /// one of these errors.
 ///
-/// A package may include files below its package directory and below its own
-/// canonical source root, which a symbolic `src` can put elsewhere (issue
-/// #840). Within that, a directory that holds a `plenty.toml`, or is another
+/// A package may include files below its package directory; a single file or
+/// script, below its source root. Within that, a directory that holds a `plenty.toml`, or is another
 /// package's directory or source root, belongs to that package; the
 /// innermost one names the owner. A package and its `-tests` package share
 /// their files.
@@ -1572,24 +1571,23 @@ pub(super) fn included_file(
         .map_err(|e| format!("reading `{spelled}`: {e}"))?;
     let includer = &packages[package];
     // Every path is canonical, so `..` and symbolic links are judged by where
-    // the file really is.
-    let base = if file.starts_with(&includer.root) {
-        &includer.root
-    } else {
-        match &includer.directory {
-            Some(directory) if file.starts_with(directory) => directory,
-            Some(directory) => {
-                return Err(format!(
-                    "included path `{spelled}` is outside the package directory {}",
-                    directory.display()
-                ));
-            }
-            None => {
-                return Err(format!(
-                    "included path `{spelled}` is outside the source root {}",
-                    includer.root.display()
-                ));
-            }
+    // the file really is. A package's source root is a real directory inside
+    // its package directory (`prepare_packages`), so the directory bounds
+    // both.
+    let base = match &includer.directory {
+        Some(directory) if file.starts_with(directory) => directory,
+        Some(directory) => {
+            return Err(format!(
+                "included path `{spelled}` is outside the package directory {}",
+                directory.display()
+            ));
+        }
+        None if file.starts_with(&includer.root) => &includer.root,
+        None => {
+            return Err(format!(
+                "included path `{spelled}` is outside the source root {}",
+                includer.root.display()
+            ));
         }
     };
     // A package and its tests share a directory. The tests package is named
@@ -1645,6 +1643,23 @@ fn prepare_packages(
 ) -> Result<Vec<crate::project::SourcePackage>> {
     let mut packages = graph.packages.clone();
     for package in &mut packages {
+        // A package's `src` (or `tests`) is judged where it is, not where a
+        // link would send it: imports and includes are bounded by the
+        // canonical root, so a linked root could expose any directory to a
+        // dependency (issue #840). Single files and scripts own no package
+        // directory and may be reached through linked directories.
+        if package.directory.is_some()
+            && package
+                .root
+                .symlink_metadata()
+                .is_ok_and(|metadata| metadata.file_type().is_symlink())
+        {
+            return Err(format!(
+                "source root {} is a symbolic link; a package's source root must be a directory",
+                package.root.display()
+            )
+            .into());
+        }
         package.root = package
             .root
             .canonicalize()
@@ -1659,6 +1674,16 @@ fn prepare_packages(
         let root = &package.root;
         if !root.is_dir() {
             return Err(format!("source root {} is not a directory", root.display()).into());
+        }
+        if let Some(directory) = &package.directory
+            && !root.starts_with(directory)
+        {
+            return Err(format!(
+                "source root {} must be inside the package directory {}",
+                root.display(),
+                directory.display()
+            )
+            .into());
         }
         if ["std", "std.plenty", "std.plentyi"]
             .iter()
