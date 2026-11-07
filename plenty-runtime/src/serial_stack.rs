@@ -16,9 +16,9 @@ struct Bounds {
 
 #[cfg(unix)]
 thread_local! {
-    // No allocation or destructor. Cache failed discovery too: failure must
-    // reject the call, rather than treating unknown bounds as unlimited space.
-    static BOUNDS: Cell<Option<Option<Bounds>>> = const { Cell::new(None) };
+    // No allocation or destructor. Retry failed discovery: a transient libc
+    // resource failure must reject this call without disabling a healthy thread.
+    static BOUNDS: Cell<Option<Bounds>> = const { Cell::new(None) };
 }
 
 /// Read the actual stack pointer. A local's address could sit above SP and
@@ -104,16 +104,66 @@ fn discover() -> Option<Bounds> {
 
 #[cfg(windows)]
 fn discover() -> Option<Bounds> {
+    use std::ffi::c_void;
+    // Native 64-bit MEMORY_BASIC_INFORMATION. The unused PartitionId occupies
+    // automatic padding after allocation_protect; no uninitialized padding is
+    // interpreted as a Rust field. Plenty supports 64-bit Windows targets.
+    #[repr(C)]
+    struct MemoryBasicInformation {
+        base: *mut c_void,
+        allocation_base: *mut c_void,
+        allocation_protect: u32,
+        region_size: usize,
+        state: u32,
+        protect: u32,
+        kind: u32,
+    }
+    const _: () = assert!(size_of::<MemoryBasicInformation>() == 48);
     #[link(name = "kernel32")]
     unsafe extern "system" {
         fn GetCurrentThreadStackLimits(low: *mut usize, high: *mut usize);
+        fn VirtualQuery(
+            address: *const c_void,
+            info: *mut MemoryBasicInformation,
+            bytes: usize,
+        ) -> usize;
     }
-    let mut low = 0;
+    let mut committed_low = 0;
     let mut high = 0;
     // SAFETY: Windows writes two live SIZE_T output slots for this thread.
-    unsafe { GetCurrentThreadStackLimits(&mut low, &mut high) };
-    // The compiler's recovery budget covers the guard and exception reserve.
-    (low != 0 && low < high).then_some(Bounds { low, high })
+    unsafe { GetCurrentThreadStackLimits(&mut committed_low, &mut high) };
+    let pointer = stack_pointer();
+    if committed_low == 0 || pointer < committed_low || pointer >= high {
+        return None;
+    }
+    let mut info = std::mem::MaybeUninit::<MemoryBasicInformation>::uninit();
+    // SAFETY: the query only inspects this thread's live stack mapping and
+    // initializes a native-layout output record of the supplied size.
+    if unsafe {
+        VirtualQuery(
+            pointer as *const c_void,
+            info.as_mut_ptr(),
+            size_of::<MemoryBasicInformation>(),
+        )
+    } != size_of::<MemoryBasicInformation>()
+    {
+        return None;
+    }
+    // SAFETY: successful VirtualQuery initialized all non-padding members.
+    let info = unsafe { info.assume_init() };
+    if info.state != 0x1000 || info.kind != 0x20000 {
+        // MEM_COMMIT, MEM_PRIVATE
+        return None;
+    }
+    // AllocationBase names the whole VirtualAlloc reservation, including pages
+    // below the committed region. Cranelift's inline probes grow the Windows
+    // stack normally; using only the committed limit would reject fresh stacks.
+    // Keep the bottom guard page. The compiler also budgets recovery/exception
+    // reserve. Windows x86-64 uses 4096-byte stack pages.
+    // https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-memory_basic_information
+    let base = info.allocation_base as usize;
+    let low = base.checked_add(4096)?;
+    (base != 0 && low < high).then_some(Bounds { low, high })
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
@@ -125,18 +175,18 @@ fn bounds() -> Option<Bounds> {
     #[cfg(unix)]
     {
         BOUNDS.with(|cached| match cached.get() {
-            Some(bounds) => bounds,
+            Some(bounds) => Some(bounds),
             None => {
                 let bounds = discover();
-                cached.set(Some(bounds));
+                cached.set(bounds);
                 bounds
             }
         })
     }
     #[cfg(not(unix))]
     {
-        // Windows' committed lower limit can change as the stack grows. Query
-        // each time rather than caching an overly optimistic old boundary.
+        // Query Windows' current native reservation each time, also detecting
+        // hosts switching between native fiber stacks.
         discover()
     }
 }
@@ -177,6 +227,22 @@ mod tests {
         let pointer = stack_pointer();
         assert!(fits(bounds, pointer, (pointer - bounds.low) as u64));
         assert!(!fits(bounds, pointer, (pointer - bounds.low) as u64 + 1));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn fresh_windows_worker_can_budget_uncommitted_reserved_pages() {
+        std::thread::Builder::new()
+            .stack_size(1024 * 1024)
+            .spawn(|| {
+                // A fresh worker starts with much less committed memory than
+                // its reservation. Budgeting only the committed limit rejects
+                // this, even though ordinary stack probes can grow the stack.
+                assert_eq!(plenty_serial_stack_ready(128 * 1024), 1);
+            })
+            .expect("create Windows worker")
+            .join()
+            .expect("reserved-stack check");
     }
 
     #[test]
