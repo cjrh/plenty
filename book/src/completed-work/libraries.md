@@ -448,3 +448,11 @@ ordinary typed handlers still reject these captures. The server controls fixed
 existing deadlines and cooperative cancellation. See the
 [contract](../design/stdlib/http-refusals.md). Other parsing refusals and actor
 servers retain their existing behavior.
+
+## Lossy UTF-8 text (issue #808)
+
+`Bytes.to_text_lossy()` and `to_text_lossy_range(start, stop)` convert
+arbitrary bytes, such as subprocess output, to text by replacing each maximal
+ill-formed subpart with U+FFFD, as Unicode and WHATWG specify. Strict
+`to_text` stays the default. The result is at most three bytes per input byte,
+and allocation failure is `AllocError`. See [lossy text](../design/stdlib/bytes.md#lossy-text).

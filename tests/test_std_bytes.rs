@@ -318,6 +318,135 @@ Result[str, std.bytes.BytesError].Ok("a text too long for inline string storage"
     );
 }
 
+/// Issue #808: lossy conversion replaces each maximal subpart of an
+/// ill-formed sequence with one U+FFFD and keeps valid runs, NUL included.
+#[test]
+fn lossy_text_replaces_maximal_subparts() {
+    native(
+        r#"
+cases = [b"abc", b"a\x00b", b"", b"\xc0\xaf", b"\xe0\x80\xaf", b"\xf0\x80\x80\xaf", b"\xed\xa0\x80", b"\xed\xbf\xbf", b"\xf4\x90\x80\x80", b"\xf0\x9f\x99", b"x\xe2\x82", b"\xff\xfe\x80\xbf", b"a\xe2\x82\xacb\xf0\x9f\x99\x82c\x80", b"\x61\xf1\x80\x80\xe1\x80\xc2\x62\x80\x63\x80\xbf\x64"]?
+for item in &cases:
+    buffer = std.bytes.from_bytes(item)?
+    text = buffer.to_text_lossy()?
+    print(str.repr(text)?, len(text), text.byte_len())?
+emoji = std.bytes.from_bytes(b"ab\xf0\x9f\x99\x82")?
+print(str.repr(emoji.to_text_lossy_range(1, 5)?)?, emoji.to_text_lossy_range(2, 6)?, str.repr(emoji.to_text_lossy_range(3, 3)?)?)?
+"#,
+        r#"
+"abc" 3 3
+"a\0b" 3 3
+"" 0 0
+"��" 2 6
+"���" 3 9
+"����" 4 12
+"���" 3 9
+"���" 3 9
+"����" 4 12
+"�" 1 3
+"x�" 2 4
+"����" 4 12
+"a€b🙂c�" 6 13
+"a���b�c��d" 10 22
+"b�" 🙂 ""
+"#,
+    );
+    let message = "Bytes.to_text_lossy_range: start..stop is outside 0..=len()";
+    traps(
+        "buffer = std.bytes.from_text(\"abc\")?",
+        &[
+            ("print(buffer.to_text_lossy_range(-1, 2)?)?", message),
+            ("print(buffer.to_text_lossy_range(2, 1)?)?", message),
+            ("print(buffer.to_text_lossy_range(0, 4)?)?", message),
+        ],
+    );
+}
+
+/// Issue #808: windows over pseudo-random bytes near every UTF-8 boundary
+/// decode exactly as Rust's `String::from_utf8_lossy`, which implements the
+/// same maximal-subpart rule. Windows cut sequences at both ends.
+#[test]
+fn lossy_text_matches_rust_from_utf8_lossy() {
+    const ALPHABET: [u8; 23] = [
+        0x00, 0x41, 0x7f, 0x80, 0x8f, 0x90, 0x9f, 0xa0, 0xbf, 0xc0, 0xc1, 0xc2, 0xdf, 0xe0, 0xe1,
+        0xed, 0xee, 0xef, 0xf0, 0xf1, 0xf4, 0xf5, 0xff,
+    ];
+    let mut state = 0x2545_f491_u32;
+    let corpus: Vec<u8> = (0..2048)
+        .map(|_| {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            ALPHABET[(state >> 16) as usize % ALPHABET.len()]
+        })
+        .collect();
+    let windows: Vec<(usize, usize)> = (0..corpus.len())
+        .map(|start| (start, (start + start % 9).min(corpus.len())))
+        .collect();
+    let hex = |bytes: &[u8]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let expected = windows
+        .iter()
+        .map(|&(start, stop)| hex(String::from_utf8_lossy(&corpus[start..stop]).as_bytes()))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let source = format!(
+        "import std.bytes\nimport std.encoding\n\
+         def main() -> Result[(), AllocError | IoError | OverflowError[i64] | std.encoding.EncodingError]:\n    \
+         corpus = std.encoding.hex_decode(b\"{}\")?\n    \
+         count = corpus.len()\n    \
+         for start in range(count):\n        \
+         mut stop = start + start % 9\n        \
+         if stop > count:\n            \
+         stop = count\n        \
+         text = corpus.to_text_lossy_range(start, stop)?\n        \
+         print(std.encoding.hex_text(&std.bytes.from_text(&text)?)?)?\n    \
+         whole = std.encoding.hex_decode(b\"{}\")?\n    \
+         print(std.encoding.hex_text(&std.bytes.from_text(&whole.to_text_lossy()?)?)?)?\n    \
+         Ok(())\n",
+        hex(&corpus),
+        hex(&corpus),
+    );
+    let whole = hex(String::from_utf8_lossy(&corpus).as_bytes());
+    assert_eq!(output(&source), format!("{expected}\n{whole}"));
+}
+
+/// Issue #808: valid input allocates only the text; invalid input also needs
+/// one exactly sized scratch buffer (storage and owner), and each failure is reported with
+/// nothing leaked (checked at exit).
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn lossy_text_reports_allocation_failure() {
+    native(
+        r#"
+valid = std.bytes.from_text("<<a text too long for inline string storage>>")?
+mut invalid = std.bytes.from_text("<<a text too long for inline string storage>>")?
+invalid.set(1, 255u8)
+print("__test_fail_allocations_after_0__")?
+a = valid.to_text_lossy()
+b = invalid.to_text_lossy()
+print("__test_fail_allocations_after_1__")?
+c = valid.to_text_lossy_range(2, 43)
+d = invalid.to_text_lossy()
+print("__test_fail_allocations_after_2__")?
+e = invalid.to_text_lossy()
+print("__test_fail_allocations_after_3__")?
+f = invalid.to_text_lossy()
+print("__test_restore_allocations__")?
+print(str.repr(a)?)?
+print(str.repr(b)?)?
+print(str.repr(c)?)?
+print(str.repr(d)?)?
+print(str.repr(e)?)?
+print(str.repr(f)?)?
+"#,
+        r#"
+Result[str, AllocError].Err(AllocError.OutOfMemory)
+Result[str, AllocError].Err(AllocError.OutOfMemory)
+Result[str, AllocError].Ok("a text too long for inline string storage")
+Result[str, AllocError].Err(AllocError.OutOfMemory)
+Result[str, AllocError].Err(AllocError.OutOfMemory)
+Result[str, AllocError].Ok("<�a text too long for inline string storage>>")
+"#,
+    );
+}
+
 #[test]
 fn ranges_follow_one_rule_without_clamping_or_negative_offsets() {
     native(
