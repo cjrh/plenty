@@ -166,8 +166,8 @@ are recorded there.
   only with application/CPU evidence. An opt-in CPU target such as x86-64-v2
   requires a decision against B17's fixed-baseline reproducibility contract.
   Strict byte-method dispatcher removal (issue #741), loop-cached byte
-  access (issue #843) and one-word reference reads (issue #844) are recorded
-  in the
+  access (issue #843), caller sites in inlined byte access (issue #842) and
+  one-word reference reads (issue #844) are recorded in the
   [byte-access delivery record](completed-work/performance.md#byte-method-access-issue-741).
 - **Layout/cleanup:** natural record-field packing beyond 16-byte slots, compact
   sum tags/niches, relocation/release plans for records holding ranges/sums/other
@@ -251,7 +251,7 @@ follow-up. All candidates still require scope and acceptance checks.
 | B38 | Additional breadth | `std.bigint` (issue #481): Plenty implementation per the [bigint proposal](proposals/bigint.md); needs `u64` widening-multiply and add-with-carry builtins. XML namespace URI resolution and tree/query APIs; recursive filesystem watches/automatic reconciliation; accurate summation/norms, float decomposition/adjacent values and special functions (the [numerics core proposal](proposals/numerics.md) schedules summation, norms and special functions in its first milestone, with optimization, integration, ODEs, interpolation and FFT under `std.numeric`; it replaces issues #492 and #493); constant function calls and `bytes` concatenation. Linalg conditioning, least squares and sparse storage need separate scope. Image: GIF/LZW/frames, baseline/progressive JPEG/encoding and WebP/VP8/VP8L/RIFF, then 16-bit buffers, streaming decode, metadata, resampling filters and the measured 2–6× Pillow speed gap; implement in Plenty under the same `Limits`. Broader statistics need numerical contracts; sketches need mergeable quantiles/frequent items, stronger tail accuracy and workload-led xor/fuse tuning. System: general cgroup accounting beyond the [delivered CPU-availability estimate](completed-work/libraries.md#b38-library-breadth) (issue #716), CPU utilization sampling and filesystem free space; the [coverage/backend assessment](design/stdlib/system-backends.md) records portability and allocation boundaries. |
 | B39 | Bytes | Stored/returned views (B11); OS strings in `std.path`, `std.env`, `std.process` and `std.cli` are `list[u8]`. Text APIs accepting `&substr` are B12. [Dataframe byte-view inputs delivered](completed-work/libraries.md#dataframe-byte-view-inputs-issue-657). |
 | B40 | Binary streams | Unscheduled nonblocking descriptors, vectored I/O, peeking and erased streams. Typed open modes, an enum replacing `str` modes in builtin `open`, `std.io.open_file` and `open_path` together; literal and constant `str` modes are already checked at compile time for all three (issue #807). |
-| B41 | Error context | Native-cause OS description text (B14/B71). |
+| B41 | Error context | Native-cause OS description text (B14/B71). [Bounded JSON/TOML diagnostics delivered](completed-work/libraries.md#serialization-diagnostics-issue-783). |
 | B43 | Processes | Native process-readiness wakeups for deadline waits, child-to-child redirection, arbitrary descriptor remapping, dropped-child reaping policy. [Explicit child-file inheritance delivered](completed-work/libraries.md#explicit-child-file-inheritance) (issue #777). [Isolated process groups and sessions delivered](completed-work/libraries.md#b43-process-groups-and-sessions) (issue #776). [Polling deadline/cancellation waits delivered](completed-work.md#typed-time-and-cancellable-waits). |
 | B46 | Logs | JSON-lines sink, sampling/rate limits, per-module thresholds and span context. |
 | B47 | Text/Unicode | Grapheme-aware text wrapping and broader classification; keep the external `unicode_text` package's Unicode version aligned with `std.unicode`. [Delivered paragraph tools](design/stdlib/text-wrapping.md). |
@@ -266,7 +266,7 @@ follow-up. All candidates still require scope and acceptance checks.
 | B56 | Concurrency primitives | Condition variables, rwlocks and semaphores only with a concrete use case. |
 | B60 | URLs | Relative resolution, normalization/equivalence, IDNA and form encoding. |
 | B63 | HTTP client | WebSocket `permessage-deflate` and proxy tunnels; cookie jars/content decoding were declined, not scheduled. |
-| B64 | HTTP server | [Typed fallback/method policy and opt-in slash redirects delivered](completed-work/libraries.md#http-routing-policies) (issue #784); [automatic response dates delivered](completed-work/libraries.md#http-response-dates-issue-786). SSE client reader; waking SSE streams from channel messages rather than polling. |
+| B64 | HTTP server | [Typed fallback/method policy and opt-in slash redirects delivered](completed-work/libraries.md#http-routing-policies) (issue #784); [automatic response dates delivered](completed-work/libraries.md#http-response-dates-issue-786); [bounded malformed-capture rendering delivered](completed-work/libraries.md#http-malformed-capture-responses-issue-787). SSE client reader; waking SSE streams from channel messages rather than polling. |
 | B65 | HTTP helpers | Static-file `Range` requests and directory indexes. |
 | B66 | HTTP qualification | Generated route dispatch without user `match` waits on enum methods or existential protocol values; preserve existing qualification suites and [proxy fixture ownership](design/stdlib/http-qualification.md#reverse-proxies) (issue #719; [delivered scope](completed-work/libraries.md#b39b70-initial-delivery-slices)). |
 | B67 | Crypto | P-384/JWT ES384 and SHA-384 HMAC/JWT HS384; password KDFs need separate use-case/API review. |

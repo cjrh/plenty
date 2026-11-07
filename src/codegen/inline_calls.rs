@@ -308,7 +308,8 @@ impl Lowerer<'_, '_> {
         let functions = self.user_fns;
         let decl = &functions[name];
         let inputs = decl.sig.inputs.len();
-        let saved = if track_caller {
+        let caller = self.inline_caller(track_caller && decl.names_caller_in_sites);
+        let saved = if track_caller && caller.is_none() {
             self.enter_call()?
         } else {
             None
@@ -385,7 +386,10 @@ impl Lowerer<'_, '_> {
             empty_slot: Some((empty_word, empty_double)),
             exits: Some(exits::Exits::returning_to(returned, body)),
             counters: Default::default(),
-            position: sites::Position::in_file(decl.source.clone(), decl.standard_library),
+            position: match caller {
+                Some(caller) => sites::Position::inlined(decl.source.clone(), caller),
+                None => sites::Position::in_file(decl.source.clone(), decl.standard_library),
+            },
             trap_blocks: HashMap::default(),
             moves: Default::default(),
         };

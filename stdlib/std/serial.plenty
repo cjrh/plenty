@@ -3,9 +3,51 @@
 # See book/src/design/stdlib/serial.md and issue #781.
 import std.encoding
 from std.bytes import Bytes
+from std.fmt import Formatter, FormatError
+import std.report
+
+pub enum Kind:
+    Null
+    Boolean
+    Integer
+    Number
+    Text
+    Array
+    Object
+    DateTime
+    Variant
+    Key
+    End
+
+    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
+        text = match self:
+            case Kind.Null:
+                "null"
+            case Kind.Boolean:
+                "boolean"
+            case Kind.Integer:
+                "integer"
+            case Kind.Number:
+                "number"
+            case Kind.Text:
+                "string"
+            case Kind.Array:
+                "array"
+            case Kind.Object:
+                "object"
+            case Kind.DateTime:
+                "date/time"
+            case Kind.Variant:
+                "enum tag or tagged object"
+            case Kind.Key:
+                "object key"
+            case Kind.End:
+                "end of container or input"
+        output.text(&text)
 
 pub enum Fault:
     UnexpectedKind
+    KindMismatch(Kind, Kind)
     MissingField(str)
     DuplicateField(str)
     UnknownField(str)
@@ -16,6 +58,42 @@ pub enum Fault:
     Unrepresentable
     InvalidBase64(std.encoding.EncodingError)
     StackLimit
+
+    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
+        match self:
+            case Fault.KindMismatch(expected, found):
+                output.text("expected ")?
+                std.report.render(expected, output)?
+                output.text(", found ")?
+                std.report.render(found, output)
+            case Fault.MissingField(name):
+                output.text("missing field ")?
+                output.debug_text(name)
+            case Fault.DuplicateField(name):
+                output.text("duplicate field ")?
+                output.debug_text(name)
+            case Fault.UnknownField(name):
+                output.text("unknown field ")?
+                output.debug_text(name)
+            case Fault.WrongLength(expected, found):
+                output.text("expected ")?
+                output.integer(*expected)?
+                output.text(" elements, found ")?
+                output.integer(*found)
+            case Fault.UnexpectedKind:
+                output.text("unexpected value kind")
+            case Fault.UnknownVariant(_):
+                output.text("unknown enum variant")
+            case Fault.OutOfRange:
+                output.text("value is outside the supported range")
+            case Fault.DuplicateElement:
+                output.text("duplicate set element")
+            case Fault.Unrepresentable:
+                output.text("value cannot be represented in this format")
+            case Fault.InvalidBase64(_):
+                output.text("invalid canonical base64 encoding")
+            case Fault.StackLimit:
+                output.text("serialization native stack limit exceeded")
 
 pub enum Step:
     Field(str)
@@ -28,6 +106,36 @@ pub class SerialError[E]:
     # Innermost first: propagating outwards appends without shifting.
     pub path: Option[list[Step]]
     pub complete: bool
+
+    pub def source_offset(self) -> Option[i64]:
+        self.cause.source_offset()
+
+    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
+        std.report.render(&self.cause, output)?
+        output.text(" at $")?
+        match &self.path:
+            case Some(path):
+                for reverse in range(len(path)):
+                    index = unchecked:
+                        len(path) - reverse - 1
+                    match &path[index]:
+                        case Step.Field(name) | Step.Key(name):
+                            output.text("[")?
+                            output.debug_text(name)?
+                            output.text("]")?
+                        case Step.Index(index):
+                            output.text("[")?
+                            output.integer(*index)?
+                            output.text("]")?
+                        case Step.Variant(name):
+                            output.text("<")?
+                            output.debug_text(name)?
+                            output.text(">")?
+            case Nothing:
+                pass
+        if not self.complete:
+            output.text(" (path incomplete)")?
+        Ok(())
 
     pub def at(self: SerialError[E], step: Step) -> SerialError[E]:
         mut error = self

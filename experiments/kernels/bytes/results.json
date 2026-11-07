@@ -106,63 +106,81 @@
     }
   },
   "issue-844": {
-    "baseline": "43b31dfd",
+    "baseline": "dfe3972d",
     "units": "perf instructions:u; PLENTY_CACHE=off; taskset -c 0",
-    "input": "fasta.reference 250000 output; fasta takes 250000 as its argument",
-    "fasta-before": [
-      352111889,
-      352111887
+    "input": "fasta.reference output for the stated size; fasta takes 250000 as its argument",
+    "fasta-250000-before": [
+      282611899,
+      282611905,
+      282611920
     ],
-    "fasta-after": [
-      349361779,
-      349361861
+    "fasta-250000-after": [
+      279861822,
+      279861827,
+      279861870
     ],
-    "reverse-complement-before": [
-      77021775,
-      77021786
+    "reverse-complement-250000-before": [
+      66095652,
+      66095672,
+      66095652
     ],
-    "reverse-complement-after": [
-      76963407,
-      76963406
+    "reverse-complement-250000-after": [
+      66037244,
+      66037242,
+      66037241
     ],
-    "k-nucleotide-before": [
-      6534971921,
-      6537360960,
-      6534457299,
-      6540820121,
-      6536191093
+    "reverse-complement-2500000-before": [
+      656456096,
+      656456101,
+      656456106
     ],
-    "k-nucleotide-after": [
-      6539262038,
-      6542984882,
-      6547648903,
-      6536123848,
-      6539423360
+    "reverse-complement-2500000-after": [
+      655872640,
+      655872639,
+      655872646
     ],
-    "loop_caller_instructions": {
+    "k-nucleotide-250000-before": [
+      6499651903,
+      6494959836,
+      6503995339
+    ],
+    "k-nucleotide-250000-after": [
+      6501128238,
+      6497542419,
+      6495084951
+    ],
+    "loop_caller_instructions_before_after": {
+      "growing": [
+        45,
+        42
+      ],
       "transform_call": [
-        38,
-        36
+        28,
+        26
       ],
       "push": [
-        35,
-        34
+        23,
+        22
       ],
       "while": [
-        50,
-        48
+        33,
+        31
       ],
       "pushes": [
-        51,
-        49
+        39,
+        37
       ],
       "truncated": [
-        70,
-        67
+        55,
+        53
       ],
       "inner_clears": [
-        42,
-        38
+        33,
+        32
+      ],
+      "kernels": [
+        7,
+        7
       ]
     }
   }

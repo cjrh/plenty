@@ -139,8 +139,9 @@ parameter bounds, adds one unsigned comparison and branch per access (10
 instructions per byte for a single `get` loop). A failing index calls the
 method from a cold block, so messages, std positions and caller notes are
 unchanged. Loops that may resize the buffer, through `push` or a call taking
-`&mut Bytes`, keep the method calls and their #842 costs; the
-[one-word owner reads](#one-word-owner-reads-issue-844) removed the #844 loads.
+`&mut Bytes`, keep the method calls; see
+[caller sites in inlined access](#caller-sites-in-inlined-access-issue-842) and
+[one-word owner reads](#one-word-owner-reads-issue-844) for their later costs.
 
 | Workload | Before instructions | After instructions |
 |---|---:|---:|
@@ -155,12 +156,40 @@ falls from 11.42 to 2.11. Compile counts are unchanged within their spread.
 The before compile probe was built from the baseline source in a separate
 target directory. Raw repetitions are under `issue-843` in `results.json`.
 
+## Caller sites in inlined access (issue #842)
+
+`growing.plenty` pushes to the buffer it reads, so the loop keeps the method
+calls. Before this change, each inlined `len`, `get`, `set` and `push` saved
+and restored the thread-local caller: a site address, `plenty_caller_enter`,
+a spill and reload of its result and `plenty_caller_leave`. Inlined `Bytes`
+primitives now name the user call site in their own trap records instead.
+
+```sh
+PLENTY_CACHE=off target/release/plenty --release --dump asm \
+    --dump-filter transform experiments/kernels/bytes/growing.plenty -o /tmp/growing
+```
+
+| Kernel | Instructions per byte, 2e50b1b8 | After | `plenty_caller_enter` calls in `transform`, before / after |
+|---|---:|---:|---|
+| `growing.plenty` | 68 | 45 | 5 / 0 |
+| `growing.plenty`, pushing to a second `&mut Bytes` | 68 | 45 | 5 / 0 |
+| `kernels.plenty` | 7 | 7 | 1 / 0 (around the hoisted `len()`) |
+
+The reverse-complement benchmark's reversal loop is a `while` loop, so it
+still calls `get` and `set`; it fell from 53 to 45 instructions per pass, and
+the program's `plenty_caller_enter` call sites from 32 to 14. The
+quick FASTA input (size 2,500,000) ran 765,708,420–765,708,439
+`instructions:u` before and 656,456,084–656,456,096 after, **14.3% fewer**,
+with identical output (three runs each, `taskset -c 0`). The before compiler
+was built from 2e50b1b8 in a separate target directory.
+
 ## One-word owner reads (issue #844)
 
-Measured on 2026-11-07, baseline `43b31dfd`, same machine and toolchain.
-Since issue #843, `kernels.plenty` caches the buffer and runs 7 instructions
-per byte with no owner loads in the loop. A loop that may resize the buffer
-keeps the method calls; add a call that takes `&mut Bytes` to the kernel loop:
+Measured on 2026-11-07, baseline `dfe3972d` (after issue #842), same machine
+and toolchain. Since issue #843, `kernels.plenty` caches the buffer and runs
+7 instructions per byte with no owner loads in the loop. A loop that may
+resize the buffer keeps the method calls, as `growing.plenty` does or as the
+kernel loop does with a call that takes `&mut Bytes`:
 
 ```plenty fragment
 def touch(data: &mut std.bytes.Bytes) -> ():
@@ -174,30 +203,33 @@ def transform_call(data: &mut std.bytes.Bytes) -> ():
 
 Each inlined `get` and `set` read `self._owner` with `load.i128` and passed
 only the low word (`isplit`) to the native helper. Cranelift does not narrow
-the dead half, so x86-64 kept `mov 8(%r12), %rax` per method call. A
+the dead half, so x86-64 kept a `mov 8(%reg), %reg` per method call. A
 `ReadRef` or `ReplaceRef` of a type whose native value is one word now loads
 only that word, as the length query already did.
 
 | Loop, caller instructions per iteration | Before | After |
 |---|---:|---:|
-| `transform_call` above | 38 | 36 |
-| `out.push(data.get(i) ^ 32u8)?` | 35 | 34 |
-| `while i < data.len()` with `get`, `set` and the call | 50 | 48 |
-| `pushes` in `tests/test_byte_views.rs` | 51 | 49 |
-| `truncated` in `tests/test_byte_views.rs` | 70 | 67 |
-| `inner_clears` in `tests/test_byte_views.rs` | 42 | 38 |
+| `growing.plenty` `transform` | 45 | 42 |
+| `transform_call` above | 28 | 26 |
+| `out.push(data.get(i) ^ 32u8)?` | 23 | 22 |
+| `while i < data.len()` with `get`, `set` and the call | 33 | 31 |
+| `pushes` in `tests/test_byte_views.rs` | 39 | 37 |
+| `truncated` in `tests/test_byte_views.rs` | 55 | 53 |
+| `inner_clears` in `tests/test_byte_views.rs` | 33 | 32 |
+| `kernels.plenty` `transform` | 7 | 7 |
 
-Count with `loops.py` as above. Executables built by `benchmarks/game/bench.py
-check` with each compiler, run pinned to core 0 on the reference fasta output
-for size 250,000 (fasta takes the size argument instead):
+Count with `loops.py` as above. `growing.plenty`'s release CLIF holds 17
+`load.i128` before and 10 after. Executables built by `benchmarks/game/bench.py
+check` with each compiler ran pinned to core 0 on reference fasta output
+(fasta takes the size argument instead), three runs each:
 
 | Workload | Before instructions | After instructions |
 |---|---:|---:|
-| fasta 250,000 | 352,111,887–352,111,889 | 349,361,779–349,361,861 |
-| reverse-complement | 77,021,775–77,021,786 | 76,963,406–76,963,407 |
-| k-nucleotide | 6,534,457,299–6,540,820,121 | 6,536,123,848–6,547,648,903 |
+| fasta 250,000 | 282,611,899–282,611,920 | 279,861,822–279,861,870 |
+| reverse-complement, input 250,000 | 66,095,652–66,095,672 | 66,037,241–66,037,244 |
+| reverse-complement, quick input 2,500,000 | 656,456,096–656,456,106 | 655,872,639–655,872,646 |
+| k-nucleotide, input 250,000 | 6,494,959,836–6,503,995,339 | 6,495,084,951–6,501,128,238 |
 
-fasta executes 0.8% fewer instructions; reverse-complement's hot loops are
-cached, so it changes by 0.08%. k-nucleotide's ranges overlap. Outputs are
-identical. Raw repetitions are under `issue-844` in `results.json`.
-
+fasta executes 1.0% fewer instructions and reverse-complement 0.09% fewer;
+k-nucleotide's ranges overlap. Outputs are identical. Raw repetitions are under
+`issue-844` in `results.json`.

@@ -1691,6 +1691,9 @@ struct UserFn {
     /// A std body that can neither trap nor run other code, so user calls
     /// to it need no caller site; see [`sites::reads_no_caller`].
     reads_no_caller: bool,
+    /// A std body whose trap records can name an inlining user call site;
+    /// see [`sites::names_caller_in_sites`].
+    names_caller_in_sites: bool,
 }
 
 /// Build a Cranelift `Signature` from a Plenty `FnSig`. User functions
@@ -1772,6 +1775,7 @@ fn collect_user_fns(
                         standard_library: f.origins.standard_library,
                         preserves_caller: false,
                         reads_no_caller: false,
+                        names_caller_in_sites: false,
                     },
                 );
                 bodies.push((name.clone(), Arc::clone(&f.body)));
@@ -3846,12 +3850,13 @@ impl Lowerer<'_, '_> {
             (decl.standard_library || decl.source.is_none()) && !decl.reads_no_caller
         };
         if let Some(inline) = decl.inline.clone() {
-            let saved = if track_caller {
+            let caller = self.inline_caller(track_caller && decl.names_caller_in_sites);
+            let saved = if track_caller && caller.is_none() {
                 self.enter_call()?
             } else {
                 None
             };
-            self.lower_leaf_call(&inline, &args, captures)?;
+            self.lower_leaf_call(&inline, &args, captures, caller)?;
             self.leave_call(saved);
             return Ok(());
         }
@@ -3955,18 +3960,20 @@ impl Lowerer<'_, '_> {
         let track_caller = !caller_standard
             && (decl.standard_library || decl.source.is_none())
             && !decl.reads_no_caller;
+        let names_caller = track_caller && decl.names_caller_in_sites;
         // A real tail call destroys owned locals before entering its callee.
         // Keep that ordering when the leaf may trap: only substitute callers
         // whose final local cleanup has no observable work.
         if let Some(inline) = decl.inline.clone()
             && cleanup_free
         {
-            let saved = if track_caller {
+            let caller = self.inline_caller(names_caller);
+            let saved = if track_caller && caller.is_none() {
                 self.enter_call()?
             } else {
                 None
             };
-            self.lower_leaf_call(&inline, &args, &[])?;
+            self.lower_leaf_call(&inline, &args, &[], caller)?;
             self.leave_call(saved);
             return self.lower(&Op::Return);
         }

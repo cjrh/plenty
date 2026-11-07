@@ -72,7 +72,12 @@ before writing hooks. JSON `dump`, tree encoding, and `encoder` accept
 `Encoder.key`. Typed failures carry `SerialError[JsonError]` or
 `SerialError[TomlError]` with an innermost-first path; propagate that complete
 type. `std.json.load_from` borrows an owning `CodecReader[R]` made with
-`codec_reader(inner)`; its public `inner` preserves the reader on failure.
+`codec_reader(inner)`; its public `inner` preserves the reader on failure. Render typed errors with
+`std.report.to_string(&error, max_bytes, max_depth)` for readable causes and
+root-first paths. `std.report.diagnostic(&error, source)` explicitly adds a
+bounded source excerpt when coordinates exist; TOML schema/tree errors retain
+paths without fabricated source locations. Kind mismatches retain expected and
+actual `std.serial.Kind` values. Rendering borrows and preserves the error.
 
 ## Rules that prevent most errors
 

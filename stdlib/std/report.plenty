@@ -10,3 +10,128 @@ pub def to_string[T: Formattable](value: &T, max_bytes: NonNegative[i64], max_de
     mut output = string_formatter(max_bytes, max_depth)?
     render(value, &mut output)?
     finish(&output)
+
+# Source-aware reports use the same formatter and error family as every report.
+# None means that no input location is known (for example an owning tree).
+pub protocol Diagnostic:
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
+        pass
+    def source_offset(self) -> Option[i64]:
+        pass
+
+# Returns a scalar and its byte width; -1 denotes one malformed UTF-8 byte.
+# No input storage is copied, and all arithmetic is bounded by four bytes.
+def scalar(source: &[u8], at: i64) -> (i64, i64):
+    unchecked:
+        first = i64(source[at])
+        if first < 128:
+            return (first, 1)
+        mut width = 0
+        mut code = 0
+        mut minimum = 0
+        if first >= 194 and first <= 223:
+            width = 2
+            code = first - 192
+            minimum = 128
+        elif first >= 224 and first <= 239:
+            width = 3
+            code = first - 224
+            minimum = 2048
+        elif first >= 240 and first <= 244:
+            width = 4
+            code = first - 240
+            minimum = 65536
+        else:
+            return (-1, 1)
+        if width > len(source) - at:
+            return (-1, 1)
+        for index in range(1, width):
+            byte = i64(source[at + index])
+            if byte < 128 or byte > 191:
+                return (-1, 1)
+            code = code * 64 + byte - 128
+        if code < minimum or code > 1114111 or (code >= 55296 and code <= 57343):
+            return (-1, 1)
+        (code, width)
+
+# Text reports preserve ordinary Unicode. Controls and direction-changing
+# format characters are escaped so an excerpt cannot inject terminal commands.
+def escaped(code: i64) -> bool:
+    code < 32 or (code >= 127 and code <= 159) or (code >= 8232 and code <= 8238) or (code >= 8294 and code <= 8297) or code == 65279 or code == 1564 or code == 8206 or code == 8207
+
+def excerpt[W](source: &[u8], offset: i64, output: &mut Formatter[W], max_context: i64) -> Result[(), FormatError]:
+    if offset < 0 or offset > len(source):
+        __trap("std.report.diagnostic: source_offset is outside the supplied source")
+    if max_context == 0:
+        return Ok(())
+    # Endpoint differences never exceed the view length or max_context.
+    unchecked:
+        mut start = offset
+        half = max_context // 2
+        while start > 0 and offset - start < half:
+            if source[start - 1] == 10u8:
+                break
+            start -= 1
+        # Do not begin in the middle of a valid UTF-8 scalar.
+        while start < offset and source[start] >= 128u8 and source[start] <= 191u8:
+            start += 1
+        mut stop = offset
+        while stop < len(source) and stop - start < max_context:
+            if source[stop] == 10u8:
+                break
+            stop += 1
+        left = start > 0 and source[start - 1] != 10u8
+        output.text("\n  ")?
+        mut caret = 0
+        if left:
+            output.text("...")?
+            caret = 3
+        mut at = start
+        while at < stop:
+            code, width = scalar(source, at)
+            if width > stop - at:
+                break
+            mut columns = 1
+            if code < 0:
+                output.text("\\x")?
+                byte = i64(source[at])
+                if byte < 16:
+                    output.text("0")?
+                output.unsigned(u64(byte), 16)?
+                columns = 4
+            elif escaped(code):
+                output.text("\\u{")?
+                output.unsigned(u64(code), 16)?
+                output.text("}")?
+                mut digits = 1
+                mut rest = code
+                while rest >= 16:
+                    rest //= 16
+                    digits += 1
+                columns = digits + 4
+            else:
+                character = chr(u32(code)).unwrap()
+                output.text(&character)?
+            if at < offset:
+                # Every displayed column costs at least one output byte,
+                # so a successful write bounds caret by the formatter budget.
+                caret += columns
+            at += width
+        if at < len(source) and source[at] != 10u8:
+            output.text("...")?
+        output.text("\n  ")?
+        for _ in range(caret):
+            output.text(" ")?
+        output.text("^")
+
+# Source excerpts are explicitly opt-in: ordinary to_string never includes
+# source text. The supplied bytes must match the failed operation's input.
+pub def diagnostic[T: Diagnostic](value: &T, source: &[u8], max_bytes: NonNegative[i64] = 4096, max_context: NonNegative[i64] = 80) -> Result[str, FormatError]:
+    mut output = string_formatter(max_bytes, 16)?
+    render(value, &mut output)?
+    match value.source_offset():
+        case Some(offset):
+            excerpt(source, offset, &mut output, max_context.get())?
+        case Nothing:
+            pass
+    finish(&output)

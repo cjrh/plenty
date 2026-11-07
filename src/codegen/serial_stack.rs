@@ -584,6 +584,7 @@ mod tests {
                 source: None,
                 preserves_caller: false,
                 reads_no_caller: false,
+                names_caller_in_sites: false,
             },
         )]);
         let targets = HashMap::default();

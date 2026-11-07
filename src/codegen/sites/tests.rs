@@ -174,9 +174,9 @@ fn arm_source_table_aliases_preserve_record_and_file_offsets() {
         );
         let mut table = Table::default();
         let records = [
-            (Some("main.plenty".into()), 3, 5, false),
-            (Some("std/picking.plenty".into()), 2, 5, true),
-            (Some("main.plenty".into()), 7, 9, false),
+            ((Some("main.plenty".into()), 3, 5, false), None),
+            ((Some("std/picking.plenty".into()), 2, 5, true), None),
+            ((Some("main.plenty".into()), 7, 9, false), None),
         ];
         let mut aliases = Vec::new();
         for (i, record) in records.iter().enumerate() {
@@ -221,7 +221,7 @@ fn arm_source_table_aliases_preserve_record_and_file_offsets() {
             .section_by_index(symbols[0].section_index().unwrap())
             .unwrap();
         let bytes = section.data().unwrap();
-        for (i, (file, line, column, standard_library)) in records.iter().enumerate() {
+        for (i, ((file, line, column, standard_library), _)) in records.iter().enumerate() {
             let symbol = &symbols[i];
             let offset = usize::try_from(symbol.address() - section.address()).unwrap();
             let word = |at: usize| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
@@ -247,4 +247,28 @@ fn arm_source_table_aliases_preserve_record_and_file_offsets() {
             }
         }
     }
+}
+
+/// A std record inlined into user code names its caller by a nonzero,
+/// record-aligned distance, which the runtime cannot mistake for the 0 (user)
+/// or 1 (read the caller context) markers. The same position without a caller
+/// keeps its own record.
+#[test]
+fn inlined_standard_records_name_their_caller_by_distance() {
+    let user = |line| (Some(Arc::<str>::from("main.plenty")), line, 5, false);
+    let std_site = (Some(Arc::<str>::from("std/bytes.plenty")), 48, 13, true);
+    let mut sites = Sites::default();
+    assert_eq!(sites.record(user(3), None), 0);
+    assert_eq!(sites.record(std_site.clone(), Some(user(7))), 32);
+    assert_eq!(sites.record(std_site.clone(), Some(user(3))), 48);
+    assert_eq!(sites.record(std_site.clone(), Some(user(7))), 32);
+    assert_eq!(sites.record(std_site.clone(), None), 64);
+    let records = sites.into_records();
+    assert_eq!(
+        records
+            .iter()
+            .map(|(_, caller)| *caller)
+            .collect::<Vec<_>>(),
+        [None, None, Some(-16), Some(-48), None]
+    );
 }

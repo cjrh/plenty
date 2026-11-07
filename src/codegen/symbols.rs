@@ -74,7 +74,7 @@ pub(super) enum Request {
     /// Static protocol adapters, in declaration order.
     ProtocolTable(Vec<FuncId>),
     /// The function's trap-site table, holding these records.
-    Sites(Vec<sites::Key>),
+    Sites(Vec<sites::Record>),
     /// A runtime helper.
     Import(String, ir::Signature),
     /// A C function from a native library ([`super::foreign`]).
@@ -268,7 +268,12 @@ impl Symbols {
     }
 
     /// The function's trap-site table and the offset of `key`'s record in it.
-    pub(super) fn site(&mut self, key: sites::Key, func: &mut ir::Function) -> (GlobalValue, i64) {
+    pub(super) fn site(
+        &mut self,
+        key: sites::Key,
+        caller: Option<sites::Key>,
+        func: &mut ir::Function,
+    ) -> (GlobalValue, i64) {
         let table = match self.site_table {
             Some((_, table)) => table,
             None => {
@@ -285,7 +290,7 @@ impl Symbols {
                 table
             }
         };
-        (table, self.sites.record(key))
+        (table, self.sites.record(key, caller))
     }
 }
 

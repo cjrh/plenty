@@ -11,9 +11,14 @@
 //! two Plenty static libraries linked into one program each keep their own.
 //!
 //! Layout, matching `Site` in the runtime: one sixteen-byte record per distinct
-//! position (`line`, `column`, `file`, `standard_library`, each a `u32`), then the file names, each
-//! a `u32` length followed by UTF-8 bytes. `file` is the distance in bytes from
-//! its record to its name, so the table needs no relocations.
+//! position (`line`, `column`, `file`, `caller`, each a `u32`), then the file
+//! names, each a `u32` length followed by UTF-8 bytes. `file` is the distance
+//! in bytes from its record to its name, so the table needs no relocations.
+//! `caller` is 0 for user code and 1 for std code whose trap notes the caller
+//! context's site. Otherwise it is the signed distance in bytes from the
+//! record to its user caller's record in the same table: std code inlined into
+//! a user function names that call site in its own records instead of setting
+//! the caller context around the inlined body (issue #842).
 
 use super::*;
 use cranelift_codegen::ir::Value;
@@ -22,29 +27,38 @@ const RECORD: usize = 16;
 
 pub(super) type Key = (Option<Arc<str>>, u32, u32, bool);
 
+/// A position and, for std code inlined into user code, the distance in bytes
+/// from its record to the record of its user caller.
+pub(super) type Record = (Key, Option<i64>);
+
 /// The positions one function refers to, in first-use order.
 #[derive(Default)]
 pub(super) struct Sites {
-    offsets: HashMap<Key, i64>,
-    records: Vec<Key>,
+    offsets: HashMap<(Key, Option<Key>), i64>,
+    records: Vec<Record>,
 }
 
 #[cfg(test)]
 mod tests;
 
 impl Sites {
-    /// Offset of `key`'s record in the table.
-    pub(super) fn record(&mut self, key: Key) -> i64 {
-        if let Some(offset) = self.offsets.get(&key) {
+    /// Offset of `key`'s record in the table, naming `caller`'s record as
+    /// its caller when given.
+    pub(super) fn record(&mut self, key: Key, caller: Option<Key>) -> i64 {
+        let lookup = (key, caller);
+        if let Some(offset) = self.offsets.get(&lookup) {
             return *offset;
         }
+        let (key, caller) = lookup;
+        let caller_offset = caller.clone().map(|caller| self.record(caller, None));
         let offset = (self.records.len() * RECORD) as i64;
-        self.offsets.insert(key.clone(), offset);
-        self.records.push(key);
+        self.offsets.insert((key.clone(), caller), offset);
+        self.records
+            .push((key, caller_offset.map(|caller| caller - offset)));
         offset
     }
 
-    pub(super) fn into_records(self) -> Vec<Key> {
+    pub(super) fn into_records(self) -> Vec<Record> {
         self.records
     }
 }
@@ -60,7 +74,7 @@ impl Sites {
 /// the same for every worker count: placement order is job order.
 #[derive(Default)]
 pub(super) struct Table {
-    records: Vec<Key>,
+    records: Vec<Record>,
     /// Declared with the first function that has a record, so a program
     /// without one adds no symbol.
     data: Option<DataId>,
@@ -73,7 +87,7 @@ impl Table {
     pub(super) fn append(
         &mut self,
         module: &mut ObjectModule,
-        records: &[Key],
+        records: &[Record],
     ) -> Result<(DataId, i64)> {
         let data = match self.data {
             Some(data) => data,
@@ -138,7 +152,8 @@ impl Table {
         let mut names = Vec::new();
         let mut name_offsets: HashMap<&str, usize> = HashMap::default();
         let mut bytes = Vec::with_capacity(names_start);
-        for (i, (file, line, column, standard_library)) in self.records.iter().enumerate() {
+        for (i, ((file, line, column, standard_library), caller)) in self.records.iter().enumerate()
+        {
             let file = match file {
                 None => 0,
                 Some(name) => {
@@ -151,7 +166,13 @@ impl Table {
                     u32::try_from(names_start + at - i * RECORD)?
                 }
             };
-            for field in [*line, *column, file, u32::from(*standard_library)] {
+            let caller = match caller {
+                // Records are sixteen-byte aligned and distinct, so a
+                // distance never reads as 0 or 1.
+                Some(distance) => i32::try_from(*distance)? as u32,
+                None => u32::from(*standard_library),
+            };
+            for field in [*line, *column, file, caller] {
                 bytes.extend(field.to_ne_bytes());
             }
         }
@@ -220,6 +241,10 @@ pub(super) struct Position {
     /// fixes the position (see [`super::exits`]).
     shared_at: Option<Variable>,
     shared_call: Option<Variable>,
+    /// The user call site of an inlined std body that names it in its own
+    /// records rather than in the caller context; see
+    /// [`Lowerer::inline_caller`].
+    inline_caller: Option<Key>,
 }
 
 impl Position {
@@ -227,6 +252,17 @@ impl Position {
         Self {
             file,
             standard_library,
+            ..Default::default()
+        }
+    }
+
+    /// The position of a std body inlined at user call site `caller`
+    /// ([`Lowerer::inline_caller`]), whose trap records name that site.
+    pub(super) fn inlined(file: Option<Arc<str>>, caller: Key) -> Self {
+        Self {
+            file,
+            standard_library: true,
+            inline_caller: Some(caller),
             ..Default::default()
         }
     }
@@ -274,7 +310,8 @@ impl Lowerer<'_, '_> {
         }
         Ok(self.position.at.map(|(line, column)| {
             let key = self.site_key(line, column);
-            self.module.site(key, self.bcx.func).1
+            let caller = self.position.inline_caller.clone();
+            self.module.site(key, caller, self.bcx.func).1
         }))
     }
 
@@ -300,7 +337,8 @@ impl Lowerer<'_, '_> {
             return Ok(self.bcx.ins().iconst(PTR_TY, 0));
         };
         let key = self.site_key(line, column);
-        let (table, offset) = self.module.site(key, self.bcx.func);
+        let caller = self.position.inline_caller.clone();
+        let (table, offset) = self.module.site(key, caller, self.bcx.func);
         let base = self.bcx.ins().symbol_value(PTR_TY, table);
         Ok(if offset == 0 {
             base
@@ -328,6 +366,23 @@ impl Lowerer<'_, '_> {
             .declare_func_in_func(self.runtime.caller_enter, self.bcx.func);
         let call = self.bcx.ins().call(enter, &[site]);
         Ok(Some(self.bcx.inst_results(call)[0]))
+    }
+
+    /// The record key of this user call site, when a callee lowered into
+    /// this body can name it in its trap records instead of entering a
+    /// caller scope: the callee is std code whose only reads of the caller
+    /// context are trap sites (`eligible`, [`names_caller_in_sites`]) and
+    /// the site is fixed at lowering time.
+    pub(super) fn inline_caller(&self, eligible: bool) -> Option<Key> {
+        if !eligible
+            || self.position.standard_library
+            || self.position.shared_call.is_some()
+            || !self.runtime.standard_calls
+        {
+            return None;
+        }
+        let (line, column) = self.position.call_at.or(self.position.at)?;
+        Some(self.site_key(line, column))
     }
 
     pub(super) fn leave_call(&mut self, saved: Option<Value>) {
@@ -414,6 +469,98 @@ pub(super) fn mark_context_preserving(
         function.reads_no_caller = function.standard_library
             && function.generator.is_none()
             && reads_no_caller(body, &function.sig, &function.locals);
+        function.names_caller_in_sites = function.standard_library
+            && function.generator.is_none()
+            && !function.reads_no_caller
+            && names_caller_in_sites(body, &function.sig, &function.locals);
+    }
+}
+
+/// Whether a std body reads the caller context only through its own trap
+/// sites: it makes no call, runs no other code, and releases nothing that
+/// does. An inlined copy can then name its user call site in those records
+/// rather than setting the context around the body (issue #842). Runtime
+/// helpers read the context only for a trap at a std site
+/// (`fail_kind_at` in the runtime) and for `__caller_location`, which is not
+/// among these operations.
+pub(super) fn names_caller_in_sites(body: &[Op], sig: &FnSig, locals: &[Ty]) -> bool {
+    use crate::collection::CollectionOp as C;
+    let runs_code = sig
+        .inputs
+        .iter()
+        .map(|(_, ty)| ty)
+        .chain(locals)
+        .chain(&sig.outputs)
+        .any(Ty::release_runs_code);
+    if runs_code {
+        return false;
+    }
+    let mut eligible = true;
+    // `walk_slices` also enters loop, try and checked bodies; the whitelist
+    // rejects those ops themselves.
+    walk_slices(body, &mut |ops| {
+        for (index, op) in ops.iter().enumerate() {
+            eligible &= match op {
+                // A discarded byte primitive result, such as `Bytes.set`'s
+                // unit; the stack value's type is otherwise unknown here.
+                Op::Drop => matches!(
+                    ops[..index].iter().rev().find(|op| !matches!(
+                        op,
+                        Op::Site(_) | Op::UseLoan(_) | Op::EndLoan(_)
+                    )),
+                    Some(Op::Collection(C::Bytes(primitive)))
+                        if !primitive.signature().1.release_runs_code()
+                ),
+                _ => primitive_reads_no_caller(op),
+            };
+        }
+    });
+    eligible
+}
+
+/// Whether `op`, outside a nested body, can read the caller context only
+/// through a trap site; see [`names_caller_in_sites`].
+fn primitive_reads_no_caller(op: &Op) -> bool {
+    use crate::collection::CollectionOp as C;
+    use crate::record::ClassOp;
+    match op {
+        Op::ReadRef(ty) => !ty.release_runs_code(),
+        // Native byte primitives and read-only queries: none calls
+        // compiled code. A trap passes its site record.
+        Op::Collection(C::Bytes(_) | C::QueryRef(_) | C::Trap) => true,
+        Op::Class(ClassOp::FieldRef(..))
+        | Op::Site(_)
+        | Op::CallerSite(_)
+        | Op::Loan(_)
+        | Op::UseLoan(_)
+        | Op::EndLoan(_)
+        | Op::Access(..)
+        | Op::Returning(..)
+        | Op::LoadLocal(_)
+        | Op::BorrowLocal(..)
+        | Op::Reborrow(_)
+        | Op::PushInt(_)
+        | Op::PushBool(_)
+        | Op::PushStr(_)
+        | Op::PushUnit
+        | Op::Add
+        | Op::Sub
+        | Op::Mul
+        | Op::FloorDiv(_)
+        | Op::Modulo(_)
+        | Op::Integer(_)
+        | Op::Eq
+        | Op::Ne
+        | Op::Lt
+        | Op::Le
+        | Op::Gt
+        | Op::Ge
+        | Op::Not
+        | Op::Match(_)
+        | Op::If { .. }
+        | Op::Unreachable
+        | Op::Return => true,
+        _ => false,
     }
 }
 
@@ -454,10 +601,16 @@ pub(super) fn reads_no_caller(body: &[Op], sig: &FnSig, locals: &[Ty]) -> bool {
 
 /// Visits every operation of one function, not of the functions it defines.
 fn walk_body<'a>(ops: &'a [Op], visit: &mut impl FnMut(&'a Op)) {
+    walk_slices(ops, &mut |ops| ops.iter().for_each(&mut *visit));
+}
+
+/// Visits `ops` and each nested body as a whole slice, every slice before
+/// the bodies nested in it.
+fn walk_slices<'a>(ops: &'a [Op], visit: &mut impl FnMut(&'a [Op])) {
     let mut pending = vec![ops];
     while let Some(ops) = pending.pop() {
+        visit(ops);
         for op in ops {
-            visit(op);
             match op {
                 Op::Match(arms) => pending.extend(arms.iter().map(|arm| arm.body.as_ref())),
                 Op::Loop { condition, body } => pending.extend([condition.as_ref(), body.as_ref()]),
@@ -475,7 +628,6 @@ fn walk_body<'a>(ops: &'a [Op], visit: &mut impl FnMut(&'a Op)) {
                 Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
                     pending.push(body)
                 }
-
                 _ => {}
             }
         }

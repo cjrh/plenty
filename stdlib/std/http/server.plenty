@@ -185,6 +185,72 @@ pub enum TrailingSlash:
     Exact
     Redirect
 
+# Only successfully matched captures are decoded. These reasons carry no raw
+# target, capture, query, header or body data into application rendering.
+pub enum PathRefusal:
+    InvalidEscape
+    InvalidUtf8
+
+pub enum RefusalError:
+    Allocation(AllocError)
+    BodyTooLarge
+    InvalidContentType
+    Cancelled
+    TimedOut
+    Broken
+    Http(HttpError)
+
+# The server constructs this buffer with a byte cap and response deadline.
+# No socket, status, framing headers or unvalidated request data are exposed.
+pub class RefusalResponse:
+    _body: Bytes
+    _content_type: str
+    _max_bytes: i64
+    _until: u64
+    _cancel: CancellationToken
+    _failed: bool
+
+    # Check during CPU work too: rendering uses cooperative cancellation.
+    pub def check(self) -> Result[(), RefusalError]:
+        self.check_at(&monotonic_now())
+
+    pub def check_at(self, now: &std.time.Instant) -> Result[(), RefusalError]:
+        self.active()?
+        if now.saturating_duration_since(&instant_at(0u64)).as_nanoseconds() >= self._until:
+            return Err(RefusalError.TimedOut)
+        Ok(())
+
+    def active(self) -> Result[(), RefusalError]:
+        if self._failed:
+            return Err(RefusalError.Broken)
+        if self._cancel.is_cancelled():
+            return Err(RefusalError.Cancelled)
+        Ok(())
+
+    # Failure poisons the buffer even when a renderer ignores the error.
+    pub def append(self: &mut RefusalResponse, source: &[u8]) -> Result[(), RefusalError]:
+        self.active()?
+        room = unchecked:
+            self._max_bytes - self._body.len()
+        if len(source) > room:
+            self._failed = True
+            return Err(RefusalError.BodyTooLarge)
+        match self._body.extend(source):
+            case Ok(_):
+                Ok(())
+            case Err(error):
+                self._failed = True
+                Err(RefusalError.Allocation(error))
+
+    # At most 128 printable ASCII bytes; no CR/LF or other control bytes.
+    pub def set_content_type(self: &mut RefusalResponse, value: str) -> Result[(), RefusalError]:
+        self.active()?
+        if value.byte_len() == 0 or value.byte_len() > 128 or std.text.find_not_in(&value, b" !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~").is_some():
+            self._failed = True
+            return Err(RefusalError.InvalidContentType)
+        self._content_type = value
+        Ok(())
+
 # Routes map a method and path pattern to a value of the application's route
 # type `R`, normally an enum, which the handler receives.
 pub class Router[R]:
@@ -192,6 +258,9 @@ pub class Router[R]:
     _fallback: Option[R]
     _method_not_allowed: Option[R]
     _trailing_slash: TrailingSlash
+    _path_refusal: Callable[[&PathRefusal, &mut RefusalResponse], Result[(), RefusalError]]
+    _custom_path_refusal: bool
+    _refusal_max_bytes: NonNegative[i64]
 
     # These values use the same typed handler as ordinary routes. Nothing
     # restores the built-in response; replacing a value drops the old one.
@@ -203,6 +272,19 @@ pub class Router[R]:
 
     pub def set_trailing_slash(self: &mut Router[R], policy: TrailingSlash) -> ():
         self._trailing_slash = policy
+
+    # A capture-free function for invalid decoded captures, separate from the
+    # typed handler. Nothing restores the built-in 400. Output is additionally
+    # capped by Config.limits.max_body. Rendering errors close without a reply.
+    pub def set_path_refusal(self: &mut Router[R], renderer: Option[Callable[[&PathRefusal, &mut RefusalResponse], Result[(), RefusalError]]], max_bytes: NonNegative[i64]) -> ():
+        match renderer:
+            case Some(function):
+                self._path_refusal = function
+                self._custom_path_refusal = True
+            case Nothing:
+                self._path_refusal = default_path_refusal
+                self._custom_path_refusal = False
+        self._refusal_max_bytes = max_bytes
 
     # Adds a route. `method` is a request method, or `*` for any; `pattern`
     # starts with `/`. Routes are tried in the order they were added. Several
@@ -284,7 +366,7 @@ pub class Router[R]:
 pub def router[R]() -> Result[Router[R], ServerError]:
     fallback: Option[R] = Nothing
     method_not_allowed: Option[R] = Nothing
-    Ok(Router(allocated(list[Entry[R]].new())?, fallback, method_not_allowed, TrailingSlash.Exact))
+    Ok(Router(allocated(list[Entry[R]].new())?, fallback, method_not_allowed, TrailingSlash.Exact, default_path_refusal, False, 16384))
 
 def valid_method(method: &str) -> bool:
     if method == "*":
@@ -1324,20 +1406,68 @@ def refuse[T: Transport](conn: &mut Conn[T], status: i64, allow: &str) -> Result
             return flushed(Err(partial.cause))
     flushed(conn.flush())
 
-def decoded(params: &list[str]) -> Option[list[str]]:
-    match list[str].new():
-        case Ok(empty):
-            mut out = empty
-            for index in range(len(params)):
-                match std.url.decode(&params[index]):
-                    case Ok(text):
-                        if out.append(text).is_err():
-                            return Nothing
-                    case Err(_):
-                        return Nothing
-            Some(out)
-        case Err(_):
-            Nothing
+# Allocation remains a server failure, not malformed client input.
+def decoded(params: &list[str]) -> Result[Result[list[str], PathRefusal], HttpError]:
+    mut out = http_allocated(list[str].new())?
+    for index in range(len(params)):
+        match std.url.decode(&params[index]):
+            case Ok(text):
+                http_allocated(out.append(text))?
+            case Err(std.url.UrlError.InvalidEscape(_)):
+                return Ok(Err(PathRefusal.InvalidEscape))
+            case Err(std.url.UrlError.InvalidUtf8):
+                return Ok(Err(PathRefusal.InvalidUtf8))
+            case Err(std.url.UrlError.Allocation(error)):
+                return Err(HttpError.Allocation(error))
+            case Err(_):
+                return Err(HttpError.Broken)
+    Ok(Ok(out))
+
+# A real default function keeps Router's thin callable certifiable on workers
+# even in programs that never configure a custom renderer.
+def default_path_refusal(why: &PathRefusal, response: &mut RefusalResponse) -> Result[(), RefusalError]:
+    response.append(b"Bad Request\n")
+
+# Only a completely rendered, checked body reaches the ordinary response
+# writer. It retains Date, HEAD suppression and the connection's write limits.
+def render_refusal[T: Transport, R](router: &Router[R], why: &PathRefusal, exchange: &mut Exchange[T], until: u64) -> Result[(), RefusalError]:
+    if router._custom_path_refusal:
+        body = match std.bytes.empty():
+            case Ok(value):
+                value
+            case Err(error):
+                return Err(RefusalError.Allocation(error))
+        mut cap = router._refusal_max_bytes.get()
+        if cap > exchange._limits.max_body.get():
+            cap = exchange._limits.max_body.get()
+        mut response = RefusalResponse(body, "text/plain; charset=utf-8", cap, until, exchange._cancel.share(), False)
+        response.check()?
+        router._path_refusal(why, &mut response)?
+        response.check()?
+        # Invalid input is never reused as another pipelined request.
+        exchange._keep = False
+        head = match std.http.response(400, reason(400)):
+            case Ok(value):
+                value
+            case Err(error):
+                return Err(RefusalError.Http(error))
+        mut owned = head
+        match owned.add("Content-Type", response._content_type):
+            case Ok(_):
+                pass
+            case Err(error):
+                return Err(RefusalError.Http(error))
+        match exchange.respond(owned, &response._body):
+            case Ok(_):
+                Ok(())
+            case Err(error):
+                Err(RefusalError.Http(error))
+    else:
+        match plain(exchange, 400):
+            case Ok(_):
+                Ok(())
+            case Err(error):
+                Err(RefusalError.Http(error))
 
 def wants_continue(head: &RequestHead) -> bool:
     if head.minor != 1:
@@ -1596,6 +1726,7 @@ def request[T: Transport, R, E, H: Handler[T, R, E]](reader: BufReader[Conn[T]],
     keep = more and std.http.request_keeps_alive(&head)
     expects = wants_continue(&head)
     head_only = head.method == "HEAD"
+    mut path_refusal = PathRefusal.InvalidEscape
     mut route = -1
     mut allow = ""
     mut location = ""
@@ -1607,11 +1738,14 @@ def request[T: Transport, R, E, H: Handler[T, R, E]](reader: BufReader[Conn[T]],
     match router.find(&head.method, &target.path):
         case Ok(Match.Found(key, raw)):
             match decoded(&raw):
-                case Some(values):
+                case Ok(Ok(values)):
                     route = key
                     params = values
-                case Nothing:
+                case Ok(Err(why)):
                     route = -3
+                    path_refusal = why
+                case Err(_):
+                    return Nothing
         case Ok(Match.NotFound):
             # Query bytes are copied verbatim, including an empty trailing ?.
             # A literal fragment marker is not safe in a Location reference.
@@ -1677,7 +1811,21 @@ def request[T: Transport, R, E, H: Handler[T, R, E]](reader: BufReader[Conn[T]],
     elif route == -4:
         drop(answer_redirect(&mut exchange, &location))
     elif route == -3:
-        drop(plain(&mut exchange, 400))
+        report.protocol_errors = counted(report.protocol_errors, 1u64)
+        match render_refusal(router, &path_refusal, &mut exchange, after(started, config.response_timeout.as_nanoseconds())):
+            case Ok(_):
+                pass
+            case Err(error):
+                exchange._keep = False
+                exchange._state = broken
+                match error:
+                    case RefusalError.Cancelled:
+                        report.cancelled = counted(report.cancelled, 1u64)
+                    case RefusalError.TimedOut:
+                        report.timeouts = counted(report.timeouts, 1u64)
+                    case _:
+                        report.handler_errors = counted(report.handler_errors, 1u64)
+                problem(events, "path refusal renderer failed", 400, report)
     else:
         drop(plain(&mut exchange, 404))
     returned = replace(exchange._conn, Nothing)

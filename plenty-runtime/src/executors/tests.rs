@@ -81,7 +81,7 @@ fn canceled_job_destructors_have_independent_caller_contexts() {
         line: 1,
         column: 1,
         file: 0,
-        standard_library: 0,
+        caller: 0,
     };
     unsafe extern "C" fn tail_destructor(_: *mut u128) {
         DROPS.fetch_add(1, Ordering::Relaxed);

@@ -3,8 +3,9 @@
 `std.report` provides bounded human-readable reports using the same
 [`std.fmt.Formatter[W]` and `FormatError`](fmt.md) as value display and
 f-strings. It provides rendering helpers for the canonical `std.fmt.Formattable`
-protocol; it does not own another formatter, protocol, or error family. Import
-formatter types and constructors from `std.fmt`.
+protocol. Source-aware diagnostics additionally use `Diagnostic`, which requires
+that same `format` method plus `source_offset() -> Option[i64]`. Import formatter
+types and constructors from `std.fmt`; both paths share `FormatError`.
 
 ```plenty
 import std.report
@@ -97,6 +98,29 @@ cursor. Failed staging or cursor growth preserves the valid UTF-8 output and
 byte count. `finish` borrows the formatter, so an allocation failure can be
 retried. A whole record can still have a successful prefix before a later
 emission fails; do not replay it blindly.
+
+## Source-aware diagnostics
+
+`Diagnostic` is a structural protocol requiring public shared-receiver
+`format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]` and
+`source_offset(self) -> Option[i64]` methods. It adds source-location capability
+to the ordinary formatting contract. `Some(offset)` is a zero-based byte offset
+in the original input; `Nothing` means no input location is known.
+
+`diagnostic[T: Diagnostic](value: &T, source: &[u8],
+max_bytes: NonNegative[i64] = 4096, max_context: NonNegative[i64] = 80)` returns
+`Result[str, FormatError]`. It renders the borrowed value with a depth budget of
+16, then appends a bounded source excerpt only when a location is available.
+`max_context` bounds the local source-byte window; zero omits the excerpt.
+`max_bytes` bounds the complete report, with the usual `LimitExceeded` and
+`Allocation` failures. A known offset outside the supplied input traps with
+`std.report.diagnostic` in the message. The helper never retains the source,
+flushes a stream, or consumes the error.
+
+JSON/TOML and their typed serial errors support this protocol. See
+[serialization diagnostics](serial-diagnostics.md) for excerpt escaping,
+Unicode/EOF handling, path display, privacy and absent source-span limits.
+Ordinary `to_string` and entrypoint reports include no source excerpts.
 
 ## Current boundaries
 

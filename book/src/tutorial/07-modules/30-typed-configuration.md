@@ -68,6 +68,43 @@ Constructor errors of type `Fault` use that same format error domain. A
 constructor returning another error type needs a handwritten decoding hook to
 choose its mapping.
 
+## Readable errors
+
+Render the complete typed error to keep its nested field path. Reports have an
+explicit output budget and do not include rejected values or source text by
+default. Keep the structured error for recovery if rendering fails.
+
+```plenty
+import std.json
+import std.report
+import std.fmt
+
+@serial
+class Settings:
+    enabled: bool
+
+def main() -> Result[(), IoError | std.fmt.FormatError]:
+    match std.json.load[Settings](b"{\"enabled\":42}", &std.json.codec_options()):
+        case Ok(_):
+            print("valid")?
+        case Err(error):
+            message = std.report.to_string(&error, 1024, 16)?
+            print(message.find("expected boolean, found number").is_some())?
+            print(message.endswith("at $[\"enabled\"]"))?
+    Ok(())
+```
+```output
+True
+True
+```
+
+For a local source excerpt, explicitly call `std.report.diagnostic(&error,
+&source)`. Its byte budgets also cover escaping and caret output. TOML syntax
+errors retain locations; typed TOML schema errors have a field path without
+source coordinates because the owning tree retains no source spans. Read
+[serialization diagnostics](../../design/stdlib/serial-diagnostics.md) for
+Unicode, privacy, allocation and truncation details.
+
 See [derived codec contracts](../../design/stdlib/serial-derive.md),
 [JSON limits and reader loading](../../design/stdlib/json-codecs.md), and
 [TOML representation limits](../../design/stdlib/toml-codecs.md) for the full

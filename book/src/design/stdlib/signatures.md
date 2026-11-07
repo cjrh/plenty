@@ -58,55 +58,55 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.http.files`](#stdhttpfiles): 1877-1890
 - [`std.http.https`](#stdhttphttps): 1892-1906
 - [`std.http.proxy`](#stdhttpproxy): 1908-1929
-- [`std.http.server`](#stdhttpserver): 1931-2022
-- [`std.http.sse`](#stdhttpsse): 2024-2043
-- [`std.http.tls`](#stdhttptls): 2045-2062
-- [`std.http.typed`](#stdhttptyped): 2064-2097
-- [`std.http.websocket`](#stdhttpwebsocket): 2099-2134
-- [`std.http.wss`](#stdhttpwss): 2136-2142
-- [`std.image`](#stdimage): 2144-2190
-- [`std.io`](#stdio): 2192-2298
-- [`std.io.typed`](#stdiotyped): 2300-2338
-- [`std.serial`](#stdserial): 2340-2398
-- [`std.json`](#stdjson): 2400-2550
-- [`std.jwt`](#stdjwt): 2552-2599
-- [`std.log`](#stdlog): 2601-2668
-- [`std.markdown`](#stdmarkdown): 2670-2704
-- [`std.template`](#stdtemplate): 2706-2743
-- [`std.math`](#stdmath): 2745-2816
-- [`std.mime`](#stdmime): 2818-2844
-- [`std.net`](#stdnet): 2846-2928
-- [`std.path`](#stdpath): 2930-2947
-- [`std.process`](#stdprocess): 2949-3007
-- [`std.random`](#stdrandom): 3009-3030
-- [`std.ready`](#stdready): 3032-3063
-- [`std.regex`](#stdregex): 3065-3118
-- [`std.report`](#stdreport): 3120-3127
-- [`std.secrets`](#stdsecrets): 3129-3155
-- [`std.shlex`](#stdshlex): 3157-3166
-- [`std.sketch`](#stdsketch): 3168-3206
-- [`std.sketch.xor`](#stdsketchxor): 3208-3219
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3221-3236
-- [`std.signal`](#stdsignal): 3238-3255
-- [`std.simd`](#stdsimd): 3257-3358
-- [`std.stat`](#stdstat): 3360-3393
-- [`std.plot`](#stdplot): 3395-3484
-- [`std.linalg`](#stdlinalg): 3486-3527
-- [`std.sync`](#stdsync): 3529-3547
-- [`std.system`](#stdsystem): 3549-3608
-- [`std.tempfile`](#stdtempfile): 3610-3642
-- [`std.test`](#stdtest): 3644-3686
-- [`std.text`](#stdtext): 3688-3731
-- [`std.thread`](#stdthread): 3733-3737
-- [`std.time`](#stdtime): 3739-3783
-- [`std.tls`](#stdtls): 3785-3867
-- [`std.toml`](#stdtoml): 3869-3966
-- [`std.unicode`](#stdunicode): 3968-3980
-- [`std.units`](#stdunits): 3982-4219
-- [`std.units.catalogue`](#stdunitscatalogue): 4221-4999
-- [`std.url`](#stdurl): 5001-5029
-- [`std.uuid`](#stduuid): 5031-5054
-- [`std.xml`](#stdxml): 5056-5089
+- [`std.http.server`](#stdhttpserver): 1931-2032
+- [`std.http.sse`](#stdhttpsse): 2034-2053
+- [`std.http.tls`](#stdhttptls): 2055-2072
+- [`std.http.typed`](#stdhttptyped): 2074-2107
+- [`std.http.websocket`](#stdhttpwebsocket): 2109-2144
+- [`std.http.wss`](#stdhttpwss): 2146-2152
+- [`std.image`](#stdimage): 2154-2200
+- [`std.io`](#stdio): 2202-2308
+- [`std.io.typed`](#stdiotyped): 2310-2348
+- [`std.serial`](#stdserial): 2350-2414
+- [`std.json`](#stdjson): 2416-2568
+- [`std.jwt`](#stdjwt): 2570-2617
+- [`std.log`](#stdlog): 2619-2686
+- [`std.markdown`](#stdmarkdown): 2688-2722
+- [`std.template`](#stdtemplate): 2724-2761
+- [`std.math`](#stdmath): 2763-2834
+- [`std.mime`](#stdmime): 2836-2862
+- [`std.net`](#stdnet): 2864-2946
+- [`std.path`](#stdpath): 2948-2965
+- [`std.process`](#stdprocess): 2967-3025
+- [`std.random`](#stdrandom): 3027-3048
+- [`std.ready`](#stdready): 3050-3081
+- [`std.regex`](#stdregex): 3083-3136
+- [`std.report`](#stdreport): 3138-3149
+- [`std.secrets`](#stdsecrets): 3151-3177
+- [`std.shlex`](#stdshlex): 3179-3188
+- [`std.sketch`](#stdsketch): 3190-3228
+- [`std.sketch.xor`](#stdsketchxor): 3230-3241
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3243-3258
+- [`std.signal`](#stdsignal): 3260-3277
+- [`std.simd`](#stdsimd): 3279-3380
+- [`std.stat`](#stdstat): 3382-3415
+- [`std.plot`](#stdplot): 3417-3506
+- [`std.linalg`](#stdlinalg): 3508-3549
+- [`std.sync`](#stdsync): 3551-3569
+- [`std.system`](#stdsystem): 3571-3630
+- [`std.tempfile`](#stdtempfile): 3632-3664
+- [`std.test`](#stdtest): 3666-3708
+- [`std.text`](#stdtext): 3710-3753
+- [`std.thread`](#stdthread): 3755-3759
+- [`std.time`](#stdtime): 3761-3805
+- [`std.tls`](#stdtls): 3807-3889
+- [`std.toml`](#stdtoml): 3891-3990
+- [`std.unicode`](#stdunicode): 3992-4004
+- [`std.units`](#stdunits): 4006-4243
+- [`std.units.catalogue`](#stdunitscatalogue): 4245-5023
+- [`std.url`](#stdurl): 5025-5053
+- [`std.uuid`](#stduuid): 5055-5078
+- [`std.xml`](#stdxml): 5080-5113
 
 ## `std.actor`
 
@@ -1970,10 +1970,20 @@ enum Match
     Found(i64, list[str]) | NotFound | MethodNotAllowed(str)
 enum TrailingSlash
     Exact | Redirect
+enum PathRefusal
+    InvalidEscape | InvalidUtf8
+enum RefusalError
+    Allocation(AllocError) | BodyTooLarge | InvalidContentType | Cancelled | TimedOut | Broken | Http(HttpError)
+class RefusalResponse
+    def check(self) -> Result[(), RefusalError]
+    def check_at(self, now: &std.time.Instant) -> Result[(), RefusalError]
+    def append(self: &mut RefusalResponse, source: &[u8]) -> Result[(), RefusalError]
+    def set_content_type(self: &mut RefusalResponse, value: str) -> Result[(), RefusalError]
 class Router[R]
     def set_fallback(self: &mut Router[R], route: Option[R]) -> ()
     def set_method_not_allowed(self: &mut Router[R], route: Option[R]) -> ()
     def set_trailing_slash(self: &mut Router[R], policy: TrailingSlash) -> ()
+    def set_path_refusal(self: &mut Router[R], renderer: Option[Callable[[&PathRefusal, &mut RefusalResponse], Result[(), RefusalError]]], max_bytes: NonNegative[i64]) -> ()
     def add(self: &mut Router[R], method: &str, pattern: &str, route: R) -> Result[(), ServerError]
     def find(self, method: &str, path: &str) -> Result[Match, ServerError]
     def route(self, index: i64) -> &R
@@ -2342,14 +2352,20 @@ def copy_all[E, G, R: Reader[E], W: Writer[G]](reader: &mut R, writer: &mut W, s
 Format-neutral typed codecs, derived or handwritten class/enum hooks, canonical bytes, and typed error paths. Errors: `SerialError[E]`. [Reference](serial.md).
 
 ```text
+enum Kind
+    Null | Boolean | Integer | Number | Text | Array | Object | DateTime | Variant | Key | End
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
 enum Fault
-    UnexpectedKind | MissingField(str) | DuplicateField(str) | UnknownField(str) | UnknownVariant(str) | OutOfRange | WrongLength(i64, i64) | DuplicateElement | Unrepresentable | InvalidBase64(std.encoding.EncodingError) | StackLimit
+    UnexpectedKind | KindMismatch(Kind, Kind) | MissingField(str) | DuplicateField(str) | UnknownField(str) | UnknownVariant(str) | OutOfRange | WrongLength(i64, i64) | DuplicateElement | Unrepresentable | InvalidBase64(std.encoding.EncodingError) | StackLimit
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
 enum Step
     Field(str) | Index(i64) | Key(str) | Variant(str)
 class SerialError[E]
     cause: E
     path: Option[list[Step]]
     complete: bool
+    def source_offset(self) -> Option[i64]
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
     def at(self: SerialError[E], step: Step) -> SerialError[E]
 def error[E](cause: E) -> SerialError[E]
 def wrap[T, E](result: Result[T, E]) -> Result[T, SerialError[E]]
@@ -2409,6 +2425,8 @@ class JsonError
     offset: i64
     line: i64
     column: i64
+    def source_offset(self) -> Option[i64]
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
 enum DuplicateKeys
     Reject | Keep
 class Limits
@@ -3124,6 +3142,10 @@ Bounded human-readable report rendering with `std.fmt`. Errors: `FormatError`. [
 ```text
 def render[T: Formattable, W](value: &T, output: &mut Formatter[W]) -> Result[(), FormatError]
 def to_string[T: Formattable](value: &T, max_bytes: NonNegative[i64], max_depth: NonNegative[i64]) -> Result[str, FormatError]
+protocol Diagnostic
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
+    def source_offset(self) -> Option[i64]
+def diagnostic[T: Diagnostic](value: &T, source: &[u8], max_bytes: NonNegative[i64] = 4096, max_context: NonNegative[i64] = 80) -> Result[str, FormatError]
 ```
 
 ## `std.secrets`
@@ -3878,6 +3900,8 @@ class TomlError
     offset: i64
     line: i64
     column: i64
+    def source_offset(self) -> Option[i64]
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
 class Limits
     max_depth: NonNegative[i64]
     max_input: NonNegative[i64]
