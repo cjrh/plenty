@@ -136,6 +136,13 @@ impl Lowerer<'_, '_> {
                 return false;
             }
             (Assumed::Constant(constant, length), 0)
+        } else if let Some(max) = super::known::zero_extended_max(dfg, index)
+            .filter(|&max| max <= super::induction::VERSION_EXTENT)
+        {
+            // A zero-extended byte or u16, as in a 256-entry table lookup
+            // `table[i64(byte)]`: any index below the largest one it can
+            // hold is below the length too (issue #760).
+            (Assumed::Constant(max as i64, length), 0)
         } else {
             // The same value on every pass: the test before the loop is
             // this access's check.
