@@ -63,7 +63,7 @@ The decoder accepts exactly RFC 8259 and one document per input.
 | Surrogates | A `\uD800`-`\uDBFF` escape must be followed by a `\uDC00`-`\uDFFF` escape; the pair is one scalar. Anything else is `InvalidSurrogate` |
 | Duplicate keys | Compared after unescaping. Rejected by the tree unless `Limits` says `Keep`; never checked by the event decoder |
 
-The encoder writes compact text: no whitespace, members in call order. In
+By default the encoder writes compact text: no whitespace, members in call order. In
 strings it escapes `"`, `\`, and bytes below 32 (`\b \f \n \r \t`, otherwise
 `\u00xx` in lowercase); every other scalar, including `/` and non-ASCII, is
 written as UTF-8.
@@ -213,7 +213,8 @@ def coordinate(decoder: &mut std.json.Decoder) -> Result[i64, JsonError]:
 
 ### Encoder
 
-`encoder(bounds: &Limits) -> Result[Encoder, JsonError]`. Every writing method
+`encoder(bounds: &Limits, indent: Option[NonNegative[i64]] = Nothing)
+-> Result[Encoder, JsonError]`. Every writing method
 takes an exclusive receiver and returns `Result[(), JsonError]`.
 
 | Method | Writes |
@@ -282,6 +283,28 @@ so a tree keeps its `Int`/`Float` distinction through a round trip.
 Objects keep members in source order, including duplicates under `Keep`.
 `find` is a linear scan; build a `dict` when an object is searched often.
 
+## Pretty output
+
+`encoder`, `encode`, `encode_text`, and `write_value` accept the optional
+`indent: Option[NonNegative[i64]] = Nothing` parameter. `Nothing` keeps compact
+output unchanged. `Some(2)` writes two ASCII spaces per nesting level;
+`Some(0)` still inserts line breaks and a space after each colon, with no
+leading spaces. The [typed `dump`](json-codecs.md) accepts the same option and
+uses the same encoder, without constructing a value tree.
+
+Nonempty arrays and objects put each item or member on its own line and align
+the closing delimiter with the opening value. Empty containers remain `[]`
+and `{}`. Line breaks are LF, strings use the compact encoder's escaping,
+member order is unchanged, and there is no trailing newline. These are the
+formatting rules; output does not promise another library's exact bytes.
+
+Every whitespace byte counts against `max_output`, including bytes already
+returned by `take` or delivered by `write_pending`. Indentation is emitted
+incrementally, with no allocation proportional to an indentation setting.
+Even an extremely large setting fails with `OutputTooLarge` at the byte limit;
+no indentation/depth multiplication can overflow. Output storage remains
+fallible and reports `Allocation`. Existing nesting and stream contracts apply.
+
 ## Ownership and threads
 
 A `Json` owns its whole tree; moving it moves everything and dropping it
@@ -338,7 +361,7 @@ made per token and per event, not byte access.
 
 ## Limits
 
-- Compact output only: no pretty-printing or key sorting.
+- No key sorting; object members retain their stored order.
 - One document per input: no JSON Lines or concatenated documents. Split the
   input and use one decoder per document.
 - The tree holds integers as `i64` and other numbers as `f64`. Larger integers
