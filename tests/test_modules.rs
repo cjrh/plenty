@@ -1456,3 +1456,26 @@ fn short_extensions_keep_namespace_and_standard_library_boundaries() {
         );
     }
 }
+
+#[test]
+fn short_files_distinguish_asset_directories_from_module_namespaces() {
+    for extension in ["plenty", "p", "plentyi", "pi"] {
+        let dir = workspace(&[
+            ("main.p", "import helper\ndef main() -> ():\n    pass\n"),
+            ("helper.p", "pub def value() -> i64:\n    1\n"),
+            ("helper/readme.txt", "assets only"),
+        ]);
+        let entry = dir.path().join("main.p");
+        plenty::check_file(&entry, None).unwrap();
+        let nested = dir.path().join(format!("helper/child.{extension}"));
+        std::fs::write(&nested, "").unwrap();
+        let error = plenty::check_file(&entry, None).unwrap_err().to_string();
+        assert!(error.contains("ambiguous module `helper`"), "{error}");
+        std::fs::remove_file(nested).unwrap();
+        let standard = dir.path().join("std");
+        std::fs::create_dir(&standard).unwrap();
+        std::fs::write(standard.join(format!("child.{extension}")), "").unwrap();
+        let error = plenty::check_file(&entry, None).unwrap_err().to_string();
+        assert!(error.contains("`std` is reserved"), "{error}");
+    }
+}

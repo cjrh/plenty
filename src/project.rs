@@ -2191,8 +2191,11 @@ pub fn init(directory: &Path, name: Option<&str>, template: Template) -> Result<
         ),
     };
     let source_path = directory.join(file);
-    if source_path.exists() {
-        return Err(format!("{} already exists", source_path.display()).into());
+    for extension in ["plenty", "p"] {
+        let existing = source_path.with_extension(extension);
+        if existing.exists() {
+            return Err(format!("{} already exists", existing.display()).into());
+        }
     }
     std::fs::create_dir_all(directory.join("src"))?;
     std::fs::write(&source_path, source)?;

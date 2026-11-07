@@ -16,6 +16,10 @@ as well. Existing extensions and generated companion names remain supported.
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+Package initialization refuses an existing short default source before writing
+a scaffold. Agent skill trials preserve all source/interface spellings in saved
+artifacts and recognize their compiler invocations and diagnostics.
+
 ## Native qualification build reuse (issue #850)
 
 [Native OS qualification](../development/ci-workflow.md#native-os-qualification)

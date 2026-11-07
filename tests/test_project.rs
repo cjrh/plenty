@@ -2058,3 +2058,23 @@ fn explicit_short_targets_and_short_dependency_libraries_work() {
     write(&root.join("src/helper.pi"), "");
     fails(&root, &["check"], "collides with the local module");
 }
+
+#[test]
+fn init_preserves_existing_short_default_sources_without_creating_a_package() {
+    for (stem, args) in [
+        ("main", vec!["init", "--name", "app"]),
+        ("lib", vec!["init", "--name", "app", "--lib"]),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join(format!("src/{stem}.p"));
+        write(&source, "# existing user source\n");
+        fails(dir.path(), &args, &format!("{stem}.p already exists"));
+        assert_eq!(
+            std::fs::read_to_string(source).unwrap(),
+            "# existing user source\n"
+        );
+        assert!(!dir.path().join(format!("src/{stem}.plenty")).exists());
+        assert!(!dir.path().join("plenty.toml").exists());
+        assert!(!dir.path().join(".gitignore").exists());
+    }
+}

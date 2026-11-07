@@ -1325,18 +1325,23 @@ fn a_new_file_that_changes_resolution_is_noticed() {
     std::fs::write(root.join("helpers/mod.rs"), "").unwrap();
     let warm = emit_project(&root, Some(&cache), &[]);
     assert_eq!(program(&warm), Some(true), "{}", warm.stderr());
-    std::fs::write(root.join("helpers/extra.plenty"), "").unwrap();
-    let output = plenty()
-        .args(["--emit-object"])
-        .arg(root.join("main.plenty"))
-        .arg("-o")
-        .arg(root.join("main.o"))
-        .env("PLENTY_CACHE_DIR", &cache)
-        .output()
-        .unwrap();
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("ambiguous module `helpers`"), "{stderr}");
+    for extension in ["plenty", "p", "plentyi", "pi"] {
+        std::fs::write(root.join(format!("helpers/extra.{extension}")), "").unwrap();
+        let output = plenty()
+            .args(["--emit-object"])
+            .arg(root.join("main.plenty"))
+            .arg("-o")
+            .arg(root.join("main.o"))
+            .env("PLENTY_CACHE_DIR", &cache)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("ambiguous module `helpers`"), "{stderr}");
+        std::fs::remove_file(root.join(format!("helpers/extra.{extension}"))).unwrap();
+        let warm = emit_project(&root, Some(&cache), &[]);
+        assert_eq!(program(&warm), Some(true), "{}", warm.stderr());
+    }
 }
 
 /// Another compiler, or the same one rebuilt, never reuses a program: the

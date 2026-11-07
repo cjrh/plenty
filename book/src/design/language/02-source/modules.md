@@ -21,7 +21,7 @@ transitive imports are unsupported. Directories are namespaces, without
 
 A directory is a namespace only when some module path through it names a
 file: it, or a subdirectory reached through components that are identifiers,
-holds a `.plenty` or `.plentyi` file whose stem is an identifier. A symbolic
+holds a `.plenty`, `.p`, `.plentyi`, or `.pi` file whose stem is an identifier. A symbolic
 link counts only when its target is inside the source root, as for imports;
 links leaving the root are not followed. A directory that cannot be read
 keeps the conflict, and the diagnostic names it. The check walks a directory
