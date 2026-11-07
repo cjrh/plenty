@@ -496,33 +496,23 @@ pub(super) fn names_caller_in_sites(body: &[Op], sig: &FnSig, locals: &[Ty]) -> 
         return false;
     }
     let mut eligible = true;
-    // The last op before the current one in the same slice that is not a
-    // marker. `walk_body` visits each slice in order and its nested bodies
-    // later, so a visited op that does not follow the previous one in memory
-    // starts another slice.
-    let mut previous: Option<&Op> = None;
-    let mut produced: Option<&Op> = None;
-    walk_body(body, &mut |op| {
-        if !previous
-            .is_some_and(|previous| std::ptr::eq(std::ptr::from_ref(previous).wrapping_add(1), op))
-        {
-            produced = None;
-        }
-        previous = Some(op);
-        eligible &= match op {
-            // A discarded byte primitive result, such as `Bytes.set`'s
-            // unit; the stack value's type is otherwise unknown here.
-            Op::Drop => matches!(
-                produced,
-                Some(Op::Collection(C::Bytes(primitive)))
-                    if !primitive.signature().1.release_runs_code()
-            ),
-            // `walk_body` also enters loop, try and checked bodies; the
-            // whitelist rejects those ops themselves.
-            _ => primitive_reads_no_caller(op),
-        };
-        if !matches!(op, Op::Site(_) | Op::UseLoan(_) | Op::EndLoan(_)) {
-            produced = Some(op);
+    // `walk_slices` also enters loop, try and checked bodies; the whitelist
+    // rejects those ops themselves.
+    walk_slices(body, &mut |ops| {
+        for (index, op) in ops.iter().enumerate() {
+            eligible &= match op {
+                // A discarded byte primitive result, such as `Bytes.set`'s
+                // unit; the stack value's type is otherwise unknown here.
+                Op::Drop => matches!(
+                    ops[..index].iter().rev().find(|op| !matches!(
+                        op,
+                        Op::Site(_) | Op::UseLoan(_) | Op::EndLoan(_)
+                    )),
+                    Some(Op::Collection(C::Bytes(primitive)))
+                        if !primitive.signature().1.release_runs_code()
+                ),
+                _ => primitive_reads_no_caller(op),
+            };
         }
     });
     eligible
@@ -611,10 +601,16 @@ pub(super) fn reads_no_caller(body: &[Op], sig: &FnSig, locals: &[Ty]) -> bool {
 
 /// Visits every operation of one function, not of the functions it defines.
 fn walk_body<'a>(ops: &'a [Op], visit: &mut impl FnMut(&'a Op)) {
+    walk_slices(ops, &mut |ops| ops.iter().for_each(&mut *visit));
+}
+
+/// Visits `ops` and each nested body as a whole slice, every slice before
+/// the bodies nested in it.
+fn walk_slices<'a>(ops: &'a [Op], visit: &mut impl FnMut(&'a [Op])) {
     let mut pending = vec![ops];
     while let Some(ops) = pending.pop() {
+        visit(ops);
         for op in ops {
-            visit(op);
             match op {
                 Op::Match(arms) => pending.extend(arms.iter().map(|arm| arm.body.as_ref())),
                 Op::Loop { condition, body } => pending.extend([condition.as_ref(), body.as_ref()]),
@@ -632,7 +628,6 @@ fn walk_body<'a>(ops: &'a [Op], visit: &mut impl FnMut(&'a Op)) {
                 Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
                     pending.push(body)
                 }
-
                 _ => {}
             }
         }
