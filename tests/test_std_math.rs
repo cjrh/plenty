@@ -547,24 +547,27 @@ fn std_is_reserved_and_unknown_modules_fail_without_filesystem_fallback() {
             .to_string()
             .contains("unknown standard library module")
     );
-    for name in ["std", "std.plenty", "std.plentyi"] {
+    // A `std/` without Plenty files is not a namespace, so it reserves nothing.
+    std::fs::create_dir(dir.path().join("std")).unwrap();
+    assert!(
+        plenty::check_file(&source, None)
+            .unwrap_err()
+            .to_string()
+            .contains("unknown standard library module")
+    );
+    std::fs::remove_dir(dir.path().join("std")).unwrap();
+    for name in ["std/x.plenty", "std.plenty", "std.plentyi"] {
         let path = dir.path().join(name);
-        if name == "std" {
-            std::fs::create_dir(&path).unwrap();
-        } else {
-            std::fs::write(&path, "").unwrap();
-        }
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "").unwrap();
         assert!(
             plenty::check_file(&source, None)
                 .unwrap_err()
                 .to_string()
                 .contains("`std` is reserved")
         );
-        if name == "std" {
-            std::fs::remove_dir(path).unwrap();
-        } else {
-            std::fs::remove_file(path).unwrap();
-        }
+        std::fs::remove_file(&path).unwrap();
+        let _ = std::fs::remove_dir(dir.path().join("std"));
     }
 }
 
