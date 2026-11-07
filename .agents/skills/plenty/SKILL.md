@@ -97,6 +97,8 @@ See [workflow and packages](references/workflow.md).
   take `Positive[i64]` counts, as does `.par(&pool, chunks=...)`. Positive
   literals convert; computed counts use `Positive.try_from(count)?`. Channel
   construction returns `AllocError`; `PoolError` has `Allocation` and `Thread`.
+  For a wake-only signal use `channel[()]` and `send(())`, not a placeholder
+  `bool`; match the received unit with `_`.
 - Bindings are immutable. Declare `mut x = 0` once to reassign or mutate.
 - Numbers, `bool`, `str`, `bytes`, ranges, and named function values copy. A
   tuple, `Option`, `Result`, enum, or anonymous sum (`A | B`) copies when all of

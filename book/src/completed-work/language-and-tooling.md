@@ -704,7 +704,8 @@ in place (issue #455, local PR #571). Foreign calls whose `.plentyi`
 declaration carries the binding author's
 [`@thread_safe`](../design/facilities/04-interop/trusted-declarations.md#worker-threads)
 promise are certified on workers, including from destructors; unannotated
-calls and opaque pointers stay rejected (issue #772).
+calls and opaque pointers stay rejected (issue #772). Channels accept unit
+messages as wake-only signals; a unit queue stores only a count (issue #790).
 
 See [threads](../design/facilities/03-concurrency/threads.md),
 [channels](../design/facilities/03-concurrency/channels.md),

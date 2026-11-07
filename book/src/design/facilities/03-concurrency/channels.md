@@ -217,3 +217,16 @@ and sender-based reply paths are supported, but recursive message-type paths
 back to a receiver are rejected: a queue retaining its last receiver could
 prevent destruction. This conservative check also rejects noncyclic instances of
 such a type. Zero-capacity rendezvous is unsupported.
+
+### Unit messages
+
+`()` is a message type like any other: `channel[()]`, `Sender[()]`,
+`Receiver[()]`, every send, receive, timed and selection operation, and the
+[join checks](#joins-and-live-endpoints) accept it. Send `()` when the message's
+arrival is the information, such as a stop request or a wakeup. Match a received
+unit with `_`, as in `case Ok(_):` or `case Selected.First(_):`.
+
+A unit message has no storage. The queue keeps only its count of pending
+messages, so construction allocates the fixed queue header whatever the
+capacity, and no capacity reports `CapacityOverflow`. Every other message type
+takes at least one 16-byte slot per unit of capacity.

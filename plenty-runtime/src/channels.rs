@@ -35,6 +35,8 @@ struct Core {
     live_ends: AtomicUsize,
     message: &'static Type,
     capacity: usize,
+    /// Words per ring slot; zero for a unit message, whose queue is only a count.
+    stride: usize,
     words: usize,
     buffer: *mut u128,
     state: Mutex<State>,
@@ -52,7 +54,32 @@ impl Core {
         // SAFETY: the pinned flexible allocation reserves capacity typed slots.
         // Queue access is protected by state, except final receiver cleanup,
         // after all producers have been excluded from touching the ring.
-        unsafe { self.buffer.add(index * self.message.slot_words()) }
+        unsafe { self.buffer.add(index * self.stride) }
+    }
+    /// Move `value` into ring slot `index`. A unit message has no storage.
+    unsafe fn put(&self, index: usize, value: u128) {
+        if self.stride != 0 {
+            unsafe { ranges::store(self.slot(index), value, self.message) }
+        }
+    }
+    /// The value word in ring slot `index`; its inline payload, if any, stays
+    /// in the slot until the caller copies it.
+    unsafe fn take(&self, index: usize) -> u128 {
+        if self.stride == 0 {
+            0
+        } else {
+            unsafe { self.slot(index).read() }
+        }
+    }
+}
+
+/// Ring words per message. Unit carries no information, so a unit channel
+/// stores nothing per message: its ring is the `len` count alone.
+fn stride(message: &Type) -> usize {
+    if message.kind == b'v' {
+        0
+    } else {
+        message.slot_words()
     }
 }
 
@@ -62,8 +89,9 @@ unsafe fn core(endpoint: u128) -> &'static Core {
 }
 
 pub(crate) fn create(message: &'static Type, capacity: usize) -> Result<(u128, u128), AllocError> {
+    let stride = stride(message);
     let words = capacity
-        .checked_mul(message.slot_words())
+        .checked_mul(stride)
         .ok_or(AllocError::CapacityOverflow)?;
     let pointer = memory::try_allocate::<Core, u128>(words)?;
     // SAFETY: this is the sole unpublished allocation. Embedded endpoints and
@@ -81,6 +109,7 @@ pub(crate) fn create(message: &'static Type, capacity: usize) -> Result<(u128, u
             live_ends: AtomicUsize::new(2),
             message,
             capacity,
+            stride,
             words,
             buffer: pointer.add(1).cast(),
             state: Mutex::new(State {
@@ -139,11 +168,10 @@ unsafe extern "C" fn drop_receiver(endpoint: *mut Header) {
         channel.writable.notify_all();
         // Never run Plenty destructors while holding a synchronization lock.
         // Closed receivers exclude every producer from writing another slot.
-        for i in 0..len {
-            aggregates::release(
-                channel.slot((head + i) % channel.capacity).read(),
-                channel.message,
-            );
+        if channel.stride != 0 {
+            for i in 0..len {
+                aggregates::release(channel.take((head + i) % channel.capacity), channel.message);
+            }
         }
         release_core(pointer);
     }
@@ -185,7 +213,7 @@ unsafe fn send_wait(
             return aggregates::wrap(aggregates::wrap(value, variant), 1);
         }
         let index = (state.head + state.len) % channel.capacity;
-        ranges::store(channel.slot(index), value, channel.message);
+        channel.put(index, value);
         state.len += 1;
         select::notify(&state);
         drop(state);
@@ -227,7 +255,7 @@ unsafe fn recv_wait(endpoint: u128, nowait: bool, deadline: Option<&Deadline>, o
             out.write(aggregates::wrap(aggregates::wrap(0, variant), 1));
             return;
         }
-        let value = channel.slot(state.head).read();
+        let value = channel.take(state.head);
         let value = ranges::copy_payload(value, channel.message, out.add(1).cast());
         out.write(aggregates::wrap(value, 0));
         state.head = (state.head + 1) % channel.capacity;

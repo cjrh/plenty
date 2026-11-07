@@ -131,7 +131,7 @@ unsafe fn poll(
     // SAFETY: the live receiver retains the queue. The lock protects the source
     // slot until the entire selected result has relocated to caller storage.
     unsafe {
-        let value = channel.slot(state.head).read();
+        let value = channel.take(state.head);
         ranges::store(
             out,
             aggregates::wrap(aggregates::wrap(value, variant), 0),
