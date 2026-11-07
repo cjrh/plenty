@@ -184,6 +184,5 @@ A token does not wake an ordinary `recv()` call or a millisecond wait such as
 [shared deadline lesson](deadlines.md) and
 [either-channel selection](channel-selection.md#wait-until-a-deadline-or-a-stop-request).
 A shutdown message works too. Automatic joining still waits for that worker to
-return.
-
-Avoid a zero-timeout retry loop that consumes a CPU while idle.
+return. Do not poll with `recv_timeout_ms(0)` and `is_cancelled()` in a loop
+instead: it consumes a CPU while idle.

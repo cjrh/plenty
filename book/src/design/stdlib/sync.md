@@ -62,13 +62,14 @@ wait, so a final slice can overrun by less than 1 ms. No deadline is restarted.
 Low-level millisecond methods have explicit unit names: `send_timeout_ms`,
 `recv_timeout_ms`, `wait_timeout_ms` on futures and tokens, and
 `select_recv_timeout_ms`. The original `_timeout` spellings remain compatibility
-aliases with the same millisecond units. They are
-[noncancellable](../facilities/03-concurrency/timed-selection.md): they accept
-no token, so a stop request waits for the whole budget. Only a token's own
-`wait_timeout_ms` ends early, when that token is cancelled. Do not pass a long
+aliases with the same millisecond units. They
+[take no token](../facilities/03-concurrency/timed-selection.md): only a
+token's own `wait_timeout_ms` observes a `CancellationToken`, and no token wakes
+a channel, selection or future wait, so a stop request waits for the whole
+budget. Do not pass a long
 budget to a channel, selection or future primitive where shutdown must be
 prompt; the [signal lesson](../../tutorial/11-concurrency/stop-on-signal.md#stop-a-long-wait-on-a-signal)
-stops an hour-long `select_recv_before` on `SIGTERM` instead.
+stops a long `select_recv_before` on `SIGTERM` instead.
 
 ## `Mutex[T]`
 

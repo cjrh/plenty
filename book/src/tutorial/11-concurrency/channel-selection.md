@@ -49,16 +49,16 @@ def request_stop(stop: &CancellationToken) -> ():
     stop.cancel()
 
 def main() -> Result[(), AllocError | IoError | RangeError | SpawnError[()]]:
-    commands_in, commands = channel[str](1)?
-    jobs_in, jobs = channel[i64](1)?
+    commands, control = channel[str](1)?
+    numbers, data = channel[i64](1)?
     stop = CancellationToken()?
     deadline = deadline_after(&monotonic_now(), &seconds(3600))?
     with spawn(request_stop, &stop)?:
-        match std.sync.select_recv_before(&commands, &jobs, &deadline, &stop):
+        match std.sync.select_recv_before(&control, &data, &deadline, &stop):
             case Ok(Selected.First(command)):
                 print(command)?
-            case Ok(Selected.Second(job)):
-                print(job)?
+            case Ok(Selected.Second(number)):
+                print(number)?
             case Err(WaitError.Cancelled):
                 print("stop requested")?
             case Err(WaitError.TimedOut) | Err(WaitError.Disconnected):
@@ -71,8 +71,9 @@ stop requested
 ```
 
 The senders stay alive, so only a message, the deadline or the token can end
-the wait. The token is checked before each attempt and at least every 10 ms
-while waiting. The first channel keeps its priority, as with `select_recv`.
+the wait. The token is checked before each attempt and about every 10 ms
+while waiting; the [`std.sync` reference](../../design/stdlib/sync.md#typed-deadline-waits)
+gives the polling limits. The first channel keeps its priority, as with `select_recv`.
 
 `select_recv_timeout_ms(&first, &second, milliseconds)` is the low-level form.
 It may return `SelectError.TimedOut`, but no token can wake it: given an hour,

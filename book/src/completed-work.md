@@ -66,8 +66,8 @@ server shutdown behavior. [`std.sync`](design/stdlib/sync.md#typed-deadline-wait
 provides typed channel, future, token and two-channel selection waits; explicit
 millisecond primitives remain as low-level compatibility APIs (B42). Issue #792
 makes the reference, tutorial and skill lead with the cancellable waits and
-label the millisecond waits noncancellable, with a lesson that ends an
-hour-long selection on `SIGTERM`.
+state that the channel, selection and future millisecond waits take no token,
+with a lesson that ends a long selection on `SIGTERM`.
 
 ## Registered template fragments
 

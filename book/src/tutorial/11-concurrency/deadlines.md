@@ -39,7 +39,7 @@ True
 0
 ```
 
-`recv_before` shares one deadline and checks the token at least every 10 ms,
+`recv_before` shares one deadline and checks the token about every 10 ms,
 so another thread's `cancel.cancel()` ends the wait with
 `WaitError.Cancelled`. Prefer it to `recv_timeout_ms` in any loop that must
 stop on request: a stop request cannot end a millisecond wait early. The loop makes four waits against one 20-millisecond budget instead of

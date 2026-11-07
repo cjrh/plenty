@@ -11,7 +11,7 @@ existing prelude facilities, with identical generic type identity.
 | `Sender[T]`, `Receiver[T]` | Owned endpoints; explicit `share()` retains the queue |
 | `select_recv(&first, &second)` | `Result[Selected[A, B], SelectError]` |
 | `select_recv_nowait(&first, &second)` | Same, without waiting for messages |
-| `select_recv_timeout_ms(&first, &second, timeout_ms: u64)` | Same, with a noncancellable millisecond budget |
+| `select_recv_timeout_ms(&first, &second, timeout_ms: u64)` | Same, with a millisecond budget; [noncancellable](sync.md#typed-deadline-waits) |
 | `SendError[T]` | `Full(value)`, `Disconnected(value)` |
 | `RecvError` | `Empty`, `Disconnected` |
 | `SendTimeoutError[T]` | `TimedOut(value)`, `Disconnected(value)` |

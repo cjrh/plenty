@@ -9,8 +9,9 @@ for running jobs; ordinary scope exit drains all work.
 
 For a future, `future.wait_timeout_ms(milliseconds)` returns a boolean: true means
 completed or cancelled. This only observes the future; call `result()` afterward
-to take its result. A false return leaves the job running or queued. This wait
-cannot be cancelled; to wait until a deadline or a stop request, use
+to take its result. A false return leaves the job running or queued. No
+cancellation token can end it early; to wait until a deadline or a stop
+request, use
 [`std.sync.future_before`](../../design/stdlib/sync.md#typed-deadline-waits).
 
 ## Jobs that send

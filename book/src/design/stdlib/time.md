@@ -210,8 +210,8 @@ Prefer [`std.sync`'s typed waits](sync.md#typed-deadline-waits):
 keep one total budget and preserve unsent values on every failure.
 
 Low-level [timed waits](../facilities/03-concurrency/timed-selection.md) have
-explicit `_timeout_ms` names and accept `u64` milliseconds. They are
-noncancellable: no token wakes a channel or future wait before its budget ends. `as_timeout_ms()`
+explicit `_timeout_ms` names and accept `u64` milliseconds. They take
+no token: no token wakes a channel or future wait before its budget ends. `as_timeout_ms()`
 rounds up so a positive remainder does not become a zero-budget retry loop.
 For example, `token.wait_timeout_ms(span.as_timeout_ms())` observes that token
 without a second cancellation source. The old `_timeout` names remain aliases.
