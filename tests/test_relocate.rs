@@ -1318,7 +1318,9 @@ def main() -> Result[(), IoError]:
     );
     // A block that names neither the declaration nor the source module does
     // not stop the move.
-    let unrelated = main.replace("a.moved()", "3").replace("print(y)", "print(a.moved())?\n    print(y)");
+    let unrelated = main
+        .replace("a.moved()", "3")
+        .replace("print(y)", "print(a.moved())?\n    print(y)");
     std::fs::write(dir.path().join("src/main.plenty"), unrelated).unwrap();
     plan(dir.path(), "src/a.plenty", 1, "src/b.plenty").unwrap();
 }

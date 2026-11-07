@@ -1878,7 +1878,9 @@ impl Work<'_, '_> {
                             && self.source_qualifier.as_deref() == Some(qualifier.as_str())
                             && !self.span_rewrites.is_empty();
                         if !other_uses
-                            && !moved_uses && !removals.iter().any(|(_, b)| *b == qualifier) {
+                            && !moved_uses
+                            && !removals.iter().any(|(_, b)| *b == qualifier)
+                        {
                             self.import_error(path, import)?;
                             removals.push((import.line, qualifier.clone()));
                         }
