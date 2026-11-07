@@ -45,9 +45,26 @@ impl Budgets {
             return;
         }
         self.protected = protected.iter().map(|name| functions[name].id).collect();
+        // FunctionAddress is the sole producer of thin callable values in the
+        // typed IR (the same closed-world rule used by threading::check).
+        let mut targets: HashMap<String, Vec<String>> = HashMap::default();
+        for (_, body) in bodies {
+            crate::threading::walk(body, &mut |op| {
+                if let Op::FunctionAddress(name, signature) = op {
+                    targets
+                        .entry(Ty::Callable(signature.clone()).identity_name())
+                        .or_default()
+                        .push(name.clone());
+                }
+            });
+        }
+        for names in targets.values_mut() {
+            names.sort();
+            names.dedup();
+        }
         for (name, body) in bodies {
             let function = &functions[name];
-            let mut graph = Graph::new(functions, box_releasers);
+            let mut graph = Graph::new(functions, box_releasers, &targets);
             graph.body(body);
             // Ownership cleanup can call native destructor adapters without an
             // explicit Call op. Include even conservative possible releases.
@@ -177,6 +194,7 @@ impl Edge {
 struct Graph<'a> {
     functions: &'a HashMap<String, UserFn>,
     box_releasers: &'a [(Ty, FuncId)],
+    targets: &'a HashMap<String, Vec<String>>,
     edges: Vec<Edge>,
     arguments: u64,
     unknown: bool,
@@ -184,10 +202,15 @@ struct Graph<'a> {
 }
 
 impl<'a> Graph<'a> {
-    fn new(functions: &'a HashMap<String, UserFn>, box_releasers: &'a [(Ty, FuncId)]) -> Self {
+    fn new(
+        functions: &'a HashMap<String, UserFn>,
+        box_releasers: &'a [(Ty, FuncId)],
+        targets: &'a HashMap<String, Vec<String>>,
+    ) -> Self {
         Self {
             functions,
             box_releasers,
+            targets,
             edges: Vec::new(),
             arguments: 0,
             unknown: false,
@@ -263,9 +286,20 @@ impl<'a> Graph<'a> {
                 // Runtime callback adapters and erased targets need their own
                 // measured graph before they can be accepted in a checked
                 // segment. Conservatively reject rather than omit an edge.
-                Op::CallIndirect(_)
-                | Op::TailCallIndirect(_)
-                | Op::BoxedCallableCall(_)
+                Op::CallIndirect(signature) | Op::TailCallIndirect(signature) => {
+                    match self
+                        .targets
+                        .get(&Ty::Callable(signature.clone()).identity_name())
+                    {
+                        Some(names) if !names.is_empty() => {
+                            for name in names {
+                                self.call(name, false);
+                            }
+                        }
+                        _ => self.unknown = true,
+                    }
+                }
+                Op::BoxedCallableCall(_)
                 | Op::ProtocolBoxCall(..)
                 | Op::Next(_)
                 | Op::ForeignCall { .. }
@@ -531,6 +565,7 @@ mod tests {
             outputs: vec![crate::sum::tuple(vec![Ty::I64, Ty::I64, Ty::I64])],
         });
         let native_arguments = user_fn_signature(&signature).params.len() as u64;
+        let callable = Arc::new(crate::op::CallableSig::from_function(&signature));
         assert_eq!(native_arguments, 8);
         let functions = HashMap::from_iter([(
             "callee".into(),
@@ -551,16 +586,38 @@ mod tests {
                 reads_no_caller: false,
             },
         )]);
-        let mut graph = Graph::new(&functions, &[]);
+        let targets = HashMap::default();
+        let mut graph = Graph::new(&functions, &[], &targets);
         graph.call("callee", false);
         assert_eq!(graph.arguments, native_arguments);
+        let identity = Ty::Callable(callable.clone()).identity_name();
+        let targets = HashMap::from_iter([(identity.clone(), vec!["callee".into()])]);
+        let mut graph = Graph::new(&functions, &[], &targets);
+        graph.body(&[Op::CallIndirect(callable.clone())]);
+        assert!(!graph.unknown);
+        assert_eq!(graph.arguments, native_arguments);
+        assert_eq!(graph.edges.len(), 1);
+        assert_eq!(graph.edges[0].callee, FuncId::from_u32(0));
+        // All matching targets must be inspected; a safe first target cannot
+        // hide an unavailable or recursive target with the same signature.
+        let targets = HashMap::from_iter([(identity, vec!["callee".into(), "missing".into()])]);
+        let mut graph = Graph::new(&functions, &[], &targets);
+        graph.body(&[Op::CallIndirect(callable)]);
+        assert!(graph.unknown);
     }
 
     #[test]
     fn runtime_callback_operations_fail_closed() {
         let functions = HashMap::default();
-        let mut graph = Graph::new(&functions, &[]);
+        let targets = HashMap::default();
+        let mut graph = Graph::new(&functions, &[], &targets);
         graph.body(&[Op::Next(0)]);
+        assert!(graph.unknown);
+        let mut graph = Graph::new(&functions, &[], &targets);
+        graph.body(&[Op::CallIndirect(Arc::new(crate::op::CallableSig {
+            inputs: vec![],
+            output: None,
+        }))]);
         assert!(graph.unknown);
     }
 }
