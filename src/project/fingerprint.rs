@@ -1,11 +1,23 @@
-//! Build reuse: a target is rebuilt only when a digest of everything that can
-//! change its output differs from the one stored by its last successful build.
+//! Build reuse: a target is rebuilt unless a digest of everything that can
+//! change its output equals the one stored by its last successful build, and
+//! the files that build read are still current.
 //!
-//! The digest covers every file below each package's source root (not only
-//! the modules a build happened to read, so an added module that shadows
-//! nothing still counts), the package graph, the entry, the kind of target,
-//! the code generation and linker options, and the compiler's identity. The
-//! compiler embeds `std` and the runtime, so its identity covers both.
+//! The digest covers the name of every regular file and symbolic link (with
+//! its target's name) below each package's source root, so an added module
+//! rebuilds even if it shadows nothing; the package graph, the entry, the
+//! kind of target, the code generation and linker options, and the
+//! compiler's identity. The compiler embeds `std` and the runtime, so its
+//! identity covers both.
+//!
+//! It also covers the canonical entry and source roots, so retargeting a
+//! symbolic `src/` or `tests/` rebuilds. The contents are not hashed here. The stored fingerprint holds the
+//! frontend's [`Inputs`](crate::frontend::Inputs): every source and included
+//! file the build read, with its digest. A target is fresh only while they
+//! are [current](crate::frontend::Inputs::current), the check the program
+//! cache makes, which also reruns each include's boundary and ownership
+//! checks. Includes may read any file in the package directory, which also
+//! holds build outputs, `.pkg/` and perhaps version control data, so that
+//! directory is never walked.
 use super::SourceGraph;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -27,6 +39,13 @@ pub(super) fn digest(
     field(crate::cache::compiler_identity());
     field(kind);
     field(&entry.display().to_string());
+    // The canonical entry and roots: retargeting a symbolic `src/` or
+    // `tests/` leaves the recorded inputs current, as they name the old
+    // canonical files. `None` means the build will fail and record nothing.
+    field(&format!(
+        "{:?}",
+        crate::frontend::graph_identity(entry, graph)
+    ));
     // Moving/replacing an optional shared engine changes the RUNPATH of an
     // executable that reaches it. Missing/unused engines never fail fingerprinting.
     for engine in crate::toolchain::ENGINES {
@@ -60,36 +79,53 @@ pub(super) fn digest(
     for package in &graph.packages {
         field(&package.identity);
         field(&package.root.display().to_string());
-        field(&format!("{:?} {:?}", package.library, package.dependencies));
+        field(&format!(
+            "{:?} {:?} {:?}",
+            package.directory, package.library, package.dependencies
+        ));
         let mut files = vec![];
         walk(&package.root, &mut files)?;
         files.sort();
         for file in files {
             field(&file.display().to_string());
-            let bytes =
-                std::fs::read(&file).map_err(|e| format!("reading {}: {e}", file.display()))?;
-            field(&format!("{:x}", Sha256::digest(&bytes)));
+            let error = |e: std::io::Error| format!("reading {}: {e}", file.display());
+            if file
+                .symlink_metadata()
+                .map_err(error)?
+                .file_type()
+                .is_symlink()
+            {
+                field(&format!(
+                    "link {:?}",
+                    std::fs::read_link(&file).map_err(error)?
+                ));
+            }
         }
     }
     Ok(format!("{:x}", hash.finalize()))
 }
 
+/// The regular files and symbolic links below `directory`. Links are not
+/// followed, so a loop or a link to `/` or a device costs one entry.
 fn walk(directory: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
     if !directory.is_dir() {
         return Ok(());
     }
-    for entry in std::fs::read_dir(directory)? {
-        let path = entry?.path();
-        if path.is_dir() {
-            walk(&path, files)?;
-        } else {
-            files.push(path);
+    let error = |e: std::io::Error| format!("reading {}: {e}", directory.display());
+    for entry in std::fs::read_dir(directory).map_err(error)? {
+        let entry = entry.map_err(error)?;
+        let kind = entry.file_type().map_err(error)?;
+        if kind.is_dir() {
+            walk(&entry.path(), files)?;
+        } else if kind.is_file() || kind.is_symlink() {
+            files.push(entry.path());
         }
     }
     Ok(())
 }
 
-/// One target's stored digest, under `target/PROFILE/.fingerprint/`.
+/// One target's stored digest, under `target/PROFILE/.fingerprint/`,
+/// followed by a newline and the encoded inputs of its last build.
 pub(super) struct Fingerprint {
     path: PathBuf,
     digest: String,
@@ -103,11 +139,19 @@ impl Fingerprint {
         }
     }
 
-    /// Whether the last successful build had these inputs and its output
-    /// (if any) still exists.
-    pub(super) fn fresh(&self, output: Option<&Path>) -> bool {
+    /// Whether the last successful build had these inputs, its output (if
+    /// any) still exists, and a build of `graph` would read the same files.
+    pub(super) fn fresh(&self, output: Option<&Path>, graph: &SourceGraph) -> bool {
+        let Ok(stored) = std::fs::read(&self.path) else {
+            return false;
+        };
+        let Some(newline) = stored.iter().position(|&byte| byte == b'\n') else {
+            return false;
+        };
+        let (digest, inputs) = (&stored[..newline], &stored[newline + 1..]);
         output.is_none_or(Path::is_file)
-            && std::fs::read_to_string(&self.path).is_ok_and(|stored| stored == self.digest)
+            && digest == self.digest.as_bytes()
+            && crate::frontend::Inputs::decode(inputs).is_some_and(|inputs| inputs.current(graph))
     }
 
     /// Forget the stored digest before building, so an interrupted build
@@ -119,9 +163,22 @@ impl Fingerprint {
         }
     }
 
-    pub(super) fn record(&self) -> Result<()> {
-        std::fs::create_dir_all(self.path.parent().unwrap())?;
-        std::fs::write(&self.path, &self.digest)?;
+    /// Store the digest and `inputs`. Inputs with a path that is not UTF-8
+    /// cannot be encoded, so such a build is not recorded and always reruns.
+    /// The file is written beside its final name and renamed, so a reader
+    /// sees the old fingerprint, none, or the whole new one.
+    pub(super) fn record(&self, inputs: &crate::frontend::Inputs) -> Result<()> {
+        let Some(inputs) = inputs.encode() else {
+            return Ok(());
+        };
+        let mut bytes = self.digest.clone().into_bytes();
+        bytes.push(b'\n');
+        bytes.extend_from_slice(&inputs);
+        let parent = self.path.parent().unwrap();
+        std::fs::create_dir_all(parent)?;
+        let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+        std::io::Write::write_all(&mut temporary, &bytes)?;
+        temporary.persist(&self.path)?;
         Ok(())
     }
 }

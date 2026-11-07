@@ -5,6 +5,16 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## Included files in packages (issue #788)
+
+`include_str` and `include_bytes` in a package may read any file in its package
+directory, the directory containing `plenty.toml`, so embedded files no longer
+have to live among the sources. Confinement follows `..` and symbolic links, a
+nested package's files stay its own, and build reuse rehashes the files a build
+read. Single files and scripts are unchanged. [Included
+files](../design/toolchain/01-building/packages.md#included-files) documents the
+rule.
+
 ## Package check coverage (issue #805)
 
 `plenty check` now warns about each `.plenty` file below a package's `src/`

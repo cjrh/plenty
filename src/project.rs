@@ -31,6 +31,12 @@ pub struct SourcePackage {
     pub identity: String,
     /// Imports in this package resolve below this directory.
     pub root: PathBuf,
+    /// The package directory, which holds its `plenty.toml`; a graph file
+    /// names none, so there it is the source root's parent. `include_str`
+    /// and `include_bytes` read files below it, except inside a nested
+    /// package's directory. `None` for a single file or script: its includes
+    /// stay below `root`, and it owns no directory.
+    pub directory: Option<PathBuf>,
     /// The module that `import ALIAS` names, when another package depends on
     /// this one.
     pub library: Option<PathBuf>,
@@ -155,9 +161,19 @@ impl SourceGraph {
             {
                 return Err(error(line, &format!("identity `{identity}` appears twice")).into());
             }
+            let root = base.join(root);
+            // The lexical parent, as for a manifest: a dependency's symbolic
+            // `src` must not choose its own package directory.
+            let directory = match root.parent() {
+                Some(parent) if parent.as_os_str().is_empty() => Path::new("."),
+                Some(parent) => parent,
+                None => &root,
+            }
+            .to_path_buf();
             packages.push(SourcePackage {
                 identity,
-                root: base.join(root),
+                directory: Some(directory),
+                root,
                 library: string("library")?.map(|library| base.join(library)),
                 dependencies: vec![],
             });
@@ -959,6 +975,7 @@ impl Project {
         SourcePackage {
             identity: package.manifest.name.clone(),
             root: package.directory.join("src"),
+            directory: Some(package.directory.clone()),
             library: package
                 .manifest
                 .library
@@ -1015,6 +1032,7 @@ impl Project {
             SourcePackage {
                 identity: format!("{}-tests", package.manifest.name),
                 root: package.directory.join("tests"),
+                directory: Some(package.directory.clone()),
                 library: None,
                 dependencies,
             },
@@ -1266,25 +1284,25 @@ pub fn check_entry(
     require_main: bool,
     options: &crate::CheckOptions,
 ) -> Result<Vec<crate::Warning>> {
-    check_sources(entry, graph, require_main, options).map(|(warnings, _)| warnings)
+    check_sources(entry, graph, require_main, options).map(|(warnings, ..)| warnings)
 }
 
-/// [`check_entry`], also returning the canonical paths of every source file
-/// the check read, in all packages of `graph`.
+/// [`check_entry`], also returning what the check read, in all packages of
+/// `graph`.
 fn check_sources(
     entry: &Path,
     graph: &SourceGraph,
     require_main: bool,
     options: &crate::CheckOptions,
-) -> Result<(Vec<crate::Warning>, Vec<PathBuf>)> {
+) -> Result<(Vec<crate::Warning>, crate::frontend::Inputs)> {
     let mut heap = crate::value::Heap::default();
     let mut program =
         crate::frontend::compile_graph(entry, graph, require_main, &mut heap, *options)?;
     let checked = crate::op::check(&program.ops);
     let warnings = std::mem::take(&mut program.warnings);
-    let sources = std::mem::take(&mut program.source_paths);
+    let inputs = std::mem::take(&mut program.inputs);
     crate::teardown((program, heap), options);
-    checked.map(|()| (warnings, sources))
+    checked.map(|()| (warnings, inputs))
 }
 
 fn status(verb: &str, message: impl std::fmt::Display) {
@@ -1321,14 +1339,14 @@ pub fn check(directory: &Path, options: &BuildOptions) -> Result<()> {
                     .map(|(_, entry)| (entry, true)),
             );
         for (entry, require_main) in entries {
-            let (found, sources) = check_sources(
+            let (found, inputs) = check_sources(
                 &package.directory.join(entry),
                 &graph,
                 require_main,
                 &options.check,
             )?;
             warnings.extend(found);
-            reached.extend(sources);
+            reached.extend(inputs.sources().map(Path::to_path_buf));
         }
         crate::diagnostic::settle(&mut warnings);
         for warning in &warnings {
@@ -1433,16 +1451,17 @@ impl Progress<'_> {
 fn reuse_or_build(
     fingerprint: Fingerprint,
     output: Option<&Path>,
+    graph: &SourceGraph,
     progress: &mut Progress,
-    build: impl FnOnce() -> Result<()>,
+    build: impl FnOnce() -> Result<crate::frontend::Inputs>,
 ) -> Result<()> {
-    if fingerprint.fresh(output) {
+    if fingerprint.fresh(output, graph) {
         return Ok(());
     }
     progress.building();
     fingerprint.invalidate()?;
-    build()?;
-    fingerprint.record()
+    let inputs = build()?;
+    fingerprint.record(&inputs)
 }
 
 /// Check the library and build each executable of `member`, reusing
@@ -1475,8 +1494,12 @@ fn build_member(
                 digest,
             ),
             None,
+            &graph,
             &mut progress,
-            || check_entry(&entry, &graph, false, &crate::CheckOptions::default()).map(drop),
+            || {
+                check_sources(&entry, &graph, false, &crate::CheckOptions::default())
+                    .map(|(_, inputs)| inputs)
+            },
         )?;
     }
     let mut outputs = vec![];
@@ -1490,8 +1513,9 @@ fn build_member(
         reuse_or_build(
             Fingerprint::new(&directory, &format!("bin-{name}"), digest),
             Some(&output),
+            &graph,
             &mut progress,
-            || crate::compile_package_to_executable(&entry, &graph, &output, &compile),
+            || crate::codegen::compile_graph_to_executable(&entry, &graph, &output, &compile),
         )?;
         outputs.push((name.clone(), output));
     }
@@ -1779,6 +1803,7 @@ pub fn test(directory: &Path, options: &TestOptions) -> Result<TestSummary> {
             reuse_or_build(
                 Fingerprint::new(&directory, &stem, digest),
                 Some(&executable),
+                &graph,
                 &mut progress,
                 || match kind {
                     crate::frontend::TestFile::Program => {
@@ -2199,12 +2224,14 @@ mod tests {
                 SourcePackage {
                     identity: "app".into(),
                     root: dir.path().join("app/src"),
+                    directory: Some(dir.path().join("app")),
                     library: None,
                     dependencies: vec![("geo".into(), 1)],
                 },
                 SourcePackage {
                     identity: "shapes".into(),
                     root: dir.path().join("shapes/src"),
+                    directory: Some(dir.path().join("shapes")),
                     library: Some(dir.path().join("shapes/src/lib.plenty")),
                     dependencies: vec![],
                 },

@@ -1415,3 +1415,483 @@ fn check_reports_unimported_sources() {
     let lines = status_lines(&app, &["check"]);
     assert!(!lines.contains("warning"), "{lines}");
 }
+
+/// Issue #788: a package's `include_str` and `include_bytes` read below its
+/// `src/` or `assets/`, and nowhere else. Asset files are build inputs.
+#[test]
+fn packages_include_files_from_their_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    package(
+        dir.path(),
+        "util",
+        "",
+        &[
+            (
+                "src/lib.plenty",
+                "pub const BANNER: str = include_str(\"../data/banner.txt\")\n",
+            ),
+            ("data/banner.txt", "util banner"),
+        ],
+    );
+    package(
+        dir.path(),
+        "app",
+        "util = { path = \"../util\" }\n",
+        &[
+            (
+                "src/main.plenty",
+                "import util\nfrom ui.view import ICON\nconst GREETING: str = include_str(\"../data/greeting.txt\")\n\ndef main() -> Result[(), IoError]:\n    print(GREETING)?\n    print(ICON)?\n    print(util.BANNER)?\n    Ok(())\n",
+            ),
+            (
+                "src/ui/view.plenty",
+                "pub const ICON: bytes = include_bytes(\"../../data/icons/icon.bin\")\n",
+            ),
+            ("data/greeting.txt", "hello"),
+            ("data/icons/icon.bin", "\u{1}PNG"),
+            (
+                "tests/greeting.plenty",
+                "const GREETING: str = include_str(\"../data/greeting.txt\")\n\ndef main() -> i32:\n    0 if GREETING == \"hello\" else 1\n",
+            ),
+        ],
+    );
+    let app = dir.path().join("app");
+    assert_eq!(
+        succeeds(&app, &["run"]),
+        "hello\nb\"\\x01PNG\"\nutil banner\n"
+    );
+    assert!(succeeds(&app, &["test"]).contains("test greeting ... ok"));
+
+    // Build reuse rehashes the files the last build read, so an edit to an
+    // included file rebuilds and an unread file does not.
+    assert!(status_lines(&app, &["build"]).contains("Fresh"));
+    write(&dir.path().join("util/data/banner.txt"), "new banner");
+    assert!(status_lines(&app, &["build"]).contains("Compiling"));
+    let expected = "hello\nb\"\\x01PNG\"\nnew banner\n";
+    assert_eq!(succeeds(&app, &["run"]), expected);
+    write(&app.join("data/unused.txt"), "");
+    assert!(status_lines(&app, &["build"]).contains("Fresh"));
+    // A test target rereads only its own inputs; the greeting test reads no
+    // icon.
+    write(&app.join("data/icons/icon.bin"), "\u{2}PNG");
+    assert!(status_lines(&app, &["test"]).contains("Fresh"));
+    assert!(status_lines(&app, &["build"]).contains("Compiling"));
+    write(&app.join("data/icons/icon.bin"), "\u{1}PNG");
+    assert!(status_lines(&app, &["build"]).contains("Compiling"));
+    assert!(status_lines(&app, &["build"]).contains("Fresh"));
+
+    // `plentyc` derives each package's directory from its root, also when
+    // a bare relative path names a graph with relative roots.
+    write(&app.join("graph.toml"), &succeeds(&app, &["graph"]));
+    let base = dir.path().canonicalize().unwrap();
+    let relative = std::fs::read_to_string(app.join("graph.toml"))
+        .unwrap()
+        .replace(&format!("{}/", base.join("app").display()), "")
+        .replace(&format!("{}/", base.display()), "../");
+    assert!(relative.contains("root = \"src\""), "{relative}");
+    write(&app.join("relative.toml"), &relative);
+    for graph in ["graph.toml", "relative.toml"] {
+        let run = Command::new(env!("CARGO_BIN_EXE_plentyc"))
+            .args(["--package-graph", graph, "src/main.plenty"])
+            .current_dir(&app)
+            .output()
+            .unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&run.stdout),
+            expected,
+            "{graph}: {}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+    }
+
+    // A relocated package resolves the same relative paths.
+    let moved = tempfile::tempdir().unwrap();
+    for name in ["util", "app"] {
+        std::fs::rename(dir.path().join(name), moved.path().join(name)).unwrap();
+    }
+    let app = moved.path().join("app");
+    assert_eq!(succeeds(&app, &["run"]), expected);
+
+    // A file is outside when `..` or a symbolic link leaves the package
+    // directory, even into another package.
+    write(&moved.path().join("secret.txt"), "secret");
+    std::os::unix::fs::symlink(moved.path().join("secret.txt"), app.join("data/link.txt")).unwrap();
+    let boundary = app.canonicalize().unwrap();
+    for path in [
+        "../data/link.txt",
+        "../../util/data/banner.txt",
+        "../data/../../secret.txt",
+    ] {
+        write(
+            &app.join("src/main.plenty"),
+            &format!("const S: str = include_str({path:?})\n\ndef main() -> ():\n    pass\n"),
+        );
+        for command in ["check", "build"] {
+            fails(
+                &app,
+                &[command],
+                &format!(
+                    "included path `{path}` is outside the package directory {}",
+                    boundary.display()
+                ),
+            );
+        }
+    }
+    // A dependency's directory linked to the application's reads outside
+    // the dependency.
+    write(
+        &app.join("src/main.plenty"),
+        "import util\n\ndef main() -> Result[(), IoError]:\n    print(util.BANNER)?\n    Ok(())\n",
+    );
+    let util = moved.path().join("util");
+    std::fs::remove_dir_all(util.join("data")).unwrap();
+    std::os::unix::fs::symlink("../app/data", util.join("data")).unwrap();
+    write(
+        &util.join("src/lib.plenty"),
+        "pub const BANNER: str = include_str(\"../data/greeting.txt\")\n",
+    );
+    let message = format!(
+        "included path `../data/greeting.txt` is outside the package directory {}",
+        util.canonicalize().unwrap().display()
+    );
+    for command in ["check", "build"] {
+        fails(&app, &[command], &message);
+    }
+}
+
+/// Runs `plentyc --package-graph graph.toml src/main.plenty` in `app`.
+fn plentyc_graph(app: &Path) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_plentyc"))
+        .args(["--package-graph", "graph.toml", "src/main.plenty"])
+        .current_dir(app)
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn a_symbolic_source_root_includes_its_own_files_only() {
+    // `util/src` links to `app/vend`. Its own files are those below `util/`
+    // and below `app/vend`; `app/data` stays the application's, in manifest
+    // and graph mode alike. Whether such a link is allowed at all is issue
+    // #840.
+    let dir = tempfile::tempdir().unwrap();
+    package(dir.path(), "util", "", &[("data/u.txt", "util data")]);
+    let util = dir.path().join("util");
+    package(
+        dir.path(),
+        "app",
+        "util = { path = \"../util\" }\n",
+        &[
+            (
+                "src/main.plenty",
+                "import util\n\ndef main() -> Result[(), IoError]:\n    print(util.OWN)?\n    print(util.DATA)?\n    Ok(())\n",
+            ),
+            ("vend/own.txt", "own"),
+            ("data/secret.txt", "secret"),
+        ],
+    );
+    let app = dir.path().join("app");
+    let lib = |include: &str| {
+        format!(
+            "pub const OWN: str = include_str(\"own.txt\")\npub const DATA: str = include_str(\"../../util/data/u.txt\")\n{include}"
+        )
+    };
+    write(&app.join("vend/lib.plenty"), &lib(""));
+    std::os::unix::fs::symlink("../app/vend", util.join("src")).unwrap();
+    assert_eq!(succeeds(&app, &["run"]), "own\nutil data\n");
+    write(&app.join("graph.toml"), &succeeds(&app, &["graph"]));
+    let run = plentyc_graph(&app);
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "own\nutil data\n",
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+
+    write(
+        &app.join("vend/lib.plenty"),
+        &lib("const SECRET: str = include_str(\"../data/secret.txt\")\n"),
+    );
+    let message = format!(
+        "included path `../data/secret.txt` is outside the package directory {}",
+        util.canonicalize().unwrap().display()
+    );
+    for command in ["check", "build"] {
+        fails(&app, &[command], &message);
+    }
+    let run = plentyc_graph(&app);
+    assert!(!run.status.success());
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert!(stderr.contains(&message), "{stderr}");
+
+    // The application cannot include the dependency's source root.
+    write(&app.join("vend/lib.plenty"), &lib(""));
+    write(
+        &app.join("src/main.plenty"),
+        "import util\nconst S: str = include_str(\"../vend/own.txt\")\n\ndef main() -> ():\n    pass\n",
+    );
+    fails(
+        &app,
+        &["check"],
+        "included path `../vend/own.txt` belongs to package `util`; package `app` may include only its own files",
+    );
+}
+
+#[test]
+fn graph_packages_with_one_parent_include_only_their_own_sources() {
+    // Both roots have the parent `work/`, which is each package's directory.
+    let dir = tempfile::tempdir().unwrap();
+    let work = dir.path().join("work");
+    write(
+        &work.join("a_src/main.plenty"),
+        "import b\nconst S: str = include_str(\"../b_src/private.txt\")\n\ndef main() -> ():\n    pass\n",
+    );
+    write(&work.join("b_src/lib.plenty"), "pub const N: i64 = 1\n");
+    write(&work.join("b_src/private.txt"), "private");
+    write(&work.join("shared.txt"), "shared");
+    write(
+        &work.join("graph.toml"),
+        "graph-version = 1\n\n[[package]]\nidentity = \"a\"\nroot = \"a_src\"\ndependencies = { b = \"b\" }\n\n[[package]]\nidentity = \"b\"\nroot = \"b_src\"\nlibrary = \"b_src/lib.plenty\"\ndependencies = {}\n",
+    );
+    let check = || {
+        Command::new(env!("CARGO_BIN_EXE_plentyc"))
+            .args([
+                "--package-graph",
+                "graph.toml",
+                "--check",
+                "a_src/main.plenty",
+            ])
+            .current_dir(&work)
+            .output()
+            .unwrap()
+    };
+    let output = check();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(
+            "included path `../b_src/private.txt` belongs to package `b`; package `a` may include only its own files"
+        ),
+        "{stderr}"
+    );
+    // A file in the shared directory is each package's own.
+    write(
+        &work.join("a_src/main.plenty"),
+        "import b\nconst S: str = include_str(\"../shared.txt\")\n\ndef main() -> ():\n    pass\n",
+    );
+    let output = check();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // A package named like `a`'s tests but rooted elsewhere is not exempt.
+    write(&work.join("t_src/lib.plenty"), "pub const N: i64 = 1\n");
+    write(&work.join("t_src/private.txt"), "private");
+    write(
+        &work.join("a_src/main.plenty"),
+        "import b\nconst S: str = include_str(\"../t_src/private.txt\")\n\ndef main() -> ():\n    pass\n",
+    );
+    let graph = std::fs::read_to_string(work.join("graph.toml")).unwrap();
+    write(
+        &work.join("graph.toml"),
+        &format!(
+            "{graph}\n[[package]]\nidentity = \"a-tests\"\nroot = \"t_src\"\nlibrary = \"t_src/lib.plenty\"\ndependencies = {{}}\n"
+        ),
+    );
+    let output = check();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(
+            "included path `../t_src/private.txt` belongs to package `a-tests`; package `a` may include only its own files"
+        ),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn reuse_follows_a_retargeted_source_or_tests_link() {
+    // Each tree's files still exist and are unchanged, so only the canonical
+    // roots tell the builds apart.
+    let dir = tempfile::tempdir().unwrap();
+    package(dir.path(), "app", "", &[]);
+    let app = dir.path().join("app");
+    let main = |word: &str| {
+        format!("def main() -> Result[(), IoError]:\n    print(\"{word}\")?\n    Ok(())\n")
+    };
+    write(&app.join("src1/main.plenty"), &main("one"));
+    write(&app.join("src2/main.plenty"), &main("two"));
+    write(&app.join("t1/check.plenty"), "def main() -> i32:\n    0\n");
+    write(&app.join("t2/check.plenty"), "def main() -> i32:\n    1\n");
+    let link = |target: &str, name: &str| {
+        let path = app.join(name);
+        let _ = std::fs::remove_file(&path);
+        std::os::unix::fs::symlink(target, path).unwrap();
+    };
+    link("src1", "src");
+    link("t1", "tests");
+    assert_eq!(succeeds(&app, &["run"]), "one\n");
+    assert!(status_lines(&app, &["build"]).contains("Fresh"));
+    succeeds(&app, &["test"]);
+
+    link("src2", "src");
+    assert!(status_lines(&app, &["build"]).contains("Compiling"));
+    assert_eq!(succeeds(&app, &["run"]), "two\n");
+    link("t2", "tests");
+    assert!(!plenty(&app, &["test"]).status.success());
+}
+
+#[test]
+fn reuse_rechecks_where_included_files_may_come_from() {
+    // Neither build reuse nor the program cache may keep an include that a
+    // build now would refuse.
+    let dir = tempfile::tempdir().unwrap();
+    package(
+        dir.path(),
+        "app",
+        "",
+        &[
+            (
+                "src/main.plenty",
+                "const SUB: str = include_str(\"../data/sub/x.txt\")\nconst LINK: str = include_str(\"../data/link.txt\")\n\ndef main() -> Result[(), IoError]:\n    print(SUB)?\n    print(LINK)?\n    Ok(())\n",
+            ),
+            ("data/sub/x.txt", "x"),
+            ("data/y.txt", "y"),
+        ],
+    );
+    let app = dir.path().join("app");
+    std::os::unix::fs::symlink("y.txt", app.join("data/link.txt")).unwrap();
+    let fingerprints = app.join("target/optimized/.fingerprint");
+    succeeds(&app, &["build"]);
+    assert!(status_lines(&app, &["build"]).contains("Fresh"));
+
+    // A new nested package takes `data/sub/` over.
+    write(&app.join("data/sub/plenty.toml"), "");
+    let owned = format!(
+        "included path `../data/sub/x.txt` belongs to the package in {}",
+        app.join("data/sub").canonicalize().unwrap().display()
+    );
+    fails(&app, &["build"], &owned);
+    std::fs::remove_file(app.join("data/sub/plenty.toml")).unwrap();
+    succeeds(&app, &["build"]);
+    assert!(fingerprints.is_dir());
+    // Without a fingerprint the program cache would serve the object.
+    write(&app.join("data/sub/plenty.toml"), "");
+    std::fs::remove_dir_all(&fingerprints).unwrap();
+    fails(&app, &["build"], &owned);
+    std::fs::remove_file(app.join("data/sub/plenty.toml")).unwrap();
+    succeeds(&app, &["build"]);
+
+    // A link retargeted outside the package, to a file with the same bytes.
+    write(&dir.path().join("y.txt"), "y");
+    std::fs::remove_file(app.join("data/link.txt")).unwrap();
+    std::os::unix::fs::symlink("../../y.txt", app.join("data/link.txt")).unwrap();
+    fails(
+        &app,
+        &["build"],
+        &format!(
+            "included path `../data/link.txt` is outside the package directory {}",
+            app.canonicalize().unwrap().display()
+        ),
+    );
+}
+
+#[test]
+fn a_package_includes_only_its_own_files() {
+    // `ws/` holds `game`, whose member `levels` is at `ws/levels/`, whose
+    // dependency `deep` is at `ws/levels/deep/`. Each includes its own files
+    // anywhere in its directory; none includes a file inside a nested
+    // package's directory.
+    let dir = tempfile::tempdir().unwrap();
+    let ws = dir.path().join("ws");
+    let levels = ws.join("levels");
+    let deep = levels.join("deep");
+    write(
+        &ws.join("plenty.toml"),
+        "manifest-version = 1\n[package]\nname = \"game\"\nversion = \"0.1.0\"\n\n[dependencies]\nlevels = { path = \"levels\" }\n\n[workspace]\nmembers = [\"levels\"]\n",
+    );
+    write(
+        &levels.join("plenty.toml"),
+        "manifest-version = 1\n[package]\nname = \"levels\"\nversion = \"0.1.0\"\n\n[dependencies]\ndeep = { path = \"deep\" }\n",
+    );
+    let lib = |include: &str| {
+        format!(
+            "import deep\nconst DATA: str = include_str(\"data.txt\")\nconst LEVEL: str = include_str(\"../data/lvl.txt\")\nconst MANIFEST: str = include_str(\"../plenty.toml\")\n{include}pub const N: i64 = deep.N if DATA == \"data\" and LEVEL == \"level\" and MANIFEST != \"\" else 0\n"
+        )
+    };
+    write(&levels.join("src/lib.plenty"), &lib(""));
+    write(&levels.join("src/data.txt"), "data");
+    write(&levels.join("data/lvl.txt"), "level");
+    write(&levels.join("tests/f.txt"), "fixture");
+    write(
+        &levels.join("tests/fixture.plenty"),
+        "const F: str = include_str(\"f.txt\")\nconst LEVEL: str = include_str(\"../data/lvl.txt\")\n\ndef main() -> i32:\n    0 if F == \"fixture\" and LEVEL == \"level\" else 1\n",
+    );
+    write(
+        &deep.join("plenty.toml"),
+        "manifest-version = 1\n[package]\nname = \"deep\"\nversion = \"0.1.0\"\n",
+    );
+    write(
+        &deep.join("src/lib.plenty"),
+        "const ONE: str = include_str(\"../data/one.txt\")\npub const N: i64 = 1 if ONE == \"one\" else 0\n",
+    );
+    write(&deep.join("data/one.txt"), "one");
+    // Not in the graph, but its manifest makes it a package.
+    write(
+        &ws.join("vendor/other/plenty.toml"),
+        "manifest-version = 1\n[package]\nname = \"other\"\nversion = \"0.1.0\"\n",
+    );
+    write(&ws.join("vendor/other/x.txt"), "x");
+    std::fs::create_dir(ws.join("data")).unwrap();
+    std::os::unix::fs::symlink("../levels/src/data.txt", ws.join("data/l.txt")).unwrap();
+    let main = |include: &str| {
+        format!(
+            "import levels\n{include}\ndef main() -> Result[(), IoError]:\n    print(levels.N)?\n    Ok(())\n"
+        )
+    };
+    write(&ws.join("src/main.plenty"), &main(""));
+    assert_eq!(succeeds(&ws, &["run"]), "1\n");
+    for command in ["check", "build"] {
+        succeeds(&levels, &[command]);
+    }
+    assert!(succeeds(&levels, &["test"]).ends_with("test result: ok. 1 passed; 0 failed\n"));
+
+    let other = ws.join("vendor/other").canonicalize().unwrap();
+    for (path, owner) in [
+        ("../levels/src/lib.plenty", "package `levels`".to_string()),
+        ("../levels/data/lvl.txt", "package `levels`".into()),
+        ("../data/l.txt", "package `levels`".into()),
+        ("../levels/tests/f.txt", "package `levels`".into()),
+        ("../levels/plenty.toml", "package `levels`".into()),
+        ("../levels/deep/data/one.txt", "package `deep`".into()),
+        (
+            "../vendor/other/x.txt",
+            format!("the package in {}", other.display()),
+        ),
+    ] {
+        write(
+            &ws.join("src/main.plenty"),
+            &main(&format!("const S: str = include_str({path:?})\n")),
+        );
+        for command in ["check", "build"] {
+            fails(
+                &ws,
+                &[command],
+                &format!(
+                    "included path `{path}` belongs to {owner}; package `game` may include only its own files"
+                ),
+            );
+        }
+    }
+    write(&ws.join("src/main.plenty"), &main(""));
+    write(
+        &levels.join("src/lib.plenty"),
+        &lib("const S: str = include_str(\"../deep/plenty.toml\")\n"),
+    );
+    fails(
+        &levels,
+        &["check"],
+        "included path `../deep/plenty.toml` belongs to package `deep`; package `levels` may include only its own files",
+    );
+}

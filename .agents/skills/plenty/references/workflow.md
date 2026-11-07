@@ -106,6 +106,15 @@ version = "0.1.0"
 geometry = { path = "../shapes" }
 ```
 
+Files embedded with `include_str`/`include_bytes` may live anywhere in the
+package directory (the one holding `plenty.toml`), such as `data/` beside
+`src/`; a path is relative to the including file, such as
+`include_str("../data/schema.sql")` from `src/main.plenty`. A file is accepted
+only if its real path, after `..` and symbolic links, is inside the package
+directory or the package's own source root, and not inside another package's
+source root or directory, or any directory holding a `plenty.toml`. See [included
+files](../../../../book/src/design/toolchain/01-building/packages.md#included-files).
+
 Other files under `src/` are the package's own modules, imported by path:
 
 ```plenty project-file app/src/report.plenty

@@ -346,8 +346,10 @@ fn included_paths_are_checked() {
     let dir = parent.path().join("project");
     std::fs::create_dir(&dir).unwrap();
     std::fs::write(dir.join("latin1.txt"), [b'a', 0xE9]).unwrap();
+    std::os::unix::fs::symlink(parent.path().join("outside.txt"), dir.join("link.txt")).unwrap();
     let main = dir.join("main.plenty");
     let absolute = parent.path().join("outside.txt");
+    let root = dir.canonicalize().unwrap();
     for (declaration, message) in [
         (
             format!(
@@ -358,7 +360,17 @@ fn included_paths_are_checked() {
         ),
         (
             "const S: str = include_str(\"../outside.txt\")".into(),
-            "outside the source root".into(),
+            format!(
+                "included path `../outside.txt` is outside the source root {}",
+                root.display()
+            ),
+        ),
+        (
+            "const S: str = include_str(\"link.txt\")".into(),
+            format!(
+                "included path `link.txt` is outside the source root {}",
+                root.display()
+            ),
         ),
         (
             "const S: str = include_str(\"missing.txt\")".into(),
