@@ -188,7 +188,7 @@ def main() -> Result[(), IoError | AllocError]:
     Ok(())
 "#
         ),
-        "std.json.JsonFault.Serialization(std.serial.Fault.UnexpectedKind)\nstd.json.JsonFault.Serialization(std.serial.Fault.UnknownVariant(\"Unknown\"))\nstd.json.JsonFault.Serialization(std.serial.Fault.WrongLength(2, 1))\nstd.json.JsonFault.Serialization(std.serial.Fault.WrongLength(1, 2))\nstd.json.JsonFault.Serialization(std.serial.Fault.UnexpectedKind)\nstd.json.JsonFault.Serialization(std.serial.Fault.OutOfRange)\n",
+        "std.json.JsonFault.Serialization(std.serial.Fault.WrongLength(1, 0))\nstd.json.JsonFault.Serialization(std.serial.Fault.UnknownVariant(\"Unknown\"))\nstd.json.JsonFault.Serialization(std.serial.Fault.WrongLength(2, 1))\nstd.json.JsonFault.Serialization(std.serial.Fault.WrongLength(1, 2))\nstd.json.JsonFault.Serialization(std.serial.Fault.UnexpectedKind)\nstd.json.JsonFault.Serialization(std.serial.Fault.OutOfRange)\n",
     );
 }
 

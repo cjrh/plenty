@@ -459,6 +459,7 @@
         - [`std.io.typed`](design/stdlib/io-typed.md)
         - [`std.serial`](design/stdlib/serial.md)
             - [Derived class and enum codecs](design/stdlib/serial-derive.md)
+            - [Serialization diagnostics](design/stdlib/serial-diagnostics.md)
         - [`std.json`](design/stdlib/json.md)
             - [Typed JSON codecs](design/stdlib/json-codecs.md)
         - [`std.jwt`](design/stdlib/jwt.md)
