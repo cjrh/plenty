@@ -143,8 +143,11 @@ error, when:
 - the package does not check before the move;
 - the destination already declares or imports the name, or an import binding
   would conflict;
-- an import that must be rewritten carries a comment, or a touched file has an
-  indented import;
+- an import that must be rewritten carries a comment;
+- an import the move adds would close a circular import through an import
+  inside an `if const` block. Imports inside `if const` blocks are never
+  rewritten; they refuse a move only through this rule and the `if const`
+  rule above;
 - a use of the declaration has a form the move cannot rewrite, such as
   `shapes . Point` with spaces or a member access split across lines;
 - the moved code needs the source module and the source needs the moved code,

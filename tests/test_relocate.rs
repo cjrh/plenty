@@ -737,7 +737,8 @@ fn documented_refusals() {
         "`norm` needs `import std.math as m`, but `geometry` already has `import std.path as m`"
     );
 
-    // An import inside `if const` cannot be rewritten.
+    // An import inside `if const` is never rewritten, so a use through it
+    // cannot be either.
     let dir = package(&[
         ("src/shapes.plenty", "pub def one() -> i64:\n    1\n"),
         (
@@ -749,7 +750,7 @@ fn documented_refusals() {
     let message = refused(dir.path(), "src/shapes.plenty", 1, "src/geometry.plenty");
     assert_eq!(
         message,
-        "src/main.plenty: line 2 has an indented import, which the move cannot rewrite"
+        "src/main.plenty:5:16: cannot rewrite this reference to `one`"
     );
 
     // The moved code calls a `unit` that is not the destination's.
@@ -1518,4 +1519,78 @@ def main() -> Result[(), IoError]:
     let dir = conditional_package(a, main);
     let moved = plan(dir.path(), "src/a.plenty", 7, "src/b.plenty").unwrap();
     assert!(moved.files["src/b.plenty"].contains("# Returns its argument.\npub def moved"));
+}
+
+#[test]
+fn an_import_the_move_adds_cannot_close_a_cycle_through_an_if_const_block() {
+    let geometry = "\
+import mid
+
+def helper(x: i64) -> i64:
+    x
+
+pub def scale(x: i64) -> i64:
+    helper(x)
+
+pub def k() -> i64:
+    if const target.os == \"windows\":
+        return mid.W
+    else:
+        return helper(1)
+";
+    let mid = "\
+if const target.os == \"windows\":
+    import report
+
+    pub const W: i64 = report.R
+";
+    let main = "\
+import geometry
+import report
+
+def main() -> Result[(), IoError]:
+    print(geometry.scale(2), geometry.k(), report.R)?
+    Ok(())
+";
+    let dir = package(&[
+        ("src/geometry.plenty", geometry),
+        ("src/mid.plenty", mid),
+        ("src/report.plenty", "pub const R: i64 = 1\n"),
+        ("src/main.plenty", main),
+    ]);
+    assert_eq!(
+        refused(dir.path(), "src/geometry.plenty", 6, "src/report.plenty"),
+        "after moving `scale`, an import in an `if const` block would close a circular import: report -> geometry -> mid -> report"
+    );
+}
+
+#[test]
+fn an_import_in_an_unrelated_if_const_block_does_not_refuse_a_move() {
+    let geometry = "\
+pub def scale(x: i64) -> i64:
+    x
+";
+    let other = "\
+if const target.os == \"windows\":
+    import std.path
+
+pub def one() -> i64:
+    1
+";
+    let main = "\
+import geometry
+import other
+
+def main() -> Result[(), IoError]:
+    print(geometry.scale(2), other.one())?
+    Ok(())
+";
+    let dir = package(&[
+        ("src/geometry.plenty", geometry),
+        ("src/other.plenty", other),
+        ("src/report.plenty", "pub const R: i64 = 1\n"),
+        ("src/main.plenty", main),
+    ]);
+    let moved = plan(dir.path(), "src/geometry.plenty", 1, "src/report.plenty").unwrap();
+    assert!(moved.files["src/main.plenty"].contains("report.scale(2)"));
 }

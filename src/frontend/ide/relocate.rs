@@ -192,10 +192,10 @@ fn lex(text: &str) -> Result<Lexed, String> {
 
 /// The lines (from 0) of each `if const` conditional in `text`, from its
 /// `if const` line to the last line of its last arm. The analysis does not
-/// see unselected arms, so names there are neither found nor checked. The
-/// lexer's layout tokens give each arm's extent: an indented suite ends at
-/// its matching dedent and a one-line arm at its newline, and neither
-/// breaks inside brackets.
+/// see unselected arms, so names there are neither found nor checked. Each
+/// arm is an indented suite (the parser rejects one-line arms), which ends
+/// at its matching dedent; the lexer emits no layout tokens inside
+/// brackets.
 fn conditionals(text: &str) -> Result<Vec<(u32, u32)>, String> {
     let lexed = lex(text)?;
     let tokens = &lexed.all;
@@ -205,7 +205,10 @@ fn conditionals(text: &str) -> Result<Vec<(u32, u32)>, String> {
             Kind::Newline | Kind::Indent | Kind::Dedent | Kind::Eof
         )
     };
-    // The last line a token covers, counting a string's lines.
+    // The last line a token covers, counting a string's lines. When
+    // several strings start on the token's line this takes the first one
+    // spanning lines, which may not be the token itself; that string is on
+    // the same line of the same arm, so the extent stays inside the block.
     let end = |t: &Token| {
         lexed
             .strings
@@ -234,8 +237,16 @@ fn conditionals(text: &str) -> Result<Vec<(u32, u32)>, String> {
                 }
                 i += 1;
             }
+            // The arm: a newline, then an indented suite to its dedent.
             i += 1;
-            // The arm: an indented suite or the rest of the line.
+            if !tokens.get(i).is_some_and(|t| t.kind == Kind::Newline)
+                || !tokens.get(i + 1).is_some_and(|t| t.kind == Kind::Indent)
+            {
+                return Err(format!(
+                    "line {}: an `if const` arm must start on its own line",
+                    tokens[start].line
+                ));
+            }
             let mut indents = 0i32;
             while i < tokens.len() {
                 let t = &tokens[i];
@@ -244,13 +255,6 @@ fn conditionals(text: &str) -> Result<Vec<(u32, u32)>, String> {
                     Kind::Dedent => {
                         indents -= 1;
                         if indents == 0 {
-                            i += 1;
-                            break;
-                        }
-                    }
-                    Kind::Newline if indents == 0 => {
-                        // A suite follows on the next line.
-                        if !tokens.get(i + 1).is_some_and(|t| t.kind == Kind::Indent) {
                             i += 1;
                             break;
                         }
@@ -452,81 +456,97 @@ fn dotted<'a>(
     Some((path, first.column))
 }
 
-/// The file's import statements, from its top-level items, or an error
-/// when one cannot be rewritten safely: an import inside an `if const` block.
+/// The file's import statements at the left margin. Imports inside a
+/// top-level `if const` block are left out: the move never rewrites them,
+/// and [`arm_imports`] reads them for the checks that cover them.
 fn imports(text: &str) -> Result<Vec<Import>, String> {
+    let lines: Vec<&str> = text.lines().collect();
+    top_level(text)?
+        .iter()
+        .filter(|tokens| is_import(tokens))
+        .map(|tokens| import_statement(tokens, &lines))
+        .collect()
+}
+
+/// The imports inside the file's `if const` blocks, the only place an
+/// indented import can appear. One the move cannot read is skipped: the
+/// parser accepts only one-line imports, which it can read.
+fn arm_imports(text: &str) -> Result<Vec<Import>, String> {
     let lines: Vec<&str> = text.lines().collect();
     let mut out = vec![];
     for tokens in top_level(text)? {
-        if !is_import(&tokens) {
-            if let Some(nested) = tokens.iter().find(|t| t.is("import")) {
-                return Err(format!(
-                    "line {} has an indented import, which the move cannot rewrite",
-                    nested.line
-                ));
-            }
+        if is_import(&tokens) {
             continue;
         }
-        let line = tokens[0].line;
-        let unreadable = || format!("cannot read the import on line {line}");
-        if tokens.iter().any(|t| t.line != line) {
+        for statement in tokens.chunk_by(|a, b| a.line == b.line) {
+            if statement[0].is("import") || statement[0].is("from") {
+                out.extend(import_statement(statement, &lines).ok());
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// The import statement `tokens`, all on one line.
+fn import_statement(tokens: &[Token], lines: &[&str]) -> Result<Import, String> {
+    let line = tokens[0].line;
+    let unreadable = || format!("cannot read the import on line {line}");
+    if tokens.iter().any(|t| t.line != line) {
+        return Err(unreadable());
+    }
+    let mut words = tokens.iter().peekable();
+    let mut module_columns = vec![];
+    let from = if words.next().is_some_and(|t| t.is("from")) {
+        let (module, column) = dotted(&mut words).ok_or_else(unreadable)?;
+        module_columns.push(column);
+        if !words.next().is_some_and(|t| t.is("import")) {
             return Err(unreadable());
         }
-        let mut words = tokens.iter().peekable();
-        let mut module_columns = vec![];
-        let from = if words.next().is_some_and(|t| t.is("from")) {
-            let (module, column) = dotted(&mut words).ok_or_else(unreadable)?;
-            module_columns.push(column);
-            if !words.next().is_some_and(|t| t.is("import")) {
-                return Err(unreadable());
-            }
-            Some(module)
+        Some(module)
+    } else {
+        None
+    };
+    let mut items = vec![];
+    loop {
+        let name = if from.is_some() {
+            words.next().and_then(word).map(str::to_owned)
+        } else {
+            dotted(&mut words).map(|(path, column)| {
+                module_columns.push(column);
+                path
+            })
+        }
+        .ok_or_else(unreadable)?;
+        let alias = if words.peek().is_some_and(|t| t.is("as")) {
+            words.next();
+            Some(
+                words
+                    .next()
+                    .and_then(word)
+                    .ok_or_else(unreadable)?
+                    .to_owned(),
+            )
         } else {
             None
         };
-        let mut items = vec![];
-        loop {
-            let name = if from.is_some() {
-                words.next().and_then(word).map(str::to_owned)
-            } else {
-                dotted(&mut words).map(|(path, column)| {
-                    module_columns.push(column);
-                    path
-                })
-            }
-            .ok_or_else(unreadable)?;
-            let alias = if words.peek().is_some_and(|t| t.is("as")) {
-                words.next();
-                Some(
-                    words
-                        .next()
-                        .and_then(word)
-                        .ok_or_else(unreadable)?
-                        .to_owned(),
-                )
-            } else {
-                None
-            };
-            items.push((name, alias));
-            match words.next() {
-                Some(t) if t.is(",") => continue,
-                None => break,
-                Some(_) => return Err(unreadable()),
-            }
+        items.push((name, alias));
+        match words.next() {
+            Some(t) if t.is(",") => continue,
+            None => break,
+            Some(_) => return Err(unreadable()),
         }
-        // An import holds no strings, so `#` on its line starts a comment.
-        let comment = lines
-            .get(line as usize - 1)
-            .is_some_and(|l| l.contains('#'));
-        out.push(Import {
-            line: line - 1,
-            from,
-            items,
-            module_columns,
-            comment,
-        });
     }
-    Ok(out)
+    // An import holds no strings, so `#` on its line starts a comment.
+    let comment = lines
+        .get(line as usize - 1)
+        .is_some_and(|l| l.contains('#'));
+    Ok(Import {
+        line: line - 1,
+        from,
+        items,
+        module_columns,
+        comment,
+    })
 }
 
 /// How a reference names its symbol.
@@ -775,6 +795,128 @@ impl<'a> Planner<'a> {
             files: all_files,
             analyses: std::cell::Cell::new(0),
         })
+    }
+
+    /// The package modules `path` imports, with `text` as its text, each
+    /// with whether the import is inside an `if const` block. Imports of
+    /// another package cannot close a cycle and are left out.
+    fn module_imports(&self, path: &Path, text: &str) -> Result<Vec<(PathBuf, bool)>, String> {
+        let Some(src) = self
+            .sources_dirs()
+            .into_iter()
+            .find(|s| path.starts_with(s))
+        else {
+            return Ok(vec![]);
+        };
+        let file = |module: &str| {
+            let base = src.join(module.replace('.', "/"));
+            ["plenty", "plentyi"]
+                .iter()
+                .find_map(|e| base.with_extension(e).canonicalize().ok())
+        };
+        let mut out = vec![];
+        let arms = arm_imports(text)?;
+        for (import, arm) in imports(text)?
+            .iter()
+            .map(|i| (i, false))
+            .chain(arms.iter().map(|i| (i, true)))
+        {
+            let modules: Vec<String> = match &import.from {
+                Some(module) => std::iter::once(module.clone())
+                    .chain(import.items.iter().map(|i| format!("{module}.{}", i.0)))
+                    .collect(),
+                None => import.items.iter().map(|i| i.0.clone()).collect(),
+            };
+            out.extend(modules.iter().filter_map(|m| file(m)).map(|f| (f, arm)));
+        }
+        Ok(out)
+    }
+
+    /// Each workspace member's `src/` directory.
+    fn sources_dirs(&self) -> Vec<PathBuf> {
+        self.project
+            .members
+            .iter()
+            .filter_map(|&m| {
+                self.project.packages[m]
+                    .directory
+                    .join("src")
+                    .canonicalize()
+                    .ok()
+            })
+            .collect()
+    }
+
+    /// Refuse when an import the move adds closes a circular import through
+    /// an import in an `if const` block. The check after the move sees only
+    /// the selected arms, so it catches every other cycle.
+    fn arm_cycle(
+        &self,
+        name: &str,
+        after: &HashMap<PathBuf, String>,
+        edited: &BTreeSet<PathBuf>,
+    ) -> Result<(), String> {
+        let mut graph: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
+        let mut any_arm = false;
+        for (path, _) in &self.files {
+            let text = match after.get(path) {
+                Some(text) => text.clone(),
+                None => self.text(path)?,
+            };
+            let edges = self.module_imports(path, &text)?;
+            any_arm |= edges.iter().any(|e| e.1);
+            graph.insert(path.clone(), edges.into_iter().map(|e| e.0).collect());
+        }
+        if !any_arm {
+            return Ok(());
+        }
+        let module = |path: &Path| {
+            self.sources_dirs()
+                .iter()
+                .find_map(|src| module_path(src, path))
+                .unwrap_or_else(|| self.relative(path))
+        };
+        for from in edited {
+            let before: HashSet<PathBuf> = self
+                .module_imports(from, &self.text(from)?)?
+                .into_iter()
+                .map(|e| e.0)
+                .collect();
+            for to in graph.get(from).into_iter().flatten() {
+                if before.contains(to) {
+                    continue;
+                }
+                // A path back from `to` to `from`, breadth first.
+                let mut previous: HashMap<&Path, &Path> = HashMap::default();
+                let mut queue = std::collections::VecDeque::from([to.as_path()]);
+                while let Some(at) = queue.pop_front() {
+                    if at == from.as_path() {
+                        let mut cycle = vec![module(from)];
+                        let mut step = at;
+                        let mut back = vec![];
+                        while step != to.as_path() {
+                            step = previous[step];
+                            back.push(module(step));
+                        }
+                        back.reverse();
+                        cycle.extend(back);
+                        cycle.push(module(from));
+                        return Err(format!(
+                            "after moving `{name}`, an import in an `if const` block would close a circular import: {}",
+                            cycle.join(" -> ")
+                        ));
+                    }
+                    for next in graph.get(at).into_iter().flatten() {
+                        if next.as_path() != to.as_path() && !previous.contains_key(next.as_path())
+                        {
+                            previous.insert(next, at);
+                            queue.push_back(next);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     /// The destination's import path, after a dependency or test prefix
@@ -1056,6 +1198,7 @@ impl<'a> Planner<'a> {
             .analyze(&overlay, Some((reach_before, &edited)))
             .map_err(|e| format!("after moving `{name}`, the package would not check: {e}"))?;
         work.check_identities(&files, &overlay, &uses_after)?;
+        self.arm_cycle(&name, &overlay, &edited)?;
         // A module left without declarations may stop being imported; any
         // other file must stay checked.
         let empty = |path: &Path| {
