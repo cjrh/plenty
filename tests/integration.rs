@@ -246,6 +246,8 @@ mod test_flat_payloads;
 mod test_float_constants;
 #[path = "test_float_left_constants.rs"]
 mod test_float_left_constants;
+#[path = "test_float_loads.rs"]
+mod test_float_loads;
 #[path = "test_float_negation.rs"]
 mod test_float_negation;
 #[path = "test_float_rounding.rs"]

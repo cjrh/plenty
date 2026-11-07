@@ -87,8 +87,9 @@ length and index values as a check earlier in the block, or in the chain of
 check and trap-guard blocks leading to it, reuses that check's address, since
 it cannot fail if the first passed (issue #721). It then
 loads or stores the declared bytes. Reads preserve payload bits before
-narrowing or bitcasting, and writes store the same bits a write through an
-element reference would. An index out of bounds calls
+narrowing; an `f32` or `f64` element, or a quantity over one, loads as that
+float type, so x86-64 needs no move from an integer register (issue #812).
+Writes store the same bits a write through an element reference would. An index out of bounds calls
 `plenty_trap_list_index`, which reports the index as written, the length and
 the site, as the generic path does. The failure block stores the index and
 length to the function's scratch slot and passes its address: as register

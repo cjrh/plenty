@@ -57,18 +57,38 @@ impl Lowerer<'_, '_> {
         }
     }
 
-    pub(super) fn scalar_reference_word(&mut self, reference: NativeValue, ty: &Ty) -> NativeValue {
-        let (address, _) = self.reference_parts(reference);
-        self.scalar_word(address, ty)
+    /// The scalar `value` stored at `address` as `storage`, its newtype base
+    /// (`Ty::newtype_base`), already unpacked. A value whose native type is
+    /// floating loads as that type, not as an integer word and a bitcast, so
+    /// x86-64 needs no move from an integer register (issue #812). A newtype
+    /// class over a float is native integer bits and keeps the integer load.
+    pub(super) fn scalar_value(
+        &mut self,
+        address: NativeValue,
+        storage: &Ty,
+        value: &Ty,
+    ) -> NativeValue {
+        let native = clif_type(value.clone());
+        if native.is_float() && native == clif_type(storage.clone()) {
+            return self
+                .bcx
+                .ins()
+                .load(native, MemFlagsData::trusted(), address, 0);
+        }
+        let word = self.scalar_word(address, storage);
+        self.unpack(word, value)
     }
 
-    /// Read a value of type `ty` through `reference`, packed. A class with a
+    /// Read a value of type `ty` through `reference`, packed (a scalar is
+    /// returned unpacked, which `unpack` accepts as is). A class with a
     /// record may be a flat field with no value word, so its value is the
     /// address of the record that follows the (possibly virtual) slot.
     pub(super) fn read_typed_reference(&mut self, reference: NativeValue, ty: &Ty) -> NativeValue {
         let base = ty.newtype_base();
         if base.is_numeric() || *base == Ty::Bool {
-            return self.scalar_reference_word(reference, &base);
+            // Unpacked already; the caller's `unpack` leaves it unchanged.
+            let (address, _) = self.reference_parts(reference);
+            return self.scalar_value(address, &base, ty);
         }
         if ty.flat_field() {
             let (address, _) = self.reference_parts(reference);
