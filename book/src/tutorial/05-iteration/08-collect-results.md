@@ -4,10 +4,10 @@ Return a comprehension's `Result` directly when the caller should handle
 allocation failure:
 
 ```plenty
-def squares() -> Result[list[i64], AllocError | ZeroDivisionError | OverflowError[i64]]:
+def squares() -> Result[list[i64], AllocError | OverflowError[i64]]:
     [n * n for n in range(6) if n % 2 == 0]
 
-def main() -> Result[(), AllocError | IoError | AllocError | OverflowError[i64] | ZeroDivisionError]:
+def main() -> Result[(), AllocError | IoError | AllocError | OverflowError[i64]]:
     print(squares()?)?
     Ok(())
 ```

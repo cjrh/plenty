@@ -38,7 +38,7 @@ use `?`, `match`, or `drop(result)`. See [entrypoint](../language/02-source/entr
 ```plenty
 import std.math as math
 
-def main() -> Result[(), IoError | ParseError | OverflowError[i64] | ZeroDivisionError]:
+def main() -> Result[(), IoError | ParseError | OverflowError[i64]]:
     mut count = 0
     count += 1
     small = 7u8
@@ -66,8 +66,9 @@ def main() -> Result[(), IoError | ParseError | OverflowError[i64] | ZeroDivisio
   range), `T.try_from(n)`, or `T.wrapping_from(n)`. `T.parse(text)` returns
   `Result[T, ParseError]`.
 - `//` floors and `%` is integer-only. Integer arithmetic returns errors from
-  the function: include `OverflowError[T]` and, for plain divisors,
-  `ZeroDivisionError` in its `Result` signature. Still write `Ok(...)` on
+  the function: include `OverflowError[T]` and, for divisors other than
+  nonzero literals, `ZeroDivisionError` in its `Result` signature. `x // 2`
+  cannot fail at all. Still write `Ok(...)` on
   success; operators themselves return ordinary numbers. No `**`: use `x.pow(n)`.
 - `abs`, `min`, `max`, `sum` come from [`std.math`](../stdlib/math.md).
 
@@ -158,7 +159,7 @@ operations than `str`; see the [Text argument table](../facilities/01-builtins/t
 ## Collections
 
 ```plenty
-def main() -> Result[(), AllocError | IoError | OverflowError[i64] | ZeroDivisionError]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut items = [3, 1, 2]?
     items.append(4)?
     items.sort()
@@ -256,7 +257,7 @@ def classify(n: i64) -> str:
         case _:
             "many"
 
-def main() -> Result[(), IoError | OverflowError[i64] | ZeroDivisionError]:
+def main() -> Result[(), IoError | OverflowError[i64]]:
     for i in range(0, 10, 4):
         print(i, classify(i))?
     mut n = 4

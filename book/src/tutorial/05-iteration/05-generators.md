@@ -45,7 +45,7 @@ def numbers(limit: i64) -> Generator[i64]:
     for n in range(limit):
         yield n
 
-def main() -> Result[(), AllocError | IoError | ZeroDivisionError | OverflowError[i64]]:
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     print([n * n for n in numbers(6) if n % 2 == 1]?)?
     print(list(numbers(3))?)?
     Ok(())

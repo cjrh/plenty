@@ -10,9 +10,20 @@ own current contracts; extensions of a mixed B item stay in the backlog.
 A join, pool shutdown, or result wait is no longer rejected for a live opposite
 endpoint when the worker or job cannot wait for anything: its code, including
 helpers, destructors, and workers it starts, makes no blocking or timed wait on
-any queue, lock, future, or pool. Calls through values still count as waits. [Which workers can
-wait](../design/facilities/03-concurrency/channels.md#which-workers-can-wait)
+any queue, lock, future, or pool. Calls through values still count as waits.
+[Which workers can wait](../design/facilities/03-concurrency/channels.md#which-workers-can-wait)
 documents the rule.
+
+## Native qualification build reuse (issue #850)
+
+[Native OS qualification](../development/ci-workflow.md#native-os-qualification)
+now builds the compiler and dataframe engine concurrently, with separate
+stable-qualification, pinned-release compiler and isolated engine dependency
+caches. A dependent native job packages and audits the same-run products and
+runs the existing smoke checks. Local release builds keep their complete
+default behavior; explicit prepare/package phases support the CI split.
+Release baselines and custom-runtime-flag cache safeguards are preserved.
+Hosted cold/warm savings remain to be measured.
 
 ## Source roots are real directories (issue #840)
 
@@ -997,3 +1008,12 @@ checks. Package output uses `target/optimized/` and `target/fast-compile/`;
 explicit two-profile regression tests accompany the change. Integration with
 call-site inlining preserves caller handling of C string conversion errors
 (issue #724) and shared cleanup for tail calls with managed locals (issue #725).
+
+## Literal divisors (issue #796)
+
+A `//` or `%` divisor written as an integer literal now removes the arithmetic
+errors it rules out: a nonzero literal adds no `ZeroDivisionError`, and a
+literal other than `-1` adds no signed `OverflowError[T]`, so `x // 2` needs
+no error contract. Constants, variables and guards still prove nothing; typed
+`NonZero[T]` and `Positive[T]` divisors carry other proofs. See
+[checked blocks](../design/language/03-types/numbers.md#checked-blocks).

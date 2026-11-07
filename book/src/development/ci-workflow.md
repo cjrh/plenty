@@ -64,6 +64,38 @@ links with `/usr/libexec/mold/ld` (`scripts/ci_check_mold.sh`); see
 `.github/workflows/nightly.yml`, runs the full all-features suite with
 `cargo test` on nightly Rust, also on demand through `workflow_dispatch`.
 
+### Native OS qualification
+
+The experimental macOS ARM64 and Windows x86-64 checks in
+`.github/workflows/portability.yml` build the compiler and dataframe engine
+concurrently. Compiler jobs retain stable-Rust boundary checks, build and unit
+tests, Darwin stack-probe integration tests, and the pinned-release compiler
+build and unit tests. Engine jobs use the pinned release Rust and run the
+baseline engine build, formatting check, tests and clippy.
+
+A dependent packaging job on each native OS downloads both products from the
+same workflow run. Tar artifacts retain executable modes and macOS signatures;
+packaging still audits the executable and engine baselines, installs notices,
+and runs the complete archive smoke checks, including relocation. Packaging
+requires both build matrices to succeed. No new OS is admitted by these checks.
+
+Stable qualification dependencies live in `target/qualification/`, pinned
+release compiler dependencies in `target/native-release/`, and engine
+dependencies in `plenty-dataframe/target/`. Separate cache actions keep cleanup
+from removing another workspace's dependencies. Keys distinguish each role,
+target and Rust/compiler environment; release target policy and engine build
+policy also participate. Only successful `main` jobs save caches; PRs restore
+them. Workspace code still rebuilds. The release CPU/runtime flags and macOS
+deployment minimum remain unchanged, and custom `PLENTY_RUNTIME_RUSTFLAGS`
+still bypass embedded-runtime vendor/archive reuse.
+
+Before this split, successful runs 42350500941 and 42344839963 took 31–41
+minutes on Windows and 29–34 minutes on macOS. In the first run, engine
+compilation alone took 13m31s and 10m50s respectively. Cold runs now overlap
+that work with compiler qualification; warm runs can reuse third-party Rust
+dependencies. Hosted cache transfer, hit rates and resulting elapsed savings
+must still be measured; the first run for each key remains cold.
+
 ### Dependency cache
 
 Third-party Rust dependencies are cached separately for each job. The key

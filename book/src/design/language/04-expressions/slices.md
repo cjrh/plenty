@@ -55,7 +55,7 @@ written or computed. A nonzero integer literal converts implicitly, and a litera
 reports a zero step as `RangeError`:
 
 ```plenty
-def main() -> Result[(), AllocError | IoError | RangeError | OverflowError[i64] | ZeroDivisionError]:
+def main() -> Result[(), AllocError | IoError | RangeError]:
     xs = [0, 1, 2, 3, 4, 5]?
     step = NonZero.try_from(len(xs) // 2)?
     print(xs[::step]?)?

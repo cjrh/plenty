@@ -243,8 +243,8 @@ operators can produce:
 | Operation inside the block | Error |
 | --- | --- |
 | `+`, `-`, `*`, unary `-` and `pow` on `T` | `OverflowError[T]` |
-| `//` on a signed `T` with a `T` or `NonZero[T]` divisor (`T.MIN // -1`) | `OverflowError[T]` |
-| `//` and `%` with a plain integer divisor that may be zero | `ZeroDivisionError` |
+| `//` on a signed `T` with a `T` or `NonZero[T]` divisor (`T.MIN // -1`), unless the divisor is a literal other than `-1` | `OverflowError[T]` |
+| `//` and `%` with a plain integer divisor, unless the divisor is a nonzero literal | `ZeroDivisionError` |
 
 `OverflowError[T]` has one field, `wrapped: T`, the exact result modulo
 2<sup>N</sup> for an N-bit `T`. `ZeroDivisionError` has no fields. Both are
@@ -266,16 +266,28 @@ def halve_sum(a: i64, b: i64) -> i64:
         case Ok(half):
             half
         case Err(OverflowError(wrapped)):
-            # A positive divisor rules out zero and MIN // -1.
-            two: Positive[i64] = 2
-            wrapped // two
-        case Err(ZeroDivisionError()):
-            0
+            # The exact sum is wrapped ± 2**64, so its half differs from
+            # wrapped // 2 by 2**63: flip the sign bit.
+            (wrapped // 2) ^ i64.MIN
 ```
 
-The error type follows the operators, not their operand values. `n // 4`
-inside a block still adds `ZeroDivisionError` and `OverflowError[i64]`; the
-code generator omits the branches a constant divisor rules out. A declared
+The error type follows the operators and operand types, not their values,
+with one exception: a divisor written as an integer literal, such as `4`,
+`-3` or `(4u8)`, removes the failures it rules out. A nonzero literal cannot
+divide by zero, and a literal other than `-1` cannot overflow, so `n // 4`
+and `n % -3` add no error, `n // -1` adds only `OverflowError[T]` for a signed
+`T`, and `n // 0` still adds `ZeroDivisionError`. The rule applies to the
+divisor's spelling only. A module constant, a variable assigned from a literal,
+a guard such as `if d != 0:` and arithmetic such as `1 + 1` prove nothing; use
+a [`NonZero[T]`](#nonzero-integers) or [`Positive[T]`](#positive-and-non-negative-integers)
+divisor to carry a proof checked elsewhere. Guards do not narrow other
+operations either: `-x` adds `OverflowError[T]` even inside
+`if x != T.MIN:`. Handle that error, or use
+[`unchecked:`](#unchecked-blocks) where the guard makes the failure
+impossible. Because `// 2` above cannot divide by zero, `result` is a
+`Result[i64, OverflowError[i64]]` and the match needs no
+`ZeroDivisionError` arm. A block whose only failing
+operation was such a division is a block with no arithmetic that can fail. A declared
 `Result` whose error includes every possible failure is kept, so a block can
 be the body of a function that returns `Result[i64, OverflowError[i64] |
 ParseError]`.
