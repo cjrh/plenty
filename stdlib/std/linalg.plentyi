@@ -1,13 +1,23 @@
 # Dense, column-major f64 storage belongs to Plenty. Native calls only borrow it.
+# Every kernel is @thread_safe: it keeps no state between calls except a
+# mutex-guarded workspace pool, runs sequentially, and catches panics.
 import std.math as math
 
+@thread_safe
 extern def multiply_raw(m: i64, n: i64, k: i64, a: &list[f64] as strided, b: &list[f64] as strided, out: &mut list[f64] as strided) -> i64 = "plla_v1_multiply"
+@thread_safe
 extern def lu_raw(m: i64, n: i64, a: &mut list[f64] as strided, perm: &mut list[i64] as strided) -> i64 = "plla_v1_lu"
+@thread_safe
 extern def solve_raw(n: i64, k: i64, a: &list[f64] as strided, perm: &list[i64] as strided, rhs: &mut list[f64] as strided) -> i64 = "plla_v1_solve"
+@thread_safe
 extern def qr_raw(m: i64, n: i64, a: &mut list[f64] as strided, q: &mut list[f64] as strided) -> i64 = "plla_v1_qr"
+@thread_safe
 extern def cholesky_raw(n: i64, a: &mut list[f64] as strided) -> i64 = "plla_v1_cholesky"
+@thread_safe
 extern def svd_raw(m: i64, n: i64, a: &list[f64] as strided, s: &mut list[f64] as strided, u: &mut list[f64] as strided, v: &mut list[f64] as strided) -> i64 = "plla_v1_svd"
+@thread_safe
 extern def eigh_raw(n: i64, a: &list[f64] as strided, values: &mut list[f64] as strided, vectors: &mut list[f64] as strided) -> i64 = "plla_v1_eigh"
+@thread_safe
 extern def eig_raw(n: i64, a: &list[f64] as strided, real: &mut list[f64] as strided, imag: &mut list[f64] as strided, vectors_real: &mut list[f64] as strided, vectors_imag: &mut list[f64] as strided) -> i64 = "plla_v1_eig"
 
 pub enum LinalgError:

@@ -1,6 +1,6 @@
 //! Declaration annotations: compiler-known facts written alone on the lines
-//! above a declaration, such as `@copy`, `@newtype`, `@redacted` or
-//! `@thread_safe`. The set
+//! above a declaration, such as `@copy`, `@newtype`, `@redacted`,
+//! `@thread_safe`, `@thread_movable` or `@thread_shareable`. The set
 //! is closed; there are no user decorators. Names live after `@`, outside the
 //! value namespace, so `@copy` does not reserve the builtin `copy` function's
 //! name. See
@@ -18,6 +18,8 @@ pub(super) enum Annotation {
     Newtype,
     Redacted,
     ThreadSafe,
+    ThreadMovable,
+    ThreadShareable,
 }
 
 impl Annotation {
@@ -27,6 +29,8 @@ impl Annotation {
             "newtype" => Some(Self::Newtype),
             "redacted" => Some(Self::Redacted),
             "thread_safe" => Some(Self::ThreadSafe),
+            "thread_movable" => Some(Self::ThreadMovable),
+            "thread_shareable" => Some(Self::ThreadShareable),
             _ => None,
         }
     }
@@ -36,6 +40,8 @@ impl Annotation {
             Self::Newtype => "newtype",
             Self::Redacted => "redacted",
             Self::ThreadSafe => "thread_safe",
+            Self::ThreadMovable => "thread_movable",
+            Self::ThreadShareable => "thread_shareable",
         }
     }
     /// The declarations this annotation applies to, for diagnostics.
@@ -44,6 +50,7 @@ impl Annotation {
             Self::Redacted => "class and enum declarations",
             Self::Copy | Self::Newtype => "class declarations",
             Self::ThreadSafe => "`extern def` declarations",
+            Self::ThreadMovable | Self::ThreadShareable => "`opaque` declarations",
         }
     }
 }
@@ -61,7 +68,7 @@ impl Parser {
             };
             let Some(annotation) = Annotation::named(spelling) else {
                 return Err(name.error(format!(
-                    "unknown annotation `@{spelling}`; the annotations are `@copy`, `@newtype`, `@redacted` and `@thread_safe`"
+                    "unknown annotation `@{spelling}`; the annotations are `@copy`, `@newtype`, `@redacted`, `@thread_safe`, `@thread_movable` and `@thread_shareable`"
                 )));
             };
             if self.peek().kind != Kind::Newline {

@@ -5,6 +5,13 @@
 //! call-scoped and never retained. Output slots start null and change only on
 //! success. Mutable views allow scalar writes only, not resizing or retention.
 //! Polars/Rust allocation failure may abort; errors do not promise recoverable OOM.
+//!
+//! Every export may run on any thread, concurrently with any other: there is
+//! no mutable global state here, owners are `Send + Sync` (asserted by
+//! `destroy!`), calls through `*const` only read, and the `*mut` owner calls
+//! (`frame_add`, `exprs_add`, `sort_keys_add`, `csv_schema_add`) receive an
+//! owner the facade has just created and not shared. Polars runs work on its
+//! global rayon pool, which accepts jobs from any external thread.
 use polars::prelude::*;
 use std::{fs::File, panic::AssertUnwindSafe, ptr};
 
@@ -120,8 +127,15 @@ macro_rules! export {
         }
     };
 }
+// Every owner type has exactly one release function, so asserting here covers
+// all handles. Plenty may move an owner to a worker and lend it to several
+// workers at once (std.dataframe declares every call @thread_safe).
 macro_rules! destroy {
     ($name:ident, $ty:ty) => {
+        const _: () = {
+            const fn send_and_sync<T: Send + Sync>() {}
+            send_and_sync::<$ty>();
+        };
         /// # Safety
         /// Pass null or the unique matching live owner, exactly once.
         #[unsafe(no_mangle)]

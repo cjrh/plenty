@@ -508,7 +508,7 @@ fn step(
         Op::PushBytes(_) => stack.push(Ty::ByteStr),
         Op::PushBool(_) => stack.push(Ty::Bool),
         Op::ForeignNull(ty) => {
-            if !matches!(ty, Ty::ForeignPtr(_)) {
+            if !matches!(ty, Ty::ForeignPtr(..)) {
                 return Err("foreign null requires an opaque pointer".into());
             }
             stack.push(ty.clone());

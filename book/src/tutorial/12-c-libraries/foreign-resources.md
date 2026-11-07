@@ -71,3 +71,74 @@ The destructor discards close errors. Offer an explicit fallible `close` method
 when callers need to handle them.
 Native ownership transfer needs its own wrapper: clear the field when C consumes
 the handle, and retain or return the owner when C leaves ownership with the caller.
+
+## Move the owner to a worker
+
+Worker code can hold an opaque pointer only if its declaration states a thread
+contract. `@thread_movable` promises that one thread at a time may use and
+release the pointee, whichever thread that is. POSIX makes each stdio call
+safe from any thread, so a temporary file qualifies. Every C function that
+takes or returns a marked type must then be `@thread_safe`:
+
+```plenty-file c_worker_scratch.plentyi
+@thread_movable
+opaque RawFile
+@thread_safe
+extern def create_raw() -> RawFile = "tmpfile"
+@thread_safe
+extern def close_raw(file: RawFile) -> i32 = "fclose"
+@thread_safe
+extern def position_raw(file: RawFile) -> i64 = "ftell"
+@thread_safe
+extern def write_raw(text: &str as utf8, count: u64, file: RawFile) -> u64 = "fwrite"
+
+pub class Scratch:
+    raw: RawFile
+    def __init__(self) -> ():
+        self.raw = RawFile.null()
+    def __del__(self) -> ():
+        if not self.raw.is_null():
+            drop(close_raw(self.raw))
+    pub def write(self: &mut Scratch, text: &str) -> i64:
+        if len(text) > 0 and write_raw(text, 1u64, self.raw) != 1u64:
+            return -1
+        position_raw(self.raw)
+
+pub def create() -> Option[Scratch]:
+    mut owner = Scratch()
+    owner.raw = create_raw()
+    if owner.raw.is_null():
+        return Nothing
+    Some(owner)
+```
+
+```plenty
+import c_worker_scratch
+from c_worker_scratch import Scratch
+
+# The worker owns the file, so its destructor closes it on that thread.
+def fill(file: Scratch) -> i64:
+    mut owned = file
+    owned.write("worker")
+
+def main() -> Result[(), IoError | SpawnError[()]]:
+    match c_worker_scratch.create():
+        case Some(file):
+            with spawn(fill, file).drop_job()? as task:
+                print(task.join())?
+        case Nothing:
+            print("no temporary file")?
+    Ok(())
+```
+
+```output
+6
+```
+
+A movable pointer crosses only inside an owner like `Scratch`: a class that is
+not `@copy` and holds the only copy. Passing the bare `RawFile`, borrowing the
+owner or putting it in `Shared` is rejected, because a copy left behind would
+let two threads use one stream. Mark a type `@thread_shareable` only when any
+number of threads may use one pointee at once. See
+[opaque types on worker threads](../../design/facilities/04-interop/trusted-declarations.md#opaque-types-on-worker-threads)
+for the rules and when a binding may promise each contract.

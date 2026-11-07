@@ -165,5 +165,5 @@ cargo test --locked --test integration test_tutorial::dataframe_examples_with_op
 Regular tutorial checks type-check dataframe examples without the engine.
 The separate dataframe CI job builds it and executes those examples and
 the real-engine integration tests. These tests cover bulk transfer, query
-plans, nulls, errors and Parquet, as well as absence of the dynamic dependency
+plans, nulls, errors, Parquet and worker threads, as well as absence of the dynamic dependency
 from programs that do not use it.
