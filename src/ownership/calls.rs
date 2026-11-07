@@ -278,14 +278,39 @@ impl<'p> Program<'p> {
     /// compiled elsewhere, are not seen.
     pub(super) fn submissions(&self, callee: Option<&str>, results: &[Ty]) -> Vec<Hazard> {
         let mut hazards = Vec::new();
+        for (result, hazard) in self.reached_jobs(callee).iter() {
+            if results.contains(result) && !hazards.contains(hazard) {
+                hazards.push(hazard.clone());
+            }
+        }
+        hazards
+    }
+
+    /// What every job that a call to `callee` can submit, directly or
+    /// through further calls, can block on, whatever its result type: a
+    /// pool handed to the call can still hold such a job when the caller
+    /// shuts it down (issue #855). Jobs are not matched to pools, so a job
+    /// the callee submits to a pool of its own counts too. As for
+    /// `submissions`, jobs behind a call to a value are not seen.
+    pub(super) fn pool_submissions(&self, callee: Option<&str>) -> Vec<Hazard> {
+        let mut hazards = Vec::new();
+        for (_, hazard) in self.reached_jobs(callee).iter() {
+            if !hazards.contains(hazard) {
+                hazards.push(hazard.clone());
+            }
+        }
+        hazards
+    }
+
+    fn reached_jobs(&self, callee: Option<&str>) -> Arc<[Job<'p>]> {
         let Some(callee) = callee else {
-            return hazards;
+            return Arc::default();
         };
         let Some((&name, _)) = self.table().get_key_value(callee) else {
-            return hazards;
+            return Arc::default();
         };
         let cached = self.jobs.lock().unwrap().get(name).cloned();
-        let jobs = cached.unwrap_or_else(|| {
+        cached.unwrap_or_else(|| {
             let mut jobs = Vec::new();
             self.reach(name, |body| {
                 for job in body.map_or(&[][..], |body| &body.jobs) {
@@ -298,13 +323,7 @@ impl<'p> Program<'p> {
             let jobs: Arc<[_]> = jobs.into();
             self.jobs.lock().unwrap().insert(name, jobs.clone());
             jobs
-        });
-        for (result, hazard) in jobs.iter() {
-            if results.contains(result) && !hazards.contains(hazard) {
-                hazards.push(hazard.clone());
-            }
-        }
-        hazards
+        })
     }
 }
 

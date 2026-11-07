@@ -105,6 +105,16 @@ fn arithmetic_program(source: &str) -> String {
     "new text\n"
 )]
 #[case("mut x = 1\nr = (&mut x)\n*r = *(&r)\nprint(*r).unwrap()", "1\n")]
+// `while True:` leaves only through `break`, so a binding assigned before
+// every `break` is owned after the loop (issue #857).
+#[case(
+    "mut held = [1].unwrap()\ndrop(held)\nwhile True:\n    held = [2].unwrap()\n    break\nprint(held).unwrap()",
+    "[2]\n"
+)]
+#[case(
+    "mut held = [1].unwrap()\ndrop(held)\nmut n = 0\nwhile True:\n    n = n + 1\n    if n < 3:\n        continue\n    held = [n].unwrap()\n    break\nprint(held).unwrap()",
+    "[3]\n"
+)]
 fn native(#[case] source: &str, #[case] expected: &str) {
     let temp = tempfile::tempdir().unwrap();
     let executable = temp.path().join("program");
@@ -191,6 +201,16 @@ fn native(#[case] source: &str, #[case] expected: &str) {
     "`s` is moved in a loop"
 )]
 #[case("n = 1\nwhile n > 0:\n    drop(n)", "`n` is moved in a loop")]
+// Without a literal `True`, the condition's exit skips the assignment; with
+// one, a `break` before the assignment still does (issue #857).
+#[case(
+    "mut held = [1].unwrap()\ndrop(held)\nwhile len(held) > 0:\n    held = [2].unwrap()\n    break\nprint(held).unwrap()",
+    "moved"
+)]
+#[case(
+    "mut held = [1].unwrap()\ndrop(held)\nmut n = 0\nwhile True:\n    if n > 2:\n        break\n    held = [n].unwrap()\n    break\nprint(held).unwrap()",
+    "possibly moved binding `held`"
+)]
 #[case("s = ('a' + 'b').unwrap()\ndrop((s))\nprint(s).unwrap()", "moved")]
 fn diagnostics(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_source(source).unwrap_err().to_string();

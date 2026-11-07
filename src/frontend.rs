@@ -2761,8 +2761,10 @@ impl Lower<'_> {
     }
     /// Name the future and pool slots that a call's arguments, `ops[start..]`,
     /// move or borrow, for a callee taking one of `inputs` (issue #349). A
-    /// future or pool inside an aggregate is not named. The
-    /// checker applies the waits and shutdowns the callee can reach to them.
+    /// future inside an aggregate is not named; an aggregate owning a pool is
+    /// named only when the callee takes a pool (issue #855). The checker
+    /// applies the waits, shutdowns and submissions the callee can reach to
+    /// them.
     /// Goes before the call and its lifetime fact.
     pub(super) fn passes(
         &self,
@@ -2772,8 +2774,9 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) {
         self.forwards(start, inputs, output, ops);
-        // Only a direct future or pool: inspecting aggregates at every call
-        // made checking a long function quadratic in its type sizes.
+        // A direct future or pool: inspecting aggregates at every call made
+        // checking a long function quadratic in its type sizes, so they are
+        // searched below only for a callee that takes a pool.
         fn handed(ty: &Ty) -> bool {
             match ty {
                 Ty::Future(_) | Ty::Executor => true,
@@ -2811,7 +2814,21 @@ impl Lower<'_> {
         }
         let mut handed_slots = Vec::new();
         slots(&ops[start..], &mut handed_slots);
-        handed_slots.retain(|&slot| self.slot_type(slot).is_some_and(|(ty, _)| handed(ty)));
+        // A pool argument may be borrowed from a field, as in `&holder.pool`;
+        // the holder then shuts the pool down (issue #855). Calls handed a
+        // pool are rare, so searching an aggregate here stays cheap.
+        fn pool(ty: &Ty) -> bool {
+            match ty {
+                Ty::Executor => true,
+                Ty::Ref(inner, _) => pool(inner),
+                _ => false,
+            }
+        }
+        let pools = inputs.iter().any(|(_, ty)| pool(ty));
+        handed_slots.retain(|&slot| {
+            self.slot_type(slot)
+                .is_some_and(|(ty, _)| handed(ty) || pools && crate::threading::owns_executor(ty))
+        });
         if !handed_slots.is_empty() {
             ops.push(Op::Passes(handed_slots.into()));
         }

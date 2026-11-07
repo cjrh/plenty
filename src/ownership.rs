@@ -871,6 +871,12 @@ fn in_body(ops: &[Op], visit: &mut impl FnMut(&Op)) {
     }
 }
 
+/// A loop condition that is the literal `True`, which never exits the loop.
+fn always_true(condition: &[Op]) -> bool {
+    let mut ops = condition.iter().filter(|op| !matches!(op, Op::Site(_)));
+    matches!((ops.next(), ops.next()), (Some(Op::PushBool(true)), None))
+}
+
 /// A value is owned after a join only if every continuing path owns it. One
 /// moving path is kept as the move to report.
 fn merge(states: &[State], into: &mut State) {
@@ -1807,9 +1813,10 @@ impl Checker<'_, '_> {
 
     /// A call handed the futures and pools in `slots` can wait for those
     /// futures' results and shut those pools down, directly or through
-    /// further calls, while this frame keeps its endpoints and locks. Jobs a
-    /// callee submits itself are not seen here. `callee` is `None` for a call
-    /// through a value.
+    /// further calls, while this frame keeps its endpoints and locks. A call
+    /// handed a pool can also leave jobs it submits in that pool, so they
+    /// count as submitted here from the call on (issue #855). `callee` is
+    /// `None` for a call through a value, whose jobs are not seen.
     fn call_waits(
         &self,
         callee: Option<&str>,
@@ -1825,6 +1832,16 @@ impl Checker<'_, '_> {
                 .filter(|name| !name.starts_with("__plenty_"))
                 .map(str::to_owned)
         };
+        // Every slot other than a future holds a pool. Its jobs count before
+        // the shutdown checks: a pool moved into the call can shut down only
+        // inside it, after the callee's submissions.
+        if slots
+            .iter()
+            .any(|&slot| !matches!(self.locals[slot as usize], Ty::Future(_)))
+        {
+            let jobs = self.program.pool_submissions(callee);
+            self.submit(jobs.into_iter().map(|hazard| (hazard, site)));
+        }
         for &slot in slots {
             let result = match &self.locals[slot as usize] {
                 Ty::Future(result) => {
@@ -2176,6 +2193,8 @@ impl Checker<'_, '_> {
                     merge(&continuing, state);
                 }
                 Op::Loop { condition, body } => {
+                    // `while True:` leaves only through `break` (issue #857).
+                    let forever = always_true(condition);
                     let mut entry = state.clone();
                     let mut exits = Vec::new();
                     let submitted = self.submitted.borrow().len();
@@ -2197,7 +2216,11 @@ impl Checker<'_, '_> {
                         self.sequence(condition, &mut pass, &mut Vec::new(), site)?;
                         loops.push(Loop {
                             entry: entry.clone(),
-                            breaks: vec![pass.clone()],
+                            breaks: if forever {
+                                Vec::new()
+                            } else {
+                                vec![pass.clone()]
+                            },
                             backedges: Vec::new(),
                         });
                         if self.sequence(body, &mut pass, loops, site)? {
@@ -2236,9 +2259,11 @@ impl Checker<'_, '_> {
                                 merge(&[exit.clone(), later], &mut joined);
                                 *exit = joined;
                             }
-                            let mut zero = next.clone();
-                            self.sequence(condition, &mut zero, &mut Vec::new(), site)?;
-                            exits.push(zero);
+                            if !forever {
+                                let mut zero = next.clone();
+                                self.sequence(condition, &mut zero, &mut Vec::new(), site)?;
+                                exits.push(zero);
+                            }
                             break next;
                         }
                         entry = next;
@@ -2256,6 +2281,9 @@ impl Checker<'_, '_> {
                         let again = self.sequence(body, &mut again, loops, site);
                         loops.pop();
                         again?;
+                    }
+                    if exits.is_empty() {
+                        return Ok(false);
                     }
                     merge(&exits, state);
                 }
