@@ -496,6 +496,20 @@ struct Source {
     imports: Result<Vec<Import>, String>,
 }
 
+/// The files each analysis read: each entry's, then each unreached file's.
+#[derive(Default)]
+struct Reach {
+    entries: Vec<BTreeSet<PathBuf>>,
+    files: BTreeMap<PathBuf, BTreeSet<PathBuf>>,
+}
+
+impl Reach {
+    /// The files the targets and tests reach.
+    fn reached(&self) -> BTreeSet<PathBuf> {
+        self.entries.iter().flatten().cloned().collect()
+    }
+}
+
 struct Planner<'a> {
     overlay: &'a HashMap<PathBuf, String>,
     project: crate::project::Project,
@@ -509,6 +523,8 @@ struct Planner<'a> {
     /// Every source file, checked as its own entry when no target reaches
     /// it, so code no target imports is still read.
     files: Vec<(PathBuf, crate::project::SourceGraph)>,
+    /// How many analyses the plan has run.
+    analyses: std::cell::Cell<usize>,
 }
 
 fn package_src(path: &Path) -> Option<PathBuf> {
@@ -637,6 +653,7 @@ impl<'a> Planner<'a> {
             destination_module,
             entries,
             files: all_files,
+            analyses: std::cell::Cell::new(0),
         })
     }
 
@@ -648,27 +665,41 @@ impl<'a> Planner<'a> {
     }
 
     /// Analyze the targets and then each file they do not reach, with
-    /// `overlay`; the references found and the files the targets reach.
-    /// Each file is read by as few analyses as its imports allow.
+    /// `overlay`; the references found and what each analysis read. Each
+    /// file is read by as few analyses as its imports allow. With
+    /// `previous`, an analysis that read none of the `edited` files is not
+    /// repeated: its files, and so its result, are unchanged.
     fn analyze(
         &self,
         overlay: &HashMap<PathBuf, String>,
-    ) -> Result<(Vec<Use>, BTreeSet<PathBuf>), String> {
+        previous: Option<(&Reach, &BTreeSet<PathBuf>)>,
+    ) -> Result<(Vec<Use>, Reach), String> {
         let mut uses: BTreeMap<(PathBuf, u32, u32, u32), Use> = BTreeMap::new();
-        let mut reached = BTreeSet::new();
-        for (root, graph) in &self.entries {
-            let analysis = self.analyze_one(root, graph, overlay, &mut uses)?;
-            reached.extend(analysis);
+        let mut reach = Reach::default();
+        let unchanged = |read: Option<&BTreeSet<PathBuf>>| {
+            let (_, edited) = previous?;
+            read.filter(|read| read.is_disjoint(edited)).cloned()
+        };
+        for (i, (root, graph)) in self.entries.iter().enumerate() {
+            let read = match unchanged(previous.and_then(|(p, _)| p.entries.get(i))) {
+                Some(read) => read,
+                None => self.analyze_one(root, graph, overlay, &mut uses)?,
+            };
+            reach.entries.push(read);
         }
-        let mut seen = reached.clone();
+        let mut seen = reach.reached();
         for (root, graph) in &self.files {
             if seen.contains(root) {
                 continue;
             }
-            let analysis = self.analyze_one(root, graph, overlay, &mut uses)?;
-            seen.extend(analysis);
+            let read = match unchanged(previous.and_then(|(p, _)| p.files.get(root))) {
+                Some(read) => read,
+                None => self.analyze_one(root, graph, overlay, &mut uses)?,
+            };
+            seen.extend(read.iter().cloned());
+            reach.files.insert(root.clone(), read);
         }
-        Ok((uses.into_values().collect(), reached))
+        Ok((uses.into_values().collect(), reach))
     }
 
     /// Analyze one entry, adding its references to `uses`; the files it read.
@@ -678,7 +709,8 @@ impl<'a> Planner<'a> {
         graph: &crate::project::SourceGraph,
         overlay: &HashMap<PathBuf, String>,
         uses: &mut BTreeMap<(PathBuf, u32, u32, u32), Use>,
-    ) -> Result<Vec<PathBuf>, String> {
+    ) -> Result<BTreeSet<PathBuf>, String> {
+        self.analyses.set(self.analyses.get() + 1);
         let analysis: Analysis = analyze(root, Some(graph), overlay.clone());
         if let Some(error) = analysis.diagnostics.first() {
             let at = match &error.file {
@@ -755,8 +787,8 @@ impl<'a> Planner<'a> {
                 self.relative(directory)
             ));
         }
-        let (uses, reached_before) = self
-            .analyze(self.overlay)
+        let (uses, reach_before) = self
+            .analyze(self.overlay, None)
             .map_err(|e| format!("fix this error before moving `{name}`: {e}"))?;
         let target = (
             self.source_path.clone(),
@@ -810,11 +842,11 @@ impl<'a> Planner<'a> {
         work.callers()?;
         work.move_text()?;
         work.import_edits()?;
-        self.finish(work, &reached_before)
+        self.finish(work, &reach_before)
     }
 
     /// Apply the plan's edits to the overlay and check the package again.
-    fn finish(&self, mut work: Work, reached_before: &BTreeSet<PathBuf>) -> Result<Move, String> {
+    fn finish(&self, mut work: Work, reach_before: &Reach) -> Result<Move, String> {
         let name = work.name.clone();
         let mut overlay = self.overlay.clone();
         let mut files = vec![];
@@ -847,8 +879,9 @@ impl<'a> Planner<'a> {
                 edits: merged,
             });
         }
-        let (uses_after, reached_after) = self
-            .analyze(&overlay)
+        let edited: BTreeSet<PathBuf> = files.iter().map(|f| f.path.clone()).collect();
+        let (uses_after, reach_after) = self
+            .analyze(&overlay, Some((reach_before, &edited)))
             .map_err(|e| format!("after moving `{name}`, the package would not check: {e}"))?;
         work.check_identities(&files, &overlay, &uses_after)?;
         // A module left without declarations may stop being imported; any
@@ -858,7 +891,9 @@ impl<'a> Planner<'a> {
                 .get(path)
                 .is_some_and(|text| items(text).is_ok_and(|items| items.iter().all(|i| i.import)))
         };
-        if let Some(lost) = reached_before
+        let reached_after = reach_after.reached();
+        if let Some(lost) = reach_before
+            .reached()
             .difference(&reached_after)
             .find(|path| !empty(path))
         {
@@ -1920,4 +1955,61 @@ pub fn apply(text: &str, edits: &[TextEdit]) -> Result<String, String> {
     }
     out.push_str(&text[at..]);
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_check_after_a_move_repeats_only_analyses_that_read_an_edited_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let files = [
+            (
+                "plenty.toml",
+                "manifest-version = 1\n\n[package]\nname = \"tools\"\nversion = \"0.1.0\"\n",
+            ),
+            ("src/lib.plenty", "pub def version() -> i64:\n    1\n"),
+            ("src/shapes.plenty", "pub class Point:\n    pub x: i64\n"),
+            ("src/geometry.plenty", "pub def unit() -> i64:\n    1\n"),
+            (
+                "src/main.plenty",
+                "import shapes\nimport geometry\n\ndef main() -> ():\n    p = shapes.Point(x=geometry.unit())\n",
+            ),
+        ];
+        let mut all: Vec<(String, String)> = files
+            .iter()
+            .map(|(p, t)| (p.to_string(), t.to_string()))
+            .collect();
+        for i in 0..3 {
+            all.push((
+                format!("tests/shape{i}.plenty"),
+                "import tools.shapes\n\ndef test_point() -> ():\n    p = tools.shapes.Point(x=1)\n"
+                    .into(),
+            ));
+            all.push((
+                format!("tests/version{i}.plenty"),
+                "import tools\n\ndef test_version() -> ():\n    v = tools.version()\n".into(),
+            ));
+        }
+        for (path, text) in &all {
+            let path = dir.path().join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        }
+        let root = dir.path().canonicalize().unwrap();
+        let overlay = HashMap::default();
+        let planner = Planner::new(
+            &root.join("src/shapes.plenty"),
+            &root.join("src/geometry.plenty"),
+            &overlay,
+        )
+        .unwrap();
+        planner.plan(1).unwrap();
+        // Before: the library, `main` and six tests. After: `main`, the
+        // three tests that import `shapes`, and `shapes` itself, which no
+        // target imports any more; the library and the `version` tests read
+        // no edited file.
+        assert_eq!(planner.analyses.get(), 8 + 5);
+    }
 }
