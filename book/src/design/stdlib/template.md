@@ -37,6 +37,7 @@ as a syntax reference, not a Tera/Jinja compatibility implementation.
 | `{% for item in items %}{{ item.name }}{% else %}empty{% endfor %}` | Array loop; optional `else` renders only for an empty array |
 | `{% block title %}Title{% endblock %}` | Define a top-level named block |
 | `{% extends 'base' %}` | Inherit from a registered template |
+| `{% include 'form' with row %}` | Render a registered fragment using an object context |
 
 Names use ASCII letters, digits and underscores, starting with a letter or
 underscore. A path's later segments may be nonnegative array indices. Text
@@ -51,21 +52,103 @@ same name and is removed when that loop ends. The name `loop` is reserved for
 loop metadata. Loops accept a single variable and an array path, without spaces
 inside that path. Object iteration is not supported.
 
-Filters are `upper`, `lower`, `trim`, `length`, `escape` and `safe`. Text filters
+Filters are `upper`, `lower`, `trim`, `length`, `escape`, `safe`,
+`escape_text`, `escape_double_quoted` and `escape_single_quoted`. Text filters
 require text. `length` counts Unicode scalars for text and entries for arrays
 or objects. Filters do not accept arguments. Arithmetic, comparisons, boolean
 operators other than `not`, calls, bracket indexing, `elif`, assignments,
-includes, macros, raw blocks and whitespace-trimming delimiters are not part
+macros and raw blocks are not part
 of this version. Unsupported syntax is rejected when registering a template,
 including inside branches that would never execute.
+
+### Whitespace control
+
+Whitespace is preserved by default, including indentation and line endings.
+Add a hyphen immediately after an opening delimiter to remove the preceding
+literal whitespace, or immediately before a closing delimiter to remove the
+following literal whitespace. Each side is independent:
+
+| Form | Effect |
+| --- | --- |
+| `{{- value }}`, `{%- if active %}`, `{#- comment #}` | Trim before the tag |
+| `{{ value -}}`, `{% endif -%}`, `{# comment -#}` | Trim after the tag |
+| `{{- value -}}`, `{%- endif -%}`, `{#- comment -#}` | Trim both sides |
+
+Only ASCII space, tab, LF, vertical tab, form feed and CR (bytes `20`, `09`–`0d`
+in hexadecimal) are removed. A run can span multiple lines or mixed CR/LF line
+endings. Other bytes stop it: non-breaking space and other Unicode whitespace
+remain unchanged. A hyphen separated from the delimiter by whitespace is not a
+trim marker. For compatibility, an expression-opening hyphen immediately
+followed by an ASCII digit or `.` remains a numeric sign: `{{-42}}`,
+`{{-0.5}}` and `{{-.5}}` preserve their negative values and surrounding
+whitespace. To trim before a numeric expression, separate the marker from its
+value: `{{- 42 }}` or `{{- -42 }}`. A closing marker can still be used alone,
+as in `{{-42 -}}`. Hyphens and delimiter-like text inside quoted expressions
+remain literal.
+
+Trimming happens when registering the source. It changes only the adjacent
+literal segment, stopping at a non-whitespace byte or another tag; it never
+reaches through comments or control tags, trims an interpolated value, or
+modifies the caller's context. It applies equally inside branches and loops,
+including branches that do not execute. It does not parse HTML: whitespace in
+`pre`, scripts or other meaningful content is preserved unless the author
+explicitly marks that boundary for trimming.
+
+Inheritance uses the trimmed literals compiled in each defining template.
+A child's trim marker cannot remove text or spacing from the base layout around
+a replaced block. Comments and whitespace remain permitted before `extends`;
+trim markers do not relax the inheritance or syntax rules.
+
+Source-byte limits and syntax locations count the original UTF-8 source,
+including removed whitespace and marker bytes. Fully removed literal segments
+produce no tokens; remaining tokens, syntax depth, render steps and output
+still use the ordinary limits. Registration failures remain atomic. See
+[the tutorial example](../../tutorial/07-modules/26-standard-template.md#controlling-literal-spacing)
+for readable source that renders adjacent inline elements.
 
 ## Escaping and inheritance
 
 `render(name, context, html=True)` escapes `&`, `<`, `>`, `"` and `'` in
-interpolated values. Literal template text is trusted. `escape` marks its
-escaped result safe, avoiding double escaping; `safe` explicitly trusts the
-value. `upper` and `lower` remove that trust. Use `html=False` for plain-text
-emails or generated text.
+interpolated values. Literal template text is trusted. Keep original raw text
+in `Json.Text`. Select a narrower escaping context per placeholder when exact
+text or attribute bytes matter:
+
+| Filter | Escapes | Required position |
+| --- | --- | --- |
+| `escape_text` | `&`, `<`, `>` | Ordinary HTML text children |
+| `escape_double_quoted` | `&`, `"` | Inside a double-quoted ordinary attribute value |
+| `escape_single_quoted` | `&`, `'` | Inside a single-quoted ordinary attribute value |
+
+For example, `<p>{{ name | escape_text }}</p>` preserves quotes in text, while
+`<i title="{{ name | escape_double_quoted }}"></i>` escapes its double quotes.
+Keep the matching delimiters around the complete attribute value. These
+filters select the context explicitly; they do not inspect surrounding markup.
+Selecting the wrong context can leave a quote delimiter unescaped.
+
+The context filters retain raw text until final interpolation, where the
+remaining output-byte budget includes entity expansion. The last context
+filter wins: `value | escape_text | escape_double_quoted` escapes the original
+value for a double-quoted attribute once. The selection belongs to that
+expression, never to the stored JSON value or another placeholder.
+
+`safe` is a separate explicit trust assertion that bypasses escaping. A context
+filter after `safe` restores escaping; `safe` after a context filter deliberately
+bypasses it. `upper` and `lower` revoke both trust and a selected context, so put
+the desired context after those transforms. `trim` preserves the selection or
+trust. `length` reads the current raw text's Unicode scalar count (or collection
+size) and produces a number with the default policy. Conditions also inspect the
+raw value; a context filter only changes final output.
+
+The existing `escape` filter immediately encodes all five characters and marks
+that encoded result trusted. Its behavior is unchanged: a later context filter
+escapes that already encoded text again, including its ampersands. Prefer one
+context filter after ordinary transforms. Do not pre-escape template data or
+add `safe` merely to avoid double escaping.
+
+Use `html=False` for plain-text emails or generated text. It disables default
+escaping; explicit `escape` and context filters still request escaping. A later
+`upper` or `lower` revokes that explicit selection, returning to the render's
+default policy.
 
 This escaping is for HTML text and quoted ordinary attributes. It does not
 validate URLs or make values safe inside JavaScript, CSS, tag names, unquoted
@@ -84,7 +167,7 @@ where the value will appear; the escaper does not parse surrounding HTML.
 | `Text` | `&`, `<`, `>` | Ordinary HTML text children |
 | `DoubleQuotedAttribute` | `&`, `"` | Inside a double-quoted ordinary attribute value |
 | `SingleQuotedAttribute` | `&`, `'` | Inside a single-quoted ordinary attribute value |
-| `TextAndAttributes` | `&`, `<`, `>`, `"`, `'` | The conservative policy used by `render` and the `escape` filter |
+| `TextAndAttributes` | `&`, `<`, `>`, `"`, `'` | The default `render` policy and the `escape` filter |
 
 Entities are `&amp;`, `&lt;`, `&gt;`, `&quot;` and `&#x27;`, respectively.
 Other UTF-8 bytes are preserved. The attribute modes do not add delimiters;
@@ -114,9 +197,9 @@ assertion by the template author; it does not check an escaping context.
 
 Escaping treats the input as text, including existing entities: `&amp;` becomes
 `&amp;amp;`. Call it once on the original value for the intended context;
-repeated calls are not idempotent. The new function does not change filter
-trust: `escape` uses `TextAndAttributes`, `upper`/`lower` revoke trust, and
-`trim` preserves it.
+repeated calls are not idempotent. For registered templates, choose the
+[per-placeholder context filters](#escaping-and-inheritance) on raw values
+instead of passing this helper's encoded output back through the engine.
 
 `max_bytes` caps UTF-8 output, including entity expansion. Oversized input is
 rejected before allocation because escaping cannot shrink it. Each input byte
@@ -140,6 +223,29 @@ be nested or repeated within a template. The most-derived definition replaces
 its ancestor's entire block; no `super()` call is provided. Blocks absent from
 the base's layout are not rendered. Parent names are literal registry names,
 not filesystem paths. Missing parents and inheritance cycles are render errors.
+
+### Reusable fragments
+
+`{% include 'header' %}` renders another registered template with the current
+object context. `{% include 'form' with row %}` instead uses the object selected
+by `row`; the expression is evaluated in the caller before entering the fragment.
+The context expression must produce an object. The name is a quoted literal,
+not a filename or a computed path, and no filesystem access occurs.
+
+An include has its own loop scope and inheritance overrides. Pass an object
+explicitly to use a caller's loop variable; the fragment does not inherit the
+caller's loop locals or `loop` metadata. Its own loops work normally, and the
+caller regains its original root and loop metadata afterward. A fragment may
+inherit from another registered template. Inheritance and inclusion cycles
+return `InheritanceCycle`; missing names return `UnknownTemplate`.
+
+Fragments render directly into the same output with normal escaping. Keep raw
+values in their contexts: composition requires neither pre-escaping nor `safe`.
+Nested calls share the original context index and all render budgets; each
+invocation also charges inheritance resolution and cycle checks to `max_steps`.
+Include and inheritance nesting contribute to the same `max_depth` bound.
+Errors return no partial output and leave the engine and input context reusable.
+Parameterized macros and arbitrary function calls remain unsupported.
 
 ## Values, limits and errors
 

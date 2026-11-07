@@ -20,7 +20,7 @@ scope decision, not a second task list.
 | [XML](../design/stdlib/xml.md) | Bounded UTF-8 events and validating writes without DTDs/external entities (issue #462). |
 | [Advisory file locks](../design/stdlib/fs/lock.md) | Owned shared/exclusive Linux locks, nonblocking acquisition and cancellable deadline waits; close-only lifetime preserves inherited descriptions (issue #774), with [explicit child inheritance](#explicit-child-file-inheritance) (issue #777). |
 | [Filesystem watch](../design/stdlib/fs/watch.md) | Bounded Linux inotify batches, overflow reporting and readiness integration (issue #484). |
-| [Templates](../design/stdlib/template.md) | Bounded Jinja-style interpolation, filters, conditions, named inheritance and HTML escaping over explicit JSON (issue #499); reusable bounded text and quote-specific attribute escaping (issue #823). |
+| [Templates](../design/stdlib/template.md) | Bounded Jinja-style interpolation, filters, conditions, named inheritance and HTML escaping over explicit JSON (issue #499); reusable bounded text and quote-specific attribute escaping (issue #823); raw-value per-placeholder escape contexts with explicit filter chaining (issue #834); registered fragment composition with isolated object/loop/inheritance scopes and shared render budgets (issue #835). |
 | [Linalg](../design/stdlib/linalg.md) | Finite f64 matrices, solves and dense decompositions over allocation-safe faer kernels, with engine-parameterized build/packaging/CI (issue #490). |
 | [MIME](../design/stdlib/mime.md) | RFC 9110 media parsing/building/formatting/matching and the extension table used by HTTP files (issue #485). |
 | [Images](../design/stdlib/image.md) | Plenty over `std.compress`: bounded owned 8-bit buffers, all PNG colour types/depths/Adam7 decoding, encoding, crop, conversion and nearest/bilinear resizing; dimensions/bytes checked before allocation (issue #476). |
@@ -358,3 +358,14 @@ Group/session selection also composes with owned-file redirection and merged
 stderr after their integration (issue #778). Combined checks cover stream flags,
 cwd/environment flags, descendant pipe EOF and pre-spawn allocation-failure retry.
 See [the process contract](../design/stdlib/process.md#process-groups-and-sessions).
+
+## Template literal whitespace control
+
+Issue #837 adds opt-in `{{-`/`-}}`, `{%-`/`-%}` and `{#-`/`-#}` markers.
+The lexer trims adjacent ASCII literal whitespace while preserving default
+source bytes, Unicode whitespace and rendered values. Diagnostics and source
+budgets retain original byte positions; inheritance retains each defining
+source's boundaries. Executable checks cover inline navigation, comments,
+branches/loops, preformatted content, mixed line endings, Unicode, inheritance,
+syntax failures and exact source/token limits. See
+[the template contract](../design/stdlib/template.md#whitespace-control).

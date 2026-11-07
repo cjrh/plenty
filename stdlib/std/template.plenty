@@ -58,16 +58,23 @@ def identifier(text: &str) -> bool:
             return False
     True
 
+# Context selections apply only when emitting this expression. They never
+# turn raw text into an unqualified trusted value.
+enum Emission:
+    Default
+    Trusted
+    Escape(HtmlContext)
+
 class Value:
     kind: i64
     text: str
     integer: i64
     real: f64
     node: i64
-    safe: bool
+    emission: Emission
 
 def empty_value() -> Value:
-    Value(0, "", 0, 0.0, -1, False)
+    Value(0, "", 0, 0.0, -1, Emission.Default)
 
 class Expression:
     literal: Value
@@ -180,12 +187,12 @@ def expression(source: &str, at: i64) -> Result[Expression, TemplateError]:
     mut filters: list[str] = allocated(list[str]())?
     for index in range(1, len(parts)):
         filter = allocated(parts[index].strip())?
-        if filter != "upper" and filter != "lower" and filter != "trim" and filter != "length" and filter != "escape" and filter != "safe":
+        if filter != "upper" and filter != "lower" and filter != "trim" and filter != "length" and filter != "escape" and filter != "safe" and filter != "escape_text" and filter != "escape_double_quoted" and filter != "escape_single_quoted":
             return Err(TemplateError.Syntax(at))
         allocated(filters.append(filter))?
     Ok(Expression(value, path, filters, negate))
 
-# Kinds: text, expression, if, else, endif, for, endfor, block, endblock.
+# Kinds: text, expression, if, else, endif, for, endfor, block, endblock, include.
 class Token:
     kind: i64
     text: str
@@ -216,6 +223,10 @@ def bounded_total(current: i64, amount: i64, limit: i64) -> Result[i64, Template
             Ok(value)
         case Err(_):
             Err(TemplateError.LimitExceeded)
+
+# Delimiter trimming is byte-local and deliberately narrower than Unicode strip.
+def trim_space(byte: u8) -> bool:
+    byte == 32u8 or (byte >= 9u8 and byte <= 13u8)
 
 def closing(source: &Bytes, start: i64, close: u8, comment: bool) -> Result[i64, TemplateError]:
     mut quote = 0u8
@@ -248,6 +259,33 @@ def push_token(tokens: &mut list[Token], token: Token, bounds: &Limits) -> Resul
         return Err(TemplateError.LimitExceeded)
     allocated(tokens.append(token))
 
+def include_expression(source: &str, at: i64) -> Result[(str, Expression, i64), TemplateError]:
+    if len(source) < 2 or (source[0] != "'" and source[0] != "\""):
+        return Err(TemplateError.Syntax(at))
+    mut escaped = False
+    for index, scalar in enumerate(source):
+        if index == 0:
+            continue
+        if escaped:
+            escaped = False
+        elif scalar == "\\":
+            escaped = True
+        elif scalar == source[0]:
+            # enumerate supplies a scalar position below len(source).
+            after = unchecked:
+                index + 1
+            name = quoted(&allocated(source.slice(0, after))?, at)?
+            if name == "":
+                return Err(TemplateError.Syntax(at))
+            rest = allocated(allocated(source.slice(after, len(source)))?.strip())?
+            if rest == "":
+                return Ok((name, empty_expression()?, 0))
+            if not rest.startswith("with "):
+                return Err(TemplateError.Syntax(at))
+            expr = expression(&allocated(allocated(rest.slice(5, len(rest)))?.strip())?, at)?
+            return Ok((name, expr, 1))
+    Err(TemplateError.Syntax(at))
+
 def parse(name: str, source: &str, bounds: &Limits) -> Result[Template, TemplateError]:
     data = allocated(std.bytes.from_text(source))?
     mut tokens: list[Token] = allocated(list[Token]())?
@@ -264,24 +302,55 @@ def parse(name: str, source: &str, bounds: &Limits) -> Result[Template, Template
         if not has_pair(index, data.len()) or data[index] != 123u8 or (data[next] != 123u8 and data[next] != 37u8 and data[next] != 35u8):
             index = next
             continue
-        if index > start:
-            text = bytes_result(data.to_text_range(start, index))?
+        # Keep original byte endpoints for syntax errors and source budgets.
+        opening_end = unchecked:
+            index + 2
+        marker = data[next]
+        mut content_start = opening_end
+        mut literal_end = index
+        mut trim_left = opening_end < data.len() and data[opening_end] == 45u8
+        # Compact negative literals predate trimming; their sign stays content.
+        if trim_left and marker == 123u8 and has_pair(opening_end, data.len()):
+            following = unchecked:
+                opening_end + 1
+            byte = data[following]
+            if byte == 46u8 or (byte >= 48u8 and byte <= 57u8):
+                trim_left = False
+        if trim_left:
+            while literal_end > start:
+                previous = unchecked:
+                    literal_end - 1
+                if not trim_space(data[previous]):
+                    break
+                literal_end = previous
+            content_start = unchecked:
+                opening_end + 1
+        if literal_end > start:
+            text = bytes_result(data.to_text_range(start, literal_end))?
             if allocated(text.strip())? != "":
                 significant = True
                 if parent != "" and len(stack) == 0:
                     return Err(TemplateError.Syntax(start))
             push_token(&mut tokens, Token(0, text, empty_expression()?, -1, -1, start), bounds)?
-        marker = data[next]
-        # has_pair proved both opening bytes are present.
-        content_start = unchecked:
-            index + 2
         close = 125u8 if marker == 123u8 else marker
-        end = closing(&data, content_start, close, marker == 35u8)?
-        content = allocated(bytes_result(data.to_text_range(content_start, end))?.strip())?
+        end = closing(&data, opening_end, close, marker == 35u8)?
+        mut content_end = end
+        mut trim_right = False
+        if end > content_start:
+            previous = unchecked:
+                end - 1
+            if data[previous] == 45u8:
+                content_end = previous
+                trim_right = True
+        content = allocated(bytes_result(data.to_text_range(content_start, content_end))?.strip())?
         at = index
         # closing only returns an index with two bytes still present.
         unchecked:
             index = end + 2
+        if trim_right:
+            while index < data.len() and trim_space(data[index]):
+                index = unchecked:
+                    index + 1
         start = index
         if marker == 35u8:
             continue
@@ -306,6 +375,7 @@ def parse(name: str, source: &str, bounds: &Limits) -> Result[Template, Template
         mut kind = -1
         mut label = ""
         mut expr = empty_expression()?
+        mut alternate = -1
         if content.startswith("if "):
             kind = 2
             expr = expression(&allocated(content.slice(3, len(content)))?, at)?
@@ -316,6 +386,12 @@ def parse(name: str, source: &str, bounds: &Limits) -> Result[Template, Template
             kind = 5
             label = words[1]
             expr = expression(&words[3], at)?
+        elif content.startswith("include "):
+            kind = 9
+            (included_name, included_expr, explicit) = include_expression(&allocated(allocated(content.slice(8, len(content)))?.strip())?, at)?
+            label = included_name
+            expr = included_expr
+            alternate = explicit
         elif content.startswith("block "):
             label = allocated(allocated(content.slice(6, len(content)))?.strip())?
             if len(stack) != 0 or not identifier(&label) or label in blocks:
@@ -351,7 +427,7 @@ def parse(name: str, source: &str, bounds: &Limits) -> Result[Template, Template
             if len(stack) >= bounds.max_depth.get():
                 return Err(TemplateError.LimitExceeded)
             allocated(stack.append(len(tokens)))?
-        push_token(&mut tokens, Token(kind, label, expr, -1, -1, at), bounds)?
+        push_token(&mut tokens, Token(kind, label, expr, -1, alternate, at), bounds)?
     if len(stack) != 0:
         return Err(TemplateError.Syntax(tokens[stack[-1]].at))
     if index > start:
@@ -380,6 +456,9 @@ class Override:
 class State:
     nodes: list[Node]
     bindings: list[Binding]
+    root: i64
+    binding_start: i64
+    active: list[i64]
     bytes: i64
     steps: i64
     output: Bytes
@@ -442,7 +521,7 @@ def flatten(state: &mut State, key: str, data: &Json, depth: i64, bounds: &Limit
     Ok(node)
 
 def value_copy(value: &Value) -> Value:
-    Value(value.kind, value.text, value.integer, value.real, value.node, value.safe)
+    Value(value.kind, value.text, value.integer, value.real, value.node, value.emission)
 
 def truth(value: &Value, state: &State) -> bool:
     if value.kind == 0:
@@ -457,10 +536,10 @@ def truth(value: &Value, state: &State) -> bool:
         len(state.nodes[value.node].children) != 0
 
 def path_value(path: &list[str], state: &mut State, bounds: &Limits) -> Result[Value, TemplateError]:
-    mut node = 0
+    mut node = state.root
     mut start = 0
     mut index = len(state.bindings)
-    while index > 0:
+    while index > state.binding_start:
         # The loop guard proves index > 0.
         unchecked:
             index -= 1
@@ -475,15 +554,15 @@ def path_value(path: &list[str], state: &mut State, bounds: &Limits) -> Result[V
             ordinal = unchecked:
                 position + 1
             if name == "index":
-                return Ok(Value(2, "", ordinal, 0.0, -1, False))
+                return Ok(Value(2, "", ordinal, 0.0, -1, Emission.Default))
             elif name == "index0":
-                return Ok(Value(2, "", position, 0.0, -1, False))
+                return Ok(Value(2, "", position, 0.0, -1, Emission.Default))
             elif name == "first":
-                return Ok(Value(1, "", 1 if position == 0 else 0, 0.0, -1, False))
+                return Ok(Value(1, "", 1 if position == 0 else 0, 0.0, -1, Emission.Default))
             elif name == "last":
-                return Ok(Value(1, "", 1 if ordinal == count else 0, 0.0, -1, False))
+                return Ok(Value(1, "", 1 if ordinal == count else 0, 0.0, -1, Emission.Default))
             elif name == "length":
-                return Ok(Value(2, "", count, 0.0, -1, False))
+                return Ok(Value(2, "", count, 0.0, -1, Emission.Default))
             return Err(TemplateError.MissingValue(name))
         if state.bindings[index].name == path[0]:
             node = state.bindings[index].node
@@ -567,27 +646,33 @@ def evaluate(expr: &Expression, state: &mut State, bounds: &Limits) -> Result[Va
                 count = len(state.nodes[value.node].children)
             else:
                 return Err(TemplateError.TypeMismatch)
-            value = Value(2, "", count, 0.0, -1, False)
+            value = Value(2, "", count, 0.0, -1, Emission.Default)
         else:
             if value.kind != 4:
                 return Err(TemplateError.TypeMismatch)
             if filter == "upper":
                 value.text = allocated(value.text.upper())?
-                value.safe = False
+                value.emission = Emission.Default
             elif filter == "lower":
                 value.text = allocated(value.text.lower())?
-                value.safe = False
+                value.emission = Emission.Default
             elif filter == "trim":
                 value.text = allocated(value.text.strip())?
             elif filter == "escape":
                 value.text = escape_bounded(&value.text, HtmlContext.TextAndAttributes, bounds.max_output.get())?
-                value.safe = True
+                value.emission = Emission.Trusted
             elif filter == "safe":
-                value.safe = True
+                value.emission = Emission.Trusted
+            elif filter == "escape_text":
+                value.emission = Emission.Escape(HtmlContext.Text)
+            elif filter == "escape_double_quoted":
+                value.emission = Emission.Escape(HtmlContext.DoubleQuotedAttribute)
+            elif filter == "escape_single_quoted":
+                value.emission = Emission.Escape(HtmlContext.SingleQuotedAttribute)
             if value.text.byte_len() > bounds.max_output.get():
                 return Err(TemplateError.LimitExceeded)
     if expr.negate:
-        value = Value(1, "", 0 if truth(&value, state) else 1, 0.0, -1, False)
+        value = Value(1, "", 0 if truth(&value, state) else 1, 0.0, -1, Emission.Default)
     Ok(value)
 
 def append(state: &mut State, text: &str, bounds: &Limits) -> Result[(), TemplateError]:
@@ -611,11 +696,21 @@ def emit(state: &mut State, value: &Value, bounds: &Limits) -> Result[(), Templa
         text = value.text
     elif value.kind != 0:
         return Err(TemplateError.TypeMismatch)
-    if state.html and not value.safe:
-        # Output has only grown through budget-checked append.
-        remaining = unchecked:
-            bounds.max_output.get() - state.output.len()
-        text = escape_bounded(&text, HtmlContext.TextAndAttributes, remaining)?
+    context: Option[HtmlContext] = match value.emission:
+        case Emission.Default:
+            Some(HtmlContext.TextAndAttributes) if state.html else Nothing
+        case Emission.Trusted:
+            Nothing
+        case Emission.Escape(context):
+            Some(context)
+    match context:
+        case Nothing:
+            pass
+        case Some(mode):
+            # Output has only grown through budget-checked append.
+            remaining = unchecked:
+                bounds.max_output.get() - state.output.len()
+            text = escape_bounded(&text, mode, remaining)?
     append(state, &text, bounds)
 
 pub class Engine:
@@ -644,29 +739,44 @@ pub class Engine:
         Ok(())
 
     pub def render(self, name: &str, context: &Json, html: bool = True) -> Result[str, TemplateError]:
-        mut state = State(allocated(list[Node]())?, allocated(list[Binding]())?, 0, 0, allocated(std.bytes.empty())?, html)
+        mut state = State(allocated(list[Node]())?, allocated(list[Binding]())?, 0, 0, allocated(list[i64]())?, 0, 0, allocated(std.bytes.empty())?, html)
         match context:
             case Json.Object(_):
                 pass
             case _:
                 return Err(TemplateError.TypeMismatch)
         drop(flatten(&mut state, "", context, 0, &self._bounds)?)
+        self.render_registered(name, &mut state, 0)?
+        bytes_result(state.output.to_text())
+
+    # Each invocation owns its inheritance overrides and loop scope, while all
+    # invocations charge the same context, output and work budgets.
+    def render_registered(self, name: &str, state: &mut State, depth: i64) -> Result[(), TemplateError]:
+        if depth > self._bounds.max_depth.get():
+            return Err(TemplateError.LimitExceeded)
         mut current = self.find(name)?
+        active_start = len(state.active)
+        for position in range(len(state.active)):
+            step(state, &self._bounds)?
+            if state.active[position] == current:
+                return Err(TemplateError.InheritanceCycle)
+        allocated(state.active.append(current))?
         mut visited: list[i64] = allocated(list[i64]())?
         mut overrides: list[Override] = allocated(list[Override]())?
+        mut chain_depth = depth
         while True:
             if current in visited:
                 return Err(TemplateError.InheritanceCycle)
-            if len(visited) >= self._bounds.max_depth.get():
+            if chain_depth >= self._bounds.max_depth.get():
                 return Err(TemplateError.LimitExceeded)
             allocated(visited.append(current))?
             for token in range(len(self._templates[current].tokens)):
-                step(&mut state, &self._bounds)?
+                step(state, &self._bounds)?
                 if self._templates[current].tokens[token].kind == 7:
                     label = self._templates[current].tokens[token].text
                     mut found = False
                     for item in &overrides:
-                        step(&mut state, &self._bounds)?
+                        step(state, &self._bounds)?
                         if item.name == label:
                             found = True
                             break
@@ -676,8 +786,13 @@ pub class Engine:
             if parent == "":
                 break
             current = self.find(&parent)?
-        self.run(current, 0, len(self._templates[current].tokens), &mut state, &overrides, 0)?
-        bytes_result(state.output.to_text())
+            # chain_depth is strictly below the configured maximum (at most64).
+            unchecked:
+                chain_depth += 1
+        self.run(current, 0, len(self._templates[current].tokens), state, &overrides, chain_depth)?
+        while len(state.active) > active_start:
+            drop(state.active.pop())
+        Ok(())
 
     def find(self, name: &str) -> Result[i64, TemplateError]:
         for index in range(len(self._templates)):
@@ -732,6 +847,20 @@ pub class Engine:
                         token.alternate + 1
                     self.run(template, after_else, token.jump, state, overrides, next_depth)?
                 index = token.jump
+            elif token.kind == 9:
+                saved_root = state.root
+                saved_start = state.binding_start
+                if token.alternate == 1:
+                    value = evaluate(&token.expr, state, &self._bounds)?
+                    if value.kind != 6:
+                        return Err(TemplateError.TypeMismatch)
+                    state.root = value.node
+                # An include receives an object context, never the caller's
+                # loop locals. Explicit arguments are evaluated before hiding it.
+                state.binding_start = len(state.bindings)
+                self.render_registered(&token.text, state, next_depth)?
+                state.root = saved_root
+                state.binding_start = saved_start
             elif token.kind == 7:
                 for item in overrides:
                     step(state, &self._bounds)?
