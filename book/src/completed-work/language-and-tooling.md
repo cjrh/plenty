@@ -5,6 +5,15 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## Source roots are real directories (issue #840)
+
+A package's `src/`, and the `tests/` of a package under test, can no longer be
+symbolic links, for the package being built as well as its dependencies.
+Imports and includes are bounded by the real source root, so a dependency's
+linked `src` could read and embed files from any directory it named.
+[Dependencies](../design/toolchain/01-building/packages.md#dependencies)
+documents the rule.
+
 ## Included files in packages (issue #788)
 
 `include_str` and `include_bytes` in a package may read any file in its package

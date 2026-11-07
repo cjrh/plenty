@@ -186,9 +186,9 @@ const ICON: bytes = include_bytes("assets/icon.png")
 The argument is one string literal: a path relative to the directory of the
 source file that contains it. In a
 [package](../../toolchain/01-building/packages.md#included-files) the file must
-resolve below the package directory, the directory containing `plenty.toml`, or
-below the package's own source root, and not inside another package's source
-root or directory, or any directory holding a `plenty.toml`.
+resolve below the package directory, the directory containing `plenty.toml`,
+and not inside another package's source root or directory, or any directory
+holding a `plenty.toml`. A package's source root cannot be a symbolic link.
 A single file compiled without a package, or a
 [script](../../toolchain/01-building/scripts.md), includes only files below its
 source root. The file's real path is checked after resolving `..` and symbolic

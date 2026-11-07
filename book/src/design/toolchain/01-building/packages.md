@@ -176,8 +176,9 @@ compiler executable (path, size, and modification time; the compiler embeds
 `std` and the runtime). A symbolic link below `src/` counts by the name of its
 target. The walk does not follow a link to a directory, so a module added
 inside a linked directory is noticed only when an import resolves to it, by the
-import checks below. Retargeting a linked `src/` or `tests/` itself rebuilds,
-since the canonical entry and source roots are inputs. Reuse makes the checks the [program
+import checks below. The canonical entry and source roots are inputs too, so
+moving a package rebuilds. A graph the compiler rejects, such as one with a
+[linked source root](#dependencies), is not walked. Reuse makes the checks the [program
 cache](../02-architecture/cache.md#program-objects) makes: every import must
 still resolve to the same file, and every [included file](#included-files) must
 still be one the package may include. A file in the package directory that no
@@ -247,11 +248,9 @@ relative to the including file, so `src/main.plenty` reads `data/icon.png` as
 same directory.
 
 An include reads a file only if its real path, after resolving `..` and symbolic
-links, lies inside the package directory or inside the package's own source
-root; otherwise the error names the package directory. The source root counts
-separately because `src` may be a symbolic link to a directory elsewhere;
-whether such a link is allowed at all belongs to issue #840. Any other link,
-such as `data -> /etc`, is judged by its target.
+links, lies inside the package directory; otherwise the error names the package
+directory. A link such as `data -> /etc` is judged by its target. The source
+root itself cannot be a link (see [Dependencies](#dependencies)).
 
 A file inside a nested directory that holds its own `plenty.toml`, such as a
 workspace member's, belongs to that package, and including it is an error that
@@ -307,7 +306,18 @@ package name are an error that names both paths. Package cycles are errors.
 Dependencies are not transitive: a package imports only what it declares.
 
 Each package's sources live in its own `src/` directory and cannot import files
-of another package except through a declared alias. The same module path in two
+of another package except through a declared alias. A package's `src/`, and the
+`tests/` of the package being tested, must be real directories, not symbolic
+links. This holds for every package, including the one being built:
+
+```text
+error: source root /work/util/src is a symbolic link; a package's source root must be a directory
+```
+
+Imports and includes are bounded by where the source root really is, so a linked
+`src` would let a dependency, including one fetched from Git, read and embed
+files from any directory it pointed to. Links below `src/` are allowed; an
+import that resolves outside the source root through one is an error. The same module path in two
 packages names two modules, so `Point` in two packages is two distinct types.
 Diagnostics name a dependency's declarations as `PACKAGE::MODULE.Name`, such
 as `util::lib.Point`; the root package's names are unqualified.
@@ -341,7 +351,9 @@ lockfile; `plenty update NAME...` resolves only the named packages. It prints
 each changed commit.
 
 A `path` dependency inside a Git package names another package of the same
-commit, and cannot leave the repository. A graph contains one commit per
+commit, and cannot leave the repository. Neither can a `subdir` that is a
+symbolic link in the repository: the error says the dependency leaves its
+repository snapshot. A graph contains one commit per
 package: if two dependents reach the same repository directory at different
 commits, resolution fails and names both chains:
 
@@ -438,6 +450,8 @@ the package's declarations in diagnostics; `dependencies` maps each alias to an
 identity whose package has a `library`. A graph names no package directory: each
 package's is the directory containing its `root` as written, before symbolic
 links are resolved, as for a manifest, whether or not it holds a `plenty.toml`.
+As for a manifest, a graph `root` must not be a symbolic link, and its real path
+must lie inside that directory.
 Its [included files](#included-files) come from there. So a package whose root
 is `/work/src` may include any file below `/work`, except inside another
 package's directory or source root, or a directory holding a `plenty.toml`.

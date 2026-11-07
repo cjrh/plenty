@@ -984,6 +984,60 @@ fn git_subdirectory_cycles_are_rejected() {
     assert!(!app.join("plenty.lock").exists());
 }
 
+// Issue #840: a Git checkout writes symbolic links as committed, so neither
+// a package's `src` nor its `subdir` may lead out of the snapshot.
+#[test]
+fn git_dependencies_cannot_link_outside_their_snapshot() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("mono");
+    let outside = dir.path().join("outside");
+    package(
+        dir.path(),
+        "outside",
+        "",
+        &[("src/lib.plenty", "pub def one() -> i64:\n    1\n")],
+    );
+    commit(
+        &repo,
+        &[(
+            "linked/plenty.toml",
+            &library_manifest("linked", "1.0.0", ""),
+        )],
+    );
+    std::os::unix::fs::symlink(outside.join("src"), repo.join("linked/src")).unwrap();
+    std::os::unix::fs::symlink(&outside, repo.join("away")).unwrap();
+    commit(&repo, &[]);
+    git(&repo, &["tag", "v1"]);
+    let mono = url(&repo);
+    let lib = ("src/main.plenty", "def main() -> ():\n    pass\n");
+    package(
+        dir.path(),
+        "app",
+        &format!("linked = {{ git = \"{mono}\", subdir = \"linked\", tag = \"v1\" }}\n"),
+        &[lib],
+    );
+    let app = dir.path().join("app");
+    fails(
+        &app,
+        &["check"],
+        "/linked/src is a symbolic link; a package's source root must be a directory",
+    );
+    write(
+        &app.join("plenty.toml"),
+        &library_manifest(
+            "app",
+            "0.1.0",
+            &format!("away = {{ git = \"{mono}\", subdir = \"away\", tag = \"v1\" }}\n"),
+        ),
+    );
+    std::fs::remove_file(app.join("plenty.lock")).ok();
+    fails(
+        &app,
+        &["check"],
+        "package `app`: dependency `away` leaves its repository snapshot",
+    );
+}
+
 #[test]
 fn add_edits_the_manifest_and_lockfile() {
     let dir = tempfile::tempdir().unwrap();
@@ -1567,73 +1621,86 @@ fn plentyc_graph(app: &Path) -> Output {
         .unwrap()
 }
 
+/// The error for a package whose source root `path` is a symbolic link.
+fn linked_root(path: &Path) -> String {
+    format!(
+        "source root {} is a symbolic link; a package's source root must be a directory",
+        path.display()
+    )
+}
+
 #[test]
-fn a_symbolic_source_root_includes_its_own_files_only() {
-    // `util/src` links to `app/vend`. Its own files are those below `util/`
-    // and below `app/vend`; `app/data` stays the application's, in manifest
-    // and graph mode alike. Whether such a link is allowed at all is issue
-    // #840.
+fn a_symbolic_source_root_is_rejected() {
+    // Issue #840: imports and includes are bounded by the canonical source
+    // root, so a dependency's `src -> ../other` could embed `other/secret.txt`.
     let dir = tempfile::tempdir().unwrap();
-    package(dir.path(), "util", "", &[("data/u.txt", "util data")]);
+    package(dir.path(), "util", "", &[]);
     let util = dir.path().join("util");
+    write(
+        &dir.path().join("other/lib.plenty"),
+        "pub const SECRET: str = include_str(\"secret.txt\")\n",
+    );
+    write(&dir.path().join("other/secret.txt"), "secret");
+    std::os::unix::fs::symlink("../other", util.join("src")).unwrap();
     package(
         dir.path(),
         "app",
         "util = { path = \"../util\" }\n",
-        &[
-            (
-                "src/main.plenty",
-                "import util\n\ndef main() -> Result[(), IoError]:\n    print(util.OWN)?\n    print(util.DATA)?\n    Ok(())\n",
-            ),
-            ("vend/own.txt", "own"),
-            ("data/secret.txt", "secret"),
-        ],
+        &[(
+            "src/main.plenty",
+            "import util\n\ndef main() -> Result[(), IoError]:\n    print(util.SECRET)?\n    Ok(())\n",
+        )],
     );
     let app = dir.path().join("app");
-    let lib = |include: &str| {
-        format!(
-            "pub const OWN: str = include_str(\"own.txt\")\npub const DATA: str = include_str(\"../../util/data/u.txt\")\n{include}"
-        )
-    };
-    write(&app.join("vend/lib.plenty"), &lib(""));
-    std::os::unix::fs::symlink("../app/vend", util.join("src")).unwrap();
-    assert_eq!(succeeds(&app, &["run"]), "own\nutil data\n");
-    write(&app.join("graph.toml"), &succeeds(&app, &["graph"]));
-    let run = plentyc_graph(&app);
-    assert_eq!(
-        String::from_utf8_lossy(&run.stdout),
-        "own\nutil data\n",
-        "{}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-
-    write(
-        &app.join("vend/lib.plenty"),
-        &lib("const SECRET: str = include_str(\"../data/secret.txt\")\n"),
-    );
-    let message = format!(
-        "included path `../data/secret.txt` is outside the package directory {}",
-        util.canonicalize().unwrap().display()
-    );
-    for command in ["check", "build"] {
+    let message = linked_root(&util.join("src"));
+    for command in ["check", "build", "run"] {
         fails(&app, &[command], &message);
     }
+    write(&app.join("graph.toml"), &succeeds(&app, &["graph"]));
     let run = plentyc_graph(&app);
     assert!(!run.status.success());
     let stderr = String::from_utf8_lossy(&run.stderr);
     assert!(stderr.contains(&message), "{stderr}");
 
-    // The application cannot include the dependency's source root.
-    write(&app.join("vend/lib.plenty"), &lib(""));
+    // Build reuse does not walk a rejected root first: an unreadable
+    // directory below the link's target would otherwise fail the walk.
+    let locked = dir.path().join("other/locked");
+    std::fs::create_dir(&locked).unwrap();
+    std::fs::set_permissions(
+        &locked,
+        <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o000),
+    )
+    .unwrap();
+    fails(&app, &["build"], &message);
+    std::fs::set_permissions(
+        &locked,
+        <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o755),
+    )
+    .unwrap();
+
+    // The rule is the same for the package being built and its tests.
+    let root = dir.path().join("root");
+    package(dir.path(), "root", "", &[]);
     write(
-        &app.join("src/main.plenty"),
-        "import util\nconst S: str = include_str(\"../vend/own.txt\")\n\ndef main() -> ():\n    pass\n",
+        &dir.path().join("elsewhere/main.plenty"),
+        "def main() -> ():\n    pass\n",
     );
-    fails(
-        &app,
-        &["check"],
-        "included path `../vend/own.txt` belongs to package `util`; package `app` may include only its own files",
+    std::os::unix::fs::symlink("../elsewhere", root.join("src")).unwrap();
+    for command in ["check", "build", "run"] {
+        fails(&root, &[command], &linked_root(&root.join("src")));
+    }
+    std::fs::remove_file(root.join("src")).unwrap();
+    write(
+        &root.join("src/main.plenty"),
+        "def main() -> ():\n    pass\n",
     );
+    write(
+        &dir.path().join("t/check.plenty"),
+        "def main() -> i32:\n    0\n",
+    );
+    std::os::unix::fs::symlink("../t", root.join("tests")).unwrap();
+    assert_eq!(succeeds(&root, &["run"]), "");
+    fails(&root, &["test"], &linked_root(&root.join("tests")));
 }
 
 #[test]
@@ -1711,35 +1778,47 @@ fn graph_packages_with_one_parent_include_only_their_own_sources() {
 }
 
 #[test]
-fn reuse_follows_a_retargeted_source_or_tests_link() {
-    // Each tree's files still exist and are unchanged, so only the canonical
-    // roots tell the builds apart.
+fn graph_roots_are_checked_as_written() {
     let dir = tempfile::tempdir().unwrap();
-    package(dir.path(), "app", "", &[]);
-    let app = dir.path().join("app");
-    let main = |word: &str| {
-        format!("def main() -> Result[(), IoError]:\n    print(\"{word}\")?\n    Ok(())\n")
+    let work = dir.path().join("work");
+    write(
+        &work.join("other/main.plenty"),
+        "def main() -> ():\n    pass\n",
+    );
+    std::fs::create_dir_all(work.join("app")).unwrap();
+    std::os::unix::fs::symlink("../other", work.join("app/src")).unwrap();
+    std::fs::create_dir_all(work.join("sub")).unwrap();
+    let check = |root: &str, entry: &str| {
+        write(
+            &work.join("graph.toml"),
+            &format!(
+                "graph-version = 1\n\n[[package]]\nidentity = \"a\"\nroot = \"{root}\"\ndependencies = {{}}\n"
+            ),
+        );
+        let output = Command::new(env!("CARGO_BIN_EXE_plentyc"))
+            .args(["--package-graph", "graph.toml", "--check", entry])
+            .current_dir(&work)
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{root}");
+        String::from_utf8_lossy(&output.stderr).into_owned()
     };
-    write(&app.join("src1/main.plenty"), &main("one"));
-    write(&app.join("src2/main.plenty"), &main("two"));
-    write(&app.join("t1/check.plenty"), "def main() -> i32:\n    0\n");
-    write(&app.join("t2/check.plenty"), "def main() -> i32:\n    1\n");
-    let link = |target: &str, name: &str| {
-        let path = app.join(name);
-        let _ = std::fs::remove_file(&path);
-        std::os::unix::fs::symlink(target, path).unwrap();
-    };
-    link("src1", "src");
-    link("t1", "tests");
-    assert_eq!(succeeds(&app, &["run"]), "one\n");
-    assert!(status_lines(&app, &["build"]).contains("Fresh"));
-    succeeds(&app, &["test"]);
-
-    link("src2", "src");
-    assert!(status_lines(&app, &["build"]).contains("Compiling"));
-    assert_eq!(succeeds(&app, &["run"]), "two\n");
-    link("t2", "tests");
-    assert!(!plenty(&app, &["test"]).status.success());
+    // A trailing separator does not hide the link.
+    for root in ["app/src", "app/src/", "app/src/."] {
+        let stderr = check(root, "other/main.plenty");
+        assert!(stderr.contains("is a symbolic link"), "{root}: {stderr}");
+    }
+    // The package directory is the lexical parent `work/sub`, which does not
+    // contain the real root `work`.
+    let stderr = check("sub/..", "other/main.plenty");
+    assert!(
+        stderr.contains(&format!(
+            "source root {} must be inside the package directory {}",
+            work.canonicalize().unwrap().display(),
+            work.join("sub").canonicalize().unwrap().display()
+        )),
+        "{stderr}"
+    );
 }
 
 #[test]

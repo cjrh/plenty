@@ -9,15 +9,15 @@
 //! compiler's identity. The compiler embeds `std` and the runtime, so its
 //! identity covers both.
 //!
-//! It also covers the canonical entry and source roots, so retargeting a
-//! symbolic `src/` or `tests/` rebuilds. The contents are not hashed here. The stored fingerprint holds the
-//! frontend's [`Inputs`](crate::frontend::Inputs): every source and included
-//! file the build read, with its digest. A target is fresh only while they
-//! are [current](crate::frontend::Inputs::current), the check the program
-//! cache makes, which also reruns each include's boundary and ownership
-//! checks. Includes may read any file in the package directory, which also
-//! holds build outputs, `.pkg/` and perhaps version control data, so that
-//! directory is never walked.
+//! It also covers the canonical entry and source roots. A package's source
+//! root must not be a symbolic link. The contents are not hashed here. The
+//! stored fingerprint holds the frontend's [`Inputs`](crate::frontend::Inputs):
+//! every source and included file the build read, with its digest. A target
+//! is fresh only while they are [current](crate::frontend::Inputs::current),
+//! the check the program cache makes, which also reruns each include's
+//! boundary and ownership checks. Includes may read any file in the package
+//! directory, which also holds build outputs, `.pkg/` and perhaps version
+//! control data, so that directory is never walked.
 use super::SourceGraph;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -39,13 +39,11 @@ pub(super) fn digest(
     field(crate::cache::compiler_identity());
     field(kind);
     field(&entry.display().to_string());
-    // The canonical entry and roots: retargeting a symbolic `src/` or
-    // `tests/` leaves the recorded inputs current, as they name the old
-    // canonical files. `None` means the build will fail and record nothing.
-    field(&format!(
-        "{:?}",
-        crate::frontend::graph_identity(entry, graph)
-    ));
+    // The canonical entry and roots, so moving the entry or a package
+    // changes the digest. `None` means the build will fail and record
+    // nothing.
+    let identity = crate::frontend::graph_identity(entry, graph);
+    field(&format!("{identity:?}"));
     // Moving/replacing an optional shared engine changes the RUNPATH of an
     // executable that reaches it. Missing/unused engines never fail fingerprinting.
     for engine in crate::toolchain::ENGINES {
@@ -76,6 +74,11 @@ pub(super) fn digest(
             options.automatic_linker()
         }
     ));
+    // A graph the frontend rejects, such as one with a linked source root,
+    // is not walked: the build reports the error instead.
+    if identity.is_none() {
+        return Ok(format!("{:x}", hash.finalize()));
+    }
     for package in &graph.packages {
         field(&package.identity);
         field(&package.root.display().to_string());

@@ -97,21 +97,29 @@ a destructor keeps the ordered walk described above.
 the runtime only for the allocation. Compiled code then copies the content into
 the box's slot. If the allocation fails, the runtime releases the value the box
 would have owned. The slot is not zeroed first, just as a local's stack slot is
-not: the copy writes the value word and the payload that word names, such as the
-current variant's fields of a sum, and every reader of the box reads the value
-word first and then only that payload. Bytes past a smaller sum variant stay
-unwritten and are never read.
+not: the copy writes the content and every reader of the box reads only what
+was written. A class record is stored flat, with no value word, as a class
+field is; an all-zero record is an empty box content. Other content keeps the
+value word and the payload that word names, such as the current variant's
+fields of a sum, and readers read the word first and then only that payload.
+Bytes past a smaller sum variant stay unwritten and are never read. A protocol
+box keeps the value word even for a class, because its adapters receive the
+content slot without the type; its nonzero padding word, which holds the
+adapter or table, tells the runtime which layout the box uses.
 
 ## Allocator provenance
 
 Runtime objects and container buffers both come from the global allocator, and
 an object allocation carries no prefix before its header: with only one
 allocator, freeing needs no record of which one created an object. A box is a
-16-byte header, its descriptor word and a padding word, then its content slot.
+16-byte header, its descriptor word and a padding word, then its content: a
+flat class record, or a slot. A binary-trees node is a 64-byte box in an 80-byte
+malloc chunk (C: 32).
 Public allocator selection and scoped allocator lifetimes are unsupported. Adding
 them (backlog B13) must record provenance again without enlarging objects of the
 global allocator; a 16-byte prefix made each binary-trees node a 112-byte malloc
-chunk rather than 96 (issue #814).
+chunk rather than 96 (issue #814), before the record's value word was also
+dropped.
 
 Checked buffer growth and partial-construction cleanup implement the
 [recoverable allocation contract](../../language/08-errors/02-allocation-and-traps.md).
