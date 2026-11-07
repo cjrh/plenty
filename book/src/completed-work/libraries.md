@@ -461,3 +461,26 @@ arbitrary bytes, such as subprocess output, to text by replacing each maximal
 ill-formed subpart with U+FFFD, as Unicode and WHATWG specify. Strict
 `to_text` stays the default. The result is at most three bytes per input byte,
 and allocation failure is `AllocError`. See [lossy text](../design/stdlib/bytes.md#lossy-text).
+
+## Memory-mapping package experiment (issue #480)
+
+The unpublished `memmap` package prototype lives in
+`experiments/packages/memmap/`,
+ready to extract into an independent package. It uses a small Linux C shim and
+ordinary Plenty foreign ownership/loading primitives, with no compiler or runtime
+changes and no `std.memmap` commitment. Actual read-only file mappings are owned
+by affine wrappers; bounded reads copy into a caller-owned buffer through a
+kernel fault-contained read, including partial/error results after external
+truncation. The package README records the API, restrictions and native ABI.
+
+This delivers a mapping/package experiment, not issue #480's original zero-copy
+borrowed byte source. The cache-hot 64 KiB-buffer probe measured mapped copy-out
+at 5.39–5.55 GiB/s against 5.81–6.18 GiB/s for `pread` on the development x86-64
+Linux host; no application performance benefit is claimed. Other platforms and
+worker use are not qualified.
+
+Issue #480 is closed as deferred. Making memory-mapped file usage safe is too
+complex at present, and Plenty's safety posture will not be changed to
+accommodate this use case now. The prototype is retained as experimental
+evidence; any future support may be explored in a separate library outside the
+standard library. No further implementation or publication is scheduled.
