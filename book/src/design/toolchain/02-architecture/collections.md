@@ -129,6 +129,22 @@ ordinary locals rather than in loads marked `readonly`: Cranelift treats a
 `readonly` load as valid for the whole function, which a later `append` would
 violate.
 
+The same analysis caches a `std.bytes.Bytes` place (a local, a reference
+parameter, or a field path such as `holder.data`) for `data.get(i)` and
+`data.set(i, value)` (issue #843). Before the loop the frontend reads the
+buffer's length with `plenty_bytes_len`, or reuses the range's stop when it is
+`data.len()`, and its first-byte address with `plenty_byte_view_rows`. In the
+loop the methods lower to `BytesGetView` and `BytesSetView`. When the range
+proves the index in bounds, the access
+is one byte load or store. Otherwise one unsigned comparison with the cached
+length guards it, and a failing index calls the method in a cold block. The
+method traps there with its own message, std position and caller note, since
+the length it reads is the cached one. Any operation in the loop that could
+resize or replace the buffer restores the method calls: a resizing method such
+as `push` or `clear`, a call taking `&mut` to the buffer or its owner, an
+assignment or `replace` of the binding or a parent, or an operation the
+analysis does not classify.
+
 The length of a borrowed list of any element type is read from the header
 inline: the stored byte count divided by the constant row size, a shift when
 it is a power of two, minus the popped-row flag. The length of an owned

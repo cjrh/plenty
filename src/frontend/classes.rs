@@ -1437,8 +1437,13 @@ impl Lower<'_> {
             Self::end_reads(loans, ops);
             return Ok(Some(storage));
         }
-        let Ty::Ref(_, mutable) = &sig.inputs[0].1 else {
+        let Ty::Ref(receiver, mutable) = &sig.inputs[0].1 else {
             unreachable!()
+        };
+        // Before the receiver's borrow, which the cache's own reads precede.
+        let bytes_view = match (name, *mutable) {
+            ("get", false) | ("set", true) => self.indexed_bytes_view(base, receiver)?,
+            _ => None,
         };
         let start = ops.len();
         let (reference, loan) = self.borrow(base, *mutable, ops)?;
@@ -1454,7 +1459,24 @@ impl Lower<'_> {
         }
         self.record_direct_call(&callee, &base.at, &loans, ops);
         self.passes(start, &sig.inputs, sig.outputs.first(), ops);
-        self.push_call(Op::Call(callee.clone()), &sig.inputs, &loans, &base.at, ops)?;
+        if let Some([length, rows]) = bytes_view {
+            // `uncache` relies on this exact sequence.
+            let view = if *mutable {
+                CollectionOp::BytesSetView((**receiver).clone())
+            } else {
+                CollectionOp::BytesGetView((**receiver).clone())
+            };
+            ops.extend([
+                Op::LoadLocal(length),
+                Op::LoadLocal(rows),
+                Op::Collection(view),
+            ]);
+            if *mutable {
+                ops.push(Op::Drop);
+            }
+        } else {
+            self.push_call(Op::Call(callee.clone()), &sig.inputs, &loans, &base.at, ops)?;
+        }
         self.call_reference_result(&callee, &sig, &loans, ops);
         Self::end_reads(loans, ops);
         Ok(sig.outputs.first().cloned())

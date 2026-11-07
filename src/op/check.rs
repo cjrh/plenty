@@ -366,6 +366,22 @@ fn step(
                 {
                     return Err("scalar list access requires a scalar list reference".into());
                 }
+                // Codegen calls the method for an index outside the cached
+                // length, so the view must name a `Bytes` method that exists.
+                view @ (crate::collection::CollectionOp::BytesGetView(ty)
+                | crate::collection::CollectionOp::BytesSetView(ty)) => {
+                    let is_bytes = matches!(
+                        ty,
+                        Ty::Class(class) if &*class.name == crate::frontend::BYTES_CLASS
+                    );
+                    if !is_bytes
+                        || !view
+                            .bytes_view_method()
+                            .is_some_and(|method| sigs.contains_key(method.as_str()))
+                    {
+                        return Err("byte view access requires a Bytes receiver".into());
+                    }
+                }
                 crate::collection::CollectionOp::ListSortBy(sort) => {
                     let Ty::List(element) = &sort.list else {
                         return Err("key sorting requires a list".into());
@@ -1428,6 +1444,68 @@ mod tests {
         malformed.variants[0].fields.clear();
         let result = Ty::Enum(crate::nominal::Nominal::new(malformed));
         assert!(checked_block_step(vec![], result, &mut vec![]).is_err());
+    }
+
+    #[test]
+    fn byte_views_require_a_bytes_class_and_its_method() {
+        use crate::collection::CollectionOp;
+        fn class(name: &str) -> Ty {
+            Ty::Class(crate::nominal::Nominal::new(crate::record::ClassType {
+                name: name.into(),
+                fields: vec![("storage".into(), Ty::ByteStorage)],
+                destructor: None,
+                fallible_init: false,
+                copy: false,
+                forwards_operators: false,
+                redacted: false,
+                quantity: None,
+                bytes: std::sync::OnceLock::new(),
+                managed: std::sync::OnceLock::new(),
+            }))
+        }
+        let get = FnSig {
+            inputs: vec![],
+            outputs: vec![],
+        };
+        let set = get.clone();
+        let get_name = crate::record::method(crate::frontend::BYTES_CLASS, "get");
+        let set_name = crate::record::method(crate::frontend::BYTES_CLASS, "set");
+        let sigs: Sigs = [(get_name.as_str(), &get), (set_name.as_str(), &set)]
+            .into_iter()
+            .collect();
+        let run = |operation: CollectionOp, sigs: &Sigs| {
+            let (inputs, _) = operation.signature();
+            step(
+                &Op::Collection(operation),
+                &mut inputs.clone(),
+                &[],
+                sigs,
+                None,
+                None,
+                None,
+            )
+        };
+        let bytes = class(crate::frontend::BYTES_CLASS);
+        assert!(run(CollectionOp::BytesGetView(bytes.clone()), &sigs).is_ok());
+        assert!(run(CollectionOp::BytesSetView(bytes.clone()), &sigs).is_ok());
+        for (ty, sigs) in [
+            (Ty::I64, &sigs),
+            (class("app.Bytes"), &sigs),
+            (bytes, &Sigs::default()),
+        ] {
+            for operation in [
+                CollectionOp::BytesGetView(ty.clone()),
+                CollectionOp::BytesSetView(ty.clone()),
+            ] {
+                let error = run(operation, sigs)
+                    .err()
+                    .expect("a byte view on another receiver must be rejected");
+                assert_eq!(
+                    error.to_string(),
+                    "byte view access requires a Bytes receiver"
+                );
+            }
+        }
     }
 
     #[test]

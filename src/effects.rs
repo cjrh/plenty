@@ -231,6 +231,8 @@ impl CollectionOp {
             | ListScalarGetView(_)
             | ListScalarSetRef(_)
             | ListScalarSetView(_)
+            | BytesGetView(_)
+            | BytesSetView(_)
             | ElementRefView(..)
             | ListScalarSwapRef(_)
             | ListRowsRef(_)
