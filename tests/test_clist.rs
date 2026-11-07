@@ -1147,3 +1147,118 @@ fn row_fields_in_loops_trap_out_of_bounds(#[case] index: &str, #[case] traps: bo
         }
     }
 }
+
+/// A clist reached through a class field (issue #759) caches through a shared
+/// owner and falls back when the loop can resize or replace it through the
+/// owner: a `&mut self` method, `&mut h.rows`, a field store, or an indirect
+/// call.
+const OWNERS: &str = r#"class B:
+    x: f64
+
+
+class H:
+    rows: clist[B]
+
+    def shrink(self: &mut H) -> ():
+        self.rows.remove(0)
+        ()
+
+
+def make(n: i64, base: f64) -> Result[clist[B], AllocError | AppendError[B]]:
+    mut rows = clist[B]()
+    for k in range(n):
+        rows.append(B(base + f64(k)))?
+    Ok(rows)
+
+
+def shrink_ref(rows: &mut clist[B]) -> ():
+    rows.remove(0)
+    ()
+
+
+def read_owner(h: &H) -> f64:
+    mut s = 0.0
+    for i in range(len(h.rows)):
+        s += h.rows[i].x
+    s
+
+
+def via_method(h: &mut H) -> f64:
+    mut s = 0.0
+    for _ in range(3):
+        s += h.rows[0].x
+        h.shrink()
+    s
+
+
+def via_field_call(h: &mut H) -> f64:
+    mut s = 0.0
+    for _ in range(3):
+        s += h.rows[0].x
+        shrink_ref(&mut h.rows)
+    s
+
+
+def via_field_assign(h: &mut H) -> Result[f64, AllocError | AppendError[B]]:
+    mut s = 0.0
+    for _ in range(2):
+        s += h.rows[0].x
+        h.rows = make(2, 100.0)?
+    Ok(s)
+
+
+def via_callable(rows: &mut clist[B], f: Callable[[&mut clist[B]], ()]) -> f64:
+    mut s = 0.0
+    for _ in range(3):
+        s += rows[0].x
+        f(rows)
+    s
+
+
+def main() -> Result[(), AllocError | AppendError[B] | IoError]:
+    print(read_owner(&H(make(4, 10.0)?)))?
+    mut a = H(make(4, 10.0)?)
+    print(via_method(&mut a))?
+    mut b = H(make(4, 10.0)?)
+    print(via_field_call(&mut b))?
+    mut c = H(make(4, 10.0)?)
+    print(via_field_assign(&mut c)?)?
+    mut d = make(4, 10.0)?
+    print(via_callable(&mut d, shrink_ref))?
+    Ok(())
+"#;
+
+#[test]
+fn owner_paths_fall_back_when_the_loop_can_resize_the_clist() {
+    let dir = loops_dir(OWNERS);
+    let read = dump(dir.path(), "ops", "read_owner");
+    assert!(read.contains("GetView("), "{read}");
+    assert!(!read.contains("Clist(Get("), "{read}");
+    for function in [
+        "via_method",
+        "via_field_call",
+        "via_field_assign",
+        "via_callable",
+    ] {
+        let ops = dump(dir.path(), "ops", function);
+        assert!(ops.contains("Clist(Get("), "{function}: {ops}");
+        assert!(!ops.contains("View("), "{function}: {ops}");
+    }
+    for release in [false, true] {
+        let mut command = std::process::Command::new(support::plenty_bin());
+        command.current_dir(dir.path()).env("PLENTY_CACHE", "off");
+        if !release {
+            command.arg("--fast-compile");
+        }
+        let output = command.arg("loops.plenty").output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "46.0\n33.0\n33.0\n110.0\n33.0\n"
+        );
+    }
+}

@@ -9,9 +9,9 @@ const KEY_VIEW_COLLECTION: &str = "collection constructors do not accept borrowe
 /// scope, read once before the loop instead of at every `xs[i]` (issues #429,
 /// #715, #717), and likewise the row count and column addresses of clists
 /// for `rows[i].field` (issue #759). A list is a local or a field path on one
-/// (`self.items`). An
-/// immutable shared reference is stable for the whole loop. Owned lists,
-/// exclusive references and retargetable bindings are cached provisionally:
+/// (`self.items`). An immutable shared reference is stable for the whole
+/// loop. Owned lists, exclusive references and retargetable bindings are
+/// cached provisionally:
 /// when the finished loop contains an operation that could replace, resize or
 /// move a list (a list mutation other than a row write, a write to the
 /// binding, a call that could reach it), `uncache` restores ordinary indexed

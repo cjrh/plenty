@@ -99,9 +99,6 @@ impl Lowerer<'_, '_> {
         length: NativeValue,
         index: NativeValue,
     ) -> Result<NativeValue> {
-        if self.assumed_index {
-            return Ok(index);
-        }
         let dfg = &self.bcx.func.dfg;
         let known = super::known::known_signed(dfg, index);
         let length_key = dfg.resolve_aliases(length);
