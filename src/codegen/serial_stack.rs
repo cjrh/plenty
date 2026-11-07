@@ -60,7 +60,9 @@ impl Budgets {
             if graph.unknown {
                 self.unknown.insert(function.id);
             }
-            let arguments = graph.arguments.max(function.sig.inputs.len() as u64);
+            let arguments = graph
+                .arguments
+                .max(crate::tail_abi::layout(&function.sig).inputs.len() as u64);
             self.calls.insert(function.id, graph.edges);
             self.tail_arguments.insert(function.id, arguments * 16);
             if function.inline.is_some() || function.inline_body.is_some() {
@@ -202,7 +204,9 @@ impl<'a> Graph<'a> {
             callee: target.id,
             guarded,
         });
-        self.arguments = self.arguments.max(target.sig.inputs.len() as u64);
+        self.arguments = self
+            .arguments
+            .max(crate::tail_abi::layout(&target.sig).inputs.len() as u64);
         // A returned temporary can be released before it ever reaches a local.
         for output in &target.sig.outputs {
             self.release(output);
@@ -518,6 +522,38 @@ mod tests {
             vec![Op::Call("other".into())],
         );
         assert!(Graph::checked_call(&check, &wrong_rejection).is_none());
+    }
+
+    #[test]
+    fn widened_call_budget_includes_the_hidden_inline_result_argument() {
+        let signature = Arc::new(FnSig {
+            inputs: (0..7).map(|i| (format!("arg{i}"), Ty::I64)).collect(),
+            outputs: vec![crate::sum::tuple(vec![Ty::I64, Ty::I64, Ty::I64])],
+        });
+        let native_arguments = user_fn_signature(&signature).params.len() as u64;
+        assert_eq!(native_arguments, 8);
+        let functions = HashMap::from_iter([(
+            "callee".into(),
+            UserFn {
+                inline: None,
+                inline_body: None,
+                column_predicate: None,
+                standard_library: false,
+                drop_callback: None,
+                generator: None,
+                resume: None,
+                frame_mask: None,
+                id: FuncId::from_u32(0),
+                sig: signature,
+                locals: Arc::from([]),
+                source: None,
+                preserves_caller: false,
+                reads_no_caller: false,
+            },
+        )]);
+        let mut graph = Graph::new(&functions, &[]);
+        graph.call("callee", false);
+        assert_eq!(graph.arguments, native_arguments);
     }
 
     #[test]
