@@ -204,6 +204,8 @@ mod test_error_context;
 mod test_examples;
 #[path = "test_executable_size.rs"]
 mod test_executable_size;
+#[path = "test_executor_submitters.rs"]
+mod test_executor_submitters;
 #[path = "test_executors.rs"]
 mod test_executors;
 #[path = "test_exports.rs"]

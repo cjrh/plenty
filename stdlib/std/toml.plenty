@@ -5,6 +5,8 @@
 import std.bytes
 import std.io
 import std.serial
+import std.report
+from std.fmt import Formatter, FormatError
 from std.bytes import Bytes, BytesError
 from std.io import Reader, Writer, StreamError
 
@@ -29,6 +31,47 @@ pub enum TomlFault:
     Stream(StreamError)
     Allocation(AllocError)
 
+def fault_description(fault: &TomlFault) -> str:
+    match fault:
+        case TomlFault.UnexpectedByte:
+            "unexpected byte"
+        case TomlFault.UnexpectedEnd:
+            "unexpected end of input"
+        case TomlFault.InvalidUtf8:
+            "invalid UTF-8"
+        case TomlFault.ControlCharacter:
+            "invalid control character"
+        case TomlFault.InvalidEscape:
+            "invalid string escape"
+        case TomlFault.InvalidNumber:
+            "invalid number"
+        case TomlFault.NumberOutOfRange:
+            "number is outside the supported range"
+        case TomlFault.InvalidDateTime:
+            "invalid date or time"
+        case TomlFault.DuplicateKey:
+            "duplicate key"
+        case TomlFault.DuplicateTable:
+            "duplicate table"
+        case TomlFault.KeyConflict:
+            "key conflicts with an existing value"
+        case TomlFault.DepthExceeded:
+            "nesting depth limit exceeded"
+        case TomlFault.InputTooLarge:
+            "input byte limit exceeded"
+        case TomlFault.OutputTooLarge:
+            "output byte limit exceeded"
+        case TomlFault.NotATable:
+            "document root must be a table"
+        case TomlFault.InvalidState:
+            "invalid codec state"
+        case TomlFault.Stream(_):
+            "stream operation failed"
+        case TomlFault.Allocation(_):
+            "memory allocation failed"
+        case TomlFault.Serialization(_):
+            "serialization failed"
+
 # Parser errors locate the offending input byte: `offset` counts bytes from
 # zero, `line` and `column` count from one, and a column is one Unicode scalar.
 # Writer and stream errors carry a byte count and zero for both.
@@ -37,6 +80,29 @@ pub class TomlError:
     pub offset: i64
     pub line: i64
     pub column: i64
+
+    pub def source_offset(self) -> Option[i64]:
+        if self.line > 0 and self.column > 0 and self.offset >= 0:
+            Some(self.offset)
+        else:
+            Nothing
+
+    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
+        output.text("TOML: ")?
+        match &self.fault:
+            case TomlFault.Serialization(cause):
+                std.report.render(cause, output)?
+            case _:
+                output.text(&fault_description(&self.fault))?
+        if self.line > 0 and self.column > 0:
+            output.text(" at line ")?
+            output.integer(self.line)?
+            output.text(", column ")?
+            output.integer(self.column)?
+            output.text(" (byte ")?
+            output.integer(self.offset)?
+            output.text(")")?
+        Ok(())
 
 pub class Limits:
     pub max_depth: NonNegative[i64] __max(1024)
@@ -2047,6 +2113,23 @@ enum DecodeFrame:
     Members(list[Entry])
 
 # Own the tree: Plenty classes cannot retain a borrowed input reference.
+def value_kind(value: &Toml) -> std.serial.Kind:
+    match value:
+        case Toml.Bool(_):
+            std.serial.Kind.Boolean
+        case Toml.Int(_):
+            std.serial.Kind.Integer
+        case Toml.Float(_):
+            std.serial.Kind.Number
+        case Toml.Text(_):
+            std.serial.Kind.Text
+        case Toml.Array(_):
+            std.serial.Kind.Array
+        case Toml.Table(_):
+            std.serial.Kind.Object
+        case Toml.DateTime(_):
+            std.serial.Kind.DateTime
+
 pub class TreeDecoder:
     _value: Option[Toml]
     _frames: list[DecodeFrame]
@@ -2076,15 +2159,15 @@ pub class TreeDecoder:
         match self.take()?:
             case Toml.Bool(value):
                 Ok(value)
-            case _:
-                Err(self.reject(std.serial.Fault.UnexpectedKind))
+            case _ as other:
+                Err(self.reject(std.serial.Fault.KindMismatch(std.serial.Kind.Boolean, value_kind(&other))))
 
     pub def integer(self: &mut TreeDecoder) -> Result[i64, TomlError]:
         match self.take()?:
             case Toml.Int(value):
                 Ok(value)
-            case _:
-                Err(self.reject(std.serial.Fault.UnexpectedKind))
+            case _ as other:
+                Err(self.reject(std.serial.Fault.KindMismatch(std.serial.Kind.Integer, value_kind(&other))))
 
     pub def unsigned(self: &mut TreeDecoder) -> Result[u64, TomlError]:
         value = self.integer()?
@@ -2098,21 +2181,25 @@ pub class TreeDecoder:
                 Ok(f64(value))
             case Toml.Float(value):
                 Ok(value)
-            case _:
-                Err(self.reject(std.serial.Fault.UnexpectedKind))
+            case _ as other:
+                Err(self.reject(std.serial.Fault.KindMismatch(std.serial.Kind.Number, value_kind(&other))))
 
     pub def variant(self: &mut TreeDecoder) -> Result[(str, bool), TomlError]:
         match &self._value:
             case Some(Toml.Text(_)):
                 return Ok((self.text()?, False))
-            case _:
+            case Some(Toml.Table(_)):
                 pass
+            case Some(other):
+                return Err(self.reject(std.serial.Fault.KindMismatch(std.serial.Kind.Variant, value_kind(other))))
+            case Nothing:
+                return Err(codec_invalid())
         self.start_object()?
         match self.next_key()?:
             case Some(tag):
                 Ok((tag, True))
             case Nothing:
-                Err(self.reject(std.serial.Fault.UnexpectedKind))
+                Err(self.reject(std.serial.Fault.WrongLength(1, 0)))
 
     pub def text(self: &mut TreeDecoder) -> Result[str, TomlError]:
         match self.take()?:
@@ -2121,8 +2208,8 @@ pub class TreeDecoder:
                     self._budget.nodes -= 1
                 self._budget.node(value.byte_len())?
                 Ok(value)
-            case _:
-                Err(self.reject(std.serial.Fault.UnexpectedKind))
+            case _ as other:
+                Err(self.reject(std.serial.Fault.KindMismatch(std.serial.Kind.Text, value_kind(&other))))
 
     pub def start_array(self: &mut TreeDecoder) -> Result[(), TomlError]:
         match self.take()?:
@@ -2131,8 +2218,8 @@ pub class TreeDecoder:
                 mut items = values
                 items.reverse()
                 unplaced(reserved(self._frames.append(DecodeFrame.Items(items))))
-            case _:
-                Err(self.reject(std.serial.Fault.UnexpectedKind))
+            case _ as other:
+                Err(self.reject(std.serial.Fault.KindMismatch(std.serial.Kind.Array, value_kind(&other))))
 
     pub def next_element(self: &mut TreeDecoder) -> Result[bool, TomlError]:
         if self._value.is_some():
@@ -2158,8 +2245,8 @@ pub class TreeDecoder:
                 mut entries = values
                 entries.reverse()
                 unplaced(reserved(self._frames.append(DecodeFrame.Members(entries))))
-            case _:
-                Err(self.reject(std.serial.Fault.UnexpectedKind))
+            case _ as other:
+                Err(self.reject(std.serial.Fault.KindMismatch(std.serial.Kind.Object, value_kind(&other))))
 
     pub def next_key(self: &mut TreeDecoder) -> Result[Option[str], TomlError]:
         if self._value.is_some():

@@ -43,6 +43,11 @@ pub(crate) struct Pool {
     // Only the owning thread can call shutdown. Compiler worker eligibility
     // excludes pools/futures, including through captures and stored fields.
     joined: bool,
+    // Counts `Submitter` references plus one held by the pool itself. The
+    // owner's last release shuts down and joins through `header`; the queue
+    // memory lives until the last submitter is also gone, so a late
+    // `submit_nowait` finds the queue closed instead of freed memory.
+    handle: Header,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -135,6 +140,7 @@ fn allocate_pool(count: usize, capacity: usize) -> Result<*mut Pool, AllocError>
             readable: Condvar::new(),
             writable: Condvar::new(),
             joined: false,
+            handle: Header::new(destroy_handle),
         });
         Ok(pointer)
     }
@@ -274,15 +280,40 @@ unsafe extern "C" fn destroy_pool(header: *mut Header) {
     unsafe {
         let pointer = header.cast::<Pool>();
         shutdown(pointer, false);
+        plenty_release(&raw mut (*pointer).handle);
+    }
+}
+
+/// Runs after the owner's shutdown, once no submitter remains.
+unsafe extern "C" fn destroy_handle(handle: *mut Header) {
+    unsafe {
+        let pointer = pool_of(handle);
         let words = (*pointer).words;
         std::ptr::drop_in_place(pointer);
         memory::free::<Pool, u128>(pointer, words);
     }
 }
 
+fn pool_of(handle: *mut Header) -> *mut Pool {
+    handle
+        .cast::<u8>()
+        .wrapping_sub(std::mem::offset_of!(Pool, handle))
+        .cast()
+}
+
+/// A new `Submitter` reference. Retaining needs no allocation.
+pub(crate) unsafe fn submitter(pointer: *mut Pool) -> *mut Header {
+    unsafe {
+        let handle = &raw mut (*pointer).handle;
+        plenty_retain(handle);
+        handle
+    }
+}
+
 /// Failure codes match SubmitError: Full, Shutdown, OutOfMemory, CapacityOverflow.
 /// On error the caller still owns value. On success its relocated copy belongs
-/// to the worker and the returned cell owns the single public future handle.
+/// to the worker, and with `future` the returned cell owns the single public
+/// future handle; without it the worker is the cell's only owner.
 pub(crate) unsafe fn submit(
     pointer: *mut Pool,
     value: u128,
@@ -298,11 +329,40 @@ pub(crate) unsafe fn submit(
             output,
             entry,
             std::ptr::null(),
-            nowait,
+            if nowait {
+                Submission::Nowait
+            } else {
+                Submission::Wait
+            },
             |slot| {
                 ranges::store(slot, value, input);
             },
         )
+    }
+}
+
+/// A `Submitter` submission: never waits for space and has no future, so the
+/// worker owns the job cell alone and releases it after running or cancelling.
+pub(crate) unsafe fn submit_detached(
+    pointer: *mut Pool,
+    value: u128,
+    input: &'static Type,
+    output: &'static Type,
+    entry: Entry,
+) -> Result<(), u64> {
+    unsafe {
+        submit_initialized(
+            pointer,
+            input,
+            output,
+            entry,
+            std::ptr::null(),
+            Submission::Detached,
+            |slot| {
+                ranges::store(slot, value, input);
+            },
+        )
+        .map(drop)
     }
 }
 
@@ -317,9 +377,17 @@ pub(crate) unsafe fn submit_shared(
 ) -> Result<*mut Job, u64> {
     // SAFETY: the map caller keeps shared storage alive until Pending drains.
     unsafe {
-        submit_initialized(pointer, input, output, entry, shared, false, |slot| {
-            ranges::store(slot, value, input);
-        })
+        submit_initialized(
+            pointer,
+            input,
+            output,
+            entry,
+            shared,
+            Submission::Wait,
+            |slot| {
+                ranges::store(slot, value, input);
+            },
+        )
     }
 }
 
@@ -339,7 +407,7 @@ pub(crate) unsafe fn submit_pair(
             output,
             entry,
             std::ptr::null(),
-            false,
+            Submission::Wait,
             |slot| {
                 let environment = slot.add(1);
                 environment.write(input as *const Type as u128);
@@ -354,6 +422,16 @@ pub(crate) unsafe fn submit_pair(
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Submission {
+    /// Wait for queue space; the caller gets a future.
+    Wait,
+    /// Return Full instead of waiting; the caller gets a future.
+    Nowait,
+    /// A `Submitter` job: never waits and has no future.
+    Detached,
+}
+
 /// Initialization is infallible, transfers ownership only after allocation,
 /// and must neither call user code nor lock another runtime object.
 unsafe fn submit_initialized(
@@ -362,14 +440,14 @@ unsafe fn submit_initialized(
     output: &'static Type,
     entry: Entry,
     shared: *const u128,
-    nowait: bool,
+    mode: Submission,
     initialize: impl FnOnce(*mut u128),
 ) -> Result<*mut Job, u64> {
     unsafe {
         let pool = &*pointer;
         let mut queue = lock(&pool.queue);
         while queue.len == pool.capacity && !queue.closed {
-            if nowait {
+            if mode != Submission::Wait {
                 return Err(0);
             }
             queue = wait(&pool.writable, queue);
@@ -394,7 +472,9 @@ unsafe fn submit_initialized(
             completed: Condvar::new(),
         });
         initialize((*job).data);
-        plenty_retain(job.cast()); // worker/queue + public future
+        if mode != Submission::Detached {
+            plenty_retain(job.cast()); // worker/queue + public future
+        }
         pool.ring
             .add((queue.head + queue.len) % pool.capacity)
             .write(job);
@@ -546,6 +626,24 @@ pub(crate) unsafe extern "C" fn plenty_executor(
                 };
                 out.write(ranges::copy_payload(value, ty, out.add(1).cast()));
             }
+            13 => {
+                let ty = &*descriptor;
+                let input = ty.variants[1].fields[0].variants[0].fields[0];
+                let output = ty.variants[0].fields[0];
+                let entry: Entry = std::mem::transmute(*args.add(2) as usize);
+                let value = match submit_detached(
+                    pool_of(*args as *mut Header),
+                    *args.add(1),
+                    input,
+                    output,
+                    entry,
+                ) {
+                    Ok(()) => aggregates::wrap(0, 0),
+                    Err(tag) => aggregates::wrap(error_payload(tag, *args.add(1)), 1),
+                };
+                out.write(ranges::copy_payload(value, ty, out.add(1).cast()));
+            }
+            14 => out.write(submitter(*args as *mut Pool) as u128),
             3 => result(*args as *mut Job, out),
             4 => out.write(done(*args as *mut Job) as u128),
             5 => out.write(cancel(*args as *mut Job) as u128),

@@ -67,46 +67,46 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.image`](#stdimage): 2154-2200
 - [`std.io`](#stdio): 2202-2308
 - [`std.io.typed`](#stdiotyped): 2310-2348
-- [`std.serial`](#stdserial): 2350-2408
-- [`std.json`](#stdjson): 2410-2560
-- [`std.jwt`](#stdjwt): 2562-2609
-- [`std.log`](#stdlog): 2611-2678
-- [`std.markdown`](#stdmarkdown): 2680-2714
-- [`std.template`](#stdtemplate): 2716-2753
-- [`std.math`](#stdmath): 2755-2826
-- [`std.mime`](#stdmime): 2828-2854
-- [`std.net`](#stdnet): 2856-2938
-- [`std.path`](#stdpath): 2940-2957
-- [`std.process`](#stdprocess): 2959-3017
-- [`std.random`](#stdrandom): 3019-3040
-- [`std.ready`](#stdready): 3042-3073
-- [`std.regex`](#stdregex): 3075-3128
-- [`std.report`](#stdreport): 3130-3137
-- [`std.secrets`](#stdsecrets): 3139-3165
-- [`std.shlex`](#stdshlex): 3167-3176
-- [`std.sketch`](#stdsketch): 3178-3216
-- [`std.sketch.xor`](#stdsketchxor): 3218-3229
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3231-3246
-- [`std.signal`](#stdsignal): 3248-3265
-- [`std.simd`](#stdsimd): 3267-3368
-- [`std.stat`](#stdstat): 3370-3403
-- [`std.plot`](#stdplot): 3405-3494
-- [`std.linalg`](#stdlinalg): 3496-3537
-- [`std.sync`](#stdsync): 3539-3557
-- [`std.system`](#stdsystem): 3559-3618
-- [`std.tempfile`](#stdtempfile): 3620-3652
-- [`std.test`](#stdtest): 3654-3696
-- [`std.text`](#stdtext): 3698-3741
-- [`std.thread`](#stdthread): 3743-3747
-- [`std.time`](#stdtime): 3749-3793
-- [`std.tls`](#stdtls): 3795-3877
-- [`std.toml`](#stdtoml): 3879-3976
-- [`std.unicode`](#stdunicode): 3978-3990
-- [`std.units`](#stdunits): 3992-4229
-- [`std.units.catalogue`](#stdunitscatalogue): 4231-5009
-- [`std.url`](#stdurl): 5011-5039
-- [`std.uuid`](#stduuid): 5041-5064
-- [`std.xml`](#stdxml): 5066-5099
+- [`std.serial`](#stdserial): 2350-2414
+- [`std.json`](#stdjson): 2416-2568
+- [`std.jwt`](#stdjwt): 2570-2617
+- [`std.log`](#stdlog): 2619-2686
+- [`std.markdown`](#stdmarkdown): 2688-2722
+- [`std.template`](#stdtemplate): 2724-2761
+- [`std.math`](#stdmath): 2763-2834
+- [`std.mime`](#stdmime): 2836-2862
+- [`std.net`](#stdnet): 2864-2946
+- [`std.path`](#stdpath): 2948-2965
+- [`std.process`](#stdprocess): 2967-3025
+- [`std.random`](#stdrandom): 3027-3048
+- [`std.ready`](#stdready): 3050-3081
+- [`std.regex`](#stdregex): 3083-3136
+- [`std.report`](#stdreport): 3138-3149
+- [`std.secrets`](#stdsecrets): 3151-3177
+- [`std.shlex`](#stdshlex): 3179-3188
+- [`std.sketch`](#stdsketch): 3190-3228
+- [`std.sketch.xor`](#stdsketchxor): 3230-3241
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3243-3258
+- [`std.signal`](#stdsignal): 3260-3277
+- [`std.simd`](#stdsimd): 3279-3380
+- [`std.stat`](#stdstat): 3382-3415
+- [`std.plot`](#stdplot): 3417-3506
+- [`std.linalg`](#stdlinalg): 3508-3549
+- [`std.sync`](#stdsync): 3551-3569
+- [`std.system`](#stdsystem): 3571-3630
+- [`std.tempfile`](#stdtempfile): 3632-3664
+- [`std.test`](#stdtest): 3666-3708
+- [`std.text`](#stdtext): 3710-3753
+- [`std.thread`](#stdthread): 3755-3759
+- [`std.time`](#stdtime): 3761-3805
+- [`std.tls`](#stdtls): 3807-3889
+- [`std.toml`](#stdtoml): 3891-3990
+- [`std.unicode`](#stdunicode): 3992-4004
+- [`std.units`](#stdunits): 4006-4243
+- [`std.units.catalogue`](#stdunitscatalogue): 4245-5023
+- [`std.url`](#stdurl): 5025-5053
+- [`std.uuid`](#stduuid): 5055-5078
+- [`std.xml`](#stdxml): 5080-5113
 
 ## `std.actor`
 
@@ -668,7 +668,7 @@ def decompressor[R](format: Format, inner: R, limit: NonNegative[i64]) -> Result
 
 Executors, futures and parallel operations. Errors: Pool/submission/future/parallel errors. [Reference](concurrent.md).
 
-Compiler-provided: `ThreadPoolExecutor`, `Future`, `PoolError`, `SubmitError`, `FutureError`, `PoolMapError`, `ParallelError`. Their signatures are on the reference page.
+Compiler-provided: `ThreadPoolExecutor`, `Future`, `PoolError`, `SubmitError`, `FutureError`, `PoolMapError`, `ParallelError`, `Submitter`. Their signatures are on the reference page.
 
 ## `std.crypto`
 
@@ -2352,14 +2352,20 @@ def copy_all[E, G, R: Reader[E], W: Writer[G]](reader: &mut R, writer: &mut W, s
 Format-neutral typed codecs, derived or handwritten class/enum hooks, canonical bytes, and typed error paths. Errors: `SerialError[E]`. [Reference](serial.md).
 
 ```text
+enum Kind
+    Null | Boolean | Integer | Number | Text | Array | Object | DateTime | Variant | Key | End
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
 enum Fault
-    UnexpectedKind | MissingField(str) | DuplicateField(str) | UnknownField(str) | UnknownVariant(str) | OutOfRange | WrongLength(i64, i64) | DuplicateElement | Unrepresentable | InvalidBase64(std.encoding.EncodingError) | StackLimit
+    UnexpectedKind | KindMismatch(Kind, Kind) | MissingField(str) | DuplicateField(str) | UnknownField(str) | UnknownVariant(str) | OutOfRange | WrongLength(i64, i64) | DuplicateElement | Unrepresentable | InvalidBase64(std.encoding.EncodingError) | StackLimit
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
 enum Step
     Field(str) | Index(i64) | Key(str) | Variant(str)
 class SerialError[E]
     cause: E
     path: Option[list[Step]]
     complete: bool
+    def source_offset(self) -> Option[i64]
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
     def at(self: SerialError[E], step: Step) -> SerialError[E]
 def error[E](cause: E) -> SerialError[E]
 def wrap[T, E](result: Result[T, E]) -> Result[T, SerialError[E]]
@@ -2419,6 +2425,8 @@ class JsonError
     offset: i64
     line: i64
     column: i64
+    def source_offset(self) -> Option[i64]
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
 enum DuplicateKeys
     Reject | Keep
 class Limits
@@ -3134,6 +3142,10 @@ Bounded human-readable report rendering with `std.fmt`. Errors: `FormatError`. [
 ```text
 def render[T: Formattable, W](value: &T, output: &mut Formatter[W]) -> Result[(), FormatError]
 def to_string[T: Formattable](value: &T, max_bytes: NonNegative[i64], max_depth: NonNegative[i64]) -> Result[str, FormatError]
+protocol Diagnostic
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
+    def source_offset(self) -> Option[i64]
+def diagnostic[T: Diagnostic](value: &T, source: &[u8], max_bytes: NonNegative[i64] = 4096, max_context: NonNegative[i64] = 80) -> Result[str, FormatError]
 ```
 
 ## `std.secrets`
@@ -3888,6 +3900,8 @@ class TomlError
     offset: i64
     line: i64
     column: i64
+    def source_offset(self) -> Option[i64]
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
 class Limits
     max_depth: NonNegative[i64]
     max_input: NonNegative[i64]

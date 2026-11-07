@@ -169,6 +169,11 @@ values. See the [delivery record](completed-work/libraries.md#bounded-json-prett
 Issue #786 adds automatic response dates with caller overrides and shared
 bounded formatting. See the [delivery record](completed-work/libraries.md#http-response-dates-issue-786).
 
+## Serialization diagnostics
+
+Issue #783 adds bounded readable JSON/TOML causes, typed field paths and opt-in
+source excerpts. See the [delivery record](completed-work/libraries.md#serialization-diagnostics-issue-783).
+
 ## HTTP malformed-capture responses
 
 Issue #787 adds bounded custom pages for rejected captures while keeping

@@ -68,6 +68,11 @@ strings it escapes `"`, `\`, and bytes below 32 (`\b \f \n \r \t`, otherwise
 `\u00xx` in lowercase); every other scalar, including `/` and non-ASCII, is
 written as UTF-8.
 
+Human-readable bounded reports and opt-in input excerpts are described in
+[serialization diagnostics](serial-diagnostics.md). The error's `format`
+method uses `std.fmt.Formatter`; `source_offset()` distinguishes a known input
+location from tree/output errors without coordinates.
+
 ## Limits
 
 ```text

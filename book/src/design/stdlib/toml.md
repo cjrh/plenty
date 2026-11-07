@@ -197,6 +197,11 @@ oversize input, before resizing or invoking the reader; an unrepresentable
 extent reports `Allocation(AllocError.CapacityOverflow)`. Existing parser,
 output-size and atomic document-edit errors remain unchanged.
 
+Human-readable bounded reports and opt-in input excerpts are described in
+[serialization diagnostics](serial-diagnostics.md). The error's `format`
+method uses `std.fmt.Formatter`; `source_offset()` distinguishes a known input
+location from tree/output errors without coordinates.
+
 ## Errors
 
 ```text

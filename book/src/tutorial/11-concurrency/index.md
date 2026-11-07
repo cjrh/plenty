@@ -23,6 +23,7 @@ generic recovery helpers also use [type parameters](../09-generics/index.md).
 - [Cancel queued work and bound a future wait](future-cancellation-and-waits.md)
 - [Stop work cooperatively](cooperative-cancellation.md)
 - [Recover a job when submission cannot proceed](submission-backpressure.md)
+- [Split work from inside a pool job](submit-from-workers.md)
 - [Map fallible work in parallel](parallel-fallible-map.md)
 - [Combine values in parallel](parallel-reduction.md)
 - [Receive from either channel](channel-selection.md)

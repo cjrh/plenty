@@ -1844,3 +1844,173 @@ print("end")?
         "[\n  0\n]\nOutputTooLarge 6 0 0 6\n[\n  0\n\nend",
     );
 }
+
+#[test]
+fn diagnostics_typed_kinds_paths_and_toml_tree_locations() {
+    let source = r#"
+import std.json
+import std.fmt
+import std.bytes
+import std.io
+import std.toml
+import std.report
+import std.serial
+
+@serial
+class Row:
+    enabled: bool
+@serial
+class Config:
+    rows: list[Row]
+
+def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
+    source = b"{\"rows\":[{\"enabled\":\"sensitive-value\"}]}"
+    match std.json.load[Config](&source, &std.json.codec_options()):
+        case Ok(_):
+            print("unexpected success")?
+        case Err(error):
+            message = std.report.to_string(&error, 4096, 16)?
+            print(message.find("expected boolean, found string").is_some(), message.endswith("at $[\"rows\"][0][\"enabled\"]"), not message.find("sensitive-value").is_some())?
+            print(error.cause.fault == std.json.JsonFault.Serialization(std.serial.Fault.KindMismatch(std.serial.Kind.Boolean, std.serial.Kind.Text)))?
+            print(std.report.diagnostic(&error, &source, max_context=8)?.find("^").is_some())?
+    mut reader = std.json.codec_reader(std.io.cursor(std.bytes.from_bytes(&source)?))
+    match std.json.load_from[Config, std.io.Cursor](&mut reader, &std.json.codec_options()):
+        case Ok(_):
+            print("unexpected reader success")?
+        case Err(error):
+            print(std.report.to_string(&error, 4096, 16)?.find("expected boolean, found string").is_some())?
+    match std.toml.load[Config]("rows = [{enabled = 'sensitive-value'}]", &std.toml.codec_options()):
+        case Ok(_):
+            print("unexpected TOML success")?
+        case Err(error):
+            print(std.report.to_string(&error, 4096, 16)?)?
+            print(error.cause.source_offset().is_none(), std.report.diagnostic(&error, b"rows = [{enabled = 'sensitive-value'}]")? == std.report.to_string(&error, 4096, 16)?)?
+    tree = std.json.parse(b"false", &std.json.limits()).unwrap()
+    match std.json.from_value[i64](tree, &std.json.tree_limits()):
+        case Ok(_):
+            print("unexpected tree success")?
+        case Err(error):
+            print(std.report.to_string(&error, 4096, 16)?, error.source_offset().is_none())?
+    Ok(())
+"#;
+    support::assert_stdout(
+        source,
+        "True True True\nTrue\nTrue\nTrue\nTOML: expected boolean, found string at $[\"rows\"][0][\"enabled\"]\nTrue True\nJSON: expected integer, found boolean at $ True\n",
+    );
+}
+
+#[test]
+fn diagnostics_unicode_eof_and_invalid_bytes_are_bounded() {
+    let source = r#"
+import std.json
+import std.fmt
+import std.bytes
+import std.io
+import std.toml
+import std.report
+
+def main() -> Result[(), IoError | std.fmt.FormatError]:
+    match std.json.parse(b"[\"\xc3\xa9\",", &std.json.limits()):
+        case Ok(_):
+            print("unexpected")?
+        case Err(error):
+            print(error.offset, error.line, error.column)?
+            print(std.report.diagnostic(&error, b"[\"\xc3\xa9\",", max_context=80)?)?
+            print(std.report.diagnostic(&error, b"[\"\xc3\xa9\",", max_bytes=8).is_err())?
+            print(std.report.diagnostic(&error, b"[\"\xc3\xa9\",", max_context=0)? == std.report.to_string(&error, 4096, 16)?)?
+    match std.json.parse(b"[\xff]", &std.json.limits()):
+        case Ok(_):
+            print("unexpected")?
+        case Err(error):
+            print(std.report.diagnostic(&error, b"[\xff]")?)?
+    match std.toml.parse_text("name = 'é'\nvalue = ", &std.toml.limits()):
+        case Ok(_):
+            print("unexpected")?
+        case Err(error):
+            print(std.report.diagnostic(&error, b"name = '\xc3\xa9'\nvalue = ")?)?
+    Ok(())
+"#;
+    support::assert_stdout(
+        source,
+        "6 1 6\nJSON: unexpected end of input at line 1, column 6 (byte 6)\n  [\"é\",\n       ^\nTrue\nTrue\nJSON: unexpected byte at line 1, column 2 (byte 1)\n  [\\xff]\n   ^\nTOML: unexpected end of input at line 2, column 9 (byte 20)\n  value = \n          ^\n",
+    );
+}
+
+#[test]
+fn diagnostics_paths_incomplete_and_source_window_do_not_copy_whole_values() {
+    let source = r#"
+import std.json
+import std.fmt
+import std.bytes
+import std.io
+import std.report
+import std.serial
+
+def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
+    mut error = std.serial.error(std.json.JsonError(std.json.JsonFault.UnexpectedEnd, 0, 0, 0)).at(std.serial.Step.Key("a\n\"b"))
+    error.complete = False
+    print(std.report.to_string(&error, 256, 16)?)?
+    print(std.report.to_string(&error, 8, 16).is_err(), std.report.to_string(&error, 256, 0).is_err())?
+    source = b"abcdefghij\x1bklmnopqrstuvwxyz"
+    positioned = std.json.JsonError(std.json.JsonFault.UnexpectedByte, 10, 1, 11)
+    print(std.report.diagnostic(&positioned, &source, max_context=5)?)?
+    print(error.cause.offset, error.complete)?
+    Ok(())
+"#;
+    support::assert_stdout(
+        source,
+        "JSON: unexpected end of input at $[\"a\\n\\\"b\"] (path incomplete)\nTrue True\nJSON: unexpected byte at line 1, column 11 (byte 10)\n  ...ij\\u{1b}kl...\n       ^\n0 False\n",
+    );
+}
+
+#[test]
+fn diagnostics_escape_all_bidirectional_controls() {
+    support::assert_stdout(
+        r#"
+import std.json
+import std.report
+import std.fmt
+import std.bytes
+import std.io
+
+def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
+    error = std.json.JsonError(std.json.JsonFault.UnexpectedByte, 0, 1, 1)
+    print(std.report.diagnostic(&error, b"\xd8\x9c\xe2\x80\x8e\xe2\x80\x8f")?)?
+    Ok(())
+"#,
+        "JSON: unexpected byte at line 1, column 1 (byte 0)\n  \\u{61c}\\u{200e}\\u{200f}\n  ^\n",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn diagnostics_allocation_failure_keeps_original_cause_and_path() {
+    let source = r#"
+import std.json
+import std.fmt
+import std.bytes
+import std.io
+import std.serial
+import std.report
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    error = std.serial.error(std.json.JsonError(std.json.JsonFault.UnexpectedEnd, 1, 1, 2)).at(std.serial.Step.Field("long field name"))
+    mut refused = 0
+    mut succeeded = 0
+    for count in range(100):
+        marker = "".join(&["__test_fail_allocations_after_", str.from(count)?, "__"]?)?
+        print(marker)?
+        result = std.report.diagnostic(&error, b"[")
+        print("__test_restore_allocations__")?
+        match result:
+            case Ok(_):
+                succeeded += 1
+            case Err(std.fmt.FormatError.Allocation(_)):
+                refused += 1
+            case Err(_):
+                print("unexpected render failure")?
+    print(refused > 0, succeeded > 0, error.cause.offset == 1, error.complete, error.path.is_some())?
+    Ok(())
+"#;
+    assert_eq!(output(source), "True True True True True");
+}
