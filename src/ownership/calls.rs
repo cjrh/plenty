@@ -1,8 +1,10 @@
 //! What a called function can wait for: the results of futures and pool
 //! shutdowns it reaches, directly or through further calls (issue #349), and
-//! the jobs it can submit (issue #352).
+//! the jobs it can submit (issue #352), and the queues a worker can wait on
+//! (issue #793).
 use super::Hazard;
-use crate::executor::ExecutorOp;
+use crate::channel::{ChannelOp, SelectMode};
+use crate::executor::{ExecutorOp, Job as Submitted};
 use crate::hash::{HashMap, HashSet};
 use crate::op::{CompiledFn, Op, Ty};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -16,6 +18,36 @@ pub struct Program<'p> {
     table: OnceLock<HashMap<&'p str, Body<'p>>>,
     /// The jobs each callee reaches, so every function is searched once.
     jobs: Mutex<HashMap<&'p str, Arc<[Job<'p>]>>>,
+    /// Every function body by name, for `blocking`. Separate from `table`,
+    /// whose construction asks what each submitted job can block on.
+    definitions: OnceLock<HashMap<&'p str, &'p CompiledFn>>,
+    /// `blocking` by worker and closure names, which fix the input types.
+    blocking: Mutex<HashMap<String, Arc<Blocking>>>,
+}
+
+/// The queues a worker can wait on without a bound: the message types of its
+/// blocking sends and receives, including those of the functions it calls,
+/// the destructors of the values it can hold, and the workers it starts and
+/// so waits for. Only `send_nowait`, `recv_nowait`, and a nowait selection
+/// cannot wait; a timed operation's bound can be arbitrarily long.
+#[derive(Debug, Default)]
+pub(super) struct Blocking {
+    sends: Vec<Ty>,
+    receives: Vec<Ty>,
+    /// It reaches a call to a value, or a function without a body.
+    unknown: bool,
+}
+
+impl Blocking {
+    /// It can wait for space in a queue of `message`s.
+    pub(super) fn sends(&self, message: &Ty) -> bool {
+        self.unknown || self.sends.contains(message)
+    }
+
+    /// It can wait for a message of type `message`.
+    pub(super) fn receives(&self, message: &Ty) -> bool {
+        self.unknown || self.receives.contains(message)
+    }
 }
 
 /// What a submitted job can block on, with the job's result type.
@@ -62,6 +94,8 @@ impl<'p> Program<'p> {
             ops,
             table: OnceLock::new(),
             jobs: Mutex::default(),
+            definitions: OnceLock::new(),
+            blocking: Mutex::default(),
         }
     }
 
@@ -70,11 +104,148 @@ impl<'p> Program<'p> {
             let mut table = HashMap::default();
             crate::threading::walk(self.ops, &mut |op| {
                 if let Op::DefineFn(name, function) = op {
-                    table.insert(name.as_str(), body(function));
+                    table.insert(name.as_str(), body(function, self));
                 }
             });
             table
         })
+    }
+
+    fn definitions(&self) -> &HashMap<&'p str, &'p CompiledFn> {
+        self.definitions.get_or_init(|| {
+            let mut definitions = HashMap::default();
+            crate::threading::walk(self.ops, &mut |op| {
+                if let Op::DefineFn(name, function) = op {
+                    definitions.insert(name.as_str(), &**function);
+                }
+            });
+            definitions
+        })
+    }
+
+    /// What a scoped task's worker can wait on.
+    pub(super) fn task_blocking(&self, task: &crate::threading::Task) -> Arc<Blocking> {
+        let roots: Vec<&str> = std::iter::once(task.worker.as_str())
+            .chain(task.closure.iter().map(|closure| closure.name.as_str()))
+            .collect();
+        self.blocking(&roots, &task.inputs)
+    }
+
+    /// What a pool job can block on: the senders it can hold and wait to
+    /// send on, and the mutexes it can reach.
+    pub(super) fn job_hazards(&self, job: &Submitted) -> Vec<Hazard> {
+        let sends = crate::threading::endpoints([job.input.clone()], true, true);
+        let blocking = (!sends.is_empty()).then(|| {
+            let roots: Vec<&str> = std::iter::once(job.worker.as_str())
+                .chain(
+                    job.closure
+                        .iter()
+                        .chain(&job.shared)
+                        .map(|c| c.name.as_str()),
+                )
+                .collect();
+            self.blocking(&roots, std::slice::from_ref(&job.input))
+        });
+        sends
+            .into_iter()
+            .filter(|message| blocking.as_ref().is_some_and(|b| b.sends(message)))
+            .map(Hazard::Sends)
+            .chain(
+                crate::threading::mutexes([job.input.clone()])
+                    .into_iter()
+                    .map(Hazard::Locks),
+            )
+            .collect()
+    }
+
+    /// The queues that code started at `roots`, holding values of `inputs`,
+    /// can wait on. Calls follow `function_references`, which also names the
+    /// workers a function starts and the destructors it arms; the destructor
+    /// of every class it can hold, receive or build is followed as well.
+    #[expect(
+        clippy::mutable_key_type,
+        reason = "nominal identities exclude definition cells"
+    )]
+    fn blocking(&self, roots: &[&str], inputs: &[Ty]) -> Arc<Blocking> {
+        let key = roots.join("\n");
+        if let Some(cached) = self.blocking.lock().unwrap().get(&key) {
+            return cached.clone();
+        }
+        let definitions = self.definitions();
+        let mut found = Blocking::default();
+        let mut functions: Vec<String> = roots.iter().map(|&name| name.to_owned()).collect();
+        let mut types = inputs.to_vec();
+        let mut seen_functions = HashSet::default();
+        let mut seen_types = HashSet::default();
+        let add = |list: &mut Vec<Ty>, ty: &Ty| {
+            if !list.contains(ty) {
+                list.push(ty.clone());
+            }
+        };
+        'search: loop {
+            while let Some(ty) = types.pop() {
+                if !seen_types.insert(ty.clone()) {
+                    continue;
+                }
+                match &ty {
+                    Ty::Class(class) => functions.extend(class.get().destructor.iter().cloned()),
+                    // Their destructors and calls are erased.
+                    Ty::BoxedCallable(_) | Ty::BoxedProtocol(_) | Ty::Generator(_) => {
+                        found.unknown = true;
+                        break 'search;
+                    }
+                    _ => {}
+                }
+                crate::threading::contained(&ty, &mut types);
+            }
+            let Some(name) = functions.pop() else { break };
+            if !seen_functions.insert(name.clone()) {
+                continue;
+            }
+            // A function compiled elsewhere has no body to inspect.
+            let Some(function) = definitions.get(name.as_str()) else {
+                found.unknown = true;
+                break;
+            };
+            // Only the types and calls matter here; worker eligibility
+            // reports the error separately.
+            let mut calls = Vec::new();
+            let _ = crate::threading::inspect(function, &mut types, &mut calls);
+            functions.extend(calls);
+            let mut indirect = false;
+            crate::threading::walk(&function.body, &mut |op| {
+                crate::threading::function_references(op, &mut |name| {
+                    functions.push(name.to_owned())
+                });
+                match op {
+                    Op::Channel(
+                        ChannelOp::Send(message, false) | ChannelOp::SendTimeout(message),
+                    ) => add(&mut found.sends, message),
+                    Op::Channel(
+                        ChannelOp::Recv(message, false) | ChannelOp::RecvTimeout(message),
+                    ) => add(&mut found.receives, message),
+                    Op::Channel(ChannelOp::Select(first, second, mode))
+                        if *mode != SelectMode::Nowait =>
+                    {
+                        add(&mut found.receives, first);
+                        add(&mut found.receives, second);
+                    }
+                    Op::ClosureCall(closure) if closure.name.is_empty() => indirect = true,
+                    Op::CallIndirect(_)
+                    | Op::TailCallIndirect(_)
+                    | Op::BoxedCallableCall(_)
+                    | Op::ProtocolBoxCall(..) => indirect = true,
+                    _ => {}
+                }
+            });
+            if indirect {
+                found.unknown = true;
+                break;
+            }
+        }
+        let found = Arc::new(found);
+        self.blocking.lock().unwrap().insert(key, found.clone());
+        found
     }
 
     /// Visit the body of every function a call to `callee` can reach, or
@@ -189,7 +360,7 @@ pub fn future_results(ty: &Ty) -> Vec<Ty> {
     found
 }
 
-fn body(function: &CompiledFn) -> Body<'_> {
+fn body<'p>(function: &'p CompiledFn, program: &Program<'p>) -> Body<'p> {
     let mut body = Body {
         shuts: function
             .sig
@@ -208,7 +379,7 @@ fn body(function: &CompiledFn) -> Body<'_> {
         }
         Op::Executor(ExecutorOp::Shutdown) => body.shuts = true,
         Op::Executor(ExecutorOp::Submit(job, _)) => {
-            for hazard in Hazard::of(&job.input) {
+            for hazard in program.job_hazards(job) {
                 let job = (&job.output, hazard);
                 if !body.jobs.contains(&job) {
                     body.jobs.push(job);

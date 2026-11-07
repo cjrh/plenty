@@ -357,6 +357,8 @@ mod test_nesting;
 mod test_newtype_classes;
 #[path = "test_newtype_operators.rs"]
 mod test_newtype_operators;
+#[path = "test_nowait_workers.rs"]
+mod test_nowait_workers;
 #[path = "test_numeric_builtins.rs"]
 mod test_numeric_builtins;
 #[path = "test_numeric_casts.rs"]

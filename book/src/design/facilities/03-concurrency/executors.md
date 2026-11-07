@@ -81,7 +81,10 @@ therefore applies the [task join rule](channels.md#joins-and-live-endpoints) to
 pools:
 
 > A pool cannot be shut down while a live binding of the function can hold
-> `Receiver[T]`, once the function has submitted a job that can hold `Sender[T]`.
+> `Receiver[T]`, once the function has submitted a job that can hold `Sender[T]`
+> and [can wait](channels.md#which-workers-can-wait) to send a `T`.
+
+A job that sends only with `send_nowait` therefore does not block a shutdown.
 
 A pool shuts down at `pool.shutdown()`, including through a
 `&ThreadPoolExecutor`, at `drop(pool)`, when its binding is reassigned, and

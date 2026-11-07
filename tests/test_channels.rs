@@ -1244,7 +1244,9 @@ def main() -> Result[(), AllocError | IoError | RecvError | SendError[str] | Spa
 fn receivers_are_matched_by_message_type_not_by_queue() {
     // None of these programs can hang. The rule matches endpoints by message
     // type and does not follow how many messages a worker sends, so it rejects
-    // them; the reference lists them as its known false positives.
+    // them; the reference lists them as its known false positives. A worker
+    // that only sends with `send_nowait` is accepted (issue #793): see
+    // `test_nowait_workers`.
     for body in [
         // An independent queue of the same message type.
         "def main() -> Result[(), AllocError | IoError | RecvError | SpawnError[()]]:
@@ -1261,18 +1263,6 @@ def main() -> ():
     sender, receiver = channel[i64](1).unwrap()
     with spawn(once_only, sender).unwrap():
         receiver.recv().unwrap()
-",
-        // The worker never waits for queue space.
-        "def attempt(sender: Sender[i64]) -> ():
-    match sender.send_nowait(1):
-        case Ok(_):
-            pass
-        case Err(_):
-            pass
-def main() -> ():
-    sender, receiver = channel[i64](1).unwrap()
-    with spawn(attempt, sender).unwrap():
-        pass
 ",
     ] {
         blocked_join(body);

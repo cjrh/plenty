@@ -37,8 +37,9 @@ different failure layers.
 
 ## Result waits and live receivers
 
-`result()` cannot wait for a locally submitted job holding `Sender[T]` while
-the calling function still holds `Receiver[T]`. A full queue could keep the job
+`result()` cannot wait for a locally submitted job holding `Sender[T]` that
+[can wait](channels.md#which-workers-can-wait) to send a `T` while the calling
+function still holds `Receiver[T]`. A full queue could keep the job
 and the result wait blocked forever. End the receiver's own guard before
 retrieving the result:
 

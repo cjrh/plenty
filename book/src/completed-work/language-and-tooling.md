@@ -5,6 +5,16 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## Joins with nonblocking workers (issue #793)
+
+A join, pool shutdown, or result wait is no longer rejected for a live opposite
+endpoint when the worker or job cannot wait on that message type's queues: its
+code, including helpers, destructors, and workers it starts, uses only
+`send_nowait`, `recv_nowait`, and `select_recv_nowait` there. Timed operations
+and calls through values still count as waits. [Which workers can
+wait](../design/facilities/03-concurrency/channels.md#which-workers-can-wait)
+documents the rule.
+
 ## Source roots are real directories (issue #840)
 
 A package's `src/`, and the `tests/` of a package under test, can no longer be

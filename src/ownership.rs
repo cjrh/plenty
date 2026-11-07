@@ -317,7 +317,8 @@ pub enum Wait {
 }
 
 /// Types that a job accepted by a pool can block on: the message types of
-/// its senders, and the guarded types of the mutexes it can lock.
+/// the senders it holds and can wait to send on, and the guarded types of
+/// the mutexes it can lock.
 #[derive(Clone, Debug, PartialEq)]
 enum Hazard {
     Sends(Ty),
@@ -325,20 +326,6 @@ enum Hazard {
     /// The job holds the token in this slot, or a reference to it, from an
     /// `Op::Tokens` marker (issue #355).
     Cancels(u8),
-}
-
-impl Hazard {
-    /// Every hazard a value of `ty` carries into a job.
-    fn of(ty: &Ty) -> impl Iterator<Item = Self> + use<> {
-        endpoints([ty.clone()], true, true)
-            .into_iter()
-            .map(Self::Sends)
-            .chain(
-                crate::threading::mutexes([ty.clone()])
-                    .into_iter()
-                    .map(Self::Locks),
-            )
-    }
 }
 
 /// The first submission of the job whose hazard `kind` reports.
@@ -1519,10 +1506,24 @@ impl Checker<'_, '_> {
         candidate
     }
 
-    /// Reject a join while this function retains the opposite channel endpoint.
+    /// Reject a join while this function retains the opposite endpoint of a
+    /// queue type that the worker can wait on.
     fn join(&self, task: &Task, state: &State, site: Option<Site>, automatic: bool) -> Result<()> {
+        let waits = std::cell::OnceCell::new();
         let blocked = |worker_sends| {
-            let messages = endpoints(task.inputs.iter().cloned(), worker_sends, true);
+            // A worker whose operations on a queue's type cannot wait, such
+            // as `send_nowait`, finishes without the opposite endpoint's drop.
+            let waits = waits.get_or_init(|| self.program.task_blocking(task));
+            let messages: Vec<Ty> = endpoints(task.inputs.iter().cloned(), worker_sends, true)
+                .into_iter()
+                .filter(|message| {
+                    if worker_sends {
+                        waits.sends(message)
+                    } else {
+                        waits.receives(message)
+                    }
+                })
+                .collect();
             let kind = |message| Kind::BlockedJoin {
                 message,
                 worker_sends,
@@ -1902,7 +1903,11 @@ impl Checker<'_, '_> {
                     state[*slot as usize] = Slot::Unset
                 }
                 Op::Executor(ExecutorOp::Submit(job, _)) => {
-                    let sends = Hazard::of(&job.input).map(|hazard| (hazard, site));
+                    let sends = self
+                        .program
+                        .job_hazards(job)
+                        .into_iter()
+                        .map(|hazard| (hazard, site));
                     fn next(ops: &[Op]) -> &[Op] {
                         let start = ops.iter().position(|op| {
                             !matches!(
