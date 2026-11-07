@@ -199,6 +199,12 @@ See [errors](references/errors.md), [ownership](references/ownership.md), and
   explicitly and escape each original value once. The result is ordinary `str`,
   with no trust marker; keep raw values in `Json.Text` for `Engine.render`.
 
+- For template layout, `{{- value -}}`, `{%- ... -%}` and `{#- ... -#}` trim
+  adjacent literal ASCII whitespace. Plain delimiters preserve it; Unicode
+  whitespace and rendered values are unchanged. Markers cannot trim through
+  another tag or from an overriding block into its base layout. See
+  [whitespace control](../../../book/src/design/stdlib/template.md#whitespace-control).
+
 ## References
 
 | Page | Use |

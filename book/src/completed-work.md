@@ -70,3 +70,10 @@ examples teach explicit caller fallback. The
 psutil-style platform gaps and Rust backend tradeoffs; the
 [library delivery record](completed-work/libraries.md#b38-library-breadth) links
 to the remaining B38 scope.
+
+## Template literal whitespace control
+
+Issue #837 delivers opt-in delimiter markers for adjacent ASCII source
+whitespace, preserving default output, compact negative literals and original
+byte diagnostics. See [the reference](design/stdlib/template.md#whitespace-control)
+and [the library delivery record](completed-work/libraries.md#template-literal-whitespace-control).

@@ -55,9 +55,54 @@ Filters are `upper`, `lower`, `trim`, `length`, `escape` and `safe`. Text filter
 require text. `length` counts Unicode scalars for text and entries for arrays
 or objects. Filters do not accept arguments. Arithmetic, comparisons, boolean
 operators other than `not`, calls, bracket indexing, `elif`, assignments,
-includes, macros, raw blocks and whitespace-trimming delimiters are not part
+includes, macros and raw blocks are not part
 of this version. Unsupported syntax is rejected when registering a template,
 including inside branches that would never execute.
+
+### Whitespace control
+
+Whitespace is preserved by default, including indentation and line endings.
+Add a hyphen immediately after an opening delimiter to remove the preceding
+literal whitespace, or immediately before a closing delimiter to remove the
+following literal whitespace. Each side is independent:
+
+| Form | Effect |
+| --- | --- |
+| `{{- value }}`, `{%- if active %}`, `{#- comment #}` | Trim before the tag |
+| `{{ value -}}`, `{% endif -%}`, `{# comment -#}` | Trim after the tag |
+| `{{- value -}}`, `{%- endif -%}`, `{#- comment -#}` | Trim both sides |
+
+Only ASCII space, tab, LF, vertical tab, form feed and CR (bytes `20`, `09`–`0d`
+in hexadecimal) are removed. A run can span multiple lines or mixed CR/LF line
+endings. Other bytes stop it: non-breaking space and other Unicode whitespace
+remain unchanged. A hyphen separated from the delimiter by whitespace is not a
+trim marker. For compatibility, an expression-opening hyphen immediately
+followed by an ASCII digit or `.` remains a numeric sign: `{{-42}}`,
+`{{-0.5}}` and `{{-.5}}` preserve their negative values and surrounding
+whitespace. To trim before a numeric expression, separate the marker from its
+value: `{{- 42 }}` or `{{- -42 }}`. A closing marker can still be used alone,
+as in `{{-42 -}}`. Hyphens and delimiter-like text inside quoted expressions
+remain literal.
+
+Trimming happens when registering the source. It changes only the adjacent
+literal segment, stopping at a non-whitespace byte or another tag; it never
+reaches through comments or control tags, trims an interpolated value, or
+modifies the caller's context. It applies equally inside branches and loops,
+including branches that do not execute. It does not parse HTML: whitespace in
+`pre`, scripts or other meaningful content is preserved unless the author
+explicitly marks that boundary for trimming.
+
+Inheritance uses the trimmed literals compiled in each defining template.
+A child's trim marker cannot remove text or spacing from the base layout around
+a replaced block. Comments and whitespace remain permitted before `extends`;
+trim markers do not relax the inheritance or syntax rules.
+
+Source-byte limits and syntax locations count the original UTF-8 source,
+including removed whitespace and marker bytes. Fully removed literal segments
+produce no tokens; remaining tokens, syntax depth, render steps and output
+still use the ordinary limits. Registration failures remain atomic. See
+[the tutorial example](../../tutorial/07-modules/26-standard-template.md#controlling-literal-spacing)
+for readable source that renders adjacent inline elements.
 
 ## Escaping and inheritance
 
