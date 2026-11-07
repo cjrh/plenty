@@ -452,32 +452,59 @@ const WORKER_STACK: usize = 2 << 20;
 /// (issue #841). Calls, bitwise chains and method chains within the limit
 /// overflowed it until the large arms of `expr`, `call_expression`, `method`,
 /// `observe_inner` and `expr_hinted` were outlined (issue #849).
+///
+/// A stack overflow aborts the whole process without naming the test, so
+/// each case reruns this test binary, with an environment variable naming the
+/// one case to compile.
+/// Only a `dev`-profile build checks opt-level 0: CI's `ci` profile compiles
+/// the compiler at opt-level 1, whose frames are smaller.
 #[rstest]
-#[case::ifs(ifs, 62, "1\n")]
-#[case::elses(elses, 62, "1\n")]
-#[case::whiles(whiles, 62, "1\n")]
-#[case::fors(fors, 62, "1\n")]
-#[case::matches(matches, 62, "1\n")]
-#[case::sums(sums, 62, "69\n")]
-#[case::conjunctions(conjunctions, 61, "True\n")]
-#[case::disjunctions(disjunctions, 61, "True\n")]
-#[case::predicates(predicates, 61, "True\n")]
-#[case::parentheses(parentheses, 62, "7\n")]
-#[case::negations(negations, 61, "False\n")]
-#[case::conditionals(conditionals, 61, "7\n")]
-#[case::calls(calls, 62, "7\n")]
-#[case::methods(methods, 62, "69\n")]
-#[case::bitwise(bitwise, 60, "7\n")]
-#[case::indexes(indexes, 62, "7\n")]
-#[case::propagations(propagations, 31, "7\n")]
-#[case::tuples(tuples, 62, "7\n")]
-#[case::managers(managers, 62, "7\n")]
-#[case::clauses(clauses, 59, "7\n")]
+#[case::ifs("ifs", ifs, 62, "1\n")]
+#[case::elses("elses", elses, 62, "1\n")]
+#[case::whiles("whiles", whiles, 62, "1\n")]
+#[case::fors("fors", fors, 62, "1\n")]
+#[case::matches("matches", matches, 62, "1\n")]
+#[case::sums("sums", sums, 62, "69\n")]
+#[case::conjunctions("conjunctions", conjunctions, 61, "True\n")]
+#[case::disjunctions("disjunctions", disjunctions, 61, "True\n")]
+#[case::predicates("predicates", predicates, 61, "True\n")]
+#[case::parentheses("parentheses", parentheses, 62, "7\n")]
+#[case::negations("negations", negations, 61, "False\n")]
+#[case::conditionals("conditionals", conditionals, 61, "7\n")]
+#[case::calls("calls", calls, 62, "7\n")]
+#[case::methods("methods", methods, 62, "69\n")]
+#[case::bitwise("bitwise", bitwise, 60, "7\n")]
+#[case::indexes("indexes", indexes, 62, "7\n")]
+#[case::propagations("propagations", propagations, 31, "7\n")]
+#[case::tuples("tuples", tuples, 62, "7\n")]
+#[case::managers("managers", managers, 62, "7\n")]
+#[case::clauses("clauses", clauses, 59, "7\n")]
 fn limit_shapes_compile_on_a_worker_stack(
+    #[case] name: &str,
     #[case] shape: fn(usize) -> String,
     #[case] operators: usize,
     #[case] printed: &str,
 ) {
+    const SHAPE: &str = "PLENTY_TEST_NESTING_SHAPE";
+    match std::env::var(SHAPE) {
+        Ok(only) if only == name => {}
+        // The child runs every case of this test; the others do nothing.
+        Ok(_) => return,
+        Err(_) => {
+            let child = Command::new(std::env::current_exe().unwrap())
+                .args(["test_nesting::limit_shapes_compile_on_a_worker_stack::"])
+                .env(SHAPE, name)
+                .output()
+                .unwrap();
+            assert!(
+                child.status.success(),
+                "{name} failed on a {WORKER_STACK}-byte stack: {}\n{}",
+                child.status,
+                String::from_utf8_lossy(&child.stderr),
+            );
+            return;
+        }
+    }
     let workspace = tempfile::tempdir().unwrap();
     let executable = workspace.path().join("program");
     let source = shape(operators);

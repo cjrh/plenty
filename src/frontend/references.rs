@@ -1127,6 +1127,8 @@ impl Lower<'_> {
             }
         }
     }
+    /// Observes a name. Outlined from `observe_inner`, which every operand
+    /// recurses through, so its locals stay off the recursion (issue #849).
     #[inline(never)]
     fn observe_name(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<(Ty, Vec<usize>)> {
         let Expression::Name(name) = &e.kind else {
@@ -1178,6 +1180,8 @@ impl Lower<'_> {
             Ok((local.ty, vec![loan]))
         }
     }
+    /// Observes an index expression. Outlined from `observe_inner` for the
+    /// same reason as `observe_name`.
     #[inline(never)]
     fn observe_index(
         &mut self,

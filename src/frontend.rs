@@ -1756,6 +1756,7 @@ impl Lower<'_> {
             Expression::Binary(op, ..) if op == "in" || op == "not in" => {
                 self.membership_expression(e, ops)?
             }
+            // `expr` sends every other operator to `binary_expression`.
             Expression::Binary(..) => return self.logical(e, ops),
             Expression::Conditional { condition, yes, no } => {
                 let cond = self.expr(condition, ops)?;

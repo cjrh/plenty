@@ -1391,44 +1391,42 @@ impl Lower<'_> {
         sum: &crate::nominal::Nominal<crate::sum::EnumType>,
     ) -> Result<Type> {
         let mut hint = Some(Ty::Enum(sum.clone()));
-        {
-            let candidates: Option<Vec<Ty>> = match &ungroup(e).kind {
-                    Expression::Call(name, _) | Expression::Name(name)
-                        if enums::prelude_variant(name) && !self.names.contains_key(name) =>
+        let candidates: Option<Vec<Ty>> = match &ungroup(e).kind {
+                Expression::Call(name, _) | Expression::Name(name)
+                    if enums::prelude_variant(name) && !self.names.contains_key(name) =>
+                {
+                    Some(sum.get().variants.iter().map(|v| &v.fields[0])
+                        .filter(|ty| enums::prelude_owner(name, ty)).cloned().collect())
+                }
+                Expression::Tuple(values) => Some(sum.get().variants.iter().map(|v| &v.fields[0])
+                    .filter(|ty| matches!(ty, Ty::Enum(t) if t.tuple() && t.get().variants[0].fields.len() == values.len()))
+                    .cloned().collect()),
+                Expression::Collection { kind, .. } if kind != "generator" => Some(sum.get().variants.iter().map(|v| &v.fields[0])
+                    .filter(|ty| matches!(ty, Ty::Enum(t) if t.is_result() && kind_matches(kind, &t.get().variants[0].fields[0])))
+                    .cloned().collect()),
+                // `[..]?` and `list()?` produce the collection itself, so
+                // select the collection member before checking elements.
+                Expression::Try(inner) => match &ungroup(inner).kind {
+                    Expression::Collection { kind, .. } if kind != "generator" => Some(sum.get().variants.iter().map(|v| &v.fields[0])
+                        .filter(|ty| kind_matches(kind, ty)).cloned().collect()),
+                    Expression::Call(name, args)
+                        if matches!(name.as_str(), "list" | "dict" | "set")
+                            && args.is_empty()
+                            && !self.names.contains_key(name) =>
                     {
                         Some(sum.get().variants.iter().map(|v| &v.fields[0])
-                            .filter(|ty| enums::prelude_owner(name, ty)).cloned().collect())
+                            .filter(|ty| kind_matches(name, ty)).cloned().collect())
                     }
-                    Expression::Tuple(values) => Some(sum.get().variants.iter().map(|v| &v.fields[0])
-                        .filter(|ty| matches!(ty, Ty::Enum(t) if t.tuple() && t.get().variants[0].fields.len() == values.len()))
-                        .cloned().collect()),
-                    Expression::Collection { kind, .. } if kind != "generator" => Some(sum.get().variants.iter().map(|v| &v.fields[0])
-                        .filter(|ty| matches!(ty, Ty::Enum(t) if t.is_result() && kind_matches(kind, &t.get().variants[0].fields[0])))
-                        .cloned().collect()),
-                    // `[..]?` and `list()?` produce the collection itself, so
-                    // select the collection member before checking elements.
-                    Expression::Try(inner) => match &ungroup(inner).kind {
-                        Expression::Collection { kind, .. } if kind != "generator" => Some(sum.get().variants.iter().map(|v| &v.fields[0])
-                            .filter(|ty| kind_matches(kind, ty)).cloned().collect()),
-                        Expression::Call(name, args)
-                            if matches!(name.as_str(), "list" | "dict" | "set")
-                                && args.is_empty()
-                                && !self.names.contains_key(name) =>
-                        {
-                            Some(sum.get().variants.iter().map(|v| &v.fields[0])
-                                .filter(|ty| kind_matches(name, ty)).cloned().collect())
-                        }
-                        _ => None,
-                    }
-                    .filter(|candidates: &Vec<Ty>| !candidates.is_empty()),
                     _ => None,
-                };
-            if let Some(mut candidates) = candidates {
-                if candidates.len() > 1 {
-                    return Err(e.at.error("ambiguous anonymous sum constructor context; construct a member with an explicit type first"));
                 }
-                hint = candidates.pop();
+                .filter(|candidates: &Vec<Ty>| !candidates.is_empty()),
+                _ => None,
+            };
+        if let Some(mut candidates) = candidates {
+            if candidates.len() > 1 {
+                return Err(e.at.error("ambiguous anonymous sum constructor context; construct a member with an explicit type first"));
             }
+            hint = candidates.pop();
         }
         Ok(hint)
     }

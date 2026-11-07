@@ -118,7 +118,9 @@ calls, methods, operand observation and expected-type lowering) keep only
 dispatch in their own frames: an unoptimized build gives every local of every
 match arm its own stack slot, so the other arms are separate functions whose
 frames are gone before the next level starts. The parser is then the deepest
-pass for nested blocks and calls, at about 30 and 22 KiB per level.
+pass for nested blocks and calls. Per level of a nested `match` its frames
+total about 28 KiB, 21 KiB of which is `Parser::statement`; per nested call
+they total about 22 KiB, 19 KiB of which is `Parser::expr_inner`.
 
 Ownership checking tracks definite slot availability through branches and loop
 backedges. Borrow checking flattens typed access facts into a separate source-level
