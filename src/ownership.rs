@@ -2186,17 +2186,18 @@ impl Checker<'_, '_> {
                     // state while it changes. Merging only weakens a slot to
                     // `Moved { definite: false }`, once, so this terminates.
                     // Only wait checks read the weakened slots in a way that
-                    // can newly fail, so a pass that made none ends the
+                    // can newly fail, so a pass that made none, and submitted
+                    // no job that would make later shutdowns check, ends the
                     // repetition. Each pass rechecks nested loops; they start
                     // from the weakened state, so they usually settle at once.
-                    let zero = loop {
+                    let merged = loop {
                         let waits = self.state_waits.get();
+                        let jobs = self.submitted.borrow().len();
                         let mut pass = entry.clone();
                         self.sequence(condition, &mut pass, &mut Vec::new(), site)?;
-                        let zero = pass.clone();
                         loops.push(Loop {
                             entry: entry.clone(),
-                            breaks: vec![zero.clone()],
+                            breaks: vec![pass.clone()],
                             backedges: Vec::new(),
                         });
                         if self.sequence(body, &mut pass, loops, site)? {
@@ -2209,19 +2210,24 @@ impl Checker<'_, '_> {
                         exits.extend(breaks);
                         let mut next = State::new();
                         merge(&[&[entry.clone()][..], &backedges].concat(), &mut next);
-                        if next == entry || self.state_waits.get() == waits {
-                            break zero;
+                        let checked = self.state_waits.get() != waits
+                            || self.submitted.borrow().len() != jobs;
+                        if next == entry || !checked {
+                            break next;
                         }
                         entry = next;
                     };
                     // A job submitted in one iteration can still be in its pool
                     // in the next, so shutdowns before the submit see it too.
+                    // That iteration starts from what earlier ones left.
                     if self.submitted.borrow().len() > submitted {
+                        let mut again = merged.clone();
+                        self.sequence(condition, &mut again, &mut Vec::new(), site)?;
                         loops.push(Loop {
-                            entry,
+                            entry: merged,
                             ..Loop::default()
                         });
-                        let again = self.sequence(body, &mut zero.clone(), loops, site);
+                        let again = self.sequence(body, &mut again, loops, site);
                         loops.pop();
                         again?;
                     }

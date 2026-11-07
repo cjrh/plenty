@@ -27,7 +27,10 @@ fields. Loop bodies are checked again from the state their back edges
 reach, closing an earlier gap: a binding moved before a loop and assigned in
 its body was not counted at a join earlier in the body, so a program that
 hangs in its second iteration was accepted. Merging paths where a value is
-partly moved on one and moved on another now leaves it partly moved.
+partly moved on one and moved on another now leaves it partly moved; before,
+`if a: drop(sender) else: if b: drop(sender)` counted `sender` as moved on
+every path, so a later join was accepted although the remaining path still
+held it.
 [Joins and live endpoints](../design/facilities/03-concurrency/channels.md#joins-and-live-endpoints)
 states the rule.
 

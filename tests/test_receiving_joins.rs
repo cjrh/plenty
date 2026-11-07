@@ -629,3 +629,71 @@ fn loop_bodies_see_endpoints_assigned_by_earlier_iterations() {
     .unwrap();
     support::check_source(&looped(whole, "held = s2\n        drop(held)")).unwrap();
 }
+
+/// A pool assigned again in a loop shuts down the one an earlier iteration
+/// submitted to, while that iteration's receiver is still held.
+#[test]
+fn loop_reassigned_pools_see_jobs_and_receivers_from_earlier_iterations() {
+    let error = support::check_source(&format!(
+        "{RX_ENDS}def main() -> Result[(), AllocError | PoolError | SubmitError[OnceClosure[[], ()]]]:
+    s0, r0 = channel[i64](1)?
+    drop(s0)
+    mut inbox = r0
+    drop(inbox)
+    mut pool = ThreadPoolExecutor(1, 1)?
+    for i in range(2):
+        pool = ThreadPoolExecutor(1, 1)?
+        s, r = channel[i64](1)?
+        future = pool.submit(produce, s)?
+        inbox = r
+        if i == 1:
+            drop(inbox)
+            break
+    Ok(())
+"
+    ))
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("shuts down this pool"), "{error}");
+    assert!(
+        error.contains("`inbox` holds `Receiver[i64]` on some paths;"),
+        "{error}"
+    );
+}
+
+/// A value moved on some paths into one branch and on every path into the
+/// other is still owned on the remaining paths after the merge.
+#[test]
+fn merges_keep_values_moved_on_some_paths_live() {
+    for body in [
+        "    with spawn(consume, receiver).unwrap() as task:
+        if a:
+            drop(sender)
+            task.join()
+        else:
+            if b:
+                drop(sender)
+                task.join()
+",
+        "    if a:
+        drop(sender)
+    else:
+        if b:
+            drop(sender)
+    with spawn(consume, receiver).unwrap():
+        pass
+",
+    ] {
+        let error = support::check_source(&format!(
+            "{CONSUME}def run(a: bool, b: bool) -> ():
+    sender, receiver = channel[i64](1).unwrap()
+{body}"
+        ))
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("`sender` holds `Sender[i64]` on some paths;"),
+            "{body}\n{error}"
+        );
+    }
+}
