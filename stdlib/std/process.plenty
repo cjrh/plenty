@@ -31,6 +31,12 @@ const broken_pipe: i32 = 32
 const terminate_signal: i32 = 15
 const kill_signal: i32 = 9
 
+# Each isolated group is led by the newly spawned child; no arbitrary PGID.
+pub enum ProcessGroup:
+    Inherit
+    NewGroup
+    NewSession
+
 pub enum Stdio:
     Inherit
     Null
@@ -112,6 +118,8 @@ pub class Command:
     _files: list[File]
     _change_dir: bool
     _clear_env: bool
+    _process_group: ProcessGroup
+    _inherited: list[File]
 
     pub def arg_bytes(self: &mut Command, value: &list[u8]) -> Result[(), IoError]:
         terminated(&mut self._spec, value)?
@@ -238,6 +246,22 @@ pub class Command:
             case _:
                 pass
 
+    pub def process_group(self: &mut Command, mode: ProcessGroup) -> ():
+        self._process_group = mode
+
+    # Own a close-on-exec copy until cleared or dropped. Its descriptor is
+    # inherited by this command's children only; use the number in argv/env.
+    pub def inherit_file(self: &mut Command, file: &File) -> Result[i32, IoError]:
+        if len(self._inherited) >= 64:
+            return Err(IoError.InvalidInput)
+        copy = __process_duplicate_file(file)?
+        descriptor = __process_file_descriptor(copy)?
+        allocated(self._inherited.append(copy))?
+        Ok(descriptor)
+
+    pub def clear_inherited_files(self: &mut Command) -> ():
+        self._inherited.clear()
+
     # The command is reusable: each call starts another child.
     pub def spawn(self) -> Result[Child, IoError]:
         mut spec = allocated(list[u8].with_capacity(extent(extent(len(self._spec), len(self._dir))?, len(self._env))?))?
@@ -251,26 +275,41 @@ pub class Command:
                 allocated(spec.append(self._dir[index]))?
         if self._clear_env:
             flags = flags | (1 << 25)
+        isolated = match self._process_group:
+            case ProcessGroup.Inherit:
+                False
+            case ProcessGroup.NewGroup:
+                flags = flags | (1 << 26)
+                True
+            case ProcessGroup.NewSession:
+                flags = flags | (1 << 27)
+                True
         for index in range(len(self._env)):
             allocated(spec.append(self._env[index]))?
-        handle = __process_spawn(spec, self._argc, flags, self._files)?
-        mut child = Child(handle, unreaped, Nothing, Nothing, Nothing)
+        handle = __process_spawn(spec, self._argc, flags, self._files, self._inherited)?
+        mut child = Child(handle, unreaped, Nothing, Nothing, Nothing, isolated)
         if self._stdin == piped:
-            child._stdin = Some(pipe_end(handle, 0u8)?)
+            child._stdin = Some(pipe_end(handle, 0u8, isolated)?)
         if self._stdout == piped:
-            child._stdout = Some(pipe_end(handle, 1u8)?)
+            child._stdout = Some(pipe_end(handle, 1u8, isolated)?)
         if self._stderr == piped:
-            child._stderr = Some(pipe_end(handle, 2u8)?)
+            child._stderr = Some(pipe_end(handle, 2u8, isolated)?)
         Ok(child)
 
 # A child whose pipe cannot be handed over has no owner to wait for it, so it
 # is killed and reaped before the failure is reported.
-def pipe_end(handle: i64, which: u8) -> Result[File, IoError]:
+def pipe_end(handle: i64, which: u8, isolated: bool) -> Result[File, IoError]:
     match __process_pipe(handle, which):
         case Ok(file):
             Ok(file)
         case Err(error):
-            match __process_signal(handle, i64(kill_signal)):
+            if isolated:
+                match __process_signal(handle, i64(kill_signal), True):
+                    case _:
+                        pass
+            # A leader can leave NewGroup by joining another existing group.
+            # Always stop the owned child too before the blocking reap.
+            match __process_signal(handle, i64(kill_signal), False):
                 case _:
                     pass
             match __process_wait(handle, True):
@@ -286,7 +325,7 @@ pub def command_bytes(program: &list[u8]) -> Result[Command, IoError]:
     mut spec = allocated(list[u8].new())?
     terminated(&mut spec, program)?
     files = allocated(list[File].with_capacity(file_slots))?
-    Ok(Command(spec, allocated(list[u8].new())?, allocated(list[u8].new())?, 0, inherit, inherit, inherit, files, False, False))
+    Ok(Command(spec, allocated(list[u8].new())?, allocated(list[u8].new())?, 0, inherit, inherit, inherit, files, False, False, ProcessGroup.Inherit, allocated(list[File].new())?))
 
 pub def command(program: &str) -> Result[Command, IoError]:
     encoded = encode_utf8(program)?
@@ -389,6 +428,7 @@ pub class Child:
     _stdin: Option[File]
     _stdout: Option[File]
     _stderr: Option[File]
+    _isolated: bool
 
     pub def id(self) -> i64:
         self._handle & 4294967295
@@ -456,7 +496,7 @@ pub class Child:
     pub def signal(self, number: i32) -> Result[(), IoError]:
         if self._raw != unreaped:
             return Ok(())
-        __process_signal(self._handle, i64(number))
+        __process_signal(self._handle, i64(number), False)
 
     # SIGTERM: a request the child may handle or ignore.
     pub def terminate(self) -> Result[(), IoError]:
@@ -465,6 +505,21 @@ pub class Child:
     # SIGKILL: cannot be caught. The child still has to be waited for.
     pub def kill(self) -> Result[(), IoError]:
         self.signal(kill_signal)
+
+    # The unreaped leader pins the group id. Once reaped we send nothing;
+    # retaining only its numeric PGID would risk signalling a reused group.
+    pub def signal_group(self, number: i32) -> Result[(), IoError]:
+        if not self._isolated:
+            return Err(IoError.InvalidInput)
+        if self._raw != unreaped:
+            return Ok(())
+        __process_signal(self._handle, i64(number), True)
+
+    pub def terminate_group(self) -> Result[(), IoError]:
+        self.signal_group(terminate_signal)
+
+    pub def kill_group(self) -> Result[(), IoError]:
+        self.signal_group(kill_signal)
 
     # One page of `input` from `sent`; returns the new position. A child that
     # stopped reading ends the feed without an error: its status tells why.

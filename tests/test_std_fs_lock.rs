@@ -317,3 +317,129 @@ def main() -> Result[(), IoError | LockError | AllocError | RangeError | std.tes
         "now interrupted\nretried\ntimeout\ncancelled"
     );
 }
+
+#[test]
+fn explicitly_inherited_lock_survives_runner_death_until_child_closes() {
+    let dir = tempfile::tempdir().unwrap();
+    for optimize in [false, true] {
+        let probe = compile(
+            dir.path(),
+            "inherit-probe",
+            r#"
+def main() -> Result[(), IoError]:
+    print(lock.acquire_now(&path.from_text("resource.lock")?, Mode.Exclusive).is_ok())?
+    Ok(())
+"#,
+            optimize,
+        );
+        let holder = compile(
+            dir.path(),
+            "inherit-holder",
+            r#"
+import std.process
+from std.process import Stdio, ProcessGroup
+
+def main() -> Result[(), IoError | AllocError | LockError]:
+    mut owner = lock.acquire_now(&path.from_text("resource.lock")?, Mode.Exclusive)?
+    mut built = std.process.command("/usr/bin/python3")?
+    built.arg("-c")?
+    built.arg("import os,sys,signal; signal.alarm(10); assert os.getsid(0)==os.getpid(); print('child-ready',flush=True); sys.stdin.readline(); os.close(int(sys.argv[1])); print('released',flush=True)")?
+    fd = owner.inherit_into(&mut built)?
+    built.arg(&str.from(fd)?)?
+    built.stderr(Stdio.File(open("child-errors.log", "a")?))
+    built.process_group(ProcessGroup.NewSession)
+    child = built.spawn()?
+    # The child alone must keep the open description locked.
+    owner.close()?
+    built.clear_inherited_files()
+    print("holder-ready")?
+    flush_stdout()?
+    std.time.sleep(&milliseconds(60000u32))
+    # Unreachable in this fixture: the harness kills the runner.
+    mut ended = child
+    drop(ended.wait()?)
+    Ok(())
+"#,
+            optimize,
+        );
+        let mut parent = Command::new(&holder)
+            .current_dir(dir.path())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut lines = BufReader::new(parent.stdout.take().unwrap()).lines();
+        let mut ready = [
+            lines.next().unwrap().unwrap(),
+            lines.next().unwrap().unwrap(),
+        ];
+        ready.sort();
+        assert_eq!(ready, ["child-ready", "holder-ready"]);
+        assert_eq!(output(&probe, dir.path()), "False");
+        // Rust Child::wait closes an attached stdin; retain the pipe so the
+        // orphan cannot mistake runner death for the explicit release signal.
+        let mut release = parent.stdin.take().unwrap();
+        parent.kill().unwrap();
+        parent.wait().unwrap();
+        assert_eq!(output(&probe, dir.path()), "False");
+        // The orphan still owns stdin/stdout. Release its lock explicitly;
+        // its alarm only bounds fixture failures, not normal lock lifetime.
+        release.write_all(b"release\n").unwrap();
+        drop(release);
+        assert_eq!(lines.next().unwrap().unwrap(), "released");
+        assert_eq!(output(&probe, dir.path()), "True");
+        assert!(lines.next().is_none());
+    }
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn inherited_lock_allocation_failures_preserve_ownership_and_release_copies() {
+    let dir = tempfile::tempdir().unwrap();
+    let exe = compile(
+        dir.path(),
+        "inherit-allocation",
+        r#"
+import std.process
+
+def main() -> Result[(), IoError | AllocError | LockError | std.test.TestError]:
+    p = path.from_text("resource.lock")?
+    mut failures = 0
+    mut successes = 0
+    for number in ["0", "1", "2", "3", "4", "5", "6", "7"]?:
+        mut owner = lock.acquire_now(&p, Mode.Exclusive)?
+        mut built = std.process.command("/bin/true")?
+        marker = (("__test_fail_allocations_after_" + number)? + "__")?
+        print(marker)?
+        inherited = owner.inherit_into(&mut built)
+        print("__test_restore_allocations__")?
+        owner.close()?
+        match inherited:
+            case Ok(_):
+                failures_before_clear = lock.acquire_now(&p, Mode.Exclusive).is_err()
+                std.test.check(failures_before_clear, "command copy keeps lock")?
+                successes = unchecked:
+                    successes + 1
+            case Err(LockError.Allocation(_)):
+                drop(lock.acquire_now(&p, Mode.Exclusive)?)
+                failures = unchecked:
+                    failures + 1
+            case Err(_):
+                std.test.check(False, "unexpected inheritance error")?
+        built.clear_inherited_files()
+        drop(lock.acquire_now(&p, Mode.Exclusive)?)
+        std.test.check(owner.inherit_into(&mut built).is_err(), "closed source rejected")?
+    std.test.check(failures > 0 and successes > 0, "sweep covers failure and success")?
+    print("ok")?
+    Ok(())
+"#,
+        true,
+    );
+    let out = output(&exe, dir.path());
+    let lines: Vec<_> = out
+        .lines()
+        .filter(|line| !line.starts_with("__test_"))
+        .collect();
+    assert_eq!(lines, ["ok"]);
+}

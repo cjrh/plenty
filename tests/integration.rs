@@ -589,10 +589,18 @@ mod test_std_stat;
 mod test_std_sync_mutex;
 #[path = "test_std_system.rs"]
 mod test_std_system;
+#[path = "test_std_system_available.rs"]
+mod test_std_system_available;
 #[path = "test_std_tempfile.rs"]
 mod test_std_tempfile;
 #[path = "test_std_template.rs"]
 mod test_std_template;
+#[path = "test_std_template_expressions.rs"]
+mod test_std_template_expressions;
+#[path = "test_std_template_schema.rs"]
+mod test_std_template_schema;
+#[path = "test_std_template_whitespace.rs"]
+mod test_std_template_whitespace;
 #[path = "test_std_test.rs"]
 mod test_std_test;
 #[path = "test_std_text_set_scans.rs"]

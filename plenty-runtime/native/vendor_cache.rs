@@ -1,7 +1,7 @@
 //! Content-validated cache for the embedded runtime's Rust dependencies.
 //!
-//! Native archives and runtime archives deliberately stay outside this cache:
-//! they have additional SDK/header and runtime-source inputs.
+//! Native compilation stays with the native toolchain. Runtime archive keys
+//! include its finished artifacts as well as runtime source/configuration.
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io;
@@ -59,6 +59,43 @@ impl Fingerprint {
     }
 }
 
+/// Native archives are rebuilt or restored by the native toolchain first. Hash
+/// their actual contents rather than guessing their SDK/header dependencies.
+pub struct ArchiveInputs<'a> {
+    pub recipe: &'a str,
+    pub source: &'a Path,
+    pub manifest: &'a Path,
+    pub vendor: &'a Path,
+    pub target_os: &'a str,
+    pub application: bool,
+    pub checked: bool,
+}
+
+impl ArchiveInputs<'_> {
+    pub fn key(&self) -> io::Result<String> {
+        let mut key = Fingerprint::new();
+        key.field("plenty-runtime-archive-v1");
+        key.field(self.recipe);
+        key.tree(self.source)?;
+        key.tree(self.manifest)?;
+        key.field(self.target_os);
+        key.field([u8::from(self.application), u8::from(self.checked)]);
+        let mut artifacts = fs::read_dir(self.vendor)?.collect::<Result<Vec<_>, _>>()?;
+        artifacts.sort_by_key(|entry| entry.file_name());
+        for artifact in artifacts {
+            let path = artifact.path();
+            if path
+                .extension()
+                .is_some_and(|ext| ext == "a" || ext == "rlib" || ext == "lib")
+            {
+                key.field(artifact.file_name().as_encoded_bytes());
+                key.tree(&path)?;
+            }
+        }
+        Ok(key.finish())
+    }
+}
+
 fn manifest(dir: &Path, files: &[String]) -> io::Result<String> {
     let mut text = String::new();
     for file in files {
@@ -81,7 +118,7 @@ fn valid(dir: &Path, files: &[String]) -> bool {
     }
 }
 
-/// Publish only a complete set of validated rlibs. Concurrent builds may
+/// Publish only a complete set of validated artifacts. Concurrent builds may
 /// populate the same key; a per-key lock serializes publication. A failed build
 /// leaves no cache entry, and a truncated/restored entry is rebuilt.
 pub fn get_or_build(
@@ -158,6 +195,61 @@ mod tests {
         assert_ne!(first, key(dir.path()));
         fs::remove_file(dir.path().join("added.rs")).unwrap();
         assert_eq!(first, key(dir.path()));
+    }
+
+    #[test]
+    fn runtime_archives_track_sources_native_outputs_and_both_modes() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("src");
+        let vendor = dir.path().join("vendor");
+        fs::create_dir_all(&source).unwrap();
+        fs::create_dir_all(&vendor).unwrap();
+        fs::write(source.join("lib.rs"), "source").unwrap();
+        let manifest = dir.path().join("Cargo.toml");
+        fs::write(&manifest, "manifest").unwrap();
+        fs::write(vendor.join("libnative.a"), "native").unwrap();
+        fs::write(vendor.join("librust.rlib"), "rust").unwrap();
+        fs::write(vendor.join("native.lib"), "MSVC native").unwrap();
+        let mut inputs = ArchiveInputs {
+            recipe: "toolchain/recipe",
+            source: &source,
+            manifest: &manifest,
+            vendor: &vendor,
+            target_os: "linux",
+            application: true,
+            checked: false,
+        };
+        let original = inputs.key().unwrap();
+        inputs.checked = true;
+        let checked = inputs.key().unwrap();
+        inputs.application = false;
+        let library = inputs.key().unwrap();
+        inputs.checked = false;
+        let unchecked_library = inputs.key().unwrap();
+        let mut modes = [original.clone(), checked, library, unchecked_library];
+        modes.sort();
+        assert!(modes.windows(2).all(|pair| pair[0] != pair[1]));
+        inputs.application = true;
+        for file in [
+            source.join("lib.rs"),
+            manifest.clone(),
+            vendor.join("libnative.a"),
+            vendor.join("librust.rlib"),
+            vendor.join("native.lib"),
+        ] {
+            let previous = fs::read(&file).unwrap();
+            fs::write(&file, "changed").unwrap();
+            assert_ne!(original, inputs.key().unwrap());
+            fs::write(&file, previous).unwrap();
+            assert_eq!(original, inputs.key().unwrap());
+        }
+        inputs.recipe = "different compiler/flags/target/recipe";
+        assert_ne!(original, inputs.key().unwrap());
+        inputs.recipe = "toolchain/recipe";
+        fs::write(vendor.join("temporary.o"), "not linked into runtime").unwrap();
+        assert_eq!(original, inputs.key().unwrap());
+        fs::write(vendor.join("additional.a"), "new linked archive").unwrap();
+        assert_ne!(original, inputs.key().unwrap());
     }
 
     #[test]

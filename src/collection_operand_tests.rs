@@ -18,6 +18,8 @@ macro_rules! check_family {
 
 #[test]
 fn scratch_operand_contract_matches_typed_primitives() {
+    check_family!(ProcessOp: EnvGet, EnvVars, CurrentDir, ChangeDir, Spawn, Pipe, Wait,
+        Signal, Poll, SignalListen, DuplicateFile, FileDescriptor);
     check_family!(BytesOp: New, Len, Capacity, Get, Set, Reserve, Resize, Push,
         Append, Overwrite, FromList, ToList, FromText, ToText, WriteFloat,
         WriteFloatSpec, Find, FindIn, FindBytes, Count, Matches, MatchesText,
@@ -33,8 +35,6 @@ fn scratch_operand_contract_matches_typed_primitives() {
     check_family!(NetOp: Open, Accept, FinishConnect, Address, Shutdown,
         SetOption, SendTo, ReceiveFrom, Resolve, ReadyWait, SelectorOpen,
         SelectorWatch, Select, ReadyNumber);
-    check_family!(ProcessOp: EnvGet, EnvVars, CurrentDir, ChangeDir, Spawn, Pipe,
-        Wait, Signal, Poll, SignalListen);
     check_family!(TlsOp: Roots, RootsCount, ClientConfig, ServerConfig, Client,
         Server, Feed, Take, Read, Write, State, Close, Builder, BuilderRoots,
         BuilderCertificate, BuilderProtocol, BuilderVersion, BuilderSuite,

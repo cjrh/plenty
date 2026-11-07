@@ -47,65 +47,65 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.fmt`](#stdfmt): 1275-1342
 - [`std.fs`](#stdfs): 1344-1443
 - [`std.fs.dirs`](#stdfsdirs): 1445-1455
-- [`std.fs.lock`](#stdfslock): 1457-1471
-- [`std.fs.watch`](#stdfswatch): 1473-1508
-- [`std.graph`](#stdgraph): 1510-1598
-- [`std.http`](#stdhttp): 1600-1670
-- [`std.http.decoder`](#stdhttpdecoder): 1672-1689
-- [`std.http.body`](#stdhttpbody): 1691-1726
-- [`std.http.client`](#stdhttpclient): 1728-1838
-- [`std.http.cookie`](#stdhttpcookie): 1840-1872
-- [`std.http.files`](#stdhttpfiles): 1874-1887
-- [`std.http.https`](#stdhttphttps): 1889-1903
-- [`std.http.proxy`](#stdhttpproxy): 1905-1926
-- [`std.http.server`](#stdhttpserver): 1928-2013
-- [`std.http.sse`](#stdhttpsse): 2015-2034
-- [`std.http.tls`](#stdhttptls): 2036-2053
-- [`std.http.typed`](#stdhttptyped): 2055-2088
-- [`std.http.websocket`](#stdhttpwebsocket): 2090-2125
-- [`std.http.wss`](#stdhttpwss): 2127-2133
-- [`std.image`](#stdimage): 2135-2181
-- [`std.io`](#stdio): 2183-2289
-- [`std.io.typed`](#stdiotyped): 2291-2329
-- [`std.json`](#stdjson): 2331-2395
-- [`std.jwt`](#stdjwt): 2397-2444
-- [`std.log`](#stdlog): 2446-2513
-- [`std.markdown`](#stdmarkdown): 2515-2549
-- [`std.template`](#stdtemplate): 2551-2575
-- [`std.math`](#stdmath): 2577-2648
-- [`std.mime`](#stdmime): 2650-2676
-- [`std.net`](#stdnet): 2678-2760
-- [`std.path`](#stdpath): 2762-2779
-- [`std.process`](#stdprocess): 2781-2831
-- [`std.random`](#stdrandom): 2833-2854
-- [`std.ready`](#stdready): 2856-2887
-- [`std.regex`](#stdregex): 2889-2942
-- [`std.report`](#stdreport): 2944-2951
-- [`std.secrets`](#stdsecrets): 2953-2979
-- [`std.shlex`](#stdshlex): 2981-2990
-- [`std.sketch`](#stdsketch): 2992-3030
-- [`std.sketch.xor`](#stdsketchxor): 3032-3043
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3045-3060
-- [`std.signal`](#stdsignal): 3062-3079
-- [`std.simd`](#stdsimd): 3081-3182
-- [`std.stat`](#stdstat): 3184-3217
-- [`std.plot`](#stdplot): 3219-3308
-- [`std.linalg`](#stdlinalg): 3310-3351
-- [`std.sync`](#stdsync): 3353-3371
-- [`std.system`](#stdsystem): 3373-3431
-- [`std.tempfile`](#stdtempfile): 3433-3465
-- [`std.test`](#stdtest): 3467-3509
-- [`std.text`](#stdtext): 3511-3554
-- [`std.thread`](#stdthread): 3556-3560
-- [`std.time`](#stdtime): 3562-3606
-- [`std.tls`](#stdtls): 3608-3690
-- [`std.toml`](#stdtoml): 3692-3741
-- [`std.unicode`](#stdunicode): 3743-3755
-- [`std.units`](#stdunits): 3757-3994
-- [`std.units.catalogue`](#stdunitscatalogue): 3996-4774
-- [`std.url`](#stdurl): 4776-4804
-- [`std.uuid`](#stduuid): 4806-4829
-- [`std.xml`](#stdxml): 4831-4864
+- [`std.fs.lock`](#stdfslock): 1457-1472
+- [`std.fs.watch`](#stdfswatch): 1474-1509
+- [`std.graph`](#stdgraph): 1511-1599
+- [`std.http`](#stdhttp): 1601-1671
+- [`std.http.decoder`](#stdhttpdecoder): 1673-1690
+- [`std.http.body`](#stdhttpbody): 1692-1727
+- [`std.http.client`](#stdhttpclient): 1729-1839
+- [`std.http.cookie`](#stdhttpcookie): 1841-1873
+- [`std.http.files`](#stdhttpfiles): 1875-1888
+- [`std.http.https`](#stdhttphttps): 1890-1904
+- [`std.http.proxy`](#stdhttpproxy): 1906-1927
+- [`std.http.server`](#stdhttpserver): 1929-2014
+- [`std.http.sse`](#stdhttpsse): 2016-2035
+- [`std.http.tls`](#stdhttptls): 2037-2054
+- [`std.http.typed`](#stdhttptyped): 2056-2089
+- [`std.http.websocket`](#stdhttpwebsocket): 2091-2126
+- [`std.http.wss`](#stdhttpwss): 2128-2134
+- [`std.image`](#stdimage): 2136-2182
+- [`std.io`](#stdio): 2184-2290
+- [`std.io.typed`](#stdiotyped): 2292-2330
+- [`std.json`](#stdjson): 2332-2396
+- [`std.jwt`](#stdjwt): 2398-2445
+- [`std.log`](#stdlog): 2447-2514
+- [`std.markdown`](#stdmarkdown): 2516-2550
+- [`std.template`](#stdtemplate): 2552-2587
+- [`std.math`](#stdmath): 2589-2660
+- [`std.mime`](#stdmime): 2662-2688
+- [`std.net`](#stdnet): 2690-2772
+- [`std.path`](#stdpath): 2774-2791
+- [`std.process`](#stdprocess): 2793-2851
+- [`std.random`](#stdrandom): 2853-2874
+- [`std.ready`](#stdready): 2876-2907
+- [`std.regex`](#stdregex): 2909-2962
+- [`std.report`](#stdreport): 2964-2971
+- [`std.secrets`](#stdsecrets): 2973-2999
+- [`std.shlex`](#stdshlex): 3001-3010
+- [`std.sketch`](#stdsketch): 3012-3050
+- [`std.sketch.xor`](#stdsketchxor): 3052-3063
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3065-3080
+- [`std.signal`](#stdsignal): 3082-3099
+- [`std.simd`](#stdsimd): 3101-3202
+- [`std.stat`](#stdstat): 3204-3237
+- [`std.plot`](#stdplot): 3239-3328
+- [`std.linalg`](#stdlinalg): 3330-3371
+- [`std.sync`](#stdsync): 3373-3391
+- [`std.system`](#stdsystem): 3393-3452
+- [`std.tempfile`](#stdtempfile): 3454-3486
+- [`std.test`](#stdtest): 3488-3530
+- [`std.text`](#stdtext): 3532-3575
+- [`std.thread`](#stdthread): 3577-3581
+- [`std.time`](#stdtime): 3583-3627
+- [`std.tls`](#stdtls): 3629-3711
+- [`std.toml`](#stdtoml): 3713-3762
+- [`std.unicode`](#stdunicode): 3764-3776
+- [`std.units`](#stdunits): 3778-4015
+- [`std.units.catalogue`](#stdunitscatalogue): 4017-4795
+- [`std.url`](#stdurl): 4797-4825
+- [`std.uuid`](#stduuid): 4827-4850
+- [`std.xml`](#stdxml): 4852-4885
 
 ## `std.actor`
 
@@ -1465,6 +1465,7 @@ enum LockError
     WouldBlock | TimedOut | Cancelled | InvalidPath | Io(IoError) | Allocation(AllocError)
 class Lock
     def close(self: &mut Lock) -> Result[(), LockError]
+    def inherit_into(self, command: &mut Command) -> Result[i32, LockError]
     def is_closed(self) -> bool
 def acquire_now(path: &Path, mode: Mode) -> Result[Lock, LockError]
 def acquire_before(path: &Path, mode: Mode, deadline: &Deadline, cancel: &CancellationToken) -> Result[Lock, LockError]
@@ -2554,12 +2555,21 @@ Bounded Jinja-style text templates with explicit JSON values, HTML escaping, con
 
 ```text
 enum TemplateError
-    LimitExceeded | Syntax(i64) | UnknownTemplate(str) | DuplicateTemplate(str) | MissingValue(str) | TypeMismatch | InheritanceCycle | Allocation(AllocError) | Bytes(BytesError)
+    LimitExceeded | Syntax(i64) | UnknownTemplate(str) | DuplicateTemplate(str) | MissingValue(str) | TypeMismatch | InheritanceCycle | InvalidShape(str) | SchemaPath(str, i64, str) | SchemaOptional(str, i64, str) | SchemaType(str, i64) | ContextShape(str) | Allocation(AllocError) | Bytes(BytesError)
+enum Presence
+    Required | Optional
+enum Shape
+    Null | Bool | Int | Float | Text | Array(Box[Shape], NonNegative[i64]) | Object(list[Field]) | OneOf(list[Shape])
+class Field
+    name: str
+    shape: Shape
+    presence: Presence
 enum HtmlContext
     Text | DoubleQuotedAttribute | SingleQuotedAttribute | TextAndAttributes
 class Limits
     max_source: NonNegative[i64]
     max_tokens: NonNegative[i64]
+    max_expression_nodes: NonNegative[i64]
     max_templates: NonNegative[i64]
     max_context_nodes: Positive[i64]
     max_context_bytes: NonNegative[i64]
@@ -2570,6 +2580,8 @@ def limits() -> Limits
 def escape(text: &str, context: HtmlContext, max_bytes: NonNegative[i64] = 16777216) -> Result[str, TemplateError]
 class Engine
     def add(self: &mut Engine, name: &str, source: &str) -> Result[(), TemplateError]
+    def validate(self, name: &str, schema: &Shape) -> Result[(), TemplateError]
+    def render_checked(self, name: &str, context: &Json, schema: &Shape, html: bool = True) -> Result[str, TemplateError]
     def render(self, name: &str, context: &Json, html: bool = True) -> Result[str, TemplateError]
 def engine(bounds: &Limits) -> Result[Engine, TemplateError]
 ```
@@ -2783,6 +2795,8 @@ def from_text(text: &str) -> Result[Path, IoError]
 Children spawned from an argument vector with no implicit shell, piped streams, bounded output collection, signals, and explicit reaping. Errors: `IoError`, `StreamError`. [Reference](process.md).
 
 ```text
+enum ProcessGroup
+    Inherit | NewGroup | NewSession
 enum Stdio
     Inherit | Null | Piped | File(File)
 class ExitStatus
@@ -2807,6 +2821,9 @@ class Command
     def stdout(self: &mut Command, mode: Stdio) -> ()
     def stderr(self: &mut Command, mode: Stdio) -> ()
     def stderr_to_stdout(self: &mut Command) -> ()
+    def process_group(self: &mut Command, mode: ProcessGroup) -> ()
+    def inherit_file(self: &mut Command, file: &File) -> Result[i32, IoError]
+    def clear_inherited_files(self: &mut Command) -> ()
     def spawn(self) -> Result[Child, IoError]
 def command_bytes(program: &list[u8]) -> Result[Command, IoError]
 def command(program: &str) -> Result[Command, IoError]
@@ -2824,6 +2841,9 @@ class Child
     def signal(self, number: i32) -> Result[(), IoError]
     def terminate(self) -> Result[(), IoError]
     def kill(self) -> Result[(), IoError]
+    def signal_group(self, number: i32) -> Result[(), IoError]
+    def terminate_group(self) -> Result[(), IoError]
+    def kill_group(self) -> Result[(), IoError]
     def communicate(self: &mut Child, input: &[u8], limit: NonNegative[i64]) -> Result[Output, StreamError]
     def output(self: &mut Child, limit: NonNegative[i64]) -> Result[Output, StreamError]
 enum WaitError
@@ -3372,11 +3392,12 @@ def select_recv_before[A, B](first: &Receiver[A], second: &Receiver[B], deadline
 
 ## `std.system`
 
-Bounded Linux procfs snapshots: CPUs, memory, load, uptime, block devices, disk I/O and process status. Errors: `IoError`, `SystemError`. [Reference](system.md).
+CPU availability estimates and bounded Linux procfs snapshots: CPUs, memory, load, uptime, block devices, disk I/O and process status. Errors: `IoError`, `SystemError`. [Reference](system.md).
 
 ```text
 enum SystemError
-    Io(IoError) | Stream(StreamError) | Allocation(AllocError) | Limit | Malformed(str)
+    Io(IoError) | Stream(StreamError) | Allocation(AllocError) | Limit | Malformed(str) | Unavailable | Unsupported
+def available_parallelism() -> Result[Positive[i64], SystemError]
 class Memory
     total_bytes: u64
     free_bytes: u64

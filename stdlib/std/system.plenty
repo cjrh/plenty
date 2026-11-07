@@ -1,5 +1,7 @@
-# Linux procfs snapshots, read through one owned directory handle. Limits
-# apply before parsing; no process is kept alive by a snapshot or PID.
+# CPU availability and Linux procfs snapshots. The native CPU query bridges
+# platform scheduling APIs; snapshots remain bounded Plenty file parsers.
+# The portable estimate follows Rust std::thread::available_parallelism's API;
+# see book/src/design/stdlib/system.md for platform and cgroup limitations.
 import std.bytes
 import std.fs
 import std.io
@@ -16,6 +18,22 @@ pub enum SystemError:
     Allocation(AllocError)
     Limit
     Malformed(str)
+    Unavailable
+    Unsupported
+
+# Positive success is directly usable by ThreadPoolExecutor. A failed query
+# leaves fallback policy with the caller rather than silently choosing a size.
+pub def available_parallelism() -> Result[Positive[i64], SystemError]:
+    count = __system_available_parallelism()
+    if count == -2:
+        return Err(SystemError.Unsupported)
+    if count == -3:
+        return Err(SystemError.Limit)
+    match Positive[i64].try_from(count):
+        case Ok(value):
+            Ok(value)
+        case Err(_):
+            Err(SystemError.Unavailable)
 
 pub class Memory:
     pub total_bytes: u64

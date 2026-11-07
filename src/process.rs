@@ -16,6 +16,8 @@ pub enum ProcessOp {
     Signal,
     Poll,
     SignalListen,
+    DuplicateFile,
+    FileDescriptor,
 }
 
 impl ProcessOp {
@@ -31,6 +33,8 @@ impl ProcessOp {
             "__process_signal" => Self::Signal,
             "__process_poll" => Self::Poll,
             "__signal_listen" => Self::SignalListen,
+            "__process_duplicate_file" => Self::DuplicateFile,
+            "__process_file_descriptor" => Self::FileDescriptor,
             _ => return None,
         })
     }
@@ -43,22 +47,30 @@ impl ProcessOp {
             Self::CurrentDir => (vec![], bytes()),
             Self::ChangeDir => (vec![bytes()], Ty::Unit),
             // The request, its argument count, stream codes and flags, and
-            // the files the codes redirect to.
+            // the redirected files, then the explicit inherited-file allowlist.
             Self::Spawn => (
-                vec![bytes(), Ty::I64, Ty::I64, Ty::List(Arc::new(Ty::File))],
+                vec![
+                    bytes(),
+                    Ty::I64,
+                    Ty::I64,
+                    Ty::List(Arc::new(Ty::File)),
+                    Ty::List(Arc::new(Ty::File)),
+                ],
                 Ty::I64,
             ),
             Self::Pipe => (vec![Ty::I64, Ty::U8], Ty::File),
             Self::Wait => (vec![Ty::I64, Ty::Bool], Ty::I64),
-            Self::Signal => (vec![Ty::I64, Ty::I64], Ty::Unit),
+            Self::Signal => (vec![Ty::I64, Ty::I64, Ty::Bool], Ty::Unit),
             Self::Poll => (vec![Ty::I64, Ty::I64, Ty::I64], Ty::I64),
             // The readable end on which each caught signal arrives as a byte.
             Self::SignalListen => (vec![], Ty::File),
+            Self::DuplicateFile => (vec![Ty::File], Ty::File),
+            Self::FileDescriptor => (vec![Ty::File], Ty::I32),
         };
         (inputs, sum::result(output, sum::io_error()))
     }
 
-    /// 193–199, 228–229, then 500: the ranges between belong to other modules.
+    /// 193–199, 228–229, then 500–502: the ranges between belong to other modules.
     pub fn opcode(self) -> i64 {
         match self as i64 {
             index @ 0..=6 => 193 + index,

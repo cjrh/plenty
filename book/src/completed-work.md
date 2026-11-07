@@ -25,6 +25,13 @@ queue. The [reference](design/index.md) owns current behavior and limits;
 support. Local issue/PR numbers identify records in the shared `issues.db`, not
 GitHub records. Reproductions, claims and review state remain there.
 
+## Declared template context shapes
+
+Issue #838 adds [schema preflight and checked request rendering](design/stdlib/template-schema.md)
+for every reachable field path, union alternative, loop and effective composed
+layout. Runtime JSON rendering stays available; validation makes no compile-time
+claim. See the [library delivery record](completed-work/libraries.md#declared-template-context-shapes).
+
 ## Reconciliation history
 
 The backlog's full reconciliation on 2026-10-22 covered local `main` and merged
@@ -47,6 +54,14 @@ link. Remove the delivered scope from the active backlog; if an item still has
 extensions, retain its ID there and link both ways. Do not copy outstanding
 task lists into these pages or recycle retired B IDs.
 
+## Explicit template interpolation contexts
+
+Issue #834 adds [per-placeholder HTML escape contexts](design/stdlib/template.md#escaping-and-inheritance)
+for raw template values. Text and quoted-attribute selectors defer encoding to
+final emission, preserve bounded rendering, and keep explicit `safe` assertions
+separate. Filter chaining, the conservative default and plain-text mode are
+documented alongside the [library delivery record](completed-work/libraries.md#b38-library-breadth).
+
 ## Typed time and cancellable waits
 
 Delivered B42.
@@ -56,4 +71,45 @@ HTTP dates and SSE retry hints with `Duration` and `Timestamp`. WebSocket, SSE,
 readiness and child deadline waits accept caller cancellation while preserving
 server shutdown behavior. [`std.sync`](design/stdlib/sync.md#typed-deadline-waits)
 provides typed channel, future, token and two-channel selection waits; explicit
-millisecond primitives remain as low-level compatibility APIs (B42).
+millisecond primitives remain as low-level compatibility APIs (B42). Issue #792
+makes the reference, tutorial and skill lead with the cancellable waits and
+state that the channel, selection and future millisecond waits take no token,
+with a lesson that ends a long selection on `SIGTERM`.
+
+## Registered template fragments
+
+Issue #835 adds [template includes](design/stdlib/template.md#reusable-fragments)
+with explicit object contexts, isolated loop and inheritance scopes, and shared
+render budgets. Reusable headers and row forms render directly without
+application string concatenation or raw-markup trust assertions. The
+[library record](completed-work/libraries.md#b38-library-breadth) also records
+the delivered template subset.
+
+## CPU availability and system inspection assessment
+
+Delivered part of B38 in issue #716.
+
+[`std.system.available_parallelism`](design/stdlib/system.md#available-parallelism)
+provides a positive, fallible worker-count estimate, with bounded Linux affinity
+and visible cgroup quota handling plus native Apple/Windows backends. Pool
+examples teach explicit caller fallback. The
+[coverage/backend assessment](design/stdlib/system-backends.md) records the
+psutil-style platform gaps and Rust backend tradeoffs; the
+[library delivery record](completed-work/libraries.md#b38-library-breadth) links
+to the remaining B38 scope.
+
+## Template literal whitespace control
+
+Issue #837 delivers opt-in delimiter markers for adjacent ASCII source
+whitespace, preserving default output, compact negative literals and original
+byte diagnostics. See [the reference](design/stdlib/template.md#whitespace-control)
+and [the library delivery record](completed-work/libraries.md#template-literal-whitespace-control).
+
+## Bounded template conditions
+
+Issue #836 adds [scalar comparisons, boolean expressions and `elif`](design/stdlib/template.md#expressions-and-conditional-branches)
+so navigation and selection markup can use raw JSON IDs. Registered postorder
+expression trees have an aggregate node cap and bounded depth; runtime boolean
+operators short-circuit under the shared work budget. Strict scalar equality,
+filter precedence and atomic registration remain explicit. Filter arguments,
+arithmetic, ordering comparisons and calls remain unsupported.

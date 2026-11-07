@@ -179,6 +179,22 @@ pub(crate) fn prepare(
     Ok(pointer as u128)
 }
 
+/// A separately owned, close-on-exec copy sharing the open file description.
+/// Linux's `try_clone` uses F_DUPFD_CLOEXEC with a minimum descriptor of three.
+#[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+pub(crate) unsafe fn duplicate(pointer: *const File, ty: &'static Type) -> Result<u128, Error> {
+    // SAFETY: the compiler holds a shared File loan through this operation.
+    let source = unsafe { &*pointer };
+    let file = source.file.as_ref().ok_or(Kind::Closed)?;
+    let copy = prepare(source.readable, ty, || Ok(file.try_clone()?))?;
+    // SAFETY: prepare returned a newly initialized owner, still private here.
+    let owner = unsafe { &mut *(copy as *mut File) };
+    owner.writable = source.writable;
+    owner.pipe = source.pipe;
+    owner.skip_lf = source.skip_lf;
+    Ok(copy)
+}
+
 /// Borrow only the descriptor; directory-relative operations never change a
 /// file cursor or outlive the compiler's shared loan.
 #[cfg(all(target_os = "linux", target_pointer_width = "64"))]

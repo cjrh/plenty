@@ -133,6 +133,7 @@ impl ProcessOp {
             Self::ChangeDir => Effect::ProcessGlobal,
             Self::Spawn | Self::Pipe | Self::Wait | Self::Signal | Self::Poll => Effect::Child,
             Self::SignalListen => Effect::SignalDisposition,
+            Self::DuplicateFile | Self::FileDescriptor => Effect::Handle,
         }
     }
 }
@@ -149,6 +150,7 @@ impl CollectionOp {
             Tls(op) => op.effect(),
             Net(op) => op.effect(),
             Time(_) => Effect::Clock,
+            System(_) => Effect::Environment,
             // These primitive families transform caller-owned memory only.
             Bytes(_) | Crypto(_) | Compress(_) | Regex(_) | Text(_) | TextView(_) | Unicode(_) => {
                 Effect::Compute

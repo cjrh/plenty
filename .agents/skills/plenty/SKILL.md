@@ -195,9 +195,44 @@ See [errors](references/errors.md), [ownership](references/ownership.md), and
 
 - Use [std.template](../../../book/src/design/stdlib/template.md) for named text/HTML
   layouts. For directly assembled HTML fragments, `escape(text, HtmlContext, max_bytes)`
-  provides bounded text and quote-specific attribute escaping. Choose the context
+  provides bounded text and quote-specific attribute escaping. Compose registered
+  fragments with `{% include 'form' with row %}` using an object context; no
+  string concatenation or `safe` is needed. Each include has its own loop scope
+  and shares the render budgets. Choose the context
   explicitly and escape each original value once. The result is ordinary `str`,
   with no trust marker; keep raw values in `Json.Text` for `Engine.render`.
+  Its `escape_text`, `escape_double_quoted` and `escape_single_quoted` filters
+  choose an output context per placeholder without `safe`. Keep matching quotes
+  around attributes. Put selectors after `upper`/`lower` (which reset policy);
+  `trim` preserves selection, the last selector wins, and explicit selectors
+  still escape with `html=False`. Reserve `safe` for deliberate trusted markup.
+  Conditions accept strict scalar `==`/`!=`, `not`, short-circuit `and`/`or`,
+  parentheses and `elif`; keep raw IDs in JSON instead of precomputing flags.
+  Boolean operators return booleans; integers, floats and booleans are distinct
+  equality kinds. Filters bind before equality, then `not`, `and`, `or`.
+  Bound aggregate syntax with `max_expression_nodes` as well as `max_tokens`.
+
+- For child descriptor protocols, use `Command.inherit_file(&file)` or
+  `Lock.inherit_into(&mut command)` and pass the returned number through argv
+  or the environment. The command owns a close-on-exec copy; only its children
+  inherit it. Source close is safe; cursors and locks are shared. Clear command
+  copies after spawning with `clear_inherited_files()` when reuse is unnecessary,
+  or those copies can keep a lock alive. At most 64 selections per command;
+  arbitrary fd remapping is unsupported. `Stdio.File` redirects standard streams
+  independently; only selected copies survive as extra descriptors. Read
+  [explicit inheritance](../../../book/src/design/stdlib/process.md#explicit-file-inheritance).
+
+- For template layout, `{{- value -}}`, `{%- ... -%}` and `{#- ... -#}` trim
+  adjacent literal ASCII whitespace. Plain delimiters preserve it; Unicode
+  whitespace and rendered values are unchanged. Markers cannot trim through
+  another tag or from an overriding block into its base layout. See
+  [whitespace control](../../../book/src/design/stdlib/template.md#whitespace-control).
+
+- For reusable template contexts, declare `std.template.Shape` and call
+  `Engine.validate(name, &schema)` to check every reachable path without samples.
+  `render_checked(name, &context, &schema)` also checks actual JSON. Prefer required
+  nullable fields over optional reads; preflight checks all union alternatives
+  and loop element shapes. See [declared context shapes](../../../book/src/design/stdlib/template-schema.md).
 
 ## References
 
@@ -215,3 +250,10 @@ See [errors](references/errors.md), [ownership](references/ownership.md), and
 | [Errors](references/errors.md) | Error types, propagation, context, exit status |
 | [Ownership](references/ownership.md) | Moves, borrows, copies, allocation |
 | [Diagnostics](references/diagnostics.md) | Frequent compiler errors and their fixes |
+
+For subprocess cleanup, `std.process.Command.process_group(ProcessGroup.NewSession)`
+establishes a child-led group before execution. Send `Child.terminate_group()` or
+`kill_group()` before reaping the leader, then `wait()`. A completed wait disables
+group signalling to avoid reused IDs; descendants can escape by changing groups
+or sessions. Read [std.process](../../../book/src/design/stdlib/process.md#process-groups-and-sessions)
+for the Linux support and ownership contract.
