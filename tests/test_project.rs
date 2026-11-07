@@ -1209,6 +1209,13 @@ fn plentyc_compiles_through_a_package_graph() {
     );
     let app = twice_application(dir.path(), "util = { path = \"../util\" }\n");
     write(&app.join("graph.toml"), &succeeds(&app, &["graph"]));
+    // Packages without `assets/` leave the key out, so compilers that predate
+    // it still read the graph.
+    assert!(
+        !std::fs::read_to_string(app.join("graph.toml"))
+            .unwrap()
+            .contains("assets")
+    );
     let plentyc = |args: &[&str]| {
         Command::new(env!("CARGO_BIN_EXE_plentyc"))
             .args(args)
@@ -1459,7 +1466,8 @@ fn packages_include_files_from_their_assets_directory() {
     assert_eq!(succeeds(&app, &["run"]), expected);
     assert!(succeeds(&app, &["test"]).contains("test greeting ... ok"));
 
-    // An edited or added asset is a build input, as a source file is.
+    // An edited, added, renamed or deleted asset is a build input, as a
+    // source file is.
     assert!(status_lines(&app, &["build"]).contains("Fresh"));
     write(&dir.path().join("util/assets/banner.txt"), "new banner");
     assert!(status_lines(&app, &["build"]).contains("Compiling"));
@@ -1469,6 +1477,19 @@ fn packages_include_files_from_their_assets_directory() {
     );
     write(&app.join("assets/unused.txt"), "");
     assert!(status_lines(&app, &["build"]).contains("Compiling"));
+    std::fs::rename(
+        app.join("assets/unused.txt"),
+        app.join("assets/renamed.txt"),
+    )
+    .unwrap();
+    assert!(status_lines(&app, &["build"]).contains("Compiling"));
+    std::fs::remove_file(app.join("assets/renamed.txt")).unwrap();
+    assert!(status_lines(&app, &["build"]).contains("Compiling"));
+    // Build reuse hashes a link's target name without following it, so an
+    // unused loop neither fails nor stalls the build.
+    std::os::unix::fs::symlink(".", app.join("assets/self")).unwrap();
+    assert!(status_lines(&app, &["build"]).contains("Compiling"));
+    assert!(status_lines(&app, &["build"]).contains("Fresh"));
 
     // `plentyc` reads the asset directories from the package graph.
     write(&app.join("graph.toml"), &succeeds(&app, &["graph"]));
@@ -1518,4 +1539,30 @@ fn packages_include_files_from_their_assets_directory() {
         fails(&app, &["check"], "is outside the source root");
         fails(&app, &["check"], "and the package assets");
     }
+
+    // `assets` must be a real directory. As a link it could name another
+    // package's assets, the package itself, or `/`; here a dependency tries
+    // to read the application's assets.
+    write(
+        &app.join("src/main.plenty"),
+        "import util
+
+def main() -> Result[(), IoError]:
+    print(util.BANNER)?
+    Ok(())
+",
+    );
+    let util = moved.path().join("util");
+    std::fs::remove_dir_all(util.join("assets")).unwrap();
+    write(
+        &util.join("src/lib.plenty"),
+        "pub const BANNER: str = include_str(\"../assets/greeting.txt\")\n",
+    );
+    for target in ["../app/assets", "/"] {
+        std::os::unix::fs::symlink(target, util.join("assets")).unwrap();
+        fails(&app, &["check"], "is a symbolic link");
+        std::fs::remove_file(util.join("assets")).unwrap();
+    }
+    write(&util.join("assets"), "not a directory");
+    fails(&app, &["check"], "is not a directory");
 }

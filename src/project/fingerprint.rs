@@ -1,8 +1,9 @@
 //! Build reuse: a target is rebuilt only when a digest of everything that can
 //! change its output differs from the one stored by its last successful build.
 //!
-//! The digest covers every file below each package's source root and
-//! `assets/` directory (not only the modules and included files a build
+//! The digest covers every regular file and symbolic link (its target's
+//! name, not its contents) below each package's source root and `assets/`
+//! directory (not only the modules and included files a build
 //! happened to read, so an added module that shadows nothing still counts),
 //! the package graph, the entry, the kind of target,
 //! the code generation and linker options, and the compiler's identity. The
@@ -73,24 +74,42 @@ pub(super) fn digest(
         files.sort();
         for file in files {
             field(&file.display().to_string());
-            let bytes =
-                std::fs::read(&file).map_err(|e| format!("reading {}: {e}", file.display()))?;
-            field(&format!("{:x}", Sha256::digest(&bytes)));
+            let error = |e: std::io::Error| format!("reading {}: {e}", file.display());
+            if file
+                .symlink_metadata()
+                .map_err(error)?
+                .file_type()
+                .is_symlink()
+            {
+                // The target is either inside a walked directory, and hashed
+                // there, or outside, where neither imports nor includes may
+                // read it.
+                field(&format!(
+                    "link {:?}",
+                    std::fs::read_link(&file).map_err(error)?
+                ));
+            } else {
+                let bytes = std::fs::read(&file).map_err(error)?;
+                field(&format!("{:x}", Sha256::digest(&bytes)));
+            }
         }
     }
     Ok(format!("{:x}", hash.finalize()))
 }
 
+/// The regular files and symbolic links below `directory`. Links are not
+/// followed, so a loop or a link to `/` or a device costs one entry.
 fn walk(directory: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
     if !directory.is_dir() {
         return Ok(());
     }
     for entry in std::fs::read_dir(directory)? {
-        let path = entry?.path();
-        if path.is_dir() {
-            walk(&path, files)?;
-        } else {
-            files.push(path);
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            walk(&entry.path(), files)?;
+        } else if kind.is_file() || kind.is_symlink() {
+            files.push(entry.path());
         }
     }
     Ok(())

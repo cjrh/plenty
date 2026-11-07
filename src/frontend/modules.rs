@@ -1559,16 +1559,29 @@ fn prepare_packages(
         if !root.is_dir() {
             return Err(format!("source root {} is not a directory", root.display()).into());
         }
-        // A missing `assets/` keeps its declared path, below which no file
-        // exists, so every include from it fails and no build depends on it.
+        // `assets` must be a real directory: as a symbolic link it could name
+        // any directory, such as another package's or `/`. A missing one
+        // keeps its declared path, below which no file exists, so every
+        // include from it fails and no build depends on it.
         if let Some(assets) = &mut package.assets {
-            match assets.canonicalize() {
-                Ok(canonical) if canonical.is_dir() => *assets = canonical,
-                Ok(canonical) => {
-                    return Err(format!("assets {} is not a directory", canonical.display()).into());
-                }
+            match std::fs::symlink_metadata(&*assets) {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                 Err(e) => return Err(format!("assets {}: {e}", assets.display()).into()),
+                Ok(meta) if meta.file_type().is_symlink() => {
+                    return Err(format!(
+                        "assets {} is a symbolic link; it must be a directory in the package",
+                        assets.display()
+                    )
+                    .into());
+                }
+                Ok(meta) if !meta.is_dir() => {
+                    return Err(format!("assets {} is not a directory", assets.display()).into());
+                }
+                Ok(_) => {
+                    *assets = assets
+                        .canonicalize()
+                        .map_err(|e| format!("assets {}: {e}", assets.display()))?;
+                }
             }
         }
         if ["std", "std.plenty", "std.plentyi"]

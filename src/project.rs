@@ -25,6 +25,15 @@ pub const ASSETS: &str = "assets";
 /// Generated dependency sources, beside the lockfile.
 pub const PACKAGE_CACHE: &str = ".pkg";
 
+/// A package's `assets/`, if anything is at that path. A missing one is left
+/// out of the graph, so graph files of packages without assets stay readable
+/// by compilers that predate the `assets` key; a file or symbolic link there
+/// is kept, so loading reports it.
+fn assets_of(directory: &Path) -> Option<PathBuf> {
+    let assets = directory.join(ASSETS);
+    std::fs::symlink_metadata(&assets).is_ok().then_some(assets)
+}
+
 /// One package's source tree as the compiler sees it.
 #[derive(Clone, Debug)]
 pub struct SourcePackage {
@@ -974,7 +983,7 @@ impl Project {
         SourcePackage {
             identity: package.manifest.name.clone(),
             root: package.directory.join("src"),
-            assets: Some(package.directory.join(ASSETS)),
+            assets: assets_of(&package.directory),
             library: package
                 .manifest
                 .library
@@ -1031,7 +1040,7 @@ impl Project {
             SourcePackage {
                 identity: format!("{}-tests", package.manifest.name),
                 root: package.directory.join("tests"),
-                assets: Some(package.directory.join(ASSETS)),
+                assets: assets_of(&package.directory),
                 library: None,
                 dependencies,
             },
