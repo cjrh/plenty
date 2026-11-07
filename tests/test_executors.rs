@@ -1469,6 +1469,87 @@ fn calls_after_the_receiver_drops_or_that_do_not_wait_run() {
     }
 }
 
+/// Helpers handed a pool by reference that submit a job to it, directly or
+/// through a further call, and return nothing (issue #855).
+const SUBMITTING: &str = "def go(pool: &ThreadPoolExecutor, sender: Sender[i64]) -> ():
+    drop(pool.submit(produce, sender).drop_job())
+
+def via(pool: &ThreadPoolExecutor, sender: Sender[i64]) -> ():
+    go(pool, sender)
+
+";
+
+fn submitting_main(body: &str) -> String {
+    format!(
+        "{PRODUCE}{SUBMITTING}def main() -> Result[(), AllocError | IoError | PoolError | str]:
+    sender, receiver = channel[i64](1)?
+    mut pool = ThreadPoolExecutor(1, 1)?
+{body}    print(\"done\")?
+    Ok(())
+"
+    )
+}
+
+#[test]
+fn jobs_a_call_submits_to_a_passed_pool_block_its_shutdown() {
+    for call in ["go(&pool, sender)", "via(&pool, sender)"] {
+        for end in [
+            "pool.shutdown()",
+            "drop(pool)",
+            "pool = ThreadPoolExecutor(1, 1)?",
+        ] {
+            let source = submitting_main(&format!("    {call}\n    {end}\n    drop(receiver)\n"));
+            let error = support::check_source(&source).unwrap_err().to_string();
+            assert!(
+                error.contains(
+                    "after a job that holds `Sender[i64]` was submitted, \
+                     while `receiver` still holds `Receiver[i64]`"
+                ),
+                "{call}; {end}\n{error}"
+            );
+            assert!(
+                error.contains("the job is submitted here"),
+                "{call}; {end}\n{error}"
+            );
+        }
+    }
+}
+
+/// The issue #855 reproduction: a later iteration replaces the pool that an
+/// earlier one handed to the submitting helper. Jobs are matched to
+/// receivers by message type, so `receiver` stands for the one each job feeds.
+#[test]
+fn a_pool_reassigned_after_a_submitting_call_in_a_loop_is_rejected() {
+    let source = format!(
+        "{PRODUCE}{SUBMITTING}def main() -> Result[(), AllocError | PoolError | str]:
+    unrelated, receiver = channel[i64](1)?
+    mut pool = ThreadPoolExecutor(1, 1)?
+    for i in range(2):
+        if i > 0:
+            pool = ThreadPoolExecutor(1, 1)?
+        sender, other = channel[i64](1)?
+        drop(other)
+        go(&pool, sender)
+    drop(unrelated)
+    drop(receiver)
+    Ok(())
+"
+    );
+    let error = support::check_source(&source).unwrap_err().to_string();
+    assert!(
+        error.contains("`receiver` still holds `Receiver[i64]`"),
+        "{error}"
+    );
+}
+
+#[test]
+fn jobs_a_call_submits_run_once_the_receiver_drops() {
+    runs(
+        &submitting_main("    via(&pool, sender)\n    drop(receiver)\n    pool.shutdown()\n"),
+        "done\n",
+    );
+}
+
 /// Helpers that return a future they are handed, or one they submit
 /// themselves (issue #352).
 const RETURNING: &str =

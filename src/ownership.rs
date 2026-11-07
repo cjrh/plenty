@@ -873,6 +873,12 @@ fn in_body(ops: &[Op], visit: &mut impl FnMut(&Op)) {
 
 /// A value is owned after a join only if every continuing path owns it. One
 /// moving path is kept as the move to report.
+/// A loop condition that is the literal `True`, which never exits the loop.
+fn always_true(condition: &[Op]) -> bool {
+    let mut ops = condition.iter().filter(|op| !matches!(op, Op::Site(_)));
+    matches!((ops.next(), ops.next()), (Some(Op::PushBool(true)), None))
+}
+
 fn merge(states: &[State], into: &mut State) {
     let Some(first) = states.first() else {
         return;
@@ -1807,9 +1813,10 @@ impl Checker<'_, '_> {
 
     /// A call handed the futures and pools in `slots` can wait for those
     /// futures' results and shut those pools down, directly or through
-    /// further calls, while this frame keeps its endpoints and locks. Jobs a
-    /// callee submits itself are not seen here. `callee` is `None` for a call
-    /// through a value.
+    /// further calls, while this frame keeps its endpoints and locks. A call
+    /// handed a pool can also leave jobs it submits in that pool, so they
+    /// count as submitted here from the call on (issue #855). `callee` is
+    /// `None` for a call through a value, whose jobs are not seen.
     fn call_waits(
         &self,
         callee: Option<&str>,
@@ -1846,6 +1853,17 @@ impl Checker<'_, '_> {
                 error.call = Some(named());
                 error
             })?;
+        }
+        fn pool(ty: &Ty) -> bool {
+            match ty {
+                Ty::Executor => true,
+                Ty::Ref(inner, _) => pool(inner),
+                _ => false,
+            }
+        }
+        if slots.iter().any(|&slot| pool(&self.locals[slot as usize])) {
+            let jobs = self.program.pool_submissions(callee);
+            self.submit(jobs.into_iter().map(|hazard| (hazard, site)));
         }
         Ok(())
     }
@@ -2176,6 +2194,8 @@ impl Checker<'_, '_> {
                     merge(&continuing, state);
                 }
                 Op::Loop { condition, body } => {
+                    // `while True:` leaves only through `break` (issue #857).
+                    let forever = always_true(condition);
                     let mut entry = state.clone();
                     let mut exits = Vec::new();
                     let submitted = self.submitted.borrow().len();
@@ -2197,7 +2217,11 @@ impl Checker<'_, '_> {
                         self.sequence(condition, &mut pass, &mut Vec::new(), site)?;
                         loops.push(Loop {
                             entry: entry.clone(),
-                            breaks: vec![pass.clone()],
+                            breaks: if forever {
+                                Vec::new()
+                            } else {
+                                vec![pass.clone()]
+                            },
                             backedges: Vec::new(),
                         });
                         if self.sequence(body, &mut pass, loops, site)? {
@@ -2236,9 +2260,11 @@ impl Checker<'_, '_> {
                                 merge(&[exit.clone(), later], &mut joined);
                                 *exit = joined;
                             }
-                            let mut zero = next.clone();
-                            self.sequence(condition, &mut zero, &mut Vec::new(), site)?;
-                            exits.push(zero);
+                            if !forever {
+                                let mut zero = next.clone();
+                                self.sequence(condition, &mut zero, &mut Vec::new(), site)?;
+                                exits.push(zero);
+                            }
                             break next;
                         }
                         entry = next;
@@ -2256,6 +2282,9 @@ impl Checker<'_, '_> {
                         let again = self.sequence(body, &mut again, loops, site);
                         loops.pop();
                         again?;
+                    }
+                    if exits.is_empty() {
+                        return Ok(false);
                     }
                     merge(&exits, state);
                 }
