@@ -111,9 +111,9 @@ Ada Cal 3
 ```
 
 `*name` copies the borrowed string, which cannot fail because `str`
-[copies on assignment](../04-collections/moves-and-copies.md), so `collect` reports only
-dictionary allocation errors. The owned pairs become dictionary entries. Repeated keys
-keep the last value. A pair fold takes the accumulator followed by both item
+[copies on assignment](../04-collections/moves-and-copies.md), so `collect`
+reports only dictionary allocation errors. The owned pairs become dictionary
+entries. Repeated keys keep the last value. A pair fold takes the accumulator followed by both item
 components; a tuple accumulator stays a single parameter. Zip stops at the
 shorter input, pulling the left first, so it may consume one extra left item.
 
