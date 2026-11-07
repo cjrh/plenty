@@ -1002,6 +1002,9 @@ pub class Encoder:
     _max_depth: i64
     _max_output: i64
 
+    pub def allocation(self, cause: AllocError) -> JsonError:
+        JsonError(JsonFault.Allocation(cause), self._written, 0, 0)
+
     # Bytes produced and not yet taken.
     pub def pending(self) -> i64:
         self._out.len()
@@ -1273,6 +1276,9 @@ pub class Encoder:
         result = self.emit_text(value)
         self.settle(result)
 
+    pub def field(self: &mut Encoder, name: &str) -> Result[(), JsonError]:
+        self.key(name)
+
     pub def key(self: &mut Encoder, name: &str) -> Result[(), JsonError]:
         result = self.emit_key(name)
         self.settle(result)
@@ -1517,6 +1523,176 @@ pub def codec_decoder(source: &[u8], options: &CodecOptions) -> Result[CodecDeco
     events.finish()
     Ok(CodecDecoder(events, Nothing, options.unknown_fields))
 
+# Owns its stream because borrowed references cannot be stored in adapters.
+# Initialization allocates in load_from while the adapter is borrowed.
+pub class CodecReader[R]:
+    pub inner: R
+    _codec: Option[CodecDecoder]
+
+    pub def reject(self, fault: std.serial.Fault) -> JsonError:
+        match &self._codec:
+            case Some(codec):
+                codec.reject(fault)
+            case Nothing:
+                JsonError(JsonFault.Serialization(fault), 0, 0, 0)
+
+    pub def allocation(self, cause: AllocError) -> JsonError:
+        match &self._codec:
+            case Some(codec):
+                codec.allocation(cause)
+            case Nothing:
+                JsonError(JsonFault.Allocation(cause), 0, 0, 0)
+
+    # Install one event before delegating to the buffer codec. A delegated
+    # operation consumes at most one event; null/next_element may put it back.
+    def prepare(self: &mut CodecReader[R]) -> Result[(), JsonError]:
+        match &mut self._codec:
+            case Some(codec):
+                if codec._ahead.is_none():
+                    event = read_event(&mut codec._source, &mut self.inner)?
+                    codec._ahead = Some(event)
+                Ok(())
+            case Nothing:
+                Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+
+    def take(self: &mut CodecReader[R]) -> Result[Event, JsonError]:
+        self.prepare()?
+        match &mut self._codec:
+            case Some(codec):
+                codec.take()
+            case Nothing:
+                Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+
+    pub def null(self: &mut CodecReader[R]) -> Result[bool, JsonError]:
+        self.prepare()?
+        match &mut self._codec:
+            case Some(codec):
+                codec.null()
+            case Nothing:
+                Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+
+    pub def boolean(self: &mut CodecReader[R]) -> Result[bool, JsonError]:
+        self.prepare()?
+        match &mut self._codec:
+            case Some(codec):
+                codec.boolean()
+            case Nothing:
+                Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+
+    pub def integer(self: &mut CodecReader[R]) -> Result[i64, JsonError]:
+        self.prepare()?
+        match &mut self._codec:
+            case Some(codec):
+                codec.integer()
+            case Nothing:
+                Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+
+    pub def unsigned(self: &mut CodecReader[R]) -> Result[u64, JsonError]:
+        self.prepare()?
+        match &mut self._codec:
+            case Some(codec):
+                codec.unsigned()
+            case Nothing:
+                Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+
+    pub def decimal(self: &mut CodecReader[R]) -> Result[f64, JsonError]:
+        self.prepare()?
+        match &mut self._codec:
+            case Some(codec):
+                codec.decimal()
+            case Nothing:
+                Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+
+    pub def text(self: &mut CodecReader[R]) -> Result[str, JsonError]:
+        self.prepare()?
+        match &mut self._codec:
+            case Some(codec):
+                codec.text()
+            case Nothing:
+                Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+
+    pub def start_array(self: &mut CodecReader[R]) -> Result[(), JsonError]:
+        self.prepare()?
+        match &mut self._codec:
+            case Some(codec):
+                codec.start_array()
+            case Nothing:
+                Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+
+    pub def next_element(self: &mut CodecReader[R]) -> Result[bool, JsonError]:
+        self.prepare()?
+        match &mut self._codec:
+            case Some(codec):
+                codec.next_element()
+            case Nothing:
+                Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+
+    pub def start_object(self: &mut CodecReader[R]) -> Result[(), JsonError]:
+        self.prepare()?
+        match &mut self._codec:
+            case Some(codec):
+                codec.start_object()
+            case Nothing:
+                Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+
+    pub def next_key(self: &mut CodecReader[R]) -> Result[Option[str], JsonError]:
+        self.prepare()?
+        match &mut self._codec:
+            case Some(codec):
+                codec.next_key()
+            case Nothing:
+                Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+
+    pub def finish(self: &mut CodecReader[R]) -> Result[(), JsonError]:
+        self.prepare()?
+        match &mut self._codec:
+            case Some(codec):
+                codec.finish()
+            case Nothing:
+                Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+
+    pub def unknown_key(self: &mut CodecReader[R], name: &str) -> Result[(), JsonError]:
+        mut reject_unknown = True
+        match &self._codec:
+            case Some(codec):
+                reject_unknown = codec._unknown == std.serial.UnknownFields.Reject
+            case Nothing:
+                return Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+        if reject_unknown:
+            return Err(self.reject(std.serial.Fault.UnknownField(*name)))
+        mut depth = 0
+        while True:
+            match self.take()?:
+                case Event.StartArray | Event.StartObject:
+                    unchecked:
+                        depth += 1
+                case Event.EndArray | Event.EndObject:
+                    if depth == 0:
+                        return Err(self.reject(std.serial.Fault.UnexpectedKind))
+                    unchecked:
+                        depth -= 1
+                case Event.End | Event.Pending:
+                    return Err(self.reject(std.serial.Fault.UnexpectedKind))
+                case _:
+                    pass
+            if depth == 0:
+                break
+        Ok(())
+
+pub def codec_reader[R: Reader](inner: R) -> CodecReader[R]:
+    CodecReader(inner, Nothing)
+
+# Decodes exactly one complete document, including the EOF check. The adapter
+# retains its reader on failure. Use once, and discard buffered input on error.
+pub def load_from[T, R: Reader](source: &mut CodecReader[R], options: &CodecOptions) -> Result[T, std.serial.SerialError[JsonError]]:
+    if source._codec.is_some():
+        return Err(std.serial.error(JsonError(JsonFault.InvalidState, 0, 0, 0)))
+    events = std.serial.wrap(decoder(&options.limits))?
+    source._codec = Some(CodecDecoder(events, Nothing, options.unknown_fields))
+    value = std.serial.decode[T, JsonError, CodecReader[R]](source)?
+    std.serial.wrap(source.finish())?
+    Ok(value)
+
 pub def dump[T](value: &T, bounds: &Limits) -> Result[Bytes, std.serial.SerialError[JsonError]]:
     mut output = std.serial.wrap(encoder(bounds))?
     std.serial.encode[T, JsonError, Encoder](value, &mut output)?
@@ -1579,6 +1755,9 @@ pub class TreeEncoder:
     _budget: TreeBudget
     _failed: bool
 
+    pub def allocation(self, cause: AllocError) -> JsonError:
+        JsonError(JsonFault.Allocation(cause), 0, 0, 0)
+
     def slot(self: &mut TreeEncoder) -> Result[(), JsonError]:
         if self._failed:
             return Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
@@ -1631,6 +1810,9 @@ pub class TreeEncoder:
 
     pub def start_object(self: &mut TreeEncoder) -> Result[(), JsonError]:
         self.begin(1, Event.StartObject)
+
+    pub def field(self: &mut TreeEncoder, name: &str) -> Result[(), JsonError]:
+        self.key(name)
 
     pub def key(self: &mut TreeEncoder, name: &str) -> Result[(), JsonError]:
         if len(self._states) == 0 or self._states[-1] != 1:
