@@ -113,8 +113,7 @@ PLENTY_CACHE=off target/release/plenty --unchecked assume --dump asm \
   experiments/regex/prefix.plenty -o /tmp/prefix-dump
 ```
 
-Normalize Plenty's assembly with the recipe in `experiments/kernels/README.md`,
-then pass it to `experiments/kernels/loops.py`. There is no old version of this
+Pass Plenty's `asm.txt` to `experiments/kernels/loops.py`. There is no old version of this
 new filter kernel: the old engine's work is measured by the whole-program
 baseline. The largest improvement comes from changing the search algorithm,
 not from changing the generated instructions for a VM operation.

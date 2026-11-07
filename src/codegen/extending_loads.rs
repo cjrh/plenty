@@ -37,8 +37,10 @@ pub(super) fn fuse_extending_loads(func: &mut Function) {
         return;
     }
     let mut rewrites = Vec::new();
+    let mut open: SecondaryMap<Value, bool> = SecondaryMap::new();
     for block in func.layout.blocks() {
-        // Narrow loads in this block with no possible memory write since.
+        // Narrow loads in this block with no possible memory write since:
+        // `open` marks them, `loads` lists them so a write clears them all.
         let mut loads: Vec<Value> = Vec::new();
         for inst in func.layout.block_insts(block) {
             let dfg = &func.dfg;
@@ -50,7 +52,7 @@ pub(super) fn fuse_extending_loads(func: &mut Function) {
                     let arg = dfg.resolve_aliases(arg);
                     let wide = dfg.value_type(dfg.first_result(inst));
                     if uses[arg] == 1
-                        && loads.contains(&arg)
+                        && open[arg]
                         && let Some(fused) = extending_opcode(opcode, dfg.value_type(arg), wide)
                     {
                         rewrites.push((inst, arg, fused));
@@ -62,16 +64,23 @@ pub(super) fn fuse_extending_loads(func: &mut Function) {
                 } if dfg.insts[inst].memflags_trap_code(dfg).is_none() => {
                     let result = dfg.first_result(inst);
                     if matches!(dfg.value_type(result), types::I8 | types::I16 | types::I32) {
+                        open[result] = true;
                         loads.push(result);
                     }
                 }
                 ref data => {
                     let opcode = data.opcode();
                     if opcode.can_store() || opcode.is_call() || opcode.other_side_effects() {
-                        loads.clear();
+                        for value in loads.drain(..) {
+                            open[value] = false;
+                        }
                     }
                 }
             }
+        }
+        // A later block's extension reads at a different point.
+        for value in loads {
+            open[value] = false;
         }
     }
     for (inst, narrow, opcode) in rewrites {

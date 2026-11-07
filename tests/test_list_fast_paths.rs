@@ -2243,6 +2243,12 @@ def widen(cell: &i8) -> i64:
 def twice(cell: &u8) -> (i64, u8):
     (i64(*cell), *cell)
 
+def overwritten(cell: &mut u8, flag: bool) -> i64:
+    old = *cell
+    if flag:
+        *cell = 9u8
+    i64(old)
+
 def main() -> Result[(), AllocError | IoError | OverflowError[i64] | str]:
     mut table = list[i64].new()?
     mut marks = list[bool].new()?
@@ -2262,6 +2268,8 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64] | str]:
     print(widen(&small))?
     big = 250u8
     print(twice(&big))?
+    mut late = 4u8
+    print(overwritten(&mut late, True), late)?
     Ok(())
 "#;
 
@@ -2269,7 +2277,7 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64] | str]:
 fn byte_indexed_table_loops_keep_their_results() {
     support::assert_stdout(
         BYTE_TABLES,
-        "768\n510\n768\n(1, 200)\nTrue\n51203 3\n-5\n(250, 250)\n",
+        "768\n510\n768\n(1, 200)\nTrue\n51203 3\n-5\n(250, 250)\n4 9\n",
     );
 }
 
