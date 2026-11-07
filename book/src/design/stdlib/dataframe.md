@@ -200,10 +200,13 @@ Every dataframe value may be moved to, shared by and dropped on
 [`@thread_shareable`](../facilities/04-interop/trusted-declarations.md#opaque-types-on-worker-threads)
 and every engine call is `@thread_safe`. A `Shared[DataFrame]` can be read
 by several workers at once, and a `Query` can be built on one thread and
-collected on another. Engine values are immutable once built, the engine has
-no mutable global state, and each owner type is asserted `Send + Sync` when
-the engine compiles. Queries from several workers all run on the one Polars
-pool described above.
+collected on another. Engine values are read-only once built: values built up
+in steps use private `@thread_movable` builders that are finished before any
+caller sees them. The engine has no mutable global state, and each read-only
+type is asserted `Send + Sync` when the engine compiles. Queries from several
+workers all run on the one Polars pool described above.
+[How std.dataframe wraps its engine](../facilities/04-interop/dataframe-binding.md)
+explains the binding.
 
 ## Acknowledgements
 

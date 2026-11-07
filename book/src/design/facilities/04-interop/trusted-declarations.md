@@ -146,16 +146,31 @@ the class, not this uniqueness: an owner that also stores the pointer
 elsewhere breaks the promise.
 
 Mark a type `@thread_shareable` only if, in addition, any number of threads
-may call every declared function on the same pointee at once. This usually
-means the library only reads through the pointer, or locks internally. A
-function that mutates through the pointer qualifies only if no other thread
-can hold that pointee, such as a builder the wrapper creates, fills and only
-then returns. Rust engines can assert the promise at compile time with a
-`T: Send + Sync` bound on each released type, as `plenty-dataframe` does.
+may call every declared function on the same pointee at once. The rule for
+mutation has no exceptions:
 
-For `@thread_safe` on functions taking a `@thread_movable` type, "concurrently
-with any other call" covers calls on distinct pointees: Plenty never runs two
-calls on one movable pointee at once.
+> A `@thread_shareable` type is read-only through every declared call;
+> mutation happens only on `@thread_movable` types, which Plenty never calls
+> concurrently on one pointee.
+
+The release function frees the pointee rather than mutating it: its one owner
+calls it once, after every loan has ended. A value built up
+in steps needs a separate `@thread_movable` builder type and a `@thread_safe`
+call that consumes the builder and returns the shareable type. Rust engines
+can assert the promises at compile time, with `T: Send + Sync` on each
+shareable type and `T: Send` on each builder.
+
+The compiler checks the annotations and their consistency, not this rule. An
+opaque argument is a bare pointer, so a declaration does not say whether the C
+function writes through it; `&mut` of an opaque type is an output slot that
+receives a new pointer, not a write to an existing pointee.
+
+For a function taking a `@thread_movable` type, `@thread_safe` covers
+concurrent calls on distinct pointees only.
+
+[How std.dataframe wraps its engine](dataframe-binding.md) applies these
+guidelines to a Rust engine: builders, owner classes, compile-time assertions
+and a per-call audit.
 
 The [dataframe](../../stdlib/dataframe.md#worker-threads) and
 [linear algebra](../../stdlib/linalg.md#worker-threads) bindings follow these

@@ -79,4 +79,6 @@ pointer also needs a thread contract on its type before worker code may hold
 it; [own a foreign handle](foreign-resources.md#move-the-owner-to-a-worker)
 shows one. See
 [worker threads](../../design/facilities/04-interop/trusted-declarations.md#worker-threads)
-for the full rules and binding guidelines.
+for the full rules and binding guidelines, and
+[how std.dataframe wraps its engine](../../design/facilities/04-interop/dataframe-binding.md)
+for a complete library binding that follows them.

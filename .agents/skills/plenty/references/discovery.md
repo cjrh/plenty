@@ -139,5 +139,6 @@ to the `extern def` only after checking that the C function is safe on any
 thread; the compiler trusts the annotation. Worker code holds an opaque
 pointer only if its `opaque` declaration is `@thread_movable` (crosses only as
 a field of a non-`@copy` owner moved there) or `@thread_shareable` (crosses in
-any form); every `extern def` taking a marked type must be `@thread_safe`.
+any form; no declared call may write through it, so build values on a movable
+type first); every `extern def` taking a marked type must be `@thread_safe`.
 `std.dataframe` and `std.linalg` values work on workers.

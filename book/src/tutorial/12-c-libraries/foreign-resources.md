@@ -139,6 +139,9 @@ A movable pointer crosses only inside an owner like `Scratch`: a class that is
 not `@copy` and holds the only copy. Passing the bare `RawFile`, borrowing the
 owner or putting it in `Shared` is rejected, because a copy left behind would
 let two threads use one stream. Mark a type `@thread_shareable` only when any
-number of threads may use one pointee at once. See
+number of threads may use one pointee at once and no declared call writes
+through it. See
 [opaque types on worker threads](../../design/facilities/04-interop/trusted-declarations.md#opaque-types-on-worker-threads)
 for the rules and when a binding may promise each contract.
+[How std.dataframe wraps its engine](../../design/facilities/04-interop/dataframe-binding.md)
+shows a library that builds values with movable builders and then shares them.

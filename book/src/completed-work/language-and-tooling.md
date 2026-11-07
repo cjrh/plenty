@@ -692,7 +692,9 @@ promise are certified on workers, including from destructors; unannotated
 calls stay rejected (issue #772). Opaque types declared
 [`@thread_movable` or `@thread_shareable`](../design/facilities/04-interop/trusted-declarations.md#opaque-types-on-worker-threads)
 may be held by worker code and cross as their contract allows; every
-`std.dataframe` and `std.linalg` call is `@thread_safe` (issue #833).
+`std.dataframe` and `std.linalg` call is `@thread_safe`, and dataframe values
+built in steps use movable builders so no call writes through a shareable
+pointer (issue #833).
 
 See [threads](../design/facilities/03-concurrency/threads.md),
 [channels](../design/facilities/03-concurrency/channels.md),

@@ -1,9 +1,10 @@
 # Optional Polars engine. All native owners are private and uniquely released.
 # Views are borrowed for one call. Native allocation failure can abort the process.
-# Every engine owner is Send + Sync (asserted in plenty-dataframe), so each raw
-# type is @thread_shareable. Every call is @thread_safe: the engine keeps no
-# mutable global state, calls through a raw handle only read it, and the four
-# mutating calls receive an owner this module has just created and not shared.
+# Threads: every call is @thread_safe, as the engine keeps no mutable global
+# state. Each @thread_shareable type is read-only through every declared call
+# and Send + Sync in plenty-dataframe. Mutation happens only on the four
+# @thread_movable builders (Send only); finishing one consumes it and yields
+# its shareable type without copying.
 import std.bytes as buffers
 from std.bytes import Bytes
 
@@ -29,6 +30,14 @@ opaque RawSortKeys
 opaque RawCsvSchema
 @thread_shareable
 opaque RawSchemaTree
+@thread_movable
+opaque RawFrameBuilder
+@thread_movable
+opaque RawExprsBuilder
+@thread_movable
+opaque RawSortKeysBuilder
+@thread_movable
+opaque RawCsvSchemaBuilder
 
 @thread_safe
 extern def nested_list_raw(name: &str as utf8, child: RawColumn, offsets: &list[i64] as strided, valid: &list[u8] as strided, out: &mut RawColumn) -> RawError = "pldf_v1_list"
@@ -207,9 +216,13 @@ extern def values_f64_raw(frame: RawFrame, name: &str as utf8, values: &mut list
 @thread_safe
 extern def lit_f64_raw(value: f64, out: &mut RawExpr) -> RawError = "pldf_v1_lit_f64"
 @thread_safe
-extern def frame_new_raw(out: &mut RawFrame) -> RawError = "pldf_v1_frame_new"
+extern def frame_builder_new(out: &mut RawFrameBuilder) -> RawError = "pldf_v1_frame_builder_new"
 @thread_safe
-extern def frame_add_raw(frame: RawFrame, column: RawColumn) -> RawError = "pldf_v1_frame_add"
+extern def frame_builder_add(builder: RawFrameBuilder, column: RawColumn) -> RawError = "pldf_v1_frame_builder_add"
+@thread_safe
+extern def frame_builder_finish(builder: RawFrameBuilder) -> RawFrame = "pldf_v1_frame_builder_finish"
+@thread_safe
+extern def frame_builder_drop(builder: RawFrameBuilder) -> () = "pldf_v1_frame_builder_drop"
 @thread_safe
 extern def height_raw(frame: RawFrame, out: &mut i64) -> RawError = "pldf_v1_height"
 @thread_safe
@@ -229,9 +242,13 @@ extern def unary_raw(expr: RawExpr, op: i32, out: &mut RawExpr) -> RawError = "p
 @thread_safe
 extern def alias_raw(expr: RawExpr, name: &str as utf8, out: &mut RawExpr) -> RawError = "pldf_v1_alias"
 @thread_safe
-extern def exprs_new_raw(out: &mut RawExprs) -> RawError = "pldf_v1_exprs_new"
+extern def exprs_builder_new(out: &mut RawExprsBuilder) -> RawError = "pldf_v1_exprs_builder_new"
 @thread_safe
-extern def exprs_add_raw(exprs: RawExprs, expr: RawExpr) -> RawError = "pldf_v1_exprs_add"
+extern def exprs_builder_add(builder: RawExprsBuilder, expr: RawExpr) -> RawError = "pldf_v1_exprs_builder_add"
+@thread_safe
+extern def exprs_builder_finish(builder: RawExprsBuilder) -> RawExprs = "pldf_v1_exprs_builder_finish"
+@thread_safe
+extern def exprs_builder_drop(builder: RawExprsBuilder) -> () = "pldf_v1_exprs_builder_drop"
 @thread_safe
 extern def filter_raw(query: RawQuery, expr: RawExpr, out: &mut RawQuery) -> RawError = "pldf_v1_filter"
 @thread_safe
@@ -247,9 +264,13 @@ extern def join_raw(left: RawQuery, right: RawQuery, left_keys: RawExprs, right_
 @thread_safe
 extern def join_asof_raw(left: RawQuery, right: RawQuery, left_on: &str as utf8, right_on: &str as utf8, strategy: i32, has_tolerance: u8, tolerance: i64, allow_exact_matches: u8, suffix: &str as utf8, out: &mut RawQuery) -> RawError = "pldf_v1_join_asof"
 @thread_safe
-extern def sort_keys_new(out: &mut RawSortKeys) -> RawError = "pldf_v1_sort_keys_new"
+extern def sort_keys_builder_new(out: &mut RawSortKeysBuilder) -> RawError = "pldf_v1_sort_keys_builder_new"
 @thread_safe
-extern def sort_keys_add(keys: RawSortKeys, expr: RawExpr, descending: u8, nulls_last: u8) -> RawError = "pldf_v1_sort_keys_add"
+extern def sort_keys_builder_add(builder: RawSortKeysBuilder, expr: RawExpr, descending: u8, nulls_last: u8) -> RawError = "pldf_v1_sort_keys_builder_add"
+@thread_safe
+extern def sort_keys_builder_finish(builder: RawSortKeysBuilder) -> RawSortKeys = "pldf_v1_sort_keys_builder_finish"
+@thread_safe
+extern def sort_keys_builder_drop(builder: RawSortKeysBuilder) -> () = "pldf_v1_sort_keys_builder_drop"
 @thread_safe
 extern def sort_keys_drop(keys: RawSortKeys) -> () = "pldf_v1_sort_keys_drop"
 @thread_safe
@@ -273,9 +294,13 @@ extern def n_unique_raw(expr: RawExpr, out: &mut RawExpr) -> RawError = "pldf_v1
 @thread_safe
 extern def over_raw(expr: RawExpr, partition_by: RawExprs, out: &mut RawExpr) -> RawError = "pldf_v1_over"
 @thread_safe
-extern def csv_schema_new(out: &mut RawCsvSchema) -> RawError = "pldf_v1_csv_schema_new"
+extern def csv_schema_builder_new(out: &mut RawCsvSchemaBuilder) -> RawError = "pldf_v1_csv_schema_builder_new"
 @thread_safe
-extern def csv_schema_add(schema: RawCsvSchema, name: &str as utf8, dtype: i32) -> RawError = "pldf_v1_csv_schema_add"
+extern def csv_schema_builder_add(builder: RawCsvSchemaBuilder, name: &str as utf8, dtype: i32) -> RawError = "pldf_v1_csv_schema_builder_add"
+@thread_safe
+extern def csv_schema_builder_finish(builder: RawCsvSchemaBuilder) -> RawCsvSchema = "pldf_v1_csv_schema_builder_finish"
+@thread_safe
+extern def csv_schema_builder_drop(builder: RawCsvSchemaBuilder) -> () = "pldf_v1_csv_schema_builder_drop"
 @thread_safe
 extern def csv_schema_drop(schema: RawCsvSchema) -> () = "pldf_v1_csv_schema_drop"
 @thread_safe
@@ -450,6 +475,19 @@ class CsvSchema:
         self.raw = RawCsvSchema.null()
     def __del__(self) -> ():
         csv_schema_drop(self.raw)
+
+class CsvSchemaBuilder:
+    raw: RawCsvSchemaBuilder
+    def __init__(self) -> ():
+        self.raw = RawCsvSchemaBuilder.null()
+    def __del__(self) -> ():
+        csv_schema_builder_drop(self.raw)
+    # Ownership of the pointee moves to the result, so the builder releases nothing.
+    def finish(self: &mut CsvSchemaBuilder) -> CsvSchema:
+        mut out = CsvSchema()
+        out.raw = csv_schema_builder_finish(self.raw)
+        self.raw = RawCsvSchemaBuilder.null()
+        out
 
 pub enum JoinKind:
     Inner
@@ -1163,6 +1201,45 @@ class SortKeys:
     def __del__(self) -> ():
         sort_keys_drop(self.raw)
 
+class ExprsBuilder:
+    raw: RawExprsBuilder
+    def __init__(self) -> ():
+        self.raw = RawExprsBuilder.null()
+    def __del__(self) -> ():
+        exprs_builder_drop(self.raw)
+    # Ownership of the pointee moves to the result, so the builder releases nothing.
+    def finish(self: &mut ExprsBuilder) -> Exprs:
+        mut out = Exprs()
+        out.raw = exprs_builder_finish(self.raw)
+        self.raw = RawExprsBuilder.null()
+        out
+
+class SortKeysBuilder:
+    raw: RawSortKeysBuilder
+    def __init__(self) -> ():
+        self.raw = RawSortKeysBuilder.null()
+    def __del__(self) -> ():
+        sort_keys_builder_drop(self.raw)
+    # Ownership of the pointee moves to the result, so the builder releases nothing.
+    def finish(self: &mut SortKeysBuilder) -> SortKeys:
+        mut out = SortKeys()
+        out.raw = sort_keys_builder_finish(self.raw)
+        self.raw = RawSortKeysBuilder.null()
+        out
+
+class FrameBuilder:
+    raw: RawFrameBuilder
+    def __init__(self) -> ():
+        self.raw = RawFrameBuilder.null()
+    def __del__(self) -> ():
+        frame_builder_drop(self.raw)
+    # Ownership of the pointee moves to the result, so the builder releases nothing.
+    def finish(self: &mut FrameBuilder) -> DataFrame:
+        mut out = DataFrame()
+        out.raw = frame_builder_finish(self.raw)
+        self.raw = RawFrameBuilder.null()
+        out
+
 pub class Query:
     raw: RawQuery
     pub def schema_tree(self) -> Result[list[SchemaNode], DataFrameError]:
@@ -1236,10 +1313,11 @@ pub class Query:
         checked(join_asof_raw(self.raw, other.raw, left_on, right_on, kind, 1u8 if tolerance.is_some() else 0u8, tolerance.unwrap_or(0), 1u8 if allow_exact_matches else 0u8, suffix, &mut out.raw))?
         Ok(out)
     pub def sort(self, keys: &list[SortKey]) -> Result[Query, DataFrameError]:
-        mut native_keys = SortKeys()
-        checked(sort_keys_new(&mut native_keys.raw))?
+        mut builder = SortKeysBuilder()
+        checked(sort_keys_builder_new(&mut builder.raw))?
         for key in keys:
-            checked(sort_keys_add(native_keys.raw, key.expr.raw, 1u8 if key.descending else 0u8, 1u8 if key.nulls_last else 0u8))?
+            checked(sort_keys_builder_add(builder.raw, key.expr.raw, 1u8 if key.descending else 0u8, 1u8 if key.nulls_last else 0u8))?
+        native_keys = builder.finish()
         mut out = Query()
         checked(sort_raw(self.raw, native_keys.raw, &mut out.raw))?
         Ok(out)
@@ -1251,11 +1329,11 @@ pub class Query:
         self.slice(0, count)
 
 def expression_list(expressions: &list[Expr]) -> Result[Exprs, DataFrameError]:
-    mut out = Exprs()
-    checked(exprs_new_raw(&mut out.raw))?
+    mut builder = ExprsBuilder()
+    checked(exprs_builder_new(&mut builder.raw))?
     for expr in expressions:
-        checked(exprs_add_raw(out.raw, expr.raw))?
-    Ok(out)
+        checked(exprs_builder_add(builder.raw, expr.raw))?
+    Ok(builder.finish())
 
 pub def column_list(name: &str, values: &Column, offsets: &list[i64]) -> Result[Column, DataFrameError]:
     # List lengths are nonnegative; an empty offsets list yields -1 (no flags).
@@ -1282,11 +1360,11 @@ pub def column_struct_nullable(name: &str, fields: &DataFrame, valid: &list[bool
     Ok(out)
 
 pub def frame(columns: &list[Column]) -> Result[DataFrame, DataFrameError]:
-    mut out = DataFrame()
-    checked(frame_new_raw(&mut out.raw))?
+    mut builder = FrameBuilder()
+    checked(frame_builder_new(&mut builder.raw))?
     for column in columns:
-        checked(frame_add_raw(out.raw, column.raw))?
-    Ok(out)
+        checked(frame_builder_add(builder.raw, column.raw))?
+    Ok(builder.finish())
 
 pub def column_i8(name: &str, values: &list[i8]) -> Result[Column, DataFrameError]:
     mut out = Column()
@@ -1506,14 +1584,15 @@ pub def scan_parquet(path: &str) -> Result[Query, DataFrameError]:
     Ok(out)
 
 pub def scan_csv(path: &str, has_header: bool = True, separator: &str = ",", infer_rows: i64 = 100, null_value: Option[str] = Nothing, schema_overrides: Option[list[Field]] = Nothing) -> Result[Query, DataFrameError]:
-    mut schema = CsvSchema()
-    checked(csv_schema_new(&mut schema.raw))?
+    mut builder = CsvSchemaBuilder()
+    checked(csv_schema_builder_new(&mut builder.raw))?
     match schema_overrides:
         case Some(fields):
             for field in &fields:
-                checked(csv_schema_add(schema.raw, field.name, scalar_dtype(field.dtype)?))?
+                checked(csv_schema_builder_add(builder.raw, field.name, scalar_dtype(field.dtype)?))?
         case Nothing:
             pass
+    schema = builder.finish()
     mut out = Query()
     checked(scan_csv_raw(path, 1u8 if has_header else 0u8, separator, infer_rows, null_value.unwrap_or(""), 1u8 if null_value.is_some() else 0u8, schema.raw, &mut out.raw))?
     Ok(out)

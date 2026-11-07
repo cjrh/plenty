@@ -7,11 +7,12 @@
 //! Polars/Rust allocation failure may abort; errors do not promise recoverable OOM.
 //!
 //! Every export may run on any thread, concurrently with any other: there is
-//! no mutable global state here, owners are `Send + Sync` (asserted by
-//! `destroy!`), calls through `*const` only read, and the `*mut` owner calls
-//! (`frame_add`, `exprs_add`, `sort_keys_add`, `csv_schema_add`) receive an
-//! owner the facade has just created and not shared. Polars runs work on its
-//! global rayon pool, which accepts jobs from any external thread.
+//! no mutable global state here. Read-only owners are `Send + Sync` (asserted
+//! by `destroy!`) and every call through them only reads. Mutation happens
+//! only on builders, which are `Send` (asserted by `builder!`): Plenty never
+//! calls concurrently on one builder, and finishing one turns it into its
+//! read-only owner without copying. Polars runs work on its global rayon pool,
+//! which accepts jobs from any external thread.
 use polars::prelude::*;
 use std::{fs::File, panic::AssertUnwindSafe, ptr};
 
@@ -127,15 +128,8 @@ macro_rules! export {
         }
     };
 }
-// Every owner type has exactly one release function, so asserting here covers
-// all handles. Plenty may move an owner to a worker and lend it to several
-// workers at once (std.dataframe declares every call @thread_safe).
-macro_rules! destroy {
+macro_rules! release {
     ($name:ident, $ty:ty) => {
-        const _: () = {
-            const fn send_and_sync<T: Send + Sync>() {}
-            send_and_sync::<$ty>();
-        };
         /// # Safety
         /// Pass null or the unique matching live owner, exactly once.
         #[unsafe(no_mangle)]
@@ -145,6 +139,40 @@ macro_rules! destroy {
                 drop(unsafe { Box::from_raw(raw) });
             }
         }
+    };
+}
+// Every read-only owner type has exactly one release function, so asserting
+// here covers all of them. std.dataframe marks each @thread_shareable: Plenty
+// may move one to a worker and lend it to several workers at once.
+macro_rules! destroy {
+    ($name:ident, $ty:ty) => {
+        const _: () = {
+            const fn send_and_sync<T: Send + Sync>() {}
+            send_and_sync::<$ty>();
+        };
+        release!($name, $ty);
+    };
+}
+// A builder is the only owner calls may mutate. std.dataframe marks it
+// @thread_movable, so it needs only `Send`. `finish` consumes the builder and
+// returns its read-only owner: `repr(transparent)` gives both the same layout,
+// so the Box changes type without copying or reallocating, and cannot fail.
+macro_rules! builder {
+    ($builder:ident($built:ty), $new:ident = $init:expr, $finish:ident, $drop:ident) => {
+        #[repr(transparent)]
+        pub struct $builder($built);
+        const _: () = {
+            const fn send<T: Send>() {}
+            send::<$builder>();
+        };
+        export!($new(out: *mut *mut $builder) { put(out, $builder($init)) });
+        /// # Safety
+        /// Pass null or the unique live builder; its ownership moves to the result.
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $finish(raw: *mut $builder) -> *mut $built {
+            raw.cast()
+        }
+        release!($drop, $builder);
     };
 }
 destroy!(pldf_v1_error_drop, NativeError);
@@ -212,9 +240,14 @@ export!(pldf_v1_f64(name: *const u8, name_len: usize, data: *const u8, len: usiz
     let series = Series::new(text(name, name_len)?.into(), values::<f64>(data, len, stride)?);
     put(out, series.into())
 });
-export!(pldf_v1_frame_new(out: *mut *mut DataFrame) { put(out, DataFrame::empty()) });
-export!(pldf_v1_frame_add(frame: *mut DataFrame, column: *const Column) {
-    let frame = frame.as_mut().ok_or_else(|| NativeError::new(1, "null dataframe"))?;
+builder!(
+    FrameBuilder(DataFrame),
+    pldf_v1_frame_builder_new = DataFrame::empty(),
+    pldf_v1_frame_builder_finish,
+    pldf_v1_frame_builder_drop
+);
+export!(pldf_v1_frame_builder_add(builder: *mut FrameBuilder, column: *const Column) {
+    let frame = &mut builder.as_mut().ok_or_else(|| NativeError::new(1, "null dataframe builder"))?.0;
     let column = get(column)?;
     if frame.get_column_names().iter().any(|name| **name == *column.name()) {
         return Err(NativeError::new(1, format!("duplicate column name: {}", column.name())));
@@ -297,9 +330,14 @@ export!(pldf_v1_unary(expr: *const Expr, op: i32, out: *mut *mut Expr) {
 export!(pldf_v1_alias(expr: *const Expr, name: *const u8, len: usize, out: *mut *mut Expr) {
     put(out, get(expr)?.clone().alias(text(name, len)?))
 });
-export!(pldf_v1_exprs_new(out: *mut *mut Vec<Expr>) { put(out, Vec::new()) });
-export!(pldf_v1_exprs_add(exprs: *mut Vec<Expr>, expr: *const Expr) {
-    exprs.as_mut().ok_or_else(|| NativeError::new(1, "null expression list"))?.push(get(expr)?.clone());
+builder!(
+    ExprsBuilder(Vec<Expr>),
+    pldf_v1_exprs_builder_new = Vec::new(),
+    pldf_v1_exprs_builder_finish,
+    pldf_v1_exprs_builder_drop
+);
+export!(pldf_v1_exprs_builder_add(builder: *mut ExprsBuilder, expr: *const Expr) {
+    builder.as_mut().ok_or_else(|| NativeError::new(1, "null expression list builder"))?.0.push(get(expr)?.clone());
     Ok(())
 });
 export!(pldf_v1_filter(query: *const LazyFrame, expr: *const Expr, out: *mut *mut LazyFrame) {
@@ -343,10 +381,15 @@ export!(pldf_v1_join(left: *const LazyFrame, right: *const LazyFrame, left_keys:
     put(out, get(left)?.clone().join(get(right)?.clone(), left_keys.as_slice(), right_keys.as_slice(), args))
 });
 
-export!(pldf_v1_sort_keys_new(out: *mut *mut SortKeys) { put(out, SortKeys::default()) });
-export!(pldf_v1_sort_keys_add(keys: *mut SortKeys, expr: *const Expr, descending: u8, nulls_last: u8) {
+builder!(
+    SortKeysBuilder(SortKeys),
+    pldf_v1_sort_keys_builder_new = SortKeys::default(),
+    pldf_v1_sort_keys_builder_finish,
+    pldf_v1_sort_keys_builder_drop
+);
+export!(pldf_v1_sort_keys_builder_add(builder: *mut SortKeysBuilder, expr: *const Expr, descending: u8, nulls_last: u8) {
     if descending > 1 || nulls_last > 1 { return Err(NativeError::new(1, "invalid sort direction or null placement")); }
-    let keys = keys.as_mut().ok_or_else(|| NativeError::new(1, "null sort keys"))?;
+    let keys = &mut builder.as_mut().ok_or_else(|| NativeError::new(1, "null sort keys builder"))?.0;
     let expr = get(expr)?.clone();
     keys.expressions.push(expr);
     keys.descending.push(descending != 0);
@@ -464,10 +507,11 @@ mod tests {
         // SAFETY: the native sort owner is built and released once; Exprs
         // are borrowed only during add, and the sorted query retains copies.
         unsafe {
-            let mut keys = ptr::null_mut();
-            success(pldf_v1_sort_keys_new(&mut keys));
-            success(pldf_v1_sort_keys_add(keys, &col("a"), 0, 1));
-            success(pldf_v1_sort_keys_add(keys, &col("b"), 1, 0));
+            let mut builder = ptr::null_mut();
+            success(pldf_v1_sort_keys_builder_new(&mut builder));
+            success(pldf_v1_sort_keys_builder_add(builder, &col("a"), 0, 1));
+            success(pldf_v1_sort_keys_builder_add(builder, &col("b"), 1, 0));
+            let keys = pldf_v1_sort_keys_builder_finish(builder);
             let mut out = ptr::null_mut();
             success(pldf_v1_sort(&query, keys, &mut out));
             pldf_v1_sort_keys_drop(keys);
@@ -618,6 +662,40 @@ mod tests {
     }
 
     #[test]
+    fn builders_finish_in_place_or_release_unfinished() {
+        // SAFETY: each builder is finished or released exactly once, and the
+        // column is borrowed only during add.
+        unsafe {
+            assert!(pldf_v1_frame_builder_finish(ptr::null_mut()).is_null());
+            let values = [1i64, 2];
+            let mut column = ptr::null_mut();
+            success(pldf_v1_i64(
+                b"x".as_ptr(),
+                1,
+                values.as_ptr().cast(),
+                2,
+                8,
+                &mut column,
+            ));
+            let mut unfinished = ptr::null_mut();
+            success(pldf_v1_frame_builder_new(&mut unfinished));
+            success(pldf_v1_frame_builder_add(unfinished, column));
+            pldf_v1_frame_builder_drop(unfinished);
+            let mut builder = ptr::null_mut();
+            success(pldf_v1_frame_builder_new(&mut builder));
+            success(pldf_v1_frame_builder_add(builder, column));
+            let duplicate = pldf_v1_frame_builder_add(builder, column);
+            assert!(!duplicate.is_null());
+            pldf_v1_error_drop(duplicate);
+            let frame = pldf_v1_frame_builder_finish(builder);
+            assert_eq!(frame.cast::<u8>(), builder.cast::<u8>());
+            assert_eq!(get(frame).unwrap().height(), 2);
+            pldf_v1_frame_drop(frame);
+            pldf_v1_column_drop(column);
+        }
+    }
+
+    #[test]
     fn plans_own_data_after_original_handles_are_dropped() {
         // SAFETY: handles and output slots satisfy the adapter's contract;
         // originals are dropped only after each retaining call returns.
@@ -627,9 +705,10 @@ mod tests {
             assert!(
                 pldf_v1_f64(b"x".as_ptr(), 1, values.as_ptr().cast(), 3, 8, &mut column).is_null()
             );
-            let mut frame = ptr::null_mut();
-            assert!(pldf_v1_frame_new(&mut frame).is_null());
-            assert!(pldf_v1_frame_add(frame, column).is_null());
+            let mut builder = ptr::null_mut();
+            assert!(pldf_v1_frame_builder_new(&mut builder).is_null());
+            assert!(pldf_v1_frame_builder_add(builder, column).is_null());
+            let frame = pldf_v1_frame_builder_finish(builder);
             pldf_v1_column_drop(column);
             let mut query = ptr::null_mut();
             assert!(pldf_v1_lazy(frame, &mut query).is_null());
