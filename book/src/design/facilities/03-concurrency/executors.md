@@ -238,6 +238,13 @@ the path that leaves. A call that receives a pool, by value, by reference, or
 borrowed from a field such as `&holder.pool`, counts as submitting, at the call,
 every job that a function it reaches submits directly or through further calls,
 to that pool or any other. A shutdown inside that call sees those jobs too.
+A call handed no pool still counts as a shutdown at the call when a function
+it reaches submits a job and can shut a pool down: the job may run in a pool
+the callee makes and drops before returning. Only the jobs' senders and
+mutexes of types that the call's arguments, or a closure's captures, can
+reach count, since a job of the callee's own pool can hold a caller's
+endpoint only through them. A helper that drains a channel it makes itself is
+therefore accepted beside a caller's receiver of the same type.
 `map`, `map_result`, and `reduce_tree` finish their jobs before returning and do
 not count. What a job and a binding *can hold* is defined as for tasks.
 
@@ -279,15 +286,15 @@ rejects these safe programs:
 
 - the job has finished, for example after `future.result()` returned;
 - the job was submitted to a different pool than the one shutting down;
-- a `submit` failure handled without `?` returned the job to the caller.
+- a `submit` failure handled without `?` returned the job to the caller;
+- a call handed no pool submits a job and then returns its pool, or shuts
+  down only a pool it made before submitting.
 
 It does not cover:
 
 - a job submitted by a function compiled elsewhere or reached through a
   callable value;
 - a job submitted by another function to a pool it returns;
-- a job that a called function submits to a pool of its own and shuts down,
-  when the call is handed no pool (issue #860);
 - a pool passed to a call inside a class, tuple, or collection;
 - a `map`, `map_result`, or `reduce_tree` callback that waits to send.
 
