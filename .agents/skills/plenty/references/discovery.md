@@ -15,7 +15,7 @@ and linked module references own the current API contracts.
 | Parse a submitted form | [std.http.body](../../../../book/src/design/stdlib/http-body.md): bounded `parse_form_text` and `read_form`. Parsing key/value pairs is distinct from deriving typed validation for a class. |
 | Preserve a partial I/O failure | [std.io](../../../../book/src/design/stdlib/io.md): `Partial` records completed work and the cause; it can be a member of an error union. [Typed streams](../../../../book/src/design/stdlib/io-typed.md) preserve a caller-chosen cause type. |
 | Stop a worker or bounded wait | [Cancellation](../../../../book/src/design/facilities/03-concurrency/cancellation.md), [std.sync](../../../../book/src/design/stdlib/sync.md) deadline waits (`recv_before`, `select_recv_before`) and [std.ready](../../../../book/src/design/stdlib/ready.md) handle readiness. Channel, selection and future `_timeout_ms` waits take no token. A token does not interrupt arbitrary blocking calls. |
-| Call native code from a worker | [Worker effects](../../../../book/src/design/facilities/03-concurrency/effects.md): a reachable foreign call, including from a destructor, is rejected unless its `extern def` is [`@thread_safe`](../../../../book/src/design/facilities/04-interop/trusted-declarations.md#worker-threads); opaque pointers stay ineligible. Standard helpers also undergo certification; they have no blanket exemption. |
+| Call native code from a worker | [Worker effects](../../../../book/src/design/facilities/03-concurrency/effects.md): a reachable foreign call, including from a destructor, is rejected unless its `extern def` is [`@thread_safe`](../../../../book/src/design/facilities/04-interop/trusted-declarations.md#worker-threads); an opaque pointer needs [`@thread_movable` or `@thread_shareable`](../../../../book/src/design/facilities/04-interop/trusted-declarations.md#opaque-types-on-worker-threads) on its type. Standard helpers also undergo certification; they have no blanket exemption. |
 
 ## Verify the report
 
@@ -142,4 +142,9 @@ standard operation when it expresses the task; renaming a foreign call or
 moving it into a helper does not certify it. Add
 [`@thread_safe`](../../../../book/src/design/facilities/04-interop/trusted-declarations.md#worker-threads)
 to the `extern def` only after checking that the C function is safe on any
-thread; the compiler trusts the annotation. Opaque pointers stay ineligible.
+thread; the compiler trusts the annotation. Worker code holds an opaque
+pointer only if its `opaque` declaration is `@thread_movable` (crosses only as
+a field of a moved owner that `copy(x)` rejects) or `@thread_shareable` (crosses in
+any form; no declared call may write through it, so build values on a movable
+type first); every `extern def` taking a marked type must be `@thread_safe`.
+`std.dataframe` and `std.linalg` values work on workers.

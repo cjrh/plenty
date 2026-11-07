@@ -247,6 +247,7 @@ fn step(
                     return Err("invalid forgotten value".into());
                 }
             }
+            crate::threading::ThreadOp::Rows(..) => {}
         },
         Op::Try {
             source,
@@ -508,7 +509,7 @@ fn step(
         Op::PushBytes(_) => stack.push(Ty::ByteStr),
         Op::PushBool(_) => stack.push(Ty::Bool),
         Op::ForeignNull(ty) => {
-            if !matches!(ty, Ty::ForeignPtr(_)) {
+            if !matches!(ty, Ty::ForeignPtr(..)) {
                 return Err("foreign null requires an opaque pointer".into());
             }
             stack.push(ty.clone());

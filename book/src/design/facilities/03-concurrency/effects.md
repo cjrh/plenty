@@ -88,11 +88,14 @@ boundaries like any other owned value:
   shared handle.
 - A failed thread start drops each moved handle once, which closes it.
 
-Foreign pointers (`opaque` types) remain ineligible: the compiler cannot know
-whether a foreign resource tolerates use from another thread, and opaque
-values copy. A scalar handle, such as a file descriptor, in an affine owner
-whose destructor calls a `@thread_safe` release function moves like a `File`;
-see [worker threads](../04-interop/trusted-declarations.md#worker-threads).
+Foreign pointers (`opaque` types) are eligible only when their declaration
+states a [thread contract](../04-interop/trusted-declarations.md#opaque-types-on-worker-threads):
+the compiler cannot know whether a foreign resource tolerates use from another
+thread. Opaque values copy, so a `@thread_movable` pointer crosses only as a
+field of an affine owner moved there, while a `@thread_shareable` one may also
+be copied, borrowed or shared. A scalar handle, such as a file descriptor, in
+an affine owner whose destructor calls a `@thread_safe` release function moves
+like a `File`; see [worker threads](../04-interop/trusted-declarations.md#worker-threads).
 
 ## Blocking and cancellation
 

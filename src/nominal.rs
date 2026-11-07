@@ -353,7 +353,7 @@ impl Clone for Ty {
             Self::Closure(t) => Self::Closure(t.clone()),
             Self::Generator(t) => Self::Generator(t.clone()),
             Self::Range(t) => Self::Range(t.clone()),
-            Self::ForeignPtr(t) => Self::ForeignPtr(t.clone()),
+            Self::ForeignPtr(t, threads) => Self::ForeignPtr(t.clone(), *threads),
             Self::I8 => Self::I8,
             Self::I16 => Self::I16,
             Self::I32 => Self::I32,

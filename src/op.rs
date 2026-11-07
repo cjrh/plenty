@@ -89,8 +89,9 @@ pub enum Ty {
     FsMetadata,
     /// Private contiguous byte owner used by the embedded `std.bytes`.
     ByteStorage,
-    /// Nominal opaque C pointer. No dereference or integer conversions.
-    ForeignPtr(Arc<str>),
+    /// Nominal opaque C pointer. No dereference or integer conversions. The
+    /// thread contract is fixed by the one declaration of the name.
+    ForeignPtr(Arc<str>, crate::foreign::Threads),
     Bool,
     List(Arc<Ty>),
     /// Dense native-width columns for a primitive-field class.
@@ -872,7 +873,7 @@ impl fmt::Display for Ty {
             Ty::FsDirEntry => "FsDirEntry",
             Ty::FsMetadata => "FsMetadata",
             Ty::ByteStorage => "ByteStorage",
-            Ty::ForeignPtr(name) => return f.write_str(name),
+            Ty::ForeignPtr(name, _) => return f.write_str(name),
             Ty::Bool => "bool",
             Ty::Iter(t, _) => return write!(f, "Iter[{t}]"),
             Ty::List(t) => return write!(f, "list[{t}]"),

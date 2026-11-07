@@ -324,7 +324,7 @@ fn kind_code(ty: &Ty) -> u8 {
         Ty::U8 => b'5',
         Ty::U16 => b'6',
         Ty::U32 => b'7',
-        Ty::U64 | Ty::ForeignPtr(_) => b'8',
+        Ty::U64 | Ty::ForeignPtr(..) => b'8',
         Ty::F32 => b'f',
         Ty::F64 => b'd',
         // Unit has its own kind so the runtime can tell it from iterator
