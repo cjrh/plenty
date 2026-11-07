@@ -122,6 +122,7 @@ peer or a test that plays one. `stop` and
 | `router.find(method, path)` | `Result[Match, ServerError]`: the route for a request |
 | `router.set_fallback(route: Option[R])` | Store a typed handler value for paths with no route; `Nothing` restores the built-in `404` |
 | `router.set_method_not_allowed(route: Option[R])` | Store a typed handler value for an exact path with no matching method; `Nothing` restores the built-in `405` and `Allow` |
+| `router.set_path_refusal(renderer, max_bytes: NonNegative[i64])` | Register a [bounded malformed-capture renderer](http-refusals.md); `Nothing` restores the built-in `400` |
 | `router.set_trailing_slash(policy: TrailingSlash)` | `Exact` (default), or `Redirect` to the registered spelling after an exact miss |
 | `router.route(index)` | `&R`: the value of the route at `index`, in the order routes were added |
 | `Match.Found(index, params: list[str])` | `index` is the matched route's; `params` holds the captures in pattern order, still percent-encoded |
@@ -155,6 +156,8 @@ message.
 By default the server answers `404`, or `405` with an `Allow` field, without
 calling the handler. A successfully matched route whose capture does not
 percent-decode to UTF-8 gets `400`, including when a fallback is configured.
+An opt-in [malformed-capture renderer](http-refusals.md) can supply its body
+without exposing malformed input to the typed handler.
 
 ### Fallback and method policy
 
@@ -555,6 +558,23 @@ timed out`, `handshake failed` and `accept failed`, most with a
 `status` field. An event the sink cannot take is dropped and counted in
 `dropped_events`; logging never blocks serving.
 
+## Response dates
+
+The server adds one `Date` header to final responses, including handler errors,
+protocol refusals, queue-full `503` and parked-head `408` responses. This also
+covers `HEAD`, streamed responses, `101` protocol switches and detached streams.
+It does not add `Date` to `100 Continue`. A caller-supplied `Date`, found without
+regard to ASCII case, keeps its exact value and is never supplemented.
+
+The value is generated when the response head is prepared from one
+[`std.time.wall_now`](time.md) reading, using
+[`std.http.http_date`](http.md#http-dates). The wall-clock API is infallible;
+an unrepresentable timestamp (outside 1970–9999 or invalid nanoseconds) causes
+omission rather than an invented date. Allocation failures remain
+`HttpError.Allocation` before that response head is written. If an admission
+response cannot be prepared, the server closes the connection without an answer.
+There is no global date cache, background task or caller clock configuration.
+
 ## Limits
 
 - The accepting thread waits on one selector of at most 64 events per wait,
@@ -575,7 +595,7 @@ timed out`, `handshake failed` and `accept failed`, most with a
 - HTTPS has the [`std.tls` limits](tls.md#limits). The server speaks only
   HTTP/1.x, so its `ServerConfig` should offer no ALPN protocol but
   `http/1.1`.
-- No `Date` header, compression, request trailers in the exchange, or
+- No compression, request trailers in the exchange, or
   HTTP/2. A connection taken by `switch_protocols` or `detach` holds its
   worker until the handler returns, so long-lived WebSockets and event
   streams count against `workers`. Forms, JSON, uploads, cookies and forwarded clients are in

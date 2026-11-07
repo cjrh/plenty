@@ -50,63 +50,63 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.fs.lock`](#stdfslock): 1458-1473
 - [`std.fs.watch`](#stdfswatch): 1475-1510
 - [`std.graph`](#stdgraph): 1512-1600
-- [`std.http`](#stdhttp): 1602-1672
-- [`std.http.decoder`](#stdhttpdecoder): 1674-1691
-- [`std.http.body`](#stdhttpbody): 1693-1728
-- [`std.http.client`](#stdhttpclient): 1730-1840
-- [`std.http.cookie`](#stdhttpcookie): 1842-1874
-- [`std.http.files`](#stdhttpfiles): 1876-1889
-- [`std.http.https`](#stdhttphttps): 1891-1905
-- [`std.http.proxy`](#stdhttpproxy): 1907-1928
-- [`std.http.server`](#stdhttpserver): 1930-2021
-- [`std.http.sse`](#stdhttpsse): 2023-2042
-- [`std.http.tls`](#stdhttptls): 2044-2061
-- [`std.http.typed`](#stdhttptyped): 2063-2096
-- [`std.http.websocket`](#stdhttpwebsocket): 2098-2133
-- [`std.http.wss`](#stdhttpwss): 2135-2141
-- [`std.image`](#stdimage): 2143-2189
-- [`std.io`](#stdio): 2191-2297
-- [`std.io.typed`](#stdiotyped): 2299-2337
-- [`std.serial`](#stdserial): 2339-2397
-- [`std.json`](#stdjson): 2399-2549
-- [`std.jwt`](#stdjwt): 2551-2598
-- [`std.log`](#stdlog): 2600-2667
-- [`std.markdown`](#stdmarkdown): 2669-2703
-- [`std.template`](#stdtemplate): 2705-2742
-- [`std.math`](#stdmath): 2744-2815
-- [`std.mime`](#stdmime): 2817-2843
-- [`std.net`](#stdnet): 2845-2927
-- [`std.path`](#stdpath): 2929-2946
-- [`std.process`](#stdprocess): 2948-3006
-- [`std.random`](#stdrandom): 3008-3029
-- [`std.ready`](#stdready): 3031-3062
-- [`std.regex`](#stdregex): 3064-3117
-- [`std.report`](#stdreport): 3119-3126
-- [`std.secrets`](#stdsecrets): 3128-3154
-- [`std.shlex`](#stdshlex): 3156-3165
-- [`std.sketch`](#stdsketch): 3167-3205
-- [`std.sketch.xor`](#stdsketchxor): 3207-3218
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3220-3235
-- [`std.signal`](#stdsignal): 3237-3254
-- [`std.simd`](#stdsimd): 3256-3357
-- [`std.stat`](#stdstat): 3359-3392
-- [`std.plot`](#stdplot): 3394-3483
-- [`std.linalg`](#stdlinalg): 3485-3526
-- [`std.sync`](#stdsync): 3528-3546
-- [`std.system`](#stdsystem): 3548-3607
-- [`std.tempfile`](#stdtempfile): 3609-3641
-- [`std.test`](#stdtest): 3643-3685
-- [`std.text`](#stdtext): 3687-3730
-- [`std.thread`](#stdthread): 3732-3736
-- [`std.time`](#stdtime): 3738-3782
-- [`std.tls`](#stdtls): 3784-3866
-- [`std.toml`](#stdtoml): 3868-3965
-- [`std.unicode`](#stdunicode): 3967-3979
-- [`std.units`](#stdunits): 3981-4218
-- [`std.units.catalogue`](#stdunitscatalogue): 4220-4998
-- [`std.url`](#stdurl): 5000-5028
-- [`std.uuid`](#stduuid): 5030-5053
-- [`std.xml`](#stdxml): 5055-5088
+- [`std.http`](#stdhttp): 1602-1673
+- [`std.http.decoder`](#stdhttpdecoder): 1675-1692
+- [`std.http.body`](#stdhttpbody): 1694-1729
+- [`std.http.client`](#stdhttpclient): 1731-1841
+- [`std.http.cookie`](#stdhttpcookie): 1843-1875
+- [`std.http.files`](#stdhttpfiles): 1877-1890
+- [`std.http.https`](#stdhttphttps): 1892-1906
+- [`std.http.proxy`](#stdhttpproxy): 1908-1929
+- [`std.http.server`](#stdhttpserver): 1931-2032
+- [`std.http.sse`](#stdhttpsse): 2034-2053
+- [`std.http.tls`](#stdhttptls): 2055-2072
+- [`std.http.typed`](#stdhttptyped): 2074-2107
+- [`std.http.websocket`](#stdhttpwebsocket): 2109-2144
+- [`std.http.wss`](#stdhttpwss): 2146-2152
+- [`std.image`](#stdimage): 2154-2200
+- [`std.io`](#stdio): 2202-2308
+- [`std.io.typed`](#stdiotyped): 2310-2348
+- [`std.serial`](#stdserial): 2350-2414
+- [`std.json`](#stdjson): 2416-2568
+- [`std.jwt`](#stdjwt): 2570-2617
+- [`std.log`](#stdlog): 2619-2686
+- [`std.markdown`](#stdmarkdown): 2688-2722
+- [`std.template`](#stdtemplate): 2724-2761
+- [`std.math`](#stdmath): 2763-2834
+- [`std.mime`](#stdmime): 2836-2862
+- [`std.net`](#stdnet): 2864-2946
+- [`std.path`](#stdpath): 2948-2965
+- [`std.process`](#stdprocess): 2967-3025
+- [`std.random`](#stdrandom): 3027-3048
+- [`std.ready`](#stdready): 3050-3081
+- [`std.regex`](#stdregex): 3083-3136
+- [`std.report`](#stdreport): 3138-3149
+- [`std.secrets`](#stdsecrets): 3151-3177
+- [`std.shlex`](#stdshlex): 3179-3188
+- [`std.sketch`](#stdsketch): 3190-3228
+- [`std.sketch.xor`](#stdsketchxor): 3230-3241
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3243-3258
+- [`std.signal`](#stdsignal): 3260-3277
+- [`std.simd`](#stdsimd): 3279-3380
+- [`std.stat`](#stdstat): 3382-3415
+- [`std.plot`](#stdplot): 3417-3506
+- [`std.linalg`](#stdlinalg): 3508-3549
+- [`std.sync`](#stdsync): 3551-3569
+- [`std.system`](#stdsystem): 3571-3630
+- [`std.tempfile`](#stdtempfile): 3632-3664
+- [`std.test`](#stdtest): 3666-3708
+- [`std.text`](#stdtext): 3710-3753
+- [`std.thread`](#stdthread): 3755-3759
+- [`std.time`](#stdtime): 3761-3805
+- [`std.tls`](#stdtls): 3807-3889
+- [`std.toml`](#stdtoml): 3891-3990
+- [`std.unicode`](#stdunicode): 3992-4004
+- [`std.units`](#stdunits): 4006-4243
+- [`std.units.catalogue`](#stdunitscatalogue): 4245-5023
+- [`std.url`](#stdurl): 5025-5053
+- [`std.uuid`](#stduuid): 5055-5078
+- [`std.xml`](#stdxml): 5080-5113
 
 ## `std.actor`
 
@@ -668,7 +668,7 @@ def decompressor[R](format: Format, inner: R, limit: NonNegative[i64]) -> Result
 
 Executors, futures and parallel operations. Errors: Pool/submission/future/parallel errors. [Reference](concurrent.md).
 
-Compiler-provided: `ThreadPoolExecutor`, `Future`, `PoolError`, `SubmitError`, `FutureError`, `PoolMapError`, `ParallelError`. Their signatures are on the reference page.
+Compiler-provided: `ThreadPoolExecutor`, `Future`, `PoolError`, `SubmitError`, `FutureError`, `PoolMapError`, `ParallelError`, `Submitter`. Their signatures are on the reference page.
 
 ## `std.crypto`
 
@@ -1669,6 +1669,7 @@ def encode_chunk_size(length: NonNegative[i64]) -> Result[Bytes, HttpError]
 def write_last_chunk[W: Writer](writer: &mut W, trailers: &list[Header]) -> Result[(), HttpError]
 def encode_last_chunk(trailers: &list[Header]) -> Result[Bytes, HttpError]
 def write_body[W: Writer](writer: &mut W, framing: &Framing, source: &[u8]) -> Result[(), HttpError]
+def http_date(timestamp: &Timestamp) -> Result[Option[str], HttpError]
 ```
 
 ## `std.http.decoder`
@@ -1969,10 +1970,20 @@ enum Match
     Found(i64, list[str]) | NotFound | MethodNotAllowed(str)
 enum TrailingSlash
     Exact | Redirect
+enum PathRefusal
+    InvalidEscape | InvalidUtf8
+enum RefusalError
+    Allocation(AllocError) | BodyTooLarge | InvalidContentType | Cancelled | TimedOut | Broken | Http(HttpError)
+class RefusalResponse
+    def check(self) -> Result[(), RefusalError]
+    def check_at(self, now: &std.time.Instant) -> Result[(), RefusalError]
+    def append(self: &mut RefusalResponse, source: &[u8]) -> Result[(), RefusalError]
+    def set_content_type(self: &mut RefusalResponse, value: str) -> Result[(), RefusalError]
 class Router[R]
     def set_fallback(self: &mut Router[R], route: Option[R]) -> ()
     def set_method_not_allowed(self: &mut Router[R], route: Option[R]) -> ()
     def set_trailing_slash(self: &mut Router[R], policy: TrailingSlash) -> ()
+    def set_path_refusal(self: &mut Router[R], renderer: Option[Callable[[&PathRefusal, &mut RefusalResponse], Result[(), RefusalError]]], max_bytes: NonNegative[i64]) -> ()
     def add(self: &mut Router[R], method: &str, pattern: &str, route: R) -> Result[(), ServerError]
     def find(self, method: &str, path: &str) -> Result[Match, ServerError]
     def route(self, index: i64) -> &R
@@ -2341,14 +2352,20 @@ def copy_all[E, G, R: Reader[E], W: Writer[G]](reader: &mut R, writer: &mut W, s
 Format-neutral typed codecs, derived or handwritten class/enum hooks, canonical bytes, and typed error paths. Errors: `SerialError[E]`. [Reference](serial.md).
 
 ```text
+enum Kind
+    Null | Boolean | Integer | Number | Text | Array | Object | DateTime | Variant | Key | End
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
 enum Fault
-    UnexpectedKind | MissingField(str) | DuplicateField(str) | UnknownField(str) | UnknownVariant(str) | OutOfRange | WrongLength(i64, i64) | DuplicateElement | Unrepresentable | InvalidBase64(std.encoding.EncodingError) | StackLimit
+    UnexpectedKind | KindMismatch(Kind, Kind) | MissingField(str) | DuplicateField(str) | UnknownField(str) | UnknownVariant(str) | OutOfRange | WrongLength(i64, i64) | DuplicateElement | Unrepresentable | InvalidBase64(std.encoding.EncodingError) | StackLimit
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
 enum Step
     Field(str) | Index(i64) | Key(str) | Variant(str)
 class SerialError[E]
     cause: E
     path: Option[list[Step]]
     complete: bool
+    def source_offset(self) -> Option[i64]
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
     def at(self: SerialError[E], step: Step) -> SerialError[E]
 def error[E](cause: E) -> SerialError[E]
 def wrap[T, E](result: Result[T, E]) -> Result[T, SerialError[E]]
@@ -2408,6 +2425,8 @@ class JsonError
     offset: i64
     line: i64
     column: i64
+    def source_offset(self) -> Option[i64]
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
 enum DuplicateKeys
     Reject | Keep
 class Limits
@@ -2458,11 +2477,11 @@ class Encoder
     def event(self: &mut Encoder, event: &Event) -> Result[(), JsonError]
     def value(self: &mut Encoder, value: &Json) -> Result[(), JsonError]
     def take(self: &mut Encoder) -> Result[Bytes, JsonError]
-def encoder(bounds: &Limits) -> Result[Encoder, JsonError]
+def encoder(bounds: &Limits, indent: Option[NonNegative[i64]] = Nothing) -> Result[Encoder, JsonError]
 def write_pending[W: Writer](source: &mut Encoder, writer: &mut W) -> Result[(), JsonError]
-def encode(value: &Json, bounds: &Limits) -> Result[Bytes, JsonError]
-def encode_text(value: &Json, bounds: &Limits) -> Result[str, JsonError]
-def write_value[W: Writer](writer: &mut W, value: &Json, bounds: &Limits) -> Result[(), JsonError]
+def encode(value: &Json, bounds: &Limits, indent: Option[NonNegative[i64]] = Nothing) -> Result[Bytes, JsonError]
+def encode_text(value: &Json, bounds: &Limits, indent: Option[NonNegative[i64]] = Nothing) -> Result[str, JsonError]
+def write_value[W: Writer](writer: &mut W, value: &Json, bounds: &Limits, indent: Option[NonNegative[i64]] = Nothing) -> Result[(), JsonError]
 class CodecOptions
     limits: Limits
     unknown_fields: std.serial.UnknownFields
@@ -2503,7 +2522,7 @@ class CodecReader[R]
     def unknown_key(self: &mut CodecReader[R], name: &str) -> Result[(), JsonError]
 def codec_reader[R: Reader](inner: R) -> CodecReader[R]
 def load_from[T, R: Reader](source: &mut CodecReader[R], options: &CodecOptions) -> Result[T, std.serial.SerialError[JsonError]]
-def dump[T](value: &T, bounds: &Limits) -> Result[Bytes, std.serial.SerialError[JsonError]]
+def dump[T](value: &T, bounds: &Limits, indent: Option[NonNegative[i64]] = Nothing) -> Result[Bytes, std.serial.SerialError[JsonError]]
 def load[T](source: &[u8], options: &CodecOptions) -> Result[T, std.serial.SerialError[JsonError]]
 class TreeLimits
     max_depth: NonNegative[i64]
@@ -3123,6 +3142,10 @@ Bounded human-readable report rendering with `std.fmt`. Errors: `FormatError`. [
 ```text
 def render[T: Formattable, W](value: &T, output: &mut Formatter[W]) -> Result[(), FormatError]
 def to_string[T: Formattable](value: &T, max_bytes: NonNegative[i64], max_depth: NonNegative[i64]) -> Result[str, FormatError]
+protocol Diagnostic
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
+    def source_offset(self) -> Option[i64]
+def diagnostic[T: Diagnostic](value: &T, source: &[u8], max_bytes: NonNegative[i64] = 4096, max_context: NonNegative[i64] = 80) -> Result[str, FormatError]
 ```
 
 ## `std.secrets`
@@ -3877,6 +3900,8 @@ class TomlError
     offset: i64
     line: i64
     column: i64
+    def source_offset(self) -> Option[i64]
+    def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
 class Limits
     max_depth: NonNegative[i64]
     max_input: NonNegative[i64]

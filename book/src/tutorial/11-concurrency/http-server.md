@@ -166,12 +166,23 @@ routes. Passing `Nothing` to either setter restores the built-in `404`, or
 `405` with `Allow`, without calling the handler. A custom method handler can
 also answer `OPTIONS`; the server does not invent an OPTIONS response.
 
+A matched capture with a malformed percent escape or invalid decoded UTF-8
+gets `400` before this handler runs. To give it an application error page,
+register the separate [bounded refusal renderer](../../design/stdlib/http-refusals.md).
+It receives a validated reason and an output buffer, keeping malformed captures
+outside the typed route and fallback handlers.
+
 The explicit `TrailingSlash.Redirect` policy redirects `/hello/Ada/` to the
 registered `/hello/Ada` spelling with `308`; query text is preserved and the
 method stays the same. An exact route or exact path's wrong-method response
 wins before any redirect, and redirects win before the unknown-path fallback.
 The default `TrailingSlash.Exact` performs no alternate lookup. See
 [redirect limits and precedence](../../design/stdlib/http-server.md#trailing-slash-redirects).
+
+The server adds a `Date` header automatically when the wall reading can be
+represented as an HTTP date. Supplying your own `Date` on a response head
+preserves that value. The example prints only the status and body, so its
+output does not depend on the clock. See [response dates](../../design/stdlib/http-server.md#response-dates).
 
 The client sends a `Host` field because HTTP/1.1 requires exactly one: a
 request without it, with two, or with a malformed value gets `400` before

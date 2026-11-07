@@ -38,8 +38,9 @@ Owned transferred values cannot contain references or borrowed environments.
 
 Scoped threads can borrow parent storage for the task's lexical scope. Channels
 and executor jobs require wholly owned storable values. Executors and futures
-cannot enter worker code, including through containers or messages: worker-side
-submission and future waiting are unsupported.
+cannot enter worker code, including through containers or messages: future
+waiting in workers is unsupported. A worker submits jobs through a
+[`Submitter`](executors.md#submit-from-workers), which never waits.
 
 - [Scoped threads](threads.md) and [consuming jobs](jobs.md).
 - [Bounded channels](channels.md), including the

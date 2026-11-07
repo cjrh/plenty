@@ -272,6 +272,7 @@ mod tests {
             output: Ty::I64,
             closure: None,
             shared: None,
+            handle: false,
         });
         let task = Arc::new(crate::threading::Task {
             adapter: "thread_adapter".into(),

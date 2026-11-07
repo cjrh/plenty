@@ -1730,3 +1730,287 @@ print(first.to_text()?, second.to_text()?, encoder.written(), encoder.pending())
         );
     }
 }
+
+#[test]
+fn pretty_tree_and_typed_output_share_order_escaping_and_layout() {
+    let source = r#"
+import std.json
+@serial
+class Export:
+    z: list[i64]
+    empty: list[i64]
+    label: str
+
+def main() -> Result[(), AllocError | IoError]:
+    bounds = std.json.limits()
+    value = Export([1, 2]?, []?, "é\n\"\\")
+    pretty = std.json.dump(&value, &bounds, indent=Some(2)).unwrap()
+    print(pretty.to_text().unwrap())?
+    tree = std.json.to_value(&value, &std.json.tree_limits()).unwrap()
+    print(std.json.encode_text(&tree, &bounds, indent=Some(2)).unwrap() == pretty.to_text().unwrap())?
+    print(std.json.encode_text(&tree, &bounds, indent=Some(0)).unwrap())?
+    print(std.json.dump(&value, &bounds).unwrap().to_text().unwrap())?
+    print(std.json.encode_text(&std.json.parse(b"[{},[],[null]]", &bounds).unwrap(), &bounds, indent=Some(1)).unwrap())?
+    Ok(())
+"#;
+    support::assert_stdout(
+        source,
+        "{\n  \"z\": [\n    1,\n    2\n  ],\n  \"empty\": [],\n  \"label\": \"é\\n\\\"\\\\\"\n}\nTrue\n{\n\"z\": [\n1,\n2\n],\n\"empty\": [],\n\"label\": \"é\\n\\\"\\\\\"\n}\n{\"z\":[1,2],\"empty\":[],\"label\":\"é\\n\\\"\\\\\"}\n[\n {},\n [],\n [\n  null\n ]\n]\n",
+    );
+}
+
+#[test]
+fn pretty_output_bounds_include_whitespace_and_taken_bytes() {
+    native(
+        r#"
+mut bounds = std.json.limits()
+value = std.json.parse(b"[0]", &bounds)?
+for cap in range(1, 9):
+    bounds.max_output = NonNegative.try_from(cap).unwrap()
+    print(std.json.encode(&value, &bounds, indent=Some(2)).is_ok())?
+bounds.max_output = 8
+mut encoder = std.json.encoder(&bounds, indent=Some(2))?
+encoder.start_array()?
+print(encoder.take()?.to_text()?)?
+encoder.integer(0)?
+print(encoder.take()?.to_text()?)?
+encoder.end_array()?
+print(encoder.written(), encoder.is_complete(), encoder.take()?.to_text()?)?
+bounds.max_output = 6
+print(settled(std.json.encoder(&bounds, indent=Some(9223372036854775807))?.value(&value))?)?
+bounds.max_output = 3
+mut wrong = std.json.encoder(&bounds, indent=Some(0))?
+wrong.start_array()?
+wrong.integer(0)?
+print(settled(wrong.end_object())?, wrong.written())?
+bounds.max_output = 64
+bounds.max_depth = 1
+print(settled(std.json.encoder(&bounds, indent=Some(1))?.value(&std.json.parse(b"[[0]]", &wide())?))?)?
+"#,
+        "False\nFalse\nFalse\nFalse\nFalse\nFalse\nTrue\nTrue\n[\n\n  0\n7 True \n]\nOutputTooLarge 6 0 0\nInvalidState 3 0 0 3\nDepthExceeded 3 0 0",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn pretty_allocation_refusal_preserves_domain_error() {
+    native(
+        r#"
+bounds = std.json.limits()
+value = std.json.parse(b"{\"long key\":[\"long value\",{},[]]}", &bounds)?
+mut refused = 0
+mut succeeded = 0
+for count in range(100):
+    marker = "".join(&["__test_fail_allocations_after_", str.from(count)?, "__"]?)?
+    print(marker)?
+    result = std.json.encode(&value, &bounds, indent=Some(4))
+    print("__test_restore_allocations__")?
+    match result:
+        case Ok(_):
+            succeeded += 1
+        case Err(error):
+            match error.fault:
+                case JsonFault.Allocation(_):
+                    refused += 1
+                case _:
+                    print("unexpected fault")?
+print(refused > 5, succeeded > 0)?
+"#,
+        "True True",
+    );
+}
+
+#[test]
+fn pretty_streams_preserve_cumulative_limits_after_draining() {
+    native(
+        r#"
+mut bounds = std.json.limits()
+value = std.json.parse(b"[0]", &bounds)?
+mut sink = std.io.cursor(std.bytes.empty()?)
+std.json.write_value(&mut sink, &value, &bounds, indent=Some(2))?
+print(sink.data.to_text()?)?
+bounds.max_output = 6
+mut encoder = std.json.encoder(&bounds, indent=Some(2))?
+mut incremental = std.io.cursor(std.bytes.empty()?)
+encoder.start_array()?
+std.json.write_pending(&mut encoder, &mut incremental)?
+encoder.integer(0)?
+std.json.write_pending(&mut encoder, &mut incremental)?
+print(settled(encoder.end_array())?, encoder.written())?
+std.json.write_pending(&mut encoder, &mut incremental)?
+print(incremental.data.to_text()?)?
+print("end")?
+"#,
+        "[\n  0\n]\nOutputTooLarge 6 0 0 6\n[\n  0\n\nend",
+    );
+}
+
+#[test]
+fn diagnostics_typed_kinds_paths_and_toml_tree_locations() {
+    let source = r#"
+import std.json
+import std.fmt
+import std.bytes
+import std.io
+import std.toml
+import std.report
+import std.serial
+
+@serial
+class Row:
+    enabled: bool
+@serial
+class Config:
+    rows: list[Row]
+
+def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
+    source = b"{\"rows\":[{\"enabled\":\"sensitive-value\"}]}"
+    match std.json.load[Config](&source, &std.json.codec_options()):
+        case Ok(_):
+            print("unexpected success")?
+        case Err(error):
+            message = std.report.to_string(&error, 4096, 16)?
+            print(message.find("expected boolean, found string").is_some(), message.endswith("at $[\"rows\"][0][\"enabled\"]"), not message.find("sensitive-value").is_some())?
+            print(error.cause.fault == std.json.JsonFault.Serialization(std.serial.Fault.KindMismatch(std.serial.Kind.Boolean, std.serial.Kind.Text)))?
+            print(std.report.diagnostic(&error, &source, max_context=8)?.find("^").is_some())?
+    mut reader = std.json.codec_reader(std.io.cursor(std.bytes.from_bytes(&source)?))
+    match std.json.load_from[Config, std.io.Cursor](&mut reader, &std.json.codec_options()):
+        case Ok(_):
+            print("unexpected reader success")?
+        case Err(error):
+            print(std.report.to_string(&error, 4096, 16)?.find("expected boolean, found string").is_some())?
+    match std.toml.load[Config]("rows = [{enabled = 'sensitive-value'}]", &std.toml.codec_options()):
+        case Ok(_):
+            print("unexpected TOML success")?
+        case Err(error):
+            print(std.report.to_string(&error, 4096, 16)?)?
+            print(error.cause.source_offset().is_none(), std.report.diagnostic(&error, b"rows = [{enabled = 'sensitive-value'}]")? == std.report.to_string(&error, 4096, 16)?)?
+    tree = std.json.parse(b"false", &std.json.limits()).unwrap()
+    match std.json.from_value[i64](tree, &std.json.tree_limits()):
+        case Ok(_):
+            print("unexpected tree success")?
+        case Err(error):
+            print(std.report.to_string(&error, 4096, 16)?, error.source_offset().is_none())?
+    Ok(())
+"#;
+    support::assert_stdout(
+        source,
+        "True True True\nTrue\nTrue\nTrue\nTOML: expected boolean, found string at $[\"rows\"][0][\"enabled\"]\nTrue True\nJSON: expected integer, found boolean at $ True\n",
+    );
+}
+
+#[test]
+fn diagnostics_unicode_eof_and_invalid_bytes_are_bounded() {
+    let source = r#"
+import std.json
+import std.fmt
+import std.bytes
+import std.io
+import std.toml
+import std.report
+
+def main() -> Result[(), IoError | std.fmt.FormatError]:
+    match std.json.parse(b"[\"\xc3\xa9\",", &std.json.limits()):
+        case Ok(_):
+            print("unexpected")?
+        case Err(error):
+            print(error.offset, error.line, error.column)?
+            print(std.report.diagnostic(&error, b"[\"\xc3\xa9\",", max_context=80)?)?
+            print(std.report.diagnostic(&error, b"[\"\xc3\xa9\",", max_bytes=8).is_err())?
+            print(std.report.diagnostic(&error, b"[\"\xc3\xa9\",", max_context=0)? == std.report.to_string(&error, 4096, 16)?)?
+    match std.json.parse(b"[\xff]", &std.json.limits()):
+        case Ok(_):
+            print("unexpected")?
+        case Err(error):
+            print(std.report.diagnostic(&error, b"[\xff]")?)?
+    match std.toml.parse_text("name = 'é'\nvalue = ", &std.toml.limits()):
+        case Ok(_):
+            print("unexpected")?
+        case Err(error):
+            print(std.report.diagnostic(&error, b"name = '\xc3\xa9'\nvalue = ")?)?
+    Ok(())
+"#;
+    support::assert_stdout(
+        source,
+        "6 1 6\nJSON: unexpected end of input at line 1, column 6 (byte 6)\n  [\"é\",\n       ^\nTrue\nTrue\nJSON: unexpected byte at line 1, column 2 (byte 1)\n  [\\xff]\n   ^\nTOML: unexpected end of input at line 2, column 9 (byte 20)\n  value = \n          ^\n",
+    );
+}
+
+#[test]
+fn diagnostics_paths_incomplete_and_source_window_do_not_copy_whole_values() {
+    let source = r#"
+import std.json
+import std.fmt
+import std.bytes
+import std.io
+import std.report
+import std.serial
+
+def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
+    mut error = std.serial.error(std.json.JsonError(std.json.JsonFault.UnexpectedEnd, 0, 0, 0)).at(std.serial.Step.Key("a\n\"b"))
+    error.complete = False
+    print(std.report.to_string(&error, 256, 16)?)?
+    print(std.report.to_string(&error, 8, 16).is_err(), std.report.to_string(&error, 256, 0).is_err())?
+    source = b"abcdefghij\x1bklmnopqrstuvwxyz"
+    positioned = std.json.JsonError(std.json.JsonFault.UnexpectedByte, 10, 1, 11)
+    print(std.report.diagnostic(&positioned, &source, max_context=5)?)?
+    print(error.cause.offset, error.complete)?
+    Ok(())
+"#;
+    support::assert_stdout(
+        source,
+        "JSON: unexpected end of input at $[\"a\\n\\\"b\"] (path incomplete)\nTrue True\nJSON: unexpected byte at line 1, column 11 (byte 10)\n  ...ij\\u{1b}kl...\n       ^\n0 False\n",
+    );
+}
+
+#[test]
+fn diagnostics_escape_all_bidirectional_controls() {
+    support::assert_stdout(
+        r#"
+import std.json
+import std.report
+import std.fmt
+import std.bytes
+import std.io
+
+def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
+    error = std.json.JsonError(std.json.JsonFault.UnexpectedByte, 0, 1, 1)
+    print(std.report.diagnostic(&error, b"\xd8\x9c\xe2\x80\x8e\xe2\x80\x8f")?)?
+    Ok(())
+"#,
+        "JSON: unexpected byte at line 1, column 1 (byte 0)\n  \\u{61c}\\u{200e}\\u{200f}\n  ^\n",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn diagnostics_allocation_failure_keeps_original_cause_and_path() {
+    let source = r#"
+import std.json
+import std.fmt
+import std.bytes
+import std.io
+import std.serial
+import std.report
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    error = std.serial.error(std.json.JsonError(std.json.JsonFault.UnexpectedEnd, 1, 1, 2)).at(std.serial.Step.Field("long field name"))
+    mut refused = 0
+    mut succeeded = 0
+    for count in range(100):
+        marker = "".join(&["__test_fail_allocations_after_", str.from(count)?, "__"]?)?
+        print(marker)?
+        result = std.report.diagnostic(&error, b"[")
+        print("__test_restore_allocations__")?
+        match result:
+            case Ok(_):
+                succeeded += 1
+            case Err(std.fmt.FormatError.Allocation(_)):
+                refused += 1
+            case Err(_):
+                print("unexpected render failure")?
+    print(refused > 0, succeeded > 0, error.cause.offset == 1, error.complete, error.path.is_some())?
+    Ok(())
+"#;
+    assert_eq!(output(source), "True True True True True");
+}

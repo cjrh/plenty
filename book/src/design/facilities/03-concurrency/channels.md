@@ -62,6 +62,13 @@ has consumed on every path is not joined again at exit. A join is likewise
 rejected while the joining function holds a lock on a `Mutex[T]` that the
 worker can reach; see [mutexes](mutex.md#waits-the-compiler-rejects).
 
+A binding holds only the fields it still owns. After `wake = ends.wake` and
+`drop(ends.inbox)`, `ends` holds neither endpoint, as after destructuring it
+with `match`. A field moved out on only some paths still counts on the others,
+and assigning the field or the binding again restores the holder. In a loop,
+a binding or field assigned in the body still holds its value when the next
+iteration reaches a join earlier in the body, unless the body drops it first.
+
 ### Recommended patterns
 
 These patterns satisfy the rule on every path, and keep satisfying it when the
@@ -141,7 +148,8 @@ a wait. A worker *can wait* if code it can run performs any operation except:
 
 - computation, memory, and collection operations, including atomics and
   creating queues, tokens, pools, and mutexes;
-- `send_nowait`, `recv_nowait`, `select_recv_nowait`, and `submit_nowait`;
+- `send_nowait`, `recv_nowait`, `select_recv_nowait`, and `submit_nowait`
+  on a pool or a [`Submitter`](executors.md#submit-from-workers);
 - unlocking a mutex, cancelling a token or future, checking a token or
   future, and starting a worker;
 - a sleep, which ends without another thread, and reading the clock,
@@ -165,7 +173,9 @@ queue the joining function holds. The compiler cannot tell a regular file
 from a socket, pipe, or FIFO whose other end that thread holds, and opening a
 FIFO waits for its other end. A database statement can wait for a lock another
 connection holds. An operation added to the language or the standard library
-counts as a wait until it is shown not to block.
+counts as a wait until it is shown not to block. A pool job that submits
+through a `Submitter` also may not wait for what its submitted jobs can reach;
+see [waits in submitting jobs](executors.md#waits-in-submitting-jobs).
 
 A worker that uses only the exceptions is joined while the function keeps the
 opposite endpoint:

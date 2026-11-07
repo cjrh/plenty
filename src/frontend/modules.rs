@@ -314,6 +314,7 @@ fn facility_exports(module: &str) -> &'static [&'static str] {
             "FutureError",
             "PoolMapError",
             "ParallelError",
+            "Submitter",
         ],
         "std.sync" => &["CancellationToken"],
         // Qualified so that the names resolve only through an import.

@@ -108,8 +108,22 @@ impl<'p> Program<'p> {
     }
 
     /// What a pool job can block on: the senders it can hold, unless it
-    /// cannot wait for anything, and the mutexes it can reach.
+    /// cannot wait for anything, and the mutexes it can reach; and the same
+    /// for every job it can submit through a `Submitter` (issue #789).
     pub(super) fn job_hazards(&self, job: &Submitted) -> Vec<Hazard> {
+        let mut hazards = self.own_hazards(job);
+        let descendants = crate::executor::submitters::descendants(self.definitions(), job);
+        for child in descendants {
+            for hazard in self.own_hazards(child) {
+                if !hazards.contains(&hazard) {
+                    hazards.push(hazard);
+                }
+            }
+        }
+        hazards
+    }
+
+    fn own_hazards(&self, job: &Submitted) -> Vec<Hazard> {
         let mut sends = crate::threading::endpoints([job.input.clone()], true, true);
         if !sends.is_empty() {
             let roots: Vec<&str> = std::iter::once(job.worker.as_str())

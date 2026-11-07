@@ -6,6 +6,8 @@ import std.bytes
 import std.error
 import std.io
 import std.serial
+import std.report
+from std.fmt import Formatter, FormatError
 from std.bytes import Bytes, BytesError
 from std.io import Reader, Writer, StreamError
 
@@ -30,6 +32,47 @@ pub enum JsonFault:
     Allocation(AllocError)
     Serialization(std.serial.Fault)
 
+def fault_description(fault: &JsonFault) -> str:
+    match fault:
+        case JsonFault.UnexpectedByte:
+            "unexpected byte"
+        case JsonFault.UnexpectedEnd:
+            "unexpected end of input"
+        case JsonFault.TrailingData:
+            "trailing data after document"
+        case JsonFault.InvalidLiteral:
+            "invalid literal"
+        case JsonFault.InvalidNumber:
+            "invalid number"
+        case JsonFault.NumberOutOfRange:
+            "number is outside the supported range"
+        case JsonFault.InvalidEscape:
+            "invalid string escape"
+        case JsonFault.InvalidSurrogate:
+            "invalid Unicode surrogate pair"
+        case JsonFault.ControlCharacter:
+            "unescaped control character"
+        case JsonFault.InvalidUtf8:
+            "invalid UTF-8"
+        case JsonFault.DuplicateKey:
+            "duplicate object key"
+        case JsonFault.DepthExceeded:
+            "nesting depth limit exceeded"
+        case JsonFault.InputTooLarge:
+            "input byte limit exceeded"
+        case JsonFault.OutputTooLarge:
+            "output byte limit exceeded"
+        case JsonFault.NonFiniteNumber:
+            "non-finite number is not JSON"
+        case JsonFault.InvalidState:
+            "invalid codec state"
+        case JsonFault.Stream(_):
+            "stream operation failed"
+        case JsonFault.Allocation(_):
+            "memory allocation failed"
+        case JsonFault.Serialization(_):
+            "serialization failed"
+
 # Decoder errors locate the offending input byte: `offset` counts bytes from
 # zero, `line` and `column` count from one, and a column is one Unicode scalar.
 # Encoder errors carry the output bytes produced so far and zero for both.
@@ -38,6 +81,29 @@ pub class JsonError:
     pub offset: i64
     pub line: i64
     pub column: i64
+
+    pub def source_offset(self) -> Option[i64]:
+        if self.line > 0 and self.column > 0 and self.offset >= 0:
+            Some(self.offset)
+        else:
+            Nothing
+
+    pub def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
+        output.text("JSON: ")?
+        match &self.fault:
+            case JsonFault.Serialization(cause):
+                std.report.render(cause, output)?
+            case _:
+                output.text(&fault_description(&self.fault))?
+        if self.line > 0 and self.column > 0:
+            output.text(" at line ")?
+            output.integer(self.line)?
+            output.text(", column ")?
+            output.integer(self.column)?
+            output.text(" (byte ")?
+            output.integer(self.offset)?
+            output.text(")")?
+        Ok(())
 
 pub enum DuplicateKeys:
     Reject
@@ -989,7 +1055,7 @@ pub def find(members: &list[Member], key: &str) -> Option[i64]:
             return Some(index)
     Nothing
 
-# Writes compact JSON into an owned buffer and checks that calls arrive in an
+# Writes JSON into an owned buffer and checks that calls arrive in an
 # order that forms one document. `_written` counts every byte produced, so
 # the output limit also covers bytes already taken or written out.
 pub class Encoder:
@@ -1001,6 +1067,8 @@ pub class Encoder:
     _broken: bool
     _max_depth: i64
     _max_output: i64
+    _pretty: bool
+    _indent: i64
 
     pub def reject(self, fault: std.serial.Fault) -> JsonError:
         JsonError(JsonFault.Serialization(fault), self._written, 0, 0)
@@ -1060,13 +1128,26 @@ pub class Encoder:
         unchecked:
             Ok(i64(self._stack.get(count - 1)))
 
+    # Whitespace uses the same cumulative output accounting as JSON tokens.
+    # Separate loops avoid multiplying an arbitrary indentation by the depth.
+    def newline(self: &mut Encoder, depth: i64) -> Result[(), JsonFault]:
+        if self._pretty:
+            self.put(10)?
+            for _ in range(depth):
+                for _ in range(self._indent):
+                    self.put(32)?
+        Ok(())
+
     def before_value(self: &mut Encoder) -> Result[(), JsonFault]:
         if self._broken:
             return Err(JsonFault.InvalidState)
         state = self._state
         if state == emit_next_item:
-            return self.put(44)
-        if state == emit_top or state == emit_first_item or state == emit_member_value:
+            self.put(44)?
+            return self.newline(self._stack.len())
+        if state == emit_first_item:
+            return self.newline(self._stack.len())
+        if state == emit_top or state == emit_member_value:
             return Ok(())
         Err(JsonFault.InvalidState)
 
@@ -1158,8 +1239,11 @@ pub class Encoder:
             self.put(44)?
         elif self._state != emit_first_key:
             return Err(JsonFault.InvalidState)
+        self.newline(self._stack.len())?
         self.quote(name)?
         self.put(58)?
+        if self._pretty:
+            self.put(32)?
         self._state = emit_member_value
         Ok(())
 
@@ -1181,11 +1265,15 @@ pub class Encoder:
         if kind == in_object:
             if state != emit_first_key and state != emit_next_key:
                 return Err(JsonFault.InvalidState)
-            self.put(125)?
-        else:
-            if state != emit_first_item and state != emit_next_item:
-                return Err(JsonFault.InvalidState)
-            self.put(93)?
+        elif state != emit_first_item and state != emit_next_item:
+            return Err(JsonFault.InvalidState)
+        # Nonempty states imply a nonempty stack. A closing delimiter aligns
+        # with its opening value; [] and {} remain inline.
+        if state == emit_next_key or state == emit_next_item:
+            depth = unchecked:
+                self._stack.len() - 1
+            self.newline(depth)?
+        self.put(125 if kind == in_object else 93)?
         drop(self._stack.pop())
         self.after_value()
 
@@ -1319,13 +1407,18 @@ pub class Encoder:
             case Err(fault):
                 Err(JsonError(fault, self._written, 0, 0))
 
-pub def encoder(bounds: &Limits) -> Result[Encoder, JsonError]:
+pub def encoder(bounds: &Limits, indent: Option[NonNegative[i64]] = Nothing) -> Result[Encoder, JsonError]:
     if bounds.max_depth.get() > depth_ceiling:
         __trap("std.json.encoder: max_depth is above 1024")
     out = unplaced(reserved(std.bytes.empty()))?
     stack = unplaced(reserved(std.bytes.empty()))?
     escaped = unplaced(escaped_bytes())?
-    Ok(Encoder(out, stack, escaped, emit_top, 0, False, bounds.max_depth.get(), bounds.max_output.get()))
+    width = match indent:
+        case Some(value):
+            value.get()
+        case Nothing:
+            0
+    Ok(Encoder(out, stack, escaped, emit_top, 0, False, bounds.max_depth.get(), bounds.max_output.get(), indent.is_some(), width))
 
 # Delivers every pending byte to `writer` and keeps the buffer's capacity.
 # Does not flush. On failure only the bytes the writer did not accept stay
@@ -1353,14 +1446,14 @@ def complete(source: &Encoder) -> Result[(), JsonError]:
         return Ok(())
     Err(JsonError(JsonFault.InvalidState, source._written, 0, 0))
 
-pub def encode(value: &Json, bounds: &Limits) -> Result[Bytes, JsonError]:
-    mut target = encoder(bounds)?
+pub def encode(value: &Json, bounds: &Limits, indent: Option[NonNegative[i64]] = Nothing) -> Result[Bytes, JsonError]:
+    mut target = encoder(bounds, indent=indent)?
     target.value(value)?
     complete(&target)?
     target.take()
 
-pub def encode_text(value: &Json, bounds: &Limits) -> Result[str, JsonError]:
-    encoded = encode(value, bounds)?
+pub def encode_text(value: &Json, bounds: &Limits, indent: Option[NonNegative[i64]] = Nothing) -> Result[str, JsonError]:
+    encoded = encode(value, bounds, indent=indent)?
     match faulted(encoded.to_text()):
         case Ok(text):
             Ok(text)
@@ -1368,8 +1461,8 @@ pub def encode_text(value: &Json, bounds: &Limits) -> Result[str, JsonError]:
             Err(JsonError(fault, encoded.len(), 0, 0))
 
 # Encodes the whole value, then writes it. Does not flush.
-pub def write_value[W: Writer](writer: &mut W, value: &Json, bounds: &Limits) -> Result[(), JsonError]:
-    mut target = encoder(bounds)?
+pub def write_value[W: Writer](writer: &mut W, value: &Json, bounds: &Limits, indent: Option[NonNegative[i64]] = Nothing) -> Result[(), JsonError]:
+    mut target = encoder(bounds, indent=indent)?
     target.value(value)?
     complete(&target)?
     write_pending(&mut target, writer)
@@ -1382,6 +1475,42 @@ pub class CodecOptions:
 
 pub def codec_options() -> CodecOptions:
     CodecOptions(limits(), std.serial.UnknownFields.Reject)
+
+def event_kind(event: &Event) -> std.serial.Kind:
+    match event:
+        case Event.Null:
+            std.serial.Kind.Null
+        case Event.Bool(_):
+            std.serial.Kind.Boolean
+        case Event.Number(_):
+            std.serial.Kind.Number
+        case Event.Text(_):
+            std.serial.Kind.Text
+        case Event.StartArray:
+            std.serial.Kind.Array
+        case Event.StartObject:
+            std.serial.Kind.Object
+        case Event.Key(_):
+            std.serial.Kind.Key
+        case _:
+            std.serial.Kind.End
+
+def value_kind(value: &Json) -> std.serial.Kind:
+    match value:
+        case Json.Null:
+            std.serial.Kind.Null
+        case Json.Bool(_):
+            std.serial.Kind.Boolean
+        case Json.Int(_):
+            std.serial.Kind.Integer
+        case Json.Float(_):
+            std.serial.Kind.Number
+        case Json.Text(_):
+            std.serial.Kind.Text
+        case Json.Array(_):
+            std.serial.Kind.Array
+        case Json.Object(_):
+            std.serial.Kind.Object
 
 pub class CodecDecoder:
     _source: Decoder
@@ -1414,8 +1543,8 @@ pub class CodecDecoder:
         match self.take()?:
             case Event.Bool(value):
                 Ok(value)
-            case _:
-                Err(self.reject(std.serial.Fault.UnexpectedKind))
+            case _ as other:
+                Err(self.reject(std.serial.Fault.KindMismatch(std.serial.Kind.Boolean, event_kind(&other))))
 
     pub def integer(self: &mut CodecDecoder) -> Result[i64, JsonError]:
         match self.take()?:
@@ -1425,8 +1554,8 @@ pub class CodecDecoder:
                         Ok(value)
                     case Err(_):
                         Err(self.reject(std.serial.Fault.OutOfRange))
-            case _:
-                Err(self.reject(std.serial.Fault.UnexpectedKind))
+            case _ as other:
+                Err(self.reject(std.serial.Fault.KindMismatch(std.serial.Kind.Integer, event_kind(&other))))
 
     pub def unsigned(self: &mut CodecDecoder) -> Result[u64, JsonError]:
         match self.take()?:
@@ -1436,8 +1565,8 @@ pub class CodecDecoder:
                         Ok(value)
                     case Err(_):
                         Err(self.reject(std.serial.Fault.OutOfRange))
-            case _:
-                Err(self.reject(std.serial.Fault.UnexpectedKind))
+            case _ as other:
+                Err(self.reject(std.serial.Fault.KindMismatch(std.serial.Kind.Integer, event_kind(&other))))
 
     pub def decimal(self: &mut CodecDecoder) -> Result[f64, JsonError]:
         match self.take()?:
@@ -1449,8 +1578,8 @@ pub class CodecDecoder:
                         Ok(value)
                     case Err(_):
                         Err(self.reject(std.serial.Fault.OutOfRange))
-            case _:
-                Err(self.reject(std.serial.Fault.UnexpectedKind))
+            case _ as other:
+                Err(self.reject(std.serial.Fault.KindMismatch(std.serial.Kind.Number, event_kind(&other))))
 
     pub def variant(self: &mut CodecDecoder) -> Result[(str, bool), JsonError]:
         match self.take()?:
@@ -1461,23 +1590,23 @@ pub class CodecDecoder:
                     case Some(tag):
                         Ok((tag, True))
                     case Nothing:
-                        Err(self.reject(std.serial.Fault.UnexpectedKind))
-            case _:
-                Err(self.reject(std.serial.Fault.UnexpectedKind))
+                        Err(self.reject(std.serial.Fault.WrongLength(1, 0)))
+            case _ as other:
+                Err(self.reject(std.serial.Fault.KindMismatch(std.serial.Kind.Variant, event_kind(&other))))
 
     pub def text(self: &mut CodecDecoder) -> Result[str, JsonError]:
         match self.take()?:
             case Event.Text(value):
                 Ok(value)
-            case _:
-                Err(self.reject(std.serial.Fault.UnexpectedKind))
+            case _ as other:
+                Err(self.reject(std.serial.Fault.KindMismatch(std.serial.Kind.Text, event_kind(&other))))
 
     pub def start_array(self: &mut CodecDecoder) -> Result[(), JsonError]:
         match self.take()?:
             case Event.StartArray:
                 Ok(())
-            case _:
-                Err(self.reject(std.serial.Fault.UnexpectedKind))
+            case _ as other:
+                Err(self.reject(std.serial.Fault.KindMismatch(std.serial.Kind.Array, event_kind(&other))))
 
     pub def next_element(self: &mut CodecDecoder) -> Result[bool, JsonError]:
         event = self.take()?
@@ -1492,8 +1621,8 @@ pub class CodecDecoder:
         match self.take()?:
             case Event.StartObject:
                 Ok(())
-            case _:
-                Err(self.reject(std.serial.Fault.UnexpectedKind))
+            case _ as other:
+                Err(self.reject(std.serial.Fault.KindMismatch(std.serial.Kind.Object, event_kind(&other))))
 
     pub def next_key(self: &mut CodecDecoder) -> Result[Option[str], JsonError]:
         match self.take()?:
@@ -1501,8 +1630,8 @@ pub class CodecDecoder:
                 Ok(Some(name))
             case Event.EndObject:
                 Ok(Nothing)
-            case _:
-                Err(self.reject(std.serial.Fault.UnexpectedKind))
+            case _ as other:
+                Err(self.reject(std.serial.Fault.KindMismatch(std.serial.Kind.Key, event_kind(&other))))
 
     pub def unknown_key(self: &mut CodecDecoder, name: &str) -> Result[(), JsonError]:
         if self._unknown == std.serial.UnknownFields.Reject:
@@ -1628,9 +1757,9 @@ pub class CodecReader[R]:
                     case Some(tag):
                         Ok((tag, True))
                     case Nothing:
-                        Err(self.reject(std.serial.Fault.UnexpectedKind))
-            case _:
-                Err(self.reject(std.serial.Fault.UnexpectedKind))
+                        Err(self.reject(std.serial.Fault.WrongLength(1, 0)))
+            case _ as other:
+                Err(self.reject(std.serial.Fault.KindMismatch(std.serial.Kind.Variant, event_kind(&other))))
 
     pub def text(self: &mut CodecReader[R]) -> Result[str, JsonError]:
         self.prepare()?
@@ -1722,8 +1851,8 @@ pub def load_from[T, R: Reader](source: &mut CodecReader[R], options: &CodecOpti
     std.serial.wrap(source.finish())?
     Ok(value)
 
-pub def dump[T](value: &T, bounds: &Limits) -> Result[Bytes, std.serial.SerialError[JsonError]]:
-    mut output = std.serial.wrap(encoder(bounds))?
+pub def dump[T](value: &T, bounds: &Limits, indent: Option[NonNegative[i64]] = Nothing) -> Result[Bytes, std.serial.SerialError[JsonError]]:
+    mut output = std.serial.wrap(encoder(bounds, indent=indent))?
     std.serial.encode[T, JsonError, Encoder](value, &mut output)?
     std.serial.wrap(complete(&output))?
     std.serial.wrap(output.take())
@@ -1924,15 +2053,15 @@ pub class TreeDecoder:
         match self.take()?:
             case Json.Bool(value):
                 Ok(value)
-            case _:
-                Err(self.reject(std.serial.Fault.UnexpectedKind))
+            case _ as other:
+                Err(self.reject(std.serial.Fault.KindMismatch(std.serial.Kind.Boolean, value_kind(&other))))
 
     pub def integer(self: &mut TreeDecoder) -> Result[i64, JsonError]:
         match self.take()?:
             case Json.Int(value):
                 Ok(value)
-            case _:
-                Err(self.reject(std.serial.Fault.UnexpectedKind))
+            case _ as other:
+                Err(self.reject(std.serial.Fault.KindMismatch(std.serial.Kind.Integer, value_kind(&other))))
 
     pub def unsigned(self: &mut TreeDecoder) -> Result[u64, JsonError]:
         number = self.integer()?
@@ -1948,21 +2077,25 @@ pub class TreeDecoder:
                 if value != value or value == f64.INF or value == -f64.INF:
                     return Err(self.reject(std.serial.Fault.OutOfRange))
                 Ok(value)
-            case _:
-                Err(self.reject(std.serial.Fault.UnexpectedKind))
+            case _ as other:
+                Err(self.reject(std.serial.Fault.KindMismatch(std.serial.Kind.Number, value_kind(&other))))
 
     pub def variant(self: &mut TreeDecoder) -> Result[(str, bool), JsonError]:
         match &self._value:
             case Some(Json.Text(_)):
                 return Ok((self.text()?, False))
-            case _:
+            case Some(Json.Object(_)):
                 pass
+            case Some(other):
+                return Err(self.reject(std.serial.Fault.KindMismatch(std.serial.Kind.Variant, value_kind(other))))
+            case Nothing:
+                return Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
         self.start_object()?
         match self.next_key()?:
             case Some(tag):
                 Ok((tag, True))
             case Nothing:
-                Err(self.reject(std.serial.Fault.UnexpectedKind))
+                Err(self.reject(std.serial.Fault.WrongLength(1, 0)))
 
     pub def text(self: &mut TreeDecoder) -> Result[str, JsonError]:
         match self.take()?:
@@ -1972,8 +2105,8 @@ pub class TreeDecoder:
                     self._budget.nodes -= 1
                 self._budget.node(value.byte_len())?
                 Ok(value)
-            case _:
-                Err(self.reject(std.serial.Fault.UnexpectedKind))
+            case _ as other:
+                Err(self.reject(std.serial.Fault.KindMismatch(std.serial.Kind.Text, value_kind(&other))))
 
     pub def start_array(self: &mut TreeDecoder) -> Result[(), JsonError]:
         match self.take()?:
@@ -1982,8 +2115,8 @@ pub class TreeDecoder:
                 mut items = values
                 items.reverse()
                 unplaced(reserved(self._frames.append(TreeFrame.Items(items))))
-            case _:
-                Err(self.reject(std.serial.Fault.UnexpectedKind))
+            case _ as other:
+                Err(self.reject(std.serial.Fault.KindMismatch(std.serial.Kind.Array, value_kind(&other))))
 
     pub def next_element(self: &mut TreeDecoder) -> Result[bool, JsonError]:
         if self._value.is_some():
@@ -2009,8 +2142,8 @@ pub class TreeDecoder:
                 mut members = values
                 members.reverse()
                 unplaced(reserved(self._frames.append(TreeFrame.Members(members))))
-            case _:
-                Err(self.reject(std.serial.Fault.UnexpectedKind))
+            case _ as other:
+                Err(self.reject(std.serial.Fault.KindMismatch(std.serial.Kind.Object, value_kind(&other))))
 
     pub def next_key(self: &mut TreeDecoder) -> Result[Option[str], JsonError]:
         if self._value.is_some():

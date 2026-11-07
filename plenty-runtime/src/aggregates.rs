@@ -171,6 +171,7 @@ impl Type {
                     | b'X'
                     | b'Y'
                     | b'P'
+                    | b'p'
                     | b'Z'
                     | b'K'
                     | b'O'
@@ -2401,6 +2402,7 @@ unsafe fn render(value: u128, ty: &Type, out: &mut crate::render_buffer::Buffer)
             b'X' => out.extend_from_slice(b"<sender>"),
             b'Y' => out.extend_from_slice(b"<receiver>"),
             b'P' => out.extend_from_slice(b"<executor>"),
+            b'p' => out.extend_from_slice(b"<submitter>"),
             b'Z' => out.extend_from_slice(b"<future>"),
             b'K' => out.extend_from_slice(b"<cancellation token>"),
             b'b' => out.extend_from_slice(if value as u8 == 0 { b"False" } else { b"True" }),

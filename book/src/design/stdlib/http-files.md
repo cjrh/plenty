@@ -10,7 +10,7 @@ with files below one directory. The module is checked Plenty in
 | `serve(exchange, &root, path)` | `Result[i64, FilesError]`: answer the request with the file at `path` below `root`; the status sent |
 | `open_file(&root, path)` | `Result[Option[FileStream], FilesError]`: the regular file at `path`, or `Nothing` when it is refused or missing |
 | `media_type(name)` | `str`: the `Content-Type` for `name`'s extension, from [`std.mime`](mime.md) |
-| `http_date(timestamp: &Timestamp)` | `Result[Option[str], FilesError]`: an IMF-fixdate such as `Sun, 06 Nov 1994 08:49:37 GMT`; `Nothing` before 1970 or after 9999 |
+| `http_date(timestamp: &Timestamp)` | `Result[Option[str], FilesError]`: an IMF-fixdate such as `Sun, 06 Nov 1994 08:49:37 GMT`; `Nothing` before 1970, after 9999, or for invalid nanoseconds; compatibility wrapper over [`std.http.http_date`](http.md#http-dates) |
 | `parse_http_date(text)` | `Result[Option[Timestamp], FilesError]`: a timestamp at a whole second, or `Nothing` unless `text` is an exact IMF-fixdate |
 | `max_path` | `4096`: longest accepted `path`, in bytes |
 
