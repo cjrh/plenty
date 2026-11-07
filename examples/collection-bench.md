@@ -1,5 +1,12 @@
 # Collection access benchmarks
 
+Every table on this page predates issue #756. Those runs generated
+`def main() -> ():` programs whose integer arithmetic trapped on failure; the
+current generator uses the default checked arithmetic instead. Compare new runs
+only with runs of the same generator. Wrapping a generated body in
+`unchecked:` (in the default `--unchecked trap` mode) reproduces the old
+trapping semantics.
+
 ## Keyed hashing (issue #329, 2026-10-19)
 
 The runtime replaces unkeyed FNV/integer mixing with SipHash-2-4 keyed from
@@ -79,7 +86,15 @@ each checksum, and saves `results.json` with compiler SHA-256, platform, options
 input sizes, separate compilation timings, and every execution timing. Execution
 includes process startup and construction; compilation includes native linking.
 Use separate output directories and compiler binaries for before/after runs.
-There are no timing assertions in ordinary tests.
+There are no timing assertions in ordinary tests; `--check-only` type-checks
+every generated source with each given compiler, without compiling or running
+it, and the integration suite runs that mode.
+
+Each generated `main` returns `Result[(), AllocError | IoError |
+OverflowError[i64] | ZeroDivisionError]` and uses `?` on construction and
+printing, outside the timed loops. Default integer arithmetic (`+`, `-`, `//`,
+`%`) reports its errors through that return type, so the workloads measure the
+checked operators.
 
 The baseline is local `main` at `509bda2`. Both compilers use Cargo's release
 profile, Cranelift 0.131.3, the default native compiler options (`--compile FILE

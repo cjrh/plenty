@@ -105,3 +105,51 @@ fn every_example_type_checks() {
         .collect();
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// `examples/collection_bench.py` generates its programs, so the file walk
+/// above never sees them (issue #756). `--check-only` type-checks each one
+/// and prints one line per workload; compare that with the generator.
+#[test]
+fn collection_benchmark_workloads_type_check() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let script = root.join("examples/collection_bench.py");
+    let generated = std::process::Command::new("python3")
+        .args(["-B", "-c"])
+        .arg(
+            "import runpy, sys; \
+             print(len(list(runpy.run_path(sys.argv[1])['workloads']())))",
+        )
+        .arg(&script)
+        .output()
+        .unwrap();
+    assert!(generated.status.success(), "{generated:?}");
+    let expected: usize = String::from_utf8(generated.stdout)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    assert!(expected > 0);
+
+    let dir = tempfile::tempdir().unwrap();
+    let output = std::process::Command::new("python3")
+        .arg("-B")
+        .arg(&script)
+        .arg("--compiler")
+        .arg(support::plenty_bin())
+        .arg("--output")
+        .arg(dir.path())
+        .arg("--check-only")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "stdout:\n{stdout}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let checked = stdout
+        .lines()
+        .filter(|line| line.starts_with("checked "))
+        .count();
+    assert_eq!(checked, expected, "{stdout}");
+}
