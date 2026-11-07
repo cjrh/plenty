@@ -351,6 +351,7 @@ protocol from `std.fmt`; `std.report` provides rendering helpers.
 | Area | Deviation | Tracking |
 |---|---|---|
 | Invalid arguments | Builtin policies differ | Issue #629 |
+| Enums | Builtin `open`, `std.io.open_file` and `open_path` take `&str` modes; literal and constant modes are checked at compile time | B40; issue #807 |
 | Containers | `in` does not dispatch to std container methods | B49; issue #623 records the length/diagnostic fix |
 | Bytes | `list[u8]` OS strings | B39 |
 | Streams | `TcpStream.close` returns `StreamError` | Issue #533 (intentional) |

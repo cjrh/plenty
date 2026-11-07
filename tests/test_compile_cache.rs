@@ -1318,6 +1318,25 @@ fn a_new_file_that_changes_resolution_is_noticed() {
         let warm = emit_project(&root, Some(&cache), &[]);
         assert_eq!(program(&warm), Some(true), "{}", warm.stderr());
     }
+
+    // A directory without Plenty files is not a namespace and changes
+    // nothing; its first module makes the import ambiguous.
+    std::fs::create_dir(root.join("helpers")).unwrap();
+    std::fs::write(root.join("helpers/mod.rs"), "").unwrap();
+    let warm = emit_project(&root, Some(&cache), &[]);
+    assert_eq!(program(&warm), Some(true), "{}", warm.stderr());
+    std::fs::write(root.join("helpers/extra.plenty"), "").unwrap();
+    let output = plenty()
+        .args(["--emit-object"])
+        .arg(root.join("main.plenty"))
+        .arg("-o")
+        .arg(root.join("main.o"))
+        .env("PLENTY_CACHE_DIR", &cache)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("ambiguous module `helpers`"), "{stderr}");
 }
 
 /// Another compiler, or the same one rebuilt, never reuses a program: the

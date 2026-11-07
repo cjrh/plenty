@@ -16,6 +16,17 @@ as well. Existing extensions and generated companion names remain supported.
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## Native qualification build reuse (issue #850)
+
+[Native OS qualification](../development/ci-workflow.md#native-os-qualification)
+now builds the compiler and dataframe engine concurrently, with separate
+stable-qualification, pinned-release compiler and isolated engine dependency
+caches. A dependent native job packages and audits the same-run products and
+runs the existing smoke checks. Local release builds keep their complete
+default behavior; explicit prepare/package phases support the CI split.
+Release baselines and custom-runtime-flag cache safeguards are preserved.
+Hosted cold/warm savings remain to be measured.
+
 ## Source roots are real directories (issue #840)
 
 A package's `src/`, and the `tests/` of a package under test, can no longer be
