@@ -940,6 +940,9 @@ impl Lower<'_> {
     /// against the same live loans. Any other call lending caller storage
     /// keeps its loan uses after it and its temporaries until it returns.
     pub(super) fn finish_tail_temporaries(&mut self, start: usize, ops: &mut Vec<Op>) {
+        if self.finish_serial_guard_tail(start, ops) {
+            return;
+        }
         if let Some(fact) = forwarding_call(ops) {
             ops[fact..].rotate_left(2);
         }

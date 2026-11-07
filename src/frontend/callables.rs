@@ -338,6 +338,9 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
         self.ensure_concrete_output(name, at)?;
+        if self.generics.serial_stack.contains_key(name) {
+            return Err(at.error("a typed serialization entry point cannot be taken as a function value because its native stack check requires a direct call; use an ordinary wrapper function with concrete adapter types containing the direct call"));
+        }
         let sig = Arc::new(CallableSig::from_function(&self.sigs[name]));
         validate(&sig, at)?;
         ops.push(Op::FunctionAddress(name.into(), sig.clone()));

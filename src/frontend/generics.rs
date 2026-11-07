@@ -193,6 +193,7 @@ pub(super) fn prepare(
         ceilings: HashMap::default(),
         constants: HashMap::default(),
         call_wrappers: HashMap::default(),
+        serial_stack: HashMap::default(),
         deferred_reporting: HashMap::default(),
         unused_methods: HashMap::default(),
         cache: HashMap::default(),
@@ -270,6 +271,7 @@ pub(super) struct Engine {
     pub(super) ceilings: HashMap<String, Vec<(String, Option<StaticCheck>)>>,
     pub(super) constants: HashMap<String, Arc<Function>>,
     pub(super) call_wrappers: HashMap<(String, Vec<usize>), String>,
+    pub(super) serial_stack: HashMap<String, serial_stack::Guard>,
     /// Conditional Context methods retain their declarations without lowering
     /// an unsupported cause's formatting body merely by constructing Context.
     deferred_reporting: HashMap<String, (functions::Symbol, Arc<Function>)>,
@@ -1867,6 +1869,9 @@ impl Engine {
         substitute(&mut f.output, &replacements)?;
         for default in f.defaults.iter_mut().flatten() {
             substitute_expr(default, &replacements)?;
+        }
+        if let Some(guard) = serial_stack::identify(template, &f, actual, &replacements, aliases)? {
+            self.serial_stack.insert(symbol.clone(), guard);
         }
         let mut display = instance_name(name, actual);
         if let Some(field) = aliases.data.serial_field(at) {

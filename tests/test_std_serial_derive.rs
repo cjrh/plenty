@@ -642,3 +642,58 @@ def main() -> ():
     );
     assert!(error.contains("private __decode__"), "{error}");
 }
+
+#[test]
+fn wide_recursive_decode_reports_native_stack_limit_before_overflow() {
+    for (inline_payload, depth, limit) in [(false, 1026, 1024), (true, 66, 64)] {
+        let mut source = String::from("import std.json\nimport std.serial\n");
+        if inline_payload {
+            source.push_str("@serial\nclass Payload:\n");
+            for i in 0..64 {
+                source.push_str(&format!("    p{i}: i64\n"));
+            }
+        }
+        source.push_str("@serial\nclass Node:\n    next: Option[Box[Node]]\n");
+        for i in 0..63 {
+            source.push_str(&format!(
+                "    n{i}: {}\n",
+                if inline_payload { "Payload" } else { "i64" }
+            ));
+        }
+        let input = format!("{}null{}", "{\"next\":".repeat(depth), "}".repeat(depth));
+        source.push_str(&format!(
+            r#"
+def main() -> Result[(), IoError]:
+    mut options = std.json.codec_options()
+    options.limits.max_depth = {limit}
+    match std.json.load[Node](b{input:?}, &options):
+        case Ok(_):
+            print("unexpected")?
+        case Err(error):
+            match error.cause.fault:
+                case std.json.JsonFault.Serialization(std.serial.Fault.StackLimit):
+                    print("stack limit", error.complete, error.path.unwrap().len() > 0)?
+                case _:
+                    print(error.cause.fault)?
+    Ok(())
+"#
+        ));
+        support::assert_stdout(&source, "stack limit True True\n");
+    }
+}
+
+#[test]
+fn serialization_function_values_require_a_direct_wrapper() {
+    for entry in [
+        "std.serial.decode[i64, std.json.JsonError, std.json.CodecDecoder]",
+        "std.serial.encode[i64, std.json.JsonError, std.json.Encoder]",
+    ] {
+        let error = support::check_error(&format!(
+            "import std.serial\nimport std.json\ndef main() -> ():\n    drop({entry})\n"
+        ));
+        assert!(
+            error.contains("direct call") && error.contains("wrapper"),
+            "{error}"
+        );
+    }
+}
