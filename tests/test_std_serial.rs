@@ -481,3 +481,41 @@ def main() -> Result[(), IoError | AllocError]:
         "True False False\nFalse True False\nFalse False True\nstd.toml.TomlFault.Serialization(std.serial.Fault.OutOfRange) Option[list[std.serial.Step]].Some([std.serial.Step.Key(\"a\")])\nstd.json.JsonFault.Stream(std.io.StreamError.UnexpectedEof) Option[list[std.serial.Step]].Some([std.serial.Step.Index(1)])\n",
     );
 }
+#[test]
+fn deeply_nested_unknown_tree_values_preserve_siblings_and_depth_limits() {
+    support::assert_stdout(
+        &format!(
+            r#"{IMPORTS}{SERVER}
+def unknown_tree() -> Result[Json, AllocError]:
+    mut slot = [Json.Null]?
+    for depth in range(1000):
+        if depth % 2 == 0:
+            mut items = list[Json]()?
+            items.append(replace(slot[0], Json.Null))?
+            slot[0] = Json.Array(items)
+        else:
+            mut members = list[Member]()?
+            members.append(Member("nested", replace(slot[0], Json.Null)))?
+            slot[0] = Json.Object(members)
+    mut members = list[Member]()?
+    members.append(Member("ignored", replace(slot[0], Json.Null)))?
+    members.append(Member("port", Json.Int(80)))?
+    Ok(Json.Object(members))
+
+def main() -> Result[(), IoError | AllocError | SerialError[JsonError]]:
+    mut bounds = std.json.tree_limits()
+    bounds.max_depth = 1024
+    server = std.json.from_value[Server](unknown_tree()?, &bounds, std.serial.UnknownFields.Ignore)?
+    print(server.port, server.label)?
+    bounds.max_depth = 64
+    match std.json.from_value[Server](unknown_tree()?, &bounds, std.serial.UnknownFields.Ignore):
+        case Ok(_):
+            print("unexpected success")?
+        case Err(error):
+            print(error.cause.fault, error.path.unwrap(), error.complete)?
+    Ok(())
+"#
+        ),
+        "80 local\nstd.json.JsonFault.DepthExceeded [std.serial.Step.Field(\"ignored\")] True\n",
+    );
+}
