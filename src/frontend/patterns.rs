@@ -2040,7 +2040,7 @@ impl Lower<'_> {
                 _ => tail,
             };
             if let BlockResult::Continues(ty) =
-                self.returning_block(&case.body, &case.at, &mut body, tail)?
+                self.branch_block(&case.body, &case.at, &mut body, tail)?
             {
                 if !matches!(tail, Tail::Function) {
                     self.cleanup(case_start, &mut body);

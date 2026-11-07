@@ -69,9 +69,9 @@ including every `elif` and `else`; this allows contextual `Nothing` and empty
 collection literals. Without one, the first continuing arm is inferred alone
 and supplies the expected type of the arms after it, as the first value of an
 inline conditional does for the second, so only a first continuing arm of
-`Nothing` or `[]?` needs an annotation. Continuing arms must agree. Arms ending in `return`,
-`break`, or `continue` contribute no value. If every arm exits, write an ordinary
-`if` statement instead of binding its nonexistent value. An absent `else`
+`Nothing` or `[]?` needs an annotation. Continuing arms must agree. Arms ending
+in `return`, `break`, or `continue` contribute no value. If every arm exits,
+write an ordinary `if` statement instead of binding its nonexistent value. An absent `else`
 produces unit on its unselected path; unit cannot be stored in a binding.
 
 Conditions are evaluated in order; only the selected suite runs. Its locals

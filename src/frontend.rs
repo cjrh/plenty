@@ -1023,6 +1023,9 @@ struct Lower<'a> {
     /// The innermost block producing a value is a `checked:` block rather
     /// than a `match`, which only changes how a rejected tail is described.
     checked_value_tail: bool,
+    /// The innermost block producing a value is an `if` or `match` arm, so an
+    /// untyped final value is described as a branch (issue #797).
+    branch_value_tail: bool,
     indexed_lists: Vec<collections::IndexedLists>,
     /// The list place and slot of the last counted `range(..., len(xs))`
     /// whose stop was saved; see [`collections::IndexedLists::stop`].
@@ -3348,12 +3351,12 @@ impl Lower<'_> {
     }
     /// An example annotation for `e`, a final branch expression whose type
     /// only its context supplies: `Nothing` or an empty collection.
-    fn untyped_branch_value(&self, e: &Expr) -> Option<&'static str> {
+    fn untyped_branch_value<'e>(&self, e: &'e Expr) -> Option<(&'static str, &'e Token)> {
         let e = match &ungroup(e).kind {
             Expression::Try(inner) => ungroup(inner),
             _ => ungroup(e),
         };
-        match &e.kind {
+        let example = match &e.kind {
             Expression::Name(name) if name == "Nothing" && !self.names.contains_key(name) => {
                 Some("Option[i64]")
             }
@@ -3371,7 +3374,8 @@ impl Lower<'_> {
                 collection_example(name)
             }
             _ => None,
-        }
+        };
+        example.map(|example| (example, &e.at))
     }
     fn block(&mut self, body: &[Stmt], ops: &mut Vec<Op>, tail: &Tail) -> Result<BlockResult> {
         let start = self.locals.len();
@@ -3382,6 +3386,20 @@ impl Lower<'_> {
             self.cleanup(start, ops);
         }
         Ok(result)
+    }
+    /// An `if` or `match` arm: a [`Self::returning_block`] whose untyped
+    /// final value is reported as a branch's.
+    pub(super) fn branch_block(
+        &mut self,
+        body: &[Stmt],
+        at: &Token,
+        ops: &mut Vec<Op>,
+        tail: &Tail,
+    ) -> Result<BlockResult> {
+        let outer = std::mem::replace(&mut self.branch_value_tail, true);
+        let result = self.returning_block(body, at, ops, tail);
+        self.branch_value_tail = outer;
+        result
     }
     /// A suite of `return if` or `return match` without a value returns unit,
     /// so no selected arm continues past the statement.
@@ -3491,10 +3509,10 @@ impl Lower<'_> {
                 }
                 Statement::Expr(e)
                     if matches!(tail, Tail::Value(None))
-                        && !self.checked_value_tail
-                        && let Some(example) = self.untyped_branch_value(e) =>
+                        && self.branch_value_tail
+                        && let Some((example, at)) = self.untyped_branch_value(e) =>
                 {
-                    return Err(e.at.error(format!(
+                    return Err(at.error(format!(
                         "this branch's value has no type: no annotation or earlier continuing branch supplies one; annotate the binding, as in `name: {example} = ...`, or put a branch with a typed value first"
                     )));
                 }
@@ -3790,7 +3808,7 @@ impl Lower<'_> {
                     self.finish_temporaries(temporary_start, ops);
                     let saved = self.names.clone();
                     let mut then = Vec::new();
-                    let yes_result = self.returning_block(yes, &stmt.at, &mut then, tail)?;
+                    let yes_result = self.branch_block(yes, &stmt.at, &mut then, tail)?;
                     // Without an expected type, later branches take the first
                     // continuing branch's type, as the inline conditional's
                     // second value does.
@@ -3809,7 +3827,7 @@ impl Lower<'_> {
                         self.same(cond, Some(Ty::Bool), &elif.condition.at)?;
                         self.building(&elif.condition.at, condition_start, &mut test, false);
                         self.finish_temporaries(temporary_start, &mut test);
-                        let result = self.returning_block(
+                        let result = self.branch_block(
                             &elif.body,
                             &elif.at,
                             &mut arm,
@@ -3824,7 +3842,7 @@ impl Lower<'_> {
                     }
                     self.names = saved.clone();
                     let mut otherwise = Vec::new();
-                    let mut result = self.returning_block(
+                    let mut result = self.branch_block(
                         no,
                         &stmt.at,
                         &mut otherwise,
@@ -4755,6 +4773,7 @@ fn lower_body(
                 loop_scopes: Vec::new(),
                 checked: Vec::new(),
                 checked_value_tail: false,
+                branch_value_tail: false,
                 yield_type: yield_type.clone(),
                 loans: Vec::new(),
                 reference_locals: HashMap::default(),

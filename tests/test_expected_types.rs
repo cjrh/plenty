@@ -219,7 +219,8 @@ def main() -> Result[(), AllocError]:
         [1]?
     Ok(())
 "#,
-        "as in `name: list[i64] = ...`, or put a branch with a typed value first",
+        // The error points at the empty literal, not its `?`.
+        "5:9: this branch's value has no type",
     );
     reject(
         r#"
@@ -279,5 +280,31 @@ def main() -> Result[(), AllocError]:
     Ok(())
 "#,
         "expected list[str], got list[&str]",
+    );
+}
+
+#[test]
+fn value_blocks_without_branches_keep_their_message() {
+    for suite in ["unchecked", "unchecked trap"] {
+        reject(
+            &format!(
+                "def main() -> Result[(), AllocError]:\n    value = {suite}:\n        Nothing\n    Ok(())\n"
+            ),
+            "cannot infer `Nothing`; provide an Option annotation, parameter, or return type",
+        );
+    }
+    // A branch-free block inside an arm reports its own value.
+    reject(
+        r#"
+def main() -> Result[(), AllocError]:
+    flag = True
+    value = if flag:
+        unchecked:
+            Nothing
+    else:
+        Some(1)
+    Ok(())
+"#,
+        "cannot infer `Nothing`",
     );
 }
