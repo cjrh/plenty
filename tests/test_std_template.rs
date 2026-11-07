@@ -710,3 +710,143 @@ match result{budget}:
     assert!(failures > 0 && failures < 24, "{output}");
     assert!(lines[1 + failures..].iter().all(|line| *line == "True"));
 }
+
+#[test]
+fn interpolation_contexts_encode_original_values_once_in_both_render_modes() {
+    let source = program(
+        r#"
+bounds = std.template.limits()
+mut templates = std.template.engine(&bounds)?
+templates.add("contexts", "<p>{{ value | escape_text }}</p><i title=\"{{ value | escape_double_quoted }}\" data-label='{{ value | escape_single_quoted }}'></i>|{{ value }}")?
+context = Json.Object([Member("value", Json.Text("&<>\"'é🙂"))]?)
+print(templates.render("contexts", &context)?)?
+print(templates.render("contexts", &context, html=False)?)?
+"#,
+    );
+    let contexts = "<p>&amp;&lt;&gt;\"'é🙂</p><i title=\"&amp;<>&quot;'é🙂\" data-label='&amp;<>\"&#x27;é🙂'></i>";
+    let expected = format!("{contexts}|&amp;&lt;&gt;&quot;&#x27;é🙂\n{contexts}|&<>\"'é🙂");
+    for optimize in [false, true] {
+        assert_eq!(output_with_optimization(&source, optimize), expected);
+    }
+}
+
+#[test]
+fn context_filter_chains_select_emission_without_laundering_text_trust() {
+    let source = program(
+        r#"
+bounds = std.template.limits()
+mut templates = std.template.engine(&bounds)?
+templates.add("chains", "{{ value | trim | escape_text }}|{{ value | escape_text | escape_double_quoted }}|{{ value | escape_double_quoted | escape_text }}|{{ value | safe | escape_single_quoted }}|{{ value | escape_text | safe }}|{{ value | escape_text | upper }}|{{ value | escape_double_quoted | lower }}|{{ value | escape_single_quoted | trim }}|{{ value | escape_text | length }}|{{ value | escape_text | escape }}|{{ value | escape | escape_text }}")?
+context = Json.Object([Member("value", Json.Text(" <B&\"'> "))]?)
+print(templates.render("chains", &context)?)?
+# Each lookup starts from the original raw value, without another expression's policy.
+templates.add("reuse", "{{ value | escape_text }}|{{ value }}|{{ value | escape_double_quoted }}")?
+print(templates.render("reuse", &context)?)?
+# A standalone escaper returns ordinary text, never a transferable context marker.
+escaped = std.template.escape("\" onclick=\"bad&", std.template.HtmlContext.Text)?
+other = Json.Object([Member("value", Json.Text(escaped))]?)
+print(templates.render("reuse", &other)?)?
+"#,
+    );
+    assert_eq!(
+        support::run_file_stdout(&source),
+        "&lt;B&amp;\"'&gt;| <B&amp;&quot;'> | &lt;B&amp;\"'&gt; | <B&amp;\"&#x27;> | <B&\"'> | &lt;B&amp;&quot;&#x27;&gt; | &lt;b&amp;&quot;&#x27;&gt; |<B&amp;\"&#x27;>|8| &lt;B&amp;&quot;&#x27;&gt; | &amp;lt;B&amp;amp;&amp;quot;&amp;#x27;&amp;gt; \n &lt;B&amp;\"'&gt; | &lt;B&amp;&quot;&#x27;&gt; | <B&amp;&quot;'> \n\" onclick=\"bad&amp;amp;|&quot; onclick=&quot;bad&amp;amp;|&quot; onclick=&quot;bad&amp;amp;"
+    );
+}
+
+#[test]
+fn context_filters_respect_remaining_output_work_and_registration_recovery() {
+    let source = program(
+        r#"
+context = Json.Object([Member("value", Json.Text("&<>\"'é🙂"))]?)
+for filter, size in [("escape_text", 21), ("escape_double_quoted", 20), ("escape_single_quoted", 20)]?:
+    for extra in [0, 1]?:
+        mut bounds = std.template.limits()
+        bounds.max_output = NonNegative.try_from(size + extra).unwrap()
+        mut templates = std.template.engine(&bounds)?
+        templates.add("value", f"x{{{{ value | {filter} }}}}"?)?
+        templates.add("ok", "ok")?
+        match templates.render("value", &context):
+            case Ok(output):
+                print(output.byte_len() == size + 1)?
+            case Err(TemplateError.LimitExceeded):
+                print(extra == 0)?
+            case _:
+                print(False)?
+        print(templates.render("ok", &context)? == "ok")?
+    mut bounds = std.template.limits()
+    bounds.max_steps = 8
+    mut templates = std.template.engine(&bounds)?
+    templates.add("value", f"{{{{ value | {filter} | {filter} }}}}"?)?
+    templates.add("once", f"{{{{ value | {filter} }}}}"?)?
+    match templates.render("value", &context):
+        case Err(TemplateError.LimitExceeded):
+            print(True)?
+        case _:
+            print(False)?
+    print(templates.render("once", &context)?.byte_len() == size)?
+bounds = std.template.limits()
+mut templates = std.template.engine(&bounds)?
+for source in ["{% if false %}{{ value | escape_attribute }}{% endif %}", "{{ value | escape_text() }}"]?:
+    match templates.add("recover", source):
+        case Err(TemplateError.Syntax(_)):
+            print(True)?
+        case _:
+            print(False)?
+templates.add("recover", "{{ 42 | escape_text }}")?
+match templates.render("recover", &context):
+    case Err(TemplateError.TypeMismatch):
+        print(True)?
+    case _:
+        print(False)?
+"#,
+    );
+    let source = source.replace("TemplateError]:", "TemplateError | OverflowError[i64]]:");
+    assert_eq!(
+        support::run_file_stdout(&source),
+        std::iter::repeat_n("True", 21)
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn context_filter_render_allocation_failures_leave_engine_reusable() {
+    let source = format!(
+        "from std.bytes import BytesError\n{}",
+        program(
+            r#"
+bounds = std.template.limits()
+mut templates = std.template.engine(&bounds)?
+templates.add("value", "{{ value | escape_double_quoted }}")?
+context = Json.Object([Member("value", Json.Text("a long &<>\"'é🙂 value requiring heap storage"))]?)
+expected = "a long &amp;<>&quot;'é🙂 value requiring heap storage"
+mut failures = 0
+mut successes = 0
+mut correct = True
+for budget in range(80):
+    marker = f"__test_fail_allocations_after_{budget}__"?
+    print(marker)?
+    result = templates.render("value", &context)
+    print("__test_restore_allocations__")?
+    match result:
+        case Err(TemplateError.Allocation(AllocError.OutOfMemory)):
+            failures += 1
+        case Err(TemplateError.Bytes(BytesError.Allocation(AllocError.OutOfMemory))):
+            failures += 1
+        case Ok(output):
+            if output != expected:
+                correct = False
+            successes += 1
+        case _:
+            correct = False
+    if templates.render("value", &context)? != expected:
+        correct = False
+print(failures > 0, successes > 0, correct)?
+"#,
+        )
+        .replace("TemplateError]:", "TemplateError | OverflowError[i64]]:")
+    );
+    assert_eq!(output_with_optimization(&source, false), "True True True");
+}
