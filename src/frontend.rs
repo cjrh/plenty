@@ -3952,6 +3952,11 @@ fn take_call(ops: &mut Vec<Op>, begin: usize) -> Option<(usize, String)> {
 /// Return expressions are tail positions even inside a guard branch. Make
 /// every path exit, using a tail call where the last operation is a call.
 fn finish_return(body: &mut Vec<Op>) {
+    let guarded = body.len() >= 2
+        && matches!(
+            body[body.len() - 2],
+            Op::Collection(CollectionOp::SerialStackReady { .. })
+        );
     match body.last_mut() {
         Some(last @ Op::Call(_)) => {
             let Op::Call(name) = last else { unreachable!() };
@@ -3974,7 +3979,7 @@ fn finish_return(body: &mut Vec<Op>) {
             then,
             elifs,
             otherwise,
-        }) => {
+        }) if guarded => {
             let finish = |body: &mut Arc<[Op]>| {
                 let mut ops = body.to_vec();
                 finish_return(&mut ops);
