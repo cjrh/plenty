@@ -2098,6 +2098,19 @@ pub class TreeDecoder:
             case _:
                 Err(self.reject(std.serial.Fault.UnexpectedKind))
 
+    pub def variant(self: &mut TreeDecoder) -> Result[(str, bool), TomlError]:
+        match &self._value:
+            case Some(Toml.Text(_)):
+                return Ok((self.text()?, False))
+            case _:
+                pass
+        self.start_object()?
+        match self.next_key()?:
+            case Some(tag):
+                Ok((tag, True))
+            case Nothing:
+                Err(self.reject(std.serial.Fault.UnexpectedKind))
+
     pub def text(self: &mut TreeDecoder) -> Result[str, TomlError]:
         match self.take()?:
             case Toml.Text(value):

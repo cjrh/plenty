@@ -1449,6 +1449,19 @@ pub class CodecDecoder:
             case _:
                 Err(self.reject(std.serial.Fault.UnexpectedKind))
 
+    pub def variant(self: &mut CodecDecoder) -> Result[(str, bool), JsonError]:
+        match self.take()?:
+            case Event.Text(tag):
+                Ok((tag, False))
+            case Event.StartObject:
+                match self.next_key()?:
+                    case Some(tag):
+                        Ok((tag, True))
+                    case Nothing:
+                        Err(self.reject(std.serial.Fault.UnexpectedKind))
+            case _:
+                Err(self.reject(std.serial.Fault.UnexpectedKind))
+
     pub def text(self: &mut CodecDecoder) -> Result[str, JsonError]:
         match self.take()?:
             case Event.Text(value):
@@ -1602,6 +1615,19 @@ pub class CodecReader[R]:
                 codec.decimal()
             case Nothing:
                 Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+
+    pub def variant(self: &mut CodecReader[R]) -> Result[(str, bool), JsonError]:
+        match self.take()?:
+            case Event.Text(tag):
+                Ok((tag, False))
+            case Event.StartObject:
+                match self.next_key()?:
+                    case Some(tag):
+                        Ok((tag, True))
+                    case Nothing:
+                        Err(self.reject(std.serial.Fault.UnexpectedKind))
+            case _:
+                Err(self.reject(std.serial.Fault.UnexpectedKind))
 
     pub def text(self: &mut CodecReader[R]) -> Result[str, JsonError]:
         self.prepare()?
@@ -1917,6 +1943,19 @@ pub class TreeDecoder:
                     return Err(self.reject(std.serial.Fault.OutOfRange))
                 Ok(value)
             case _:
+                Err(self.reject(std.serial.Fault.UnexpectedKind))
+
+    pub def variant(self: &mut TreeDecoder) -> Result[(str, bool), JsonError]:
+        match &self._value:
+            case Some(Json.Text(_)):
+                return Ok((self.text()?, False))
+            case _:
+                pass
+        self.start_object()?
+        match self.next_key()?:
+            case Some(tag):
+                Ok((tag, True))
+            case Nothing:
                 Err(self.reject(std.serial.Fault.UnexpectedKind))
 
     pub def text(self: &mut TreeDecoder) -> Result[str, JsonError]:

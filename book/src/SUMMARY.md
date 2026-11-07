@@ -498,6 +498,7 @@
         - [`std.time`](design/stdlib/time.md)
         - [`std.tls`](design/stdlib/tls.md)
         - [`std.toml`](design/stdlib/toml.md)
+            - [Typed TOML codecs](design/stdlib/toml-codecs.md)
             - [Editing TOML documents](design/stdlib/toml-editing.md)
         - [`std.xml`](design/stdlib/xml.md)
         - [`std.unicode`](design/stdlib/unicode.md)

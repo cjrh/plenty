@@ -92,7 +92,7 @@ def main() -> Result[(), IoError | AllocError]:
     Ok(())
 "#
         ),
-        "std.json.JsonFault.Serialization(std.serial.Fault.OutOfRange) [std.serial.Step.Index(1)]\nTrue\nstd.json.JsonFault.Stream(std.io.StreamError.UnexpectedEof) [std.serial.Step.Index(0)] 4\n4\nstd.json.JsonFault.Stream(std.io.StreamError.UnexpectedEof) True\n",
+        "std.json.JsonFault.Serialization(std.serial.Fault.OutOfRange) [std.serial.Step.Index(1)]\nTrue\nstd.json.JsonFault.Stream(std.io.StreamError.UnexpectedEof) [std.serial.Step.Index(1), std.serial.Step.Index(0)] 4\n4\nstd.json.JsonFault.Stream(std.io.StreamError.UnexpectedEof) True\n",
     );
 }
 
