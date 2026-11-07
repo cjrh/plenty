@@ -15,10 +15,16 @@ LINE = re.compile(r"^\s*([0-9a-f]+):\s+(?:[0-9a-f]{2} )*\s*([a-z][\w.]*)\s*(.*)$
 def parse(lines):
     insns, func = [], None
     for line in lines:
-        header = re.match(r"^(?:==== \S+ (\S+)|[0-9a-f]+ <(\S+)>:)", line)
+        # `plenty --dump asm` names the function first, then `symbol=`; the
+        # CLIF harness prints its input file, then the function.
+        header = re.match(
+            r"^(?:==== (\S+)\s+symbol=|==== \S+ (\S+)|[0-9a-f]+ <(\S+)>:)", line
+        )
         if header:
-            func = header.group(1) or header.group(2)
+            func = header.group(1) or header.group(2) or header.group(3)
             continue
+        # `--dump asm` prints zero-padded uppercase jump targets.
+        line = re.sub(r"0x([0-9A-Fa-f]+)", lambda m: hex(int(m.group(1), 16)), line)
         match = LINE.match(line)
         if match and func:
             insns.append((func, int(match.group(1), 16), match.group(2), match.group(3)))

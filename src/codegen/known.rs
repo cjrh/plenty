@@ -64,6 +64,25 @@ pub(super) fn known_zero(dfg: &DataFlowGraph, value: Value) -> bool {
     known_int(dfg, value) == Some(0)
 }
 
+/// The largest value `value` can hold when it zero-extends a narrower
+/// integer, as an unsigned byte or `u16` read widened to an index does: its
+/// high bits are zero, so it lies in `0..=max` (issue #760).
+pub(super) fn zero_extended_max(dfg: &DataFlowGraph, value: Value) -> Option<u64> {
+    let value = dfg.resolve_aliases(value);
+    let ValueDef::Result(inst, _) = dfg.value_def(value) else {
+        return None;
+    };
+    let InstructionData::Unary {
+        opcode: Opcode::Uextend,
+        arg,
+    } = dfg.insts[inst]
+    else {
+        return None;
+    };
+    let (narrow, wide) = (dfg.value_type(arg).bits(), dfg.value_type(value).bits());
+    (narrow < wide && narrow < 64).then(|| (1u64 << narrow) - 1)
+}
+
 /// [`known_int`], also treating each block parameter `params` knows as that
 /// constant: the value seen on one incoming edge.
 pub(super) fn known_int_given(
