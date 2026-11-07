@@ -102,7 +102,7 @@ def main() -> Result[(), AllocError | IoError]:
     names = ["Ada", "Bob", "Cal"]?
     indexed = iter(&names).enumerate(1)
     selected = indexed.filter(def(i: &i64, name: &str) -> bool: *i != 2)
-    labels: dict[i64, str] = selected.map(def(i: i64, name: &str) -> Result[(i64, str), AllocError]: Ok((i, copy(name)?))).try_collect()?
+    labels: dict[i64, str] = selected.map(def(i: i64, name: &str) -> (i64, str): (i, *name)).collect()?
     print(labels[1], labels[3], len(names))?
     Ok(())
 ```
@@ -110,9 +110,10 @@ def main() -> Result[(), AllocError | IoError]:
 Ada Cal 3
 ```
 
-Copying a name can fail, so `try_collect` propagates that error as well as
-dictionary allocation errors. The successful owned pairs become dictionary entries. Repeated keys
-keep the last value. A pair fold takes the accumulator followed by both item
+`*name` copies the borrowed string, which cannot fail because `str`
+[copies on assignment](../04-collections/moves-and-copies.md), so `collect`
+reports only dictionary allocation errors. The owned pairs become dictionary
+entries. Repeated keys keep the last value. A pair fold takes the accumulator followed by both item
 components; a tuple accumulator stays a single parameter. Zip stops at the
 shorter input, pulling the left first, so it may consume one extra left item.
 
