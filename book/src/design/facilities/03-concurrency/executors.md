@@ -179,6 +179,11 @@ until a submitted job acts can still hang, as a loop polling with
 `recv_nowait` or spinning on an atomic can; no static rule catches such a
 livelock.
 
+The rule does not cover socket or file I/O. A plain `TcpStream` read or write
+waits without a limit, so when a queued job holds the peer, use the stream's
+`read_before` or `write_before`, which end at a deadline or the token (see
+[networking](../../stdlib/net.md)).
+
 Everything is matched by type, as the shutdown rules match it. A job may
 still send blocking on a queue whose receiver only another thread holds, as
 the [tutorial lesson](../../../tutorial/11-concurrency/submit-from-workers.md)
