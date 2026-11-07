@@ -150,6 +150,11 @@ such as `name[1:]?` or `name[::-1]?` copies, so it needs `?`. See
 [building text](../facilities/01-builtins/text-building.md), and
 [format strings](../language/04-expressions/format-strings.md).
 
+A `&substr` function parameter accepts a whole string as `f(s)`, implicitly
+borrowed without copying, or a substring as `f(&s[a:b])`. Explicit whole-string
+borrows, existing `&str` bindings, and literals work too. A view has fewer
+operations than `str`; see the [Text argument table](../facilities/01-builtins/text.md#function-arguments).
+
 ## Collections
 
 ```plenty

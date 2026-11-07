@@ -128,8 +128,8 @@ f(&amp;s[a:b])</code></pre></td>
     ...
 &#10;s: str
 f(s)</code></pre></td>
-<td>No</td>
-<td>An owned binding is not implicitly converted to a substring view. Write <code>f(&amp;s)</code> to borrow the whole string.</td>
+<td>Yes</td>
+<td>Implicitly borrows the whole string as a view for the call; no text copy, retain, or allocation. <code>s</code> stays usable.</td>
 </tr>
 <tr>
 <td><pre><code class="language-plenty">def f(val: &amp;substr) -&gt; ():
@@ -177,9 +177,9 @@ f(v)</code></pre></td>
     ...
 &#10;def make_text() -&gt; str:
     ...
-&#10;f(&amp;make_text())</code></pre></td>
+&#10;f(make_text())</code></pre></td>
 <td>Yes</td>
-<td>Borrows the returned string as a whole view. The temporary owner lives through the call. View conversion adds no text copy, retain, or allocation; producing the string has its own costs.</td>
+<td>Implicitly borrows the returned string as a whole view; <code>f(&amp;make_text())</code> also works. The temporary owner lives through the full expression. View conversion adds no text copy, retain, or allocation; producing the string has its own costs.</td>
 </tr>
 </tbody>
 </table>

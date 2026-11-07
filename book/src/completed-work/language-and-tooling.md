@@ -821,6 +821,13 @@ Generic `@copy` classes copy when their type arguments copy, and a field that mo
 
 ## B90: Owner-to-view conversion
 
+Issue #847 extends shared call borrowing to `&substr` parameters: whole strings
+in bindings, fields, collection elements, and temporary expressions borrow
+implicitly, as at `&str` parameters. The call preserves argument order, source
+loans, and full-expression temporary cleanup without copying or retaining text.
+Annotated view locals still require an explicit borrow; other view types keep
+their existing conversion rules.
+
 `&xs`, `&mut xs`, `&s`, reference bindings and `b"..."`/`str` literals convert
 to whole views at view types, and `&Shared[T]` converts to `&T` like `Box`
 (local PR #784). Byte-reading std APIs, including the prelude byte writers and

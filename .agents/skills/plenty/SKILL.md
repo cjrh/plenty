@@ -130,8 +130,10 @@ See [workflow and packages](references/workflow.md).
 - `&xs[1:3]` and `&mut xs[1:3]` borrow a list or `Bytes` view, `&[T]` or
   `&mut [T]`, without copying: no `?`, no step. A `&[T]` parameter takes a
   whole list as `&xs`, and a `&[u8]` one a `b"..."` literal. `&s[1:3]` borrows
-  part of a `str` as a `&substr` (scalar positions, shared only); pass a whole
-  string as `&s` or a literal.
+  part of a `str` as a `&substr` (scalar positions, shared only). A `&substr`
+  parameter implicitly borrows a whole string passed as `s`; `&s`, a `&str`
+  binding, or a literal also works. Annotated view locals still need an
+  explicit borrow, such as `whole: &substr = &s`.
   Views cannot be returned or stored. `std` operations that read bytes
   (`Bytes.extend`, stream `write`, `write_all`, crypto `update`) take one
   `&[u8]`, not `source, start, stop`: `w.write(&buf[a:b])`. A writer class

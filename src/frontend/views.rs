@@ -399,7 +399,8 @@ impl Lower<'_> {
 
     /// A `&[T]` or `&mut [T]` argument: `&xs[a:b]`, `&mut xs[a:b]`, a view
     /// binding, or an owner that [`Self::owner_view`] converts. `text`
-    /// marks a `&substr`.
+    /// marks a `&substr`, which also borrows whole strings as a `&str` call
+    /// argument does.
     pub(super) fn view_argument(
         &mut self,
         arg: &Expr,
@@ -434,9 +435,24 @@ impl Lower<'_> {
         let arg = converted.as_ref().unwrap_or(arg);
         let wanted = if mutable { "&mut xs[a:b]" } else { "&xs[a:b]" };
         if text && !self.is_view(arg) {
-            return Err(arg.at.error(
-                "this parameter takes a substring view: pass `&s` or a literal for a whole string, or `&s[a:b]` for part of it",
-            ));
+            // A whole string lends the same place (or full-expression temporary)
+            // as a `&str` argument. Convert that loan to a byte-range view;
+            // copying the string value here would retain it unnecessarily.
+            let (reference, loan) = self.call_borrow(arg, false, Some(Ty::Str), ops)?;
+            let expected = Ty::Ref(Arc::new(Ty::Str), false);
+            let reference = self.lend_content(reference, &expected, ops);
+            if reference != expected {
+                return Err(arg.at.error(format!(
+                    "this parameter takes a substring view: pass a `str` value, a string reference, or `&s[a:b]`; got {reference}"
+                )));
+            }
+            ops.extend([
+                Op::PushInt(Value::I64(0)),
+                Op::PushInt(Value::I64(0)),
+                Op::PushInt(Value::I64(0)),
+                Op::Collection(CollectionOp::TextView(TextViewOp::OfStr)),
+            ]);
+            return Ok((text_view(), loan));
         }
         if !self.is_view(arg) {
             let whole = if mutable { "&mut xs" } else { "&xs" };
