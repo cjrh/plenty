@@ -108,7 +108,10 @@ dispatch.
 A `Timestamp` has public fields `seconds: i64`, counted from the Unix epoch in
 UTC, and `nanoseconds: u32` in `[0, 1_000_000_000)`. Times before the epoch use
 floor seconds: half a second before it is `Timestamp(-1, 500000000)`.
-[`std.fs` metadata](fs/metadata.md) returns this type.
+[`std.fs` metadata](fs/metadata.md) returns this type. Because of the floor
+convention, the tuple `(stamp.seconds, stamp.nanoseconds)` orders timestamps
+chronologically; use it as the key for
+[`sort_stable_by_key`](../facilities/01-builtins/lists.md#reordering-and-extending).
 
 | Operation | Result | Contract |
 |---|---|---|

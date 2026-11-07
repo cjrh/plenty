@@ -1092,6 +1092,42 @@ impl Lowerer<'_, '_> {
             let adapter = self.module.declare_func_in_func(adapter, self.bcx.func);
             let adapter = self.bcx.ins().func_addr(PTR_TY, adapter);
             let descending = self.bcx.ins().uextend(types::I64, descending);
+            if sort.stable {
+                let function = self
+                    .module
+                    .declare_func_in_func(self.runtime.list_sort_stable_by, self.bcx.func);
+                let call = self
+                    .bcx
+                    .ins()
+                    .call(function, &[owner, adapter, environment, descending]);
+                let high = self.bcx.inst_results(call)[0];
+                let low = self.bcx.ins().iconst(types::I64, 0);
+                let reserved = self.bcx.ins().iconcat(low, high);
+                let allocation = crate::sum::allocation_result();
+                let reserved = self.unpack(reserved, &allocation);
+                let output = crate::collection::key_sort_output(true, sort.error.as_ref()).unwrap();
+                let Some(keyed) = checked else {
+                    self.stack.push((reserved, output));
+                    return Ok(());
+                };
+                // At most one result fails. The runtime reserves only after
+                // its ordered-input check finds an out-of-order pair, and
+                // after a key error the comparator reports every pair equal,
+                // so a key error means no reservation was attempted. Widen
+                // both and select the one that failed, if any.
+                let key_result = self.bcx.ins().load(
+                    types::I128,
+                    cranelift_codegen::ir::MemFlagsData::trusted(),
+                    environment,
+                    16,
+                );
+                let reserved = self.widen_sum(reserved, &allocation, &output);
+                let key_result = self.widen_sum(key_result, &keyed, &output);
+                let failed = self.bcx.ins().icmp_imm_s(IntCC::NotEqual, high, 0);
+                let result = self.bcx.ins().select(failed, reserved, key_result);
+                self.stack.push((result, output));
+                return Ok(());
+            }
             let function = self
                 .module
                 .declare_func_in_func(self.runtime.list_sort_by, self.bcx.func);

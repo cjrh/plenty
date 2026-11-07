@@ -1,6 +1,13 @@
 # Timsort for stable, adaptive sorting
 
-**Status: Not implemented.** This proposes an algorithm and an API direction,
+**Status: Partly superseded.** Issue #806 shipped the compatible first release
+described under [surface and compatibility](#surface-and-compatibility) for
+keys only: `list.sort_stable_by_key` returns `Result[(), AllocError]`, reserves
+`floor(n/2)` rows before moving any, and uses a top-down merge sort with
+insertion-sorted short runs and an already-ordered check. It has no Timsort run
+detection, galloping, or Powersort merge policy. Natural-order `sort` gets no
+stable form because equal elements are indistinguishable. The default-name
+migration and the adaptive algorithm below remain unimplemented proposals,
 not an approved migration. [List sorting](../design/facilities/01-builtins/lists.md)
 and the [key-sorting tutorial](../tutorial/04-collections/key-sorting.md) define
 today's contracts. No implementation or performance improvement ships with this

@@ -65,12 +65,18 @@ impl Lower<'_> {
         base: &Expr,
         args: &[Expr],
         at: &Token,
+        stable: bool,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        let method = if stable {
+            "sort_stable_by_key"
+        } else {
+            "sort_by_key"
+        };
         if !(1..=2).contains(&args.len()) {
-            return Err(
-                at.error("sort_by_key takes a key callback and an optional descending bool")
-            );
+            return Err(at.error(format!(
+                "{method} takes a key callback and an optional descending bool"
+            )));
         }
         let list = classes::unbox(self.place_type(base).expect("list place"));
         let Ty::List(element) = list else {
@@ -102,9 +108,9 @@ impl Lower<'_> {
             .expression_type_hint(&args[0])
             .or_else(|| self.place_type(&args[0]))
             .ok_or_else(|| {
-                args[0]
-                    .at
-                    .error("sort_by_key requires a key callback: a function or closure")
+                args[0].at.error(format!(
+                    "{method} requires a key callback: a function or closure"
+                ))
             })?;
         while let Ty::Ref(inner, _) = callback {
             callback = (*inner).clone();
@@ -112,21 +118,24 @@ impl Lower<'_> {
         if let Ty::Closure(closure) = &callback
             && closure.mutable
         {
-            return Err(args[0].at.error(
-                "sort_by_key requires a shared-call key; this closure is mutable because it changes a `mut` capture",
-            ));
+            return Err(args[0].at.error(format!(
+                "{method} requires a shared-call key; this closure is mutable because it changes a `mut` capture"
+            )));
         }
-        let sig = callables::signature(&callback)
-            .ok_or_else(|| args[0].at.error("sort_by_key requires a key callback"))?;
+        let sig = callables::signature(&callback).ok_or_else(|| {
+            args[0]
+                .at
+                .error(format!("{method} requires a key callback"))
+        })?;
         if sig.inputs != [Ty::Ref(element.clone(), false)] {
             return Err(args[0]
                 .at
-                .error(format!("sort_by_key callback must take &{element}")));
+                .error(format!("{method} callback must take &{element}")));
         }
         let output = sig.output.clone().ok_or_else(|| {
-            args[0]
-                .at
-                .error("sort_by_key callback must return an ordered key or Result[key, E]")
+            args[0].at.error(format!(
+                "{method} callback must return an ordered key or Result[key, E]"
+            ))
         })?;
         let (key, error) = match &output {
             Ty::Enum(result) if result.is_result() => (
@@ -136,7 +145,7 @@ impl Lower<'_> {
             _ => (output.clone(), None),
         };
         if !key.is_orderable() {
-            return Err(args[0].at.error("sort_by_key callback must return an integer, float, str, or tuple of those, optionally in Result[key, E]"));
+            return Err(args[0].at.error(format!("{method} callback must return an integer, float, str, or tuple of those, optionally in Result[key, E]")));
         }
         self.plenty_helper("__plenty_key_of", KEY_OF)?;
         let key_of = self.specialize(
@@ -150,7 +159,11 @@ impl Lower<'_> {
         )?;
         // The runtime sorts the rows and calls back into the generated
         // adapter, so elements move without per-access calls or refcounting.
-        let sort_name = format!("{key_of}_sort");
+        let sort_name = if stable {
+            format!("{key_of}_stable_sort")
+        } else {
+            format!("{key_of}_sort")
+        };
         if !self.sigs.contains_key(&sort_name) {
             let callback = self.sigs[&key_of].inputs[0].1.clone();
             let list = Ty::List(element.clone());
@@ -160,9 +173,7 @@ impl Lower<'_> {
                     ("key".into(), callback.clone()),
                     ("descending".into(), Ty::Bool),
                 ],
-                outputs: error
-                    .as_ref()
-                    .map(|error| crate::sum::result(Ty::Unit, error.clone()))
+                outputs: crate::collection::key_sort_output(stable, error.as_ref())
                     .into_iter()
                     .collect(),
             });
@@ -173,6 +184,7 @@ impl Lower<'_> {
                 callback,
                 key,
                 error: error.clone(),
+                stable,
             };
             self.sigs.insert(sort_name.clone(), sig.clone());
             let mut body = vec![
@@ -181,7 +193,7 @@ impl Lower<'_> {
                 Op::LoadLocal(2),
                 Op::Collection(CollectionOp::ListSortBy(Arc::new(sort))),
             ];
-            if error.is_none() {
+            if !stable && error.is_none() {
                 body.push(Op::Drop);
             }
             body.push(Op::Return);
@@ -217,7 +229,16 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
-        self.key_sort_call(base, args, &base.at, ops)
+        self.key_sort_call(base, args, &base.at, false, ops)
+    }
+
+    pub(super) fn list_sort_stable_by_key(
+        &mut self,
+        base: &Expr,
+        args: &[Expr],
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        self.key_sort_call(base, args, &base.at, true, ops)
     }
 
     pub(super) fn sorted(&mut self, args: &[Expr], at: &Token, ops: &mut Vec<Op>) -> Result<Type> {

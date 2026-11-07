@@ -1099,6 +1099,9 @@ struct Runtime {
     list_scalar_get: FuncId,
     /// `plenty_list_sort_by(list, comparator, environment, descending)`.
     list_sort_by: FuncId,
+    /// `plenty_list_sort_stable_by(list, comparator, environment, descending)
+    /// -> high word of Result[(), AllocError]`.
+    list_sort_stable_by: FuncId,
     /// `plenty_order_compare(a_low, a_high, b_low, b_high, descriptor) -> i64`.
     order_compare: FuncId,
     /// `plenty_view_equal(a_rows, a_len, b_rows, b_len, descriptor) -> bool`.
@@ -1356,6 +1359,18 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
                 AbiParam::new(types::I64),
             ]);
             module.declare_function("plenty_list_sort_by", Linkage::Import, &sig)?
+        },
+        list_sort_stable_by: {
+            let mut sig = module.make_signature();
+            sig.call_conv = crate::target::native_call_conv();
+            sig.params.extend([
+                AbiParam::new(PTR_TY),
+                AbiParam::new(PTR_TY),
+                AbiParam::new(PTR_TY),
+                AbiParam::new(types::I64),
+            ]);
+            sig.returns.push(AbiParam::new(types::I64));
+            module.declare_function("plenty_list_sort_stable_by", Linkage::Import, &sig)?
         },
         order_compare: {
             let mut sig = module.make_signature();

@@ -1793,7 +1793,7 @@ impl Lower<'_> {
         {
             return ty;
         }
-        if matches!(name.as_str(), "sort" | "sort_by_key")
+        if matches!(name.as_str(), "sort" | "sort_by_key" | "sort_stable_by_key")
             && let Some(named) = args.iter().find(
                 |arg| matches!(&arg.kind, Expression::NamedArgument(label, _) if label == "reverse"),
             )
@@ -1803,9 +1803,9 @@ impl Lower<'_> {
             })
         {
             return Err(named.at.error(if name == "sort" {
-                "`sort` takes the descending flag positionally: `items.sort(True)`"
+                "`sort` takes the descending flag positionally: `items.sort(True)`".to_owned()
             } else {
-                "`sort_by_key` takes the descending flag positionally: `items.sort_by_key(key, True)`"
+                format!("`{name}` takes the descending flag positionally: `items.{name}(key, True)`")
             }));
         }
         ide::enter_method(*pos, name);
