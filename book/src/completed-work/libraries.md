@@ -28,7 +28,7 @@ scope decision, not a second task list.
 | [Sketches](../design/stdlib/sketch.md) | Dense HyperLogLog, reservoir quantiles, Misra–Gries bounds, static xor/scalable cuckoo filters, bounded memory and versioned checkpoints (issues #496–#498). |
 | [Key/value database](../design/stdlib/kv.md) | Named ordered byte maps, transactions and bounded scans in Plenty over SQLite; versioned file schema and [engine decision](../design/stdlib/kv-engine.md) (issue #495). |
 | [UUID](../design/stdlib/uuid.md) | Canonical text/network bytes, OS-backed v4/v7 and allocation-free numeric sort keys (issue #461). |
-| [System](../design/stdlib/system.md) | Bounded Linux procfs snapshots for CPU/memory/load/uptime/block devices/disk I/O/processes (issue #487). |
+| [System](../design/stdlib/system.md) | Bounded Linux procfs snapshots for CPU/memory/load/uptime/block devices/disk I/O/processes (issue #487). Positive, fallible CPU-availability estimates for pool sizing and a [coverage/backend assessment](../design/stdlib/system-backends.md) were added by issue #716; Linux uses affinity and visible conventional cgroup quotas, with explicit platform limits. |
 
 Remaining breadth is **B38** in the [backlog](../backlog.md).
 
@@ -51,6 +51,7 @@ assignments. Extensions retain their original B IDs in the
 | B41 / #78 | [Error context](../design/stdlib/error.md): typed operation/path/cause, explicit conversion, descriptions, stderr fallback reports, unit Results (issue #110), `Formattable` causes and readable entrypoint reports. |
 | B42 / #79 | [Time](../design/stdlib/time.md): checked durations, monotonic instants/deadlines, timestamps and sleep; [typed std time APIs and cancellable waits](../completed-work.md#typed-time-and-cancellable-waits) (issue #635). Calendar/time-zone/RFC 3339 support is the official external `plentylang/tz` package (issue #463); `Zoned.until`/`since` calendar differences shipped in v0.3.0 (issue #566). |
 | B43 / #80 | [Environment](../design/stdlib/env.md)/[process](../design/stdlib/process.md): lossless variables/snapshots/cwd, argument-vector spawning without a shell, child env/cwd, piped streams, bounded deadlock-free collection, exit/signal status, termination and reaping. [Explicit child-file inheritance](#explicit-child-file-inheritance) selects owned files and lock copies (issue #777). [Shlex](../design/stdlib/shlex.md) splits/quotes shell words without executing/expanding (issue #478). |
+| B43 / #80 | [Environment](../design/stdlib/env.md)/[process](../design/stdlib/process.md): lossless variables/snapshots/cwd, argument-vector spawning without a shell, child env/cwd, piped streams, bounded deadlock-free collection, exit/signal status, termination and reaping; redirection to owned files, including append mode, and `stderr_to_stdout` (issue #778). [Shlex](../design/stdlib/shlex.md) splits/quotes shell words without executing/expanding (issue #478). |
 | B44 / #81 | [CLI](../design/stdlib/cli.md): validated schemas, typed/repeatable arguments, `--`, help/errors and lossless paths. [Progress](../design/stdlib/cli-progress.md) adds terminal-only throttled bars/spinners/counts/rates/ETA (issue #477); [fileinput](../design/stdlib/cli-fileinput.md) adds buffered fallible line iteration over native/raw command-line paths and stdin fallback (issue #553). |
 | B45 / #82 | [Formatting](../design/stdlib/fmt.md): static display/debug contracts, scalar/callback aggregate formatting, bounded partial-progress streaming and fallible strings. F-strings add field expressions, conversions, debug `=`, checked Python-style specs and nested fill/alignment/width/precision, returning `FormatError`; formatter output avoids intermediate strings (issue #157, local PRs #200/#202). |
 | B46 / #83 | [Logs](../design/stdlib/log.md): leveled typed events and generic caller-selected sinks (logfmt text, bounded memory and nonblocking channel/drain), clock policies and bounded lines. |
@@ -340,4 +341,20 @@ parent flags and isolate concurrent spawns; commands cap selection at 64 files,
 retain copies for reuse, and release them through `clear_inherited_files()` or
 drop. Focused tests cover concurrent selection, source close, failed exec,
 allocation failure and lock lifetime across runner death. Arbitrary descriptor
-remapping and standard-stream redirection remain B43 scope.
+remapping remains B43 scope. Explicit inheritance composes with owned-file
+standard-stream redirection, merged stderr and isolated groups/sessions; tests
+check that redirection-source descriptors remain close-on-exec.
+
+## B43: Process groups and sessions
+
+Issue #776 adds declarative `Command.process_group` modes for a child-led
+process group or a new session, established before execution. Group signalling
+reaches descendants that retain group membership, without shell wrappers or
+parent-side setup polling. The unreaped leader pins the group ID; after reaping,
+group signals send nothing. Timeout/cancellation preserve cleanup ownership when
+they return without a status. This Linux-only slice does not contain escaping
+descendants, signal groups after reaping, or change dropped-child reaping policy.
+Group/session selection also composes with owned-file redirection and merged
+stderr after their integration (issue #778). Combined checks cover stream flags,
+cwd/environment flags, descendant pipe EOF and pre-spawn allocation-failure retry.
+See [the process contract](../design/stdlib/process.md#process-groups-and-sessions).

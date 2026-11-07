@@ -15,24 +15,35 @@ const chunk: i64 = 8192
 const pipe_page: i64 = 4096
 const unreaped: i64 = -1
 const running: i64 = 65536
+# A stream code is its mode in bits 0..3 and, for `redirected`, the index of
+# its file in `Command._files` from bit 3.
+const inherit: i64 = 0
+const null: i64 = 1
 const piped: i64 = 2
+const redirected: i64 = 3
+const merged: i64 = 4
+const mode_mask: i64 = 7
+const index_shift: i64 = 3
+# One file per stream, plus room to append a replacement before releasing
+# the file it replaces, so setting a stream never allocates.
+const file_slots: i64 = 4
 const broken_pipe: i32 = 32
 const terminate_signal: i32 = 15
 const kill_signal: i32 = 9
+
+# Each isolated group is led by the newly spawned child; no arbitrary PGID.
+pub enum ProcessGroup:
+    Inherit
+    NewGroup
+    NewSession
 
 pub enum Stdio:
     Inherit
     Null
     Piped
-
-def stdio_code(mode: Stdio) -> i64:
-    match mode:
-        case Stdio.Inherit:
-            0
-        case Stdio.Null:
-            1
-        case Stdio.Piped:
-            piped
+    # The child's stream is a duplicate of this file's descriptor. Its open
+    # mode decides truncation or appending; the command keeps the file.
+    File(File)
 
 def allocated[T](result: Result[T, AllocError]) -> Result[T, IoError]:
     match result:
@@ -104,8 +115,10 @@ pub class Command:
     _stdin: i64
     _stdout: i64
     _stderr: i64
+    _files: list[File]
     _change_dir: bool
     _clear_env: bool
+    _process_group: ProcessGroup
     _inherited: list[File]
 
     pub def arg_bytes(self: &mut Command, value: &list[u8]) -> Result[(), IoError]:
@@ -162,13 +175,79 @@ pub class Command:
         Ok(())
 
     pub def stdin(self: &mut Command, mode: Stdio) -> ():
-        self._stdin = stdio_code(mode)
+        self.redirect(0, mode)
 
     pub def stdout(self: &mut Command, mode: Stdio) -> ():
-        self._stdout = stdio_code(mode)
+        self.redirect(1, mode)
 
     pub def stderr(self: &mut Command, mode: Stdio) -> ():
-        self._stderr = stdio_code(mode)
+        self.redirect(2, mode)
+
+    # The child's stderr is the same stream as its stdout, whatever stdout is
+    # when the child starts: one pipe, one file description or the parent's.
+    pub def stderr_to_stdout(self: &mut Command) -> ():
+        self.assign(2, merged)
+
+    def code(self, stream: i64) -> i64:
+        if stream == 0:
+            self._stdin
+        elif stream == 1:
+            self._stdout
+        else:
+            self._stderr
+
+    def set_code(self: &mut Command, stream: i64, code: i64) -> ():
+        if stream == 0:
+            self._stdin = code
+        elif stream == 1:
+            self._stdout = code
+        else:
+            self._stderr = code
+
+    def redirect(self: &mut Command, stream: i64, mode: Stdio) -> ():
+        match mode:
+            case Stdio.Inherit:
+                self.assign(stream, inherit)
+            case Stdio.Null:
+                self.assign(stream, null)
+            case Stdio.Piped:
+                self.assign(stream, piped)
+            case Stdio.File(file):
+                # Construction reserved file_slots, and at most three files
+                # are held before this append, so it cannot grow the list.
+                match self._files.append(file):
+                    case Ok(_):
+                        # Below file_slots, so the shift cannot overflow.
+                        at = unchecked:
+                            len(self._files) - 1
+                        self.assign(stream, redirected | (at << index_shift))
+                    case Err(_):
+                        pass
+
+    # Sets a stream's code and closes the file it no longer uses.
+    def assign(self: &mut Command, stream: i64, code: i64) -> ():
+        old = self.code(stream)
+        self.set_code(stream, code)
+        if old & mode_mask == redirected:
+            self.release(old >> index_shift)
+
+    # Removes the file at `at` by swapping the last file into its place.
+    def release(self: &mut Command, at: i64) -> ():
+        # A redirected code names a held file, so the list is not empty.
+        last = unchecked:
+            len(self._files) - 1
+        if at != last:
+            self._files.swap(at, last)
+            for stream in range(3):
+                code = self.code(stream)
+                if code & mode_mask == redirected and code >> index_shift == last:
+                    self.set_code(stream, redirected | (at << index_shift))
+        match self._files.pop():
+            case _:
+                pass
+
+    pub def process_group(self: &mut Command, mode: ProcessGroup) -> ():
+        self._process_group = mode
 
     # Own a close-on-exec copy until cleared or dropped. Its descriptor is
     # inherited by this command's children only; use the number in argv/env.
@@ -188,33 +267,49 @@ pub class Command:
         mut spec = allocated(list[u8].with_capacity(extent(extent(len(self._spec), len(self._dir))?, len(self._env))?))?
         for index in range(len(self._spec)):
             allocated(spec.append(self._spec[index]))?
-        mut flags = self._stdin | (self._stdout << 2) | (self._stderr << 4)
+        # Each stream code takes 8 bits.
+        mut flags = self._stdin | (self._stdout << 8) | (self._stderr << 16)
         if self._change_dir:
-            flags = flags | 64
+            flags = flags | (1 << 24)
             for index in range(len(self._dir)):
                 allocated(spec.append(self._dir[index]))?
         if self._clear_env:
-            flags = flags | 128
+            flags = flags | (1 << 25)
+        isolated = match self._process_group:
+            case ProcessGroup.Inherit:
+                False
+            case ProcessGroup.NewGroup:
+                flags = flags | (1 << 26)
+                True
+            case ProcessGroup.NewSession:
+                flags = flags | (1 << 27)
+                True
         for index in range(len(self._env)):
             allocated(spec.append(self._env[index]))?
-        handle = __process_spawn(spec, self._argc, flags, self._inherited)?
-        mut child = Child(handle, unreaped, Nothing, Nothing, Nothing)
+        handle = __process_spawn(spec, self._argc, flags, self._files, self._inherited)?
+        mut child = Child(handle, unreaped, Nothing, Nothing, Nothing, isolated)
         if self._stdin == piped:
-            child._stdin = Some(pipe_end(handle, 0u8)?)
+            child._stdin = Some(pipe_end(handle, 0u8, isolated)?)
         if self._stdout == piped:
-            child._stdout = Some(pipe_end(handle, 1u8)?)
+            child._stdout = Some(pipe_end(handle, 1u8, isolated)?)
         if self._stderr == piped:
-            child._stderr = Some(pipe_end(handle, 2u8)?)
+            child._stderr = Some(pipe_end(handle, 2u8, isolated)?)
         Ok(child)
 
 # A child whose pipe cannot be handed over has no owner to wait for it, so it
 # is killed and reaped before the failure is reported.
-def pipe_end(handle: i64, which: u8) -> Result[File, IoError]:
+def pipe_end(handle: i64, which: u8, isolated: bool) -> Result[File, IoError]:
     match __process_pipe(handle, which):
         case Ok(file):
             Ok(file)
         case Err(error):
-            match __process_signal(handle, i64(kill_signal)):
+            if isolated:
+                match __process_signal(handle, i64(kill_signal), True):
+                    case _:
+                        pass
+            # A leader can leave NewGroup by joining another existing group.
+            # Always stop the owned child too before the blocking reap.
+            match __process_signal(handle, i64(kill_signal), False):
                 case _:
                     pass
             match __process_wait(handle, True):
@@ -229,7 +324,8 @@ pub def command_bytes(program: &list[u8]) -> Result[Command, IoError]:
         return Err(IoError.InvalidInput)
     mut spec = allocated(list[u8].new())?
     terminated(&mut spec, program)?
-    Ok(Command(spec, allocated(list[u8].new())?, allocated(list[u8].new())?, 0, 0, 0, 0, False, False, allocated(list[File].new())?))
+    files = allocated(list[File].with_capacity(file_slots))?
+    Ok(Command(spec, allocated(list[u8].new())?, allocated(list[u8].new())?, 0, inherit, inherit, inherit, files, False, False, ProcessGroup.Inherit, allocated(list[File].new())?))
 
 pub def command(program: &str) -> Result[Command, IoError]:
     encoded = encode_utf8(program)?
@@ -332,6 +428,7 @@ pub class Child:
     _stdin: Option[File]
     _stdout: Option[File]
     _stderr: Option[File]
+    _isolated: bool
 
     pub def id(self) -> i64:
         self._handle & 4294967295
@@ -399,7 +496,7 @@ pub class Child:
     pub def signal(self, number: i32) -> Result[(), IoError]:
         if self._raw != unreaped:
             return Ok(())
-        __process_signal(self._handle, i64(number))
+        __process_signal(self._handle, i64(number), False)
 
     # SIGTERM: a request the child may handle or ignore.
     pub def terminate(self) -> Result[(), IoError]:
@@ -408,6 +505,21 @@ pub class Child:
     # SIGKILL: cannot be caught. The child still has to be waited for.
     pub def kill(self) -> Result[(), IoError]:
         self.signal(kill_signal)
+
+    # The unreaped leader pins the group id. Once reaped we send nothing;
+    # retaining only its numeric PGID would risk signalling a reused group.
+    pub def signal_group(self, number: i32) -> Result[(), IoError]:
+        if not self._isolated:
+            return Err(IoError.InvalidInput)
+        if self._raw != unreaped:
+            return Ok(())
+        __process_signal(self._handle, i64(number), True)
+
+    pub def terminate_group(self) -> Result[(), IoError]:
+        self.signal_group(terminate_signal)
+
+    pub def kill_group(self) -> Result[(), IoError]:
+        self.signal_group(kill_signal)
 
     # One page of `input` from `sent`; returns the new position. A child that
     # stopped reading ends the feed without an error: its status tells why.

@@ -1,9 +1,8 @@
 //! Environment reads and child processes for `std.env` and `std.process`.
 //! Spawning goes through Rust's `Command`, so there is no shell, the exec
 //! failure is reported to the parent, and every pipe end is close-on-exec.
-//! `Command` builds its argument vector and optional fixed pre-exec callback
-//! with the host allocator; those short transients are outside Plenty's
-//! fallible accounting.
+//! `Command` builds its argument vector with the host allocator; that short
+//! transient and fixed pre-exec callbacks are outside Plenty's fallible accounting.
 use super::filesystem::{byte_list, contiguous};
 use super::{Collection, OwnedValue, Type, wrap};
 use crate::text_io::{self, Error, Kind};
@@ -12,7 +11,7 @@ use crate::text_io::{self, Error, Kind};
 mod native {
     use super::*;
     use std::ffi::{CStr, OsStr};
-    use std::os::fd::{AsRawFd, OwnedFd};
+    use std::os::fd::{AsFd, AsRawFd, OwnedFd};
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::process::{CommandExt, ExitStatusExt};
     use std::process::{Child, Command, Stdio};
@@ -27,6 +26,7 @@ mod native {
         id: u32,
         child: Child,
         pipes: [i32; 3],
+        isolated: bool,
     }
 
     /// A handle is `id << 32 | pid`. Ids are never reused, so a handle kept
@@ -36,9 +36,20 @@ mod native {
     static NEXT: AtomicU32 = AtomicU32::new(1);
 
     const RUNNING: u128 = 1 << 16;
-    const STDIN_PIPE: u64 = 0b11;
-    const CHANGE_DIR: u64 = 1 << 6;
-    const CLEAR_ENV: u64 = 1 << 7;
+    const NEW_GROUP: u64 = 1 << 26;
+    const NEW_SESSION: u64 = 1 << 27;
+    /// Each stream code is 8 bits of `flags`: a mode in bits 0..3 and, for
+    /// `REDIRECTED`, the index of its file from bit 3 (see `std.process`).
+    const STREAM_BITS: u64 = 8;
+    const MODE: u64 = 0b111;
+    const INDEX_SHIFT: u64 = 3;
+    const INHERIT: u64 = 0;
+    const NULL: u64 = 1;
+    const PIPED: u64 = 2;
+    const REDIRECTED: u64 = 3;
+    const MERGED: u64 = 4;
+    const CHANGE_DIR: u64 = 1 << 24;
+    const CLEAR_ENV: u64 = 1 << 25;
 
     /// Exec fails with ETXTBSY while any process has the program open for
     /// writing. A child forked by another thread holds a copy of each
@@ -58,6 +69,7 @@ mod native {
 
     unsafe extern "C" {
         fn kill(pid: i32, signal: i32) -> i32;
+        fn setsid() -> i32;
         fn fcntl(fd: i32, command: i32, ...) -> i32;
         fn poll(fds: *mut PollFd, count: u64, timeout: i32) -> i32;
     }
@@ -84,19 +96,56 @@ mod native {
         entry
     }
 
-    fn stdio(code: u64) -> Result<Stdio, Error> {
-        match code & STDIN_PIPE {
-            0 => Ok(Stdio::inherit()),
-            1 => Ok(Stdio::null()),
-            2 => Ok(Stdio::piped()),
+    /// Stream `stream`'s code. Only stderr may follow stdout.
+    fn stream_code(flags: u64, stream: u64) -> Result<u64, Error> {
+        let code = flags >> (stream * STREAM_BITS) & 0xff;
+        match code & MODE {
+            INHERIT | NULL | PIPED | REDIRECTED => Ok(code),
+            MERGED if stream == 2 => Ok(code),
             _ => Err(Kind::InvalidInput.into()),
         }
     }
 
+    /// The file a `REDIRECTED` code names, duplicated for the child.
+    ///
+    /// # Safety
+    /// `files` and `inherited` are live borrowed `list[File]` values.
+    unsafe fn redirected(files: u128, code: u64, write: bool) -> Result<std::fs::File, Error> {
+        // SAFETY: per the contract, each entry key is a live file owner.
+        unsafe {
+            let list = &*(files as *const Collection);
+            let at = (code >> INDEX_SHIFT) as usize;
+            let file = list.entries.iter().nth(at).ok_or(Kind::InvalidInput)?.key;
+            crate::files::child_stream(file as *const crate::files::File, write)
+        }
+    }
+
+    /// # Safety
+    /// `files` and `inherited` are live borrowed `list[File]` values.
+    unsafe fn stdio(code: u64, files: u128, write: bool) -> Result<Stdio, Error> {
+        Ok(match code & MODE {
+            INHERIT => Stdio::inherit(),
+            NULL => Stdio::null(),
+            PIPED => Stdio::piped(),
+            // SAFETY: forwarded from the caller.
+            _ => Stdio::from(unsafe { redirected(files, code, write)? }),
+        })
+    }
+
     /// `spec` is NUL-terminated strings: the program, `argc` arguments, the
     /// working directory when flagged, then environment edits, `NAME=value`
-    /// to set and a bare `NAME` to remove.
-    fn spawn(spec: &[u8], argc: u128, flags: u64, inherited: &Collection) -> Result<u128, Error> {
+    /// to set and a bare `NAME` to remove. `files` holds the files that
+    /// redirected stream codes name.
+    ///
+    /// # Safety
+    /// `files` and `inherited` are live borrowed `list[File]` values.
+    pub(super) unsafe fn spawn(
+        spec: &[u8],
+        argc: u128,
+        flags: u64,
+        files: u128,
+        inherited: &Collection,
+    ) -> Result<u128, Error> {
         let spec = spec.strip_suffix(&[0]).ok_or(Kind::InvalidInput)?;
         let mut parts = spec.split(|byte| *byte == 0);
         let mut next = || parts.next().ok_or(Kind::InvalidInput);
@@ -129,10 +178,62 @@ mod native {
                 }
             }
         }
-        command
-            .stdin(stdio(flags)?)
-            .stdout(stdio(flags >> 2)?)
-            .stderr(stdio(flags >> 4)?);
+        let (input, output, error) = (
+            stream_code(flags, 0)?,
+            stream_code(flags, 1)?,
+            stream_code(flags, 2)?,
+        );
+        // A merged stderr shares stdout's destination. For a pipe this
+        // module creates it, so both ends write to the one the Child reads.
+        let mut merged_pipe = None;
+        // SAFETY: `files` is live per this function's contract.
+        unsafe {
+            command.stdin(stdio(input, files, false)?);
+            if error & MODE == MERGED {
+                let (same, other) = match output & MODE {
+                    INHERIT => {
+                        let out = std::io::stdout().as_fd().try_clone_to_owned()?;
+                        (Stdio::inherit(), Stdio::from(out))
+                    }
+                    NULL => (Stdio::null(), Stdio::null()),
+                    PIPED => {
+                        let (reader, writer) = std::io::pipe()?;
+                        merged_pipe = Some(reader);
+                        (Stdio::from(writer.try_clone()?), Stdio::from(writer))
+                    }
+                    _ => {
+                        let file = redirected(files, output, true)?;
+                        (Stdio::from(file.try_clone()?), Stdio::from(file))
+                    }
+                };
+                command.stdout(same).stderr(other);
+            } else {
+                command
+                    .stdout(stdio(output, files, true)?)
+                    .stderr(stdio(error, files, true)?);
+            }
+        }
+        match flags & (NEW_GROUP | NEW_SESSION) {
+            0 => {}
+            NEW_GROUP => {
+                command.process_group(0);
+            }
+            NEW_SESSION => {
+                // SAFETY: the child callback only invokes async-signal-safe
+                // setsid and captures nothing. Command's exec-error pipe
+                // reports setup failures and reaps the failed child.
+                unsafe {
+                    command.pre_exec(|| {
+                        if setsid() < 0 {
+                            Err(std::io::Error::last_os_error())
+                        } else {
+                            Ok(())
+                        }
+                    });
+                }
+            }
+            _ => return Err(Kind::InvalidInput.into()),
+        }
         // Owners stay borrowed through exec, so none of these slots can be
         // reused by Command's internal error pipe. Parent flags never change.
         let count = inherited.entries.len();
@@ -172,7 +273,7 @@ mod native {
             return Err(Kind::Other.into());
         }
         let mut waits = BUSY_WAITS_MS.iter();
-        let child = loop {
+        let mut child = loop {
             match command.spawn() {
                 Ok(child) => break child,
                 Err(error) => {
@@ -191,6 +292,12 @@ mod native {
                 }
             }
         };
+        // The parent's copies of redirected and merged write ends close here,
+        // so a merged pipe reaches end of input when the child's copies close.
+        drop(command);
+        if let Some(reader) = merged_pipe {
+            child.stdout = Some(OwnedFd::from(reader).into());
+        }
         NEXT.store(id + 1, Ordering::Relaxed);
         let pipes = [
             child.stdin.as_ref().map_or(-1, AsRawFd::as_raw_fd),
@@ -199,7 +306,14 @@ mod native {
         ];
         let handle = (id as u128) << 32 | child.id() as u128;
         // The table outlives every actor heap, so it grows in System.
-        crate::actor_heap::outside(|| table.push(Entry { id, child, pipes }));
+        crate::actor_heap::outside(|| {
+            table.push(Entry {
+                id,
+                child,
+                pipes,
+                isolated: flags & (NEW_GROUP | NEW_SESSION) != 0,
+            })
+        });
         Ok(handle)
     }
 
@@ -242,15 +356,18 @@ mod native {
         }
     }
 
-    fn signal(handle: u128, number: u128) -> Result<u128, Error> {
+    fn signal(handle: u128, number: u128, group: bool) -> Result<u128, Error> {
         let table = children();
         let at = position(&table, handle)?;
-        if !(1..=64).contains(&number) {
+        if !(1..=64).contains(&number) || (group && !table[at].isolated) {
             return Err(Kind::InvalidInput.into());
         }
-        // SAFETY: the entry is unreaped under the lock, so its pid is still
-        // this child's (possibly a zombie's) and cannot have been reused.
-        if unsafe { kill(table[at].child.id() as i32, number as i32) } != 0 {
+        let pid = table[at].child.id() as i32;
+        let target = if group { -pid } else { pid };
+        // SAFETY: this unreaped child pins its PID under the table lock,
+        // including after exit. Only a group created with this leader's PID
+        // can be targeted; inherited groups can never reach this branch.
+        if unsafe { kill(target, number as i32) } != 0 {
             return Err(std::io::Error::last_os_error().into());
         }
         Ok(0)
@@ -395,7 +512,6 @@ mod native {
         a: u128,
         b: u128,
         c: u128,
-        inherited: u128,
         descriptor: &'static Type,
     ) -> Result<u128, Error> {
         let output = descriptor.variants[0].fields;
@@ -410,15 +526,9 @@ mod native {
                     std::env::set_current_dir(OsStr::from_bytes(&contiguous(a)?))?;
                     Ok(0)
                 }
-                197 => spawn(
-                    &contiguous(a)?,
-                    b,
-                    c as u64,
-                    &*(inherited as *const Collection),
-                ),
                 198 => pipe(a, b, output[0]),
                 199 => wait(a, b != 0),
-                228 => signal(a, b),
+                228 => signal(a, b, c != 0),
                 229 => ready(a, b as u64, c as i64),
                 500 => crate::signals::listen(output[0]),
                 501 => crate::files::duplicate(a as *const crate::files::File, output[0]),
@@ -429,26 +539,45 @@ mod native {
     }
 }
 
-// Inlined so each operation's entry symbol keeps only its own arm.
+/// `__process_spawn`, the process operation with separate redirection and inheritance operands.
 #[inline(always)]
-pub(super) unsafe fn call(
-    op: i64,
-    a: u128,
-    b: u128,
-    c: u128,
-    inherited: u128,
-    descriptor: *const Type,
-) -> u128 {
+pub(super) unsafe fn spawn_call(operands: [u128; 5], descriptor: *const Type) -> u128 {
     #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
     {
-        // SAFETY: codegen supplies process-lifetime output metadata.
-        text_io::result(unsafe { native::call(op, a, b, c, inherited, &*descriptor) })
+        let [spec, argc, flags, files, inherited] = operands;
+        let _ = descriptor;
+        // SAFETY: the compiler signature supplies a live list[u8] and two live
+        // borrowed list[File] operands for the duration of the call.
+        text_io::result(unsafe {
+            contiguous(spec).and_then(|spec| {
+                native::spawn(
+                    &spec,
+                    argc,
+                    flags as u64,
+                    files,
+                    &*(inherited as *const Collection),
+                )
+            })
+        })
     }
     #[cfg(not(all(target_os = "linux", target_pointer_width = "64")))]
     {
-        let _ = (
-            op, a, b, c, inherited, descriptor, wrap, contiguous, byte_list,
-        );
+        let _ = (operands, descriptor);
+        text_io::result(Err(Kind::Unsupported.into()))
+    }
+}
+
+// Inlined so each operation's entry symbol keeps only its own arm.
+#[inline(always)]
+pub(super) unsafe fn call(op: i64, a: u128, b: u128, c: u128, descriptor: *const Type) -> u128 {
+    #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+    {
+        // SAFETY: codegen supplies process-lifetime output metadata.
+        text_io::result(unsafe { native::call(op, a, b, c, &*descriptor) })
+    }
+    #[cfg(not(all(target_os = "linux", target_pointer_width = "64")))]
+    {
+        let _ = (op, a, b, c, descriptor, wrap, contiguous, byte_list);
         text_io::result(Err(Kind::Unsupported.into()))
     }
 }

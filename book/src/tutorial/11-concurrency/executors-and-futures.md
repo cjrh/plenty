@@ -4,13 +4,16 @@ A thread pool reuses workers for many jobs. Set its worker count and queue
 capacity at construction:
 
 ```plenty
+import std.system
+
 def square(value: i64) -> Result[i64, OverflowError[i64]]:
     Ok(value * value)
 
 type PoolJobError = ParallelError[OverflowError[i64]] | FutureError | SubmitError[()] | PoolError
 
 def main() -> Result[(), IoError | PoolJobError | OverflowError[i64]]:
-    with ThreadPoolExecutor(2, 4)? as pool:
+    workers = std.system.available_parallelism().unwrap_or(1)
+    with ThreadPoolExecutor(workers, 4)? as pool:
         first = pool.submit(square, 6).drop_job()?
         second = pool.submit(square, 9).drop_job()?
         print(first.result()??)?
@@ -24,6 +27,13 @@ def main() -> Result[(), IoError | PoolJobError | OverflowError[i64]]:
 81
 [0, 1, 4, 9, 16, 25]
 ```
+
+`available_parallelism()` estimates usable CPU parallelism; this example chooses
+one worker if the query fails. Query it once when creating the pool, and preserve
+a user-supplied worker count if your application has one. The estimate is useful
+for CPU-bound work; I/O-heavy jobs may need a different measured count. Linux
+uses affinity and visible conventional cgroup quotas; platform approximations
+and failures are explained in [`std.system`](../../design/stdlib/system.md#available-parallelism).
 
 `submit` returns an owned `Future[Result[i64, OverflowError[i64]]]`;
 `result()` waits and consumes it. The first `?` handles the future wait,

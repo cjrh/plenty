@@ -209,6 +209,25 @@ pub(crate) unsafe fn descriptor(pointer: *const File) -> Result<i32, Error> {
     }
 }
 
+/// A close-on-exec duplicate of the descriptor for a child's standard
+/// stream: `write` streams need a writable file, stdin a readable one. The
+/// duplicate shares the open file description, so offsets and append mode
+/// are shared too.
+#[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+pub(crate) unsafe fn child_stream(
+    pointer: *const File,
+    write: bool,
+) -> Result<std::fs::File, Error> {
+    // SAFETY: the caller supplies a live borrowed file owner.
+    let owner = unsafe { &*pointer };
+    let file = owner.file.as_ref().ok_or(Kind::Closed)?;
+    match (write, owner.writable, owner.readable) {
+        (true, false, _) => Err(Kind::NotWritable.into()),
+        (false, _, false) => Err(Kind::NotReadable.into()),
+        _ => Ok(file.try_clone()?),
+    }
+}
+
 /// One `ppoll` on the descriptor for at most `timeout` nanoseconds. Interest
 /// bit 0 asks for input, bit 1 for output. The result has bit 0 readable,
 /// bit 1 writable, bit 2 hang-up and bit 3 error; zero means the timeout

@@ -531,7 +531,7 @@ fn imported_helpers_cannot_hide_uncertified_foreign_effects() {
     std::fs::write(&path, "import helper\ndef main() -> Result[(), SpawnError[()]]:\n    with spawn(helper.work).drop_job()?:\n        pass\n    Ok(())\n").unwrap();
     let error = plenty::check_file(&path, None).unwrap_err().to_string();
     assert!(
-        error.contains("foreign calls have no worker-thread effect contract"),
+        error.contains("C function `external` has no worker-thread effect contract"),
         "{error}"
     );
     assert!(error.contains("native.foreign"), "{error}");

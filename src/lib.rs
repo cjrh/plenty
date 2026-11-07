@@ -84,6 +84,7 @@ pub mod script;
 mod sqlite;
 mod stream;
 mod sum;
+mod system;
 mod tail_abi;
 mod target;
 mod text;

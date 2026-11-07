@@ -236,17 +236,28 @@ fn main() {
         std::env::var("TARGET").unwrap()
     );
     let vendor = build_vendored(&out);
-    build_sqlite(&vendor);
-    brotli_build::build(Path::new("plenty-runtime/native"), &vendor);
-    build_ring(&vendor);
-    build_runtime(&out, &vendor, true);
-    build_runtime(&out, &vendor, false);
+    timed("SQLite", || build_sqlite(&vendor));
+    timed("Brotli", || {
+        brotli_build::build(Path::new("plenty-runtime/native"), &vendor)
+    });
+    timed("ring", || build_ring(&vendor));
+    build_cached_runtime(&out, &vendor, true);
+    build_cached_runtime(&out, &vendor, false);
     // These objects implement GNU ld --wrap interposition; target admission
     // rejects their use on other hosts before linking.
     if std::env::var("CARGO_CFG_TARGET_OS").unwrap() == "linux" {
         build_native_object(&out, TEST_HOOKS, "plenty_test_hooks.o");
         build_native_object(&out, FUZZ_DRIVER, "plenty_fuzz_driver.o");
     }
+}
+
+fn timed(stage: &str, run: impl FnOnce()) {
+    let started = std::time::Instant::now();
+    run();
+    eprintln!(
+        "embedded runtime {stage}: {:.2}s",
+        started.elapsed().as_secs_f64()
+    );
 }
 
 /// The libFuzzer entry linked only into `plenty --fuzz` executables.
@@ -451,6 +462,17 @@ fn build_vendored(out: &Path) -> PathBuf {
 }
 
 fn vendor_key() -> std::io::Result<String> {
+    // All three caches use the same immutable recipe/toolchain inputs during
+    // one build-script run. Avoid hashing the Rust sysroot three times.
+    static KEY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    if let Some(key) = KEY.get() {
+        return Ok(key.clone());
+    }
+    let key = compute_vendor_key()?;
+    Ok(KEY.get_or_init(|| key).clone())
+}
+
+fn compute_vendor_key() -> std::io::Result<String> {
     let mut key = runtime_vendor_cache::Fingerprint::new();
     key.field("plenty-runtime-vendor-v1");
     for input in [
@@ -488,6 +510,18 @@ fn vendor_key() -> std::io::Result<String> {
     assert!(version.status.success(), "querying rustc version failed");
     key.field(version.stdout);
     key.field(sysroot());
+    // rustc is often a small launcher backed by shared compiler/LLVM objects.
+    // A custom toolchain can replace those without changing rustc or -vV.
+    key.tree(&Path::new(sysroot()).join("bin"))?;
+    let mut libraries =
+        std::fs::read_dir(Path::new(sysroot()).join("lib"))?.collect::<Result<Vec<_>, _>>()?;
+    libraries.sort_by_key(|entry| entry.file_name());
+    for library in libraries {
+        if library.file_name() != "rustlib" {
+            key.field(library.file_name().as_encoded_bytes());
+            key.tree(&library.path())?;
+        }
+    }
     // Include target std objects too, including custom/rebuilt toolchains
     // whose version text is unchanged. This also validates target availability.
     let libdir = Command::new(&rustc)
@@ -586,6 +620,79 @@ fn rust_symbol(archive: &Path, name: &str) -> String {
         "runtime archive must define one `{name}`, found {found:?}"
     );
     found[0].to_string()
+}
+
+fn build_cached_runtime(out: &Path, vendor: &Path, application: bool) {
+    println!("cargo:rerun-if-env-changed=PLENTY_RUNTIME_ARCHIVE_CACHE");
+    if std::env::var_os("PLENTY_RUNTIME_RUSTFLAGS").is_some_and(|flags| !flags.is_empty())
+        || std::env::var_os("PLENTY_RUNTIME_ARCHIVE_CACHE").is_some_and(|path| path == "off")
+    {
+        build_runtime(out, vendor, application);
+        return;
+    }
+    let root = std::env::var_os("PLENTY_RUNTIME_ARCHIVE_CACHE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            out.ancestors()
+                .nth(3)
+                .expect("Cargo OUT_DIR layout")
+                .join("plenty-runtime-archive-cache")
+        });
+    let files: Vec<String> = if application {
+        ["libplenty_runtime.a", "runtime-link-args.txt"]
+    } else {
+        [
+            "libplenty_library_runtime.a",
+            "library-runtime-link-args.txt",
+        ]
+    }
+    .into_iter()
+    .map(String::from)
+    .collect();
+    let started = std::time::Instant::now();
+    let recipe = match vendor_key() {
+        Ok(recipe) => recipe,
+        Err(error) => {
+            eprintln!("embedded runtime archive cache bypassed: {error}");
+            build_runtime(out, vendor, application);
+            return;
+        }
+    };
+    let key = match (runtime_vendor_cache::ArchiveInputs {
+        recipe: &recipe,
+        source: Path::new("plenty-runtime/src"),
+        manifest: Path::new("plenty-runtime/Cargo.toml"),
+        vendor,
+        target_os: &std::env::var("CARGO_CFG_TARGET_OS").unwrap(),
+        application,
+        checked: std::env::var_os("CARGO_FEATURE_RUNTIME_CHECKS").is_some(),
+    })
+    .key()
+    {
+        Ok(key) => key,
+        Err(error) => {
+            eprintln!("embedded runtime archive cache bypassed: {error}");
+            build_runtime(out, vendor, application);
+            return;
+        }
+    };
+    let (entry, hit) = runtime_vendor_cache::get_or_build(&root, &key, &files, |staging| {
+        build_runtime(staging, vendor, application)
+    })
+    .expect("cache embedded runtime archive");
+    for file in files {
+        std::fs::copy(entry.join(&file), out.join(file)).unwrap();
+    }
+    eprintln!(
+        "embedded runtime {} archive: {} ({:.2}s)",
+        if application {
+            "application"
+        } else {
+            "library"
+        },
+        if hit { "cache hit" } else { "built" },
+        started.elapsed().as_secs_f64()
+    );
 }
 
 fn build_runtime(out: &Path, vendor: &Path, application: bool) {

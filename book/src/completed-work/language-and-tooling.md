@@ -26,12 +26,27 @@ comparisons, keeping parallel runner time separate from elapsed span.
 retains the 27 fixed vendored rlibs across runtime edits and feature-only
 rebuilds, with source/toolchain content keys and artifact validation. Test
 shards restore these dependencies independently of the compiler workspace
-cache. Native C compilation and both runtime archives still rebuild; this
-change does not eliminate the remaining build-script cost (tracked in local
-issue #832). A local probe
+cache. [Native and runtime archive reuse](#native-and-runtime-archive-reuse-issue-832)
+extends this boundary for issue #832. A local probe
 reduced the vendored stage from 18.95 to 0.46 seconds; whole-build timing was
 inconclusive because the remaining stages varied. Hosted savings have not
 been measured.
+
+## Native and runtime archive reuse (issue #832)
+
+[Native compilation and runtime archive caching](../development/ci-workflow.md#native-and-runtime-archive-reuse)
+reuse native objects through ccache's preprocessor mode and retain separately
+keyed application/library runtime archives with their link metadata. Runtime
+keys include actual native/Rust artifacts, source, configuration and toolchain
+contents. Local Linux check commands use an optional installed ccache; hosted
+test shards restore both caches independently of Cargo workspace cleanup.
+
+Forced local build-script probes took 139.54 seconds with native/runtime
+reuse disabled and 5.27 seconds warm, with 67 native preprocessor hits and
+byte-identical outputs. A runtime source edit rebuilt both archives; restoring
+the source reused them again. These samples ran under varying shared-host
+load. Hosted transfer costs and overall test-suite/CI savings have not been
+established.
 
 ## Native-engine dependency caches (issue #827)
 
@@ -685,7 +700,11 @@ join checks (issue #108) and blocking future-result checks (issue #109) landed.
 Atomics/mutexes can be shared through scoped loans or `Shared`, with cycle and
 lock-held wait checks (issue #326, local PR #366); HTTP client sharing followed
 (local PR #369). Parallel terminals drain before return and borrow list sources
-in place (issue #455, local PR #571).
+in place (issue #455, local PR #571). Foreign calls whose `.plentyi`
+declaration carries the binding author's
+[`@thread_safe`](../design/facilities/04-interop/trusted-declarations.md#worker-threads)
+promise are certified on workers, including from destructors; unannotated
+calls and opaque pointers stay rejected (issue #772).
 
 See [threads](../design/facilities/03-concurrency/threads.md),
 [channels](../design/facilities/03-concurrency/channels.md),

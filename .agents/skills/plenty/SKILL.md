@@ -205,7 +205,8 @@ See [errors](references/errors.md), [ownership](references/ownership.md), and
   inherit it. Source close is safe; cursors and locks are shared. Clear command
   copies after spawning with `clear_inherited_files()` when reuse is unnecessary,
   or those copies can keep a lock alive. At most 64 selections per command;
-  arbitrary fd remapping and file-to-stdio redirection are unsupported. Read
+  arbitrary fd remapping is unsupported. `Stdio.File` redirects standard streams
+  independently; only selected copies survive as extra descriptors. Read
   [explicit inheritance](../../../book/src/design/stdlib/process.md#explicit-file-inheritance).
 
 ## References
@@ -224,3 +225,10 @@ See [errors](references/errors.md), [ownership](references/ownership.md), and
 | [Errors](references/errors.md) | Error types, propagation, context, exit status |
 | [Ownership](references/ownership.md) | Moves, borrows, copies, allocation |
 | [Diagnostics](references/diagnostics.md) | Frequent compiler errors and their fixes |
+
+For subprocess cleanup, `std.process.Command.process_group(ProcessGroup.NewSession)`
+establishes a child-led group before execution. Send `Child.terminate_group()` or
+`kill_group()` before reaping the leader, then `wait()`. A completed wait disables
+group signalling to avoid reused IDs; descendants can escape by changing groups
+or sessions. Read [std.process](../../../book/src/design/stdlib/process.md#process-groups-and-sessions)
+for the Linux support and ownership contract.

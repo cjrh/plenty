@@ -74,6 +74,7 @@ class Execution(unittest.TestCase):
             with patch.object(sys, "argv", ["check_timings.py", "suite", "--output", str(out)]), \
                     patch.object(timings.subprocess, "run", return_value=subprocess.CompletedProcess([], 17)) as run, \
                     patch.object(timings, "git_revision", return_value="abc"), \
+                    patch.object(timings, "native_cache_environment", side_effect=lambda repo, env: dict(env)), \
                     contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
                 self.assertEqual(timings.main(), 17)
             self.assertEqual(run.call_count, 1)
@@ -87,6 +88,7 @@ class Execution(unittest.TestCase):
             with patch.object(sys, "argv", ["check_timings.py", "suite", "--profile", "ci", "--output", tmp + "/run"]), \
                     patch.object(timings.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as run, \
                     patch.object(timings, "git_revision", return_value="abc"), \
+                    patch.object(timings, "native_cache_environment", side_effect=lambda repo, env: dict(env)), \
                     contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
                 self.assertEqual(timings.main(), 0)
             self.assertEqual(run.call_count, 2)
@@ -101,7 +103,7 @@ class Execution(unittest.TestCase):
             root = Path(tmp)
             scripts = root / "scripts"
             scripts.mkdir()
-            for name in ("local_ci.sh", "check_timings.py"):
+            for name in ("local_ci.sh", "check_timings.py", "native_cache.py"):
                 shutil.copy2(timings.REPO / "scripts" / name, scripts / name)
             commands = root / "bin"
             commands.mkdir()

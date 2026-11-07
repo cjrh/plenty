@@ -337,14 +337,17 @@ def main() -> Result[(), IoError]:
             "inherit-holder",
             r#"
 import std.process
+from std.process import Stdio, ProcessGroup
 
 def main() -> Result[(), IoError | AllocError | LockError]:
     mut owner = lock.acquire_now(&path.from_text("resource.lock")?, Mode.Exclusive)?
     mut built = std.process.command("/usr/bin/python3")?
     built.arg("-c")?
-    built.arg("import os,sys,signal; signal.alarm(10); print('child-ready',flush=True); sys.stdin.readline(); os.close(int(sys.argv[1])); print('released',flush=True)")?
+    built.arg("import os,sys,signal; signal.alarm(10); assert os.getsid(0)==os.getpid(); print('child-ready',flush=True); sys.stdin.readline(); os.close(int(sys.argv[1])); print('released',flush=True)")?
     fd = owner.inherit_into(&mut built)?
     built.arg(&str.from(fd)?)?
+    built.stderr(Stdio.File(open("child-errors.log", "a")?))
+    built.process_group(ProcessGroup.NewSession)
     child = built.spawn()?
     # The child alone must keep the open description locked.
     owner.close()?

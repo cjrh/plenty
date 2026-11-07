@@ -483,6 +483,7 @@
         - [`std.simd`](design/stdlib/simd.md)
         - [`std.sync`](design/stdlib/sync.md)
         - [`std.system`](design/stdlib/system.md)
+        - [System inspection coverage and backends](design/stdlib/system-backends.md)
         - [`std.tempfile`](design/stdlib/tempfile.md)
         - [`std.test`](design/stdlib/test.md)
         - [`std.text`](design/stdlib/text.md)

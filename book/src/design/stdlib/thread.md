@@ -54,3 +54,6 @@ Result's error must be the start error, or an anonymous sum containing it.
 The prelude spellings remain supported. There is no detached thread, global
 pool, forced interruption, or import-only exemption from ownership checks.
 For examples see [explicit concurrency imports](../../tutorial/11-concurrency/explicit-imports.md).
+
+To size a worker pool, use [`std.system.available_parallelism()`](system.md#available-parallelism),
+which returns a fallible positive estimate with caller-selected fallback.

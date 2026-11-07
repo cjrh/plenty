@@ -72,5 +72,11 @@ filesystem space. CPU and memory values can describe the host even inside a
 container; they are not cgroup quota measurements or a recommendation for how
 many workers to start.
 
+For a worker pool, use `std.system.available_parallelism()` instead of
+`source.cpu_count()`. It returns `Result[Positive[i64], SystemError]`; choose
+an explicit fallback such as `.unwrap_or(1)` when the platform cannot estimate
+capacity. See [executor sizing](../11-concurrency/executors-and-futures.md) and
+[CPU availability limits](../../design/stdlib/system.md#available-parallelism).
+
 See [`std.system`](../../design/stdlib/system.md) for fields, units, error
 variants and snapshot limitations.

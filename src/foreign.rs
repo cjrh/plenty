@@ -23,6 +23,11 @@ pub enum Target {
 pub struct Declaration {
     pub target: Target,
     pub arguments: Vec<Argument>,
+    /// The binding author's `@thread_safe` promise that the C function may
+    /// run on any thread, concurrently with any call. Worker certification
+    /// trusts it; without it a reachable call rejects the worker. See
+    /// book/src/design/facilities/04-interop/trusted-declarations.md#worker-threads.
+    pub thread_safe: bool,
 }
 
 impl Declaration {

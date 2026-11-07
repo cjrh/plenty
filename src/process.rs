@@ -46,13 +46,21 @@ impl ProcessOp {
             Self::EnvVars => (vec![], Ty::List(Arc::new(bytes()))),
             Self::CurrentDir => (vec![], bytes()),
             Self::ChangeDir => (vec![bytes()], Ty::Unit),
+            // The request, its argument count, stream codes and flags, and
+            // the redirected files, then the explicit inherited-file allowlist.
             Self::Spawn => (
-                vec![bytes(), Ty::I64, Ty::I64, Ty::List(Arc::new(Ty::File))],
+                vec![
+                    bytes(),
+                    Ty::I64,
+                    Ty::I64,
+                    Ty::List(Arc::new(Ty::File)),
+                    Ty::List(Arc::new(Ty::File)),
+                ],
                 Ty::I64,
             ),
             Self::Pipe => (vec![Ty::I64, Ty::U8], Ty::File),
             Self::Wait => (vec![Ty::I64, Ty::Bool], Ty::I64),
-            Self::Signal => (vec![Ty::I64, Ty::I64], Ty::Unit),
+            Self::Signal => (vec![Ty::I64, Ty::I64, Ty::Bool], Ty::Unit),
             Self::Poll => (vec![Ty::I64, Ty::I64, Ty::I64], Ty::I64),
             // The readable end on which each caught signal arrives as a byte.
             Self::SignalListen => (vec![], Ty::File),

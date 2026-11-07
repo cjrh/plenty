@@ -473,8 +473,18 @@ fn inspect(
             // only as a temporary or returned inside a stored callback owner.
             types.push(Ty::Closure(t.clone()));
         }
-        Op::ForeignCall { .. } => {
-            error = Some("foreign calls have no worker-thread effect contract")
+        // The binding author's `@thread_safe` is the only effect contract a
+        // C function can have; the compiler cannot inspect native code.
+        Op::ForeignCall { declaration, .. } if !declaration.thread_safe => {
+            error = Some(match declaration.symbol() {
+                Some(symbol) => format!(
+                    "C function `{symbol}` has no worker-thread effect contract; declare it `@thread_safe` in its .plentyi interface only if it may run on any thread"
+                ),
+                None => {
+                    "foreign calls through a function address have no worker-thread effect contract"
+                        .into()
+                }
+            })
         }
         Op::CallIndirect(signature) | Op::TailCallIndirect(signature) => {
             types.push(Ty::Callable(signature.clone()));
@@ -489,7 +499,7 @@ fn inspect(
                 calls.extend(formatted.hooks.iter().map(|hook| hook.function.clone()));
             }
             if let Some(reason) = op.effect().worker_denial() {
-                error = Some(reason);
+                error = Some(reason.to_owned());
             }
             let (inputs, output) = op.signature();
             types.extend(inputs);
@@ -552,7 +562,7 @@ fn inspect(
         }
         _ => {}
     });
-    error.map_or(Ok(()), |message| Err(message.into()))
+    error.map_or(Ok(()), Err)
 }
 
 /// What `find` returns for each operation in `ops`, nested ones included,

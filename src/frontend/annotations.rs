@@ -1,11 +1,13 @@
 //! Declaration annotations: compiler-known facts written alone on the lines
-//! above a declaration, such as `@copy`, `@newtype` or `@redacted`. The set
+//! above a declaration, such as `@copy`, `@newtype`, `@redacted` or
+//! `@thread_safe`. The set
 //! is closed; there are no user decorators. Names live after `@`, outside the
 //! value namespace, so `@copy` does not reserve the builtin `copy` function's
 //! name. See
 //! book/src/design/language/03-types/classes.md#copy-classes,
-//! book/src/design/language/03-types/classes.md#redacted-types and
-//! book/src/design/language/04-expressions/operators.md#newtype-forwarding.
+//! book/src/design/language/03-types/classes.md#redacted-types,
+//! book/src/design/language/04-expressions/operators.md#newtype-forwarding and
+//! book/src/design/facilities/04-interop/trusted-declarations.md#worker-threads.
 use super::*;
 
 /// One known annotation. Later annotations, such as the agreed `@final`,
@@ -15,6 +17,7 @@ pub(super) enum Annotation {
     Copy,
     Newtype,
     Redacted,
+    ThreadSafe,
 }
 
 impl Annotation {
@@ -23,6 +26,7 @@ impl Annotation {
             "copy" => Some(Self::Copy),
             "newtype" => Some(Self::Newtype),
             "redacted" => Some(Self::Redacted),
+            "thread_safe" => Some(Self::ThreadSafe),
             _ => None,
         }
     }
@@ -31,6 +35,7 @@ impl Annotation {
             Self::Copy => "copy",
             Self::Newtype => "newtype",
             Self::Redacted => "redacted",
+            Self::ThreadSafe => "thread_safe",
         }
     }
     /// The declarations this annotation applies to, for diagnostics.
@@ -38,6 +43,7 @@ impl Annotation {
         match self {
             Self::Redacted => "class and enum declarations",
             Self::Copy | Self::Newtype => "class declarations",
+            Self::ThreadSafe => "`extern def` declarations",
         }
     }
 }
@@ -55,7 +61,7 @@ impl Parser {
             };
             let Some(annotation) = Annotation::named(spelling) else {
                 return Err(name.error(format!(
-                    "unknown annotation `@{spelling}`; the annotations are `@copy`, `@newtype` and `@redacted`"
+                    "unknown annotation `@{spelling}`; the annotations are `@copy`, `@newtype`, `@redacted` and `@thread_safe`"
                 )));
             };
             if self.peek().kind != Kind::Newline {

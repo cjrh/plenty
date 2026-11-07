@@ -76,36 +76,36 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.mime`](#stdmime): 2651-2677
 - [`std.net`](#stdnet): 2679-2761
 - [`std.path`](#stdpath): 2763-2780
-- [`std.process`](#stdprocess): 2782-2833
-- [`std.random`](#stdrandom): 2835-2856
-- [`std.ready`](#stdready): 2858-2889
-- [`std.regex`](#stdregex): 2891-2944
-- [`std.report`](#stdreport): 2946-2953
-- [`std.secrets`](#stdsecrets): 2955-2981
-- [`std.shlex`](#stdshlex): 2983-2992
-- [`std.sketch`](#stdsketch): 2994-3032
-- [`std.sketch.xor`](#stdsketchxor): 3034-3045
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3047-3062
-- [`std.signal`](#stdsignal): 3064-3081
-- [`std.simd`](#stdsimd): 3083-3184
-- [`std.stat`](#stdstat): 3186-3219
-- [`std.plot`](#stdplot): 3221-3310
-- [`std.linalg`](#stdlinalg): 3312-3353
-- [`std.sync`](#stdsync): 3355-3373
-- [`std.system`](#stdsystem): 3375-3433
-- [`std.tempfile`](#stdtempfile): 3435-3467
-- [`std.test`](#stdtest): 3469-3511
-- [`std.text`](#stdtext): 3513-3556
-- [`std.thread`](#stdthread): 3558-3562
-- [`std.time`](#stdtime): 3564-3608
-- [`std.tls`](#stdtls): 3610-3692
-- [`std.toml`](#stdtoml): 3694-3743
-- [`std.unicode`](#stdunicode): 3745-3757
-- [`std.units`](#stdunits): 3759-3996
-- [`std.units.catalogue`](#stdunitscatalogue): 3998-4776
-- [`std.url`](#stdurl): 4778-4806
-- [`std.uuid`](#stduuid): 4808-4831
-- [`std.xml`](#stdxml): 4833-4866
+- [`std.process`](#stdprocess): 2782-2840
+- [`std.random`](#stdrandom): 2842-2863
+- [`std.ready`](#stdready): 2865-2896
+- [`std.regex`](#stdregex): 2898-2951
+- [`std.report`](#stdreport): 2953-2960
+- [`std.secrets`](#stdsecrets): 2962-2988
+- [`std.shlex`](#stdshlex): 2990-2999
+- [`std.sketch`](#stdsketch): 3001-3039
+- [`std.sketch.xor`](#stdsketchxor): 3041-3052
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3054-3069
+- [`std.signal`](#stdsignal): 3071-3088
+- [`std.simd`](#stdsimd): 3090-3191
+- [`std.stat`](#stdstat): 3193-3226
+- [`std.plot`](#stdplot): 3228-3317
+- [`std.linalg`](#stdlinalg): 3319-3360
+- [`std.sync`](#stdsync): 3362-3380
+- [`std.system`](#stdsystem): 3382-3441
+- [`std.tempfile`](#stdtempfile): 3443-3475
+- [`std.test`](#stdtest): 3477-3519
+- [`std.text`](#stdtext): 3521-3564
+- [`std.thread`](#stdthread): 3566-3570
+- [`std.time`](#stdtime): 3572-3616
+- [`std.tls`](#stdtls): 3618-3700
+- [`std.toml`](#stdtoml): 3702-3751
+- [`std.unicode`](#stdunicode): 3753-3765
+- [`std.units`](#stdunits): 3767-4004
+- [`std.units.catalogue`](#stdunitscatalogue): 4006-4784
+- [`std.url`](#stdurl): 4786-4814
+- [`std.uuid`](#stduuid): 4816-4839
+- [`std.xml`](#stdxml): 4841-4874
 
 ## `std.actor`
 
@@ -2784,8 +2784,10 @@ def from_text(text: &str) -> Result[Path, IoError]
 Children spawned from an argument vector with no implicit shell, piped streams, bounded output collection, signals, and explicit reaping. Errors: `IoError`, `StreamError`. [Reference](process.md).
 
 ```text
+enum ProcessGroup
+    Inherit | NewGroup | NewSession
 enum Stdio
-    Inherit | Null | Piped
+    Inherit | Null | Piped | File(File)
 class ExitStatus
     def success(self) -> bool
     def code(self) -> Option[i32]
@@ -2807,6 +2809,8 @@ class Command
     def stdin(self: &mut Command, mode: Stdio) -> ()
     def stdout(self: &mut Command, mode: Stdio) -> ()
     def stderr(self: &mut Command, mode: Stdio) -> ()
+    def stderr_to_stdout(self: &mut Command) -> ()
+    def process_group(self: &mut Command, mode: ProcessGroup) -> ()
     def inherit_file(self: &mut Command, file: &File) -> Result[i32, IoError]
     def clear_inherited_files(self: &mut Command) -> ()
     def spawn(self) -> Result[Child, IoError]
@@ -2826,6 +2830,9 @@ class Child
     def signal(self, number: i32) -> Result[(), IoError]
     def terminate(self) -> Result[(), IoError]
     def kill(self) -> Result[(), IoError]
+    def signal_group(self, number: i32) -> Result[(), IoError]
+    def terminate_group(self) -> Result[(), IoError]
+    def kill_group(self) -> Result[(), IoError]
     def communicate(self: &mut Child, input: &[u8], limit: NonNegative[i64]) -> Result[Output, StreamError]
     def output(self: &mut Child, limit: NonNegative[i64]) -> Result[Output, StreamError]
 enum WaitError
@@ -3374,11 +3381,12 @@ def select_recv_before[A, B](first: &Receiver[A], second: &Receiver[B], deadline
 
 ## `std.system`
 
-Bounded Linux procfs snapshots: CPUs, memory, load, uptime, block devices, disk I/O and process status. Errors: `IoError`, `SystemError`. [Reference](system.md).
+CPU availability estimates and bounded Linux procfs snapshots: CPUs, memory, load, uptime, block devices, disk I/O and process status. Errors: `IoError`, `SystemError`. [Reference](system.md).
 
 ```text
 enum SystemError
-    Io(IoError) | Stream(StreamError) | Allocation(AllocError) | Limit | Malformed(str)
+    Io(IoError) | Stream(StreamError) | Allocation(AllocError) | Limit | Malformed(str) | Unavailable | Unsupported
+def available_parallelism() -> Result[Positive[i64], SystemError]
 class Memory
     total_bytes: u64
     free_bytes: u64

@@ -138,6 +138,14 @@ const _: () = {
     assert!(std::mem::offset_of!(Type, wrapper) == 64);
     assert!(size_of::<Variant>() == 32);
 };
+const _: () = {
+    use crate::list_layout::{BYTES, DESCRIPTOR, REMOVED, ROWS};
+    assert!(std::mem::offset_of!(Collection, ty) == DESCRIPTOR as usize);
+    // `Entries` checks its own field offsets; these add the owner header.
+    assert!(std::mem::offset_of!(Collection, entries) == ROWS as usize);
+    assert!(ROWS + 8 == BYTES && ROWS + 24 == REMOVED);
+};
+const _: () = assert!(std::mem::offset_of!(Boxed, slot) == 32);
 impl Type {
     /// A plain string, whose bytes are its `print` spelling. A class over
     /// `str` formats as the class instead.
@@ -267,13 +275,6 @@ struct Collection {
     /// The live row to resume after a heap child finishes destruction.
     drop_entry: Option<usize>,
 }
-const _: () = {
-    use crate::list_layout::{BYTES, DESCRIPTOR, REMOVED, ROWS};
-    assert!(std::mem::offset_of!(Collection, ty) == DESCRIPTOR as usize);
-    // `Entries` checks its own field offsets; these add the owner header.
-    assert!(std::mem::offset_of!(Collection, entries) == ROWS as usize);
-    assert!(ROWS + 8 == BYTES && ROWS + 24 == REMOVED);
-};
 
 #[derive(Clone, Copy)]
 pub(crate) enum Fields<'a> {
@@ -459,7 +460,6 @@ struct Boxed {
     padding: u64,
     slot: [u128; 0],
 }
-const _: () = assert!(std::mem::offset_of!(Boxed, slot) == 32);
 
 /// Move `value` into a new box. On failure the caller still owns `value`.
 unsafe fn try_box_new(ty: &Type, value: u128) -> Result<*mut Boxed, AllocError> {
@@ -2616,6 +2616,10 @@ operation_entries! {
     150 151 152 153 154 155 156 157 158 159 160 161 162 163 164 192 260 261 262 263
     264 265 266 267 268 269 270 271 272 273 390 512 513 514 515 516 517 518 610 611 620 621 630 631
 }
+// `std.system`.
+operation_entries! {
+    640
+}
 // `std.time`.
 operation_entries! {
     184 185 186 187
@@ -2705,11 +2709,6 @@ unsafe fn operation(op: i64, args: *const u128, descriptor: *const Type, site: *
     // operations that cannot trap.
     unsafe {
         let out = args.add(3).cast_mut();
-        if op == 197 {
-            let [a, b, c, inherited] = read_operands::<4>(op, args);
-            out.write(process::call(op, a, b, c, inherited, descriptor));
-            return;
-        }
         if matches!(op, 300..350 | 440..500) {
             let operands = read_operands::<4>(op, args);
             out.write(match op {
@@ -2773,6 +2772,11 @@ unsafe fn operation(op: i64, args: *const u128, descriptor: *const Type, site: *
                     slice_positions(strings::scalar_len(text) as usize, start, stop, step, flags);
                 fallible(strings::try_stepped_slice(text, positions).map(|t| t as u128))
             });
+            return;
+        }
+        if op == 197 {
+            let operands = read_operands::<5>(op, args);
+            out.write(process::spawn_call(operands, descriptor));
             return;
         }
         if (419..424).contains(&op) {
@@ -2883,7 +2887,8 @@ pub(crate) unsafe fn collection_at(
             }
             512..=514 => watch::call(op, a, b, descriptor),
             184..=187 => crate::time::call(op, a),
-            193..=199 | 228..=229 | 500..=502 => process::call(op, a, b, value, 0, descriptor),
+            640 => crate::system::call() as u64 as u128,
+            193..=199 | 228..=229 | 500..=502 => process::call(op, a, b, value, descriptor),
             224..=227 => crate::unicode::call(op, a, b, value),
             390 => crate::text_io::result(crate::files::wait_ready(
                 a as *const crate::files::File,

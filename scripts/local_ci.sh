@@ -17,6 +17,9 @@
 set -uo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ ${PLENTY_NATIVE_CACHE_CONFIGURED:-} != 1 ]]; then
+    exec python3 -B "$repo/scripts/native_cache.py" bash "$repo/scripts/local_ci.sh" "$@"
+fi
 cd "$repo" || exit 1
 logs="$repo/target/local-ci"
 mkdir -p "$logs/tmp"

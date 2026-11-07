@@ -85,6 +85,12 @@ python3 -B scripts/check_timings.py suite --profile ci
 python3 -B scripts/check_timings.py report target/check-timings/suite-CURRENT/timings.json --baseline target/check-timings/suite-EARLIER/timings.json
 ```
 
+On Linux, both check commands automatically use an installed ccache for native
+compilation, while preserving explicit compiler selections. Its objects live in
+`target/native-ccache/`; `PLENTY_NATIVE_CACHE=off` disables automatic setup.
+The [native and runtime cache guidance](ci-workflow.md#native-and-runtime-archive-reuse)
+explains invalidation, other settings and the separate runtime archive cache.
+
 `just ci` also saves each invocation's step logs, `steps.tsv`, `timings.json`
 and `timings.md` under `target/local-ci/run-*/`, including failed steps. It
 continues to later checks after a failure. These timings use Bash's integer

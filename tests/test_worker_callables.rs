@@ -134,7 +134,7 @@ fn foreign_targets_are_inspected_and_foreign_abis_cannot_forge_callable_values()
     std::fs::write(&main, "from native import raw\ndef worker(callback: Callable[[], i64]) -> i64:\n    callback()\ndef main() -> ():\n    with spawn(worker, raw).unwrap():\n        pass\n").unwrap();
     let error = plenty::check_file(&main, None).unwrap_err().to_string();
     assert!(
-        error.contains("foreign calls have no worker-thread effect contract"),
+        error.contains("C function `external_raw` has no worker-thread effect contract"),
         "{error}"
     );
     for (declarations, expected) in [

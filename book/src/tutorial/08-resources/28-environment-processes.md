@@ -103,12 +103,47 @@ exit status. A nonzero exit code is a normal result: the program ran. Never
 put text you did not write into a `shell` script; pass it as an argument or a
 variable.
 
+To keep a child's output in a log, give the stream a file. The file's open
+mode decides what happens to earlier content: `"a"` appends, `"w"` truncates.
+`stderr_to_stdout` sends both streams to the same place:
+
+```plenty
+import std.process
+from std.process import Stdio
+
+def main() -> Result[(), AllocError | IoError]:
+    mut job = std.process.shell("echo started; echo warning >&2")?
+    job.stdout(Stdio.File(open("job.log", "a")?))
+    job.stderr_to_stdout()
+    for _ in range(2):
+        mut child = job.spawn()?
+        print(child.wait()?.success())?
+    with open("job.log")? as log:
+        print(log.read()?)?
+    Ok(())
+```
+```output
+True
+True
+started
+warning
+started
+warning
+
+```
+
+The command owns the file and hands each child a copy of it, so both runs
+append to the same log. See
+[redirecting a stream](../../design/stdlib/process.md#building-a-command) for
+the access each stream needs.
+
 A program that cannot be started is an error, and a child that runs too long
 can be stopped:
 
 ```plenty
 import std.time
 import std.process
+from std.process import ProcessGroup
 
 def main() -> Result[(), AllocError | IoError | std.process.WaitError]:
     mut missing = std.process.command("plenty-no-such-program")?
@@ -119,6 +154,7 @@ def main() -> Result[(), AllocError | IoError | std.process.WaitError]:
             print(error)?
     mut sleeper = std.process.command("sleep")?
     sleeper.arg("60")?
+    sleeper.process_group(ProcessGroup.NewSession)
     mut child = sleeper.spawn()?
     cancel = CancellationToken()?
     match child.wait_timeout(&std.time.milliseconds(50u32), &cancel)?:
@@ -126,7 +162,7 @@ def main() -> Result[(), AllocError | IoError | std.process.WaitError]:
             print("ended")?
         case Nothing:
             print("still running")?
-    child.kill()?
+            child.kill_group()?
     status = child.wait()?
     print(status.success(), status.code(), status.signal())?
     Ok(())
@@ -138,15 +174,22 @@ False Option[i32].Nothing Option[i32].Some(9)
 ```
 
 `System(2)` is the operating system's "no such file". `wait_timeout` gives up
-after 50 milliseconds and leaves the child running. `kill` stops it, and `wait`
-collects its status: ended by signal 9, with no exit code. Always wait for a
+after 50 milliseconds and leaves the child running. `NewSession` establishes
+an isolated process group before execution. `kill_group` stops the child and
+any descendants still in that group, and `wait` collects its status: ended by signal 9, with no exit code. Always wait for a
 child you started, even after killing it; a dropped `Child` is not cleaned up.
+Send group signals before waiting successfully: after reaping the leader, they
+send nothing to avoid reaching a reused group ID. Descendants that create
+another group or session escape this cleanup. See
+[process groups and sessions](../../design/stdlib/process.md#process-groups-and-sessions).
 
 For a child protocol that accepts an already open file, use
 `command.inherit_file(&file)` and pass the returned descriptor in argv or the
 environment. It owns a separate copy, so the original file can close before
 spawn. Clear the command's copies after spawning if they are no longer needed;
-children keep their own copies. The cursor and advisory lock are shared. See
+children keep their own copies. The cursor and advisory lock are shared.
+File inheritance also works with `NewSession` and `Stdio.File`; redirecting a
+standard stream alone does not expose an extra descriptor to the child. See
 [explicit file inheritance](../../design/stdlib/process.md#explicit-file-inheritance)
 for the 64-file limit, errors and an executable example, and
 [lock inheritance](../../design/stdlib/fs/lock.md#ownership-and-release) for a

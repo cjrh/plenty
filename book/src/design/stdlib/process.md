@@ -11,8 +11,8 @@ syntax. [`std.shlex`](shlex.md) can split a shell-style argument string before
 passing each resulting word to `arg`; it does not execute or expand shell syntax.
 
 Request encoding, pipe draining, status decoding, and the reaping rules are
-checked Plenty. Narrow native primitives spawn, hand over a pipe end, wait,
-signal, poll, and duplicate file owners. The module is available on the supported x86-64 Linux GNU
+checked Plenty. Five native primitives spawn, hand over a pipe end, wait,
+signal a child or its isolated group, and poll. The module is available on the supported x86-64 Linux GNU
 target; elsewhere `spawn` reports `IoError.Unsupported`.
 
 ```plenty
@@ -63,7 +63,9 @@ input. Pass such data as an argument or a variable instead.
 | `current_dir(path: &Path)` | `Result[(), IoError]` | The child's working directory |
 | `inherit_file(file: &File)` | `Result[i32, IoError]` | Own a copy selected for child inheritance; return its descriptor |
 | `clear_inherited_files()` | `()` | Close all copies held by this command |
+| `process_group(mode: ProcessGroup)` | `()` | Select inherited group, new group or new session before execution |
 | `stdin(mode: Stdio)`, `stdout(mode: Stdio)`, `stderr(mode: Stdio)` | `()` | Choose a stream |
+| `stderr_to_stdout()` | `()` | The child's stderr goes wherever its stdout goes |
 
 - A child inherits the parent's environment and working directory unless the
   command says otherwise. Edits apply in order, so the last one for a name
@@ -86,6 +88,45 @@ input. Pass such data as an argument or a variable instead.
 | `Stdio.Inherit` | The parent's own stream. The default |
 | `Stdio.Null` | `/dev/null` |
 | `Stdio.Piped` | A new pipe whose other end the `Child` owns |
+| `Stdio.File(file)` | A duplicate of `file`'s descriptor |
+
+`Stdio.File` moves the [`File`](../facilities/02-io/files.md) into the
+command, which keeps it for every later `spawn`. The open mode decides what
+the child writes over: open with `"a"` to append to a log and keep its bytes,
+`"w"` to truncate it once when it is opened. The child shares the file's open
+description, so a file opened for appending stays in append mode and every
+write by a child, another child, or the program lands at the end. A stdout or
+stderr file must be writable and a stdin file readable. Choosing another mode
+for that stream closes the file; dropping the command closes all of them.
+Setting a stream never allocates.
+
+`stderr_to_stdout()` makes stderr the same stream as stdout, whatever stdout
+is when the child starts: the same file, the parent's stdout, `/dev/null`, or
+the one pipe, so `communicate` and `output` return both streams in `stdout`
+and `stderr` stays empty. A later `stderr(mode)` replaces it.
+
+```plenty
+import std.process
+from std.process import Stdio
+
+def main() -> Result[(), AllocError | IoError]:
+    with open("build.log", "w")? as log:
+        log.write("earlier run\n")?
+    mut build = std.process.shell("echo compiled; echo warning >&2")?
+    build.stdout(Stdio.File(open("build.log", "a")?))
+    build.stderr_to_stdout()
+    mut child = build.spawn()?
+    print(child.wait()?.success())?
+    with open("build.log")? as log:
+        print(log.read()?.strip()?)?
+    Ok(())
+```
+```output
+True
+earlier run
+compiled
+warning
+```
 
 ## Spawning
 
@@ -95,12 +136,14 @@ command is reusable: each call starts another child.
 A program that cannot be started is an error value, not a child that exits
 with a conventional code: a missing program or directory is
 `IoError.System(2)`, a file without execute permission `IoError.System(13)`.
-A failed spawn leaves no new process or pipe.
+A failed spawn leaves no process and no open pipe. A redirection file that
+is closed is `IoError.Closed`; one without the needed access is
+`IoError.NotWritable` for stdout or stderr and `IoError.NotReadable` for
+stdin. The command keeps its files either way.
 
-Pipe ends and other files the program opens are close-on-exec by default.
-Only files explicitly selected with `inherit_file` survive that command's exec;
-other commands in the same parent do not inherit those copies. Standard streams
-follow `Stdio`.
+Pipe ends and redirection-source duplicates are close-on-exec. Standard streams
+follow `Stdio`; above them only copies explicitly selected with `inherit_file`
+survive that command's exec. Other commands do not inherit those selected copies.
 
 ### Explicit file inheritance
 
@@ -162,8 +205,12 @@ Only the child changes its selected copies' close-on-exec flags, immediately
 before exec, through a fixed native callback using async-signal-safe syscalls.
 The parent's flags never change, including when spawning fails, so concurrent
 spawns do not need to coordinate inheritance flag changes. There is no user pre-exec
-callback. Arbitrary destination descriptor remapping and standard-stream file
-redirection remain unsupported.
+callback. Arbitrary destination descriptor remapping remains unsupported. Selection is
+independent of [standard-stream redirection](#command): redirecting a file does
+not expose its original descriptor number after exec. Only an explicitly
+selected copy survives above the standard streams, including when a redirected
+source and selected copy share an open file description. Group/session setup
+and `stderr_to_stdout()` compose with these rules.
 
 Close-on-exec still leaves a short window: a child forked by one thread holds
 a copy of every descriptor open at that moment until its exec closes them. If
@@ -177,6 +224,41 @@ a blocking `wait` wait with it. `spawn` takes no deadline or cancellation
 token. Waiting allocates nothing; each attempt repeats the brief host
 allocation described under [Limits](#limits). A program another process keeps
 open for writing still fails after the last wait.
+
+### Process groups and sessions
+
+`ProcessGroup.Inherit` is the default. `ProcessGroup.NewGroup` creates a new
+process group in the parent's session; `ProcessGroup.NewSession` creates a new
+session and its initial process group. In both isolated modes the child is the
+group leader and its group ID equals `child.id()`. Select the mode with
+`command.process_group(mode)`; selecting another mode replaces the choice.
+Setup happens in the child **before execution**, without a shell, a `setsid`
+executable or a parent-side polling race. Setup failures are spawn errors, with
+no child returned. Session setup uses a narrow native `setsid` call; no user
+pre-execution callback is exposed.
+
+Descendants normally inherit the group. `signal_group(number)`,
+`terminate_group()` and `kill_group()` signal every process still in it.
+Inherited-group children return `IoError.InvalidInput` from these methods:
+they cannot accidentally signal the parent's group. Ordinary `signal`,
+`terminate` and `kill` still target only the direct child.
+
+Send every required group signal **before reaping the leader**. While it is
+unreaped, including after it exits, its PID pins the group ID against reuse.
+After reaping, group signals return `Ok(())` and send nothing. Consequently a
+`try_wait` loop that reaps the leader cannot then clean up its surviving group;
+apply cleanup before that wait, or use a supervisor that keeps the leader
+alive. A timeout or cancellation that returns without a status preserves the
+child for group cleanup. A successful wait that returns a status has reaped it.
+Signalling does not wait for descendants to finish or reap them; only the
+owned direct child can be waited for here. OS signal errors remain
+`IoError.System(code)`.
+
+A process group is not a containment boundary: a descendant can escape by
+creating another group or session. Session creation does not detach the child,
+redirect streams or change the explicit reaping requirement. Group/session
+selection composes with file redirection and `stderr_to_stdout()`; both merged
+pipe writers close when their owning group members exit.
 
 ## Child
 
@@ -193,6 +275,8 @@ A `Child` is the single owner of one process. It is not copyable.
 | `signal(number: i32)` | `Result[(), IoError]` | Send signal 1 to 64 |
 | `terminate()` | `Result[(), IoError]` | `SIGTERM`: a request the child may ignore |
 | `kill()` | `Result[(), IoError]` | `SIGKILL`: cannot be caught |
+| `signal_group(number: i32)` | `Result[(), IoError]` | Send signal 1 to 64 to an isolated group, before reaping its leader |
+| `terminate_group()`, `kill_group()` | `Result[(), IoError]` | Group `SIGTERM` or `SIGKILL` |
 | `communicate(input: &[u8], limit: NonNegative[i64])` | `Result[Output, StreamError]` | Feed stdin, collect both outputs, wait |
 | `output(limit: NonNegative[i64])` | `Result[Output, StreamError]` | `communicate` with no input |
 
@@ -286,15 +370,16 @@ A child that outlives the program is adopted by the system as usual.
 ## Limits
 
 - Linux x86-64 GNU only. Starting a child uses the host allocator briefly for
-  its argument vector and, when inheritance is selected, a fixed callback
-  containing at most 64 descriptor numbers. These host allocations are outside
-  fallible accounting; configuring file copies remains fallible.
-- No redirection of a stream to a file or to another child, and no merging of
-  stderr into stdout. `shell` can do both.
+  its argument vector and fixed session/inheritance callbacks when selected
+  (at most 64 selected descriptors). These host allocations are outside fallible
+  accounting; configuring file copies remains fallible.
+- No redirection of a stream to another child; `shell` can build a pipeline.
+  A file redirection takes a `File`, so open it before setting the stream.
 - Timed child waits poll; scheduling and lock contention can delay return
   beyond the 10 ms polling interval.
-- No process groups, sessions, user or group changes, resource limits, or
-  detached children.
+- No joining arbitrary process groups, user or group changes, resource limits,
+  or detached children. Groups cannot be signalled after their leader is reaped,
+  and descendants can escape a group or session.
 - `communicate` holds whole outputs in memory. For streaming, take the pipes
   and give each its own [thread](thread.md).
 
