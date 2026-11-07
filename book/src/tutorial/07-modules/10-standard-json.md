@@ -48,10 +48,28 @@ fraction or exponent is `Json.Int`; any other number is `Json.Float`.
 
 An object is a `list[Member]` in source order, where each member has a `key` and
 a `value`. `find` returns the index of the first member with a key. Output is
-compact: no spaces or line breaks, and members stay in the order of the list.
+compact by default: no spaces or line breaks, and members stay in the order
+of the list. For readable exports, pass `indent=Some(2)`; indentation counts
+against the same output limit.
 
 Every call takes `Limits`. `limits()` gives the defaults: 64 levels of nesting,
 64 MiB of input, 64 MiB of output, and duplicate keys rejected.
+
+```plenty
+import std.json
+
+def main() -> Result[(), AllocError | IoError | std.json.JsonError]:
+    bounds = std.json.limits()
+    value = std.json.parse(b"{\"enabled\":true,\"tags\":[]}", &bounds)?
+    print(std.json.encode_text(&value, &bounds, indent=Some(2))?)?
+    Ok(())
+```
+```output
+{
+  "enabled": true,
+  "tags": []
+}
+```
 
 ## Errors say where
 

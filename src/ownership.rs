@@ -685,6 +685,9 @@ impl Live {
 struct Loop {
     entry: State,
     breaks: Vec<State>,
+    /// The state at each path back to the condition: the body's end and
+    /// each `continue`.
+    backedges: Vec<State>,
 }
 
 struct Checker<'a, 'p> {
@@ -722,6 +725,9 @@ struct Checker<'a, 'p> {
     fields: Vec<(u8, Arc<[usize]>)>,
     /// The place each precise loan covers, for an access through it.
     places: HashMap<usize, (u8, Vec<usize>)>,
+    /// How many wait checks have read binding state so far. A loop body that
+    /// read none needs no second pass from a weaker entry state.
+    state_waits: std::cell::Cell<usize>,
 }
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
@@ -751,6 +757,7 @@ pub fn check(
             loan_places(ops)
         },
         fields,
+        state_waits: Default::default(),
         futures: crate::profile_block!(
             "ownership::prepare_futures",
             futures::Futures::new(ops, locals.len(), program)
@@ -789,6 +796,31 @@ fn moved_fields(ops: &[Op]) -> Vec<(u8, Arc<[usize]>)> {
         }
     });
     fields
+}
+
+/// Push the types of the parts of a `ty` value that remain after the fields
+/// at `moved` paths move out: a class with a moved field contributes its
+/// other fields, each with the moves inside it removed.
+fn unmoved(ty: &Ty, moved: &[&[usize]], parts: &mut Vec<Ty>) {
+    if moved.iter().any(|path| path.is_empty()) {
+        return;
+    }
+    let Ty::Class(class) = ty else {
+        parts.push(ty.clone());
+        return;
+    };
+    if moved.is_empty() {
+        parts.push(ty.clone());
+        return;
+    }
+    for (index, (_, field)) in class.get().fields.iter().enumerate() {
+        let inside: Vec<&[usize]> = moved
+            .iter()
+            .filter(|path| path[0] == index)
+            .map(|path| &path[1..])
+            .collect();
+        unmoved(field, &inside, parts);
+    }
 }
 
 /// The binding and field path that each precise loan in `ops` covers.
@@ -851,13 +883,22 @@ fn merge(states: &[State], into: &mut State) {
         if owned == states.len() {
             continue;
         }
+        // A value moved on only some paths into one state is still owned on
+        // the others after the merge.
+        let definite = !states.iter().any(|s| {
+            matches!(
+                s[i],
+                Slot::Owned
+                    | Slot::Moved {
+                        definite: false,
+                        ..
+                    }
+            )
+        });
         *slot = states
             .iter()
             .find_map(|s| match s[i] {
-                Slot::Moved { at, .. } => Some(Slot::Moved {
-                    at,
-                    definite: owned == 0,
-                }),
+                Slot::Moved { at, .. } => Some(Slot::Moved { at, definite }),
                 _ => None,
             })
             .unwrap_or(Slot::Unset);
@@ -1316,6 +1357,28 @@ impl Checker<'_, '_> {
         self.blocked_endpoints(sends, true, state, site, kind, advice)
     }
 
+    /// The types of the parts of `slot`'s value that its fields' moves leave
+    /// in place (issue #794). A field moved out on every path is gone. With
+    /// `possibly`, a field moved on only some paths still counts.
+    fn remaining(&self, slot: usize, state: &State, possibly: bool) -> Vec<Ty> {
+        let moved: Vec<&[usize]> = self
+            .fields
+            .iter()
+            .enumerate()
+            .filter(|(k, (root, _))| {
+                *root as usize == slot
+                    && match state[self.locals.len() + k] {
+                        Slot::Moved { definite, .. } => definite || !possibly,
+                        _ => false,
+                    }
+            })
+            .map(|(_, (_, path))| &path[..])
+            .collect();
+        let mut parts = Vec::new();
+        unmoved(&self.locals[slot], &moved, &mut parts);
+        parts
+    }
+
     /// Match the worker's endpoints against live owners of the opposite side.
     fn blocked_endpoints(
         &self,
@@ -1329,6 +1392,7 @@ impl Checker<'_, '_> {
         if messages.is_empty() {
             return None;
         }
+        self.state_waits.set(self.state_waits.get() + 1);
         let mut error: Option<Box<Error>> = None;
         for (slot, owned) in state.iter().enumerate().take(self.locals.len()) {
             let partly = match owned {
@@ -1340,11 +1404,19 @@ impl Checker<'_, '_> {
             };
             // A borrowed parameter's owner is alive for the whole call.
             let parameter = slot < self.parameters;
-            let Some(message) = endpoints([self.locals[slot].clone()], !worker_sends, parameter)
-                .into_iter()
-                .find(|message| messages.contains(message))
-            else {
-                continue;
+            let find = |parts: Vec<Ty>| {
+                endpoints(parts, !worker_sends, parameter)
+                    .into_iter()
+                    .find(|message| messages.contains(message))
+            };
+            // A field moved out on every path no longer holds its endpoints;
+            // one moved on only some paths still holds them on the others.
+            let (message, partly) = match find(self.remaining(slot, state, false)) {
+                Some(message) => (message, partly),
+                None => match find(self.remaining(slot, state, true)) {
+                    Some(message) => (message, true),
+                    None => continue,
+                },
             };
             let place = self.place(slot as u8, &[], false);
             let name = match &place {
@@ -1583,6 +1655,7 @@ impl Checker<'_, '_> {
         if reachable.is_empty() {
             return None;
         }
+        self.state_waits.set(self.state_waits.get() + 1);
         let mut guards = Vec::new();
         crate::threading::walk(self.body, &mut |op| {
             if let Op::Mutex(MutexOp::Lock(slot)) = op {
@@ -1678,16 +1751,18 @@ impl Checker<'_, '_> {
     /// Dropping the value in `slot` shuts a pool down. No pool is looked for
     /// until a job that could block the shutdown has been submitted.
     fn closes(&self, slot: usize, state: &State) -> bool {
-        !self.submitted.borrow().is_empty()
-            && matches!(
-                state[slot],
-                Slot::Owned
-                    | Slot::Moved {
-                        definite: false,
-                        ..
-                    }
-            )
-            && owns_executor(&self.locals[slot])
+        if self.submitted.borrow().is_empty() || !owns_executor(&self.locals[slot]) {
+            return false;
+        }
+        self.state_waits.set(self.state_waits.get() + 1);
+        matches!(
+            state[slot],
+            Slot::Owned
+                | Slot::Moved {
+                    definite: false,
+                    ..
+                }
+        )
     }
 
     /// Shutdown drains accepted work and joins the workers. Reject one reached
@@ -2101,37 +2176,93 @@ impl Checker<'_, '_> {
                     merge(&continuing, state);
                 }
                 Op::Loop { condition, body } => {
-                    let entry = state.clone();
-                    self.sequence(condition, state, &mut Vec::new(), site)?;
-                    let zero = state.clone();
+                    let mut entry = state.clone();
+                    let mut exits = Vec::new();
                     let submitted = self.submitted.borrow().len();
-                    loops.push(Loop {
-                        entry,
-                        breaks: vec![zero.clone()],
-                    });
-                    if self.sequence(body, state, loops, site)? {
-                        self.backedge(state, &loops.last().unwrap().entry, site)?;
-                    }
-                    let Loop {
-                        entry,
-                        breaks: exits,
-                    } = loops.pop().unwrap();
+                    // A later iteration starts with what an earlier one
+                    // assigned: a binding or field moved before the loop and
+                    // assigned in the body, on any path, holds its endpoint at
+                    // a join earlier in the body. Check again from the merged
+                    // state while it changes. Merging only weakens a slot to
+                    // `Moved { definite: false }`, once, so this terminates.
+                    // Only wait checks read the weakened slots in a way that
+                    // can newly fail, so a pass that made none, and submitted
+                    // no job that would make later shutdowns check, ends the
+                    // repetition. Each pass rechecks nested loops; they start
+                    // from the weakened state, so they usually settle at once.
+                    let merged = loop {
+                        let waits = self.state_waits.get();
+                        let jobs = self.submitted.borrow().len();
+                        let mut pass = entry.clone();
+                        self.sequence(condition, &mut pass, &mut Vec::new(), site)?;
+                        loops.push(Loop {
+                            entry: entry.clone(),
+                            breaks: vec![pass.clone()],
+                            backedges: Vec::new(),
+                        });
+                        if self.sequence(body, &mut pass, loops, site)? {
+                            self.backedge(&pass, &entry, site)?;
+                            loops.last_mut().unwrap().backedges.push(pass);
+                        }
+                        let Loop {
+                            breaks, backedges, ..
+                        } = loops.pop().unwrap();
+                        exits.extend(breaks);
+                        let mut next = State::new();
+                        merge(&[&[entry.clone()][..], &backedges].concat(), &mut next);
+                        let checked = self.state_waits.get() != waits
+                            || self.submitted.borrow().len() != jobs;
+                        if next == entry {
+                            break next;
+                        }
+                        if !checked {
+                            // Stopping before a pass from `next`: its exits
+                            // would differ from those collected only in the
+                            // slots where `next` differs from `entry`. A path
+                            // that writes such a slot leaves the value it wrote
+                            // either way; one that does not carries the entry
+                            // value through. So joining each collected exit
+                            // with `next` in those slots covers both, and the
+                            // condition run from `next` adds the exit where
+                            // the body runs no further.
+                            let changed: Vec<usize> =
+                                (0..next.len()).filter(|&i| next[i] != entry[i]).collect();
+                            for exit in &mut exits {
+                                let mut later = exit.clone();
+                                for &i in &changed {
+                                    later[i] = next[i];
+                                }
+                                let mut joined = State::new();
+                                merge(&[exit.clone(), later], &mut joined);
+                                *exit = joined;
+                            }
+                            let mut zero = next.clone();
+                            self.sequence(condition, &mut zero, &mut Vec::new(), site)?;
+                            exits.push(zero);
+                            break next;
+                        }
+                        entry = next;
+                    };
                     // A job submitted in one iteration can still be in its pool
                     // in the next, so shutdowns before the submit see it too.
+                    // That iteration starts from what earlier ones left.
                     if self.submitted.borrow().len() > submitted {
+                        let mut again = merged.clone();
+                        self.sequence(condition, &mut again, &mut Vec::new(), site)?;
                         loops.push(Loop {
-                            entry,
-                            breaks: Vec::new(),
+                            entry: merged,
+                            ..Loop::default()
                         });
-                        let again = self.sequence(body, &mut zero.clone(), loops, site);
+                        let again = self.sequence(body, &mut again, loops, site);
                         loops.pop();
                         again?;
                     }
                     merge(&exits, state);
                 }
                 Op::Continue => {
-                    let target = loops.last().expect("continue inside a loop");
+                    let target = loops.last_mut().expect("continue inside a loop");
                     self.backedge(state, &target.entry, site)?;
+                    target.backedges.push(state.clone());
                     return Ok(false);
                 }
                 Op::Break => {

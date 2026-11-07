@@ -989,7 +989,7 @@ pub def find(members: &list[Member], key: &str) -> Option[i64]:
             return Some(index)
     Nothing
 
-# Writes compact JSON into an owned buffer and checks that calls arrive in an
+# Writes JSON into an owned buffer and checks that calls arrive in an
 # order that forms one document. `_written` counts every byte produced, so
 # the output limit also covers bytes already taken or written out.
 pub class Encoder:
@@ -1001,6 +1001,8 @@ pub class Encoder:
     _broken: bool
     _max_depth: i64
     _max_output: i64
+    _pretty: bool
+    _indent: i64
 
     pub def reject(self, fault: std.serial.Fault) -> JsonError:
         JsonError(JsonFault.Serialization(fault), self._written, 0, 0)
@@ -1060,13 +1062,26 @@ pub class Encoder:
         unchecked:
             Ok(i64(self._stack.get(count - 1)))
 
+    # Whitespace uses the same cumulative output accounting as JSON tokens.
+    # Separate loops avoid multiplying an arbitrary indentation by the depth.
+    def newline(self: &mut Encoder, depth: i64) -> Result[(), JsonFault]:
+        if self._pretty:
+            self.put(10)?
+            for _ in range(depth):
+                for _ in range(self._indent):
+                    self.put(32)?
+        Ok(())
+
     def before_value(self: &mut Encoder) -> Result[(), JsonFault]:
         if self._broken:
             return Err(JsonFault.InvalidState)
         state = self._state
         if state == emit_next_item:
-            return self.put(44)
-        if state == emit_top or state == emit_first_item or state == emit_member_value:
+            self.put(44)?
+            return self.newline(self._stack.len())
+        if state == emit_first_item:
+            return self.newline(self._stack.len())
+        if state == emit_top or state == emit_member_value:
             return Ok(())
         Err(JsonFault.InvalidState)
 
@@ -1158,8 +1173,11 @@ pub class Encoder:
             self.put(44)?
         elif self._state != emit_first_key:
             return Err(JsonFault.InvalidState)
+        self.newline(self._stack.len())?
         self.quote(name)?
         self.put(58)?
+        if self._pretty:
+            self.put(32)?
         self._state = emit_member_value
         Ok(())
 
@@ -1181,11 +1199,15 @@ pub class Encoder:
         if kind == in_object:
             if state != emit_first_key and state != emit_next_key:
                 return Err(JsonFault.InvalidState)
-            self.put(125)?
-        else:
-            if state != emit_first_item and state != emit_next_item:
-                return Err(JsonFault.InvalidState)
-            self.put(93)?
+        elif state != emit_first_item and state != emit_next_item:
+            return Err(JsonFault.InvalidState)
+        # Nonempty states imply a nonempty stack. A closing delimiter aligns
+        # with its opening value; [] and {} remain inline.
+        if state == emit_next_key or state == emit_next_item:
+            depth = unchecked:
+                self._stack.len() - 1
+            self.newline(depth)?
+        self.put(125 if kind == in_object else 93)?
         drop(self._stack.pop())
         self.after_value()
 
@@ -1319,13 +1341,18 @@ pub class Encoder:
             case Err(fault):
                 Err(JsonError(fault, self._written, 0, 0))
 
-pub def encoder(bounds: &Limits) -> Result[Encoder, JsonError]:
+pub def encoder(bounds: &Limits, indent: Option[NonNegative[i64]] = Nothing) -> Result[Encoder, JsonError]:
     if bounds.max_depth.get() > depth_ceiling:
         __trap("std.json.encoder: max_depth is above 1024")
     out = unplaced(reserved(std.bytes.empty()))?
     stack = unplaced(reserved(std.bytes.empty()))?
     escaped = unplaced(escaped_bytes())?
-    Ok(Encoder(out, stack, escaped, emit_top, 0, False, bounds.max_depth.get(), bounds.max_output.get()))
+    width = match indent:
+        case Some(value):
+            value.get()
+        case Nothing:
+            0
+    Ok(Encoder(out, stack, escaped, emit_top, 0, False, bounds.max_depth.get(), bounds.max_output.get(), indent.is_some(), width))
 
 # Delivers every pending byte to `writer` and keeps the buffer's capacity.
 # Does not flush. On failure only the bytes the writer did not accept stay
@@ -1353,14 +1380,14 @@ def complete(source: &Encoder) -> Result[(), JsonError]:
         return Ok(())
     Err(JsonError(JsonFault.InvalidState, source._written, 0, 0))
 
-pub def encode(value: &Json, bounds: &Limits) -> Result[Bytes, JsonError]:
-    mut target = encoder(bounds)?
+pub def encode(value: &Json, bounds: &Limits, indent: Option[NonNegative[i64]] = Nothing) -> Result[Bytes, JsonError]:
+    mut target = encoder(bounds, indent=indent)?
     target.value(value)?
     complete(&target)?
     target.take()
 
-pub def encode_text(value: &Json, bounds: &Limits) -> Result[str, JsonError]:
-    encoded = encode(value, bounds)?
+pub def encode_text(value: &Json, bounds: &Limits, indent: Option[NonNegative[i64]] = Nothing) -> Result[str, JsonError]:
+    encoded = encode(value, bounds, indent=indent)?
     match faulted(encoded.to_text()):
         case Ok(text):
             Ok(text)
@@ -1368,8 +1395,8 @@ pub def encode_text(value: &Json, bounds: &Limits) -> Result[str, JsonError]:
             Err(JsonError(fault, encoded.len(), 0, 0))
 
 # Encodes the whole value, then writes it. Does not flush.
-pub def write_value[W: Writer](writer: &mut W, value: &Json, bounds: &Limits) -> Result[(), JsonError]:
-    mut target = encoder(bounds)?
+pub def write_value[W: Writer](writer: &mut W, value: &Json, bounds: &Limits, indent: Option[NonNegative[i64]] = Nothing) -> Result[(), JsonError]:
+    mut target = encoder(bounds, indent=indent)?
     target.value(value)?
     complete(&target)?
     write_pending(&mut target, writer)
@@ -1722,8 +1749,8 @@ pub def load_from[T, R: Reader](source: &mut CodecReader[R], options: &CodecOpti
     std.serial.wrap(source.finish())?
     Ok(value)
 
-pub def dump[T](value: &T, bounds: &Limits) -> Result[Bytes, std.serial.SerialError[JsonError]]:
-    mut output = std.serial.wrap(encoder(bounds))?
+pub def dump[T](value: &T, bounds: &Limits, indent: Option[NonNegative[i64]] = Nothing) -> Result[Bytes, std.serial.SerialError[JsonError]]:
+    mut output = std.serial.wrap(encoder(bounds, indent=indent))?
     std.serial.encode[T, JsonError, Encoder](value, &mut output)?
     std.serial.wrap(complete(&output))?
     std.serial.wrap(output.take())

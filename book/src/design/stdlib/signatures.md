@@ -2459,11 +2459,11 @@ class Encoder
     def event(self: &mut Encoder, event: &Event) -> Result[(), JsonError]
     def value(self: &mut Encoder, value: &Json) -> Result[(), JsonError]
     def take(self: &mut Encoder) -> Result[Bytes, JsonError]
-def encoder(bounds: &Limits) -> Result[Encoder, JsonError]
+def encoder(bounds: &Limits, indent: Option[NonNegative[i64]] = Nothing) -> Result[Encoder, JsonError]
 def write_pending[W: Writer](source: &mut Encoder, writer: &mut W) -> Result[(), JsonError]
-def encode(value: &Json, bounds: &Limits) -> Result[Bytes, JsonError]
-def encode_text(value: &Json, bounds: &Limits) -> Result[str, JsonError]
-def write_value[W: Writer](writer: &mut W, value: &Json, bounds: &Limits) -> Result[(), JsonError]
+def encode(value: &Json, bounds: &Limits, indent: Option[NonNegative[i64]] = Nothing) -> Result[Bytes, JsonError]
+def encode_text(value: &Json, bounds: &Limits, indent: Option[NonNegative[i64]] = Nothing) -> Result[str, JsonError]
+def write_value[W: Writer](writer: &mut W, value: &Json, bounds: &Limits, indent: Option[NonNegative[i64]] = Nothing) -> Result[(), JsonError]
 class CodecOptions
     limits: Limits
     unknown_fields: std.serial.UnknownFields
@@ -2504,7 +2504,7 @@ class CodecReader[R]
     def unknown_key(self: &mut CodecReader[R], name: &str) -> Result[(), JsonError]
 def codec_reader[R: Reader](inner: R) -> CodecReader[R]
 def load_from[T, R: Reader](source: &mut CodecReader[R], options: &CodecOptions) -> Result[T, std.serial.SerialError[JsonError]]
-def dump[T](value: &T, bounds: &Limits) -> Result[Bytes, std.serial.SerialError[JsonError]]
+def dump[T](value: &T, bounds: &Limits, indent: Option[NonNegative[i64]] = Nothing) -> Result[Bytes, std.serial.SerialError[JsonError]]
 def load[T](source: &[u8], options: &CodecOptions) -> Result[T, std.serial.SerialError[JsonError]]
 class TreeLimits
     max_depth: NonNegative[i64]

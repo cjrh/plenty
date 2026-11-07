@@ -9,7 +9,7 @@ owning `Json` cursor, without serializing and reparsing a tree.
 ```text
 codec_options() -> CodecOptions
 load[T](source: &[u8], options: &CodecOptions) -> Result[T, SerialError[JsonError]]
-dump[T](value: &T, bounds: &Limits) -> Result[Bytes, SerialError[JsonError]]
+dump[T](value: &T, bounds: &Limits, indent: Option[NonNegative[i64]] = Nothing) -> Result[Bytes, SerialError[JsonError]]
 ```
 
 `CodecOptions` has public `limits: Limits` and
@@ -29,7 +29,8 @@ For adapter composition, `codec_decoder(source, options)` returns a
 `CodecDecoder` satisfying `std.serial.Decoder[JsonError]`. Its `finish()`
 checks that the codec consumed exactly one complete document. The existing
 `Encoder` satisfies `std.serial.Encoder[JsonError]`; check `is_complete()`
-after the codec succeeds and before calling `take()`. `take()` also supports
+after the codec succeeds and before calling `take()`. Pass `indent=Some(2)`
+to `dump` or `encoder` for [bounded pretty output](json.md#pretty-output). `take()` also supports
 incremental output and does not check document completeness itself.
 
 ## Incremental reader loading

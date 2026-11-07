@@ -409,6 +409,16 @@ reuse. Existing rendering remains unchanged. The [bounded contract](../design/st
 excludes HTML5 tree repair, scripting/style/foreign content, comments, dynamic
 URLs and sanitization.
 
+## Bounded JSON pretty output (issue #782)
+
+The shared JSON encoder accepts optional indentation for events, owning trees,
+and typed `@serial` values. Empty containers remain inline, member order and
+escaping stay unchanged, and compact output remains the default. Whitespace
+counts against cumulative output limits even across incremental drains;
+indentation requires no separate proportional buffer. See
+[pretty output](../design/stdlib/json.md#pretty-output). B51 retains bulk scans
+and JSON Lines in the [backlog](../backlog.md).
+
 ## HTTP response dates (issue #786)
 
 The HTTP server adds `Date` to final, streaming, upgraded, detached and
