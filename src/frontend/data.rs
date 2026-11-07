@@ -145,6 +145,18 @@ impl DataTypes {
         self.arguments.borrow().get(&**name).cloned()
     }
 
+    pub(super) fn serial_field(&self, at: &Token) -> Option<String> {
+        self.classes
+            .values()
+            .filter(|c| c.derived_encode || c.derived_decode)
+            .find_map(|c| {
+                c.fields
+                    .iter()
+                    .find(|(_, ty)| ty.at.position() == at.position())
+                    .map(|(name, _)| format!("{}.{}", c.name, name))
+            })
+    }
+
     pub(super) fn origin_class(&self, ty: &Ty) -> Option<(&classes::ClassDecl, Vec<Argument>)> {
         let (name, arguments) = self.arguments(ty)?;
         Some((self.classes.get(&name)?, arguments))

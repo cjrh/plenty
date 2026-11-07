@@ -1,9 +1,10 @@
 # TOML 1.0 documents: a strict parser, a value-tree writer, and a source editor
-# that preserves untouched statement bytes. Everything is checked Plenty over
-# `std.bytes`; every size the input controls is bounded by `Limits`.
+# that preserves untouched statement bytes, with checked typed codecs.
+# Everything is Plenty over `std.bytes`; `Limits` and `TreeLimits` bound work.
 # See book/src/design/stdlib/toml.md.
 import std.bytes
 import std.io
+import std.serial
 from std.bytes import Bytes, BytesError
 from std.io import Reader, Writer, StreamError
 
@@ -23,6 +24,8 @@ pub enum TomlFault:
     InputTooLarge
     OutputTooLarge
     NotATable
+    InvalidState
+    Serialization(std.serial.Fault)
     Stream(StreamError)
     Allocation(AllocError)
 
@@ -1829,3 +1832,411 @@ pub def document_text(text: &str, bounds: &Limits) -> Result[Document, TomlError
         return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input.get(), 0, 0))
     state = document_state(started(reserved(std.bytes.from_text(text)))?, bounds)?
     Ok(Document(state, Limits(bounds.max_depth, bounds.max_input, bounds.max_output)))
+
+# Typed codecs use the same checked hooks as JSON. TOML has no null: a null
+# class field is omitted, while null map entries, roots and array elements reject.
+pub class TreeLimits:
+    pub max_depth: NonNegative[i64] __max(1024)
+    pub max_nodes: NonNegative[i64]
+    pub max_text_bytes: NonNegative[i64]
+
+pub def tree_limits() -> TreeLimits:
+    TreeLimits(64, 1048576, 67108864)
+
+pub class CodecOptions:
+    pub limits: Limits
+    pub tree_limits: TreeLimits
+    pub unknown_fields: std.serial.UnknownFields
+
+pub def codec_options() -> CodecOptions:
+    CodecOptions(limits(), tree_limits(), std.serial.UnknownFields.Reject)
+
+class CodecBudget:
+    depth: i64
+    nodes: i64
+    text: i64
+    max_depth: i64
+    max_nodes: i64
+    max_text: i64
+
+    def node(self: &mut CodecBudget, text: i64 = 0) -> Result[(), TomlError]:
+        unchecked:
+            if self.nodes >= self.max_nodes or text > self.max_text - self.text:
+                return Err(TomlError(TomlFault.OutputTooLarge, 0, 0, 0))
+            self.nodes += 1
+            self.text += text
+        Ok(())
+
+    def enter(self: &mut CodecBudget) -> Result[(), TomlError]:
+        if self.depth >= self.max_depth:
+            return Err(TomlError(TomlFault.DepthExceeded, 0, 0, 0))
+        unchecked:
+            self.depth += 1
+        Ok(())
+
+    def leave(self: &mut CodecBudget) -> ():
+        unchecked:
+            self.depth -= 1
+
+def codec_budget(limits: &TreeLimits) -> CodecBudget:
+    if limits.max_depth.get() > depth_ceiling:
+        __trap("std.toml.tree_limits: max_depth is above 1024")
+    CodecBudget(0, 0, 0, limits.max_depth.get(), limits.max_nodes.get(), limits.max_text_bytes.get())
+
+def codec_invalid() -> TomlError:
+    TomlError(TomlFault.InvalidState, 0, 0, 0)
+
+def codec_fault(fault: std.serial.Fault) -> TomlError:
+    TomlError(TomlFault.Serialization(fault), 0, 0, 0)
+
+enum EncodeFrame:
+    Items(list[Toml])
+    Members(list[Entry], Option[str], bool, list[str])
+
+pub class TreeEncoder:
+    _root: Option[Toml]
+    _frames: list[EncodeFrame]
+    _budget: CodecBudget
+    _done: bool
+
+    pub def reject(self, fault: std.serial.Fault) -> TomlError:
+        codec_fault(fault)
+
+    pub def allocation(self, cause: AllocError) -> TomlError:
+        TomlError(TomlFault.Allocation(cause), 0, 0, 0)
+
+    def ready(self) -> Result[(), TomlError]:
+        if self._done:
+            return Err(codec_invalid())
+        if len(self._frames) == 0:
+            if self._root.is_some():
+                return Err(codec_invalid())
+        else:
+            match &self._frames[-1]:
+                case EncodeFrame.Members(_, name, _, _):
+                    if name.is_none():
+                        return Err(codec_invalid())
+                case _:
+                    pass
+        Ok(())
+
+    def attach(self: &mut TreeEncoder, value: Toml) -> Result[(), TomlError]:
+        self.ready()?
+        match self._frames.pop():
+            case Nothing:
+                self._root = Some(value)
+            case Some(EncodeFrame.Items(values)):
+                mut items = values
+                unplaced(reserved(items.append(value)))?
+                unplaced(reserved(self._frames.append(EncodeFrame.Items(items))))?
+            case Some(EncodeFrame.Members(values, name, _, omitted)):
+                mut entries = values
+                match name:
+                    case Some(key):
+                        unplaced(reserved(entries.append(Entry(key, value))))?
+                    case Nothing:
+                        return Err(codec_invalid())
+                unplaced(reserved(self._frames.append(EncodeFrame.Members(entries, Nothing, False, omitted))))?
+        Ok(())
+
+    def scalar(self: &mut TreeEncoder, value: Toml, text: i64 = 0) -> Result[(), TomlError]:
+        self._budget.node(text)?
+        self.attach(value)
+
+    pub def null(self: &mut TreeEncoder) -> Result[(), TomlError]:
+        self.ready()?
+        self._budget.node()?
+        match self._frames.pop():
+            case Some(EncodeFrame.Members(entries, Some(name), True, omitted)):
+                mut absent = omitted
+                unplaced(reserved(absent.append(name)))?
+                unplaced(reserved(self._frames.append(EncodeFrame.Members(entries, Nothing, False, absent))))
+            case _:
+                Err(codec_fault(std.serial.Fault.Unrepresentable))
+
+    pub def boolean(self: &mut TreeEncoder, value: bool) -> Result[(), TomlError]:
+        self.scalar(Toml.Bool(value))
+
+    pub def integer(self: &mut TreeEncoder, value: i64) -> Result[(), TomlError]:
+        self.scalar(Toml.Int(value))
+
+    pub def unsigned(self: &mut TreeEncoder, value: u64) -> Result[(), TomlError]:
+        if value > 9223372036854775807u64:
+            return Err(codec_fault(std.serial.Fault.Unrepresentable))
+        self.scalar(Toml.Int(i64(value)))
+
+    pub def decimal(self: &mut TreeEncoder, value: f64) -> Result[(), TomlError]:
+        self.scalar(Toml.Float(value))
+
+    pub def text(self: &mut TreeEncoder, value: &str) -> Result[(), TomlError]:
+        self.scalar(Toml.Text(*value), value.byte_len())
+
+    pub def start_array(self: &mut TreeEncoder) -> Result[(), TomlError]:
+        self.ready()?
+        self._budget.node()?
+        self._budget.enter()?
+        values = unplaced(reserved(list[Toml]()))?
+        unplaced(reserved(self._frames.append(EncodeFrame.Items(values))))
+
+    pub def start_object(self: &mut TreeEncoder) -> Result[(), TomlError]:
+        self.ready()?
+        self._budget.node()?
+        self._budget.enter()?
+        entries = unplaced(reserved(list[Entry]()))?
+        omitted = unplaced(reserved(list[str]()))?
+        unplaced(reserved(self._frames.append(EncodeFrame.Members(entries, Nothing, False, omitted))))
+
+    def named(self: &mut TreeEncoder, name: &str, field: bool) -> Result[(), TomlError]:
+        if self._done:
+            return Err(codec_invalid())
+        self._budget.node(name.byte_len())?
+        match self._frames.pop():
+            case Some(EncodeFrame.Members(entries, Nothing, _, omitted)):
+                if find(&entries, name).is_some():
+                    return Err(codec_fault(std.serial.Fault.DuplicateField(*name)))
+                for absent in &omitted:
+                    if absent == name:
+                        return Err(codec_fault(std.serial.Fault.DuplicateField(*name)))
+                unplaced(reserved(self._frames.append(EncodeFrame.Members(entries, Some(*name), field, omitted))))
+            case _:
+                Err(codec_invalid())
+
+    pub def key(self: &mut TreeEncoder, name: &str) -> Result[(), TomlError]:
+        self.named(name, False)
+
+    pub def field(self: &mut TreeEncoder, name: &str) -> Result[(), TomlError]:
+        self.named(name, True)
+
+    pub def end_array(self: &mut TreeEncoder) -> Result[(), TomlError]:
+        if self._done:
+            return Err(codec_invalid())
+        match self._frames.pop():
+            case Some(EncodeFrame.Items(values)):
+                self._budget.leave()
+                self.attach(Toml.Array(values))
+            case _:
+                Err(codec_invalid())
+
+    pub def end_object(self: &mut TreeEncoder) -> Result[(), TomlError]:
+        if self._done:
+            return Err(codec_invalid())
+        match self._frames.pop():
+            case Some(EncodeFrame.Members(entries, Nothing, _, omitted)):
+                self._budget.leave()
+                self.attach(Toml.Table(entries))
+            case _:
+                Err(codec_invalid())
+
+    pub def finish(self: &mut TreeEncoder) -> Result[Toml, TomlError]:
+        if self._done or len(self._frames) != 0:
+            return Err(codec_invalid())
+        self._done = True
+        match replace(self._root, Nothing):
+            case Some(value):
+                Ok(value)
+            case Nothing:
+                Err(codec_invalid())
+
+pub def tree_encoder(limits: &TreeLimits) -> Result[TreeEncoder, TomlError]:
+    budget = codec_budget(limits)
+    frames = unplaced(reserved(list[EncodeFrame]()))?
+    Ok(TreeEncoder(Nothing, frames, budget, False))
+
+enum DecodeFrame:
+    Items(list[Toml])
+    Members(list[Entry])
+
+# Own the tree: Plenty classes cannot retain a borrowed input reference.
+pub class TreeDecoder:
+    _value: Option[Toml]
+    _frames: list[DecodeFrame]
+    _budget: CodecBudget
+    _unknown: std.serial.UnknownFields
+
+    pub def reject(self, fault: std.serial.Fault) -> TomlError:
+        codec_fault(fault)
+
+    pub def allocation(self, cause: AllocError) -> TomlError:
+        TomlError(TomlFault.Allocation(cause), 0, 0, 0)
+
+    def take(self: &mut TreeDecoder) -> Result[Toml, TomlError]:
+        match replace(self._value, Nothing):
+            case Some(value):
+                self._budget.node()?
+                Ok(value)
+            case Nothing:
+                Err(codec_invalid())
+
+    pub def null(self: &mut TreeDecoder) -> Result[bool, TomlError]:
+        if self._value.is_none():
+            return Err(codec_invalid())
+        Ok(False)
+
+    pub def boolean(self: &mut TreeDecoder) -> Result[bool, TomlError]:
+        match self.take()?:
+            case Toml.Bool(value):
+                Ok(value)
+            case _:
+                Err(self.reject(std.serial.Fault.UnexpectedKind))
+
+    pub def integer(self: &mut TreeDecoder) -> Result[i64, TomlError]:
+        match self.take()?:
+            case Toml.Int(value):
+                Ok(value)
+            case _:
+                Err(self.reject(std.serial.Fault.UnexpectedKind))
+
+    pub def unsigned(self: &mut TreeDecoder) -> Result[u64, TomlError]:
+        value = self.integer()?
+        if value < 0:
+            return Err(self.reject(std.serial.Fault.OutOfRange))
+        Ok(u64(value))
+
+    pub def decimal(self: &mut TreeDecoder) -> Result[f64, TomlError]:
+        match self.take()?:
+            case Toml.Int(value):
+                Ok(f64(value))
+            case Toml.Float(value):
+                Ok(value)
+            case _:
+                Err(self.reject(std.serial.Fault.UnexpectedKind))
+
+    pub def variant(self: &mut TreeDecoder) -> Result[(str, bool), TomlError]:
+        match &self._value:
+            case Some(Toml.Text(_)):
+                return Ok((self.text()?, False))
+            case _:
+                pass
+        self.start_object()?
+        match self.next_key()?:
+            case Some(tag):
+                Ok((tag, True))
+            case Nothing:
+                Err(self.reject(std.serial.Fault.UnexpectedKind))
+
+    pub def text(self: &mut TreeDecoder) -> Result[str, TomlError]:
+        match self.take()?:
+            case Toml.Text(value):
+                unchecked:
+                    self._budget.nodes -= 1
+                self._budget.node(value.byte_len())?
+                Ok(value)
+            case _:
+                Err(self.reject(std.serial.Fault.UnexpectedKind))
+
+    pub def start_array(self: &mut TreeDecoder) -> Result[(), TomlError]:
+        match self.take()?:
+            case Toml.Array(values):
+                self._budget.enter()?
+                mut items = values
+                items.reverse()
+                unplaced(reserved(self._frames.append(DecodeFrame.Items(items))))
+            case _:
+                Err(self.reject(std.serial.Fault.UnexpectedKind))
+
+    pub def next_element(self: &mut TreeDecoder) -> Result[bool, TomlError]:
+        if self._value.is_some():
+            return Err(codec_invalid())
+        match self._frames.pop():
+            case Some(DecodeFrame.Items(values)):
+                mut items = values
+                match items.pop():
+                    case Some(value):
+                        self._value = Some(value)
+                        unplaced(reserved(self._frames.append(DecodeFrame.Items(items))))?
+                        Ok(True)
+                    case Nothing:
+                        self._budget.leave()
+                        Ok(False)
+            case _:
+                Err(codec_invalid())
+
+    pub def start_object(self: &mut TreeDecoder) -> Result[(), TomlError]:
+        match self.take()?:
+            case Toml.Table(values):
+                self._budget.enter()?
+                mut entries = values
+                entries.reverse()
+                unplaced(reserved(self._frames.append(DecodeFrame.Members(entries))))
+            case _:
+                Err(self.reject(std.serial.Fault.UnexpectedKind))
+
+    pub def next_key(self: &mut TreeDecoder) -> Result[Option[str], TomlError]:
+        if self._value.is_some():
+            return Err(codec_invalid())
+        match self._frames.pop():
+            case Some(DecodeFrame.Members(values)):
+                mut entries = values
+                match entries.pop():
+                    case Some(entry):
+                        self._budget.node(entry.key.byte_len())?
+                        self._value = Some(entry.value)
+                        unplaced(reserved(self._frames.append(DecodeFrame.Members(entries))))?
+                        Ok(Some(entry.key))
+                    case Nothing:
+                        self._budget.leave()
+                        Ok(Nothing)
+            case _:
+                Err(codec_invalid())
+
+    pub def unknown_key(self: &mut TreeDecoder, name: &str) -> Result[(), TomlError]:
+        if self._unknown == std.serial.UnknownFields.Reject:
+            return Err(self.reject(std.serial.Fault.UnknownField(*name)))
+        self.skip()
+
+    def skip(self: &mut TreeDecoder) -> Result[(), TomlError]:
+        # Reuse the owning traversal frames: nested unknown values must not
+        # recurse on the native stack or consume the enclosing object's siblings.
+        baseline = len(self._frames)
+        while True:
+            match &self._value:
+                case Some(value):
+                    match value:
+                        case Toml.Array(_):
+                            self.start_array()?
+                        case Toml.Table(_):
+                            self.start_object()?
+                        case Toml.Text(_):
+                            drop(self.text()?)
+                        case _:
+                            drop(self.take()?)
+                case Nothing:
+                    return Err(codec_invalid())
+            while self._value.is_none():
+                if len(self._frames) == baseline:
+                    return Ok(())
+                match &self._frames[-1]:
+                    case DecodeFrame.Items(_):
+                        drop(self.next_element()?)
+                    case DecodeFrame.Members(_):
+                        drop(self.next_key()?)
+        Ok(())
+
+    pub def finish(self: &mut TreeDecoder) -> Result[(), TomlError]:
+        if self._value.is_some() or len(self._frames) != 0:
+            return Err(codec_invalid())
+        Ok(())
+
+pub def tree_decoder(value: Toml, limits: &TreeLimits, unknown_fields: std.serial.UnknownFields = std.serial.UnknownFields.Reject) -> Result[TreeDecoder, TomlError]:
+    budget = codec_budget(limits)
+    frames = unplaced(reserved(list[DecodeFrame]()))?
+    Ok(TreeDecoder(Some(value), frames, budget, unknown_fields))
+
+pub def to_value[T](value: &T, limits: &TreeLimits) -> Result[Toml, std.serial.SerialError[TomlError]]:
+    mut output = std.serial.wrap(tree_encoder(limits))?
+    std.serial.encode[T, TomlError, TreeEncoder](value, &mut output)?
+    std.serial.wrap(output.finish())
+
+pub def from_value[T](value: Toml, limits: &TreeLimits, unknown_fields: std.serial.UnknownFields = std.serial.UnknownFields.Reject) -> Result[T, std.serial.SerialError[TomlError]]:
+    mut source = std.serial.wrap(tree_decoder(value, limits, unknown_fields))?
+    result = std.serial.decode[T, TomlError, TreeDecoder](&mut source)?
+    std.serial.wrap(source.finish())?
+    Ok(result)
+
+pub def dump[T](value: &T, options: &CodecOptions) -> Result[str, std.serial.SerialError[TomlError]]:
+    tree = to_value(value, &options.tree_limits)?
+    std.serial.wrap(encode_text(&tree, &options.limits))
+
+pub def load[T](text: &str, options: &CodecOptions) -> Result[T, std.serial.SerialError[TomlError]]:
+    tree = std.serial.wrap(parse_text(text, &options.limits))?
+    from_value[T](tree, &options.tree_limits, options.unknown_fields)

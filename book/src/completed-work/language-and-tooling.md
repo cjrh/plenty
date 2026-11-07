@@ -41,9 +41,34 @@ built-in codecs, private class/enum hooks and `SerialError[E]` with bounded
 error paths. [Typed JSON entry points](../design/stdlib/json-codecs.md) encode
 and decode complete buffers and convert directly to/from an owning `Json`
 tree under explicit depth, node and text budgets. Handwritten decoding retains
-control over defaults, unknown fields and validated construction. This is the
-first usable contract milestone; B77 retains derivation, TOML, byte support,
-reader loading and the performance gate before derivation.
+control over defaults, unknown fields and validated construction. This was the
+first usable contract milestone. The
+[B77 completion](#b77-derived-serialization-issue-781) adds derivation, TOML,
+byte representations and reader loading after the measurement/review gate.
+
+## B77 — derived serialization (issue #781)
+
+[`@serial`](../design/stdlib/serial-derive.md) generates missing private hooks
+for classes and enums using the ordinary checked `std.serial` boundary.
+Nested generic and custom codecs compose; constructor invariants, absent-only
+defaults, unknown/missing/duplicate policies and available typed error paths
+are retained. Hooks can be overridden independently. Wide records use tuple
+field slots and shared helpers rather than exhausting compiler locals.
+
+[Typed TOML codecs](../design/stdlib/toml-codecs.md) use bounded owning trees;
+[JSON loading](../design/stdlib/json-codecs.md) includes a bounded event reader
+adapter with its public owned reader retained on failure. Both formats share
+canonical padded base64 for bytes. Runtime decoding returns owning `Bytes`;
+static `bytes` literal storage has no runtime constructor. TOML distinguishes
+optional class fields from map entries, so omission cannot delete dictionary
+keys. Constructor error domains other than `Fault` require a handwritten
+decoding hook to choose a typed mapping.
+
+The [measurement record](../development/serialization-measurements.md)
+documents cold compile/object costs, the structured 8 MB workload and
+handwritten comparisons. Static specialization has a substantial code-size
+cost; no performance-free abstraction or parity with a schema-free event scan
+is claimed. Runtime reflection and user macros were not prerequisites.
 
 ## Native qualification build reuse (issue #850)
 

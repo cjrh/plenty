@@ -345,5 +345,5 @@ made per token and per event, not byte access.
   and exact decimals are available only as `Event.Number` text.
 - `write_value` builds the whole encoding before writing. Use an `Encoder` with
   `write_pending` for bounded output memory.
-- Typed codecs support built-ins and handwritten hooks; see [typed JSON codecs](json-codecs.md). `@serial` derivation is not implemented.
+- Typed codecs support built-ins and derived or handwritten hooks; see [typed JSON codecs](json-codecs.md) and [`@serial`](serial-derive.md).
 - No tree equality or path lookup helpers.

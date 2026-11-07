@@ -192,7 +192,8 @@ def main() -> Result[(), IoError | SerialError[JsonError]]:
 8080
 ```
 
-An out-of-range port returns a typed error carrying its array index. Classes
-and enums currently require handwritten hooks; automatic derivation is not
-implemented. See [typed JSON codecs](../../design/stdlib/json-codecs.md) for
-buffer encoding, direct tree conversion, unknown-field policy and limits.
+An out-of-range port returns a typed error carrying its array index. For
+classes and enums, [decode configuration into classes](30-typed-configuration.md)
+with `@serial`, or write private hooks for a custom representation. See
+[typed JSON codecs](../../design/stdlib/json-codecs.md) for buffer encoding,
+direct tree conversion, bounded reader loading, unknown-field policy and limits.

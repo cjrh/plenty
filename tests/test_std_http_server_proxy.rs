@@ -973,6 +973,9 @@ fn relayed_upload(port: u16, path: &str, body: Vec<u8>, chunked: bool, expected:
                 if received.len() > 64 * 1024 {
                     break Err(std::io::Error::other("oversized qualification response"));
                 }
+                if relay_response_complete(&received) {
+                    break Ok(());
+                }
             }
             Err(error) if error.kind() == ErrorKind::Interrupted => continue,
             Err(error) => break Err(error),
@@ -1004,6 +1007,68 @@ fn relayed_upload(port: u16, path: &str, body: Vec<u8>, chunked: bool, expected:
             );
         }
     }
+}
+
+/// Message framing completes an HTTP response even while the proxy drains an
+/// unread upload before closing TCP. Final status/body validation stays separate.
+fn relay_response_complete(mut response: &[u8]) -> bool {
+    loop {
+        let Some(end) = response.windows(4).position(|bytes| bytes == b"\r\n\r\n") else {
+            return false;
+        };
+        let Ok(head) = std::str::from_utf8(&response[..end]) else {
+            return false;
+        };
+        let body = &response[end + 4..];
+        if head.starts_with("HTTP/1.1 100 ") {
+            response = body;
+            continue;
+        }
+        let mut length = None;
+        for line in head.split("\r\n").skip(1) {
+            let Some((name, value)) = line.split_once(':') else {
+                return false;
+            };
+            if name.eq_ignore_ascii_case("Transfer-Encoding") {
+                return false;
+            }
+            if name.eq_ignore_ascii_case("Content-Length") {
+                if length.is_some() {
+                    return false;
+                }
+                let Ok(value) = value.trim().parse::<usize>() else {
+                    return false;
+                };
+                length = Some(value);
+            }
+        }
+        // Include excess bytes in final validation, which rejects them.
+        return length.is_some_and(|length| body.len() >= length);
+    }
+}
+
+#[test]
+fn relay_completes_before_the_peer_closes_tcp() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let peer = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut request = Vec::new();
+        while !request.ends_with(b"\r\n\r\n") {
+            let mut byte = [0];
+            stream.read_exact(&mut byte).unwrap();
+            request.push(byte[0]);
+        }
+        stream.write_all(b"HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nearly").unwrap();
+        // Wait for client shutdown rather than closing to delimit the answer.
+        let mut byte = [0];
+        assert_eq!(stream.read(&mut byte).unwrap(), 0);
+    });
+    relayed_upload(port, "/early", Vec::new(), false, ("200", "early"));
+    peer.join().unwrap();
 }
 
 fn assert_complete_relay(mut response: &str, expected: (&str, &str)) {
@@ -1043,6 +1108,10 @@ fn assert_complete_relay(mut response: &str, expected: (&str, &str)) {
 fn relayed_response_requires_a_complete_final_answer() {
     let complete = "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 413 Content Too Large\r\nContent-Length: 18\r\n\r\nContent Too Large\n";
     assert_complete_relay(complete, ("413", "Content Too Large\n"));
+    assert!(relay_response_complete(complete.as_bytes()));
+    for end in 0..complete.len() {
+        assert!(!relay_response_complete(&complete.as_bytes()[..end]));
+    }
     for response in [
         "HTTP/1.1 100 Continue\r\n\r\n",
         "HTTP/1.1 413 Content Too Large\r\nContent-Length: 18\r\n\r\nContent Too",

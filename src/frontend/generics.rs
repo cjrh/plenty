@@ -193,6 +193,7 @@ pub(super) fn prepare(
         ceilings: HashMap::default(),
         constants: HashMap::default(),
         call_wrappers: HashMap::default(),
+        serial_stack: HashMap::default(),
         deferred_reporting: HashMap::default(),
         unused_methods: HashMap::default(),
         cache: HashMap::default(),
@@ -270,6 +271,7 @@ pub(super) struct Engine {
     pub(super) ceilings: HashMap<String, Vec<(String, Option<StaticCheck>)>>,
     pub(super) constants: HashMap<String, Arc<Function>>,
     pub(super) call_wrappers: HashMap<(String, Vec<usize>), String>,
+    pub(super) serial_stack: HashMap<String, serial_stack::Guard>,
     /// Conditional Context methods retain their declarations without lowering
     /// an unsupported cause's formatting body merely by constructing Context.
     deferred_reporting: HashMap<String, (functions::Symbol, Arc<Function>)>,
@@ -1720,7 +1722,40 @@ impl Engine {
             .map(|(n, _)| n.clone())
             .zip(actual.iter().map(|ty| ty.reference(at)))
             .collect();
-        let generated = serial::expand(name, actual, template, &mut replacements, at)?;
+        if matches!(name, "std.serial.decode" | "std.serial.encode") {
+            let value = actual.first().and_then(Argument::as_type);
+            let custom = matches!(value,Some(Ty::Class(t)) if t.get().name != "std.bytes.Bytes")
+                || matches!(value,Some(Ty::Enum(t)) if !t.is_option() && !t.is_result() && !t.tuple() && !t.anonymous());
+            if custom {
+                let ty = value.unwrap();
+                let owner = classes::method_owner(ty).unwrap();
+                let hook = if name.ends_with("decode") {
+                    "__decode__"
+                } else {
+                    "__encode__"
+                };
+                if !self
+                    .templates
+                    .contains_key(&crate::record::method(owner, hook))
+                    || (name.ends_with("decode")
+                        && !serial_derive::constructor_matches(ty, aliases)?)
+                {
+                    let context = aliases
+                        .data
+                        .serial_field(at)
+                        .map(|field| format!("field `{field}`: "))
+                        .unwrap_or_default();
+                    return Err(at.error(format!("{context}{ty} has no {hook} serialization hook; use @serial, or write a private {hook}; automatic decoding requires initializer fields/types to match exactly and return () or Result[(), std.serial.Fault]; preserve constructor invariants in custom decoding")));
+                }
+            }
+        }
+        let generated =
+            serial::expand(name, actual, template, &mut replacements, at).map_err(|error| {
+                match aliases.data.serial_field(at) {
+                    Some(field) => at.error(format!("field `{field}`: {error}")),
+                    None => error,
+                }
+            })?;
         let template = generated.as_ref().unwrap_or(template);
         let mut demanded = Vec::new();
         for ((_, bound), argument) in template.type_params.iter().zip(actual) {
@@ -1835,7 +1870,13 @@ impl Engine {
         for default in f.defaults.iter_mut().flatten() {
             substitute_expr(default, &replacements)?;
         }
-        let display = instance_name(name, actual);
+        if let Some(guard) = serial_stack::identify(template, &f, actual, &replacements, aliases)? {
+            self.serial_stack.insert(symbol.clone(), guard);
+        }
+        let mut display = instance_name(name, actual);
+        if let Some(field) = aliases.data.serial_field(at) {
+            display = format!("field `{field}` in {display}");
+        }
         key.0 = match id {
             Some(id) => id,
             None => {
@@ -2320,7 +2361,14 @@ pub(super) fn substitute_expr(e: &mut Expr, substitutions: &Substitution) -> Res
         | Expression::Bool(_)
         | Expression::Unit
         | Expression::ClassNew(..) => {}
-        Expression::Ambiguous { .. } => unreachable!("resolved with module names"),
+        // Derivation substitutes field AST types before namespace resolution.
+        // Preserve both parser readings until the scope can select one.
+        Expression::Ambiguous { generic, index } => {
+            substitute_expr(generic, substitutions)?;
+            if let Ok(index) = index {
+                substitute_expr(index, substitutions)?;
+            }
+        }
     }
     Ok(())
 }
