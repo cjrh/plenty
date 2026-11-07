@@ -400,7 +400,8 @@ def main() -> Result[(), AllocError | IoError]:
 /// A box of a class with a record stores the record with no value word
 /// (issue #814): construction copies the record, a borrow names the bytes
 /// before it, and moving out clears it. A protocol box of the same class
-/// keeps the word, since its adapters receive the slot without the type.
+/// keeps the word, since its adapters receive the slot without the type;
+/// `Sum.tag` makes releasing it with the flat layout fail.
 #[test]
 fn flat_class_boxes_hold_the_record_itself() {
     runs(
@@ -421,6 +422,7 @@ protocol Total:
 class Sum:
     a: i64
     b: i64
+    tag: str
     def total(self) -> i64:
         unchecked: # Small values.
             self.a + self.b
@@ -440,8 +442,8 @@ def main() -> Result[(), AllocError | IoError]:
     held = *Box(Guard(8))?
     print(held.n)?
     drop(held)
-    erased = Box[Total](Sum(2, 3))?
-    plain = Box(Sum(4, 5))?
+    erased = Box[Total](Sum(2, 3, "erased"))?
+    plain = Box(Sum(4, 5, "plain"))?
     print(erased.total(), plain.total())?
     maybe: Option[Box[Named]] = Some(Box(Named("opt", 1))?)
     print(maybe)?

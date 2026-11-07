@@ -520,6 +520,10 @@ unsafe fn try_box_with(ty: &Type, value: u128, adapter: u64) -> Result<*mut Boxe
 /// payload bytes that word names, and every reader of a box's content
 /// (release, copy, equality, printing, moving out) reads only those. A
 /// local's stack slot relies on the same store into uninitialized storage.
+///
+/// Op 137 builds only plain boxes (`Box(value)`), so the content takes the
+/// flat layout when it has one; a callable or protocol box comes from
+/// [`try_box_with`], which sets its adapter first.
 unsafe fn try_box_for(ty: &Type, value: u128) -> u128 {
     let content = ty.key();
     match memory::try_allocate_uninit::<Boxed, u128>(content.field_words()) {
