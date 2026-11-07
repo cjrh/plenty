@@ -118,16 +118,45 @@ struct Declaration {
     private_at: Option<(u32, u32)>,
 }
 
-/// The tokens of each top-level item of `text`, without layout tokens.
-fn top_level(text: &str) -> Result<Vec<Vec<Token>>, String> {
+/// A file's top-level items and its multi-line strings.
+struct Lexed {
+    /// The tokens of each top-level item, without layout tokens.
+    items: Vec<Vec<Token>>,
+    /// The first and last line (from 1) of each string token that spans
+    /// lines.
+    strings: Vec<(u32, u32)>,
+}
+
+impl Lexed {
+    /// Whether `line` (from 1) starts inside a string, so a `#` there is text.
+    fn inside_string(&self, line: u32) -> bool {
+        self.strings.iter().any(|&(a, b)| a < line && line <= b)
+    }
+}
+
+fn lex(text: &str) -> Result<Lexed, String> {
     let mut lexer = Lexer::new(text);
-    let mut out: Vec<Vec<Token>> = vec![];
+    let mut items: Vec<Vec<Token>> = vec![];
+    let mut strings = vec![];
+    // A token has no end position; the token after a string sits on the
+    // string's last line.
+    let mut open_string: Option<u32> = None;
     loop {
         let mut tokens = VecDeque::new();
         lexer
             .item(&mut tokens)
             .map_err(|e| format!("cannot read the file: {e}"))?;
         let eof = tokens.iter().any(|t| t.kind == Kind::Eof);
+        for t in &tokens {
+            if let Some(line) = open_string.take()
+                && t.line > line
+            {
+                strings.push((line, t.line));
+            }
+            if matches!(t.kind, Kind::Text(_) | Kind::Format(_) | Kind::Bytes(_)) {
+                open_string = Some(t.line);
+            }
+        }
         let tokens: Vec<Token> = tokens
             .into_iter()
             .filter(|t| {
@@ -138,13 +167,18 @@ fn top_level(text: &str) -> Result<Vec<Vec<Token>>, String> {
             })
             .collect();
         if !tokens.is_empty() {
-            out.push(tokens);
+            items.push(tokens);
         }
         if eof {
             break;
         }
     }
-    Ok(out)
+    Ok(Lexed { items, strings })
+}
+
+/// The tokens of each top-level item of `text`, without layout tokens.
+fn top_level(text: &str) -> Result<Vec<Vec<Token>>, String> {
+    lex(text).map(|l| l.items)
 }
 
 fn is_import(tokens: &[Token]) -> bool {
@@ -153,21 +187,26 @@ fn is_import(tokens: &[Token]) -> bool {
         .is_some_and(|t| t.column == 1 && (t.is("import") || t.is("from")))
 }
 
-/// The top-level items of `text`, with each item's attached comments.
+/// The top-level items of `text`, with each item's attached comments and
+/// decorators.
 fn items(text: &str) -> Result<Vec<Item>, String> {
     let lines: Vec<&str> = text.lines().collect();
-    let starts = top_level(text)?;
+    let lexed = lex(text)?;
+    let starts = &lexed.items;
     let blank = |line: u32| {
         lines
             .get(line as usize - 1)
             .is_none_or(|l| l.trim().is_empty())
     };
     let margin_comment = |line: u32| {
-        lines
-            .get(line as usize - 1)
-            .is_some_and(|l| l.starts_with('#'))
+        !lexed.inside_string(line)
+            && lines
+                .get(line as usize - 1)
+                .is_some_and(|l| l.starts_with('#'))
     };
     let mut out = vec![];
+    // The first line and include flag of the decorators before an item.
+    let mut decorators: Option<(u32, bool)> = None;
     for (i, tokens) in starts.iter().enumerate() {
         let start = tokens[0].line;
         let mut last = match starts.get(i + 1) {
@@ -183,13 +222,25 @@ fn items(text: &str) -> Result<Vec<Item>, String> {
         while first > 1 && margin_comment(first - 1) {
             first -= 1;
         }
+        let includes = tokens
+            .iter()
+            .any(|t| t.is("include_str") || t.is("include_bytes"));
+        // A decorator is its own item; it and its comments move with the
+        // declaration after it.
+        if tokens[0].is("@") && starts.get(i + 1).is_some() {
+            let (earlier, earlier_includes) = decorators.unwrap_or((first, false));
+            decorators = Some((earlier, earlier_includes || includes));
+            continue;
+        }
+        let (first, includes) = match decorators.take() {
+            Some((earlier, earlier_includes)) => (earlier, earlier_includes || includes),
+            None => (first, includes),
+        };
         out.push(Item {
             first,
             last,
             declaration: declaration(tokens),
-            includes: tokens
-                .iter()
-                .any(|t| t.is("include_str") || t.is("include_bytes")),
+            includes,
             import: is_import(tokens),
         });
     }

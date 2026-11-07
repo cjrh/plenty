@@ -791,3 +791,125 @@ fn the_destinations_import_of_the_moved_declaration_is_removed() {
     write_moved(dir.path(), &moved);
     assert_eq!(run(dir.path()), "1\n");
 }
+
+const DECORATED: &str = "\
+pub def unit() -> i64:
+    1
+
+# Hidden from printing.
+@redacted
+pub class Secret:
+    pub code: i64
+
+@copy
+pub class Pair:
+    pub a: i64
+";
+
+const DECORATED_MAIN: &str = "\
+import shapes
+
+def main() -> Result[(), AllocError | IoError]:
+    print(shapes.Secret(code=7))?
+    p = shapes.Pair(a=2)
+    q = p
+    print(p.a)?
+    print(q.a)?
+    print(shapes.unit())?
+    Ok(())
+";
+
+#[test]
+fn decorators_and_their_comments_move_with_the_declaration() {
+    let dir = package(&[
+        ("src/shapes.plenty", DECORATED),
+        ("src/main.plenty", DECORATED_MAIN),
+        ("src/geometry.plenty", GEOMETRY),
+    ]);
+    let before = run(dir.path());
+    assert_eq!(before, "shapes.Secret(@redacted)\n2\n2\n1\n");
+    // The action is offered on the comment and decorator lines too.
+    let path = dir.path().join("src/shapes.plenty");
+    for line in [4, 5, 6, 7] {
+        let candidate = relocate::candidates(&path, DECORATED, line).unwrap();
+        assert_eq!(candidate.name, "Secret", "line {line}");
+    }
+    assert_eq!(
+        relocate::candidates(&path, DECORATED, 9).unwrap().name,
+        "Pair"
+    );
+    let moved = plan(dir.path(), "src/shapes.plenty", 5, "src/geometry.plenty").unwrap();
+    let expected = BTreeMap::from([
+        (
+            "src/geometry.plenty".to_string(),
+            "pub def unit() -> i64:\n    1\n\n# Hidden from printing.\n@redacted\npub class Secret:\n    pub code: i64\n".to_string(),
+        ),
+        (
+            "src/shapes.plenty".to_string(),
+            "pub def unit() -> i64:\n    1\n\n@copy\npub class Pair:\n    pub a: i64\n".to_string(),
+        ),
+        (
+            "src/main.plenty".to_string(),
+            DECORATED_MAIN
+                .replace("import shapes\n", "import shapes\nimport geometry\n")
+                .replace("shapes.Secret", "geometry.Secret"),
+        ),
+    ]);
+    assert_eq!(moved.files, expected);
+    write_moved(dir.path(), &moved);
+    assert_eq!(run(dir.path()), "geometry.Secret(@redacted)\n2\n2\n1\n");
+
+    // `@copy` moves with `Pair`: `q = p` still copies.
+    let moved = plan(dir.path(), "src/shapes.plenty", 4, "src/geometry.plenty").unwrap();
+    assert_eq!(
+        moved.files["src/shapes.plenty"],
+        "pub def unit() -> i64:\n    1\n"
+    );
+    assert_eq!(
+        moved.files["src/geometry.plenty"],
+        "pub def unit() -> i64:\n    1\n\n# Hidden from printing.\n@redacted\npub class Secret:\n    pub code: i64\n\n@copy\npub class Pair:\n    pub a: i64\n"
+    );
+    write_moved(dir.path(), &moved);
+    assert_eq!(run(dir.path()), "geometry.Secret(@redacted)\n2\n2\n1\n");
+}
+
+const COMMENT_IN_STRING: &str = "\
+pub const BANNER: str = \"\"\"top
+# not a comment
+\"\"\"
+# Belongs to `after`.
+pub def after() -> i64:
+    2
+";
+
+#[test]
+fn a_hash_line_inside_a_multi_line_string_stays_with_the_string() {
+    let dir = package(&[
+        ("src/shapes.plenty", COMMENT_IN_STRING),
+        (
+            "src/main.plenty",
+            "import shapes\n\ndef main() -> Result[(), AllocError | IoError]:\n    print(shapes.BANNER)?\n    print(shapes.after())?\n    Ok(())\n",
+        ),
+        ("src/geometry.plenty", GEOMETRY),
+    ]);
+    let before = run(dir.path());
+    assert_eq!(before, "top\n# not a comment\n\n2\n");
+    let path = dir.path().join("src/shapes.plenty");
+    assert_eq!(
+        relocate::candidates(&path, COMMENT_IN_STRING, 2)
+            .unwrap()
+            .name,
+        "BANNER"
+    );
+    let moved = plan(dir.path(), "src/shapes.plenty", 1, "src/geometry.plenty").unwrap();
+    assert_eq!(
+        moved.files["src/geometry.plenty"],
+        "pub def unit() -> i64:\n    1\n\npub const BANNER: str = \"\"\"top\n# not a comment\n\"\"\"\n"
+    );
+    assert_eq!(
+        moved.files["src/shapes.plenty"],
+        "# Belongs to `after`.\npub def after() -> i64:\n    2\n"
+    );
+    write_moved(dir.path(), &moved);
+    assert_eq!(run(dir.path()), before);
+}
