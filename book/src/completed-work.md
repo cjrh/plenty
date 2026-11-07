@@ -47,6 +47,14 @@ link. Remove the delivered scope from the active backlog; if an item still has
 extensions, retain its ID there and link both ways. Do not copy outstanding
 task lists into these pages or recycle retired B IDs.
 
+## Explicit template interpolation contexts
+
+Issue #834 adds [per-placeholder HTML escape contexts](design/stdlib/template.md#escaping-and-inheritance)
+for raw template values. Text and quoted-attribute selectors defer encoding to
+final emission, preserve bounded rendering, and keep explicit `safe` assertions
+separate. Filter chaining, the conservative default and plain-text mode are
+documented alongside the [library delivery record](completed-work/libraries.md#b38-library-breadth).
+
 ## Typed time and cancellable waits
 
 Delivered B42.
@@ -57,6 +65,15 @@ readiness and child deadline waits accept caller cancellation while preserving
 server shutdown behavior. [`std.sync`](design/stdlib/sync.md#typed-deadline-waits)
 provides typed channel, future, token and two-channel selection waits; explicit
 millisecond primitives remain as low-level compatibility APIs (B42).
+
+## Registered template fragments
+
+Issue #835 adds [template includes](design/stdlib/template.md#reusable-fragments)
+with explicit object contexts, isolated loop and inheritance scopes, and shared
+render budgets. Reusable headers and row forms render directly without
+application string concatenation or raw-markup trust assertions. The
+[library record](completed-work/libraries.md#b38-library-breadth) also records
+the delivered template subset.
 
 ## CPU availability and system inspection assessment
 
@@ -70,3 +87,10 @@ examples teach explicit caller fallback. The
 psutil-style platform gaps and Rust backend tradeoffs; the
 [library delivery record](completed-work/libraries.md#b38-library-breadth) links
 to the remaining B38 scope.
+
+## Template literal whitespace control
+
+Issue #837 delivers opt-in delimiter markers for adjacent ASCII source
+whitespace, preserving default output, compact negative literals and original
+byte diagnostics. See [the reference](design/stdlib/template.md#whitespace-control)
+and [the library delivery record](completed-work/libraries.md#template-literal-whitespace-control).
