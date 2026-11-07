@@ -748,6 +748,9 @@ pub fn result(ok: Ty, error: Ty) -> Ty {
 #[derive(Clone, Debug, PartialEq)]
 pub enum EnumOp {
     Widen(Box<Ty>, Box<Ty>),
+    /// Moves a sum into the subset of its members that a `match` proved holds
+    /// the active one; the other members never reach it.
+    Narrow(Box<Ty>, Box<Ty>),
     New(crate::nominal::Nominal<EnumType>, usize),
     Unwrap(crate::nominal::Nominal<EnumType>),
     Tag(crate::nominal::Nominal<EnumType>),
@@ -763,6 +766,14 @@ impl EnumOp {
                 (vec![(**source).clone()], (**target).clone())
             }
             Self::Widen(..) => return None,
+            Self::Narrow(source, target)
+                if matches!(&**source, Ty::Enum(t) if t.anonymous())
+                    && matches!(&**target, Ty::Enum(t) if t.anonymous())
+                    && accepts(source, target) =>
+            {
+                (vec![(**source).clone()], (**target).clone())
+            }
+            Self::Narrow(..) => return None,
             Self::Unwrap(t) if t.propagatable() => (
                 vec![Ty::Enum(t.clone())],
                 t.get().variants[usize::from(t.is_option())].fields[0].clone(),

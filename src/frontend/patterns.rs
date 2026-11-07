@@ -549,6 +549,14 @@ enum Checked {
         t: Nominal<ClassType>,
         fields: Vec<Checked>,
     },
+    /// `case name: B | C:` after cases that cover every other member of the
+    /// matched sum `source`; `target` is the annotated residual sum.
+    Residual {
+        at: Token,
+        name: String,
+        source: Nominal<EnumType>,
+        target: Ty,
+    },
 }
 
 /// The value a literal pattern names, in the type at its position.
@@ -608,7 +616,7 @@ impl Checked {
     fn binds(&self) -> bool {
         match self {
             Checked::Wildcard | Checked::Literal { .. } => false,
-            Checked::Binding(_) => true,
+            Checked::Binding(_) | Checked::Residual { .. } => true,
             Checked::Variant { fields, .. } | Checked::Class { fields, .. } => {
                 fields.iter().any(Checked::binds)
             }
@@ -620,7 +628,10 @@ impl Checked {
     /// `__del__`, which a consuming match cannot take apart.
     fn destructed(&self) -> Option<(&Token, &Nominal<ClassType>)> {
         match self {
-            Checked::Wildcard | Checked::Binding(_) | Checked::Literal { .. } => None,
+            Checked::Wildcard
+            | Checked::Binding(_)
+            | Checked::Residual { .. }
+            | Checked::Literal { .. } => None,
             Checked::Class { at, t, fields, .. }
                 if t.get().destructor.is_some() && fields.iter().any(Checked::binds) =>
             {
@@ -651,7 +662,10 @@ impl Checked {
     /// `tokens` numbers every alternative met on the way.
     fn alternatives(&self, tokens: &mut Vec<Token>) -> Option<Vec<Alternative>> {
         Some(match self {
-            Checked::Wildcard | Checked::Binding(_) | Checked::Literal { .. } => {
+            Checked::Wildcard
+            | Checked::Binding(_)
+            | Checked::Residual { .. }
+            | Checked::Literal { .. } => {
                 vec![(self.clone(), Vec::new())]
             }
             Checked::Or(alternatives) => {
@@ -735,7 +749,9 @@ impl Checked {
     fn paths<'a>(&'a self, prefix: &mut Vec<Step>, out: &mut Vec<(&'a str, Vec<Step>)>) {
         match self {
             Checked::Wildcard | Checked::Or(_) | Checked::Literal { .. } => {}
-            Checked::Binding(name) => out.push((name, prefix.clone())),
+            Checked::Binding(name) | Checked::Residual { name, .. } => {
+                out.push((name, prefix.clone()))
+            }
             Checked::Variant {
                 boxes,
                 t,
@@ -852,6 +868,53 @@ enum Tree {
 }
 
 impl Tree {
+    /// Marks the members of the matched sum for which `row` is selected.
+    fn reaching(&self, row: usize, tags: &mut [bool]) {
+        match self {
+            Tree::Leaf(leaf) if *leaf == row => tags.fill(true),
+            Tree::Switch {
+                steps,
+                branches,
+                default,
+                ..
+            } if steps.is_empty() => {
+                for (tag, tree) in branches {
+                    tags[*tag] |= tree.contains(row);
+                }
+                if default.as_ref().is_some_and(|tree| tree.contains(row)) {
+                    for (tag, reached) in tags.iter_mut().enumerate() {
+                        if branches.iter().all(|(named, _)| *named != tag) {
+                            *reached = true;
+                        }
+                    }
+                }
+            }
+            // Another row matches every value first, so this one is unreachable.
+            Tree::Leaf(_) => {}
+            // The root of a match on an anonymous sum tests its member tag.
+            _ => unreachable!("a residual case requires a root member switch"),
+        }
+    }
+
+    fn contains(&self, row: usize) -> bool {
+        match self {
+            Tree::Leaf(leaf) => *leaf == row,
+            Tree::Fail => false,
+            Tree::Switch {
+                branches, default, ..
+            } => {
+                branches.iter().any(|(_, tree)| tree.contains(row))
+                    || default.as_ref().is_some_and(|tree| tree.contains(row))
+            }
+            Tree::Compare {
+                branches, default, ..
+            } => {
+                branches.iter().any(|(_, tree)| tree.contains(row))
+                    || default.as_ref().is_some_and(|tree| tree.contains(row))
+            }
+        }
+    }
+
     fn leaves(&self, counts: &mut [usize], arms: &[usize]) {
         match self {
             Tree::Leaf(row) => counts[arms[*row]] += 1,
@@ -1232,9 +1295,7 @@ impl Lower<'_> {
             PatKind::Member(name, member) => {
                 let member = member.resolve(self.aliases)?.unwrap_or(Ty::Unit);
                 if matches!(&member, Ty::Enum(t) if t.anonymous()) {
-                    return Err(pattern
-                        .at
-                        .error("a member pattern requires one whole member type, not a sum"));
+                    return self.check_residual(pattern, name, member, ty, root, bound);
                 }
                 if bound.iter().any(|(other, _)| other == name) {
                     return Err(pattern.at.error("duplicate payload binding"));
@@ -1479,10 +1540,14 @@ impl Lower<'_> {
                 let mut checked = Vec::new();
                 for alternative in alternatives {
                     let mut names = Vec::new();
-                    checked.push((
-                        alternative.at.clone(),
-                        self.check_pattern(alternative, ty, root, &mut names)?,
-                    ));
+                    let checked_alternative =
+                        self.check_pattern(alternative, ty, root, &mut names)?;
+                    if let Checked::Residual { name, target, .. } = &checked_alternative {
+                        return Err(alternative.at.error(format!(
+                            "residual member pattern `{name}: {target}` cannot be a `|` alternative; give it a case of its own"
+                        )));
+                    }
+                    checked.push((alternative.at.clone(), checked_alternative));
                     let Some(expected) = &shared else {
                         shared = Some(names);
                         continue;
@@ -1516,6 +1581,44 @@ impl Lower<'_> {
                 Ok(Checked::Or(checked))
             }
         }
+    }
+
+    /// `case name: B | C:`, which `match_patterns` checks against the members
+    /// earlier cases leave. See
+    /// book/src/design/language/03-types/anonymous-sums.md#residual-members.
+    fn check_residual(
+        &self,
+        pattern: &Pat,
+        name: &str,
+        member: Ty,
+        ty: &Ty,
+        root: bool,
+        bound: &mut Vec<(String, Ty)>,
+    ) -> Result<Checked> {
+        let source = match ty {
+            Ty::Enum(t) if t.anonymous() && root => t,
+            _ => {
+                return Err(pattern.at.error(format!(
+                    "a residual member pattern `{name}: {member}` requires a matched anonymous sum at the case position, not {ty}"
+                )))
+            }
+        };
+        let members = crate::sum::members(ty);
+        if let Some(absent) = crate::sum::members(&member)
+            .into_iter()
+            .find(|m| !members.contains(m))
+        {
+            return Err(pattern
+                .at
+                .error(format!("member type {absent} is absent from {ty}")));
+        }
+        bound.push((name.to_string(), member.clone()));
+        Ok(Checked::Residual {
+            at: pattern.at.clone(),
+            name: name.to_string(),
+            source: source.clone(),
+            target: member,
+        })
     }
 
     /// A class pattern. At an anonymous-sum position it selects the member
@@ -1736,6 +1839,16 @@ impl Lower<'_> {
                     "cannot move fields out of `{name}`: its `__del__` expects every field initialized; match a reference such as `&value` to borrow them"
                 )));
             }
+            if subject.borrowed.is_some()
+                && let Checked::Residual {
+                    at, name, target, ..
+                } = &pattern
+                && target != matched
+            {
+                return Err(at.error(format!(
+                    "residual member pattern `{name}: {target}` requires an owned match: a reference to {matched} cannot be narrowed to {target}; match the value itself, or bind `_ as {name}` to borrow the whole sum"
+                )));
+            }
             checked.push((pattern, bound));
         }
         // One row per `|` combination; `arms[row]` is its case.
@@ -1814,6 +1927,31 @@ impl Lower<'_> {
             } else {
                 "unreachable case"
             }));
+        }
+        for (arm, (pattern, _)) in checked.iter().enumerate() {
+            let Checked::Residual {
+                at,
+                name,
+                source,
+                target,
+            } = pattern
+            else {
+                continue;
+            };
+            let mut left = vec![false; source.get().variants.len()];
+            tree.reaching(spans[arm].start, &mut left);
+            let left: Vec<Ty> = crate::sum::members(matched)
+                .into_iter()
+                .zip(left)
+                .filter_map(|(member, reached)| reached.then_some(member))
+                .collect();
+            let written = crate::sum::members(target);
+            if written.len() != left.len() || !left.iter().all(|m| written.contains(m)) {
+                let residual = crate::sum::anonymous(left);
+                return Err(at.error(format!(
+                    "residual member type {target} does not match the members earlier cases leave; write `case {name}: {residual}:`"
+                )));
+            }
         }
         if !missing.is_empty() {
             let more = if missing.len() > MAX_WITNESSES {
@@ -2219,6 +2357,24 @@ fn owned_root(
     // `_ as name` takes the whole value.
     if let Checked::Binding(name) = pattern {
         ops.extend([Op::MoveLocal(source), Op::StoreLocal(slots[name.as_str()])]);
+        return;
+    }
+    if let Checked::Residual {
+        name,
+        source: matched,
+        target,
+        ..
+    } = pattern
+    {
+        ops.push(Op::MoveLocal(source));
+        let matched = Ty::Enum(matched.clone());
+        if *target != matched {
+            ops.push(Op::Enum(EnumOp::Narrow(
+                Box::new(matched),
+                Box::new(target.clone()),
+            )));
+        }
+        ops.push(Op::StoreLocal(slots[name.as_str()]));
         return;
     }
     match pattern {

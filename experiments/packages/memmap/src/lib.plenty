@@ -1,0 +1,8 @@
+import backend
+
+pub type Mapping = backend.Mapping
+pub type Library = backend.Library
+pub type MapError = backend.MapError
+
+pub def load(path: &str) -> Result[Library, LoadError]:
+    backend.load(path)
