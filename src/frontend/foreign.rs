@@ -22,9 +22,9 @@ fn check_loader_signature(f: &Function, inputs: &[(String, Ty)], output: &Type) 
         .iter()
         .zip(&declaration.arguments)
         .map(|((_, ty), adapter)| match (ty, adapter) {
-            (Ty::ForeignPtr(_), Argument::Direct) => "handle",
+            (Ty::ForeignPtr(..), Argument::Direct) => "handle",
             (Ty::Ref(inner, true), Argument::Direct)
-                if matches!(inner.as_ref(), Ty::ForeignPtr(_)) =>
+                if matches!(inner.as_ref(), Ty::ForeignPtr(..)) =>
             {
                 "output"
             }
@@ -74,14 +74,14 @@ pub(super) fn check_signature(f: &Function, inputs: &[(String, Ty)], output: &Ty
     use crate::foreign::Argument;
     let declaration = f.foreign.as_ref().unwrap();
     if let crate::foreign::Target::Parameter(index) = declaration.target
-        && (!matches!(inputs[index].1, Ty::ForeignPtr(_))
+        && (!matches!(inputs[index].1, Ty::ForeignPtr(..))
             || declaration.arguments[index] != Argument::Direct)
     {
         return Err(f
             .at
             .error("C function-address parameter must have an opaque pointer type"));
     }
-    let scalar = |ty: &Ty| ty.is_numeric() || matches!(ty, Ty::ForeignPtr(_));
+    let scalar = |ty: &Ty| ty.is_numeric() || matches!(ty, Ty::ForeignPtr(..));
     for ((_, ty), mode) in inputs.iter().zip(&declaration.arguments) {
         let valid = match mode {
             Argument::Direct => scalar(ty) || matches!(ty, Ty::Ref(t, _) if scalar(t)),
@@ -113,6 +113,29 @@ pub(super) fn check_signature(f: &Function, inputs: &[(String, Ty)], output: &Ty
     } else {
         output.as_ref()
     };
+    // Worker code may hold a marked value and so may call anything that
+    // takes it, including the release function its owner's `__del__` calls.
+    // A function-address call has no symbol to certify; `threading::inspect`
+    // rejects it in worker code instead.
+    let marked = |ty: &Ty| {
+        let ty = match ty {
+            Ty::Ref(inner, _) => inner.as_ref(),
+            ty => ty,
+        };
+        matches!(ty, Ty::ForeignPtr(_, threads) if *threads != crate::foreign::Threads::None)
+    };
+    if !declaration.thread_safe
+        && declaration.symbol().is_some()
+        && let Some(ty) = inputs
+            .iter()
+            .map(|(_, ty)| ty)
+            .chain(output)
+            .find(|ty| marked(ty))
+    {
+        return Err(f.at.error(format!(
+            "C function taking or returning `{ty}` must be `@thread_safe`: its opaque type has a thread contract, so worker code may call it"
+        )));
+    }
     if let Some(ty) = output
         && *ty != Ty::Unit
         && !scalar(ty)
@@ -130,7 +153,7 @@ pub(super) fn check_symbols<'a>(
 ) -> Result<()> {
     let mut symbols = HashMap::default();
     fn abi(ty: &Ty) -> String {
-        if matches!(ty, Ty::ForeignPtr(_) | Ty::Ref(..)) {
+        if matches!(ty, Ty::ForeignPtr(..) | Ty::Ref(..)) {
             "pointer".into()
         } else {
             ty.to_string()

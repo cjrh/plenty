@@ -121,6 +121,15 @@ solver or pseudoinverse is provided. General eigenvectors of a defective matrix
 need not form a basis. Scaling and residual checks remain the caller's numerical
 responsibility. Results may differ in their final bits across CPUs/releases.
 
+## Worker threads
+
+Matrices hold only Plenty `f64` lists, and every kernel is
+[`@thread_safe`](../facilities/04-interop/trusted-declarations.md#worker-threads),
+so matrix operations run on [worker threads](../facilities/03-concurrency/index.md),
+including concurrently on one `Shared[Matrix]`. Each call runs sequentially
+(`Par::Seq`) on its calling thread. Kernels share only a small mutex-guarded
+pool of packing workspaces, never locked while a kernel runs.
+
 ## Why Plenty uses a faer fork
 
 Plenty uses [cjrh/faer-rs's caller-workspace branch](https://github.com/cjrh/faer-rs/tree/plenty/fallible-gemm-workspace),

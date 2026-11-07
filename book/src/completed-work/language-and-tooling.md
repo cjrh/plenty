@@ -713,7 +713,12 @@ in place (issue #455, local PR #571). Foreign calls whose `.plentyi`
 declaration carries the binding author's
 [`@thread_safe`](../design/facilities/04-interop/trusted-declarations.md#worker-threads)
 promise are certified on workers, including from destructors; unannotated
-calls and opaque pointers stay rejected (issue #772).
+calls stay rejected (issue #772). Opaque types declared
+[`@thread_movable` or `@thread_shareable`](../design/facilities/04-interop/trusted-declarations.md#opaque-types-on-worker-threads)
+may be held by worker code and cross as their contract allows; every
+`std.dataframe` and `std.linalg` call is `@thread_safe`, and dataframe values
+built in steps use movable builders so no call writes through a shareable
+pointer (issue #833).
 
 See [threads](../design/facilities/03-concurrency/threads.md),
 [channels](../design/facilities/03-concurrency/channels.md),

@@ -459,7 +459,7 @@ mod tests {
             Ty::File,
             Ty::Executor,
             Ty::CancellationToken,
-            Ty::ForeignPtr("handle".into()),
+            Ty::ForeignPtr("handle".into(), crate::foreign::Threads::None),
             Ty::Range(Arc::new(Ty::I64)),
             Ty::Ref(Arc::new(Ty::I64), false),
             Ty::Channel(Arc::new(Ty::I64), true),

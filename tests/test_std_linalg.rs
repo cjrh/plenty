@@ -292,3 +292,39 @@ fn matrix_extent_invariants_cannot_be_bypassed_with_a_constructor() {
     );
     assert!(error.contains("private"), "{error}");
 }
+
+/// Every kernel is `@thread_safe` (issue #833); certification needs no engine.
+#[test]
+fn kernels_are_certified_for_workers_without_engine() {
+    let temp = tempfile::tempdir().unwrap();
+    let input = temp.path().join("main.plenty");
+    std::fs::write(&input, include_str!("fixtures/linalg_workers.plenty")).unwrap();
+    plenty::check_file(&input, None).unwrap();
+}
+
+#[test]
+fn kernels_run_concurrently_on_workers_with_real_engine() {
+    if std::env::var_os("PLENTY_LINALG_TESTS").is_none() {
+        return;
+    }
+    let engine = PathBuf::from(std::env::var_os("PLENTY_LINALG_ENGINE").expect("engine path"))
+        .canonicalize()
+        .unwrap();
+    let temp = tempfile::tempdir().unwrap();
+    let exe = compile(
+        temp.path(),
+        include_str!("fixtures/linalg_workers.plenty"),
+        engine.clone(),
+    )
+    .unwrap();
+    let result = assert_success(
+        Command::new(exe)
+            .env("LD_LIBRARY_PATH", engine.parent().unwrap())
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(
+        String::from_utf8(result.stdout).unwrap(),
+        "4.0\n1.0\n1.0\nlinalg workers ok\n"
+    );
+}

@@ -1,6 +1,7 @@
 //! `@thread_safe` foreign declarations on worker threads (issue #772): the
 //! annotation certifies calls, including from destructors, and everything
-//! else stays rejected.
+//! else stays rejected. `@thread_movable` and `@thread_shareable` opaque
+//! declarations (issue #833) say which native values may cross.
 
 mod support;
 use std::path::Path;
@@ -280,25 +281,219 @@ def main() -> Result[(), std.net.NetError | std.http.server.ServerError | AllocE
     rejected(&without("pid"), source, &["`getpid`"]);
 }
 
-#[test]
-fn opaque_pointers_stay_ineligible_with_annotated_calls() {
-    let interface = r#"pub opaque Raw
+/// A heap block owned through an opaque pointer, with the contract `CONTRACT`
+/// on its declaration. `Block.__del__` releases it with `free`.
+const BLOCKS: &str = r#"CONTRACT
+pub opaque Raw
 @thread_safe
-pub extern def make() -> Raw = "malloc_stub"
+pub extern def malloc(size: u64) -> Raw = "malloc"
+@thread_safe
+pub extern def free(raw: Raw) -> () = "free"
+
+pub class Block:
+    raw: Raw
+
+    def __del__(self: &mut Block) -> ():
+        free(self.raw)
+        print("freed").unwrap()
+
+    pub def ok(self) -> bool:
+        not self.raw.is_null()
+
+pub def block() -> Block:
+    Block(malloc(16u64))
 "#;
+
+fn blocks(contract: &str) -> String {
+    BLOCKS.replace("CONTRACT", contract)
+}
+
+#[test]
+fn movable_owners_move_and_drop_on_workers() {
     let source = r#"import native
-def work(raw: native.Raw) -> ():
-    pass
+from native import Block
+
+def own(block: Block) -> bool:
+    block.ok()
+
+def local() -> bool:
+    native.block().ok()
+
+def receive(receiver: Receiver[Block]) -> bool:
+    receiver.recv().unwrap().ok()
+
+def main() -> Result[(), AllocError | IoError | SpawnError[()] | SendError[Block]]:
+    # The worker drops the moved owner, so `free` runs there.
+    with spawn(own, native.block()).drop_job()? as task:
+        print(task.join())?
+    print("moved")?
+    with spawn(local).drop_job()? as task:
+        print(task.join())?
+    print("local")?
+    sender, receiver = channel[Block](1)?
+    sender.send(native.block())?
+    drop(sender)
+    with spawn(receive, receiver).drop_job()? as task:
+        print(task.join())?
+    print("sent")?
+    Ok(())
+"#;
+    assert_eq!(
+        run_with(&blocks("@thread_movable"), source),
+        "freed\nTrue\nmoved\nfreed\nTrue\nlocal\nfreed\nTrue\nsent\n"
+    );
+}
+
+#[test]
+fn a_mutex_lets_workers_share_a_movable_owner() {
+    let source = r#"import native
+from native import Block
+from std.sync import Mutex
+
+def use(block: Shared[Mutex[Block]]) -> bool:
+    mut ok = False
+    with block.lock() as owner:
+        ok = owner.ok()
+    ok
+
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
+    guarded = Shared(Mutex(native.block()))?
+    with spawn(use, guarded.share()).drop_job()? as first, spawn(use, guarded).drop_job()? as second:
+        print(first.join() and second.join())?
+    print("joined")?
+    Ok(())
+"#;
+    assert_eq!(
+        run_with(&blocks("@thread_movable"), source),
+        "freed\nTrue\njoined\n"
+    );
+}
+
+#[test]
+fn shareable_values_cross_by_copy_and_share() {
+    let source = r#"import native
+from native import Block, Raw
+
+def hold(block: Shared[Block]) -> bool:
+    block.ok()
+
+def copied(raw: Raw) -> bool:
+    not raw.is_null()
+
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
+    owner = Shared(native.block())?
+    with spawn(hold, owner.share()).drop_job()? as first, spawn(hold, owner).drop_job()? as second:
+        print(first.join() and second.join())?
+    print("joined")?
+    raw = native.malloc(8u64)
+    with spawn(copied, raw).drop_job()? as task:
+        print(task.join())?
+    native.free(raw)
+    Ok(())
+"#;
+    assert_eq!(
+        run_with(&blocks("@thread_shareable"), source),
+        "freed\nTrue\njoined\nTrue\n"
+    );
+}
+
+#[test]
+fn opaque_values_need_a_contract_for_their_crossing() {
+    let local = r#"import native
+def work() -> bool:
+    native.block().ok()
 def main() -> Result[(), SpawnError[()]]:
-    with spawn(work, native.make()).drop_job()?:
+    with spawn(work).drop_job()?:
         pass
     Ok(())
 "#;
     rejected(
-        interface,
-        source,
-        &["has no cross-thread ownership contract"],
+        &blocks(""),
+        local,
+        &[
+            "worker `work`",
+            "native.Raw has no thread contract",
+            "`@thread_movable` or `@thread_shareable`",
+        ],
     );
+    let movable = blocks("@thread_movable");
+    let not_shareable = "is `@thread_movable`, not `@thread_shareable`";
+    let bare = r#"import native
+from native import Raw
+def work(raw: Raw) -> ():
+    pass
+def main() -> Result[(), SpawnError[()]]:
+    with spawn(work, native.malloc(8u64)).drop_job()?:
+        pass
+    Ok(())
+"#;
+    rejected(&movable, bare, &[not_shareable]);
+    let shared = r#"import native
+from native import Block
+def hold(block: Shared[Block]) -> ():
+    pass
+def main() -> Result[(), AllocError | SpawnError[()]]:
+    owner = Shared(native.block())?
+    with spawn(hold, owner).drop_job()?:
+        pass
+    Ok(())
+"#;
+    rejected(&movable, shared, &[not_shareable]);
+    let message = r#"import native
+from native import Raw
+def main() -> Result[(), AllocError]:
+    sender, receiver = channel[Raw](1)?
+    Ok(())
+"#;
+    rejected(&movable, message, &["channel message", not_shareable]);
+    // A copy leaves the original pointer behind on the sending thread.
+    let copy = format!("{movable}\n@copy\npub class Handle:\n    pub raw: Raw\n");
+    let copied = r#"import native
+from native import Handle
+def work(handle: Handle) -> ():
+    pass
+def main() -> Result[(), SpawnError[()]]:
+    with spawn(work, Handle(native.malloc(8u64))).drop_job()?:
+        pass
+    Ok(())
+"#;
+    rejected(&copy, copied, &[not_shareable]);
+}
+
+#[test]
+fn contracts_are_declared_once_and_consistently() {
+    let main = "import native\ndef main() -> ():\n    pass\n";
+    for (interface, expected) in [
+        (
+            "@thread_movable\n@thread_shareable\nopaque Raw\n",
+            "`@thread_shareable` already includes `@thread_movable`",
+        ),
+        (
+            "@thread_movable\nextern def pid() -> i32 = \"getpid\"\n",
+            "`@thread_movable` applies only to `opaque` declarations",
+        ),
+        (
+            "@thread_shareable\nclass Box:\n    value: i64\n",
+            "`@thread_shareable` applies only to `opaque` declarations",
+        ),
+        // The release function an owner's `__del__` calls is one of these.
+        (
+            "@thread_movable\nopaque Raw\nextern def free(raw: Raw) -> () = \"free\"\n",
+            "C function taking or returning `native.Raw` must be `@thread_safe`",
+        ),
+        (
+            "@thread_shareable\nopaque Raw\nextern def fill(out: &mut Raw) -> i32 = \"fill\"\n",
+            "must be `@thread_safe`",
+        ),
+    ] {
+        rejected(interface, main, &[expected]);
+    }
+    // Unmarked opaque types keep their unrestricted single-thread bindings.
+    check_with(
+        "opaque Raw\nextern def free(raw: Raw) -> () = \"free\"\n",
+        main,
+    )
+    .unwrap();
 }
 
 #[test]
@@ -307,7 +502,7 @@ fn the_annotation_has_one_meaning_and_one_place() {
     for (interface, expected) in [
         (
             "@thread_safe\nopaque Raw\n",
-            "`@thread_safe` applies only to `extern def` declarations",
+            "`@thread_safe` applies only to `extern def` declarations; an `opaque` type takes `@thread_movable` or `@thread_shareable`",
         ),
         (
             "@thread_safe\nclass Box:\n    value: i64\n",
@@ -342,4 +537,133 @@ fn the_annotation_has_one_meaning_and_one_place() {
         main,
     )
     .unwrap();
+}
+
+/// A pipeline's chunk jobs read or take the source list's rows in place, so
+/// its items cross as a borrowed list's items are lent and an owned list's
+/// items are moved, as they would through `pool.map`.
+#[test]
+fn parallel_pipeline_items_cross_as_their_source_lends_or_moves_them() {
+    let movable = blocks("@thread_movable");
+    let not_shareable = "is `@thread_movable`, not `@thread_shareable`";
+    let borrowed = r#"import native
+from native import Raw
+def ok(raw: &Raw) -> bool:
+    not raw.is_null()
+def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError]:
+    raw = native.malloc(8u64)
+    rows = [raw, raw, raw, raw]?
+    with ThreadPoolExecutor(2, 4)? as pool:
+        print(iter(&rows).par(&pool).filter(ok).count()?)?
+    native.free(raw)
+    Ok(())
+"#;
+    rejected(
+        &movable,
+        borrowed,
+        &["parallel pipeline items", not_shareable],
+    );
+    let owned = r#"import native
+from native import Raw
+def ok(raw: Raw) -> bool:
+    not raw.is_null()
+def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError]:
+    raw = native.malloc(8u64)
+    rows = [raw, raw]?
+    with ThreadPoolExecutor(2, 4)? as pool:
+        print(iter(rows).par(&pool).map(ok).collect()?)?
+    native.free(raw)
+    Ok(())
+"#;
+    rejected(&movable, owned, &["parallel pipeline items", not_shareable]);
+    let shared = r#"import native
+from native import Block
+def ok(block: &Shared[Block]) -> bool:
+    block.ok()
+def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError]:
+    block = Shared(native.block())?
+    blocks = [block.share(), block.share(), block]?
+    with ThreadPoolExecutor(2, 4)? as pool:
+        print(iter(&blocks).par(&pool).filter(ok).count()?)?
+    Ok(())
+"#;
+    rejected(
+        &movable,
+        shared,
+        &["parallel pipeline items", not_shareable],
+    );
+    // Owners moved out of an owned list, and shareable values lent from a
+    // borrowed one, still cross.
+    let moved = r#"import native
+from native import Block
+def ok(block: Block) -> bool:
+    block.ok()
+def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError]:
+    blocks = [native.block(), native.block()]?
+    with ThreadPoolExecutor(2, 4)? as pool:
+        print(iter(blocks).par(&pool).map(ok).collect()?)?
+    Ok(())
+"#;
+    assert_eq!(run_with(&movable, moved), "freed\nfreed\n[True, True]\n");
+    assert_eq!(run_with(&blocks("@thread_shareable"), shared), "3\nfreed\n");
+}
+
+/// `copy(x)` duplicates a class without a destructor, so its movable field
+/// would stay behind on the sending thread.
+#[test]
+fn a_movable_field_crosses_only_in_a_class_copy_rejects() {
+    let movable = blocks("@thread_movable");
+    let interface = format!("{movable}\npub class Holder:\n    pub raw: Raw\n");
+    let copied = r#"import native
+from native import Holder
+def work(holder: Holder) -> bool:
+    not holder.raw.is_null()
+def main() -> Result[(), AllocError | SpawnError[()]]:
+    holder = Holder(native.malloc(8u64))
+    with spawn(work, copy(holder)?).drop_job()? as task:
+        task.join()
+    native.free(holder.raw)
+    Ok(())
+"#;
+    rejected(
+        &interface,
+        copied,
+        &["is `@thread_movable`, not `@thread_shareable`"],
+    );
+}
+
+/// A function-address call has no fixed callee to certify, so worker code
+/// cannot make it; its declaration needs no `@thread_safe`.
+#[test]
+fn function_address_calls_may_take_marked_types() {
+    let interface = "@thread_shareable\npub opaque Raw\n@thread_shareable\npub opaque Function\npub extern def invoke(function: Function, raw: Raw) -> i32 = function\n";
+    let main = "import native\ndef main() -> ():\n    pass\n";
+    check_with(interface, main).unwrap();
+    let worker = r#"import native
+from native import Function, Raw
+def work(function: Function, raw: Raw) -> i32:
+    native.invoke(function, raw)
+def start(function: Function, raw: Raw) -> Result[(), SpawnError[()]]:
+    with spawn(work, function, raw).drop_job()? as task:
+        task.join()
+    Ok(())
+def main() -> ():
+    pass
+"#;
+    rejected(
+        interface,
+        worker,
+        &["foreign calls through a function address have no worker-thread effect contract"],
+    );
+}
+
+/// A `c_string` adapter returns its opaque success value inside a Result.
+#[test]
+fn fallible_outputs_follow_the_consistency_rule() {
+    let main = "import native\ndef main() -> ():\n    pass\n";
+    rejected(
+        "@thread_movable\nopaque Raw\nextern def open_raw(path: &str as c_string) -> Result[Raw, CStrError] = \"open_raw\"\n",
+        main,
+        &["C function taking or returning `native.Raw` must be `@thread_safe`"],
+    );
 }

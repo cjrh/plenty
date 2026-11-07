@@ -82,15 +82,107 @@ The rules have no exceptions:
 - Every declaration of one C symbol in a program agrees on `@thread_safe`.
 - A [function-address declaration](#calling-a-native-address) cannot be
   annotated: its callee is chosen at run time.
-- The annotation certifies calls, not values. A type containing an `opaque`
-  pointer still cannot enter a worker, channel or executor job, because
-  opaque values copy and the compiler cannot bound which threads use the
-  pointee.
+- The annotation certifies calls, not values. Which native values worker
+  code may hold is the [opaque type's thread contract](#opaque-types-on-worker-threads).
 
-A resource that crosses threads is therefore a scalar, such as a file
-descriptor, inside an owner class that is not `@copy`. The owner moves like
-any affine value, and its destructor, which calls an annotated release
-function, runs on the thread that drops it: the worker, the parent after a
-failed thread start, or the last [`Shared`](../01-builtins/shared.md) holder.
-The binding author still decides whether shared (`&Owner`) methods are safe
-to call from several workers at once.
+A scalar resource, such as a file descriptor, crosses inside an owner class
+that is not `@copy`. The owner moves like any affine value, and its destructor,
+which calls an annotated release function, runs on the thread that drops it:
+the worker, the parent after a failed thread start, or the last
+[`Shared`](../01-builtins/shared.md) holder.
+
+## Opaque types on worker threads
+
+An `opaque` declaration states which threads may use its pointees, as
+`@thread_movable` or `@thread_shareable` on the line above it:
+
+```text
+@thread_shareable
+opaque RawFrame
+@thread_safe
+extern def frame_height(frame: RawFrame) -> i64 = "frame_height"
+@thread_safe
+extern def frame_drop(frame: RawFrame) -> () = "frame_drop"
+```
+
+Worker code may hold an opaque value only if its type has one of these
+contracts. Opaque values copy, and a copy that reaches another thread is a
+share, so the contracts differ in how a value may cross:
+
+| Contract | Like Rust | Worker code may hold it | It may cross threads |
+|---|---|---|---|
+| none | | never | never |
+| `@thread_movable` | `Send` | yes | only as a field of a moved class value that `copy(x)` rejects |
+| `@thread_shareable` | `Send + Sync` | yes | in any form: copied, moved, borrowed, in `Shared` or a channel |
+
+The rules have no exceptions:
+
+- A `@thread_movable` type is rejected in the form a value crosses in when
+  that form is a copy, a borrow, a `Shared` value, a bare message, or a class
+  value that `copy(x)` accepts: any `@copy` class, and any class with no
+  destructor anywhere in it. A [`Mutex`](../03-concurrency/mutex.md) guarding
+  the owner restores the moved form, as Rust's `Mutex<T>` needs only `T: Send`.
+- Items of a [parallel pipeline](../../language/09-iteration/06-pipelines.md#parallel-pipelines) cross as
+  `pool.map` inputs do: an owned source list moves them to the chunk jobs and
+  a borrowed one lends them.
+- `@thread_shareable` already includes `@thread_movable`; writing both is an error.
+- Every `extern def` with a C symbol that takes or returns a marked type,
+  directly, through a borrow or as the success value of a `c_string`
+  adapter's `Result`, must be `@thread_safe`. Worker code can call anything
+  that accepts a value it holds, including the release function an owner's
+  `__del__` calls. A function-address declaration (`= function`) cannot be
+  `@thread_safe` and needs no annotation: worker code may never make that
+  call.
+- An unmarked type keeps its unrestricted single-thread bindings.
+
+Destructors are checked as for scalar owners: a worker that moves, receives
+or shares an owner reaches its `__del__`.
+
+### When a binding may mark a type
+
+Mark a type `@thread_movable` only if every pointee:
+
+- may be used and released on a thread other than the one that created it;
+- has no thread affinity, such as a GUI handle, a thread-local allocator or a
+  library context bound to its creating thread;
+- shares no unsynchronized mutable state with other pointees.
+
+Then keep the pointer in a private field of one owner class that holds the
+only copy and releases it in `__del__`. The compiler checks only the type a
+value crosses in: that the pointer is inside a moved class value that
+`copy(x)` rejects. It does not check that the field is private, that this
+class's own `__del__` releases the pointer, or that no other value holds a
+copy of it. Plenty code that copies the pointer into a second owner breaks the
+promise without a diagnostic, so keep the `opaque` declaration and the code
+that builds owners private to the binding module.
+
+Mark a type `@thread_shareable` only if, in addition, any number of threads
+may call every declared function on the same pointee at once. The rule for
+mutation has no exceptions:
+
+> A `@thread_shareable` type is read-only through every declared call;
+> mutation happens only on `@thread_movable` types, which Plenty never calls
+> concurrently on one pointee.
+
+The release function frees the pointee rather than mutating it: its one owner
+calls it once, after every loan has ended. A value built up
+in steps needs a separate `@thread_movable` builder type and a `@thread_safe`
+call that consumes the builder and returns the shareable type. Rust engines
+can assert the promises at compile time, with `T: Send + Sync` on each
+shareable type and `T: Send` on each builder.
+
+The compiler checks the annotations and their consistency, not this rule. An
+opaque argument is a bare pointer, so a declaration does not say whether the C
+function writes through it; `&mut` of an opaque type is an output slot that
+receives a new pointer, not a write to an existing pointee.
+
+For a function taking a `@thread_movable` type, `@thread_safe` covers
+concurrent calls on distinct pointees only.
+
+[How std.dataframe wraps its engine](dataframe-binding.md) applies these
+guidelines to a Rust engine: builders, owner classes, compile-time assertions
+and a per-call audit.
+
+The [dataframe](../../stdlib/dataframe.md#worker-threads) and
+[linear algebra](../../stdlib/linalg.md#worker-threads) bindings follow these
+guidelines.

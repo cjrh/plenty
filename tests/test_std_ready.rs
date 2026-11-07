@@ -313,7 +313,7 @@ def main() -> Result[(), SpawnError[()]]:
     .unwrap();
     let error = plenty::check_file(&path, None).unwrap_err().to_string();
     assert!(
-        error.contains("has no cross-thread ownership contract"),
+        error.contains("native.Token has no thread contract"),
         "{error}"
     );
 }

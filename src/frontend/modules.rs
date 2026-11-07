@@ -700,14 +700,23 @@ impl Items<'_, '_> {
         for (at, annotation) in &annotations {
             let applies = declaration.is_some_and(|token| match annotation {
                 annotations::Annotation::ThreadSafe => token.is("extern"),
+                annotations::Annotation::ThreadMovable
+                | annotations::Annotation::ThreadShareable => token.is("opaque"),
                 annotations::Annotation::Redacted => token.is("class") || token.is("enum"),
                 annotations::Annotation::Copy | annotations::Annotation::Newtype => {
                     token.is("class")
                 }
             });
             if !applies {
+                let hint = if *annotation == annotations::Annotation::ThreadSafe
+                    && declaration.is_some_and(|token| token.is("opaque"))
+                {
+                    "; an `opaque` type takes `@thread_movable` or `@thread_shareable`"
+                } else {
+                    ""
+                };
                 return Err(at.error(format!(
-                    "`@{}` applies only to {}",
+                    "`@{}` applies only to {}{hint}",
                     annotation.name(),
                     annotation.targets()
                 )));
@@ -761,6 +770,20 @@ impl Items<'_, '_> {
                 name
             } else {
                 self.parser.expect("opaque")?;
+                let has = |wanted| annotations.iter().any(|(_, a)| *a == wanted);
+                let threads = match (
+                    has(annotations::Annotation::ThreadMovable),
+                    has(annotations::Annotation::ThreadShareable),
+                ) {
+                    (true, true) => {
+                        return Err(at.error(
+                            "`@thread_shareable` already includes `@thread_movable`; write only `@thread_shareable`",
+                        ));
+                    }
+                    (true, false) => crate::foreign::Threads::Movable,
+                    (false, true) => crate::foreign::Threads::Shareable,
+                    (false, false) => crate::foreign::Threads::None,
+                };
                 let name = self.parser.name()?;
                 self.parser
                     .kind(Kind::Newline, "the end of the opaque pointer declaration")?;
@@ -774,6 +797,7 @@ impl Items<'_, '_> {
                         args: vec![],
                         concrete: Some(Box::new(Ty::ForeignPtr(
                             qualified(&module.name, &name).into(),
+                            threads,
                         ))),
                         metadata: None,
                     },
@@ -2990,7 +3014,7 @@ fn resolve(
                     },
                 );
             }
-            if let Some(Ty::ForeignPtr(name)) = a.target.concrete.as_deref() {
+            if let Some(Ty::ForeignPtr(name, _)) = a.target.concrete.as_deref() {
                 result.access.types.insert(
                     name.to_string(),
                     Access {
@@ -3282,7 +3306,7 @@ pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &Access
         let nominal = match ty {
             Ty::Class(c) => Some(&*c.name),
             Ty::Enum(e) => Some(&*e.name),
-            Ty::ForeignPtr(name) => Some(name.as_ref()),
+            Ty::ForeignPtr(name, _) => Some(name.as_ref()),
             _ => None,
         };
         if let Some(name) = nominal

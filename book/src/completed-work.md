@@ -71,7 +71,10 @@ HTTP dates and SSE retry hints with `Duration` and `Timestamp`. WebSocket, SSE,
 readiness and child deadline waits accept caller cancellation while preserving
 server shutdown behavior. [`std.sync`](design/stdlib/sync.md#typed-deadline-waits)
 provides typed channel, future, token and two-channel selection waits; explicit
-millisecond primitives remain as low-level compatibility APIs (B42).
+millisecond primitives remain as low-level compatibility APIs (B42). Issue #792
+makes the reference, tutorial and skill lead with the cancellable waits and
+state that the channel, selection and future millisecond waits take no token,
+with a lesson that ends a long selection on `SIGTERM`.
 
 ## Registered template fragments
 
@@ -108,5 +111,7 @@ Issue #836 adds [scalar comparisons, boolean expressions and `elif`](design/stdl
 so navigation and selection markup can use raw JSON IDs. Registered postorder
 expression trees have an aggregate node cap and bounded depth; runtime boolean
 operators short-circuit under the shared work budget. Strict scalar equality,
-filter precedence and atomic registration remain explicit. Filter arguments,
+filter precedence and atomic registration remain explicit. A compatibility
+follow-up preserves all 16,384 legacy negated placeholders under default limits
+with a 32,768-node budget. Filter arguments,
 arithmetic, ordering comparisons and calls remain unsupported.

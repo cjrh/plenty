@@ -1,0 +1,45 @@
+# Dataframe owners move to, are shared by, and are dropped on worker threads.
+import std.dataframe as df
+from std.dataframe import DataFrame, DataFrameError, Query
+
+def sample() -> Result[DataFrame, DataFrameError | AllocError]:
+    df.frame([
+        df.column_str("station", ["north", "south", "north", "south"]?)?,
+        df.column_f64("reading", [12.0, 30.0, 18.0, 24.0]?)?
+    ]?)
+
+# The worker owns the frame and drops it, so the engine releases it there.
+def owned(data: DataFrame) -> Result[i64, DataFrameError]:
+    data.height()
+
+def total(data: Shared[DataFrame]) -> Result[f64, DataFrameError | AllocError]:
+    mut sum = 0.0
+    for value in data.values_f64("reading")?:
+        sum += value
+    Ok(sum)
+
+def collect(query: Query) -> Result[i64, DataFrameError]:
+    query.collect()?.height()
+
+def built() -> Result[list[str], DataFrameError | AllocError]:
+    sample()?.values_str("station")
+
+def main() -> Result[(), DataFrameError | AllocError | IoError | SpawnError[()] | PoolError | SubmitError[()] | FutureError]:
+    with spawn(owned, sample()?).drop_job()? as task:
+        print(task.join()?)?
+    shared = Shared(sample()?)?
+    with spawn(total, shared.share()).drop_job()? as first, spawn(total, shared.share()).drop_job()? as second:
+        print(first.join()? + second.join()?)?
+    query = shared.lazy()?.filter(df.col("reading")?.gt(df.lit(15.0)?)?)?
+    with spawn(collect, query).drop_job()? as task:
+        print(task.join()?)?
+    with spawn(built).drop_job()? as task:
+        print(task.join()?)?
+    with ThreadPoolExecutor(2, 2)? as pool:
+        first = pool.submit(total, shared.share()).drop_job()?
+        second = pool.submit(owned, sample()?).drop_job()?
+        print(first.result()?? + 1.0)?
+        print(second.result()??)?
+    print(total(shared)?)?
+    print("dataframe workers ok")?
+    Ok(())

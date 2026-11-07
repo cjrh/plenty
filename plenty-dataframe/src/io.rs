@@ -6,9 +6,14 @@ use std::sync::{Arc, Mutex};
 #[derive(Default)]
 pub struct CsvSchema(Schema);
 destroy!(pldf_v1_csv_schema_drop, CsvSchema);
-export!(pldf_v1_csv_schema_new(out: *mut *mut CsvSchema) { put(out, CsvSchema::default()) });
-export!(pldf_v1_csv_schema_add(schema: *mut CsvSchema, name: *const u8, len: usize, dtype: i32) {
-    let schema = schema.as_mut().ok_or_else(|| NativeError::new(1, "null CSV schema owner"))?;
+builder!(
+    CsvSchemaBuilder(CsvSchema),
+    pldf_v1_csv_schema_builder_new = CsvSchema::default(),
+    pldf_v1_csv_schema_builder_finish,
+    pldf_v1_csv_schema_builder_drop
+);
+export!(pldf_v1_csv_schema_builder_add(builder: *mut CsvSchemaBuilder, name: *const u8, len: usize, dtype: i32) {
+    let schema = &mut builder.as_mut().ok_or_else(|| NativeError::new(1, "null CSV schema builder"))?.0;
     let name = text(name, len)?;
     let dtype = match dtype {
         0 => DataType::Int64, 1 => DataType::Float64,
@@ -220,21 +225,22 @@ mod tests {
         let query;
         // SAFETY: schema owns names and is cloned by scan before its unique drop.
         unsafe {
-            let mut schema = ptr::null_mut();
-            success(pldf_v1_csv_schema_new(&mut schema));
+            let mut builder = ptr::null_mut();
+            success(pldf_v1_csv_schema_builder_new(&mut builder));
             for (name, dtype) in [
                 ("column_1", 3),
                 ("column_2", 1),
                 ("column_3", 2),
                 ("column_4", 3),
             ] {
-                success(pldf_v1_csv_schema_add(
-                    schema,
+                success(pldf_v1_csv_schema_builder_add(
+                    builder,
                     name.as_ptr(),
                     name.len(),
                     dtype,
                 ));
             }
+            let schema = pldf_v1_csv_schema_builder_finish(builder);
             query = scan(&path, false, ";", 0, Some("NA"), &*schema);
             pldf_v1_csv_schema_drop(schema);
         }
@@ -417,22 +423,23 @@ mod tests {
                 ),
                 Some(1),
             );
-            let mut override_schema = ptr::null_mut();
-            success(pldf_v1_csv_schema_new(&mut override_schema));
-            success(pldf_v1_csv_schema_add(
-                override_schema,
+            let mut builder = ptr::null_mut();
+            success(pldf_v1_csv_schema_builder_new(&mut builder));
+            success(pldf_v1_csv_schema_builder_add(
+                builder,
                 b"missing".as_ptr(),
                 7,
                 0,
             ));
             failure(
-                pldf_v1_csv_schema_add(override_schema, b"missing".as_ptr(), 7, 0),
+                pldf_v1_csv_schema_builder_add(builder, b"missing".as_ptr(), 7, 0),
                 Some(1),
             );
             failure(
-                pldf_v1_csv_schema_add(override_schema, b"x".as_ptr(), 1, 4),
+                pldf_v1_csv_schema_builder_add(builder, b"x".as_ptr(), 1, 4),
                 Some(1),
             );
+            let override_schema = pldf_v1_csv_schema_builder_finish(builder);
             failure(
                 pldf_v1_scan_csv(
                     path.as_ptr(),

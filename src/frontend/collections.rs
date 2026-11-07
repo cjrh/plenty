@@ -3790,7 +3790,7 @@ impl Lower<'_> {
             return self.call_value(&field, args, ops);
         }
         if name == "null"
-            && let Some(ty @ Ty::ForeignPtr(_)) = self.qualified_type(base)?
+            && let Some(ty @ Ty::ForeignPtr(..)) = self.qualified_type(base)?
         {
             if !args.is_empty() {
                 return Err(base.at.error("null takes no arguments"));
@@ -4299,7 +4299,7 @@ impl Lower<'_> {
                 .numeric_method(base, name, args, (ty, loans), ops)
                 .map(Some);
         }
-        if name == "is_null" && matches!(ty, Ty::ForeignPtr(_)) {
+        if name == "is_null" && matches!(ty, Ty::ForeignPtr(..)) {
             if !args.is_empty() {
                 return Err(base.at.error("is_null takes no arguments"));
             }
