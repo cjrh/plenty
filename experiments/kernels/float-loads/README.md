@@ -44,7 +44,11 @@ itself:
 | [`../unchecked-index/float-load.clif`](../unchecked-index/float-load.clif) | Older unrotated loop; exit reads the header's parameter, so the sum has one use | 7, with `addsd (%rdi,%rax,8)` folded |
 
 Merging the latch alone gains nothing, so the remaining fold is a Cranelift
-lowering heuristic, not a Plenty change; issue #853 tracks the upstream write-up.
+lowering heuristic, not a Plenty change. Issue #853's upstream write-up,
+[`upstream-use-state.md`](upstream-use-state.md), has a minimal CLIF
+reproduction ([`use-state.clif`](use-state.clif)), a proposed Cranelift change
+([`use-state.patch`](use-state.patch)), its effect on these kernels with and
+without a merged latch, and the Plenty-side workarounds that do not help.
 
 Whole programs, `instructions:u`, identical output:
 
@@ -65,3 +69,8 @@ objdump -d --no-show-raw-insn /tmp/f.o | python3 experiments/kernels/loops.py
 target/kernel-harness/release/plenty-kernel-harness \
   experiments/kernels/float-loads/gather-merged-latch.clif | python3 experiments/kernels/loops.py
 ```
+
+To measure the patch, copy `cranelift-codegen` 0.137.0 from the Cargo
+registry, apply `use-state.patch` in the crate directory with `patch -p3`
+(its paths are relative to the Wasmtime repository), and build a copy of the
+harness with `[patch.crates-io] cranelift-codegen = { path = ... }`.

@@ -1,0 +1,108 @@
+; `sum_index` from kernels.plenty at main 2945afb3 (--dump clif), with its
+; single-predecessor latch blocks merged into the body. See upstream-use-state.md.
+function u0:61(i128, i64) -> f64 tail {
+    ss0 = explicit_slot 16, align = 16
+    gv0 = symbol colocated userextname0 ; .Ldata1 (trap sites: 1)
+    sig0 = (i64, i64) system_v
+    fn0 = colocated u0:55 sig0 ; plenty_trap_list_index
+
+block0(v0: i128, v1: i64):
+                                    v42 -> v0
+                                    v54 -> v0
+                                    v23 -> v42
+    v2 = iconst.i64 0
+    v3 = uextend.i128 v2  ; v2 = 0
+    ; line 6
+    v4 = f64const 0.0
+    v41 -> v4
+    ; line 7
+    v5 = iconst.i64 0
+    v43 -> v5
+    v6 = iconst.i64 1
+    v44 -> v6
+    v71 -> v6
+    v37 -> v44
+    v7 = iconst.i64 0
+    v8 = icmp sgt v6, v7  ; v6 = 1, v7 = 0
+    v9 = select v8, v5, v1  ; v5 = 0
+    v10 = select v8, v1, v5  ; v5 = 0
+    v11 = icmp slt v9, v10
+    v12 = isub v10, v9
+    v13 = ineg v6  ; v6 = 1
+    v14 = select v8, v6, v13  ; v6 = 1
+    v15 = iconst.i64 1
+    v16 = iconst.i64 0
+    v17 = select v11, v12, v16  ; v16 = 0
+    v18 -> v17
+    jump block2
+
+block3:
+    v19 = iconst.i64 0
+    v20 = icmp.i64 sgt v18, v19  ; v19 = 0
+    v21 = icmp.i64 sle v18, v19  ; v19 = 0
+    brif v21, block1(v41), block4(v41, v43, v18)  ; v41 = 0.0, v41 = 0.0, v43 = 0
+
+block4(v22: f64, v25: i64, v34: i64):
+    ; line 8
+    v24 = ireduce.i64 v23
+    v26, v27 = isplit.i128 v23
+    v28 = iconst.i64 3
+    v29 = ishl v25, v28  ; v28 = 3
+    v30 = iadd v26, v29
+    v31 = uextend.i128 v30
+    v32 = load.f64 notrap aligned v30
+    v33 = fadd v22, v32
+    v35 = iconst.i64 1
+    v36 = isub v34, v35  ; v35 = 1
+    v38 = iadd v25, v37  ; v37 = 1
+    ; line 7
+    v39 = iconst.i64 0
+    v40 = icmp.i64 sgt v36, v39  ; v39 = 0
+    brif v40, block4(v33, v38, v36), block1(v33)
+
+block2:
+    ; line 8
+    v45, v46 = isplit.i128 v0
+    v47 = iconst.i64 0
+    v48 = iadd v46, v47  ; v47 = 0
+    v49 = icmp.i64 sle v1, v48
+    brif v49, block3, block6
+
+block6:
+    v50 = iconst.i64 0
+    v51 = icmp.i64 sgt v17, v50  ; v50 = 0
+    v52 = icmp.i64 sle v17, v50  ; v50 = 0
+    brif v52, block1(v4), block7(v4, v5, v17)  ; v4 = 0.0, v4 = 0.0, v5 = 0
+
+block7(v53: f64, v56: i64, v68: i64):
+    v55 = ireduce.i64 v54
+    v57, v58 = isplit.i128 v54
+    v59 = icmp ult v56, v58
+    brif v59, block10, block9
+
+block9 cold:
+    v60 = stack_addr.i64 ss0
+    store.i64 notrap aligned v56, v60
+    store.i64 notrap aligned v58, v60+8
+    v61 = symbol_value.i64 gv0
+    call fn0(v60, v61)
+    trap user3
+
+block10:
+    v62 = iconst.i64 3
+    v63 = ishl.i64 v56, v62  ; v62 = 3
+    v64 = iadd.i64 v57, v63
+    v65 = uextend.i128 v64
+    v66 = load.f64 notrap aligned v64
+    v67 = fadd.f64 v53, v66
+    v69 = iconst.i64 1
+    v70 = isub.i64 v68, v69  ; v69 = 1
+    v72 = iadd.i64 v56, v71  ; v71 = 1
+    v73 = iconst.i64 0
+    v74 = icmp.i64 sgt v70, v73  ; v73 = 0
+    brif v74, block7(v67, v72, v70), block1(v67)
+
+block1(v75: f64):
+    ; line 9
+    return v75
+}

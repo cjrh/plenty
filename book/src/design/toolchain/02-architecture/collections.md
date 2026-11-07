@@ -89,6 +89,12 @@ it cannot fail if the first passed (issue #721). It then
 loads or stores the declared bytes. Reads preserve payload bits before
 narrowing; an `f32` or `f64` element, or a quantity over one, loads as that
 float type, so x86-64 needs no move from an integer register (issue #812).
+A summing loop still loads the element into a register before `addsd`
+rather than using it as a memory operand: Cranelift 0.137.0 does not sink a
+load whose user's result is passed to both the back edge and the exit, and the
+loop's separate latch block keeps the addition apart from the load. The
+reproduction and a proposed Cranelift change are in
+`experiments/kernels/float-loads/upstream-use-state.md` (issue #853).
 Writes store the same bits a write through an element reference would. An index out of bounds calls
 `plenty_trap_list_index`, which reports the index as written, the length and
 the site, as the generic path does. The failure block stores the index and

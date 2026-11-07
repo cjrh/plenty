@@ -205,7 +205,10 @@ are recorded there.
   upstream report/fix before removing the 2,048-argument fallback. Reopen issue
   #425's deferred arithmetic-check work only when Cranelift changes unfused
   overflow branches, frame setup or callee-save spills; do not treat closed
-  investigations as active claims.
+  investigations as active claims. Folding a float reduction's load into
+  `addsd` needs Cranelift to stop counting block-call arguments as merging
+  uses, then a latch merged into the loop body (issue #853; write-up in
+  `experiments/kernels/float-loads/upstream-use-state.md`).
 
 ### Stdlib-driven language ergonomics
 

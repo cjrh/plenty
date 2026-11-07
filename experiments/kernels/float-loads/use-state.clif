@@ -1,0 +1,50 @@
+; Minimal reproduction for the Cranelift write-up in upstream-use-state.md.
+; Both functions sum `n` f64 values at `p`, with a separate down counter.
+; `exit_sum` passes the sum to the back edge and to the exit, as every
+; rotated reduction loop does; `exit_count` passes it only to the back edge.
+
+test compile
+set opt_level=speed
+target x86_64
+
+function %exit_sum(i64, i64) -> f64 {
+block0(v0: i64, v1: i64):
+    v2 = f64const 0.0
+    v3 = iconst.i64 0
+    v4 = icmp sle v1, v3
+    brif v4, block2(v2), block1(v2, v0, v1)
+
+block1(v10: f64, v11: i64, v12: i64):
+    v13 = load.f64 notrap aligned v11
+    v14 = fadd v10, v13
+    v5 = iconst.i64 8
+    v15 = iadd v11, v5
+    v6 = iconst.i64 1
+    v16 = isub v12, v6
+    v17 = icmp sgt v16, v3
+    brif v17, block1(v14, v15, v16), block2(v14)
+
+block2(v20: f64):
+    return v20
+}
+
+function %exit_count(i64, i64) -> i64 {
+block0(v0: i64, v1: i64):
+    v2 = f64const 0.0
+    v3 = iconst.i64 0
+    v4 = icmp sle v1, v3
+    brif v4, block2(v3), block1(v2, v0, v1)
+
+block1(v10: f64, v11: i64, v12: i64):
+    v13 = load.f64 notrap aligned v11
+    v14 = fadd v10, v13
+    v5 = iconst.i64 8
+    v15 = iadd v11, v5
+    v6 = iconst.i64 1
+    v16 = isub v12, v6
+    v17 = icmp sgt v16, v3
+    brif v17, block1(v14, v15, v16), block2(v16)
+
+block2(v20: i64):
+    return v20
+}
