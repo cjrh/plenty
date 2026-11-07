@@ -4,6 +4,10 @@
 value tree and writes a tree back as TOML text, under explicit limits, with one
 error type, `TomlError`.
 
+For application classes and enums, use [typed TOML codecs](toml-codecs.md)
+with [`@serial`](serial-derive.md); the same hooks support JSON. Value-tree
+APIs remain useful for dynamic data and dates or times.
+
 For editing human-maintained files, `document_text` and `document` create a
 [`Document`](toml-editing.md) that preserves the source layout. Use the value
 tree writer below for generated files.
@@ -280,7 +284,8 @@ size and shape.
   tree is final before the end of input.
 - Integers are `i64` and floats `f64`, as TOML 1.0 requires of
   implementations; a larger integer is an error, never rounded.
-- No tree equality, path lookup, or typed decoding helpers; a typed reader is
-  written by hand over the tree with `find`.
+- Tree equality and path lookup are not provided. Use the
+  [typed codecs](toml-codecs.md) for application records, or `find` for manual
+  tree traversal.
 - TOML 1.1 additions (newlines and trailing commas in inline tables, `\e`,
   `\xHH`, optional seconds) are rejected.

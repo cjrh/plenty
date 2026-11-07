@@ -43,7 +43,9 @@ it does not silently remove dictionary entries or array elements.
 
 A class without `__init__` uses its normal generated field constructor. An
 explicit initializer must accept exactly the fields by name and the same semantic type
-for automatic decoding. The generated hook calls the real initializer, with
+for automatic decoding. For generic classes, field and error-domain eligibility
+uses the concrete
+type arguments. The generated hook calls the real initializer, with
 named arguments in its parameter declaration order, so validation is preserved.
 An initializer whose parameter names do not match the fields receives only an
 encoding hook. Write `__decode__` when construction needs a different shape.
@@ -79,8 +81,9 @@ carry `Step.Index`. Generic enums specialize their payload codecs normally.
 ## Composition and errors
 
 Derived and handwritten hooks compose through classes, enums, collections,
-`Box` and recursive types. Format nesting limits stop recursive decoding and
-encoding. The generated hooks use no worker-ineligible operation, so ordinary
+`Box` and recursive types. Format nesting limits and the
+[native stack budget](serial.md#errors-and-costs) stop recursive decoding and
+encoding with typed errors. The generated hooks use no worker-ineligible operation, so ordinary
 worker eligibility follows the concrete fields, hooks and adapter.
 
 Failures retain the format's typed cause inside `SerialError`. Field and variant

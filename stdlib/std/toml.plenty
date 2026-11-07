@@ -2185,27 +2185,31 @@ pub class TreeDecoder:
         self.skip()
 
     def skip(self: &mut TreeDecoder) -> Result[(), TomlError]:
-        match &self._value:
-            case Some(value):
-                match value:
-                    case Toml.Array(_):
-                        self.start_array()?
-                        while self.next_element()?:
-                            self.skip()?
-                    case Toml.Table(_):
-                        self.start_object()?
-                        while True:
-                            match self.next_key()?:
-                                case Some(_):
-                                    self.skip()?
-                                case Nothing:
-                                    break
-                    case Toml.Text(_):
-                        drop(self.text()?)
-                    case _:
-                        drop(self.take()?)
-            case Nothing:
-                return Err(codec_invalid())
+        # Reuse the owning traversal frames: nested unknown values must not
+        # recurse on the native stack or consume the enclosing object's siblings.
+        baseline = len(self._frames)
+        while True:
+            match &self._value:
+                case Some(value):
+                    match value:
+                        case Toml.Array(_):
+                            self.start_array()?
+                        case Toml.Table(_):
+                            self.start_object()?
+                        case Toml.Text(_):
+                            drop(self.text()?)
+                        case _:
+                            drop(self.take()?)
+                case Nothing:
+                    return Err(codec_invalid())
+            while self._value.is_none():
+                if len(self._frames) == baseline:
+                    return Ok(())
+                match &self._frames[-1]:
+                    case DecodeFrame.Items(_):
+                        drop(self.next_element()?)
+                    case DecodeFrame.Members(_):
+                        drop(self.next_key()?)
         Ok(())
 
     pub def finish(self: &mut TreeDecoder) -> Result[(), TomlError]:

@@ -4,6 +4,10 @@
 manifests, into a value tree, and writes a tree back as TOML text. Every call
 takes explicit limits.
 
+For a known application schema, [decode configuration into classes](30-typed-configuration.md)
+with `@serial` and `std.toml.load[T]`. The value-tree API below is useful when
+the document's shape is dynamic or includes TOML date-time values.
+
 ## Parse a configuration file
 
 ```plenty

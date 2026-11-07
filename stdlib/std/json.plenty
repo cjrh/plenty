@@ -2037,33 +2037,37 @@ pub class TreeDecoder:
         self.skip()
 
     def skip(self: &mut TreeDecoder) -> Result[(), JsonError]:
-        match &self._value:
-            case Some(value):
-                match value:
-                    case Json.Null:
-                        drop(self.null()?)
-                    case Json.Bool(_):
-                        drop(self.boolean()?)
-                    case Json.Int(_):
-                        drop(self.integer()?)
-                    case Json.Float(_):
-                        drop(self.decimal()?)
-                    case Json.Text(_):
-                        drop(self.text()?)
-                    case Json.Array(_):
-                        self.start_array()?
-                        while self.next_element()?:
-                            self.skip()?
-                    case Json.Object(_):
-                        self.start_object()?
-                        while True:
-                            match self.next_key()?:
-                                case Some(_):
-                                    self.skip()?
-                                case Nothing:
-                                    break
-            case Nothing:
-                return Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+        # Reuse the owning traversal frames: nested unknown values must not
+        # recurse on the native stack or consume the enclosing object's siblings.
+        baseline = len(self._frames)
+        while True:
+            match &self._value:
+                case Some(value):
+                    match value:
+                        case Json.Null:
+                            drop(self.null()?)
+                        case Json.Bool(_):
+                            drop(self.boolean()?)
+                        case Json.Int(_):
+                            drop(self.integer()?)
+                        case Json.Float(_):
+                            drop(self.decimal()?)
+                        case Json.Text(_):
+                            drop(self.text()?)
+                        case Json.Array(_):
+                            self.start_array()?
+                        case Json.Object(_):
+                            self.start_object()?
+                case Nothing:
+                    return Err(JsonError(JsonFault.InvalidState, 0, 0, 0))
+            while self._value.is_none():
+                if len(self._frames) == baseline:
+                    return Ok(())
+                match &self._frames[-1]:
+                    case TreeFrame.Items(_):
+                        drop(self.next_element()?)
+                    case TreeFrame.Members(_):
+                        drop(self.next_key()?)
         Ok(())
 
     pub def finish(self: &mut TreeDecoder) -> Result[(), JsonError]:

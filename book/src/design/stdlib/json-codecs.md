@@ -1,7 +1,7 @@
 # Typed JSON codecs
 
-[`std.serial`](serial.md) supplies built-in codecs and private handwritten
-class/enum hooks. `std.json` adapts those codecs to JSON events and to an
+[`std.serial`](serial.md) supplies built-in codecs, [`@serial`](serial-derive.md)
+derivation, and private handwritten class/enum hooks. `std.json` adapts those codecs to JSON events and to an
 owning `Json` cursor, without serializing and reparsing a tree.
 
 ## Complete documents
@@ -109,7 +109,8 @@ Use each adapter for one operation and discard it after a failure.
 Typed loading, dumping and value conversion return
 `std.serial.SerialError[JsonError]`. Parsing/output
 faults keep the existing typed `JsonError`; schema failures are
-`JsonFault.Serialization(std.serial.Fault)`. Collection and handwritten field
+`JsonFault.Serialization(std.serial.Fault)`. Collection and field
 paths identify nested failures without allocating path entries on success.
-Handwritten hooks control field defaults, constructor validation and enum
-representation. Derivation and automatic field metadata are not implemented.
+Derived hooks preserve constructor validation and absent-field defaults, with
+the representations described in [`@serial`](serial-derive.md). Handwritten
+hooks can override either codec direction.

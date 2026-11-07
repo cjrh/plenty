@@ -819,7 +819,6 @@ fn object_module(
         }
         clist_simd::prepare(&bodies, &mut user_fns);
     }
-    out.serial_stack.prepare(&bodies, &user_fns, &protected);
     sites::mark_context_preserving(&bodies, &mut user_fns);
     runtime.drop_hooks = user_fns
         .iter()
@@ -839,6 +838,8 @@ fn object_module(
         formatting::declare_adapters(&ops, workers, &mut out.module, &mut runtime.format_hooks)?;
     let box_releasers =
         box_release::declare_adapters(&ops, workers, &mut out.module, &mut runtime.box_releasers)?;
+    out.serial_stack
+        .prepare(&bodies, &user_fns, &protected, &box_releasers);
     let runtime = runtime;
     // `bodies` is in declaration order, as `FuncId`s are. The map's own order
     // changes from run to run, which would make the object differ between

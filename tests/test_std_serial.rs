@@ -442,3 +442,42 @@ def main() -> Result[(), IoError]:
         "std.json.JsonFault.InvalidState\nstd.json.JsonFault.InvalidState\nstd.json.JsonFault.InvalidState\n",
     );
 }
+
+#[test]
+fn adapter_nonfinite_float_and_final_tuple_boundary_regressions() {
+    support::assert_stdout(
+        r#"import std.toml
+import std.json
+import std.io
+import std.bytes
+from std.bytes import Bytes
+from std.io import Cursor, StreamError
+
+pub class Failing:
+    cursor: Cursor
+    pub def read(self: &mut Failing, buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]:
+        if self.cursor.position() >= 4:
+            return Err(StreamError.UnexpectedEof)
+        end = unchecked:
+            start + 1
+        self.cursor.read(buffer, start, end)
+
+def main() -> Result[(), IoError | AllocError]:
+    for text in ["a = inf", "a = -inf", "a = nan", "a = 1e39"]?:
+        match std.toml.load[dict[str, f32]](&text, &std.toml.codec_options()):
+            case Ok(values):
+                value = values.get("a").unwrap()
+                print(value == f32.INF, value == -f32.INF, value != value)?
+            case Err(error):
+                print(error.cause.fault, error.path)?
+    mut source = std.json.codec_reader(Failing(std.io.cursor(std.bytes.from_text("[\"x\"]")?)))
+    match std.json.load_from[(str,), Failing](&mut source, &std.json.codec_options()):
+        case Ok(_):
+            print("unexpected")?
+        case Err(error):
+            print(error.cause.fault, error.path)?
+    Ok(())
+"#,
+        "True False False\nFalse True False\nFalse False True\nstd.toml.TomlFault.Serialization(std.serial.Fault.OutOfRange) Option[list[std.serial.Step]].Some([std.serial.Step.Key(\"a\")])\nstd.json.JsonFault.Stream(std.io.StreamError.UnexpectedEof) Option[list[std.serial.Step]].Some([std.serial.Step.Index(1)])\n",
+    );
+}

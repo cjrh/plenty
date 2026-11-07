@@ -172,10 +172,12 @@ collection; `@copy` instances copy. `__hash__` and `__eq__` hooks are unsupporte
 
 An annotation is `@name` alone on a line directly before a declaration. The
 set is closed and compiler-known; there are no user decorators. The
-annotations are `@copy`, `@newtype`, `@redacted`, `@thread_safe`,
+annotations are `@copy`, `@newtype`, `@redacted`, `@serial`, `@thread_safe`,
 `@thread_movable`, and `@thread_shareable`. `@copy`
 and `@newtype` apply only to class declarations, including `pub class`;
-`@redacted` also applies to enums. `@thread_safe` applies only to `extern def`
+`@redacted` also applies to enums. [`@serial`](../../stdlib/serial-derive.md)
+applies to classes and enums and generates missing format-neutral codec hooks.
+`@thread_safe` applies only to `extern def`
 in a `.plentyi` interface; see
 [worker threads](../../facilities/04-interop/trusted-declarations.md#worker-threads).
 `@thread_movable` and `@thread_shareable` apply only to `opaque` declarations;
