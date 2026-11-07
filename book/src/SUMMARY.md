@@ -458,6 +458,7 @@
         - [`std.log`](design/stdlib/log.md)
         - [`std.markdown`](design/stdlib/markdown.md)
         - [`std.template`](design/stdlib/template.md)
+            - [Declared context shapes](design/stdlib/template-schema.md)
         - [`std.math`](design/stdlib/math.md)
         - [`std.mime`](design/stdlib/mime.md)
         - [`std.net`](design/stdlib/net.md)

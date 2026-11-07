@@ -21,6 +21,15 @@ def main() -> Result[(), TemplateError | AllocError | IoError]:
 <p>Hello Ada &amp; Grace!</p>
 ```
 
+## Declared context validation
+
+Use `validate(name, schema)` to check every reachable field path and operation
+against a declared `Shape`, including branches that a sample render skips.
+`render_checked(name, context, schema, html=True)` additionally verifies the
+actual JSON request before rendering. See [declared context shapes](template-schema.md)
+for nullable/optional fields, unions, arrays, composition, errors and bounds.
+Ordinary `add` and `render` keep their existing dynamic contracts.
+
 ## Language
 
 The syntax is a small Jinja-style subset, using [Tera](https://keats.github.io/tera/)
@@ -32,18 +41,20 @@ as a syntax reference, not a Tera/Jinja compatibility implementation.
 | `{{ 'hello' }}`, `{{ 42 }}`, `{{ true }}` | Text, numeric, boolean and `null` literals |
 | `{{ name \| upper }}` | Apply a filter; filters can be chained |
 | `{# comment #}` | Ignore a comment |
-| `{% if active %}yes{% else %}no{% endif %}` | Conditional, with optional `else` |
-| `{% if not active %}...{% endif %}` | Negate a condition |
+| `{% if active %}yes{% elif pending %}wait{% else %}no{% endif %}` | Conditional, with optional `elif` branches and `else` |
+| `{% if current == item.id and not hidden %}...{% endif %}` | Compare scalars and compose conditions |
 | `{% for item in items %}{{ item.name }}{% else %}empty{% endfor %}` | Array loop; optional `else` renders only for an empty array |
 | `{% block title %}Title{% endblock %}` | Define a top-level named block |
 | `{% extends 'base' %}` | Inherit from a registered template |
 | `{% include 'form' with row %}` | Render a registered fragment using an object context |
 
 Names use ASCII letters, digits and underscores, starting with a letter or
-underscore. A path's later segments may be nonnegative array indices. Text
+underscore. The operator words `not`, `and` and `or` are reserved as complete
+expression names; fields such as `record.and` remain valid. A path's later
+segments may be nonnegative array indices. Text
 literals support `\\`, `\'`, `\"`, `\n`, `\r` and `\t`. Conditions treat
 null, false, zero and empty text/arrays/objects as false. Missing fields are
-errors, including in conditions. Arrays and objects cannot be interpolated
+errors when evaluated, including in conditions. Arrays and objects cannot be interpolated
 directly; loop over an array or select a scalar field.
 
 The innermost loop provides `loop.index` (one-based), `loop.index0`, `loop.first`,
@@ -55,11 +66,53 @@ inside that path. Object iteration is not supported.
 Filters are `upper`, `lower`, `trim`, `length`, `escape`, `safe`,
 `escape_text`, `escape_double_quoted` and `escape_single_quoted`. Text filters
 require text. `length` counts Unicode scalars for text and entries for arrays
-or objects. Filters do not accept arguments. Arithmetic, comparisons, boolean
-operators other than `not`, calls, bracket indexing, `elif`, assignments,
-macros and raw blocks are not part
+or objects. Filters do not accept arguments. Arithmetic, ordering comparisons,
+calls, bracket indexing, assignments, macros and raw blocks are not part
 of this version. Unsupported syntax is rejected when registering a template,
 including inside branches that would never execute.
+
+### Expressions and conditional branches
+
+Expressions support paths, literals, `==`, `!=`, `not`, `and`, `or` and
+parentheses. Precedence, from strongest to weakest, is:
+
+| Form | Meaning |
+| --- | --- |
+| `(expression)` | Group explicitly |
+| `value \| filter` | Filter a value or a parenthesized expression |
+| `left == right`, `left != right` | Compare two scalars; chaining is rejected |
+| `not expression` | Negate truthiness |
+| `left and right` | Both operands are truthy |
+| `left or right` | At least one operand is truthy |
+
+For example, `not name | trim == 'Ada'` means `not ((name | trim) == 'Ada')`.
+A filter after parentheses applies to the complete result, as in
+`(' Ada ' | trim) | upper`. Filters retain their ordinary type and escaping
+rules at each node. Boolean results do not accept text or `length` filters.
+Comparisons and boolean operators produce boolean
+values with the default escaping policy; they do not forward an operand's
+`safe` assertion or selected output context.
+
+Equality compares scalar values of the same JSON kind, without conversions.
+Booleans, integers and floats are distinct: `true == 1` and `1 == 1.0` are
+false. Text compares exactly, `null == null` is true, and finite floats use
+numeric equality. Comparing different scalar kinds is false (`!=` is true).
+An array or object on either side returns `TypeMismatch`, including when the
+other side has a different kind. Both comparison operands are evaluated.
+
+`and` and `or` evaluate left to right, short-circuit, and return a boolean,
+rather than returning one of their operands. `false and missing` and
+`true or missing` therefore succeed without looking up `missing`. Evaluated
+missing fields and invalid filter input still return errors. Every operand's
+syntax and filter name is checked during registration, including skipped ones.
+
+An `if` may have any number of `elif` branches followed by at most one `else`.
+Conditions are tested in source order until one is truthy; only its body runs.
+A flat chain adds no recursive nesting depth. `elif` is invalid outside an
+`if`, after its `else`, or as a loop branch. Loop `else` retains its empty-array
+meaning. Expressions are also accepted in interpolations and explicit include
+contexts; an include still requires an object result. Loops retain their
+single-path syntax.
 
 ### Whitespace control
 
@@ -264,11 +317,12 @@ is currently a proposal, not an implemented conversion.
 | --- | --- | ---: | --- |
 | `max_source` | `NonNegative[i64]` | 1,048,576 | Total UTF-8 bytes of registered names and sources |
 | `max_tokens` | `NonNegative[i64]` | 16,384 | Total compiled tokens across templates |
+| `max_expression_nodes` | `NonNegative[i64]` | 16,384 | Total expression AST nodes across registered templates |
 | `max_templates` | `NonNegative[i64]` | 128 | Registered template count |
 | `max_context_nodes` | `Positive[i64]` | 65,536 | Values in a render context, including its root |
 | `max_context_bytes` | `NonNegative[i64]` | 16,777,216 | UTF-8 bytes of context keys and text values |
-| `max_depth` | `Positive[i64]` | 64 | Syntax/context/render nesting and inheritance chain; at most 64 |
-| `max_steps` | `NonNegative[i64]` | 1,000,000 | Render operations, including context construction, lookup and loop visits |
+| `max_depth` | `Positive[i64]` | 64 | Syntax/context/render nesting, expression tree/grouping depth and inheritance chain; at most 64 |
+| `max_steps` | `NonNegative[i64]` | 1,000,000 | Render operations, including context construction, visited expression nodes/filters, lookup and loop visits |
 | `max_output` | `NonNegative[i64]` | 16,777,216 | UTF-8 output bytes and transformed text values |
 
 A literal converts where a field is expected; a computed value needs
@@ -278,17 +332,23 @@ registering; a failure leaves the engine unchanged. Names cannot be empty or
 registered twice. A render failure returns no partial output and leaves the
 engine reusable. Limits bound sizes and work counts, not an exact heap-byte
 quota or wall-clock deadline. Budget totals remain exact: an unrepresentable
-source, token, context-byte or work total returns `TemplateError.LimitExceeded`,
+source, token, expression-node, context-byte or work total returns `TemplateError.LimitExceeded`,
 without wrapping or saturating. Registration commits its totals only after the
-compiled template is appended successfully. Text filters may allocate intermediate
-text.
+compiled template is appended successfully. Expression nodes have their own aggregate
+cap; adding an operator does not change the meaning of `max_tokens`. Parser
+recursion and expression-tree depth are bounded by `max_depth`, while render
+steps charge only evaluated nodes and filters. Registration failures, including
+allocation failures, consume none of the engine's node budget. Text filters may
+allocate intermediate text.
 
 `TemplateError` distinguishes exceeded limits, syntax with a
 zero-based source location, missing/duplicate template names, missing values,
 type mismatches, cycles, allocation failures and byte-buffer errors. Syntax
 locations are UTF-8 byte offsets at the containing template construct, rather
 than at an individual expression character. Allocation errors remain explicit, including those
-wrapped by `BytesError`.
+wrapped by `BytesError`. Declared-shape preflight additionally reports
+`InvalidShape`, `SchemaPath`, `SchemaOptional`, `SchemaType` and `ContextShape`;
+see [their guarantees and locations](template-schema.md).
 
 ## Acknowledgements
 

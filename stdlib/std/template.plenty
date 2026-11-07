@@ -12,8 +12,32 @@ pub enum TemplateError:
     MissingValue(str)
     TypeMismatch
     InheritanceCycle
+    InvalidShape(str)
+    SchemaPath(str, i64, str)
+    SchemaOptional(str, i64, str)
+    SchemaType(str, i64)
+    ContextShape(str)
     Allocation(AllocError)
     Bytes(BytesError)
+
+pub enum Presence:
+    Required
+    Optional
+
+pub enum Shape:
+    Null
+    Bool
+    Int
+    Float
+    Text
+    Array(Box[Shape], NonNegative[i64])
+    Object(list[Field])
+    OneOf(list[Shape])
+
+pub class Field:
+    pub name: str
+    pub shape: Shape
+    pub presence: Presence
 
 pub enum HtmlContext:
     Text
@@ -24,6 +48,7 @@ pub enum HtmlContext:
 pub class Limits:
     pub max_source: NonNegative[i64]
     pub max_tokens: NonNegative[i64]
+    pub max_expression_nodes: NonNegative[i64]
     pub max_templates: NonNegative[i64]
     pub max_context_nodes: Positive[i64]
     pub max_context_bytes: NonNegative[i64]
@@ -32,7 +57,7 @@ pub class Limits:
     pub max_output: NonNegative[i64]
 
 pub def limits() -> Limits:
-    Limits(1048576, 16384, 128, 65536, 16777216, 64, 1000000, 16777216)
+    Limits(1048576, 16384, 16384, 128, 65536, 16777216, 64, 1000000, 16777216)
 
 def allocated[T](value: Result[T, AllocError]) -> Result[T, TemplateError]:
     match value:
@@ -76,14 +101,24 @@ class Value:
 def empty_value() -> Value:
     Value(0, "", 0, 0.0, -1, Emission.Default)
 
-class Expression:
+# Postorder, immutable after registration: every child precedes its parent.
+# Kinds: value, not, ==, !=, and, or. Filters apply before the parent consumes
+# this node's result, including on parenthesized expressions.
+class ExprNode:
+    kind: i64
     literal: Value
     path: list[str]
     filters: list[str]
-    negate: bool
+    left: i64
+    right: i64
+    depth: i64
+
+class Expression:
+    nodes: list[ExprNode]
+    root: i64
 
 def empty_expression() -> Result[Expression, TemplateError]:
-    Ok(Expression(empty_value(), allocated(list[str]())?, allocated(list[str]())?, False))
+    Ok(Expression(allocated(list[ExprNode]())?, -1))
 
 def quoted(text: &str, at: i64) -> Result[str, TemplateError]:
     if len(text) < 2 or text[-1] != text[0]:
@@ -118,81 +153,207 @@ def quoted(text: &str, at: i64) -> Result[str, TemplateError]:
         return Err(TemplateError.Syntax(at))
     allocated("".join(&pieces))
 
-def expression(source: &str, at: i64) -> Result[Expression, TemplateError]:
-    mut parts: list[str] = allocated(list[str]())?
-    mut quote = ""
-    mut escaped = False
-    mut pieces: list[str] = allocated(list[str]())?
-    for scalar in source:
-        if escaped:
-            escaped = False
-        elif quote != "":
-            if scalar == "\\":
-                escaped = True
-            elif scalar == quote:
-                quote = ""
-        elif scalar == "'" or scalar == "\"":
-            quote = *scalar
-        elif scalar == "|":
-            allocated(parts.append(allocated("".join(&pieces))?))?
-            pieces = allocated(list[str]())?
-            continue
-        allocated(pieces.append(*scalar))?
-    if quote != "":
-        return Err(TemplateError.Syntax(at))
-    allocated(parts.append(allocated("".join(&pieces))?))?
-    mut base = allocated(parts[0].strip())?
-    mut negate = False
-    if base.startswith("not "):
-        negate = True
-        base = allocated(allocated(base.slice(4, len(base)))?.strip())?
-    if len(base) == 0:
-        return Err(TemplateError.Syntax(at))
-    mut value = empty_value()
-    mut path: list[str] = allocated(list[str]())?
-    if base[0] == "'" or base[0] == "\"":
-        value.kind = 4
-        value.text = quoted(&base, at)?
-    elif base == "true" or base == "false":
-        value.kind = 1
-        value.integer = 1 if base == "true" else 0
-    elif base == "null":
-        pass
-    elif base[0] in "-0123456789":
-        match i64.parse(base):
-            case Ok(number):
-                value.kind = 2
-                value.integer = number
-            case Err(_):
-                match f64.parse(base):
-                    case Ok(number):
-                        if not std.math.isfinite(number):
-                            return Err(TemplateError.Syntax(at))
-                        value.kind = 3
-                        value.real = number
-                    case Err(_):
-                        return Err(TemplateError.Syntax(at))
-    else:
-        path = allocated(base.split("."))?
-        for index in range(len(path)):
-            if not identifier(&path[index]):
-                if index == 0:
-                    return Err(TemplateError.Syntax(at))
-                match i64.parse(path[index]):
-                    case Ok(number):
-                        if number < 0:
-                            return Err(TemplateError.Syntax(at))
-                    case Err(_):
-                        return Err(TemplateError.Syntax(at))
-    mut filters: list[str] = allocated(list[str]())?
-    for index in range(1, len(parts)):
-        filter = allocated(parts[index].strip())?
-        if filter != "upper" and filter != "lower" and filter != "trim" and filter != "length" and filter != "escape" and filter != "safe" and filter != "escape_text" and filter != "escape_double_quoted" and filter != "escape_single_quoted":
-            return Err(TemplateError.Syntax(at))
-        allocated(filters.append(filter))?
-    Ok(Expression(value, path, filters, negate))
+def valid_filter(name: &str) -> bool:
+    name == "upper" or name == "lower" or name == "trim" or name == "length" or name == "escape" or name == "safe" or name == "escape_text" or name == "escape_double_quoted" or name == "escape_single_quoted"
 
-# Kinds: text, expression, if, else, endif, for, endfor, block, endblock, include.
+def expression_words(source: &str, at: i64) -> Result[list[str], TemplateError]:
+    data = allocated(std.bytes.from_text(source))?
+    mut words = allocated(list[str]())?
+    mut index = 0
+    while index < data.len():
+        byte = data[index]
+        next = unchecked:
+            index + 1
+        if byte == 32u8 or byte == 9u8 or byte == 10u8 or byte == 13u8 or byte == 11u8 or byte == 12u8:
+            index = next
+            continue
+        start = index
+        if byte == 39u8 or byte == 34u8:
+            index = next
+            mut escaped = False
+            mut closed = False
+            while index < data.len():
+                current = data[index]
+                unchecked:
+                    index += 1
+                if escaped:
+                    escaped = False
+                elif current == 92u8:
+                    escaped = True
+                elif current == byte:
+                    closed = True
+                    break
+            if not closed:
+                return Err(TemplateError.Syntax(at))
+        elif byte == 61u8 or byte == 33u8:
+            if next >= data.len() or data[next] != 61u8:
+                return Err(TemplateError.Syntax(at))
+            unchecked:
+                index = next + 1
+        elif byte == 40u8 or byte == 41u8 or byte == 124u8:
+            index = next
+        else:
+            index = next
+            while index < data.len():
+                current = data[index]
+                if current == 32u8 or current == 9u8 or current == 10u8 or current == 13u8 or current == 11u8 or current == 12u8 or current == 39u8 or current == 34u8 or current == 61u8 or current == 33u8 or current == 40u8 or current == 41u8 or current == 124u8:
+                    break
+                unchecked:
+                    index += 1
+        word = bytes_result(data.to_text_range(start, index))?
+        # Preserve Unicode whitespace around the old path/filter forms too.
+        text = allocated(word.strip())?
+        if text != "":
+            allocated(words.append(text))?
+    Ok(words)
+
+class ExprParser:
+    words: list[str]
+    position: i64
+    nodes: list[ExprNode]
+    at: i64
+    node_limit: i64
+
+    def peek(self) -> str:
+        self.words[self.position] if self.position < len(self.words) else ""
+
+    def take(self: &mut ExprParser) -> str:
+        word = self.words[self.position]
+        # All callers established that peek is nonempty.
+        unchecked:
+            self.position += 1
+        word
+
+    def push(self: &mut ExprParser, node: ExprNode, bounds: &Limits) -> Result[i64, TemplateError]:
+        if len(self.nodes) >= self.node_limit or node.depth > bounds.max_depth.get():
+            return Err(TemplateError.LimitExceeded)
+        index = len(self.nodes)
+        allocated(self.nodes.append(node))?
+        Ok(index)
+
+    def operator(self: &mut ExprParser, kind: i64, left: i64, right: i64, bounds: &Limits) -> Result[i64, TemplateError]:
+        mut depth = self.nodes[left].depth
+        if right >= 0 and self.nodes[right].depth > depth:
+            depth = self.nodes[right].depth
+        if depth >= bounds.max_depth.get():
+            return Err(TemplateError.LimitExceeded)
+        unchecked:
+            depth += 1
+        self.push(ExprNode(kind, empty_value(), allocated(list[str]())?, allocated(list[str]())?, left, right, depth), bounds)
+
+    def disjunction(self: &mut ExprParser, depth: i64, bounds: &Limits) -> Result[i64, TemplateError]:
+        mut left = self.conjunction(depth, bounds)?
+        while self.peek() == "or":
+            drop(self.take())
+            right = self.conjunction(depth, bounds)?
+            left = self.operator(5, left, right, bounds)?
+        Ok(left)
+
+    def conjunction(self: &mut ExprParser, depth: i64, bounds: &Limits) -> Result[i64, TemplateError]:
+        mut left = self.negation(depth, bounds)?
+        while self.peek() == "and":
+            drop(self.take())
+            right = self.negation(depth, bounds)?
+            left = self.operator(4, left, right, bounds)?
+        Ok(left)
+
+    def negation(self: &mut ExprParser, depth: i64, bounds: &Limits) -> Result[i64, TemplateError]:
+        if self.peek() == "not":
+            if depth >= bounds.max_depth.get():
+                return Err(TemplateError.LimitExceeded)
+            drop(self.take())
+            next_depth = unchecked:
+                depth + 1
+            child = self.negation(next_depth, bounds)?
+            return self.operator(1, child, -1, bounds)
+        self.equality(depth, bounds)
+
+    def equality(self: &mut ExprParser, depth: i64, bounds: &Limits) -> Result[i64, TemplateError]:
+        left = self.filtered(depth, bounds)?
+        operation = self.peek()
+        if operation != "==" and operation != "!=":
+            return Ok(left)
+        drop(self.take())
+        right = self.filtered(depth, bounds)?
+        self.operator(2 if operation == "==" else 3, left, right, bounds)
+
+    def filtered(self: &mut ExprParser, depth: i64, bounds: &Limits) -> Result[i64, TemplateError]:
+        node = self.atom(depth, bounds)?
+        while self.peek() == "|":
+            drop(self.take())
+            filter = self.peek()
+            if not valid_filter(&filter):
+                return Err(TemplateError.Syntax(self.at))
+            drop(self.take())
+            allocated(self.nodes[node].filters.append(filter))?
+        Ok(node)
+
+    def atom(self: &mut ExprParser, depth: i64, bounds: &Limits) -> Result[i64, TemplateError]:
+        if depth > bounds.max_depth.get():
+            return Err(TemplateError.LimitExceeded)
+        base = self.peek()
+        if base == "" or base == ")" or base == "|" or base == "==" or base == "!=" or base == "and" or base == "or" or base == "not":
+            return Err(TemplateError.Syntax(self.at))
+        drop(self.take())
+        if base == "(":
+            if depth >= bounds.max_depth.get():
+                return Err(TemplateError.LimitExceeded)
+            next_depth = unchecked:
+                depth + 1
+            node = self.disjunction(next_depth, bounds)?
+            if self.peek() != ")":
+                return Err(TemplateError.Syntax(self.at))
+            drop(self.take())
+            return Ok(node)
+        mut value = empty_value()
+        mut path = allocated(list[str]())?
+        if base[0] == "'" or base[0] == "\"":
+            value.kind = 4
+            value.text = quoted(&base, self.at)?
+        elif base == "true" or base == "false":
+            value.kind = 1
+            value.integer = 1 if base == "true" else 0
+        elif base == "null":
+            pass
+        elif base[0] in "-0123456789":
+            match i64.parse(base):
+                case Ok(number):
+                    value.kind = 2
+                    value.integer = number
+                case Err(_):
+                    match f64.parse(base):
+                        case Ok(number):
+                            if not std.math.isfinite(number):
+                                return Err(TemplateError.Syntax(self.at))
+                            value.kind = 3
+                            value.real = number
+                        case Err(_):
+                            return Err(TemplateError.Syntax(self.at))
+        else:
+            path = allocated(base.split("."))?
+            for index in range(len(path)):
+                if not identifier(&path[index]):
+                    if index == 0:
+                        return Err(TemplateError.Syntax(self.at))
+                    match i64.parse(path[index]):
+                        case Ok(number):
+                            if number < 0:
+                                return Err(TemplateError.Syntax(self.at))
+                        case Err(_):
+                            return Err(TemplateError.Syntax(self.at))
+        self.push(ExprNode(0, value, path, allocated(list[str]())?, -1, -1, 1), bounds)
+
+def expression(source: &str, at: i64, bounds: &Limits, remaining: &mut i64) -> Result[Expression, TemplateError]:
+    mut parser = ExprParser(expression_words(source, at)?, 0, allocated(list[ExprNode]())?, at, *remaining)
+    root = parser.disjunction(1, bounds)?
+    if parser.peek() != "":
+        return Err(TemplateError.Syntax(at))
+    # push admitted every node against this registration's remaining budget.
+    unchecked:
+        *remaining -= len(parser.nodes)
+    Ok(Expression(parser.nodes, root))
+
+# Kinds: text, expression, if, else, endif, for, endfor, block, endblock, include, elif.
 class Token:
     kind: i64
     text: str
@@ -259,7 +420,7 @@ def push_token(tokens: &mut list[Token], token: Token, bounds: &Limits) -> Resul
         return Err(TemplateError.LimitExceeded)
     allocated(tokens.append(token))
 
-def include_expression(source: &str, at: i64) -> Result[(str, Expression, i64), TemplateError]:
+def include_expression(source: &str, at: i64, bounds: &Limits, remaining: &mut i64) -> Result[(str, Expression, i64), TemplateError]:
     if len(source) < 2 or (source[0] != "'" and source[0] != "\""):
         return Err(TemplateError.Syntax(at))
     mut escaped = False
@@ -282,11 +443,12 @@ def include_expression(source: &str, at: i64) -> Result[(str, Expression, i64), 
                 return Ok((name, empty_expression()?, 0))
             if not rest.startswith("with "):
                 return Err(TemplateError.Syntax(at))
-            expr = expression(&allocated(allocated(rest.slice(5, len(rest)))?.strip())?, at)?
+            expr = expression(&allocated(allocated(rest.slice(5, len(rest)))?.strip())?, at, bounds, remaining)?
             return Ok((name, expr, 1))
     Err(TemplateError.Syntax(at))
 
-def parse(name: str, source: &str, bounds: &Limits) -> Result[Template, TemplateError]:
+def parse(name: str, source: &str, bounds: &Limits, node_budget: i64) -> Result[Template, TemplateError]:
+    mut remaining = node_budget
     data = allocated(std.bytes.from_text(source))?
     mut tokens: list[Token] = allocated(list[Token]())?
     mut stack: list[i64] = allocated(list[i64]())?
@@ -357,7 +519,7 @@ def parse(name: str, source: &str, bounds: &Limits) -> Result[Template, Template
         if marker == 123u8:
             if parent != "" and len(stack) == 0:
                 return Err(TemplateError.Syntax(at))
-            push_token(&mut tokens, Token(1, "", expression(&content, at)?, -1, -1, at), bounds)?
+            push_token(&mut tokens, Token(1, "", expression(&content, at, bounds, &mut remaining)?, -1, -1, at), bounds)?
             significant = True
             continue
         if content.startswith("extends "):
@@ -378,17 +540,30 @@ def parse(name: str, source: &str, bounds: &Limits) -> Result[Template, Template
         mut alternate = -1
         if content.startswith("if "):
             kind = 2
-            expr = expression(&allocated(content.slice(3, len(content)))?, at)?
+            expr = expression(&allocated(content.slice(3, len(content)))?, at, bounds, &mut remaining)?
+        elif content.startswith("elif "):
+            if len(stack) == 0 or tokens[stack[-1]].kind != 2:
+                return Err(TemplateError.Syntax(at))
+            opening = stack[-1]
+            previous = tokens[opening].jump if tokens[opening].jump >= 0 else opening
+            if tokens[previous].kind == 3:
+                return Err(TemplateError.Syntax(at))
+            tokens[previous].alternate = len(tokens)
+            # During parsing, the opening if's jump temporarily tracks the
+            # branch tail. Closing endif replaces every branch jump below.
+            tokens[opening].jump = len(tokens)
+            kind = 10
+            expr = expression(&allocated(content.slice(5, len(content)))?, at, bounds, &mut remaining)?
         elif content.startswith("for "):
             words = allocated(content.split())?
             if len(words) != 4 or words[2] != "in" or not identifier(&words[1]) or words[1] == "loop":
                 return Err(TemplateError.Syntax(at))
             kind = 5
             label = words[1]
-            expr = expression(&words[3], at)?
+            expr = expression(&words[3], at, bounds, &mut remaining)?
         elif content.startswith("include "):
             kind = 9
-            (included_name, included_expr, explicit) = include_expression(&allocated(allocated(content.slice(8, len(content)))?.strip())?, at)?
+            (included_name, included_expr, explicit) = include_expression(&allocated(allocated(content.slice(8, len(content)))?.strip())?, at, bounds, &mut remaining)?
             label = included_name
             expr = included_expr
             alternate = explicit
@@ -402,9 +577,14 @@ def parse(name: str, source: &str, bounds: &Limits) -> Result[Template, Template
             if len(stack) == 0:
                 return Err(TemplateError.Syntax(at))
             opening = stack[-1]
-            if (tokens[opening].kind != 2 and tokens[opening].kind != 5) or tokens[opening].alternate != -1:
+            if tokens[opening].kind != 2 and tokens[opening].kind != 5:
                 return Err(TemplateError.Syntax(at))
-            tokens[opening].alternate = len(tokens)
+            previous = tokens[opening].jump if tokens[opening].kind == 2 and tokens[opening].jump >= 0 else opening
+            if tokens[previous].kind == 3 or tokens[previous].alternate != -1:
+                return Err(TemplateError.Syntax(at))
+            tokens[previous].alternate = len(tokens)
+            if tokens[opening].kind == 2:
+                tokens[opening].jump = len(tokens)
             kind = 3
         elif content == "endif" or content == "endfor" or content == "endblock":
             if len(stack) == 0:
@@ -418,7 +598,16 @@ def parse(name: str, source: &str, bounds: &Limits) -> Result[Template, Template
                 return Err(TemplateError.Syntax(at))
             if kind == 4 and tokens[opening].kind != 2:
                 return Err(TemplateError.Syntax(at))
-            tokens[opening].jump = len(tokens)
+            if kind == 4:
+                mut branch = opening
+                while True:
+                    alternate = tokens[branch].alternate
+                    tokens[branch].jump = len(tokens)
+                    if alternate < 0 or tokens[alternate].kind != 10:
+                        break
+                    branch = alternate
+            else:
+                tokens[opening].jump = len(tokens)
         else:
             return Err(TemplateError.Syntax(at))
         if parent != "" and len(stack) == 0 and kind != 7 and kind != 8:
@@ -631,12 +820,55 @@ def escape_bounded(text: &str, context: HtmlContext, max_bytes: i64) -> Result[s
             allocated(output.extend(&replacement))?
     bytes_result(output.to_text())
 
+def scalar_equal(left: &Value, right: &Value) -> Result[bool, TemplateError]:
+    if left.kind >= 5 or right.kind >= 5:
+        return Err(TemplateError.TypeMismatch)
+    if left.kind != right.kind:
+        return Ok(False)
+    if left.kind == 0:
+        Ok(True)
+    elif left.kind == 1 or left.kind == 2:
+        Ok(left.integer == right.integer)
+    elif left.kind == 3:
+        Ok(left.real == right.real)
+    else:
+        Ok(left.text == right.text)
+
+def boolean_value(value: bool) -> Value:
+    Value(1, "", 1 if value else 0, 0.0, -1, Emission.Default)
+
 def evaluate(expr: &Expression, state: &mut State, bounds: &Limits) -> Result[Value, TemplateError]:
+    evaluate_node(expr, expr.root, state, bounds, 1)
+
+def evaluate_node(expr: &Expression, index: i64, state: &mut State, bounds: &Limits, depth: i64) -> Result[Value, TemplateError]:
+    if depth > bounds.max_depth.get():
+        return Err(TemplateError.LimitExceeded)
     step(state, bounds)?
-    mut value = value_copy(&expr.literal)
-    if len(expr.path) != 0:
-        value = path_value(&expr.path, state, bounds)?
-    for filter in &expr.filters:
+    node = &expr.nodes[index]
+    mut value = empty_value()
+    if node.kind == 0:
+        value = value_copy(&node.literal)
+        if len(node.path) != 0:
+            value = path_value(&node.path, state, bounds)?
+    else:
+        # The engine validates max_depth <=64 and this frame passed its check.
+        next_depth = unchecked:
+            depth + 1
+        left = evaluate_node(expr, node.left, state, bounds, next_depth)?
+        if node.kind == 1:
+            value = boolean_value(not truth(&left, state))
+        elif node.kind == 4 or node.kind == 5:
+            first = truth(&left, state)
+            if (node.kind == 4 and not first) or (node.kind == 5 and first):
+                value = boolean_value(first)
+            else:
+                right = evaluate_node(expr, node.right, state, bounds, next_depth)?
+                value = boolean_value(truth(&right, state))
+        else:
+            right = evaluate_node(expr, node.right, state, bounds, next_depth)?
+            equal = scalar_equal(&left, &right)?
+            value = boolean_value(equal if node.kind == 2 else not equal)
+    for filter in &node.filters:
         step(state, bounds)?
         if filter == "length":
             mut count = 0
@@ -671,8 +903,6 @@ def evaluate(expr: &Expression, state: &mut State, bounds: &Limits) -> Result[Va
                 value.emission = Emission.Escape(HtmlContext.SingleQuotedAttribute)
             if value.text.byte_len() > bounds.max_output.get():
                 return Err(TemplateError.LimitExceeded)
-    if expr.negate:
-        value = Value(1, "", 0 if truth(&value, state) else 1, 0.0, -1, Emission.Default)
     Ok(value)
 
 def append(state: &mut State, text: &str, bounds: &Limits) -> Result[(), TemplateError]:
@@ -713,11 +943,259 @@ def emit(state: &mut State, value: &Value, bounds: &Limits) -> Result[(), Templa
             text = escape_bounded(&text, mode, remaining)?
     append(state, &text, bounds)
 
+# Schemas are flattened independently from request data. Integer edges allow
+# alternative sets without copying recursive owners or manufacturing samples.
+class ShapeNode:
+    kind: i64
+    name: str
+    optional: bool
+    minimum: i64
+    children: list[i64]
+
+class ShapeBinding:
+    name: str
+    nodes: list[i64]
+
+class SchemaState:
+    nodes: list[ShapeNode]
+    bindings: list[ShapeBinding]
+    root: list[i64]
+    binding_start: i64
+    active: list[i64]
+    bytes: i64
+    steps: i64
+
+def schema_step(state: &mut SchemaState, bounds: &Limits) -> Result[(), TemplateError]:
+    state.steps = bounded_total(state.steps, 1, bounds.max_steps.get())?
+    Ok(())
+
+def shape_flatten(shape: &Shape, name: str, optional: bool, depth: i64, state: &mut SchemaState, bounds: &Limits) -> Result[i64, TemplateError]:
+    # Seven canonical result types precede the actual declared nodes.
+    count = unchecked:
+        len(state.nodes) - 7
+    if depth > bounds.max_depth.get() or count >= bounds.max_context_nodes.get():
+        return Err(TemplateError.LimitExceeded)
+    schema_step(state, bounds)?
+    state.bytes = bounded_total(state.bytes, name.byte_len(), bounds.max_context_bytes.get())?
+    node = len(state.nodes)
+    allocated(state.nodes.append(ShapeNode(0, name, optional, 0, allocated(list[i64]())?)))?
+    next_depth = unchecked:
+        depth + 1
+    match shape:
+        case Shape.Null:
+            pass
+        case Shape.Bool:
+            state.nodes[node].kind = 1
+        case Shape.Int:
+            state.nodes[node].kind = 2
+        case Shape.Float:
+            state.nodes[node].kind = 3
+        case Shape.Text:
+            state.nodes[node].kind = 4
+        case Shape.Array(item, minimum):
+            state.nodes[node].kind = 5
+            state.nodes[node].minimum = minimum.get()
+            child = shape_flatten(item, "", False, next_depth, state, bounds)?
+            allocated(state.nodes[node].children.append(child))?
+        case Shape.Object(fields):
+            state.nodes[node].kind = 6
+            for field in fields:
+                for position in range(len(state.nodes[node].children)):
+                    schema_step(state, bounds)?
+                    child = state.nodes[node].children[position]
+                    if state.nodes[child].name == field.name:
+                        return Err(TemplateError.InvalidShape(field.name))
+                child = shape_flatten(&field.shape, field.name, field.presence == Presence.Optional, next_depth, state, bounds)?
+                allocated(state.nodes[node].children.append(child))?
+        case Shape.OneOf(arms):
+            if len(arms) == 0:
+                return Err(TemplateError.InvalidShape("empty OneOf"))
+            state.nodes[node].kind = 7
+            for arm in arms:
+                child = shape_flatten(arm, "", False, next_depth, state, bounds)?
+                allocated(state.nodes[node].children.append(child))?
+    Ok(node)
+
+def shape_expand(node: i64, output: &mut list[i64], state: &mut SchemaState, bounds: &Limits, depth: i64 = 0) -> Result[(), TemplateError]:
+    if depth > bounds.max_depth.get():
+        return Err(TemplateError.LimitExceeded)
+    schema_step(state, bounds)?
+    if state.nodes[node].kind == 7:
+        next_depth = unchecked:
+            depth + 1
+        for index in range(len(state.nodes[node].children)):
+            child = state.nodes[node].children[index]
+            shape_expand(child, output, state, bounds, next_depth)?
+    else:
+        allocated(output.append(node))?
+    Ok(())
+
+def schema_state(shape: &Shape, bounds: &Limits) -> Result[SchemaState, TemplateError]:
+    mut state = SchemaState(allocated(list[ShapeNode]())?, allocated(list[ShapeBinding]())?, allocated(list[i64]())?, 0, allocated(list[i64]())?, 0, 0)
+    for kind in range(7):
+        allocated(state.nodes.append(ShapeNode(kind, "", False, 0, allocated(list[i64]())?)))?
+    root = shape_flatten(shape, "", False, 0, &mut state, bounds)?
+    mut roots: list[i64] = allocated(list[i64]())?
+    shape_expand(root, &mut roots, &mut state, bounds)?
+    for item in &roots:
+        if state.nodes[*item].kind != 6:
+            return Err(TemplateError.InvalidShape("root must be an object"))
+    state.root = roots
+    Ok(state)
+
+def schema_path(path: &list[str], template: str, at: i64, state: &mut SchemaState, bounds: &Limits) -> Result[list[i64], TemplateError]:
+    label = allocated(".".join(path))?
+    state.steps = bounded_total(state.steps, len(state.root), bounds.max_steps.get())?
+    mut nodes = allocated(copy(state.root))?
+    mut start = 0
+    mut index = len(state.bindings)
+    while index > state.binding_start:
+        unchecked:
+            index -= 1
+        schema_step(state, bounds)?
+        if path[0] == "loop":
+            if len(path) == 2:
+                if path[1] == "index" or path[1] == "index0" or path[1] == "length":
+                    return Ok(allocated([2])?)
+                if path[1] == "first" or path[1] == "last":
+                    return Ok(allocated([1])?)
+            return Err(TemplateError.SchemaPath(template, at, label))
+        if state.bindings[index].name == path[0]:
+            state.steps = bounded_total(state.steps, len(state.bindings[index].nodes), bounds.max_steps.get())?
+            nodes = allocated(copy(state.bindings[index].nodes))?
+            start = 1
+            break
+    for part in range(start, len(path)):
+        mut next: list[i64] = allocated(list[i64]())?
+        for node in &nodes:
+            schema_step(state, bounds)?
+            kind = state.nodes[*node].kind
+            mut child = -1
+            if kind == 6:
+                for position in range(len(state.nodes[*node].children)):
+                    schema_step(state, bounds)?
+                    candidate = state.nodes[*node].children[position]
+                    if state.nodes[candidate].name == path[part]:
+                        child = candidate
+                        break
+                if child >= 0 and state.nodes[child].optional:
+                    return Err(TemplateError.SchemaOptional(template, at, label))
+            elif kind == 5:
+                match i64.parse(path[part]):
+                    case Ok(position):
+                        if position >= 0 and position < state.nodes[*node].minimum:
+                            child = state.nodes[*node].children[0]
+                    case Err(_):
+                        pass
+            else:
+                return Err(TemplateError.SchemaType(template, at))
+            if child < 0:
+                return Err(TemplateError.SchemaPath(template, at, label))
+            shape_expand(child, &mut next, state, bounds)?
+        nodes = next
+    Ok(nodes)
+
+def schema_filters(nodes: list[i64], filters: &list[str], template: str, at: i64, state: &mut SchemaState, bounds: &Limits) -> Result[list[i64], TemplateError]:
+    mut result = nodes
+    for filter in filters:
+        schema_step(state, bounds)?
+        for node in &result:
+            schema_step(state, bounds)?
+            kind = state.nodes[*node].kind
+            if filter == "length":
+                if kind != 4 and kind != 5 and kind != 6:
+                    return Err(TemplateError.SchemaType(template, at))
+            elif kind != 4:
+                return Err(TemplateError.SchemaType(template, at))
+        result = allocated([2 if filter == "length" else 4])?
+    Ok(result)
+
+def schema_expression(expr: &Expression, template: str, at: i64, state: &mut SchemaState, bounds: &Limits) -> Result[list[i64], TemplateError]:
+    # Registration builds an acyclic postorder tree. Visit every node even
+    # when runtime boolean short circuiting would skip one of its operands.
+    mut results: list[list[i64]] = allocated(list[list[i64]]())?
+    for node in &expr.nodes:
+        schema_step(state, bounds)?
+        mut nodes: list[i64] = allocated(list[i64]())?
+        if node.kind == 0:
+            nodes = if len(node.path) > 0:
+                schema_path(&node.path, template, at, state, bounds)?
+            else:
+                allocated([node.literal.kind])?
+        else:
+            if node.kind == 2 or node.kind == 3:
+                for candidate in &results[node.left]:
+                    schema_step(state, bounds)?
+                    if state.nodes[*candidate].kind > 4:
+                        return Err(TemplateError.SchemaType(template, at))
+                for candidate in &results[node.right]:
+                    schema_step(state, bounds)?
+                    if state.nodes[*candidate].kind > 4:
+                        return Err(TemplateError.SchemaType(template, at))
+            nodes = allocated([1])?
+        filtered = schema_filters(nodes, &node.filters, template, at, state, bounds)?
+        allocated(results.append(filtered))?
+    state.steps = bounded_total(state.steps, len(results[expr.root]), bounds.max_steps.get())?
+    allocated(copy(results[expr.root]))
+
+# A failed union candidate is ordinary mismatch; resource failures always
+# propagate. Matching never retries flattening or allocates sample contexts.
+def shape_match(schema: i64, actual: i64, path: str, shapes: &SchemaState, state: &mut State, bounds: &Limits, depth: i64) -> Result[Option[str], TemplateError]:
+    if depth > bounds.max_depth.get():
+        return Err(TemplateError.LimitExceeded)
+    step(state, bounds)?
+    node = &shapes.nodes[schema]
+    next_depth = unchecked:
+        depth + 1
+    if node.kind == 7:
+        for child in &node.children:
+            match shape_match(*child, actual, path, shapes, state, bounds, next_depth)?:
+                case Nothing:
+                    return Ok(Nothing)
+                case Some(_):
+                    pass
+        return Ok(Some(path))
+    if node.kind != state.nodes[actual].value.kind:
+        return Ok(Some(path))
+    if node.kind == 5:
+        if len(state.nodes[actual].children) < node.minimum:
+            return Ok(Some(path))
+        for position in range(len(state.nodes[actual].children)):
+            child = state.nodes[actual].children[position]
+            location = allocated(f"{path}.{position}")?
+            match shape_match(node.children[0], child, location, shapes, state, bounds, next_depth)?:
+                case Some(error):
+                    return Ok(Some(error))
+                case Nothing:
+                    pass
+    elif node.kind == 6:
+        for field in &node.children:
+            step(state, bounds)?
+            mut found = -1
+            for position in range(len(state.nodes[actual].children)):
+                step(state, bounds)?
+                child = state.nodes[actual].children[position]
+                if state.nodes[child].key == shapes.nodes[*field].name:
+                    found = child
+                    break
+            location = allocated(f"{path}.{shapes.nodes[*field].name}")?
+            if found < 0:
+                if not shapes.nodes[*field].optional:
+                    return Ok(Some(location))
+            else:
+                match shape_match(*field, found, location, shapes, state, bounds, next_depth)?:
+                    case Some(error):
+                        return Ok(Some(error))
+                    case Nothing:
+                        pass
+    Ok(Nothing)
+
 pub class Engine:
     _bounds: Limits
     _templates: list[Template]
     _source_bytes: i64
     _token_count: i64
+    _expression_nodes: i64
 
     # Registration is transactional: a failure leaves the registry unchanged.
     pub def add(self: &mut Engine, name: &str, source: &str) -> Result[(), TemplateError]:
@@ -730,13 +1208,37 @@ pub class Engine:
             return Err(TemplateError.LimitExceeded)
         named_bytes = bounded_total(self._source_bytes, name.byte_len(), self._bounds.max_source.get())?
         source_bytes = bounded_total(named_bytes, source.byte_len(), self._bounds.max_source.get())?
-        template = parse(*name, source, &self._bounds)?
+        remaining_nodes = unchecked:
+            self._bounds.max_expression_nodes.get() - self._expression_nodes
+        template = parse(*name, source, &self._bounds, remaining_nodes)?
         count = len(template.tokens)
         token_count = bounded_total(self._token_count, count, self._bounds.max_tokens.get())?
+        mut expression_nodes = self._expression_nodes
+        for token in &template.tokens:
+            expression_nodes = bounded_total(expression_nodes, len(token.expr.nodes), self._bounds.max_expression_nodes.get())?
         allocated(self._templates.append(template))?
         self._source_bytes = source_bytes
         self._token_count = token_count
+        self._expression_nodes = expression_nodes
         Ok(())
+
+    pub def validate(self, name: &str, schema: &Shape) -> Result[(), TemplateError]:
+        mut shapes = schema_state(schema, &self._bounds)?
+        self.schema_registered(name, &mut shapes, 0)
+
+    pub def render_checked(self, name: &str, context: &Json, schema: &Shape, html: bool = True) -> Result[str, TemplateError]:
+        mut shapes = schema_state(schema, &self._bounds)?
+        self.schema_registered(name, &mut shapes, 0)?
+        mut state = State(allocated(list[Node]())?, allocated(list[Binding]())?, 0, 0, allocated(list[i64]())?, 0, shapes.steps, allocated(std.bytes.empty())?, html)
+        drop(flatten(&mut state, "", context, 0, &self._bounds)?)
+        # The first declared node follows the seven canonical result types.
+        match shape_match(7, 0, "$", &shapes, &mut state, &self._bounds, 0)?:
+            case Some(path):
+                return Err(TemplateError.ContextShape(path))
+            case Nothing:
+                pass
+        self.render_registered(name, &mut state, 0)?
+        bytes_result(state.output.to_text())
 
     pub def render(self, name: &str, context: &Json, html: bool = True) -> Result[str, TemplateError]:
         mut state = State(allocated(list[Node]())?, allocated(list[Binding]())?, 0, 0, allocated(list[i64]())?, 0, 0, allocated(std.bytes.empty())?, html)
@@ -794,6 +1296,49 @@ pub class Engine:
             drop(state.active.pop())
         Ok(())
 
+    def schema_registered(self, name: &str, state: &mut SchemaState, depth: i64) -> Result[(), TemplateError]:
+        if depth > self._bounds.max_depth.get():
+            return Err(TemplateError.LimitExceeded)
+        mut current = self.find(name)?
+        active_start = len(state.active)
+        for position in range(len(state.active)):
+            schema_step(state, &self._bounds)?
+            if state.active[position] == current:
+                return Err(TemplateError.InheritanceCycle)
+        allocated(state.active.append(current))?
+        mut visited: list[i64] = allocated(list[i64]())?
+        mut overrides: list[Override] = allocated(list[Override]())?
+        mut chain_depth = depth
+        while True:
+            if current in visited:
+                return Err(TemplateError.InheritanceCycle)
+            if chain_depth >= self._bounds.max_depth.get():
+                return Err(TemplateError.LimitExceeded)
+            allocated(visited.append(current))?
+            for token in range(len(self._templates[current].tokens)):
+                schema_step(state, &self._bounds)?
+                if self._templates[current].tokens[token].kind == 7:
+                    label = self._templates[current].tokens[token].text
+                    mut found = False
+                    for item in &overrides:
+                        schema_step(state, &self._bounds)?
+                        if item.name == label:
+                            found = True
+                            break
+                    if not found:
+                        allocated(overrides.append(Override(label, current, token)))?
+            parent = self._templates[current].parent
+            if parent == "":
+                break
+            current = self.find(&parent)?
+            # chain_depth is strictly below the configured maximum (at most64).
+            unchecked:
+                chain_depth += 1
+        self.schema_run(current, 0, len(self._templates[current].tokens), state, &overrides, chain_depth)?
+        while len(state.active) > active_start:
+            drop(state.active.pop())
+        Ok(())
+
     def find(self, name: &str) -> Result[i64, TemplateError]:
         for index in range(len(self._templates)):
             if self._templates[index].name == name:
@@ -819,15 +1364,27 @@ pub class Engine:
                 value = evaluate(&token.expr, state, &self._bounds)?
                 emit(state, &value, &self._bounds)?
             elif token.kind == 2:
-                value = evaluate(&token.expr, state, &self._bounds)?
-                stop = token.jump if token.alternate < 0 else token.alternate
-                if truth(&value, state):
-                    self.run(template, next, stop, state, overrides, next_depth)?
-                elif token.alternate >= 0:
-                    # Parser links alternate to an existing else token.
-                    after_else = unchecked:
-                        token.alternate + 1
-                    self.run(template, after_else, token.jump, state, overrides, next_depth)?
+                mut branch = index
+                while True:
+                    candidate = &self._templates[template].tokens[branch]
+                    value = evaluate(&candidate.expr, state, &self._bounds)?
+                    stop = candidate.jump if candidate.alternate < 0 else candidate.alternate
+                    after_branch = unchecked:
+                        branch + 1
+                    if truth(&value, state):
+                        self.run(template, after_branch, stop, state, overrides, next_depth)?
+                        break
+                    if candidate.alternate < 0:
+                        break
+                    alternate = candidate.alternate
+                    if self._templates[template].tokens[alternate].kind == 3:
+                        after_else = unchecked:
+                            alternate + 1
+                        self.run(template, after_else, candidate.jump, state, overrides, next_depth)?
+                        break
+                    # A flat elif chain does not consume recursive render depth.
+                    step(state, &self._bounds)?
+                    branch = alternate
                 index = token.jump
             elif token.kind == 5:
                 value = evaluate(&token.expr, state, &self._bounds)?
@@ -880,8 +1437,97 @@ pub class Engine:
                 index += 1
         Ok(())
 
+    def schema_run(self, template: i64, begin: i64, end: i64, state: &mut SchemaState, overrides: &list[Override], depth: i64) -> Result[(), TemplateError]:
+        if depth > self._bounds.max_depth.get():
+            return Err(TemplateError.LimitExceeded)
+        next_depth = unchecked:
+            depth + 1
+        mut index = begin
+        while index < end:
+            next = unchecked:
+                index + 1
+            schema_step(state, &self._bounds)?
+            token = &self._templates[template].tokens[index]
+            name = self._templates[template].name
+            if token.kind == 0:
+                pass
+            elif token.kind == 1:
+                nodes = schema_expression(&token.expr, name, token.at, state, &self._bounds)?
+                for node in &nodes:
+                    schema_step(state, &self._bounds)?
+                    if state.nodes[*node].kind > 4:
+                        return Err(TemplateError.SchemaType(name, token.at))
+            elif token.kind == 2:
+                mut branch = index
+                while True:
+                    candidate = &self._templates[template].tokens[branch]
+                    drop(schema_expression(&candidate.expr, name, candidate.at, state, &self._bounds)?)
+                    stop = candidate.jump if candidate.alternate < 0 else candidate.alternate
+                    after_branch = unchecked:
+                        branch + 1
+                    self.schema_run(template, after_branch, stop, state, overrides, next_depth)?
+                    if candidate.alternate < 0:
+                        break
+                    alternate = candidate.alternate
+                    if self._templates[template].tokens[alternate].kind == 3:
+                        after_else = unchecked:
+                            alternate + 1
+                        self.schema_run(template, after_else, candidate.jump, state, overrides, next_depth)?
+                        break
+                    # Like rendering, a flat elif chain uses one depth frame.
+                    schema_step(state, &self._bounds)?
+                    branch = alternate
+                index = token.jump
+            elif token.kind == 5:
+                nodes = schema_expression(&token.expr, name, token.at, state, &self._bounds)?
+                mut items: list[i64] = allocated(list[i64]())?
+                for node in &nodes:
+                    schema_step(state, &self._bounds)?
+                    if state.nodes[*node].kind != 5:
+                        return Err(TemplateError.SchemaType(name, token.at))
+                    shape_expand(state.nodes[*node].children[0], &mut items, state, &self._bounds)?
+                stop = token.jump if token.alternate < 0 else token.alternate
+                allocated(state.bindings.append(ShapeBinding(token.text, items)))?
+                self.schema_run(template, next, stop, state, overrides, next_depth)?
+                drop(state.bindings.pop())
+                if token.alternate >= 0:
+                    after_else = unchecked:
+                        token.alternate + 1
+                    self.schema_run(template, after_else, token.jump, state, overrides, next_depth)?
+                index = token.jump
+            elif token.kind == 9:
+                state.steps = bounded_total(state.steps, len(state.root), self._bounds.max_steps.get())?
+                mut roots = allocated(copy(state.root))?
+                if token.alternate == 1:
+                    roots = schema_expression(&token.expr, name, token.at, state, &self._bounds)?
+                for root in &roots:
+                    schema_step(state, &self._bounds)?
+                    if state.nodes[*root].kind != 6:
+                        return Err(TemplateError.SchemaType(name, token.at))
+                saved_root = replace(state.root, roots)
+                saved_start = state.binding_start
+                state.binding_start = len(state.bindings)
+                self.schema_registered(&token.text, state, next_depth)?
+                state.root = saved_root
+                state.binding_start = saved_start
+            elif token.kind == 7:
+                for item in overrides:
+                    schema_step(state, &self._bounds)?
+                    if item.name == token.text:
+                        stop = self._templates[item.template].tokens[item.token].jump
+                        after_block = unchecked:
+                            item.token + 1
+                        self.schema_run(item.template, after_block, stop, state, overrides, next_depth)?
+                        break
+                index = token.jump
+            else:
+                return Err(TemplateError.Syntax(token.at))
+            unchecked:
+                index += 1
+        Ok(())
+
 pub def engine(bounds: &Limits) -> Result[Engine, TemplateError]:
     if bounds.max_depth.get() > 64:
         __trap("std.template.engine: max_depth is above 64")
-    saved = Limits(bounds.max_source, bounds.max_tokens, bounds.max_templates, bounds.max_context_nodes, bounds.max_context_bytes, bounds.max_depth, bounds.max_steps, bounds.max_output)
-    Ok(Engine(saved, allocated(list[Template]())?, 0, 0))
+    saved = Limits(bounds.max_source, bounds.max_tokens, bounds.max_expression_nodes, bounds.max_templates, bounds.max_context_nodes, bounds.max_context_bytes, bounds.max_depth, bounds.max_steps, bounds.max_output)
+    Ok(Engine(saved, allocated(list[Template]())?, 0, 0, 0))
