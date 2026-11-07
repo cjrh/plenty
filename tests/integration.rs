@@ -222,6 +222,8 @@ mod test_fallible_text;
 mod test_fannkuch_redux;
 #[path = "test_ffi.rs"]
 mod test_ffi;
+#[path = "test_ffi_workers.rs"]
+mod test_ffi_workers;
 #[path = "test_field_indexing.rs"]
 mod test_field_indexing;
 #[path = "test_field_moves.rs"]

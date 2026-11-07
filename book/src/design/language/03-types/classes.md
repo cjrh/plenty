@@ -172,9 +172,12 @@ collection; `@copy` instances copy. `__hash__` and `__eq__` hooks are unsupporte
 
 An annotation is `@name` alone on a line directly before a declaration. The
 set is closed and compiler-known; there are no user decorators. The
-annotations are `@copy`, `@newtype`, and `@redacted`. `@copy` and `@newtype`
-apply only to class declarations, including `pub class`; `@redacted` also
-applies to enums. An unknown name, arguments, a repeated annotation, or an
+annotations are `@copy`, `@newtype`, `@redacted`, and `@thread_safe`. `@copy`
+and `@newtype` apply only to class declarations, including `pub class`;
+`@redacted` also applies to enums. `@thread_safe` applies only to `extern def`
+in a `.plentyi` interface; see
+[worker threads](../../facilities/04-interop/trusted-declarations.md#worker-threads).
+An unknown name, arguments, a repeated annotation, or an
 annotation before any other declaration, member, or statement is an error.
 
 `@newtype` makes a class forward its field's operators; see

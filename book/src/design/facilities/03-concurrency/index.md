@@ -28,7 +28,8 @@ their eligibility evidence. Thin `Callable` values are certified against every
 
 Each native operation has a declared [effect](effects.md). Files, directory
 streams and child pipes cross threads under the ordinary ownership and loan
-rules; changing the working directory is rejected. Foreign pointers/calls,
+rules; changing the working directory is rejected. Foreign pointers, foreign
+calls not declared [`@thread_safe`](../04-interop/trusted-declarations.md#worker-threads),
 uncertified indirect callable effects, and generator frames are conservatively
 excluded. Imports do not grant thread permission. Ordinary checked
 standard-stream I/O is usable, with scheduler-dependent ordering.

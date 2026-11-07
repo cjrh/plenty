@@ -698,9 +698,12 @@ impl Items<'_, '_> {
         let declaration = self.parser.pos + usize::from(self.parser.peek().is("pub"));
         let declaration = self.parser.token(declaration);
         for (at, annotation) in &annotations {
-            let applies = declaration.is_some_and(|token| {
-                token.is("class")
-                    || *annotation == annotations::Annotation::Redacted && token.is("enum")
+            let applies = declaration.is_some_and(|token| match annotation {
+                annotations::Annotation::ThreadSafe => token.is("extern"),
+                annotations::Annotation::Redacted => token.is("class") || token.is("enum"),
+                annotations::Annotation::Copy | annotations::Annotation::Newtype => {
+                    token.is("class")
+                }
             });
             if !applies {
                 return Err(at.error(format!(
@@ -740,7 +743,19 @@ impl Items<'_, '_> {
             if self.parser.eat("extern") {
                 self.parser.expect("def")?;
                 self.parser.pos -= 1;
-                let f = self.parser.function_header(None, true, false, false)?;
+                let mut f = self.parser.function_header(None, true, false, false)?;
+                if let Some((at, _)) = annotations
+                    .iter()
+                    .find(|(_, a)| *a == annotations::Annotation::ThreadSafe)
+                {
+                    let declaration = f.foreign.as_mut().expect("an extern declaration");
+                    // The callee is chosen at run time, so the promise would
+                    // cover an unknown function.
+                    if declaration.symbol().is_none() {
+                        return Err(at.error("`@thread_safe` requires a C symbol; a function-address call has no fixed callee to certify"));
+                    }
+                    declaration.thread_safe = true;
+                }
                 let name = f.name.clone();
                 module.functions.push(f);
                 name

@@ -9,8 +9,9 @@ effects, owned jobs, blocking, and shutdown.
 
 Each native primitive (`CollectionOp`) reports an effect from one exhaustive
 match in `src/effects.rs`; the certification walk rejects a worker that can
-reach a denied effect and names the call. Primitives without a native contract,
-such as foreign calls, are rejected separately. See
+reach a denied effect and names the call. A foreign call has no native
+contract; it is rejected unless its declaration carries the binding author's
+`@thread_safe` promise (`foreign::Declaration::thread_safe`). See
 [native effects on worker threads](../../facilities/03-concurrency/effects.md).
 
 ## Tasks and queues

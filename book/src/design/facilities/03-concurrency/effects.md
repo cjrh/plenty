@@ -4,7 +4,8 @@ Worker certification asks every native operation a body can reach for its
 effect. The compiler classifies each primitive in one exhaustive table
 (`src/effects.rs`), so a new primitive cannot be added without stating its
 effect. Standard modules have no exemption: a `std` helper is certified by
-the same walk as user code, and a foreign call is still rejected.
+the same walk as user code. A foreign call is rejected unless its
+declaration is [`@thread_safe`](../04-interop/trusted-declarations.md#worker-threads).
 
 | Effect | Operations | On a worker |
 |---|---|---|
@@ -88,7 +89,10 @@ boundaries like any other owned value:
 - A failed thread start drops each moved handle once, which closes it.
 
 Foreign pointers (`opaque` types) remain ineligible: the compiler cannot know
-whether a foreign resource tolerates use from another thread.
+whether a foreign resource tolerates use from another thread, and opaque
+values copy. A scalar handle, such as a file descriptor, in an affine owner
+whose destructor calls a `@thread_safe` release function moves like a `File`;
+see [worker threads](../04-interop/trusted-declarations.md#worker-threads).
 
 ## Blocking and cancellation
 
