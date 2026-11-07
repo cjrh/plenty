@@ -71,41 +71,41 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.jwt`](#stdjwt): 2398-2445
 - [`std.log`](#stdlog): 2447-2514
 - [`std.markdown`](#stdmarkdown): 2516-2550
-- [`std.template`](#stdtemplate): 2552-2576
-- [`std.math`](#stdmath): 2578-2649
-- [`std.mime`](#stdmime): 2651-2677
-- [`std.net`](#stdnet): 2679-2761
-- [`std.path`](#stdpath): 2763-2780
-- [`std.process`](#stdprocess): 2782-2840
-- [`std.random`](#stdrandom): 2842-2863
-- [`std.ready`](#stdready): 2865-2896
-- [`std.regex`](#stdregex): 2898-2951
-- [`std.report`](#stdreport): 2953-2960
-- [`std.secrets`](#stdsecrets): 2962-2988
-- [`std.shlex`](#stdshlex): 2990-2999
-- [`std.sketch`](#stdsketch): 3001-3039
-- [`std.sketch.xor`](#stdsketchxor): 3041-3052
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3054-3069
-- [`std.signal`](#stdsignal): 3071-3088
-- [`std.simd`](#stdsimd): 3090-3191
-- [`std.stat`](#stdstat): 3193-3226
-- [`std.plot`](#stdplot): 3228-3317
-- [`std.linalg`](#stdlinalg): 3319-3360
-- [`std.sync`](#stdsync): 3362-3380
-- [`std.system`](#stdsystem): 3382-3441
-- [`std.tempfile`](#stdtempfile): 3443-3475
-- [`std.test`](#stdtest): 3477-3519
-- [`std.text`](#stdtext): 3521-3564
-- [`std.thread`](#stdthread): 3566-3570
-- [`std.time`](#stdtime): 3572-3616
-- [`std.tls`](#stdtls): 3618-3700
-- [`std.toml`](#stdtoml): 3702-3751
-- [`std.unicode`](#stdunicode): 3753-3765
-- [`std.units`](#stdunits): 3767-4004
-- [`std.units.catalogue`](#stdunitscatalogue): 4006-4784
-- [`std.url`](#stdurl): 4786-4814
-- [`std.uuid`](#stduuid): 4816-4839
-- [`std.xml`](#stdxml): 4841-4874
+- [`std.template`](#stdtemplate): 2552-2587
+- [`std.math`](#stdmath): 2589-2660
+- [`std.mime`](#stdmime): 2662-2688
+- [`std.net`](#stdnet): 2690-2772
+- [`std.path`](#stdpath): 2774-2791
+- [`std.process`](#stdprocess): 2793-2851
+- [`std.random`](#stdrandom): 2853-2874
+- [`std.ready`](#stdready): 2876-2907
+- [`std.regex`](#stdregex): 2909-2962
+- [`std.report`](#stdreport): 2964-2971
+- [`std.secrets`](#stdsecrets): 2973-2999
+- [`std.shlex`](#stdshlex): 3001-3010
+- [`std.sketch`](#stdsketch): 3012-3050
+- [`std.sketch.xor`](#stdsketchxor): 3052-3063
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3065-3080
+- [`std.signal`](#stdsignal): 3082-3099
+- [`std.simd`](#stdsimd): 3101-3202
+- [`std.stat`](#stdstat): 3204-3237
+- [`std.plot`](#stdplot): 3239-3328
+- [`std.linalg`](#stdlinalg): 3330-3371
+- [`std.sync`](#stdsync): 3373-3391
+- [`std.system`](#stdsystem): 3393-3452
+- [`std.tempfile`](#stdtempfile): 3454-3486
+- [`std.test`](#stdtest): 3488-3530
+- [`std.text`](#stdtext): 3532-3575
+- [`std.thread`](#stdthread): 3577-3581
+- [`std.time`](#stdtime): 3583-3627
+- [`std.tls`](#stdtls): 3629-3711
+- [`std.toml`](#stdtoml): 3713-3762
+- [`std.unicode`](#stdunicode): 3764-3776
+- [`std.units`](#stdunits): 3778-4015
+- [`std.units.catalogue`](#stdunitscatalogue): 4017-4795
+- [`std.url`](#stdurl): 4797-4825
+- [`std.uuid`](#stduuid): 4827-4850
+- [`std.xml`](#stdxml): 4852-4885
 
 ## `std.actor`
 
@@ -2555,12 +2555,21 @@ Bounded Jinja-style text templates with explicit JSON values, HTML escaping, con
 
 ```text
 enum TemplateError
-    LimitExceeded | Syntax(i64) | UnknownTemplate(str) | DuplicateTemplate(str) | MissingValue(str) | TypeMismatch | InheritanceCycle | Allocation(AllocError) | Bytes(BytesError)
+    LimitExceeded | Syntax(i64) | UnknownTemplate(str) | DuplicateTemplate(str) | MissingValue(str) | TypeMismatch | InheritanceCycle | InvalidShape(str) | SchemaPath(str, i64, str) | SchemaOptional(str, i64, str) | SchemaType(str, i64) | ContextShape(str) | Allocation(AllocError) | Bytes(BytesError)
+enum Presence
+    Required | Optional
+enum Shape
+    Null | Bool | Int | Float | Text | Array(Box[Shape], NonNegative[i64]) | Object(list[Field]) | OneOf(list[Shape])
+class Field
+    name: str
+    shape: Shape
+    presence: Presence
 enum HtmlContext
     Text | DoubleQuotedAttribute | SingleQuotedAttribute | TextAndAttributes
 class Limits
     max_source: NonNegative[i64]
     max_tokens: NonNegative[i64]
+    max_expression_nodes: NonNegative[i64]
     max_templates: NonNegative[i64]
     max_context_nodes: Positive[i64]
     max_context_bytes: NonNegative[i64]
@@ -2571,6 +2580,8 @@ def limits() -> Limits
 def escape(text: &str, context: HtmlContext, max_bytes: NonNegative[i64] = 16777216) -> Result[str, TemplateError]
 class Engine
     def add(self: &mut Engine, name: &str, source: &str) -> Result[(), TemplateError]
+    def validate(self, name: &str, schema: &Shape) -> Result[(), TemplateError]
+    def render_checked(self, name: &str, context: &Json, schema: &Shape, html: bool = True) -> Result[str, TemplateError]
     def render(self, name: &str, context: &Json, html: bool = True) -> Result[str, TemplateError]
 def engine(bounds: &Limits) -> Result[Engine, TemplateError]
 ```

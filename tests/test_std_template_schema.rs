@@ -239,10 +239,10 @@ bounds = t.limits()
 mut e = t.engine(&bounds)?
 e.add("base", "before{% block body %}old{% endblock %}after")?
 e.add("child", "{% extends 'base' %}{% block body %}{% include 'part' %}{% endblock %}")?
-e.add("part", "{{ value }}")?
+e.add("part", "{{ value }}{{ (value == value) and true }}")?
 shape = Shape.OneOf([Shape.Object([Field("value", Shape.Int, Presence.Required)]?), Shape.Object([Field("value", Shape.Text, Presence.Required)]?)]?)
 context = Json.Object([Member("value", Json.Text("<A long & meaningful value requiring heap storage>"))]?)
-expected = "before&lt;A long &amp; meaningful value requiring heap storage&gt;after"
+expected = "before&lt;A long &amp; meaningful value requiring heap storage&gt;trueafter"
 mut validation_failed = False
 mut validation_succeeded = False
 for budget in range(1024):
@@ -282,4 +282,55 @@ for budget in range(1024):
 std.test.check(render_failed and render_succeeded, "checked-render failure sweep reaches success")?
 "#,
     );
+}
+
+#[test]
+fn declared_shapes_visit_elif_and_short_circuited_operands_and_infer_operator_filters() {
+    check(
+        r#"
+bounds = t.limits()
+mut e = t.engine(&bounds)?
+shape = Shape.Object([Field("name", Shape.Text, Presence.Required), Field("items", Shape.Array(Box(Shape.Int)?, 0), Presence.Required)]?)
+for source in ["{% if true %}ok{% elif typo %}bad{% endif %}", "{{ true or typo }}", "{{ false and typo }}", "{% if true %}ok{% elif false %}{{ typo }}{% else %}{{ name }}{% endif %}"]?:
+    mut item = t.engine(&bounds)?
+    item.add("bad", source)?
+    match item.validate("bad", &shape):
+        case Err(TemplateError.SchemaPath(_, _, path)):
+            std.test.check(path == "typo", "all operand and branch paths checked")?
+        case _:
+            std.test.check(False, "hidden expression typo accepted")?
+for source in ["{{ true or (42 | upper) }}", "{{ false and (items == null) }}", "{{ (name == 'Ada') | upper }}", "{% if true %}ok{% elif items != items %}bad{% endif %}"]?:
+    mut item = t.engine(&bounds)?
+    item.add("bad", source)?
+    match item.validate("bad", &shape):
+        case Err(TemplateError.SchemaType(_, _)):
+            pass
+        case _:
+            std.test.check(False, "hidden expression type error accepted")?
+e.add("good", "{{ ((name | upper) == 'ADA' and not false) or (42 != 42.0) }}|{{ (name) | length }}|{% if false %}x{% elif name == 'Ada' %}chosen{% else %}y{% endif %}")?
+e.validate("good", &shape)?
+values = Json.Object([Member("name", Json.Text("Ada")), Member("items", Json.Array([]?))]?)
+std.test.check(e.render_checked("good", &values, &shape)? == "true|3|chosen", "postorder operators and parenthesized filters")?
+"#,
+    );
+}
+
+#[test]
+fn flat_elif_preflight_uses_one_depth_frame() {
+    let mut template = String::from("{% if false %}a");
+    for _ in 0..100 {
+        template.push_str("{% elif false %}b");
+    }
+    template.push_str("{% else %}ok{% endif %}");
+    check(&format!(
+        r#"
+mut bounds = t.limits()
+bounds.max_depth = 1
+mut e = t.engine(&bounds)?
+e.add("flat", "{template}")?
+shape = Shape.Object([]?)
+e.validate("flat", &shape)?
+std.test.check(e.render_checked("flat", &Json.Object([]?), &shape)? == "ok", "flat elif chain depth")?
+"#
+    ));
 }
