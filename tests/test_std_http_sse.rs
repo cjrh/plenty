@@ -3,6 +3,8 @@
 //! it: field encoding and line splitting, streams that outlive the
 //! response deadline, client disconnects seen by `wait` and by `send`,
 //! shutdown, HEAD requests and refused heads.
+mod support;
+
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::process::{Child, Command, Stdio};
@@ -80,9 +82,11 @@ fn read_head(stream: &mut impl Read) -> io::Result<Vec<u8>> {
 
 /// Reads a complete response head, a byte at a time, with CRLFs shown as `|`.
 fn head(stream: &mut TcpStream) -> String {
-    String::from_utf8(read_head(stream).unwrap())
-        .unwrap()
-        .replace("\r\n", "|")
+    support::without_http_dates(
+        &String::from_utf8(read_head(stream).unwrap())
+            .unwrap()
+            .replace("\r\n", "|"),
+    )
 }
 
 #[test]

@@ -106,9 +106,11 @@ fn read_head(stream: &mut impl Read) -> io::Result<Vec<u8>> {
 
 /// Reads a complete message head, a byte at a time, with CRLFs shown as `|`.
 fn head(stream: &mut TcpStream) -> String {
-    String::from_utf8(read_head(stream).unwrap())
-        .unwrap()
-        .replace("\r\n", "|")
+    support::without_http_dates(
+        &String::from_utf8(read_head(stream).unwrap())
+            .unwrap()
+            .replace("\r\n", "|"),
+    )
 }
 
 #[test]

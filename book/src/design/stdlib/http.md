@@ -64,6 +64,17 @@ Parsed names keep the case they arrived in. Values have surrounding spaces
 and tabs removed. Fields stay in arrival order and repeated names stay
 separate; nothing is combined.
 
+## HTTP dates
+
+`http_date(timestamp: &std.time.Timestamp) -> Result[Option[str], HttpError]`
+formats an owned 29-byte IMF-fixdate in GMT, such as
+`Sun, 06 Nov 1994 08:49:37 GMT`. It returns `Nothing` for a timestamp before
+1970, after 9999, or with invalid nanoseconds. Subseconds are discarded.
+Formatting uses fixed-size scratch strings; allocation refusal is
+`HttpError.Allocation`. The [static-file compatibility function](http-files.md)
+delegates to this implementation. This helper does not add a header to
+low-level `write_response`; automatic `Date` is a [server policy](http-server.md#response-dates).
+
 ## Limits
 
 `Limits(max_line, max_head, max_headers, max_body)` bounds every read:
@@ -305,4 +316,5 @@ pipelined requests from memory and writes a chunked response. The tests in
 
 ## Acknowledgements
 
+- The HTTP-date calendar conversion uses [Howard Hinnant's civil calendar algorithms](https://howardhinnant.github.io/date_algorithms.html), as recorded by the original static-file formatter; no external code or data dependency is bundled.
 - Bundling a client and a server follows the scope of [Go's `net/http`](https://pkg.go.dev/net/http).

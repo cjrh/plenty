@@ -418,3 +418,12 @@ counts against cumulative output limits even across incremental drains;
 indentation requires no separate proportional buffer. See
 [pretty output](../design/stdlib/json.md#pretty-output). B51 retains bulk scans
 and JSON Lines in the [backlog](../backlog.md).
+
+## HTTP response dates (issue #786)
+
+The HTTP server adds `Date` to final, streaming, upgraded, detached and
+server-generated responses, preserving caller overrides and leaving interim
+`100 Continue` unchanged. The shared [`std.http.http_date`](../design/stdlib/http.md#http-dates)
+formatter retains the static-file API through a compatibility wrapper.
+Unrepresentable wall readings omit the field; allocation refusal remains an
+ordinary response failure. See [response dates](../design/stdlib/http-server.md#response-dates).

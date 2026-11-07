@@ -177,8 +177,7 @@ fn output(source: &str) -> String {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    String::from_utf8_lossy(&output.stdout)
-        .replace("\r\n", "|")
+    support::without_http_dates(&String::from_utf8_lossy(&output.stdout).replace("\r\n", "|"))
         .lines()
         .filter(|line| !line.starts_with("__test_"))
         .collect::<Vec<_>>()
@@ -559,7 +558,10 @@ fn curl_interoperates() {
     let old = curl(&["--http1.0", "-i", &server.url("/stream")]);
     let old = String::from_utf8_lossy(&old.stdout);
     // An HTTP/1.0 client gets an HTTP/1.1 status line and a close-delimited body.
-    assert_eq!(old, "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nabcdef");
+    assert_eq!(
+        support::without_http_dates(&old.replace("\r\n", "|")),
+        "HTTP/1.1 200 OK|Connection: close||abcdef"
+    );
     assert_eq!(curl(&[&server.url("/stream")]).stdout, b"abcdef");
     assert_eq!(curl(&[&server.url("/big")]).stdout.len(), 1 << 20);
     assert_eq!(curl(&[&server.url("/huge")]).stdout.len(), 64 << 20);
@@ -1190,7 +1192,8 @@ def main() -> Result[(), std.net.NetError | std.http.server.ServerError | SpawnE
 "##;
     let (_dir, executable) = build(&format!("{LOOPBACK}{main}"));
     let ran = Command::new(executable).output().unwrap();
-    let stdout = String::from_utf8_lossy(&ran.stdout).replace("\r\n", "|");
+    let stdout =
+        support::without_http_dates(&String::from_utf8_lossy(&ran.stdout).replace("\r\n", "|"));
     let stderr = String::from_utf8_lossy(&ran.stderr);
     assert!(!ran.status.success());
     assert_eq!(

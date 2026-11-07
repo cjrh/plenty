@@ -409,6 +409,14 @@ pub fn http_program_output(source: &str) -> String {
         .to_owned()
 }
 
+/// Remove generated Date fields from wire snapshots; date-specific tests use
+/// the unmodified output and validate their count and IMF-fixdate value.
+pub fn without_http_dates(text: &str) -> String {
+    text.split_inclusive('|')
+        .filter(|field| !field.starts_with("Date: "))
+        .collect()
+}
+
 /// Run `prelude` followed by `main`; see [`http_program_output`].
 pub fn assert_http_program(prelude: &str, main: &str, expected: &str) {
     assert_eq!(
