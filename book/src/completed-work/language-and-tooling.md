@@ -26,7 +26,8 @@ only some paths, and fields assigned again, still count, including nested
 fields. Loop bodies are checked again from the state their back edges
 reach, closing an earlier gap: a binding moved before a loop and assigned in
 its body was not counted at a join earlier in the body, so a program that
-hangs in its second iteration was accepted.
+hangs in its second iteration was accepted. Merging paths where a value is
+partly moved on one and moved on another now leaves it partly moved.
 [Joins and live endpoints](../design/facilities/03-concurrency/channels.md#joins-and-live-endpoints)
 states the rule.
 

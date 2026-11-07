@@ -725,6 +725,9 @@ struct Checker<'a, 'p> {
     fields: Vec<(u8, Arc<[usize]>)>,
     /// The place each precise loan covers, for an access through it.
     places: HashMap<usize, (u8, Vec<usize>)>,
+    /// How many wait checks have read binding state so far. A loop body that
+    /// read none needs no second pass from a weaker entry state.
+    state_waits: std::cell::Cell<usize>,
 }
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
@@ -754,6 +757,7 @@ pub fn check(
             loan_places(ops)
         },
         fields,
+        state_waits: Default::default(),
         futures: crate::profile_block!(
             "ownership::prepare_futures",
             futures::Futures::new(ops, locals.len(), program)
@@ -879,13 +883,22 @@ fn merge(states: &[State], into: &mut State) {
         if owned == states.len() {
             continue;
         }
+        // A value moved on only some paths into one state is still owned on
+        // the others after the merge.
+        let definite = !states.iter().any(|s| {
+            matches!(
+                s[i],
+                Slot::Owned
+                    | Slot::Moved {
+                        definite: false,
+                        ..
+                    }
+            )
+        });
         *slot = states
             .iter()
             .find_map(|s| match s[i] {
-                Slot::Moved { at, .. } => Some(Slot::Moved {
-                    at,
-                    definite: owned == 0,
-                }),
+                Slot::Moved { at, .. } => Some(Slot::Moved { at, definite }),
                 _ => None,
             })
             .unwrap_or(Slot::Unset);
@@ -1379,6 +1392,7 @@ impl Checker<'_, '_> {
         if messages.is_empty() {
             return None;
         }
+        self.state_waits.set(self.state_waits.get() + 1);
         let mut error: Option<Box<Error>> = None;
         for (slot, owned) in state.iter().enumerate().take(self.locals.len()) {
             let partly = match owned {
@@ -1641,6 +1655,7 @@ impl Checker<'_, '_> {
         if reachable.is_empty() {
             return None;
         }
+        self.state_waits.set(self.state_waits.get() + 1);
         let mut guards = Vec::new();
         crate::threading::walk(self.body, &mut |op| {
             if let Op::Mutex(MutexOp::Lock(slot)) = op {
@@ -1736,16 +1751,18 @@ impl Checker<'_, '_> {
     /// Dropping the value in `slot` shuts a pool down. No pool is looked for
     /// until a job that could block the shutdown has been submitted.
     fn closes(&self, slot: usize, state: &State) -> bool {
-        !self.submitted.borrow().is_empty()
-            && matches!(
-                state[slot],
-                Slot::Owned
-                    | Slot::Moved {
-                        definite: false,
-                        ..
-                    }
-            )
-            && owns_executor(&self.locals[slot])
+        if self.submitted.borrow().is_empty() || !owns_executor(&self.locals[slot]) {
+            return false;
+        }
+        self.state_waits.set(self.state_waits.get() + 1);
+        matches!(
+            state[slot],
+            Slot::Owned
+                | Slot::Moved {
+                    definite: false,
+                    ..
+                }
+        )
     }
 
     /// Shutdown drains accepted work and joins the workers. Reject one reached
@@ -2164,11 +2181,16 @@ impl Checker<'_, '_> {
                     let submitted = self.submitted.borrow().len();
                     // A later iteration starts with what an earlier one
                     // assigned: a binding or field moved before the loop and
-                    // assigned in the body holds its endpoint at a join
-                    // earlier in the body. Check again from the merged state
-                    // while a back edge's ownership changes it. Merging only
-                    // weakens `Owned` and `definite`, so this terminates.
+                    // assigned in the body, on any path, holds its endpoint at
+                    // a join earlier in the body. Check again from the merged
+                    // state while it changes. Merging only weakens a slot to
+                    // `Moved { definite: false }`, once, so this terminates.
+                    // Only wait checks read the weakened slots in a way that
+                    // can newly fail, so a pass that made none ends the
+                    // repetition. Each pass rechecks nested loops; they start
+                    // from the weakened state, so they usually settle at once.
                     let zero = loop {
+                        let waits = self.state_waits.get();
                         let mut pass = entry.clone();
                         self.sequence(condition, &mut pass, &mut Vec::new(), site)?;
                         let zero = pass.clone();
@@ -2187,11 +2209,7 @@ impl Checker<'_, '_> {
                         exits.extend(breaks);
                         let mut next = State::new();
                         merge(&[&[entry.clone()][..], &backedges].concat(), &mut next);
-                        let gained = |i: usize| {
-                            next[i] != entry[i]
-                                && backedges.iter().any(|edge| edge[i] == Slot::Owned)
-                        };
-                        if !(0..next.len()).any(gained) {
+                        if next == entry || self.state_waits.get() == waits {
                             break zero;
                         }
                         entry = next;

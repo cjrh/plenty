@@ -590,6 +590,29 @@ fn loop_bodies_see_endpoints_assigned_by_earlier_iterations() {
             ),
             "`held` holds `Sender[i64]` on some paths;",
         ),
+        // Assigned on only some paths of the body.
+        (
+            looped(
+                whole,
+                "if i == 0:\n            held = s2\n        else:\n            drop(s2)",
+            ),
+            "`held` holds `Sender[i64]` on some paths;",
+        ),
+        (
+            looped(
+                field,
+                "if i == 0:\n            ends.sender = s2\n        else:\n            drop(s2)",
+            ),
+            "`ends` holds `Sender[i64]` on some paths;",
+        ),
+        // Assigned in an inner loop that can end with `break`.
+        (
+            looped(
+                whole,
+                "for j in range(2):\n            if j == 1:\n                held = s2\n                break",
+            ),
+            "`held` holds `Sender[i64]` on some paths;",
+        ),
     ] {
         let error = support::check_source(&source).unwrap_err().to_string();
         assert!(
