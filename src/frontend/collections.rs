@@ -1735,9 +1735,9 @@ impl Lower<'_> {
                 let (mut a, mut b) = (Vec::new(), Vec::new());
                 let ty = self.expr_expected(yes, expected.clone(), &mut a)?;
                 let other = self.expr_expected(no, expected.or_else(|| ty.clone()), &mut b)?;
-                let ty = match self.join_conditional(ty, other, &mut a, &mut b) {
-                    Ok(ty) => ty,
-                    Err((ty, other)) => {
+                let ty = match self.join_conditional(&ty, &other, &mut a, &mut b) {
+                    Some(joined) => Some(joined),
+                    None => {
                         self.same(other, ty.clone(), &e.at)?;
                         ty
                     }
