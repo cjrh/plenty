@@ -202,7 +202,8 @@ b 5
 
 Displays, comprehensions, `append`, `insert`, and `add` can fail to allocate,
 so they return `Result`. Empty displays need a type: `xs: list[i64] = []?`.
-Indexing a missing element or key traps; `get` returns an `Option`.
+Indexing a missing element or key traps; `get` returns an `Option` copy, and
+`get_ref`/`get_mut` return an `Option` reference.
 Dictionaries have no indexed assignment: `insert` adds or replaces,
 `get_mut` returns `Option[&mut V]` to change a value in place, and
 `get_or_insert(k, default)?` returns `&mut V` after inserting a missing key.

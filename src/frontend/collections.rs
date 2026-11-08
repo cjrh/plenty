@@ -4576,8 +4576,12 @@ impl Lower<'_> {
         if name == "pop" && matches!(collection, Some(Ty::Dict(..) | Ty::List(_))) {
             return self.collection_removal(base, args, ops).map(Some);
         }
-        if name == "get_mut" && matches!(collection, Some(Ty::Dict(..))) {
-            return self.dict_get_mut(base, args, ops).map(Some);
+        if matches!(name, "get_ref" | "get_mut")
+            && matches!(collection, Some(Ty::Dict(..) | Ty::List(_)))
+        {
+            return self
+                .borrowed_lookup(base, name == "get_mut", args, ops)
+                .map(Some);
         }
         if name == "get_or_insert" && matches!(collection, Some(Ty::Dict(..))) {
             return self.dict_get_or_insert(base, args, ops).map(Some);
@@ -5173,13 +5177,9 @@ impl Lower<'_> {
                 }));
             }
             if element.affine() {
-                let (place, borrowed) = if collection == "list" {
-                    ("index", "")
-                } else {
-                    ("key", ", `get_mut(key)` for an optional exclusive borrow")
-                };
+                let place = if collection == "list" { "index" } else { "key" };
                 return Err(base.at.error(format!(
-                    "get cannot return owned {collection} values; borrow with `&items[{place}]`, which traps when absent{borrowed}, copy with `copy(&items[{place}])?`, or remove and take ownership with `pop`"
+                    "get cannot return owned {collection} values; borrow with `get_ref({place})` or `get_mut({place})`, which return `Nothing` when absent, or `&items[{place}]`, which traps; copy with `copy(&items[{place}])?`, or remove and take ownership with `pop`"
                 )));
             }
             let (key, key_loans) = self.observe_expected(&args[0], Some(expected.clone()), ops)?;
@@ -5323,12 +5323,32 @@ impl Lower<'_> {
     /// `d.get_mut(k) -> Option[&mut V]`: the value for `k`, borrowed
     /// exclusively, or `Nothing`. The result holds an exclusive loan of the
     /// whole dictionary, as a reference-returning method's result would.
-    fn dict_get_mut(&mut self, base: &Expr, args: &[Expr], ops: &mut Vec<Op>) -> Result<Type> {
+    /// `get_ref` and `get_mut` on a dictionary or list: one lookup that lends
+    /// the stored value, or `Nothing` for a missing key or an index outside
+    /// the list (issue #869). The key or index is observed before the
+    /// receiver is borrowed, and the result holds a loan of the whole
+    /// collection until its last use.
+    fn borrowed_lookup(
+        &mut self,
+        base: &Expr,
+        mutable: bool,
+        args: &[Expr],
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let name = if mutable { "get_mut" } else { "get_ref" };
+        let ty = classes::unbox(self.place_type(base).expect("collection place"));
         let [argument] = args else {
-            return Err(base.at.error("get_mut requires one key argument"));
+            return Err(base.at.error(if matches!(ty, Ty::List(_)) {
+                format!("{name} requires one i64 index argument")
+            } else {
+                format!("{name} requires one key argument")
+            }));
         };
-        let ty = classes::unbox(self.place_type(base).expect("dictionary place"));
-        let operation = CollectionOp::DictGetMut(ty);
+        let operation = if matches!(ty, Ty::List(_)) {
+            CollectionOp::ListGetRef(ty, mutable)
+        } else {
+            CollectionOp::DictGetRef(ty, mutable)
+        };
         let (inputs, result) = operation.signature();
         let key = inputs[1].clone();
         // Observe the key before borrowing the receiver exclusively, as `pop`
@@ -5343,12 +5363,12 @@ impl Lower<'_> {
         };
         // An observed inline key must keep its original storage until the
         // runtime finishes the lookup and releases the observation.
-        let (reference, loan) = self.borrow(base, true, ops)?;
+        let (reference, loan) = self.borrow(base, mutable, ops)?;
         self.unbox_reference(reference, ops);
         ops.push(Op::Swap);
         ops.push(Op::Collection(operation));
         Self::end_reads(reads, ops);
-        let id = self.new_loan(self.loans[loan].root, true, Some(loan), ops);
+        let id = self.new_loan(self.loans[loan].root, mutable, Some(loan), ops);
         self.loans[id].precise = false;
         if let Some(Op::Loan(fact)) = ops.last_mut() {
             *fact = self.loans[id].clone();
@@ -6611,8 +6631,16 @@ fn receiver_requirement(name: &str, ty: &Ty) -> Option<&'static str> {
             "a mutable list binding or class field"
         }
         "update" => "a mutable dictionary or set binding or class field",
-        "get_mut" | "get_or_insert" if matches!(ty, Ty::Dict(..)) => {
+        "get_or_insert" if matches!(ty, Ty::Dict(..)) => {
             "a mutable dictionary binding or class field"
+        }
+        "get_mut" if matches!(ty, Ty::Dict(..) | Ty::List(_)) => {
+            "a mutable list or dictionary binding or class field"
+        }
+        // The result lends the receiver's storage, so a temporary would be
+        // released while the reference is live.
+        "get_ref" if matches!(ty, Ty::Dict(..) | Ty::List(_)) => {
+            "a list or dictionary binding or class field"
         }
         "clear" => "a mutable list, dictionary, or set binding or class field",
         _ => return None,

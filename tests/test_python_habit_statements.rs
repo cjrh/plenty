@@ -163,13 +163,13 @@ fn get_of_owned_values_names_borrowing_lookups() {
         diagnostic(
             "def main() -> Result[(), AllocError]:\n    d = {\"a\": [1]?}?\n    v = d.get(\"a\")\n    Ok(())\n"
         ),
-        "3:9: get cannot return owned dictionary values; borrow with `&items[key]`, which traps when absent, `get_mut(key)` for an optional exclusive borrow, copy with `copy(&items[key])?`, or remove and take ownership with `pop`"
+        "3:9: get cannot return owned dictionary values; borrow with `get_ref(key)` or `get_mut(key)`, which return `Nothing` when absent, or `&items[key]`, which traps; copy with `copy(&items[key])?`, or remove and take ownership with `pop`"
     );
     assert_eq!(
         diagnostic(
             "def main() -> Result[(), AllocError]:\n    xs = [[1]?]?\n    v = xs.get(0)\n    Ok(())\n"
         ),
-        "3:9: get cannot return owned list values; borrow with `&items[index]`, which traps when absent, copy with `copy(&items[index])?`, or remove and take ownership with `pop`"
+        "3:9: get cannot return owned list values; borrow with `get_ref(index)` or `get_mut(index)`, which return `Nothing` when absent, or `&items[index]`, which traps; copy with `copy(&items[index])?`, or remove and take ownership with `pop`"
     );
     support::assert_stdout(
         "def main() -> Result[(), AllocError | IoError]:\n    d = {\"a\": [1]?}?\n    r = &d[\"a\"]\n    c = copy(&d[\"a\"])?\n    print(len(r), c)?\n    Ok(())\n",

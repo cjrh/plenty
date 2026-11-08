@@ -15,10 +15,9 @@ def main() -> Result[(), AllocError | IoError]:
 ```
 
 The loan ends after its last use. While an element reference is live, the
-collection cannot grow, remove entries, or move. An out-of-range index traps.
-Dictionaries lend a value through
-[`get_mut`](dictionaries.md), which returns an `Option` instead of trapping on
-a missing key.
+collection cannot grow, remove entries, or move. An out-of-range index traps;
+[`get_ref` and `get_mut`](lookup.md#borrow-a-value-that-may-be-absent) lend an
+element of a list or dictionary as an `Option` instead.
 
 Two list elements written as different number literals are different places, so
 both can be borrowed at once:
