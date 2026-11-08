@@ -360,10 +360,10 @@ fn kind_code(ty: &Ty) -> u8 {
         // literal; a view of `NonZero[u8]`, which shares the rows' layout,
         // prints as a list.
         Ty::View(element, _) if **element == Ty::U8 => b'T',
-        // A `&substr` prints as text: the low word addresses its first byte
+        // A `&strview` prints as text: the low word addresses its first byte
         // and the high word counts its bytes (issue #595).
         Ty::View(element, _) if **element == Ty::Text => b't',
-        Ty::Text => unreachable!("text appears only inside a `&substr` view"),
+        Ty::Text => unreachable!("text appears only inside a `&strview` view"),
         Ty::View(..) => b'V',
         Ty::Atomic(_) => unreachable!("replaced by its element"),
     }

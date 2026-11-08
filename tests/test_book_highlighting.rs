@@ -87,7 +87,17 @@ fn grammar_literals_match_prelude_variants() {
 /// capitalized name as a type.
 #[test]
 fn grammar_classifies_every_lower_case_builtin_name() {
-    let types = lower(quoted(item(FRONTEND, "fn named_type(")));
+    let mut types = lower(quoted(item(FRONTEND, "fn named_type(")));
+    // Borrowed-only text markers are constants in named_type's match, so its
+    // quoted literals alone do not include their spellings.
+    for marker in ["STRVIEW", "SUBSTR"] {
+        let prefix = format!("pub(crate) const {marker}: &str = ");
+        let declaration = FRONTEND
+            .lines()
+            .find(|line| line.starts_with(&prefix))
+            .expect("text view marker declaration");
+        types.extend(quoted(declaration));
+    }
     let builtins: BTreeSet<_> = lower(quoted(item(FRONTEND, "pub(crate) fn builtin(")))
         .into_iter()
         .filter(|w| !w.starts_with("__"))

@@ -1,4 +1,4 @@
-//! Borrowed substrings `&s[a:b]`, of type `&substr` (issue #595). See
+//! Borrowed substrings `&s[a:b]`, of type `&strview` (issue #595). See
 //! book/src/design/language/04-expressions/slices.md#substring-views.
 mod support;
 
@@ -88,7 +88,7 @@ def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
 fn substr_parameters_take_part_of_a_string() {
     support::assert_stdout(
         r#"
-def count(text: &substr, scalar: &str) -> Result[i64, OverflowError[i64]]:
+def count(text: &strview, scalar: &str) -> Result[i64, OverflowError[i64]]:
     mut n = 0
     for c in text:
         if c == scalar:
@@ -115,12 +115,12 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
 }
 
 /// A borrowed `str`, a `&str` binding, or a literal converts to the whole
-/// `&substr` (consistency rule 3, backlog B90).
+/// `&strview` (consistency rule 3, backlog B90).
 #[test]
 fn strings_convert_to_whole_substr_views() {
     support::assert_stdout(
         r#"
-def vowels(text: &substr) -> Result[i64, OverflowError[i64]]:
+def vowels(text: &strview) -> Result[i64, OverflowError[i64]]:
     mut n = 0
     for c in text:
         if c in "aeiou":
@@ -134,8 +134,8 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     s = "education"
     shared = Shared("queue")?
     print(vowels(&s)?, vowels(&s[:3])?, vowels("aei")?, through(&s)?, vowels(&shared)?)?
-    whole: &substr = &s
-    literal: &substr = "hello"
+    whole: &strview = &s
+    literal: &strview = "hello"
     print(whole, len(literal))?
     Ok(())
 "#,
@@ -150,13 +150,13 @@ fn substr_calls_implicitly_borrow_string_places_and_forward_references() {
 class Label:
     text: str
 
-    def width(self, text: &substr) -> i64:
+    def width(self, text: &strview) -> i64:
         len(text)
 
-def width(text: &substr) -> i64:
+def width(text: &strview) -> i64:
     len(text)
 
-def generic[T](text: &substr, other: T) -> i64:
+def generic[T](text: &strview, other: T) -> i64:
     len(text)
 
 def reference(text: &str) -> &str:
@@ -175,7 +175,7 @@ def main() -> Result[(), AllocError | IoError]:
     print(width(s), width(heap), width(r), width(reference(heap)))?
     print(width(label.text), width(values[index()]), width(heap[7:]?))?
     callable = width
-    closure = def(text: &substr) -> i64:
+    closure = def(text: &strview) -> i64:
         len(text)
     print(width(text=s), generic(s, 1), label.width(s), callable(s), closure(s))?
     s = "new"
@@ -202,7 +202,7 @@ def fail() -> Result[i64, str]:
     print("fail").unwrap()
     Err("stop")
 
-def width(text: &substr, extra: i64) -> i64:
+def width(text: &strview, extra: i64) -> i64:
     print(text, extra).unwrap()
     len(text)
 
@@ -245,18 +245,18 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
 #[rstest]
 #[case("s = \"abc\"\nv = &mut s[1:]", "write `&s[a:b]`")]
 #[case(
-    "def f(x: substr) -> ():\n    pass",
-    "`substr` is only the borrowed form `&substr`"
+    "def f(x: strview) -> ():\n    pass",
+    "`strview` is only the borrowed form `&strview`"
 )]
-#[case("def f(x: &mut substr) -> ():\n    pass", "write `&substr`")]
+#[case("def f(x: &mut strview) -> ():\n    pass", "write `&strview`")]
 #[case("s = \"abc\"\nv = &s[::2]", "a slice view selects adjacent elements")]
 #[case(
     "s = \"abc\"\nv = &s[:]\nr = &v[0]",
-    "a `&substr` has no element slots to borrow"
+    "a `&strview` has no element slots to borrow"
 )]
 #[case(
     "s = \"abc\"\nv = &s[:1]\nb = v in s",
-    "search for a `&substr` with `&s[:]`"
+    "search for a `&strview` with `&s[:]`"
 )]
 #[case(
     "mut s = \"abc\"\nv = &s[1:]\ns = \"zz\"\nn = len(v)",
@@ -267,32 +267,32 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     "slice views cannot be stored in collections yet"
 )]
 #[case(
-    "def f(s: &str) -> &substr:\n    &s[1:]",
+    "def f(s: &str) -> &strview:\n    &s[1:]",
     "a function cannot return a slice view yet (backlog B11)"
 )]
 #[case(
-    "def g(x: &substr, owner: &mut str) -> ():\n    pass\n\nmut s = \"abc\"\ng(s, &mut s)",
+    "def g(x: &strview, owner: &mut str) -> ():\n    pass\n\nmut s = \"abc\"\ng(s, &mut s)",
     "conflicting borrow"
 )]
 #[case(
-    "def g(x: &substr, owner: &mut list[str]) -> ():\n    pass\n\nmut xs = [\"abc\"].unwrap()\ng(xs[0], &mut xs)",
+    "def g(x: &strview, owner: &mut list[str]) -> ():\n    pass\n\nmut xs = [\"abc\"].unwrap()\ng(xs[0], &mut xs)",
     "conflicting borrow"
 )]
 #[case(
-    "def g(x: &substr) -> i64:\n    len(x)\n\nn = g(b\"abc\")",
+    "def g(x: &strview) -> i64:\n    len(x)\n\nn = g(b\"abc\")",
     "this parameter takes a substring view"
 )]
 #[case(
     "def g[T](xs: &[T]) -> i64:\n    len(xs)\n\ns = \"abc\"\nn = g(&s)",
-    "`&s[a:b]` is a `&substr`"
+    "`&s[a:b]` is a `&strview`"
 )]
 #[case(
     "def g[T](xs: &[T]) -> i64:\n    len(xs)\n\ns = \"abc\"\nn = g(&s[:])",
-    "`&s[a:b]` is a `&substr`"
+    "`&s[a:b]` is a `&strview`"
 )]
 #[case(
     "s = \"abc\"\nv = &s[:]\nn = v.upper()",
-    "a `&substr` has no method `upper`"
+    "a `&strview` has no method `upper`"
 )]
 fn invalid_substr_views_are_rejected(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_diagnostic(source);
@@ -333,18 +333,18 @@ def main() -> Result[(), AllocError | IoError]:
 #[rstest]
 #[case(
     "n = f(&s[1:])",
-    "a &substr view, but the parameter takes &str; declare the parameter `&substr` to borrow it without copying, or pass an owned copy, `s[a:b]?`"
+    "a &strview view, but the parameter takes &str; declare the parameter `&strview` to borrow it without copying, or pass an owned copy, `s[a:b]?`"
 )]
-#[case("n = f(s=&s[1:3])", "a &substr view, but the parameter takes &str")]
+#[case("n = f(s=&s[1:3])", "a &strview view, but the parameter takes &str")]
 #[case("i = 1\nn = f(&s[i:len(s)])", "or pass an owned copy, `s[a:b]?`")]
-#[case("n = f(&(s[:2]))", "declare the parameter `&substr`")]
+#[case("n = f(&(s[:2]))", "declare the parameter `&strview`")]
 #[case("n = f(&s[1:]?)", "copy the elements with `xs[a:b]?`")]
-#[case("n = f(&\"abc\"[1:])", "a &substr view")]
+#[case("n = f(&\"abc\"[1:])", "a &strview view")]
 #[case("v = &s[1:]\nn = f(v)", "or pass an owned copy, `v[:]?`")]
 #[case("v = &s[1:]\nn = f(&v)", "or pass an owned copy, `v[:]?`")]
 #[case(
     "h = Holder(n=1)\nn = h.take(&s[1:])",
-    "a &substr view, but the parameter takes &str"
+    "a &strview view, but the parameter takes &str"
 )]
 #[case(
     "xs = [1, 2].unwrap()\nn = total(&xs[1:])",
@@ -367,7 +367,7 @@ def main() -> Result[(), AllocError | IoError]:
     "declare the parameter `&[u8]` to borrow it without copying, or pass an owned copy, `xs[a:b]?`"
 )]
 #[case("xs = [1, 2].unwrap()\nn = f(&xs[1:])", "expected &str, got &[i64]")]
-#[case("n = total(&s[1:])", "expected &list[i64], got &substr")]
+#[case("n = total(&s[1:])", "expected &list[i64], got &strview")]
 #[case("b = b\"abc\"\nn = f(&b[1:])", "expected &str, got &[u8]")]
 #[case(
     "n = f(&s[::2])",
@@ -404,7 +404,7 @@ fn view_mismatch_remedies_compile() {
         r#"
 from std.bytes import Bytes, from_text
 
-def borrowed(s: &substr) -> i64:
+def borrowed(s: &strview) -> i64:
     s.byte_len()
 
 def owned(s: &str) -> i64:
@@ -440,7 +440,7 @@ def main() -> Result[(), AllocError | IoError]:
 fn views_add_no_allocations() {
     let output = support::run(
         r#"
-def count(text: &substr, scalar: &str) -> Result[i64, OverflowError[i64]]:
+def count(text: &strview, scalar: &str) -> Result[i64, OverflowError[i64]]:
     mut n = 0
     for c in text:
         if c == scalar:
@@ -474,4 +474,61 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
         "{}",
         String::from_utf8_lossy(&output.stdout)
     );
+}
+
+/// The canonical view name and original alias resolve to the same view type;
+/// ordinary references to owning handles still follow generic reference rules.
+#[test]
+fn strview_name_preserves_aliases_and_ordinary_references() {
+    support::assert_stdout(
+        r#"
+type TextView = &strview
+
+def canonical(text: &strview) -> i64:
+    len(text)
+
+def legacy(text: &substr) -> i64:
+    canonical(text)
+
+def owner[T: CopyType](value: &T) -> T:
+    *value
+
+def first[T](values: &list[T]) -> &T:
+    &values[0]
+
+def main() -> Result[(), AllocError | IoError]:
+    text = "héllo, wörld"
+    ordinary: &str = &text
+    whole: &strview = &text
+    alias: &substr = whole
+    narrowed: TextView = &alias[7:]
+    canonical_again: &strview = alias
+    print(canonical(text), canonical(ordinary), legacy(whole), legacy(narrowed))?
+    print(narrowed, canonical_again == text, owner(ordinary))?
+    values = [text]?
+    returned: &str = first(&values)
+    retained: str = *returned
+    print(retained)?
+    Ok(())
+"#,
+        "12 12 12 5\nwörld True héllo, wörld\nhéllo, wörld\n",
+    );
+}
+
+#[rstest]
+#[case(
+    "def invalid(text: strview) -> ():\n    pass",
+    "`strview` is only the borrowed form `&strview`"
+)]
+#[case(
+    "def invalid(text: substr) -> ():\n    pass",
+    "`&substr` is a compatibility alias"
+)]
+#[case("def invalid(text: &mut strview) -> ():\n    pass", "write `&strview`")]
+#[case("def invalid(text: &mut substr) -> ():\n    pass", "write `&strview`")]
+#[case("text = \"abc\"\nview: &strview = text", "expected &strview, got str")]
+#[case("text = \"abc\"\nview: &substr = text", "expected &strview, got str")]
+fn strview_type_rules_and_alias_diagnostics(#[case] source: &str, #[case] expected: &str) {
+    let error = support::check_diagnostic(source);
+    assert!(error.contains(expected), "{source}\n{error}");
 }

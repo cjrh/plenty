@@ -2386,7 +2386,7 @@ impl Lower<'_> {
             (view, vec![loan])
         } else if self.is_view(iterable) {
             let (view, loan) = self.view_source(iterable, ops)?;
-            // A `&substr` yields one-scalar `str` values, as a `str` does.
+            // A `&strview` yields one-scalar `str` values, as a `str` does.
             borrowed = view != text_view();
             mutable = matches!(view, Ty::View(_, true));
             (view, vec![loan])

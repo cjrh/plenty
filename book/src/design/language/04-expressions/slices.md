@@ -311,7 +311,7 @@ captured by an anonymous function. Return or store the bounds, or an owned copy.
 
 ### Substring views
 
-`&s[a:b]` on a `str` borrows the selected text in place as a `&substr`
+`&s[a:b]` on a `str` borrows the selected text in place as a `&strview`
 (issue #595). Like other views it copies nothing, allocates nothing, and takes
 no `?`. Its bounds are those of the copying slice `s[a:b]?`: they count
 Unicode scalars, a negative bound counts from the end, and bounds outside the
@@ -319,7 +319,7 @@ text clamp. A view therefore always starts and ends on a scalar boundary, and
 `s[a:b]? == &s[a:b]` for any `a` and `b`.
 
 ```plenty
-def vowels(text: &substr) -> Result[i64, OverflowError[i64]]:
+def vowels(text: &strview) -> Result[i64, OverflowError[i64]]:
     mut n = 0
     for c in text:
         if c in "aeiouéö":
@@ -346,21 +346,24 @@ r
 wö
 ```
 
-`&substr` is a separate type from `&str`. A `&str` refers to a whole `str`,
+`&strview` is a separate type from `&str`. A `&str` refers to a whole `str`,
 whose [representation](../../toolchain/02-architecture/values.md#strings)
 stores its byte length and scalar count ahead of the text, and every `str`
 operation reads them. A run inside a string has no such prefix, so a view
-holds the run's address and byte length instead. `substr` is only written as
-`&substr`; there is no owned `substr` and no `&mut substr`, since a `str` is
-immutable. A `&substr` parameter also takes a whole string: `f(s)` implicitly
-borrows it, and `f(&s)`, a `&str` binding, or a `str` literal work too. Each
+holds the run's address and byte length instead. `strview` is only written as
+`&strview`; there is no owned `strview` and no `&mut strview`, since a `str` is
+immutable. The original spelling `&substr` remains a fully compatible alias;
+annotations using either spelling denote the same type. Diagnostics use
+`&strview`. Taking `&s` without a view annotation still produces an ordinary
+`&str`, including in generic `&T` code. A `&strview` parameter also takes a
+whole string: `f(s)` implicitly borrows it, and `f(&s)`, a `&str` binding, or a `str` literal work too. Each
 converts as `&s[:]` would, without copying, retaining, or allocating. Owned
 temporary arguments are evaluated once and stay alive through the containing
 full expression, including later arguments and error propagation. An annotated
-local still needs a borrow, such as `whole: &substr = &s`, or a literal;
+local still needs a borrow, such as `whole: &strview = &s`, or a literal;
 implicit borrowing applies to calls.
-The reverse does not hold: a `&str` parameter cannot take a `&substr`
-without a copy. Declare the parameter `&substr` to accept both a view and a
+The reverse does not hold: a `&str` parameter cannot take a `&strview`
+without a copy. Declare the parameter `&strview` to accept both a view and a
 whole string, or pass an owned copy, `f(s[a:b]?)`, which the call lends as a
 temporary.
 
@@ -372,9 +375,9 @@ temporary.
 | `&v[a:b]` | Narrower view; bounds count scalars from the start of `v` |
 | `v[a:b]?` | An owned copy of part of the view, `Result[str, AllocError]` |
 | `for c in v` | Each scalar as a one-scalar `str`; `reversed(v)`, `enumerate(v)`, and `iter(v)` also work |
-| `v == w`, `v != w`, `<`, `<=`, `>`, `>=` | Compare by Unicode scalar value, as `str` does; either side may be a `str` or a `&substr` |
-| `needle in v`, `needle not in v` | Substring membership; the needle is a `str` or a `&substr` |
-| `v.startswith(x)`, `v.endswith(x)` | Exact prefix or suffix; `x` is a `str` or a `&substr` |
+| `v == w`, `v != w`, `<`, `<=`, `>`, `>=` | Compare by Unicode scalar value, as `str` does; either side may be a `str` or a `&strview` |
+| `needle in v`, `needle not in v` | Substring membership; the needle is a `str` or a `&strview` |
+| `v.startswith(x)`, `v.endswith(x)` | Exact prefix or suffix; `x` is a `str` or a `&strview` |
 | `v.find(x)` | First matching scalar position within the view, or `Nothing` |
 | `print(v)`, `f"{v}"` | The text itself; `str.repr(v)` and `f"{v!r}"` quote it as a `str` |
 
@@ -382,7 +385,7 @@ Each scalar a loop or index yields fits in a string's inline form, so these
 operations allocate nothing. Finding a bound, `len(v)`, `v[i]`, and `v.find(x)`
 scan the text before the position, as they do on a `str`. `str` methods other
 than those listed are not available on a view; copy it with `v[:]?` to use one.
-A `str` method does not take a `&substr` argument, and `v in s` for a `str`
+A `str` method does not take a `&strview` argument, and `v in s` for a `str`
 `s` is written `v in &s[:]`.
 
 A substring view borrows its string as other views borrow their owner: while
@@ -399,7 +402,7 @@ until stored references land (backlog B11).
 | `&xs[::2]` | `a slice view selects adjacent elements, so it takes no step` |
 | `&mut s[1:3]` on a `str` | ``a `str` is immutable, so a substring view is shared only; write `&s[a:b]` `` |
 | `def f(xs: &list[T]) -> &[T]` | `a function cannot return a slice view yet (backlog B11)` |
-| `f(&s[1:])` for `f(s: &str)` | ``this argument is a &substr view, but the parameter takes &str; declare the parameter `&substr` to borrow it without copying, or pass an owned copy, `s[a:b]?` `` |
+| `f(&s[1:])` for `f(s: &str)` | ``this argument is a &strview view, but the parameter takes &str; declare the parameter `&strview` to borrow it without copying, or pass an owned copy, `s[a:b]?` `` |
 | `total(xs)` for `total(v: &[i64])` | ``this parameter takes a slice view: pass `&xs` for a whole list or buffer, or `&xs[a:b]` for part of it`` |
 | `x in v` for a view `v` | ``slice views do not support `in` yet`` |
 | `xs[1:3] = ys` | `slice assignment is not supported; assign elements by index, or build a new list` |

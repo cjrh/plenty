@@ -682,7 +682,7 @@ impl Lower<'_> {
             }
             if collection == text_view() {
                 return Err(e.at.error(
-                    "a `&substr` has no element slots to borrow; `v[i]` reads the scalar as a one-scalar `str`, and `&v[i:i + 1]` views it",
+                    "a `&strview` has no element slots to borrow; `v[i]` reads the scalar as a one-scalar `str`, and `&v[i:i + 1]` views it",
                 ));
             }
             if let Ty::View(element, _) = &collection {

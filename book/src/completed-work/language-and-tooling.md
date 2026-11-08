@@ -420,6 +420,11 @@ User-container membership and iterator protocols remain **B49** in the
 
 ## B12: I/O and iteration
 
+The separate borrowed text view is named `&strview`; the original `&substr`
+spelling remains a compatible alias. Ordinary `&str` references, generic `&T`
+and the two-word view layout keep their existing semantics. See
+[substring views](../design/language/04-expressions/slices.md#substring-views).
+
 Text-file iteration, uniform borrowed iteration and borrowed temporary source
 lifetimes shipped (issues #30/#75). Allocation-free enumerate/zip/reversed
 sources and boolean reductions (issue #35) now compose through B75 pipelines;

@@ -1322,7 +1322,7 @@ impl Lower<'_> {
                 let (ty, loan) = self.view_argument(arg, mutable, false, ops)?;
                 if ty == text_view() {
                     return Err(arg.at.error(
-                        "a `&[T]` parameter takes a list or buffer view; `&s[a:b]` is a `&substr`, which a `&substr` parameter takes",
+                        "a `&[T]` parameter takes a list or buffer view; `&s[a:b]` is a `&strview`, which a `&strview` parameter takes",
                     ));
                 }
                 loans.push(loan);
@@ -1332,7 +1332,7 @@ impl Lower<'_> {
                     // A view is not a `&T`, and without this check `&xs[:]`
                     // reads as a borrow of the copying slice `xs[:]`.
                     return Err(arg.at.error(
-                        "a slice view is passed to a `&[T]` or `&substr` parameter, not to a `&T` type parameter; pass a reference to the whole value, such as `&buffer`",
+                        "a slice view is passed to a `&[T]` or `&strview` parameter, not to a `&T` type parameter; pass a reference to the whole value, such as `&buffer`",
                     ));
                 }
                 let (ty, loan) =
