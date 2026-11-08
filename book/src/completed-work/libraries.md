@@ -508,7 +508,7 @@ accommodate this use case now. The prototype is retained as experimental
 evidence; any future support may be explored in a separate library outside the
 standard library. No further implementation or publication is scheduled.
 
-### Binary string operations
+## Binary string operations
 
 Byte literals, `Bytes` and byte views support byte/subsequence membership and
 [ASCII/binary string methods](../design/stdlib/bytes-stringlike.md), including
