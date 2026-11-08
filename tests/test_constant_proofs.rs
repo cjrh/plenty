@@ -167,14 +167,14 @@ def mean(a: i64, b: i64) -> i64:
             value
         case Err(OverflowError(wrapped)):
             wrapped // two
-def scaled[T: IntType](x: i64, tag: T) -> (i64, T):
-    (x // two, tag)
+def halve[T: IntType](x: T) -> T:
+    x // two
 def main() -> Result[(), IoError]:
-    print(mean(3, 5), mean(i64.MAX, 1), scaled(7, 1u8), 1u32 << shift)?
+    print(mean(3, 5), mean(i64.MAX, 1), halve(7), 1u32 << shift)?
     Ok(())
 "
         ),
-        "4 -4611686018427387904 (3, 1) 16\n"
+        "4 -4611686018427387904 3 16\n"
     );
     for body in ["x // two", "x << shift"] {
         let ty = if body.contains("shift") { "u32" } else { "i64" };

@@ -171,8 +171,9 @@ impl Lower<'_> {
     }
 
     /// Lower `<<` or `>>` with both operands on the stack. A literal or
-    /// module-constant count proves itself valid or is a compile-time error; any other count may
-    /// fail with `ShiftCountError[T]` at the nearest arithmetic boundary.
+    /// module-constant count proves itself valid or is a compile-time error;
+    /// any other count may fail with `ShiftCountError[T]` at the nearest
+    /// arithmetic boundary.
     /// See `book/src/design/language/03-types/numbers.md#checked-blocks`.
     pub(super) fn shift_operation(
         &mut self,
