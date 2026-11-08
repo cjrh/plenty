@@ -106,7 +106,9 @@ Use the [arena lesson](../../../tutorial/09-generics/arena-trees.md) for owned
 storage with parent links and a traversal worklist.
 
 An ordinary `&T` parameter implicitly borrows an owned argument: `inspect(value)`
-and `inspect(&value)` lend the same owner. An `&mut T` parameter requires
+and `inspect(&value)` lend the same owner. A shared
+[view parameter](../04-expressions/slices.md#slice-views) `&[T]` lends a whole
+owned list or buffer the same way. An `&mut T` parameter requires
 `&mut value`, except when forwarding an existing exclusive reference. Methods
 borrow their receivers according to their declared `self` parameter. Generic
 calls and callbacks follow the same signature-based rules.

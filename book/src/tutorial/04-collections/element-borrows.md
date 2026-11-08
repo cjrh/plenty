@@ -106,7 +106,7 @@ def reset(values: &mut [i64]) -> ():
 
 def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut scores = [70, 85, 90, 65, 88]?
-    print(total(&scores)?, total(&scores[1:])?)?
+    print(total(scores)?, total(&scores[1:])?)?
     reset(&mut scores[:2])
     print(scores)?
     Ok(())
@@ -120,8 +120,9 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
 The positions clamp as a copying slice's do. A view supports `len`, indexing,
 narrower views, loops, and `==` with another view, and prints as a list of its
 elements. An exclusive view also takes indexed assignment and
-[`swap`](reordering.md#exchange-two-elements). A `&[T]` parameter also takes a whole list as `&scores`, which is
-a view that copies nothing. A view borrows its
+[`swap`](reordering.md#exchange-two-elements). A `&[T]` parameter lends a whole
+list passed as `scores`, as a `&T` parameter would, and copies nothing; `&scores`
+means the same. An `&mut [T]` parameter needs `&mut scores` written out. A view borrows its
 run of the list, and the list cannot grow while the view is live. Two exclusive
 views of one list can be live together when one stops where the other starts:
 

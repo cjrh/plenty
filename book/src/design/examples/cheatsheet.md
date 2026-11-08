@@ -561,8 +561,8 @@ An eligible ordinary class does not need `@copy` for this explicit operation;
 nested [Shared](../facilities/01-builtins/shared.md) handles retain the same content.
 Custom destruction, recursive data, generators and captured closures restrict
 copying. `&x` lends shared access and
-`&mut x` exclusive access; a `&T` parameter borrows an owner implicitly, but
-`&mut` must be written. Iterating `&list` yields `&T`, so dereference with `*`.
+`&mut x` exclusive access; a `&T` or `&[T]` parameter borrows an owner
+implicitly, but `&mut` must be written. Iterating `&list` yields `&T`, so dereference with `*`.
 References cannot be stored in classes, enums, tuples, or collections. See
 [moves and copies](../language/05-ownership/01-bindings-moves-and-copies.md) and
 [borrowing](../language/05-ownership/02-borrowing.md).
