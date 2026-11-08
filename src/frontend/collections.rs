@@ -2286,11 +2286,7 @@ impl Lower<'_> {
             return self.clist_iteration(names, iterable, ops);
         }
         if let Expression::Call(function, args) = &ungroup(iterable).kind
-            && matches!(function.as_str(), "enumerate" | "zip" | "reversed")
-            && !self.names.contains_key(function)
-            && !self.sigs.contains_key(function)
-            && !self.generics.templates.contains_key(function)
-            && !self.aliases.contains_key(function)
+            && let Some(function @ ("enumerate" | "zip" | "reversed")) = builtin_call(function)
         {
             if function == "reversed" {
                 let [source] = args.as_slice() else {
@@ -6452,7 +6448,9 @@ const ITERATOR_METHODS: &[&str] = &[
 fn source_spelling(base: &Expr) -> String {
     match &ungroup(base).kind {
         Expression::Name(name) => format!("&{name}"),
-        Expression::Call(function, _) => format!("{function}(...)"),
+        Expression::Call(function, _) => {
+            format!("{}(...)", builtin_call(function).unwrap_or(function))
+        }
         Expression::Method(owner, method, _, _) => match &ungroup(owner).kind {
             Expression::Name(owner) => format!("{owner}.{method}()"),
             _ => format!("....{method}()"),
@@ -6469,13 +6467,8 @@ impl Lower<'_> {
         if !ITERATOR_METHODS.contains(&name) {
             return None;
         }
-        let builtin = |function: &str| {
-            !self.names.contains_key(function)
-                && !self.sigs.contains_key(function)
-                && !self.generics.templates.contains_key(function)
-        };
         match &ungroup(base).kind {
-            Expression::Call(function, _) if function == "reversed" && builtin(function) => {
+            Expression::Call(function, _) if builtin_call(function) == Some("reversed") => {
                 return Some("`reversed(...)`");
             }
             Expression::Method(owner, method, method_args, _)

@@ -208,14 +208,18 @@ impl Lower<'_> {
         let (pool, chunk_count) = self.par_arguments(par_args, &par_at)?;
         // Source forms: iter(S), iter(S).enumerate(k), enumerate(S, k).
         let (items, start) = match &ungroup(source).kind {
-            Expression::Call(f, a) if f == "iter" && a.len() == 1 => (&a[0], None),
-            Expression::Call(f, a) if f == "enumerate" && (1..=2).contains(&a.len()) => {
+            Expression::Call(f, a) if builtin_call(f) == Some("iter") && a.len() == 1 => {
+                (&a[0], None)
+            }
+            Expression::Call(f, a)
+                if builtin_call(f) == Some("enumerate") && (1..=2).contains(&a.len()) =>
+            {
                 (&a[0], Some(a.get(1)))
             }
             Expression::Method(inner, m, a, _)
                 if m == "enumerate"
                     && a.len() <= 1
-                    && matches!(&ungroup(inner).kind, Expression::Call(f, b) if f == "iter" && b.len() == 1) =>
+                    && matches!(&ungroup(inner).kind, Expression::Call(f, b) if builtin_call(f) == Some("iter") && b.len() == 1) =>
             {
                 let Expression::Call(_, b) = &ungroup(inner).kind else {
                     unreachable!()
@@ -504,9 +508,13 @@ impl Lower<'_> {
             )
         };
         let mut chain = if enumerated {
-            call(&at, "enumerate", vec![items, name_expr(&at, offset_name)])
+            call(
+                &at,
+                &format!("{BUILTIN_CALL}enumerate"),
+                vec![items, name_expr(&at, offset_name)],
+            )
         } else {
-            call(&at, "iter", vec![items])
+            call(&at, &format!("{BUILTIN_CALL}iter"), vec![items])
         };
         for (step, arguments) in worker_steps {
             chain = method(&at, chain, &step, arguments);

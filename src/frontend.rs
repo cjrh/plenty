@@ -605,9 +605,35 @@ const BYTES_ADOPT: &str = "__bytes_adopt";
 /// and exits like any run-time trap.
 const TRAP: &str = "__trap";
 
-/// A lexically resolved builtin call, distinct from user declarations named
-/// `replace` in other modules (including the unqualified entry module).
+/// The prefix of a lexically resolved builtin call. Module resolution gives a
+/// call to a shadowable builtin (`SHADOWABLE_BUILTINS`) this identity when the
+/// calling module neither declares nor imports the name, so declarations in
+/// other modules, including the unqualified entry module, cannot capture it
+/// (issues #892 and #898).
+const BUILTIN_CALL: &str = "$builtin.";
+
+/// Builtin calls that a declaration, import or local of the same name shadows.
+const SHADOWABLE_BUILTINS: &[&str] = &[
+    "iter",
+    "enumerate",
+    "zip",
+    "reversed",
+    "any",
+    "all",
+    "replace",
+];
+
 const FIELD_REPLACE: &str = "$builtin.replace";
+
+#[test]
+fn field_replace_is_a_builtin_call() {
+    assert_eq!(builtin_call(FIELD_REPLACE), Some("replace"));
+}
+
+/// The written name of `function` when it is a lexically resolved builtin call.
+fn builtin_call(function: &str) -> Option<&str> {
+    function.strip_prefix(BUILTIN_CALL)
+}
 
 /// Native intrinsics that only std modules call. Each family belongs to the
 /// std module that validates its operands and maps its results.
@@ -1814,6 +1840,9 @@ impl Lower<'_> {
                 Some(self.function_value(&symbol, &e.at, ops)?)
             }
             Expression::GenericCall(name, types, args) => {
+                if let Some(name) = builtin_call(name) {
+                    return Err(e.at.error(format!("`{name}` is not a generic function")));
+                }
                 if name == "Box" {
                     return self.protocol_box(types, args, &e.at, ops).map(Some);
                 }
@@ -2480,22 +2509,12 @@ impl Lower<'_> {
             {
                 return Err(named.at.error("`print` takes no named arguments such as `end` or `sep`: it separates values with one space and ends the line; build the line first, such as with an f-string, and print it once"));
             }
-            if matches!(name.as_str(), "enumerate" | "zip" | "reversed")
-                && !self.names.contains_key(name)
-                && !self.sigs.contains_key(name)
-                && !self.generics.templates.contains_key(name)
-                && !self.aliases.contains_key(name)
-            {
+            if let Some(name @ ("enumerate" | "zip" | "reversed")) = builtin_call(name) {
                 return Err(e.at.error(format!(
                     "{name} is supported directly in for loops and comprehensions"
                 )));
             }
-            if matches!(name.as_str(), "any" | "all")
-                && !self.names.contains_key(name)
-                && !self.sigs.contains_key(name)
-                && !self.generics.templates.contains_key(name)
-                && !self.aliases.contains_key(name)
-            {
+            if let Some(name @ ("any" | "all")) = builtin_call(name) {
                 // B75 replaced the free boolean reductions with pipeline terminals.
                 return Err(e.at.error(format!(
                     "{name} is not a builtin function; use the pipeline terminal: \

@@ -86,10 +86,15 @@ to their defining module, regardless of directory ancestry. All reachable module
 are checked before execution. Imported modules need no entrypoint, and their
 `main` functions are ordinary functions.
 
-The replacement builtin resolves in the module that declares the code. A
-declaration or import named `replace` shadows the builtin in that module; it does
-not change builtin calls in other modules, including their generic functions and
-unused methods. Function-local bindings can shadow it within their scope.
+A few builtins can be shadowed: `replace`, the iteration sources `iter`,
+`enumerate`, `zip` and `reversed`, and the retired free functions `any` and
+`all`, whose calls report the pipeline terminals to use. A call to one of these
+names means the builtin unless the module that writes the call declares or
+imports that name. A declaration in another module, including the entry module,
+does not change it, in generic functions and unused methods too.
+Function-local bindings can shadow these names within their scope. Only a call
+binds the builtin; using one of these names as a value in a module that neither
+declares nor imports it is an unknown binding.
 
 The [concurrency standard modules](../../stdlib/index.md) export existing builtin
 identities. An explicit import such as `from std.thread import spawn` may bind
