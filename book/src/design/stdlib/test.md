@@ -54,8 +54,8 @@ line, not its caller's.
 
 | Function | Passes when | Failure explanation |
 |---|---|---|
-| `fail(message: &str)` | never | `message` |
-| `check(condition: bool, message: &str)` | `condition` | `message` |
+| `fail(message: &strview)` | never | `message` |
+| `check(condition: bool, message: &strview)` | `condition` | `message` |
 | `equal[T](left: &T, right: &T)` | `left == right` | `left == right`, then `  left: ` and ` right: ` lines |
 | `not_equal[T](left: &T, right: &T)` | `left != right` | `left != right`, then a `  both: ` line |
 | `less[T](left: &T, right: &T)` | `left < right` | `left < right`, then `left` and `right` lines |
@@ -92,7 +92,7 @@ failure seen under one seed repeats under it.
 |---|---|---|
 | `path()` | `&Path` | The directory's absolute path |
 | `root()` | `&Root` | A [`std.fs.Root`](fs.md) anchored at the directory |
-| `file(name: &str)` | `Result[str, TestError]` | The absolute path text of `name` inside the directory, for builtins such as `write_text` and `open` |
+| `file(name: &strview)` | `Result[str, TestError]` | The absolute path text of `name` inside the directory, for builtins such as `write_text` and `open` |
 | `cleanup()` | `Result[(), TestError]` | Remove the directory and everything in it; later calls do nothing. Takes `&mut Scratch` |
 
 Dropping a `Scratch` runs `cleanup` and ignores its error. Removal uses

@@ -11,7 +11,7 @@ as `AllocError`. Unrepresentable frontier storage sizes return
 |---|---|---|
 | `std.diff.diff(&old, &new, algorithm, max_cost)` | `Result[list[Op], AllocError]` | Edit operations between two `list[T]`; `T` must be usable as a dictionary key |
 | `std.diff.diff_bytes(&old, &new, algorithm, max_cost)` | `Result[list[Op], AllocError]` | Edit operations between the bytes of two `Bytes` values |
-| `std.diff.lines(old, new, algorithm, max_cost)` | `Result[TextDiff, AllocError]` | Compare `&str` texts line by line |
+| `std.diff.lines(old, new, algorithm, max_cost)` | `Result[TextDiff, AllocError]` | Compare `&strview` texts line by line |
 | `std.diff.words(old, new, algorithm, max_cost)` | `Result[TextDiff, AllocError]` | Compare runs of whitespace and runs of other scalars |
 | `std.diff.chars(old, new, algorithm, max_cost)` | `Result[TextDiff, AllocError]` | Compare Unicode scalar by scalar |
 | `text_diff.ops()` | `&list[Op]` | The operations, indexing the tokens |

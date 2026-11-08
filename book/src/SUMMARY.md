@@ -394,6 +394,7 @@
             - [Actor HTTP TLS comparison](design/stdlib/actor-http-tls-comparison.md)
         - [`std.archive`](design/stdlib/archive.md)
         - [`std.atomic`](design/stdlib/atomic.md)
+        - [Text inputs and substring views](design/stdlib/text-input-views.md)
         - [`std.bytes`](design/stdlib/bytes.md)
             - [Binary string operations](design/stdlib/bytes-stringlike.md)
         - [`std.cache.lru`](design/stdlib/cache-lru.md)

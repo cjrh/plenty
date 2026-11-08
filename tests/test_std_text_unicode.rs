@@ -303,3 +303,54 @@ print(std.unicode.nfkd("ﬃ", 3)? == "ffi", failed(std.unicode.nfkd("ﬃ", 2)))?
         );
     }
 }
+
+#[test]
+fn text_readers_accept_bounded_views_without_an_owning_input_copy() {
+    assert_eq!(
+        run(r#"
+source = "!é🙂\0ab!"
+view = &source[1:-1]
+mut output = std.text.builder(9)?
+output.append(view)?
+print(output.byte_len(), output.to_text()? == "é🙂\0ab")?
+print(failed(output.append(&source[1:2])), output.to_text()? == "é🙂\0ab")?
+print(std.text.find_in(view, b"a").unwrap(), std.text.find_not_in(view, b"a").unwrap())?
+pieces = ["a", "b"]?
+print(std.text.join(&pieces, &source[2:3], 6)? == "a🙂b")?
+print(std.text.hard_wrap(view, 2, 20)? == "é🙂\n\0a\nb")?
+words = "!alpha beta gamma!"
+print(std.text.wrap(&words[1:-1], 10)? == ["alpha beta", "gamma"]?)?
+print(std.text.fill(&words[1:-1], 10)? == "alpha beta\ngamma")?
+wrapper = std.text.text_wrapper(10)
+print(wrapper.wrap(&words[1:-1])? == ["alpha beta", "gamma"]?)?
+print(wrapper.fill(&words[1:-1])? == "alpha beta\ngamma")?
+mark = "![...]!"
+print(std.text.shorten(&words[1:-1], 10, &mark[1:-1])? == "alpha[...]")?
+indented = "!  alpha\n  beta\n!"
+print(std.text.dedent(&indented[1:-1])? == "alpha\nbeta\n")?
+print(std.text.indent(&words[1:6], &source[1:2])? == "éalpha")?
+print(std.text.indent_with(&words[1:6], &source[1:2], def(line: &str) -> bool: len(line) > 0)? == "éalpha")?
+empty = &source[1:1]
+print(std.text.fill(empty, 10)? == "", std.text.join(&pieces, empty, 2)? == "ab")?
+"#),
+        "9 True\nTrue True\n3 0\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue True"
+    );
+}
+
+#[test]
+fn normalization_and_scalar_properties_accept_ranges() {
+    assert_eq!(
+        run(r#"
+source = "!é\0🙂!"
+print(std.unicode.nfc(&source[1:-1], 4)? == "é\0🙂")?
+composed = "!é!"
+print(std.unicode.nfd(&composed[1:-1], 2)? == "é")?
+compatibility = "!ﬃ!"
+print(std.unicode.nfkc(&compatibility[1:-1], 3)? == "ffi", std.unicode.nfkd(&compatibility[1:-1], 3)? == "ffi")?
+mark = "!́!"
+print(std.unicode.combining_class(&mark[1:-1]).unwrap() == 230u32, std.unicode.is_mark(&mark[1:-1]).unwrap())?
+print(absent(std.unicode.combining_class(&mark[0:0])), std.unicode.nfc(&source[0:0], 0)? == "")?
+"#),
+        "True\nTrue\nTrue True\nTrue True\nTrue True"
+    );
+}

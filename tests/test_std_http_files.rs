@@ -764,6 +764,7 @@ fn file_size_precedes_conditionals_and_date_bounds_are_checked() {
         "validators",
         "unchanged",
         "tag_listed",
+        "byte_find_range",
         "trimmed",
         "same_bytes",
         "parse_http_date",

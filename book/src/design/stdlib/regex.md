@@ -7,6 +7,14 @@ pattern or search can consume has an explicit limit. Pattern and search errors
 use `RegexError`; arithmetic on freely constructed `Match` offsets has the
 separate contract described below.
 
+Patterns, haystacks, replacement templates and group names accept
+[`&strview`](../language/04-expressions/slices.md#substring-views), including
+borrowed substring ranges. Byte offsets are relative to the supplied view.
+Searching inspects its borrowed input directly; `compile` explicitly makes a
+fallible owning copy of the pattern it retains, so the compiled regex does not
+keep a loan of the caller's string. Match extraction and replacements still
+return independent owned results.
+
 The parser, compiler and matching engines are Plenty code in the module:
 a Pike VM, bounded ASCII prefix filters, a lazy DFA and a one-pass matcher.
 The runtime supplies only primitives: Unicode properties and single-scalar
@@ -55,7 +63,7 @@ Released 15/03/2024, patched 02/04/2024.
 | Item | Result | Contract |
 |---|---|---|
 | `limits()` | `Limits` | The default limits, listed below |
-| `compile(pattern: &str, bounds: &Limits)` | `Result[Regex, RegexError]` | The compiled pattern, or its first error |
+| `compile(pattern: &strview, bounds: &Limits)` | `Result[Regex, RegexError]` | The compiled pattern, or its first error |
 
 `Limits(max_pattern_bytes, max_nesting, max_repeat, max_instructions,
 max_memory, max_work)` has public `NonNegative[i64]` fields in that order. A
@@ -106,19 +114,19 @@ the matches that start earliest, the one the pattern prefers wins
 | Method | Result | Contract |
 |---|---|---|
 | `group_count()` | `i64` | Groups, counting group 0 (the whole match) |
-| `group_index(name: &str)` | `Option[i64]` | The number of a named group |
+| `group_index(name: &strview)` | `Option[i64]` | The number of a named group |
 | `instructions()` | `i64` | Program size, for choosing `max_work` |
-| `is_match(text: &str)` | `Result[bool, RegexError]` | Whether any match exists; stops at the first |
-| `find(text: &str)` | `Result[Option[Match], RegexError]` | The first match |
-| `find_at(text: &str, start: i64)` | `Result[Option[Match], RegexError]` | The first match at or after `start` |
-| `captures(text: &str)` | `Result[Option[Captures], RegexError]` | The groups of the first match |
-| `captures_at(text: &str, start: i64)` | `Result[Option[Captures], RegexError]` | As `captures`, from `start` |
+| `is_match(text: &strview)` | `Result[bool, RegexError]` | Whether any match exists; stops at the first |
+| `find(text: &strview)` | `Result[Option[Match], RegexError]` | The first match |
+| `find_at(text: &strview, start: i64)` | `Result[Option[Match], RegexError]` | The first match at or after `start` |
+| `captures(text: &strview)` | `Result[Option[Captures], RegexError]` | The groups of the first match |
+| `captures_at(text: &strview, start: i64)` | `Result[Option[Captures], RegexError]` | As `captures`, from `start` |
 | `cursor()` | `Result[Cursor, RegexError]` | Iteration state for `next_match` |
-| `next_match(text: &str, cursor: &mut Cursor)` | `Result[Option[Match], RegexError]` | The next match, or `Nothing` after the last |
-| `find_all(text: &str, max_matches: i64)` | `Result[list[Match], RegexError]` | Every match in order |
-| `split(text: &str, max_pieces: i64)` | `Result[list[str], RegexError]` | The text between matches |
-| `replace(text: &str, template: &str, max_bytes: i64)` | `Result[str, RegexError]` | `text` with the first match replaced |
-| `replace_all(text: &str, template: &str, max_bytes: i64)` | `Result[str, RegexError]` | `text` with every match replaced |
+| `next_match(text: &strview, cursor: &mut Cursor)` | `Result[Option[Match], RegexError]` | The next match, or `Nothing` after the last |
+| `find_all(text: &strview, max_matches: i64)` | `Result[list[Match], RegexError]` | Every match in order |
+| `split(text: &strview, max_pieces: i64)` | `Result[list[str], RegexError]` | The text between matches |
+| `replace(text: &strview, template: &strview, max_bytes: i64)` | `Result[str, RegexError]` | `text` with the first match replaced |
+| `replace_all(text: &strview, template: &strview, max_bytes: i64)` | `Result[str, RegexError]` | `text` with every match replaced |
 
 `find_at` and `captures_at` start at a scalar boundary; assertions such as
 `^` and `\b` still see the text before `start`. Iteration (`next_match`,
@@ -153,7 +161,7 @@ remaining bytes invalid positions.
 
 `Match` has public fields `start` and `end` (byte offsets, end exclusive) and
 methods `len() -> Result[i64, OverflowError[i64]]`, `is_empty()`,
-`text(haystack: &str)` and `bytes(data: &[u8])`. `len()` checks `end - start`:
+`text(haystack: &strview)` and `bytes(data: &[u8])`. `len()` checks `end - start`:
 public fields may contain arbitrary offsets, so representable negative lengths
 are retained and unrepresentable differences return an arithmetic error.
 The text and byte methods still copy the matched part and report `OutOfRange`
@@ -161,7 +169,7 @@ for a haystack it does not fit. Matches returned by a successful search have
 ordered, nonnegative offsets and a representable length.
 
 `Captures` has `len()` (equal to `group_count()`), `get(index: i64)` and
-`name(name: &str)`, each `Option[Match]`. Group 0 is the whole match; a group
+`name(name: &strview)`, each `Option[Match]`. Group 0 is the whole match; a group
 outside the pattern or not taking part is `Nothing`. A group inside a
 repetition holds its last iteration.
 

@@ -87,9 +87,7 @@ impl Write for Stderr {
     }
 }
 
-pub(crate) unsafe fn write_stream(text: *const Text, stderr: bool) -> u128 {
-    // SAFETY: the dispatcher borrows a live text throughout this call.
-    let source = unsafe { strings::utf8(&text) };
+pub(crate) fn write_stream(source: &str, stderr: bool) -> u128 {
     let result = if stderr {
         self::stderr().write_all(source.as_bytes())
     } else {
@@ -109,9 +107,9 @@ pub(crate) fn flush_stream(stderr: bool) -> u128 {
 
 /// A single write exposes exact byte progress to the checked reporting loop.
 /// Offsets can split UTF-8 after an OS short write; no decoding occurs here.
-pub(crate) unsafe fn report_write(text: *const Text, offset: i64) -> u128 {
+pub(crate) unsafe fn report_write(text: u128, offset: i64) -> u128 {
     // SAFETY: the dispatcher borrows the text throughout the operation.
-    let source = unsafe { strings::bytes(&text) };
+    let source = unsafe { crate::aggregates::text_views::bytes(text) };
     let result = match usize::try_from(offset).ok().and_then(|at| source.get(at..)) {
         Some(bytes) => crate::files::without_sigpipe(|| stderr().write(bytes)),
         None => Err(std::io::Error::from(std::io::ErrorKind::InvalidInput)),

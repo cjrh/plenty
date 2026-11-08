@@ -590,3 +590,22 @@ def main() -> Result[(), AllocError | IoError | MarkdownError | std.bytes.BytesE
         );
     }
 }
+
+#[test]
+fn markdown_text_entries_accept_unicode_ranges() {
+    assert_visible_stdout(
+        r#"
+import std.markdown
+from std.markdown import Event
+def main() -> Result[(), AllocError | IoError | std.markdown.MarkdownError]:
+    text = "!# café 🙂\n!"
+    bounds = std.markdown.limits()
+    print(std.markdown.to_html(&text[1:-1], &bounds)? == "<h1>café 🙂</h1>\n")?
+    mut parser = std.markdown.parser_text(&text[1:-1], &bounds)?
+    print(parser.next()? == Event.Start(std.markdown.Tag.Heading(1)))?
+    print(std.markdown.to_html(&text[1:1], &bounds)? == "")?
+    Ok(())
+"#,
+        "True\nTrue\nTrue",
+    );
+}

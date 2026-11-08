@@ -83,7 +83,7 @@ and `args_bytes()` remains available.
 
 ## Help, errors, and exit codes
 
-`help(schema: &list[Spec], program: &str) -> Result[str, CliError]` generates a
+`help(schema: &list[Spec], program: &strview) -> Result[str, CliError]` generates a
 usage heading and schema-ordered descriptions, with types and required/repeatable
 markers plus `--help`. It borrows its inputs and returns owned text.
 

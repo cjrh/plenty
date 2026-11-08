@@ -2567,9 +2567,9 @@ pub def parser(source: &[u8], bounds: &Limits) -> Result[Parser, MarkdownError]:
         case Err(fault):
             Err(block_error(fault, source, result._line_number))
 
-pub def parser_text(text: &str, bounds: &Limits) -> Result[Parser, MarkdownError]:
-    source = unplaced(reserved(std.bytes.from_text(text)))?
-    parser(&source, bounds)
+pub def parser_text(text: &strview, bounds: &Limits) -> Result[Parser, MarkdownError]:
+    source = text.as_bytes()
+    parser(source, bounds)
 
 # Writes HTML for events into an owned buffer. `_written` counts every byte
 # produced, so the output limit also covers bytes already taken or written out.
@@ -2614,22 +2614,22 @@ pub class HtmlRenderer:
             self.put_byte(10)?
         Ok(())
 
-    def put_raw(self: &mut HtmlRenderer, text: &str) -> Result[(), MarkdownFault]:
+    def put_raw(self: &mut HtmlRenderer, text: &strview) -> Result[(), MarkdownFault]:
         if text.byte_len() == 0:
             return Ok(())
-        source = reserved(std.bytes.from_text(text))?
-        self.room(source.len())?
-        reserved(self._out.extend(&source))?
+        source = text.as_bytes()
+        self.room(len(source))?
+        reserved(self._out.extend(source))?
         # Nonempty text encodes to a positive byte-buffer length.
         unchecked:
-            self._last = i64(source[source.len() - 1])
+            self._last = i64(source[len(source) - 1])
         Ok(())
 
     # Escapes `&`, `<`, `>`, and `"`; with `href`, also percent-encodes bytes
     # that do not belong in a URL and escapes `'`.
-    def put_escaped(self: &mut HtmlRenderer, text: &str, href: bool) -> Result[(), MarkdownFault]:
-        source = reserved(std.bytes.from_text(text))?
-        for index in range(source.len()):
+    def put_escaped(self: &mut HtmlRenderer, text: &strview, href: bool) -> Result[(), MarkdownFault]:
+        source = text.as_bytes()
+        for index in range(len(source)):
             c = i64(source[index])
             if c == 38:
                 self.put(b"&amp;")?
@@ -2653,7 +2653,7 @@ pub class HtmlRenderer:
         text = reserved(str.from(value))?
         self.put_raw(&text)
 
-    def put_title(self: &mut HtmlRenderer, title: &str) -> Result[(), MarkdownFault]:
+    def put_title(self: &mut HtmlRenderer, title: &strview) -> Result[(), MarkdownFault]:
         if title.byte_len() > 0:
             self.put(b" title=\"")?
             self.put_escaped(title, False)?
@@ -2678,14 +2678,14 @@ pub class HtmlRenderer:
             case Tag.CodeBlock(info):
                 self.cr()?
                 self.put(b"<pre><code")?
-                source = reserved(std.bytes.from_text(info))?
+                source = info.as_bytes()
                 mut end = 0
-                while end < source.len() and not is_ascii_space(i64(source[end])):
+                while end < len(source) and not is_ascii_space(i64(source[end])):
                     # The language-name scan consumes existing info-string bytes.
                     unchecked:
                         end += 1
                 if end > 0:
-                    word = text_of(&source, 0, end)?
+                    word = text_of(source, 0, end)?
                     self.put(b" class=\"language-")?
                     self.put_escaped(&word, False)?
                     self.put(b"\"")?
@@ -2942,9 +2942,9 @@ pub def render(source: &[u8], bounds: &Limits) -> Result[Bytes, MarkdownError]:
         target.event(&event)?
     target.take()
 
-pub def to_html(text: &str, bounds: &Limits) -> Result[str, MarkdownError]:
-    source = unplaced(reserved(std.bytes.from_text(text)))?
-    html = render(&source, bounds)?
+pub def to_html(text: &strview, bounds: &Limits) -> Result[str, MarkdownError]:
+    source = text.as_bytes()
+    html = render(source, bounds)?
     match faulted(html.to_text()):
         case Ok(result):
             Ok(result)

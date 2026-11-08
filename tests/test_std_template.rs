@@ -850,3 +850,29 @@ print(failures > 0, successes > 0, correct)?
     );
     assert_eq!(output_with_optimization(&source, false), "True True True");
 }
+
+#[test]
+fn template_registration_and_rendering_accept_retained_and_read_only_ranges() {
+    let source = program(
+        r#"
+bounds = std.template.limits()
+mut templates = std.template.engine(&bounds)?
+mut name = "!page!"
+mut text = "!<p>café 🙂</p>!"
+templates.add(&name[1:-1], &text[1:-1])?
+name = "changed"
+text = "changed"
+lookup = "!page!"
+context = Json.Object([]?)
+schema = std.template.Shape.Object([]?)
+templates.validate(&lookup[1:-1], &schema)?
+templates.validate_html(&lookup[1:-1])?
+print(templates.render(&lookup[1:-1], &context)? == "<p>café 🙂</p>")?
+print(templates.render_checked(&lookup[1:-1], &context, &schema)? == "<p>café 🙂</p>")?
+print(templates.render_html(&lookup[1:-1], &context)? == "<p>café 🙂</p>")?
+escaped = "!<&\0🙂!"
+print(std.template.escape(&escaped[1:-1], std.template.HtmlContext.Text)? == "&lt;&amp;\0🙂")?
+"#,
+    );
+    assert_eq!(support::run_file_stdout(&source), "True\nTrue\nTrue\nTrue");
+}

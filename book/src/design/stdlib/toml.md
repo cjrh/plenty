@@ -48,6 +48,11 @@ port = 8080
 hosts = ["a", "b"]
 ```
 
+Text entry points accept `&strview`, including `&text[start:stop]`. Parsing
+keeps its existing owned working copy, and `Document` retains its own source
+copy for edits. Lookup keys accept views; serialization protocol callbacks
+keep ordinary `&str` signatures.
+
 ## Accepted text
 
 The parser accepts TOML 1.0 and rejects everything else, including TOML 1.1
@@ -127,12 +132,12 @@ first appeared in the text, including keys added later by a header, so
 |---|---|---|
 | `limits()` | `Limits` | The defaults below |
 | `parse(source: &[u8], bounds: &Limits)` | `Result[Toml, TomlError]` | Parse one document from a buffer |
-| `parse_text(text: &str, bounds)` | `Result[Toml, TomlError]` | The same, from a `str` |
+| `parse_text(text: &strview, bounds)` | `Result[Toml, TomlError]` | The same, from a `str` |
 | `read_value[R: Reader](reader: &mut R, bounds)` | `Result[Toml, TomlError]` | Read to end of input, then parse |
 | `encode(value: &Toml, bounds)` | `Result[Bytes, TomlError]` | TOML text for a table |
 | `encode_text(value: &Toml, bounds)` | `Result[str, TomlError]` | The same, as a `str` |
 | `write_value[W: Writer](writer: &mut W, value: &Toml, bounds)` | `Result[(), TomlError]` | Encode the whole value, then write it; no flush |
-| `find(entries: &list[Entry], key: &str)` | `Option[i64]` | Index of the first entry named `key` |
+| `find(entries: &list[Entry], key: &strview)` | `Option[i64]` | Index of the first entry named `key` |
 
 `read_value` reads chunks of up to 4096 bytes, retries `Interrupted`, and
 treats a zero-length read as end of input. It reads at most one byte past
@@ -268,7 +273,7 @@ printed and compared.
 |---|---|---|
 | `parse`, `parse_text` | One copy of the input; one node per key, table, and value; one index entry per named key; one scratch buffer as long as the longest key, string, or number; then the tree | Linear in the input, expected |
 | `read_value` | The input buffer, grown in chunks of 4096 bytes, then as `parse` without the copy | As `parse`, plus the reads |
-| `encode`, `write_value` | The whole output buffer; one key set per table with two or more entries; a temporary copy of each key and string and a temporary `str` per float, each released before the next | Linear in the output, expected |
+| `encode`, `write_value` | The whole output buffer; one key set per table with two or more entries; a temporary `str` per float, released before the next; keys and strings are scanned through borrowed bytes | Linear in the output, expected |
 | `encode_text` | The output buffer, then a `str` copy | Linear |
 | `find` | Nothing | Linear in the entry count |
 

@@ -254,3 +254,31 @@ def main() -> Result[(), IoError]:
         );
     }
 }
+
+#[test]
+fn media_type_parsing_lookup_and_retention_accept_ranges() {
+    native(
+        r#"
+text = "!Text/Plain; Charset=UTF-8!"
+mut value = std.mime.parse(&text[1:-1])?
+name = "!CHARSET!"
+print(value.param(&name[1:-1]).unwrap() == "utf-8")?
+kind = "!TEXT!"
+subtype = "!PLAIN!"
+print(std.mime.new(&kind[1:-1], &subtype[1:-1])?.to_string()? == "text/plain")?
+key = "!name!"
+mut stored = "!café 🙂!"
+value.set_param(&key[1:-1], &stored[1:-1])?
+stored = "replaced after retention"
+print(value.param(&key[1:-1]).unwrap() == "café 🙂")?
+print(value.remove_param(&key[1:-1]))?
+extension = "!JSON!"
+file = "!/tmp/data.JSON!"
+print(std.mime.from_extension(&extension[1:-1]).unwrap() == "application/json")?
+print(std.mime.from_file_name(&file[1:-1]) == "application/json")?
+ordinary: &str = value.type_name()
+print(*ordinary == "text")?
+"#,
+        "True\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue",
+    );
+}

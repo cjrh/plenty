@@ -85,7 +85,7 @@ pub def from_u64_pair(high: u64, low: u64) -> Uuid:
 
 # Parsing preserves all 128 bits, including unknown versions and variants.
 # The one accepted spelling is 8-4-4-4-12 ASCII hex digits, either case.
-pub def parse(text: &str) -> Result[Uuid, ParseError]:
+pub def parse(text: &strview) -> Result[Uuid, ParseError]:
     # The 36-byte input has at most 36 scalars; position/digit stay <=36.
     # ASCII guards bound each digit subtraction and addition to 0..15.
     unchecked:

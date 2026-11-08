@@ -645,7 +645,7 @@ impl CollectionOp {
             Tls(op) => op.signature(),
             Net(op) => op.signature(),
             OpenFile => (
-                vec![Ty::Str, Ty::Str],
+                vec![crate::frontend::text_view(), crate::frontend::text_view()],
                 crate::sum::result(Ty::File, crate::sum::io_error()),
             ),
             FileClose => (
@@ -730,7 +730,7 @@ impl CollectionOp {
                 ),
             ),
             EncodeUtf8 => (
-                vec![Ty::Str],
+                vec![crate::frontend::text_view()],
                 crate::sum::result(Ty::List(Arc::new(Ty::U8)), crate::sum::io_error()),
             ),
             DecodeUtf8 => (
@@ -765,11 +765,11 @@ impl CollectionOp {
             SerialStackReady { .. } => (vec![], Ty::Bool),
             ActorHeap => (vec![Ty::I64, Ty::I64], Ty::I64),
             WriteStdout | WriteStderr => (
-                vec![Ty::Str],
+                vec![crate::frontend::text_view()],
                 crate::sum::result(Ty::I64, crate::sum::io_error()),
             ),
             ReportWrite => (
-                vec![Ty::Str, Ty::I64],
+                vec![crate::frontend::text_view(), Ty::I64],
                 crate::sum::result(Ty::I64, crate::sum::io_error()),
             ),
             ElementRefView(t, mutable) => (

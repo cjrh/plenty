@@ -154,6 +154,7 @@ impl CollectionOp {
             Time(_) => Effect::Clock,
             System(_) => Effect::Environment,
             SerialStackReady { .. } => Effect::Environment,
+            TextView(crate::text::TextViewOp::Apply(original)) => original.effect(),
             // These primitive families transform caller-owned memory only.
             Bytes(_) | Crypto(_) | Compress(_) | Regex(_) | Text(_) | TextView(_) | Unicode(_) => {
                 Effect::Compute

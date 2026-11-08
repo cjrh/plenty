@@ -119,7 +119,12 @@ impl BytesOp {
             Self::FindIn => return (vec![view(), view(), Ty::U8], Ty::I64),
             Self::FindBytes | Self::RFindBytes => return (vec![view(), view()], Ty::I64),
             Self::Matches => return (vec![view(), Ty::I64, view()], Ty::Bool),
-            Self::MatchesText => return (vec![view(), Ty::I64, Ty::Str], Ty::Bool),
+            Self::MatchesText => {
+                return (
+                    vec![view(), Ty::I64, crate::frontend::text_view()],
+                    Ty::Bool,
+                );
+            }
             // The run's length. The operand selects ASCII (0) or valid UTF-8 (1).
             Self::Run => return (vec![view(), Ty::U8], Ty::I64),
             Self::New => (vec![Ty::I64], storage()),

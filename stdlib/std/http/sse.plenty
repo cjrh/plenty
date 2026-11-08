@@ -60,9 +60,9 @@ def net_error(error: NetError) -> SseError:
             SseError.Net(other)
 
 # Appends `name: ` and then `text` and a line feed.
-def field(out: &mut Bytes, name: &str, text: &[u8]) -> Result[(), SseError]:
-    spelled = allocated(std.bytes.from_text(name))?
-    allocated(out.extend(&spelled))?
+def field(out: &mut Bytes, name: &strview, text: &[u8]) -> Result[(), SseError]:
+    spelled = name.as_bytes()
+    allocated(out.extend(spelled))?
     allocated(out.push(colon))?
     allocated(out.push(space))?
     allocated(out.extend(text))?
@@ -71,7 +71,7 @@ def field(out: &mut Bytes, name: &str, text: &[u8]) -> Result[(), SseError]:
 # Appends one `name: line` field for each line of `text`. CRLF, CR and LF all
 # end a line, as the format's readers split them; a line break at the end
 # leaves a last, empty line.
-def lines(out: &mut Bytes, name: &str, text: &[u8]) -> Result[(), SseError]:
+def lines(out: &mut Bytes, name: &strview, text: &[u8]) -> Result[(), SseError]:
     stop = len(text)
     mut at = 0
     while True:
@@ -95,13 +95,13 @@ def break_positions(at: i64, found: i64) -> (i64, i64):
         (end, end + 1)
 
 # An event name or id, which must be one line.
-def single(out: &mut Bytes, name: &str, value: &str, id: bool) -> Result[(), SseError]:
-    text = allocated(std.bytes.from_text(value))?
-    if text.find_in(b"\r\n", 0, text.len()).is_some():
+def single(out: &mut Bytes, name: &strview, value: &strview, id: bool) -> Result[(), SseError]:
+    text = value.as_bytes()
+    if __bytes_find_in(text, b"\r\n", 1u8) >= 0:
         return Err(SseError.InvalidField)
-    if id and text.find(0u8, 0, text.len()).is_some():
+    if id and __bytes_find(text, 0u8) >= 0:
         return Err(SseError.InvalidField)
-    field(out, name, &text)
+    field(out, name, text)
 
 # An event stream: a response that the handler keeps writing to until it
 # closes it, the client goes away, or the server shuts down. One caller at a
@@ -129,12 +129,12 @@ pub class EventStream[T]:
     # an `event` field naming its type unless `event` is empty and an `id`
     # field when `id` is given. An empty `id` resets the client's last event
     # id.
-    pub def send(self: &mut EventStream[T], data: &str, deadline: &Deadline, cancel: &CancellationToken, event: str = "", id: Option[str] = Nothing) -> Result[(), SseError]:
+    pub def send(self: &mut EventStream[T], data: &strview, deadline: &Deadline, cancel: &CancellationToken, event: str = "", id: Option[str] = Nothing) -> Result[(), SseError]:
         self.usable()?
         if cancel.is_cancelled():
             return Err(SseError.Net(NetError.Cancelled))
-        text = allocated(std.bytes.from_text(data))?
-        self.send_bytes(&text, deadline, cancel, event, id)
+        text = data.as_bytes()
+        self.send_bytes(text, deadline, cancel, event, id)
 
     # `send` of `data`, which must be UTF-8. It is not copied except into the
     # stream's output buffer.
@@ -158,13 +158,13 @@ pub class EventStream[T]:
 
     # Sends `text` as comment lines, which clients ignore: a keep-alive that
     # also finds a client that has gone away.
-    pub def comment(self: &mut EventStream[T], text: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), SseError]:
+    pub def comment(self: &mut EventStream[T], text: &strview, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), SseError]:
         self.usable()?
         if cancel.is_cancelled():
             return Err(SseError.Net(NetError.Cancelled))
-        source = allocated(std.bytes.from_text(text))?
+        source = text.as_bytes()
         self._out.clear()
-        lines(&mut self._out, "", &source)?
+        lines(&mut self._out, "", source)?
         self.flush(deadline, cancel)
 
     # Asks the client to wait `milliseconds` before reconnecting after the

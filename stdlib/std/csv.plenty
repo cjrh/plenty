@@ -600,10 +600,10 @@ pub class Writer[W]:
                 self._pending.truncate(held)
                 Err(cause)
 
-    pub def text(self: &mut Writer[W], value: &str) -> Result[(), CsvError]:
+    pub def text(self: &mut Writer[W], value: &strview) -> Result[(), CsvError]:
         drop(position_after(self._records, 1)?)
-        encoded = listed(std.bytes.from_text(value))?
-        self.field(&encoded)
+        encoded = value.as_bytes()
+        self.field(encoded)
 
     def terminate(self: &mut Writer[W]) -> Result[(), CsvError]:
         # A lone empty field would otherwise be an empty line.

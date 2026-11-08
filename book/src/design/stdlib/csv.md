@@ -205,7 +205,7 @@ survives any number of reads.
 | `Writer[W]` | Result | Contract |
 |---|---|---|
 | `field(source: &[u8])` | `Result[(), CsvError]` | Add `source` as the next field |
-| `text(value: &str)` | `Result[(), CsvError]` | Add the UTF-8 bytes of `value` as the next field |
+| `text(value: &strview)` | `Result[(), CsvError]` | Add the UTF-8 bytes of `value` as the next field |
 | `end_record()` | `Result[(), CsvError]` | Finish the record in progress and deliver it |
 | `record(record: &Record)` | `Result[(), CsvError]` | Add every field of `record`, then end the record |
 | `texts(fields: &list[str])` | `Result[(), CsvError]` | Add every text, then end the record |

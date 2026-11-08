@@ -21,7 +21,6 @@
 use super::byte_storage::{Storage, range};
 use super::wrap;
 use crate::memory::{self, AllocError, Header};
-use crate::strings::{self, Text};
 use rustls::client::{WebPkiServerVerifier, verify_server_name};
 use rustls::crypto::CryptoProvider;
 use rustls::crypto::ring::ALL_CIPHER_SUITES;
@@ -656,21 +655,21 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
                 .lock()
                 .unwrap_or_else(|_| crate::fail("std.tls builder lock poisoned"))
         };
-        // Text operands stay in their words, which inline texts' views borrow.
-        let (text_a, text_b, text_c) = (a as *const Text, b as *const Text, c as *const Text);
+        // Text-view operands borrow validated UTF-8 for this call. Retained
+        // certificate recipes, ALPN names and server names copy their bytes.
         // All TLS objects belong to their allocating heap. Actor sessions
         // reconstruct the borrowed configuration's recipe locally, so even
         // interrupted rustls frames own no foreign reference to release.
         // Outside actors, sessions retain the shared parsed configuration.
         match op {
-            470 => opened(roots(strings::bytes(&text_a))),
+            470 => opened(roots(super::text_views::bytes(a))),
             471 => roots_of(a).store.len() as u128,
             472 => opened(client_config(roots_of(a))),
             473 => opened(server_config(
-                strings::bytes(&text_a),
-                strings::bytes(&text_b),
+                super::text_views::bytes(a),
+                super::text_views::bytes(b),
             )),
-            474 => opened(client(config_of(a), strings::bytes(&text_b))),
+            474 => opened(client(config_of(a), super::text_views::bytes(b))),
             475 => opened(server(config_of(a))),
             476 => feed(&mut connection(a), view(b)) as u128,
             477 => take(&mut connection(a), view_mut(b, c, d)) as u128,
@@ -688,14 +687,15 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
                 plan.clients_required = c != 0;
                 0
             }
-            484 => plan(a).certificate(strings::bytes(&text_b), strings::bytes(&text_c)) as u128,
-            485 => plan(a).protocol(strings::bytes(&text_b)) as u128,
+            484 => plan(a).certificate(super::text_views::bytes(b), super::text_views::bytes(c))
+                as u128,
+            485 => plan(a).protocol(super::text_views::bytes(b)) as u128,
             486 => {
                 plan(a).tls13_only = b as i64 == 13;
                 0
             }
             487 => plan(a).suite(b as u64 as i64) as u128,
-            488 => plan(a).revocations(strings::bytes(&text_b)) as u128,
+            488 => plan(a).revocations(super::text_views::bytes(b)) as u128,
             489 => opened(plan(a).build()),
             490 => detail(connection(a).alpn_protocol(), view_mut(b, c, d)) as u128,
             491 => detail(server_name(&connection(a)), view_mut(b, c, d)) as u128,

@@ -1,5 +1,8 @@
 # std.path — native paths
 
+Read-only text inputs accept whole strings and scalar-aligned substring views; see
+[Text inputs and substring views](text-input-views.md) for borrowing and native-copy contracts.
+
 Import `std.path`. `Path` owns an affine `list[u8]`, preserving exact Linux path
 bytes, including invalid UTF-8, spaces, tabs, CR and LF. It is not a compact byte
 buffer or a Windows path abstraction. `from_bytes(bytes)` transfers the list

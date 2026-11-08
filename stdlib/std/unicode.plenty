@@ -5,14 +5,14 @@ pub def version() -> str:
     return "17.0.0"
 
 # All public classification accepts exactly one scalar, not an arbitrary string.
-pub def combining_class(scalar: &str) -> Option[u32]:
+pub def combining_class(scalar: &strview) -> Option[u32]:
     match ord(scalar):
         case Ok(code):
             Some(__unicode_ccc(code))
         case Err(_):
             Nothing
 
-pub def is_mark(scalar: &str) -> Option[bool]:
+pub def is_mark(scalar: &strview) -> Option[bool]:
     match ord(scalar):
         case Ok(code):
             Some(__unicode_is_mark(code))
@@ -28,7 +28,7 @@ def allocated[T](value: Result[T, AllocError]) -> Result[T, TextError]:
 
 # A caller-selected scalar bound covers input, full decomposition and output.
 # Stable insertion ordering follows UAX #15 D109; zero classes are boundaries.
-def normalized(text: &str, limit: i64, compatible: bool, compose: bool) -> Result[str, TextError]:
+def normalized(text: &strview, limit: i64, compatible: bool, compose: bool) -> Result[str, TextError]:
     # NonNegative public arguments supply limit; the positive constant divisor
     # cannot fail, and the ceiling makes the final UTF-8 multiplication fit.
     ceiling = unchecked:
@@ -88,14 +88,14 @@ def normalized(text: &str, limit: i64, compatible: bool, compose: bool) -> Resul
         output.append(&scalar)?
     output.finish()
 
-pub def nfd(text: &str, max_scalars: NonNegative[i64] __max(2305843009213693951)) -> Result[str, TextError]:
+pub def nfd(text: &strview, max_scalars: NonNegative[i64] __max(2305843009213693951)) -> Result[str, TextError]:
     normalized(text, max_scalars.get(), False, False)
 
-pub def nfc(text: &str, max_scalars: NonNegative[i64] __max(2305843009213693951)) -> Result[str, TextError]:
+pub def nfc(text: &strview, max_scalars: NonNegative[i64] __max(2305843009213693951)) -> Result[str, TextError]:
     normalized(text, max_scalars.get(), False, True)
 
-pub def nfkd(text: &str, max_scalars: NonNegative[i64] __max(2305843009213693951)) -> Result[str, TextError]:
+pub def nfkd(text: &strview, max_scalars: NonNegative[i64] __max(2305843009213693951)) -> Result[str, TextError]:
     normalized(text, max_scalars.get(), True, False)
 
-pub def nfkc(text: &str, max_scalars: NonNegative[i64] __max(2305843009213693951)) -> Result[str, TextError]:
+pub def nfkc(text: &strview, max_scalars: NonNegative[i64] __max(2305843009213693951)) -> Result[str, TextError]:
     normalized(text, max_scalars.get(), True, True)

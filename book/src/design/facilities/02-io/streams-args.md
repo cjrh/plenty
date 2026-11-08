@@ -2,13 +2,14 @@
 
 ## Output
 
-`write_stdout(text: str) -> Result[i64, IoError]` and `write_stderr(text)`
+`write_stdout(text: &strview) -> Result[i64, IoError]` and `write_stderr(text)`
 observe text and write its exact UTF-8 bytes without adding a newline. Success
 returns the Unicode-scalar count. Errors can follow partial output.
 Stderr writes go straight to descriptor 2, so a closed or read-only stderr is
 `IoError.System(9)` (`EBADF`). Stdout writes are buffered by the Rust standard
 library, which reports `EBADF` as success; a closed or read-only stdout
-discards output without an error.
+discards output without an error. They borrow strings, string references or substring
+views directly, without allocating or copying the input.
 
 `print(values...) -> Result[(), IoError]` formats supported values separated by
 spaces and adds a newline; no arguments produce an empty line;

@@ -49,7 +49,7 @@ pub def level_name(level: &Level) -> str:
 
 # Exact lowercase names only, so configuration typos are reported instead of
 # silently selecting a default threshold.
-pub def parse_level(name: &str) -> Result[Level, LogError]:
+pub def parse_level(name: &strview) -> Result[Level, LogError]:
     if name == "trace":
         return Ok(Level.Trace)
     if name == "debug":
@@ -218,7 +218,7 @@ pub class LineBuffer:
         self.data.clear()
         self._overflow = False
 
-def valid_key(key: &str) -> bool:
+def valid_key(key: &strview) -> bool:
     if key == "" or key == "time" or key == "level" or key == "msg":
         return False
     for scalar in key:

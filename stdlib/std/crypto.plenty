@@ -99,7 +99,7 @@ pub class Digest:
     pub def update(self: &mut Digest, data: &[u8]) -> Result[(), CryptoError]:
         updated(&mut self._state, data)
 
-    pub def update_text(self: &mut Digest, text: &str) -> Result[(), CryptoError]:
+    pub def update_text(self: &mut Digest, text: &strview) -> Result[(), CryptoError]:
         if not __crypto_update_text(self._state, text):
             return Err(CryptoError.Finished)
         Ok(())
@@ -126,7 +126,7 @@ pub class Mac:
     pub def update(self: &mut Mac, data: &[u8]) -> Result[(), CryptoError]:
         updated(&mut self._state, data)
 
-    pub def update_text(self: &mut Mac, text: &str) -> Result[(), CryptoError]:
+    pub def update_text(self: &mut Mac, text: &strview) -> Result[(), CryptoError]:
         if not __crypto_update_text(self._state, text):
             return Err(CryptoError.Finished)
         Ok(())
@@ -193,11 +193,11 @@ pub def blake3_keyed(key: &[u8], data: &[u8]) -> Result[Bytes, CryptoError]:
 
 # Context is a fixed, globally unique application/purpose string. This is a
 # KDF for high-entropy key material, not password hashing.
-pub def blake3_derive_hasher(context: &str) -> Result[Digest, CryptoError]:
+pub def blake3_derive_hasher(context: &strview) -> Result[Digest, CryptoError]:
     state = hasher_state(__crypto_new_derive_key(context))?
     Ok(Digest(state, 32))
 
-pub def blake3_derive_key(context: &str, key_material: &[u8]) -> Result[Bytes, CryptoError]:
+pub def blake3_derive_key(context: &strview, key_material: &[u8]) -> Result[Bytes, CryptoError]:
     mut hasher = blake3_derive_hasher(context)?
     hasher.update(key_material)?
     hasher.finish()

@@ -54,7 +54,7 @@ and byte views, without a temporary owning buffer.
 | `find_bytes(needle, start, stop)` | shared | `Option[i64]` | First index where all of `needle` occurs inside the range |
 | `count(value, start, stop)` | shared | `i64` | Occurrences of `value` within the range |
 | `matches(offset, source)` | shared | `bool` | Whether `source` occurs at `offset` |
-| `matches_text(offset, text: &str)` | shared | `bool` | Whether the UTF-8 bytes of `text` occur at `offset` |
+| `matches_text(offset, text: &strview)` | shared | `bool` | Whether the UTF-8 bytes of `text` occur at `offset` |
 | `ascii_run(start, stop)` | shared | `i64` | Index after the run of bytes below 128 that begins at `start` |
 | `utf8_run(start, stop)` | shared | `i64` | Index after the longest valid UTF-8 that begins at `start` |
 | `slice(start, stop)` | shared | `Result[Bytes, AllocError]` | Independent copy of a range, with exact capacity |
@@ -462,6 +462,14 @@ Import the module that owns them instead.
 The older [binary I/O builtins](../facilities/02-io/bytes-paths.md) and
 [`std.path`](path.md) still take and return `list[u8]`. Convert explicitly with
 `from_list` and `to_list`; each conversion allocates and copies.
+
+## Decode a byte view
+
+`std.bytes.to_text(source: &[u8]) -> Result[str, BytesError]` validates UTF-8
+and copies the selected range directly into an owned `str`, without creating
+an intermediate `Bytes` buffer. Select a range with `&source[start:stop]`. Invalid
+UTF-8 returns `BytesError.InvalidUtf8`; allocation failure returns
+`BytesError.Allocation`. Embedded NUL is valid text.
 
 ## Acknowledgements
 

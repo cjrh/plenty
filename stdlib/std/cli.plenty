@@ -57,7 +57,7 @@ def decoded(bytes: &list[u8], argument: i64) -> Result[str, CliError]:
                 case _:
                     Err(CliError.InvalidUtf8(argument))
 
-def encoded(text: &str) -> Result[list[u8], CliError]:
+def encoded(text: &strview) -> Result[list[u8], CliError]:
     match encode_utf8(text):
         case Ok(bytes):
             Ok(bytes)
@@ -181,7 +181,7 @@ pub def parse(schema: &list[Spec], arguments: &list[list[u8]], start: i64) -> Re
             return Err(CliError.Missing(candidate))
     Ok(Parsed(False, entries))
 
-pub def help(schema: &list[Spec], program: &str) -> Result[str, CliError]:
+pub def help(schema: &list[Spec], program: &strview) -> Result[str, CliError]:
     validate(schema)?
     mut text = allocated("Usage: ".concat(program))?
     text = allocated(text.concat(" [--help]\n"))?
@@ -236,7 +236,7 @@ pub def describe(error: &CliError) -> Result[str, AllocError]:
         case CliError.Allocation(_):
             Ok("no memory to parse arguments")
 
-def named(prefix: &str, index: i64, schema: &list[Spec]) -> Result[str, AllocError]:
+def named(prefix: &strview, index: i64, schema: &list[Spec]) -> Result[str, AllocError]:
     if index >= 0 and index < len(schema):
         return prefix.concat(schema[index].name)
     prefix.concat(&str.repr(index)?)

@@ -7,7 +7,7 @@ pub enum ShlexError:
 
 # Whitespace follows Python shlex's useful command-line convention: CR and LF
 # delimit words; other Unicode whitespace is ordinary data.
-pub def split(text: &str, comments: bool = False) -> Result[list[str], ShlexError]:
+pub def split(text: &strview, comments: bool = False) -> Result[list[str], ShlexError]:
     mut words = list[str]().map_error(ShlexError.Allocation)?
     mut pieces = list[str]().map_error(ShlexError.Allocation)?
     mut started = False
@@ -29,13 +29,13 @@ pub def split(text: &str, comments: bool = False) -> Result[list[str], ShlexErro
                 continue
             if quoting == "\"" and scalar != "$" and scalar != "`" and scalar != "\"" and scalar != "\\":
                 pieces.append("\\").map_error(ShlexError.Allocation)?
-            pieces.append(*scalar).map_error(ShlexError.Allocation)?
+            pieces.append(scalar).map_error(ShlexError.Allocation)?
             started = True
         elif quoting == "'":
             if scalar == "'":
                 quoting = ""
             else:
-                pieces.append(*scalar).map_error(ShlexError.Allocation)?
+                pieces.append(scalar).map_error(ShlexError.Allocation)?
         elif scalar == "\\":
             escaping = True
             escape_at = at
@@ -43,9 +43,9 @@ pub def split(text: &str, comments: bool = False) -> Result[list[str], ShlexErro
             if scalar == "\"":
                 quoting = ""
             else:
-                pieces.append(*scalar).map_error(ShlexError.Allocation)?
+                pieces.append(scalar).map_error(ShlexError.Allocation)?
         elif scalar == "'" or scalar == "\"":
-            quoting = *scalar
+            quoting = scalar
             quote_at = at
             started = True
         elif scalar == " " or scalar == "\t" or scalar == "\r" or scalar == "\n":
@@ -57,7 +57,7 @@ pub def split(text: &str, comments: bool = False) -> Result[list[str], ShlexErro
         elif comments and scalar == "#" and not started:
             comment = True
         else:
-            pieces.append(*scalar).map_error(ShlexError.Allocation)?
+            pieces.append(scalar).map_error(ShlexError.Allocation)?
             started = True
     if escaping:
         return Err(ShlexError.TrailingEscape(escape_at))
@@ -69,7 +69,7 @@ pub def split(text: &str, comments: bool = False) -> Result[list[str], ShlexErro
 
 # One argument for a noninteractive POSIX shell. Controls stay literal; this
 # is not an interactive terminal escaping function.
-pub def quote(text: &str) -> Result[str, ShlexError]:
+pub def quote(text: &strview) -> Result[str, ShlexError]:
     mut safe = text != ""
     for at, scalar in enumerate(text):
         if scalar == "\0":
@@ -78,6 +78,6 @@ pub def quote(text: &str) -> Result[str, ShlexError]:
         if not ((code >= 65u32 and code <= 90u32) or (code >= 97u32 and code <= 122u32) or (code >= 48u32 and code <= 57u32) or scalar in "_@%+=:,./-"):
             safe = False
     if safe:
-        return Ok(*text)
+        return text[:].map_error(ShlexError.Allocation)
     escaped = text.replace("'", "'\"'\"'").map_error(ShlexError.Allocation)?
     (("'" + escaped).map_error(ShlexError.Allocation)? + "'").map_error(ShlexError.Allocation)

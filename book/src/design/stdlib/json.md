@@ -48,6 +48,11 @@ langs has 2 items
 {"id":7,"person":{"name":"Ada","langs":["en","fr"]}}
 ```
 
+`parse_text`, `find`, and `Encoder.number` accept `&strview`, including
+`&text[start:stop]`. The parser reads the selected UTF-8 bytes directly; tree
+values and encoded output own their data. Serialization protocol callbacks
+keep their ordinary `&str` signatures.
+
 ## Accepted text
 
 The decoder accepts exactly RFC 8259 and one document per input.
@@ -227,7 +232,7 @@ takes an exclusive receiver and returns `Result[(), JsonError]`.
 | `null()`, `boolean(value: bool)` | A literal |
 | `integer(value: i64)`, `unsigned(value: u64)` | Decimal digits |
 | `decimal(value: f64)` | The shortest text that parses back to the same value, as `str.from`; non-finite is `NonFiniteNumber` |
-| `number(text: &str)` | The text unchanged, after checking the number grammar |
+| `number(text: &strview)` | The text unchanged, after checking the number grammar |
 | `text(value: &str)` | A string |
 | `key(name: &str)` | A member name; only valid where an object expects one |
 | `start_array()`, `end_array()`, `start_object()`, `end_object()` | Brackets; commas and colons are inserted automatically |
@@ -271,12 +276,12 @@ pub class Member:
 | Function | Result | Contract |
 |---|---|---|
 | `parse(source: &[u8], bounds)` | `Result[Json, JsonError]` | Decode one document from a byte view |
-| `parse_text(text: &str, bounds)` | `Result[Json, JsonError]` | The same, from a `str` |
+| `parse_text(text: &strview, bounds)` | `Result[Json, JsonError]` | The same, from a `str` |
 | `read_value[R: Reader](reader: &mut R, bounds)` | `Result[Json, JsonError]` | Decode one document, reading to end of input |
 | `encode(value: &Json, bounds)` | `Result[Bytes, JsonError]` | Compact encoding |
 | `encode_text(value: &Json, bounds)` | `Result[str, JsonError]` | The same, as a `str` |
 | `write_value[W: Writer](writer: &mut W, value: &Json, bounds)` | `Result[(), JsonError]` | Encode the whole value, then write it; no flush |
-| `find(members: &list[Member], key: &str)` | `Option[i64]` | Index of the first member named `key` |
+| `find(members: &list[Member], key: &strview)` | `Option[i64]` | Index of the first member named `key` |
 
 A number without a fraction or exponent becomes `Int` and must fit `i64`;
 otherwise the document is rejected with `NumberOutOfRange`, never rounded. Any

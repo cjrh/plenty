@@ -420,15 +420,39 @@ User-container membership and iterator protocols remain **B49** in the
 
 ## B12: I/O and iteration
 
+Read-only text inputs in 127 pure-Plenty standard-library declarations accept
+`&strview`, including substring ranges: text builders and wrapping, formatting,
+regex, JSON/TOML and Markdown parsing, Unicode normalization, codecs, URLs,
+MIME, shell words, templates, diffs, and HTTP text helpers. Byte-oriented readers
+inspect `as_bytes()` directly. Retained names, compiled regex patterns, returned
+strings, and parser working buffers keep explicit fallible ownership boundaries.
+Ordinary generic references, serialization callbacks, and MIME getters remain
+unchanged. See the [input inventory](../design/stdlib/text-input-views.md) for
+exceptions, runtime-reader coverage and allocation contracts. This delivers the
+pure-Plenty reader portion of issue #864; runtime-backed readers are recorded
+with their separate implementation.
+
 Text and substring views expose `as_bytes()`, a constant-time shared byte borrow
 that preserves the original string loan, including inline slots. Byte iteration
 uses the existing `&[u8]` view rules. `std.bytes.from_text` accepts substring
 views and copies directly into an owned buffer without an intermediate owning
 string. Ordinary `&str`/generic references, scalar indexing/iteration and the
 two-word view representation are unchanged. This delivers the byte-access slice
-of issue #864; text-operation parity and broader read-only std inputs remain
-tracked there. The [Text reference](../design/facilities/01-builtins/text.md) and
+of issue #864; broader read-only inputs are covered by the reader records above. The [Text reference](../design/facilities/01-builtins/text.md) and
 [byte views](../design/stdlib/bytes.md#byte-views) describe the contracts.
+
+Builtin text operations now accept substring views directly: scalar lookup,
+search, classification, transformations, splitting/joining, copying slices
+(including steps), repetition, numeric parsing and `ord`. String and view
+operands mix in text methods, concatenation and membership. The selected range
+is read without an intermediate owning string; result ownership and errors
+match existing string operations. Ordinary whole-string operations retain their
+cached-count and sharing paths. The [substring-view operation inventory](../design/language/04-expressions/slices.md#substring-views)
+records supported operations and remaining storage/protocol limits.
+Incoming view parameters can also be forwarded through recursive native tail
+calls, including aliases and narrower ranges. The proof requires every outgoing
+loan to remain rooted in an incoming reference/view parameter; local owned text
+and temporary owners remain rejected (issue #878).
 
 The separate borrowed text view is named `&strview`; the original `&substr`
 spelling remains a compatible alias. Ordinary `&str` references, generic `&T`

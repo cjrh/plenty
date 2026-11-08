@@ -29,6 +29,10 @@ multipart/form-data; boundary="x7 y"
 image/svg+xml Option[str].Some("font/woff2")
 ```
 
+Text inputs accept `&strview`, including selected substring ranges. Parsed
+media types and stored parameter values own their text; `type_name()` and
+`subtype()` continue to return ordinary `&str` references to owned fields.
+
 ## Media types
 
 | Item | Meaning |

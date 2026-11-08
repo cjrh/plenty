@@ -1223,3 +1223,23 @@ print(tag(&a), tag(&b), tag(&c), tag(&d))?
         "other other other other",
     );
 }
+
+#[test]
+fn url_text_operations_accept_bounded_views() {
+    native(
+        r#"
+source = "!https://example.test/caf%C3%A9?q=a%00b!"
+value = std.url.parse(&source[1:-1], 128)?
+print(value.to_string()? == source[1:-1]?)?
+raw = "!café\0🙂!"
+encoded = std.url.encode(&raw[1:-1], Component.QueryPart)?
+held = "!".concat(&encoded)?.concat("!")?
+print(std.url.decode(&held[1:-1])? == raw[1:-1]?)?
+query = "!k=caf%C3%A9&empty=&nul=%00!"
+pairs = std.url.query_pairs(&query[1:-1])?
+print(len(pairs), pairs[0].value == "café", pairs[1].value == "", pairs[2].value == "\0")?
+print(len(std.url.query_pairs(&query[0:0])?) == 0)?
+"#,
+        "True\nTrue\n3 True True True\nTrue",
+    );
+}

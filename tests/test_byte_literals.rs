@@ -277,10 +277,6 @@ fn bytes_is_distinct_from_text_and_buffers() {
             r#"value = b"a" < b"b""#,
             "operator `<` does not accept bytes",
         ),
-        (
-            r#"value = b"a".count(97u8)"#,
-            "bytes has no `count` method; `value.len()` counts its bytes",
-        ),
     ] {
         let message = rejected(source);
         assert!(message.contains(expected), "{source}: {message}");

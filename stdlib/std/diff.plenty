@@ -413,14 +413,14 @@ pub class TextDiff:
     # written as one line; a token without a final LF is followed by one and
     # by `\ No newline at end of file`. Equal texts give empty text. A negative
     # context counts as zero.
-    pub def unified(self, context: i64, old_name: &str, new_name: &str) -> Result[str, AllocError]:
+    pub def unified(self, context: i64, old_name: &strview, new_name: &strview) -> Result[str, AllocError]:
         mut pieces = list[str]()?
         if not self.has_changes():
             return Ok("")
         pieces.append("--- ")?
-        pieces.append(*old_name)?
+        pieces.append(old_name[:]?)?
         pieces.append("\n+++ ")?
-        pieces.append(*new_name)?
+        pieces.append(new_name[:]?)?
         pieces.append("\n")?
         radius = 0 if context < 0 else context
         for hunk in hunks(&self._ops, radius)?:
@@ -535,29 +535,29 @@ def text_diff(old: list[str], new: list[str], algorithm: Algorithm, max_cost: Op
     Ok(TextDiff(old, new, ops))
 
 # Lines, each keeping its LF; a final line without one is its own token.
-def split_lines(text: &str) -> Result[list[str], AllocError]:
+def split_lines(text: &strview) -> Result[list[str], AllocError]:
     # find returns an index below size; found+1 remains at most the byte-buffer length.
-    data = std.bytes.from_text(text)?
+    data = text.as_bytes()
     mut out = list[str]()?
     mut start = 0
-    size = data.len()
+    size = len(data)
     while start < size:
         mut end = size
-        match data.find(10u8, start, size):
+        match byte_find_range(data, 10u8, start, size):
             case Some(found):
                 unchecked:
                     end = found + 1
             case Nothing:
                 pass
-        out.append(allocated(data.to_text_range(start, end))?)?
+        out.append(allocated(std.bytes.to_text(&data[start:end]))?)?
         start = end
     Ok(out)
 
 # Alternating runs of Unicode White_Space and of other scalars.
-def split_words(text: &str) -> Result[list[str], AllocError]:
+def split_words(text: &strview) -> Result[list[str], AllocError]:
     # Each scalar advances at by its own UTF-8 byte length, so at never exceeds the already held
     # text byte length.
-    data = std.bytes.from_text(text)?
+    data = text.as_bytes()
     mut out = list[str]()?
     mut start = 0
     mut at = 0
@@ -565,30 +565,39 @@ def split_words(text: &str) -> Result[list[str], AllocError]:
     for scalar in text:
         current = scalar.isspace()
         if at > start and current != space:
-            out.append(allocated(data.to_text_range(start, at))?)?
+            out.append(allocated(std.bytes.to_text(&data[start:at]))?)?
             start = at
         space = current
         unchecked:
             at += scalar.byte_len()
     if at > start:
-        out.append(allocated(data.to_text_range(start, at))?)?
+        out.append(allocated(std.bytes.to_text(&data[start:at]))?)?
     Ok(out)
 
-def split_chars(text: &str) -> Result[list[str], AllocError]:
+def split_chars(text: &strview) -> Result[list[str], AllocError]:
     mut out = list[str]()?
     for scalar in text:
-        out.append(*scalar)?
+        out.append(scalar)?
     Ok(out)
 
 # Compare line by line. Lines keep their LF, so a last line without one
 # differs from the same line with one.
-pub def lines(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[TextDiff, AllocError]:
+pub def lines(old: &strview, new: &strview, algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[TextDiff, AllocError]:
     text_diff(split_lines(old)?, split_lines(new)?, algorithm, max_cost)
 
 # Compare runs of whitespace and of other scalars.
-pub def words(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[TextDiff, AllocError]:
+pub def words(old: &strview, new: &strview, algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[TextDiff, AllocError]:
     text_diff(split_words(old)?, split_words(new)?, algorithm, max_cost)
 
 # Compare Unicode scalar by scalar.
-pub def chars(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[TextDiff, AllocError]:
+pub def chars(old: &strview, new: &strview, algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[TextDiff, AllocError]:
     text_diff(split_chars(old)?, split_chars(new)?, algorithm, max_cost)
+
+# Internal callers supply 0 <= start <= stop <= len(data). A found
+# relative position is below stop - start, so adding start stays in range.
+def byte_find_range(data: &[u8], value: u8, start: i64, stop: i64) -> Option[i64]:
+    found = __bytes_find(&data[start:stop], value)
+    if found < 0:
+        return Nothing
+    unchecked:
+        Some(start + found)

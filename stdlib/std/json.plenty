@@ -966,7 +966,7 @@ class Builder:
 
 # Integer syntax must fit `i64` exactly; a fraction or exponent selects `f64`,
 # which must be finite. Nothing is rounded to fit an integer.
-def number_value(text: &str) -> Result[Json, JsonFault]:
+def number_value(text: &strview) -> Result[Json, JsonFault]:
     if "." in text or "e" in text or "E" in text:
         match f64.parse(text):
             case Ok(value):
@@ -1023,9 +1023,9 @@ pub def parse(source: &[u8], bounds: &Limits) -> Result[Json, JsonError]:
         case Err(fault):
             Err(events.reject(fault))
 
-pub def parse_text(text: &str, bounds: &Limits) -> Result[Json, JsonError]:
-    source = unplaced(reserved(std.bytes.from_text(text)))?
-    parse(&source, bounds)
+pub def parse_text(text: &strview, bounds: &Limits) -> Result[Json, JsonError]:
+    source = text.as_bytes()
+    parse(source, bounds)
 
 # Decodes one document from `reader`, reading to end of input.
 pub def read_value[R: Reader](reader: &mut R, bounds: &Limits) -> Result[Json, JsonError]:
@@ -1049,7 +1049,7 @@ pub def read_value[R: Reader](reader: &mut R, bounds: &Limits) -> Result[Json, J
             Err(events.reject(fault))
 
 # The index of the first member named `key`.
-pub def find(members: &list[Member], key: &str) -> Option[i64]:
+pub def find(members: &list[Member], key: &strview) -> Option[i64]:
     for index in range(len(members)):
         if members[index].key == key:
             return Some(index)
@@ -1116,9 +1116,9 @@ pub class Encoder:
             self._written += len(source)
         Ok(())
 
-    def raw(self: &mut Encoder, text: &str) -> Result[(), JsonFault]:
-        source = reserved(std.bytes.from_text(text))?
-        self.extend(&source)
+    def raw(self: &mut Encoder, text: &strview) -> Result[(), JsonFault]:
+        source = text.as_bytes()
+        self.extend(source)
 
     def top(self) -> Result[i64, JsonFault]:
         count = self._stack.len()
@@ -1160,14 +1160,14 @@ pub class Encoder:
             self._state = emit_next_item
         Ok(())
 
-    def quote(self: &mut Encoder, text: &str) -> Result[(), JsonFault]:
-        source = reserved(std.bytes.from_text(text))?
-        count = source.len()
+    def quote(self: &mut Encoder, text: &strview) -> Result[(), JsonFault]:
+        source = text.as_bytes()
+        count = len(source)
         self.put(34)?
         mut run = 0
-        mut index = run_end(source.find_in(&self._escaped, 0, count), count)
+        mut index = run_end(byte_find_set_range(source, &self._escaped, 0, count, True), count)
         while index < count:
-            byte = i64(source.get(index))
+            byte = i64(source[index])
             self.extend(&source[run:index])?
             self.put(92)?
             if byte == 34 or byte == 92:
@@ -1191,11 +1191,11 @@ pub class Encoder:
             # index < count <= i64.MAX.
             unchecked:
                 run = index + 1
-            index = run_end(source.find_in(&self._escaped, run, count), count)
+            index = run_end(byte_find_set_range(source, &self._escaped, run, count, True), count)
         self.extend(&source[run:count])?
         self.put(34)
 
-    def scalar(self: &mut Encoder, text: &str) -> Result[(), JsonFault]:
+    def scalar(self: &mut Encoder, text: &strview) -> Result[(), JsonFault]:
         self.before_value()?
         self.raw(text)?
         self.after_value()
@@ -1214,25 +1214,25 @@ pub class Encoder:
         text = reserved(str.from(value))?
         self.scalar(&text)
 
-    def emit_number(self: &mut Encoder, text: &str) -> Result[(), JsonFault]:
-        source = reserved(std.bytes.from_text(text))?
+    def emit_number(self: &mut Encoder, text: &strview) -> Result[(), JsonFault]:
+        source = text.as_bytes()
         mut state = 0
-        for index in range(source.len()):
-            state = number_step(state, i64(source.get(index)))
+        for index in range(len(source)):
+            state = number_step(state, i64(source[index]))
             if state <= 0:
                 return Err(JsonFault.InvalidNumber)
         if not number_complete(state):
             return Err(JsonFault.InvalidNumber)
         self.before_value()?
-        self.extend(&source)?
+        self.extend(source)?
         self.after_value()
 
-    def emit_text(self: &mut Encoder, text: &str) -> Result[(), JsonFault]:
+    def emit_text(self: &mut Encoder, text: &strview) -> Result[(), JsonFault]:
         self.before_value()?
         self.quote(text)?
         self.after_value()
 
-    def emit_key(self: &mut Encoder, name: &str) -> Result[(), JsonFault]:
+    def emit_key(self: &mut Encoder, name: &strview) -> Result[(), JsonFault]:
         if self._broken:
             return Err(JsonFault.InvalidState)
         if self._state == emit_next_key:
@@ -1359,7 +1359,7 @@ pub class Encoder:
         self.settle(result)
 
     # A number already in JSON syntax, copied unchanged.
-    pub def number(self: &mut Encoder, text: &str) -> Result[(), JsonError]:
+    pub def number(self: &mut Encoder, text: &strview) -> Result[(), JsonError]:
         result = self.emit_number(text)
         self.settle(result)
 
@@ -2223,3 +2223,11 @@ pub def from_value[T](value: Json, limits: &TreeLimits, unknown_fields: std.seri
     result = std.serial.decode[T, JsonError, TreeDecoder](&mut source)?
     std.serial.wrap(source.finish())?
     Ok(result)
+
+# Internal callers supply a validated span; a found offset is within it.
+def byte_find_set_range(data: &[u8], set: &[u8], start: i64, stop: i64, member: bool) -> Option[i64]:
+    found = __bytes_find_in(&data[start:stop], set, 1u8 if member else 0u8)
+    if found < 0:
+        return Nothing
+    unchecked:
+        Some(start + found)

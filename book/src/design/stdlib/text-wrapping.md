@@ -36,7 +36,7 @@ Hello [...]
 | `indent(text, prefix, max_bytes=1048576, max_input_bytes=1048576)` | Prefix each nonblank line, retaining original line endings |
 | `indent_with(text, prefix, predicate, max_bytes=1048576, max_input_bytes=1048576)` | Prefix lines selected by a `Callable[[&str], bool]` |
 
-Text and prefix arguments are borrowed `&str`. Boolean options on `shorten`
+Text and prefix arguments are borrowed `&strview`. Boolean options on `shorten`
 are independent flags; pass changed flags by name. `shorten` first collapses
 runs of Unicode White_Space to single ASCII spaces and trims the ends. Its
 wrapping and truncation then follow the same rules as a one-line wrapper;
@@ -197,7 +197,7 @@ At scale 65536, allocation-failure budget probes required 28,912 successful
 checked allocations for prose fill instead of 236,498, and 6,725 for shorten
 instead of 309,813. These counts measure Plenty's injected allocation checks,
 not operating-system allocation calls. The remaining costs include eager
-chunk/line storage and encoding larger pieces for the builder. These are local
+chunk/line storage and materializing the output strings. These are local
 measurements; elapsed time and allocator retention depend on the platform.
 
 ## Acknowledgements

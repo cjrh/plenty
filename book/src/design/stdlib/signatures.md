@@ -24,89 +24,89 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.actor.http.server`](#stdactorhttpserver): 286-349
 - [`std.archive`](#stdarchive): 351-417
 - [`std.atomic`](#stdatomic): 419-428
-- [`std.bytes`](#stdbytes): 430-501
-- [`std.cache.lru`](#stdcachelru): 503-525
-- [`std.channel`](#stdchannel): 527-531
-- [`std.cli`](#stdcli): 533-563
-- [`std.cli.fileinput`](#stdclifileinput): 565-574
-- [`std.cli.progress`](#stdcliprogress): 576-600
-- [`std.collections`](#stdcollections): 602-629
-- [`std.complex`](#stdcomplex): 631-657
-- [`std.compress`](#stdcompress): 659-689
-- [`std.concurrent`](#stdconcurrent): 691-695
-- [`std.crypto`](#stdcrypto): 697-778
-- [`std.csv`](#stdcsv): 780-843
-- [`std.dataframe`](#stddataframe): 845-1044
-- [`std.db.kv`](#stddbkv): 1046-1078
-- [`std.db.sqlite`](#stddbsqlite): 1080-1144
-- [`std.deque`](#stddeque): 1146-1160
-- [`std.diff`](#stddiff): 1162-1191
-- [`std.encoding`](#stdencoding): 1193-1260
-- [`std.env`](#stdenv): 1262-1276
-- [`std.error`](#stderror): 1278-1298
-- [`std.fmt`](#stdfmt): 1300-1367
-- [`std.fs`](#stdfs): 1369-1468
-- [`std.fs.dirs`](#stdfsdirs): 1470-1480
-- [`std.fs.lock`](#stdfslock): 1482-1497
-- [`std.fs.watch`](#stdfswatch): 1499-1534
-- [`std.graph`](#stdgraph): 1536-1624
-- [`std.http`](#stdhttp): 1626-1697
-- [`std.http.decoder`](#stdhttpdecoder): 1699-1716
-- [`std.http.body`](#stdhttpbody): 1718-1753
-- [`std.http.client`](#stdhttpclient): 1755-1865
-- [`std.http.cookie`](#stdhttpcookie): 1867-1899
-- [`std.http.files`](#stdhttpfiles): 1901-1914
-- [`std.http.https`](#stdhttphttps): 1916-1930
-- [`std.http.proxy`](#stdhttpproxy): 1932-1953
-- [`std.http.server`](#stdhttpserver): 1955-2056
-- [`std.http.sse`](#stdhttpsse): 2058-2077
-- [`std.http.tls`](#stdhttptls): 2079-2096
-- [`std.http.typed`](#stdhttptyped): 2098-2131
-- [`std.http.websocket`](#stdhttpwebsocket): 2133-2168
-- [`std.http.wss`](#stdhttpwss): 2170-2176
-- [`std.image`](#stdimage): 2178-2224
-- [`std.io`](#stdio): 2226-2332
-- [`std.io.typed`](#stdiotyped): 2334-2372
-- [`std.serial`](#stdserial): 2374-2438
-- [`std.json`](#stdjson): 2440-2592
-- [`std.jwt`](#stdjwt): 2594-2641
-- [`std.log`](#stdlog): 2643-2710
-- [`std.markdown`](#stdmarkdown): 2712-2746
-- [`std.template`](#stdtemplate): 2748-2785
-- [`std.math`](#stdmath): 2787-2858
-- [`std.mime`](#stdmime): 2860-2886
-- [`std.net`](#stdnet): 2888-2970
-- [`std.path`](#stdpath): 2972-2989
-- [`std.process`](#stdprocess): 2991-3049
-- [`std.random`](#stdrandom): 3051-3072
-- [`std.ready`](#stdready): 3074-3105
-- [`std.regex`](#stdregex): 3107-3160
-- [`std.report`](#stdreport): 3162-3173
-- [`std.secrets`](#stdsecrets): 3175-3201
-- [`std.shlex`](#stdshlex): 3203-3212
-- [`std.sketch`](#stdsketch): 3214-3252
-- [`std.sketch.xor`](#stdsketchxor): 3254-3265
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3267-3282
-- [`std.signal`](#stdsignal): 3284-3301
-- [`std.simd`](#stdsimd): 3303-3404
-- [`std.stat`](#stdstat): 3406-3439
-- [`std.plot`](#stdplot): 3441-3530
-- [`std.linalg`](#stdlinalg): 3532-3573
-- [`std.sync`](#stdsync): 3575-3595
-- [`std.system`](#stdsystem): 3597-3656
-- [`std.tempfile`](#stdtempfile): 3658-3690
-- [`std.test`](#stdtest): 3692-3734
-- [`std.text`](#stdtext): 3736-3779
-- [`std.thread`](#stdthread): 3781-3785
-- [`std.time`](#stdtime): 3787-3831
-- [`std.tls`](#stdtls): 3833-3915
-- [`std.toml`](#stdtoml): 3917-4016
-- [`std.unicode`](#stdunicode): 4018-4030
-- [`std.units`](#stdunits): 4032-4269
-- [`std.units.catalogue`](#stdunitscatalogue): 4271-5049
-- [`std.url`](#stdurl): 5051-5079
-- [`std.uuid`](#stduuid): 5081-5104
-- [`std.xml`](#stdxml): 5106-5139
+- [`std.bytes`](#stdbytes): 430-502
+- [`std.cache.lru`](#stdcachelru): 504-526
+- [`std.channel`](#stdchannel): 528-532
+- [`std.cli`](#stdcli): 534-564
+- [`std.cli.fileinput`](#stdclifileinput): 566-575
+- [`std.cli.progress`](#stdcliprogress): 577-601
+- [`std.collections`](#stdcollections): 603-630
+- [`std.complex`](#stdcomplex): 632-658
+- [`std.compress`](#stdcompress): 660-690
+- [`std.concurrent`](#stdconcurrent): 692-696
+- [`std.crypto`](#stdcrypto): 698-779
+- [`std.csv`](#stdcsv): 781-844
+- [`std.dataframe`](#stddataframe): 846-1045
+- [`std.db.kv`](#stddbkv): 1047-1079
+- [`std.db.sqlite`](#stddbsqlite): 1081-1145
+- [`std.deque`](#stddeque): 1147-1161
+- [`std.diff`](#stddiff): 1163-1192
+- [`std.encoding`](#stdencoding): 1194-1261
+- [`std.env`](#stdenv): 1263-1277
+- [`std.error`](#stderror): 1279-1299
+- [`std.fmt`](#stdfmt): 1301-1368
+- [`std.fs`](#stdfs): 1370-1469
+- [`std.fs.dirs`](#stdfsdirs): 1471-1481
+- [`std.fs.lock`](#stdfslock): 1483-1498
+- [`std.fs.watch`](#stdfswatch): 1500-1535
+- [`std.graph`](#stdgraph): 1537-1625
+- [`std.http`](#stdhttp): 1627-1698
+- [`std.http.decoder`](#stdhttpdecoder): 1700-1717
+- [`std.http.body`](#stdhttpbody): 1719-1754
+- [`std.http.client`](#stdhttpclient): 1756-1866
+- [`std.http.cookie`](#stdhttpcookie): 1868-1900
+- [`std.http.files`](#stdhttpfiles): 1902-1915
+- [`std.http.https`](#stdhttphttps): 1917-1931
+- [`std.http.proxy`](#stdhttpproxy): 1933-1954
+- [`std.http.server`](#stdhttpserver): 1956-2057
+- [`std.http.sse`](#stdhttpsse): 2059-2078
+- [`std.http.tls`](#stdhttptls): 2080-2097
+- [`std.http.typed`](#stdhttptyped): 2099-2132
+- [`std.http.websocket`](#stdhttpwebsocket): 2134-2169
+- [`std.http.wss`](#stdhttpwss): 2171-2177
+- [`std.image`](#stdimage): 2179-2225
+- [`std.io`](#stdio): 2227-2333
+- [`std.io.typed`](#stdiotyped): 2335-2373
+- [`std.serial`](#stdserial): 2375-2439
+- [`std.json`](#stdjson): 2441-2593
+- [`std.jwt`](#stdjwt): 2595-2642
+- [`std.log`](#stdlog): 2644-2711
+- [`std.markdown`](#stdmarkdown): 2713-2747
+- [`std.template`](#stdtemplate): 2749-2786
+- [`std.math`](#stdmath): 2788-2859
+- [`std.mime`](#stdmime): 2861-2887
+- [`std.net`](#stdnet): 2889-2971
+- [`std.path`](#stdpath): 2973-2990
+- [`std.process`](#stdprocess): 2992-3050
+- [`std.random`](#stdrandom): 3052-3073
+- [`std.ready`](#stdready): 3075-3106
+- [`std.regex`](#stdregex): 3108-3161
+- [`std.report`](#stdreport): 3163-3174
+- [`std.secrets`](#stdsecrets): 3176-3202
+- [`std.shlex`](#stdshlex): 3204-3213
+- [`std.sketch`](#stdsketch): 3215-3253
+- [`std.sketch.xor`](#stdsketchxor): 3255-3266
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3268-3283
+- [`std.signal`](#stdsignal): 3285-3302
+- [`std.simd`](#stdsimd): 3304-3405
+- [`std.stat`](#stdstat): 3407-3440
+- [`std.plot`](#stdplot): 3442-3531
+- [`std.linalg`](#stdlinalg): 3533-3574
+- [`std.sync`](#stdsync): 3576-3596
+- [`std.system`](#stdsystem): 3598-3657
+- [`std.tempfile`](#stdtempfile): 3659-3691
+- [`std.test`](#stdtest): 3693-3735
+- [`std.text`](#stdtext): 3737-3780
+- [`std.thread`](#stdthread): 3782-3786
+- [`std.time`](#stdtime): 3788-3832
+- [`std.tls`](#stdtls): 3834-3916
+- [`std.toml`](#stdtoml): 3918-4017
+- [`std.unicode`](#stdunicode): 4019-4031
+- [`std.units`](#stdunits): 4033-4270
+- [`std.units.catalogue`](#stdunitscatalogue): 4272-5050
+- [`std.url`](#stdurl): 5052-5080
+- [`std.uuid`](#stduuid): 5082-5105
+- [`std.xml`](#stdxml): 5107-5140
 
 ## `std.actor`
 
@@ -249,7 +249,7 @@ def dial[M, E](address: &SocketAddress, timeout: &Duration, context: &mut Contex
 class Resolving
     def handle[M, E](self: &mut Resolving, mail: &Mail[M, E], context: &mut Context[M, E]) -> Result[Option[list[SocketAddress]], NetError]
     def abandon[M, E](self: &mut Resolving, context: &mut Context[M, E]) -> Result[(), NetError]
-def lookup[M, E](host: &str, port: u16, timeout: &Duration, context: &mut Context[M, E]) -> Result[Resolving, NetError | TimerError]
+def lookup[M, E](host: &strview, port: u16, timeout: &Duration, context: &mut Context[M, E]) -> Result[Resolving, NetError | TimerError]
 ```
 
 ## `std.actor.tls`
@@ -280,7 +280,7 @@ class TlsConnection
     def connection(self) -> &Connection
 def over(net: Connection, session: Session, input: Positive[i64]) -> Result[TlsConnection, TlsError]
 def server(net: Connection, config: &ServerConfig, input: Positive[i64]) -> Result[TlsConnection, TlsError]
-def client(net: Connection, config: &ClientConfig, server_name: &str, input: Positive[i64]) -> Result[TlsConnection, TlsError]
+def client(net: Connection, config: &ClientConfig, server_name: &strview, input: Positive[i64]) -> Result[TlsConnection, TlsError]
 ```
 
 ## `std.actor.http.server`
@@ -328,8 +328,8 @@ class Response
     def write(self: &mut Response, source: &[u8]) -> Result[i64, ServerError]
     def finish(self: &mut Response) -> Result[(), ServerError]
     def respond(self: &mut Response, head: ResponseHead, body: &[u8]) -> Result[(), ServerError]
-    def send(self: &mut Response, status: i64, content_type: &str, body: &[u8]) -> Result[(), ServerError]
-    def send_text(self: &mut Response, status: i64, text: &str) -> Result[(), ServerError]
+    def send(self: &mut Response, status: i64, content_type: &strview, body: &[u8]) -> Result[(), ServerError]
+    def send_text(self: &mut Response, status: i64, text: &strview) -> Result[(), ServerError]
 def config() -> Config
 class Node[F, H]
     def started[M](self: &mut Node[F, H], context: &mut Context[Notice[M], ServerError]) -> Result[(), ServerError]
@@ -460,7 +460,7 @@ class Bytes
     def find_bytes(self, needle: &[u8], start: i64, stop: i64) -> Option[i64]
     def count(self, value: u8, start: i64, stop: i64) -> i64
     def matches(self, offset: i64, source: &[u8]) -> bool
-    def matches_text(self, offset: i64, text: &str) -> bool
+    def matches_text(self, offset: i64, text: &strview) -> bool
     def ascii_run(self, start: i64, stop: i64) -> i64
     def utf8_run(self, start: i64, stop: i64) -> i64
     def to_list(self) -> Result[list[u8], AllocError]
@@ -475,6 +475,7 @@ def with_capacity(capacity: i64) -> Result[Bytes, AllocError]
 def from_list(values: &list[u8]) -> Result[Bytes, AllocError]
 def from_text(text: &strview) -> Result[Bytes, AllocError]
 def from_bytes(source: &[u8]) -> Result[Bytes, AllocError]
+def to_text(source: &[u8]) -> Result[str, BytesError]
 def write_file(file: &mut File, source: &[u8]) -> Result[i64, IoError]
 def find(source: &[u8], needle: &[u8]) -> Option[i64]
 def find_byte(source: &[u8], value: u8) -> Option[i64]
@@ -556,7 +557,7 @@ enum CliError
     Schema(i64) | UnknownOption(i64) | UnexpectedArgument(i64) | MissingValue(i64) | Duplicate(i64) | Missing(i64) | InvalidInteger(i64) | InvalidUtf8(i64) | Allocation(AllocError)
 def validate(schema: &list[Spec]) -> Result[(), CliError]
 def parse(schema: &list[Spec], arguments: &list[list[u8]], start: i64) -> Result[Parsed, CliError]
-def help(schema: &list[Spec], program: &str) -> Result[str, CliError]
+def help(schema: &list[Spec], program: &strview) -> Result[str, CliError]
 def exit_status(error: &CliError) -> i32
 def describe(error: &CliError) -> Result[str, AllocError]
 def describe_for(error: &CliError, schema: &list[Spec]) -> Result[str, AllocError]
@@ -707,13 +708,13 @@ def output_size(algorithm: Algorithm) -> i64
 class Digest
     def size(self) -> i64
     def update(self: &mut Digest, data: &[u8]) -> Result[(), CryptoError]
-    def update_text(self: &mut Digest, text: &str) -> Result[(), CryptoError]
+    def update_text(self: &mut Digest, text: &strview) -> Result[(), CryptoError]
     def finish(self: &mut Digest) -> Result[Bytes, CryptoError]
     def finish_into(self: &mut Digest, target: &mut Bytes, offset: i64) -> Result[(), CryptoError]
 class Mac
     def size(self) -> i64
     def update(self: &mut Mac, data: &[u8]) -> Result[(), CryptoError]
-    def update_text(self: &mut Mac, text: &str) -> Result[(), CryptoError]
+    def update_text(self: &mut Mac, text: &strview) -> Result[(), CryptoError]
     def finish(self: &mut Mac) -> Result[Bytes, CryptoError]
     def finish_into(self: &mut Mac, target: &mut Bytes, offset: i64) -> Result[(), CryptoError]
     def verify(self: &mut Mac, expected: &[u8]) -> Result[bool, CryptoError]
@@ -724,8 +725,8 @@ def sha512(data: &[u8]) -> Result[Bytes, CryptoError]
 def blake3(data: &[u8]) -> Result[Bytes, CryptoError]
 def blake3_keyed_hasher(key: &[u8]) -> Result[Mac, CryptoError]
 def blake3_keyed(key: &[u8], data: &[u8]) -> Result[Bytes, CryptoError]
-def blake3_derive_hasher(context: &str) -> Result[Digest, CryptoError]
-def blake3_derive_key(context: &str, key_material: &[u8]) -> Result[Bytes, CryptoError]
+def blake3_derive_hasher(context: &strview) -> Result[Digest, CryptoError]
+def blake3_derive_key(context: &strview, key_material: &[u8]) -> Result[Bytes, CryptoError]
 def sha1(data: &[u8]) -> Result[Bytes, CryptoError]
 def hmac_sha256(key: &[u8], data: &[u8]) -> Result[Bytes, CryptoError]
 def hmac_sha512(key: &[u8], data: &[u8]) -> Result[Bytes, CryptoError]
@@ -833,7 +834,7 @@ class Writer[W]
     def records(self) -> i64
     def pending(self) -> i64
     def field(self: &mut Writer[W], source: &[u8]) -> Result[(), CsvError]
-    def text(self: &mut Writer[W], value: &str) -> Result[(), CsvError]
+    def text(self: &mut Writer[W], value: &strview) -> Result[(), CsvError]
     def discard(self: &mut Writer[W]) -> ()
     def end_record(self: &mut Writer[W]) -> Result[(), CsvError]
     def record(self: &mut Writer[W], record: &Record) -> Result[(), CsvError]
@@ -1065,15 +1066,15 @@ class Store
     def begin(self: &mut Store, immediate: bool = True) -> Result[Transaction, KvError]
     def set_busy_timeout(self: &mut Store, budget: &Duration) -> Result[(), KvError]
     def close(self: &mut Store) -> Result[(), KvError]
-    def put(self: &mut Store, table: &str, key: &[u8], value: &[u8]) -> Result[(), KvError]
-    def get(self: &mut Store, table: &str, key: &[u8]) -> Result[Option[Bytes], KvError]
-    def contains(self: &mut Store, table: &str, key: &[u8]) -> Result[bool, KvError]
-    def remove(self: &mut Store, table: &str, key: &[u8]) -> Result[bool, KvError]
-    def clear(self: &mut Store, table: &str) -> Result[i64, KvError]
-    def len(self: &mut Store, table: &str) -> Result[i64, KvError]
-    def scan(self: &mut Store, table: &str, start: &[u8], stop: &[u8], max_rows: NonNegative[i64], after: bool = False, reverse: bool = False) -> Result[Scan, KvError]
-    def scan_all(self: &mut Store, table: &str, max_rows: NonNegative[i64], reverse: bool = False) -> Result[Scan, KvError]
-def connect(path: &str, mode: Mode = Mode.Create, max_length: i64 = 1048576) -> Result[Store, KvError]
+    def put(self: &mut Store, table: &strview, key: &[u8], value: &[u8]) -> Result[(), KvError]
+    def get(self: &mut Store, table: &strview, key: &[u8]) -> Result[Option[Bytes], KvError]
+    def contains(self: &mut Store, table: &strview, key: &[u8]) -> Result[bool, KvError]
+    def remove(self: &mut Store, table: &strview, key: &[u8]) -> Result[bool, KvError]
+    def clear(self: &mut Store, table: &strview) -> Result[i64, KvError]
+    def len(self: &mut Store, table: &strview) -> Result[i64, KvError]
+    def scan(self: &mut Store, table: &strview, start: &[u8], stop: &[u8], max_rows: NonNegative[i64], after: bool = False, reverse: bool = False) -> Result[Scan, KvError]
+    def scan_all(self: &mut Store, table: &strview, max_rows: NonNegative[i64], reverse: bool = False) -> Result[Scan, KvError]
+def connect(path: &strview, mode: Mode = Mode.Create, max_length: i64 = 1048576) -> Result[Store, KvError]
 def memory(max_length: i64 = 1048576) -> Result[Store, KvError]
 ```
 
@@ -1104,23 +1105,23 @@ const mismatch: i64 = 20
 const min_length_limit: i64 = 1024
 const max_length_limit: i64 = 1000000000
 class Connection
-    def execute(self: &mut Connection, sql: &str) -> Result[(), DbError]
-    def prepare(self: &mut Connection, sql: &str) -> Result[Statement, DbError]
+    def execute(self: &mut Connection, sql: &strview) -> Result[(), DbError]
+    def prepare(self: &mut Connection, sql: &strview) -> Result[Statement, DbError]
     def begin(self: &mut Connection, mode: Begin) -> Result[Transaction, DbError]
     def changes(self) -> i64
     def last_insert_rowid(self) -> i64
     def set_busy_timeout(self: &mut Connection, budget: &Duration) -> Result[(), DbError]
-    def load_extension(self: &mut Connection, path: &str, entrypoint: &str = "") -> Result[(), DbError]
+    def load_extension(self: &mut Connection, path: &strview, entrypoint: &strview = "") -> Result[(), DbError]
     def close(self: &mut Connection) -> Result[(), DbError]
-def connect(path: &str, mode: Mode, max_length: i64) -> Result[Connection, DbError]
+def connect(path: &strview, mode: Mode, max_length: i64) -> Result[Connection, DbError]
 def memory(max_length: i64) -> Result[Connection, DbError]
 class Statement
     def parameter_count(self) -> i64
-    def parameter_index(self, name: &str) -> Result[i64, DbError]
+    def parameter_index(self, name: &strview) -> Result[i64, DbError]
     def bind_null(self: &mut Statement, index: i64) -> Result[(), DbError]
     def bind_integer(self: &mut Statement, index: i64, value: i64) -> Result[(), DbError]
     def bind_real(self: &mut Statement, index: i64, value: f64) -> Result[(), DbError]
-    def bind_text(self: &mut Statement, index: i64, value: &str) -> Result[(), DbError]
+    def bind_text(self: &mut Statement, index: i64, value: &strview) -> Result[(), DbError]
     def bind_blob(self: &mut Statement, index: i64, value: &[u8]) -> Result[(), DbError]
     def clear_bindings(self: &mut Statement) -> Result[(), DbError]
     def step(self: &mut Statement) -> Result[bool, DbError]
@@ -1184,10 +1185,10 @@ class TextDiff
     def old_tokens(self) -> &list[str]
     def new_tokens(self) -> &list[str]
     def has_changes(self) -> bool
-    def unified(self, context: i64, old_name: &str, new_name: &str) -> Result[str, AllocError]
-def lines(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[TextDiff, AllocError]
-def words(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[TextDiff, AllocError]
-def chars(old: &str, new: &str, algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[TextDiff, AllocError]
+    def unified(self, context: i64, old_name: &strview, new_name: &strview) -> Result[str, AllocError]
+def lines(old: &strview, new: &strview, algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[TextDiff, AllocError]
+def words(old: &strview, new: &strview, algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[TextDiff, AllocError]
+def chars(old: &strview, new: &strview, algorithm: Algorithm = Algorithm.Myers, max_cost: Option[i64] = Nothing) -> Result[TextDiff, AllocError]
 ```
 
 ## `std.encoding`
@@ -1203,36 +1204,36 @@ class Encoding
     def encode(self, source: &[u8]) -> Result[Bytes, EncodingError]
     def decode(self, source: &[u8]) -> Result[Bytes, EncodingError]
     def text(self, source: &[u8]) -> Result[str, EncodingError]
-    def from_text(self, text: &str) -> Result[Bytes, EncodingError]
-def custom(symbols: &str, padding: Option[u8] = Some(61u8)) -> Result[Encoding, EncodingError]
+    def from_text(self, text: &strview) -> Result[Bytes, EncodingError]
+def custom(symbols: &strview, padding: Option[u8] = Some(61u8)) -> Result[Encoding, EncodingError]
 def base32_encode(source: &[u8]) -> Result[Bytes, EncodingError]
 def base32_decode(source: &[u8]) -> Result[Bytes, EncodingError]
 def base32_text(source: &[u8]) -> Result[str, EncodingError]
-def base32_from_text(text: &str) -> Result[Bytes, EncodingError]
+def base32_from_text(text: &strview) -> Result[Bytes, EncodingError]
 def base32hex_encode(source: &[u8]) -> Result[Bytes, EncodingError]
 def base32hex_decode(source: &[u8]) -> Result[Bytes, EncodingError]
 def base32hex_text(source: &[u8]) -> Result[str, EncodingError]
-def base32hex_from_text(text: &str) -> Result[Bytes, EncodingError]
+def base32hex_from_text(text: &strview) -> Result[Bytes, EncodingError]
 def base64mime_encode(source: &[u8]) -> Result[Bytes, EncodingError]
 def base64mime_decode(source: &[u8]) -> Result[Bytes, EncodingError]
 def base64mime_text(source: &[u8]) -> Result[str, EncodingError]
-def base64mime_from_text(text: &str) -> Result[Bytes, EncodingError]
+def base64mime_from_text(text: &strview) -> Result[Bytes, EncodingError]
 def pem_encode(source: &[u8], label: &[u8]) -> Result[Bytes, EncodingError]
 def pem_text(source: &[u8], label: &[u8]) -> Result[str, EncodingError]
 def pem_decode(source: &[u8], label: &[u8]) -> Result[Bytes, EncodingError]
-def pem_from_text(text: &str, label: &[u8]) -> Result[Bytes, EncodingError]
+def pem_from_text(text: &strview, label: &[u8]) -> Result[Bytes, EncodingError]
 def hex_encode(source: &[u8]) -> Result[Bytes, EncodingError]
 def hex_decode(source: &[u8]) -> Result[Bytes, EncodingError]
 def hex_text(source: &[u8]) -> Result[str, EncodingError]
-def hex_from_text(text: &str) -> Result[Bytes, EncodingError]
+def hex_from_text(text: &strview) -> Result[Bytes, EncodingError]
 def base64_encode(source: &[u8]) -> Result[Bytes, EncodingError]
 def base64_decode(source: &[u8]) -> Result[Bytes, EncodingError]
 def base64_text(source: &[u8]) -> Result[str, EncodingError]
-def base64_from_text(text: &str) -> Result[Bytes, EncodingError]
+def base64_from_text(text: &strview) -> Result[Bytes, EncodingError]
 def base64url_encode(source: &[u8]) -> Result[Bytes, EncodingError]
 def base64url_decode(source: &[u8]) -> Result[Bytes, EncodingError]
 def base64url_text(source: &[u8]) -> Result[str, EncodingError]
-def base64url_from_text(text: &str) -> Result[Bytes, EncodingError]
+def base64url_from_text(text: &strview) -> Result[Bytes, EncodingError]
 def pack_u16(target: &mut Bytes, offset: i64, value: u16, order: Endian) -> ()
 def pack_u32(target: &mut Bytes, offset: i64, value: u32, order: Endian) -> ()
 def pack_u64(target: &mut Bytes, offset: i64, value: u64, order: Endian) -> ()
@@ -1269,7 +1270,7 @@ class Variable
     value: list[u8]
 def valid_name(name: &list[u8]) -> bool
 def get_bytes(name: &list[u8]) -> Result[Option[list[u8]], IoError]
-def get(name: &str) -> Result[Option[str], IoError]
+def get(name: &strview) -> Result[Option[str], IoError]
 def vars() -> Result[list[Variable], IoError]
 def current_dir() -> Result[Path, IoError]
 def set_current_dir(path: &Path) -> Result[(), IoError]
@@ -1289,7 +1290,7 @@ class Context[E]
     cause: E
     def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]
     def describe(self) -> Result[str, AllocError]
-    def describe_with(self, cause: &str) -> Result[str, AllocError]
+    def describe_with(self, cause: &strview) -> Result[str, AllocError]
     def report(self) -> ()
     def report_with(self, description: Result[str, AllocError]) -> ()
 def context[T, E](result: Result[T, E], operation: str) -> Result[T, Context[E]]
@@ -1316,24 +1317,24 @@ class Spec
     precision: i64
     kind: str
 def spec(fill: str = " ", align: str = "", sign: str = "", coerce_zero: bool = False, alternate: bool = False, zero: bool = False, width: i64 = 0, grouping: str = "", precision: i64 = -1, kind: str = "") -> Spec
-def spec_fill(fill: &str, align: &str) -> Result[str, FormatError]
-def spec_align(align: &str) -> Result[str, FormatError]
+def spec_fill(fill: &strview, align: &strview) -> Result[str, FormatError]
+def spec_align(align: &strview) -> Result[str, FormatError]
 def spec_count(value: i64) -> Result[i64, FormatError]
 class Formatter[W]
     writer: W
     def completed(self) -> i64
     def has_failed(self) -> bool
-    def text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]
+    def text(self: &mut Formatter[W], value: &strview) -> Result[(), FormatError]
     def substr(self: &mut Formatter[W], value: &strview) -> Result[(), FormatError]
     def boolean(self: &mut Formatter[W], value: bool) -> Result[(), FormatError]
     def floating(self: &mut Formatter[W], value: f64, width: NonNegative[i64]) -> Result[(), FormatError]
     def unsigned(self: &mut Formatter[W], value: u64, base: i64, width: NonNegative[i64] = 0) -> Result[(), FormatError]
     def integer(self: &mut Formatter[W], value: i64, width: NonNegative[i64] = 0) -> Result[(), FormatError]
-    def debug_text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]
+    def debug_text(self: &mut Formatter[W], value: &strview) -> Result[(), FormatError]
     def debug_substr(self: &mut Formatter[W], value: &strview) -> Result[(), FormatError]
-    def ascii_text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]
+    def ascii_text(self: &mut Formatter[W], value: &strview) -> Result[(), FormatError]
     def char_spec(self: &mut Formatter[W], code: i64, spec: &Spec) -> Result[(), FormatError]
-    def text_spec(self: &mut Formatter[W], value: &str, spec: &Spec) -> Result[(), FormatError]
+    def text_spec(self: &mut Formatter[W], value: &strview, spec: &Spec) -> Result[(), FormatError]
     def substr_spec(self: &mut Formatter[W], value: &strview, spec: &Spec) -> Result[(), FormatError]
     def signed_spec(self: &mut Formatter[W], value: i64, spec: &Spec) -> Result[(), FormatError]
     def unsigned_spec(self: &mut Formatter[W], value: u64, spec: &Spec) -> Result[(), FormatError]
@@ -1357,9 +1358,9 @@ def repr_text[W](spelled: Result[str, AllocError | FormatError], output: &mut Fo
 def repr_result(spelled: Result[str, AllocError | FormatError]) -> Result[str, FormatError]
 def allocation_only(built: Result[str, FormatError]) -> Result[str, AllocError]
 def allocation_or_format(built: Result[str, FormatError]) -> Result[str, AllocError | FormatError]
-def debug_string(value: &str) -> Result[str, FormatError]
+def debug_string(value: &strview) -> Result[str, FormatError]
 def repr_substr_string(value: &strview) -> Result[str, FormatError]
-def ascii_string(value: &str) -> Result[str, FormatError]
+def ascii_string(value: &strview) -> Result[str, FormatError]
 def list_with[T, W, F: Callable[[&T, &mut Formatter[W]], Result[(), FormatError]]](values: &list[T], output: &mut Formatter[W], render: F) -> Result[(), FormatError]
 def pair_with[A, B, W, F: Callable[[&A, &mut Formatter[W]], Result[(), FormatError]], G: Callable[[&B, &mut Formatter[W]], Result[(), FormatError]]](value: &(A, B), output: &mut Formatter[W], first: F, second: G) -> Result[(), FormatError]
 protocol Formattable
@@ -1655,15 +1656,15 @@ enum Framing
     Empty | Length(i64) | Chunked | UntilClose
 def request(method: str, target: str) -> Result[RequestHead, HttpError]
 def response(status: i64, reason: str) -> Result[ResponseHead, HttpError]
-def find(headers: &list[Header], name: &str) -> Option[i64]
-def same_name(left: &str, right: &str) -> bool
+def find(headers: &list[Header], name: &strview) -> Option[i64]
+def same_name(left: &strview, right: &strview) -> bool
 def parse_field(line: &[u8]) -> Result[Header, HttpError]
 def parse_request_line(line: &[u8]) -> Result[RequestHead, HttpError]
 def parse_status_line(line: &[u8]) -> Result[ResponseHead, HttpError]
 def read_request[R: Reader](conn: &mut BufReader[R], limits: &Limits) -> Result[Option[RequestHead], HttpError]
 def read_response[R: Reader](conn: &mut BufReader[R], limits: &Limits) -> Result[Option[ResponseHead], HttpError]
 def request_framing(head: &RequestHead) -> Result[Framing, HttpError]
-def response_framing(head: &ResponseHead, method: &str) -> Result[Framing, HttpError]
+def response_framing(head: &ResponseHead, method: &strview) -> Result[Framing, HttpError]
 def request_keeps_alive(head: &RequestHead) -> bool
 class RequestTarget
     authority: str
@@ -1729,8 +1730,8 @@ class FormLimits
     max_fields: NonNegative[i64]
 def form_limits() -> FormLimits
 def parse_form(source: &[u8], limits: &FormLimits) -> Result[list[Pair], BodyError]
-def parse_form_text(text: &str, limits: &FormLimits) -> Result[list[Pair], BodyError]
-def find(pairs: &list[Pair], key: &str) -> Option[i64]
+def parse_form_text(text: &strview, limits: &FormLimits) -> Result[list[Pair], BodyError]
+def find(pairs: &list[Pair], key: &strview) -> Option[i64]
 def read_form[T: Transport](exchange: &mut Exchange[T], limits: &FormLimits) -> Result[list[Pair], BodyError]
 def read_json[T: Transport](exchange: &mut Exchange[T], limits: &std.json.Limits) -> Result[Json, BodyError]
 def send_json[T: Transport](exchange: &mut Exchange[T], status: i64, value: &Json, limits: &std.json.Limits) -> Result[(), BodyError]
@@ -1788,7 +1789,7 @@ class Dialled
 class Proxy
     endpoint: Endpoint
     authorization: Option[str]
-def proxy(url: &str) -> Result[Proxy, ClientError]
+def proxy(url: &strview) -> Result[Proxy, ClientError]
 class Config
     limits: Limits
     connect_timeout: Duration
@@ -1823,7 +1824,7 @@ class Request
     headers: list[Header]
     body: Bytes
     def add(self: &mut Request, name: str, value: str) -> Result[(), ClientError]
-def request(method: &str, url: &str) -> Result[Request, ClientError]
+def request(method: &strview, url: &strview) -> Result[Request, ClientError]
 class Fetched
     status: i64
     head: ResponseHead
@@ -1858,7 +1859,7 @@ class Client[T, C]
     def send(self, request: Request, deadline: &Deadline, cancel: &CancellationToken) -> Result[Response[T], ClientError]
     def send_from[R: Reader](self, request: Request, body: &mut R, upload: &Upload, deadline: &Deadline, cancel: &CancellationToken) -> Result[Response[T], ClientError]
     def fetch(self, request: Request, deadline: &Deadline, cancel: &CancellationToken) -> Result[Fetched, ClientError]
-    def get(self, url: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[Fetched, ClientError]
+    def get(self, url: &strview, deadline: &Deadline, cancel: &CancellationToken) -> Result[Fetched, ClientError]
     def finish(self, response: Response[T]) -> ()
 def client(config: Config) -> Result[Client[Plain, TcpConnector], ClientError]
 def connector[T: Transport, C: Connector[T]](opener: C, config: Config) -> Result[Client[T, C], ClientError]
@@ -1875,7 +1876,7 @@ class Cookie
     name: str
     value: str
 def cookies(headers: &list[Header], limit: i64) -> Result[list[Cookie], CookieError]
-def find(cookies: &list[Cookie], name: &str) -> Option[i64]
+def find(cookies: &list[Cookie], name: &strview) -> Option[i64]
 enum SameSite
     Strict | Lax | Unrestricted
 class SetCookie
@@ -1888,14 +1889,14 @@ class SetCookie
     http_only: bool
     same_site: SameSite
     def to_string(self) -> Result[str, CookieError]
-def set_cookie(name: &str, value: &str) -> Result[SetCookie, CookieError]
-def removal(name: &str) -> Result[SetCookie, CookieError]
+def set_cookie(name: &strview, value: &strview) -> Result[SetCookie, CookieError]
+def removal(name: &strview) -> Result[SetCookie, CookieError]
 def add(head: &mut ResponseHead, cookie: &SetCookie) -> Result[(), CookieError]
 const min_key: i64 = 32
-def sign(keys: &list[Bytes], name: &str, value: &str) -> Result[str, CookieError]
-def verify(keys: &list[Bytes], name: &str, signed: &str) -> Result[Option[str], CookieError]
-def find_signed(cookies: &list[Cookie], keys: &list[Bytes], name: &str) -> Result[Option[str], CookieError]
-def signed_cookie(keys: &list[Bytes], name: &str, value: &str) -> Result[SetCookie, CookieError]
+def sign(keys: &list[Bytes], name: &strview, value: &strview) -> Result[str, CookieError]
+def verify(keys: &list[Bytes], name: &strview, signed: &strview) -> Result[Option[str], CookieError]
+def find_signed(cookies: &list[Cookie], keys: &list[Bytes], name: &strview) -> Result[Option[str], CookieError]
+def signed_cookie(keys: &list[Bytes], name: &strview, value: &strview) -> Result[SetCookie, CookieError]
 ```
 
 ## `std.http.files`
@@ -1906,11 +1907,11 @@ Static files below a `Root`, opened one segment at a time without following link
 enum FilesError
     Io(IoError) | Stream(StreamError) | Http(HttpError) | Truncated | Allocation(AllocError)
 const max_path: i64 = 4096
-def open_file(root: &Root, path: &str) -> Result[Option[FileStream], FilesError]
-def media_type(name: &str) -> str
+def open_file(root: &Root, path: &strview) -> Result[Option[FileStream], FilesError]
+def media_type(name: &strview) -> str
 def http_date(timestamp: &Timestamp) -> Result[Option[str], FilesError]
-def parse_http_date(text: &str) -> Result[Option[Timestamp], FilesError]
-def serve[T: Transport](exchange: &mut Exchange[T], root: &Root, path: &str) -> Result[i64, FilesError]
+def parse_http_date(text: &strview) -> Result[Option[Timestamp], FilesError]
+def serve[T: Transport](exchange: &mut Exchange[T], root: &Root, path: &strview) -> Result[i64, FilesError]
 ```
 
 ## `std.http.https`
@@ -1941,7 +1942,7 @@ enum Forwarding
 class Proxies
     header: Forwarding
     max_hops: i64
-    def trust(self: &mut Proxies, network: &str) -> Result[(), ProxyError]
+    def trust(self: &mut Proxies, network: &strview) -> Result[(), ProxyError]
     def trusts(self, ip: &IpAddress) -> bool
 def proxies(header: Forwarding) -> Result[Proxies, ProxyError]
 class Client
@@ -2008,8 +2009,8 @@ class Router[R]
     def set_method_not_allowed(self: &mut Router[R], route: Option[R]) -> ()
     def set_trailing_slash(self: &mut Router[R], policy: TrailingSlash) -> ()
     def set_path_refusal(self: &mut Router[R], renderer: Option[Callable[[&PathRefusal, &mut RefusalResponse], Result[(), RefusalError]]], max_bytes: NonNegative[i64]) -> ()
-    def add(self: &mut Router[R], method: &str, pattern: &str, route: R) -> Result[(), ServerError]
-    def find(self, method: &str, path: &str) -> Result[Match, ServerError]
+    def add(self: &mut Router[R], method: &strview, pattern: &strview, route: R) -> Result[(), ServerError]
+    def find(self, method: &strview, path: &strview) -> Result[Match, ServerError]
     def route(self, index: i64) -> &R
 def router[R]() -> Result[Router[R], ServerError]
 class Conn[T]
@@ -2033,8 +2034,8 @@ class Exchange[T]
     def read_body(self: &mut Exchange[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, HttpError]
     def read_all(self: &mut Exchange[T], out: &mut Bytes) -> Result[i64, HttpError]
     def respond(self: &mut Exchange[T], head: ResponseHead, body: &[u8]) -> Result[(), HttpError]
-    def send(self: &mut Exchange[T], status: i64, content_type: &str, body: &[u8]) -> Result[(), HttpError]
-    def send_text(self: &mut Exchange[T], status: i64, text: &str) -> Result[(), HttpError]
+    def send(self: &mut Exchange[T], status: i64, content_type: &strview, body: &[u8]) -> Result[(), HttpError]
+    def send_text(self: &mut Exchange[T], status: i64, text: &strview) -> Result[(), HttpError]
     def start(self: &mut Exchange[T], head: ResponseHead) -> Result[(), HttpError]
     def write(self: &mut Exchange[T], source: &[u8]) -> Result[(), HttpError]
     def end(self: &mut Exchange[T]) -> Result[(), HttpError]
@@ -2065,9 +2066,9 @@ enum SseError
 class EventStream[T]
     last_event_id: Option[str]
     def is_open(self) -> bool
-    def send(self: &mut EventStream[T], data: &str, deadline: &Deadline, cancel: &CancellationToken, event: str = "", id: Option[str] = Nothing) -> Result[(), SseError]
+    def send(self: &mut EventStream[T], data: &strview, deadline: &Deadline, cancel: &CancellationToken, event: str = "", id: Option[str] = Nothing) -> Result[(), SseError]
     def send_bytes(self: &mut EventStream[T], data: &[u8], deadline: &Deadline, cancel: &CancellationToken, event: str = "", id: Option[str] = Nothing) -> Result[(), SseError]
-    def comment(self: &mut EventStream[T], text: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), SseError]
+    def comment(self: &mut EventStream[T], text: &strview, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), SseError]
     def retry(self: &mut EventStream[T], span: &Duration, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), SseError]
     def wait(self: &mut EventStream[T], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), SseError]
     def close(self: &mut EventStream[T]) -> ()
@@ -2121,7 +2122,7 @@ def close_body[E, R: Reader[E]](inner: R) -> CloseBody[E, R]
 class CloseBody[E, R]
     def read(self: &mut CloseBody[E, R], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StepError[FramingError[E]]]
 def request_body[E, R: Reader[E]](inner: R, head: &RequestHead, limits: &Limits) -> Result[Body[E, R], FramingError[E]]
-def response_body[E, R: Reader[E]](inner: R, head: &ResponseHead, method: &str, request_keep_alive: bool, limits: &Limits) -> Result[Body[E, R], FramingError[E]]
+def response_body[E, R: Reader[E]](inner: R, head: &ResponseHead, method: &strview, request_keep_alive: bool, limits: &Limits) -> Result[Body[E, R], FramingError[E]]
 class Body[E, R]
     def total(self) -> i64
     def is_done(self) -> bool
@@ -2151,20 +2152,20 @@ class WebSocket[T]
     def is_open(self) -> bool
     def receive(self: &mut WebSocket[T], out: &mut Bytes, deadline: &Deadline, cancel: &CancellationToken) -> Result[Message, WebSocketError]
     def send(self: &mut WebSocket[T], kind: Kind, data: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]
-    def send_text(self: &mut WebSocket[T], text: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]
+    def send_text(self: &mut WebSocket[T], text: &strview, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]
     def ping(self: &mut WebSocket[T], data: &[u8], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]
-    def close(self: &mut WebSocket[T], code: i64, reason: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]
+    def close(self: &mut WebSocket[T], code: i64, reason: &strview, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]
 def accept[T: Transport](exchange: &mut Exchange[T], config: &Config) -> Result[WebSocket[T], WebSocketError]
 class Target
     secure: bool
     host: str
     port: u16
-def target(url: &str) -> Result[Target, WebSocketError]
+def target(url: &strview) -> Result[Target, WebSocketError]
 def dial(target: &Target, deadline: &Deadline, cancel: &CancellationToken) -> Result[TcpStream, WebSocketError]
 class Wire[T]
     def read(self: &mut Wire[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, StreamError]
 def handshake[T: Transport](stream: T, target: &Target, config: &Config, deadline: &Deadline, cancel: &CancellationToken) -> Result[WebSocket[T], WebSocketError]
-def connect(url: &str, config: &Config, deadline: &Deadline, cancel: &CancellationToken) -> Result[WebSocket[TcpStream], WebSocketError]
+def connect(url: &strview, config: &Config, deadline: &Deadline, cancel: &CancellationToken) -> Result[WebSocket[TcpStream], WebSocketError]
 ```
 
 ## `std.http.wss`
@@ -2172,7 +2173,7 @@ def connect(url: &str, config: &Config, deadline: &Deadline, cancel: &Cancellati
 `std.http.websocket` clients for `wss` URLs through [`std.tls`](tls.md). Errors: `WebSocketError`. [Reference](websocket.md#wss).
 
 ```text
-def connect(url: &str, tls: &ClientConfig, config: &Config, deadline: &Deadline, cancel: &CancellationToken) -> Result[WebSocket[TlsTransport], WebSocketError]
+def connect(url: &strview, tls: &ClientConfig, config: &Config, deadline: &Deadline, cancel: &CancellationToken) -> Result[WebSocket[TlsTransport], WebSocketError]
 ```
 
 ## `std.image`
@@ -2312,8 +2313,8 @@ class FileStream
     def sync(self: &mut FileStream) -> Result[(), StreamError]
     def seek(self: &mut FileStream, target: SeekFrom) -> Result[i64, StreamError]
     def close(self: &mut FileStream) -> Result[(), StreamError]
-def open_file(path: &str, mode: &str) -> Result[FileStream, StreamError]
-def open_path(path: &Path, mode: &str) -> Result[FileStream, StreamError]
+def open_file(path: &strview, mode: &strview) -> Result[FileStream, StreamError]
+def open_path(path: &Path, mode: &strview) -> Result[FileStream, StreamError]
 def from_file(file: File) -> FileStream
 class Stdin
     def is_terminal(self) -> bool
@@ -2476,9 +2477,9 @@ class Decoder
 def decoder(bounds: &Limits) -> Result[Decoder, JsonError]
 def read_event[R: Reader](source: &mut Decoder, reader: &mut R) -> Result[Event, JsonError]
 def parse(source: &[u8], bounds: &Limits) -> Result[Json, JsonError]
-def parse_text(text: &str, bounds: &Limits) -> Result[Json, JsonError]
+def parse_text(text: &strview, bounds: &Limits) -> Result[Json, JsonError]
 def read_value[R: Reader](reader: &mut R, bounds: &Limits) -> Result[Json, JsonError]
-def find(members: &list[Member], key: &str) -> Option[i64]
+def find(members: &list[Member], key: &strview) -> Option[i64]
 class Encoder
     def reject(self, fault: std.serial.Fault) -> JsonError
     def allocation(self, cause: AllocError) -> JsonError
@@ -2490,7 +2491,7 @@ class Encoder
     def integer(self: &mut Encoder, value: i64) -> Result[(), JsonError]
     def unsigned(self: &mut Encoder, value: u64) -> Result[(), JsonError]
     def decimal(self: &mut Encoder, value: f64) -> Result[(), JsonError]
-    def number(self: &mut Encoder, text: &str) -> Result[(), JsonError]
+    def number(self: &mut Encoder, text: &strview) -> Result[(), JsonError]
     def text(self: &mut Encoder, value: &str) -> Result[(), JsonError]
     def field(self: &mut Encoder, name: &str) -> Result[(), JsonError]
     def key(self: &mut Encoder, name: &str) -> Result[(), JsonError]
@@ -2635,8 +2636,8 @@ class Header
 class Token
     header: Header
     claims: list[Member]
-def decode_header(token: &str, max_size: Positive[i64] = 8192) -> Result[Header, JwtError]
-def verify(token: &str, key: &VerifyingKey, rules: &Validation) -> Result[Token, JwtError]
+def decode_header(token: &strview, max_size: Positive[i64] = 8192) -> Result[Header, JwtError]
+def verify(token: &strview, key: &VerifyingKey, rules: &Validation) -> Result[Token, JwtError]
 def sign(key: &SigningKey, claims: &Json, key_id: Option[str] = Nothing) -> Result[str, JwtError]
 ```
 
@@ -2650,7 +2651,7 @@ enum LogError
 enum Level
     Trace | Debug | Info | Warn | Error
 def level_name(level: &Level) -> str
-def parse_level(name: &str) -> Result[Level, LogError]
+def parse_level(name: &strview) -> Result[Level, LogError]
 enum Value
     Text(str) | Integer(i64) | Unsigned(u64) | Floating(f64) | Boolean(bool)
 class Field
@@ -2732,7 +2733,7 @@ def limits() -> Limits
 class Parser
     def next(self: &mut Parser) -> Result[Event, MarkdownError]
 def parser(source: &[u8], bounds: &Limits) -> Result[Parser, MarkdownError]
-def parser_text(text: &str, bounds: &Limits) -> Result[Parser, MarkdownError]
+def parser_text(text: &strview, bounds: &Limits) -> Result[Parser, MarkdownError]
 class HtmlRenderer
     def pending(self) -> i64
     def written(self) -> i64
@@ -2742,7 +2743,7 @@ def renderer(bounds: &Limits) -> Result[HtmlRenderer, MarkdownError]
 def write_pending[W: Writer](source: &mut HtmlRenderer, writer: &mut W) -> Result[(), MarkdownError]
 def write_html[W: Writer](source: &mut Parser, writer: &mut W, bounds: &Limits) -> Result[(), MarkdownError]
 def render(source: &[u8], bounds: &Limits) -> Result[Bytes, MarkdownError]
-def to_html(text: &str, bounds: &Limits) -> Result[str, MarkdownError]
+def to_html(text: &strview, bounds: &Limits) -> Result[str, MarkdownError]
 ```
 
 ## `std.template`
@@ -2773,14 +2774,14 @@ class Limits
     max_steps: NonNegative[i64]
     max_output: NonNegative[i64]
 def limits() -> Limits
-def escape(text: &str, context: HtmlContext, max_bytes: NonNegative[i64] = 16777216) -> Result[str, TemplateError]
+def escape(text: &strview, context: HtmlContext, max_bytes: NonNegative[i64] = 16777216) -> Result[str, TemplateError]
 class Engine
-    def add(self: &mut Engine, name: &str, source: &str) -> Result[(), TemplateError]
-    def validate(self, name: &str, schema: &Shape) -> Result[(), TemplateError]
-    def render_checked(self, name: &str, context: &Json, schema: &Shape, html: bool = True) -> Result[str, TemplateError]
-    def render(self, name: &str, context: &Json, html: bool = True) -> Result[str, TemplateError]
-    def validate_html(self, name: &str) -> Result[(), TemplateError]
-    def render_html(self, name: &str, context: &Json) -> Result[str, TemplateError]
+    def add(self: &mut Engine, name: &strview, source: &strview) -> Result[(), TemplateError]
+    def validate(self, name: &strview, schema: &Shape) -> Result[(), TemplateError]
+    def render_checked(self, name: &strview, context: &Json, schema: &Shape, html: bool = True) -> Result[str, TemplateError]
+    def render(self, name: &strview, context: &Json, html: bool = True) -> Result[str, TemplateError]
+    def validate_html(self, name: &strview) -> Result[(), TemplateError]
+    def render_html(self, name: &strview, context: &Json) -> Result[str, TemplateError]
 def engine(bounds: &Limits) -> Result[Engine, TemplateError]
 ```
 
@@ -2871,18 +2872,18 @@ class MediaType
     def type_name(self) -> &str
     def subtype(self) -> &str
     def params(self) -> &list[Param]
-    def param(self, name: &str) -> Option[str]
+    def param(self, name: &strview) -> Option[str]
     def suffix(self) -> Result[Option[str], AllocError]
     def essence(self) -> Result[str, AllocError]
     def is_wildcard(self) -> bool
     def matches(self, pattern: &MediaType) -> bool
-    def set_param(self: &mut MediaType, name: &str, value: &str) -> Result[(), MimeError]
-    def remove_param(self: &mut MediaType, name: &str) -> bool
+    def set_param(self: &mut MediaType, name: &strview, value: &strview) -> Result[(), MimeError]
+    def remove_param(self: &mut MediaType, name: &strview) -> bool
     def to_string(self) -> Result[str, AllocError]
-def parse(text: &str) -> Result[MediaType, MimeError]
-def new(type_name: &str, subtype: &str) -> Result[MediaType, MimeError]
-def from_extension(extension: &str) -> Option[str]
-def from_file_name(name: &str) -> str
+def parse(text: &strview) -> Result[MediaType, MimeError]
+def new(type_name: &strview, subtype: &strview) -> Result[MediaType, MimeError]
+def from_extension(extension: &strview) -> Option[str]
+def from_file_name(name: &strview) -> str
 ```
 
 ## `std.net`
@@ -2906,15 +2907,15 @@ def loopback_v6(port: u16) -> SocketAddress
 def any_v4(port: u16) -> SocketAddress
 def any_v6(port: u16) -> SocketAddress
 def format_ip(ip: IpAddress) -> Result[str, NetError]
-def parse_ip(text: &str) -> Result[IpAddress, NetError]
-def parse_address(text: &str) -> Result[SocketAddress, NetError]
-def resolve(host: &str, port: u16, deadline: &Deadline, cancel: &CancellationToken) -> Result[list[SocketAddress], NetError]
+def parse_ip(text: &strview) -> Result[IpAddress, NetError]
+def parse_address(text: &strview) -> Result[SocketAddress, NetError]
+def resolve(host: &strview, port: u16, deadline: &Deadline, cancel: &CancellationToken) -> Result[list[SocketAddress], NetError]
 class Lookup
     def descriptor(self) -> &File
     def watch(self, selector: &mut Selector, key: u64) -> Result[(), NetError]
     def unwatch(self, selector: &mut Selector) -> Result[(), NetError]
     def finish_now(self: &mut Lookup) -> Result[list[SocketAddress], NetError]
-def start_lookup(host: &str, port: u16) -> Result[Lookup, NetError]
+def start_lookup(host: &strview, port: u16) -> Result[Lookup, NetError]
 enum Shutdown
     Read | Write | Both
 class TcpStream
@@ -2985,7 +2986,7 @@ class Path
     def file_name(self) -> Result[Option[Path], IoError]
     def components(self) -> Result[list[list[u8]], IoError]
 def from_bytes(bytes: list[u8]) -> Path
-def from_text(text: &str) -> Result[Path, IoError]
+def from_text(text: &strview) -> Result[Path, IoError]
 ```
 
 ## `std.process`
@@ -3007,12 +3008,12 @@ class Output
     stderr: Bytes
 class Command
     def arg_bytes(self: &mut Command, value: &list[u8]) -> Result[(), IoError]
-    def arg(self: &mut Command, value: &str) -> Result[(), IoError]
+    def arg(self: &mut Command, value: &strview) -> Result[(), IoError]
     def arg_path(self: &mut Command, value: &Path) -> Result[(), IoError]
     def env_bytes(self: &mut Command, name: &list[u8], value: &list[u8]) -> Result[(), IoError]
-    def env(self: &mut Command, name: &str, value: &str) -> Result[(), IoError]
+    def env(self: &mut Command, name: &strview, value: &strview) -> Result[(), IoError]
     def env_remove_bytes(self: &mut Command, name: &list[u8]) -> Result[(), IoError]
-    def env_remove(self: &mut Command, name: &str) -> Result[(), IoError]
+    def env_remove(self: &mut Command, name: &strview) -> Result[(), IoError]
     def env_clear(self: &mut Command) -> ()
     def current_dir(self: &mut Command, path: &Path) -> Result[(), IoError]
     def stdin(self: &mut Command, mode: Stdio) -> ()
@@ -3024,8 +3025,8 @@ class Command
     def clear_inherited_files(self: &mut Command) -> ()
     def spawn(self) -> Result[Child, IoError]
 def command_bytes(program: &list[u8]) -> Result[Command, IoError]
-def command(program: &str) -> Result[Command, IoError]
-def shell(script: &str) -> Result[Command, IoError]
+def command(program: &strview) -> Result[Command, IoError]
+def shell(script: &strview) -> Result[Command, IoError]
 class Child
     def id(self) -> i64
     def take_stdin(self: &mut Child) -> Option[File]
@@ -3129,34 +3130,34 @@ class Match
     end: i64
     def len(self) -> Result[i64, OverflowError[i64]]
     def is_empty(self) -> bool
-    def text(self, haystack: &str) -> Result[str, RegexError]
+    def text(self, haystack: &strview) -> Result[str, RegexError]
     def bytes(self, data: &[u8]) -> Result[Bytes, RegexError]
 class Captures
     def len(self) -> i64
     def get(self, index: i64) -> Option[Match]
-    def name(self, name: &str) -> Option[Match]
+    def name(self, name: &strview) -> Option[Match]
 class Cursor
 class Regex
     def group_count(self) -> i64
-    def group_index(self, name: &str) -> Option[i64]
+    def group_index(self, name: &strview) -> Option[i64]
     def instructions(self) -> i64
-    def is_match(self, text: &str) -> Result[bool, RegexError]
+    def is_match(self, text: &strview) -> Result[bool, RegexError]
     def is_match_bytes(self, data: &[u8]) -> Result[bool, RegexError]
-    def find(self, text: &str) -> Result[Option[Match], RegexError]
-    def find_at(self, text: &str, start: i64) -> Result[Option[Match], RegexError]
+    def find(self, text: &strview) -> Result[Option[Match], RegexError]
+    def find_at(self, text: &strview, start: i64) -> Result[Option[Match], RegexError]
     def find_bytes(self, data: &[u8], start: i64) -> Result[Option[Match], RegexError]
-    def captures(self, text: &str) -> Result[Option[Captures], RegexError]
-    def captures_at(self, text: &str, start: i64) -> Result[Option[Captures], RegexError]
+    def captures(self, text: &strview) -> Result[Option[Captures], RegexError]
+    def captures_at(self, text: &strview, start: i64) -> Result[Option[Captures], RegexError]
     def captures_bytes(self, data: &[u8], start: i64) -> Result[Option[Captures], RegexError]
     def cursor(self) -> Result[Cursor, RegexError]
-    def next_match(self, text: &str, cursor: &mut Cursor) -> Result[Option[Match], RegexError]
+    def next_match(self, text: &strview, cursor: &mut Cursor) -> Result[Option[Match], RegexError]
     def next_match_bytes(self, data: &[u8], cursor: &mut Cursor) -> Result[Option[Match], RegexError]
-    def find_all(self, text: &str, max_matches: i64) -> Result[list[Match], RegexError]
+    def find_all(self, text: &strview, max_matches: i64) -> Result[list[Match], RegexError]
     def find_all_bytes(self, data: &[u8], max_matches: i64) -> Result[list[Match], RegexError]
-    def split(self, text: &str, max_pieces: i64) -> Result[list[str], RegexError]
-    def replace(self, text: &str, template: &str, max_bytes: i64) -> Result[str, RegexError]
-    def replace_all(self, text: &str, template: &str, max_bytes: i64) -> Result[str, RegexError]
-def compile(pattern: &str, bounds: &Limits) -> Result[Regex, RegexError]
+    def split(self, text: &strview, max_pieces: i64) -> Result[list[str], RegexError]
+    def replace(self, text: &strview, template: &strview, max_bytes: i64) -> Result[str, RegexError]
+    def replace_all(self, text: &strview, template: &strview, max_bytes: i64) -> Result[str, RegexError]
+def compile(pattern: &strview, bounds: &Limits) -> Result[Regex, RegexError]
 ```
 
 ## `std.report`
@@ -3207,8 +3208,8 @@ Shell-style word splitting and POSIX argument quoting, without execution or expa
 ```text
 enum ShlexError
     UnclosedQuote(i64) | TrailingEscape(i64) | Nul(i64) | Allocation(AllocError)
-def split(text: &str, comments: bool = False) -> Result[list[str], ShlexError]
-def quote(text: &str) -> Result[str, ShlexError]
+def split(text: &strview, comments: bool = False) -> Result[list[str], ShlexError]
+def quote(text: &strview) -> Result[str, ShlexError]
 ```
 
 ## `std.sketch`
@@ -3525,7 +3526,7 @@ def coord_cartesian(xlim: (f64, f64) | Unset = Unset.Unset, ylim: (f64, f64) | U
 class Plot
     def plus(self, components: list[Component]) -> Result[Plot, PlotError]
     def write_svg[W: Writer](self, writer: &mut W, width: f64 = 6.0, height: f64 = 4.0, units: Units = Units.In, dpi: f64 = 300.0) -> Result[list[str], PlotError]
-    def save(self, path: &str, width: f64 = 6.0, height: f64 = 4.0, units: Units = Units.In, dpi: f64 = 300.0) -> Result[list[str], PlotError]
+    def save(self, path: &strview, width: f64 = 6.0, height: f64 = 4.0, units: Units = Units.In, dpi: f64 = 300.0) -> Result[list[str], PlotError]
 def ggplot(data: Table, mapping: Mapping, components: list[Component]) -> Result[Plot, PlotError]
 ```
 
@@ -3678,7 +3679,7 @@ class NamedTemporaryFile
     def keep(self: &mut NamedTemporaryFile) -> Result[Path, AllocError]
     def __enter__(self: &mut NamedTemporaryFile) -> &mut NamedTemporaryFile
     def __exit__(self: &mut NamedTemporaryFile) -> ()
-def named_file(parent: &Path = io_error(default_dir())?, prefix: &str = "plenty-", suffix: &str = "") -> Result[NamedTemporaryFile, FsError]
+def named_file(parent: &Path = io_error(default_dir())?, prefix: &strview = "plenty-", suffix: &strview = "") -> Result[NamedTemporaryFile, FsError]
 class TemporaryDirectory
     def path(self) -> &Path
     def root(self) -> &Root
@@ -3686,7 +3687,7 @@ class TemporaryDirectory
     def keep(self: &mut TemporaryDirectory) -> Result[Path, AllocError]
     def __enter__(self: &mut TemporaryDirectory) -> &mut TemporaryDirectory
     def __exit__(self: &mut TemporaryDirectory) -> ()
-def directory(parent: &Path = io_error(default_dir())?, prefix: &str = "plenty-", max_entries: Positive[i64] = 100000, max_depth: Positive[i64] = 64) -> Result[TemporaryDirectory, FsError]
+def directory(parent: &Path = io_error(default_dir())?, prefix: &strview = "plenty-", max_entries: Positive[i64] = 100000, max_depth: Positive[i64] = 64) -> Result[TemporaryDirectory, FsError]
 ```
 
 ## `std.test`
@@ -3696,8 +3697,8 @@ Assertions that explain their failure on standard error, self-removing scratch d
 ```text
 enum TestError
     Assertion | Fixture(FsError) | Allocation(AllocError) | InvalidSeed | Unavailable
-def fail(message: &str) -> Result[(), TestError]
-def check(condition: bool, message: &str) -> Result[(), TestError]
+def fail(message: &strview) -> Result[(), TestError]
+def check(condition: bool, message: &strview) -> Result[(), TestError]
 def equal[T](left: &T, right: &T) -> Result[(), TestError]
 def not_equal[T](left: &T, right: &T) -> Result[(), TestError]
 def less[T](left: &T, right: &T) -> Result[(), TestError]
@@ -3711,7 +3712,7 @@ def restore_files() -> Result[(), TestError]
 class Scratch
     def path(self) -> &Path
     def root(self) -> &Root
-    def file(self, name: &str) -> Result[str, TestError]
+    def file(self, name: &strview) -> Result[str, TestError]
     def cleanup(self: &mut Scratch) -> Result[(), TestError]
 def scratch() -> Result[Scratch, TestError]
 def seed() -> Result[u64, TestError]
@@ -3738,20 +3739,20 @@ def fake_stream(input: Bytes) -> Result[FakeStream, AllocError]
 Bounded builders, joining, scalar/word wrapping, shortening, and indentation. Errors: `TextError`. [Reference](text.md).
 
 ```text
-def find_in(text: &str, set: &[u8]) -> Option[i64]
-def find_not_in(text: &str, set: &[u8]) -> Option[i64]
+def find_in(text: &strview, set: &[u8]) -> Option[i64]
+def find_not_in(text: &strview, set: &[u8]) -> Option[i64]
 enum TextError
     InvalidLimit | LimitExceeded | Allocation(AllocError) | Bytes(BytesError)
 class Builder
     def byte_len(self) -> i64
     def limit(self) -> i64
-    def append(self: &mut Builder, text: &str) -> Result[(), TextError]
+    def append(self: &mut Builder, text: &strview) -> Result[(), TextError]
     def clear(self: &mut Builder) -> ()
     def to_text(self) -> Result[str, TextError]
     def finish(self: Builder) -> Result[str, TextError]
 def builder(max_bytes: NonNegative[i64]) -> Result[Builder, TextError]
-def join(pieces: &list[str], separator: &str, max_bytes: NonNegative[i64]) -> Result[str, TextError]
-def hard_wrap(text: &str, width: Positive[i64], max_bytes: NonNegative[i64]) -> Result[str, TextError]
+def join(pieces: &list[str], separator: &strview, max_bytes: NonNegative[i64]) -> Result[str, TextError]
+def hard_wrap(text: &strview, width: Positive[i64], max_bytes: NonNegative[i64]) -> Result[str, TextError]
 class TextWrapper
     width: Positive[i64]
     initial_indent: str
@@ -3767,15 +3768,15 @@ class TextWrapper
     placeholder: str
     max_bytes: NonNegative[i64]
     max_input_bytes: NonNegative[i64]
-    def wrap(self, text: &str) -> Result[list[str], TextError]
-    def fill(self, text: &str) -> Result[str, TextError]
+    def wrap(self, text: &strview) -> Result[list[str], TextError]
+    def fill(self, text: &strview) -> Result[str, TextError]
 def text_wrapper(width: Positive[i64] = 70, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> TextWrapper
-def wrap(text: &str, width: Positive[i64] = 70, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[list[str], TextError]
-def fill(text: &str, width: Positive[i64] = 70, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]
-def shorten(text: &str, width: Positive[i64], placeholder: &str = " [...]", max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576, fix_sentence_endings: bool = False, break_long_words: bool = True, break_on_hyphens: bool = True) -> Result[str, TextError]
-def dedent(text: &str, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]
-def indent(text: &str, prefix: &str, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]
-def indent_with[F: Callable[[&str], bool]](text: &str, prefix: &str, predicate: F, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]
+def wrap(text: &strview, width: Positive[i64] = 70, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[list[str], TextError]
+def fill(text: &strview, width: Positive[i64] = 70, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]
+def shorten(text: &strview, width: Positive[i64], placeholder: &strview = " [...]", max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576, fix_sentence_endings: bool = False, break_long_words: bool = True, break_on_hyphens: bool = True) -> Result[str, TextError]
+def dedent(text: &strview, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]
+def indent(text: &strview, prefix: &strview, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]
+def indent_with[F: Callable[[&str], bool]](text: &strview, prefix: &strview, predicate: F, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]
 ```
 
 ## `std.thread`
@@ -3845,29 +3846,29 @@ enum ClientCertificates
     Required | Optional
 class TrustRoots
     def len(self) -> i64
-def roots_from_pem(pem: &str) -> Result[TrustRoots, TlsError]
+def roots_from_pem(pem: &strview) -> Result[TrustRoots, TlsError]
 def system_roots() -> Result[TrustRoots, TlsError]
 class ClientConfig
 class ServerConfig
 class ClientBuilder
-    def certificate(self: &mut ClientBuilder, chain_pem: &str, key_pem: &str) -> Result[(), TlsError]
-    def application_protocol(self: &mut ClientBuilder, name: &str) -> Result[(), TlsError]
+    def certificate(self: &mut ClientBuilder, chain_pem: &strview, key_pem: &strview) -> Result[(), TlsError]
+    def application_protocol(self: &mut ClientBuilder, name: &strview) -> Result[(), TlsError]
     def minimum_version(self: &mut ClientBuilder, version: TlsVersion) -> ()
     def cipher_suite(self: &mut ClientBuilder, suite: CipherSuite) -> ()
-    def revocation_list(self: &mut ClientBuilder, crl_pem: &str) -> Result[(), TlsError]
+    def revocation_list(self: &mut ClientBuilder, crl_pem: &strview) -> Result[(), TlsError]
     def build(self) -> Result[ClientConfig, TlsError]
 def client_builder(roots: &TrustRoots) -> Result[ClientBuilder, TlsError]
 def client_config(roots: &TrustRoots) -> Result[ClientConfig, TlsError]
 class ServerBuilder
-    def certificate(self: &mut ServerBuilder, chain_pem: &str, key_pem: &str) -> Result[(), TlsError]
+    def certificate(self: &mut ServerBuilder, chain_pem: &strview, key_pem: &strview) -> Result[(), TlsError]
     def verify_clients(self: &mut ServerBuilder, roots: &TrustRoots, certificates: ClientCertificates) -> ()
-    def application_protocol(self: &mut ServerBuilder, name: &str) -> Result[(), TlsError]
+    def application_protocol(self: &mut ServerBuilder, name: &strview) -> Result[(), TlsError]
     def minimum_version(self: &mut ServerBuilder, version: TlsVersion) -> ()
     def cipher_suite(self: &mut ServerBuilder, suite: CipherSuite) -> ()
-    def revocation_list(self: &mut ServerBuilder, crl_pem: &str) -> Result[(), TlsError]
+    def revocation_list(self: &mut ServerBuilder, crl_pem: &strview) -> Result[(), TlsError]
     def build(self) -> Result[ServerConfig, TlsError]
-def server_builder(chain_pem: &str, key_pem: &str) -> Result[ServerBuilder, TlsError]
-def server_config(chain_pem: &str, key_pem: &str) -> Result[ServerConfig, TlsError]
+def server_builder(chain_pem: &strview, key_pem: &strview) -> Result[ServerBuilder, TlsError]
+def server_config(chain_pem: &strview, key_pem: &strview) -> Result[ServerConfig, TlsError]
 class TlsStream
     def handshake_before(self: &mut TlsStream, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), TlsError]
     def try_handshake(self: &mut TlsStream) -> Result[bool, TlsError]
@@ -3891,9 +3892,9 @@ class TlsStream
     def peer_certificate(self) -> Result[Option[Bytes], TlsError]
     def version(self) -> Option[TlsVersion]
     def cipher_suite(self) -> Option[CipherSuite]
-def start_connect(tcp: TcpStream, config: &ClientConfig, server_name: &str) -> Result[TlsStream, TlsError]
+def start_connect(tcp: TcpStream, config: &ClientConfig, server_name: &strview) -> Result[TlsStream, TlsError]
 def start_accept(tcp: TcpStream, config: &ServerConfig) -> Result[TlsStream, TlsError]
-def connect(tcp: TcpStream, config: &ClientConfig, server_name: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[TlsStream, TlsError]
+def connect(tcp: TcpStream, config: &ClientConfig, server_name: &strview, deadline: &Deadline, cancel: &CancellationToken) -> Result[TlsStream, TlsError]
 def accept(tcp: TcpStream, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken) -> Result[TlsStream, TlsError]
 class Session
     def feed(self: &mut Session, source: &[u8]) -> Result[i64, TlsError]
@@ -3910,7 +3911,7 @@ class Session
     def peer_certificate(self) -> Result[Option[Bytes], TlsError]
     def version(self) -> Option[TlsVersion]
     def cipher_suite(self) -> Option[CipherSuite]
-def client_session(config: &ClientConfig, server_name: &str) -> Result[Session, TlsError]
+def client_session(config: &ClientConfig, server_name: &strview) -> Result[Session, TlsError]
 def server_session(config: &ServerConfig) -> Result[Session, TlsError]
 ```
 
@@ -3951,9 +3952,9 @@ class Entry
     value: Toml
 def limits() -> Limits
 def parse(source: &[u8], bounds: &Limits) -> Result[Toml, TomlError]
-def parse_text(text: &str, bounds: &Limits) -> Result[Toml, TomlError]
+def parse_text(text: &strview, bounds: &Limits) -> Result[Toml, TomlError]
 def read_value[R: Reader](reader: &mut R, bounds: &Limits) -> Result[Toml, TomlError]
-def find(entries: &list[Entry], key: &str) -> Option[i64]
+def find(entries: &list[Entry], key: &strview) -> Option[i64]
 def encode(value: &Toml, bounds: &Limits) -> Result[Bytes, TomlError]
 def encode_text(value: &Toml, bounds: &Limits) -> Result[str, TomlError]
 def write_value[W: Writer](writer: &mut W, value: &Toml, bounds: &Limits) -> Result[(), TomlError]
@@ -3964,7 +3965,7 @@ class Document
     def insert(self: &mut Document, path: &list[str], value: &Toml) -> Result[(), TomlError]
     def remove(self: &mut Document, path: &list[str]) -> Result[bool, TomlError]
 def document(source: &[u8], bounds: &Limits) -> Result[Document, TomlError]
-def document_text(text: &str, bounds: &Limits) -> Result[Document, TomlError]
+def document_text(text: &strview, bounds: &Limits) -> Result[Document, TomlError]
 class TreeLimits
     max_depth: NonNegative[i64]
     max_nodes: NonNegative[i64]
@@ -4012,7 +4013,7 @@ def tree_decoder(value: Toml, limits: &TreeLimits, unknown_fields: std.serial.Un
 def to_value[T](value: &T, limits: &TreeLimits) -> Result[Toml, std.serial.SerialError[TomlError]]
 def from_value[T](value: Toml, limits: &TreeLimits, unknown_fields: std.serial.UnknownFields = std.serial.UnknownFields.Reject) -> Result[T, std.serial.SerialError[TomlError]]
 def dump[T](value: &T, options: &CodecOptions) -> Result[str, std.serial.SerialError[TomlError]]
-def load[T](text: &str, options: &CodecOptions) -> Result[T, std.serial.SerialError[TomlError]]
+def load[T](text: &strview, options: &CodecOptions) -> Result[T, std.serial.SerialError[TomlError]]
 ```
 
 ## `std.unicode`
@@ -4021,12 +4022,12 @@ Unicode 17 normalization, combining classes, and Mark classification. Errors: `T
 
 ```text
 def version() -> str
-def combining_class(scalar: &str) -> Option[u32]
-def is_mark(scalar: &str) -> Option[bool]
-def nfd(text: &str, max_scalars: NonNegative[i64]) -> Result[str, TextError]
-def nfc(text: &str, max_scalars: NonNegative[i64]) -> Result[str, TextError]
-def nfkd(text: &str, max_scalars: NonNegative[i64]) -> Result[str, TextError]
-def nfkc(text: &str, max_scalars: NonNegative[i64]) -> Result[str, TextError]
+def combining_class(scalar: &strview) -> Option[u32]
+def is_mark(scalar: &strview) -> Option[bool]
+def nfd(text: &strview, max_scalars: NonNegative[i64]) -> Result[str, TextError]
+def nfc(text: &strview, max_scalars: NonNegative[i64]) -> Result[str, TextError]
+def nfkd(text: &strview, max_scalars: NonNegative[i64]) -> Result[str, TextError]
+def nfkc(text: &strview, max_scalars: NonNegative[i64]) -> Result[str, TextError]
 ```
 
 ## `std.units`
@@ -5069,12 +5070,12 @@ class Url
 class Pair
     key: str
     value: str
-def parse(text: &str, max_bytes: NonNegative[i64]) -> Result[Url, UrlError]
+def parse(text: &strview, max_bytes: NonNegative[i64]) -> Result[Url, UrlError]
 def encode_bytes(source: &[u8], component: Component) -> Result[Bytes, UrlError]
 def decode_bytes(source: &[u8]) -> Result[Bytes, UrlError]
-def encode(text: &str, component: Component) -> Result[str, UrlError]
-def decode(text: &str) -> Result[str, UrlError]
-def query_pairs(query: &str) -> Result[list[Pair], UrlError]
+def encode(text: &strview, component: Component) -> Result[str, UrlError]
+def decode(text: &strview) -> Result[str, UrlError]
+def query_pairs(query: &strview) -> Result[list[Pair], UrlError]
 def query_text(pairs: &list[Pair]) -> Result[str, UrlError]
 ```
 
@@ -5095,7 +5096,7 @@ class Uuid
     def to_string(self) -> Result[str, BytesError]
 def nil() -> Uuid
 def from_u64_pair(high: u64, low: u64) -> Uuid
-def parse(text: &str) -> Result[Uuid, ParseError]
+def parse(text: &strview) -> Result[Uuid, ParseError]
 def from_bytes(source: &[u8]) -> Result[Uuid, ParseError]
 def v4_from[R: Reader](source: &mut Source[R]) -> Result[Uuid, SecretsError]
 def v4() -> Result[Uuid, SecretsError]

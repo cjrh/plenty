@@ -27,6 +27,9 @@ True
 36 Option[u8].Some(4) False
 ```
 
+`parse` accepts `&strview`, including a selected substring range, and reads
+its ASCII bytes directly. Surrounding bytes outside the view are not parsed.
+
 ## Values and conversion
 
 `Uuid` owns two private `u64` fields in network order: most significant half
@@ -35,7 +38,7 @@ first. It has ordinary class move semantics; `==` and `!=` compare the complete
 
 | Operation | Result and contract |
 | --- | --- |
-| `parse(text: &str)` | `Result[Uuid, ParseError]`; exactly 36 ASCII characters in `8-4-4-4-12` hyphenated hex form, accepting either digit case |
+| `parse(text: &strview)` | `Result[Uuid, ParseError]`; exactly 36 ASCII characters in `8-4-4-4-12` hyphenated hex form, accepting either digit case |
 | `from_bytes(source: &[u8])` | `Result[Uuid, ParseError]`; exactly 16 bytes, in big-endian/network order; accepts a view of `Bytes`, a list or a byte literal |
 | `from_u64_pair(high: u64, low: u64)` | `Uuid`; preserves the supplied halves |
 | `nil()` | `Uuid`; all zero bits |

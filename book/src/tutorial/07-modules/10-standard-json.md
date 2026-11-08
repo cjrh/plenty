@@ -74,13 +74,15 @@ def main() -> Result[(), AllocError | IoError | std.json.JsonError]:
 ## Errors say where
 
 A `JsonError` carries a `fault`, the byte `offset`, and a `line` and `column`
-that both start at 1.
+that both start at 1. Text readers accept `&strview`, so the selected substring
+in this example needs no owning input copy. Error positions start at the
+beginning of that selected range.
 
 ```plenty
 import std.json
 from std.json import Limits
 
-def attempt(text: &str, bounds: &Limits) -> Result[(), AllocError | IoError | std.json.JsonError]:
+def attempt(text: &strview, bounds: &Limits) -> Result[(), AllocError | IoError | std.json.JsonError]:
     match std.json.parse_text(text, bounds):
         case Ok(value):
             print("ok", std.json.encode_text(&value, bounds)?)?
@@ -90,7 +92,8 @@ def attempt(text: &str, bounds: &Limits) -> Result[(), AllocError | IoError | st
 
 def main() -> Result[(), AllocError | IoError | std.json.JsonError]:
     mut bounds = std.json.limits()
-    attempt("[1, 2,\n  oops]", &bounds)?
+    framed = "prefix[1, 2,\n  oops]suffix"
+    attempt(&framed[6:-6], &bounds)?
     attempt("[1, 2", &bounds)?
     attempt("{\"a\": 1, \"a\": 2}", &bounds)?
     attempt("[9223372036854775808]", &bounds)?

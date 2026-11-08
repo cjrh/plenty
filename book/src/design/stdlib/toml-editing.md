@@ -7,7 +7,7 @@ implemented in checked Plenty with fallible allocation, alongside the
 
 ```text
 document(source: &[u8], bounds: &Limits) -> Result[Document, TomlError]
-document_text(text: &str, bounds: &Limits) -> Result[Document, TomlError]
+document_text(text: &strview, bounds: &Limits) -> Result[Document, TomlError]
 Document.text() -> Result[str, TomlError]
 Document.get(path: &list[str]) -> Result[Option[Toml], TomlError]
 Document.set(path: &list[str], value: &Toml) -> Result[(), TomlError]

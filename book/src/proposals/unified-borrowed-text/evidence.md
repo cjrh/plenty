@@ -1,11 +1,29 @@
 # Borrowed text: evidence and naming
 
-**Status: Research for [One borrowed text type](../unified-borrowed-text.md), not
-implemented API changes.** Source inspection uses `6bfe23c2` (2026-11-08).
-Compiler probes used the existing primary-worktree debug binary reporting
-Plenty 0.8.17; it was not rebuilt for this assessment. Their results describe
-current behavior, not validation of a proposed compiler change. Layout and
-throughput benchmarks have not been performed.
+**Status: Evidence for the background [One borrowed text type](../unified-borrowed-text.md)
+alternative, with the separate-view implementation recorded below.** The original
+source assessment used `6bfe23c2` (2026-11-08) and the existing Plenty 0.8.17
+debug binary. Its probes are historical evidence, not validation of subsequent
+changes. Layout and throughput benchmarks have not been performed.
+
+## Delivered separate-view design
+
+Ordinary `&str` and generic `&T` references keep their existing meaning. The
+separate two-word view is named `&strview`, with `&substr` as a compatible alias.
+Scalar length, slicing, indexing, and iteration semantics remain unchanged;
+view length scans and the view stores no scalar-count cache. View parameters
+implicitly borrow whole strings; local view bindings still need an explicit
+borrow or an existing reference. Returned/stored views remain separate B11 work.
+
+Both forms expose allocation-free `as_bytes()` over the selected UTF-8 range.
+Byte iteration uses that ordinary byte view; owned byte copying, extension,
+search, membership, ASCII operations, splitting, replacement and joining use
+[the binary API](../../design/stdlib/bytes.md#byte-views). Builtin text operations
+and mixed string/view operands read ranges directly. Read-only standard-library
+inputs use views where appropriate, with ownership boundaries and unchanged
+protocol/getter exceptions recorded in the [input inventory](../../design/stdlib/text-input-views.md).
+The generic-reference evidence below explains why this route preserves two
+borrowed text forms. No generic-reference specialization or unification was implemented.
 
 ## Length, indexing and cached counts
 
@@ -68,69 +86,44 @@ and multi-scalar emoji still require segmentation for user-perceived characters.
 
 ## Byte access and binary operations
 
-Current source boundaries worth preserving for implementation:
+Implementation boundaries and original precedents:
 
 | Source | Finding |
 | --- | --- |
-| `src/frontend/views.rs`, `view_argument` | `&substr` parameters already implicitly borrow whole `str` arguments, including call-scoped temporaries. Locals still need explicit borrowing. |
+| `src/frontend/views.rs`, `view_argument` | `&strview` parameters already implicitly borrow whole `str` arguments, including call-scoped temporaries. Locals still need explicit borrowing. |
 | `src/frontend/views.rs`, `text_view_iteration` | Iteration walks UTF-8 boundaries and produces one-scalar inline `str` values without computing total scalar length. |
 | `src/frontend/views.rs`, `__regex_text_bytes` handling | Internal adapter forwards the text origin's loan to a shared byte-view argument. It is argument-only, not a general returned-view mechanism. |
 | `src/regex.rs`, `RegexOp::TextBytes` | Records conversion from text view to byte view. |
 | `src/codegen/collections.rs`, `lower_collection` | Regex conversion reuses the existing address/count operand with byte-view type; no byte allocation or copy. |
 | `stdlib/std/regex.plenty`, `search_bytes` call using `__regex_text_bytes(text)` | Actual consumer of the loan-preserving byte adapter. |
-| `stdlib/std/bytes.plenty`, `from_text` | Public owned-byte conversion takes `&str`; a current `&substr` is rejected. It must accept ranges directly. |
+| `stdlib/std/bytes.plenty`, `from_text` | Public owned-byte conversion accepts `&strview` and copies its `as_bytes()` range directly. |
 | `stdlib/std/bytes.plenty`, `Bytes.extend`, `Bytes.overwrite` | Shared byte-view consumers that a public text-to-byte borrow should feed directly. |
-| `stdlib/std/fmt.plenty`, `substr` | Scalar-by-scalar output path; audit for bulk byte emission instead of requiring a text copy. |
+| `stdlib/std/fmt.plenty`, `text`, `substr` | View-capable formatting entries share the range-capable output path; legacy helper names remain compatible. |
+| `src/frontend/text_methods.rs`, `src/text.rs` | Range-capable builtin text dispatch and checked-view native adapter selection preserve ordinary owner fast paths. |
+| `plenty-runtime/src/aggregates/text_ranges.rs` | Bounded range readers implement text operations without manufacturing an intermediate owning string. |
 
-Proposed byte access on both owned strings and text views:
+The original argument-only regex hook established the loan-preserving byte
+adapter precedent. Public `as_bytes()` additionally propagates origins through
+locals and nested calls, prevents mutation or movement of live inline storage,
+and rejects escaping owners. This intrinsic result does not enable arbitrary
+user functions to return stored or borrowed views.
 
-- `as_bytes()` yields a shared `&[u8]` over exactly the selected UTF-8 bytes,
-  without allocation, retaining the source loan even for inline strings.
-- Direct owned-byte conversion and buffer extension/overwrite accept that
-  range without making an intermediate owning `str`.
-- A byte iterator yields `u8` values without decoding scalars. Its exact spelling
-  and iterator integration remain open; byte-view access should also support
-  ordinary byte consumers without a dedicated text iterator.
-
-The existing argument-only regex hook is a useful implementation precedent,
-not proof that a freely bindable `as_bytes()` result is already supported.
-The public operation must propagate origins through locals and nested calls,
-prevent mutation/movement of live inline storage, and reject escaping owners.
-Returning a byte view through an intrinsic can be a narrower capability than
-allowing arbitrary user functions to return views; specify that boundary.
-
-There is already useful binary search support: `std.bytes.Bytes.find`,
-`find_in`, `find_not_in`, `find_bytes`, `count` and `matches` operate over checked
-byte ranges. Reuse those implementations and reconcile names and receiver
-coverage rather than treating all byte searching as missing.
-
-The desired binary API extends beyond text encoding: membership for a byte and
-for a byte subsequence, `find`/reverse search, prefix/suffix tests, splitting,
-trimming, replacement, ASCII classification/case conversion, and binary joining
-such as `b','.join(parts)`. Python's
-[bytes operations](https://docs.python.org/3/library/stdtypes.html#bytes-and-bytearray-operations)
-are the motivating comparison, not a commitment to identical signatures.
-
-These operations must accept arbitrary bytes without UTF-8 validation. Lengths
-and positions count bytes. ASCII transformations leave non-ASCII bytes intact;
-textual case conversion remains a separate Unicode operation. Borrowed inputs
-should use `&[u8]`, with owned results using `std.bytes.Bytes`, following the
-[standard-library conventions](../../design/stdlib/conventions.md). Allocation
-remains fallible; `find` should follow Plenty's optional-index convention rather
-than importing Python's `-1` sentinel. Binary join's accepted collection/iterator
-forms, result/error type, empty inputs and checked size calculation still need
-signature design. Inventory existing byte operations before adding duplicates.
-This is proposed API scope, not a delivered method checklist.
+The binary API accepts arbitrary bytes without UTF-8 validation. Lengths and
+positions count bytes; ASCII transforms preserve non-ASCII bytes. Owned results
+use fallible `std.bytes.Bytes` operations. Optional search indexes follow Plenty’s
+convention. Python’s [bytes operations](https://docs.python.org/3/library/stdtypes.html#bytes-and-bytearray-operations)
+provided the motivating comparison; the [byte reference](../../design/stdlib/bytes.md)
+defines the delivered signatures and supported collection forms.
 
 ## Returned whole-string migration
 
 An exact-signature search for `-> ... &str` across `stdlib/` found two public
 getters: `std.mime.MediaType.type_name()` and `subtype()` in
-`stdlib/std/mime.plenty`. Both borrow whole owned fields. They can instead return
-`str` by reading those fields, sharing storage without allocating a text buffer.
-Update `tests/test_std_mime.rs`, the MIME reference and generated signature index
-with that implementation change. Existing printing callers need no text copy.
-Explicit reference annotations and dereferences require source migration.
+`stdlib/std/mime.plenty`. Both borrow whole owned fields and remain ordinary `&str` getters in the
+selected design. If unification were adopted, they could instead return `str`
+by sharing the existing handle without allocating a text buffer. That optional
+migration would require updating tests, reference signatures, explicit reference
+annotations and dereferences; it is not required by the separate-view delivery.
 
 This is a small **explicit standard-library getter** inventory, not a count of
 all affected programs. Tests and the returned-reference reference also contain
@@ -178,10 +171,10 @@ remove these semantic decisions.
 
 `&strview` need not imply an owning, constructible `strview` type; that grammar
 and type-identity choice must be explicit. All candidates can preserve current
-implicit borrowing at view parameters and explicit local borrows. Gather generic
-migration evidence before choosing a spelling or committing to unification.
+implicit borrowing at view parameters and explicit local borrows. The rename-only candidate is implemented with a compatible legacy alias;
+standalone owning `strview` is rejected. Unification remains undecided.
 
-## Executed current-behavior probes
+## Historical probes before implementation
 
 The existing debug compiler accepted implicit whole-string arguments at
 `&substr` parameters for owned variables, references and literals, and accepted
@@ -192,8 +185,9 @@ and byte lengths of two, one, two and four respectively.
 
 It rejected a function returning `&substr` and rejected passing a view to
 `std.bytes.from_text`; explicitly making an owned slice before that call was
-accepted. These probes confirm the implementation gaps above. They do not
-validate a public byte adapter, a new layout or generic unification.
+accepted. The rejected `std.bytes.from_text` call identified a gap now fixed by the
+separate-view delivery. These historical probes do not validate later changes
+or generic unification; the view-returning function remains unsupported.
 
 A further type-check probe accepted all of these in one program: a
 `read[T: CopyType](value: &T) -> T` body using `*value` instantiated for `str`;

@@ -681,7 +681,7 @@ pub class Plot:
     pub def write_svg[W: Writer](self, writer: &mut W, width: f64 = 6.0, height: f64 = 4.0, units: Units = Units.In, dpi: f64 = 300.0) -> Result[list[str], PlotError]:
         draw(self, writer, width, height, units, dpi)
 
-    pub def save(self, path: &str, width: f64 = 6.0, height: f64 = 4.0, units: Units = Units.In, dpi: f64 = 300.0) -> Result[list[str], PlotError]:
+    pub def save(self, path: &strview, width: f64 = 6.0, height: f64 = 4.0, units: Units = Units.In, dpi: f64 = 300.0) -> Result[list[str], PlotError]:
         if not path.endswith(".svg"):
             return Err(PlotError.InvalidSetting("save supports .svg only"))
         drop(dimensions(width, height, units, dpi)?)

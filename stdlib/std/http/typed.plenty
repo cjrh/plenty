@@ -473,7 +473,7 @@ pub def request_body[E, R: Reader[E]](inner: R, head: &RequestHead, limits: &Lim
 
 # `request_keep_alive` must also account for the request's Connection policy.
 # Recovery is for another HTTP message, never a protocol upgrade or tunnel.
-pub def response_body[E, R: Reader[E]](inner: R, head: &ResponseHead, method: &str, request_keep_alive: bool, limits: &Limits) -> Result[Body[E, R], FramingError[E]]:
+pub def response_body[E, R: Reader[E]](inner: R, head: &ResponseHead, method: &strview, request_keep_alive: bool, limits: &Limits) -> Result[Body[E, R], FramingError[E]]:
     framing = head_result[E, Framing](std.http.response_framing(head, method))?
     keep = request_keep_alive and std.http.response_keeps_alive(head, &framing) and head.status != 101 and not (method == "CONNECT" and head.status >= 200 and head.status < 300)
     framed_body[E, R](inner, &framing, limits, keep)

@@ -31,12 +31,12 @@ const max_scratch_depth: Positive[i64] = 64
 
 # Standard error is the report channel; a write that fails cannot be reported
 # anywhere, so it is dropped. Several small writes need no allocation.
-def say(text: &str) -> ():
+def say(text: &strview) -> ():
     drop(write_stderr(text))
 
 # Starts with the position of the user code that called the assertion; see
 # "Caller locations" in the errors reference.
-def heading(what: &str) -> ():
+def heading(what: &strview) -> ():
     drop(flush_stdout())
     drop(__caller_location())
     say("assertion failed: ")
@@ -45,7 +45,7 @@ def heading(what: &str) -> ():
 
 # A type that str.repr rejects, such as Shared[T] or a mutex, shows a marker,
 # so every assertion accepts every type (issue #809).
-def shown[T](label: &str, value: &T) -> ():
+def shown[T](label: &strview, value: &T) -> ():
     say(label)
     match __repr_if_formattable(value):
         case Some(Ok(text)):
@@ -59,11 +59,11 @@ def shown[T](label: &str, value: &T) -> ():
 def failed() -> Result[(), TestError]:
     Err(TestError.Assertion)
 
-pub def fail(message: &str) -> Result[(), TestError]:
+pub def fail(message: &strview) -> Result[(), TestError]:
     heading(message)
     failed()
 
-pub def check(condition: bool, message: &str) -> Result[(), TestError]:
+pub def check(condition: bool, message: &strview) -> Result[(), TestError]:
     if condition:
         return Ok(())
     fail(message)
@@ -191,7 +191,7 @@ pub class Scratch:
 
     # The absolute path text of `name` inside the directory, for builtins such
     # as write_text and open that take a str.
-    pub def file(self, name: &str) -> Result[str, TestError]:
+    pub def file(self, name: &strview) -> Result[str, TestError]:
         leaf = fixture_io(from_text(name))?
         joined = fixture_io(self._path.join(&leaf))?
         fixture_io(joined.to_text())

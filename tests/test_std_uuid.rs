@@ -317,3 +317,16 @@ id.write_bytes(&mut target, {offset})
         );
     }
 }
+
+#[test]
+fn uuid_parser_accepts_only_the_selected_text_range() {
+    native(
+        r#"
+source = "!f81d4fae-7dec-11d0-a765-00a0c91e6bf6!"
+value = uuid.parse(&source[1:-1])?
+print(value.to_string()? == "f81d4fae-7dec-11d0-a765-00a0c91e6bf6")?
+print(uuid.parse(&source[0:0]).is_err())?
+"#,
+        "True\nTrue",
+    );
+}

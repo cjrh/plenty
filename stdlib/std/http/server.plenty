@@ -289,7 +289,7 @@ pub class Router[R]:
     # Adds a route. `method` is a request method, or `*` for any; `pattern`
     # starts with `/`. Routes are tried in the order they were added. Several
     # patterns may carry equal route values.
-    pub def add(self: &mut Router[R], method: &str, pattern: &str, route: R) -> Result[(), ServerError]:
+    pub def add(self: &mut Router[R], method: &strview, pattern: &strview, route: R) -> Result[(), ServerError]:
         if not valid_method(method):
             return Err(ServerError.InvalidPattern)
         if not pattern.startswith("/"):
@@ -299,12 +299,12 @@ pub class Router[R]:
             entry = &self._routes[index]
             if entry.method == method and same_segments(&entry.segments, &segments):
                 return Err(ServerError.DuplicateRoute)
-        allocated(self._routes.append(Entry(*method, segments, route)))
+        allocated(self._routes.append(Entry(allocated(method[:])?, segments, route)))
 
     # The first route whose pattern matches `path` and whose method is
     # `method` or `*`; a GET route also answers HEAD. Captures are returned
     # percent-encoded, as they appear in the path.
-    pub def find(self, method: &str, path: &str) -> Result[Match, ServerError]:
+    pub def find(self, method: &strview, path: &strview) -> Result[Match, ServerError]:
         pieces = allocated(path.split("/"))?
         mut allowed: list[str] = allocated(list[str].new())?
         for index in range(len(self._routes)):
@@ -338,7 +338,7 @@ pub class Router[R]:
 
     # Called only after an exact NotFound. Never emit a network-path reference
     # or a path browsers can reinterpret with a different authority/fragment.
-    def redirect_path(self, method: &str, path: &str) -> Result[Option[str], ServerError]:
+    def redirect_path(self, method: &strview, path: &strview) -> Result[Option[str], ServerError]:
         match &self._trailing_slash:
             case TrailingSlash.Exact:
                 return Ok(Nothing)
@@ -368,25 +368,25 @@ pub def router[R]() -> Result[Router[R], ServerError]:
     method_not_allowed: Option[R] = Nothing
     Ok(Router(allocated(list[Entry[R]].new())?, fallback, method_not_allowed, TrailingSlash.Exact, default_path_refusal, False, 16384))
 
-def valid_method(method: &str) -> bool:
+def valid_method(method: &strview) -> bool:
     if method == "*":
         return True
     if method.byte_len() == 0:
         return False
     std.text.find_not_in(method, b"-.0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz").is_none()
 
-def listed(values: &list[str], value: &str) -> bool:
+def listed(values: &list[str], value: &strview) -> bool:
     for index in range(len(values)):
         if values[index] == value:
             return True
     False
 
-def valid_name(name: &str) -> bool:
+def valid_name(name: &strview) -> bool:
     if name.byte_len() == 0:
         return False
     std.text.find_not_in(name, b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz").is_none()
 
-def parse_pattern(pattern: &str) -> Result[list[Segment], ServerError]:
+def parse_pattern(pattern: &strview) -> Result[list[Segment], ServerError]:
     pieces = allocated(pattern.split("/"))?
     mut segments: list[Segment] = allocated(list[Segment].new())?
     # split is nonempty, including the empty text before the leading `/`.
@@ -1006,13 +1006,13 @@ pub class Exchange[T]:
         Ok(())
 
     # Sends `body` with the given status and Content-Type.
-    pub def send(self: &mut Exchange[T], status: i64, content_type: &str, body: &[u8]) -> Result[(), HttpError]:
+    pub def send(self: &mut Exchange[T], status: i64, content_type: &strview, body: &[u8]) -> Result[(), HttpError]:
         mut head = std.http.response(status, reason(status))?
-        head.add("Content-Type", *content_type)?
+        head.add("Content-Type", http_allocated(content_type[:])?)?
         self.respond(head, body)
 
     # Sends UTF-8 text as text/plain.
-    pub def send_text(self: &mut Exchange[T], status: i64, text: &str) -> Result[(), HttpError]:
+    pub def send_text(self: &mut Exchange[T], status: i64, text: &strview) -> Result[(), HttpError]:
         body = http_allocated(std.bytes.from_text(text))?
         self.send(status, "text/plain; charset=utf-8", &body)
 
