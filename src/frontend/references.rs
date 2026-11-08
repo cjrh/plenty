@@ -250,9 +250,8 @@ impl Lower<'_> {
         }
         if ty.carried_reference().is_some() {
             if loan_free(value) {
-                return Err(value.at.error(format!(
-                    "a binding of type {ty} must hold a borrow, and this value holds none; bind a lookup result or `Some(&place)`"
-                )));
+                let loan = self.empty_holder_loan(&ty, &value.at, ops)?;
+                return Ok((ty, Some(loan)));
             }
             let parent = self.reference_origin(value, ops)?;
             // A copied binding gets a loan of its own, as a reborrow does.
@@ -282,6 +281,34 @@ impl Lower<'_> {
         }
         let loan = self.reference_origin(value, ops)?;
         Ok((ty, Some(loan)))
+    }
+
+    /// The loan of a binding whose reference-carrying value holds no
+    /// reference: `Nothing`, `Err(e)`, or `Some`/`Ok` around one. Its payload
+    /// has no referent, so the loan borrows no place in the program. Its root
+    /// is a unit slot of its own that nothing reads, writes or borrows, so the
+    /// loan never conflicts, and returning it is not an escape. Rooting it
+    /// there instead of on a parameter keeps every holder and payload
+    /// reference on the ordinary loan rules without restricting any real
+    /// place.
+    pub(super) fn empty_holder_loan(
+        &mut self,
+        ty: &Ty,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<usize> {
+        let referent = self.slot(Ty::Unit, at)?;
+        // Reads through a payload reference check that their root is
+        // initialized, although such a read can never run.
+        ops.extend([Op::PushUnit, Op::StoreLocal(referent)]);
+        self.absent_referents.insert(referent);
+        Ok(self.new_loan(referent, ty.carries_mutable_loan(), None, ops))
+    }
+
+    /// Whether `loan` descends from an [`Self::empty_holder_loan`], so the
+    /// reference it covers can never exist at run time.
+    pub(super) fn absent_loan(&self, loan: usize) -> bool {
+        self.absent_referents.contains(&self.loans[loan].root)
     }
 
     /// Records the loan a new reference binding holds. A `mut` binding can
@@ -406,6 +433,9 @@ impl Lower<'_> {
 
     pub(super) fn check_return_reference(&self, e: &Expr, ops: &[Op]) -> Result<usize> {
         let id = self.reference_origin(e, ops)?;
+        if self.absent_loan(id) {
+            return Ok(id);
+        }
         let mut ancestor = Some(id);
         while let Some(loan) = ancestor {
             if self.pipeline.lent_item_loans.contains(&loan) {

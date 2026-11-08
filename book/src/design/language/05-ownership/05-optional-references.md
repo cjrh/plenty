@@ -68,8 +68,39 @@ modify the origin. These forms take the reference out or inspect the result:
 
 A result can be bound to an immutable local. The local is a holder, not
 storage: like a reference binding, it extends the origin loan to its last use.
-Copying it shares that loan. A reference-carrying binding must hold a borrow,
-so `o: Option[&str] = Nothing` is rejected.
+Copying it shares that loan.
+
+A holder initialized with a value that holds no reference, such as
+`Nothing`, `Err(e)`, or `Some(Nothing)`, borrows nothing. Give it a type
+annotation, since `Nothing` alone does not name the payload type. Its origin
+stays free to change while the holder is live, and the function may return it
+whatever its origin. Matching, predicates, `?`, `unwrap()`, printing and
+copying work as for any holder; a payload reference taken from it can never
+exist at run time.
+
+```plenty
+def first_long(words: &mut list[str], limit: i64) -> Option[&str]:
+    missing: Option[&str] = Nothing
+    words[0] = "changed"
+    for i in range(len(words)):
+        if words[i].byte_len() > limit:
+            return Some(&words[i])
+    missing
+
+def main() -> Result[(), AllocError | IoError]:
+    mut words = ["a", "bc"]?
+    print(first_long(&mut words, 3))?
+    print(first_long(&mut words, 10))?
+    failed: Result[&str, i64] = Err(4)
+    print(failed.is_err())?
+    Ok(())
+```
+
+```output
+Option[&str].Some("changed")
+Option[&str].Nothing
+True
+```
 
 A reference-carrying value is never stored. Tuples, lists and other
 collections, class fields, enum payloads, generic type arguments, closure
