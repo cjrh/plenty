@@ -23,6 +23,8 @@ Delivery history and retired backlog entries live here, separate from the
 
 [Selected-field column zip](completed-work/performance.md#selected-field-column-zip-issue-888)
 records the shared-cursor lowering and retained instruction evidence for issue #888.
+[Conditional callback captures](completed-work/performance.md#conditional-callback-captures-issue-891)
+records the removal of the remaining immutable fold-capture reloads.
 
 B IDs are stable. A record here means the **described subset** shipped or its
 investigation concluded; it does not mean every conceivable extension of that
