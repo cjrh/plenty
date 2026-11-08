@@ -1448,6 +1448,9 @@ impl Lower<'_> {
                 && crate::generator::join_carried(expected, got).is_some()
             {
                 // Issue #900: a built payload has one member's frame layout.
+                // A caller that chose this value can build it again with the
+                // joined type; see [`Lower::request_join`].
+                self.joins.mismatched(expected, got);
                 "; an `Option` or `Result` value already built with one generator producer cannot join another; build `Some(...)` or `Ok(...)` where the value is chosen, or `match` it and rebuild the payload in each arm".into()
             } else {
                 expected
@@ -1466,6 +1469,19 @@ impl Lower<'_> {
                 .dimension_error(at, message, expected.iter().chain(&got)))
         }
     }
+    /// The type a declaration's annotation `ann` gives its value at `at`,
+    /// joined with producers a later reassignment met (issue #872): the
+    /// annotation names only the item type. Outlined to keep the recursive
+    /// statement frame small.
+    #[inline(never)]
+    fn annotated_context(&self, ann: &syntax::TypeRef, at: &Token) -> Result<Type> {
+        let context = ann.resolve(self.aliases)?;
+        if context.as_ref().is_some_and(Ty::unresolved_sum_member) {
+            return Err(ann.at.error(UNRESOLVED_SUM_MEMBER));
+        }
+        Ok(self.hinted_expected(at, context))
+    }
+
     /// Success type of a Result that `?` can propagate in this function.
     /// Keep diagnostic advice subject to the same residual rules as lowering.
     fn result_success(&self, ty: &Ty) -> Option<Ty> {
@@ -1917,8 +1933,9 @@ impl Lower<'_> {
                 let ty = match self.join_conditional(&ty, &other, &mut a, &mut b) {
                     Some(joined) => Some(joined),
                     None => {
-                        self.join_mismatched(&e.at, &ty, &other);
-                        self.same(other, ty.clone(), &e.at)?;
+                        if !self.join_mismatched(&e.at, &ty, &other) {
+                            self.same(other, ty.clone(), &e.at)?;
+                        }
                         ty
                     }
                 };
@@ -3819,7 +3836,7 @@ impl Lower<'_> {
                         ty
                     };
                     if last && self.yield_type.is_none() {
-                        self.refine_return(ty.clone(), &e.at)?;
+                        self.refine_joined_return(ty.clone(), &e.at)?;
                         // The function's result is in flight through the
                         // frame's release, which shuts its pools down.
                         if let Some(marker) = self.returning(&e.at, &ops[value_start..]) {
@@ -3985,11 +4002,7 @@ impl Lower<'_> {
                         continue;
                     }
                     let context = if let Some(ann) = annotation {
-                        let context = ann.resolve(self.aliases)?;
-                        if context.as_ref().is_some_and(Ty::unresolved_sum_member) {
-                            return Err(ann.at.error(UNRESOLVED_SUM_MEMBER));
-                        }
-                        context
+                        self.annotated_context(ann, &value.at)?
                     } else {
                         match self.names.get(name) {
                             Some(local) => Some(local.ty.clone()),
@@ -4940,9 +4953,21 @@ fn lower_function(
     let outer = aliases
         .data
         .attribute(required.clone().map(data::Requiring::Instance));
-    let lowered = generics
-        .complete_instance(symbol, f, sigs)
-        .and_then(|f| lower_body(symbol, f, heap, sigs, generics, aliases, access));
+    // A pass that joined producers asks for another; a loop rather than
+    // recursion keeps many join sites in one function off the stack.
+    // Each pass starts from the instance the previous pass completed.
+    let mut f = f;
+    let lowered = loop {
+        let lowered = generics
+            .complete_instance(symbol, Arc::clone(&f), sigs)
+            .and_then(|done| {
+                f = Arc::clone(&done);
+                lower_body(symbol, done, heap, sigs, generics, aliases, access)
+            });
+        if !std::mem::take(&mut generics.relower) {
+            break lowered;
+        }
+    };
     aliases.data.attribute(outer);
     lowered.map_err(|error| -> Box<dyn Error> {
         let error = Diagnostic::from_boxed(error);
@@ -5206,7 +5231,8 @@ fn lower_body(
         }
         drop(lower);
         generics.active.remove(&symbol);
-        return lower_function(symbol, f, heap, sigs, generics, aliases, access);
+        generics.relower = true;
+        return Ok(());
     }
     let lowered = lowered?;
     crate::profile_block!("frontend::finish_function", {

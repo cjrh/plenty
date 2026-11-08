@@ -2061,7 +2061,8 @@ impl Lower<'_> {
         let saved = self.names.clone();
         let mut bodies = Vec::with_capacity(cases.len());
         // An earlier pass may have joined the cases' producers (issue #872).
-        let mut joined: Option<Type> = self.case_hint(&value.at);
+        let mut joined: Option<Type> = self.case_hint(&value.at, tail);
+        let hinted = joined.is_some();
         let mut continuing = Vec::new();
         for (arm, case) in cases.iter().enumerate() {
             self.names = saved.clone();
@@ -2096,9 +2097,10 @@ impl Lower<'_> {
             );
             // Without an expected type, later cases take the first continuing
             // case's type, as the inline conditional's second value does.
+            // Every case takes a joined type an earlier pass recorded.
             let inferred;
             let tail = match (tail, &joined) {
-                (Tail::Value(None), Some(Some(ty))) => {
+                (Tail::Value(expected), Some(Some(ty))) if hinted || expected.is_none() => {
                     inferred = Tail::Value(Some(ty.clone()));
                     &inferred
                 }
@@ -2106,13 +2108,15 @@ impl Lower<'_> {
             };
             self.enter_case(&value.at, tail);
             let result = self.branch_block(&case.body, &case.at, &mut body, tail)?;
-            self.leave_case();
+            // The case stays open while its value joins the earlier cases',
+            // so a different producer there joins them too.
             if let BlockResult::Continues(ty) = result {
                 if !matches!(tail, Tail::Function) {
                     self.cleanup(case_start, &mut body);
                 }
                 self.case_value(&mut joined, &mut continuing, arm, ty, tail, &case.at)?;
             }
+            self.leave_case();
             bodies.push(Some(body));
         }
         self.names = saved;

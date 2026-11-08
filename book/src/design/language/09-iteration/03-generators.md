@@ -179,8 +179,16 @@ none needs heap allocation or dynamic dispatch.
 
 A join is found while checking the function: when a value's type was fixed
 before a different producer met it, the function is checked again with the
-joined type at that value. Each further join costs one more pass over that
-function only.
+joined type at that value. Only that function is checked again, and the
+cost is counted in passes over it:
+
+- Conditional expressions and reassignments: one pass records all of them,
+  so any number of them costs one extra pass.
+- `if` and `match` values and a factory's returns: each value whose earlier
+  branches or returns fixed a narrower type costs one more pass, because
+  checking stops there.
+- Nested choices: a join that widens an enclosing choice may cost one more
+  pass for that choice.
 
 A suspended frame retains its live owned locals. Completion releases them;
 dropping a suspended or never-started frame releases remaining locals and

@@ -1741,7 +1741,7 @@ impl Lower<'_> {
                 let (mut a, mut b) = (Vec::new(), Vec::new());
                 // A join an earlier pass found here is more specific than a
                 // context that names only the item type.
-                let expected = self.join_hint(&e.at).or(expected);
+                let expected = self.hinted_expected(&e.at, expected);
                 let ty = self.expr_expected(yes, expected.clone(), &mut a)?;
                 self.clear_mismatch();
                 let other = self.expr_expected(no, expected.or_else(|| ty.clone()), &mut b);
@@ -1749,8 +1749,9 @@ impl Lower<'_> {
                 let ty = match self.join_conditional(&ty, &other, &mut a, &mut b) {
                     Some(joined) => Some(joined),
                     None => {
-                        self.join_mismatched(&e.at, &ty, &other);
-                        self.same(other, ty.clone(), &e.at)?;
+                        if !self.join_mismatched(&e.at, &ty, &other) {
+                            self.same(other, ty.clone(), &e.at)?;
+                        }
                         ty
                     }
                 };

@@ -357,6 +357,94 @@ main_body(True)
 }
 
 #[test]
+fn nested_payload_choices_join_with_the_wider_outer_choice() {
+    // An inner choice's recorded join is narrower than the outer one's: each
+    // value is built with their join, not reported as already built.
+    expect(
+        &with_producers(
+            r#"
+def show(o: Option[Generator[i64]]) -> ():
+    match o:
+        case Some(g):
+            print(list(g).unwrap()).unwrap()
+        case Nothing:
+            print("none").unwrap()
+def factory(k: i64) -> Option[Generator[i64]]:
+    if k == 0:
+        return Some(one())
+    Some(two(Res(70))) if k == 1 else Some(choose(True))
+def main_body() -> ():
+    for k in range(3):
+        matched = match k % 2:
+            case 0:
+                match k:
+                    case 0:
+                        Some(one())
+                    case _:
+                        Some(choose(True))
+            case _:
+                match k:
+                    case 1:
+                        Some(two(Res(71)))
+                    case _:
+                        Nothing
+        show(matched)
+        block = if k == 0:
+            Some(one())
+        else:
+            if k == 1:
+                Some(two(Res(72)))
+            else:
+                Some(choose(True))
+        show(block)
+        show((Some(one()) if k == 0 else Some(two(Res(73)))) if k < 2 else Some(choose(True)))
+        show(factory(k))
+main_body()
+"#,
+        ),
+        "[1]\n[1]\n[1]\n[1]\ndrop 71\n[2, 71]\ndrop 72\n[2, 72]\ndrop 73\n[2, 73]\ndrop 70\n[2, 70]\n[1]\n[1]\n[1]\n[1]\n",
+    );
+}
+
+#[test]
+fn annotated_locals_join_producers_on_reassignment() {
+    // An annotation names only the item type; reassignment still joins.
+    expect(
+        &with_producers(
+            r#"
+def main_body() -> ():
+    mut g: Generator[i64] = one()
+    g = two(Res(80))
+    print(list(g).unwrap()).unwrap()
+    mut o: Option[Generator[i64]] = Some(one())
+    o = Some(two(Res(81)))
+    match o:
+        case Some(h):
+            print(list(h).unwrap()).unwrap()
+        case Nothing:
+            pass
+main_body()
+"#,
+        ),
+        "drop 80\n[2, 80]\ndrop 81\n[2, 81]\n",
+    );
+}
+
+#[test]
+fn many_join_sites_in_one_function_need_one_extra_pass() {
+    // Each pass records every join it meets and lowering repeats in a loop,
+    // so thousands of sites neither recurse nor repeat per site.
+    let mut body = String::from("def many(c: bool) -> ():\n    mut g = one()\n");
+    for _ in 0..3000 {
+        body.push_str("    drop(Some(one()) if c else Some(two(Res(1))))\n");
+        body.push_str("    g = choose(c)\n    g = two(Res(2))\n");
+    }
+    body.push_str("    print(list(g).unwrap()).unwrap()\nmany(True)\n");
+    let output = support::run_stdout(&with_producers(&body));
+    assert!(output.ends_with("drop 2\n[2, 2]\n"), "{output}");
+}
+
+#[test]
 fn an_already_built_payload_keeps_its_producer() {
     // Phase guard (issue #900): delete when built payloads join.
     let error = check_error(&with_producers(

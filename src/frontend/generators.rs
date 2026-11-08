@@ -253,6 +253,23 @@ impl Lower<'_> {
         })
     }
 
+    /// The type to build the value at `at` with, given the type its context
+    /// expects: the context's joined with a type an earlier pass recorded
+    /// there. An inner choice's recorded join can be narrower than the
+    /// outer's, and an annotation names only the item type.
+    #[inline(never)]
+    pub(super) fn hinted_expected(&self, at: &Token, expected: Type) -> Type {
+        let Some(hint) = self.join_hint(at) else {
+            return expected;
+        };
+        let Some(context) = expected else {
+            return Some(hint);
+        };
+        crate::generator::join_carried(&hint, &context)
+            .or_else(|| crate::generator::refine(&context, &hint))
+            .or(Some(context))
+    }
+
     /// The joined type an earlier pass recorded for the value at `at`.
     pub(super) fn join_hint(&self, at: &Token) -> Option<Ty> {
         if self.joins.hints.is_empty() {
@@ -264,14 +281,26 @@ impl Lower<'_> {
     /// The joined type of the `match` value at `at`, as the type its cases
     /// join to. Outlined to keep the recursive match frame small.
     #[inline(never)]
-    pub(super) fn case_hint(&self, at: &Token) -> Option<Type> {
-        self.join_hint(at).map(Some)
+    pub(super) fn case_hint(&self, at: &Token, tail: &Tail) -> Option<Type> {
+        self.join_hint(at)?;
+        let expected = match tail {
+            Tail::Value(expected) => expected.clone(),
+            _ => None,
+        };
+        Some(self.hinted_expected(at, expected))
     }
 
     /// Records `joined` for the value at `at` and requests another pass,
     /// unless an earlier pass already lowered that value with it.
     pub(super) fn record_join(&mut self, at: Position, joined: Ty) -> bool {
         let hints = self.generics.join_hints.entry(self.symbol).or_default();
+        // Hints only widen, so one pass can record several producers met at
+        // the same value, such as successive reassignments of a local.
+        let joined = match hints.get(&at) {
+            Some(hint) if *hint == joined => return false,
+            Some(hint) => crate::generator::join_carried(hint, &joined).unwrap_or(joined),
+            None => joined,
+        };
         if hints.get(&at) == Some(&joined) {
             return false;
         }
@@ -296,28 +325,34 @@ impl Lower<'_> {
     /// held as `Option`/`Result` payloads, which conversion after the fact
     /// cannot move: another pass builds both with the joined type.
     #[inline(never)]
-    pub(super) fn join_mismatched(&mut self, at: &Token, ty: &Type, other: &Type) {
+    /// True when it recorded one: the pass then continues so that it can
+    /// record joins at other values, and is lowered again.
+    pub(super) fn join_mismatched(&mut self, at: &Token, ty: &Type, other: &Type) -> bool {
         if let (Some(a), Some(b)) = (ty, other)
             && let Some(joined) = crate::generator::join_carried(a, b)
         {
-            self.record_join(at.position(), joined);
+            return self.record_join(at.position(), joined);
         }
+        false
     }
 
     /// A later branch of the choice at `at`, lowered expecting the earlier
     /// branches' type `base`: when it failed on a different producer, records
     /// their join for another pass. Clear the mismatch before lowering it.
+    /// When it records a join, the pass continues with `base`, so that one
+    /// pass records the joins of every such choice; its code is discarded.
     #[inline(never)]
-    pub(super) fn joined_branch<T>(
+    pub(super) fn joined_branch(
         &mut self,
         at: &Token,
         base: &Type,
-        lowered: Result<T>,
-    ) -> Result<T> {
+        lowered: Result<Type>,
+    ) -> Result<Type> {
         if lowered.is_err()
             && let Some(base) = base
+            && self.request_join(at.position(), base)
         {
-            self.request_join(at.position(), base);
+            return Ok(Some(base.clone()));
         }
         lowered
     }
@@ -346,10 +381,13 @@ impl Lower<'_> {
     #[inline(never)]
     pub(super) fn hinted_tail(&self, tail: &Tail, at: &Token) -> Option<Box<Tail>> {
         // Boxed so the recursive `if` and `match` lowering keeps small frames.
-        matches!(tail, Tail::Value(_))
-            .then(|| self.join_hint(at))
-            .flatten()
-            .map(|ty| Box::new(Tail::Value(Some(ty))))
+        let Tail::Value(expected) = tail else {
+            return None;
+        };
+        self.join_hint(at)?;
+        Some(Box::new(Tail::Value(
+            self.hinted_expected(at, expected.clone()),
+        )))
     }
 
     /// Notes that a case of the `match` value at `at` is lowered expecting
@@ -449,8 +487,11 @@ impl Lower<'_> {
         }
         if let Some(joined) = crate::generator::join_carried(binding, &ty)
             && let Some(at) = self.joins.declared.get(&slot).cloned()
+            && self.record_join(at, joined)
         {
-            self.record_join(at, joined);
+            // The pass continues to record later reassignments' producers
+            // too; its code is discarded.
+            return binding.clone();
         }
         ty
     }
@@ -461,6 +502,15 @@ impl Lower<'_> {
         if let Some(at) = self.joins.declared.get(&slot).cloned() {
             self.request_join(at, binding);
         }
+    }
+
+    /// [`Lower::refine_return`] for a function's tail value. A value whose
+    /// payload joined a wider producer than earlier returns gave the output
+    /// joins them too. Outlined to keep the recursive block frame small.
+    #[inline(never)]
+    pub(super) fn refine_joined_return(&mut self, actual: Type, at: &Token) -> Result<()> {
+        let refined = self.refine_return(actual, at).map(|()| None);
+        self.joined_return(refined).map(|_| ())
     }
 
     pub(super) fn refine_return(&mut self, actual: Type, at: &Token) -> Result<()> {
