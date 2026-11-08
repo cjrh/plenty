@@ -388,7 +388,9 @@ place, precise first-reference return origins and disjoint literal-index loans
 landed (issues #1/#30/#41, local PRs #488/#490). Optional/fallible returned
 references (`Option[&T]`/`Result[&T, E]`) shipped as phase 1 (issue #520,
 local PR #622). Immutable holders initialized with `Nothing`, `Err(e)`, or
-`Some`/`Ok` around one borrow nothing (issue #867). `dict.get_mut` replaced dictionary indexed assignment
+`Some`/`Ok` around one borrow nothing (issue #867). Reference-carrying
+parameters and `mut` holders shipped as the first part of issue #868.
+`dict.get_mut` replaced dictionary indexed assignment
 (issue #580, local PR #696); heap and graph reference getters shipped
 (local PR #629).
 

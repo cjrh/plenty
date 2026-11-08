@@ -3,10 +3,12 @@
 **Status: Phase 1 implemented (issue #520).** Functions and methods can return
 `Option[&T]`, `Option[&mut T]`, `Result[&T, E]`, and nested success payloads of
 these; callers match, propagate, unwrap, inspect, print, forward, or hold the
-result in an immutable local, which may also start empty (issue #867). The reference is authoritative:
+result in an immutable local, which may also start empty (issue #867).
+Phase 2 shipped by value parameters and `mut` holders within one place
+(issue #868); passing an exclusive holder reborrows it rather than moving it.
+The reference is authoritative:
 [optional and fallible references](../design/language/05-ownership/05-optional-references.md).
-Phase 2 (`mut` holders, parameters) and phase 3 (pipelines) are not
-implemented, and standard library getters such as `dict.get_ref` remain
+Phase 3 (pipelines) is not implemented, and standard library getters such as `dict.get_ref` remain
 follow-up work under B11. This page is the design record; examples below may
 predate the implemented diagnostics.
 

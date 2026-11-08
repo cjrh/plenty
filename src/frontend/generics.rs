@@ -1643,13 +1643,19 @@ impl Lower<'_> {
                     self.call_borrow(arg, pattern.name.as_deref() == Some("&mut"), None, ops)?;
                 loans.push(loan);
                 ty
-            } else if let Some(context) =
-                hinted_parameter(pattern, &template, &context, self.aliases)?
-            {
-                self.expr_expected(arg, Some(context), ops)?
-                    .ok_or_else(|| arg.at.error("expected a value, got ()"))?
             } else {
-                self.value(arg, ops)?
+                let ty = if let Some(context) =
+                    hinted_parameter(pattern, &template, &context, self.aliases)?
+                {
+                    self.expr_expected(arg, Some(context), ops)?
+                        .ok_or_else(|| arg.at.error("expected a value, got ()"))?
+                } else {
+                    self.value(arg, ops)?
+                };
+                if ty.carried_reference().is_some() {
+                    loans.push(self.carried_argument(arg, &ty, ops)?);
+                }
+                ty
             };
             infer(
                 pattern,
