@@ -951,7 +951,9 @@ Find references searches the declaring package and the workspace members that
 depend on it, through the package index shared with move-to-module (issue
 #821, slice 1). Rename of module-level declarations, import aliases and locals
 is checked before and after the edit and refuses what it cannot verify;
-members wait on issue #876 (issue #821).
+members wait on issue #876 (issue #821). References and definition resolve
+named arguments, constructor keywords, `case` variants and fields, and variant
+constructors (issue #876, slice 1).
 Compile-time constants/static assertions, embedded data and `if const target.*`
 shipped (local PR #628). Module constant indexing and import/module diagnostics
 were improved (issues #562/#568/#587).

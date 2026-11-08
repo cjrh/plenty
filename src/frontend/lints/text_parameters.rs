@@ -304,7 +304,7 @@ fn pattern(p: &patterns::Pat, visit: &mut impl FnMut(Node<'_>)) {
     use patterns::PatKind;
     match &p.kind {
         PatKind::Binding(name) => visit(Node::Binding(name)),
-        PatKind::Variant(_, _, Some(patterns))
+        PatKind::Variant(_, _, Some(patterns), _)
         | PatKind::Or(patterns)
         | PatKind::Tuple(patterns) => {
             for p in patterns {
@@ -318,7 +318,7 @@ fn pattern(p: &patterns::Pat, visit: &mut impl FnMut(Node<'_>)) {
         }
         PatKind::Wildcard
         | PatKind::Member(..)
-        | PatKind::Variant(_, _, None)
+        | PatKind::Variant(_, _, None, _)
         | PatKind::Literal(_) => {}
     }
 }

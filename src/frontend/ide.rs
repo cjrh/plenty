@@ -66,6 +66,9 @@ pub struct Symbol {
     pub declaration: String,
     pub doc: String,
     pub location: Option<Location>,
+    /// A parameter of a callable another module can call, so named arguments
+    /// can name it outside its file.
+    pub exported: bool,
 }
 
 /// A written name and the declaration it refers to. A declaration's own name
@@ -192,6 +195,12 @@ struct Recorder {
     types: HashMap<Anchor, String>,
     /// None also remembers disagreement between generic instantiations.
     inferred_bindings: HashMap<(Anchor, String), Option<String>>,
+    /// The key of each parameter a named argument can name, by the callee's
+    /// key: a function's or method's parameters, and a class constructor's
+    /// fields or `__init__` parameters (after `self`).
+    parameters: HashMap<String, Vec<String>>,
+    /// The keys of parameters of callables other modules can call.
+    exported: HashSet<String>,
     /// Method names being lowered, innermost last.
     methods: Vec<(Pos, String)>,
     /// Functions whose bodies did not resolve: they keep their signatures,
@@ -452,6 +461,44 @@ pub(super) fn method_call(at: &Token, name: &str, callee: &str) {
     }
 }
 
+/// The variant `name` of `owner`, called as a constructor in the method call
+/// being lowered.
+pub(super) fn variant_call(at: &Token, name: &str, owner: &str) {
+    let pos = with(|r| {
+        r.methods
+            .last()
+            .filter(|(_, written)| written == name)
+            .map(|(pos, _)| *pos)
+    });
+    if let Some(pos) = pos {
+        refer_member(at, pos, name, variant_key(owner, name));
+    }
+}
+
+/// A named argument, written at `at`, for parameter `index` of `callee`.
+pub(super) fn named_argument(at: &Token, label: &str, callee: &str, index: usize) {
+    with(|r| {
+        let key = r.parameters.get(&global(callee))?.get(index)?.clone();
+        let anchor = Anchor::of(at)?;
+        r.references
+            .push((anchor, Find::At(label.chars().count() as u32), key));
+        Some(())
+    });
+}
+
+/// Marks the parameters of `f` as reachable from other modules: `f` is an
+/// exported function or a public member of an exported type.
+pub(super) fn export_parameters(f: &Function) {
+    with(|r| r.exported.extend(parameters(f)));
+}
+
+fn parameters(f: &Function) -> Vec<String> {
+    f.inputs
+        .iter()
+        .map(|(name, ty)| local_key(&f.at, Pos::of(&ty.at), name))
+        .collect()
+}
+
 /// The key of a module-level declaration. Instances of generic classes and
 /// enums refer to their declaration.
 pub(super) fn global(symbol: &str) -> String {
@@ -606,6 +653,7 @@ pub(super) fn declare_program(resolved: &modules::Resolved) {
             );
         } else if !f.name.starts_with("__plenty_") {
             declare_function(&global(&f.name), SymbolKind::Function, &f.name, f);
+            with(|r| r.parameters.insert(global(&f.name), parameters(f)));
         }
     }
     for c in &resolved.classes {
@@ -633,7 +681,20 @@ pub(super) fn declare_program(resolved: &modules::Resolved) {
             let symbol = crate::record::method(&c.name, &f.name);
             let name = format!("{}.{}", c.name, f.name);
             declare_function(&global(&symbol), SymbolKind::Method, &name, f);
+            with(|r| r.parameters.insert(global(&symbol), parameters(f)));
         }
+        // `Class(...)` calls the generated `new`, whose parameters are the
+        // fields, or the parameters of a written `__init__` after `self`.
+        let constructor = match c.methods.iter().find(|f| f.name == "__init__") {
+            Some(init) => parameters(init).into_iter().skip(1).collect(),
+            None => c
+                .fields
+                .iter()
+                .map(|(field, _)| field_key(&c.name, field))
+                .collect(),
+        };
+        let new = global(&crate::record::method(&c.name, "new"));
+        with(|r| r.parameters.insert(new, constructor));
     }
     for e in &resolved.enums {
         declare(
@@ -660,6 +721,7 @@ pub(super) fn declare_program(resolved: &modules::Resolved) {
             let symbol = crate::record::method(&e.name, &f.name);
             let name = format!("{}.{}", e.name, f.name);
             declare_function(&global(&symbol), SymbolKind::Method, &name, f);
+            with(|r| r.parameters.insert(global(&symbol), parameters(f)));
         }
     }
     for p in &resolved.protocols {
@@ -713,8 +775,13 @@ fn finish(recorder: Recorder) -> Analysis {
         inferred_bindings,
         diagnostics,
         warnings,
+        exported,
         ..
     } = recorder;
+    let exported: HashSet<usize> = exported
+        .iter()
+        .filter_map(|k| keys.get(k).copied())
+        .collect();
     let lines: HashMap<&Arc<str>, Vec<usize>> = texts
         .iter()
         .map(|(source, (_, text))| {
@@ -742,7 +809,7 @@ fn finish(recorder: Recorder) -> Analysis {
         ))
     };
     let mut symbols = Vec::with_capacity(declared.len());
-    for d in &declared {
+    for (index, d) in declared.iter().enumerate() {
         let found = d
             .anchor
             .as_ref()
@@ -784,6 +851,7 @@ fn finish(recorder: Recorder) -> Analysis {
             declaration,
             doc: d.doc.clone(),
             location: found.map(|(_, (location, _))| location),
+            exported: exported.contains(&index),
         });
     }
     let mut seen = HashSet::default();

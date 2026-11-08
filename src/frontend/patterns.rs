@@ -28,8 +28,9 @@ pub(super) enum PatKind {
     Binding(String),
     Member(String, Box<TypeRef>),
     /// Qualifier (absent for `Some`, `Nothing`, `Ok`, and `Err`), variant name,
-    /// and payload patterns (absent without parentheses).
-    Variant(Option<Box<TypeRef>>, String, Option<Vec<Pat>>),
+    /// payload patterns (absent without parentheses), and where the variant
+    /// name is written, for editor queries (see [`Pos`]).
+    Variant(Option<Box<TypeRef>>, String, Option<Vec<Pat>>, Pos),
     Or(Vec<Pat>),
     Tuple(Vec<Pat>),
     Literal(Literal),
@@ -71,7 +72,7 @@ impl Pat {
                         names.push(name);
                     }
                 }
-                PatKind::Variant(_, _, payload) => {
+                PatKind::Variant(_, _, payload, _) => {
                     for pattern in payload.iter().flatten() {
                         walk(pattern, names);
                     }
@@ -101,7 +102,7 @@ impl Pat {
         paths: bool,
         visit: &mut dyn FnMut(&mut TypeRef) -> Result<()>,
     ) -> Result<()> {
-        if paths && let PatKind::Variant(Some(qualifier), name, Some(payload)) = &mut self.kind {
+        if paths && let PatKind::Variant(Some(qualifier), name, Some(payload), _) = &mut self.kind {
             let mut owner = TypeRef {
                 name: Some(format!(
                     "{}.{name}",
@@ -144,7 +145,7 @@ impl Pat {
         match &mut self.kind {
             PatKind::Member(_, ty) => visit(ty),
             PatKind::Wildcard | PatKind::Binding(_) | PatKind::Literal(_) => Ok(()),
-            PatKind::Variant(qualifier, _, payload) => {
+            PatKind::Variant(qualifier, _, payload, _) => {
                 if let Some(qualifier) = qualifier {
                     visit(qualifier)?;
                 }
@@ -308,6 +309,7 @@ impl Parser {
                 kind: PatKind::Tuple(fields),
             });
         }
+        let mut name_pos = Pos::of(self.peek());
         let mut path = vec![self.name()?];
         if depth == 0
             && !enums::prelude_variant(&path[0])
@@ -324,6 +326,7 @@ impl Parser {
             });
         }
         while self.eat(".") {
+            name_pos = Pos::of(self.peek());
             path.push(self.name()?);
         }
         if self.peek().is("[") {
@@ -371,7 +374,7 @@ impl Parser {
         };
         Ok(Pat {
             at,
-            kind: PatKind::Variant(qualifier, name, payload),
+            kind: PatKind::Variant(qualifier, name, payload, name_pos),
         })
     }
 
@@ -1469,7 +1472,7 @@ impl Lower<'_> {
                     fields,
                 })
             }
-            PatKind::Variant(qualifier, name, payload) => {
+            PatKind::Variant(qualifier, name, payload, name_pos) => {
                 if let Ty::Enum(sum) = content
                     && sum.anonymous()
                 {
@@ -1523,6 +1526,12 @@ impl Lower<'_> {
                 let tag = definition
                     .tag(name)
                     .ok_or_else(|| pattern.at.error(format!("unknown variant `{name}`")))?;
+                super::ide::refer_member(
+                    &pattern.at,
+                    *name_pos,
+                    name,
+                    super::ide::variant_key(&t.name, name),
+                );
                 let fields = &definition.variants[tag].fields;
                 if payload.as_ref().map_or(0, Vec::len) != fields.len()
                     || (fields.is_empty() && payload.is_some())
@@ -1757,7 +1766,13 @@ impl Lower<'_> {
             let index = match &field.name {
                 Some(label) => {
                     named = true;
-                    super::classes::field_index(&t, label, &field.at)?
+                    let index = super::classes::field_index(&t, label, &field.at)?;
+                    super::ide::refer(
+                        &field.at,
+                        super::ide::Find::At(label.chars().count() as u32),
+                        super::ide::field_key(&t.name, label),
+                    );
+                    index
                 }
                 None if named => {
                     return Err(field

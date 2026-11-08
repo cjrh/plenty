@@ -273,7 +273,7 @@ impl Lower<'_> {
             at: at.clone(),
             pattern: Pat {
                 at: at.clone(),
-                kind: PatKind::Variant(None, variant.into(), fields),
+                kind: PatKind::Variant(None, variant.into(), fields, Pos::default()),
             },
             body: vec![Stmt {
                 at: body.at.clone(),
