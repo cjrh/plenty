@@ -1,4 +1,5 @@
-//! The reporting protocol alone forwards through normalized anonymous sums.
+//! The reporting protocol forwards through normalized anonymous sums; see
+//! `test_protocol_sums.rs` for user protocols.
 use std::process::Command;
 
 fn run(source: &str) -> (String, String) {
@@ -157,23 +158,31 @@ def main() -> Result[(), FormatError]:
 }
 
 #[test]
-fn user_protocol_does_not_gain_forwarding_after_report_dispatch_exists() {
-    rejects(
-        &format!(
+fn same_signature_user_protocol_forwards_like_the_reporting_protocol() {
+    // Issue #875: the reporting protocol's dispatcher and a user protocol's
+    // share the member methods, so both bounds accept the same sum.
+    assert_eq!(
+        run(&format!(
             r#"{TYPES}
 protocol Formattable:
     def format[W](self, output: &mut Formatter[W]) -> Result[(), FormatError]:
         pass
 def custom[T: Formattable, W](value: &T, out: &mut Formatter[W]) -> Result[(), FormatError]:
     value.format(out)
-def main() -> Result[(), FormatError]:
+def standard[T: std.fmt.Formattable, W](value: &T, out: &mut Formatter[W]) -> Result[(), FormatError]:
+    value.format(out)
+def main() -> Result[(), FormatError | IoError]:
     value: Label | Code = Code.Value(7)
     mut out = std.fmt.string_formatter(100, 1)?
     value.format(&mut out)?
-    custom(&value, &mut out)
+    custom(&value, &mut out)?
+    standard(&value, &mut out)?
+    print(std.fmt.finish(&out)?)?
+    Ok(())
 "#
-        ),
-        "anonymous sums only forward std.fmt.Formattable",
+        ))
+        .0,
+        "777"
     );
 }
 
