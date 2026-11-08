@@ -3091,6 +3091,7 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Vec<usize>> {
         let mut argument_loans = Vec::new();
+        let mut frames = Vec::new();
         for (arg, (_, expected)) in args.iter().zip(inputs) {
             if let Ty::View(_, mutable) = expected {
                 let text = *expected == text_view();
@@ -3120,9 +3121,15 @@ impl Lower<'_> {
             self.same(Some(ty), Some(expected.clone()), &arg.at)?;
             if expected.carried_reference().is_some() {
                 argument_loans.push(self.carried_argument(arg, expected, ops)?);
+            } else if expected.lends_frame() {
+                frames.extend(self.frame_argument(arg, ops));
             }
         }
-
+        // A borrowing generator passed by value keeps its loans until the
+        // call returns, as a reference argument does. They follow the
+        // reference loans, so a borrowed result still derives from the
+        // first reference argument.
+        argument_loans.extend(frames);
         Ok(argument_loans)
     }
     /// Name the future and pool slots that a call's arguments, `ops[start..]`,

@@ -2691,7 +2691,13 @@ impl Checker<'_, '_> {
                                     if l.retargetable
                                         && let Some(slot) = l.binding
                                     {
-                                        return Some(slot);
+                                        // A generator is `mut` to advance,
+                                        // not to retarget (issue #899).
+                                        let frame = self
+                                            .locals
+                                            .get(usize::from(slot))
+                                            .is_some_and(Ty::lends_frame);
+                                        return (!frame).then_some(slot);
                                     }
                                     ancestor = l.parent;
                                 }

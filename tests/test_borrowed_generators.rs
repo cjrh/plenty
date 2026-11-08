@@ -259,3 +259,147 @@ fn a_generator_cannot_take_a_borrowing_generator_parameter_yet() {
         "{error}"
     );
 }
+
+// Review of local PR #1134: a conditional choosing between borrowing
+// generators keeps every arm's loans, as it does for references.
+#[test]
+fn a_conditional_frame_keeps_both_arms_borrowed() {
+    for choice in [
+        "mut g = evens(&xs) if len(xs) > 5 else evens(&ys)",
+        "mut g = if len(xs) > 5:\n        evens(&xs)\n    else:\n        evens(&ys)",
+    ] {
+        let error = check_error(&with_evens(&format!(
+            r#"
+def main() -> Result[(), AllocError | IoError]:
+    xs = [1, 2]?
+    ys = [2, 4]?
+    {choice}
+    print(next(g))?
+    drop(ys)
+    print(next(g))?
+    Ok(())
+"#
+        )));
+        assert!(
+            error.contains("cannot move `ys` while it is borrowed"),
+            "{choice}: {error}"
+        );
+    }
+    assert_stdout(
+        &with_evens(
+            r#"
+def main() -> Result[(), AllocError | IoError]:
+    xs = [1, 2]?
+    ys = [2, 4]?
+    mut g = evens(&xs) if len(xs) > 5 else evens(&ys)
+    for v in g:
+        print(v)?
+    drop(ys)
+    Ok(())
+"#,
+        ),
+        "2\n4\n",
+    );
+}
+
+#[test]
+fn a_returned_conditional_frame_checks_every_arm() {
+    const TWO: &str = r#"
+def two(a: &list[i64], b: &list[i64]) -> Generator[i64]:
+    for x in a:
+        yield *x
+    for x in b:
+        yield *x
+"#;
+    let error = check_error(&format!(
+        r#"{TWO}
+def bad(xs: &list[i64]) -> Generator[i64]:
+    ys = [1].unwrap()
+    two(xs, xs) if len(xs) > 9 else two(&ys, &ys)
+
+def main() -> ():
+    pass
+"#
+    ));
+    assert!(error.contains("may borrow only through"), "{error}");
+    assert_stdout(
+        &format!(
+            r#"{TWO}
+def either(xs: &list[i64], ys: &list[i64]) -> Generator[i64]:
+    two(xs, xs) if len(xs) > 9 else two(ys, xs)
+
+def main() -> Result[(), AllocError | IoError]:
+    xs = [1]?
+    ys = [2]?
+    print(either(&xs, &ys).count())?
+    Ok(())
+"#
+        ),
+        "2\n",
+    );
+}
+
+// Review of local PR #1134: a frame passed by value keeps its loans until
+// the call returns, so a later argument cannot move or exclusively borrow
+// the data it reads.
+#[test]
+fn a_frame_argument_keeps_its_loans_for_the_call() {
+    let consumers = r#"
+def consume(g: Generator[i64], xs: list[i64]) -> Result[(), AllocError | IoError]:
+    drop(xs)
+    for v in g:
+        print(v)?
+    Ok(())
+
+def grow(g: Generator[i64], xs: &mut list[i64]) -> Result[(), AllocError | IoError]:
+    for v in g:
+        xs.append(v)?
+    Ok(())
+"#;
+    for (call, expected) in [
+        (
+            "consume(evens(&xs), xs)?",
+            "cannot move `xs` while it is borrowed",
+        ),
+        (
+            "g = evens(&xs)\n    consume(g, xs)?",
+            "cannot move `xs` while it is borrowed",
+        ),
+        (
+            "grow(evens(&xs), &mut xs)?",
+            "cannot modify or exclusively borrow `xs` while it is borrowed",
+        ),
+    ] {
+        let error = check_error(&with_evens(&format!(
+            r#"{consumers}
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = [2, 4]?
+    {call}
+    Ok(())
+"#
+        )));
+        assert!(error.contains(expected), "{call}: {error}");
+    }
+}
+
+#[test]
+fn a_conflict_on_a_frame_binding_does_not_suggest_dropping_mut() {
+    let error = check_error(&with_evens(
+        r#"
+def grow(xs: &mut list[i64]) -> Generator[i64]:
+    for x in xs:
+        yield *x
+
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = [2]?
+    mut w = grow(&mut xs)
+    print(next(w))?
+    mut b = evens(&xs)
+    print(next(b))?
+    print(next(w))?
+    Ok(())
+"#,
+    ));
+    assert!(error.contains("conflicting borrow"), "{error}");
+    assert!(!error.contains("without `mut`"), "{error}");
+}

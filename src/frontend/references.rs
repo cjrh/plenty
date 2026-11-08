@@ -151,9 +151,10 @@ pub(super) struct BranchJoin {
 impl BranchJoin {
     /// Whether an arm value of type `ty` joins this branch's loan: a plain
     /// reference or one inside an Option or Result, as `unwrap_or` joins its
-    /// operands (issue #897).
+    /// operands (issue #897), or a generator whose frame borrows, which
+    /// keeps each arm's loans (issue #899).
     pub(super) fn carries(ty: &Ty) -> bool {
-        ty.carries_loan()
+        ty.carries_loan() || ty.lends_frame()
     }
 }
 
@@ -389,6 +390,14 @@ impl Lower<'_> {
         let parent = self.reference_origin(arg, ops)?;
         let root = self.loans[parent].root;
         Ok(self.new_loan(root, ty.carries_mutable_loan(), Some(parent), ops))
+    }
+
+    /// The loan of the borrowing generator argument `arg`, which the caller
+    /// holds for the call (issue #899). A by-value generator parameter has
+    /// none: its own caller holds them.
+    #[inline(never)]
+    pub(super) fn frame_argument(&self, arg: &Expr, ops: &[Op]) -> Option<usize> {
+        self.reference_origin(arg, ops).ok()
     }
 
     /// Whether `loan` descends from an [`Self::empty_holder_loan`], so the
@@ -635,9 +644,12 @@ impl Lower<'_> {
             && BranchJoin::carries(ty)
         {
             let referent = self.absent_referent(at)?;
+            // A borrowing frame's arms may borrow mutably.
+            let mutable = ty.carries_mutable_loan()
+                || (ty.lends_frame() && branch.assigned.iter().any(|&id| self.loans[id].mutable));
             let loan = &mut self.loans[join];
             loan.root = referent;
-            loan.mutable = ty.carries_mutable_loan();
+            loan.mutable = mutable;
             loan.dependencies.clear();
             ops.push(Op::Loan(loan.clone()));
             if !branch.assigned.is_empty() {
@@ -836,7 +848,16 @@ impl Lower<'_> {
                         .is_some_and(|(_, ty)| lends(ty))
                 })
         };
-        if !external(id) || !self.loans[id].dependencies.iter().all(|&d| external(d)) {
+        let sound = |loan: usize| {
+            external(loan) && self.loans[loan].dependencies.iter().all(|&d| external(d))
+        };
+        // A frame chosen by a conditional or an `if`/`match` value keeps
+        // the loans of every arm; each must borrow only the caller's data.
+        let checked = match self.holder_of(id).and_then(|decl| self.holders.get(&decl)) {
+            Some(holder) => holder.assigned.iter().all(|&loan| sound(loan)),
+            None => sound(id),
+        };
+        if !checked {
             return Err(e.at.error(MESSAGE));
         }
         Ok(id)

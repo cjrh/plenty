@@ -557,9 +557,11 @@ generator function may take `&T`, `&mut T` and view parameters, and
 reference or view parameter, or is a borrowing generator. The call result
 keeps every argument loan until its last use, so the caller cannot change the
 borrowed data while the frame may resume, and a function may return such a
-generator when it borrows only through its own reference parameters. Storage
-that would lose the loan (`Option`/`Result` payloads, tuples, class fields,
-closure captures) is rejected. See
+generator when it borrows only through its own reference parameters. A
+conditional or `if`/`match` value choosing between borrowing generators keeps
+every arm's loans, and a generator passed by value keeps its loans until the
+call returns. Storage that would lose the loan (`Option`/`Result` payloads,
+tuples, class fields, by-value closure captures) is rejected. See
 [borrowing frames](../design/language/09-iteration/03-generators.md#borrowing-frames).
 
 List slice views `&[T]` and `&mut [T]` gained list read and fixed-length

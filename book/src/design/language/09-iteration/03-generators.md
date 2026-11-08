@@ -230,12 +230,16 @@ a returned reference keeps its origin. Changing, moving or dropping `xs` while
 longer used, `xs` is free again. A `&mut` argument stays exclusively borrowed
 for the same span. A function may return such a generator when it borrows only
 through that function's own reference or view parameters; returning one that
-borrows a local or an owned parameter is rejected.
+borrows a local or an owned parameter is rejected. A conditional expression or
+an `if`/`match` value that chooses between borrowing generators keeps every
+arm's loans, and a returned choice checks each arm.
 
 A borrowing generator can be bound, advanced, iterated, consumed by a
-fluent terminal, passed by value to a function, or returned. It cannot be stored
+fluent terminal, passed by value to a function, or returned. A generator
+passed by value keeps its loans until the call returns, so a later argument
+cannot move or exclusively borrow the data it reads. It cannot be stored
 where its loan would be lost: in an `Option` or `Result` payload, a tuple, a
-class field or a closure capture. A generator parameter that is itself a
+class field or a by-value closure capture. A generator parameter that is itself a
 borrowing generator, a carried reference such as `Option[&T]`, or a lent
 pipeline is rejected with "generators cannot capture references". Yielded
 items stay owned: `Generator[&T]` remains unsupported (backlog B12).
