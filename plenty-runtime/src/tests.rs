@@ -7,6 +7,17 @@ use crate::strings::{self, plenty_concat, plenty_contains, plenty_str_eq, plenty
 use std::cell::RefCell;
 use std::ptr;
 
+/// A box descriptor's destroy entry, as the compiler emits one for each box
+/// type.
+macro_rules! destroy_entry {
+    ($descriptor:expr) => {{
+        unsafe extern "C" fn destroy(header: *mut Header) {
+            unsafe { crate::aggregates::plenty_box_destroy(header, $descriptor) }
+        }
+        Some(destroy as unsafe extern "C" fn(*mut Header))
+    }};
+}
+
 thread_local! { static TRACE: RefCell<Vec<u128>> = const { RefCell::new(Vec::new()) }; }
 const fn scalar(kind: u8) -> Type {
     Type {
@@ -28,6 +39,7 @@ const fn scalar(kind: u8) -> Type {
         display: None,
         quantity: None,
         finite: None,
+        destroy: None,
     }
 }
 const fn list(key: &'static Type) -> Type {
@@ -377,6 +389,7 @@ static GUARD_CLASS: Type = Type {
 static GUARD: Type = Type {
     affine: true,
     key: Some(&GUARD_CLASS),
+    destroy: destroy_entry!(&GUARD),
     ..scalar(b'O')
 };
 static LIST_GUARD: Type = list(&GUARD);
@@ -2492,6 +2505,7 @@ static RECURSIVE_NODE: Type = Type {
 static RECURSIVE_BOX: Type = Type {
     affine: true,
     key: Some(&RECURSIVE_NODE),
+    destroy: destroy_entry!(&RECURSIVE_BOX),
     ..scalar(b'O')
 };
 static OPTION_RECURSIVE_BOX: Type = Type {
@@ -2597,6 +2611,7 @@ fn recursive_heap_children_finish_before_inline_siblings_on_a_small_stack() {
     static BOX: Type = Type {
         affine: true,
         key: Some(&NODE),
+        destroy: destroy_entry!(&BOX),
         ..scalar(b'O')
     };
     static OPTION: Type = Type {

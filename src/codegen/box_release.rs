@@ -11,6 +11,10 @@
 //! that call only queues the child, so the adapter never recurses and deep
 //! values still drop on a small stack. See "Box destruction" in
 //! book/src/design/toolchain/02-architecture/memory.md.
+//!
+//! A plain box keeps no descriptor word, so each box type also gets a destroy
+//! entry: the function its boxes' headers name, which passes the box type's
+//! descriptor to the runtime's `plenty_box_destroy` (issue #814).
 use super::*;
 use crate::boxed::BoxOp;
 use cranelift_codegen::ir::{MemFlagsData, Value as NativeValue};
@@ -199,6 +203,55 @@ pub(super) fn build_adapter(
     Ok(())
 }
 
+/// Declare the destroy entry of boxes described by `descriptor`, which
+/// [`define_destroy_entries`] builds once every descriptor is placed: a
+/// descriptor is defined while placing the code that first names it.
+pub(super) fn declare_destroy_entry(
+    module: &mut ObjectModule,
+    runtime: &Runtime,
+    descriptor: DataId,
+) -> Result<FuncId> {
+    let id = module.declare_anonymous_function(&signature(module.make_signature()))?;
+    runtime
+        .box_destroyers
+        .lock()
+        .unwrap()
+        .push((id, descriptor));
+    Ok(id)
+}
+
+/// Build the destroy entries [`declare_destroy_entry`] declared, in
+/// declaration order. Building one defines no descriptor.
+pub(super) fn define_destroy_entries(runtime: &Runtime, out: &mut Output) -> Result<()> {
+    let entries = std::mem::take(&mut *runtime.box_destroyers.lock().unwrap());
+    if entries.is_empty() {
+        return Ok(());
+    }
+    let mut destroy = signature(out.module.make_signature());
+    destroy.params.push(AbiParam::new(PTR_TY));
+    let callee = out
+        .module
+        .declare_function("plenty_box_destroy", Linkage::Import, &destroy)?;
+    for (id, descriptor) in entries {
+        let signature = signature(out.module.make_signature());
+        let mut func = Function::with_name_signature(UserFuncName::user(0, id.as_u32()), signature);
+        let mut bcx = FunctionBuilder::new(&mut func, &mut out.builder);
+        let entry = bcx.create_block();
+        bcx.append_block_params_for_function_params(entry);
+        bcx.switch_to_block(entry);
+        bcx.seal_block(entry);
+        let header = bcx.block_params(entry)[0];
+        let data = out.module.declare_data_in_func(descriptor, bcx.func);
+        let descriptor = bcx.ins().symbol_value(PTR_TY, data);
+        let callee = out.module.declare_func_in_func(callee, bcx.func);
+        bcx.ins().call(callee, &[header, descriptor]);
+        bcx.ins().return_(&[]);
+        bcx.finalize(crate::codegen::FRONTEND);
+        out.define(id, func)?;
+    }
+    Ok(())
+}
+
 impl Lowerer<'_, '_> {
     /// Release a sum [`heap_payload`] accepts: test the tag, then release the
     /// payload word as its field, without the runtime's descriptor walk.
@@ -238,7 +291,7 @@ impl Lowerer<'_, '_> {
         self.bcx.ins().brif(failed, done, &[], store, &[]);
         self.bcx.switch_to_block(store);
         self.bcx.seal_block(store);
-        let slot = self.bcx.ins().iadd_imm_s(word, 32);
+        let slot = self.bcx.ins().iadd_imm_s(word, enums::BOX_CONTENT);
         if content.flat_field() {
             // The record takes the slot's place; see `box_content_offset`.
             self.copy_inline_to(value, content, slot);

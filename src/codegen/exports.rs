@@ -97,18 +97,19 @@ pub(super) fn emit(
             if matches!(ty, Ty::Class(_)) {
                 let storage = stack_storage(&mut b, ty.inline_bytes());
                 let value = if ty.flat_field() {
-                    let record = b.ins().iadd_imm_s(*argument, 32);
+                    let record = b.ins().iadd_imm_s(*argument, enums::BOX_CONTENT);
                     b.ins().uextend(types::I128, record)
                 } else {
                     b.ins().load(
                         types::I128,
                         cranelift_codegen::ir::MemFlagsData::trusted(),
                         *argument,
-                        32,
+                        enums::BOX_CONTENT as i32,
                     )
                 };
                 let value = collection(&mut b, module, runtime, 117, &[value, storage], Some(ty))?;
-                collection(&mut b, module, runtime, 120, &[*argument], None)?;
+                let boxed = Ty::Box(std::sync::Arc::new(ty.clone()));
+                collection(&mut b, module, runtime, 120, &[*argument], Some(&boxed))?;
                 *argument = value;
                 continue;
             }
@@ -172,12 +173,12 @@ pub(super) fn emit(
             let (word, tags) = b.ins().isplit(value);
             let tags = b.ins().ushr_imm_s(tags, 1);
             let instance = b.ins().iconcat(word, tags);
-            let slot = b.ins().iadd_imm_s(handle, 32);
+            let slot = b.ins().iadd_imm_s(handle, enums::BOX_CONTENT);
             if ok.flat_field() {
                 // The record takes the slot's place in the box.
                 collection(&mut b, module, runtime, 117, &[instance, slot], Some(ok))?;
             } else {
-                let storage = b.ins().iadd_imm_s(handle, 48);
+                let storage = b.ins().iadd_imm_s(handle, enums::BOX_CONTENT + 16);
                 let instance =
                     collection(&mut b, module, runtime, 117, &[instance, storage], Some(ok))?;
                 b.ins().store(

@@ -20,6 +20,7 @@ static INTEGER: Type = Type {
     display: None,
     quantity: None,
     finite: None,
+    destroy: None,
 };
 static SET: Type = Type {
     kind: b'S',

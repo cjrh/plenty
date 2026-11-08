@@ -954,6 +954,7 @@ fn object_module(
     out.build(jobs, workers, &runtime, build_job)?;
     deferred.finish(&mut out, workers, &runtime, fns, &build_job)?;
     exports::emit(exports, interface, &user_fns, &runtime, &mut out)?;
+    box_release::define_destroy_entries(&runtime, &mut out)?;
     Ok(out)
 }
 
@@ -1092,6 +1093,9 @@ struct Runtime {
     /// Compiled releases of box content by content type, linked into box
     /// descriptors; see [`box_release`].
     box_releasers: HashMap<Ty, FuncId>,
+    /// Box destroy entries declared with their box descriptors and not yet
+    /// built; see [`box_release::declare_destroy_entry`].
+    box_destroyers: std::sync::Mutex<Vec<(FuncId, DataId)>>,
     ffi_errno: FuncId,
     list_len: FuncId,
     /// `plenty_list_rows(list) -> first row address` and
@@ -1322,6 +1326,7 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         referenced: Default::default(),
         drop_hooks: HashMap::default(),
         box_releasers: HashMap::default(),
+        box_destroyers: Default::default(),
         retain: one_arg(module, "plenty_retain", PTR_TY)?,
         release: one_arg(module, "plenty_release", PTR_TY)?,
         ffi_errno: {
