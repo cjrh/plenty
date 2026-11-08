@@ -178,6 +178,9 @@ impl Lower<'_> {
                 }
                 self.view_helper("view_reverse", &element, std::slice::from_ref(base), &base.at, ops)
             }
+            "get_ref" | "get_mut" => Err(base.at.error(format!(
+                "a slice view cannot `{name}` yet (issue #{LOOKUP_ISSUE}); borrow with `&v[i]` after checking `i < len(v)`, or copy a non-affine element with `v.get(i)`"
+            ))),
             "sort" | "sort_by_key" | "sort_stable_by_key" => Err(base.at.error(format!(
                 "a slice view cannot `{name}` yet (issue #{SORT_ISSUE}); sort the whole list, or reorder the view's elements with `swap`"
             ))),
@@ -219,3 +222,6 @@ impl Lower<'_> {
 
 /// The follow-up issue for sorting slice views in place.
 const SORT_ISSUE: u32 = 886;
+
+/// The follow-up issue for optional borrowed lookup on slice views.
+const LOOKUP_ISSUE: u32 = 890;
