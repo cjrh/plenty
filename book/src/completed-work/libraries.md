@@ -547,3 +547,13 @@ text view, retaining byte offsets. `std.bytes.to_text` validates and copies a
 selected byte range directly into an owned string. See
 [Text inputs and substring views](../design/stdlib/text-input-views.md) for the
 module matrix and native-copy/NUL contracts.
+
+## Native error descriptions (issue #907)
+
+`std.error.native_message(code)` returns the C-locale GNU C library text for
+each Linux (x86-64 and aarch64) error number (1 to 133, except the unassigned
+41 and 58) as a string literal, and `Nothing` otherwise and on other targets. The table is Plenty, so the call
+allocates nothing, is locale- and thread-independent, and keeps the same text
+under any C library. Error values still keep `IoError.System(code)`; see
+[describing a native code](../design/stdlib/error.md#describing-a-native-code).
+Formatting builtin `IoError` causes in `describe`/`format` is not included.
