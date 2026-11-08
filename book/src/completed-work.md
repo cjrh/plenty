@@ -71,6 +71,13 @@ including assignment costs, immutable storage, mutable construction, borrowed
 views, and Unicode indexing. The comparison tables use a wider screen layout
 and independently scroll on narrow screens. This documents existing behavior.
 
+## Pattern matching comparison
+
+The [Python and Rust comparison](design/language/04-expressions/matching.md#compared-to-python-and-rust)
+clarifies arm-local shadowing versus Python captures, unsupported Plenty guards,
+and Rust similarities and value-position differences. It documents existing
+behavior with an executable shadowing example; no language feature is added.
+
 ## Reconciliation history
 
 The backlog's full reconciliation on 2026-10-22 covered local `main` and merged
