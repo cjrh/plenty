@@ -15,7 +15,8 @@ arguments by the same structural match: `Bounded[T, lo, hi]` against
 `Bounded[u8, 0, 100]` learns all three parameters.
 
 A shared-reference parameter supplies ordinary implicit borrowing, so a
-parameter `value: &T` can accept an owner directly. Mutable borrowing still needs
+parameter `value: &T` can accept an owner directly, and a `values: &[T]`
+parameter a whole list or buffer. Mutable borrowing still needs
 `&mut` or an existing exclusive reference. Arguments evaluate once in source
 order.
 

@@ -126,7 +126,8 @@ format each byte explicitly.
 An operation that only reads bytes takes `&[u8]`, a
 [slice view](../language/04-expressions/slices.md#slice-views): a pointer and a
 length. `&buffer`, `&buffer[a:b]`, `&list`, a `b"..."` literal, and a view held
-by the caller all convert to it with no copy and no allocation. The range is
+by the caller all convert to it with no copy and no allocation; a buffer or list
+passed bare, `f(buffer)`, is lent as `&buffer`. The range is
 part of the view, so these operations take no `start` and `stop` and report no
 range error: view bounds clamp, and a negative bound counts from the end.
 

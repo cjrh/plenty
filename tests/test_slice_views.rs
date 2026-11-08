@@ -878,3 +878,27 @@ fn bare_view_arguments_follow_explicit_borrow_rules(#[case] body: &str, #[case] 
     let error = support::check_error(body);
     assert!(error.contains(expected), "{body}\n{error}");
 }
+
+/// `*r` names the owner a reference refers to, so it is lent like the owner
+/// at a shared view parameter, as at a `&list[T]` parameter.
+#[test]
+fn dereferenced_owners_are_lent_to_view_parameters() {
+    support::assert_stdout(
+        "def width(xs: &[i64]) -> i64:\n    len(xs)\n\
+         def inspect(xs: &list[i64]) -> i64:\n    len(xs)\n\
+         xs = [1, 2, 3].unwrap()\nr = &xs\nprint(width(*r), inspect(*r)).unwrap()",
+        "3 3\n",
+    );
+}
+
+/// Text reaches a byte view through `as_bytes()`, never implicitly.
+#[test]
+fn bare_text_at_byte_views_suggests_as_bytes() {
+    let error = support::check_error(
+        "def width(data: &[u8]) -> i64:\n    len(data)\ns = \"abc\"\nn = width(s)",
+    );
+    assert!(
+        error.contains("a `str` is text, so pass `s.as_bytes()` for its UTF-8 bytes"),
+        "{error}"
+    );
+}

@@ -277,11 +277,13 @@ copies nothing and allocates nothing. Expected view types are parameters,
 including a generic `&[T]`, and annotated locals.
 
 A shared view parameter also lends a bare owned argument, as a `&T` parameter
-does: `total(xs)` is `total(&xs)`. This covers lists, `Bytes`, projected
-owners such as `bag.items`, and call or `?` results such as `total(make()?)`,
+does: `total(xs)` is `total(&xs)`. This covers lists, `Bytes` and `bytes`
+values, `Shared` handles, projected owners such as `bag.items` or `*r`, and
+call or `?` results such as `total(make()?)`,
 which are held to the end of the statement. An `&mut [T]` parameter still
 needs `&mut xs` or an existing exclusive view; exclusive access is never
-inferred:
+inferred. A bare `str` is not lent as bytes; pass `s.as_bytes()`. For
+example:
 
 ```plenty
 def total(values: &[i64]) -> Result[i64, OverflowError[i64]]:
@@ -437,6 +439,7 @@ until stored references land (backlog B11).
 | `&mut s[1:3]` on a `str` | ``a `str` is immutable, so a substring view is shared only; write `&s[a:b]` `` |
 | `def f(xs: &list[T]) -> &[T]` | `a function cannot return a slice view yet (backlog B11)` |
 | `f(&s[1:])` for `f(s: &str)` | ``this argument is a &strview view, but the parameter takes &str; declare the parameter `&strview` to borrow it without copying, or pass an owned copy, `s[a:b]?` `` |
+| `width(s)` for `width(v: &[u8])` and `s: str` | ``this parameter takes a slice view; a `str` is text, so pass `s.as_bytes()` for its UTF-8 bytes`` |
 | `fill(xs)` for `fill(v: &mut [i64])` | ``this parameter takes a slice view: pass `&mut xs` for a whole list or buffer, or `&mut xs[a:b]` for part of it`` |
 | `x in v` for a non-byte list view, such as `&[i64]` | ``slice views do not support `in` yet`` |
 | `xs[1:3] = ys` | `slice assignment is not supported; assign elements by index, or build a new list` |

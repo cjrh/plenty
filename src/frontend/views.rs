@@ -545,7 +545,10 @@ impl Lower<'_> {
     /// exclusive view is never inferred, and a `&strview` lends whole strings
     /// through its own path. `None` leaves `arg` as written.
     fn implicit_whole_view(&self, arg: &Expr, mutable: bool, text: bool) -> Option<Expr> {
-        if mutable || text || matches!(ungroup(arg).kind, Expression::Unary(..)) {
+        // `*r` names the owner `r` refers to, so it is lent like a binding.
+        let borrowed =
+            matches!(&ungroup(arg).kind, Expression::Unary(op, _) if op == "&" || op == "&mut");
+        if mutable || text || borrowed {
             return None;
         }
         let lend = || {
@@ -571,6 +574,18 @@ impl Lower<'_> {
         let viewable = matches!(owner, Ty::List(_) | Ty::ByteStr)
             || byte_buffers::byte_buffer(&owner).is_some();
         viewable.then(lend).flatten()
+    }
+
+    /// Whether `arg` is a `str` value written without `&`, which a byte
+    /// view does not lend implicitly: text reaches bytes through `as_bytes()`.
+    fn bare_text(&self, arg: &Expr) -> bool {
+        !matches!(ungroup(arg).kind, Expression::Unary(..))
+            && matches!(
+                self.place_type(arg)
+                    .or_else(|| self.expression_type_hint(arg))
+                    .map(classes::unbox),
+                Some(Ty::Str)
+            )
     }
 
     /// A `&[T]` or `&mut [T]` argument: `&xs[a:b]`, `&mut xs[a:b]`, a view
@@ -641,6 +656,11 @@ impl Lower<'_> {
             return Ok((text_view(), loan));
         }
         if !self.is_view(arg) {
+            if !mutable && self.bare_text(arg) {
+                return Err(arg.at.error(
+                    "this parameter takes a slice view; a `str` is text, so pass `s.as_bytes()` for its UTF-8 bytes",
+                ));
+            }
             let whole = if mutable { "&mut xs" } else { "&xs" };
             return Err(arg.at.error(format!(
                 "this parameter takes a slice view: pass `{whole}` for a whole list or buffer, or `{wanted}` for part of it"
