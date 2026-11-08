@@ -653,13 +653,24 @@ pub struct Loan {
     pub retargetable: bool,
     /// Borrowing an environment keeps all references stored inside it live.
     pub dependencies: Vec<usize>,
-    /// The declaration loan of a `mut` holder that started empty, when this
-    /// loan is one assigned to it. Every use of that loan or a loan derived
+    /// The declaration loan of a `mut` holder that started empty, or the
+    /// join loan of an `if` or `match` value, when this loan is one assigned
+    /// to it. Every use of that loan or a loan derived
     /// from it keeps all such assigned loans live, whatever their order in
     /// the body, since a loop can carry any of them to any use. An
     /// assignment may run on only some paths, so the loan is live only where
     /// some path created it.
-    pub holder: Option<usize>,
+    pub holder: Option<Assigned>,
+}
+/// The holder a loan was assigned to: see [`Loan::holder`]. One field, so
+/// [`Op`](crate::op::Op) stays small.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Assigned {
+    /// The holder's declaration loan.
+    pub holder: usize,
+    /// Whether the loan is the value of an `if` or `match` arm and the holder
+    /// is that expression's join loan.
+    pub arm: bool,
 }
 /// Live loan ids, sorted ascending: the order in which conflicts are tried.
 /// Liveness revisits every node until nothing changes, so a set is rebuilt in
@@ -2689,12 +2700,16 @@ impl Checker<'_, '_> {
                     ));
                     if let Some(holder) = loan
                         .holder
-                        .and_then(|decl| loans.get(&decl)?.binding)
+                        .and_then(|assigned| loans.get(&assigned.holder)?.binding)
                         .and_then(|slot| self.place(slot, &[], false))
                     {
                         error.notes.push((
                             at,
-                            format!("`{holder}` started empty, so it keeps every value assigned to it borrowed; use a separate binding per value"),
+                            if loan.holder.is_some_and(|assigned| assigned.arm) {
+                                format!("`{holder}` holds this arm's value: an `if` or `match` value keeps the value of every arm that ran borrowed")
+                            } else {
+                                format!("`{holder}` started empty, so it keeps every value assigned to it borrowed; use a separate binding per value")
+                            },
                         ));
                     }
                 }
@@ -2741,7 +2756,7 @@ type Held = HashMap<usize, Vec<usize>>;
 fn held_loans(loans: &HashMap<usize, &Loan>) -> Held {
     let mut assigned: Held = HashMap::default();
     for loan in loans.values() {
-        if let Some(holder) = loan.holder {
+        if let Some(Assigned { holder, .. }) = loan.holder {
             assigned.entry(holder).or_default().push(loan.id);
         }
     }

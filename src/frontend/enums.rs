@@ -619,7 +619,9 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         let outer = std::mem::replace(&mut self.checked_value_tail, false);
-        let result = self.match_cases(value, cases, &Tail::Value(expected), ops);
+        let result = self.branch_value(at, ops, |lower, ops| {
+            lower.match_cases(value, cases, &Tail::Value(expected), ops)
+        });
         self.checked_value_tail = outer;
         match result? {
             BlockResult::Continues(ty) => Ok(ty),

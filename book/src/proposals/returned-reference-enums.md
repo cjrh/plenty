@@ -6,6 +6,7 @@ these; callers match, propagate, unwrap, inspect, print, forward, or hold the
 result in an immutable local, which may also start empty (issue #867).
 Phase 2 shipped by value parameters and `mut` holders within one place
 (issue #868); passing an exclusive holder reborrows it rather than moving it.
+`if`/`match` values may produce these types.
 The reference is authoritative:
 [optional and fallible references](../design/language/05-ownership/05-optional-references.md).
 Phase 3 (pipelines) is not implemented, and standard library getters such as `dict.get_ref` remain
