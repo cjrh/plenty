@@ -1300,40 +1300,44 @@ impl Lower<'_> {
         let callee = method(owner, name);
         super::ide::method_call(&base.at, name, &callee);
         self.sync_data()?;
-        if name == "format" {
-            if let Some(ty) = self.place_type(base).map(unbox)
-                && self
-                    .aliases
-                    .data
-                    .report_context(&ty, &self.generics.standard_sources)
-                    .is_some()
-            {
-                let protocol = self.generics.reporting_protocol().ok_or_else(|| {
-                    base.at
-                        .error("Context formatting requires std.fmt.Formattable")
-                })?;
-                protocols::check(
-                    protocol,
-                    &ty,
-                    &self.generics.methods,
-                    &self.generics.templates,
-                    self.aliases,
-                    self.access,
-                    &self.generics.standard_sources,
-                    &protocol.at,
-                    &base.at,
-                )?;
-                if let Some(function) = self.generics.require_reporting_method(&callee) {
-                    // Instances created before the initial signature pass
-                    // were deliberately absent from its pending queue.
-                    if !self.sigs.contains_key(&callee) {
-                        register_signature(&function, self.aliases, self.sigs)?;
-                    }
+        if name == "format"
+            && let Some(ty) = self.place_type(base).map(unbox)
+            && self
+                .aliases
+                .data
+                .report_context(&ty, &self.generics.standard_sources)
+                .is_some()
+        {
+            let protocol = self.generics.reporting_protocol().ok_or_else(|| {
+                base.at
+                    .error("Context formatting requires std.fmt.Formattable")
+            })?;
+            protocols::check(
+                protocol,
+                &ty,
+                &self.generics.methods,
+                &self.generics.templates,
+                self.aliases,
+                self.access,
+                &self.generics.standard_sources,
+                &protocol.at,
+                &base.at,
+            )?;
+            if let Some(function) = self.generics.require_reporting_method(&callee) {
+                // Instances created before the initial signature pass
+                // were deliberately absent from its pending queue.
+                if !self.sigs.contains_key(&callee) {
+                    register_signature(&function, self.aliases, self.sigs)?;
                 }
             }
-            if let Some(ty @ Ty::Enum(_)) = self.place_type(base).map(unbox)
-                && matches!(&ty, Ty::Enum(sum) if sum.anonymous())
-            {
+        }
+        let mut callee = callee;
+        if let Some(ty @ Ty::Enum(_)) = self.place_type(base).map(unbox)
+            && matches!(&ty, Ty::Enum(sum) if sum.anonymous())
+        {
+            if let Some(dispatcher) = self.bounded_sum_method(&ty, name)? {
+                callee = dispatcher;
+            } else if name == "format" {
                 self.report_sum_method(&ty, &callee, &base.at)?;
             }
         }
@@ -1480,12 +1484,40 @@ impl Lower<'_> {
         Ok(sig.outputs.first().cloned())
     }
 
-    fn report_sum_method(&mut self, ty: &Ty, callee: &str, at: &Token) -> Result<()> {
-        let Some(protocol) = self.generics.reporting_protocol().cloned() else {
-            return Err(at.error("anonymous sum formatting requires std.fmt.Formattable"));
+    /// The dispatcher for `name` on an anonymous sum that this body received
+    /// as a type argument bounded by a protocol requiring `name` (issue #875).
+    /// The instance's bound check already accepted every member, so only the
+    /// bound decides; a direct call on a sum elsewhere is unaffected. The
+    /// dispatcher is named after the protocol, so it cannot serve a direct
+    /// call or a different protocol's requirement of the same name.
+    fn bounded_sum_method(&mut self, ty: &Ty, name: &str) -> Result<Option<String>> {
+        let Some(bounds) = self.generics.sum_bounds.get(&self.function_name) else {
+            return Ok(None);
         };
-        // Use the library's visibility boundary even for a direct sum.format
-        // call: private member methods must not become a public implementation.
+        let Some(protocol) = bounds
+            .iter()
+            .filter(|(bounded, _)| bounded == ty)
+            .filter_map(|(_, protocol)| self.generics.protocol(protocol))
+            .find(|protocol| protocol.methods.iter().any(|m| m.name == name))
+            .cloned()
+        else {
+            return Ok(None);
+        };
+        let owner = classes::method_owner(ty).expect("an anonymous sum has an owner");
+        let dispatcher = method(owner, &format!("{name}.{}", protocol.name));
+        self.sum_dispatcher(&protocol, ty, name, &dispatcher)?;
+        Ok(Some(dispatcher))
+    }
+
+    /// Direct `sum.format(...)` dispatches through `std.fmt.Formattable`.
+    fn report_sum_method(&mut self, ty: &Ty, callee: &str, at: &Token) -> Result<()> {
+        let protocol = self
+            .generics
+            .reporting_protocol()
+            .ok_or_else(|| at.error("anonymous sum formatting requires std.fmt.Formattable"))?
+            .clone();
+        // Use the protocol's visibility boundary even for a local bound:
+        // private member methods must not become a public implementation.
         protocols::check(
             &protocol,
             ty,
@@ -1497,10 +1529,25 @@ impl Lower<'_> {
             &protocol.at,
             at,
         )?;
+        self.sum_dispatcher(&protocol, ty, "format", callee)
+    }
+
+    fn sum_dispatcher(
+        &mut self,
+        protocol: &protocols::Protocol,
+        ty: &Ty,
+        method_name: &str,
+        callee: &str,
+    ) -> Result<()> {
         if self.generics.templates.contains_key(callee) {
             return Ok(());
         }
-        let mut function = protocol.methods[0].clone();
+        let mut function = protocol
+            .methods
+            .iter()
+            .find(|method| method.name == method_name)
+            .expect("a candidate requires the method")
+            .clone();
         function.name = callee.into();
         function.inputs[0].1 =
             generics::type_ref(&Ty::Ref(Arc::new(ty.clone()), false), &protocol.at);
@@ -1508,7 +1555,10 @@ impl Lower<'_> {
             at: protocol.at.clone(),
             kind: Expression::Name(name.into()),
         };
-        let output_name = &function.inputs[1].0;
+        let forwarded: Vec<_> = function.inputs[1..]
+            .iter()
+            .map(|(parameter, _)| name(parameter))
+            .collect();
         let cases = crate::sum::members(ty)
             .into_iter()
             .map(|member| enums::Case {
@@ -1526,8 +1576,8 @@ impl Lower<'_> {
                         at: protocol.at.clone(),
                         kind: Expression::Method(
                             Box::new(name("payload")),
-                            "format".into(),
-                            vec![name(output_name)],
+                            method_name.into(),
+                            forwarded.clone(),
                             Pos::default(),
                         ),
                     })),

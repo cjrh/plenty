@@ -417,6 +417,8 @@ mod test_project;
 mod test_propagation;
 #[path = "test_protocol_defaults.rs"]
 mod test_protocol_defaults;
+#[path = "test_protocol_sums.rs"]
+mod test_protocol_sums;
 #[path = "test_protocols.rs"]
 mod test_protocols;
 #[path = "test_python_habit_diagnostics.rs"]

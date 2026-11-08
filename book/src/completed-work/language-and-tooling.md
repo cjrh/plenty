@@ -1276,3 +1276,15 @@ for `def tagged[T, K](p: &mut Iter[T], tag: K) -> Option[(K, T)]` now infers
 once, left to right; each lent pipeline keeps its own frame specialization and
 the lender's loans stay live across the call. See
 [lending a pipeline](../design/language/09-iteration/06-pipelines.md#lending-a-pipeline).
+
+## Protocols on anonymous sums (issue #875)
+
+An anonymous sum satisfies any protocol bound, not only `std.fmt.Formattable`, when
+every member satisfies it and every requirement has a shared receiver, uses
+the implementing type only as that receiver, returns no reference and has
+method type parameters its arguments determine. Each requirement call in the
+bounded body dispatches once to the active member through a synthesized
+`match` on a shared borrow, without allocation. Direct method calls on a sum
+are unchanged: only `format` forwards. Mutable, consuming,
+`Self`-using and generic protocols are rejected with the reason. See
+[protocols on anonymous sums](../design/language/07-generics/protocols.md#anonymous-sums).

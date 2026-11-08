@@ -87,9 +87,11 @@ Enum methods follow the class rule for
 lifecycle or context hooks.
 Variant and method names must be distinct. Class lifecycle hooks are not enum
 methods: variant construction and automatic payload destruction retain their
-existing behavior. Anonymous sums cannot declare methods. They forward only the
-[`std.fmt.Formattable`](../../stdlib/report.md) contract when every member
-satisfies it; arbitrary member methods and protocols are not forwarded.
+existing behavior. Anonymous sums cannot declare methods. They forward a shared-receiver
+protocol, such as [`std.fmt.Formattable`](../../stdlib/report.md), when every
+member satisfies it; see
+[protocols on anonymous sums](../07-generics/protocols.md#anonymous-sums).
+Direct method calls on a sum are not forwarded, except `format`.
 
 Enums can satisfy [structural protocols](../07-generics/protocols.md) with
 accessible matching methods. They can also supply `display` and `debug` methods
