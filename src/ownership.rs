@@ -689,9 +689,9 @@ pub enum Joined {
     /// The payload or the default of `unwrap_or`; the holder is its result's
     /// join loan.
     Fallback,
-    /// An [`Self::Arm`] of the `match` that `map_or`, `map_or_else` or
-    /// `unwrap_or_else` with a borrowed payload lowers to.
-    Method,
+    /// An [`Self::Arm`] of the `match` that the named `map_or`, `map_or_else`
+    /// or `unwrap_or_else` with a borrowed payload lowers to.
+    Method(&'static str),
 }
 /// Live loan ids, sorted ascending: the order in which conflicts are tried.
 /// Liveness revisits every node until nothing changes, so a set is rebuilt in
@@ -2724,13 +2724,42 @@ impl Checker<'_, '_> {
                         .and_then(|assigned| loans.get(&assigned.holder)?.binding)
                         .and_then(|slot| self.place(slot, &[], false))
                     {
+                        // A copy of an `if`/`match` value kept from an earlier
+                        // evaluation: name the arms' owners, which the next
+                        // evaluation borrows again.
+                        let mut top = id;
+                        while let Some(parent) = loans[&top].parent {
+                            top = parent;
+                        }
+                        let decl = loans[&top].binding.is_some().then_some(top);
+                        let mut owners: Vec<String> = Vec::new();
+                        for arm in loans.values() {
+                            if decl.is_some()
+                                && arm.holder.is_some_and(|assigned| {
+                                    Some(assigned.holder) == decl
+                                        && matches!(assigned.kind, Joined::Arm | Joined::Method(_))
+                                })
+                                && let Some(owner) = self.place(arm.root, &[], false)
+                                && !owners.contains(&owner)
+                            {
+                                owners.push(owner);
+                            }
+                        }
+                        owners.sort();
+                        let copied = self.place(loan.root, &[], false);
                         error.notes.push((
                             at,
-                            match loan.holder.map(|assigned| assigned.kind) {
+                            match (loan.holder.map(|assigned| assigned.kind), copied) {
+                                (Some(Joined::Assignment), Some(copied)) if !owners.is_empty() => format!(
+                                    "`{holder}` still holds an earlier value of `{copied}`, which borrows {}; `{copied}` cannot borrow them again while `{holder}` is live",
+                                    owners.iter().map(|o| format!("`{o}`")).collect::<Vec<_>>().join(" or ")
+                                ),
+                                _ => match loan.holder.map(|assigned| assigned.kind) {
                                 Some(Joined::Arm) => format!("`{holder}` holds this arm's value: an `if` or `match` value keeps the value of every arm borrowed"),
                                 Some(Joined::Fallback) => format!("`{holder}` holds an `unwrap_or` result, which keeps both the payload and the default borrowed"),
-                                Some(Joined::Method) => format!("`{holder}` holds a method result that is the mapped payload or the method's other value, which keeps both borrowed"),
+                                Some(Joined::Method(method)) => format!("`{holder}` holds a `{method}` result, which keeps both the mapped payload and the fallback borrowed"),
                                 _ => format!("`{holder}` started empty, so it keeps every value assigned to it borrowed; use a separate binding per value"),
+                                },
                             },
                         ));
                     }
@@ -2931,7 +2960,7 @@ fn loan_flow(ops: &[Op]) -> Option<LoanFlow<'_>> {
         .values()
         .filter_map(|l| {
             l.holder
-                .filter(|assigned| matches!(assigned.kind, Joined::Arm | Joined::Method))
+                .filter(|assigned| matches!(assigned.kind, Joined::Arm | Joined::Method(_)))
                 .map(|assigned| (l.id, assigned.holder))
         })
         .collect();

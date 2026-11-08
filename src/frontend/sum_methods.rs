@@ -296,7 +296,11 @@ impl Lower<'_> {
             Some(vec![binding(&payload_name)]),
             mapped,
         );
-        self.plain_reference_arms = true;
+        self.plain_reference_arms = Some(match name {
+            "map_or" => "map_or",
+            "map_or_else" => "map_or_else",
+            _ => "unwrap_or_else",
+        });
         let result = self.match_value(at, &name_expr(&source), &[full, empty], expected, ops);
         for name in hidden {
             self.names.remove(&name);

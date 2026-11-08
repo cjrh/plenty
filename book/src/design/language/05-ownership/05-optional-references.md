@@ -120,8 +120,9 @@ the `match` they abbreviate. The mapper takes the payload reference, as in
 result that is itself a reference, such as `map_or(&other.name, name_of)`
 with `def name_of(item: &Item) -> &str`, keeps both owners borrowed while it
 is used, like `unwrap_or`. Arguments evaluate left to right before the
-selected callback runs. An `unwrap_or_else` callback takes no reference parameter on an
-`Option`, so it cannot return a borrow; use `unwrap_or(&default)` there.
+selected callback runs. A fallback of `map_or_else` or `unwrap_or_else` takes
+no reference parameter, since a `Result` error cannot hold one, so it cannot
+return a borrow; use `map_or` or `unwrap_or(&default)` for a borrowed default.
 
 ```plenty
 class Item:
@@ -357,8 +358,13 @@ def main() -> Result[(), AllocError | IoError]:
 An arm cannot produce a borrow of an owner it declares, or of a temporary,
 since that owner is dropped when the arm ends. A returned `if` or `match`
 value follows the [returned-reference rule](04-returned-references.md) in each
-arm. An arm's value cannot be a plain reference such as `&items[0]`, and a
-`checked:` block cannot produce a reference-carrying value.
+arm. A `checked:` block cannot produce a reference-carrying value.
+
+An arm's value cannot yet be a plain reference such as `&items[0]`, although
+`unwrap_or(&default)` and `map_or` produce one from two owners: a binding
+cannot take its reference from an `if` or `match` value
+(issue #897, [backlog](../../../backlog.md) B11). Use `unwrap_or` or `map_or`, or keep
+the reference inside an `Option[&T]`.
 
 Each evaluation borrows afresh. In a loop, a result used only within its
 iteration does not keep the owners borrowed into the next one. A copy that

@@ -1293,7 +1293,7 @@ def pick(items: &list[Item], other: &list[Item], first: bool) -> Option[&Item]:
         ),
         "returned reference must originate from the first reference parameter, `items`; this one borrows `other`",
     );
-    // A plain reference from an arm still needs B11's stored references.
+    // A plain reference from a user-written arm is not yet a reference-binding source (issue #897).
     rejects(
         r#"
 items = [1, 2].unwrap()
@@ -1501,6 +1501,25 @@ print(keep).unwrap()
 "#,
         ),
         "cannot modify or exclusively borrow `a` while it is borrowed",
+    );
+    // An exclusive copy blocks the next evaluation; the note names the owners.
+    rejects(
+        &with_find(
+            r#"
+mut a = [Item("ada", 1)].unwrap()
+mut b = [Item("bob", 1)].unwrap()
+mut keep: Option[&mut Item] = Nothing
+for k in [0, 1].unwrap():
+    x = if k == 0:
+        find_mut(&mut a, "ada")
+    else:
+        find_mut(&mut b, "bob")
+    if k == 0:
+        keep = x
+print(keep).unwrap()
+"#,
+        ),
+        "`keep` still holds an earlier value of `x`, which borrows `a` or `b`; `x` cannot borrow them again while `keep` is live",
     );
 }
 
@@ -1835,7 +1854,7 @@ def main() -> Result[(), AllocError | IoError]:
     for (body, message) in [
         (
             "def name_of(item: &Item) -> &str:\n    &item.name\nmut items = [Item(\"ada\", 1)].unwrap()\nother = Item(\"bob\", 2)\nname = find(&items, \"x\").map_or(&other.name, name_of)\nitems.clear()\nprint(name).unwrap()\n",
-            "`name` holds a method result that is the mapped payload or the method's other value, which keeps both borrowed",
+            "`name` holds a `map_or` result, which keeps both the mapped payload and the fallback borrowed",
         ),
         (
             "def me(item: &mut Item) -> &mut Item:\n    item\nmut items = [Item(\"ada\", 1)].unwrap()\nmut spare = Item(\"bob\", 2)\nslot = find_mut(&mut items, \"x\").map_or(&mut spare, me)\nprint(spare.count).unwrap()\nslot.count = 3\n",
@@ -1843,7 +1862,11 @@ def main() -> Result[(), AllocError | IoError]:
         ),
         (
             "def name_of(item: &Item) -> &str:\n    &item.name\ndef label(items: &list[Item], other: &Item) -> &str:\n    find(items, \"x\").map_or(&other.name, name_of)\n",
-            "returned reference must originate from the first reference parameter, `items`; the method's fallback must also borrow from `items`",
+            "returned reference must originate from the first reference parameter, `items`; the default of `map_or` must also borrow from `items`",
+        ),
+        (
+            "def name_of(item: &Item) -> &str:\n    &item.name\ndef label(other: &Item, items: &list[Item]) -> &str:\n    find(items, \"x\").map_or(&other.name, name_of)\n",
+            "returned reference must originate from the first reference parameter, `other`; the mapped payload of `map_or` must also borrow from `other`",
         ),
         (
             "def pick(other: &Item, items: &list[Item]) -> &Item:\n    find(items, \"x\").unwrap_or(other)\n",

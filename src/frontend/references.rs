@@ -141,15 +141,15 @@ pub(super) struct BranchJoin {
     next: usize,
     /// The loans of the arm values that borrow.
     assigned: Vec<usize>,
-    /// Whether arms may produce a plain reference; see
+    /// The sum method whose arms may produce a plain reference; see
     /// `Lower::plain_reference_arms`.
-    plain: bool,
+    plain: Option<&'static str>,
 }
 
 impl BranchJoin {
     /// Whether an arm value of type `ty` joins this branch's loan.
     pub(super) fn carries(&self, ty: &Ty) -> bool {
-        ty.carried_reference().is_some() || (self.plain && matches!(ty, Ty::Ref(..)))
+        ty.carried_reference().is_some() || (self.plain.is_some() && matches!(ty, Ty::Ref(..)))
     }
 }
 
@@ -666,14 +666,13 @@ impl Lower<'_> {
             let id = own.unwrap_or(fresh);
             let mut loan = self.loans[fresh].clone();
             loan.id = id;
-            let plain = self.branch_joins.last().is_some_and(|branch| branch.plain);
+            let method = self.branch_joins.last().and_then(|branch| branch.plain);
             loan.holder = Some(crate::ownership::Assigned {
                 holder: join,
-                kind: if plain {
-                    crate::ownership::Joined::Method
-                } else {
-                    crate::ownership::Joined::Arm
-                },
+                kind: method.map_or(
+                    crate::ownership::Joined::Arm,
+                    crate::ownership::Joined::Method,
+                ),
             });
             if let Some(Op::Loan(fact)) = ops.last_mut() {
                 *fact = loan.clone();
@@ -775,12 +774,15 @@ impl Lower<'_> {
             let kind = self.loans[assigned].holder.map(|joined| joined.kind);
             // An `unwrap_or` join holds the receiver's loan, then the default's.
             let operand = match kind {
-                Some(Joined::Fallback) if index == 0 => "value of `unwrap_or`",
-                Some(Joined::Fallback) => "default of `unwrap_or`",
+                Some(Joined::Fallback) if index == 0 => "value of `unwrap_or`".to_string(),
+                Some(Joined::Fallback) => "default of `unwrap_or`".to_string(),
                 // Its `match` lists the payload's arm first.
-                Some(Joined::Method) if index == 0 => "method's mapped payload",
-                Some(Joined::Method) => "method's fallback",
-                _ => "",
+                Some(Joined::Method(method)) if index == 0 => {
+                    format!("mapped payload of `{method}`")
+                }
+                Some(Joined::Method("map_or")) => "default of `map_or`".to_string(),
+                Some(Joined::Method(method)) => format!("fallback of `{method}`"),
+                _ => String::new(),
             };
             let checked = self.check_returned_value(assigned, at);
             if !operand.is_empty() && checked.is_err() {
