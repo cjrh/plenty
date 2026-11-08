@@ -423,6 +423,13 @@ User-container membership and iterator protocols remain **B49** in the
 
 ## B12: I/O and iteration
 
+The advisory [`text-view-parameter` lint](../design/toolchain/01-building/warnings.md#text-view-parameter)
+suggests `&strview` for free-function `str` and ordinary `&str` parameters used
+only in recognized text reads (issue #883). It preserves ownership-dependent
+uses and fixed callable contracts, uses resolved view-input signatures for
+forwarding, and reports through CLI checks and the language server. Conservative
+exclusions and the scalar-length scanning tradeoff are documented with the lint.
+
 A documentation consistency pass reconciles the delivered text/view and byte
 contracts across the reference, tutorial, repository agent skill, and proposals
 (issue #882). Reader examples use direct byte borrows instead of temporary
@@ -1227,3 +1234,15 @@ does; a first arm of `Nothing` or an empty collection reports that it needs an
 annotation. Generic function calls still infer only from their arguments. See
 [generic data](../design/language/07-generics/data.md) and
 [match values](../design/language/04-expressions/matching.md).
+
+## Expected-result inference for generic calls (issue #873)
+
+A concrete expected result type supplies type arguments to generic function
+and method calls, so `values: list[u8] = empty()?` needs no `empty[u8]()`.
+The expectation comes from annotations, return types, concrete parameters,
+fields, `Some`/`Ok` and `?`. A generic position whose type it determines takes
+that type as its context, so `k: u8 = same(3)` types the literal as `u8` and
+nested calls receive the expectation. Anonymous-sum positions supply no
+evidence because values widen into them. A parameter determined differently by
+the arguments and the expected result is an error. See
+[type argument inference](../design/language/07-generics/inference.md#expected-results).

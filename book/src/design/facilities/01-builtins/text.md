@@ -219,6 +219,8 @@ retains and releases. Prefer `&strview` for text readers that should accept
 both whole strings and substrings. Use ordinary `&str` for generic reference
 interfaces, callbacks, getters, or sharing a whole owning handle. Use `str` when it needs an owning
 value, for example to keep it after the call.
+The advisory [`text-view-parameter` lint](../../toolchain/01-building/warnings.md#text-view-parameter)
+suggests `&strview` for recognized readers currently accepting `str` or `&str`.
 References can introduce indirection, so they are not guaranteed to be faster
 in every case; measure when the cost matters.
 

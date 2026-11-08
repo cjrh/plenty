@@ -524,3 +524,222 @@ fn aliases_of_the_same_symbol_and_namespaces_are_tracked_independently() {
 fn builtin_type_reimports_count_type_uses() {
     assert!(messages("from std.channel import Sender\ndef unused(sender: Sender[i64]) -> ():\n    drop(sender)\ndef main() -> ():\n    pass\n").is_empty());
 }
+
+fn text_view_parameter(name: &str, ty: &str) -> String {
+    format!(
+        "parameter `{name}` only supplies text reads; consider `&strview` instead of `{ty}` to also accept substring views [text-view-parameter]"
+    )
+}
+
+#[test]
+fn text_readers_accept_a_view_without_changing_the_body() {
+    for ty in ["str", "&str"] {
+        for (output, body) in [
+            ("i64", "len(text)"),
+            ("i64", "text.byte_len()"),
+            ("bool", "text.startswith(\"a\")"),
+            ("bool", "text == \"a\""),
+            ("bool", "\"a\" in text"),
+            ("Result[str, AllocError]", "text.upper()"),
+            ("Result[str, AllocError]", "text[1:]"),
+        ] {
+            let source = format!("def reader(text: {ty}) -> {output}:\n    {body}\n");
+            assert_eq!(
+                messages(&source),
+                [text_view_parameter("text", ty)],
+                "{source}"
+            );
+            let changed = source.replace(&format!("text: {ty}"), "text: &strview");
+            assert!(messages(&changed).is_empty(), "{changed}");
+        }
+    }
+}
+
+#[test]
+fn text_reader_iteration_branches_and_byte_borrows_are_supported() {
+    let source = r#"
+def inspect(text: str) -> Result[i64, OverflowError[i64]]:
+    mut count = 0
+    for scalar in text:
+        if scalar.isalpha():
+            count += 1
+    raw = text.as_bytes()
+    if raw.isascii():
+        return Ok(count)
+    Ok(text.byte_len())
+"#;
+    assert_eq!(messages(source), [text_view_parameter("text", "str")]);
+    assert!(messages(&source.replace("text: str", "text: &strview")).is_empty());
+}
+
+#[test]
+fn forwarding_uses_the_resolved_text_view_signature_and_argument_labels() {
+    let source = r#"
+def target(prefix: i64, data: &strview) -> i64:
+    data.byte_len()
+def forward(text: &str) -> i64:
+    target(data=text, prefix=1)
+"#;
+    assert_eq!(messages(source), [text_view_parameter("text", "&str")]);
+    assert!(messages(&source.replace("text: &str", "text: &strview")).is_empty());
+}
+
+#[test]
+fn owning_and_ordinary_reference_uses_keep_their_string_contracts() {
+    let source = r#"
+class Stored:
+    text: str
+
+def owned(text: str) -> str:
+    text
+
+def borrowed(text: &str) -> &str:
+    text
+
+def stored(text: str) -> Stored:
+    Stored(text)
+
+def alias(text: str) -> i64:
+    other = text
+    len(other)
+
+def read_and_retain(text: str) -> str:
+    drop(text.byte_len())
+    text
+
+def generic[T](value: &T) -> ():
+    pass
+
+def generic_reference(text: &str) -> ():
+    generic(text)
+
+def consume(text: str) -> ():
+    drop(text)
+
+def owner_call(text: str) -> ():
+    consume(text)
+
+def ref_call(text: &str) -> i64:
+    len(*text)
+
+def unused(text: str) -> ():
+    pass
+"#;
+    assert!(messages(source).is_empty());
+}
+
+#[test]
+fn callable_values_generic_bodies_methods_and_defaults_are_exempt() {
+    let source = r#"
+def reader(text: &str) -> i64:
+    len(text)
+
+def caller() -> i64:
+    callback = reader
+    callback("hello")
+
+def generic_reader[T](text: str, value: T) -> i64:
+    text.byte_len()
+
+class Reader:
+    def read(self, text: str) -> i64:
+        len(text)
+
+def default_reader(text: str = "hi") -> i64:
+    len(text)
+
+def main() -> ():
+    drop(generic_reader("hi", 1))
+    drop(caller())
+"#;
+    assert!(messages(source).is_empty());
+}
+
+#[test]
+fn parameter_shadowing_does_not_prove_that_the_original_parameter_is_read() {
+    let source = r#"
+def loop_shadow(text: str) -> ():
+    for text in "abc":
+        drop(text.byte_len())
+
+def pattern_shadow(text: str) -> i64:
+    match Some("abc"):
+        case Some(text):
+            text.byte_len()
+        case Nothing:
+            0
+"#;
+    assert!(messages(source).is_empty());
+}
+
+#[test]
+fn already_borrowed_text_and_mutable_string_slots_are_not_reported() {
+    assert!(messages("def view(text: &strview) -> i64:\n    len(text)\ndef old_view(text: &substr) -> i64:\n    len(text)\ndef slot(text: &mut str) -> i64:\n    len(text)\n").is_empty());
+}
+
+#[test]
+fn text_view_parameter_cli_warning_is_advisory() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("reader.plenty");
+    std::fs::write(
+        &path,
+        "def size(text: str) -> i64:\n    text.byte_len()\ndef main() -> ():\n    pass\n",
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_plenty"))
+        .arg("--check")
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains(&text_view_parameter("text", "str")),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn callbacks_named_inside_uninstantiated_generic_bodies_keep_their_signature() {
+    let source = r#"
+def reader(text: str) -> i64:
+    text.byte_len()
+
+def unused[T](value: T) -> ():
+    callback = reader
+    drop(callback("hello"))
+"#;
+    assert!(messages(source).is_empty());
+}
+
+#[test]
+fn changing_a_text_parameter_cannot_change_a_returned_loan_origin() {
+    let source =
+        "def read(text: str, value: &i64) -> &i64:\n    drop(text.byte_len())\n    value\n";
+    assert!(messages(source).is_empty());
+}
+
+#[test]
+fn captured_string_handles_remain_owning() {
+    let source = r#"
+def captured(text: str) -> i64:
+    reader = def[&text]() -> i64:
+        text.byte_len()
+    reader()
+"#;
+    assert!(messages(source).is_empty());
+}
+
+#[test]
+fn printing_and_resolved_alias_parameters_can_use_text_views() {
+    let source = "type Text = str\ndef show(text: Text) -> Result[(), IoError]:\n    print(text)\n";
+    assert_eq!(messages(source), [text_view_parameter("text", "str")]);
+    assert!(messages(&source.replace("text: Text", "text: &strview")).is_empty());
+}
+
+#[test]
+fn formatted_text_can_borrow_a_view() {
+    let source = "import std.fmt\ndef render(text: str) -> Result[str, AllocError | std.fmt.FormatError]:\n    f\"{text!r:>8}\"\ndef main() -> ():\n    pass\n";
+    assert_eq!(messages(source), [text_view_parameter("text", "str")]);
+    assert!(messages(&source.replace("text: str", "text: &strview")).is_empty());
+}

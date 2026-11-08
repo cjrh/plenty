@@ -1029,6 +1029,20 @@ struct Lower<'a> {
     /// The innermost block producing a value is an `if` or `match` arm, so an
     /// untyped final value is described as a branch (issue #797).
     branch_value_tail: bool,
+    /// How many method calls enclose the expression being lowered.
+    method_depth: usize,
+    /// The expected result of the method call at this depth with this name,
+    /// which a generic method takes as type-argument evidence (issue #873).
+    /// Method dispatch passes through many paths, so the expectation travels
+    /// here rather than through every one of them.
+    /// The last field says whether the call is the direct operand of `?`.
+    expected_method: Option<(usize, String, Ty, bool)>,
+    /// The context of the `?` operand being lowered, whose error position is
+    /// not type-argument evidence (issue #873); cleared while lowering a call
+    /// that expects it, so only that call, not its arguments, sees it.
+    propagated: Option<Ty>,
+    /// The address of the call that is the direct operand of `?`.
+    open_operand: usize,
     indexed_lists: Vec<collections::IndexedLists>,
     /// The list place and slot of the last counted `range(..., len(xs))`
     /// whose stop was saved; see [`collections::IndexedLists::stop`].
@@ -1465,6 +1479,7 @@ impl Lower<'_> {
             }
             _ => None,
         };
+        let mut open = None;
         let operand_context = expected.map(|ty| {
             if literal == Some(FixedError::Collection) {
                 crate::sum::result(ty, crate::sum::alloc_error())
@@ -1473,10 +1488,15 @@ impl Lower<'_> {
             {
                 crate::sum::option(ty)
             } else {
-                crate::sum::result(ty, target.get().variants[1].fields[0].clone())
+                let context = crate::sum::result(ty, target.get().variants[1].fields[0].clone());
+                open = Some(context.clone());
+                context
             }
         });
-        let operand = self.expr_expected(value, operand_context, ops)?;
+        let outer = std::mem::replace(&mut self.propagated, open);
+        let operand = self.expr_expected(value, operand_context, ops);
+        self.propagated = outer;
+        let operand = operand?;
         if operand.as_ref().is_some_and(Ty::dictionary_view) {
             return Err(value.at.error("keys() returns a borrowed KeyView without AllocError; remove `?`, or use keys_snapshot(), into_keys(), or to_set() for an owned result"));
         }
@@ -1862,9 +1882,35 @@ impl Lower<'_> {
             }));
         }
         ide::enter_method(*pos, name);
+        self.method_depth += 1;
         let ty = self.method(base, name, args, ops);
+        self.method_depth -= 1;
         ide::leave_method();
         ty
+    }
+    /// A method call `e` whose context expects `expected`; a generic method
+    /// takes it as evidence for its type arguments (issue #873).
+    #[inline(never)]
+    fn method_expected(&mut self, e: &Expr, expected: Ty, ops: &mut Vec<Op>) -> Result<Type> {
+        let Expression::Method(_, name, _, _) = &e.kind else {
+            unreachable!("method_expected lowers method calls")
+        };
+        let open = std::ptr::addr_of!(*e) as usize == self.open_operand;
+        let outer =
+            self.expected_method
+                .replace((self.method_depth + 1, name.clone(), expected, open));
+        let ty = self.expr(e, ops);
+        self.expected_method = outer;
+        ty
+    }
+    /// The expected result of the method call generic method `callee` is
+    /// lowering, if its context supplied one.
+    pub(super) fn method_expectation(&mut self, callee: &str) -> Option<(Ty, bool)> {
+        let depth = self.method_depth;
+        let short = callee.rsplit('.').next()?;
+        self.expected_method
+            .take_if(|(d, name, _, _)| *d == depth && name == short)
+            .map(|(_, _, ty, open)| (ty, open))
     }
     /// A binary operator other than `in`, `not in`, `and` and `or`. Outlined
     /// so that its locals do not enlarge the frame of every recursive `expr`
@@ -4879,6 +4925,10 @@ fn lower_body(
                 checked: Vec::new(),
                 checked_value_tail: false,
                 branch_value_tail: false,
+                method_depth: 0,
+                expected_method: None,
+                propagated: None,
+                open_operand: 0,
                 yield_type: yield_type.clone(),
                 loans: Vec::new(),
                 reference_locals: HashMap::default(),
@@ -5197,6 +5247,7 @@ fn lower(
         .flat_map(|e| &e.methods)
         .chain(generic_classes.iter().flat_map(|c| &c.methods))
         .collect();
+    let text_view_escapes = lints::text_view_escapes(&functions, &kept, &standard_sources);
     let (mut generics, prepared) =
         generics::prepare(functions, &aliases, protocols, &kept, &mut sigs)?;
     drop(kept);
@@ -5239,6 +5290,8 @@ fn lower(
     for f in unused_methods {
         register_signature(&f, &aliases, &mut sigs)?;
     }
+    let text_view_warnings = lints::text_view_parameters(&generics, &sigs, &text_view_escapes);
+    generics.warnings.extend(text_view_warnings);
     foreign::check_symbols(boundary.iter().copied(), &sigs)?;
     let mut exports = Vec::new();
     let mut symbols = HashSet::default();
