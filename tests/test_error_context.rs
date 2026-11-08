@@ -554,3 +554,185 @@ def main() -> i32:
         "error: read_bytes: no memory to describe the error\nerror: read_bytes \"a/long/enough/path/to/need/heap/storage\": IoError.System(2)\nerror: read_bytes \"a/long/enough/path/to/need/heap/storage\": IoError.System(2)\n",
     );
 }
+
+/// The documented one-error-type pattern (issue #795), shared with
+/// `book/src/design/stdlib/error.md#one-application-error-with-context`.
+const TRACE: &str = r#"from std.io import Partial, StreamError, write_all
+
+type Base = AllocError | IoError | ParseError | Partial
+
+# Bounds the labels one error collects, so a retry loop cannot grow it.
+const FRAMES: i64 = 8
+
+# A typed cause with the innermost operation and later labels, innermost
+# first. Wrapping allocates nothing; the label list is made on first use. A
+# label past FRAMES, or one without memory to store it, is only counted.
+class Trace:
+    pub cause: Base
+    pub operation: str
+    pub outer: Option[list[str]]
+    pub omitted: i64
+
+    def add(self: &mut Trace, operation: str) -> ():
+        if self.kept() < FRAMES:
+            match &mut self.outer:
+                case Some(labels):
+                    if labels.append(operation).is_ok():
+                        return
+                case Nothing:
+                    match [operation]:
+                        case Ok(labels):
+                            self.outer = Some(labels)
+                            return
+                        case Err(_):
+                            pass
+        if self.omitted < i64.MAX:
+            unchecked:
+                self.omitted += 1
+
+    def kept(self) -> i64:
+        match &self.outer:
+            case Some(labels):
+                len(labels)
+            case Nothing:
+                0
+
+    # Outermost first, as nested `Context` descriptions read.
+    def describe(self) -> Result[str, AllocError]:
+        mut text = self.operation.concat(": ")?.concat(&str.repr(self.cause)?)?
+        match &self.outer:
+            case Some(labels):
+                for label in labels:
+                    text = label.concat(": ")?.concat(&text)?
+            case Nothing:
+                pass
+        if self.omitted > 0:
+            text = f"[{self.omitted} omitted] {text}"?
+        Ok(text)
+
+type Error = Base | Trace
+
+def context[T](result: Result[T, Error], operation: str) -> Result[T, Error]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case trace: Trace:
+                    mut traced = trace
+                    traced.add(operation)
+                    Err(traced)
+                case rest: Base:
+                    Err(Trace(rest, operation, Nothing, 0))
+
+# Accepts `room` bytes, then reports no progress.
+pub class Limited:
+    pub room: i64
+
+    pub def write(self: &mut Limited, source: &[u8]) -> Result[i64, StreamError]:
+        mut taken = len(source)
+        if taken > self.room:
+            taken = self.room
+        unchecked:
+            self.room -= taken
+        Ok(taken)
+
+    pub def flush(self: &mut Limited) -> Result[(), StreamError]:
+        Ok(())
+
+def save(out: &mut Limited) -> Result[(), Error]:
+    context(write_all(out, b"settings"), "write settings")
+
+"#;
+
+#[test]
+fn a_trace_keeps_its_cause_and_partial_progress_across_a_worker() {
+    run_both(
+        &format!(
+            r#"{TRACE}
+def retried(times: i64) -> Result[i64, Error]:
+    mut result = context(i64.parse("x"), "parse")
+    for _ in range(times):
+        result = context(result, "retry")
+    result
+
+def written() -> Result[(), Error]:
+    mut out = Limited(3)
+    context(context(save(&mut out), "save settings"), "setup")
+
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
+    with spawn(def once () -> Result[i64, Error]: retried(12)).drop_job()? as task:
+        match task.join():
+            case Ok(value):
+                print(value)?
+            case Err(error):
+                match error:
+                    case trace: Trace:
+                        print(trace.kept(), trace.omitted)?
+                        print(trace.describe()?)?
+                        match &trace.cause:
+                            case ParseError.Invalid:
+                                print("parse error kept")?
+                            case _:
+                                print("other cause")?
+                    case _:
+                        print("plain")?
+    match written():
+        case Ok(_):
+            print("written")?
+        case Err(error):
+            match error:
+                case trace: Trace:
+                    print(trace.describe()?)?
+                    match &trace.cause:
+                        case partial: Partial:
+                            print(partial.completed, partial.cause == StreamError.WriteZero)?
+                        case _:
+                            print("other cause")?
+                case _:
+                    print("plain")?
+    Ok(())
+"#
+        ),
+        0,
+        "8 4\n[4 omitted] retry: retry: retry: retry: retry: retry: retry: retry: parse: ParseError.Invalid\nparse error kept\nsetup: save settings: write settings: std.io.Partial(completed=3, cause=std.io.StreamError.WriteZero)\n3 True\n",
+        "",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn a_trace_label_without_memory_is_counted_and_wrapping_allocates_nothing() {
+    run_both(
+        &format!(
+            r#"{TRACE}
+def main() -> Result[(), AllocError | IoError]:
+    print("__test_fail_allocations_after_0__")?
+    print("__test_begin_no_allocations__")?
+    wrapped = context(i64.parse("x"), "parse")
+    print("__test_end_no_allocations__")?
+    labelled = context(wrapped, "load")
+    print("__test_restore_allocations__")?
+    match labelled:
+        case Ok(_):
+            print("parsed")?
+        case Err(error):
+            match error:
+                case trace: Trace:
+                    print(trace.kept(), trace.omitted)?
+                    match &trace.cause:
+                        case ParseError.Invalid:
+                            print("parse error kept")?
+                        case _:
+                            print("other cause")?
+                    print(trace.describe()?)?
+                case _:
+                    print("plain")?
+    Ok(())
+"#
+        ),
+        0,
+        "0 1\nparse error kept\n[1 omitted] parse: ParseError.Invalid\n",
+        "",
+    );
+}
