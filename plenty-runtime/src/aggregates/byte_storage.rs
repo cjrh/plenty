@@ -475,6 +475,31 @@ pub(crate) unsafe extern "C" fn plenty_text_find_in(
     found.map_or(-1, |index| index as i64)
 }
 
+/// The same scalar-relative scan for a text view's address/count pair.
+///
+/// # Safety
+/// Both ranges must be live under shared loans throughout the call. `text`
+/// selects scalar boundaries in valid UTF-8; empty ranges may have null pointers.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_text_view_find_in(
+    text: *const u8,
+    text_len: u64,
+    set: *const u8,
+    set_len: u64,
+    member: u64,
+) -> i64 {
+    // SAFETY: the compiler's view loans provide the ranges documented above;
+    // view_bytes avoids constructing a slice from an empty range's pointer.
+    let found = unsafe {
+        byte_scan::text_find_in(
+            view_bytes(text as usize as u128 | u128::from(text_len) << 64),
+            view_bytes(set as usize as u128 | u128::from(set_len) << 64),
+            member != 0,
+        )
+    };
+    found.map_or(-1, |index| index as i64)
+}
+
 #[unsafe(no_mangle)]
 pub(crate) unsafe extern "C" fn plenty_bytes_item(
     owner: *const u8,
@@ -604,6 +629,37 @@ mod tests {
             assert_eq!(run(236, [view_operand(&mixed[5..]), 1, 0, 0, 0]), 1);
             assert_eq!(run(236, [view_operand(&mixed[..3]), 1, 0, 0, 0]), 2);
         }
+    }
+
+    #[test]
+    fn narrow_text_views_keep_scalar_offsets_and_accept_empty_ranges() {
+        let source = "!é\0🙂;!".as_bytes();
+        let text = &source[1..source.len() - 1];
+        let scan = |set: &[u8], member| {
+            // SAFETY: these shared slices outlive the call and text selects
+            // scalar boundaries of the UTF-8 source.
+            unsafe {
+                plenty_text_view_find_in(
+                    text.as_ptr(),
+                    text.len() as u64,
+                    set.as_ptr(),
+                    set.len() as u64,
+                    member,
+                )
+            }
+        };
+        assert_eq!(scan(b";", 1), 3);
+        assert_eq!(scan(b"\0", 1), 1);
+        assert_eq!(scan(b"!", 1), -1);
+        assert_eq!(scan(b"\xc3\xa9", 1), -1);
+        assert_eq!(scan(b"\0", 0), 0);
+        assert_eq!(scan(b"", 1), -1);
+        assert_eq!(scan(b"", 0), 0);
+        // SAFETY: empty ranges need no dereferenceable address.
+        assert_eq!(
+            unsafe { plenty_text_view_find_in(std::ptr::null(), 0, std::ptr::null(), 0, 1) },
+            -1
+        );
     }
 
     #[test]

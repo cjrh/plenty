@@ -1,0 +1,18 @@
+import std.text
+
+def scan(text: &strview, set: &[u8]) -> Option[i64]:
+    std.text.find_in(text, set)
+
+def main() -> Result[(), IoError]:
+    text = "!é;🙂!"
+    selected = &text[1:-1]
+    mut sum = 0
+    unchecked:
+        for _ in range(1000000):
+            match scan(selected, b";"):
+                case Some(found):
+                    sum += found
+                case Nothing:
+                    pass
+    print(sum)?
+    Ok(())

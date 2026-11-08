@@ -1,0 +1,61 @@
+; Same result packaging; isolate dispatcher scratch versus direct-view arguments.
+function %a_dispatch(i128, i128) -> i128 tail {
+    ss0 = explicit_slot 96, align = 16
+    sig0 = (i64, i64, i64) system_v
+    fn0 = colocated u2:0 sig0 ; plenty_op_604
+
+block0(v0: i128, v1: i128):
+    ; line 21
+    v10 = stack_addr.i64 ss0
+    store notrap aligned v0, v10
+    store notrap aligned v1, v10+16
+    v33 = iconst.i64 1
+    v8 = uextend.i128 v33  ; v33 = 1
+    store notrap aligned v8, v10+32
+    v2 = iconst.i64 0
+    call fn0(v10, v2, v2)  ; v2 = 0, v2 = 0
+    v11 = load.i128 notrap aligned v10+48
+    v12 = ireduce.i64 v11
+    ; line 12
+    v17 = icmp slt v12, v2  ; v2 = 0
+    brif v17, block3, block4
+
+block3:
+    v47 = iconst.i64 0
+    v48 = uextend.i128 v47  ; v47 = 0
+    ; line 13
+    jump block1(v48)
+
+block4:
+    jump block2
+
+block2:
+    v45 = iconst.i64 1
+    v46 = iconcat.i64 v12, v45  ; v45 = 1
+    ; line 14
+    jump block1(v46)
+
+block1(v15: i128):
+    ; line 21
+    return v15
+}
+
+
+function %b_direct(i128, i128) -> i128 tail {
+    sig0 = (i64, i64, i64, i64, i64) -> i64 system_v
+    fn0 = colocated u2:0 sig0
+block0(v0: i128, v1: i128):
+    v2, v3 = isplit.i128 v0
+    v4, v5 = isplit.i128 v1
+    v6 = iconst.i64 1
+    v7 = call fn0(v2, v3, v4, v5, v6)
+    v8 = iconst.i64 0
+    v9 = icmp slt v7, v8
+    brif v9, block1, block2
+block1:
+    v10 = uextend.i128 v8
+    return v10
+block2:
+    v11 = iconcat.i64 v7, v6
+    return v11
+}
