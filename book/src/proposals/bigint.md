@@ -249,7 +249,7 @@ def parse(text: &str, radix: i64) -> Result[BigInt, ParseError | AllocError]
   limbs carry no high zeros. Classes have no ordering operators until the
   [user-defined ordering](user-type-ordering.md) proposal's `__cmp__` lands, so
   `cmp` is a method for now. `BigInt` cannot be a dictionary key until
-  [user-type hashing](user-type-hashing.md) lands.
+  [user-type hashing](completed/user-type-hashing.md) lands.
 - **Limits.** Text conversion of attacker-controlled input should either use
   subquadratic algorithms or take a digit limit, like other parsers' `Limits`.
 

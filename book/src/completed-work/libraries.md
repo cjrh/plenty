@@ -153,7 +153,7 @@ Integer-key checked as-of joins shipped (issue #453); Date/Datetime units,
 naive/UTC metadata, nullable epochs and calendar formatting followed (issue #457).
 Numeric widths, owned binary columns and nested list/struct schema/access/
 Parquet interchange shipped with issues #458–#460, preserving parent/child nulls.
-The [original spike](../proposals/polars-dataframes/evidence.md) records its evidence.
+The [original spike](../proposals/completed/polars-dataframes/evidence.md) records its evidence.
 
 The [sales report application](../tutorial/special-purpose/dataframe-application.md)
 and `examples/sales_report/` exercise catalogue validation, CSV/partitioned

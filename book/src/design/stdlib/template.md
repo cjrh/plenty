@@ -314,7 +314,7 @@ Object keys must be unique and float values finite throughout the context.
 Values are read-only; rendering builds an indexed view and does not modify or
 deep-copy the caller's tree. This API needs no serialization derivation. A
 future derived serializer can provide the same JSON data model without changing
-template syntax; [derived serialization](../../proposals/derived-serialization.md)
+template syntax; [derived serialization](../../proposals/completed/derived-serialization.md)
 is currently a proposal, not an implemented conversion.
 
 `limits()` returns:

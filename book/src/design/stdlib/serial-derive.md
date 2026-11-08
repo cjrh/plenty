@@ -96,5 +96,5 @@ and never constructs an invalid partial instance.
 
 The annotation removes application boilerplate; it retains the compile-time,
 object-size and runtime costs of ordinary specialized hooks. See the
-[serialization measurements](../../proposals/derived-serialization.md#measurements)
+[serialization measurements](../../proposals/completed/derived-serialization.md#measurements)
 for the measurement contract.

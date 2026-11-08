@@ -1,7 +1,8 @@
 //! `plenty lsp`: a language server over stdio (issue #155). It answers hover,
 //! go to definition, completion, and inferred-type inlay hints from
 //! [`crate::ide::analyze`], which checks a file with the compiler's own front
-//! end, and publishes that check's errors. Its one refactoring, moving a
+//! end, and publishes that check's errors. Find references searches the
+//! package through [`crate::ide::index`] (issue #821). Its one refactoring, moving a
 //! top-level declaration to another module, is planned by
 //! [`crate::ide::relocate`] (issue #822).
 //!
@@ -123,6 +124,9 @@ struct Document {
     text: String,
     /// The client's version, for edits it must apply to this text.
     version: Option<i64>,
+    /// Whether the client opened it. Only an opened document's text replaces
+    /// the file's; another is the disk text read for one request.
+    open: bool,
 }
 
 #[derive(Default)]
@@ -176,6 +180,7 @@ impl Server {
                             path,
                             text,
                             version,
+                            open: true,
                         },
                     );
                     self.check(&uri, output)?;
@@ -215,6 +220,7 @@ impl Server {
             "textDocument/hover" => Some(self.query(params, output, Self::hover)?),
             "textDocument/definition" => Some(self.query(params, output, Self::definition)?),
             "textDocument/completion" => Some(self.query(params, output, Self::completion)?),
+            "textDocument/references" => Some(self.references(params, output)?),
             "textDocument/codeAction" => Some(self.code_actions(params)),
             "codeAction/resolve" => match self.resolve_action(params) {
                 Ok((action, api_changes)) => {
@@ -282,6 +288,7 @@ impl Server {
                 "hoverProvider": true,
                 "inlayHintProvider": {"resolveProvider": false},
                 "definitionProvider": true,
+                "referencesProvider": true,
                 "completionProvider": {"triggerCharacters": ["."]},
                 "codeActionProvider": {
                     "codeActionKinds": ["refactor.move"],
@@ -298,11 +305,10 @@ impl Server {
         let Some(document) = self.documents.get(uri) else {
             return Ok(());
         };
-        let overlay = self
-            .documents
-            .values()
-            .filter_map(|d| Some((d.path.canonicalize().ok()?, d.text.clone())))
-            .collect();
+        let mut overlay = self.overlay();
+        if let Ok(path) = document.path.canonicalize() {
+            overlay.insert(path, document.text.clone());
+        }
         let path = document.path.clone();
         let is_script = crate::script::header(&document.text, &path.display().to_string())
             .is_ok_and(|header| header.manifest.is_some())
@@ -316,7 +322,7 @@ impl Server {
         } else {
             source_graph(&path)
         };
-        let mut analysis = ide::analyze(&path, graph.as_ref(), overlay);
+        let mut analysis = ide::analyze(&path, graph.as_ref(), overlay.into_iter().collect());
         // A file that does not parse yields no names; keep the last ones so
         // queries away from the edit still work.
         if analysis.references.is_empty()
@@ -395,25 +401,45 @@ impl Server {
 
     /// Reuse the last check, unless the document has changed since then.
     fn analysis_uri(&mut self, params: &Value, output: &mut impl Write) -> Result<Option<String>> {
+        self.analysis_uri_checked(params, output, false)
+    }
+
+    /// The document's URI, with a current check: a new one when `recheck`,
+    /// since another document's unsaved text can change what it refers to.
+    /// A document the client has not opened is read from disk again.
+    fn analysis_uri_checked(
+        &mut self,
+        params: &Value,
+        output: &mut impl Write,
+        recheck: bool,
+    ) -> Result<Option<String>> {
         let uri = params["textDocument"]["uri"]
             .as_str()
             .unwrap_or_default()
             .to_owned();
-        if !self.documents.contains_key(&uri) {
+        let opened = self.documents.get(&uri).is_some_and(|d| d.open);
+        if !opened {
             let Some(path) = uri_path(&uri) else {
                 return Ok(None);
             };
             let text = std::fs::read_to_string(&path).unwrap_or_default();
-            self.documents.insert(
-                uri.clone(),
-                Document {
-                    path,
-                    text,
-                    version: None,
-                },
-            );
-            self.check(&uri, output)?;
-        } else if self.dirty.remove(&uri) || !self.analyses.contains_key(&uri) {
+            let changed = self.documents.get(&uri).is_none_or(|d| d.text != text);
+            if changed {
+                self.documents.insert(
+                    uri.clone(),
+                    Document {
+                        path,
+                        text,
+                        version: None,
+                        open: false,
+                    },
+                );
+                self.check(&uri, output)?;
+                return Ok(Some(uri));
+            }
+        }
+        if recheck || self.dirty.remove(&uri) || !self.analyses.contains_key(&uri) {
+            self.dirty.remove(&uri);
             self.check(&uri, output)?;
         }
         Ok(Some(uri))
@@ -558,6 +584,129 @@ impl Server {
         Ok(json!({"uri": path_uri(&path), "range": self.range(analysis, location)}))
     }
 
+    /// Every reference to the declaration named at the position: across
+    /// the package and the workspace members that depend on it, or within
+    /// the file's own analysis for a local, a parameter, or a file outside a
+    /// package. Entries that do not check are reported as a warning, since
+    /// their references may be incomplete.
+    fn references(&mut self, params: &Value, output: &mut impl Write) -> Result<Value> {
+        // The search reads every open document's current text, so the
+        // cursor's declaration must come from a check of that same text.
+        let Some(uri) = self.analysis_uri_checked(params, output, true)? else {
+            return Ok(Value::Null);
+        };
+        let document = &self.documents[&uri];
+        let line = params["position"]["line"].as_u64().unwrap_or(0) as u32;
+        let units = params["position"]["character"].as_u64().unwrap_or(0) as u32;
+        let text = document.text.lines().nth(line as usize).unwrap_or_default();
+        let column = self.column(text, units) + 1;
+        let path = document
+            .path
+            .canonicalize()
+            .unwrap_or(document.path.clone());
+        let file = File::Path(path.clone());
+        let analysis = &self.analyses[&uri];
+        let Some(reference) = analysis.reference_at(&file, line + 1, column) else {
+            return Ok(Value::Null);
+        };
+        let symbol = &analysis.symbols[reference.symbol];
+        let Some(declared) = symbol.location.clone() else {
+            return Ok(json!([]));
+        };
+        let identity = (declared.file.clone(), declared.line, declared.column);
+        let local = || -> Vec<Location> {
+            analysis
+                .references
+                .iter()
+                .filter(|r| r.symbol == reference.symbol)
+                .map(|r| r.location.clone())
+                .collect()
+        };
+        let mut warning = None;
+        let mut locations = if matches!(symbol.kind, SymbolKind::Local | SymbolKind::Parameter)
+            || crate::project::discover(path.parent().unwrap_or(&path)).is_err()
+        {
+            local()
+        } else {
+            match ide::index::references(&path, &identity, &self.overlay()) {
+                Ok(found) => {
+                    if let Some(first) = found.errors.first() {
+                        warning = Some(format!(
+                            "references may be incomplete: {} of the package's entries do not check; the first error is {first}",
+                            found.errors.len()
+                        ));
+                    }
+                    let mut locations = found.locations;
+                    if !found.read {
+                        for location in local() {
+                            if !locations.contains(&location) {
+                                locations.push(location);
+                            }
+                        }
+                    }
+                    locations
+                }
+                Err(message) => {
+                    warning = Some(format!(
+                        "references are from this file's check only: {message}"
+                    ));
+                    local()
+                }
+            }
+        };
+        let is_declaration =
+            |l: &Location| (&l.file, l.line, l.column) == (&identity.0, identity.1, identity.2);
+        if params["context"]["includeDeclaration"].as_bool() == Some(false) {
+            locations.retain(|l| !is_declaration(l));
+        } else if !locations.iter().any(is_declaration) {
+            // A declaration in `std` is not a reference the package writes.
+            locations.insert(0, declared);
+        }
+        let mut texts: HashMap<File, String> = HashMap::new();
+        let uris: HashMap<PathBuf, &String> = self
+            .documents
+            .iter()
+            .filter(|(_, d)| d.open)
+            .filter_map(|(uri, d)| Some((d.path.canonicalize().ok()?, uri)))
+            .collect();
+        let mut found = vec![];
+        for location in &locations {
+            let path = match &location.file {
+                File::Path(path) => path.clone(),
+                File::Standard(relative) => {
+                    let Some(text) = analysis.sources.get(&location.file) else {
+                        continue;
+                    };
+                    materialize(relative, text)?
+                }
+            };
+            let text = texts
+                .entry(location.file.clone())
+                .or_insert_with(|| self.text_of(analysis, &location.file));
+            let uri = uris
+                .get(&path)
+                .map_or_else(|| path_uri(&path), |uri| (*uri).clone());
+            found.push(json!({"uri": uri, "range": self.range_in(text, location)}));
+        }
+        if let Some(message) = warning {
+            write_message(
+                output,
+                &json!({"jsonrpc": "2.0", "method": "window/showMessage",
+                    "params": {"type": 2, "message": message}}),
+            )?;
+        }
+        Ok(Value::Array(found))
+    }
+
+    /// Unsaved text of every document the client opened, by canonical path.
+    fn overlay(&self) -> HashMap<PathBuf, String> {
+        self.documents
+            .values()
+            .filter(|d| d.open)
+            .filter_map(|d| Some((d.path.canonicalize().ok()?, d.text.clone())))
+            .collect()
+    }
+
     fn completion(
         &self,
         analysis: &Analysis,
@@ -653,11 +802,7 @@ impl Server {
                     .into(),
             );
         }
-        let overlay: HashMap<PathBuf, String> = self
-            .documents
-            .values()
-            .filter_map(|d| Some((d.path.canonicalize().ok()?, d.text.clone())))
-            .collect();
+        let overlay = self.overlay();
         let plan = ide::relocate::plan(&path, line, &destination, &overlay)?;
         let annotation = "api";
         let mut changes = serde_json::Map::new();
@@ -747,16 +892,26 @@ impl Server {
     }
 
     fn range(&self, analysis: &Analysis, location: &Location) -> Value {
-        let text = match &location.file {
+        self.range_in(&self.text_of(analysis, &location.file), location)
+    }
+
+    /// The text of `file`: an open document's, or the analysis's copy, or
+    /// the file on disk.
+    fn text_of(&self, analysis: &Analysis, file: &File) -> String {
+        match file {
             File::Path(path) => self
                 .documents
                 .values()
-                .find(|d| d.path.canonicalize().ok().as_ref() == Some(path))
+                .find(|d| d.open && d.path.canonicalize().ok().as_ref() == Some(path))
                 .map(|d| d.text.clone())
-                .or_else(|| analysis.sources.get(&location.file).map(|t| t.to_string())),
-            File::Standard(_) => analysis.sources.get(&location.file).map(|t| t.to_string()),
+                .or_else(|| analysis.sources.get(file).map(|t| t.to_string()))
+                .or_else(|| std::fs::read_to_string(path).ok()),
+            File::Standard(_) => analysis.sources.get(file).map(|t| t.to_string()),
         }
-        .unwrap_or_default();
+        .unwrap_or_default()
+    }
+
+    fn range_in(&self, text: &str, location: &Location) -> Value {
         let line_text = text
             .lines()
             .nth(location.line as usize - 1)
@@ -999,8 +1154,9 @@ fn names(analysis: &Analysis, file: &File, line: u32) -> Vec<Value> {
     items
 }
 
-/// The package graph a file belongs to, read without fetching or locking;
-/// None outside a package, where imports resolve from the file's directory.
+/// The package graph a file belongs to, read without fetching or locking: a
+/// `src/` file's package, or a `tests/` file's test graph; None outside a
+/// package, where imports resolve from the file's directory.
 fn source_graph(path: &Path) -> Option<crate::project::SourceGraph> {
     let path = path.canonicalize().ok()?;
     let directory = crate::project::discover(path.parent()?).ok()?;
@@ -1010,13 +1166,20 @@ fn source_graph(path: &Path) -> Option<crate::project::SourceGraph> {
         ..Default::default()
     };
     let project = crate::project::Project::load(&directory, &options).ok()?;
-    let index = project.packages.iter().position(|p| {
-        p.directory
-            .join("src")
+    let below = |index: usize, directory: &str| {
+        project.packages[index]
+            .directory
+            .join(directory)
             .canonicalize()
-            .is_ok_and(|src| path.starts_with(src))
-    })?;
-    Some(project.source_graph(index))
+            .is_ok_and(|d| path.starts_with(d))
+    };
+    let packages = 0..project.packages.len();
+    if let Some(index) = packages.clone().find(|&i| below(i, "src")) {
+        return Some(project.source_graph(index));
+    }
+    // A test imports its package by name, as `plenty test` checks it.
+    let index = packages.into_iter().find(|&i| below(i, "tests"))?;
+    Some(project.test_graph(index))
 }
 
 /// A read-only copy of an embedded `std` module, for an editor to open.
@@ -1113,6 +1276,7 @@ mod tests {
                     path: path.clone(),
                     text,
                     version: None,
+                    open: true,
                 },
             );
             server.analyses.insert(
