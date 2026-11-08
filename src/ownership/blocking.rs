@@ -31,7 +31,10 @@ pub(super) fn blocks(op: &Op) -> bool {
         },
         Op::Mutex(op) => match op {
             MutexOp::Lock(_) => true,
-            MutexOp::Unlock(_) | MutexOp::Exclusive(_) | MutexOp::IntoInner(_) => false,
+            MutexOp::LockNow(_)
+            | MutexOp::Unlock(_)
+            | MutexOp::Exclusive(_)
+            | MutexOp::IntoInner(_) => false,
         },
         Op::Executor(op) => match op {
             ExecutorOp::Submit(_, nowait) => !nowait,

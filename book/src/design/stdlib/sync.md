@@ -2,7 +2,7 @@
 
 Exports `CancellationToken`, the existing
 [cooperative cancellation facility](../facilities/03-concurrency/cancellation.md),
-and `Mutex[T]`. The imported and prelude `CancellationToken` types are
+`Mutex[T]` and its `LockError`. The imported and prelude `CancellationToken` types are
 identical; no wrapper, allocation, or new effect permission is introduced by
 importing. `Mutex` is not a prelude name: each use needs an import, through any
 item or module alias. Supported target: x86_64 Linux GNU.
@@ -112,6 +112,7 @@ An arithmetic failure unlocks the mutex on exit, retaining earlier mutations.
 |---|---|---|
 | `Mutex[T](value)`, `Mutex(value)` | `Mutex[T]` | Store `value` unlocked, inline |
 | `with mutex.lock() as value:` | binds `value: &mut T` | Wait for the lock, hold it for the block |
+| `with mutex.lock_now()? as value:` | binds `value: &mut T`, or propagates `Err(LockError.WouldBlock)` | Take the lock only if it is free, hold it for the block |
 | `mutex.into_inner()` | `T` | Consume an owned mutex and return its value |
 
 `T` is any type a generic class field can hold: no references, generators, or
@@ -120,9 +121,19 @@ formatting. It is stored inline (a 32-bit state word beside `T`); construction,
 locking, and unlocking allocate nothing. An uncontended lock and unlock are
 inline atomic instructions; a contended one waits in the kernel.
 
-`lock()` is valid only as a `with` manager. It borrows the mutex shared, so no
-`mut` is needed, and every exit from the block unlocks. There is no
-`try_lock`, timed lock, poisoning, reentrant locking, or fairness guarantee.
+`lock()` is valid only as a `with` manager, and `lock_now()` only as a
+propagated one. Both borrow the mutex shared, so no `mut` is needed, and every
+exit from the block unlocks. `lock_now()` never waits and allocates nothing; a
+failure leaves the lock to its holder. See
+[locking without waiting](../facilities/03-concurrency/mutex.md#locking-without-waiting).
+There is no timed or cancellable lock wait, poisoning, reentrant locking, or
+fairness guarantee.
+
+`enum LockError: WouldBlock | TimedOut | Cancelled` reports a lock that was not
+acquired. Only `WouldBlock` is produced; `TimedOut` and `Cancelled` are for
+planned deadline and cancellable lock waits (backlog B56). The variants match
+[`std.fs.lock.LockError`](fs/lock.md); import one under an alias when a module
+uses both.
 `into_inner()` needs no lock: owning the mutex proves no other thread can hold
 it.
 

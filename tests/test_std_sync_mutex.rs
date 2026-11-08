@@ -3,7 +3,7 @@
 mod support;
 use support::check_file_error as rejected;
 
-const HEADER: &str = "from std.fmt import FormatError\nfrom std.sync import Mutex\n";
+const HEADER: &str = "from std.fmt import FormatError\nfrom std.sync import Mutex, LockError\n";
 
 fn program(body: &str) -> String {
     let body = body
@@ -273,10 +273,14 @@ def main() -> Result[(), IoError | SpawnError[()] | OverflowError[i64]]:
 fn locks_allocate_nothing_and_into_inner_keeps_the_heap_balanced() {
     let source = format!(
         r#"{HEADER}
-def main() -> Result[(), AllocError | IoError | FormatError]:
+def main() -> Result[(), AllocError | IoError | FormatError | LockError]:
     words = Mutex([f"word {{n}}"? for n in range(2000)]?)
     print("__test_begin_no_allocations__")?
     with words.lock() as values:
+        values.reverse()
+    with words.lock_now()? as values:
+        values.reverse()
+    with words.lock_now()? as values:
         values.reverse()
     print("__test_end_no_allocations__")?
     values = words.into_inner()
@@ -390,7 +394,7 @@ fn lock_is_only_a_with_manager() {
     );
     rejects_body(
         "m = Mutex(1)\nm.get()",
-        "Mutex has no method `get`; it supports `with mutex.lock() as value:` and into_inner()",
+        "Mutex has no method `get`; it supports `with mutex.lock() as value:`, `with mutex.lock_now()? as value:`, and into_inner()",
     );
 }
 
@@ -445,6 +449,156 @@ fn mutexes_have_no_value_operations() {
     rejects_body(
         "m = Mutex(1)\nprint(m.value)?",
         "a Mutex's fields are private; reach its value with `with mutex.lock() as value:`",
+    );
+}
+
+#[test]
+fn lock_now_acquires_or_reports_would_block() {
+    let source = format!(
+        r#"{HEADER}
+def bump(m: &Mutex[i64]) -> Result[i64, LockError | OverflowError[i64]]:
+    with m.lock_now()? as v:
+        *v = *v + 1
+        return Ok(*v)
+
+def show(result: Result[i64, LockError | OverflowError[i64]]) -> Result[(), IoError]:
+    match result:
+        case Ok(value):
+            print(value)?
+        case Err(error):
+            match error:
+                case LockError.WouldBlock:
+                    print("busy")?
+                case _:
+                    print("other error")?
+    Ok(())
+
+# Possibly aliasing places nest only with lock_now: it fails instead of
+# waiting for itself.
+def add(cells: &list[Mutex[i64]], i: i64, j: i64) -> Result[i64, LockError | OverflowError[i64]]:
+    with cells[i].lock() as a, cells[j].lock_now()? as b:
+        *b = *b + *a
+        return Ok(*b)
+
+def work(m: &Mutex[i64]) -> Result[(), OverflowError[i64]]:
+    with m.lock() as v:
+        *v = *v + 1
+    Ok(())
+
+# A failing lock_now joins the task without holding a lock.
+def race(m: &Mutex[i64]) -> Result[(), SpawnError[()] | LockError | OverflowError[i64]]:
+    with spawn(work, m)?, m.lock_now()? as v:
+        *v = *v + 10
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | SpawnError[()] | LockError | OverflowError[i64]]:
+    m = Mutex(1)
+    show(bump(&m))?
+    with m.lock():
+        show(bump(&m))?
+    cells = [Mutex(1), Mutex(2)]?
+    show(add(&cells, 0, 1))?
+    show(add(&cells, 1, 1))?
+    # The failed lock_now unwound the comma header and released cells[1].
+    show(add(&cells, 1, 0))?
+    drop(race(&m))
+    with m.lock_now()? as v:
+        print(*v)?
+    Ok(())
+"#
+    );
+    let printed = output(&source);
+    let lines: Vec<_> = printed.lines().collect();
+    assert_eq!(lines[..5], ["2", "busy", "3", "busy", "4"], "{printed}");
+    // The worker either runs before or after the attempt; it always adds one.
+    assert!(matches!(lines[5..], ["13"] | ["3"]), "{printed}");
+}
+
+#[test]
+fn lock_now_fails_while_another_thread_holds_the_lock() {
+    let source = format!(
+        r#"{HEADER}
+def hold(m: &Mutex[i64], locked: Sender[()], release: Receiver[()]) -> Result[(), OverflowError[i64] | SendError[()]]:
+    with m.lock() as v:
+        *v = *v + 1
+        locked.send(())?
+        drop(release.recv())
+    Ok(())
+
+def attempt(m: &Mutex[i64]) -> Result[(), LockError]:
+    with m.lock_now()? as v:
+        unchecked:
+            *v = *v + 10
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | SpawnError[()] | RecvError | SendError[()]]:
+    m = Mutex(0)
+    locked_tx, locked_rx = channel[()](1)?
+    release_tx, release_rx = channel[()](1)?
+    with spawn(hold, &m, locked_tx, release_rx)?, locked_rx as locked, release_tx as release:
+        locked.recv()?
+        print(attempt(&m).is_err())?
+        release.send(())?
+    print(attempt(&m).is_ok())?
+    print(m.into_inner())?
+    Ok(())
+"#
+    );
+    assert_eq!(output(&source), "True\nTrue\n11");
+}
+
+#[test]
+fn lock_now_diagnostics() {
+    rejects_body(
+        "m = Mutex(1)\nwith m.lock() as a:\n    with m.lock_now()? as b:\n        pass",
+        "`m` is already locked by an enclosing `with` block, so this lock_now() always fails; use the existing binding, or release the lock before relocking",
+    );
+    rejects(
+        &format!(
+            "{HEADER}def main() -> Result[(), LockError]:\n    m = Mutex(1)\n    with m.lock_now()? as a, m.lock_now()? as b:\n        pass\n    Ok(())\n"
+        ),
+        "this lock_now() always fails",
+    );
+    // A blocking lock nested in a lock_now block is checked as under lock().
+    rejects(
+        &format!(
+            "{HEADER}def main() -> Result[(), LockError]:\n    m = Mutex(1)\n    r = &m\n    with r.lock_now()? as a:\n        with m.lock() as b:\n            pass\n    Ok(())\n"
+        ),
+        "this locks `m` while an enclosing `with` block holds a lock on `r`",
+    );
+    let form = "lock_now() is valid only as a propagated `with` manager: `with mutex.lock_now()? as value:`";
+    rejects_body("m = Mutex(1)\nwith m.lock_now() as v:\n    pass", form);
+    rejects_body("m = Mutex(1)\nm.lock_now()?", form);
+    rejects_body(
+        "m = Mutex(1)\nwith m.lock_now(1)? as v:\n    pass",
+        "lock_now takes no arguments",
+    );
+    rejects(
+        &format!(
+            "{HEADER}def make() -> Mutex[i64]:\n    Mutex(1)\n\ndef main() -> Result[(), LockError]:\n    with make().lock_now()? as v:\n        pass\n    Ok(())\n"
+        ),
+        "lock_now() requires a named mutex or a field of one; bind the mutex to a name first",
+    );
+    rejects_body(
+        "m = Mutex(1)\nwith m.lock_now()? as v:\n    pass",
+        "`?` operand error std.sync.LockError cannot propagate as",
+    );
+    rejects(
+        &format!(
+            "{HEADER}def values() -> Generator[i64]:\n    m = Mutex(1)\n    with m.lock_now()? as v:\n        yield *v\n\ndef main() -> ():\n    pass\n"
+        ),
+        "yield inside a mutex lock block",
+    );
+}
+
+#[test]
+fn joining_under_a_lock_now_is_rejected() {
+    let worker = "def work(m: &Mutex[i64]) -> Result[(), OverflowError[i64]]:\n    with m.lock() as v:\n        *v = *v + 1\n    Ok(())\n\n";
+    rejects(
+        &format!(
+            "{HEADER}{worker}def main() -> Result[(), SpawnError[()] | LockError]:\n    m = Mutex(1)\n    with m.lock_now()? as a:\n        with spawn(work, &m)?:\n            pass\n    Ok(())\n"
+        ),
+        "leaving this `with` block joins a task whose worker can lock a `Mutex[i64]` while this function holds a lock on a `Mutex[i64]`",
     );
 }
 
