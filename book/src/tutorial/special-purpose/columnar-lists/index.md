@@ -19,7 +19,7 @@ this layout too; SIMD is an additional optimization for supported calculations.
 | Task | Using `list` | Using `clist` | Loop instructions, `list` / `clist` |
 | --- | --- | --- | --- |
 | [Aggregate one field](#aggregate-one-field) | Borrow rows and add the field | Select a column and `fold` | 6 / 5 |
-| [Filter and aggregate two fields](#filter-and-aggregate-two-fields) | Test and sum fields of borrowed rows | Loop over indices and read selected fields | 9 / 8 |
+| [Filter and aggregate two fields](#filter-and-aggregate-two-fields) | Test and sum fields of borrowed rows | Zip the selected columns and scan their scalar values | 9 / 8 |
 | [Update positions](#update-positions-from-velocities) | Mutably borrow each row | Loop over indices and update selected fields | 15 / 14 |
 
 The counts summarize optimized standalone loops for the eight-field record
@@ -79,9 +79,10 @@ pub def clist_mass(particles: &clist[Particle]) -> f64:
 ## Filter and aggregate two fields
 
 To sum the mass of particles at or above a temperature threshold, the list
-version inspects both fields of each borrowed row. The clist version uses the
-same field names through indexed access, reading only the temperature and mass
-columns. The compiler prepares their addresses once before the loop.
+version inspects both fields of each borrowed row. The clist version selects
+the temperature and mass columns, then zips their scalar values in row order.
+The compiler prepares both column addresses before the loop and scans them
+with one shared cursor.
 
 ```plenty-file conditional.plenty
 from particles import Particle
@@ -95,9 +96,11 @@ pub def list_hot_mass(particles: &list[Particle], threshold: f64) -> f64:
 
 pub def clist_hot_mass(particles: &clist[Particle], threshold: f64) -> f64:
     mut total = 0.0
-    for i in range(len(particles)):
-        if particles[i].temperature >= threshold:
-            total += particles[i].mass
+    temperatures = particles.column(Particle.temperature)
+    masses = particles.column(Particle.mass)
+    for temperature, mass in temperatures.zip(masses):
+        if temperature >= threshold:
+            total += mass
     total
 ```
 
@@ -105,9 +108,11 @@ These floating-point calculations preserve row order and ordinary arithmetic.
 They use scalar execution, independently of the specialized
 [integer filter/count SIMD](02-counting.md). Finish a column pipeline before
 mutating its owner: it borrows the entire collection, even if it selects only
-one field. For multi-field work, prefer the indexed loop shown here today:
-column `zip` is supported, but its current lowering retains extra per-row
-iterator bookkeeping. See the [measurement notes](#measurement-conditions).
+one field. Columns from the same collection have equal lengths and matching
+row order, so `zip` pairs fields from the same record. Use this form for a
+read-only multi-field pass; use indexed field writes when updating records.
+A conditional `fold` over the same zipped columns is also supported; its
+callback takes the accumulator followed by the two scalar values.
 
 ## Update positions from velocities
 
@@ -173,10 +178,10 @@ def main() -> Result[(), AllocError | AppendError[Particle] | IoError]:
 ## Measurement conditions
 
 The table counts instructions on one loop pass using Plenty 0.8.19, compiler
-source commit `365a3b3b`, on x86-64. Conditional aggregation counts the path
+source commit `c63d0884`, on x86-64. Conditional aggregation counts the path
 that includes the mass. None of the recommended clist loops reconstructs rows
-or calls a generic field-access helper; indexed loops prepare their column
-addresses before scanning. The benchmark runner extracts the exact function
+or calls a generic field-access helper; column scans and indexed update loops
+prepare their column addresses before scanning. The benchmark runner extracts the exact function
 bodies shown here and also checks a 64-field schema with 56 additional unused
 fields. Those fields are not read by these passes.
 
@@ -188,8 +193,9 @@ the expected memory-traffic advantage on wide records. Measure representative
 inputs before choosing a layout for a performance-critical application.
 
 The [idiom measurements](../../../proposals/columnar-list/idiom-measurements.md) describe the
-scalar C comparison, independent checksum checks, the zipped-column limitation
-(issue #888), and commands for repeating timing runs on an idle machine.
+scalar C comparison, independent checksum checks, the delivered shared-cursor
+and immutable-capture optimizations (issues #888 and #891), and commands for
+repeating timing runs on an idle machine.
 
 ## Construction, counting, and removal
 

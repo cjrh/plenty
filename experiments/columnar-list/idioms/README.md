@@ -84,7 +84,7 @@ objdump -d --no-show-raw-insn /tmp/clist-idioms-c.o \
   | python3 experiments/kernels/loops.py
 ```
 
-Measured at compiler source commit `365a3b3b`, Plenty 0.8.19, gcc 16.2.1,
+Measured at compiler source commit `c63d0884`, Plenty 0.8.19, gcc 16.2.1,
 x86-64. Instructions per standalone inner-loop pass, taking the matching branch
 for conditional aggregation:
 
@@ -97,7 +97,8 @@ for conditional aggregation:
 The standalone list aggregate adds a row-stride multiply and a separate scalar
 load (C combines its load and add). The clist aggregate adds only that separate
 load. Conditional list aggregation adds a multiply and row-address `lea`;
-conditional clist aggregation adds a separate countdown update. Both update
+the zipped clist query loads mass separately before the condition, while C
+combines that load with the addition on the matching path. Both update
 loops copy `dt` into a temporary register twice per pass; the list additionally
 computes the row address with multiply/`lea`, while the clist additionally
 updates its countdown. These account for all extra instructions in this table.
@@ -113,11 +114,12 @@ not Plenty's list representation, and C is not part of the timing comparison.
 No compiler transformation or IR variant is proposed, so compiler before/after
 and compilation-speed comparisons do not apply.
 
-## Zipped-column performance gap (issue #888)
+## Zipped-column idioms after issues #888 and #891
 
-`zip-probe.plenty` retains the supported alternatives considered during tutorial
-design: a two-column `zip` followed by `fold`, an explicit zipped loop, and a
-loop over indices. All print 7.0 for the same input. To inspect them:
+`zip-probe.plenty` retains a conditional fold with an immutable captured
+threshold, an explicit zipped loop, and an indexed loop. All print 7.0 for the
+same input. The tutorial recommends zipped columns for read-only multi-field
+passes and indexed field writes for updates. To inspect the alternatives:
 
 ```sh
 target/release/plenty --dump asm,clif-opt \
@@ -125,15 +127,21 @@ target/release/plenty --dump asm,clif-opt \
 python3 experiments/kernels/loops.py < /tmp/clist-zip-probe/asm.txt
 ```
 
-Both zipped forms have 43 instructions on the standalone matching path versus
-eight for the indexed loop (seven in the C SoA reference). The IR retains two
-source counters and per-source optional-item state; the assembly constructs and
-tests presence flags, moves float values through integer registers, and joins
-multiple branches before the useful comparison/addition. An explicit zip loop
-does not eliminate this state. Inlined measurement callers can be more complex.
-This is independent of SIMD and is not necessary to the storage layout.
+With compiler sources at `c63d0884`, all three standalone matching paths have
+eight instructions (seven in the scalar C SoA reference). The compiler prepares
+column addresses outside the loop, shares a cursor across zipped columns, and
+keeps eligible immutable callback captures in SSA. The actual tutorial query is
+extracted and measured independently of this probe.
 
-The tutorial therefore recommends indexed access for multi-field passes today.
-Issue #888 records the compiler work; this PR does not fix that lowering.
-Initial exploratory timings overlapping a build are excluded from retained
-results. The final results use only the recommended indexed idiom.
+At the historical compiler source `365a3b3b`, both zipped forms had 43 instructions
+versus eight for indexing. That defect motivated issue #888. The fixes are
+retained in `experiments/kernels/clist-zip/` and
+`experiments/kernels/scalar-captures/`; their evidence describes the cursor and
+capture changes separately. Historical counts are not current advice.
+The capture experiment's 7.42% whole-program instruction reduction is not a
+list-versus-clist speedup and is not used in the tutorial's comparison.
+
+The refresh changes documentation and its measured source, not compiler code.
+The earlier uncontended-timing limitation still applies; no elapsed-time
+speedup is claimed. `validation.json` is regenerated from the updated tutorial
+functions, and `instructions.txt` records current standalone and caller counts.

@@ -8,7 +8,7 @@ functions from the tutorial and checks eight- and 64-field schemas.
 
 ## Emitted work
 
-Optimized Plenty 0.8.19 at compiler source commit `365a3b3b`, x86-64, compared
+Optimized Plenty 0.8.19 at compiler source commit `c63d0884`, x86-64, compared
 with gcc 16.2.1 scalar C kernels. Counts cover a standalone inner-loop pass,
 including the successful condition for conditional aggregation:
 
@@ -20,8 +20,9 @@ including the successful condition for conditional aggregation:
 
 The extra list aggregate instructions compute a row stride and load separately
 from addition. Clist aggregation adds only the separate load. Conditional list
-aggregation adds row-stride/address computation, while the clist loop adds a
-countdown update. Updating positions adds two temporary-register copies of
+aggregation adds row-stride/address computation. The zipped clist query loads
+mass separately before the condition; C combines its mass load and addition on
+the matching path. Updating positions adds two temporary-register copies of
 `dt` to either representation, plus list row-address computation or the clist
 countdown. This accounts for the differences in the table. C loop unrolling,
 vectorization and fast-math are not enabled; the C struct is native storage,
@@ -35,14 +36,20 @@ No compiler change or before/after performance improvement is claimed.
 
 ## Zipped columns
 
-The supported `column(...).zip(column(...))` forms retain generic iterator
-state. Both a zipped loop and zipped fold have 43 instructions on the standalone
-matching path, compared with eight for the indexed conditional aggregation.
-The IR retains two source counters and optional-item state; emitted code
-constructs/tests presence flags and moves floats through integer registers.
-Issue #888 records this gap. The tutorial recommends indexed loops for
-multi-field passes today; the experiment retains `zip-probe.plenty` so a
-future change can compare all three forms.
+Read-only multi-field examples zip selected columns. After the shared-cursor
+and immutable-capture fixes (issues #888 and #891), the explicit zipped loop,
+conditional captured fold and indexed alternative all have eight instructions
+on the standalone matching path in `zip-probe.plenty`. The exact tutorial
+query uses the explicit loop; its column plans have the same owner and row order.
+Indexed field writes remain the recommended pattern for updates.
+
+The original experiment at `365a3b3b` counted 43 instructions for each zipped
+form versus eight for indexing. That is historical evidence of the defect,
+not a limitation of the current compiler. The retained probe is rechecked
+with the current compiler; see the [shared-cursor evidence](../../completed-work/performance.md#selected-field-column-zip-issue-888)
+and [conditional capture evidence](../../completed-work/performance.md#conditional-callback-captures-issue-891)
+for the compiler changes and their independent measurements. The latter's
+7.42% whole-program instruction reduction is not a list-versus-clist speedup.
 
 ## Validation and timing limits
 

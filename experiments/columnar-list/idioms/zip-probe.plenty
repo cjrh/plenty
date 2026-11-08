@@ -1,4 +1,4 @@
-# Compare these supported forms with the indexed tutorial idiom.
+# Compare the zipped query forms with the indexed alternative.
 class Particle:
     temperature: f64
     mass: f64

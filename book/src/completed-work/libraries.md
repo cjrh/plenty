@@ -170,8 +170,10 @@ SIMD is recorded under [B23](performance.md#b23-simd). It remains distinct from
 Polars-backed dataframes. [Columnar evidence](../proposals/columnar-list.md)
 records whole-row tradeoffs. The [paired list/clist tutorial idioms](../tutorial/special-purpose/columnar-lists/index.md)
 cover aggregation, conditional aggregation and simulation updates, with retained
-emitted-code counts and eight-/64-field correctness checks (issue #887). The investigation also records zipped
-column iteration overhead as issue #888. Remaining scope stays **B76** in the [backlog](../backlog.md).
+emitted-code counts and eight-/64-field correctness checks (issue #887).
+Read-only multi-field scans teach zipped columns, using the delivered
+shared-cursor and immutable-capture optimizations (issues #888 and #891);
+mutation examples retain indexed field writes. Remaining scope stays **B76** in the [backlog](../backlog.md).
 
 ## B78: Diffs
 
