@@ -247,13 +247,12 @@ fn other_divisors_keep_their_failures() {
         ("x // 0", "ZeroDivisionError"),
         ("x % 0", "ZeroDivisionError"),
         ("d = 2\n    x // d", "ZeroDivisionError"),
-        ("x // STEP", "ZeroDivisionError"),
         // A negated expression is computed, so it is not a literal.
         ("x // -(-2)", "OverflowError[i64]"),
         ("-x", "OverflowError[i64]"),
     ] {
         let message = check_diagnostic(&format!(
-            "const STEP: i64 = 2\ndef f(x: i64) -> i64:\n    {body}\ndef main() -> ():\n    pass\n"
+            "def f(x: i64) -> i64:\n    {body}\ndef main() -> ():\n    pass\n"
         ));
         assert!(
             message.contains(&format!("arithmetic can fail with {error}")),

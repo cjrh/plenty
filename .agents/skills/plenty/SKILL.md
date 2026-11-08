@@ -98,10 +98,11 @@ actual `std.serial.Kind` values. Rendering borrows and preserves the error.
 - Integer arithmetic returns errors from the enclosing function by default:
   declare `OverflowError[T]` for `+`, `-`, `*`, unary `-`, and integer `pow`;
   `//` and `%` by a variable also require `ZeroDivisionError` (signed `//` can
-  overflow). A nonzero literal divisor adds neither, except that `x // -1` can
-  overflow: `x // 2` cannot fail. `<<` and `>>` add `ShiftCountError[T]`
-  unless the count is a literal or a mask `n & L` with literal `L` below the
-  width. Casts such as `u8(x)` trap; use `u8.try_from(x)` (integers or floats)
+  overflow). A nonzero literal or integer module-constant divisor adds
+  neither, except that `x // -1` can overflow: `x // 2` cannot fail.
+  `<<` and `>>` add `ShiftCountError[T]` unless the count is a literal or
+  constant, or a mask `n & L` with such an `L` below the width. Locals and
+  negated constants prove nothing. Casts such as `u8(x)` trap; use `u8.try_from(x)` (integers or floats)
   to recover.
   Write explicit `Ok(...)` on success. Use `checked:` for local recovery or a
   small, justified `unchecked trap:` suite for deliberate termination. Plain
