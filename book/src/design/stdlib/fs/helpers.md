@@ -146,13 +146,16 @@ True
 ```
 
 The path is one or more child names separated by `/`. Repeated and trailing
-slashes are ignored. An empty or absolute path, or any `.` or `..` component,
-returns `IoError.InvalidInput` before anything is created. To start elsewhere,
+slashes are ignored. An empty or absolute path, a NUL byte, or any `.` or `..`
+component returns `IoError.InvalidInput` before anything is created. To start elsewhere,
 open that directory with `fs.root` or `open_dir`.
 
 Each component is visited in order, holding one directory at a time:
 
-- An existing directory is opened and used. Its mode is not changed.
+- An existing directory is opened and used. Its mode is not changed. It is
+  opened read-only like `open_dir`, so it must be readable and searchable but
+  need not be writable. Unlike `mkdir -p`, a write-and-search-only directory
+  (0300) fails with `IoError.System(13)`.
 - A missing component is created with `unix_mode`, through the same `mkdirat`
   as `create_dir`, and then opened. Every directory the call creates gets the
   mode, subject to umask and default ACLs as described in

@@ -25,22 +25,42 @@ impl Program {
         }
     }
     fn run(&self, path: &Path, mask: u32) -> String {
+        let output = self.output(path, mask, None);
+        assert!(output.status.success(), "{output:?}");
+        String::from_utf8(output.stdout).unwrap()
+    }
+    /// Runs with an optional descriptor limit, so leaked descriptors fail fast.
+    fn output(&self, path: &Path, mask: u32, files: Option<u64>) -> std::process::Output {
+        #[repr(C)]
+        struct Limit {
+            current: u64,
+            maximum: u64,
+        }
+        const RLIMIT_NOFILE: i32 = 7;
         let mut command = Command::new(&self.executable);
         command.arg(path);
-        // SAFETY: the child sets its own mask before exec using only the
-        // async-signal-safe syscall; the parallel test harness is unaffected.
+        // SAFETY: the child sets its own mask and limit before exec using only
+        // async-signal-safe syscalls; the parallel test harness is unaffected.
         unsafe {
             command.pre_exec(move || {
                 unsafe extern "C" {
                     fn umask(mode: u32) -> u32;
+                    fn setrlimit(resource: i32, limit: *const Limit) -> i32;
                 }
                 umask(mask);
+                if let Some(files) = files {
+                    let limit = Limit {
+                        current: files,
+                        maximum: files,
+                    };
+                    if setrlimit(RLIMIT_NOFILE, &limit) != 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                }
                 Ok(())
             });
         }
-        let output = command.output().unwrap();
-        assert!(output.status.success(), "{output:?}");
-        String::from_utf8(output.stdout).unwrap()
+        command.output().unwrap()
     }
 }
 fn mode(path: &Path) -> u32 {
@@ -424,4 +444,94 @@ fn concurrent_create_dirs_calls_all_succeed() {
         });
         assert!(fixture.path().join("a/b/c/d/e/f/g/h").is_dir());
     }
+}
+
+#[test]
+fn create_dirs_error_paths_release_descriptors() {
+    let fixture = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(fixture.path().join("file"), b"").unwrap();
+    std::os::unix::fs::symlink(outside.path(), fixture.path().join("out")).unwrap();
+    std::fs::create_dir(fixture.path().join("locked")).unwrap();
+    std::fs::set_permissions(
+        fixture.path().join("locked"),
+        std::fs::Permissions::from_mode(0o500),
+    )
+    .unwrap();
+    let program = Program::new(
+        "",
+        r#"
+    mut failures = list[u8]()?
+    for _ in range(500):
+        for text in ["a/b/file/c", "a/file", "out/c", "a/b/c/../d", "locked/x", "a\0b", "a/b/c/"]?:
+            if parent.create_dirs(&path.from_text(text)?).is_err():
+                failures.append(0u8)?
+    print(len(failures))?
+"#,
+    );
+    std::fs::create_dir_all(fixture.path().join("a/b")).unwrap();
+    std::fs::write(fixture.path().join("a/file"), b"").unwrap();
+    std::fs::write(fixture.path().join("a/b/file"), b"").unwrap();
+    // Enough for stdio, the receiver and one walk; a leak per call exhausts it.
+    let output = program.output(fixture.path(), 0, Some(16));
+    std::fs::set_permissions(
+        fixture.path().join("locked"),
+        std::fs::Permissions::from_mode(0o700),
+    )
+    .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let expected = if unsafe { libc_geteuid() } == 0 {
+        2500
+    } else {
+        3000
+    };
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        format!("{expected}\n")
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn create_dirs_allocation_failures_return_errors_and_keep_created_parents() {
+    let calls = (0..40)
+        .map(|budget| {
+            format!("    attempt(&parent, \"__test_fail_allocations_after_{budget}__\")?\n")
+        })
+        .collect::<String>();
+    let program = Program::new(
+        r#"
+def attempt(parent: &fs.Root, marker: &str) -> Result[(), AllocError | IoError]:
+    name = path.from_text("a/bb/ccc/dddd")?
+    print(marker).unwrap()
+    result = parent.create_dirs(&name)
+    print("__test_restore_allocations__").unwrap()
+    match result:
+        case Ok(_):
+            print("ok")?
+        case Err(IoError.Data(DataError.Allocation(_))):
+            print("oom")?
+        case Err(error):
+            return Err(error)
+    Ok(())
+"#,
+        &calls,
+    );
+    let fixture = tempfile::tempdir().unwrap();
+    let output = program.output(fixture.path(), 0, None);
+    assert!(output.status.success(), "{output:?}");
+    // The runtime reports leaked allocations on stderr.
+    assert!(output.stderr.is_empty(), "{output:?}");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let lines: Vec<&str> = stdout
+        .lines()
+        .filter(|line| !line.starts_with("__test_"))
+        .collect();
+    assert_eq!(lines.len(), 40, "{stdout}");
+    assert_eq!(lines[0], "oom");
+    assert_eq!(lines[39], "ok");
+    // Once a budget succeeds, every larger one does.
+    let first = lines.iter().position(|line| *line == "ok").unwrap();
+    assert!(lines[first..].iter().all(|line| *line == "ok"), "{stdout}");
+    assert!(fixture.path().join("a/bb/ccc/dddd").is_dir());
 }
