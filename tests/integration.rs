@@ -279,6 +279,8 @@ mod test_fstrings;
 mod test_fuzz;
 #[path = "test_generator_allocation.rs"]
 mod test_generator_allocation;
+#[path = "test_generator_joins.rs"]
+mod test_generator_joins;
 #[path = "test_generators.rs"]
 mod test_generators;
 #[path = "test_generic_data.rs"]

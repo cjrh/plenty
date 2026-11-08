@@ -2866,6 +2866,15 @@ impl Lowerer<'_, '_> {
                 let cast = self.cast(v, src, target.clone());
                 self.stack.push((cast, target.clone()));
             }
+            Op::JoinFrame(join) => {
+                let (from, to) = &**join;
+                let (value, _) = self.pop_typed(from.clone())?;
+                // Only the member's bytes are copied; the rest of the joined
+                // storage stays unused until a larger member occupies it.
+                let destination = self.inline_storage(to.inline_bytes());
+                let value = self.copy_inline_to(value, from, destination);
+                self.stack.push((value, to.clone()));
+            }
             Op::CheckedCast(target) => self.lower_checked_cast(target)?,
             Op::TryCast(target) => self.lower_try_cast(target)?,
             Op::RangeLength(element) => self.lower_range_length(element)?,

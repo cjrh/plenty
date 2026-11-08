@@ -461,7 +461,10 @@ pub fn contained(ty: &Ty, pending: &mut Vec<Ty>) {
                 .flat_map(|v| v.fields.iter().cloned()),
         ),
         Ty::Closure(t) => pending.extend(t.captures.iter().map(|(_, t)| t.clone())),
-        Ty::Generator(t) => pending.extend(t.slots.get().into_iter().flatten().cloned()),
+        Ty::Generator(t) => {
+            pending.extend(t.slots.get().into_iter().flatten().cloned());
+            pending.extend(t.members.iter().cloned());
+        }
         _ => {}
     }
 }

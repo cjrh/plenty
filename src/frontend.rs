@@ -947,6 +947,45 @@ enum BlockResult {
 }
 
 impl Lower<'_> {
+    /// The operation of an `if` statement, after joining the different producers
+    /// its branches choose when `join` (see [`Lower::join_values`]). Kept
+    /// out of line so deeply nested blocks keep their recursion frames small.
+    #[inline(never)]
+    fn if_statement_op(
+        &self,
+        join: bool,
+        (yes, mut then): (&BlockResult, Vec<Op>),
+        mut arms: Vec<(Vec<Op>, Vec<Op>)>,
+        results: &[BlockResult],
+        (no, mut otherwise): (&BlockResult, Vec<Op>),
+    ) -> Op {
+        if join {
+            let bodies = std::iter::once((yes, &mut then))
+                .chain(results.iter().zip(arms.iter_mut().map(|(_, arm)| arm)))
+                .chain([(no, &mut otherwise)]);
+            let mut values: Vec<_> = bodies
+                .filter_map(|(result, ops)| match result {
+                    BlockResult::Continues(Some(ty)) => Some((ty, ops)),
+                    _ => None,
+                })
+                .collect();
+            self.join_values(&mut values);
+        }
+        Op::If {
+            then: then.into(),
+            elifs: arms
+                .into_iter()
+                .map(|(condition, body)| ElifArm {
+                    condition: condition.into(),
+                    body: body.into(),
+                })
+                .collect(),
+            otherwise: otherwise.into(),
+        }
+    }
+}
+
+impl Lower<'_> {
     /// `__trap("message")`. The message is a literal so that reporting it
     /// cannot itself fail to allocate.
     fn trap_statement(&mut self, args: &[Expr], at: &Token, ops: &mut Vec<Op>) -> Result<()> {
@@ -1386,7 +1425,9 @@ impl Lower<'_> {
                 && got.name.is_some()
             {
                 // Issue #872: the item type matches, so name the frame identity.
-                "; each producer has its own inline frame, so different producers cannot join; branch inside one generator body instead".into()
+                // Only chosen values (conditional expressions, `if`/`match` values
+                // and factory returns) join.
+                "; different producers join only where a value is chosen: a conditional expression (`a if c else b`), an `if` or `match` value, or a factory's return; reassignment and `Option`/`Result` payloads keep one producer".into()
             } else {
                 expected
                     .as_ref()
@@ -1851,7 +1892,13 @@ impl Lower<'_> {
                 let (mut a, mut b) = (Vec::new(), Vec::new());
                 let ty = self.expr(yes, &mut a)?;
                 let other = self.expr(no, &mut b)?;
-                self.same(other, ty.clone(), &e.at)?;
+                let ty = match self.join_conditional(&ty, &other, &mut a, &mut b) {
+                    Some(joined) => Some(joined),
+                    None => {
+                        self.same(other, ty.clone(), &e.at)?;
+                        ty
+                    }
+                };
                 if matches!(ty, Some(Ty::View(..))) {
                     return Err(e.at.error("conditional expressions cannot produce slice views; select an owning value or branch around the view's use"));
                 }
@@ -3337,6 +3384,7 @@ impl Lower<'_> {
         // Only the value's own operations: an exit guard also moves its
         // binding, to drop it before the join.
         let marker = self.returning(at, &returned);
+        let ty = self.join_returned_frame(ty, &mut returned);
         self.refine_return(ty, at)?;
         let returned_loan = if self.return_origin.is_some() && !references::loan_free(e.unwrap()) {
             // A value from a started-empty holder names no real loan; the
@@ -3735,6 +3783,11 @@ impl Lower<'_> {
                             ops.push(Op::UseLoan(loan));
                         }
                     }
+                    let ty = if last && self.yield_type.is_none() {
+                        self.join_returned_frame(ty, ops)
+                    } else {
+                        ty
+                    };
                     if last && self.yield_type.is_none() {
                         self.refine_return(ty.clone(), &e.at)?;
                         // The function's result is in flight through the
@@ -4036,10 +4089,7 @@ impl Lower<'_> {
                         )?;
                         first_value(tail, &result, &mut inferred);
                         results.push(result);
-                        arms.push(ElifArm {
-                            condition: test.into(),
-                            body: arm.into(),
-                        });
+                        arms.push((test, arm));
                     }
                     self.names = saved.clone();
                     let mut otherwise = Vec::new();
@@ -4050,11 +4100,13 @@ impl Lower<'_> {
                         inferred.as_ref().unwrap_or(tail),
                     )?;
                     self.names = saved;
-                    ops.push(Op::If {
-                        then: then.into(),
-                        elifs: arms.into(),
-                        otherwise: otherwise.into(),
-                    });
+                    ops.push(self.if_statement_op(
+                        !last,
+                        (&yes_result, then),
+                        arms,
+                        &results,
+                        (&result, otherwise),
+                    ));
                     // Each branch joins what follows it, as `elif` did when it
                     // was an `if` nested in `else`: a disagreement is reported
                     // at the last `if` or `elif` whose branch differs.
@@ -4067,8 +4119,8 @@ impl Lower<'_> {
                     for (at, branch) in branches {
                         result = match (branch, result) {
                             (BlockResult::Continues(ty), BlockResult::Continues(other)) => {
-                                self.same(other, ty.clone(), at)?;
-                                BlockResult::Continues(ty)
+                                let joined = self.join_branch(&ty, &other, last, at)?;
+                                BlockResult::Continues(joined.unwrap_or(ty))
                             }
                             (BlockResult::Continues(ty), BlockResult::Exits)
                             | (BlockResult::Exits, BlockResult::Continues(ty)) => {

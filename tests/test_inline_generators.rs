@@ -233,11 +233,9 @@ def a() -> Generator[i64]:
     yield 1
 def b() -> Generator[i64]:
     yield 2
-def choose(flag: bool) -> Generator[i64]:
-    if flag:
-        return a()
-    b()
-drop(choose(True))
+mut source = a()
+source = b()
+drop(source)
 "#,
             "expected Generator[i64] from `a`, got Generator[i64] from `b`",
         ),
