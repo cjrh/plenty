@@ -225,7 +225,7 @@ def property_holds(property: i64, code: i64) -> bool:
         return code == 32 or (code >= 9 and code <= 13)
     __regex_property(u32(code), property)
 
-def property_named(name: &str) -> i64:
+def property_named(name: &strview) -> i64:
     if name == "Alphabetic":
         return prop_alphabetic
     if name == "Lowercase":
@@ -247,7 +247,7 @@ def property_named(name: &str) -> i64:
     -1
 
 # The byte at `at`, or -1 outside the input.
-def byte_at(text: &str, data: &[u8], textual: bool, at: i64) -> i64:
+def byte_at(text: &strview, data: &[u8], textual: bool, at: i64) -> i64:
     if textual:
         return __regex_text_byte(text, at)
     if at < 0 or at >= len(data):
@@ -257,7 +257,7 @@ def byte_at(text: &str, data: &[u8], textual: bool, at: i64) -> i64:
 # The unit at `at`: `code * 8 + width`, or -1 at the end of the input.
 # Bytes decode as strict UTF-8; each byte that does not begin a well-formed
 # sequence is one `invalid_unit` of width 1.
-def unit_at(text: &str, data: &[u8], textual: bool, at: i64) -> i64:
+def unit_at(text: &strview, data: &[u8], textual: bool, at: i64) -> i64:
     # Scalar accumulation is bounded by U+10FFFF (invalid_unit is 1114112),
     # with widths 1..4. After the remaining-span check, every at + index is
     # within data. Nonnegative at <= len(data) makes subtraction safe.
@@ -305,12 +305,12 @@ def unit_at(text: &str, data: &[u8], textual: bool, at: i64) -> i64:
             code = code * 64 + (next & 63)
         code * 8 + need + 1
 
-def input_len(text: &str, data: &[u8], textual: bool) -> i64:
+def input_len(text: &strview, data: &[u8], textual: bool) -> i64:
     if textual:
         return text.byte_len()
     len(data)
 
-def valid_start(text: &str, data: &[u8], textual: bool, start: i64) -> bool:
+def valid_start(text: &strview, data: &[u8], textual: bool, start: i64) -> bool:
     if start < 0 or start > input_len(text, data, textual):
         return False
     not textual or __regex_text_at(text, start) != -2
@@ -354,23 +354,23 @@ class Compiler:
     _max_repeat: i64
     _max_instructions: i64
 
-    def peek(self, pattern: &str) -> i64:
+    def peek(self, pattern: &strview) -> i64:
         __regex_text_at(pattern, self._at)
 
-    def peek_code(self, pattern: &str) -> i64:
+    def peek_code(self, pattern: &strview) -> i64:
         unit = self.peek(pattern)
         if unit < 0:
             return -1
         unit >> 3
 
-    def bump(self: &mut Compiler, pattern: &str) -> ():
+    def bump(self: &mut Compiler, pattern: &strview) -> ():
         # The decoded unit width advances only to the next boundary <= pattern.byte_len().
         unchecked:
             unit = self.peek(pattern)
             if unit >= 0:
                 self._at += unit & 7
 
-    def eat(self: &mut Compiler, pattern: &str, code: i64) -> bool:
+    def eat(self: &mut Compiler, pattern: &strview, code: i64) -> bool:
         if self.peek_code(pattern) == code:
             self.bump(pattern)
             return True
@@ -385,7 +385,7 @@ class Compiler:
         held(self._y.append(y))?
         Ok(pc)
 
-    def alternation(self: &mut Compiler, pattern: &str) -> Result[(), RegexError]:
+    def alternation(self: &mut Compiler, pattern: &strview) -> Result[(), RegexError]:
         start = len(self._op)
         mut ends = integers()?
         self.concat(pattern)?
@@ -396,14 +396,14 @@ class Compiler:
             self.alternate(start, &ends)?
         Ok(())
 
-    def concat(self: &mut Compiler, pattern: &str) -> Result[(), RegexError]:
+    def concat(self: &mut Compiler, pattern: &strview) -> Result[(), RegexError]:
         mut code = self.peek_code(pattern)
         while code != -1 and code != 124 and code != 41:
             self.repeat(pattern)?
             code = self.peek_code(pattern)
         Ok(())
 
-    def repeat(self: &mut Compiler, pattern: &str) -> Result[(), RegexError]:
+    def repeat(self: &mut Compiler, pattern: &strview) -> Result[(), RegexError]:
         start = len(self._op)
         if not self.atom(pattern)?:
             return Ok(())
@@ -436,7 +436,7 @@ class Compiler:
             self.repeated(start, low, high, greedy)?
         Ok(())
 
-    def count(self: &mut Compiler, pattern: &str, offset: i64) -> Result[i64, RegexError]:
+    def count(self: &mut Compiler, pattern: &strview, offset: i64) -> Result[i64, RegexError]:
         if not is_digit(self.peek_code(pattern)):
             return Err(RegexError.Syntax(SyntaxError(offset, "invalid repetition; expected `{n}`, `{n,}`, or `{n,m}`")))
         mut value = 0
@@ -451,7 +451,7 @@ class Compiler:
 
     # Emits one atom and reports whether it can be repeated: a flag group
     # such as `(?i)` emits nothing.
-    def atom(self: &mut Compiler, pattern: &str) -> Result[bool, RegexError]:
+    def atom(self: &mut Compiler, pattern: &strview) -> Result[bool, RegexError]:
         # Escape item values are kind * 100 + property (kind 1/2, property <= 15);
         # division/remainder use the positive constant 100.
         offset = self._at
@@ -503,7 +503,7 @@ class Compiler:
 
     # Reads the escape after a consumed `\`. A literal leaves its scalar in
     # `_value`, a class item `kind * 100 + property`, an assertion its kind.
-    def escape(self: &mut Compiler, pattern: &str, offset: i64) -> Result[i64, RegexError]:
+    def escape(self: &mut Compiler, pattern: &strview, offset: i64) -> Result[i64, RegexError]:
         # Encoded class kinds are 1/2 and property ids are 1..15; multiply/add <= 215.
         code = self.peek_code(pattern)
         if code == -1:
@@ -571,7 +571,7 @@ class Compiler:
         self._value = value
         Ok(escaped_literal)
 
-    def hex(self: &mut Compiler, pattern: &str, offset: i64) -> Result[i64, RegexError]:
+    def hex(self: &mut Compiler, pattern: &strview, offset: i64) -> Result[i64, RegexError]:
         # At most six validated hex digits: value <= 0xFFFFFF, digits <= 6.
         unchecked:
             braced = self.eat(pattern, 123)
@@ -596,7 +596,7 @@ class Compiler:
                 return Err(RegexError.Syntax(SyntaxError(offset, "escape is not a Unicode scalar value")))
             Ok(value)
 
-    def property(self: &mut Compiler, pattern: &str, offset: i64) -> Result[i64, RegexError]:
+    def property(self: &mut Compiler, pattern: &strview, offset: i64) -> Result[i64, RegexError]:
         if not self.eat(pattern, 123):
             return Err(RegexError.Syntax(SyntaxError(offset, "expected `{` after `\\p` or `\\P`")))
         start = self._at
@@ -639,7 +639,7 @@ class Compiler:
             self._class_count[last] += 1
             Ok(())
 
-    def bracket(self: &mut Compiler, pattern: &str) -> Result[(), RegexError]:
+    def bracket(self: &mut Compiler, pattern: &strview) -> Result[(), RegexError]:
         # A lookahead of one follows an observed ASCII hyphen within pattern,
         # so _at + 1 <= pattern.byte_len().
         open = self._at
@@ -683,7 +683,7 @@ class Compiler:
         Ok(())
 
     # One class member: a scalar, or -1 after adding a property item.
-    def class_scalar(self: &mut Compiler, pattern: &str) -> Result[i64, RegexError]:
+    def class_scalar(self: &mut Compiler, pattern: &strview) -> Result[i64, RegexError]:
         # Escape item values are kind * 100 + property (kind 1/2, property <= 15);
         # division/remainder use the positive constant 100.
         unchecked:
@@ -700,7 +700,7 @@ class Compiler:
                 return Ok(-1)
             Ok(self._value)
 
-    def group(self: &mut Compiler, pattern: &str) -> Result[bool, RegexError]:
+    def group(self: &mut Compiler, pattern: &strview) -> Result[bool, RegexError]:
         # Group depth is 0..max_nesting <= 1000 before increment; a successful
         # recursive parse leaves that same positive depth before decrement.
         open = self._at
@@ -742,7 +742,7 @@ class Compiler:
             self.emit(op_save, capture_slot(capture, 1)?, 0)?
         Ok(True)
 
-    def named_group(self: &mut Compiler, pattern: &str, open: i64) -> Result[i64, RegexError]:
+    def named_group(self: &mut Compiler, pattern: &strview, open: i64) -> Result[i64, RegexError]:
         start = self._at
         if not is_name_start(self.peek_code(pattern)):
             return Err(RegexError.Syntax(SyntaxError(open, "invalid group name; expected `[A-Za-z_][A-Za-z0-9_]*`")))
@@ -762,7 +762,7 @@ class Compiler:
     # Flags after `(?`. Ending in `)` sets them for the rest of the enclosing
     # group and returns True; ending in `:` scopes them to the group that
     # follows.
-    def flag_group(self: &mut Compiler, pattern: &str, open: i64) -> Result[bool, RegexError]:
+    def flag_group(self: &mut Compiler, pattern: &strview, open: i64) -> Result[bool, RegexError]:
         # Each letter consumes a pattern byte, bounding letters by byte_len;
         # flags are 1, 2 or 4, so clearing with 7 - flag fits.
         mut flags = self._flags
@@ -910,7 +910,7 @@ pub class Match:
         self.end == self.start
 
     # A copy of the matched text. `haystack` must be the searched text.
-    pub def text(self, haystack: &str) -> Result[str, RegexError]:
+    pub def text(self, haystack: &strview) -> Result[str, RegexError]:
         if self.start < 0 or self.start > self.end or self.end > haystack.byte_len():
             return Err(RegexError.OutOfRange)
         if __regex_text_at(haystack, self.start) == -2 or __regex_text_at(haystack, self.end) == -2:
@@ -947,7 +947,7 @@ pub class Captures:
                 return Nothing
             Some(Match(start, end))
 
-    pub def name(self, name: &str) -> Option[Match]:
+    pub def name(self, name: &strview) -> Option[Match]:
         for index in range(1, len(self._names)):
             if self._names[index] == name:
                 return self.get(index)
@@ -1036,7 +1036,7 @@ class Dfa:
     _enabled: bool
     _work: i64
 
-    def search(self: &mut Dfa, program: &Regex, text: &str, data: &[u8], textual: bool, start: i64, maximum: i64) -> Result[i64, RegexError]:
+    def search(self: &mut Dfa, program: &Regex, text: &strview, data: &[u8], textual: bool, start: i64, maximum: i64) -> Result[i64, RegexError]:
         # There are at most 64 states, 128 byte columns, and 62 NFA bits.
         # Every offset is bounded by these preallocated extents; at advances
         # below input_len. Work increments only below the configured maximum.
@@ -1125,7 +1125,7 @@ class Vm:
     # priority order. Each instruction enters a set once, which bounds both
     # the work and the stack. A SAVE pushes a restore frame (old value, then
     # -(slot + 1)) under its continuation so later paths see the old slot.
-    def add(self: &mut Vm, program: &Regex, set: i64, start: i64, at: i64, text: &str, data: &[u8], textual: bool) -> Result[(), RegexError]:
+    def add(self: &mut Vm, program: &Regex, set: i64, start: i64, at: i64, text: &strview, data: &[u8], textual: bool) -> Result[(), RegexError]:
         # machine_extents preflights 2*n, 2*n*slots and 3*n+4, then allocates
         # these arrays. set is 0/1; visited count <= n and pc < n. Each instruction
         # adds at most three stack words once; restore markers are -(slot+1)
@@ -1185,7 +1185,7 @@ class Vm:
     # Shift-And over a conservative ASCII prefix. All prefixes have the same
     # width, so the first completed window is the earliest possible start.
     # Non-ASCII bytes reset the window, including invalid UTF-8 in byte input.
-    def candidate(self: &mut Vm, program: &Regex, text: &str, data: &[u8], textual: bool, start: i64) -> Result[i64, RegexError]:
+    def candidate(self: &mut Vm, program: &Regex, text: &strview, data: &[u8], textual: bool, start: i64) -> Result[i64, RegexError]:
         found, work = prefix_candidate(program, data, start, self._work, self._max_work)?
         self._work = work
         Ok(found)
@@ -1194,7 +1194,7 @@ class Vm:
     # last accepting position preserves greedy choices without backtracking.
     # Failed anchored attempts together may scan only one input length before
     # falling back to the VM, keeping adversarial searches linear.
-    def one_pass(self: &mut Vm, program: &Regex, text: &str, data: &[u8], textual: bool, start: i64) -> Result[i64, RegexError]:
+    def one_pass(self: &mut Vm, program: &Regex, text: &strview, data: &[u8], textual: bool, start: i64) -> Result[i64, RegexError]:
         unchecked:
             end = input_len(text, data, textual)
             mut remaining = end - start
@@ -1245,14 +1245,14 @@ class Vm:
     # Finds the leftmost-first match starting at or after `start` and leaves
     # its slots in `_found`. With `early`, stops at the first match of any
     # length without recording it.
-    def search(self: &mut Vm, program: &Regex, text: &str, data: &[u8], textual: bool, start: i64, early: bool) -> Result[bool, RegexError]:
+    def search(self: &mut Vm, program: &Regex, text: &strview, data: &[u8], textual: bool, start: i64, early: bool) -> Result[bool, RegexError]:
         if textual:
             return self.search_bytes(program, text, __regex_text_bytes(text), True, start, early)
         self.search_bytes(program, text, data, False, start, early)
 
     # Borrow UTF-8 storage once for all ASCII accelerators; scalar decoding
     # and assertions still use the original text and its boundary semantics.
-    def search_bytes(self: &mut Vm, program: &Regex, text: &str, data: &[u8], textual: bool, start: i64, early: bool) -> Result[bool, RegexError]:
+    def search_bytes(self: &mut Vm, program: &Regex, text: &strview, data: &[u8], textual: bool, start: i64, early: bool) -> Result[bool, RegexError]:
         if not early and self._slots == 2 and len(program._one) > 0:
             end = self.one_pass(program, text, data, textual, start)?
             if end != -2:
@@ -1357,7 +1357,7 @@ class Output:
     size: i64
     max: i64
 
-    def add(self: &mut Output, source: &str, start: i64, stop: i64) -> Result[(), RegexError]:
+    def add(self: &mut Output, source: &strview, start: i64, stop: i64) -> Result[(), RegexError]:
         if start == stop:
             return Ok(())
         # Source spans are validated match/template ranges within held text.
@@ -1399,7 +1399,7 @@ pub class Regex:
     pub def group_count(self) -> i64:
         len(self._names)
 
-    pub def group_index(self, name: &str) -> Option[i64]:
+    pub def group_index(self, name: &strview) -> Option[i64]:
         for index in range(1, len(self._names)):
             if self._names[index] == name:
                 return Some(index)
@@ -1409,7 +1409,7 @@ pub class Regex:
     pub def instructions(self) -> i64:
         len(self._op)
 
-    def holds(self, kind: i64, at: i64, text: &str, data: &[u8], textual: bool) -> bool:
+    def holds(self, kind: i64, at: i64, text: &strview, data: &[u8], textual: bool) -> bool:
         # Search positions are 0..input_len; at-1 is at least -1 (the EOF sentinel).
         unchecked:
             if kind == assert_text_start:
@@ -1775,7 +1775,7 @@ pub class Regex:
             dfa._enabled = True
         Ok(Vm(dfa, n, slots, zeros(threads)?, zeros(threads)?, zeros(2)?, zeros(captures)?, zeros(stack)?, zeros(width)?, zeros(width)?, 0, self._max_work))
 
-    def first(self, text: &str, data: &[u8], textual: bool, start: i64, slots: i64) -> Result[Option[Vm], RegexError]:
+    def first(self, text: &strview, data: &[u8], textual: bool, start: i64, slots: i64) -> Result[Option[Vm], RegexError]:
         if not valid_start(text, data, textual, start):
             return Err(RegexError.OutOfRange)
         mut vm = self.machine(slots)?
@@ -1783,14 +1783,14 @@ pub class Regex:
             return Ok(Some(vm))
         Ok(Nothing)
 
-    def found(self, text: &str, data: &[u8], textual: bool, start: i64) -> Result[Option[Match], RegexError]:
+    def found(self, text: &strview, data: &[u8], textual: bool, start: i64) -> Result[Option[Match], RegexError]:
         match self.first(text, data, textual, start, 2)?:
             case Some(vm):
                 Ok(Some(Match(vm._found[0], vm._found[1])))
             case Nothing:
                 Ok(Nothing)
 
-    def captured(self, text: &str, data: &[u8], textual: bool, start: i64) -> Result[Option[Captures], RegexError]:
+    def captured(self, text: &strview, data: &[u8], textual: bool, start: i64) -> Result[Option[Captures], RegexError]:
         # compile's memory preflight proves the complete slot count fits.
         slots = unchecked:
             2 * len(self._names)
@@ -1809,31 +1809,31 @@ pub class Regex:
             held(names.append(held(copy(self._names[index]))?))?
         Ok(Captures(slots, names))
 
-    def matches(self, text: &str, data: &[u8], textual: bool) -> Result[bool, RegexError]:
+    def matches(self, text: &strview, data: &[u8], textual: bool) -> Result[bool, RegexError]:
         mut vm = self.machine(0)?
         vm.search(self, text, data, textual, 0, True)
 
-    pub def is_match(self, text: &str) -> Result[bool, RegexError]:
+    pub def is_match(self, text: &strview) -> Result[bool, RegexError]:
         self.matches(text, &self._empty, True)
 
     pub def is_match_bytes(self, data: &[u8]) -> Result[bool, RegexError]:
         self.matches("", data, False)
 
-    pub def find(self, text: &str) -> Result[Option[Match], RegexError]:
+    pub def find(self, text: &strview) -> Result[Option[Match], RegexError]:
         self.found(text, &self._empty, True, 0)
 
     # Searches from byte offset `start`, which must be a scalar boundary.
     # Assertions still see the text before `start`.
-    pub def find_at(self, text: &str, start: i64) -> Result[Option[Match], RegexError]:
+    pub def find_at(self, text: &strview, start: i64) -> Result[Option[Match], RegexError]:
         self.found(text, &self._empty, True, start)
 
     pub def find_bytes(self, data: &[u8], start: i64) -> Result[Option[Match], RegexError]:
         self.found("", data, False, start)
 
-    pub def captures(self, text: &str) -> Result[Option[Captures], RegexError]:
+    pub def captures(self, text: &strview) -> Result[Option[Captures], RegexError]:
         self.captured(text, &self._empty, True, 0)
 
-    pub def captures_at(self, text: &str, start: i64) -> Result[Option[Captures], RegexError]:
+    pub def captures_at(self, text: &strview, start: i64) -> Result[Option[Captures], RegexError]:
         self.captured(text, &self._empty, True, start)
 
     pub def captures_bytes(self, data: &[u8], start: i64) -> Result[Option[Captures], RegexError]:
@@ -1848,7 +1848,7 @@ pub class Regex:
 
     # The next match, or Nothing after the last. `max_work` applies to each
     # call. An empty match where the previous match ended is skipped.
-    pub def next_match(self, text: &str, cursor: &mut Cursor) -> Result[Option[Match], RegexError]:
+    pub def next_match(self, text: &strview, cursor: &mut Cursor) -> Result[Option[Match], RegexError]:
         cursor._vm._work = 0
         self.advance(cursor, text, &self._empty, True)
 
@@ -1856,7 +1856,7 @@ pub class Regex:
         cursor._vm._work = 0
         self.advance(cursor, "", data, False)
 
-    def advance(self, cursor: &mut Cursor, text: &str, data: &[u8], textual: bool) -> Result[Option[Match], RegexError]:
+    def advance(self, cursor: &mut Cursor, text: &strview, data: &[u8], textual: bool) -> Result[Option[Match], RegexError]:
         # A nonnegative decoded unit advances only to the next boundary <=
         # input_len; an exhausted unit marks the cursor done instead of incrementing.
         if cursor._pattern != self._pattern or cursor._max_memory != self._max_memory or cursor._vm._max_work != self._max_work or cursor._vm._n != len(self._op) or cursor._vm._slots < 2:
@@ -1884,13 +1884,13 @@ pub class Regex:
 
     # Every match in order. More than `max_matches` is an error; `max_work`
     # applies to the whole call.
-    pub def find_all(self, text: &str, max_matches: i64) -> Result[list[Match], RegexError]:
+    pub def find_all(self, text: &strview, max_matches: i64) -> Result[list[Match], RegexError]:
         self.all(text, &self._empty, True, max_matches)
 
     pub def find_all_bytes(self, data: &[u8], max_matches: i64) -> Result[list[Match], RegexError]:
         self.all("", data, False, max_matches)
 
-    def all(self, text: &str, data: &[u8], textual: bool, max_matches: i64) -> Result[list[Match], RegexError]:
+    def all(self, text: &strview, data: &[u8], textual: bool, max_matches: i64) -> Result[list[Match], RegexError]:
         mut cursor = self.scan(2)?
         mut found = held(list[Match].new())?
         while not cursor._done:
@@ -1904,7 +1904,7 @@ pub class Regex:
         Ok(found)
 
     # The text around matches. More than `max_pieces` pieces is an error.
-    pub def split(self, text: &str, max_pieces: i64) -> Result[list[str], RegexError]:
+    pub def split(self, text: &strview, max_pieces: i64) -> Result[list[str], RegexError]:
         mut cursor = self.scan(2)?
         mut pieces = held(list[str].new())?
         mut last = 0
@@ -1927,13 +1927,13 @@ pub class Regex:
     # Replaces the first match. In `template`, `$n` and `${n}` insert group
     # n, `${name}` a named group, and `$$` a `$`; a group that did not take
     # part inserts nothing. A result over `max_bytes` bytes is an error.
-    pub def replace(self, text: &str, template: &str, max_bytes: i64) -> Result[str, RegexError]:
+    pub def replace(self, text: &strview, template: &strview, max_bytes: i64) -> Result[str, RegexError]:
         self.substitute(text, template, max_bytes, 1)
 
-    pub def replace_all(self, text: &str, template: &str, max_bytes: i64) -> Result[str, RegexError]:
+    pub def replace_all(self, text: &strview, template: &strview, max_bytes: i64) -> Result[str, RegexError]:
         self.substitute(text, template, max_bytes, -1)
 
-    def substitute(self, text: &str, template: &str, max_bytes: i64, limit: i64) -> Result[str, RegexError]:
+    def substitute(self, text: &strview, template: &strview, max_bytes: i64, limit: i64) -> Result[str, RegexError]:
         parts = self.template(template)?
         # compile's memory preflight proves the complete slot count fits.
         slots = unchecked:
@@ -1969,7 +1969,7 @@ pub class Regex:
         out.add(text, last, text.byte_len())?
         held("".join(out.pieces))
 
-    def template(self, template: &str) -> Result[Template, RegexError]:
+    def template(self, template: &strview) -> Result[Template, RegexError]:
         # Each cursor advance consumes observed scalar/ASCII bytes. at < size
         # proves at+1 <= size; at+2 follows an observed second byte; stop+1 follows
         # a closing brace. All positions stay within template.byte_len().
@@ -2018,7 +2018,7 @@ pub class Regex:
         parts.push(0, run, size)?
         Ok(parts)
 
-    def reference(self, template: &str, start: i64, stop: i64, offset: i64) -> Result[i64, RegexError]:
+    def reference(self, template: &strview, start: i64, stop: i64, offset: i64) -> Result[i64, RegexError]:
         if start == stop:
             return Err(RegexError.Syntax(SyntaxError(offset, "empty group reference")))
         if is_digit(__regex_text_byte(template, start)):
@@ -2051,7 +2051,7 @@ pub class Regex:
 
 # Compiles `pattern`, or reports the first problem: a syntax error with its
 # byte offset, or the first limit the pattern would exceed.
-pub def compile(pattern: &str, bounds: &Limits) -> Result[Regex, RegexError]:
+pub def compile(pattern: &strview, bounds: &Limits) -> Result[Regex, RegexError]:
     if bounds.max_nesting.get() > nesting_ceiling:
         __trap("std.regex.compile: max_nesting is above 1000")
     if pattern.byte_len() > bounds.max_pattern_bytes.get():
@@ -2074,7 +2074,7 @@ pub def compile(pattern: &str, bounds: &Limits) -> Result[Regex, RegexError]:
         return Err(RegexError.LimitExceeded(Limit.Memory))
     prefix = prefix_of(&compiler)?
     names = replace(compiler._names, held(list[str].new())?)
-    mut regex = Regex(*pattern, bounds.max_memory.get(), replace(compiler._op, integers()?), replace(compiler._x, integers()?), replace(compiler._y, integers()?), replace(compiler._class_start, integers()?), replace(compiler._class_count, integers()?), replace(compiler._class_negated, integers()?), replace(compiler._class_fold, integers()?), replace(compiler._item_kind, integers()?), replace(compiler._item_low, integers()?), replace(compiler._item_high, integers()?), names, prefix, integers()?, 0, 0, 0, held(list[str].new())?, integers()?, integers()?, 0, -1, integers()?, bounds.max_work.get(), no_bytes()?)
+    mut regex = Regex(held(__regex_text_slice(pattern, 0, pattern.byte_len()))?, bounds.max_memory.get(), replace(compiler._op, integers()?), replace(compiler._x, integers()?), replace(compiler._y, integers()?), replace(compiler._class_start, integers()?), replace(compiler._class_count, integers()?), replace(compiler._class_negated, integers()?), replace(compiler._class_fold, integers()?), replace(compiler._item_kind, integers()?), replace(compiler._item_low, integers()?), replace(compiler._item_high, integers()?), names, prefix, integers()?, 0, 0, 0, held(list[str].new())?, integers()?, integers()?, 0, -1, integers()?, bounds.max_work.get(), no_bytes()?)
     regex.prepare_filter()?
     unchecked:
         regex.prepare_dfa(budget - words)?

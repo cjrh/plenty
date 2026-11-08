@@ -1317,24 +1317,24 @@ class Spec
     precision: i64
     kind: str
 def spec(fill: str = " ", align: str = "", sign: str = "", coerce_zero: bool = False, alternate: bool = False, zero: bool = False, width: i64 = 0, grouping: str = "", precision: i64 = -1, kind: str = "") -> Spec
-def spec_fill(fill: &str, align: &str) -> Result[str, FormatError]
-def spec_align(align: &str) -> Result[str, FormatError]
+def spec_fill(fill: &strview, align: &strview) -> Result[str, FormatError]
+def spec_align(align: &strview) -> Result[str, FormatError]
 def spec_count(value: i64) -> Result[i64, FormatError]
 class Formatter[W]
     writer: W
     def completed(self) -> i64
     def has_failed(self) -> bool
-    def text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]
+    def text(self: &mut Formatter[W], value: &strview) -> Result[(), FormatError]
     def substr(self: &mut Formatter[W], value: &strview) -> Result[(), FormatError]
     def boolean(self: &mut Formatter[W], value: bool) -> Result[(), FormatError]
     def floating(self: &mut Formatter[W], value: f64, width: NonNegative[i64]) -> Result[(), FormatError]
     def unsigned(self: &mut Formatter[W], value: u64, base: i64, width: NonNegative[i64] = 0) -> Result[(), FormatError]
     def integer(self: &mut Formatter[W], value: i64, width: NonNegative[i64] = 0) -> Result[(), FormatError]
-    def debug_text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]
+    def debug_text(self: &mut Formatter[W], value: &strview) -> Result[(), FormatError]
     def debug_substr(self: &mut Formatter[W], value: &strview) -> Result[(), FormatError]
-    def ascii_text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]
+    def ascii_text(self: &mut Formatter[W], value: &strview) -> Result[(), FormatError]
     def char_spec(self: &mut Formatter[W], code: i64, spec: &Spec) -> Result[(), FormatError]
-    def text_spec(self: &mut Formatter[W], value: &str, spec: &Spec) -> Result[(), FormatError]
+    def text_spec(self: &mut Formatter[W], value: &strview, spec: &Spec) -> Result[(), FormatError]
     def substr_spec(self: &mut Formatter[W], value: &strview, spec: &Spec) -> Result[(), FormatError]
     def signed_spec(self: &mut Formatter[W], value: i64, spec: &Spec) -> Result[(), FormatError]
     def unsigned_spec(self: &mut Formatter[W], value: u64, spec: &Spec) -> Result[(), FormatError]
@@ -1358,9 +1358,9 @@ def repr_text[W](spelled: Result[str, AllocError | FormatError], output: &mut Fo
 def repr_result(spelled: Result[str, AllocError | FormatError]) -> Result[str, FormatError]
 def allocation_only(built: Result[str, FormatError]) -> Result[str, AllocError]
 def allocation_or_format(built: Result[str, FormatError]) -> Result[str, AllocError | FormatError]
-def debug_string(value: &str) -> Result[str, FormatError]
+def debug_string(value: &strview) -> Result[str, FormatError]
 def repr_substr_string(value: &strview) -> Result[str, FormatError]
-def ascii_string(value: &str) -> Result[str, FormatError]
+def ascii_string(value: &strview) -> Result[str, FormatError]
 def list_with[T, W, F: Callable[[&T, &mut Formatter[W]], Result[(), FormatError]]](values: &list[T], output: &mut Formatter[W], render: F) -> Result[(), FormatError]
 def pair_with[A, B, W, F: Callable[[&A, &mut Formatter[W]], Result[(), FormatError]], G: Callable[[&B, &mut Formatter[W]], Result[(), FormatError]]](value: &(A, B), output: &mut Formatter[W], first: F, second: G) -> Result[(), FormatError]
 protocol Formattable
@@ -3130,34 +3130,34 @@ class Match
     end: i64
     def len(self) -> Result[i64, OverflowError[i64]]
     def is_empty(self) -> bool
-    def text(self, haystack: &str) -> Result[str, RegexError]
+    def text(self, haystack: &strview) -> Result[str, RegexError]
     def bytes(self, data: &[u8]) -> Result[Bytes, RegexError]
 class Captures
     def len(self) -> i64
     def get(self, index: i64) -> Option[Match]
-    def name(self, name: &str) -> Option[Match]
+    def name(self, name: &strview) -> Option[Match]
 class Cursor
 class Regex
     def group_count(self) -> i64
-    def group_index(self, name: &str) -> Option[i64]
+    def group_index(self, name: &strview) -> Option[i64]
     def instructions(self) -> i64
-    def is_match(self, text: &str) -> Result[bool, RegexError]
+    def is_match(self, text: &strview) -> Result[bool, RegexError]
     def is_match_bytes(self, data: &[u8]) -> Result[bool, RegexError]
-    def find(self, text: &str) -> Result[Option[Match], RegexError]
-    def find_at(self, text: &str, start: i64) -> Result[Option[Match], RegexError]
+    def find(self, text: &strview) -> Result[Option[Match], RegexError]
+    def find_at(self, text: &strview, start: i64) -> Result[Option[Match], RegexError]
     def find_bytes(self, data: &[u8], start: i64) -> Result[Option[Match], RegexError]
-    def captures(self, text: &str) -> Result[Option[Captures], RegexError]
-    def captures_at(self, text: &str, start: i64) -> Result[Option[Captures], RegexError]
+    def captures(self, text: &strview) -> Result[Option[Captures], RegexError]
+    def captures_at(self, text: &strview, start: i64) -> Result[Option[Captures], RegexError]
     def captures_bytes(self, data: &[u8], start: i64) -> Result[Option[Captures], RegexError]
     def cursor(self) -> Result[Cursor, RegexError]
-    def next_match(self, text: &str, cursor: &mut Cursor) -> Result[Option[Match], RegexError]
+    def next_match(self, text: &strview, cursor: &mut Cursor) -> Result[Option[Match], RegexError]
     def next_match_bytes(self, data: &[u8], cursor: &mut Cursor) -> Result[Option[Match], RegexError]
-    def find_all(self, text: &str, max_matches: i64) -> Result[list[Match], RegexError]
+    def find_all(self, text: &strview, max_matches: i64) -> Result[list[Match], RegexError]
     def find_all_bytes(self, data: &[u8], max_matches: i64) -> Result[list[Match], RegexError]
-    def split(self, text: &str, max_pieces: i64) -> Result[list[str], RegexError]
-    def replace(self, text: &str, template: &str, max_bytes: i64) -> Result[str, RegexError]
-    def replace_all(self, text: &str, template: &str, max_bytes: i64) -> Result[str, RegexError]
-def compile(pattern: &str, bounds: &Limits) -> Result[Regex, RegexError]
+    def split(self, text: &strview, max_pieces: i64) -> Result[list[str], RegexError]
+    def replace(self, text: &strview, template: &strview, max_bytes: i64) -> Result[str, RegexError]
+    def replace_all(self, text: &strview, template: &strview, max_bytes: i64) -> Result[str, RegexError]
+def compile(pattern: &strview, bounds: &Limits) -> Result[Regex, RegexError]
 ```
 
 ## `std.report`
@@ -3739,20 +3739,20 @@ def fake_stream(input: Bytes) -> Result[FakeStream, AllocError]
 Bounded builders, joining, scalar/word wrapping, shortening, and indentation. Errors: `TextError`. [Reference](text.md).
 
 ```text
-def find_in(text: &str, set: &[u8]) -> Option[i64]
-def find_not_in(text: &str, set: &[u8]) -> Option[i64]
+def find_in(text: &strview, set: &[u8]) -> Option[i64]
+def find_not_in(text: &strview, set: &[u8]) -> Option[i64]
 enum TextError
     InvalidLimit | LimitExceeded | Allocation(AllocError) | Bytes(BytesError)
 class Builder
     def byte_len(self) -> i64
     def limit(self) -> i64
-    def append(self: &mut Builder, text: &str) -> Result[(), TextError]
+    def append(self: &mut Builder, text: &strview) -> Result[(), TextError]
     def clear(self: &mut Builder) -> ()
     def to_text(self) -> Result[str, TextError]
     def finish(self: Builder) -> Result[str, TextError]
 def builder(max_bytes: NonNegative[i64]) -> Result[Builder, TextError]
-def join(pieces: &list[str], separator: &str, max_bytes: NonNegative[i64]) -> Result[str, TextError]
-def hard_wrap(text: &str, width: Positive[i64], max_bytes: NonNegative[i64]) -> Result[str, TextError]
+def join(pieces: &list[str], separator: &strview, max_bytes: NonNegative[i64]) -> Result[str, TextError]
+def hard_wrap(text: &strview, width: Positive[i64], max_bytes: NonNegative[i64]) -> Result[str, TextError]
 class TextWrapper
     width: Positive[i64]
     initial_indent: str
@@ -3768,15 +3768,15 @@ class TextWrapper
     placeholder: str
     max_bytes: NonNegative[i64]
     max_input_bytes: NonNegative[i64]
-    def wrap(self, text: &str) -> Result[list[str], TextError]
-    def fill(self, text: &str) -> Result[str, TextError]
+    def wrap(self, text: &strview) -> Result[list[str], TextError]
+    def fill(self, text: &strview) -> Result[str, TextError]
 def text_wrapper(width: Positive[i64] = 70, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> TextWrapper
-def wrap(text: &str, width: Positive[i64] = 70, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[list[str], TextError]
-def fill(text: &str, width: Positive[i64] = 70, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]
-def shorten(text: &str, width: Positive[i64], placeholder: &str = " [...]", max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576, fix_sentence_endings: bool = False, break_long_words: bool = True, break_on_hyphens: bool = True) -> Result[str, TextError]
-def dedent(text: &str, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]
-def indent(text: &str, prefix: &str, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]
-def indent_with[F: Callable[[&str], bool]](text: &str, prefix: &str, predicate: F, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]
+def wrap(text: &strview, width: Positive[i64] = 70, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[list[str], TextError]
+def fill(text: &strview, width: Positive[i64] = 70, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]
+def shorten(text: &strview, width: Positive[i64], placeholder: &strview = " [...]", max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576, fix_sentence_endings: bool = False, break_long_words: bool = True, break_on_hyphens: bool = True) -> Result[str, TextError]
+def dedent(text: &strview, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]
+def indent(text: &strview, prefix: &strview, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]
+def indent_with[F: Callable[[&str], bool]](text: &strview, prefix: &strview, predicate: F, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]
 ```
 
 ## `std.thread`
