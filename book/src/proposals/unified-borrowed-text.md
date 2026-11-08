@@ -23,6 +23,10 @@ between ordinary `&str` parameters and the limited `&substr` view. The selected
 design addresses that usability gap through a complete separate `&strview`
 reader, while retaining ordinary string references. Passing `&s[a:b]` to an
 ordinary `&str` parameter still fails; read-only APIs use `&strview` instead.
+Whole-handle retention APIs keep ordinary `&str`: dereferencing it shares an
+existing owning handle cheaply, while a two-word view cannot recover that
+handle. A caller with a view explicitly materializes `view[:]?` at a retaining
+boundary. See the [current parameter inventory](../design/stdlib/text-input-views.md#scope).
 
 The distinction follows the current representation, but need not be a public
 language distinction. The desired interface is:

@@ -229,16 +229,16 @@ pub class SetCookie:
 
 # A session cookie with the safe defaults: Path=/, Secure, HttpOnly,
 # SameSite=Lax. The name and value are checked here as well as by `format`.
-pub def set_cookie(name: &strview, value: &strview) -> Result[SetCookie, CookieError]:
+pub def set_cookie(name: &str, value: &str) -> Result[SetCookie, CookieError]:
     if not valid_name(name):
         return Err(CookieError.InvalidName)
     if not valid_value(value):
         return Err(CookieError.InvalidValue)
-    Ok(SetCookie(allocated(name[:])?, allocated(value[:])?, "/", "", Nothing, True, True, SameSite.Lax))
+    Ok(SetCookie(*name, *value, "/", "", Nothing, True, True, SameSite.Lax))
 
 # A cookie that tells the browser to delete `name`: empty, Max-Age=0. Its
 # path and domain must match the cookie being removed.
-pub def removal(name: &strview) -> Result[SetCookie, CookieError]:
+pub def removal(name: &str) -> Result[SetCookie, CookieError]:
     mut cookie = set_cookie(name, "")?
     cookie.max_age = Some(seconds(0u32))
     Ok(cookie)
@@ -350,7 +350,7 @@ pub def find_signed(cookies: &list[Cookie], keys: &list[Bytes], name: &strview) 
 
 # `set_cookie(name, sign(keys, name, value))`: a signed cookie with the safe
 # defaults.
-pub def signed_cookie(keys: &list[Bytes], name: &strview, value: &strview) -> Result[SetCookie, CookieError]:
+pub def signed_cookie(keys: &list[Bytes], name: &str, value: &strview) -> Result[SetCookie, CookieError]:
     signed = sign(keys, name, value)?
     set_cookie(name, &signed)
 

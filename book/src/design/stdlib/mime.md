@@ -29,8 +29,9 @@ multipart/form-data; boundary="x7 y"
 image/svg+xml Option[str].Some("font/woff2")
 ```
 
-Text inputs accept `&strview`, including selected substring ranges. Parsed
-media types and stored parameter values own their text; `type_name()` and
+Read-only text inputs accept `&strview`, including selected substring ranges.
+`set_param` takes its stored value as ordinary `&str`, sharing its handle
+except when normalizing a charset. Parsed media types own their text; `type_name()` and
 `subtype()` continue to return ordinary `&str` references to owned fields.
 
 ## Media types
@@ -130,9 +131,10 @@ The result is `Content-Type` text, ready for a response header; pass it to
 
 ## Allocation
 
-`parse` copies the text once into a byte buffer and allocates the names,
-values and parameter list of the result. `new`, `set_param`, `essence`,
-`suffix` and `to_string` allocate their results. Every allocation failure
+`parse` reads borrowed bytes and allocates the names, values and parameter
+list of the result. `new`, `essence`, `suffix` and `to_string` allocate their
+results. `set_param` can allocate its normalized name, normalized charset value,
+or parameter-list growth; other stored values share their existing handle. Every allocation failure
 returns `AllocError` and leaves existing values unchanged. `to_string` checks
 its fragment-list capacity before allocating; an unrepresentable capacity
 returns `AllocError.CapacityOverflow`. Accessors,

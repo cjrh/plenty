@@ -328,7 +328,7 @@ class Response
     def write(self: &mut Response, source: &[u8]) -> Result[i64, ServerError]
     def finish(self: &mut Response) -> Result[(), ServerError]
     def respond(self: &mut Response, head: ResponseHead, body: &[u8]) -> Result[(), ServerError]
-    def send(self: &mut Response, status: i64, content_type: &strview, body: &[u8]) -> Result[(), ServerError]
+    def send(self: &mut Response, status: i64, content_type: &str, body: &[u8]) -> Result[(), ServerError]
     def send_text(self: &mut Response, status: i64, text: &strview) -> Result[(), ServerError]
 def config() -> Config
 class Node[F, H]
@@ -1824,7 +1824,7 @@ class Request
     headers: list[Header]
     body: Bytes
     def add(self: &mut Request, name: str, value: str) -> Result[(), ClientError]
-def request(method: &strview, url: &strview) -> Result[Request, ClientError]
+def request(method: &str, url: &str) -> Result[Request, ClientError]
 class Fetched
     status: i64
     head: ResponseHead
@@ -1859,7 +1859,7 @@ class Client[T, C]
     def send(self, request: Request, deadline: &Deadline, cancel: &CancellationToken) -> Result[Response[T], ClientError]
     def send_from[R: Reader](self, request: Request, body: &mut R, upload: &Upload, deadline: &Deadline, cancel: &CancellationToken) -> Result[Response[T], ClientError]
     def fetch(self, request: Request, deadline: &Deadline, cancel: &CancellationToken) -> Result[Fetched, ClientError]
-    def get(self, url: &strview, deadline: &Deadline, cancel: &CancellationToken) -> Result[Fetched, ClientError]
+    def get(self, url: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[Fetched, ClientError]
     def finish(self, response: Response[T]) -> ()
 def client(config: Config) -> Result[Client[Plain, TcpConnector], ClientError]
 def connector[T: Transport, C: Connector[T]](opener: C, config: Config) -> Result[Client[T, C], ClientError]
@@ -1889,14 +1889,14 @@ class SetCookie
     http_only: bool
     same_site: SameSite
     def to_string(self) -> Result[str, CookieError]
-def set_cookie(name: &strview, value: &strview) -> Result[SetCookie, CookieError]
-def removal(name: &strview) -> Result[SetCookie, CookieError]
+def set_cookie(name: &str, value: &str) -> Result[SetCookie, CookieError]
+def removal(name: &str) -> Result[SetCookie, CookieError]
 def add(head: &mut ResponseHead, cookie: &SetCookie) -> Result[(), CookieError]
 const min_key: i64 = 32
 def sign(keys: &list[Bytes], name: &strview, value: &strview) -> Result[str, CookieError]
 def verify(keys: &list[Bytes], name: &strview, signed: &strview) -> Result[Option[str], CookieError]
 def find_signed(cookies: &list[Cookie], keys: &list[Bytes], name: &strview) -> Result[Option[str], CookieError]
-def signed_cookie(keys: &list[Bytes], name: &strview, value: &strview) -> Result[SetCookie, CookieError]
+def signed_cookie(keys: &list[Bytes], name: &str, value: &strview) -> Result[SetCookie, CookieError]
 ```
 
 ## `std.http.files`
@@ -2009,7 +2009,7 @@ class Router[R]
     def set_method_not_allowed(self: &mut Router[R], route: Option[R]) -> ()
     def set_trailing_slash(self: &mut Router[R], policy: TrailingSlash) -> ()
     def set_path_refusal(self: &mut Router[R], renderer: Option[Callable[[&PathRefusal, &mut RefusalResponse], Result[(), RefusalError]]], max_bytes: NonNegative[i64]) -> ()
-    def add(self: &mut Router[R], method: &strview, pattern: &strview, route: R) -> Result[(), ServerError]
+    def add(self: &mut Router[R], method: &str, pattern: &strview, route: R) -> Result[(), ServerError]
     def find(self, method: &strview, path: &strview) -> Result[Match, ServerError]
     def route(self, index: i64) -> &R
 def router[R]() -> Result[Router[R], ServerError]
@@ -2034,7 +2034,7 @@ class Exchange[T]
     def read_body(self: &mut Exchange[T], buffer: &mut Bytes, start: i64, stop: i64) -> Result[i64, HttpError]
     def read_all(self: &mut Exchange[T], out: &mut Bytes) -> Result[i64, HttpError]
     def respond(self: &mut Exchange[T], head: ResponseHead, body: &[u8]) -> Result[(), HttpError]
-    def send(self: &mut Exchange[T], status: i64, content_type: &strview, body: &[u8]) -> Result[(), HttpError]
+    def send(self: &mut Exchange[T], status: i64, content_type: &str, body: &[u8]) -> Result[(), HttpError]
     def send_text(self: &mut Exchange[T], status: i64, text: &strview) -> Result[(), HttpError]
     def start(self: &mut Exchange[T], head: ResponseHead) -> Result[(), HttpError]
     def write(self: &mut Exchange[T], source: &[u8]) -> Result[(), HttpError]
@@ -2776,7 +2776,7 @@ class Limits
 def limits() -> Limits
 def escape(text: &strview, context: HtmlContext, max_bytes: NonNegative[i64] = 16777216) -> Result[str, TemplateError]
 class Engine
-    def add(self: &mut Engine, name: &strview, source: &strview) -> Result[(), TemplateError]
+    def add(self: &mut Engine, name: &str, source: &strview) -> Result[(), TemplateError]
     def validate(self, name: &strview, schema: &Shape) -> Result[(), TemplateError]
     def render_checked(self, name: &strview, context: &Json, schema: &Shape, html: bool = True) -> Result[str, TemplateError]
     def render(self, name: &strview, context: &Json, html: bool = True) -> Result[str, TemplateError]
@@ -2877,7 +2877,7 @@ class MediaType
     def essence(self) -> Result[str, AllocError]
     def is_wildcard(self) -> bool
     def matches(self, pattern: &MediaType) -> bool
-    def set_param(self: &mut MediaType, name: &strview, value: &strview) -> Result[(), MimeError]
+    def set_param(self: &mut MediaType, name: &strview, value: &str) -> Result[(), MimeError]
     def remove_param(self: &mut MediaType, name: &strview) -> bool
     def to_string(self) -> Result[str, AllocError]
 def parse(text: &strview) -> Result[MediaType, MimeError]
@@ -3157,7 +3157,7 @@ class Regex
     def split(self, text: &strview, max_pieces: i64) -> Result[list[str], RegexError]
     def replace(self, text: &strview, template: &strview, max_bytes: i64) -> Result[str, RegexError]
     def replace_all(self, text: &strview, template: &strview, max_bytes: i64) -> Result[str, RegexError]
-def compile(pattern: &strview, bounds: &Limits) -> Result[Regex, RegexError]
+def compile(pattern: &str, bounds: &Limits) -> Result[Regex, RegexError]
 ```
 
 ## `std.report`

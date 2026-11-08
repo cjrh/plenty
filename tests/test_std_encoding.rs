@@ -950,29 +950,50 @@ fn a_later_allocation_failure_releases_the_earlier_buffer() {
     let expected = format!(
         "Result[str, {failure}\n\
          Result[str, {failure}\n\
-         Result[str, {failure}\n\
-         Result[Bytes, {failure}\n\
-         Result[Bytes, {failure}\n\
-         Result[Bytes, {failure}"
+         Result[str, {failure}"
     );
     native(
         r#"
 plain = std.bytes.from_text("a text too long for inline string storage")?
-digits = std.encoding.hex_text(&plain)?
-padded = std.encoding.base64_text(&plain)?
-bare = std.encoding.base64url_text(&plain)?
 print("__test_fail_allocations_after_2__")?
 a = std.encoding.hex_text(&plain)
 print("__test_fail_allocations_after_2__")?
 b = std.encoding.base64_text(&plain)
 print("__test_fail_allocations_after_2__")?
 c = std.encoding.base64url_text(&plain)
+print("__test_restore_allocations__")?
+print(str.repr(a)?)?
+print(str.repr(b)?)?
+print(str.repr(c)?)?
+"#,
+        &expected,
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn text_decoders_allocate_only_output_and_release_partial_storage() {
+    // A borrowed input needs no buffer. Budget 1 fails the output owner's
+    // allocation after its storage succeeds; runtime balance checks detect a
+    // leaked partial output. Budget 2 must complete the same selected ranges.
+    native(
+        r#"
+plain = std.bytes.from_text("a text too long for inline string storage")?
+digits = "!".concat(&std.encoding.hex_text(&plain)?)?.concat("!")?
+padded = "!".concat(&std.encoding.base64_text(&plain)?)?.concat("!")?
+bare = "!".concat(&std.encoding.base64url_text(&plain)?)?.concat("!")?
+print("__test_fail_allocations_after_1__")?
+a = std.encoding.hex_from_text(&digits[1:-1])
+print("__test_fail_allocations_after_1__")?
+b = std.encoding.base64_from_text(&padded[1:-1])
+print("__test_fail_allocations_after_1__")?
+c = std.encoding.base64url_from_text(&bare[1:-1])
 print("__test_fail_allocations_after_2__")?
-d = std.encoding.hex_from_text(&digits)
+d = std.encoding.hex_from_text(&digits[1:-1])
 print("__test_fail_allocations_after_2__")?
-e = std.encoding.base64_from_text(&padded)
+e = std.encoding.base64_from_text(&padded[1:-1])
 print("__test_fail_allocations_after_2__")?
-f = std.encoding.base64url_from_text(&bare)
+f = std.encoding.base64url_from_text(&bare[1:-1])
 print("__test_restore_allocations__")?
 print(str.repr(a)?)?
 print(str.repr(b)?)?
@@ -981,7 +1002,14 @@ print(str.repr(d)?)?
 print(str.repr(e)?)?
 print(str.repr(f)?)?
 "#,
-        &expected,
+        r#"
+Result[Bytes, E].Err(E.Allocation(AllocError.OutOfMemory))
+Result[Bytes, E].Err(E.Allocation(AllocError.OutOfMemory))
+Result[Bytes, E].Err(E.Allocation(AllocError.OutOfMemory))
+Result[Bytes, E].Ok(b"a text too long for inline string storage")
+Result[Bytes, E].Ok(b"a text too long for inline string storage")
+Result[Bytes, E].Ok(b"a text too long for inline string storage")
+"#,
     );
 }
 

@@ -2051,7 +2051,7 @@ pub class Regex:
 
 # Compiles `pattern`, or reports the first problem: a syntax error with its
 # byte offset, or the first limit the pattern would exceed.
-pub def compile(pattern: &strview, bounds: &Limits) -> Result[Regex, RegexError]:
+pub def compile(pattern: &str, bounds: &Limits) -> Result[Regex, RegexError]:
     if bounds.max_nesting.get() > nesting_ceiling:
         __trap("std.regex.compile: max_nesting is above 1000")
     if pattern.byte_len() > bounds.max_pattern_bytes.get():
@@ -2074,7 +2074,7 @@ pub def compile(pattern: &strview, bounds: &Limits) -> Result[Regex, RegexError]
         return Err(RegexError.LimitExceeded(Limit.Memory))
     prefix = prefix_of(&compiler)?
     names = replace(compiler._names, held(list[str].new())?)
-    mut regex = Regex(held(__regex_text_slice(pattern, 0, pattern.byte_len()))?, bounds.max_memory.get(), replace(compiler._op, integers()?), replace(compiler._x, integers()?), replace(compiler._y, integers()?), replace(compiler._class_start, integers()?), replace(compiler._class_count, integers()?), replace(compiler._class_negated, integers()?), replace(compiler._class_fold, integers()?), replace(compiler._item_kind, integers()?), replace(compiler._item_low, integers()?), replace(compiler._item_high, integers()?), names, prefix, integers()?, 0, 0, 0, held(list[str].new())?, integers()?, integers()?, 0, -1, integers()?, bounds.max_work.get(), no_bytes()?)
+    mut regex = Regex(*pattern, bounds.max_memory.get(), replace(compiler._op, integers()?), replace(compiler._x, integers()?), replace(compiler._y, integers()?), replace(compiler._class_start, integers()?), replace(compiler._class_count, integers()?), replace(compiler._class_negated, integers()?), replace(compiler._class_fold, integers()?), replace(compiler._item_kind, integers()?), replace(compiler._item_low, integers()?), replace(compiler._item_high, integers()?), names, prefix, integers()?, 0, 0, 0, held(list[str].new())?, integers()?, integers()?, 0, -1, integers()?, bounds.max_work.get(), no_bytes()?)
     regex.prepare_filter()?
     unchecked:
         regex.prepare_dfa(budget - words)?

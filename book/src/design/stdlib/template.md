@@ -21,9 +21,9 @@ def main() -> Result[(), TemplateError | AllocError | IoError]:
 <p>Hello Ada &amp; Grace!</p>
 ```
 
-Text inputs accept `&strview`, including template names and source ranges.
-Registration copies the name and parsed text it retains through the existing
-fallible allocation contract. Lookup, validation, rendering, and escaping
+Read-only text inputs accept `&strview`, including source ranges and lookup
+names. Registration takes its retained name as `&str`, sharing its owning
+handle; parsed source text keeps the existing fallible allocation contract. Lookup, validation, rendering, and escaping
 inspect their selected input without a caller-side owning string copy.
 
 ## Declared context validation

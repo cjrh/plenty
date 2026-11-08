@@ -29,6 +29,10 @@ make blocking database or HTTP-client operations nonblocking.
 
 ## Complete requests
 
+`Response.send` takes its Content-Type as ordinary `&str`, sharing the existing
+string handle in the response header. The body and `send_text` text remain
+borrowed views. A selected Content-Type range needs an explicit owned copy.
+
 Start with the runnable [actor HTTP lesson](../../tutorial/11-concurrency/actor-http-server.md).
 The simple entry points are:
 

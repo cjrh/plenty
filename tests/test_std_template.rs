@@ -859,7 +859,8 @@ bounds = std.template.limits()
 mut templates = std.template.engine(&bounds)?
 mut name = "!page!"
 mut text = "!<p>café 🙂</p>!"
-templates.add(&name[1:-1], &text[1:-1])?
+owned_name = name[1:-1]?
+templates.add(&owned_name, &text[1:-1])?
 name = "changed"
 text = "changed"
 lookup = "!page!"
@@ -875,4 +876,40 @@ print(std.template.escape(&escaped[1:-1], std.template.HtmlContext.Text)? == "&l
 "#,
     );
     assert_eq!(support::run_file_stdout(&source), "True\nTrue\nTrue\nTrue");
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn registration_shares_the_retained_template_name_handle() {
+    let source = r#"
+import std.template
+from std.json import Json
+
+def needed(name: &str) -> Result[i64, AllocError | IoError | std.template.TemplateError]:
+    bounds = std.template.limits()
+    for budget in range(200):
+        mut templates = std.template.engine(&bounds)?
+        marker = "__test_fail_allocations_after_".concat(str.from(budget)?)?.concat("__")?
+        print(marker)?
+        result = templates.add(name, "ok")
+        print("__test_restore_allocations__")?
+        if result.is_ok():
+            return Ok(budget)
+    Ok(-1)
+
+def registered() -> Result[std.template.Engine, AllocError | std.template.TemplateError]:
+    name = "a template name ".concat("beyond inline storage")?
+    mut templates = std.template.engine(&std.template.limits())?
+    templates.add(&name, "ok")?
+    Ok(templates)
+
+def main() -> Result[(), AllocError | IoError | std.template.TemplateError]:
+    short = needed("a")?
+    long = needed("a template name beyond inline storage")?
+    print(short >= 0, short == long)?
+    templates = registered()?
+    print(templates.render("a template name beyond inline storage", &Json.Object([]?))? == "ok")?
+    Ok(())
+"#;
+    assert_eq!(output_with_optimization(source, false), "True True\nTrue");
 }

@@ -236,9 +236,9 @@ pub class Response:
         self._finish()?
         Ok(())
 
-    def _send(self: &mut Response, status: i64, content_type: &strview, body: &[u8]) -> Result[(), HttpError | BytesError | AllocError]:
+    def _send(self: &mut Response, status: i64, content_type: &str, body: &[u8]) -> Result[(), HttpError | BytesError | AllocError]:
         mut head = std.http.response(status, std.http.server.reason(status))?
-        head.add("Content-Type", content_type[:]?)?
+        head.add("Content-Type", *content_type)?
         self._respond(head, body)
 
     def _send_text(self: &mut Response, status: i64, text: &strview) -> Result[(), HttpError | BytesError | AllocError]:
@@ -264,7 +264,7 @@ pub class Response:
     pub def respond(self: &mut Response, head: ResponseHead, body: &[u8]) -> Result[(), ServerError]:
         network(self._respond(head, body))
 
-    pub def send(self: &mut Response, status: i64, content_type: &strview, body: &[u8]) -> Result[(), ServerError]:
+    pub def send(self: &mut Response, status: i64, content_type: &str, body: &[u8]) -> Result[(), ServerError]:
         network(self._send(status, content_type, body))
 
     pub def send_text(self: &mut Response, status: i64, text: &strview) -> Result[(), ServerError]:

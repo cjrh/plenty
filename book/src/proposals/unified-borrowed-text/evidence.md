@@ -25,6 +25,27 @@ protocol/getter exceptions recorded in the [input inventory](../../design/stdlib
 The generic-reference evidence below explains why this route preserves two
 borrowed text forms. No generic-reference specialization or unification was implemented.
 
+## Whole-handle retention boundaries
+
+A two-word view carries a byte address and count, not the owning `str` handle.
+Replacing every `&str` parameter with a view would force new payload copies
+where existing code simply shares `*text`. Allocation-check regressions for
+issue #135 exposed this distinction in `stdlib/std/http/client.plenty::request`,
+`stdlib/std/http/cookie.plenty::set_cookie`, and
+`stdlib/std/http/server.plenty::Router.add`. Their existing tests
+`request_shares_its_method_and_url`, `set_cookie_shares_its_arguments`, and
+`routes_and_captures_share_their_strings` preserve the original sharing budgets.
+
+The implemented rule classifies each parameter: retain whole handles through
+ordinary `&str`, inspect text through `&strview`, and explicitly copy a selected
+view when an owner must escape. Mixed APIs keep both roles. The current
+[inventory](../../design/stdlib/text-input-views.md#scope) includes compiled
+regex patterns, template names, MIME stored values, and response Content-Type
+handles. Focused allocation tests live in `tests/test_std_regex.rs`,
+`tests/test_std_template.rs`, `tests/test_std_mime.rs`, and
+`tests/test_std_http_server.rs`. Parsed tokens, normalized results and error
+text retain their ordinary fallible construction contracts.
+
 ## Length, indexing and cached counts
 
 Scalar semantics and scalar-count caching are independent decisions. UTF-8
@@ -95,6 +116,7 @@ Implementation boundaries and original precedents:
 | `src/frontend/views.rs`, `__regex_text_bytes` handling | Internal adapter forwards the text origin's loan to a shared byte-view argument. It is argument-only, not a general returned-view mechanism. |
 | `src/regex.rs`, `RegexOp::TextBytes` | Records conversion from text view to byte view. |
 | `src/codegen/collections.rs`, `lower_collection` | Regex conversion reuses the existing address/count operand with byte-view type; no byte allocation or copy. |
+| `src/codegen/collections.rs`, `narrow_helper`; `tests/test_std_text_set_scans.rs` | Text-set scan adapters must preserve scalar-result helper lowering when accepting views; issue #880 records this code-generation boundary. |
 | `stdlib/std/regex.plenty`, `search_bytes` call using `__regex_text_bytes(text)` | Actual consumer of the loan-preserving byte adapter. |
 | `stdlib/std/bytes.plenty`, `from_text` | Public owned-byte conversion accepts `&strview` and copies its `as_bytes()` range directly. |
 | `stdlib/std/bytes.plenty`, `Bytes.extend`, `Bytes.overwrite` | Shared byte-view consumers that a public text-to-byte borrow should feed directly. |

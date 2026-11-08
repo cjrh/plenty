@@ -2641,3 +2641,43 @@ def main() -> ():
     assert!(error.contains("changing the working directory"), "{error}");
     assert!(error.contains("unsafe_renderer"), "{error}");
 }
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn response_content_types_share_text_before_protocol_serialization() {
+    let source = format!(
+        "{SCRIPTED}{}",
+        r#"
+pub class Sending:
+    content_type: str
+    marker: str
+
+    pub def handle(self, route: &i64, exchange: &mut Exchange[Script]) -> Result[(), IoError]:
+        print(&self.marker)?
+        sent = exchange.send(200, &self.content_type, b"ok")
+        print("__test_restore_allocations__")?
+        print(sent.is_ok())?
+        Ok(())
+
+def main() -> Result[(), ServerError | AllocError | IoError]:
+    mut table = std.http.server.router[i64]()?
+    table.add("GET", "/", 1)?
+    stop = CancellationToken()?
+    config = std.http.server.config()
+    for content_type in ["a", "application/a-content-type-beyond-inline-storage"]?:
+        for budget in range(40):
+            marker = "__test_fail_allocations_after_".concat(str.from(budget)?)?.concat("__")?
+            input = std.bytes.from_text("GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")?
+            app = Sending(content_type, marker)
+            drop(std.http.server.serve_connection(Script(input, 0, 1000, False, False), &table, &app, &config, &stop, &stop))
+    Ok(())
+"#
+    );
+    let output = support::http_program_output(&source);
+    let results: Vec<_> = output.lines().collect();
+    assert_eq!(results.len(), 80, "{output}");
+    let (short, long) = results.split_at(40);
+    assert_eq!(short, long, "{output}");
+    assert_eq!(short[0], "False");
+    assert_eq!(short[39], "True");
+}
