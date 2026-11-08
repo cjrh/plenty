@@ -556,6 +556,14 @@ impl Lower<'_> {
             ancestor = self.loans[id].parent;
         }
         let (old, new) = (&self.loans[held], &self.loans[loan]);
+        if new.root != old.root
+            && self
+                .names
+                .get(name)
+                .is_some_and(|local| local.ty.lends_frame())
+        {
+            return Err(self.frame_retarget_error(name, old.root, at));
+        }
         if new.root != old.root {
             // Only an `Option` or `Result` holder can start without a borrow.
             let choose = match self.names.get(name).map(|local| &local.ty) {
@@ -577,6 +585,19 @@ impl Lower<'_> {
             )));
         }
         Ok(true)
+    }
+
+    /// A generator binding keeps the loans of the frame it first held, so it
+    /// cannot take one borrowing another owner (issue #899).
+    #[inline(never)]
+    fn frame_retarget_error(&self, name: &str, root: u8, at: &Token) -> Box<dyn Error> {
+        let owner = match self.slot_names.get(usize::from(root)) {
+            Some(Some(owner)) => format!("`{owner}`"),
+            _ => "its source".into(),
+        };
+        at.error(format!(
+            "`{name}` holds a generator that borrows {owner}; a generator borrowing another owner needs a new binding"
+        ))
     }
 
     /// Gives a just-lowered success payload `arg` of type `ty` its own loan

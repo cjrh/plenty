@@ -748,3 +748,25 @@ fn a_returned_bridged_pipeline_cannot_borrow_the_function_own_values() {
         "{error}"
     );
 }
+
+// Review of local PR #1140: a generator binding names its borrowed owner
+// rather than calling itself a reference binding.
+#[test]
+fn reassigning_a_generator_to_another_owner_names_the_generator() {
+    let error = check_error(&with_evens(
+        r#"
+def main() -> Result[(), AllocError | IoError]:
+    xs = [1, 2]?
+    ys = [2, 4]?
+    mut h = evens(&ys)
+    print(next(h))?
+    h = evens(&xs)
+    print(next(h))?
+    Ok(())
+"#,
+    ));
+    assert!(
+        error.contains("`h` holds a generator that borrows `ys`; a generator borrowing another owner needs a new binding"),
+        "{error}"
+    );
+}
