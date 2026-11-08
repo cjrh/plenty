@@ -14,6 +14,7 @@ use super::*;
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 
+mod generic_bodies;
 pub mod index;
 pub mod relocate;
 pub mod rename;
@@ -78,6 +79,9 @@ pub struct Reference {
     pub location: Location,
     pub symbol: usize,
     pub ty: Option<String>,
+    /// Found by the types written in a generic body that no instantiation
+    /// checked, rather than by the checker.
+    pub inferred: bool,
 }
 
 /// An unannotated simple binding with an unambiguous checked type.
@@ -107,6 +111,14 @@ pub struct Analysis {
     pub references: Vec<Reference>,
     pub inferred_bindings: Vec<InferredBinding>,
     pub sources: HashMap<File, Arc<str>>,
+    /// Member names, and labels of named arguments, written in generic
+    /// bodies that no instantiation checked, on a receiver whose type the
+    /// analysis cannot tell. A rename cannot know whether they name what it
+    /// renames.
+    pub unresolved: Vec<Location>,
+    /// The qualified names of `@serial` classes and enums, whose field and
+    /// variant names are their encoded names.
+    pub serial: HashSet<String>,
 }
 
 impl Analysis {
@@ -201,6 +213,13 @@ struct Recorder {
     parameters: HashMap<String, Vec<String>>,
     /// The keys of parameters of callables other modules can call.
     exported: HashSet<String>,
+    /// See [`Analysis::unresolved`].
+    unresolved: Vec<(Anchor, Find)>,
+    /// See [`Analysis::serial`].
+    serial: HashSet<String>,
+    /// The index in `references` of the first reference found in
+    /// uninstantiated generic bodies.
+    inferred_from: Option<usize>,
     /// Method names being lowered, innermost last.
     methods: Vec<(Pos, String)>,
     /// Functions whose bodies did not resolve: they keep their signatures,
@@ -486,6 +505,35 @@ pub(super) fn named_argument(at: &Token, label: &str, callee: &str, index: usize
     });
 }
 
+/// A member name written at `pos`, in the file of `at`, that the analysis
+/// cannot resolve; see [`Analysis::unresolved`].
+pub(super) fn unresolved_member(at: &Token, pos: Pos, name: &str) {
+    with(|r| {
+        let anchor = Anchor::at(at, pos)?;
+        r.unresolved
+            .push((anchor, Find::At(name.chars().count() as u32)));
+        Some(())
+    });
+}
+
+/// Records that the type `name` (qualified) is `@serial`.
+pub(super) fn serial(name: String) {
+    with(|r| {
+        r.serial.insert(name);
+    });
+}
+
+/// A named argument written at `at` whose callee the analysis cannot
+/// resolve.
+pub(super) fn unresolved_label(at: &Token, label: &str) {
+    with(|r| {
+        let anchor = Anchor::of(at)?;
+        r.unresolved
+            .push((anchor, Find::At(label.chars().count() as u32)));
+        Some(())
+    });
+}
+
 /// Marks the parameters of `f` as reachable from other modules: `f` is an
 /// exported function or a public member of an exported type.
 pub(super) fn export_parameters(f: &Function) {
@@ -617,13 +665,16 @@ fn check(path: &Path, graph: Option<&crate::project::SourceGraph>) -> Result<()>
         None => modules::load(path, None, false)?,
     };
     resolved.require_main = resolved.functions.iter().any(|f| f.name == "main");
+    let generic = generic_bodies::Bodies::of(&resolved);
     let mut heap = Heap::default();
-    let mut program = lower(
+    let lowered = lower(
         resolved,
         &mut heap,
         crate::CheckOptions::default(),
         crate::UncheckedMode::Trap,
-    )?;
+    );
+    generic.walk();
+    let mut program = lowered?;
     let warnings = std::mem::take(&mut program.warnings);
     with(|r| r.warnings = warnings);
     // A function that failed was left out, so later passes would report
@@ -776,6 +827,9 @@ fn finish(recorder: Recorder) -> Analysis {
         diagnostics,
         warnings,
         exported,
+        unresolved,
+        serial,
+        inferred_from,
         ..
     } = recorder;
     let exported: HashSet<usize> = exported
@@ -856,7 +910,8 @@ fn finish(recorder: Recorder) -> Analysis {
     }
     let mut seen = HashSet::default();
     let mut found = Vec::new();
-    for (anchor, find, key) in &references {
+    let inferred_from = inferred_from.unwrap_or(references.len());
+    for (index, (anchor, find, key)) in references.iter().enumerate() {
         let Some(&symbol) = keys.get(key) else {
             continue;
         };
@@ -870,8 +925,13 @@ fn finish(recorder: Recorder) -> Analysis {
             location,
             symbol,
             ty: types.get(anchor).cloned(),
+            inferred: index >= inferred_from,
         });
     }
+    let unresolved = unresolved
+        .iter()
+        .filter_map(|(anchor, find)| Some(locate(anchor, find)?.0))
+        .collect();
     // Never publish annotations from a partial or failed check. Unlike names
     // for completion, hints must describe exactly the current checked source.
     let inferred_bindings = if diagnostics.is_empty() {
@@ -901,6 +961,8 @@ fn finish(recorder: Recorder) -> Analysis {
         references: found,
         inferred_bindings,
         sources: texts.into_values().collect(),
+        unresolved,
+        serial,
     }
 }
 

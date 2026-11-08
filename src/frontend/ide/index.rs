@@ -17,6 +17,8 @@ pub(crate) struct Use {
     /// The declaration's position in any file, `std` included.
     pub(crate) identity: Option<(File, u32, u32)>,
     pub(crate) kind: SymbolKind,
+    /// See [`Reference::inferred`](super::Reference::inferred).
+    pub(crate) inferred: bool,
 }
 
 /// The files each analysis read: each entry's, then each unreached file's.
@@ -26,6 +28,8 @@ pub(crate) struct Reach {
     pub(crate) files: BTreeMap<PathBuf, BTreeSet<PathBuf>>,
     /// The first error of each analysis that did not check, with its place.
     pub(crate) errors: Vec<String>,
+    /// Each analysis's [`Analysis::unresolved`] places, in package files.
+    pub(crate) unresolved: Vec<(PathBuf, Location)>,
 }
 
 impl Reach {
@@ -171,7 +175,7 @@ impl Package {
                    reach: &mut Reach,
                    uses: &mut BTreeMap<_, _>|
          -> Result<BTreeSet<PathBuf>, String> {
-            let (read, error) = self.analyze_one(root, graph, overlay, uses);
+            let (read, error) = self.analyze_one(root, graph, overlay, uses, &mut reach.unresolved);
             if let Some(error) = error {
                 if errors == Errors::Stop {
                     return Err(error);
@@ -210,9 +214,18 @@ impl Package {
         graph: &crate::project::SourceGraph,
         overlay: &HashMap<PathBuf, String>,
         uses: &mut BTreeMap<(PathBuf, u32, u32, u32), Vec<Use>>,
+        unresolved: &mut Vec<(PathBuf, Location)>,
     ) -> (BTreeSet<PathBuf>, Option<String>) {
         self.analyses.set(self.analyses.get() + 1);
         let analysis: Analysis = analyze(root, Some(graph), overlay.clone());
+        for location in &analysis.unresolved {
+            if let File::Path(path) = &location.file {
+                let place = (path.clone(), location.clone());
+                if !unresolved.contains(&place) {
+                    unresolved.push(place);
+                }
+            }
+        }
         let error = analysis.diagnostics.first().map(|error| {
             let at = match &error.file {
                 Some(File::Path(path)) => {
@@ -272,13 +285,24 @@ impl Package {
                 .entry((path.clone(), l.line, l.column, l.length))
                 .or_default();
             if !place.iter().any(|u| u.identity == identity) {
-                place.push(Use {
-                    path: path.clone(),
-                    location: l.clone(),
-                    target,
-                    identity,
-                    kind: symbol.kind,
-                });
+                // A checked use comes before an inferred one, so the first
+                // use at a place does not depend on which analysis read
+                // the file first.
+                let at = match reference.inferred {
+                    true => place.len(),
+                    false => place.partition_point(|u| !u.inferred),
+                };
+                place.insert(
+                    at,
+                    Use {
+                        path: path.clone(),
+                        location: l.clone(),
+                        target,
+                        identity,
+                        kind: symbol.kind,
+                        inferred: reference.inferred,
+                    },
+                );
             }
         }
         let read = analysis
