@@ -75,7 +75,7 @@ def main() -> Result[(), IoError | AllocError | std.io.Partial | std.io.StreamEr
     while input.read_until(10u8, &mut line, 64)? > 0:
         count += 1
         std.io.write_all(&mut output, b"line: ")?
-        std.io.write_all(&mut output, &line)?
+        std.io.write_all(&mut output, line)?
         line.clear()
     std.io.write_all(&mut output, b"\n")?
     output.flush()?
