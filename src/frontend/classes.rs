@@ -1333,11 +1333,11 @@ impl Lower<'_> {
                     }
                 }
             }
-            if let Some(ty @ Ty::Enum(_)) = self.place_type(base).map(unbox)
-                && matches!(&ty, Ty::Enum(sum) if sum.anonymous())
-            {
-                self.report_sum_method(&ty, &callee, &base.at)?;
-            }
+        }
+        if let Some(ty @ Ty::Enum(_)) = self.place_type(base).map(unbox)
+            && matches!(&ty, Ty::Enum(sum) if sum.anonymous())
+        {
+            self.protocol_sum_method(&ty, name, &callee, &base.at)?;
         }
         modules::check_member(self.access, owner, name, &base.at)?;
         if let Some(template) = self.generics.templates.get(&callee) {
@@ -1482,27 +1482,60 @@ impl Lower<'_> {
         Ok(sig.outputs.first().cloned())
     }
 
-    fn report_sum_method(&mut self, ty: &Ty, callee: &str, at: &Token) -> Result<()> {
-        let Some(protocol) = self.generics.reporting_protocol().cloned() else {
-            return Err(at.error("anonymous sum formatting requires std.fmt.Formattable"));
-        };
-        // Use the library's visibility boundary even for a direct sum.format
-        // call: private member methods must not become a public implementation.
-        protocols::check(
-            &protocol,
-            ty,
-            &self.generics.methods,
-            &self.generics.templates,
-            self.aliases,
-            self.access,
-            &self.generics.standard_sources,
-            &protocol.at,
-            at,
-        )?;
+    /// Dispatches `name` on an anonymous sum to its active member through
+    /// the first protocol, in `sum_forwarding_candidates` order, that requires
+    /// `name` and that every member satisfies (issue #875). The dispatcher is
+    /// a synthesized method template that matches a shared borrow of the sum.
+    fn protocol_sum_method(&mut self, ty: &Ty, name: &str, callee: &str, at: &Token) -> Result<()> {
+        let candidates = self.generics.sum_forwarding_candidates(name);
+        if candidates.is_empty() {
+            if name == "format" {
+                return Err(at.error("anonymous sum formatting requires std.fmt.Formattable"));
+            }
+            return Err(at.error(format!(
+                "{ty} has no method `{name}`; an anonymous sum dispatches a method only through a protocol requiring it that every member satisfies"
+            )));
+        }
+        let mut first_error = None;
+        for protocol in candidates {
+            // Use the protocol's visibility boundary even for a direct call:
+            // private member methods must not become a public implementation.
+            match protocols::check(
+                &protocol,
+                ty,
+                &self.generics.methods,
+                &self.generics.templates,
+                self.aliases,
+                self.access,
+                &self.generics.standard_sources,
+                &protocol.at,
+                at,
+            ) {
+                Ok(()) => return self.sum_dispatcher(&protocol, ty, name, callee),
+                Err(error) => {
+                    first_error.get_or_insert(error);
+                }
+            }
+        }
+        Err(first_error.expect("at least one candidate"))
+    }
+
+    fn sum_dispatcher(
+        &mut self,
+        protocol: &protocols::Protocol,
+        ty: &Ty,
+        method_name: &str,
+        callee: &str,
+    ) -> Result<()> {
         if self.generics.templates.contains_key(callee) {
             return Ok(());
         }
-        let mut function = protocol.methods[0].clone();
+        let mut function = protocol
+            .methods
+            .iter()
+            .find(|method| method.name == method_name)
+            .expect("a candidate requires the method")
+            .clone();
         function.name = callee.into();
         function.inputs[0].1 =
             generics::type_ref(&Ty::Ref(Arc::new(ty.clone()), false), &protocol.at);
@@ -1510,7 +1543,10 @@ impl Lower<'_> {
             at: protocol.at.clone(),
             kind: Expression::Name(name.into()),
         };
-        let output_name = &function.inputs[1].0;
+        let forwarded: Vec<_> = function.inputs[1..]
+            .iter()
+            .map(|(parameter, _)| name(parameter))
+            .collect();
         let cases = crate::sum::members(ty)
             .into_iter()
             .map(|member| enums::Case {
@@ -1528,8 +1564,8 @@ impl Lower<'_> {
                         at: protocol.at.clone(),
                         kind: Expression::Method(
                             Box::new(name("payload")),
-                            "format".into(),
-                            vec![name(output_name)],
+                            method_name.into(),
+                            forwarded.clone(),
                             Pos::default(),
                         ),
                     })),

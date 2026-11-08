@@ -549,6 +549,23 @@ impl Engine {
         }
     }
 
+    /// The protocols that could forward method `name` through an anonymous
+    /// sum: the reporting contract first, then the others by name, so the
+    /// choice and its diagnostics do not depend on declaration order.
+    pub(super) fn sum_forwarding_candidates(&self, name: &str) -> Vec<protocols::Protocol> {
+        let reporting = self.reporting_protocol().map(|p| p.name.clone());
+        let mut candidates: Vec<_> = self
+            .protocols
+            .values()
+            .filter(|p| p.type_params.is_empty() && p.methods.iter().any(|m| m.name == name))
+            .cloned()
+            .collect();
+        candidates.sort_by(|a, b| {
+            (Some(&a.name) != reporting.as_ref(), &a.name)
+                .cmp(&(Some(&b.name) != reporting.as_ref(), &b.name))
+        });
+        candidates
+    }
     pub(super) fn reporting_protocol(&self) -> Option<&protocols::Protocol> {
         self.protocols
             .get("std.fmt.Formattable")
