@@ -70,9 +70,14 @@ pub class Proxies:
                     slash = found
                 case Nothing:
                     pass
-            ip = match std.net.parse_ip(&lifted(std.bytes.to_text(&source[0:slash]))?):
-                case Ok(parsed):
-                    mapped(parsed)
+            parsed = match network.find("/"):
+                case Some(end):
+                    std.net.parse_ip(&network[:end])
+                case Nothing:
+                    std.net.parse_ip(network)
+            ip = match parsed:
+                case Ok(address):
+                    mapped(address)
                 case Err(_):
                     return Err(ProxyError.InvalidNetwork)
             width = match ip:
@@ -224,8 +229,8 @@ def items(headers: &list[Header], name: &strview, limit: i64) -> Result[list[Byt
         for index in range(len(headers)):
             if not std.http.same_name(&headers[index].name, name):
                 continue
-            data = allocated(std.bytes.from_text(&headers[index].value))?
-            count = data.len()
+            data = headers[index].value.as_bytes()
+            count = len(data)
             mut at = 0
             while at <= count:
                 mut stop = count
@@ -243,7 +248,7 @@ def items(headers: &list[Header], name: &strview, limit: i64) -> Result[list[Byt
                 if last > first:
                     if len(out) >= limit:
                         return Err(ProxyError.TooManyHops)
-                    allocated(out.append(allocated(data.slice(first, last))?))?
+                    allocated(out.append(allocated(std.bytes.from_bytes(&data[first:last]))?))?
                 if stop == count:
                     break
                 at = stop + 1
@@ -344,8 +349,8 @@ def forwarded(headers: &list[Header], limit: i64) -> Result[list[Hop], ProxyErro
         for index in range(len(headers)):
             if not std.http.same_name(&headers[index].name, "forwarded"):
                 continue
-            data = allocated(std.bytes.from_text(&headers[index].value))?
-            count = data.len()
+            data = headers[index].value.as_bytes()
+            count = len(data)
             mut start = 0
             mut quoted = False
             mut at = 0

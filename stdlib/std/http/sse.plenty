@@ -97,9 +97,9 @@ def break_positions(at: i64, found: i64) -> (i64, i64):
 # An event name or id, which must be one line.
 def single(out: &mut Bytes, name: &strview, value: &strview, id: bool) -> Result[(), SseError]:
     text = value.as_bytes()
-    if text.find_in(b"\r\n", 0, len(text)).is_some():
+    if __bytes_find_in(text, b"\r\n", 1u8) >= 0:
         return Err(SseError.InvalidField)
-    if id and text.find(0u8, 0, len(text)).is_some():
+    if id and __bytes_find(text, 0u8) >= 0:
         return Err(SseError.InvalidField)
     field(out, name, text)
 

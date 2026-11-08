@@ -176,12 +176,15 @@ def ascii_folded(code: i64) -> i64:
 
 # ASCII comparison without case; parameter names are ASCII tokens.
 def same_ascii(left: &strview, right: &strview) -> bool:
-    # Equal byte lengths of ASCII text are equal scalar counts, so indexing
-    # `right` by `left`'s positions stays in range.
-    if left.byte_len() != right.byte_len() or not left.isascii() or not right.isascii():
+    same_ascii_bytes(left.as_bytes(), right.as_bytes())
+
+def same_ascii_bytes(left: &[u8], right: &[u8]) -> bool:
+    if len(left) != len(right):
         return False
-    for index, scalar in enumerate(left):
-        if ascii_folded(scalar_code(&scalar)) != ascii_folded(scalar_code(&right[index])):
+    for index in range(len(left)):
+        first = i64(left[index])
+        second = i64(right[index])
+        if first >= 128 or second >= 128 or ascii_folded(first) != ascii_folded(second):
             return False
     True
 
@@ -310,20 +313,6 @@ pub def new(type_name: &strview, subtype: &strview) -> Result[MediaType, MimeErr
 
 # Extensions
 
-# True when the scalars of `text` from `start` spell the lowercase ASCII
-# `expected`, compared without ASCII case.
-def extension_at(text: &strview, start: i64, remaining: i64, expected: &strview) -> bool:
-    count = expected.byte_len()
-    if remaining != count:
-        return False
-    for index in range(count):
-        # index < count == len(text) - start, so the sum is below len(text).
-        at = unchecked:
-            start + index
-        if ascii_folded(scalar_code(&text[at])) != scalar_code(&expected[index]):
-            return False
-    True
-
 # The fixed extension table: each row is an extension and its Content-Type.
 def table(index: i64) -> Option[(str, str)]:
     match index:
@@ -373,19 +362,16 @@ def table(index: i64) -> Option[(str, str)]:
 # The Content-Type for a file extension given without its dot, compared
 # without ASCII case, or Nothing when the table has no entry.
 pub def from_extension(extension: &strview) -> Option[str]:
-    lookup(extension, 0)
+    lookup(extension.as_bytes())
 
-def lookup(text: &strview, start: i64) -> Option[str]:
-    # Count once for the whole lookup, not once per extension-table candidate.
-    # Callers pass zero or one past a found dot: 0 <= start <= len(text).
-    remaining = unchecked:
-        len(text) - start
+def lookup(text: &[u8]) -> Option[str]:
     mut index = 0
     while True:
         match table(index):
             case Some(row):
-                if extension_at(text, start, remaining, &row[0]):
-                    return Some(row[1])
+                extension, content_type = row
+                if same_ascii_bytes(text, extension.as_bytes()):
+                    return Some(content_type)
             case Nothing:
                 return Nothing
         # table returns Nothing at 20, before the counter can grow further.
@@ -396,12 +382,13 @@ def lookup(text: &strview, start: i64) -> Option[str]:
 # The Content-Type for the extension of the file name or path `name`, or
 # application/octet-stream when it has none in the table. Allocates nothing.
 pub def from_file_name(name: &strview) -> str:
-    match name.rfind("."):
+    data = name.as_bytes()
+    match std.bytes.rfind_byte(data, 46u8):
         case Some(dot):
-            # rfind returns a scalar position strictly below len(name).
+            # The found dot byte is strictly below len(data).
             start = unchecked:
                 dot + 1
-            match lookup(name, start):
+            match lookup(&data[start:]):
                 case Some(found):
                     found
                 case Nothing:

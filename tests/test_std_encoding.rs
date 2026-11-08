@@ -1250,23 +1250,23 @@ fn text_decoders_accept_ranges_without_an_encoded_input_buffer() {
     native(
         r#"
 hex = "!c3a900!"
-print(std.encoding.hex_from_text(&hex[1:-1])? == b"\xc3\xa9\0")?
+print(std.encoding.hex_from_text(&hex[1:-1])?.to_text()? == "é\0")?
 base32 = "!MY======!"
 base32hex = "!CO======!"
-print(std.encoding.base32_from_text(&base32[1:-1])? == b"f")?
-print(std.encoding.base32hex_from_text(&base32hex[1:-1])? == b"f")?
+print(std.encoding.base32_from_text(&base32[1:-1])?.to_text()? == "f")?
+print(std.encoding.base32hex_from_text(&base32hex[1:-1])?.to_text()? == "f")?
 base64 = "!Zg==!"
 url = "!Zg!"
-print(std.encoding.base64_from_text(&base64[1:-1])? == b"f")?
-print(std.encoding.base64url_from_text(&url[1:-1])? == b"f")?
+print(std.encoding.base64_from_text(&base64[1:-1])?.to_text()? == "f")?
+print(std.encoding.base64url_from_text(&url[1:-1])?.to_text()? == "f")?
 mime = "!Zg==\r\n!"
-print(std.encoding.base64mime_from_text(&mime[1:-1])? == b"f")?
+print(std.encoding.base64mime_from_text(&mime[1:-1])?.to_text()? == "f")?
 symbols = "!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/!"
 custom = std.encoding.custom(&symbols[1:-1])?
-print(custom.from_text(&base64[1:-1])? == b"f")?
+print(custom.from_text(&base64[1:-1])?.to_text()? == "f")?
 pem = "!-----BEGIN DATA-----\nZg==\n-----END DATA-----\n!"
-print(std.encoding.pem_from_text(&pem[1:-1], b"DATA")? == b"f")?
-print(std.encoding.hex_from_text(&hex[1:1])? == b"")?
+print(std.encoding.pem_from_text(&pem[1:-1], b"DATA")?.to_text()? == "f")?
+print(std.encoding.hex_from_text(&hex[1:1])?.to_text()? == "")?
 "#,
         "True\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue",
     );

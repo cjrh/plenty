@@ -2027,7 +2027,18 @@ def main() -> Result[(), AllocError | IoError | std.json.JsonError | std.bytes.B
     source = "![\"é\\u0000🙂\"]!"
     bounds = std.json.limits()
     value = std.json.parse_text(&source[1:-1], &bounds)?
-    print(value == Json.Array([Json.Text("é\0🙂")]?))?
+    mut matches = False
+    match &value:
+        case Json.Array(items):
+            if len(items) == 1:
+                match &items[0]:
+                    case Json.Text(text):
+                        matches = text == "é\0🙂"
+                    case _:
+                        pass
+        case _:
+            pass
+    print(matches)?
     name = "!key!"
     members = [Member("key", Json.Int(1))]?
     print(std.json.find(&members, &name[1:-1]).unwrap())?
