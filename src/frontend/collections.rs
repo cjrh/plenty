@@ -4030,6 +4030,9 @@ impl Lower<'_> {
                 if args.is_empty() { "" } else { "..." }
             )));
         }
+        if let Some(result) = self.byte_string_method(base, name, args, ops)? {
+            return Ok(Some(result));
+        }
         if self.is_text_view(base) {
             return self.text_view_method(base, name, args, ops).map(Some);
         }

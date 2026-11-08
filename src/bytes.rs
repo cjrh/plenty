@@ -43,6 +43,7 @@ pub enum BytesOp {
     // `Slice` of a `bytes` literal. The runtime tells a literal from a
     // buffer by its header.
     SliceLiteral,
+    RFindBytes,
 }
 
 impl BytesOp {
@@ -67,6 +68,7 @@ impl BytesOp {
             "__bytes_find" => Self::Find,
             "__bytes_find_in" => Self::FindIn,
             "__bytes_find_bytes" => Self::FindBytes,
+            "__bytes_rfind_bytes" => Self::RFindBytes,
             "__bytes_count" => Self::Count,
             "__bytes_matches" => Self::Matches,
             "__bytes_matches_text" => Self::MatchesText,
@@ -115,7 +117,7 @@ impl BytesOp {
             Self::Find | Self::Count => return (vec![view(), Ty::U8], Ty::I64),
             // The last operand selects members (1) or non-members (0).
             Self::FindIn => return (vec![view(), view(), Ty::U8], Ty::I64),
-            Self::FindBytes => return (vec![view(), view()], Ty::I64),
+            Self::FindBytes | Self::RFindBytes => return (vec![view(), view()], Ty::I64),
             Self::Matches => return (vec![view(), Ty::I64, view()], Ty::Bool),
             Self::MatchesText => return (vec![view(), Ty::I64, Ty::Str], Ty::Bool),
             // The run's length. The operand selects ASCII (0) or valid UTF-8 (1).
@@ -166,6 +168,7 @@ impl BytesOp {
             Self::WriteFloat => 280,
             Self::WriteFloatSpec => 281,
             Self::CopyWithin => 282,
+            Self::RFindBytes => crate::collection_opcodes::BYTES_RFIND,
             Self::Slice | Self::SliceLiteral => crate::collection_opcodes::BYTES_SLICE,
             Self::Fill => 237,
             Self::Item | Self::ValueItem => 238,
