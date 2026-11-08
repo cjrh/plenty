@@ -194,13 +194,14 @@ new module to an appropriate target or test before trusting a successful check.
 <!-- issue #805 -->
 
 The [language server](../../../../book/src/design/toolchain/01-building/language-server.md)
-provides diagnostics, hover, go to definition, find references, inlay hints,
-completion and a checked move-to-module code action; see
+provides diagnostics, hover, go to definition, find references, checked
+rename, inlay hints, completion and a checked move-to-module code action; see
 [Neovim setup](../../../../book/src/design/toolchain/01-building/neovim.md).
 Find references misses named arguments, constructor fields, `case` pattern
 names, variant constructors, members in uninstantiated generic bodies and
-names in unselected `if const` arms. Rename is not shipped:
-use explicit edits and package checks rather than assuming editor support.
+names in unselected `if const` arms. Rename covers module-level declarations,
+import aliases and locals, and refuses fields, methods, variants, parameters
+and `if const` mentions rather than missing uses.
 <!-- issue #821 -->
 
 ### Git dependencies

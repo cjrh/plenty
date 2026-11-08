@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 
 pub mod index;
 pub mod relocate;
+pub mod rename;
 
 thread_local! {
     static ACTIVE: Cell<bool> = const { Cell::new(false) };

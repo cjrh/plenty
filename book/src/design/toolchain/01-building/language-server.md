@@ -15,6 +15,7 @@ is the supported editor; see [Neovim support](neovim.md) for its setup.
 | Hover | The declaration as written and its docstring, as Markdown |
 | Go to definition | The declaration's name, in the same file, another module, a dependency, or `std` |
 | Find references | Every written name that refers to the declaration, across the package and the workspace members that depend on it; see [finding references](#finding-references) |
+| Rename | A module-level declaration, an import alias, or a local, across the same files as find references; checked before and after, and refused with a reason; see [renaming](#renaming) |
 | Inlay hints | Inferred types after unannotated simple local binding names, when the current check succeeds |
 | Completion | Names in scope and keywords; fields, methods, enum variants, and module members after `.` |
 | Code actions | `refactor.move`: move a top-level declaration to another module of the package, previewed before it is applied |
@@ -92,6 +93,56 @@ references the [limits](#limits) leave unresolved: named arguments
 used in an uninstantiated generic body (issue #876), and names
 in unselected [`if const`](../../language/02-source/target-conditionals.md)
 arms. Text in strings, comments, and docstrings is never a reference.
+
+## Renaming
+
+Rename (`textDocument/rename`, with `prepareRename`) changes a name and every
+name that refers to the same declaration, as
+[find references](#finding-references) finds them. It renames:
+
+- a top-level function, class, enum, protocol, constant, or type alias, in
+  the package holding it and the workspace members that depend on it;
+- a `from` import alias: renaming `size` in `from shapes import area as
+  size` changes the alias and its uses in that file only;
+- a local variable, in its function.
+
+Renaming `area` itself keeps an alias: the import becomes `from shapes import
+measure as size`, and `size(2)` stays. A qualified use `s.area` becomes
+`s.measure`. Strings, comments, and docstrings are not edited, and a module
+is not renamed with its file. The edit uses the unsaved text of open files,
+names each open document's version, and writes nothing until the editor
+applies it.
+
+The rename is checked twice. Before it, the package (or, for a local or an
+alias, the file) must check without errors, so that every use is resolved.
+After it, the edited files are checked again, and each renamed name and each
+other name in them must still refer to the declaration it did before. The
+server refuses the rename, with the reason as the request's error, when:
+
+- the new name is not an identifier, is a reserved word, or is the old name;
+- another name already written as the new name would conflict, or the
+  rename would change what any name refers to (a local capturing a
+  function, for instance);
+- the package or the file does not check before the rename, or would not
+  check after it;
+- an [`if const`](../../language/02-source/target-conditionals.md) block
+  mentions the old or new name, since the arms a build does not select are
+  not checked;
+- one name in an uninstantiated generic body refers to different
+  declarations in different instantiations;
+- the declaration is in `std` or a dependency outside the workspace, or is
+  written in a file no target or test of its package reads;
+- the name is a field, method, enum variant, or parameter. These are not
+  supported yet, since constructor calls, `case` patterns, named arguments,
+  and members in generic bodies are not resolved (issue #876);
+- the name is a module, or a module alias (`import shapes as s`);
+- the file changed since its last check; ask for the rename again.
+
+Renaming a `pub` declaration of a package with a library changes that
+package's API, since packages outside the workspace that import it must
+change. The server marks such an edit with a change annotation that needs
+confirmation; an editor without change-annotation support shows the same
+text as a warning.
 
 ## Moving a declaration to another module
 
@@ -238,8 +289,9 @@ differs.
 - Each check reads the whole program again; there is no incremental reuse
   between checks. A program importing `std.http.server`, `std.json`, and five
   other large `std` modules checks in about 0.2 s with a release build.
-- Rename, document symbols, and signature help are not implemented. Moving
-  a declaration is the only refactoring. It checks each
+- Document symbols and signature help are not implemented. Rename covers
+  module-level declarations, import aliases, and locals; see
+  [renaming](#renaming). Moving a declaration checks each
   entry twice, so a package with many test files takes seconds; see
   [moving a declaration](#moving-a-declaration-to-another-module).
 - Moving a declaration and then moving it back does not always restore the

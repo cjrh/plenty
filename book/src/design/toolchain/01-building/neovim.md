@@ -55,7 +55,7 @@ vim.api.nvim_create_autocmd('LspAttach', {
 `std` module when the definition is there; `CTRL-]` does the same through
 Neovim's default LSP tag function. `grr` lists the
 [references](language-server.md#finding-references) to the name under the
-cursor. Errors appear as diagnostics; `]d` and `[d`
+cursor, and `grn` [renames](language-server.md#renaming) it. Errors appear as diagnostics; `]d` and `[d`
 move between them. `gra` lists code actions, including
 [moving a declaration to another module](language-server.md#moving-a-declaration-to-another-module). Completion triggers after `.` and with `CTRL-X CTRL-O`.
 With nvim-cmp instead of the built-in completion, leave out the

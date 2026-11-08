@@ -786,7 +786,9 @@ provides diagnostics, hover, definition, completion and simple-local inferred
 type hints, with Neovim integration (issues #155/#554, local PR #196).
 Find references searches the declaring package and the workspace members that
 depend on it, through the package index shared with move-to-module (issue
-#821, slice 1); rename remains B17.
+#821, slice 1). Rename of module-level declarations, import aliases and locals
+is checked before and after the edit and refuses what it cannot verify;
+members wait on issue #876 (issue #821).
 Compile-time constants/static assertions, embedded data and `if const target.*`
 shipped (local PR #628). Module constant indexing and import/module diagnostics
 were improved (issues #562/#568/#587).
