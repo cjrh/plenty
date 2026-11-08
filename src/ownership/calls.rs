@@ -2,10 +2,11 @@
 //! shutdowns it reaches, directly or through further calls (issue #349), and
 //! the jobs it can submit (issue #352), and whether a worker can wait at all
 //! (issue #793).
-use super::Hazard;
+use super::{Hazard, Site};
+use crate::diagnostic::Position;
 use crate::executor::{ExecutorOp, Job as Submitted};
 use crate::hash::{HashMap, HashSet};
-use crate::op::{CompiledFn, Op, Ty};
+use crate::op::{CallableSig, CompiledFn, Op, Ty};
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// The functions of a program whose bodies are being checked. The call table
@@ -17,8 +18,8 @@ pub struct Program<'p> {
     table: OnceLock<HashMap<&'p str, Body<'p>>>,
     /// The jobs each callee reaches, so every function is searched once.
     jobs: Mutex<HashMap<&'p str, Arc<[Job<'p>]>>>,
-    /// Whether a call to each callee can shut down a pool.
-    shuts: Mutex<HashMap<&'p str, bool>>,
+    /// Effects and their witness are cached together, per specialized name.
+    effects: Mutex<HashMap<&'p str, Arc<Effects>>>,
     /// Every function body by name, for `waits`. Separate from `table`,
     /// whose construction asks what each submitted job can block on.
     definitions: OnceLock<HashMap<&'p str, &'p CompiledFn>>,
@@ -37,10 +38,12 @@ struct Body<'p> {
     /// Result types `T` of the `Future[T]` values whose `result()` it calls.
     results: Vec<Ty>,
     /// It calls `shutdown()` or owns a pool, which its drop shuts down.
-    shuts: bool,
+    shutdown: Option<Cause>,
     /// It calls a value whose function is unknown.
     indirect: bool,
-    callees: Vec<&'p str>,
+    /// An unresolved call can reach shutdown authority or caller job inputs.
+    unknown_shutdown: Option<Cause>,
+    callees: Vec<(&'p str, Option<Position>)>,
     /// What each job it submits can block on, with the job's result type.
     jobs: Vec<Job<'p>>,
 }
@@ -49,9 +52,134 @@ struct Body<'p> {
 #[derive(Default)]
 pub(super) struct Effects {
     results: Vec<Ty>,
-    shuts: bool,
+    shutdown: Option<Arc<Shutdown>>,
     /// The callee, or a function it reaches, is not known.
     unknown: bool,
+}
+
+/// One diagnostic witness, bounded independently of call-graph size. Source
+/// positions belong to the callee's file, not the rejected caller's file.
+#[derive(Debug)]
+pub(super) struct Shutdown {
+    cause: Cause,
+    function: Option<String>,
+    chain: Vec<Edge>,
+    omitted: usize,
+}
+
+#[derive(Clone, Debug)]
+struct Cause {
+    kind: CauseKind,
+    at: Option<Position>,
+}
+
+#[derive(Clone, Debug)]
+enum CauseKind {
+    Explicit,
+    Owned {
+        binding: Option<String>,
+        parameter: bool,
+    },
+    Unknown(&'static str),
+}
+
+#[derive(Debug)]
+struct Edge {
+    caller: String,
+    callee: String,
+    at: Option<Position>,
+}
+
+fn display_name(name: &str) -> String {
+    super::callee_name(Some(name))
+        .map(|name| super::short(&name).into_owned())
+        .unwrap_or_else(|| "generated function or closure".into())
+}
+
+impl Cause {
+    fn unknown(description: &'static str, at: Option<Position>) -> Self {
+        Self {
+            kind: CauseKind::Unknown(description),
+            at,
+        }
+    }
+
+    fn assumed(&self) -> bool {
+        matches!(self.kind, CauseKind::Unknown(_))
+    }
+
+    fn description(&self) -> String {
+        match &self.kind {
+            CauseKind::Explicit => "explicit pool shutdown operation".into(),
+            CauseKind::Owned { binding, parameter } => {
+                let kind = if *parameter { "parameter" } else { "local" };
+                let name = binding
+                    .as_ref()
+                    .map(|name| format!(" `{name}`"))
+                    .unwrap_or_default();
+                format!("owned-pool cleanup: {kind}{name} owns a pool whose cleanup waits")
+            }
+            CauseKind::Unknown(description) => (*description).into(),
+        }
+    }
+}
+
+impl Shutdown {
+    const CHAIN_LIMIT: usize = 8;
+
+    pub(super) fn assumed(&self) -> bool {
+        self.cause.assumed()
+    }
+
+    pub(super) fn explain(&self, message: &mut String) {
+        let note = |message: &mut String, at: Option<&Position>, text: &str| {
+            message.push_str(&format!("\n  {}note: {text}", super::prefix(at)));
+        };
+        if self.omitted != 0 {
+            note(
+                message,
+                None,
+                &format!("{} outer call edges omitted", self.omitted),
+            );
+        }
+        for edge in &self.chain {
+            note(
+                message,
+                edge.at.as_ref(),
+                &format!("`{}` calls `{}`", edge.caller, edge.callee),
+            );
+        }
+        let function = self
+            .function
+            .as_ref()
+            .map(|name| format!(" in `{name}`"))
+            .unwrap_or_default();
+        let certainty = if self.assumed() {
+            "assumed"
+        } else {
+            "discovered"
+        };
+        note(
+            message,
+            self.cause.at.as_ref(),
+            &format!(
+                "pool shutdown is {certainty}{function}: {}",
+                self.cause.description()
+            ),
+        );
+        note(
+            message,
+            None,
+            "shutdowns and submitted jobs are matched conservatively, not by pool identity or call order",
+        );
+        if self.assumed() {
+            note(
+                message,
+                None,
+                "the opaque call is not proved to shut down a pool; keep shutdown authority and caller job hazards out of opaque callbacks where possible",
+            );
+        }
+    }
 }
 
 impl Effects {
@@ -60,9 +188,13 @@ impl Effects {
         self.unknown || self.results.contains(result)
     }
 
-    /// The call can shut down a pool it is handed.
+    /// The call can shut down a pool it is handed or creates for caller inputs.
+    pub(super) fn shutdown(&self) -> Option<Arc<Shutdown>> {
+        self.shutdown.clone()
+    }
+
     pub(super) fn shuts(&self) -> bool {
-        self.unknown || self.shuts
+        self.shutdown.is_some()
     }
 }
 
@@ -72,7 +204,7 @@ impl<'p> Program<'p> {
             ops,
             table: OnceLock::new(),
             jobs: Mutex::default(),
-            shuts: Mutex::default(),
+            effects: Mutex::default(),
             definitions: OnceLock::new(),
             waits: Mutex::default(),
         }
@@ -248,7 +380,7 @@ impl<'p> Program<'p> {
                 return;
             }
             if let Some(body) = body {
-                pending.extend(body.callees.iter().copied());
+                pending.extend(body.callees.iter().map(|(name, _)| *name));
             }
         }
     }
@@ -256,27 +388,94 @@ impl<'p> Program<'p> {
     /// Everything a call to `callee` can reach, or every effect for an
     /// indirect call (`None`). A cycle's effects are the union of its
     /// members'.
-    pub(super) fn effects(&self, callee: Option<&str>) -> Effects {
-        let mut effects = Effects {
-            unknown: callee.is_none(),
-            ..Effects::default()
-        };
+    pub(super) fn effects(&self, callee: Option<&str>) -> Arc<Effects> {
         let Some(callee) = callee else {
-            return effects;
+            return Arc::new(Effects {
+                unknown: true,
+                shutdown: Some(Arc::new(Shutdown {
+                    cause: Cause::unknown("indirect call", None),
+                    function: None,
+                    chain: Vec::new(),
+                    omitted: 0,
+                })),
+                ..Effects::default()
+            });
         };
-        self.reach(callee, |body| {
-            let Some(body) = body.filter(|body| !body.indirect) else {
-                effects.unknown = true;
-                return false;
-            };
-            effects.shuts |= body.shuts;
-            for result in &body.results {
-                if !effects.results.contains(result) {
-                    effects.results.push(result.clone());
+        let table = self.table();
+        if let Some(cached) = self.effects.lock().unwrap().get(callee).cloned() {
+            return cached;
+        }
+        // Breadth-first, in stable IR order. Each node keeps only its
+        // predecessor, not a full path. Never stop at an unknown effect:
+        // concrete shutdowns and future waits may still follow it.
+        let mut nodes = vec![(callee, None, None)];
+        let mut seen = HashSet::default();
+        seen.insert(callee);
+        let mut effects = Effects::default();
+        let mut witness: Option<(usize, Cause)> = None;
+        let mut index = 0;
+        while index < nodes.len() {
+            let name = nodes[index].0;
+            let cause = if let Some(body) = table.get(name) {
+                effects.unknown |= body.indirect;
+                for result in &body.results {
+                    if !effects.results.contains(result) {
+                        effects.results.push(result.clone());
+                    }
                 }
+                for (callee, at) in &body.callees {
+                    if seen.insert(callee) {
+                        nodes.push((callee, Some(index), at.clone()));
+                    }
+                }
+                body.shutdown
+                    .as_ref()
+                    .or(body.unknown_shutdown.as_ref())
+                    .cloned()
+            } else {
+                effects.unknown = true;
+                Some(Cause::unknown(
+                    "missing function body (source unavailable)",
+                    None,
+                ))
+            };
+            if let Some(cause) = cause
+                && witness
+                    .as_ref()
+                    .is_none_or(|(_, old)| old.assumed() && !cause.assumed())
+            {
+                witness = Some((index, cause));
             }
-            true
-        });
+            index += 1;
+        }
+        if let Some((index, cause)) = witness {
+            let mut chain = Vec::new();
+            let mut current = index;
+            let mut omitted = 0;
+            while let Some(parent) = nodes[current].1 {
+                if chain.len() < Shutdown::CHAIN_LIMIT {
+                    chain.push(Edge {
+                        caller: display_name(nodes[parent].0),
+                        callee: display_name(nodes[current].0),
+                        at: nodes[current].2.clone(),
+                    });
+                } else {
+                    omitted += 1;
+                }
+                current = parent;
+            }
+            chain.reverse();
+            effects.shutdown = Some(Arc::new(Shutdown {
+                function: Some(display_name(nodes[index].0)),
+                cause,
+                chain,
+                omitted,
+            }));
+        }
+        let effects = Arc::new(effects);
+        if let Some((&name, _)) = table.get_key_value(callee) {
+            self.effects.lock().unwrap().insert(name, effects.clone());
+        }
         effects
     }
 
@@ -343,23 +542,10 @@ impl<'p> Program<'p> {
                 Hazard::Cancels(_) => false,
             })
             .collect();
-        if hazards.is_empty() || !self.shuts(callee) {
+        if hazards.is_empty() || !self.effects(Some(callee)).shuts() {
             return Vec::new();
         }
         hazards
-    }
-
-    /// `effects(callee).shuts()`, cached for the checks of every call.
-    fn shuts(&self, callee: &str) -> bool {
-        let Some((&name, _)) = self.table().get_key_value(callee) else {
-            return true;
-        };
-        if let Some(&shuts) = self.shuts.lock().unwrap().get(name) {
-            return shuts;
-        }
-        let shuts = self.effects(Some(name)).shuts();
-        self.shuts.lock().unwrap().insert(name, shuts);
-        shuts
     }
 
     fn reached_jobs(&self, callee: Option<&str>) -> Arc<[Job<'p>]> {
@@ -414,40 +600,485 @@ pub fn future_results(ty: &Ty) -> Vec<Ty> {
     found
 }
 
-fn body<'p>(function: &'p CompiledFn, program: &Program<'p>) -> Body<'p> {
-    let mut body = Body {
-        shuts: function
-            .sig
-            .inputs
-            .iter()
-            .map(|(_, ty)| ty)
-            .chain(function.locals.iter())
-            .any(crate::threading::owns_executor),
-        ..Body::default()
-    };
-    crate::threading::walk(&function.body, &mut |op| match op {
-        Op::Executor(ExecutorOp::Result(result)) => {
-            if !body.results.contains(result) {
-                body.results.push(result.clone());
-            }
+/// A plain `Callable` is a code address, not an environment, and module
+/// constants cannot hold runtime resources. With only data in its signature,
+/// an unknown target cannot shut down a caller's pool or feed caller-owned
+/// endpoints/locks to a pool it creates. This is deliberately not a general
+/// effect proof: erased values, destructors and unclassified types stay unknown.
+/// Include results too, so returned authority is not silently certified.
+#[expect(
+    clippy::mutable_key_type,
+    reason = "nominal identities exclude definition cells"
+)]
+fn callable_may_shut_down(signature: &CallableSig) -> bool {
+    let mut pending: Vec<_> = signature
+        .inputs
+        .iter()
+        .chain(signature.output.iter())
+        .cloned()
+        .collect();
+    let mut seen = HashSet::default();
+    while let Some(ty) = pending.pop() {
+        if !seen.insert(ty.clone()) {
+            continue;
         }
-        Op::Executor(ExecutorOp::Shutdown) => body.shuts = true,
-        Op::Executor(ExecutorOp::Submit(job, _)) => {
-            for hazard in program.job_hazards(job) {
-                let job = (&job.output, hazard);
-                if !body.jobs.contains(&job) {
-                    body.jobs.push(job);
+        match &ty {
+            Ty::I8
+            | Ty::I16
+            | Ty::I32
+            | Ty::I64
+            | Ty::U8
+            | Ty::U16
+            | Ty::U32
+            | Ty::U64
+            | Ty::F32
+            | Ty::F64
+            | Ty::Bool
+            | Ty::Unit
+            | Ty::Str
+            | Ty::ByteStr
+            | Ty::Text
+            // A Submitter cannot shut down its pool, even on drop.
+            | Ty::Submitter => {}
+            Ty::Class(class)
+                if class.get().destructor.is_none() && crate::mutex::class(&ty).is_none() =>
+            {
+                crate::threading::contained(&ty, &mut pending);
+            }
+            Ty::Enum(_)
+            | Ty::Ref(..)
+            | Ty::View(..)
+            | Ty::List(_)
+            | Ty::Clist(_)
+            | Ty::Set(_)
+            | Ty::Dict(..)
+            | Ty::Box(_)
+            | Ty::Shared(_) => crate::threading::contained(&ty, &mut pending),
+            _ => return true,
+        }
+    }
+    false
+}
+
+fn body<'p>(function: &'p CompiledFn, program: &Program<'p>) -> Body<'p> {
+    let owned = function
+        .sig
+        .inputs
+        .iter()
+        .map(|(_, ty)| ty)
+        .chain(function.locals.iter())
+        .position(crate::threading::owns_executor);
+    let mut body = Body::default();
+    if let Some(slot) = owned {
+        body.shutdown = Some(Cause {
+            kind: CauseKind::Owned {
+                binding: function
+                    .origins
+                    .names
+                    .get(slot)
+                    .and_then(|name| name.as_deref())
+                    .map(|name| super::short(name).into_owned()),
+                parameter: slot < function.sig.inputs.len(),
+            },
+            at: function.location.clone(),
+        });
+    }
+    crate::threading::walk_sited(&function.body, &mut |op, site| {
+        let at = || site.map(|site| position(function, site));
+        match op {
+            Op::Executor(ExecutorOp::Result(result)) => {
+                if !body.results.contains(result) {
+                    body.results.push(result.clone());
                 }
             }
+            Op::Executor(ExecutorOp::Shutdown) => {
+                // An explicit operation explains more than type-level cleanup.
+                if body
+                    .shutdown
+                    .as_ref()
+                    .is_none_or(|cause| matches!(cause.kind, CauseKind::Owned { .. }))
+                {
+                    body.shutdown = Some(Cause {
+                        kind: CauseKind::Explicit,
+                        at: at(),
+                    });
+                }
+            }
+            Op::StoreLocal(slot)
+                if owned == Some(*slot as usize) && *slot as usize >= function.sig.inputs.len() =>
+            {
+                if let Some(cause) = &mut body.shutdown
+                    && matches!(cause.kind, CauseKind::Owned { .. })
+                    && cause.at == function.location
+                {
+                    cause.at = at().or_else(|| function.location.clone());
+                }
+            }
+            Op::Executor(ExecutorOp::Submit(job, _)) => {
+                for hazard in program.job_hazards(job) {
+                    let job = (&job.output, hazard);
+                    if !body.jobs.contains(&job) {
+                        body.jobs.push(job);
+                    }
+                }
+            }
+            Op::Call(name) | Op::TailCall(name) => body.callees.push((name, at())),
+            Op::ClosureCall(closure) if !closure.name.is_empty() => {
+                body.callees.push((&closure.name, at()))
+            }
+            Op::CallIndirect(signature) | Op::TailCallIndirect(signature) => {
+                body.indirect = true;
+                if callable_may_shut_down(signature) && body.unknown_shutdown.is_none() {
+                    body.unknown_shutdown = Some(Cause::unknown(
+                        "indirect Callable call; its input/result types may expose pool authority or job hazards",
+                        at(),
+                    ));
+                }
+            }
+            Op::ClosureCall(_) | Op::BoxedCallableCall(..) | Op::ProtocolBoxCall(..) => {
+                body.indirect = true;
+                let construct = match op {
+                    Op::ClosureCall(_) => "unresolved closure call",
+                    Op::BoxedCallableCall(..) => "erased BoxedCallable call",
+                    _ => "erased boxed-protocol call",
+                };
+                body.unknown_shutdown
+                    .get_or_insert_with(|| Cause::unknown(construct, at()));
+            }
+            _ => {}
         }
-        Op::Call(name) | Op::TailCall(name) => body.callees.push(name),
-        Op::ClosureCall(closure) if !closure.name.is_empty() => body.callees.push(&closure.name),
-        Op::ClosureCall(_)
-        | Op::CallIndirect(_)
-        | Op::TailCallIndirect(_)
-        | Op::BoxedCallableCall(..)
-        | Op::ProtocolBoxCall(..) => body.indirect = true,
-        _ => {}
     });
     body
+}
+
+fn position(function: &CompiledFn, site: Site) -> Position {
+    Position {
+        file: function.origins.source.clone(),
+        line: site.line,
+        column: site.column,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::op::{BoxedMode, FnSig};
+
+    fn signature(inputs: Vec<Ty>, output: Option<Ty>) -> Arc<CallableSig> {
+        Arc::new(CallableSig { inputs, output })
+    }
+
+    #[test]
+    fn callable_shutdown_capabilities_include_inputs_and_results() {
+        for ty in [
+            Ty::Executor,
+            Ty::Ref(Arc::new(Ty::Executor), false),
+            Ty::List(Arc::new(Ty::Channel(Arc::new(Ty::I64), true))),
+            Ty::BoxedCallable(signature(vec![], None), BoxedMode::Shared),
+            Ty::ForeignPtr("Opaque".into(), crate::foreign::Threads::None),
+        ] {
+            assert!(callable_may_shut_down(&signature(vec![ty.clone()], None)));
+            assert!(callable_may_shut_down(&signature(vec![], Some(ty))));
+        }
+        for ty in [
+            Ty::I64,
+            Ty::Submitter,
+            Ty::Ref(Arc::new(Ty::List(Arc::new(Ty::Str))), false),
+        ] {
+            assert!(!callable_may_shut_down(&signature(vec![ty.clone()], None)));
+            assert!(!callable_may_shut_down(&signature(vec![], Some(ty))));
+        }
+    }
+
+    fn function(body: Vec<Op>) -> CompiledFn {
+        CompiledFn {
+            location: None,
+            origins: Arc::default(),
+            generator: None,
+            sig: Arc::new(FnSig {
+                inputs: vec![],
+                outputs: vec![],
+            }),
+            doc: "".into(),
+            body: body.into(),
+            locals: Arc::default(),
+        }
+    }
+
+    #[test]
+    fn unknown_future_waits_do_not_imply_unknown_shutdown() {
+        let ops = [Op::DefineFn(
+            "apply".into(),
+            function(vec![Op::CallIndirect(signature(vec![], None))]).into(),
+        )];
+        let program = Program::new(&ops);
+        let effects = program.effects(Some("apply"));
+        assert!(effects.waits(&Ty::I64));
+        assert!(!effects.shuts());
+        assert!(program.effects(None).shuts());
+        assert!(program.effects(Some("missing")).shuts());
+        assert!(explanation(&program.effects(Some("missing"))).contains(
+            "pool shutdown is assumed in `missing`: missing function body (source unavailable)"
+        ));
+    }
+
+    #[test]
+    fn effect_traversal_keeps_concrete_effects_after_unknown_calls() {
+        let ops = [
+            Op::DefineFn(
+                "root".into(),
+                function(vec![
+                    Op::Call("concrete".into()),
+                    Op::Call("unknown".into()),
+                ])
+                .into(),
+            ),
+            Op::DefineFn(
+                "unknown".into(),
+                function(vec![
+                    Op::CallIndirect(signature(vec![], None)),
+                    Op::Call("root".into()),
+                    Op::Call("missing".into()),
+                ])
+                .into(),
+            ),
+            Op::DefineFn(
+                "concrete".into(),
+                function(vec![
+                    Op::Executor(ExecutorOp::Shutdown),
+                    Op::Executor(ExecutorOp::Result(Ty::I64)),
+                ])
+                .into(),
+            ),
+        ];
+        let program = Program::new(&ops);
+        let effects = program.effects(Some("root"));
+        assert!(effects.unknown);
+        assert!(!effects.shutdown.as_ref().unwrap().cause.assumed());
+        assert!(effects.shuts());
+        assert_eq!(effects.results, [Ty::I64]);
+    }
+    fn sited_function(file: &str, line: u32, ops: Vec<Op>) -> CompiledFn {
+        let mut f = function(ops);
+        f.location = Some(Position {
+            file: Some(file.into()),
+            line,
+            column: 1,
+        });
+        f.origins = Arc::new(super::super::Origins {
+            source: Some(file.into()),
+            ..Default::default()
+        });
+        f
+    }
+
+    fn site(line: u32) -> Op {
+        Op::Site(Site {
+            line,
+            column: 5,
+            scope_end: false,
+        })
+    }
+
+    fn explanation(effects: &Effects) -> String {
+        let mut text = String::new();
+        effects.shutdown.as_ref().unwrap().explain(&mut text);
+        text
+    }
+
+    #[test]
+    fn shutdown_witness_is_sited_recursive_deterministic_and_cached() {
+        let ops = [
+            Op::DefineFn(
+                "helper[i64]".into(),
+                sited_function(
+                    "caller.p",
+                    1,
+                    vec![
+                        site(2),
+                        Op::Call("opaque".into()),
+                        site(3),
+                        Op::Call("stop".into()),
+                        site(4),
+                        Op::Call("other".into()),
+                    ],
+                )
+                .into(),
+            ),
+            Op::DefineFn(
+                "opaque".into(),
+                function(vec![
+                    Op::Call("helper[i64]".into()),
+                    Op::Call("missing".into()),
+                ])
+                .into(),
+            ),
+            Op::DefineFn(
+                "stop".into(),
+                sited_function(
+                    "shutdown.p",
+                    10,
+                    vec![site(11), Op::Executor(ExecutorOp::Shutdown)],
+                )
+                .into(),
+            ),
+            Op::DefineFn(
+                "other".into(),
+                function(vec![Op::Executor(ExecutorOp::Shutdown)]).into(),
+            ),
+            Op::DefineFn(
+                "helper[str]".into(),
+                function(vec![Op::Call("missing".into())]).into(),
+            ),
+        ];
+        let program = Program::new(&ops);
+        let effects = program.effects(Some("helper[i64]"));
+        assert!(effects.unknown);
+        assert!(effects.waits(&Ty::Bool));
+        assert!(!effects.shutdown.as_ref().unwrap().assumed());
+        assert!(Arc::ptr_eq(&effects, &program.effects(Some("helper[i64]"))));
+        let text = explanation(&effects);
+        assert!(
+            text.contains("caller.p:3:5: note: `helper[i64]` calls `stop`"),
+            "{text}"
+        );
+        assert!(
+            text.contains("shutdown.p:11:5: note: pool shutdown is discovered in `stop`: explicit"),
+            "{text}"
+        );
+        assert!(
+            !text.contains("opaque") && !text.contains("other") && !text.contains("missing"),
+            "{text}"
+        );
+        assert!(
+            explanation(&program.effects(Some("helper[str]")))
+                .contains("assumed in `missing`: missing function body (source unavailable)")
+        );
+        for _ in 0..10 {
+            assert_eq!(
+                text,
+                explanation(&Program::new(&ops).effects(Some("helper[i64]")))
+            );
+        }
+        // New IR provenance must not reuse a cache keyed only by symbol name.
+        let relocated = [Op::DefineFn(
+            "stop".into(),
+            sited_function(
+                "relocated.p",
+                20,
+                vec![site(21), Op::Executor(ExecutorOp::Shutdown)],
+            )
+            .into(),
+        )];
+        assert!(
+            explanation(&Program::new(&relocated).effects(Some("stop")))
+                .contains("relocated.p:21:5")
+        );
+    }
+
+    #[test]
+    fn shutdown_witness_bounds_long_chains_without_losing_the_cause() {
+        let mut ops = Vec::new();
+        for n in 0..40 {
+            ops.push(Op::DefineFn(
+                format!("f{n}"),
+                function(vec![Op::Call(format!("f{}", n + 1))]).into(),
+            ));
+        }
+        let program = Program::new(&ops);
+        let effects = program.effects(Some("f0"));
+        let witness = effects.shutdown.as_ref().unwrap();
+        assert_eq!(witness.chain.len(), Shutdown::CHAIN_LIMIT);
+        assert_eq!(witness.omitted, 32);
+        let text = explanation(&effects);
+        assert!(text.contains("32 outer call edges omitted"), "{text}");
+        assert!(text.contains("`f39` calls `f40`"), "{text}");
+        assert!(
+            text.contains("assumed in `f40`: missing function body (source unavailable)"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn shutdown_witness_records_owned_parameter_and_local_bindings() {
+        for parameter in [true, false] {
+            let mut f = sited_function("owned.p", 1, vec![site(2), Op::StoreLocal(0)]);
+            f.origins = Arc::new(super::super::Origins {
+                source: Some("owned.p".into()),
+                names: vec![Some("pool".into())],
+                ..Default::default()
+            });
+            if parameter {
+                f.sig = Arc::new(FnSig {
+                    inputs: vec![("pool".into(), Ty::Executor)],
+                    outputs: vec![],
+                });
+            } else {
+                f.locals = vec![Ty::Executor].into();
+            }
+            let ops = [Op::DefineFn("own".into(), f.into())];
+            let program = Program::new(&ops);
+            let text = explanation(&program.effects(Some("own")));
+            let kind = if parameter { "parameter" } else { "local" };
+            assert!(
+                text.contains(&format!("owned-pool cleanup: {kind} `pool`")),
+                "{text}"
+            );
+            let line = if parameter { 1 } else { 2 };
+            let column = if parameter { 1 } else { 5 };
+            assert!(
+                text.contains(&format!("owned.p:{line}:{column}:")),
+                "{text}"
+            );
+            assert!(!program.effects(Some("own")).unknown);
+        }
+    }
+
+    #[test]
+    fn capable_and_erased_calls_have_assumed_witnesses_but_data_only_calls_do_not() {
+        for (call, expected) in [
+            (
+                Op::ClosureCall(Arc::new(
+                    crate::closure::ClosureType::new(
+                        String::new(),
+                        None,
+                        (*signature(vec![], None)).clone(),
+                        vec![],
+                        vec![],
+                        false,
+                    )
+                    .unwrap(),
+                )),
+                "unresolved closure call",
+            ),
+            (
+                Op::CallIndirect(signature(
+                    vec![Ty::Ref(Arc::new(Ty::Executor), false)],
+                    None,
+                )),
+                "indirect Callable call",
+            ),
+            (
+                Op::BoxedCallableCall(signature(vec![], None), BoxedMode::Shared),
+                "erased BoxedCallable call",
+            ),
+        ] {
+            let ops = [Op::DefineFn(
+                "apply".into(),
+                sited_function("apply.p", 1, vec![site(2), call]).into(),
+            )];
+            let program = Program::new(&ops);
+            let effects = program.effects(Some("apply"));
+            assert!(effects.waits(&Ty::I64));
+            let text = explanation(&effects);
+            assert!(
+                text.contains(&format!(
+                    "apply.p:2:5: note: pool shutdown is assumed in `apply`: {expected}"
+                )),
+                "{text}"
+            );
+        }
+        let effects = Program::new(&[]).effects(None);
+        assert!(explanation(&effects).contains("assumed: indirect call"));
+    }
 }

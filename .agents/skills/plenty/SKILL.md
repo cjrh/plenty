@@ -36,8 +36,9 @@ is in `target/optimized/` by default or `target/fast-compile/` with that flag.
    top-level statement is an error.
 3. Type-check: `plenty --check FILE` for one file, or `plenty check` inside a
    package. For an embedded script manifest, use `plenty script --check FILE`.
-   Fix every diagnostic, then check again. Diagnostics are precise;
-   read the whole message, including its notes.
+   Fix every diagnostic, then check again. Read the whole message, including
+   its notes; conservative concurrency checks can report a possible hazard
+   without proving it occurs.
 4. Run: `plenty FILE`, or `plenty run` / `plenty test` in a package.
    `plenty FILE ARGS` is rejected; to pass arguments, use
    `plenty script FILE ARGS` (runner options precede FILE), or build with
@@ -52,6 +53,16 @@ name or a rejected spelling is not evidence that the capability is absent.
 Use a package (`plenty new NAME`) for several executables or tests. Single-file
 utilities can declare path/Git dependencies in an optional script header.
 See [workflow and packages](references/workflow.md).
+
+## Pool schedulers and cancellation
+
+For a loop that submits jobs and receives completions, read
+[pool scheduler guidance](references/concurrency.md) and the
+[runnable helper loop](../../../book/src/tutorial/11-concurrency/scheduler-loops.md).
+Pool drop joins accepted work; receiver-last guards protect scope exit, not
+mid-call shutdown. Use restricted `Submitter` capabilities where appropriate,
+but account for current conservative helper-call limitations. Preserve start
+errors, worker errors and partially prepared resources when restructuring.
 
 ## Typed serialization
 
