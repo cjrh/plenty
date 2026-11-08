@@ -469,7 +469,7 @@ fn contains_implementing_type(ty: &Ty, marker: &Ty, aliases: &TypeAliases) -> bo
             pending.extend(arguments.iter().filter_map(Argument::as_type).cloned());
         }
         match &ty {
-            Ty::Callable(sig) | Ty::BoxedCallable(sig) => {
+            Ty::Callable(sig) | Ty::BoxedCallable(sig, _) => {
                 pending.extend(sig.inputs.iter().chain(sig.output.iter()).cloned())
             }
             Ty::BoxedProtocol(p) => pending.extend(p.types().cloned()),

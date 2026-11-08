@@ -129,7 +129,7 @@ pub fn erasure_barrier(source: &Ty) -> bool {
         }
         if matches!(
             ty,
-            Ty::Executor | Ty::Submitter | Ty::Future(_) | Ty::BoxedCallable(_) | Ty::Channel(..)
+            Ty::Executor | Ty::Submitter | Ty::Future(_) | Ty::BoxedCallable(..) | Ty::Channel(..)
         ) {
             return true;
         }

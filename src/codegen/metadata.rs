@@ -324,7 +324,7 @@ fn kind_code(ty: &Ty) -> u8 {
         Ty::CancellationToken => b'K',
         Ty::Future(_) => b'Z',
         Ty::Closure(_) => b'H',
-        Ty::BoxedCallable(_) => b'J',
+        Ty::BoxedCallable(..) => b'J',
         Ty::BoxedProtocol(_) => b'j',
         Ty::I16 => b'2',
         Ty::I32 => b'3',

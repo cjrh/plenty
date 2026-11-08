@@ -83,21 +83,21 @@ pub(super) fn check_callable_bound(
     let Some(Ty::Callable(expected)) = pattern.resolve(aliases)? else {
         unreachable!("Callable constraint resolves to a callable signature")
     };
+    let consumed = matches!(ty, Ty::Closure(t) if t.once)
+        || matches!(ty, Ty::BoxedCallable(_, crate::op::BoxedMode::Once));
     if callables::signature(ty) != Some(expected.as_ref())
-        || (bound.name.as_deref() == Some("Callable") && matches!(ty, Ty::Closure(t) if t.once))
+        || (bound.name.as_deref() == Some("Callable") && consumed)
     {
         let requirement =
             expected
                 .to_string()
                 .replacen("Callable", bound.name.as_deref().unwrap(), 1);
-        let hint = if callables::signature(ty) == Some(expected.as_ref())
-            && matches!(ty, Ty::Closure(t) if t.once)
-        {
+        let hint = if callables::signature(ty) == Some(expected.as_ref()) && consumed {
             if matches!(ty, Ty::Closure(t) if t.borrowed) {
                 "; a one-shot closure with borrowed captures can only be consumed locally".into()
             } else {
                 format!(
-                    "; a one-shot closure is consumed by its call; use `F: {}` with an owned `F` parameter for a consuming callback API",
+                    "; a one-shot callback is consumed by its call; use `F: {}` with an owned `F` parameter for a consuming callback API",
                     expected.to_string().replacen("Callable", "OnceCallable", 1)
                 )
             }
@@ -659,7 +659,7 @@ pub(super) fn type_ref(ty: &Ty, at: &Token) -> TypeRef {
         Ty::Unit => (None, vec![]),
         Ty::Dimension(_)
         | Ty::Closure(_)
-        | Ty::BoxedCallable(_)
+        | Ty::BoxedCallable(..)
         | Ty::BoxedProtocol(_)
         | Ty::Iter(..) => {
             return TypeRef {
@@ -1113,7 +1113,7 @@ fn infer_inner(
                 .chain(std::iter::once(sig.output.as_ref().unwrap_or(&Ty::Unit)))
                 .collect(),
         ),
-        (Some("BoxedCallable"), Ty::BoxedCallable(sig)) => Some(
+        (Some(name), Ty::BoxedCallable(sig, mode)) if name == mode.name() => Some(
             sig.inputs
                 .iter()
                 .chain(std::iter::once(sig.output.as_ref().unwrap_or(&Ty::Unit)))

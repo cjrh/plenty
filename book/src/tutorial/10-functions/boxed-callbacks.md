@@ -38,7 +38,41 @@ Calling borrows the stored owner, so repeated calls keep it registered and requi
 no extra allocation. Ordinary moves transfer ownership, and dropping or replacing
 the owner drops its captures. Named functions can also use `BoxedCallable(name)`.
 
-This type currently accepts reusable shared-call callbacks with owned captures.
-Keep mutable, one-shot, borrowed, or generator-containing closures concrete.
-Callbacks returning references and worker transfer are also unsupported. Boxing
-does not make a callback copyable or comparable; use names as registry keys.
+`BoxedCallable` accepts reusable callbacks with owned captures that only read
+them. A closure that updates its captures needs `BoxedMutCallable`, whose call
+borrows the box mutably. Each box keeps its own state:
+
+```plenty
+def counter(step: i64) -> Result[BoxedMutCallable[[], Result[i64, OverflowError[i64]]], AllocError]:
+    mut total = 0
+    tick = def [mut total, step]() -> Result[i64, OverflowError[i64]]:
+        total = total + step
+        Ok(total)
+    BoxedMutCallable(tick)
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    mut handlers = [counter(1)?, counter(10)?]?
+    for handler in &mut handlers:
+        print(handler()?)?
+    for handler in &mut handlers:
+        print(handler()?)?
+    Ok(())
+```
+
+```output
+1
+10
+2
+20
+```
+
+Iterate with `&mut` so each call can update its box. A
+[one-shot closure](consuming-captures.md) needs `BoxedOnceCallable`, whose call
+consumes and frees the box; see the
+[one-shot queue example](consuming-callback-apis.md#queue-one-shot-jobs).
+
+Borrowed captures, closures containing generators, and callbacks returning
+references stay concrete. No boxed callback can cross into a worker thread.
+Boxing does not make a callback copyable or comparable; use names as registry
+keys. The [callback type guide](../../design/language/06-functions/05-boxed-callables.md#choosing-a-callback-type)
+compares every kind of callback.

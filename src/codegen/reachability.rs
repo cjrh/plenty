@@ -283,7 +283,12 @@ mod tests {
         });
         let callbacks = vec![
             Op::FunctionAddress("std.address".into(), signature.clone()),
-            Op::BoxedCallableNew(Box::new(Ty::Unit), "std.boxed".into(), signature),
+            Op::BoxedCallableNew(
+                Box::new(Ty::Unit),
+                "std.boxed".into(),
+                signature,
+                crate::op::BoxedMode::Shared,
+            ),
             Op::Executor(crate::executor::ExecutorOp::Submit(job, false)),
             Op::Thread(crate::threading::ThreadOp::Start(task, 0, false)),
         ];

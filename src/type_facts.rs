@@ -56,7 +56,7 @@ impl Ty {
                 reflexive: !self.is_float() && !matches!(self, Self::Clist(_)),
                 closure: matches!(
                     self,
-                    Self::Closure(_) | Self::BoxedCallable(_) | Self::BoxedProtocol(_)
+                    Self::Closure(_) | Self::BoxedCallable(..) | Self::BoxedProtocol(_)
                 ),
                 concurrent_handle: self.is_concurrent_handle(),
                 atomic: matches!(self, Self::Atomic(_)),
@@ -105,7 +105,7 @@ impl Ty {
                 | Self::Clist(_)
                 | Self::Generator(_)
                 | Self::Closure(_)
-                | Self::BoxedCallable(_)
+                | Self::BoxedCallable(..)
                 | Self::BoxedProtocol(_)
         ) || self.is_concurrent_handle()
     }
@@ -200,7 +200,7 @@ impl Ty {
         while i < nodes.len() {
             facts.closure |= matches!(
                 nodes[i],
-                Self::Closure(_) | Self::BoxedCallable(_) | Self::BoxedProtocol(_)
+                Self::Closure(_) | Self::BoxedCallable(..) | Self::BoxedProtocol(_)
             );
             facts.concurrent_handle |= nodes[i].is_concurrent_handle();
             facts.atomic |= matches!(nodes[i], Self::Atomic(_));
@@ -221,7 +221,7 @@ impl Ty {
                 | Self::Box(_)
                 | Self::Shared(_)
                 | Self::Callable(_) => 1,
-                Self::BoxedCallable(_) => 1,
+                Self::BoxedCallable(..) => 1,
                 Self::Closure(t) => t.depth,
                 Self::Generator(t) => 1 + t.element.layout_depth(),
                 // A reference's high word holds a tag shift of at most 64,
@@ -470,7 +470,7 @@ mod tests {
             Ty::Channel(Arc::new(Ty::I64), true),
             Ty::Future(Arc::new(Ty::I64)),
             Ty::Callable(Arc::new(signature.clone())),
-            Ty::BoxedCallable(Arc::new(signature)),
+            Ty::BoxedCallable(Arc::new(signature), crate::op::BoxedMode::Shared),
             Ty::Closure(Arc::new(closure)),
             Ty::Generator(Arc::new(crate::generator::GeneratorType {
                 element: list(&Ty::I64),

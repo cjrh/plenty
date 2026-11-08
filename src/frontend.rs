@@ -214,7 +214,12 @@ impl TypeRef {
         }
         if matches!(
             name.as_str(),
-            "Callable" | "BoxedCallable" | "Closure" | "OnceClosure"
+            "Callable"
+                | "BoxedCallable"
+                | "BoxedMutCallable"
+                | "BoxedOnceCallable"
+                | "Closure"
+                | "OnceClosure"
         ) {
             let (output, inputs) = self.args.split_last().ok_or_else(|| {
                 self.at
@@ -231,10 +236,11 @@ impl TypeRef {
             if matches!(signature.output, Some(Ty::View(..))) {
                 return Err(self.at.error(views::RETURN));
             }
-            if name == "BoxedCallable" && matches!(signature.output, Some(Ty::Ref(..))) {
+            let boxed = crate::op::BoxedMode::from_name(name);
+            if boxed.is_some() && matches!(signature.output, Some(Ty::Ref(..))) {
                 return Err(self
                     .at
-                    .error("BoxedCallable callbacks cannot return references yet"));
+                    .error(format!("{name} callbacks cannot return references yet")));
             }
             if matches!(name.as_str(), "Closure" | "OnceClosure") {
                 return Ok(Some(Ty::Closure(Arc::new(
@@ -249,8 +255,8 @@ impl TypeRef {
                     .map_err(|message| self.at.error(message))?,
                 ))));
             }
-            return Ok(Some(if name == "BoxedCallable" {
-                Ty::BoxedCallable(Arc::new(signature))
+            return Ok(Some(if let Some(mode) = boxed {
+                Ty::BoxedCallable(Arc::new(signature), mode)
             } else {
                 Ty::Callable(Arc::new(signature))
             }));
@@ -714,6 +720,8 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "Iter"
                 | "Callable"
                 | "BoxedCallable"
+                | "BoxedMutCallable"
+                | "BoxedOnceCallable"
                 | "Closure"
                 | "OnceClosure"
                 | "OnceCallable"
@@ -2706,9 +2714,9 @@ impl Lower<'_> {
                     .replace_field(args, &e.at, ops)
                     .map(|ty| Some(Some(ty)));
             }
-            if name == "BoxedCallable" {
+            if let Some(mode) = crate::op::BoxedMode::from_name(name) {
                 return self
-                    .boxed_callable(args, &e.at, ops)
+                    .boxed_callable(args, mode, &e.at, ops)
                     .map(|ty| Some(Some(ty)));
             }
             if name == "Shared" {
