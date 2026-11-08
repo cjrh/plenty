@@ -80,6 +80,8 @@ mod test_borrowed_lookups;
 mod test_borrowed_match;
 #[path = "test_borrowing.rs"]
 mod test_borrowing;
+#[path = "test_boxed_callable_modes.rs"]
+mod test_boxed_callable_modes;
 #[path = "test_boxed_callables.rs"]
 mod test_boxed_callables;
 #[path = "test_boxes.rs"]
@@ -315,6 +317,8 @@ mod test_key_sorting;
 mod test_large_functions;
 #[path = "test_last_use_moves.rs"]
 mod test_last_use_moves;
+#[path = "test_lent_generators.rs"]
+mod test_lent_generators;
 #[path = "test_library_metadata.rs"]
 mod test_library_metadata;
 #[path = "test_library_publication.rs"]

@@ -299,7 +299,7 @@ impl<'a> Graph<'a> {
                         _ => self.unknown = true,
                     }
                 }
-                Op::BoxedCallableCall(_)
+                Op::BoxedCallableCall(..)
                 | Op::ProtocolBoxCall(..)
                 | Op::Next(_)
                 | Op::ForeignCall { .. }

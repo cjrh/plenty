@@ -76,6 +76,7 @@ pub(super) fn blocks(op: &Op) -> bool {
         Op::Atomic { .. }
         | Op::ClosureNew { .. }
         | Op::BoxedCallableNew { .. }
+        | Op::BoxedCallableTake { .. }
         | Op::ProtocolBoxNew { .. }
         | Op::FunctionAddress { .. }
         | Op::Try { .. }

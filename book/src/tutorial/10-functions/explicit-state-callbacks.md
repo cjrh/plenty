@@ -37,6 +37,7 @@ records needs no allocation, but storing them in a list does.
 
 For different state shapes, use an enum and handle its variants in the callback.
 [Owned concrete closures](callback-records.md) can also be stored when their
-producer types agree.
+producer types agree. To store closures that each keep different captured
+state, box each one as a [`BoxedMutCallable`](boxed-callbacks.md).
 
 See `examples/callback_registry.plenty` for a registry example.

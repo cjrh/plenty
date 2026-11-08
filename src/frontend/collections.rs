@@ -2469,8 +2469,9 @@ impl Lower<'_> {
             let Ty::Ref(ty, _) = reference else {
                 unreachable!()
             };
-            // A list is iterated through its reference (`borrowed_list_iteration`).
-            if !matches!(*ty, Ty::List(_)) {
+            // A list is iterated through its reference (`borrowed_list_iteration`),
+            // and a lent generator advances through it (`lent_generator_iteration`).
+            if !matches!(*ty, Ty::List(_) | Ty::Generator(_)) {
                 ops.push(Op::ReadRef((*ty).clone()));
             }
             ((*ty).clone(), vec![loan])
@@ -2496,7 +2497,9 @@ impl Lower<'_> {
             if let Ty::Ref(inner, writable) = ty {
                 borrowed = true;
                 mutable = writable;
-                if !matches!(*inner, Ty::List(_)) {
+                if !matches!(*inner, Ty::List(_))
+                    && !(writable && matches!(*inner, Ty::Generator(_)))
+                {
                     ops.push(Op::ReadRef((*inner).clone()));
                 }
                 (
@@ -2545,8 +2548,23 @@ impl Lower<'_> {
             Ty::View(element, _) => Some((**element).clone()),
             _ => ty.element(),
         };
-        if borrowed && matches!(ty, Ty::Generator(_)) {
-            return Err(iterable.at.error("borrowed generator iteration is not supported; use next with an exclusive reference"));
+        // A loop over `&mut g` advances the lender's frame in place, like
+        // `next(&mut g)`, so items stay owned and `break` keeps the remaining
+        // progress. A shared reference cannot advance.
+        let lent_generator = borrowed && matches!(ty, Ty::Generator(_));
+        if lent_generator && !mutable {
+            return Err(iterable.at.error(
+                "a shared generator reference cannot be advanced; lend it as `&mut` to loop over it",
+            ));
+        }
+        if lent_generator && reverse {
+            return Err(iterable
+                .at
+                .error("reversed requires a list, str, bytes, range, or Bytes"));
+        }
+        if lent_generator {
+            borrowed = false;
+            mutable = false;
         }
         let references = borrowed
             && matches!(
@@ -2570,6 +2588,8 @@ impl Lower<'_> {
             self.borrowed_list_iteration(ty.clone(), mutable, reverse, &iterable.at, ops)?
         } else if references {
             self.borrowed_collection_iteration(ty.clone(), &iterable.at, ops)?
+        } else if lent_generator {
+            self.lent_generator_iteration(ty.clone(), &iterable.at, ops)?
         } else {
             self.iteration_on_stack_direction(ty.clone(), reverse, &iterable.at, ops)?
         };
@@ -3086,6 +3106,59 @@ impl Lower<'_> {
 
     fn iteration_on_stack(&mut self, ty: Ty, at: &Token, ops: &mut Vec<Op>) -> Result<Iteration> {
         self.iteration_on_stack_direction(ty, false, at, ops)
+    }
+
+    /// The reference to a lent generator is on the stack. Each condition
+    /// advances the frame through it; the loop never drops the frame, so the
+    /// lender keeps whatever progress `break`, `return` or `?` leaves.
+    fn lent_generator_iteration(
+        &mut self,
+        generator: Ty,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Iteration> {
+        let element = generator
+            .element()
+            .expect("a generator has an element type");
+        let reference = self.slot(Ty::Ref(Arc::new(generator.clone()), true), at)?;
+        let target = self.slot(element.clone(), at)?;
+        ops.push(Op::StoreLocal(reference));
+        let option = crate::sum::option(element.clone());
+        let Ty::Enum(enum_type) = &option else {
+            unreachable!()
+        };
+        let item = self.slot(option.clone(), at)?;
+        Ok(Iteration {
+            counter: None,
+            exact_len: None,
+            cleanup: vec![],
+            absent: vec![
+                Op::Enum(crate::sum::EnumOp::New(enum_type.clone(), 0)),
+                Op::StoreLocal(item),
+            ],
+            condition: vec![
+                Op::LoadLocal(reference),
+                Op::ReadRef(generator.clone()),
+                Op::Collection(CollectionOp::Next(generator)),
+                Op::StoreLocal(item),
+                Op::LoadLocal(item),
+                Op::Enum(crate::sum::EnumOp::Tag(enum_type.clone())),
+                Op::PushInt(Value::I64(1)),
+                Op::Eq,
+            ],
+            body: vec![
+                Op::MoveLocal(item),
+                Op::Enum(if element.affine() {
+                    crate::sum::EnumOp::Take(enum_type.clone(), 1, 0)
+                } else {
+                    crate::sum::EnumOp::Field(enum_type.clone(), 1, 0)
+                }),
+                Op::StoreLocal(target),
+                Op::DropLocal(item),
+            ],
+            step: vec![Op::DropLocal(target)],
+            target,
+        })
     }
 
     fn iteration_on_stack_direction(
@@ -4161,7 +4234,7 @@ impl Lower<'_> {
         }
         if matches!(
             self.field_type(base, name),
-            Some(Ty::Callable(_) | Ty::BoxedCallable(_) | Ty::Closure(_))
+            Some(Ty::Callable(_) | Ty::BoxedCallable(..) | Ty::Closure(_))
         ) {
             let field = Expr {
                 at: base.at.clone(),

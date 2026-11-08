@@ -482,6 +482,18 @@ spelling remains a compatible alias. Ordinary `&str` references, generic `&T`
 and the two-word view layout keep their existing semantics. See
 [substring views](../design/language/04-expressions/slices.md#substring-views).
 
+`for value in &mut g` and `for value in g` through a `&mut Generator[T]`
+parameter advance a lent generator in place (issue #872, slice 1). Items are
+owned; `break`, `return` and `?` leave the remaining items with the owner,
+which drops the suspended frame at its own scope end. Comprehensions and
+`enumerate` accept the lent source. The loop holds the exclusive loan, so
+advancing the generator again in the body is a borrow error, and the loan
+cannot cross `yield`. The [generator reference](../design/language/09-iteration/03-generators.md#lending-a-generator)
+adds a capability matrix of where item types suffice and where producer
+identity must match; mismatched producers now name the frame identity in the
+diagnostic. Joining different producers and borrowed-item pipeline `next`
+remain under B12.
+
 Text-file iteration, uniform borrowed iteration and borrowed temporary source
 lifetimes shipped (issues #30/#75). Allocation-free enumerate/zip/reversed
 sources and boolean reductions (issue #35) now compose through B75 pipelines;
@@ -987,10 +999,14 @@ erased-callback payloads are conservatively rejected. See the
 
 Owned concrete reusable/consuming environments and worker eligibility work in
 ordinary aggregates. Explicit fallible `BoxedCallable` supports heterogeneous
-owned shared-call storage (issue #25). See the
+owned shared-call storage (issue #25). `BoxedMutCallable` stores mutable
+closures behind a mutable-borrow call, and `BoxedOnceCallable` stores one-shot
+jobs whose call consumes and frees the box (issue #871). The reference
+compares every callback kind by position and cost, and a mismatch between two
+closure producers suggests the matching erased owner. See the
 [storage decision](../proposals/completed/stored-closures.md) and
 [boxed callable reference](../design/language/06-functions/05-boxed-callables.md).
-Additional erased modes stay **B32** in the [backlog](../backlog.md).
+Borrowed and worker-bound erased modes stay **B32** in the [backlog](../backlog.md).
 
 ## B36: Named arguments and defaults
 

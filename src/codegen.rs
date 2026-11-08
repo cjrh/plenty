@@ -2726,10 +2726,11 @@ impl Lowerer<'_, '_> {
             }
             Op::ClosureNew(t) => self.lower_closure_new(t)?,
             Op::ClosureCall(t) => self.lower_closure_call(t)?,
-            Op::BoxedCallableNew(source, adapter, sig) => {
-                self.lower_boxed_callable_new(source, adapter, sig)?
+            Op::BoxedCallableNew(source, adapter, sig, mode) => {
+                self.lower_boxed_callable_new(source, adapter, sig, *mode)?
             }
-            Op::BoxedCallableCall(sig) => self.lower_boxed_callable_call(sig)?,
+            Op::BoxedCallableCall(sig, mode) => self.lower_boxed_callable_call(sig, *mode)?,
+            Op::BoxedCallableTake(source, sig) => self.lower_boxed_callable_take(source, sig)?,
             Op::ProtocolBoxNew(source, adapters, protocol) => {
                 self.lower_protocol_box_new(source, adapters, protocol)?
             }

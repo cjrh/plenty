@@ -58,7 +58,7 @@ fn rejection(content: &Ty) -> Option<String> {
                     "{shared} cannot hold {ty}: erased payloads may conceal shared cycles or executor/future owners"
                 ));
             }
-            Ty::BoxedCallable(_) => {
+            Ty::BoxedCallable(..) => {
                 if let Some(through) = &through {
                     let (shared, ty) = (shown(&shared), shown(&ty));
                     return Some(format!(

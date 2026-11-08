@@ -403,7 +403,13 @@ impl Parser {
             }
             if matches!(
                 name.as_str(),
-                "Callable" | "BoxedCallable" | "Closure" | "OnceClosure" | "OnceCallable"
+                "Callable"
+                    | "BoxedCallable"
+                    | "BoxedMutCallable"
+                    | "BoxedOnceCallable"
+                    | "Closure"
+                    | "OnceClosure"
+                    | "OnceCallable"
             ) {
                 if !(self.eat("[") && self.eat("[")) {
                     return Err(self

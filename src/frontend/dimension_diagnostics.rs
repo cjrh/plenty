@@ -80,7 +80,7 @@ impl TypeAliases {
                 | Ty::Range(t)
                 | Ty::Ref(t, _) => pending.push((**t).clone()),
                 Ty::Dict(k, v) => pending.extend([(**v).clone(), (**k).clone()]),
-                Ty::Callable(sig) | Ty::BoxedCallable(sig) => {
+                Ty::Callable(sig) | Ty::BoxedCallable(sig, _) => {
                     pending.extend(sig.output.iter().cloned());
                     pending.extend(sig.inputs.iter().rev().cloned());
                 }

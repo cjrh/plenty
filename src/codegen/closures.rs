@@ -3,12 +3,17 @@ use super::*;
 use crate::closure::ClosureType;
 use cranelift_codegen::ir::MemFlagsData;
 
+/// Where a callable or protocol box's content starts: after its header,
+/// content descriptor and adapter words (the runtime's `AdaptedBox`).
+const ADAPTED_BOX_CONTENT: i64 = 32;
+
 impl Lowerer<'_, '_> {
     pub(super) fn lower_boxed_callable_new(
         &mut self,
         source: &Ty,
         adapter: &str,
         signature: &Arc<crate::op::CallableSig>,
+        mode: crate::op::BoxedMode,
     ) -> Result<()> {
         let (value, _) = self.pop_typed(source.clone())?;
         let value = self.pack(value, source);
@@ -20,7 +25,7 @@ impl Lowerer<'_, '_> {
         let descriptor = Ty::Box(Arc::new(source.clone()));
         let packed = self.collection_call(128, &[value, code], Some(&descriptor))?;
         let output = crate::sum::result(
-            Ty::BoxedCallable(signature.clone()),
+            Ty::BoxedCallable(signature.clone(), mode),
             crate::sum::alloc_error(),
         );
         let result = self.unpack(packed, &output);
@@ -31,6 +36,7 @@ impl Lowerer<'_, '_> {
     pub(super) fn lower_boxed_callable_call(
         &mut self,
         signature: &Arc<crate::op::CallableSig>,
+        mode: crate::op::BoxedMode,
     ) -> Result<()> {
         let split = self
             .stack
@@ -38,28 +44,53 @@ impl Lowerer<'_, '_> {
             .checked_sub(signature.inputs.len())
             .ok_or("boxed callable call underflow")?;
         let args: Vec<_> = self.stack.drain(split..).collect();
-        let (reference, _) = self.stack.pop().ok_or("missing boxed callable owner")?;
-        let reference = self.raw_word(reference);
-        let boxed = self
-            .bcx
-            .ins()
-            .load(PTR_TY, MemFlagsData::trusted(), reference, 0);
+        let (owner, owner_ty) = self.stack.pop().ok_or("missing boxed callable owner")?;
+        let raw = self.raw_word(owner);
+        // The adapter knows the concrete type while this call site knows only
+        // the public signature. A one-shot adapter takes the owned box, moves
+        // its content out and frees it; the others take the content slot.
+        let (boxed, environment, environment_ty) = if mode == crate::op::BoxedMode::Once {
+            (raw, owner, owner_ty)
+        } else {
+            let boxed = self.bcx.ins().load(PTR_TY, MemFlagsData::trusted(), raw, 0);
+            let slot = self.bcx.ins().iadd_imm_s(boxed, ADAPTED_BOX_CONTENT);
+            let slot = self.bcx.ins().uextend(types::I128, slot);
+            (boxed, slot, Ty::Ref(Arc::new(Ty::Unit), false))
+        };
         let code = self
             .bcx
             .ins()
             .load(PTR_TY, MemFlagsData::trusted(), boxed, 24);
-        let slot = self.bcx.ins().iadd_imm_s(boxed, 32);
-        let environment = self.bcx.ins().uextend(types::I128, slot);
-        // All environment references use the same native ABI; the adapter knows
-        // the concrete type while this call site knows only the public signature.
         let mut adapted = (**signature).clone();
-        adapted.inputs.insert(0, Ty::Ref(Arc::new(Ty::Unit), false));
+        adapted.inputs.insert(0, environment_ty.clone());
         let adapted = Arc::new(adapted);
         self.stack.push((code, Ty::Callable(adapted.clone())));
-        self.stack
-            .push((environment, Ty::Ref(Arc::new(Ty::Unit), false)));
+        self.stack.push((environment, environment_ty));
         self.stack.extend(args);
         self.lower_indirect_call(&adapted, false)
+    }
+
+    /// Move a one-shot box's content out, then free the box without
+    /// dropping that content.
+    pub(super) fn lower_boxed_callable_take(
+        &mut self,
+        source: &Ty,
+        signature: &Arc<crate::op::CallableSig>,
+    ) -> Result<()> {
+        let owner = Ty::BoxedCallable(signature.clone(), crate::op::BoxedMode::Once);
+        let (boxed, _) = self.pop_typed(owner)?;
+        let boxed = self.raw_word(boxed);
+        let slot = self.bcx.ins().iadd_imm_s(boxed, ADAPTED_BOX_CONTENT);
+        let value = self
+            .bcx
+            .ins()
+            .load(types::I128, MemFlagsData::trusted(), slot, 0);
+        let value = self.unpack(value, source);
+        let value = self.snapshot_inline(value, source);
+        let boxed = self.bcx.ins().uextend(types::I128, boxed);
+        self.collection_call(crate::collection_opcodes::ADAPTED_BOX_TAKE, &[boxed], None)?;
+        self.stack.push((value, source.clone()));
+        Ok(())
     }
 
     pub(super) fn lower_closure_new(&mut self, t: &Arc<ClosureType>) -> Result<()> {

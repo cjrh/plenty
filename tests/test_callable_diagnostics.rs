@@ -78,7 +78,7 @@ fn one_shot_closures_explain_why_the_reusable_bound_is_not_satisfied() {
         "{error}"
     );
     assert!(
-        error.contains("one-shot closure is consumed by its call"),
+        error.contains("one-shot callback is consumed by its call"),
         "{error}"
     );
     assert!(error.contains("F: OnceCallable[[], i64]"), "{error}");
