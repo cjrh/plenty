@@ -1,10 +1,10 @@
 //! Capture-free callable values use the normal Plenty ABI.
 use super::*;
-use crate::op::CallableSig;
+use crate::op::{BoxedMode, CallableSig};
 
 pub(super) fn signature(ty: &Ty) -> Option<&CallableSig> {
     match ty {
-        Ty::Callable(sig) | Ty::BoxedCallable(sig) => Some(sig),
+        Ty::Callable(sig) | Ty::BoxedCallable(sig, _) => Some(sig),
         Ty::Closure(t) => Some(&t.signature),
         _ => None,
     }
@@ -18,6 +18,17 @@ pub(super) fn mismatch_hint(expected: &Ty, actual: &Ty) -> Option<String> {
             return mismatch_hint(expected, actual);
         }
         (Ty::Callable(expected), Ty::Closure(actual)) => (expected, actual),
+        (Ty::Closure(expected), Ty::Closure(actual)) if expected.signature == actual.signature => {
+            return Some(producer_hint(expected, actual));
+        }
+        (Ty::BoxedCallable(expected, to), Ty::BoxedCallable(actual, from))
+            if expected == actual && to != from =>
+        {
+            return Some(format!(
+                "; boxes do not convert between modes: box the original callback with `{}(callback)?`",
+                to.name()
+            ));
+        }
         (domain, integer) if domain.domain_element().as_ref() == Some(integer) => {
             return Some(format!(
                 "; convert it with `{}.try_from(value)?`{}",
@@ -54,9 +65,35 @@ pub(super) fn mismatch_hint(expected: &Ty, actual: &Ty) -> Option<String> {
     ))
 }
 
+/// Two closure expressions never share an environment type, even with equal
+/// signatures; point at the explicit erased owner that accepts both.
+fn producer_hint(
+    expected: &crate::closure::ClosureType,
+    actual: &crate::closure::ClosureType,
+) -> String {
+    let explanation = "; each closure expression has its own environment type";
+    if expected.borrowed || actual.borrowed {
+        return format!(
+            "{explanation}; a closure with borrowed captures cannot be stored, so pass each to a generic `F: Callable[...]` parameter"
+        );
+    }
+    let mode = if expected.once || actual.once {
+        BoxedMode::Once
+    } else if expected.mutable || actual.mutable {
+        BoxedMode::Mut
+    } else {
+        BoxedMode::Shared
+    };
+    let owner = Ty::BoxedCallable(Arc::new(expected.signature.clone()), mode);
+    format!(
+        "{explanation}; to return or store either one, box each as {owner} with `{}(closure)?`",
+        mode.name()
+    )
+}
+
 fn output(ty: &Ty) -> Type {
     match ty {
-        Ty::Callable(sig) | Ty::BoxedCallable(sig) => sig.output.clone(),
+        Ty::Callable(sig) | Ty::BoxedCallable(sig, _) => sig.output.clone(),
         Ty::Closure(t) => t.signature.output.clone(),
         Ty::Ref(t, _) => output(t),
         _ => None,
@@ -103,88 +140,160 @@ impl Lower<'_> {
     pub(super) fn boxed_callable(
         &mut self,
         args: &[Expr],
+        mode: BoxedMode,
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
+        let name = mode.name();
         let [callback] = args else {
-            return Err(at.error("BoxedCallable takes one owned callback"));
+            return Err(at.error(format!("{name} takes one owned callback")));
         };
         let source = self.value(callback, ops)?;
         if let Some(barrier) = source.storage_barrier() {
-            return Err(callback.at.error(barrier.message("a BoxedCallable")));
+            return Err(callback.at.error(barrier.message(&format!("a {name}"))));
         }
-        let signature = match &source {
-            Ty::Callable(sig) => sig.clone(),
-            Ty::Closure(t) if t.once => return Err(at.error("BoxedCallable requires a reusable callback; one-shot closures cannot be erased yet")),
-            Ty::Closure(t) if t.mutable => return Err(at.error("BoxedCallable requires a shared-call callback; mutable closures cannot be erased yet")),
-            Ty::Closure(t) => Arc::new(t.signature.clone()),
-            _ => return Err(at.error("BoxedCallable requires an owned Callable or closure")),
+        let signature = match (&source, mode.accepts(&source)) {
+            (Ty::Callable(sig), _) => sig.clone(),
+            (_, Some(sig)) => Arc::new(sig.clone()),
+            (Ty::Closure(t), None) if t.once => {
+                return Err(at.error(format!(
+                    "{name} cannot call a one-shot closure, which a call consumes; use BoxedOnceCallable"
+                )));
+            }
+            (Ty::Closure(_), None) => {
+                return Err(at.error(format!(
+                    "{name} cannot call a mutable closure through a shared borrow; use BoxedMutCallable"
+                )));
+            }
+            (Ty::BoxedCallable(_, from), None) => {
+                return Err(at.error(format!(
+                    "{name} requires an owned Callable or closure, got a {}; boxes do not convert between modes, so box the original callback with {name}",
+                    from.name()
+                )));
+            }
+            _ => return Err(at.error(format!("{name} requires an owned Callable or closure"))),
         };
         if matches!(signature.output, Some(Ty::Ref(..))) {
-            return Err(at.error("BoxedCallable callbacks cannot return references yet"));
+            return Err(at.error(format!("{name} callbacks cannot return references yet")));
         }
         if signature.inputs.len() >= 256 {
-            return Err(
-                at.error("BoxedCallable supports at most 255 parameters plus its environment slot")
-            );
+            return Err(at.error(format!(
+                "{name} supports at most 255 parameters plus its environment slot"
+            )));
         }
         let adapter = format!(
             "__plenty_boxed_callable_{}_{}_{}",
             self.function_name, at.line, at.column
         );
         if !self.sigs.contains_key(&adapter) {
-            let mut adapted = signature.function();
-            adapted.inputs.insert(
-                0,
-                (
-                    "environment".into(),
-                    Ty::Ref(Arc::new(source.clone()), false),
-                ),
-            );
-            let adapted = Arc::new(adapted);
-            let mut body = vec![Op::LoadLocal(0)];
-            if matches!(source, Ty::Callable(_)) {
-                body.push(Op::ReadRef(source.clone()));
-            }
-            body.extend(signature.inputs.iter().enumerate().map(|(i, t)| {
-                if t.affine() {
-                    Op::MoveLocal((i + 1) as u8)
-                } else {
-                    Op::LoadLocal((i + 1) as u8)
-                }
-            }));
-            body.push(match &source {
-                Ty::Closure(t) => Op::ClosureCall(t.clone()),
-                _ => Op::CallIndirect(signature.clone()),
-            });
-            body.push(Op::Return);
-            self.sigs.insert(adapter.clone(), adapted.clone());
-            self.generics.compiled.push(Op::DefineFn(
-                adapter.clone(),
-                Box::new(CompiledFn {
-                    location: Some(at.position()),
-                    origins: Arc::default(),
-                    generator: None,
-                    sig: adapted,
-                    doc: "".into(),
-                    body: body.into(),
-                    locals: Arc::default(),
-                }),
-            ));
+            self.define_boxed_adapter(&adapter, &source, &signature, mode, at);
         }
         let output = crate::sum::result(
-            Ty::BoxedCallable(signature.clone()),
+            Ty::BoxedCallable(signature.clone(), mode),
             crate::sum::alloc_error(),
         );
-        ops.push(Op::BoxedCallableNew(Box::new(source), adapter, signature));
+        ops.push(Op::BoxedCallableNew(
+            Box::new(source),
+            adapter,
+            signature,
+            mode,
+        ));
         Ok(output)
+    }
+
+    /// Generate the function a boxed call enters: it receives the
+    /// environment that `BoxedMode::environment` names, then the arguments.
+    fn define_boxed_adapter(
+        &mut self,
+        adapter: &str,
+        source: &Ty,
+        signature: &Arc<CallableSig>,
+        mode: BoxedMode,
+        at: &Token,
+    ) {
+        let mut adapted = signature.function();
+        adapted.inputs.insert(
+            0,
+            ("environment".into(), mode.environment(source, signature)),
+        );
+        let arguments = signature.inputs.iter().enumerate().map(|(i, t)| {
+            if t.affine() {
+                Op::MoveLocal((i + 1) as u8)
+            } else {
+                Op::LoadLocal((i + 1) as u8)
+            }
+        });
+        let mut locals = Vec::new();
+        let mut body = Vec::new();
+        match (mode, source) {
+            (BoxedMode::Once, Ty::Closure(t)) if !t.once => {
+                // A reusable closure is called through a borrow of a local,
+                // which the adapter then drops: the consuming call owns it.
+                let content = (signature.inputs.len() + 1) as u8;
+                locals.push(source.clone());
+                body.extend([
+                    Op::MoveLocal(0),
+                    Op::BoxedCallableTake(Box::new(source.clone()), signature.clone()),
+                    Op::StoreLocal(content),
+                    Op::BorrowLocal(content, t.mutable),
+                ]);
+                body.extend(arguments);
+                body.push(Op::ClosureCall(t.clone()));
+                if let Some(output) = &signature.output {
+                    locals.push(output.clone());
+                    body.push(Op::StoreLocal(content + 1));
+                    body.push(Op::DropLocal(content));
+                    body.push(Op::MoveLocal(content + 1));
+                } else {
+                    body.push(Op::DropLocal(content));
+                }
+            }
+            (BoxedMode::Once, _) => {
+                body.extend([
+                    Op::MoveLocal(0),
+                    Op::BoxedCallableTake(Box::new(source.clone()), signature.clone()),
+                ]);
+                body.extend(arguments);
+                body.push(match source {
+                    Ty::Closure(t) => Op::ClosureCall(t.clone()),
+                    _ => Op::CallIndirect(signature.clone()),
+                });
+            }
+            _ => {
+                body.push(Op::LoadLocal(0));
+                if matches!(source, Ty::Callable(_)) {
+                    body.push(Op::ReadRef(source.clone()));
+                }
+                body.extend(arguments);
+                body.push(match source {
+                    Ty::Closure(t) => Op::ClosureCall(t.clone()),
+                    _ => Op::CallIndirect(signature.clone()),
+                });
+            }
+        }
+        body.push(Op::Return);
+        let adapted = Arc::new(adapted);
+        self.sigs.insert(adapter.to_owned(), adapted.clone());
+        self.generics.compiled.push(Op::DefineFn(
+            adapter.to_owned(),
+            Box::new(CompiledFn {
+                location: Some(at.position()),
+                origins: Arc::default(),
+                generator: None,
+                sig: adapted,
+                doc: "".into(),
+                body: body.into(),
+                locals: locals.into(),
+            }),
+        ));
     }
 
     fn boxed_callable_arguments(
         &mut self,
         args: &[Expr],
         signature: Arc<CallableSig>,
-        loan: usize,
+        mode: BoxedMode,
+        loan: Option<usize>,
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
@@ -200,9 +309,9 @@ impl Lower<'_> {
         let loans = self.call_arguments(args, &function.inputs, ops)?;
         self.mark_call(at, ops);
         self.passes(start, &function.inputs, function.outputs.first(), ops);
-        ops.push(Op::BoxedCallableCall(signature.clone()));
+        ops.push(Op::BoxedCallableCall(signature.clone(), mode));
         Self::end_reads(loans, ops);
-        ops.push(Op::UseLoan(loan));
+        ops.extend(loan.map(Op::UseLoan));
         Ok(signature.output.clone())
     }
 
@@ -382,9 +491,23 @@ impl Lower<'_> {
         args: &[Expr],
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
-        if let Some(Ty::BoxedCallable(sig)) = self.place_type(callee) {
-            let (_, loan) = self.borrow(callee, false, ops)?;
-            return self.boxed_callable_arguments(args, sig, loan, &callee.at, ops);
+        if let Some(Ty::BoxedCallable(sig, mode)) = self.place_type(callee) {
+            if mode == BoxedMode::Once {
+                if let Expression::Name(name) = &ungroup(callee).kind
+                    && self
+                        .names
+                        .get(name)
+                        .is_some_and(|local| matches!(local.ty, Ty::Ref(..)))
+                {
+                    return Err(callee.at.error(
+                        "a BoxedOnceCallable must be owned to call it; a call consumes it",
+                    ));
+                }
+                self.value(callee, ops)?;
+                return self.boxed_callable_arguments(args, sig, mode, None, &callee.at, ops);
+            }
+            let (_, loan) = self.borrow(callee, mode == BoxedMode::Mut, ops)?;
+            return self.boxed_callable_arguments(args, sig, mode, Some(loan), &callee.at, ops);
         }
         if let Some(Ty::Closure(closure)) = self.place_type(callee) {
             return self.call_closure(callee, args, closure, ops);
@@ -399,13 +522,17 @@ impl Lower<'_> {
         if let Ty::Closure(closure) = ty {
             return self.call_temporary_closure(&callee.at, args, closure, ops);
         }
-        if let Ty::BoxedCallable(sig) = ty {
-            let slot = self.slot(Ty::BoxedCallable(sig.clone()), &callee.at)?;
+        if let Ty::BoxedCallable(sig, mode) = ty {
+            if mode == BoxedMode::Once {
+                return self.boxed_callable_arguments(args, sig, mode, None, &callee.at, ops);
+            }
+            let mutable = mode == BoxedMode::Mut;
+            let slot = self.slot(Ty::BoxedCallable(sig.clone(), mode), &callee.at)?;
             ops.push(Op::StoreLocal(slot));
             self.expression_temps.push(slot);
-            let loan = self.new_loan(slot, false, None, ops);
-            ops.push(Op::BorrowLocal(slot, false));
-            return self.boxed_callable_arguments(args, sig, loan, &callee.at, ops);
+            let loan = self.new_loan(slot, mutable, None, ops);
+            ops.push(Op::BorrowLocal(slot, mutable));
+            return self.boxed_callable_arguments(args, sig, mode, Some(loan), &callee.at, ops);
         }
         let Ty::Callable(sig) = ty else {
             if let Expression::Name(name) = &ungroup(callee).kind {

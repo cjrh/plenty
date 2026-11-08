@@ -832,17 +832,16 @@ fn step(
             }
             stack.extend(method.signature.output.iter().cloned());
         }
-        Op::BoxedCallableNew(source, adapter, signature) => {
+        Op::BoxedCallableNew(source, adapter, signature, mode) => {
             if signature.inputs.len() >= 256 || matches!(signature.output, Some(Ty::Ref(..))) {
                 return Err("invalid boxed callable signature".into());
             }
             let source: &Ty = source;
-            let expected = match source {
-                Ty::Callable(sig) => sig.as_ref(),
-                Ty::Closure(t) if !t.once && !t.mutable && source.storage_barrier().is_none() => {
-                    &t.signature
-                }
-                _ => return Err("invalid boxed callable environment".into()),
+            let Some(expected) = mode
+                .accepts(source)
+                .filter(|_| source.storage_barrier().is_none())
+            else {
+                return Err("invalid boxed callable environment".into());
             };
             if expected != signature.as_ref() || stack.pop().as_ref() != Some(source) {
                 return Err("boxed callable construction signature mismatch".into());
@@ -850,20 +849,17 @@ fn step(
             let mut adapted = signature.function();
             adapted.inputs.insert(
                 0,
-                (
-                    "environment".into(),
-                    Ty::Ref(Arc::new(source.clone()), false),
-                ),
+                ("environment".into(), mode.environment(source, signature)),
             );
             if sigs.get(adapter.as_str()).copied() != Some(&adapted) {
                 return Err("boxed callable adapter signature mismatch".into());
             }
             stack.push(crate::sum::result(
-                Ty::BoxedCallable(signature.clone()),
+                Ty::BoxedCallable(signature.clone(), *mode),
                 crate::sum::alloc_error(),
             ));
         }
-        Op::BoxedCallableCall(signature) => {
+        Op::BoxedCallableCall(signature, mode) => {
             if matches!(signature.output, Some(Ty::Ref(..))) {
                 return Err("boxed callable cannot return references".into());
             }
@@ -872,15 +868,25 @@ fn step(
                     return Err("boxed callable argument mismatch".into());
                 }
             }
-            if stack.pop()
-                != Some(Ty::Ref(
-                    Arc::new(Ty::BoxedCallable(signature.clone())),
-                    false,
-                ))
-            {
-                return Err("boxed callable requires a shared owner borrow".into());
+            let owner = Ty::BoxedCallable(signature.clone(), *mode);
+            let expected = match mode {
+                crate::op::BoxedMode::Shared => Ty::Ref(Arc::new(owner), false),
+                crate::op::BoxedMode::Mut => Ty::Ref(Arc::new(owner), true),
+                crate::op::BoxedMode::Once => owner,
+            };
+            if stack.pop() != Some(expected) {
+                return Err("boxed callable call owner mismatch".into());
             }
             stack.extend(signature.output.iter().cloned());
+        }
+        Op::BoxedCallableTake(source, signature) => {
+            let once = crate::op::BoxedMode::Once;
+            if once.accepts(source) != Some(signature.as_ref())
+                || stack.pop() != Some(Ty::BoxedCallable(signature.clone(), once))
+            {
+                return Err("boxed callable take mismatch".into());
+            }
+            stack.push((**source).clone());
         }
         Op::FunctionAddress(name, signature) => {
             let actual = sigs.get(name.as_str()).ok_or("undefined function value")?;

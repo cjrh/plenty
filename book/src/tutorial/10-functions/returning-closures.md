@@ -32,8 +32,9 @@ For a read-only closure, use a shared parameter such as `&Closure[[i64], Result[
 Different anonymous expressions have different concrete environment types, even
 with identical signatures. A factory must return one concrete type on every path.
 Borrowing closures cannot escape their creating function.
-To return different owned shared-call environments, explicitly allocate a
-[BoxedCallable](boxed-callbacks.md).
+To return different owned environments, explicitly allocate a
+[BoxedCallable](boxed-callbacks.md), or a `BoxedMutCallable` for closures that
+change their captures.
 
 An owned closure can capture another closure or be wrapped in `Option` or
 `Result`:

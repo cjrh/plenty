@@ -999,10 +999,14 @@ erased-callback payloads are conservatively rejected. See the
 
 Owned concrete reusable/consuming environments and worker eligibility work in
 ordinary aggregates. Explicit fallible `BoxedCallable` supports heterogeneous
-owned shared-call storage (issue #25). See the
+owned shared-call storage (issue #25). `BoxedMutCallable` stores mutable
+closures behind a mutable-borrow call, and `BoxedOnceCallable` stores one-shot
+jobs whose call consumes and frees the box (issue #871). The reference
+compares every callback kind by position and cost, and a mismatch between two
+closure producers suggests the matching erased owner. See the
 [storage decision](../proposals/completed/stored-closures.md) and
 [boxed callable reference](../design/language/06-functions/05-boxed-callables.md).
-Additional erased modes stay **B32** in the [backlog](../backlog.md).
+Borrowed and worker-bound erased modes stay **B32** in the [backlog](../backlog.md).
 
 ## B36: Named arguments and defaults
 

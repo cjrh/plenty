@@ -68,16 +68,22 @@ fn cloning_stored_fields_promotes_all_structural_paths() {
             }))
         },
         |t| {
-            Ty::BoxedCallable(Arc::new(crate::op::CallableSig {
-                inputs: vec![t],
-                output: None,
-            }))
+            Ty::BoxedCallable(
+                Arc::new(crate::op::CallableSig {
+                    inputs: vec![t],
+                    output: None,
+                }),
+                crate::op::BoxedMode::Shared,
+            )
         },
         |t| {
-            Ty::BoxedCallable(Arc::new(crate::op::CallableSig {
-                inputs: vec![],
-                output: Some(t),
-            }))
+            Ty::BoxedCallable(
+                Arc::new(crate::op::CallableSig {
+                    inputs: vec![],
+                    output: Some(t),
+                }),
+                crate::op::BoxedMode::Once,
+            )
         },
     ];
     for wrap in wrappers {
@@ -114,8 +120,11 @@ fn owned_callable_signatures_share_storage() {
         inputs: vec![Ty::Class(node.clone()), Ty::List(Arc::new(Ty::Str))],
         output: Some(Ty::Class(node)),
     });
-    for ty in [Ty::Callable(sig.clone()), Ty::BoxedCallable(sig.clone())] {
-        let (Ty::Callable(cloned) | Ty::BoxedCallable(cloned)) = ty.clone() else {
+    for ty in [
+        Ty::Callable(sig.clone()),
+        Ty::BoxedCallable(sig.clone(), crate::op::BoxedMode::Mut),
+    ] {
+        let (Ty::Callable(cloned) | Ty::BoxedCallable(cloned, _)) = ty.clone() else {
             unreachable!()
         };
         assert!(Arc::ptr_eq(&sig, &cloned));

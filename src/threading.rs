@@ -360,7 +360,7 @@ fn check_type(
             types.extend(signature.output.iter().map(|t| (t.clone(), Reach::Local)));
         }
         Ty::BoxedProtocol(_) => return Err("boxed protocol payloads and effects are not certified for worker threads".into()),
-        Ty::BoxedCallable(_) => {
+        Ty::BoxedCallable(..) => {
             return Err("boxed callable captures and effects are not certified for worker threads".into())
         }
         Ty::Generator(_) => {
@@ -771,7 +771,7 @@ pub fn function_references(op: &Op, require: &mut impl FnMut(&str)) {
         Op::Call(name)
         | Op::TailCall(name)
         | Op::FunctionAddress(name, _)
-        | Op::BoxedCallableNew(_, name, _) => require(name),
+        | Op::BoxedCallableNew(_, name, ..) => require(name),
         Op::ProtocolBoxNew(_, adapters, _) => {
             for name in adapters {
                 require(name);

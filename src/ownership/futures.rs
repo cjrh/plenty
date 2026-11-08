@@ -82,7 +82,7 @@ fn calls(op: &Op) -> bool {
         Op::Call(_)
             | Op::ClosureCall(_)
             | Op::CallIndirect(_)
-            | Op::BoxedCallableCall(_)
+            | Op::BoxedCallableCall(..)
             | Op::ProtocolBoxCall(..)
     )
 }

@@ -122,6 +122,14 @@ impl Lower<'_> {
                 "{method} requires a shared-call key; this closure is mutable because it changes a `mut` capture"
             )));
         }
+        if let Ty::BoxedCallable(_, mode) = &callback
+            && *mode != crate::op::BoxedMode::Shared
+        {
+            return Err(args[0].at.error(format!(
+                "{method} requires a shared-call key; use a BoxedCallable, not a {}",
+                mode.name()
+            )));
+        }
         let sig = callables::signature(&callback).ok_or_else(|| {
             args[0]
                 .at
