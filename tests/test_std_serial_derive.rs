@@ -106,6 +106,112 @@ def main() -> Result[(), IoError]:
     );
 }
 
+/// Constructor and default allocation failures use the decoder's allocation
+/// domain; `AllocError | Fault` routes each member to its own mapping (#905).
+const ALLOCATING: &str = r#"
+import std.json
+import std.toml
+import std.serial
+from std.serial import Fault
+
+@serial
+class AgentConfig:
+    command: str
+    args: list[str]
+    env: dict[str, str]
+    def __init__(self, command: str, args: list[str] = []?, env: dict[str, str] = {}?) -> Result[(), AllocError]:
+        self.command = command
+        self.args = args
+        self.env = env
+        Ok(())
+
+def first_port() -> Result[i64, Fault]:
+    Err(Fault.OutOfRange)
+
+type Checked = Result[(), Fault | AllocError]
+
+@serial
+class Service:
+    name: str
+    @serial.name("listen-port")
+    port: i64
+    tags: list[str]
+    def __init__(self, name: str, port: i64 = first_port()?, tags: list[str] = ["default tag"]?) -> Checked:
+        if port < 1:
+            return Err(Fault.OutOfRange)
+        self.name = name
+        self.port = port
+        self.tags = tags
+        self.tags.append("decoded")?
+        Ok(())
+"#;
+
+#[test]
+fn allocating_constructors_and_defaults_decode_without_custom_hooks() {
+    support::assert_stdout(
+        &format!(
+            r#"{ALLOCATING}
+def main() -> Result[(), IoError | AllocError | std.serial.SerialError[std.json.JsonError] | std.serial.SerialError[std.toml.TomlError]]:
+    options = std.json.codec_options()
+    mut absent = std.json.load[AgentConfig](b"{{\"command\":\"claude\"}}", &options)?
+    other = std.json.load[AgentConfig](b"{{\"command\":\"codex\"}}", &options)?
+    absent.args.append("-p")?
+    print(absent.args, other.args, other.env)?
+    present = std.json.load[AgentConfig](b"{{\"command\":\"claude\",\"args\":[\"-p\"],\"env\":{{\"A\":\"b\"}}}}", &options)?
+    print(present.args, present.env.get("A"))?
+    toml = std.toml.codec_options()
+    text = std.toml.dump(&present, &toml)?
+    print(std.toml.load[AgentConfig](&text, &toml)?.env.get("A"))?
+    print(std.toml.load[AgentConfig]("command = \"claude\"\n", &toml)?.args)?
+    service = std.json.load[Service](b"{{\"name\":\"web\",\"listen-port\":8}}", &options)?
+    print(service.port, service.tags)?
+    match std.json.load[Service](b"{{\"name\":\"web\"}}", &options):
+        case Ok(_):
+            print("unexpected")?
+        case Err(error):
+            print(error.cause.fault, error.path.unwrap())?
+    match std.toml.load[Service]("name = \"web\"\nlisten-port = 0\n", &toml):
+        case Ok(_):
+            print("unexpected")?
+        case Err(error):
+            print(error.cause.fault, error.path.is_none())?
+    Ok(())
+"#
+        ),
+        "[\"-p\"] [] {}\n[\"-p\"] Option[str].Some(\"b\")\nOption[str].Some(\"b\")\n[]\n8 [\"default tag\", \"decoded\"]\nstd.json.JsonFault.Serialization(std.serial.Fault.OutOfRange) [std.serial.Step.Field(\"listen-port\")]\nstd.toml.TomlFault.Serialization(std.serial.Fault.OutOfRange) True\n",
+    );
+}
+
+#[test]
+fn other_constructor_error_domains_still_request_custom_decode() {
+    for domain in [
+        "IoError",
+        "AllocError | IoError",
+        "IoError | std.serial.Fault",
+    ] {
+        let error = support::check_error(&format!(
+            r#"
+import std.json
+import std.serial
+@serial
+class Config:
+    n: i64
+    def __init__(self, n: i64) -> Result[(), {domain}]:
+        self.n = n
+        Ok(())
+
+def main() -> ():
+    drop(std.json.load[Config](b"{{\"n\":2}}", &std.json.codec_options()).unwrap())
+"#
+        ));
+        assert!(
+            error.contains("AllocError | std.serial.Fault")
+                && error.contains("write a private __decode__"),
+            "{domain}: {error}"
+        );
+    }
+}
+
 #[test]
 fn class_missing_duplicate_unknown_and_nested_paths() {
     support::assert_stdout(
@@ -460,6 +566,85 @@ def main() -> Result[(), IoError | AllocError | SerialError[JsonError]]:
     );
 }
 
+/// Every injected allocation failure, in a default, a constructor body or the
+/// adapter, reports the format's allocation fault; under `--all-features` the
+/// allocation-checks runtime also checks that partial owners are released.
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn allocating_constructor_failures_report_allocation_and_clean_up() {
+    support::assert_filtered_stdout(
+        &format!(
+            r#"{ALLOCATING}
+from std.json import JsonError, JsonFault
+from std.toml import TomlError, TomlFault
+from std.serial import SerialError
+
+# 0 success, 1 allocation fault, 2 validation fault, 3 anything else.
+def json_outcome[T](result: Result[T, SerialError[JsonError]]) -> i64:
+    match result:
+        case Ok(_):
+            0
+        case Err(error):
+            match error.cause.fault:
+                case JsonFault.Allocation(_):
+                    1
+                case JsonFault.Serialization(Fault.OutOfRange):
+                    2
+                case _:
+                    3
+
+def toml_outcome[T](result: Result[T, SerialError[TomlError]]) -> i64:
+    match result:
+        case Ok(_):
+            0
+        case Err(error):
+            match error.cause.fault:
+                case TomlFault.Allocation(_):
+                    1
+                case TomlFault.Serialization(Fault.OutOfRange):
+                    2
+                case _:
+                    3
+
+def attempt(which: i64) -> i64:
+    options = std.json.codec_options()
+    toml = std.toml.codec_options()
+    if which == 0:
+        json_outcome(std.json.load[AgentConfig](b"{{\"command\":\"a command longer than inline storage\"}}", &options))
+    elif which == 1:
+        json_outcome(std.json.load[AgentConfig](b"{{\"command\":\"claude\",\"args\":[\"an argument longer than inline storage\"],\"env\":{{\"KEY\":\"a value longer than inline storage\"}}}}", &options))
+    elif which == 2:
+        json_outcome(std.json.load[Service](b"{{\"name\":\"a service name longer than inline storage\",\"listen-port\":8}}", &options))
+    elif which == 3:
+        json_outcome(std.json.load[Service](b"{{\"name\":\"a service name longer than inline storage\",\"listen-port\":0}}", &options))
+    elif which == 4:
+        json_outcome(std.json.load[list[AgentConfig]](b"[{{\"command\":\"a command longer than inline storage\"}},{{\"command\":\"another command longer than inline storage\"}}]", &options))
+    elif which == 5:
+        toml_outcome(std.toml.load[AgentConfig]("command = \"a command longer than inline storage\"\n", &toml))
+    elif which == 6:
+        toml_outcome(std.toml.load[Service]("name = \"a service name longer than inline storage\"\nlisten-port = 8\n", &toml))
+    else:
+        toml_outcome(std.toml.load[Service]("name = \"a service name longer than inline storage\"\nlisten-port = 0\n", &toml))
+
+def main() -> Result[(), IoError | AllocError]:
+    mut markers = list[str]()?
+    for count in range(128):
+        markers.append("".join(&["__test_fail_allocations_after_", str.from(count)?, "__"]?)?)?
+    for which in range(8):
+        mut seen = [False, False, False, False]?
+        for count in range(128):
+            print(markers[count])?
+            outcome = attempt(which)
+            print("__test_restore_allocations__")?
+            seen[outcome] = True
+        print(seen[1], seen[0], seen[2], seen[3])?
+    Ok(())
+"#
+        ),
+        "True True False False\nTrue True False False\nTrue True False False\nTrue False True False\nTrue True False False\nTrue True False False\nTrue True False False\nTrue False True False",
+    );
+}
+
 #[test]
 fn enum_payload_errors_keep_variant_and_positional_paths() {
     support::assert_stdout(
@@ -641,6 +826,28 @@ def main() -> ():
 "#,
     );
     assert!(error.contains("private __decode__"), "{error}");
+    // Generated before specialization, so only `Fault` decodes (issue #914).
+    for domain in ["AllocError", "AllocError | std.serial.Fault"] {
+        let error = support::check_error(&format!(
+            r#"
+import std.json
+import std.serial
+@serial
+class Config[E]:
+    value: i64
+    def __init__(self, value: i64) -> Result[(), E]:
+        self.value = value
+        Ok(())
+def main() -> ():
+    drop(std.json.load[Config[{domain}]](b"{{}}", &std.json.codec_options()))
+"#
+        ));
+        assert!(
+            error.contains("type parameter decodes automatically only when that parameter is std.serial.Fault (issue #914)")
+                && !error.contains("where E is"),
+            "{domain}: {error}"
+        );
+    }
 }
 
 #[test]

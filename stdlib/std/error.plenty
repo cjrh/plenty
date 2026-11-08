@@ -122,9 +122,13 @@ pub def native_code(error: IoError) -> Option[i32]:
 
 # The text the GNU C library gives each Linux error number in the C locale,
 # fixed here so the result does not depend on the locale, the C library
-# version or shared state, and needs no allocation. Codes are those of the
-# x86-64 Linux kernel (1 to 133; 41 and 58 are unassigned).
+# version or shared state, and needs no allocation. Codes are the Linux
+# (x86-64 and aarch64) numbers 1 to 133; 41 and 58 are unassigned. Other
+# targets number their errors differently, so they get Nothing rather than
+# a wrong text.
 pub def native_message(code: i32) -> Option[str]:
+    if const target.os != "linux":
+        return Nothing
     match code:
         case 1i32:
             Some("Operation not permitted")  # EPERM

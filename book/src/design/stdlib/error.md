@@ -76,9 +76,11 @@ text the GNU C library gives it in the C locale, such as
 codes held by other errors, such as `ThreadError.System(code)`. The text is a
 string literal fixed in `std.error`: the call allocates nothing, reads no
 `errno`, locale or other shared state, is safe on any worker, and gives the
-same text whatever C library the program links. A code outside the x86-64
-Linux numbers 1 to 133, or one of the unassigned numbers 41 and 58, returns
-`Nothing`; the caller chooses the fallback. The error value keeps its numeric
+same text whatever C library the program links. A code outside the Linux
+(x86-64 and aarch64) numbers 1 to 133, or one of the unassigned numbers 41
+and 58, returns `Nothing`; the caller chooses the fallback. The experimental
+macOS and Windows targets number their errors differently, so there it always
+returns `Nothing` rather than a wrong text. The error value keeps its numeric
 code: combine the two where the application reports.
 
 ```plenty
@@ -414,7 +416,8 @@ and `report_with` APIs keep their description-based behavior.
   called for that `Context[E]`.
 - `describe`, `format` and `report` add no OS description to a native code;
   use [`native_message`](#describing-a-native-code). Descriptions are English
-  only and cover the x86-64 Linux error numbers.
+  only and cover the Linux (x86-64 and aarch64) error numbers; other targets
+  get `Nothing`.
 - The legacy `report` and `report_with` methods use `write_stderr`: a pipe whose
   reader has gone terminates the process with `SIGPIPE`. The `std.report`
   formatter and entrypoint reporter suppress it and preserve normal cleanup.

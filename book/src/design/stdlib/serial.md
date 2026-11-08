@@ -103,8 +103,11 @@ decoded value or calls compiler-specialized `absent`: missing `Option` fields
 become `Nothing`, including aliases and generic instances; other missing fields
 fail. A tuple of slots keeps wide records within the compiler's local-slot
 budget without heap allocation. `constructed` maps `Result[T, Fault]` from a
-validated constructor into the decoder's concrete error domain. Constructors
-with other error types need an explicit decoding hook to choose that mapping.
+validated constructor into the decoder's concrete error domain;
+`allocated` maps `Result[T, AllocError]` through `allocation`, and
+`constructed_or_allocated` maps `Result[T, AllocError | Fault]` by member.
+Constructors with other error types need an explicit decoding hook to choose
+that mapping.
 
 The protocols use scalar operations and explicit container boundaries.
 `Decoder.null()` consumes a null and returns true, or leaves a non-null value

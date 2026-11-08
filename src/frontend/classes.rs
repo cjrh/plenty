@@ -20,8 +20,9 @@ pub(super) struct ClassDecl {
     pub(super) newtype: Option<Token>,
     /// Declared `@redacted`: automatic formatting writes `Name(@redacted)`.
     pub(super) redacted: bool,
-    /// A generated decode hook must satisfy exact constructor types at specialization.
-    pub(super) derived_decode: bool,
+    /// A generated decode hook must satisfy exact constructor types, and the
+    /// error domain it was generated for, at specialization.
+    pub(super) derived_decode: Option<super::serial_derive::Domain>,
     pub(super) derived_encode: bool,
 }
 
@@ -150,7 +151,7 @@ impl Parser {
             copy: None,
             newtype: None,
             redacted: false,
-            derived_decode: false,
+            derived_decode: None,
             derived_encode: false,
         })
     }

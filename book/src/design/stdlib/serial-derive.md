@@ -56,11 +56,19 @@ Initializer parameter defaults make their fields optional. Defaults are evaluate
 only for absent members, after decoding, in initializer parameter declaration
 order. An explicit value, including `Nothing`, skips the default. Defaults resolve
 names in the defining module and produce fresh owners under the normal function
-rules. Fallible defaults and initializer bodies must use `std.serial.Fault` as
-their error domain for automatic decoding; it is mapped through the adapter's
-`reject` method and keeps the available field path. Other construction error
-domains require a handwritten decoding hook. Encoding remains independent of
-construction.
+rules.
+
+Fallible defaults and initializer bodies share the initializer's error domain.
+Automatic decoding accepts `std.serial.Fault`, `AllocError`, or exactly
+`AllocError | std.serial.Fault`, written directly or through an alias. A `Fault`
+is mapped through the adapter's `reject` method and an `AllocError` through its
+`allocation` method, so a failed `list[str] = []?` default reports the format's
+allocation fault, never `Failure` or an abort. A failing default keeps its
+field path; an initializer body failure has no path. Other construction error
+domains, including sums with further members, require a handwritten decoding
+hook to choose a mapping. A type-parameter error domain, as in
+`Result[(), E]`, decodes only when `E` specializes to `std.serial.Fault`.
+Encoding remains independent of construction.
 
 Slots are grouped in a typed tuple rather than requiring a temporary chain per
 field. Derivation supports records with 64 fields under the normal compiler's
