@@ -77,10 +77,11 @@ dependency outside the workspace is searched for in the package of the file
 being edited and the members that depend on it; references inside `std` and
 the declaration's copy are listed only as the declaration itself. A local or
 parameter, and any name in a file outside a package, is answered from the
-file's own check.
+file's own check. A package file that no entry reads, such as one under
+`examples/`, adds its own check's references to the package's.
 
-An entry that does not check still contributes the references found before
-its error. The server then shows a warning that the list may be incomplete,
+An entry that does not check still contributes the references its check
+recorded. The server then shows a warning that the list may be incomplete,
 with the first error. A search of a package-level declaration checks every
 entry once, so in a package with many test files it takes seconds.
 

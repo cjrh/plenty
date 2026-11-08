@@ -1170,11 +1170,11 @@ const REFERENCES_WORKSPACE: &[(&str, &str)] = &[
     ),
     (
         "tools/src/lib.plenty",
-        "from shapes import area\n\npub def total(n: i64) -> i64:\n    area(n) + area(1)\n",
+        "from shapes import area\n\npub def total(n: i64) -> i64:\n    unchecked:\n        area(n) + area(1)\n",
     ),
     (
         "tools/src/shapes.plenty",
-        "pub def area(n: i64) -> i64:\n    n * 2\n\npub def twice(area: i64) -> i64:\n    area + area\n",
+        "pub def area(n: i64) -> i64:\n    unchecked:\n        n * 2\n\npub def twice(area: i64) -> i64:\n    unchecked:\n        area + area\n",
     ),
     (
         "tools/tests/test_shapes.plenty",
@@ -1227,6 +1227,35 @@ fn reference_list(root: &Path, result: &Value) -> Vec<(String, u64, u64, String)
     out
 }
 
+/// A references result, and the warnings the server showed while finding it.
+fn references_and_warnings(
+    client: &mut Client,
+    path: &Path,
+    line: u32,
+    character: u32,
+    declaration: bool,
+) -> (Value, Vec<String>) {
+    client.next += 1;
+    let id = client.next;
+    client.send(json!({"jsonrpc": "2.0", "id": id, "method": "textDocument/references",
+        "params": {"textDocument": {"uri": uri(path)},
+            "position": {"line": line, "character": character},
+            "context": {"includeDeclaration": declaration}}}));
+    let mut warnings = vec![];
+    loop {
+        let message = client.receive();
+        if message["method"] == "window/showMessage" {
+            warnings.push(message["params"]["message"].as_str().unwrap().to_owned());
+        }
+        if message["id"] == id {
+            assert!(message.get("error").is_none(), "{message}");
+            return (message["result"].clone(), warnings);
+        }
+    }
+}
+
+/// A references result, when every entry checks.
+#[track_caller]
 fn references(
     client: &mut Client,
     path: &Path,
@@ -1234,11 +1263,9 @@ fn references(
     character: u32,
     declaration: bool,
 ) -> Value {
-    client.request(
-        "textDocument/references",
-        json!({"textDocument": {"uri": uri(path)}, "position": {"line": line, "character": character},
-            "context": {"includeDeclaration": declaration}}),
-    )
+    let (result, warnings) = references_and_warnings(client, path, line, character, declaration);
+    assert!(warnings.is_empty(), "{warnings:?}");
+    result
 }
 
 #[test]
@@ -1259,8 +1286,8 @@ fn references_span_members_targets_aliases_and_unsaved_text() {
     let expected = vec![
         r("app/src/main.plenty", 3, 19, "area"),
         r("tools/src/lib.plenty", 0, 19, "area"),
-        r("tools/src/lib.plenty", 3, 4, "area"),
-        r("tools/src/lib.plenty", 3, 14, "area"),
+        r("tools/src/lib.plenty", 4, 8, "area"),
+        r("tools/src/lib.plenty", 4, 18, "area"),
         r("tools/src/shapes.plenty", 0, 8, "area"),
         r("tools/tests/test_shapes.plenty", 1, 25, "area"),
         r("tools/tests/test_shapes.plenty", 4, 13, "size"),
@@ -1290,13 +1317,13 @@ fn references_span_members_targets_aliases_and_unsaved_text() {
         "{found:?}"
     );
     // A parameter that shadows the function is a different declaration.
-    let found = reference_list(&root, &references(&mut client, &shapes, 4, 4, true));
+    let found = reference_list(&root, &references(&mut client, &shapes, 6, 8, true));
     assert_eq!(
         found,
         vec![
-            r("tools/src/shapes.plenty", 3, 14, "area"),
-            r("tools/src/shapes.plenty", 4, 4, "area"),
-            r("tools/src/shapes.plenty", 4, 11, "area"),
+            r("tools/src/shapes.plenty", 4, 14, "area"),
+            r("tools/src/shapes.plenty", 6, 8, "area"),
+            r("tools/src/shapes.plenty", 6, 15, "area"),
         ]
     );
     // Unsaved text of an open document replaces the file on disk.
@@ -1316,6 +1343,107 @@ fn references_span_members_targets_aliases_and_unsaved_text() {
         .map(|l| l["range"]["start"]["character"].as_u64().unwrap())
         .collect();
     assert_eq!(found, vec![12, 23]);
+    // Unsaved text in another open document moves the declaration; the
+    // search from main still finds it, from a check of the same text.
+    client.open(&shapes);
+    let moved = format!("\n\n{}", std::fs::read_to_string(&shapes).unwrap());
+    client.notify(
+        "textDocument/didChange",
+        json!({"textDocument": {"uri": uri(&shapes), "version": 2},
+            "contentChanges": [{"text": moved}]}),
+    );
+    let found = positions(&root, &references(&mut client, &main, 3, 13, true));
+    assert_eq!(
+        found,
+        vec![
+            ("app/src/main.plenty".to_owned(), 3, 12),
+            ("app/src/main.plenty".to_owned(), 3, 23),
+            ("tools/src/lib.plenty".to_owned(), 0, 19),
+            ("tools/src/lib.plenty".to_owned(), 4, 8),
+            ("tools/src/lib.plenty".to_owned(), 4, 18),
+            ("tools/src/shapes.plenty".to_owned(), 2, 8),
+            ("tools/tests/test_shapes.plenty".to_owned(), 1, 25),
+            ("tools/tests/test_shapes.plenty".to_owned(), 4, 13),
+        ]
+    );
+    client.exit();
+}
+
+/// Each reference as (path below `root`, line, character), for text that
+/// differs from the file on disk.
+fn positions(root: &Path, result: &Value) -> Vec<(String, u64, u64)> {
+    let Some(found) = result.as_array() else {
+        panic!("no references: {result}");
+    };
+    let mut out: Vec<_> = found
+        .iter()
+        .map(|r| {
+            let path = Path::new(r["uri"].as_str().unwrap().strip_prefix("file://").unwrap());
+            let start = &r["range"]["start"];
+            (
+                path.strip_prefix(root).unwrap().display().to_string(),
+                start["line"].as_u64().unwrap(),
+                start["character"].as_u64().unwrap(),
+            )
+        })
+        .collect();
+    out.sort();
+    out
+}
+
+#[test]
+fn references_reread_unopened_files_and_include_files_no_entry_reads() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let other = "from util import helper\n\npub def g() -> i64:\n    helper()\n";
+    app_package(
+        &root,
+        &[
+            ("src/util.plenty", "pub def helper() -> i64:\n    1\n"),
+            (
+                "src/main.plenty",
+                "from util import helper\n\ndef main() -> ():\n    n = helper()\n",
+            ),
+            ("src/other.plenty", other),
+            (
+                "examples/demo.plenty",
+                "def one() -> i64:\n    1\n\ndef main() -> ():\n    a = one()\n    b = one()\n",
+            ),
+        ],
+    );
+    let util = root.join("src/util.plenty");
+    let other_path = root.join("src/other.plenty");
+    let mut client = Client::start(&dir.path().join("cache"));
+    let lines = |found: Vec<(String, u64, u64)>| -> Vec<(String, u64)> {
+        found.into_iter().map(|(p, l, _)| (p, l)).collect()
+    };
+    let expected = |other_line: u64| {
+        vec![
+            ("src/main.plenty".to_owned(), 0),
+            ("src/main.plenty".to_owned(), 3),
+            ("src/other.plenty".to_owned(), other_line - 3),
+            ("src/other.plenty".to_owned(), other_line),
+            ("src/util.plenty".to_owned(), 0),
+        ]
+    };
+    let found = positions(&root, &references(&mut client, &other_path, 3, 4, true));
+    assert_eq!(lines(found), expected(3));
+    // A file read for one request is not unsaved text: a later change on
+    // disk is seen.
+    write(&other_path, &format!("\n\n{other}"));
+    let found = positions(&root, &references(&mut client, &util, 0, 8, true));
+    assert_eq!(lines(found), expected(5));
+    // No entry reads an example, so its own check supplies its references.
+    let demo = root.join("examples/demo.plenty");
+    let found = positions(&root, &references(&mut client, &demo, 0, 4, true));
+    assert_eq!(
+        lines(found),
+        vec![
+            ("examples/demo.plenty".to_owned(), 0),
+            ("examples/demo.plenty".to_owned(), 4),
+            ("examples/demo.plenty".to_owned(), 5),
+        ]
+    );
     client.exit();
 }
 
@@ -1340,31 +1468,16 @@ fn references_warn_when_an_entry_does_not_check_and_work_outside_a_package() {
     );
     let util = root.join("src/util.plenty");
     let mut client = Client::start(&dir.path().join("cache"));
-    client.next += 1;
-    let id = client.next;
-    client.send(
-        json!({"jsonrpc": "2.0", "id": id, "method": "textDocument/references",
-        "params": {"textDocument": {"uri": uri(&util)}, "position": {"line": 0, "character": 8},
-            "context": {"includeDeclaration": true}}}),
-    );
-    let mut warning = None;
-    let result = loop {
-        let message = client.receive();
-        if message["method"] == "window/showMessage" {
-            warning = message["params"]["message"].as_str().map(str::to_owned);
-        }
-        if message["id"] == id {
-            break message["result"].clone();
-        }
-    };
-    let warning = warning.expect("a warning that references may be incomplete");
+    let (result, warnings) = references_and_warnings(&mut client, &util, 0, 8, true);
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    let warning = &warnings[0];
     assert!(
         warning
             .starts_with("references may be incomplete: 1 of the package's entries do not check")
             && warning.contains("tests/test_util.plenty:4:"),
         "{warning}"
     );
-    // The test's references before its error are still found.
+    // The test's check still records its references.
     let found: Vec<_> = reference_list(&root, &result)
         .into_iter()
         .map(|(path, line, _, _)| (path, line))

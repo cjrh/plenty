@@ -198,7 +198,8 @@ provides diagnostics, hover, go to definition, find references, inlay hints,
 completion and a checked move-to-module code action; see
 [Neovim setup](../../../../book/src/design/toolchain/01-building/neovim.md).
 Find references misses named arguments, constructor fields, `case` pattern
-names, variant constructors and members in uninstantiated generic bodies. Rename is not shipped:
+names, variant constructors, members in uninstantiated generic bodies and
+names in unselected `if const` arms. Rename is not shipped:
 use explicit edits and package checks rather than assuming editor support.
 <!-- issue #821 -->
 

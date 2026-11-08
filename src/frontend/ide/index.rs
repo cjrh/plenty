@@ -318,14 +318,12 @@ fn member_of(project: &crate::project::Project, path: &Path) -> Option<usize> {
 /// file, line and column) that the package of `path` and the workspace
 /// members depending on it can contain, the declaration's own name
 /// included. A declaration in another workspace member is searched from
-/// that member. The second value lists the entries that did not check, whose
-/// references may be incomplete. `overlay` holds unsaved text by canonical
-/// path.
+/// that member. `overlay` holds unsaved text by canonical path.
 pub fn references(
     path: &Path,
     identity: &(File, u32, u32),
     overlay: &std::collections::HashMap<PathBuf, String, impl std::hash::BuildHasher>,
-) -> Result<(Vec<Location>, Vec<String>), String> {
+) -> Result<Found, String> {
     let overlay: HashMap<PathBuf, String> = overlay
         .iter()
         .map(|(p, t)| (p.clone(), t.clone()))
@@ -354,5 +352,22 @@ pub fn references(
         key(a).cmp(&key(b))
     });
     found.dedup();
-    Ok((found, reach.errors))
+    // A file outside `src/`, `tests/` and the manifest's entries, such as an
+    // example, is read by no analysis.
+    let read = reach.reached().contains(&path) || reach.files.values().any(|f| f.contains(&path));
+    Ok(Found {
+        locations: found,
+        errors: reach.errors,
+        read,
+    })
+}
+
+/// The result of [`references`].
+pub struct Found {
+    pub locations: Vec<Location>,
+    /// The first error of each entry that did not check, whose references
+    /// may be incomplete.
+    pub errors: Vec<String>,
+    /// Whether any analysis read the file the search started from.
+    pub read: bool,
 }

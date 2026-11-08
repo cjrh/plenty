@@ -124,6 +124,9 @@ struct Document {
     text: String,
     /// The client's version, for edits it must apply to this text.
     version: Option<i64>,
+    /// Whether the client opened it. Only an opened document's text replaces
+    /// the file's; another is the disk text read for one request.
+    open: bool,
 }
 
 #[derive(Default)]
@@ -177,6 +180,7 @@ impl Server {
                             path,
                             text,
                             version,
+                            open: true,
                         },
                     );
                     self.check(&uri, output)?;
@@ -301,11 +305,10 @@ impl Server {
         let Some(document) = self.documents.get(uri) else {
             return Ok(());
         };
-        let overlay = self
-            .documents
-            .values()
-            .filter_map(|d| Some((d.path.canonicalize().ok()?, d.text.clone())))
-            .collect();
+        let mut overlay = self.overlay();
+        if let Ok(path) = document.path.canonicalize() {
+            overlay.insert(path, document.text.clone());
+        }
         let path = document.path.clone();
         let is_script = crate::script::header(&document.text, &path.display().to_string())
             .is_ok_and(|header| header.manifest.is_some())
@@ -319,7 +322,7 @@ impl Server {
         } else {
             source_graph(&path)
         };
-        let mut analysis = ide::analyze(&path, graph.as_ref(), overlay);
+        let mut analysis = ide::analyze(&path, graph.as_ref(), overlay.into_iter().collect());
         // A file that does not parse yields no names; keep the last ones so
         // queries away from the edit still work.
         if analysis.references.is_empty()
@@ -398,25 +401,45 @@ impl Server {
 
     /// Reuse the last check, unless the document has changed since then.
     fn analysis_uri(&mut self, params: &Value, output: &mut impl Write) -> Result<Option<String>> {
+        self.analysis_uri_checked(params, output, false)
+    }
+
+    /// The document's URI, with a current check: a new one when `recheck`,
+    /// since another document's unsaved text can change what it refers to.
+    /// A document the client has not opened is read from disk again.
+    fn analysis_uri_checked(
+        &mut self,
+        params: &Value,
+        output: &mut impl Write,
+        recheck: bool,
+    ) -> Result<Option<String>> {
         let uri = params["textDocument"]["uri"]
             .as_str()
             .unwrap_or_default()
             .to_owned();
-        if !self.documents.contains_key(&uri) {
+        let opened = self.documents.get(&uri).is_some_and(|d| d.open);
+        if !opened {
             let Some(path) = uri_path(&uri) else {
                 return Ok(None);
             };
             let text = std::fs::read_to_string(&path).unwrap_or_default();
-            self.documents.insert(
-                uri.clone(),
-                Document {
-                    path,
-                    text,
-                    version: None,
-                },
-            );
-            self.check(&uri, output)?;
-        } else if self.dirty.remove(&uri) || !self.analyses.contains_key(&uri) {
+            let changed = self.documents.get(&uri).is_none_or(|d| d.text != text);
+            if changed {
+                self.documents.insert(
+                    uri.clone(),
+                    Document {
+                        path,
+                        text,
+                        version: None,
+                        open: false,
+                    },
+                );
+                self.check(&uri, output)?;
+                return Ok(Some(uri));
+            }
+        }
+        if recheck || self.dirty.remove(&uri) || !self.analyses.contains_key(&uri) {
+            self.dirty.remove(&uri);
             self.check(&uri, output)?;
         }
         Ok(Some(uri))
@@ -567,7 +590,9 @@ impl Server {
     /// package. Entries that do not check are reported as a warning, since
     /// their references may be incomplete.
     fn references(&mut self, params: &Value, output: &mut impl Write) -> Result<Value> {
-        let Some(uri) = self.analysis_uri(params, output)? else {
+        // The search reads every open document's current text, so the
+        // cursor's declaration must come from a check of that same text.
+        let Some(uri) = self.analysis_uri_checked(params, output, true)? else {
             return Ok(Value::Null);
         };
         let document = &self.documents[&uri];
@@ -604,12 +629,20 @@ impl Server {
             local()
         } else {
             match ide::index::references(&path, &identity, &self.overlay()) {
-                Ok((locations, errors)) => {
-                    if let Some(first) = errors.first() {
+                Ok(found) => {
+                    if let Some(first) = found.errors.first() {
                         warning = Some(format!(
                             "references may be incomplete: {} of the package's entries do not check; the first error is {first}",
-                            errors.len()
+                            found.errors.len()
                         ));
+                    }
+                    let mut locations = found.locations;
+                    if !found.read {
+                        for location in local() {
+                            if !locations.contains(&location) {
+                                locations.push(location);
+                            }
+                        }
                     }
                     locations
                 }
@@ -630,6 +663,12 @@ impl Server {
             locations.insert(0, declared);
         }
         let mut texts: HashMap<File, String> = HashMap::new();
+        let uris: HashMap<PathBuf, &String> = self
+            .documents
+            .iter()
+            .filter(|(_, d)| d.open)
+            .filter_map(|(uri, d)| Some((d.path.canonicalize().ok()?, uri)))
+            .collect();
         let mut found = vec![];
         for location in &locations {
             let path = match &location.file {
@@ -644,11 +683,9 @@ impl Server {
             let text = texts
                 .entry(location.file.clone())
                 .or_insert_with(|| self.text_of(analysis, &location.file));
-            let open = self
-                .documents
-                .iter()
-                .find(|(_, d)| d.path.canonicalize().ok().as_ref() == Some(&path));
-            let uri = open.map_or_else(|| path_uri(&path), |(uri, _)| uri.clone());
+            let uri = uris
+                .get(&path)
+                .map_or_else(|| path_uri(&path), |uri| (*uri).clone());
             found.push(json!({"uri": uri, "range": self.range_in(text, location)}));
         }
         if let Some(message) = warning {
@@ -661,10 +698,11 @@ impl Server {
         Ok(Value::Array(found))
     }
 
-    /// Unsaved text of every open document, by canonical path.
+    /// Unsaved text of every document the client opened, by canonical path.
     fn overlay(&self) -> HashMap<PathBuf, String> {
         self.documents
             .values()
+            .filter(|d| d.open)
             .filter_map(|d| Some((d.path.canonicalize().ok()?, d.text.clone())))
             .collect()
     }
@@ -764,11 +802,7 @@ impl Server {
                     .into(),
             );
         }
-        let overlay: HashMap<PathBuf, String> = self
-            .documents
-            .values()
-            .filter_map(|d| Some((d.path.canonicalize().ok()?, d.text.clone())))
-            .collect();
+        let overlay = self.overlay();
         let plan = ide::relocate::plan(&path, line, &destination, &overlay)?;
         let annotation = "api";
         let mut changes = serde_json::Map::new();
@@ -868,7 +902,7 @@ impl Server {
             File::Path(path) => self
                 .documents
                 .values()
-                .find(|d| d.path.canonicalize().ok().as_ref() == Some(path))
+                .find(|d| d.open && d.path.canonicalize().ok().as_ref() == Some(path))
                 .map(|d| d.text.clone())
                 .or_else(|| analysis.sources.get(file).map(|t| t.to_string()))
                 .or_else(|| std::fs::read_to_string(path).ok()),
@@ -1242,6 +1276,7 @@ mod tests {
                     path: path.clone(),
                     text,
                     version: None,
+                    open: true,
                 },
             );
             server.analyses.insert(
