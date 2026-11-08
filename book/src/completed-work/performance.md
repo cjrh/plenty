@@ -234,7 +234,8 @@ This changes test synchronization, not runtime handler behavior.
 ## B23: SIMD
 
 [Automatic integer-column filter/count](../proposals/columnar-list/simd-counts.md)
-uses baseline four-lane i32/u32 SIMD with scalar tails in optimized builds.
+uses baseline SSE2 SIMD with scalar tails in optimized builds: 16 lanes for
+8-bit, 8 for 16-bit and 4 for 32-bit integer columns (issue #904).
 One/two total comparisons joined by `and`, inclusive/exclusive ranges, reversed
 operands and up to two immutable same-type scalar captures are supported.
 

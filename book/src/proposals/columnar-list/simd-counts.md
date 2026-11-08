@@ -11,6 +11,19 @@ The subsequent [runtime-bound extension](simd-runtime-bounds.md) accepts immutab
 two total comparisons joined by `and`. The reference above describes current
 behavior; the measurements below retain the original constant-only slice.
 
+Issue #904 extended the same pattern to 8- and 16-bit columns (16 and 8 lanes).
+Unsigned columns flip the sign bit of both operands and compare signed, since
+SSE2 has no unsigned byte or word comparison. Lane counters now have the
+column's width: each comparison mask is subtracted from a narrow counter, and a
+chunk of at most 255 (8-bit), 65,535 (16-bit) or 2³²−1 (32-bit) vectors ends by
+widening the counters into the two 64-bit totals. In
+`experiments/clist-bitpacking/run.py --quick` this gives 0.51 instructions per
+row for `u8`, 1.13 for `u16` and 1.75 for `i32`, against 0.57, 1.13 and 2.25 for
+the hand-written C SSE2 kernels; before the change `u8` and `u16` ran the scalar
+loop at 12.5 and 13.5. The C kernels widen with `psadbw` and `pmaddwd`, which
+Cranelift IR does not expose; the widening runs once per chunk, so it does not
+affect the per-row count.
+
 ## Why this boundary
 
 The initial recognition inspected the checked loop and a bounded scalar leaf predicate. It

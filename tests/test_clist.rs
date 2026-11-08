@@ -33,26 +33,44 @@ fn filter_count_does_not_read_past_guard_page(#[case] scenario: &str) {
 #[case(false)]
 #[case(true)]
 fn filter_count_preserves_integer_comparisons_and_all_tails(#[case] release: bool) {
-    let mut source =
-        String::from("class Row:\n    pad: bool\n    signed: i32\n    unsigned: u32\n\n");
-    let comparisons = ["==", "!=", "<", "<=", ">", ">="];
-    for (kind, ty, threshold) in [
+    // Every lane width, so lengths 0..130 cover each remainder of 4, 8 and
+    // 16 lanes; each threshold sits at the sign boundary.
+    let kinds = [
         ("signed", "i32", "-1i32"),
         ("unsigned", "u32", "2147483648u32"),
-    ] {
+        ("signed16", "i16", "-1i16"),
+        ("unsigned16", "u16", "32768u16"),
+        ("signed8", "i8", "-1i8"),
+        ("unsigned8", "u8", "128u8"),
+    ];
+    let mut source = String::from("class Row:\n    pad: bool\n");
+    for (kind, ty, _) in kinds {
+        source.push_str(&format!("    {kind}: {ty}\n"));
+    }
+    source.push('\n');
+    let comparisons = ["==", "!=", "<", "<=", ">", ">="];
+    for (kind, ty, threshold) in kinds {
         for (i, comparison) in comparisons.iter().enumerate() {
             source.push_str(&format!(
                 "def scan_{kind}_{i}(rows: &clist[Row]) -> i64:\n    rows.column(Row.{kind}).filter(def(x: &{ty}) -> bool: *x {comparison} {threshold}).count()\n"
             ));
         }
     }
-    source.push_str("for length in range(130):\n    mut rows = clist[Row]()\n    rows.reserve(length).unwrap()\n    for n in range(length):\n        bits = u32(n).wrapping_mul(2147483647u32)\n        rows.append(Row(True, i32.wrapping_from(bits), bits)).unwrap()\n");
-    for (kind, threshold) in [("signed", "-1i32"), ("unsigned", "2147483648u32")] {
+    // One checker per field keeps each function under the local-slot limit.
+    for (kind, _, threshold) in kinds {
+        source.push_str(&format!(
+            "def check_{kind}(rows: &clist[Row]) -> Result[(), OverflowError[i64]]:\n"
+        ));
         for (i, comparison) in comparisons.iter().enumerate() {
             source.push_str(&format!(
-                "    mut expected_{kind}_{i} = 0\n    for n in range(length):\n        if rows[n].{kind} {comparison} {threshold}:\n            expected_{kind}_{i} += 1\n    check(scan_{kind}_{i}(&rows) == expected_{kind}_{i}, \"comparison {kind} {comparison}\").unwrap()\n"
+                "    mut expected_{i} = 0\n    for n in range(len(rows)):\n        if rows[n].{kind} {comparison} {threshold}:\n            expected_{i} += 1\n    check(scan_{kind}_{i}(rows) == expected_{i}, \"comparison {kind} {comparison}\").unwrap()\n"
             ));
         }
+        source.push_str("    Ok(())\n");
+    }
+    source.push_str("for length in range(130):\n    mut rows = clist[Row]()\n    rows.reserve(length).unwrap()\n    for n in range(length):\n        bits = u32(n).wrapping_mul(2147483647u32)\n        rows.append(Row(True, i32.wrapping_from(bits), bits, i16.wrapping_from(bits), u16.wrapping_from(bits), i8.wrapping_from(bits), u8.wrapping_from(bits))).unwrap()\n");
+    for (kind, _, _) in kinds {
+        source.push_str(&format!("    check_{kind}(&rows)?\n"));
     }
     source.push_str("print(\"ok\").unwrap()\n");
     let source = support::program(&source).replacen(
@@ -102,7 +120,38 @@ print("ok").unwrap()
 #[case(false)]
 #[case(true)]
 fn filter_count_runtime_thresholds_and_ranges(#[case] release: bool) {
-    let mut source = String::from("class Row:\n    signed: i32\n    unsigned: u32\n");
+    let fields = [
+        (
+            "signed",
+            "i32",
+            ["i32.MIN", "-1i32", "0i32", "1i32", "i32.MAX"],
+        ),
+        (
+            "unsigned",
+            "u32",
+            ["0u32", "1u32", "2147483647u32", "2147483648u32", "u32.MAX"],
+        ),
+        (
+            "signed16",
+            "i16",
+            ["i16.MIN", "-1i16", "0i16", "1i16", "i16.MAX"],
+        ),
+        (
+            "unsigned16",
+            "u16",
+            ["0u16", "1u16", "32767u16", "32768u16", "u16.MAX"],
+        ),
+        ("signed8", "i8", ["i8.MIN", "-1i8", "0i8", "1i8", "i8.MAX"]),
+        (
+            "unsigned8",
+            "u8",
+            ["0u8", "1u8", "127u8", "128u8", "u8.MAX"],
+        ),
+    ];
+    let mut source = String::from("class Row:\n");
+    for (field, ty, _) in fields {
+        source.push_str(&format!("    {field}: {ty}\n"));
+    }
     let predicates = [
         "*x == low",
         "*x != low",
@@ -115,28 +164,30 @@ fn filter_count_runtime_thresholds_and_ranges(#[case] release: bool) {
         "*x > low and high >= *x",
         "*x >= low and *x <= high",
     ];
-    for (field, ty) in [("signed", "i32"), ("unsigned", "u32")] {
+    for (field, ty, _) in fields {
         for (i, predicate) in predicates.iter().enumerate() {
             source.push_str(&format!(
                 "def scan_{field}_{i}(rows: &clist[Row], low: {ty}, high: {ty}) -> i64:\n    rows.column(Row.{field}).filter(def [low, high](x: &{ty}) -> bool: {predicate}).count()\n"
             ));
         }
     }
-    source.push_str("endpoints = [0u32, 1u32, 2147483647u32, 2147483648u32, u32.MAX, 2u32, 4294967294u32].unwrap()\nfor length in range(34):\n    mut rows = clist[Row]()\n    for n in range(length):\n        bits = endpoints[n % len(endpoints)]\n        rows.append(Row(i32.wrapping_from(bits), bits)).unwrap()\n");
-    for (field, bounds) in [
-        ("signed", ["i32.MIN", "-1i32", "0i32", "1i32", "i32.MAX"]),
-        (
-            "unsigned",
-            ["0u32", "1u32", "2147483647u32", "2147483648u32", "u32.MAX"],
-        ),
-    ] {
-        source.push_str(&format!("    for low in [{0}, {1}, {2}, {3}, {4}].unwrap():\n        for high in [{0}, {1}, {2}, {3}, {4}].unwrap():\n", bounds[0], bounds[1], bounds[2], bounds[3], bounds[4]));
+    for (field, ty, _) in fields {
+        source.push_str(&format!(
+            "def check_{field}(rows: &clist[Row], low: {ty}, high: {ty}) -> Result[(), OverflowError[i64]]:\n"
+        ));
         for (i, predicate) in predicates.iter().enumerate() {
             let expected = predicate.replace("*x", &format!("rows[n].{field}"));
             source.push_str(&format!(
-                "            mut expected_{i} = 0\n            for n in range(length):\n                if {expected}:\n                    expected_{i} += 1\n            check(scan_{field}_{i}(&rows, low, high) == expected_{i}, \"{field} {i}\").unwrap()\n"
+                "    mut expected_{i} = 0\n    for n in range(len(rows)):\n        if {expected}:\n            expected_{i} += 1\n    check(scan_{field}_{i}(rows, low, high) == expected_{i}, \"{field} {i}\").unwrap()\n"
             ));
         }
+        source.push_str("    Ok(())\n");
+    }
+    // The narrow fields wrap these to their own minimum, maximum and sign
+    // boundary; 34 rows exceed two 16-lane vectors.
+    source.push_str("endpoints = [0u32, 1u32, 2147483647u32, 2147483648u32, u32.MAX, 2u32, 4294967294u32, 127u32, 128u32, 32767u32, 32768u32].unwrap()\nfor length in range(34):\n    mut rows = clist[Row]()\n    for n in range(length):\n        bits = endpoints[n % len(endpoints)]\n        rows.append(Row(i32.wrapping_from(bits), bits, i16.wrapping_from(bits), u16.wrapping_from(bits), i8.wrapping_from(bits), u8.wrapping_from(bits))).unwrap()\n");
+    for (field, _, bounds) in fields {
+        source.push_str(&format!("    for low in [{0}, {1}, {2}, {3}, {4}].unwrap():\n        for high in [{0}, {1}, {2}, {3}, {4}].unwrap():\n            check_{field}(&rows, low, high)?\n", bounds[0], bounds[1], bounds[2], bounds[3], bounds[4]));
     }
     source.push_str("print(\"ok\").unwrap()\n");
     let source = support::program(&source).replacen(
@@ -287,6 +338,99 @@ def main() -> Result[(), IoError]:
                 "{text}"
             );
         }
+    }
+}
+
+/// 8- and 16-bit lane counters are widened before they can wrap: 255
+/// vectors of bytes and 65,535 of words. These columns run past both.
+#[test]
+fn filter_count_widens_narrow_lane_counters_before_they_wrap() {
+    let source = r#"
+class Row:
+    byte: u8
+    word: i16
+mut rows = clist[Row]()
+rows.reserve(600007).unwrap()
+for n in range(600007):
+    rows.append(Row(u8(n % 3 * 100), i16(n % 5 - 2))).unwrap()
+mut bytes = 0
+mut words = 0
+for n in range(len(rows)):
+    if rows[n].byte >= 100u8:
+        bytes += 1
+    if rows[n].word != 0i16:
+        words += 1
+check(rows.column(Row.byte).filter(def(x: &u8) -> bool: *x >= 100u8).count() == bytes, "bytes").unwrap()
+check(rows.column(Row.word).filter(def(x: &i16) -> bool: *x != 0i16).count() == words, "words").unwrap()
+print(bytes, words).unwrap()
+"#;
+    let source = support::program(source).replacen(
+        "def main() -> ():",
+        "def main() -> Result[(), OverflowError[i64] | ZeroDivisionError]:",
+        1,
+    );
+    let source = format!("{source}    Ok(())\n");
+    let output = run_mode(&source, true);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout, b"400004 480006\n");
+}
+
+#[test]
+fn filter_count_emits_narrow_vectors() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("scan.plenty");
+    std::fs::write(
+        &path,
+        r#"
+class Row:
+    a: u8
+    b: i8
+    c: u16
+    d: i16
+def unsigned_bytes(rows: &clist[Row]) -> i64:
+    rows.column(Row.a).filter(def(x: &u8) -> bool: *x > 127u8).count()
+def signed_bytes(rows: &clist[Row], low: i8) -> i64:
+    rows.column(Row.b).filter(def [low](x: &i8) -> bool: low < *x and *x < 3i8).count()
+def words(rows: &clist[Row], limit: u16) -> i64:
+    rows.column(Row.c).filter(def [limit](x: &u16) -> bool: *x > limit).count()
+def signed_words(rows: &clist[Row]) -> i64:
+    rows.column(Row.d).filter(def(x: &i16) -> bool: *x < -5i16).count()
+def main() -> Result[(), IoError]:
+    rows = clist[Row]()
+    print(unsigned_bytes(&rows), signed_bytes(&rows, 1i8), words(&rows, 2u16), signed_words(&rows))?
+    Ok(())
+"#,
+    )
+    .unwrap();
+    for (function, load, x64) in [
+        ("unsigned_bytes", "load.i8x16", "pcmpgtb"),
+        ("signed_bytes", "load.i8x16", "pcmpgtb"),
+        ("words", "load.i16x8", "pcmpgtw"),
+        ("signed_words", "load.i16x8", "pcmpgtw"),
+    ] {
+        let output = std::process::Command::new(support::plenty_bin())
+            .args(["--release", "--dump", "clif,asm", "--dump-filter", function])
+            .arg(&path)
+            .args(["-o", "-"])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let text = String::from_utf8(output.stdout).unwrap();
+        assert!(text.contains(load), "{function}: {text}");
+        let comparison = if cfg!(target_arch = "aarch64") {
+            "cmgt "
+        } else {
+            x64
+        };
+        assert!(text.contains(comparison), "{function}: {text}");
     }
 }
 

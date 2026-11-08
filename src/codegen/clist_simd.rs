@@ -24,6 +24,56 @@ fn operations(ops: &[Op]) -> Vec<&Op> {
         .collect()
 }
 
+/// The vector shape of a column type: its lane type, lane count, and how many
+/// iterations a lane counter of that width can count before it must be
+/// widened into the 64-bit total.
+struct Shape {
+    vector: cranelift_codegen::ir::Type,
+    lanes: i64,
+    iterations: i64,
+    signed: bool,
+}
+
+fn shape(ty: &Ty) -> Option<Shape> {
+    let (vector, lanes, iterations) = match ty {
+        Ty::I8 | Ty::U8 => (types::I8X16, 16, i64::from(u8::MAX)),
+        Ty::I16 | Ty::U16 => (types::I16X8, 8, i64::from(u16::MAX)),
+        Ty::I32 | Ty::U32 => (types::I32X4, 4, i64::from(u32::MAX)),
+        _ => return None,
+    };
+    Some(Shape {
+        vector,
+        lanes,
+        iterations,
+        signed: matches!(ty, Ty::I8 | Ty::I16 | Ty::I32),
+    })
+}
+
+/// A literal of the column type, as its value.
+fn literal(value: &Literal, ty: &Ty) -> Option<i64> {
+    Some(match (value, ty) {
+        (Literal::I8(n), Ty::I8) => i64::from(*n),
+        (Literal::U8(n), Ty::U8) => i64::from(*n),
+        (Literal::I16(n), Ty::I16) => i64::from(*n),
+        (Literal::U16(n), Ty::U16) => i64::from(*n),
+        (Literal::I32(n), Ty::I32) => i64::from(*n),
+        (Literal::U32(n), Ty::U32) => i64::from(*n),
+        _ => return None,
+    })
+}
+
+/// The signed condition that gives `condition`'s result on operands whose
+/// sign bits are flipped. SSE2 compares lanes only as signed integers.
+fn biased(condition: IntCC) -> IntCC {
+    match condition {
+        IntCC::UnsignedLessThan => IntCC::SignedLessThan,
+        IntCC::UnsignedLessThanOrEqual => IntCC::SignedLessThanOrEqual,
+        IntCC::UnsignedGreaterThan => IntCC::SignedGreaterThan,
+        IntCC::UnsignedGreaterThanOrEqual => IntCC::SignedGreaterThanOrEqual,
+        other => other,
+    }
+}
+
 fn step(ops: &[&Op], index: u8) -> bool {
     matches!(ops, [Op::LoadLocal(a), Op::PushInt(Literal::I64(1)),
         Op::Integer(IntegerOp::WrappingAdd), Op::StoreLocal(b)] if *a == index && *b == index)
@@ -55,7 +105,7 @@ type Operand<'a> = &'a dyn Fn(&[&Op]) -> Option<Threshold>;
 
 fn comparison(ops: &[&Op], ty: &Ty, item: u8, operand: Operand) -> Option<Comparison> {
     let (compare, operands) = ops.split_last()?;
-    let signed = *ty == Ty::I32;
+    let signed = shape(ty)?.signed;
     let condition = match compare {
         Op::Eq => IntCC::Equal,
         Op::Ne => IntCC::NotEqual,
@@ -71,12 +121,7 @@ fn comparison(ops: &[&Op], ty: &Ty, item: u8, operand: Operand) -> Option<Compar
     };
     let reads_item = |ops: &[&Op]| matches!(ops, [Op::LoadLocal(slot), Op::ReadRef(t)] if *slot == item && t == ty);
     let threshold = |ops: &[&Op]| match ops {
-        [Op::PushInt(Literal::I32(n))] if *ty == Ty::I32 => {
-            Some(Threshold::Constant(i64::from(*n)))
-        }
-        [Op::PushInt(Literal::U32(n))] if *ty == Ty::U32 => {
-            Some(Threshold::Constant(i64::from(*n)))
-        }
+        [Op::PushInt(value)] => literal(value, ty).map(Threshold::Constant),
         _ => operand(ops),
     };
     if operands.len() >= 2 && reads_item(&operands[..2]) {
@@ -130,7 +175,7 @@ fn predicate(body: &[Op], function: &UserFn) -> Option<Predicate> {
         return None;
     };
     if captures > 2
-        || !matches!(ty.as_ref(), Ty::I32 | Ty::U32)
+        || shape(ty).is_none()
         || inputs
             .iter()
             .any(|(_, input)| input != &inputs.last().unwrap().1)
@@ -192,7 +237,7 @@ impl Lowerer<'_, '_> {
         else {
             return None;
         };
-        if position != index || !matches!(ty, Ty::I32 | Ty::U32) {
+        if position != index || shape(ty).is_none() {
             return None;
         }
         let (call, tail) = tail.split_at_checked(tail.len().checked_sub(9)?)?;
@@ -333,9 +378,18 @@ impl Lowerer<'_, '_> {
         {
             return;
         }
+        let ty = &scan.predicate.ty;
+        let shape = shape(ty).expect("validated column type");
+        let scalar = clif_type(ty.clone());
+        let bits = scalar.bits();
+        // Unsigned lanes compare as signed ones once each sign bit is flipped.
+        let bias = (!shape.signed).then(|| {
+            let bit = self.bcx.ins().iconst(scalar, 1i64 << (bits - 1));
+            (bit, self.bcx.ins().splat(shape.vector, bit))
+        });
         let address = self.read_local(scan.address);
         let length = self.read_local(scan.length);
-        let end = self.bcx.ins().band_imm_s(length, -4);
+        let end = self.bcx.ins().band_imm_s(length, -shape.lanes);
         let environment = scan
             .environment
             .as_ref()
@@ -345,11 +399,16 @@ impl Lowerer<'_, '_> {
             .comparisons
             .iter()
             .map(|comparison| {
-                let threshold = match comparison.threshold {
-                    Threshold::Constant(value) => self.bcx.ins().iconst(types::I32, value),
+                let mut threshold = match comparison.threshold {
+                    Threshold::Constant(value) => {
+                        let mask = (1i128 << bits) - 1;
+                        self.bcx
+                            .ins()
+                            .iconst(scalar, (i128::from(value) & mask) as i64)
+                    }
                     Threshold::Local(slot) => self.read_local(slot),
                     Threshold::Capture(slot) => {
-                        let (storage, ty) =
+                        let (storage, closure) =
                             environment.as_ref().expect("validated capture environment");
                         // Read the closure's own snapshot, not the source binding.
                         // Only immutable by-value scalar captures reach this path.
@@ -357,73 +416,103 @@ impl Lowerer<'_, '_> {
                             types::I128,
                             MemFlagsData::trusted(),
                             *storage,
-                            ty.offset(slot as usize) as i32,
+                            closure.offset(slot as usize) as i32,
                         );
-                        self.unpack(packed, &scan.predicate.ty)
+                        self.unpack(packed, ty)
                     }
                 };
-                (
-                    comparison.condition,
-                    self.bcx.ins().splat(types::I32X4, threshold),
-                )
+                let mut condition = comparison.condition;
+                if let Some((bit, _)) = bias {
+                    threshold = self.bcx.ins().bxor(threshold, bit);
+                    condition = biased(condition);
+                }
+                (condition, self.bcx.ins().splat(shape.vector, threshold))
             })
             .collect();
         let zero = self.bcx.ins().iconst(types::I64, 0);
         let sum = self.bcx.ins().splat(types::I64X2, zero);
-        let header = self.bcx.create_block();
+        let scalar_zero = self.bcx.ins().iconst(scalar, 0);
+        let empty = self.bcx.ins().splat(shape.vector, scalar_zero);
+        // Each lane counts its matches in a counter of the column's width.
+        // A chunk stops before that counter can wrap; its counts are then
+        // widened and added to two 64-bit lanes.
+        let outer = self.bcx.create_block();
+        let chunk = self.bcx.create_block();
+        let inner = self.bcx.create_block();
         let iteration = self.bcx.create_block();
+        let flush = self.bcx.create_block();
         let exit = self.bcx.create_block();
-        self.bcx.append_block_param(header, types::I64);
-        self.bcx.append_block_param(header, types::I64X2);
-        self.bcx.ins().jump(header, &[index.into(), sum.into()]);
-        self.bcx.switch_to_block(header);
-        let index = self.bcx.block_params(header)[0];
-        let sum = self.bcx.block_params(header)[1];
-        let more = self.bcx.ins().icmp(IntCC::SignedLessThan, index, end);
-        self.bcx.ins().brif(more, iteration, &[], exit, &[]);
+        self.bcx.append_block_param(outer, types::I64);
+        self.bcx.append_block_param(outer, types::I64X2);
+        self.bcx.append_block_param(inner, types::I64);
+        self.bcx.append_block_param(inner, shape.vector);
+        self.bcx.ins().jump(outer, &[index.into(), sum.into()]);
+        self.bcx.switch_to_block(outer);
+        let start = self.bcx.block_params(outer)[0];
+        let total = self.bcx.block_params(outer)[1];
+        let more = self.bcx.ins().icmp(IntCC::SignedLessThan, start, end);
+        self.bcx.ins().brif(more, chunk, &[], exit, &[]);
+        self.bcx.switch_to_block(chunk);
+        self.bcx.seal_block(chunk);
+        let most = self
+            .bcx
+            .ins()
+            .iadd_imm_s(start, shape.iterations * shape.lanes);
+        let stop = self.bcx.ins().smin(most, end);
+        self.bcx.ins().jump(inner, &[start.into(), empty.into()]);
+        self.bcx.switch_to_block(inner);
+        let position = self.bcx.block_params(inner)[0];
+        let counts = self.bcx.block_params(inner)[1];
+        let go = self.bcx.ins().icmp(IntCC::SignedLessThan, position, stop);
+        self.bcx.ins().brif(go, iteration, &[], flush, &[]);
         self.bcx.switch_to_block(iteration);
         self.bcx.seal_block(iteration);
-        let offset = self.bcx.ins().ishl_imm_s(index, 2);
+        let width = i64::from(bits / 8);
+        let offset = self.bcx.ins().imul_imm_s(position, width);
         let pointer = self.bcx.ins().iadd(address, offset);
-        // A column need not be 16-byte aligned. The guard admits only four
-        // live rows, so this never reads padding, another column or a tail.
-        let values =
+        // A column need not be 16-byte aligned. The guard admits only full
+        // vectors of live rows, so this never reads padding, another column
+        // or a tail.
+        let mut values =
             self.bcx
                 .ins()
-                .load(types::I32X4, MemFlagsData::new().with_notrap(), pointer, 0);
+                .load(shape.vector, MemFlagsData::new().with_notrap(), pointer, 0);
+        if let Some((_, lanes)) = bias {
+            values = self.bcx.ins().bxor(values, lanes);
+        }
         let (condition, threshold) = comparisons[0];
         let mut mask = self.bcx.ins().icmp(condition, values, threshold);
         if let Some(&(condition, threshold)) = comparisons.get(1) {
             let other = self.bcx.ins().icmp(condition, values, threshold);
             mask = self.bcx.ins().band(mask, other);
         }
-        // Widen -1/0 masks before summing: 32-bit lane counters would wrap on
-        // a valid large column. Each i64 lane counts at most half its rows.
-        // Comparison lanes are all-zero or all-one bits, so duplicating each
-        // 32-bit lane sign-extends it without a second vector comparison.
-        let widen = |this: &mut Self, lanes: [u8; 16]| {
-            let endian =
-                MemFlagsData::new().with_endianness(cranelift_codegen::ir::Endianness::Little);
-            let bytes = this.bcx.ins().bitcast(types::I8X16, endian, mask);
-            let immediate = this.bcx.func.dfg.immediates.push(lanes.to_vec().into());
-            let shuffled = this.bcx.ins().shuffle(bytes, bytes, immediate);
-            this.bcx.ins().bitcast(types::I64X2, endian, shuffled)
-        };
-        let low = widen(self, [0, 1, 2, 3, 0, 1, 2, 3, 4, 5, 6, 7, 4, 5, 6, 7]);
-        let high = widen(
-            self,
-            [8, 9, 10, 11, 8, 9, 10, 11, 12, 13, 14, 15, 12, 13, 14, 15],
-        );
-        let pair = self.bcx.ins().iadd(low, high);
-        let sum = self.bcx.ins().isub(sum, pair);
-        let next = self.bcx.ins().iadd_imm_s(index, 4);
-        self.bcx.ins().jump(header, &[next.into(), sum.into()]);
-        self.bcx.seal_block(header);
+        // A matching lane is all one bits, -1, so subtracting it counts one.
+        let counts_next = self.bcx.ins().isub(counts, mask);
+        let next = self.bcx.ins().iadd_imm_s(position, shape.lanes);
+        self.bcx
+            .ins()
+            .jump(inner, &[next.into(), counts_next.into()]);
+        self.bcx.seal_block(inner);
+        self.bcx.switch_to_block(flush);
+        self.bcx.seal_block(flush);
+        // Counts are unsigned and at most `iterations`, so adding adjacent
+        // widened halves cannot overflow the wider lanes.
+        let mut wide = counts;
+        while self.bcx.func.dfg.value_type(wide) != types::I64X2 {
+            let low = self.bcx.ins().uwiden_low(wide);
+            let high = self.bcx.ins().uwiden_high(wide);
+            wide = self.bcx.ins().iadd(low, high);
+        }
+        let total_next = self.bcx.ins().iadd(total, wide);
+        self.bcx
+            .ins()
+            .jump(outer, &[position.into(), total_next.into()]);
+        self.bcx.seal_block(outer);
         self.bcx.switch_to_block(exit);
         self.bcx.seal_block(exit);
-        let sum = self.bcx.block_params(header)[1];
-        let a = self.bcx.ins().extractlane(sum, 0);
-        let b = self.bcx.ins().extractlane(sum, 1);
+        let index = start;
+        let a = self.bcx.ins().extractlane(total, 0);
+        let b = self.bcx.ins().extractlane(total, 1);
         let count = self.bcx.ins().iadd(a, b);
         self.write_local(scan.count, count);
         self.write_local(scan.index, index);
@@ -438,12 +527,14 @@ impl Lowerer<'_, '_> {
         self.bcx.ins().brif(ran, save, &[], done, &[]);
         self.bcx.switch_to_block(save);
         self.bcx.seal_block(save);
-        let offset = self.bcx.ins().ishl_imm_s(index, 2);
+        let offset = self.bcx.ins().imul_imm_s(index, width);
         let pointer = self.bcx.ins().iadd(address, offset);
-        let last = self
-            .bcx
-            .ins()
-            .load(types::I32, MemFlagsData::new().with_notrap(), pointer, -4);
+        let last = self.bcx.ins().load(
+            scalar,
+            MemFlagsData::new().with_notrap(),
+            pointer,
+            -(width as i32),
+        );
         self.write_local(scan.item, last);
         self.bcx.ins().jump(done, &[]);
         self.bcx.switch_to_block(done);
