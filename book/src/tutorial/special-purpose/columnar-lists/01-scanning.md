@@ -46,6 +46,36 @@ more than accessing a record in an ordinary list. Changing the copy does not
 change the stored row. Use a column for a selected-field calculation and a row
 copy when you actually need the complete object.
 
+When a calculation needs two fields, zip their columns. Both callbacks and
+explicit loops receive the scalar values directly:
+
+```plenty
+class Body:
+    velocity: f64
+    mass: f64
+
+def momentum(bodies: &clist[Body]) -> f64:
+    mut total = 0.0
+    for velocity, mass in bodies.column(Body.velocity).zip(bodies.column(Body.mass)):
+        total += velocity * mass
+    total
+
+def main() -> Result[(), AppendError[Body] | IoError]:
+    mut bodies = clist[Body]()
+    bodies.append(Body(2.0, 3.0))?
+    bodies.append(Body(4.0, 5.0))?
+    print(momentum(&bodies))?
+    Ok(())
+```
+```output
+26.0
+```
+
+The compiler prepares both column addresses before the loop and walks them
+with one cursor. No complete `Body` is reconstructed. With columns from different
+collections, `zip` stops when the shorter remaining column ends. Keep the shared
+column scan for calculations; use indexed field writes when updating records.
+
 The primitive-only restriction keeps this first version's ownership and packed
 storage model simple and sound. Prefer an ordinary list for strings, nested
 objects, row references, or workloads that usually access whole
@@ -55,7 +85,7 @@ with bounds checks. This avoids dispatching through a generic runtime helper for
 each field, but does not make every access pattern faster. Use column pipelines
 for repeated scans when the calculation needs selected fields.
 
-Next, [count matching integer values](02-counting.md) with an automatically
+[Count matching integer values](02-counting.md) with an automatically
 optimized column pipeline. See the
 [columnar-list reference](../../../design/facilities/01-builtins/clists.md)
 for the allocation, borrowing and representation contracts.

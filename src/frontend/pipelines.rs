@@ -672,6 +672,120 @@ impl Lower<'_> {
         Ok(())
     }
 
+    /// Fuse two unadapted packed-column cursors. Their item loads are pure,
+    /// non-trapping primitive reads, so checking both ends before either load
+    /// is equivalent to the left-first pull protocol. Keep adapters and lent
+    /// plans on that protocol: their callbacks, drops and externally visible
+    /// cursor state cannot be reordered or replaced.
+    fn pipeline_column_zip(
+        &mut self,
+        left: &mut Pipeline,
+        right: &mut Pipeline,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<bool> {
+        use crate::clist::ClistOp;
+
+        fn column(plan: &Pipeline) -> Option<(u8, u8, u8, usize, Ty)> {
+            if plan.lent
+                || plan.pair.is_some()
+                || !plan.iteration.absent.is_empty()
+                || !plan.iteration.cleanup.is_empty()
+            {
+                return None;
+            }
+            let [
+                Op::UseLoan(loan),
+                Op::LoadLocal(index),
+                Op::LoadLocal(length),
+                Op::Lt,
+            ] = plan.iteration.condition.as_slice()
+            else {
+                return None;
+            };
+            let [
+                Op::UseLoan(body_loan),
+                Op::LoadLocal(address),
+                Op::LoadLocal(body_index),
+                Op::Collection(CollectionOp::Clist(ClistOp::Load(ty))),
+                Op::StoreLocal(target),
+            ] = plan.iteration.body.as_slice()
+            else {
+                return None;
+            };
+            let [
+                Op::LoadLocal(step_index),
+                Op::PushInt(Value::I64(1)),
+                Op::Integer(IntegerOp::WrappingAdd),
+                Op::StoreLocal(next_index),
+            ] = plan.iteration.step.as_slice()
+            else {
+                return None;
+            };
+            (loan == body_loan
+                && index == body_index
+                && index == step_index
+                && index == next_index
+                && *target == plan.item.slot)
+                .then(|| (*index, *length, *address, *loan, ty.clone()))
+        }
+        let (Some(l), Some(r)) = (column(left), column(right)) else {
+            return Ok(false);
+        };
+        let index = self.slot(Ty::I64, at)?;
+        let length = self.slot(Ty::I64, at)?;
+        let mut remaining = Vec::new();
+        for (plan, (cursor, end, address, loan, ty)) in [(&mut *left, l), (&mut *right, r)] {
+            let pointer = self.slot(Ty::I64, at)?;
+            let count = self.slot(Ty::I64, at)?;
+            // A source cursor stays in 0..=end. These differences cannot
+            // overflow. Pointer arithmetic wraps bits just like ClistOp::Load;
+            // no pointer is dereferenced until index < the remaining length.
+            ops.extend([
+                Op::UseLoan(loan),
+                Op::LoadLocal(end),
+                Op::LoadLocal(cursor),
+                Op::Integer(IntegerOp::WrappingSub),
+                Op::StoreLocal(count),
+                Op::LoadLocal(address),
+                Op::LoadLocal(cursor),
+                Op::PushInt(Value::I64(crate::clist::width(&ty) as i64)),
+                Op::Integer(IntegerOp::WrappingMul),
+                Op::Integer(IntegerOp::WrappingAdd),
+                Op::StoreLocal(pointer),
+            ]);
+            remaining.push(count);
+            plan.iteration.body = vec![
+                Op::UseLoan(loan),
+                Op::LoadLocal(pointer),
+                Op::LoadLocal(index),
+                Op::Collection(CollectionOp::Clist(ClistOp::Load(ty))),
+                Op::StoreLocal(plan.item.slot),
+            ];
+        }
+        ops.extend([
+            Op::LoadLocal(remaining[0]),
+            Op::LoadLocal(remaining[1]),
+            Op::Lt,
+            branch(
+                vec![Op::LoadLocal(remaining[0])],
+                vec![Op::LoadLocal(remaining[1])],
+            ),
+            Op::StoreLocal(length),
+            Op::PushInt(Value::I64(0)),
+            Op::StoreLocal(index),
+        ]);
+        left.iteration.condition = vec![Op::LoadLocal(index), Op::LoadLocal(length), Op::Lt];
+        left.iteration.step = vec![
+            Op::LoadLocal(index),
+            Op::PushInt(Value::I64(1)),
+            Op::Integer(IntegerOp::WrappingAdd),
+            Op::StoreLocal(index),
+        ];
+        right.iteration.step.clear();
+        Ok(true)
+    }
+
     fn pipeline_pair_adapter(
         &mut self,
         mut left: Pipeline,
@@ -743,27 +857,30 @@ impl Lower<'_> {
         } else {
             let mut right = self.pipeline_source(&args[0], ops)?;
             self.pipeline_pack_pair(&mut right, at)?;
-            self.pipeline_pull(&mut left, at)?;
-            self.pipeline_pull(&mut right, at)?;
-            // The left item pulled when the right side ends is dropped. The
-            // flag stops a resumed zip from pulling and dropping another.
-            let mut absent = right.iteration.absent.clone();
-            absent.push(Op::PushBool(false));
-            let mut right_condition = right.iteration.condition;
-            let ended = self.pipeline_end(at, ops)?;
-            right_condition.push(branch(
-                vec![Op::PushBool(true)],
-                vec![
-                    Op::PushBool(true),
-                    Op::StoreLocal(ended),
-                    Op::PushBool(false),
-                ],
-            ));
-            left.iteration
-                .condition
-                .push(branch(right_condition, absent));
-            left.iteration.absent.extend(right.iteration.absent);
-            guard_end(&mut left, ended);
+            let columns = self.pipeline_column_zip(&mut left, &mut right, at, ops)?;
+            if !columns {
+                self.pipeline_pull(&mut left, at)?;
+                self.pipeline_pull(&mut right, at)?;
+                // The left item pulled when the right side ends is dropped. The
+                // flag stops a resumed zip from pulling and dropping another.
+                let mut absent = right.iteration.absent.clone();
+                absent.push(Op::PushBool(false));
+                let mut right_condition = right.iteration.condition;
+                let ended = self.pipeline_end(at, ops)?;
+                right_condition.push(branch(
+                    vec![Op::PushBool(true)],
+                    vec![
+                        Op::PushBool(true),
+                        Op::StoreLocal(ended),
+                        Op::PushBool(false),
+                    ],
+                ));
+                left.iteration
+                    .condition
+                    .push(branch(right_condition, absent));
+                left.iteration.absent.extend(right.iteration.absent);
+                guard_end(&mut left, ended);
+            }
             left.iteration.body.extend(right.iteration.body);
             left.iteration.cleanup.extend(right.iteration.cleanup);
             left.iteration.step.extend(right.iteration.step);

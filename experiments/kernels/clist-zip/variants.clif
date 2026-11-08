@@ -1,0 +1,316 @@
+; a: optimized baseline dump; b: pure direct pulls; c: shared fresh cursor and minimum length.
+function %a_pulls(i128, f64) -> f64 tail {
+block0(v0: i128, v1: f64):
+    ; line 8
+    v7, v8 = isplit v0
+    v9 = load.i64 notrap aligned v7
+    v2 = iconst.i64 0
+    brif v9, block1, block2(v2)  ; v2 = 0
+
+block1:
+    v12 = load.i64 notrap aligned v9+16
+    jump block2(v12)
+
+block2(v11: i64):
+    v15, v16 = isplit.i128 v0
+    v17 = load.i64 notrap aligned v15
+    v227 = iconst.i64 0
+    brif v17, block3, block4(v227)  ; v227 = 0
+
+block3:
+    v20 = load.i64 notrap aligned v17+24
+    v24 = iconst.i64 40
+    v25 = iadd.i64 v17, v24  ; v24 = 40
+    jump block4(v25)
+
+block4(v19: i64):
+    v31, v32 = isplit.i128 v0
+    v33 = load.i64 notrap aligned v31
+    v228 = iconst.i64 0
+    brif v33, block5, block6(v228)  ; v228 = 0
+
+block5:
+    v36 = load.i64 notrap aligned v33+16
+    jump block6(v36)
+
+block6(v35: i64):
+    v39, v40 = isplit.i128 v0
+    v41 = load.i64 notrap aligned v39
+    v229 = iconst.i64 0
+    brif v41, block7, block8(v229)  ; v229 = 0
+
+block7:
+    v44 = load.i64 notrap aligned v41+24
+    v209 = iconst.i64 3
+    v210 = ishl v44, v209  ; v209 = 3
+    v47 = iadd.i64 v41, v210
+    v230 = iconst.i64 40
+    v49 = iadd v47, v230  ; v230 = 40
+    jump block8(v49)
+
+block8(v43: i64):
+    v231 = iconst.i64 0
+    ; line 7
+    v4 = f64const 0.0
+    ; line 8
+    v51 = iconst.i8 0
+    v233 = uextend.i128 v231  ; v231 = 0
+    v234 = iconst.i64 3
+    v86 = iconst.i8 1
+    v61 = iconst.i64 1
+    jump block10(v231, v231, v4)  ; v231 = 0, v231 = 0, v4 = 0.0
+
+block10(v67: i64, v98: i64, v164: f64):
+    jump block13
+
+block13:
+    v71 = icmp.i64 sge v67, v11
+    v232 = iconst.i8 0
+    brif v71, block12(v232, v233), block14  ; v232 = 0
+
+block14:
+    v218 = ishl.i64 v67, v234  ; v234 = 3
+    v76 = iadd.i64 v19, v218
+    v77 = load.f64 notrap aligned v76
+    v235 = iconst.i8 1
+    v78 = bitcast.i64 v77
+    v236 = iconst.i64 1
+    v237 = iconcat v78, v236  ; v236 = 1
+    jump block12(v235, v237)  ; v235 = 1
+
+block12(v87: i8, v138: i128):
+    brif v87, block16, block19
+
+block19:
+    jump block17
+
+block16:
+    jump block21
+
+block21:
+    v104 = icmp.i64 sge v98, v35
+    v239 = iconst.i8 0
+    brif v104, block20(v239, v233), block22  ; v239 = 0
+
+block22:
+    v225 = ishl.i64 v98, v234  ; v234 = 3
+    v109 = iadd.i64 v43, v225
+    v110 = load.f64 notrap aligned v109
+    v240 = iconst.i8 1
+    v111 = bitcast.i64 v110
+    v241 = iconst.i64 1
+    v242 = iconcat v111, v241  ; v241 = 1
+    jump block20(v240, v242)  ; v240 = 1
+
+block20(v120: i8, v147: i128):
+    brif v120, block24, block27
+
+block27:
+    jump block25
+
+block24:
+    v244 = iconst.i8 1
+    jump block26(v244)  ; v244 = 1
+
+block25:
+    v243 = iconst.i8 0
+    jump block26(v243)  ; v243 = 0
+
+block26(v122: i8):
+    jump block18(v122, v147)
+
+block17:
+    v238 = iconst.i8 0
+    jump block18(v238, v233)  ; v238 = 0
+
+block18(v125: i8, v145: i128):
+    brif v125, block11, block9
+
+block11:
+    v139, v140 = isplit.i128 v138
+    v148, v149 = isplit.i128 v145
+    v144 = bitcast.f64 v139
+    ; line 9
+    v159 = fcmp ge v144, v1
+    brif v159, block29, block30
+
+block29:
+    ; line 8
+    v153 = bitcast.f64 v148
+    ; line 10
+    v165 = fadd.f64 v164, v153
+    jump block28(v165)
+
+block30:
+    jump block28(v164)
+
+block28(v208: f64):
+    v245 = iconst.i64 1
+    v246 = iadd.i64 v67, v245  ; v245 = 1
+    v247 = iadd.i64 v98, v245  ; v245 = 1
+    jump block10(v246, v247, v208)
+
+block9:
+    ; line 11
+    return v164
+}
+
+
+function %b_direct(i128, f64) -> f64 tail {
+block0(v0: i128, v1: f64):
+    ; line 8
+    v7, v8 = isplit v0
+    v9 = load.i64 notrap aligned v7
+    v2 = iconst.i64 0
+    brif v9, block1, block2(v2)  ; v2 = 0
+
+block1:
+    v12 = load.i64 notrap aligned v9+16
+    jump block2(v12)
+
+block2(v11: i64):
+    v15, v16 = isplit.i128 v0
+    v17 = load.i64 notrap aligned v15
+    v227 = iconst.i64 0
+    brif v17, block3, block4(v227)  ; v227 = 0
+
+block3:
+    v20 = load.i64 notrap aligned v17+24
+    v24 = iconst.i64 40
+    v25 = iadd.i64 v17, v24  ; v24 = 40
+    jump block4(v25)
+
+block4(v19: i64):
+    v31, v32 = isplit.i128 v0
+    v33 = load.i64 notrap aligned v31
+    v228 = iconst.i64 0
+    brif v33, block5, block6(v228)  ; v228 = 0
+
+block5:
+    v36 = load.i64 notrap aligned v33+16
+    jump block6(v36)
+
+block6(v35: i64):
+    v39, v40 = isplit.i128 v0
+    v41 = load.i64 notrap aligned v39
+    v229 = iconst.i64 0
+    brif v41, block7, block8(v229)  ; v229 = 0
+
+block7:
+    v44 = load.i64 notrap aligned v41+24
+    v209 = iconst.i64 3
+    v210 = ishl v44, v209  ; v209 = 3
+    v47 = iadd.i64 v41, v210
+    v230 = iconst.i64 40
+    v49 = iadd v47, v230  ; v230 = 40
+    jump block8(v49)
+
+block8(v43: i64):
+    v300 = iconst.i64 0
+    v301 = f64const 0.0
+    v321 = iconst.i64 3
+    v322 = iconst.i64 1
+    jump block100(v300, v300, v301)
+block100(v302: i64, v303: i64, v304: f64):
+    v305 = icmp slt v302, v11
+    brif v305, block101, block105
+block101:
+    v306 = icmp slt v303, v35
+    brif v306, block102, block105
+block102:
+    v307 = ishl v302, v321
+    v308 = iadd v19, v307
+    v309 = load.f64 notrap aligned v308
+    v310 = ishl v303, v321
+    v311 = iadd v43, v310
+    v312 = load.f64 notrap aligned v311
+    v313 = fcmp ge v309, v1
+    brif v313, block103, block104(v304)
+block103:
+    v314 = fadd v304, v312
+    jump block104(v314)
+block104(v315: f64):
+    v316 = iadd v302, v322
+    v317 = iadd v303, v322
+    jump block100(v316, v317, v315)
+block105:
+    return v304
+}
+
+function %c_shared(i128, f64) -> f64 tail {
+block0(v0: i128, v1: f64):
+    ; line 8
+    v7, v8 = isplit v0
+    v9 = load.i64 notrap aligned v7
+    v2 = iconst.i64 0
+    brif v9, block1, block2(v2)  ; v2 = 0
+
+block1:
+    v12 = load.i64 notrap aligned v9+16
+    jump block2(v12)
+
+block2(v11: i64):
+    v15, v16 = isplit.i128 v0
+    v17 = load.i64 notrap aligned v15
+    v227 = iconst.i64 0
+    brif v17, block3, block4(v227)  ; v227 = 0
+
+block3:
+    v20 = load.i64 notrap aligned v17+24
+    v24 = iconst.i64 40
+    v25 = iadd.i64 v17, v24  ; v24 = 40
+    jump block4(v25)
+
+block4(v19: i64):
+    v31, v32 = isplit.i128 v0
+    v33 = load.i64 notrap aligned v31
+    v228 = iconst.i64 0
+    brif v33, block5, block6(v228)  ; v228 = 0
+
+block5:
+    v36 = load.i64 notrap aligned v33+16
+    jump block6(v36)
+
+block6(v35: i64):
+    v39, v40 = isplit.i128 v0
+    v41 = load.i64 notrap aligned v39
+    v229 = iconst.i64 0
+    brif v41, block7, block8(v229)  ; v229 = 0
+
+block7:
+    v44 = load.i64 notrap aligned v41+24
+    v209 = iconst.i64 3
+    v210 = ishl v44, v209  ; v209 = 3
+    v47 = iadd.i64 v41, v210
+    v230 = iconst.i64 40
+    v49 = iadd v47, v230  ; v230 = 40
+    jump block8(v49)
+
+block8(v43: i64):
+    v300 = iconst.i64 0
+    v301 = f64const 0.0
+    v321 = iconst.i64 3
+    v322 = iconst.i64 1
+    v320 = smin v11, v35
+    jump block100(v300, v301)
+block100(v302: i64, v304: f64):
+    v305 = icmp slt v302, v320
+    brif v305, block102, block105
+block102:
+    v307 = ishl v302, v321
+    v308 = iadd v19, v307
+    v309 = load.f64 notrap aligned v308
+    v310 = ishl v302, v321
+    v311 = iadd v43, v310
+    v312 = load.f64 notrap aligned v311
+    v313 = fcmp ge v309, v1
+    brif v313, block103, block104(v304)
+block103:
+    v314 = fadd v304, v312
+    jump block104(v314)
+block104(v315: f64):
+    v316 = iadd v302, v322
+    jump block100(v316, v315)
+block105:
+    return v304
+}
