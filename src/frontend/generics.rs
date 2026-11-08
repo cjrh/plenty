@@ -1340,7 +1340,11 @@ impl Lower<'_> {
                 loans.push(loan);
                 ty
             } else {
-                self.value(arg, ops)?
+                let ty = self.value(arg, ops)?;
+                if ty.carried_reference().is_some() {
+                    loans.push(self.carried_argument(arg, &ty, ops)?);
+                }
+                ty
             };
             infer(
                 pattern,

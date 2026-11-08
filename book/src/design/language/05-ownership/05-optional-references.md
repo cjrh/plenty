@@ -103,6 +103,108 @@ Option[&str].Nothing
 True
 ```
 
+A `mut` holder can be reassigned, following
+[reference rebinding](03-reference-rebinding.md): later values must borrow
+within the place its first value borrowed, and assigning `Nothing` or `Err(e)`
+keeps that place. A `mut` holder that starts empty borrows nothing until its
+first assignment of a borrowing value, which fixes its place from there on,
+including on paths that skipped that assignment. Assigning values that borrow
+different owners needs one holder per owner.
+
+```plenty
+class Item:
+    name: str
+
+def longest(items: &list[Item]) -> Option[&Item]:
+    mut best: Option[&Item] = Nothing
+    mut size = 0
+    for item in items:
+        if item.name.byte_len() > size:
+            size = item.name.byte_len()
+            best = Some(item)
+    best
+
+def main() -> Result[(), AllocError | IoError]:
+    mut items = [Item("ada"), Item("grace")]?
+    mut last: Option[&Item] = Nothing
+    items.append(Item("bob"))?
+    for item in &items:
+        last = Some(item)
+    print(last)?
+    print(longest(&items))?
+    Ok(())
+```
+
+```output
+Option[&Item].Some(Item(name="bob"))
+Option[&Item].Some(Item(name="grace"))
+```
+
+`items` can change before `last` is first assigned, but not while `last` is
+live afterwards. A `return` of a `mut` holder that is still empty can run
+again after a later assignment in a loop, so once a function returns such a
+holder, every later assignment to it must borrow the origin parameter.
+
+## Passing a holder
+
+A parameter may have a reference-carrying type, such as
+`found: Option[&Item]`. It borrows what the argument borrows, and counts as a
+reference parameter when choosing the origin of a returned borrow:
+`def pick(found: Option[&Item], other: &Item) -> &Item` may return only a
+borrow from `found`'s payload. An `Option[&mut T]` origin allows an
+`Option[&mut T]` result.
+
+```plenty
+class Item:
+    name: str
+    count: i64
+
+def find(items: &mut list[Item], name: &str) -> Option[&mut Item]:
+    for item in items:
+        if item.name == name:
+            return Some(item)
+    Nothing
+
+def reset(found: Option[&mut Item]) -> ():
+    match found:
+        case Some(item):
+            item.count = 0
+        case Nothing:
+            pass
+
+def name_of(found: Option[&Item]) -> Option[&str]:
+    match found:
+        case Some(item):
+            Some(&item.name)
+        case Nothing:
+            Nothing
+
+def main() -> Result[(), AllocError | IoError]:
+    mut items = [Item("ada", 3)]?
+    held = find(&mut items, "ada")
+    reset(held)
+    reset(held)
+    reset(Nothing)
+    shared: Option[&Item] = Some(&items[0])
+    print(name_of(shared))?
+    print(items[0].count)?
+    Ok(())
+```
+
+```output
+Option[&str].Some("ada")
+0
+```
+
+Passing a holder reborrows its loan for the call, as passing a reference
+does. A shared holder stays usable. An exclusive holder can be passed again
+only after the call and any result that keeps its borrow are no longer used,
+so two live `&mut` capabilities never exist. Passing `Nothing` or `Err(e)`
+lends nothing. Generic helpers (`def kept[T](found: Option[&T]) -> Option[&T]`),
+methods, and `Callable[[Option[&T]], R]` signatures take these parameters too.
+A parameter cannot borrow a holder, as in `&Option[&T]`; pass the holder
+itself. Generators cannot take one.
+
 A reference-carrying value is never stored. Tuples, lists and other
 collections, class fields, enum payloads, generic type arguments, closure
 captures, scoped workers, and values live across `yield` all reject it. Match
@@ -110,9 +212,9 @@ it first and store an owned copy or an index instead.
 
 ## Current limits
 
-- `mut` locals and parameters of a reference-carrying type are rejected.
-  Pass the reference after matching.
-- A `match` used as a value cannot produce one.
+- A `mut` holder stays within the owner its first value borrowed; a holder
+  that should choose between owners needs one holder per owner.
+- An `if` or `match` used as a value cannot produce one.
 - Patterns cannot match nested variants through the carried reference:
   `case Some(Some(v))` on `Option[&Option[i64]]` needs a second `match`.
 - A returned reference from a temporary argument follows the

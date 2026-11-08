@@ -278,17 +278,331 @@ fn reference_carrying_values_are_never_stored() {
     );
 }
 
+/// Issue #868: a parameter holding `Option[&T]` or `Result[&T, E]` takes
+/// the caller's borrow and can be the origin of a returned one.
 #[test]
-fn later_phases_stay_rejected() {
-    // Phase 2 of book/src/proposals/returned-reference-enums.md: delete
-    // these rejections when `mut` holders and parameters land (B11).
+fn carried_parameters_lend_the_callers_borrow() {
+    assert_stdout(
+        &with_find(
+            r#"
+def show(value: Option[&Item]) -> Result[(), IoError]:
+    match value:
+        case Some(item):
+            print(item.name)?
+        case Nothing:
+            print("missing")?
+    Ok(())
+
+def rename(value: Option[&mut Item]) -> ():
+    match value:
+        case Some(item):
+            item.count = 7
+        case Nothing:
+            pass
+
+def relay(value: Option[&Item]) -> Option[&Item]:
+    value
+
+def relay_mut(value: Option[&mut Item]) -> Option[&mut Item]:
+    value
+
+def name_of(value: Option[&Item]) -> Option[&str]:
+    match value:
+        case Some(item):
+            Some(&item.name)
+        case Nothing:
+            Nothing
+
+def checked(value: Result[&Item, str]) -> Result[&Item, str]:
+    item = value?
+    Ok(item)
+
+def kept[T](value: Option[&T]) -> Option[&T]:
+    value
+
+class Shelf:
+    items: list[Item]
+
+    def first(self: &Shelf, skip: Option[&str]) -> Option[&Item]:
+        for item in &self.items:
+            match skip:
+                case Some(name):
+                    if item.name == name:
+                        continue
+                case Nothing:
+                    pass
+            return Some(item)
+        Nothing
+
+def each[F: Callable[[Option[&Item]], Result[(), IoError]]](f: &F, item: &Item) -> Result[(), IoError]:
+    f(Some(item))?
+    f(Nothing)
+
+def main() -> Result[(), AllocError | IoError]:
+    mut items = [Item("ada", 1), Item("bob", 2)]?
+    found = find(&items, "ada")
+    show(found)?
+    show(found)?
+    show(Nothing)?
+    show(relay(find(&items, "zed")))?
+    match name_of(kept(found)):
+        case Some(name):
+            print(name)?
+        case Nothing:
+            pass
+    match checked(Ok(&items[1])):
+        case Ok(item):
+            print(item.name)?
+        case Err(message):
+            print(message)?
+    rename(find_mut(&mut items, "bob"))
+    held = relay_mut(find_mut(&mut items, "ada"))
+    rename(held)
+    rename(held)
+    print(items[0].count)?
+    print(items[1].count)?
+    each(&show, &items[0])?
+    shelf = Shelf(items)
+    skip = "ada"
+    match shelf.first(Some(&skip)):
+        case Some(item):
+            print(item.name)?
+        case Nothing:
+            pass
+    Ok(())
+"#,
+        ),
+        "ada\nada\nmissing\nmissing\nada\nbob\n7\n7\nada\nmissing\nbob\n",
+    );
+}
+
+/// The issue's examples, a nested `Result[Option[&T], E]` parameter, and a
+/// `mut` holder passed before and after it adopts a place.
+#[test]
+fn carried_parameters_take_nested_results_and_holders() {
+    assert_stdout(
+        r#"
+class Item:
+    name: str
+
+def find(items: &list[Item], name: &str) -> Option[&Item]:
+    for item in items:
+        if item.name == name:
+            return Some(item)
+    Nothing
+
+def show(o: Option[&str]) -> ():
+    drop(o)
+
+def show_name(selected: Option[&Item]) -> Result[(), IoError]:
+    match selected:
+        case Some(item):
+            print(item.name)?
+        case Nothing:
+            print("none")?
+    Ok(())
+
+def lookup(items: &list[Item], name: &str) -> Result[Option[&Item], str]:
+    if name == "":
+        return Err("empty")
+    Ok(find(items, name))
+
+def report(found: Result[Option[&Item], str]) -> Result[Option[&Item], str]:
+    inner = found?
+    show_name(inner).unwrap()
+    Ok(inner)
+
+def main() -> Result[(), AllocError | IoError]:
+    items = [Item("ada"), Item("bob")]?
+    show(Nothing)
+    mut selected: Option[&Item] = Nothing
+    show_name(selected)?
+    selected = find(&items, "bob")
+    show_name(selected)?
+    first = "ada"
+    print(report(lookup(&items, &first)).is_ok())?
+    empty = ""
+    print(report(lookup(&items, &empty)).is_err())?
+    Ok(())
+"#,
+        "none\nbob\nada\nTrue\nTrue\n",
+    );
+}
+
+#[test]
+fn carried_parameter_results_keep_the_argument_borrowed() {
     rejects(
-        &with_find("items = [Item(\"ada\", 1)].unwrap()\nmut o = find(&items, \"ada\")\n"),
-        "`mut o` cannot hold Option[&Item]; bind each result to its own local",
+        &with_find(
+            r#"
+def relay(value: Option[&Item]) -> Option[&Item]:
+    value
+mut items = [Item("ada", 1)].unwrap()
+kept = relay(find(&items, "ada"))
+items.clear()
+print(kept.is_some()).unwrap()
+"#,
+        ),
+        "cannot modify or exclusively borrow `items` while it is borrowed",
+    );
+    // Passing an exclusive holder reborrows it, so the holder cannot be
+    // used while a result that keeps its borrow is live.
+    rejects(
+        &with_find(
+            r#"
+def relay_mut(value: Option[&mut Item]) -> Option[&mut Item]:
+    value
+mut items = [Item("ada", 1)].unwrap()
+held = find_mut(&mut items, "ada")
+kept = relay_mut(held)
+again = relay_mut(held)
+print(kept.is_some()).unwrap()
+"#,
+        ),
+        "cannot modify or exclusively borrow `items` (through `held`) while it is exclusively borrowed",
     );
     rejects(
-        &with_find("def take(o: Option[&Item]) -> ():\n    pass\n"),
-        "parameter `o` cannot be Option[&Item]",
+        "class Item:\n    count: i64\ndef bad(value: Option[&Item], other: &Item) -> &Item:\n    other\n",
+        "returned reference must originate from the first reference parameter, `value`; this one borrows `other`",
+    );
+    rejects(
+        "class Item:\n    count: i64\ndef bad(other: &Item, value: Option[&Item]) -> Option[&Item]:\n    value\n",
+        "returned reference must originate from the first reference parameter, `other`; this one borrows `value`",
+    );
+    rejects(
+        "class Item:\n    count: i64\ndef bad(value: Option[&Item]) -> Option[&mut Item]:\n    Nothing\n",
+        "Option[&mut Item] requires the first reference parameter to be `&mut`",
+    );
+    // A later phase of book/src/proposals/returned-reference-enums.md (B11).
+    rejects(
+        "def take(o: &Option[&str]) -> ():\n    pass\n",
+        "parameter `o` cannot be &Option[&str]: pass the Option[&str] itself",
+    );
+    rejects(
+        "def take(o: Option[&str]) -> Generator[i64]:\n    yield 1\n",
+        "generators cannot capture references",
+    );
+}
+
+/// Issue #868: a `mut` holder that starts empty borrows the place of the
+/// first value assigned to it, from that assignment on.
+#[test]
+fn mut_holders_adopt_their_first_place() {
+    assert_stdout(
+        &with_find(
+            r#"
+def longest(items: &list[Item]) -> Option[&Item]:
+    mut best: Option[&Item] = Nothing
+    mut size = 0
+    for item in items:
+        if len(item.name) > size:
+            size = len(item.name)
+            best = Some(item)
+        if size > 100:
+            best = Nothing
+    best
+
+def main() -> Result[(), AllocError | IoError]:
+    mut items = [Item("a", 1), Item("bbb", 2), Item("cc", 3)]?
+    mut last: Option[&mut Item] = Nothing
+    items.append(Item("dd", 4))?
+    for name in ["a", "cc"]?:
+        last = find_mut(&mut items, name)
+    match last:
+        case Some(item):
+            item.count = 30
+        case Nothing:
+            pass
+    items.append(Item("e", 5))?
+    match longest(&items):
+        case Some(item):
+            print(item.name)?
+        case Nothing:
+            print("none")?
+    print(items[2].count)?
+    mut first: Result[&Item, str] = Err("empty")
+    first = Ok(&items[0])
+    first = Err("reset")
+    match first:
+        case Ok(item):
+            print(item.name)?
+        case Err(message):
+            print(message)?
+    Ok(())
+"#,
+        ),
+        "bbb\n30\nreset\n",
+    );
+}
+
+#[test]
+fn mut_holders_stay_within_their_first_place() {
+    rejects(
+        &with_find(
+            r#"
+mut items = [Item("ada", 1)].unwrap()
+mut best: Option[&Item] = Nothing
+for item in &items:
+    best = Some(item)
+items.clear()
+print(best.is_some()).unwrap()
+"#,
+        ),
+        "cannot modify or exclusively borrow `items` while it is borrowed",
+    );
+    rejects(
+        &with_find(
+            r#"
+a = [Item("ada", 1)].unwrap()
+b = [Item("bob", 1)].unwrap()
+mut pick: Option[&Item] = Nothing
+if len(a) > 0:
+    pick = Some(&a[0])
+else:
+    pick = Some(&b[0])
+print(pick.is_some()).unwrap()
+"#,
+        ),
+        "reference binding `pick` can be reassigned only to a reference into the owner it first borrowed",
+    );
+    // An earlier `return` in a loop can return a value assigned later.
+    rejects(
+        &with_find(
+            r#"
+def first(items: &list[Item], other: &list[Item]) -> Option[&Item]:
+    mut best: Option[&Item] = Nothing
+    for item in other:
+        if best.is_some():
+            return best
+        best = Some(item)
+    Nothing
+"#,
+        ),
+        "returned reference must originate from the first reference parameter, `items`; this one borrows `other`",
+    );
+    rejects(
+        &with_find(
+            r#"
+mut items = [Item("ada", 1)].unwrap()
+mut cur: Option[&mut Item] = Nothing
+cur = find_mut(&mut items, "ada")
+print(items[0].count).unwrap()
+print(cur.is_some()).unwrap()
+"#,
+        ),
+        "cannot read or borrow `items[0].count` while `items` is exclusively borrowed",
+    );
+    rejects(
+        &with_find(
+            r#"
+mut items = [Item("ada", 1), Item("bob", 2)].unwrap()
+mut a: Option[&mut Item] = Nothing
+mut b: Option[&mut Item] = Nothing
+a = find_mut(&mut items, "ada")
+b = find_mut(&mut items, "bob")
+print(a.is_some()).unwrap()
+"#,
+        ),
+        "cannot modify or exclusively borrow `items` while it is exclusively borrowed",
     );
 }
 

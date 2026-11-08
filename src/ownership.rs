@@ -653,6 +653,10 @@ pub struct Loan {
     pub retargetable: bool,
     /// Borrowing an environment keeps all references stored inside it live.
     pub dependencies: Vec<usize>,
+    /// Held by a `mut` holder that started empty, from the assignment where
+    /// it adopted its first place. That assignment may run on only some
+    /// paths, so the loan is live only where some path created it.
+    pub adopted: bool,
 }
 /// Live loan ids, sorted ascending: the order in which conflicts are tried.
 /// Liveness revisits every node until nothing changes, so a set is rebuilt in
@@ -2758,6 +2762,46 @@ impl LoanFlow<'_> {
     }
 }
 
+/// Removes each adopted loan from the nodes no path from the entry reaches
+/// through its creation. Liveness runs backward from uses, so a loan created
+/// on only some paths would otherwise be live up to the entry on the others.
+fn uncreated_dead(
+    nodes: &[Node<'_>],
+    reachable: &[usize],
+    loans: &HashMap<usize, &Loan>,
+    live: &mut [Live],
+) {
+    let mut created = vec![Live::default(); nodes.len()];
+    let mut out = Live::default();
+    let mut scratch = Vec::new();
+    loop {
+        let mut changed = false;
+        // Descending visits predecessors first, the forward direction.
+        for &i in reachable.iter().rev() {
+            out.0.clone_from(&created[i].0);
+            if let Some(Op::Loan(l)) = nodes[i].op
+                && l.adopted
+            {
+                out.insert(l.id);
+            }
+            for &s in nodes[i].successors.as_slice() {
+                let before = created[s].0.len();
+                created[s].union(&out, &mut scratch);
+                changed |= created[s].0.len() != before;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    for &i in reachable {
+        let created = &created[i];
+        live[i]
+            .0
+            .retain(|id| !loans.get(id).is_some_and(|l| l.adopted) || created.contains(id));
+    }
+}
+
 /// Loan liveness of `ops`, or `None` when it creates no loan.
 fn loan_flow(ops: &[Op]) -> Option<LoanFlow<'_>> {
     if !has_loans(ops) {
@@ -2818,6 +2862,9 @@ fn loan_flow(ops: &[Op]) -> Option<LoanFlow<'_>> {
             if !changed {
                 break;
             }
+        }
+        if loans.values().any(|loan| loan.adopted) {
+            uncreated_dead(&nodes, &reachable, &loans, &mut live);
         }
         live
     });

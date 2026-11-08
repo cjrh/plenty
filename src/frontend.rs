@@ -1038,6 +1038,14 @@ struct Lower<'a> {
     /// Slots that stand for the absent referent of an empty reference-carrying
     /// holder; see [`Lower::empty_holder_loan`].
     absent_referents: HashSet<u8>,
+    /// Slots that stand for the caller's place borrowed by a parameter that
+    /// carries a reference. Rooting its loan at the parameter's own slot
+    /// would make moving an affine `Option[&mut T]` parameter conflict with
+    /// that parameter's own loan.
+    parameter_referents: HashSet<u8>,
+    /// Empty-holder loans some `return` returned; see
+    /// [`Lower::retarget_reference`].
+    returned_absent: HashSet<usize>,
     /// Value slots of shared `values()`/`items()` loops, so a write through
     /// one can name the `(&mut d).values()` form (issue #803).
     shared_dictionary_values: HashSet<u8>,
@@ -2934,6 +2942,9 @@ impl Lower<'_> {
             }
             let ty = self.expr_expected(arg, Some(expected.clone()), ops)?;
             self.same(ty, Some(expected.clone()), &arg.at)?;
+            if expected.carried_reference().is_some() {
+                argument_loans.push(self.carried_argument(arg, expected, ops)?);
+            }
         }
 
         Ok(argument_loans)
@@ -3810,7 +3821,21 @@ impl Lower<'_> {
                         _ => None,
                     };
                     let value = converted.as_ref().unwrap_or(value);
-                    let (ty, origin) = self.binding_value(value, context, ops)?;
+                    // `Nothing` or `Err` reassigned to a holder keeps its
+                    // place and needs no empty-holder loan or slot.
+                    let emptied = annotation.is_none()
+                        && references::loan_free(value)
+                        && self.names.get(name).is_some_and(|local| {
+                            local.mutable && local.ty.carried_reference().is_some()
+                        });
+                    let (ty, origin) = if emptied {
+                        let ty = self
+                            .expr_expected(value, context, ops)?
+                            .ok_or_else(|| value.at.error("expected a value, got ()"))?;
+                        (ty, None)
+                    } else {
+                        self.binding_value(value, context, ops)?
+                    };
                     let diagnostic_origin = annotation
                         .as_ref()
                         .map(provenance::Origin::written)
@@ -3821,7 +3846,7 @@ impl Lower<'_> {
                         })?;
                         self.same(Some(ty.clone()), Some(expected), &stmt.at)?;
                     }
-                    let slot = if let Some(local) = self.names.get(name) {
+                    let slot = if let Some(local) = self.names.get(name).cloned() {
                         if *mutable || annotation.is_some() {
                             return Err(stmt.at.error(format!("duplicate binding `{name}`")));
                         }
@@ -3831,11 +3856,8 @@ impl Lower<'_> {
                                 .error(format!("`{name}` is immutable; declare it with `mut`")));
                         }
                         self.same(Some(ty.clone()), Some(local.ty.clone()), &stmt.at)?;
-                        if let Some(origin) = origin
-                            && self
-                                .check_retargeted_reference(name, local.slot, origin, &stmt.at)?
-                        {
-                            ops.push(Op::EndLoan(self.reference_locals[&local.slot]));
+                        if let Some(origin) = origin {
+                            self.retarget_reference(name, local.slot, origin, &stmt.at, ops)?;
                         }
                         local.slot
                     } else {
@@ -3844,12 +3866,6 @@ impl Lower<'_> {
                                 stmt.at
                                     .error("at most 256 parameter/local slots are supported")
                             })?;
-                        if *mutable && ty.carried_reference().is_some() {
-                            // A later phase of book/src/proposals/returned-reference-enums.md.
-                            return Err(stmt.at.error(format!(
-                                "`mut {name}` cannot hold {ty}; bind each result to its own local"
-                            )));
-                        }
                         self.locals.push(ty.clone());
                         ide::local_type(&stmt.at, &ty);
                         if annotation.is_none() {
@@ -4545,18 +4561,16 @@ fn immutable_origin(output: &Ty) -> String {
     }
 }
 
-/// Rejects parameters that would hold a reference-carrying `Option` or
-/// `Result`, or a reference to one. Such parameters are a later phase of
-/// book/src/proposals/returned-reference-enums.md.
+/// Rejects parameters that borrow a reference-carrying `Option` or `Result`.
+/// A borrow of a borrow-carrying holder is a later phase of
+/// book/src/proposals/returned-reference-enums.md; pass the holder itself.
 fn check_carried_parameters(f: &Function, inputs: &[(String, Ty)]) -> Result<()> {
     for ((name, ty), (_, written)) in inputs.iter().zip(&f.inputs) {
-        let carried = match ty {
-            Ty::Ref(inner, _) => inner.carried_reference().is_some(),
-            ty => ty.carried_reference().is_some(),
-        };
-        if carried {
+        if let Ty::Ref(inner, _) = ty
+            && inner.carried_reference().is_some()
+        {
             return Err(written.at.error(format!(
-                "parameter `{name}` cannot be {ty}: an Option or Result carrying a reference may only be returned or held in a local; pass the reference after matching"
+                "parameter `{name}` cannot be {ty}: pass the {inner} itself, which lends its borrow to the call"
             )));
         }
     }
@@ -4681,8 +4695,7 @@ fn register_with_body(
         let Some((_, origin)) = inputs.iter().find(|(_, ty)| references::lends(ty)) else {
             return Err(f.at.error(no_origin(output)));
         };
-        if output.carries_mutable_loan() && !matches!(origin, Ty::Ref(_, true) | Ty::View(_, true))
-        {
+        if output.carries_mutable_loan() && !references::lends_mutably(origin) {
             return Err(f.at.error(immutable_origin(output)));
         }
     }
@@ -4864,6 +4877,8 @@ fn lower_body(
                 loans: Vec::new(),
                 reference_locals: HashMap::default(),
                 absent_referents: HashSet::default(),
+                parameter_referents: HashSet::default(),
+                returned_absent: HashSet::default(),
                 shared_dictionary_values: HashSet::default(),
                 indexed_lists: Vec::new(),
                 range_stop: None,
@@ -4909,14 +4924,26 @@ fn lower_body(
             let mut body = Vec::new();
             // Parameter loans start at the function header.
             lower.mark(&f.at, &mut body);
-            for (i, (_, ty)) in sig.inputs.iter().enumerate() {
-                if let Ty::Ref(_, mutable) | Ty::View(_, mutable) = ty {
-                    if yield_type.is_some() {
-                        return Err(f.at.error("generators cannot capture references"));
+            for (i, (name, ty)) in sig.inputs.iter().enumerate() {
+                let (root, mutable) = match ty {
+                    Ty::Ref(_, mutable) | Ty::View(_, mutable) => (i as u8, *mutable),
+                    ty if ty.carried_reference().is_some() => {
+                        let referent = lower.slot(Ty::Unit, &f.at)?;
+                        body.extend([Op::PushUnit, Op::StoreLocal(referent)]);
+                        lower.name_slot(referent, name);
+                        lower.parameter_referents.insert(referent);
+                        if lower.return_origin == Some(i as u8) {
+                            lower.return_origin = Some(referent);
+                        }
+                        (referent, ty.carries_mutable_loan())
                     }
-                    let loan = lower.new_loan(i as u8, *mutable, None, &mut body);
-                    lower.reference_locals.insert(i as u8, loan);
+                    _ => continue,
+                };
+                if yield_type.is_some() {
+                    return Err(f.at.error("generators cannot capture references"));
                 }
+                let loan = lower.new_loan(root, mutable, None, &mut body);
+                lower.reference_locals.insert(i as u8, loan);
             }
             let lent_exit = if sig
                 .inputs

@@ -27,10 +27,25 @@ pub(super) fn loan_free(e: &Expr) -> bool {
 }
 
 /// Whether a parameter of type `ty` lends a borrow the call's result may
-/// keep: a reference or a slice view. The first such parameter is the origin
-/// of a returned reference.
+/// keep: a reference, a slice view, or an `Option` or `Result` carrying a
+/// reference. The first such parameter is the origin of a returned reference.
 pub(super) fn lends(ty: &Ty) -> bool {
-    matches!(ty, Ty::Ref(..) | Ty::View(..))
+    matches!(ty, Ty::Ref(..) | Ty::View(..)) || ty.carried_reference().is_some()
+}
+
+/// Whether a lending parameter of type `ty` can be the origin of an
+/// exclusive returned reference.
+pub(super) fn lends_mutably(ty: &Ty) -> bool {
+    matches!(ty, Ty::View(_, true)) || ty.carries_mutable_loan()
+}
+
+/// Whether an argument of type `ty` holds a borrow other than through a
+/// reference, a view, or a reference-carrying `Option` or `Result`: a
+/// closure environment that captures one.
+pub(super) fn borrowing_closure(ty: &Ty) -> bool {
+    !matches!(ty, Ty::Ref(..) | Ty::View(..))
+        && ty.carried_reference().is_none()
+        && ty.contains_reference()
 }
 
 /// Summarize only a single direct returned projection. More complicated bodies
@@ -40,7 +55,7 @@ pub(super) fn returned_fields(body: &[Stmt], sig: &FnSig) -> Option<Vec<usize>> 
         return None;
     }
     let (root, ty) = sig.inputs.iter().find(|(_, t)| lends(t))?;
-    if matches!(ty, Ty::View(..)) {
+    if !matches!(ty, Ty::Ref(..)) {
         return None;
     }
     let [stmt] = body else {
@@ -305,6 +320,24 @@ impl Lower<'_> {
         Ok(self.new_loan(referent, ty.carries_mutable_loan(), None, ops))
     }
 
+    /// The loan an argument `arg` of reference-carrying type `ty` lends a
+    /// call: a reborrow of the holder's loan, as a reference argument has, so
+    /// a later use of the holder ends every borrow the call's result keeps.
+    /// `Nothing` or `Err` lends one that borrows nothing.
+    pub(super) fn carried_argument(
+        &mut self,
+        arg: &Expr,
+        ty: &Ty,
+        ops: &mut Vec<Op>,
+    ) -> Result<usize> {
+        if loan_free(arg) {
+            return self.empty_holder_loan(ty, &arg.at, ops);
+        }
+        let parent = self.reference_origin(arg, ops)?;
+        let root = self.loans[parent].root;
+        Ok(self.new_loan(root, ty.carries_mutable_loan(), Some(parent), ops))
+    }
+
     /// Whether `loan` descends from an [`Self::empty_holder_loan`], so the
     /// reference it covers can never exist at run time.
     pub(super) fn absent_loan(&self, loan: usize) -> bool {
@@ -337,6 +370,39 @@ impl Lower<'_> {
             *fact = self.loans[loan].clone();
         }
         self.reference_locals.insert(slot, loan);
+    }
+
+    /// Records assigning a value holding loan `origin` to the existing `mut`
+    /// reference binding or reference-carrying holder `name` in `slot`.
+    /// A `Nothing` or `Err` borrows nothing and keeps the held place. A
+    /// holder that started empty adopts the first place it is given; see
+    /// [`crate::ownership::Loan::adopted`]. Later values must lie within it.
+    pub(super) fn retarget_reference(
+        &mut self,
+        name: &str,
+        slot: u8,
+        origin: usize,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<()> {
+        let held = self.reference_locals[&slot];
+        if self.absent_loan(origin) {
+            return Ok(());
+        }
+        if self.absent_loan(held) && !self.loans[held].precise {
+            if self.returned_absent.contains(&held) {
+                // A `return` of the holder earlier in a loop can return
+                // this value, so it must have the returned origin.
+                self.check_returned_loan(origin, at)?;
+            }
+            self.loans[origin].adopted = true;
+            self.bind_reference(slot, origin, true, ops);
+            return Ok(());
+        }
+        if self.check_retargeted_reference(name, slot, origin, at)? {
+            ops.push(Op::EndLoan(held));
+        }
+        Ok(())
     }
 
     /// A reassigned reference binding keeps the loan it was declared with,
@@ -431,15 +497,29 @@ impl Lower<'_> {
         Err(e.at.error("reference result requires a named reference, direct borrow, or reference-returning call"))
     }
 
-    pub(super) fn check_return_reference(&self, e: &Expr, ops: &[Op]) -> Result<usize> {
+    pub(super) fn check_return_reference(&mut self, e: &Expr, ops: &[Op]) -> Result<usize> {
         let id = self.reference_origin(e, ops)?;
         if self.absent_loan(id) {
+            // A `mut` holder that is still empty here may adopt a place
+            // later, which a loop can carry back to this return.
+            let mut ancestor = Some(id);
+            while let Some(loan) = ancestor {
+                self.returned_absent.insert(loan);
+                ancestor = self.loans[loan].parent;
+            }
             return Ok(id);
         }
+        self.check_returned_loan(id, &e.at)?;
+        Ok(id)
+    }
+
+    /// Checks that loan `id`, of a reference returned at `at`, borrows from
+    /// the function's origin parameter.
+    pub(super) fn check_returned_loan(&self, id: usize, at: &Token) -> Result<()> {
         let mut ancestor = Some(id);
         while let Some(loan) = ancestor {
             if self.pipeline.lent_item_loans.contains(&loan) {
-                return Err(e.at.error(
+                return Err(at.error(
                     "an item of a lent pipeline cannot be returned: it borrows the caller's source only for this call; return an owned copy",
                 ));
             }
@@ -454,19 +534,20 @@ impl Lower<'_> {
             if let Some(origin) = name(origin) {
                 message.push_str(&format!(", `{origin}`"));
             }
-            let parameter = self.sigs.get(&self.function_name).is_some_and(|sig| {
-                sig.inputs
-                    .get(root as usize)
-                    .is_some_and(|(_, ty)| lends(ty))
-            });
+            let parameter = self.parameter_referents.contains(&root)
+                || self.sigs.get(&self.function_name).is_some_and(|sig| {
+                    sig.inputs
+                        .get(root as usize)
+                        .is_some_and(|(_, ty)| lends(ty))
+                });
             if let Some(source) = name(root).filter(|_| parameter) {
                 message.push_str(&format!(
                     "; this one borrows `{source}`: make `{source}` the first reference parameter"
                 ));
             }
-            return Err(e.at.error(message));
+            return Err(at.error(message));
         }
-        Ok(id)
+        Ok(())
     }
 
     pub(super) fn call_reference_result(
@@ -537,6 +618,7 @@ impl Lower<'_> {
             through: parent.and_then(|id| self.loans[id].binding.or(self.loans[id].through)),
             binding: None,
             retargetable: false,
+            adopted: false,
         };
         self.loans.push(loan.clone());
         ops.push(Op::Loan(loan));

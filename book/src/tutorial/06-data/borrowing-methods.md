@@ -97,10 +97,42 @@ list cannot change there. The `Nothing` arm holds no borrow, so it can append.
 `Result[&T, E]` works the same way with `Ok`; its error cannot hold a reference.
 `?` and `unwrap()` also produce the reference.
 
-The result can be held in a local until it is matched, but it cannot be stored
-in a list, a field, or a `mut` binding: match it and store an owned copy or an
-index. The [reference](../../design/language/05-ownership/05-optional-references.md)
-lists every rule.
+The result can be held in a local until it is matched, or passed to a
+parameter of the same type. The parameter borrows what the argument borrows:
+
+```plenty
+class Item:
+    name: str
+
+def find(items: &list[Item], name: &str) -> Option[&Item]:
+    for item in items:
+        if item.name == name:
+            return Some(item)
+    Nothing
+
+def show(found: Option[&Item]) -> Result[(), IoError]:
+    match found:
+        case Some(item):
+            print(item.name)?
+        case Nothing:
+            print("missing")?
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError]:
+    items = [Item("ada")]?
+    show(find(&items, "ada"))?
+    show(find(&items, "bob"))?
+    Ok(())
+```
+```output
+ada
+missing
+```
+
+Such a result cannot be stored in a list or a field: match it and store an
+owned copy or an index. The
+[reference](../../design/language/05-ownership/05-optional-references.md)
+lists every rule, including `mut` holders that start as `Nothing`.
 
 Shared arguments can borrow temporaries, as in `size("ada")` for a `size(s: &str)`
 function. The temporary lives through the expression. A result borrowing it may
