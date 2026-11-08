@@ -125,8 +125,10 @@ Option[tuple[str, i64]].Some(("first", 0))
 Option[tuple[i32, i64]].Some((5, 1))
 ```
 
-The instance's type parameters name only the item type. Each lent pipeline
-still gets its own frame specialization of that instance.
+Type parameters bind to the item type, not to a particular pipeline; each
+lent pipeline still gets its own frame specialization. The item type also
+gives context to the other arguments: a literal `0` passed for `fallback: T`
+beside a lent pipeline of `u8` is a `u8`.
 
 A borrower is checked only through the calls that lend it a pipeline. One
 that no call lends a pipeline to is not checked, like an unused generic

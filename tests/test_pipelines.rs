@@ -2465,6 +2465,16 @@ def apply[T, R, F: Callable[[T], R]](p: &mut Iter[T], f: &F) -> Option[R]:
 def same_kind[T](p: &mut Iter[T], fallback: T) -> T:
     next(p).unwrap_or(fallback)
 
+def first_kind[T](fallback: T, p: &mut Iter[T]) -> T:
+    next(p).unwrap_or(fallback)
+
+def or_default[T](p: &mut Iter[T], d: Option[T]) -> Option[T]:
+    match next(p):
+        case Some(v):
+            Some(v)
+        case Nothing:
+            d
+
 def nested[T, K](p: &mut Iter[T], tag: K, again: bool) -> Option[(K, T)]:
     if again:
         drop(next(p))
@@ -2535,6 +2545,13 @@ def main() -> Result[(), AllocError | IoError]:
             print(e)?
     print(stop_early(&mut r, "stop"))?
     print(r.count())?
+    mut bytes = iter([7u8, 8u8, 9u8]?)
+    print(same_kind(&mut bytes, 0))?
+    print(first_kind(0, &mut bytes))?
+    print(or_default(&mut bytes, Nothing))?
+    print(or_default(&mut bytes, Nothing))?
+    mut small_ints = iter([5i32]?)
+    print(same_kind(&mut small_ints, 0))?
     print(p.count())?
     Ok(())
 "#,
@@ -2554,6 +2571,11 @@ Option[u8].Nothing\n\
 2\n\
 stop\n\
 1\n\
+7\n\
+8\n\
+Option[u8].Some(9)\n\
+Option[u8].Nothing\n\
+5\n\
 8\n",
     );
 }

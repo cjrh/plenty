@@ -1501,6 +1501,35 @@ impl Lower<'_> {
         let hint = expected
             .map(|e| result_evidence(&template, e.ty, e.open_error, self.aliases, at))
             .unwrap_or_default();
+        // A lent pipeline's item type is known from its binding without
+        // lowering, so it gives context to the other arguments wherever they
+        // appear, as the expected result does. `hint` stays the expected
+        // result's own evidence for `combine_result_evidence`'s diagnostics.
+        let mut context = hint.clone();
+        for (arg, (_, pattern)) in args.iter().zip(&template.inputs) {
+            let Some(lent) = lent_pattern(pattern)
+                .then(|| self.lendable_type(arg))
+                .flatten()
+                .and_then(|lent| declared_lent(&lent))
+            else {
+                continue;
+            };
+            let mut evidence = HashMap::default();
+            if infer(
+                pattern,
+                &lent,
+                &template,
+                &mut evidence,
+                self.aliases,
+                &arg.at,
+            )
+            .is_ok()
+            {
+                for (param, value) in evidence {
+                    context.entry(param).or_insert(value);
+                }
+            }
+        }
         let mut loans = Vec::new();
         let mut arguments = Vec::new();
         let mut argument_ends = Vec::new();
@@ -1613,7 +1642,8 @@ impl Lower<'_> {
                     self.call_borrow(arg, pattern.name.as_deref() == Some("&mut"), None, ops)?;
                 loans.push(loan);
                 ty
-            } else if let Some(context) = hinted_parameter(pattern, &template, &hint, self.aliases)?
+            } else if let Some(context) =
+                hinted_parameter(pattern, &template, &context, self.aliases)?
             {
                 self.expr_expected(arg, Some(context), ops)?
                     .ok_or_else(|| arg.at.error("expected a value, got ()"))?
