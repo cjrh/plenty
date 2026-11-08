@@ -103,6 +103,7 @@ fn generator_references(function: &crate::op::CompiledFn, require: &mut impl FnM
             continue;
         }
         if let Ty::Generator(generator) = &ty
+            && generator.members.is_empty()
             && let Some(name) = &generator.name
         {
             require(name);

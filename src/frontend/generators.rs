@@ -211,11 +211,146 @@ impl Lower<'_> {
             return Err(at.error("a closure with borrowed captures cannot escape its function"));
         }
         let expected = self.return_type.clone().flatten();
+        if let (Some(expected), Some(actual)) = (&expected, &actual)
+            && let Some(joined) = crate::generator::join(expected, actual)
+            && self.inferring_frame()
+        {
+            // Issue #872: a factory returning different producers returns
+            // their joined frame. Lowering repeats with the joined signature,
+            // and `join_returned_frame` then converts each returned member.
+            self.return_type = Some(Some(joined));
+            return Ok(());
+        }
         self.same(actual.clone(), expected.clone(), at)?;
         if let (Some(expected), Some(actual)) = (expected, actual) {
             self.return_type = Some(crate::generator::refine(&expected, &actual));
         }
         Ok(())
+    }
+
+    /// Checks that a branch's type `ty` matches the earlier branches'
+    /// `expected`, or that both are producers that join: in a function's
+    /// tail, into its returned generator. That joined type is returned. Kept out of line so
+    /// deeply nested branches keep their recursion frames small.
+    #[inline(never)]
+    pub(super) fn join_branch(
+        &mut self,
+        expected: &Type,
+        ty: &Type,
+        function_tail: bool,
+        at: &Token,
+    ) -> Result<Option<Type>> {
+        if function_tail && let Some(joined) = self.joined_tail(expected, ty) {
+            return Ok(Some(joined));
+        }
+        // Elsewhere the caller converts each member branch's frame once every
+        // branch type is known; see [`Lower::join_values`].
+        if !function_tail
+            && let (Some(a), Some(b)) = (expected, ty)
+            && let Some(joined) = crate::generator::join(a, b)
+        {
+            return Ok(Some(Some(joined)));
+        }
+        self.same(ty.clone(), expected.clone(), at)?;
+        Ok(None)
+    }
+
+    /// Joins different producers chosen by a conditional expression: both
+    /// branch types are known here, so each branch's frame moves into storage
+    /// for their joined type (issue #872). None when they do not join.
+    #[inline(never)]
+    pub(super) fn join_conditional(
+        &self,
+        yes: &Type,
+        no: &Type,
+        yes_ops: &mut Vec<Op>,
+        no_ops: &mut Vec<Op>,
+    ) -> Option<Ty> {
+        let (Some(a), Some(b)) = (yes, no) else {
+            return None;
+        };
+        let joined = crate::generator::join(a, b)?;
+        for (ty, ops) in [(a, yes_ops), (b, no_ops)] {
+            if crate::generator::joins_into(ty, &joined) {
+                ops.push(Op::JoinFrame(Box::new((ty.clone(), joined.clone()))));
+            }
+        }
+        Some(joined)
+    }
+
+    /// Joins the different producers an `if` or `match` value chooses outside
+    /// a function's tail: each member branch's frame moves into storage for
+    /// the joined type at the end of its body (issue #872). None leaves the
+    /// branches unchanged, when they all have one type or do not join.
+    #[inline(never)]
+    pub(super) fn join_values(&self, values: &mut [(&Ty, &mut Vec<Op>)]) -> Option<Ty> {
+        let (first, rest) = values.split_first()?;
+        let joined = rest.iter().try_fold(first.0.clone(), |joined, (ty, _)| {
+            crate::generator::join(&joined, ty)
+        })?;
+        if !matches!(&joined, Ty::Generator(t) if !t.members.is_empty()) {
+            return None;
+        }
+        for (ty, ops) in values.iter_mut() {
+            if crate::generator::joins_into(ty, &joined) {
+                ops.push(Op::JoinFrame(Box::new(((*ty).clone(), joined.clone()))));
+            }
+        }
+        Some(joined)
+    }
+
+    /// [`Lower::join_values`] for the bodies of a `match`'s cases, given the
+    /// case number and type of each one that continues with a value.
+    #[inline(never)]
+    pub(super) fn join_cases(
+        &self,
+        bodies: &mut [Option<Vec<Op>>],
+        continuing: &[(usize, Ty)],
+    ) -> Option<Ty> {
+        let mut values: Vec<_> = bodies
+            .iter_mut()
+            .enumerate()
+            .filter_map(|(arm, body)| {
+                let (_, ty) = continuing.iter().find(|(case, _)| *case == arm)?;
+                Some((ty, body.as_mut()?))
+            })
+            .collect();
+        self.join_values(&mut values)
+    }
+
+    /// The function's joined generator type, when two branches of its tail
+    /// returned different producers. Each branch already converted its frame
+    /// or recorded the join when it returned.
+    fn joined_tail(&self, a: &Type, b: &Type) -> Option<Type> {
+        let (Some(a), Some(b)) = (a, b) else {
+            return None;
+        };
+        crate::generator::join(a, b)?;
+        let returned = self.return_type.clone().flatten()?;
+        let fits = |ty: &Ty| *ty == returned || crate::generator::joins_into(ty, &returned);
+        (fits(a) && fits(b)).then_some(Some(returned))
+    }
+
+    /// Whether this function's declared output still awaits a concrete
+    /// producer, so its returns may join different producers.
+    fn inferring_frame(&self) -> bool {
+        self.yield_type.is_none()
+            && self
+                .sigs
+                .get(&self.function_name)
+                .is_some_and(|sig| sig.outputs.iter().any(Ty::unresolved_generator))
+    }
+
+    /// Converts a returned member producer's frame to the function's joined
+    /// generator type, appending the conversion to the value's operations.
+    pub(super) fn join_returned_frame(&self, actual: Type, ops: &mut Vec<Op>) -> Type {
+        if let (Some(Some(expected)), Some(member)) = (&self.return_type, &actual)
+            && crate::generator::joins_into(member, expected)
+        {
+            ops.push(Op::JoinFrame(Box::new((member.clone(), expected.clone()))));
+            return Some(expected.clone());
+        }
+        actual
     }
 
     pub(super) fn ensure_concrete_output(&mut self, name: &str, at: &Token) -> Result<()> {

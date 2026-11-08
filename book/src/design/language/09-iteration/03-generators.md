@@ -107,21 +107,36 @@ Each producer and concrete specialization has a distinct frame identity.
 `Generator[T]` describes the yield contract without erasing that identity.
 Local annotations preserve the initializer's producer, and parameters,
 references, aliases, and standard sum wrappers specialize to actual frames.
-A factory must resolve to one producer per specialization; equal yield types
-do not allow different producers to join. `Nothing` or `Err` alone cannot
-infer an absent producer. No hidden boxing makes frames interchangeable.
+Different producers with the same item type may meet wherever a value is
+chosen, and their types then join:
+
+- a conditional expression, `a if c else b`, wherever it appears;
+- an `if` or `match` value, such as `g = match n: ...`, wherever it appears,
+  including in a generator body; branches that exit with `return`, `break`
+  or `continue` take no part;
+- a factory, a function without `yield` that returns `Generator[T]`, through
+  its `return` statements, a tail `if`/`else`, or a tail `match`.
+
+The joined frame is inline storage sized for the largest member, and each
+member's frame is copied into it where the join happens. Frames already
+describe their own resume, drop and relocation, so the join needs no tag and
+allocates nothing; nested joins flatten into one set of members. `Nothing` or
+`Err` alone cannot infer an absent producer. No hidden boxing makes frames
+interchangeable.
 
 | Position | Matching `Generator[T]` item type suffices | Producer identity must match |
 |---|---|---|
 | Parameter `Generator[T]` or `&mut Generator[T]` | Yes: each producer gets its own specialization | |
 | `for`, `next`, comprehension, `iter(...)` source | Yes | |
-| Factory return, `if`/`match` branches, reassignment of one binding | | Yes |
-| `Option`/`Result` payload joined across branches | | Yes |
+| Conditional expression `a if c else b` | Yes: the producers join | |
+| `if`/`match` value, such as `g = match n: ...` | Yes: the producers join | |
+| Factory return (`return`, tail `if`/`else`, tail `match`) | Yes: the producers join | |
+| Reassignment of one binding | | Yes |
+| `Option`/`Result` payloads, such as `Some(a) if c else Some(b)` | | Yes |
 
 When two different producers meet where one identity is required, the
-diagnostic names both and suggests branching inside one generator body.
-Joining different producers through an inline sum of their frames or an
-explicit erased generator is planned (issue #872).
+diagnostic names both and lists where producers join. Joins for those
+remaining positions, and an explicit erased generator, are planned (issue #872).
 
 A suspended frame retains its live owned locals. Completion releases them;
 dropping a suspended or never-started frame releases remaining locals and

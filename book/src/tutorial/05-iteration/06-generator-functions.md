@@ -67,10 +67,10 @@ Option[i64].Some(1)
 Once you know closures, [Transform a stream of values](../10-functions/streams.md)
 shows how to filter, map and reduce a generator without writing the loop.
 
-A factory must return the same producer on every path. Two generators yielding
-the same type are not interchangeable return values:
+A factory may return different producers that yield the same type. Its result
+is stored inline, sized for the largest of them, so choosing allocates nothing:
 
-```plenty-error
+```plenty
 def one() -> Generator[i64]:
     yield 1
 
@@ -83,13 +83,38 @@ def choose(flag: bool) -> Generator[i64]:
         return one()
     two()
 
-def main() -> ():
-    drop(choose(True))
+def main() -> Result[(), IoError]:
+    for value in choose(False):
+        print(value)?
+    Ok(())
 ```
-```error
-expected Generator[i64] from `one`, got Generator[i64] from `two`; each producer has its own inline frame, so different producers cannot join; branch inside one generator body instead
+```output
+2
+3
 ```
 
-Put such a branch inside one generator body instead. A generator may contain
-another generator, but recursive generator state is rejected: its inline storage
-would have no finite size.
+A conditional expression such as `one() if flag else two()`, or an `if` or
+`match` that gives a variable its value, joins producers the same way. A
+variable keeps the producer it was first given, so reassigning it
+to another producer is rejected:
+
+```plenty-error
+def one() -> Generator[i64]:
+    yield 1
+
+def two() -> Generator[i64]:
+    yield 2
+
+def main() -> ():
+    mut values = one()
+    values = two()
+    drop(values)
+```
+```error
+expected Generator[i64] from `one`, got Generator[i64] from `two`; different producers join only where a value is chosen: a conditional expression (`a if c else b`), an `if` or `match` value, or a factory's return; reassignment and `Option`/`Result` payloads keep one producer
+```
+
+Choose with a conditional expression, an `if` or `match` value, or a factory
+such as `choose` instead.
+A generator may contain another generator, but recursive generator state is
+rejected: its inline storage would have no finite size.

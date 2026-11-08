@@ -506,6 +506,19 @@ identity must match; mismatched producers now name the frame identity in the
 diagnostic. Joining different producers and borrowed-item pipeline `next`
 remain under B12.
 
+A factory may return different producers with one item type from `return`,
+a tail `if`/`else` or a tail `match` (issue #872, slice 2). Its output is a
+[joined frame](../design/language/09-iteration/03-generators.md#frame-ownership-and-identity)
+sized for the largest member; each member frame is copied into it at the
+return. Frames carry their own resume, drop and relocation entries, so the
+join needs no tag and no allocation. Nested and generic factories flatten into
+one member set, and a member that contains the factory is rejected as a
+recursive layout. A conditional expression `a if c else b` and an `if` or
+`match` value join their branches the same way wherever they appear, including
+across `yield` in a generator body; a branch that exits with `return`, `break`
+or `continue` takes no part. Reassignment and `Option`/`Result` payloads still
+require one producer.
+
 List slice views `&[T]` and `&mut [T]` gained list read and fixed-length
 operations (issue #866): `in`, `count`, `find` and `rfind` search the view with
 the element type's `==` and allocate nothing; `v.get(i)` copies a non-affine

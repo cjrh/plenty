@@ -52,7 +52,7 @@ one comparison, or two comparisons joined by `and`, against constants or up to
 two immutable scalar captures of the column's type. Borrowed captures, arithmetic
 inside the predicate, `or`, and extra adapters keep scalar execution.
 Other calculations, including the floating-point average in
-[the previous lesson](01-scanning.md), keep ordinary scalar execution.
+[building and scanning columnar records](01-scanning.md), keep ordinary scalar execution.
 All scans still run on one thread. See the
 [columnar-list reference](../../../design/facilities/01-builtins/clists.md)
 for the precise optimization limits, allocation, borrowing and representation.

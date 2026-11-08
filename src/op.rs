@@ -1198,6 +1198,10 @@ pub enum Op {
     /// Cancellation-token provenance; ownership checks only.
     Tokens(TokenMark),
     Yield(Ty),
+    /// Move a member producer's frame into storage laid out for a joined
+    /// generator type that lists it (issue #872). The frame describes its own
+    /// resume function and slots, so only the static layout grows.
+    JoinFrame(Box<(Ty, Ty)>),
     Next(u8),
     MoveLocal(u8),
     DropLocal(u8),

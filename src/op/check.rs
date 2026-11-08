@@ -467,6 +467,13 @@ fn step(
                 );
             }
         }
+        Op::JoinFrame(join) => {
+            let (from, to) = &**join;
+            if !crate::generator::joins_into(from, to) || stack.pop().as_ref() != Some(from) {
+                return Err("frame join requires a member producer of the joined type".into());
+            }
+            stack.push(to.clone());
+        }
         Op::Next(slot) => {
             let Some(Ty::Generator(element)) = locals.get(*slot as usize) else {
                 return Err("next requires a generator local".into());
