@@ -653,6 +653,7 @@
         - [Generated Plenty column-container spike](proposals/columnar-list/implementation-spike.md)
         - [Initial native column implementation](proposals/columnar-list/native-implementation.md)
         - [Direct indexed column access](proposals/columnar-list/indexed-access.md)
+        - [Selected-field idiom measurements](proposals/columnar-list/idiom-measurements.md)
         - [Function-alignment follow-up](proposals/columnar-list/alignment-policy.md)
         - [Why identical scan code can run at different speeds](proposals/columnar-list/placement-research.md)
         - [Automatic SIMD filter/count](proposals/columnar-list/simd-counts.md)

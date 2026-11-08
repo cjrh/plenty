@@ -1,0 +1,30 @@
+# Compare the zipped query forms with the indexed alternative.
+class Particle:
+    temperature: f64
+    mass: f64
+
+def zip_fold(particles: &clist[Particle], threshold: f64) -> f64:
+    particles.column(Particle.temperature).zip(particles.column(Particle.mass)).fold(
+        0.0, def [threshold](total: f64, temperature: f64, mass: f64) -> f64:
+            total + mass if temperature >= threshold else total)
+
+def zip_loop(particles: &clist[Particle], threshold: f64) -> f64:
+    mut total = 0.0
+    for temperature, mass in particles.column(Particle.temperature).zip(particles.column(Particle.mass)):
+        if temperature >= threshold:
+            total += mass
+    total
+
+def indexed(particles: &clist[Particle], threshold: f64) -> f64:
+    mut total = 0.0
+    for i in range(len(particles)):
+        if particles[i].temperature >= threshold:
+            total += particles[i].mass
+    total
+
+def main() -> Result[(), AppendError[Particle] | IoError]:
+    mut particles = clist[Particle]()
+    particles.append(Particle(10.0, 3.0))?
+    particles.append(Particle(30.0, 7.0))?
+    print(zip_fold(&particles, 20.0), zip_loop(&particles, 20.0), indexed(&particles, 20.0))?
+    Ok(())
