@@ -576,49 +576,72 @@ fn allocating_constructor_failures_report_allocation_and_clean_up() {
         &format!(
             r#"{ALLOCATING}
 from std.json import JsonError, JsonFault
+from std.toml import TomlError, TomlFault
 from std.serial import SerialError
 
-def attempt(which: i64) -> Result[(), SerialError[JsonError]]:
+# 0 success, 1 allocation fault, 2 validation fault, 3 anything else.
+def json_outcome[T](result: Result[T, SerialError[JsonError]]) -> i64:
+    match result:
+        case Ok(_):
+            0
+        case Err(error):
+            match error.cause.fault:
+                case JsonFault.Allocation(_):
+                    1
+                case JsonFault.Serialization(Fault.OutOfRange):
+                    2
+                case _:
+                    3
+
+def toml_outcome[T](result: Result[T, SerialError[TomlError]]) -> i64:
+    match result:
+        case Ok(_):
+            0
+        case Err(error):
+            match error.cause.fault:
+                case TomlFault.Allocation(_):
+                    1
+                case TomlFault.Serialization(Fault.OutOfRange):
+                    2
+                case _:
+                    3
+
+def attempt(which: i64) -> i64:
     options = std.json.codec_options()
+    toml = std.toml.codec_options()
     if which == 0:
-        drop(std.json.load[AgentConfig](b"{{\"command\":\"a command longer than inline storage\"}}", &options)?)
+        json_outcome(std.json.load[AgentConfig](b"{{\"command\":\"a command longer than inline storage\"}}", &options))
     elif which == 1:
-        drop(std.json.load[AgentConfig](b"{{\"command\":\"claude\",\"args\":[\"an argument longer than inline storage\"],\"env\":{{\"KEY\":\"a value longer than inline storage\"}}}}", &options)?)
+        json_outcome(std.json.load[AgentConfig](b"{{\"command\":\"claude\",\"args\":[\"an argument longer than inline storage\"],\"env\":{{\"KEY\":\"a value longer than inline storage\"}}}}", &options))
     elif which == 2:
-        drop(std.json.load[Service](b"{{\"name\":\"a service name longer than inline storage\",\"listen-port\":8}}", &options)?)
+        json_outcome(std.json.load[Service](b"{{\"name\":\"a service name longer than inline storage\",\"listen-port\":8}}", &options))
+    elif which == 3:
+        json_outcome(std.json.load[Service](b"{{\"name\":\"a service name longer than inline storage\",\"listen-port\":0}}", &options))
+    elif which == 4:
+        json_outcome(std.json.load[list[AgentConfig]](b"[{{\"command\":\"a command longer than inline storage\"}},{{\"command\":\"another command longer than inline storage\"}}]", &options))
+    elif which == 5:
+        toml_outcome(std.toml.load[AgentConfig]("command = \"a command longer than inline storage\"\n", &toml))
+    elif which == 6:
+        toml_outcome(std.toml.load[Service]("name = \"a service name longer than inline storage\"\nlisten-port = 8\n", &toml))
     else:
-        drop(std.json.load[Service](b"{{\"name\":\"a service name longer than inline storage\",\"listen-port\":0}}", &options)?)
-    Ok(())
+        toml_outcome(std.toml.load[Service]("name = \"a service name longer than inline storage\"\nlisten-port = 0\n", &toml))
 
 def main() -> Result[(), IoError | AllocError]:
     mut markers = list[str]()?
     for count in range(128):
         markers.append("".join(&["__test_fail_allocations_after_", str.from(count)?, "__"]?)?)?
-    for which in range(4):
-        mut refused = False
-        mut succeeded = False
-        mut rejected = False
-        mut other = False
+    for which in range(8):
+        mut seen = [False, False, False, False]?
         for count in range(128):
             print(markers[count])?
-            result = attempt(which)
+            outcome = attempt(which)
             print("__test_restore_allocations__")?
-            match result:
-                case Ok(_):
-                    succeeded = True
-                case Err(error):
-                    match error.cause.fault:
-                        case JsonFault.Allocation(_):
-                            refused = True
-                        case JsonFault.Serialization(Fault.OutOfRange):
-                            rejected = True
-                        case _:
-                            other = True
-        print(refused, succeeded, rejected, other)?
+            seen[outcome] = True
+        print(seen[1], seen[0], seen[2], seen[3])?
     Ok(())
 "#
         ),
-        "True True False False\nTrue True False False\nTrue True False False\nTrue False True False",
+        "True True False False\nTrue True False False\nTrue True False False\nTrue False True False\nTrue True False False\nTrue True False False\nTrue True False False\nTrue False True False",
     );
 }
 
@@ -803,6 +826,28 @@ def main() -> ():
 "#,
     );
     assert!(error.contains("private __decode__"), "{error}");
+    // Generated before specialization, so only `Fault` decodes (issue #914).
+    for domain in ["AllocError", "AllocError | std.serial.Fault"] {
+        let error = support::check_error(&format!(
+            r#"
+import std.json
+import std.serial
+@serial
+class Config[E]:
+    value: i64
+    def __init__(self, value: i64) -> Result[(), E]:
+        self.value = value
+        Ok(())
+def main() -> ():
+    drop(std.json.load[Config[{domain}]](b"{{}}", &std.json.codec_options()))
+"#
+        ));
+        assert!(
+            error.contains("type parameter decodes automatically only when that parameter is std.serial.Fault (issue #914)")
+                && !error.contains("where E is"),
+            "{domain}: {error}"
+        );
+    }
 }
 
 #[test]

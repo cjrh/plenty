@@ -157,21 +157,25 @@ fn wire_names<'a>(
 
 /// Constructor error domains automatic decoding can map without a choice from
 /// the author. Validation uses the adapter's `reject`; allocation failure keeps
-/// its typed cause in the adapter's allocation domain. Any other spelling, such
-/// as a type parameter, is generated as `Fault` here; `constructor_matches`
-/// then requires the specialized domain to be the one generated for.
-#[derive(Clone, Copy)]
+/// its typed cause in the adapter's allocation domain. Any other spelling is
+/// generated as `Fault` here; `constructor_matches` then requires the
+/// specialized domain to be the one generated for. A type-parameter domain is
+/// generated before specialization, so it too decodes only as `Fault` (#914).
+#[derive(Clone, Copy, PartialEq)]
 pub(super) enum Domain {
     Unit,
     Fault,
+    Parameter,
     Allocation,
     Both,
 }
 
 impl Domain {
-    fn of(error: &TypeRef) -> Self {
+    fn of(error: &TypeRef, parameters: &[(String, Option<TypeRef>)]) -> Self {
         let is = |ty: &TypeRef, name: &str| ty.args.is_empty() && ty.name.as_deref() == Some(name);
-        if is(error, "AllocError") {
+        if parameters.iter().any(|(name, _)| is(error, name)) {
+            Domain::Parameter
+        } else if is(error, "AllocError") {
             Domain::Allocation
         } else if error.name.as_deref() == Some("|")
             && error.args.len() == 2
@@ -186,7 +190,7 @@ impl Domain {
     fn spelling(self) -> &'static str {
         match self {
             Domain::Unit => unreachable!("an infallible initializer has no error domain"),
-            Domain::Fault => "SER.Fault",
+            Domain::Fault | Domain::Parameter => "SER.Fault",
             Domain::Allocation => "AllocError",
             Domain::Both => "AllocError | SER.Fault",
         }
@@ -194,7 +198,7 @@ impl Domain {
     fn bridge(self) -> &'static str {
         match self {
             Domain::Unit => unreachable!("an infallible initializer has no error domain"),
-            Domain::Fault => "constructed",
+            Domain::Fault | Domain::Parameter => "constructed",
             Domain::Allocation => "allocated",
             Domain::Both => "constructed_or_allocated",
         }
@@ -267,7 +271,7 @@ pub(super) fn class(
             && output.args.len() == 2
             && output.args[0].name.is_none()
         {
-            Some(Domain::of(&output.args[1]))
+            Some(Domain::of(&output.args[1], &c.type_params))
         } else {
             return Ok(vec![]);
         }
@@ -599,6 +603,15 @@ pub(super) fn enumeration(e: &mut enums::EnumDecl) -> Result<()> {
     Ok(())
 }
 
+/// Whether `ty`'s derived decoding was generated for a type-parameter error
+/// domain, so a rejection can name the actual restriction.
+pub(super) fn parameter_domain(ty: &Ty, aliases: &TypeAliases) -> bool {
+    aliases
+        .data
+        .origin_class(ty)
+        .is_some_and(|(declaration, _)| declaration.derived_decode == Some(Domain::Parameter))
+}
+
 /// Constructor eligibility is semantic, after constants and generic nominal
 /// identities have been resolved. Declaration AST spelling is not type identity.
 pub(super) fn constructor_matches(ty: &Ty, aliases: &TypeAliases) -> Result<bool> {
@@ -627,7 +640,7 @@ pub(super) fn constructor_matches(ty: &Ty, aliases: &TypeAliases) -> Result<bool
         let allocation = type_ref(&init.at, "AllocError");
         let expected = match domain {
             Domain::Unit => return Ok(false),
-            Domain::Fault => fault,
+            Domain::Fault | Domain::Parameter => fault,
             Domain::Allocation => allocation,
             Domain::Both => {
                 let mut both = type_ref(&init.at, "|");
