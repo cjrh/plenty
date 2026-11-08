@@ -183,23 +183,25 @@ pub class Completions[T]:
             return Nothing
         Some(self.take(index))
 
-    pub def next(self: &mut Completions[T]) -> Result[T, FutureError]:
+    # Nothing when no job is outstanding.
+    pub def next(self: &mut Completions[T]) -> Option[Result[T, FutureError]]:
         if self._count == 0:
-            __trap("Completions.next: no job is outstanding")
+            return Nothing
         while True:
             index = self.finished()
             if index >= 0:
-                return self.take(index)
+                return Some(self.take(index))
             self.pause(10u64)
-        __trap("Completions.next: unreachable")
+        Nothing
 
-    pub def next_before(self: &mut Completions[T], deadline: &Deadline, cancel: &CancellationToken) -> Result[Result[T, FutureError], WaitError]:
+    # Ok(Nothing) when no job is outstanding.
+    pub def next_before(self: &mut Completions[T], deadline: &Deadline, cancel: &CancellationToken) -> Result[Option[Result[T, FutureError]], WaitError]:
         if self._count == 0:
-            __trap("Completions.next_before: no job is outstanding")
+            return Ok(Nothing)
         while True:
             index = self.finished()
             if index >= 0:
-                return Ok(self.take(index))
+                return Ok(Some(self.take(index)))
             if cancel.is_cancelled():
                 return Err(WaitError.Cancelled)
             if deadline.expired(&monotonic_now()):
@@ -207,25 +209,35 @@ pub class Completions[T]:
             self.pause(wait_slice(deadline))
         Err(WaitError.TimedOut)
 
-    # Waits for a finished job or a message, whichever is seen first. With no
-    # outstanding job it waits for the message alone.
+    # Waits for a message or a finished job. A message already waiting wins over
+    # finished jobs, so a stop or wake-up is not delayed by a stream of results.
+    # With no outstanding job it waits for the message alone.
     pub def next_or_recv_before[M](self: &mut Completions[T], receiver: &Receiver[M], deadline: &Deadline, cancel: &CancellationToken) -> Result[Selected[Result[T, FutureError], M], WaitError]:
         while True:
-            index = self.finished()
-            if index >= 0:
-                return Ok(Selected[Result[T, FutureError], M].First(self.take(index)))
             if cancel.is_cancelled():
                 return Err(WaitError.Cancelled)
-            match receiver.recv_timeout_ms(0u64 if self._count > 0 else wait_slice(deadline)):
+            match receiver.recv_timeout_ms(0u64):
                 case Ok(message):
                     return Ok(Selected[Result[T, FutureError], M].Second(message))
                 case Err(RecvTimeoutError.Disconnected):
                     return Err(WaitError.Disconnected)
                 case Err(RecvTimeoutError.TimedOut):
                     pass
+            index = self.finished()
+            if index >= 0:
+                return Ok(Selected[Result[T, FutureError], M].First(self.take(index)))
             if deadline.expired(&monotonic_now()):
                 return Err(WaitError.TimedOut)
-            self.pause(wait_slice(deadline))
+            if self._count > 0:
+                self.pause(wait_slice(deadline))
+            else:
+                match receiver.recv_timeout_ms(wait_slice(deadline)):
+                    case Ok(message):
+                        return Ok(Selected[Result[T, FutureError], M].Second(message))
+                    case Err(RecvTimeoutError.Disconnected):
+                        return Err(WaitError.Disconnected)
+                    case Err(RecvTimeoutError.TimedOut):
+                        pass
         Err(WaitError.TimedOut)
 
     # Cancels jobs that have not started. Their results arrive from `next` as

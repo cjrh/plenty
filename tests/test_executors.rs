@@ -2516,15 +2516,20 @@ def run(count: i64, workers: Positive[i64], queue: Positive[i64], capacity: Posi
                     total += outcome??
                 case Nothing:
                     pass
-        while not done.is_empty():
-            total += done.next()??
+        while True:
+            match done.next():
+                case Some(outcome):
+                    total += outcome??
+                case Nothing:
+                    break
     Ok(total)
 
-def gated(gate: Receiver[()]) -> Outcome:
+def gated(started: Sender[()], gate: Receiver[()]) -> Outcome:
+    drop(started.send(()))
     drop(gate.recv())
     Ok(1)
 
-def main() -> Result[(), E | SendError[()]]:
+def main() -> Result[(), E | SendError[()] | RecvError]:
     print(run(50, 1, 1, 1)?)?
     print(run(40, 3, 1, 2)?)?
     print(run(30, 2, 2, 5)?)?
@@ -2539,27 +2544,37 @@ def main() -> Result[(), E | SendError[()]]:
         case _ as other:
             drop(other.drop_job())
     print(done.len())?
-    print(done.next()??)?
+    match done.next():
+        case Some(outcome):
+            print(outcome??)?
+        case Nothing:
+            print("missing")?
+    print(done.next().is_none())?
     # Queued jobs cancel; the running one finishes.
     mut held = Completions[Outcome](3)?
     gate_tx, gate_rx = channel[()](1)?
-    with ThreadPoolExecutor(1, 2)? as busy:
-        drop(held.submit(busy, def once [gate_rx]() -> Outcome: gated(gate_rx)).drop_job()?)
+    started_tx, started_rx = channel[()](1)?
+    with ThreadPoolExecutor(1, 2)? as busy, started_rx as started_inbox:
+        drop(held.submit(busy, def once [started_tx, gate_rx]() -> Outcome: gated(started_tx, gate_rx)).drop_job()?)
         drop(held.submit(busy, def once () -> Outcome: Ok(2)).drop_job()?)
         drop(held.submit(busy, def once () -> Outcome: Ok(3)).drop_job()?)
+        # The worker holds the gated job, so exactly the other two are queued.
+        started_inbox.recv()?
         print(held.cancel_queued())?
         gate_tx.send(())?
         mut cancelled = 0
-        while not held.is_empty():
+        while True:
             match held.next():
-                case Err(FutureError.Cancelled):
+                case Some(Err(FutureError.Cancelled)):
                     cancelled += 1
-                case Ok(outcome):
+                case Some(Ok(outcome)):
                     print(outcome?)?
+                case Nothing:
+                    break
         print(cancelled)?
     Ok(())
 "#,
-        "42925\n22140\n9455\n4\n1\n9\n2\n1\n2\n",
+        "42925\n22140\n9455\n4\n1\n9\nTrue\n2\n1\n2\n",
     );
 }
 
@@ -2575,11 +2590,18 @@ def slow(value: i64, gate: Receiver[()]) -> Outcome:
     drop(gate.recv())
     Ok(value)
 
-def main() -> Result[(), AllocError | IoError | PoolError | SubmitError[()] | FutureError | OverflowError[i64] | WaitError | SendError[()] | SendError[str] | RangeError]:
+def started(signal: Sender[()]) -> Outcome:
+    drop(signal.send(()))
+    Ok(2)
+
+def main() -> Result[(), AllocError | IoError | PoolError | SubmitError[()] | FutureError | OverflowError[i64] | WaitError | SendError[()] | SendError[str] | RangeError | RecvError]:
     mut done = Completions[Outcome](3)?
+    stop = CancellationToken()?
+    # An empty collector has nothing to wait for.
+    soon = deadline_after(&monotonic_now(), &seconds(5u32))?
+    print(done.next_before(&soon, &stop)?.is_none())?
     wake_tx, wake_rx = channel[str](1)?
     gate_tx, gate_rx = channel[()](4)?
-    stop = CancellationToken()?
     with ThreadPoolExecutor(1, 2)? as pool:
         done.submit(pool, def once [gate_rx]() -> Outcome: slow(7, gate_rx)).drop_job()?
         # Nothing finished: a short deadline times out.
@@ -2603,9 +2625,29 @@ def main() -> Result[(), AllocError | IoError | PoolError | SubmitError[()] | Fu
             case _ as other:
                 drop(other)
         print(done.is_empty())?
+    # A waiting message wins over a finished job.
+    mut ready = Completions[Outcome](2)?
+    signal_tx, signal_rx = channel[()](1)?
+    with ThreadPoolExecutor(1, 2)? as pool, signal_rx as signal_inbox:
+        ready.submit(pool, def once () -> Outcome: Ok(1)).drop_job()?
+        ready.submit(pool, def once [signal_tx]() -> Outcome: started(signal_tx)).drop_job()?
+        # One worker runs jobs in order, so the first job has finished.
+        signal_inbox.recv()?
+        wake_tx.send("stop")?
+        later = deadline_after(&monotonic_now(), &seconds(5u32))?
+        match ready.next_or_recv_before(&wake_rx, &later, &stop):
+            case Ok(Selected.Second(message)):
+                print(message)?
+            case _ as other:
+                drop(other)
+        match ready.next_or_recv_before(&wake_rx, &later, &stop):
+            case Ok(Selected.First(outcome)):
+                print(outcome??)?
+            case _ as other:
+                drop(other)
     Ok(())
 "#,
-        "timed out\nwake\n7\nTrue\n",
+        "True\ntimed out\nwake\n7\nTrue\nstop\n1\n",
     );
 }
 
@@ -2629,7 +2671,11 @@ def main() -> Result[(), E]:
         for text in &inputs:
             # Make room before preparing, so a failed preparation holds no slot.
             if done.is_full():
-                total += done.next()??
+                match done.next():
+                    case Some(outcome):
+                        total += outcome??
+                    case Nothing:
+                        pass
             match prepare(text):
                 case Ok(value):
                     job = def once [value]() -> Outcome:
@@ -2641,8 +2687,12 @@ def main() -> Result[(), E]:
                             pass
                 case Err(_):
                     failed += 1
-        while not done.is_empty():
-            total += done.next()??
+        while True:
+            match done.next():
+                case Some(outcome):
+                    total += outcome??
+                case Nothing:
+                    break
         print(done.next_now().is_none())?
     print(total)?
     print(failed)?

@@ -15,19 +15,23 @@ type ScheduleError = ParseError | OverflowError[i64] | FutureError | SubmitError
 def square(value: i64) -> Outcome:
     Ok(value * value)
 
+def add(total: &mut i64, finished: Option[Result[Outcome, FutureError]]) -> Result[(), ScheduleError]:
+    match finished:
+        case Some(outcome):
+            *total += outcome??
+        case Nothing:
+            pass
+    Ok(())
+
 def dispatch(pool: &ThreadPoolExecutor, inputs: &list[str], done: &mut Completions[Outcome]) -> Result[i64, ScheduleError]:
     mut total = 0
     for text in inputs:
         value = i64.parse(*text)?
         job = def once [value]() -> Outcome:
             square(value)
-        match done.submit(pool, job).drop_job()?:
-            case Some(outcome):
-                total += outcome??
-            case Nothing:
-                pass
+        add(&mut total, done.submit(pool, job).drop_job()?)?
     while not done.is_empty():
-        total += done.next()??
+        add(&mut total, done.next())?
     Ok(total)
 
 def run(inputs: &list[str], workers: Positive[i64], queue: Positive[i64], in_flight: Positive[i64]) -> Result[i64, AllocError | PoolError | ScheduleError]:
@@ -54,11 +58,13 @@ worker error preserved
 ```
 
 Each job returns its result instead of sending it. `submit` accepts the job
-while `done` has a free slot. When every slot is occupied it first waits for a
-finished job, submits the new one, and returns the finished result as
-`Some(outcome)`. Handle it as you would a result from `next`. The loop after
-the inputs drains the rest. Typed failures stay typed: `outcome??` propagates
-first a `FutureError`, then the job's own `OverflowError`.
+while `done` has a free slot and returns `Nothing`. When every slot is occupied
+it first waits for a finished job, submits the new one, and returns the
+finished result as `Some(outcome)`. `next` has the same result type: a finished
+job's result, or `Nothing` when no job is outstanding. So `add` handles both,
+and the loop after the inputs drains the rest. Typed failures stay typed:
+`outcome??` propagates first a `FutureError`, then the job's own
+`OverflowError`.
 
 `.drop_job()?` handles the other submission results. If the pool rejects the
 job, with `Shutdown`, `OutOfMemory` or `CapacityOverflow`, the error holds the
@@ -74,10 +80,9 @@ make room first:
 
 ```plenty fragment
 if done.is_full():
-    total += done.next()??
+    add(&mut total, done.next())?
 job = prepare(text)?   # may fail; nothing was reserved
-match done.submit(pool, job).drop_job()?:
-    ...
+add(&mut total, done.submit(pool, job).drop_job()?)?
 ```
 
 With a slot free, `submit` returns `Nothing` without waiting for a result. Only
@@ -93,17 +98,19 @@ external lock is acquired and released by the application.
 ## Wait with a deadline or a stop request
 
 `next` waits without limit. To stop on a deadline or a token, use
-`done.next_before(&deadline, &cancel)`, which returns
-`Result[Result[T, FutureError], WaitError]`. To wait for a result or a message
-on another channel, such as a wake-up, use
+`done.next_before(&deadline, &cancel)`, which wraps the result of `next` in
+`Result[_, WaitError]`. To wait for a result or a message on another channel,
+such as a stop request, use
 `done.next_or_recv_before(&receiver, &deadline, &cancel)`; it returns
 `Selected.First(result)` or `Selected.Second(message)`, like
 [deadline-aware selection](channel-selection.md#wait-until-a-deadline-or-a-stop-request).
+A waiting message wins over finished jobs, so a stop is not delayed while
+results keep arriving.
 Waits poll in slices of at most 10 ms, so a result can be handed back up to
 10 ms after it finished.
 
 `done.cancel_queued()` cancels jobs that have not started; `next` then returns
-`Err(FutureError.Cancelled)` for each. On an early return, as with the
+`Some(Err(FutureError.Cancelled))` for each. On an early return, as with the
 overflowing input above, the remaining results are dropped with `done`, and the
 pool still finishes and joins every accepted job.
 

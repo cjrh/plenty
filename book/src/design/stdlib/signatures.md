@@ -3601,8 +3601,8 @@ class Completions[T]
     def capacity(self) -> i64
     def submit[F: OnceCallable[[], T]](self: &mut Completions[T], pool: &ThreadPoolExecutor, job: F) -> Result[Option[Result[T, FutureError]], SubmitError[F]]
     def next_now(self: &mut Completions[T]) -> Option[Result[T, FutureError]]
-    def next(self: &mut Completions[T]) -> Result[T, FutureError]
-    def next_before(self: &mut Completions[T], deadline: &Deadline, cancel: &CancellationToken) -> Result[Result[T, FutureError], WaitError]
+    def next(self: &mut Completions[T]) -> Option[Result[T, FutureError]]
+    def next_before(self: &mut Completions[T], deadline: &Deadline, cancel: &CancellationToken) -> Result[Option[Result[T, FutureError]], WaitError]
     def next_or_recv_before[M](self: &mut Completions[T], receiver: &Receiver[M], deadline: &Deadline, cancel: &CancellationToken) -> Result[Selected[Result[T, FutureError], M], WaitError]
     def cancel_queued(self) -> i64
 ```

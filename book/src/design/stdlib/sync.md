@@ -167,10 +167,10 @@ allocates each accepted job as `submit` does.
 | `is_full()` | `bool` | `len() == capacity()` |
 | `capacity()` | `i64` | Slot count |
 | `submit(&pool, job)` | `Result[Option[Result[T, FutureError]], SubmitError[F]]` | Blocking submission; when full, first waits for a finished job and returns its result |
-| `next()` | `Result[T, FutureError]` | Wait for any finished job |
+| `next()` | `Option[Result[T, FutureError]]` | Wait for any finished job; `Nothing` when no job is outstanding |
 | `next_now()` | `Option[Result[T, FutureError]]` | A finished job's result, without waiting |
-| `next_before(&deadline, &cancel)` | `Result[Result[T, FutureError], WaitError]` | `next` that stops at the deadline or on cancellation |
-| `next_or_recv_before(&receiver, &deadline, &cancel)` | `Result[Selected[Result[T, FutureError], M], WaitError]` | A finished job's result or a message |
+| `next_before(&deadline, &cancel)` | `Result[Option[Result[T, FutureError]], WaitError]` | `next` that stops at the deadline or on cancellation |
+| `next_or_recv_before(&receiver, &deadline, &cancel)` | `Result[Selected[Result[T, FutureError], M], WaitError]` | A message, or else a finished job's result |
 | `cancel_queued()` | `i64` | Cancel jobs that have not started; returns how many |
 
 `submit` and the `next` methods borrow `self` mutably; the others borrow it. `job` is any `OnceCallable[[], T]` the pool
@@ -191,14 +191,17 @@ fallible preparation, and nothing needs releasing if that preparation fails.
 finishes first. Futures have no wait-for-any primitive, so these waits sleep on
 one future for at most 10 ms and then check every slot; a result can be handed
 back up to 10 ms after it finished, and each check is linear in `capacity()`.
-`next_or_recv_before` checks the receiver between slices; with no outstanding
-job it waits on the receiver alone. Deadline and cancellation rules match the
+`next_or_recv_before` checks the receiver before the slots on every pass, so a
+waiting message wins over finished jobs and a stop request is not delayed by a
+stream of results. With no outstanding job it waits on the receiver alone. A
+disconnected receiver returns `WaitError.Disconnected` even when a result is
+ready. Deadline and cancellation rules match the
 typed deadline waits above, and a ready result wins over an expired deadline.
-`next` and `next_before` trap when no job is outstanding, since nothing could
-finish; test `is_empty()` first.
+With no outstanding job, `next` returns `Nothing` and `next_before` returns
+`Ok(Nothing)` at once, as `Deque.pop` does on an empty deque; neither waits.
 
 A cancelled job, or one dropped by `pool.cancel_pending()`, yields
-`Err(FutureError.Cancelled)`. Dropping a collector drops its futures; their
+`Some(Err(FutureError.Cancelled))`. Dropping a collector drops its futures; their
 jobs still run, and the pool joins them at shutdown.
 
 `Completions` does not own application state: cross-process locks, partially
