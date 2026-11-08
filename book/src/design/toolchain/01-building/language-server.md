@@ -2,7 +2,9 @@
 
 `plenty lsp` serves the [Language Server Protocol](https://microsoft.github.io/language-server-protocol/)
 on standard input and output. It checks files with the compiler's own front
-end, so its errors and names match `plenty check` and `plentyc --check`. Neovim
+end, so its errors and names match `plenty check` and `plentyc --check`. A
+file below a package's `tests/` directory is checked as `plenty test` checks
+it, so it can import its own package by name. Neovim
 is the supported editor; see [Neovim support](neovim.md) for its setup.
 
 ## Features
@@ -12,6 +14,7 @@ is the supported editor; see [Neovim support](neovim.md) for its setup.
 | Diagnostics | The file's check errors and [warnings](warnings.md), published when it is opened, saved, or edited (after a 150 ms pause) |
 | Hover | The declaration as written and its docstring, as Markdown |
 | Go to definition | The declaration's name, in the same file, another module, a dependency, or `std` |
+| Find references | Every written name that refers to the declaration, across the package and the workspace members that depend on it; see [finding references](#finding-references) |
 | Inlay hints | Inferred types after unannotated simple local binding names, when the current check succeeds |
 | Completion | Names in scope and keywords; fields, methods, enum variants, and module members after `.` |
 | Code actions | `refactor.move`: move a top-level declaration to another module of the package, previewed before it is applied |
@@ -54,6 +57,40 @@ Hint positions are immediately after the binding name, within the requested
 half-open range, using the negotiated UTF-8, UTF-16 (default), or UTF-32
 position encoding. Hint requests reuse the document's analysis; a pending edit
 is checked first, just as for hover. No parameter-name hints are provided.
+
+## Finding references
+
+Find references lists every place a name refers to the same declaration as
+the name under the cursor, by what the checker resolved rather than by
+spelling: a parameter or local that shadows a function is a different
+declaration, and a `from` import alias (`from shapes import area as size`)
+refers to `area` both in the import and where `size` is used. The
+declaration's own name is listed unless the client asks to exclude it.
+
+The search covers the package holding the declaration and the workspace
+members that depend on it. As when
+[moving a declaration](#moving-a-declaration-to-another-module), each
+library, executable, and test file of those packages is checked as an
+entry, and then each `src/` file no entry reached, with the unsaved text of
+open files in place of their saved text. A declaration in `std` or in a
+dependency outside the workspace is searched for in the package of the file
+being edited and the members that depend on it; references inside `std` and
+the declaration's copy are listed only as the declaration itself. A local or
+parameter, and any name in a file outside a package, is answered from the
+file's own check.
+
+An entry that does not check still contributes the references found before
+its error. The server then shows a warning that the list may be incomplete,
+with the first error. A search of a package-level declaration checks every
+entry once, so in a package with many test files it takes seconds.
+
+The list contains only names the checker resolves, so it misses the
+references the [limits](#limits) leave unresolved: named arguments
+(`area(n=2)`) and constructor fields (`Point(x=1)`), variants and fields in
+`case` patterns, a variant used as a constructor (`Shape.Circle(r)`), members
+used in an uninstantiated generic body (issue #876), and names
+in unselected [`if const`](../../language/02-source/target-conditionals.md)
+arms. Text in strings, comments, and docstrings is never a reference.
 
 ## Moving a declaration to another module
 
@@ -190,7 +227,9 @@ differs.
   names and locals only.
 - Builtin functions, methods of built-in types such as `list` and `str`, and
   `Ok`, `Err`, `Some`, and `Nothing` have no declaration to show.
-- Variant names in `case` patterns are not resolved.
+- Variant names and fields in `case` patterns, variant constructors, named
+  arguments, and the field names of a constructor call are not resolved
+  (issue #876).
 - Locals offered by completion are those bound in the enclosing function
   above the cursor, by line.
 - An error in a module other than the open file is shown on the file's first
@@ -198,8 +237,8 @@ differs.
 - Each check reads the whole program again; there is no incremental reuse
   between checks. A program importing `std.http.server`, `std.json`, and five
   other large `std` modules checks in about 0.2 s with a release build.
-- Find references, rename, document symbols, and signature help are not
-  implemented. Moving a declaration is the only refactoring. It checks each
+- Rename, document symbols, and signature help are not implemented. Moving
+  a declaration is the only refactoring. It checks each
   entry twice, so a package with many test files takes seconds; see
   [moving a declaration](#moving-a-declaration-to-another-module).
 - Moving a declaration and then moving it back does not always restore the
