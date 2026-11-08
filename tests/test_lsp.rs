@@ -1659,6 +1659,85 @@ fn references_cover_method_initializer_and_generic_named_arguments() {
     client.exit();
 }
 
+/// Generic bodies no call instantiates (`total`, and `Holder.left` of a
+/// generic class never used), beside one that is instantiated (`one`).
+const GENERIC_BODIES: &str = "protocol Sized:
+    def size(self) -> i64:
+        pass
+
+class Point:
+    x: i64
+
+    def norm(self, scale: i64) -> i64:
+        unchecked:
+            self.x * scale
+
+class Crate:
+    width: i64
+
+    def size(self) -> i64:
+        self.width
+
+enum Shape:
+    Dot
+    Circle(i64)
+
+class Holder[T]:
+    item: T
+    origin: Point
+
+    def left(self) -> i64:
+        self.origin.norm(scale=self.origin.x)
+
+def total[T: Sized](a: &T, p: &Point) -> i64:
+    q = p.norm(2)
+    match Shape.Circle(q):
+        case Shape.Circle(r):
+            unchecked:
+                a.size() + p.x + r
+        case Shape.Dot:
+            0
+
+def one[T: Sized](a: &T) -> i64:
+    a.size()
+
+def main() -> ():
+    n = one(&Crate(width=1))
+";
+
+#[test]
+fn references_cover_members_in_uninstantiated_generic_bodies() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    app_package(&root, &[("src/main.plenty", GENERIC_BODIES)]);
+    let main = root.join("src/main.plenty");
+    let mut client = Client::start(&dir.path().join("cache"));
+    let at = |found: Vec<(String, u64, u64)>| -> Vec<(u64, u64)> {
+        found.into_iter().map(|(_, l, c)| (l, c)).collect()
+    };
+    for ((line, character), expected) in [
+        // A protocol-bounded receiver refers to the requirement, except
+        // where an instantiation resolved it to the class's method.
+        ((1, 8), vec![(1, 8), (33, 18)]),
+        ((14, 8), vec![(14, 8), (38, 6)]),
+        ((5, 4), vec![(5, 4), (9, 17), (26, 43), (33, 29)]),
+        ((7, 8), vec![(7, 8), (26, 20), (29, 10)]),
+        ((7, 19), vec![(7, 19), (9, 21), (26, 25)]),
+        ((23, 4), vec![(23, 4), (26, 13), (26, 36)]),
+        ((19, 4), vec![(19, 4), (30, 16), (31, 19)]),
+        ((18, 4), vec![(18, 4), (34, 19)]),
+    ] {
+        let found = positions(
+            &root,
+            &references(&mut client, &main, line, character, true),
+        );
+        assert_eq!(at(found), expected, "from {line}:{character}");
+    }
+    let (_, line, _) = client.definition(&main, 33, 18);
+    assert_eq!(line, 1);
+    client.exit();
+}
+
 #[test]
 fn references_cover_module_qualified_variants_and_named_arguments() {
     let dir = tempfile::tempdir().unwrap();
@@ -2008,6 +2087,186 @@ fn a_rename_spans_members_tests_and_qualified_uses_and_keeps_aliases() {
     client.exit();
 }
 
+const MEMBERS_SHAPES: &str = "pub class Point:
+    pub x: i64
+
+    pub def norm(self, scale: i64) -> i64:
+        unchecked:
+            self.x * scale
+
+pub enum Shape:
+    Circle(i64)
+    Square(i64)
+
+protocol Sized:
+    def size(self) -> i64:
+        pass
+
+class Holder[T]:
+    item: T
+    origin: Point
+
+    def left(self) -> i64:
+        self.origin.norm(scale=self.origin.x)
+
+def total[T: Sized](a: &T, p: &Point) -> i64:
+    match Shape.Circle(p.x):
+        case Shape.Circle(r):
+            unchecked:
+                a.size() + p.norm(r)
+        case Shape.Square(s):
+            s
+";
+
+const MEMBERS_MAIN: &str = "from shapes import Point, Shape
+
+def area(s: Shape) -> i64:
+    match s:
+        case Shape.Circle(r):
+            r
+        case Shape.Square(w):
+            w
+
+def main() -> Result[(), AllocError | IoError]:
+    p = Point(x=1)
+    n = p.norm(scale=2)
+    print(f\"{p.x} {n} {area(Shape.Circle(3))}\"?)?
+    Ok(())
+";
+
+/// Fields, methods and variants are renamed across files, including their
+/// uses in generic bodies that no call instantiates (issue #876).
+#[test]
+fn a_rename_edits_fields_methods_and_variants() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    app_package(
+        &root,
+        &[
+            ("src/shapes.plenty", MEMBERS_SHAPES),
+            ("src/main.plenty", MEMBERS_MAIN),
+            // A library, so a public member is part of its API.
+            ("src/lib.plenty", "pub def one() -> i64:\n    1\n"),
+        ],
+    );
+    let shapes = root.join("src/shapes.plenty");
+    let main = root.join("src/main.plenty");
+    let mut client = Client::start(&dir.path().join("cache"));
+    let files = |shapes: String, main: String| -> std::collections::BTreeMap<String, String> {
+        [
+            ("src/main.plenty".to_owned(), main),
+            ("src/shapes.plenty".to_owned(), shapes),
+        ]
+        .into()
+    };
+    let public = |old: &str, new: &str| {
+        vec![format!(
+            "renames public `app.shapes.{old}` to `{new}`, so packages outside this workspace that import it must change"
+        )]
+    };
+    // The field, from its declaration and from a use in a generic body.
+    for (line, character) in [(1, 8), (23, 25)] {
+        let (edit, warnings) = rename_reply(&mut client, &shapes, line, character, "y").unwrap();
+        assert_eq!(
+            renamed(&root, &edit, &[]),
+            files(
+                MEMBERS_SHAPES
+                    .replace("pub x:", "pub y:")
+                    .replace(".x", ".y"),
+                MEMBERS_MAIN.replace("x=1", "y=1").replace("p.x", "p.y"),
+            ),
+            "from {line}:{character}"
+        );
+        assert_eq!(warnings, public("Point.x", "y"));
+    }
+    let (edit, warnings) = rename_reply(&mut client, &main, 11, 10, "length").unwrap();
+    assert_eq!(
+        renamed(&root, &edit, &[]),
+        files(
+            MEMBERS_SHAPES
+                .replace("def norm", "def length")
+                .replace(".norm(", ".length("),
+            MEMBERS_MAIN.replace(".norm(", ".length("),
+        )
+    );
+    assert_eq!(warnings, public("Point.norm", "length"));
+    let (edit, warnings) = rename_reply(&mut client, &main, 4, 19, "Round").unwrap();
+    assert_eq!(
+        renamed(&root, &edit, &[]),
+        files(
+            MEMBERS_SHAPES.replace("Circle", "Round"),
+            MEMBERS_MAIN.replace("Circle", "Round"),
+        )
+    );
+    assert_eq!(warnings, public("Shape.Circle", "Round"));
+    for (path, line, character, new_name, message) in [
+        (
+            &shapes,
+            1,
+            8,
+            "norm",
+            "`Point` already has a member named `norm`",
+        ),
+        (
+            &main,
+            4,
+            19,
+            "Square",
+            "`Shape` already has a member named `Square`",
+        ),
+        (
+            &main,
+            11,
+            10,
+            "display",
+            "`display` is a method name the language calls implicitly, so a method cannot be renamed to it",
+        ),
+        (
+            &main,
+            11,
+            10,
+            "__eq__",
+            "`__eq__` is a method name the language calls implicitly, so a method cannot be renamed to it",
+        ),
+        (
+            &shapes,
+            12,
+            8,
+            "extent",
+            "renaming a protocol requirement is not supported: a class or enum satisfies it by declaring a method of that name, which a rename does not edit",
+        ),
+    ] {
+        assert_eq!(
+            rename_refused(&mut client, path, line, character, new_name),
+            message,
+            "{line}:{character} to {new_name}"
+        );
+    }
+    client.exit();
+}
+
+/// A member name written on a value whose type an uninstantiated generic
+/// body does not tell refuses the rename (issue #876).
+#[test]
+fn a_member_rename_is_refused_when_a_generic_body_may_use_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    app_package(
+        &root,
+        &[(
+            "src/main.plenty",
+            "class Point:\n    x: i64\n\nclass Pair[T]:\n    first: T\n\n    def pick(self, points: &list[Point]) -> i64:\n        points[0].x\n\ndef main() -> ():\n    p = Point(x=1)\n",
+        )],
+    );
+    let main = root.join("src/main.plenty");
+    let mut client = Client::start(&dir.path().join("cache"));
+    assert_eq!(
+        rename_refused(&mut client, &main, 1, 4, "y"),
+        "`x` is written at src/main.plenty:8:19 in a generic body that no call instantiates, on a value whose type the editor analysis cannot tell, so a rename cannot tell whether it names `Point.x`"
+    );
+    client.exit();
+}
+
 #[test]
 fn a_rename_is_refused_with_its_reason() {
     let dir = tempfile::tempdir().unwrap();
@@ -2028,25 +2287,14 @@ fn a_rename_is_refused_with_its_reason() {
     let shapes = root.join("src/shapes.plenty");
     let main = root.join("src/main.plenty");
     let mut client = Client::start(&dir.path().join("cache"));
-    let not_yet = "is not supported yet: ";
-    for (path, line, character, starts) in [
-        (&shapes, 1, 8, "renaming a field"),
-        (&main, 5, 10, "renaming a method"),
-        (&shapes, 7, 4, "renaming an enum variant"),
-        (&shapes, 10, 13, "renaming a parameter"),
-    ] {
-        let message = prepare_rename(&mut client, path, line, character).unwrap_err();
-        assert!(
-            message.starts_with(starts)
-                && message.contains(not_yet)
-                && message.ends_with("(issue #876)"),
-            "{message}"
-        );
-        assert_eq!(
-            rename_refused(&mut client, path, line, character, "z"),
-            message
-        );
-    }
+    // Phase guard: parameter rename is issue #876's last slice; B17.
+    let message = prepare_rename(&mut client, &shapes, 10, 13).unwrap_err();
+    assert!(
+        message.starts_with("renaming a parameter is not supported yet: ")
+            && message.ends_with("(issue #876)"),
+        "{message}"
+    );
+    assert_eq!(rename_refused(&mut client, &shapes, 10, 13, "z"), message);
     let message = prepare_rename(&mut client, &main, 7, 8).unwrap_err();
     assert!(
         message.starts_with("`gcd` is declared in the standard library"),
