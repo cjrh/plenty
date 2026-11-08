@@ -5,6 +5,8 @@ standard-library and tooling work. Entries are candidates, not promises about
 syntax or delivery dates. Row order is a catalogue, not a priority list.
 
 Delivered milestones and retired entries live in [Completed work](completed-work.md).
+[Documentation fragment labels](completed-work/language-and-tooling.md#documentation-fragment-labels)
+are delivered; fragment execution rules are unchanged.
 A B ID can appear there for its delivered subset and here for its remaining
 extensions; IDs are never renumbered or reused. The
 [implementation status](design/toolchain/02-architecture/support.md) and

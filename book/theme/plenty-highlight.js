@@ -194,6 +194,17 @@
         hljs.versionString.startsWith("10.")
             ? hljs.highlight(language, code, true)
             : hljs.highlight(code, { language, ignoreIllegals: true });
+    // Keep the label outside <pre><code>, so copying still yields only source.
+    for (const code of document.querySelectorAll("code.language-plenty.fragment")) {
+        const pre = code.closest("pre");
+        if (!pre || pre.previousElementSibling?.classList.contains("plenty-fragment-label")) continue;
+        const label = document.createElement("div");
+        label.className = "plenty-fragment-label";
+        const badge = document.createElement("span");
+        badge.textContent = "Fragment · not executed";
+        label.appendChild(badge);
+        pre.before(label);
+    }
     for (const kind of ["plenty", "plenty-error", "plenty-file", "error", "output"]) {
         for (const code of document.querySelectorAll("code.language-" + kind)) {
             code.innerHTML = highlight(kind, code.textContent).value;
