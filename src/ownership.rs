@@ -408,6 +408,7 @@ pub struct Error {
     /// The wait or shutdown belongs to a function this call reaches
     /// (issue #349): `Some(None)` when the callee has no source name.
     pub call: Option<Option<String>>,
+    shutdown_effect: Option<Arc<calls::Shutdown>>,
 }
 
 impl Error {
@@ -461,6 +462,14 @@ impl Error {
             "this result wait"
         };
         let shuts_down = |automatic: bool| match &call {
+            Some(call)
+                if self
+                    .shutdown_effect
+                    .as_ref()
+                    .is_some_and(|effect| effect.assumed()) =>
+            {
+                format!("{call} is assumed capable of shutting down a pool")
+            }
             Some(call) => format!("{call} can shut down a pool"),
             None if automatic => "leaving its scope shuts down this pool".into(),
             None => "this shuts down a pool".into(),
@@ -598,6 +607,9 @@ impl Error {
         for (site, note) in &self.notes {
             let at = self.position(*site);
             diagnostic.message += &format!("\n  {at}: note: {note}");
+        }
+        if let Some(effect) = &self.shutdown_effect {
+            effect.explain(&mut diagnostic.message);
         }
         diagnostic
     }
@@ -1222,6 +1234,7 @@ impl Checker<'_, '_> {
             required: self.origins.required.clone(),
             copied: None,
             call: None,
+            shutdown_effect: None,
         })
     }
 
@@ -1914,6 +1927,24 @@ impl Checker<'_, '_> {
                 ty if !crate::threading::handed_wait(ty) => continue,
                 _ if self.submitted.borrow().is_empty() || !effects().shuts() => continue,
                 _ => self.shutdown(None, state, site).map_err(|mut error| {
+                    error.shutdown_effect = effects().shutdown();
+                    let mut ty = &self.locals[slot as usize];
+                    while let Ty::Ref(inner, _) = ty {
+                        ty = inner;
+                    }
+                    if let Some(at) = site
+                        && owns_executor(ty)
+                    {
+                        error.notes.push((
+                            at,
+                            format!(
+                                "pool capability passed through {} (pool identity is not tracked)",
+                                self.slot_place(slot as usize)
+                                    .map(|name| format!("`{name}`"))
+                                    .unwrap_or_else(|| "an unnamed argument".into())
+                            ),
+                        ));
+                    }
                     for note in &mut error.notes {
                         note.1 = note.1.replace("shutting the pool down", "the call");
                     }
@@ -1975,6 +2006,7 @@ impl Checker<'_, '_> {
         match blocked {
             Some(mut error) => {
                 error.call = Some(callee_name(Some(callee)));
+                error.shutdown_effect = self.program.effects(Some(callee)).shutdown();
                 Err(error)
             }
             None => Ok(()),
