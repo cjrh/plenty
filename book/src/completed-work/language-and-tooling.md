@@ -449,6 +449,10 @@ is read without an intermediate owning string; result ownership and errors
 match existing string operations. Ordinary whole-string operations retain their
 cached-count and sharing paths. The [substring-view operation inventory](../design/language/04-expressions/slices.md#substring-views)
 records supported operations and remaining storage/protocol limits.
+Incoming view parameters can also be forwarded through recursive native tail
+calls, including aliases and narrower ranges. The proof requires every outgoing
+loan to remain rooted in an incoming reference/view parameter; local owned text
+and temporary owners remain rejected (issue #878).
 
 The separate borrowed text view is named `&strview`; the original `&substr`
 spelling remains a compatible alias. Ordinary `&str` references, generic `&T`

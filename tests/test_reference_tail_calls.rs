@@ -635,3 +635,67 @@ def main() -> Result[(), IoError]:
         "1\n1\n3000000\n3\n",
     );
 }
+
+/// A view parameter's address/count refer to caller storage, even when the
+/// outgoing view is narrowed or aliased. The departing frame owns no bytes.
+#[cfg(target_os = "linux")]
+#[test]
+fn incoming_text_and_list_views_forward_on_a_small_stack() {
+    deep(
+        r#"
+def text_first(text: &strview, n: i64) -> i64:
+    if n == 0:
+        return len(text)
+    next = unchecked:
+        n - 1
+    alias = &text[:]
+    text_second(alias, next)
+
+def text_second(text: &strview, n: i64) -> i64:
+    text_first(text, n)
+
+def list_first(items: &[i64], n: i64) -> i64:
+    if n == 0:
+        return *items[0]
+    next = unchecked:
+        n - 1
+    list_second(&items[:], next)
+
+def list_second(items: &[i64], n: i64) -> i64:
+    list_first(items, n)
+
+def main() -> Result[(), AllocError | IoError]:
+    inline = "hé🙂"
+    heap = "long héllo text"
+    values = [42]?
+    print(text_first(&inline[:], 100000), text_first(&heap[:], 100000))?
+    print(list_first(&values[:], 100000))?
+    Ok(())
+"#,
+        "3 15\n42\n",
+    );
+}
+
+#[rstest]
+#[case("text", "local `text`")]
+#[case("&text[:]", "local `text`")]
+#[case("make()", "temporary")]
+fn locally_owned_text_still_cannot_leave_a_recursive_tail_frame(
+    #[case] argument: &str,
+    #[case] expected: &str,
+) {
+    let source = format!(
+        r#"
+def make() -> str:
+    "hé🙂"
+def walk(input: &strview) -> i64:
+    text = "local text"
+    walk({argument})
+"#
+    );
+    let error = support::check_diagnostic(&source);
+    assert!(
+        error.contains("cannot be a tail call") && error.contains(expected),
+        "{error}"
+    );
+}
