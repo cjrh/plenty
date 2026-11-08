@@ -142,9 +142,10 @@ respectively), so a program that does not use it does not reach it.
 Narrow helpers such as `plenty_list_len` and `plenty_text_find` take their operands in registers;
 see [narrow native helpers](collections.md#narrow-native-helpers).
 
-Boxed callable owners reuse the heap box prefix: a destruction header, concrete
+Boxed callable owners use an adapted box layout: a destruction header, concrete
 content descriptor at byte 16, shared-call adapter address at byte 24, and typed
-content slot at byte 32. Runtime operation 128 consumes an environment,
+content slot at byte 32. A plain box has only the header before its content;
+see [box destruction](memory.md#box-destruction). Runtime operation 128 consumes an environment,
 allocates its box, and returns `Result`; failure drops the concrete content.
 Erased descriptors use kind `J` for managed ownership and opaque formatting, while
 the heap prefix retains the concrete box descriptor for relocation and cleanup.

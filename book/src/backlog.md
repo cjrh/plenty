@@ -174,15 +174,14 @@ are recorded there.
   managed fields, records over 192 bytes and tuple release plans. Measure inline
   copies beyond current runtime-copy paths; owned temporaries and nonscalar list
   rows still use runtime helpers. [Flat-layout rationale](proposals/completed/flat-class-layout.md).
-  Box size (issue #814): a plain box of a class stores its record flat, and
-  small allocations come from the runtime's
-  [size-class pool](design/toolchain/02-architecture/memory.md#small-block-pool),
-  so a binary-trees node is a 64-byte block (C: a 32-byte chunk). Next, the
-  box's descriptor and padding words (16 bytes) move out of each box, with
-  destruction through a per-type entry in the type descriptor; that makes the
-  node 48 bytes. `Option[Box[T]]` still keeps a tag word rather than a null
-  niche; a niche needs 8-byte sum slots rather than uniform 16-byte ones and
-  awaits a proposal covering record packing.
+  Box size (issue #814): a plain box of a class stores its record flat after
+  its header, with no descriptor word, and small allocations come from the
+  runtime's [size-class pool](design/toolchain/02-architecture/memory.md#small-block-pool),
+  so a binary-trees node is a 48-byte block (C: a 32-byte chunk).
+  **Deferred proposal:** `Option[Box[T]]` keeps a tag word rather than a null
+  niche. A niche needs 8-byte sum slots rather than uniform 16-byte ones, so
+  it waits for a proposal covering record packing; it would make the node
+  32 bytes.
 - **Serial frontend efficiency:** module-scope name hashing, builtin-sum
   interning and `Ty`/nominal-handle clone traffic (about 10% of check samples with
   allocation excluded; issue #696). The signature map and nominal fact/lock costs

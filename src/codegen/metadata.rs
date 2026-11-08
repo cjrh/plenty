@@ -9,7 +9,8 @@ fn blob(module: &mut ObjectModule, bytes: Vec<u8>, links: &[(usize, DataId)]) ->
     Ok(id)
 }
 /// `functions` are adapter addresses by byte offset: a class's `__del__` at
-/// the descriptor's byte 56, and formatting adapters at 88 and 96.
+/// the descriptor's byte 56, formatting adapters at 88 and 96, and a box
+/// type's destroy entry at 128.
 fn define(
     module: &mut ObjectModule,
     id: DataId,
@@ -103,7 +104,7 @@ fn define_type(
 ) -> Result<()> {
     let id = runtime.type_data.lock().unwrap()[ty];
     // Mirrors plenty_runtime::aggregates::{Type, Variant} on the 64-bit host.
-    let mut bytes = vec![0; 128];
+    let mut bytes = vec![0; 136];
     let finite = finite::emit(module, ty)?;
     // The formatting adapters belong to the type as written: a newtype's
     // methods are its own, not its field's.
@@ -294,12 +295,18 @@ fn define_type(
         Ty::Box(content) => runtime.box_releasers.get(&**content).copied(),
         _ => None,
     });
-    let functions: Vec<_> = hook
+    let mut functions: Vec<_> = hook
         .map(|hook| (56, hook))
         .into_iter()
         .chain(formats)
         .collect();
     runtime.refer(functions.iter().map(|&(_, function)| function));
+    if let Ty::Box(_) = ty {
+        functions.push((
+            128,
+            box_release::declare_destroy_entry(module, runtime, id)?,
+        ));
+    }
     define(module, id, bytes, &links, &functions)
 }
 

@@ -74,8 +74,10 @@ impl CacheMode {
     }
 }
 
-/// Changes whenever the entry format or the meaning of the key changes.
-const SCHEMA: &str = "1";
+/// Changes whenever the entry format or the meaning of the key changes, and
+/// when the runtime contract compiled code relies on changes in a way its IR
+/// might not show. "2": plain boxes lost their descriptor word (issue #814).
+const SCHEMA: &str = "2";
 /// Compiled functions live below the cache directory here.
 const ENTRIES: &str = "fn";
 /// Program objects live here; see [`program`].

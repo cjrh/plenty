@@ -19,6 +19,7 @@ static INTEGER: Type = Type {
     display: None,
     quantity: None,
     finite: None,
+    destroy: None,
 };
 static WIDE: Type = Type {
     inline_bytes: 64,
@@ -37,10 +38,14 @@ static EMPTY: Type = Type {
 #[cfg(feature = "allocation-checks")]
 #[test]
 fn copy_failure_clears_mixed_width_fields_without_consuming_source() {
+    unsafe extern "C" fn destroy(header: *mut Header) {
+        unsafe { plenty_box_destroy(header, &BOX) }
+    }
     static BOX: Type = Type {
         kind: b'O',
         affine: true,
         key: Some(&INTEGER),
+        destroy: Some(destroy),
         ..INTEGER
     };
     static TUPLE: Type = Type {

@@ -93,6 +93,11 @@ pub(crate) struct Type {
     pub(crate) quantity: Option<&'static str>,
     /// Canonical values and variant offsets for a compiler-proven small domain.
     pub(crate) finite: Option<&'static Finite>,
+    /// For a box, the compiler's destroy entry for plain boxes of this type,
+    /// which passes this descriptor to [`plenty_box_destroy`]. A plain box
+    /// keeps no descriptor word, so the entry its header holds is the only
+    /// record of its content type (issue #814).
+    pub(crate) destroy: Option<unsafe extern "C" fn(*mut Header)>,
 }
 /// Immutable finite-domain metadata emitted by `codegen::metadata::finite`.
 #[repr(C)]
@@ -119,8 +124,9 @@ pub(crate) struct Plan {
     pub(crate) fixed: bool,
 }
 const _: () = {
-    assert!(size_of::<Type>() == 128);
+    assert!(size_of::<Type>() == 136);
     assert!(std::mem::offset_of!(Type, finite) == 120);
+    assert!(std::mem::offset_of!(Type, destroy) == 128);
     assert!(size_of::<Finite>() == 32);
     assert!(std::mem::offset_of!(Type, quantity) == 104);
     assert!(std::mem::offset_of!(Type, debug) == 88);
@@ -145,7 +151,11 @@ const _: () = {
     assert!(std::mem::offset_of!(Collection, entries) == ROWS as usize);
     assert!(ROWS + 8 == BYTES && ROWS + 24 == REMOVED);
 };
-const _: () = assert!(std::mem::offset_of!(Boxed, slot) == 32);
+const _: () = {
+    assert!(std::mem::offset_of!(Boxed, slot) == 16);
+    assert!(std::mem::offset_of!(AdaptedBox, adapter) == 24);
+    assert!(std::mem::offset_of!(AdaptedBox, slot) == 32);
+};
 impl Type {
     /// A plain string, whose bytes are its `print` spelling. A class over
     /// `str` formats as the class instead.
@@ -453,55 +463,64 @@ impl Field {
     }
 }
 
-/// Boxes are the only heap records: recursive types reach themselves through them.
+/// Boxes are the only heap records: recursive types reach themselves through
+/// them. A plain box (`Box(value)` or `Shared(value)`) is its header and its
+/// content: the header's destroy function is the box type's
+/// [`Type::destroy`] entry, which supplies the descriptor (issue #814).
 #[repr(C)]
 struct Boxed {
     header: Header,
-    ty: *const Type,
-    padding: u64,
     slot: [u128; 0],
 }
 impl Boxed {
     /// Where the content lives. A class with a record is stored flat at
     /// `slot`, without the value word that would only hold its address, so a
-    /// reference to it names the descriptor and padding words before it
-    /// (issue #814); compiled code mirrors this with `Ty::flat_field`. A
-    /// callable or protocol box keeps its adapter in the padding word and the
-    /// word before the record: its call sites pass `slot` as a reference to
-    /// content of a type they do not know.
+    /// reference to it names the header (issue #814); compiled code mirrors
+    /// this with `Ty::flat_field`.
     unsafe fn content(boxed: *const Boxed, content: &Type) -> Field {
         unsafe {
             Field {
                 at: std::ptr::addr_of!((*boxed).slot).cast::<u128>().cast_mut(),
-                flat: (*boxed).padding == 0 && content.flat_field(),
+                flat: content.flat_field(),
             }
         }
     }
-    /// The 16-byte words after the descriptor, for a box without an adapter
-    /// when `plain`.
-    fn words(plain: bool, content: &Type) -> usize {
-        if plain {
-            content.field_words()
-        } else {
-            content.slot_words()
+}
+/// A callable or protocol box. Its call sites read the adapter at byte 24
+/// and pass the slot at byte 32 as a reference to content of a type they do
+/// not know, so the content keeps its value word and the box its descriptor.
+#[repr(C)]
+struct AdaptedBox {
+    header: Header,
+    ty: *const Type,
+    adapter: u64,
+    slot: [u128; 0],
+}
+impl AdaptedBox {
+    unsafe fn content(boxed: *const AdaptedBox) -> Field {
+        unsafe {
+            Field {
+                at: std::ptr::addr_of!((*boxed).slot).cast::<u128>().cast_mut(),
+                flat: false,
+            }
         }
+    }
+}
+impl Type {
+    /// The destroy function of a plain box of this box type.
+    fn box_destroy(&self) -> unsafe extern "C" fn(*mut Header) {
+        self.destroy
+            .unwrap_or_else(|| crate::fail("box descriptor without a destroy entry"))
     }
 }
 
 /// Move `value` into a new box. On failure the caller still owns `value`.
 unsafe fn try_box_new(ty: &Type, value: u128) -> Result<*mut Boxed, AllocError> {
-    unsafe { try_box_with(ty, value, 0) }
-}
-/// [`try_box_new`] with the adapter of a callable or protocol box, which
-/// must be stored before the content: it decides the content's layout.
-unsafe fn try_box_with(ty: &Type, value: u128, adapter: u64) -> Result<*mut Boxed, AllocError> {
     let content = ty.key();
-    let boxed = memory::try_allocate::<Boxed, u128>(Boxed::words(adapter == 0, content))?;
+    let boxed = memory::try_allocate::<Boxed, u128>(content.field_words())?;
     unsafe {
         boxed.write(Boxed {
-            header: Header::new(box_destroy),
-            ty,
-            padding: adapter,
+            header: Header::new(ty.box_destroy()),
             slot: [],
         });
         let field = Boxed::content(boxed, content);
@@ -515,24 +534,38 @@ unsafe fn try_box_with(ty: &Type, value: u128, adapter: u64) -> Result<*mut Boxe
     }
     Ok(boxed)
 }
+/// Move `value` into a new callable or protocol box with `adapter`. On
+/// failure the caller still owns `value`.
+unsafe fn try_box_with(
+    ty: &Type,
+    value: u128,
+    adapter: u64,
+) -> Result<*mut AdaptedBox, AllocError> {
+    let content = ty.key();
+    let boxed = memory::try_allocate::<AdaptedBox, u128>(content.slot_words())?;
+    unsafe {
+        boxed.write(AdaptedBox {
+            header: Header::new(adapted_box_destroy),
+            ty,
+            adapter,
+            slot: [],
+        });
+        ranges::store(AdaptedBox::content(boxed).at, value, content);
+    }
+    Ok(boxed)
+}
 /// Allocate a box whose content the caller stores; on failure, release
 /// `value`, the content the box would have owned. The storage is not zeroed:
 /// the caller's store writes a flat record's bytes, or the value word and the
 /// payload bytes that word names, and every reader of a box's content
 /// (release, copy, equality, printing, moving out) reads only those. A
 /// local's stack slot relies on the same store into uninitialized storage.
-///
-/// Op 137 builds only plain boxes (`Box(value)`), so the content takes the
-/// flat layout when it has one; a callable or protocol box comes from
-/// [`try_box_with`], which sets its adapter first.
 unsafe fn try_box_for(ty: &Type, value: u128) -> u128 {
     let content = ty.key();
     match memory::try_allocate_uninit::<Boxed, u128>(content.field_words()) {
         Ok(boxed) => unsafe {
             boxed.write(Boxed {
-                header: Header::new(box_destroy),
-                ty,
-                padding: 0,
+                header: Header::new(ty.box_destroy()),
                 slot: [],
             });
             wrap(boxed as u128, 0)
@@ -543,45 +576,52 @@ unsafe fn try_box_for(ty: &Type, value: u128) -> u128 {
         }
     }
 }
-unsafe extern "C" fn box_destroy(header: *mut Header) {
+/// Destroy the plain box of box type `ty` at `header`; each box type's
+/// compiled [`Type::destroy`] entry calls this with its own descriptor.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_box_destroy(header: *mut Header, ty: &'static Type) {
     unsafe {
         let boxed = header.cast::<Boxed>();
-        let ty: &'static Type = &*(*boxed).ty;
         let content = ty.key();
-        let plain = (*boxed).padding == 0;
         // The compiler's release of this content queues each owned child
         // through `plenty_release`, so this frame finishes before any child is
         // destroyed and the box can be freed now. It exists only for content
         // whose release runs no code, where the order is unobservable; see
         // "Box destruction" in book/src/design/toolchain/02-architecture/memory.md.
-        // It expects the flat layout, which a protocol box of the same content
-        // does not use.
-        if let Some(release_content) = ty.drop
-            && plain
-        {
+        if let Some(release_content) = ty.drop {
             debug_assert_eq!(ty.kind, b'O');
             release_content(std::ptr::addr_of_mut!((*boxed).slot).cast());
-            memory::free::<Boxed, u128>(boxed, content.field_words());
-            return;
-        }
-        if let Some(child) = release_next_field(Boxed::content(boxed, content), content) {
+        } else if let Some(child) = release_next_field(Boxed::content(boxed, content), content) {
             memory::continue_after(header, child);
             return;
         }
-        memory::free::<Boxed, u128>(boxed, Boxed::words(plain, content));
+        memory::free::<Boxed, u128>(boxed, content.field_words());
     }
 }
-/// Free a box whose content the caller has already moved out.
-unsafe fn box_take(boxed: *mut Boxed) {
+unsafe extern "C" fn adapted_box_destroy(header: *mut Header) {
     unsafe {
+        let boxed = header.cast::<AdaptedBox>();
         let content = (*(*boxed).ty).key();
+        if let Some(child) = release_next_field(AdaptedBox::content(boxed), content) {
+            memory::continue_after(header, child);
+            return;
+        }
+        memory::free::<AdaptedBox, u128>(boxed, content.slot_words());
+    }
+}
+/// Free a plain box of box type `ty` whose content the caller has already
+/// moved out.
+unsafe fn box_take(boxed: *mut Boxed, ty: &Type) {
+    unsafe {
+        let content = ty.key();
         Boxed::content(boxed, content).clear(content);
         plenty_release(boxed.cast());
     }
 }
 
 unsafe fn value_type<'a>(value: u128) -> &'a Type {
-    // SAFETY: all managed aggregates have an immutable static Type pointer at byte 16.
+    // SAFETY: managed aggregates other than plain boxes have an immutable static
+    // Type pointer at byte 16; callers pass a descriptor for a box.
     unsafe {
         &**(value as *const u8)
             .add(size_of::<Header>())
@@ -3766,7 +3806,7 @@ pub(crate) unsafe fn collection_at(
                 }
             },
             120 => {
-                box_take(a as *mut Boxed);
+                box_take(a as *mut Boxed, &*descriptor);
                 0
             }
             // A box for the operand, which the caller stores in it on success.

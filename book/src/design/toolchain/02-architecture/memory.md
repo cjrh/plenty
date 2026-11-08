@@ -77,6 +77,14 @@ source aliases. Traps end the process without unwinding language scopes.
 
 ### Box destruction
 
+A plain box stores no descriptor. Its header's destroy entry is a small
+compiled function for its box type, which passes that type's descriptor to
+the runtime's box destruction; the descriptor holds the function's address,
+and the runtime copies it into each new box's header. `Shared[T]` values are
+boxes of this kind. Boxed callables and protocol boxes keep a descriptor word
+and an adapter word before their content, since their adapters receive the
+content without its type; see [runtime operations](runtime.md).
+
 When a box's content releases without running code, the free order of its
 children cannot be observed. Its descriptor then carries a compiled release of
 the content slot, and the runtime calls that function instead of walking the
@@ -104,18 +112,18 @@ value word and the payload that word names, such as the current variant's
 fields of a sum, and readers read the word first and then only that payload.
 Bytes past a smaller sum variant stay unwritten and are never read. A protocol
 box keeps the value word even for a class, because its adapters receive the
-content slot without the type; its nonzero padding word, which holds the
-adapter or table, tells the runtime which layout the box uses.
+content slot without the type; it is laid out as described under
+[box destruction](#box-destruction).
 
 ## Allocator provenance
 
 Runtime objects and container buffers both come from the global allocator, and
 an object allocation carries no prefix before its header: with only one
-allocator, freeing needs no record of which one created an object. A box is a
-16-byte header, its descriptor word and a padding word, then its content: a
-flat class record, or a slot. A binary-trees node is a 64-byte box in a 64-byte
-pool block (C: a 32-byte malloc chunk); with glibc malloc it was an 80-byte
-chunk.
+allocator, freeing needs no record of which one created an object. A plain box is a
+16-byte header followed by its content: a flat class record, or a slot. A
+binary-trees node is a 48-byte box in a 48-byte pool block (C: a 32-byte
+malloc chunk); with glibc malloc and a descriptor and padding word per box it
+was an 80-byte chunk.
 Public allocator selection and scoped allocator lifetimes are unsupported. Adding
 them (backlog B13) must record provenance again without enlarging objects of the
 global allocator; a 16-byte prefix made each binary-trees node a 112-byte malloc
@@ -153,10 +161,11 @@ still use malloc.
   is an allocation failure, reported as `AllocError` like a failed malloc.
   Checked runtimes abort when a block is freed with a layout of another class.
 
-At binary-trees size 21, peak RSS fell from 657 MB to 526 MB (C: 264 MB).
+At binary-trees size 21, peak RSS fell from 657 MB to 526 MB (C: 264 MB),
+and to 396 MB once plain boxes dropped their descriptor and padding words.
 At size 18, user-space instructions fell from 48.1 to 33.7 billion. A list of
-5 million boxed nodes, built and freed four times, fell from 392 MB to 314 MB
-and from 13.9 to 9.4 billion instructions. Each allocation still passes
+5 million boxed nodes, built and freed four times, fell from 392 MB to 314 MB,
+then 237 MB, and from 13.9 to 9.4 billion instructions. Each allocation still passes
 through the global allocator's actor-heap and arena checks.
 
 Checked buffer growth and partial-construction cleanup implement the

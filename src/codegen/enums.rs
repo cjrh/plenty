@@ -861,13 +861,22 @@ impl Lowerer<'_, '_> {
     }
 }
 
-/// The offset within a box of a reference to its `content`. A class with a
-/// record is stored flat at byte 32, without a value word, so a reference to
-/// it names the 16 bytes before the record, as for a flat field. Other content
-/// keeps its slot at byte 32. The runtime's `Boxed::content` decides the same
-/// way (issue #814).
+/// Where a plain box's content starts: right after its 16-byte header. The
+/// box keeps no descriptor word; its header's destroy entry comes from the
+/// box type's descriptor (issue #814).
+pub(super) const BOX_CONTENT: i64 = 16;
+
+/// The offset within a plain box of a reference to its `content`. A class
+/// with a record is stored flat at [`BOX_CONTENT`], without a value word, so
+/// a reference to it names the 16 bytes before the record, as for a flat
+/// field: the box header. Other content keeps its slot at [`BOX_CONTENT`].
+/// The runtime's `Boxed::content` decides the same way.
 pub(super) fn box_content_offset(content: &Ty) -> i64 {
-    if content.flat_field() { 16 } else { 32 }
+    if content.flat_field() {
+        BOX_CONTENT - 16
+    } else {
+        BOX_CONTENT
+    }
 }
 
 impl Lowerer<'_, '_> {
@@ -886,7 +895,7 @@ impl Lowerer<'_, '_> {
                 self.collection_call(119, &[value], Some(&boxed))?
             }
             BoxOp::Take(t) => {
-                let slot = self.bcx.ins().iadd_imm_s(operand, 32);
+                let slot = self.bcx.ins().iadd_imm_s(operand, BOX_CONTENT);
                 let value = if t.flat_field() {
                     // The record is stored where the slot would be; see
                     // `box_content_offset`.
@@ -901,7 +910,10 @@ impl Lowerer<'_, '_> {
                 };
                 let value = self.unpack(value, t);
                 let value = self.snapshot_inline(value, t);
-                self.collection_call(120, &[operand], None)?;
+                // A plain box has no descriptor word, so the runtime needs
+                // the box type's to clear the content's storage.
+                let boxed = Ty::Box(std::sync::Arc::new(t.clone()));
+                self.collection_call(120, &[operand], Some(&boxed))?;
                 self.pack(value, t)
             }
             BoxOp::Ref(t, _) | BoxOp::SharedRef(t) => {
