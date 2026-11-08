@@ -61,6 +61,8 @@ pub const C_STRINGS: i64 = 603;
 /// Checked text view, ASCII byte set, membership flag -> scalar position or -1.
 pub const TEXT_VIEW_FIND_IN: i64 = 604;
 pub const TEXT_VIEW_ASCII_EQUAL_FOLDED: i64 = 605;
+/// Free a `BoxedOnceCallable` whose adapter has moved its content out.
+pub const ADAPTED_BOX_TAKE: i64 = 139;
 /// `list.get_ref` and `list.get_mut`: the list reference and the index ->
 /// the element row's address, or Nothing (issue #869).
 pub const LIST_GET_REF: i64 = 606;

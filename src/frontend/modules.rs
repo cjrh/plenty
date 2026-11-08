@@ -3659,7 +3659,7 @@ pub(super) fn check_api(refs: &[TypeRef], aliases: &TypeAliases, access: &Access
                     visible(ty, at, access, aliases)?;
                 }
             }
-            Ty::Callable(sig) | Ty::BoxedCallable(sig) => {
+            Ty::Callable(sig) | Ty::BoxedCallable(sig, _) => {
                 for ty in sig.inputs.iter().chain(sig.output.iter()) {
                     visible(ty, at, access, aliases)?;
                 }

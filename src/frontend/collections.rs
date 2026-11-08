@@ -4234,7 +4234,7 @@ impl Lower<'_> {
         }
         if matches!(
             self.field_type(base, name),
-            Some(Ty::Callable(_) | Ty::BoxedCallable(_) | Ty::Closure(_))
+            Some(Ty::Callable(_) | Ty::BoxedCallable(..) | Ty::Closure(_))
         ) {
             let field = Expr {
                 at: base.at.clone(),

@@ -610,6 +610,14 @@ unsafe extern "C" fn adapted_box_destroy(header: *mut Header) {
         memory::free::<AdaptedBox, u128>(boxed, content.slot_words());
     }
 }
+/// Free a callable box whose content the caller has already moved out.
+unsafe fn adapted_box_take(boxed: *mut AdaptedBox) {
+    unsafe {
+        let content = (*(*boxed).ty).key();
+        AdaptedBox::content(boxed).clear(content);
+        plenty_release(boxed.cast());
+    }
+}
 /// Free a plain box of box type `ty` whose content the caller has already
 /// moved out.
 unsafe fn box_take(boxed: *mut Boxed, ty: &Type) {
@@ -2757,7 +2765,7 @@ operation_entries! {
     46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72
     73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99
     100 101 102 103 104 105 106 107 110 111 112 113 114 117 118 119 120 121 122 123 124
-    125 126 127 128 129 130 131 132 133 134 135 136 137 138 140 166 167 366 510 511 580 581 582
+    125 126 127 128 129 130 131 132 133 134 135 136 137 138 139 140 166 167 366 510 511 580 581 582
     583 584 585 590 591 592 593 594 595 596 597 598 599 600 601 602 603 606
 }
 // Checked UTF-8 range forms of existing text builtins (original opcode +1000).
@@ -3832,6 +3840,10 @@ pub(crate) unsafe fn collection_at(
             },
             120 => {
                 box_take(a as *mut Boxed, &*descriptor);
+                0
+            }
+            crate::collection_opcodes::ADAPTED_BOX_TAKE => {
+                adapted_box_take(a as *mut AdaptedBox);
                 0
             }
             // A box for the operand, which the caller stores in it on success.

@@ -2049,7 +2049,7 @@ impl Checker<'_, '_> {
                 }
                 Op::ClosureCall(_)
                 | Op::CallIndirect(_)
-                | Op::BoxedCallableCall(_)
+                | Op::BoxedCallableCall(..)
                 | Op::ProtocolBoxCall(..) => Some(None),
                 // The frame, and every endpoint it holds, is released first.
                 Op::TailCall(_) | Op::TailCallIndirect(_) => {

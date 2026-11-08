@@ -261,8 +261,8 @@ impl Ty {
                 .any(|t| t.promoted().is_some())
                 .then(|| Self::BoxedProtocol(Arc::new(p.map_types(Ty::clone)))),
             Self::Callable(t) => Self::promoted_sig(t).map(|t| Self::Callable(Arc::new(t))),
-            Self::BoxedCallable(t) => {
-                Self::promoted_sig(t).map(|t| Self::BoxedCallable(Arc::new(t)))
+            Self::BoxedCallable(t, mode) => {
+                Self::promoted_sig(t).map(|t| Self::BoxedCallable(Arc::new(t), *mode))
             }
             _ => None,
         }
@@ -315,10 +315,13 @@ impl Ty {
                 inputs: t.inputs.iter().map(Ty::weaken).collect(),
                 output: t.output.as_ref().map(Ty::weaken),
             })),
-            Self::BoxedCallable(t) => Self::BoxedCallable(Arc::new(crate::op::CallableSig {
-                inputs: t.inputs.iter().map(Ty::weaken).collect(),
-                output: t.output.as_ref().map(Ty::weaken),
-            })),
+            Self::BoxedCallable(t, mode) => Self::BoxedCallable(
+                Arc::new(crate::op::CallableSig {
+                    inputs: t.inputs.iter().map(Ty::weaken).collect(),
+                    output: t.output.as_ref().map(Ty::weaken),
+                }),
+                *mode,
+            ),
             _ => self.clone(),
         }
     }
@@ -346,7 +349,7 @@ impl Clone for Ty {
             Self::Shared(t) => Self::Shared(Self::clone_child(t)),
             Self::Ref(t, m) => Self::Ref(Self::clone_child(t), *m),
             Self::Callable(t) => Self::Callable(Self::clone_sig(t)),
-            Self::BoxedCallable(t) => Self::BoxedCallable(Self::clone_sig(t)),
+            Self::BoxedCallable(t, mode) => Self::BoxedCallable(Self::clone_sig(t), *mode),
             Self::BoxedProtocol(t) => self
                 .promoted()
                 .unwrap_or_else(|| Self::BoxedProtocol(t.clone())),

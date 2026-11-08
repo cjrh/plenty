@@ -105,11 +105,11 @@ fn boxing_rejects_unsupported_modes_borrows_and_reference_outputs() {
         ),
         (
             "n = 1\nf = def [mut n]() -> Result[i64, OverflowError[i64]]:\n    n = n + 1\n    Ok(n)\nBoxedCallable(f)\n",
-            "shared-call",
+            "use BoxedMutCallable",
         ),
         (
             "n = 1\nf = def once [n]() -> i64:\n    n\nBoxedCallable(f)\n",
-            "reusable",
+            "use BoxedOnceCallable",
         ),
         (
             "def identity(n: &i64) -> &i64:\n    n\nBoxedCallable(identity)\n",

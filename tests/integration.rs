@@ -80,6 +80,8 @@ mod test_borrowed_lookups;
 mod test_borrowed_match;
 #[path = "test_borrowing.rs"]
 mod test_borrowing;
+#[path = "test_boxed_callable_modes.rs"]
+mod test_boxed_callable_modes;
 #[path = "test_boxed_callables.rs"]
 mod test_boxed_callables;
 #[path = "test_boxes.rs"]

@@ -194,7 +194,7 @@ impl<'p> Program<'p> {
                 match &ty {
                     Ty::Class(class) => functions.extend(class.get().destructor.iter().cloned()),
                     // Their destructors and calls are erased.
-                    Ty::BoxedCallable(_) | Ty::BoxedProtocol(_) | Ty::Generator(_) => {
+                    Ty::BoxedCallable(..) | Ty::BoxedProtocol(_) | Ty::Generator(_) => {
                         break 'search true;
                     }
                     _ => {}
@@ -445,7 +445,7 @@ fn body<'p>(function: &'p CompiledFn, program: &Program<'p>) -> Body<'p> {
         Op::ClosureCall(_)
         | Op::CallIndirect(_)
         | Op::TailCallIndirect(_)
-        | Op::BoxedCallableCall(_)
+        | Op::BoxedCallableCall(..)
         | Op::ProtocolBoxCall(..) => body.indirect = true,
         _ => {}
     });

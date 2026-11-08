@@ -65,8 +65,10 @@ pub enum Ty {
     Future(Arc<Ty>),
     Closure(Arc<crate::closure::ClosureType>),
     Callable(Arc<CallableSig>),
-    /// Explicitly allocated, owned shared-call environment with structural identity.
-    BoxedCallable(Arc<CallableSig>),
+    /// An explicitly allocated, owned callback environment with structural
+    /// identity; the mode says whether a call borrows it, borrows it mutably,
+    /// or consumes it.
+    BoxedCallable(Arc<CallableSig>, BoxedMode),
     /// An owned concrete payload behind a fixed protocol method table.
     BoxedProtocol(Arc<crate::boxed::ProtocolType>),
     I8,
@@ -285,7 +287,7 @@ impl Ty {
         match self {
             Self::BoxedProtocol(p) => 1 + p.types().map(Ty::layout_depth).max().unwrap_or(0),
             Self::Closure(t) => t.depth,
-            Ty::Callable(sig) | Ty::BoxedCallable(sig) => {
+            Ty::Callable(sig) | Ty::BoxedCallable(sig, _) => {
                 1 + sig
                     .inputs
                     .iter()
@@ -321,7 +323,7 @@ impl Ty {
                 | Self::Submitter
                 | Self::Future(_)
                 | Self::Closure(_)
-                | Self::BoxedCallable(_) | Self::BoxedProtocol(_)
+                | Self::BoxedCallable(..) | Self::BoxedProtocol(_)
                 | Self::Set(_)
                 | Self::Dict(_, _)
                 | Self::Generator(_)
@@ -660,7 +662,7 @@ impl Ty {
             self,
             Self::Str
                 | Self::Closure(_)
-                | Self::BoxedCallable(_)
+                | Self::BoxedCallable(..)
                 | Self::BoxedProtocol(_)
                 | Self::File
                 | Self::FsReadDir
@@ -744,7 +746,7 @@ impl Ty {
             }
             Ty::BoxedProtocol(p) => p.identity_name(),
             Ty::Callable(t) => t.identity_name(),
-            Ty::BoxedCallable(t) => t.identity_name().replacen("Callable", "BoxedCallable", 1),
+            Ty::BoxedCallable(t, mode) => t.identity_name().replacen("Callable", mode.name(), 1),
             Ty::Enum(t) => t.name.to_string(),
             Ty::Class(t) => t.name.to_string(),
             Ty::List(t) => format!("list[{}]", t.identity_name()),
@@ -857,8 +859,8 @@ impl fmt::Display for Ty {
             }
             Ty::Callable(sig) => return write!(f, "{sig}"),
             Ty::BoxedProtocol(protocol) => return write!(f, "{protocol}"),
-            Ty::BoxedCallable(sig) => {
-                return f.write_str(&sig.to_string().replacen("Callable", "BoxedCallable", 1));
+            Ty::BoxedCallable(sig, mode) => {
+                return f.write_str(&sig.to_string().replacen("Callable", mode.name(), 1));
             }
             Ty::I8 => "i8",
             Ty::I16 => "i16",
@@ -942,6 +944,61 @@ impl From<Value> for Ty {
 pub struct FnSig {
     pub inputs: Vec<(String, Ty)>,
     pub outputs: Vec<Ty>,
+}
+
+/// How a call uses a boxed callback's environment.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum BoxedMode {
+    /// `BoxedCallable`: a call borrows the box; the callback is reusable.
+    Shared,
+    /// `BoxedMutCallable`: a call borrows the box mutably.
+    Mut,
+    /// `BoxedOnceCallable`: a call consumes the box.
+    Once,
+}
+impl BoxedMode {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Shared => "BoxedCallable",
+            Self::Mut => "BoxedMutCallable",
+            Self::Once => "BoxedOnceCallable",
+        }
+    }
+    pub fn from_name(name: &str) -> Option<Self> {
+        Some(match name {
+            "BoxedCallable" => Self::Shared,
+            "BoxedMutCallable" => Self::Mut,
+            "BoxedOnceCallable" => Self::Once,
+            _ => return None,
+        })
+    }
+    /// The call signature of `source` when this mode can erase it. A mode
+    /// accepts every callback whose own call needs no more than the mode
+    /// grants: a shared call needs a reusable, nonmutating callback; a
+    /// mutable call also admits mutable closures; a consuming call admits
+    /// one-shot closures too.
+    pub fn accepts(self, source: &Ty) -> Option<&CallableSig> {
+        match source {
+            Ty::Callable(sig) => Some(sig),
+            Ty::Closure(t) if t.once && self != Self::Once => None,
+            Ty::Closure(t) if t.mutable && self == Self::Shared => None,
+            Ty::Closure(t) => Some(&t.signature),
+            _ => None,
+        }
+    }
+    /// The first parameter of the generated adapter that calls `source`.
+    /// Shared and mutable boxes pass a reference to their content; a
+    /// consuming box passes itself, and the adapter moves the content out
+    /// and frees it with `BoxedCallableTake`.
+    pub fn environment(self, source: &Ty, signature: &Arc<CallableSig>) -> Ty {
+        match self {
+            Self::Once => Ty::BoxedCallable(signature.clone(), self),
+            _ => Ty::Ref(
+                Arc::new(source.clone()),
+                matches!(source, Ty::Closure(t) if t.mutable),
+            ),
+        }
+    }
 }
 
 /// Structural signature of a capture-free Plenty function value.
@@ -1078,8 +1135,13 @@ pub enum Op {
     Executor(crate::executor::ExecutorOp),
     ClosureNew(Arc<crate::closure::ClosureType>),
     ClosureCall(Arc<crate::closure::ClosureType>),
-    BoxedCallableNew(Box<Ty>, String, Arc<CallableSig>),
-    BoxedCallableCall(Arc<CallableSig>),
+    BoxedCallableNew(Box<Ty>, String, Arc<CallableSig>, BoxedMode),
+    /// Call a boxed callback. Shared and mutable modes take a reference to
+    /// the owner; the one-shot mode takes the owner, which the adapter frees.
+    BoxedCallableCall(Arc<CallableSig>, BoxedMode),
+    /// Pop a `BoxedOnceCallable` with this content type, push its content and
+    /// free the box. Only its generated adapter uses this.
+    BoxedCallableTake(Box<Ty>, Arc<CallableSig>),
     ProtocolBoxNew(Box<Ty>, Vec<String>, Arc<crate::boxed::ProtocolType>),
     ProtocolBoxCall(Arc<crate::boxed::ProtocolType>, usize),
     FunctionAddress(String, Arc<CallableSig>),

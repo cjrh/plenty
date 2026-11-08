@@ -37,6 +37,9 @@ fn pipeline_callback_rejection(ty: &Ty) -> String {
         Ty::Closure(_) => {
             "a one-shot closure cannot be a pipeline callback: the pipeline calls it once per item".into()
         }
+        Ty::BoxedCallable(..) => {
+            "a BoxedOnceCallable cannot be a pipeline callback: the pipeline calls it once per item".into()
+        }
         Ty::Ref(inner, _) if callables::signature(inner).is_some() => {
             "pipeline callbacks are passed by value, not by reference; pass the function or closure itself".into()
         }
@@ -1274,7 +1277,8 @@ impl Lower<'_> {
         // closure is a code address (`Callable`), like a named function.
         match &ty {
             Ty::Closure(c) if !c.once => {}
-            Ty::Callable(_) | Ty::BoxedCallable(_) => {}
+            Ty::BoxedCallable(_, mode) if *mode != crate::op::BoxedMode::Once => {}
+            Ty::Callable(_) => {}
             ty => return Err(callback.at.error(pipeline_callback_rejection(ty))),
         }
         let slot = self.slot(ty.clone(), &callback.at)?;
