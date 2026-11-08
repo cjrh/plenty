@@ -48,8 +48,9 @@ insertion order, so inspecting a class payload does not copy or remove it.
 A wrapper can also provide shared methods, as in the [list example](lists.md#give-the-alternatives-a-shared-interface).
 
 For a lookup that may miss, `get` requires a copyable value: this `Setting`
-contains an affine class, so `get` cannot return it. Use `get_mut` to borrow an
-optional value for an update, or `pop` to remove and take ownership of it.
+contains an affine class, so `get` cannot return it. Use `get_ref` to borrow an
+optional value for reading, `get_mut` to borrow it for an update, or `pop` to
+remove and take ownership of it.
 See [dictionary lookup and removal](../../design/facilities/01-builtins/dictionaries.md#lookup-and-removal).
 
 ## Use a sum for simple values

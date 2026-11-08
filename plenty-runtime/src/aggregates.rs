@@ -2766,7 +2766,7 @@ operation_entries! {
     73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99
     100 101 102 103 104 105 106 107 110 111 112 113 114 117 118 119 120 121 122 123 124
     125 126 127 128 129 130 131 132 133 134 135 136 137 138 139 140 166 167 366 510 511 580 581 582
-    583 584 585 590 591 592 593 594 595 596 597 598 599 600 601 602 603
+    583 584 585 590 591 592 593 594 595 596 597 598 599 600 601 602 603 606
 }
 // Checked UTF-8 range forms of existing text builtins (original opcode +1000).
 operation_entries! {
@@ -3083,9 +3083,11 @@ pub(crate) unsafe fn collection_at(
                 b as u8,
                 value as i64,
             )),
+            // Lookups that lend an element read through `&Collection`; see
+            // `Entries::slot_address`.
             112 => {
                 let owner = *(a as *const u128);
-                let c = &mut *(owner as *mut Collection);
+                let c = &*(owner as *const Collection);
                 let position = if c.ty().kind == b'L' {
                     index(b as i64, c.entries.len(), site)
                 } else {
@@ -3097,7 +3099,7 @@ pub(crate) unsafe fn collection_at(
                         )
                     })
                 };
-                c.entries.slot(position, c.ty().kind != b'L') as u128
+                c.entries.slot_address(position, c.ty().kind != b'L') as u128
             }
             // `list.insert`: the position is checked before any reservation,
             // so an out-of-range index traps with the list unchanged.
@@ -3127,12 +3129,23 @@ pub(crate) unsafe fn collection_at(
                     Err(error) => wrap(wrap(0, error as u64), 1),
                 }
             }
-            // `dict.get_mut`: the value slot's address, or Nothing; never traps.
+            // `list.get_ref` and `list.get_mut`: the row's address, or Nothing
+            // outside the list; never traps.
+            LIST_GET_REF => {
+                let owner = *(a as *const u128);
+                let c = &*(owner as *const Collection);
+                match checked_index(b as i64, c.entries.len()) {
+                    Some(index) => wrap(c.entries.slot_address(index, false) as u128, 1),
+                    None => wrap(0, 0),
+                }
+            }
+            // `dict.get_ref` and `dict.get_mut`: the value slot's address, or
+            // Nothing; never traps.
             113 => {
                 let owner = *(a as *const u128);
-                let c = &mut *(owner as *mut Collection);
+                let c = &*(owner as *const Collection);
                 match c.find(b) {
-                    Some(position) => wrap(c.entries.slot(position, true) as u128, 1),
+                    Some(position) => wrap(c.entries.slot_address(position, true) as u128, 1),
                     None => wrap(0, 0),
                 }
             }

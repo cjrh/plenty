@@ -184,7 +184,8 @@ skips its release. Any other op, including a conditional or call that computes
 an operand, ends the tracking.
 
 Runtime operations that only read their operands read every such copy in
-place, whatever its type: dictionary `get`, `get_mut`, and indexing; `in` on a
+place, whatever its type: dictionary `get`, `get_ref`, `get_mut`, and indexing;
+list `get_ref` and `get_mut`; `in` on a
 list, dictionary, set, range, or text; list `find`, `rfind`, and `count`; set
 subset, superset, and disjoint tests; and `Bytes` reads, writes, and scans that
 do not resize the buffer. In `counts.get_mut(&key)` the key is not counted, nor

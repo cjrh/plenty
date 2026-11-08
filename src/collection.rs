@@ -289,9 +289,14 @@ pub enum CollectionOp {
     ListCount(Ty),
     ListFind(Ty),
     ListRFind(Ty),
-    DictGet(Ty),    // observed dictionary/key -> Option[non-affine value]
-    DictPop(Ty),    // exclusive dictionary/key -> Option[owned value]
-    DictGetMut(Ty), // exclusive dictionary reference/key -> Option[&mut value]
+    DictGet(Ty), // observed dictionary/key -> Option[non-affine value]
+    DictPop(Ty), // exclusive dictionary/key -> Option[owned value]
+    /// Dictionary reference and key -> `Option[&value]`, or `Option[&mut
+    /// value]` through an exclusive reference: `get_ref` and `get_mut`.
+    DictGetRef(Ty, bool),
+    /// List reference and index -> `Option[&element]`, or `Option[&mut
+    /// element]`; negative indices count from the end (issue #869).
+    ListGetRef(Ty, bool),
     /// Exclusive dictionary reference, owned key and default ->
     /// Result[&mut value, AllocError] (issue #748).
     DictGetOrInsert(Ty),
@@ -919,11 +924,18 @@ impl CollectionOp {
                     crate::sum::option((**v).clone()),
                 )
             }
-            DictGetMut(t) => {
+            DictGetRef(t, mutable) => {
                 let Ty::Dict(k, v) = t else { unreachable!() };
                 (
-                    vec![Ty::Ref(Arc::new(t.clone()), true), (**k).clone()],
-                    crate::sum::option(Ty::Ref(v.clone(), true)),
+                    vec![Ty::Ref(Arc::new(t.clone()), *mutable), (**k).clone()],
+                    crate::sum::option(Ty::Ref(v.clone(), *mutable)),
+                )
+            }
+            ListGetRef(t, mutable) => {
+                let Ty::List(element) = t else { unreachable!() };
+                (
+                    vec![Ty::Ref(Arc::new(t.clone()), *mutable), Ty::I64],
+                    crate::sum::option(Ty::Ref(element.clone(), *mutable)),
                 )
             }
             DictGetOrInsert(t) => {
@@ -1161,7 +1173,8 @@ impl CollectionOp {
             | Self::ListFind(_)
             | Self::ListRFind(_)
             | Self::DictGet(_)
-            | Self::DictGetMut(_)
+            | Self::DictGetRef(..)
+            | Self::ListGetRef(..)
             | Self::SetIsSubset(_)
             | Self::SetIsSuperset(_)
             | Self::SetIsDisjoint(_)
@@ -1315,7 +1328,8 @@ impl CollectionOp {
             Self::ListFind(_) => 74,
             Self::ListRFind(_) => 75,
             Self::DictPop(_) => 39,
-            Self::DictGetMut(_) => 113,
+            Self::DictGetRef(..) => 113,
+            Self::ListGetRef(..) => opcode::LIST_GET_REF,
             Self::DictGetOrInsert(_) => opcode::DICT_GET_OR_INSERT,
             Self::ListPop(_) => 40,
             Self::SetDiscard(_) => 41,

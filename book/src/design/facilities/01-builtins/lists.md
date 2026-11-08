@@ -111,14 +111,16 @@ for packed scalar elements. See [value representations](../../toolchain/02-archi
 | Operation | Result | Behavior |
 | --- | --- | --- |
 | `items.get(index: i64)` | `Option[T]` | Observe an element; `Nothing` outside the list |
+| `items.get_ref(index: i64)` | `Option[&T]` | Lend an element; `Nothing` outside the list |
+| `items.get_mut(index: i64)` | `Option[&mut T]` | Lend an element exclusively; `Nothing` outside the list |
 | `items.pop()` | `Option[T]` | Remove and own the last element |
 | `items.pop(index: i64)` | `Option[T]` | Remove and own the selected element |
 | `items.count(value)` | `i64` | Number of equal elements |
 | `items.find(value)` / `items.rfind(value)` | `Option[i64]` | First/last matching position |
 
-Indices can be references; negatives count from the end. `get` and `pop` handle
-extreme `i64` indices safely. Neither allocates; a missing `pop` leaves the list
-unchanged. `pop` requires exclusive access, preserves remaining order and capacity,
+Indices can be references; negatives count from the end. `get`, `get_ref`,
+`get_mut`, and `pop` handle extreme `i64` indices safely. None allocates; a
+missing `pop` leaves the list unchanged. `pop` requires exclusive access, preserves remaining order and capacity,
 and supports all list element types. Last-element removal touches no surviving
 rows and is constant-time in the list length, including for inline elements.
 Other positions shift and repair only subsequent rows. Extracted inline payloads
@@ -129,6 +131,15 @@ destruction; the freed capacity can be reused by a later `append`.
 non-affine values, including copyable enums; retained results survive replacement
 or destruction of the list. Use `pop` or explicit references for affine elements.
 There is no default argument.
+
+`get_ref` and `get_mut` lend the element at `index` in place, for every element
+type, or return `Nothing` outside the list instead of trapping as `&items[index]`
+and `&mut items[index]` do. They normalize negative indices as indexing does, so
+`items.get_mut(-1)` lends the last element. The index is observed before the
+receiver is borrowed. The result holds a loan of the whole list until its last
+use, shared for `get_ref` and exclusive for `get_mut`, so the list cannot grow,
+shrink, or be reassigned meanwhile. `get_mut` requires a mutable binding, a
+mutable reference, or a class field reached through one.
 
 Search/count accept exactly the element type, including references, and take
 every element type that `in` takes: numbers, `bool`, strings, classes, enums,
