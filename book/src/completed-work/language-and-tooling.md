@@ -5,6 +5,15 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## Module-local iteration builtins (issue #898)
+
+Calls to `iter`, `enumerate`, `zip`, `reversed`, `any` and `all` bind in the
+module that writes them, as `replace` calls do. An entrypoint declaration of one
+of these names no longer changes pipeline sources, loop adapters, comprehension
+sources or the `any`/`all` diagnostics in imported modules, and an unqualified
+value use in an imported module no longer resolves to the entrypoint's function.
+See [module name resolution](../design/language/02-source/modules.md).
+
 ## Module-local replacement calls (issue #892)
 
 Builtin `replace` calls bind in their defining module before imported declarations

@@ -198,11 +198,7 @@ impl Lower<'_> {
                     || self.pipeline.lent_parameters.contains_key(&local.slot)
             }),
             Expression::Call(n, _) => {
-                matches!(n.as_str(), "iter" | "enumerate" | "zip")
-                    && !self.names.contains_key(n)
-                    && !self.sigs.contains_key(n)
-                    && !self.generics.templates.contains_key(n)
-                    && !self.aliases.contains_key(n)
+                matches!(builtin_call(n), Some("iter" | "enumerate" | "zip"))
             }
             Expression::Method(base, name, _, _) => {
                 if name == "items"
@@ -262,7 +258,8 @@ impl Lower<'_> {
                     .cloned()
                     .ok_or_else(|| e.at.error("iterator pipeline has no local source plan"))?
             }
-            Expression::Call(function, args) if function != "iter" => {
+            Expression::Call(function, args) if builtin_call(function) != Some("iter") => {
+                let function = builtin_call(function).unwrap_or(function);
                 if function == "enumerate" && !(1..=2).contains(&args.len()) {
                     return Err(e
                         .at
@@ -411,7 +408,8 @@ impl Lower<'_> {
         };
         // Only a fresh source's cursor counts its items from zero. A bound or
         // lent plan may have advanced, and an adapter may skip or add items.
-        if !matches!(&ungroup(e).kind, Expression::Call(function, _) if function == "iter") {
+        if !matches!(&ungroup(e).kind, Expression::Call(function, _) if builtin_call(function) == Some("iter"))
+        {
             plan.iteration.counter = None;
         }
         plan.resources
