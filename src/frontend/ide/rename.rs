@@ -179,10 +179,19 @@ pub fn plan(
             }
             if let Some(&callable) = analysis.parameter_of.get(&symbol) {
                 parameter_clash(analysis, callable, new_name)?;
-                let shown = path.file_name().map_or_else(
-                    || path.display().to_string(),
-                    |n| n.to_string_lossy().into(),
-                );
+                // Name the file as the package path does, relative to the
+                // workspace root; only a refusal needs it.
+                let shown = || {
+                    Package::open(&path).map_or_else(
+                        |_| {
+                            path.file_name().map_or_else(
+                                || path.display().to_string(),
+                                |n| n.to_string_lossy().into(),
+                            )
+                        },
+                        |package| package.relative(&path),
+                    )
+                };
                 for location in &analysis.unresolved {
                     if location.file == File::Path(path.clone()) {
                         uncertain(
@@ -1066,12 +1075,11 @@ fn members(
         if package.member_of(file).is_none() {
             continue;
         }
-        let shown = package.relative(file);
         let owner = if parameter { owner } else { qualified };
         uncertain(
             &read(overlay, file)?,
             location,
-            &shown,
+            &|| package.relative(file),
             (old, owner),
             parameter,
         )?;
@@ -1112,14 +1120,14 @@ fn parameter_clash(analysis: &Analysis, callable: usize, new_name: &str) -> Resu
 fn uncertain(
     text: &str,
     location: &Location,
-    shown: &str,
+    shown: &dyn Fn() -> String,
     (old, owner): (&str, &str),
     parameter: bool,
 ) -> Result<(), String> {
     if written(text, location) != old {
         return Ok(());
     }
-    let place = format!("{shown}:{}:{}", location.line, location.column);
+    let place = format!("{}:{}:{}", shown(), location.line, location.column);
     if !parameter {
         return Err(format!(
             "`{old}` is written at {place} in a generic body that no call instantiates, on a value whose type the editor analysis cannot tell, so a rename cannot tell whether it names `{owner}`"

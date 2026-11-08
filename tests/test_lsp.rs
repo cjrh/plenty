@@ -2857,7 +2857,7 @@ fn a_parameter_rename_is_refused_when_a_generic_body_may_name_it() {
     let mut client = Client::start(&dir.path().join("cache"));
     assert_eq!(
         rename_refused(&mut client, &main, 0, 11, "n"),
-        "`count=` is written at main.plenty:8:23 in a generic body that no call instantiates, to a callee the editor analysis cannot tell, so a rename cannot tell whether it names the parameter of `helper`"
+        "`count=` is written at src/main.plenty:8:23 in a generic body that no call instantiates, to a callee the editor analysis cannot tell, so a rename cannot tell whether it names the parameter of `helper`"
     );
     client.exit();
 }
