@@ -15,7 +15,7 @@
 > collector are out of scope.
 
 For practical linked-list and tree patterns, see the
-[owned-structure assessment](arenas.md). Its checked-index arena experiment
+[owned-structure assessment](completed/arenas.md). Its checked-index arena experiment
 addresses graph identity and access; this proposal addresses finite storage
 and destruction. An index arena is not a new borrowing capability.
 

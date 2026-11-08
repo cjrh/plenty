@@ -6,9 +6,9 @@ Classes whose fields are supported keys, including move-only classes and enums
 containing them, and the `KeyType` constraint are also implemented. Anonymous sums with supported key members are implemented. Custom-cleanup
 keys are admitted for borrowing and ownership transfer; copying operations reject them.
 Named enum and tuple sets with supported finite domains through 256 values now use
-[bitsets](../design/facilities/01-builtins/sets.md#small-enum-bitsets), including
+[bitsets](../../design/facilities/01-builtins/sets.md#small-enum-bitsets), including
 boolean and nested enum/tuple payloads. The
-[collection reference](../design/facilities/01-builtins/collections.md) owns the
+[collection reference](../../design/facilities/01-builtins/collections.md) owns the
 current contract. The design and historical analysis below describe the broader
 proposal; enum/class admission and the explicit generic constraint have shipped.
 Generic bodies remain checked per concrete instance: unconstrained parameters
@@ -50,7 +50,7 @@ static type descriptor. Generated code never hashes or probes.
 | Table | `Vec<usize>` of entry indices plus one, linear probing, power-of-two size, load at most one half (`try_reserve`, `aggregates.rs:546`). No hash is cached; rehashing and removal (`aggregates.rs:699`, backward-shift repair) recompute the home bucket of every key they visit. |
 | Entries | Dense, type-sized rows (`plenty-runtime/src/entries.rs`). Inline payloads such as multi-field tuples live in the row. Iteration walks rows, not the bucket table, so dictionary order is insertion order regardless of hash values. |
 | Equality | `equal(a, b, ty)` (`aggregates.rs:742`), structural, also used by `==` on classes, enums and collections (`src/codegen.rs:2481` lowers it to collection op 8). Floats compare by IEEE rules. |
-| Ownership | `try_insert` retains copyable operands and adopts affine ones. Lookups take a value or reference. Borrowed iteration yields shared `&K`; mutable `items()` lends `&mut V` with shared `&K` ([iterables](../design/language/09-iteration/01-iterables.md)). No operation lends `&mut K`. |
+| Ownership | `try_insert` retains copyable operands and adopts affine ones. Lookups take a value or reference. Borrowed iteration yields shared `&K`; mutable `items()` lends `&mut V` with shared `&K` ([iterables](../../design/language/09-iteration/01-iterables.md)). No operation lends `&mut K`. |
 | Admission | `Ty::hashable` (`src/collection.rs:189`): integers, `bool`, `str`, byte strings, and tuples of these. Checked where collection types resolve (`src/frontend.rs:885`) and where literals infer (`src/frontend/collections.rs:891`, `:3138`). |
 | Callbacks | The runtime already calls generated code: a class's `__del__` adapter through the descriptor's `drop` slot, and executor/thread adapters with a three-pointer signature (`src/codegen/executors.rs`). Sorting has no user comparator; `compare` (`aggregates.rs:808`) is descriptor-interpreted like `hash`. |
 
@@ -68,7 +68,7 @@ Issue #329 addressed two hash-quality defects independently of this proposal:
 - It had no seed: colliding inputs could be precomputed. `std.toml` indexes parsed
   keys in `dict[(i64, str), i64]` (`stdlib/std/toml.plenty:245`), so untrusted
   TOML can force quadratic parsing. The
-  [dictionary reference](../design/facilities/01-builtins/dictionaries.md)
+  [dictionary reference](../../design/facilities/01-builtins/dictionaries.md)
   already says adversarial collisions can make lookup linear.
 
 The replacement keys the entire structured input, rather than applying a secret
@@ -122,7 +122,7 @@ The idea needs several things Plenty lacks, and most of them work against the
 project's goals.
 
 1. **A protocol cannot express the bound.** Protocols match ordinary methods
-   ([protocols](../design/language/07-generics/protocols.md)). Integers, `bool`,
+   ([protocols](../../design/language/07-generics/protocols.md)). Integers, `bool`,
    and `str` have no methods, so `dict[i64, V]` would not satisfy a method
    protocol unless the compiler special-cased it. Every user key type would also
    need a hand-written method even when the derived answer is the only correct
@@ -137,7 +137,7 @@ project's goals.
 3. **Custom equality is a larger change than hashing.** `==` would stop being
    structural for that type, `equal` in the runtime would need a callback, and
    collection equality, `in`, set algebra and dictionary comparison would all
-   run user code. The [classes](../design/language/03-types/classes.md)
+   run user code. The [classes](../../design/language/03-types/classes.md)
    reference promises equality "neither invokes user-defined magic methods".
    Allowing `__hash__` and `__eq__` separately also imports Python's unenforced
    consistency rule, which is exactly the kind of soft rule this language avoids.
@@ -238,7 +238,7 @@ Keys cannot change while stored, by existing rules plus the key-type rule:
 ### Affine keys
 
 Every class not declared `@copy` is affine
-([moves and copies](../design/language/05-ownership/01-bindings-moves-and-copies.md)),
+([moves and copies](../../design/language/05-ownership/01-bindings-moves-and-copies.md)),
 so class keys are the first affine keys. Operations that today retain keys into
 new storage need the same treatment affine *values* already have:
 
@@ -267,7 +267,7 @@ hashing. Unconstrained generic bodies remain checked per concrete instance;
 Diagnostics now name the first unsupported component in declaration order,
 including class field names, enum variants and payload positions, and tuple
 element positions. The path ends with the rejected type or a specific reason
-such as an unsupported anonymous-sum member; see [key diagnostics](../design/language/07-generics/index.md#finding-an-unsupported-key-field).
+such as an unsupported anonymous-sum member; see [key diagnostics](../../design/language/07-generics/index.md#finding-an-unsupported-key-field).
 
 ### DoS resistance and seeding
 
@@ -277,7 +277,7 @@ per process. Adding a finalizer alone would improve low-bit distribution but
 would not prevent precomputed full-hash collisions. The key is initialized
 lazily and atomically; interrupted entropy reads retry, short reads accumulate,
 and other failures trap rather than weaken the key. Constructing empty
-collections does not require entropy. See the [collection contract](../design/facilities/01-builtins/collections.md).
+collections does not require entropy. See the [collection contract](../../design/facilities/01-builtins/collections.md).
 
 Dictionary iteration stays deterministic through its entry order, so tests
 need no public seed override. Set order remains unspecified. Keyed hashing
@@ -294,7 +294,7 @@ a runtime policy, so callers need no new API or manual mixing.
 > the schedule of Rust's `HashMap`, CPython and Swift, and hashes top-level
 > `str`, `bytes`, integer and `bool` keys directly without the descriptor
 > walk. Nested keys keep the framed encoding. See the
-> [collection contract](../design/facilities/01-builtins/collections.md).
+> [collection contract](../../design/facilities/01-builtins/collections.md).
 
 ## Costs
 
@@ -320,14 +320,14 @@ Before implementation and before any follow-up optimization:
    remove workloads at 1,024 and 65,536 entries for `dict[i64, i64]`,
    `dict[(i64, i64), i64]`, `dict[Point, i64]` (two `i64` fields), a copyable
    enum key, and `dict[str, i64]` with short keys. Pin to physical cores as in
-   [profiling](../development/profiling.md).
+   [profiling](../../development/profiling.md).
 2. Rerun against keyed hashing; report per-operation deltas for
    existing key types.
 3. To evaluate design B at all: prototype a descriptor hook that returns the
    structural hash through an adapter and compare against A on the same
    workloads.
 4. Compile time: `compile_bench -- 1000 10 --workload aot` before and after,
-   per [profiling](../development/profiling.md); expected neutral.
+   per [profiling](../../development/profiling.md); expected neutral.
 
 ## Rejected alternatives
 
@@ -370,7 +370,7 @@ recommended now.
 
 ## Ordering and sorted maps
 
-Out of scope. [User-defined ordering](user-type-ordering.md) faces the same
+Out of scope. [User-defined ordering](../user-type-ordering.md) faces the same
 choice for `<` and `sort`: `compare` (`aggregates.rs:808`) is descriptor-
 interpreted like `hash`, and the same derived, structural rule keeps ordering
 consistent with equality. A sorted map would need both bounds; if ordering is
@@ -411,7 +411,7 @@ of the fields their `__cmp__` compares.
 2. **`KeyType` constraint.** Add it to the built-in constraint table
    (`src/frontend/generics.rs:19`, diagnostic at `:1001`); let `dict[K, V]`
    resolve in generic signatures when `K: KeyType`. Update
-   [generics](../design/language/07-generics/index.md).
+   [generics](../../design/language/07-generics/index.md).
 3. **Classes and affine enums.** Add a class branch to `write_key`
    (`plenty-runtime/src/aggregates/hashing.rs`) over `Record` fields, plus a unit
    test beside `aggregates/hash_tests.rs` that equal classes in different

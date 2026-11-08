@@ -118,7 +118,7 @@ applies; the composition recommendation still accounts for fallible allocation.
 Also relevant: references cannot be stored in classes, so a plot cannot
 borrow caller data; wildcard imports and re-exports do not exist; a function
 may have at most 255 parameters; statements nest to 64 levels. The
-[derived serialization proposal](derived-serialization.md) (B77, accepted,
+[derived serialization proposal](completed/derived-serialization.md) (B77, accepted,
 not implemented) gives classes an `Encoder` hook that a plot table can consume.
 [`std.compress`](../design/stdlib/compress.md) provides zlib compression and
 CRC-32, which is all PNG needs beyond pixels.
@@ -202,7 +202,7 @@ Ways in, in the order they become available:
    (probed). The accessor list lives only for the call; the table holds plain
    columns. Derived values go here too, replacing ggplot2's `aes(y = 2 * hp)`:
    `num("kpl", def(c: &Car) -> f64: c.mpg * 0.425)?`.
-3. **Records by field name**, after [B77](derived-serialization.md):
+3. **Records by field name**, after [B77](completed/derived-serialization.md):
    `records(&cars)?` drives each row's derived `__encode__` into a column
    builder that implements `std.serial.Encoder[PlotError]`. Scalar fields
    become columns named after the fields, with no intermediate tree. Nested
@@ -670,6 +670,6 @@ The review accepted these choices. Each records the alternative considered.
   [`aes`](https://plotnine.org/reference/aes.html) and
   [`ggplot`](https://plotnine.org/reference/ggplot.html) (0.15.8).
 - [plotters documentation](https://docs.rs/plotters/latest/plotters/) (0.3.7).
-- [Derived serialization](derived-serialization.md),
-  [Polars dataframes](polars-dataframes.md),
+- [Derived serialization](completed/derived-serialization.md),
+  [Polars dataframes](completed/polars-dataframes.md),
   [standard library scope](standard-library-scope.md).

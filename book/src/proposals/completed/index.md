@@ -11,6 +11,10 @@ designs and the policy for moving completed proposals.
 
 | Proposal | Reference | Further work |
 | --- | --- | --- |
+| [Derived serialization for classes and enums](derived-serialization.md) | [`std.serial`](../../design/stdlib/serial.md), [derivation](../../design/stdlib/serial-derive.md), [typed JSON](../../design/stdlib/json-codecs.md), [typed TOML](../../design/stdlib/toml-codecs.md) | B77 / issue #781 delivered; reflection, macros and other formats are separate designs |
+| [User-defined dictionary keys and set members](user-type-hashing.md) | [Collections](../../design/facilities/01-builtins/collections.md), [`KeyType`](../../design/language/07-generics/index.md#keytype) | B74 structural-key policy delivered; optional hash caching/key projections remain separate candidates |
+| [Checked arithmetic by default](checked-by-default.md) | [Function arithmetic contracts](../../design/language/03-types/numbers.md#function-arithmetic-contracts), [bounded validation](../../completed-work/checked-default-validation.md) | B14: unchecked configuration/audit and further numeric/error conveniences; no universal performance or ABI claim |
+| [Dataframes backed by Polars](polars-dataframes.md) | [`std.dataframe`](../../design/stdlib/dataframe.md), [engine deployment](../../design/stdlib/dataframe-engine.md) | B76 extensions; completed scope is the optional engine foundation, not every Polars API or a replacement for `clist` |
 | [Boxed protocol objects](boxed-protocols.md) | [Protocol objects](../../design/language/07-generics/boxed-protocols.md) | Further protocol capabilities remain separate from the delivered erased-owner contract |
 | [Positive and NonNegative integer domain types](domain-types.md) | [Numbers](../../design/language/03-types/numbers.md#positive-and-non-negative-integers), [std conventions](../../design/stdlib/conventions.md#invalid-arguments) | B96 `Bounded`; issue #686 |
 | [Single-file scripts](single-file-scripts.md) | [Script runner](../../design/toolchain/01-building/scripts.md) | B17/B18: wider executable-cache coverage |
@@ -39,3 +43,13 @@ designs and the policy for moving completed proposals.
 | [Python slice syntax](slice-syntax.md), with its [implementation plan](slice-syntax/plan.md) | [Slices](../../design/language/04-expressions/slices.md) | B39: borrowed views `&xs[a:b]` (issue #581); issue #583 |
 | [Checked arithmetic blocks](checked-arithmetic.md) | [Numbers](../../design/language/03-types/numbers.md#checked-blocks) | Checked shifts and casts unscheduled; class patterns landed with issue #558 |
 | [Rust compiler boundaries and measured performance](compiler-refactoring.md) — steps 1–6 and legacy-syntax removal | [Frontend](../../design/toolchain/02-architecture/frontend.md), [cache](../../design/toolchain/02-architecture/cache.md) | B17 compilation session; B19 module replay and frontend candidates |
+
+## Completed investigations
+
+These records conclude an assessment, not delivery of every possible feature it discusses.
+
+| Assessment | Outcome | Further work |
+| --- | --- | --- |
+| [Owned structures and checked node identities](arenas.md), with the [arena prototype](arenas/prototype.md) | Existing-language patterns and prototype assessed; no `std.arena` API delivered | B73 identity/access qualification and B11 broader borrowing |
+| [Typestate and owned transitions](typestate-and-owned-transitions.md) | Existing owned transitions and their limits assessed; complemented by the [owned response experiment](typestate-response-experiment.md) | B72 state/ownership ergonomics; [linear obligations](../linear-obligations.md) remain proposed |
+| [Thread-local reference counts](thread-local-reference-counts.md) | Stage 1 measured and rejected without a cycle gain; local PR #944 closed unmerged, stage 2 not recommended | Revisit only with new platform/workload evidence; no non-atomic count mode shipped |

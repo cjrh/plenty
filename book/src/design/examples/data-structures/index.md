@@ -39,5 +39,5 @@ An *intrusive* collection embeds its links in the application object. It can
 support multiple memberships and, in pointer-based designs, may need stable
 addresses and externally managed lifetimes. Arena-owned objects with integer
 links cover some of these uses, but do not promise stable physical addresses.
-The [design assessment](../../../proposals/arenas.md) discusses this boundary
+The [design assessment](../../../proposals/completed/arenas.md) discusses this boundary
 and the candidate standard-library abstraction.

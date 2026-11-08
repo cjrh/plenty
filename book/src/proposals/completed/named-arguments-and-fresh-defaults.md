@@ -32,7 +32,7 @@ A builder is useful when construction is incremental, validation spans several
 settings, or a sequence of required choices matters. Its `build` returns a valid
 object or a typed error. It is not necessary for every record. Current explicit
 initializers allow only unit or allocation failure, so factories remain useful
-for domain validation errors. [Typestate](../typestate-and-owned-transitions.md)
+for domain validation errors. [Typestate](typestate-and-owned-transitions.md)
 can strengthen a builder when required stages justify extra types.
 
 Other review sites: `json.encoder`, `http.server.config`, `http.client.config`,

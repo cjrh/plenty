@@ -57,7 +57,7 @@ outside this controlled example, check their range before indexing.
 
 For reusable slots, tombstones preserve indices and generation checks can
 reject stale IDs after reuse. Those invariants belong in a reusable abstraction;
-raw integers do not enforce them. The [arena proposal](../../proposals/arenas.md)
+raw integers do not enforce them. The [arena proposal](../../proposals/completed/arenas.md)
 contains a tested prototype, not an available `std.arena` module.
 
 This example exits and drops the arena if construction fails. An API that

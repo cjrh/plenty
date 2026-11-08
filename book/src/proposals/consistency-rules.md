@@ -130,7 +130,7 @@ copies so they cannot drift again.
   waits for that bound (decided 2026-10-31), so B84 moves earlier: it now
   gates this rule as well as generic copy classes.
 - Copy-dependent behaviour elsewhere (dictionary-key rules in
-  [user type hashing](user-type-hashing.md), by-value receivers) keys off
+  [user type hashing](completed/user-type-hashing.md), by-value receivers) keys off
   "copies", so it follows the new rule without its own change.
 - The use-after-move diagnostic for an affine enum names the declaration
   and suggests `@copy` when its payloads copy.

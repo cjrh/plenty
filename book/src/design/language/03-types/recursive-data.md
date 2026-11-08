@@ -44,5 +44,5 @@ are described under [facilities](../../facilities/index.md).
 
 The [recursive representation proposal](../../../proposals/recursive-data.md)
 records the storage and destruction rationale. The
-[owned-structure assessment](../../../proposals/arenas.md) compares linked
+[owned-structure assessment](../../../proposals/completed/arenas.md) compares linked
 lists, trees, and checked-index arenas using these facilities.
