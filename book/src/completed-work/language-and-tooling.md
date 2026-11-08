@@ -1255,3 +1255,14 @@ nested calls receive the expectation. Anonymous-sum positions supply no
 evidence because values widen into them. A parameter determined differently by
 the arguments and the expected result is an error. See
 [type argument inference](../design/language/07-generics/inference.md#expected-results).
+
+## Lending calls infer ordinary type parameters (issue #874)
+
+A generic call that lends a pipeline as `&mut Iter[T]` uses the same
+inference as other generic calls: lent item types, ordinary arguments,
+callable bounds and the expected result together. `tagged(&mut p, "first")`
+for `def tagged[T, K](p: &mut Iter[T], tag: K) -> Option[(K, T)]` now infers
+`K = str` instead of requiring explicit type arguments. Arguments are lowered
+once, left to right; each lent pipeline keeps its own frame specialization and
+the lender's loans stay live across the call. See
+[lending a pipeline](../design/language/09-iteration/06-pipelines.md#lending-a-pipeline).
