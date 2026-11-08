@@ -1370,6 +1370,14 @@ impl Lower<'_> {
                 && copyable_through_reference(inner)
             {
                 "; copy the value with `*`".into()
+            } else if let (Some(Ty::Generator(expected)), Some(Ty::Generator(got))) =
+                (&expected, &got)
+                && expected.element == got.element
+                && expected.name.is_some()
+                && got.name.is_some()
+            {
+                // Issue #872: the item type matches, so name the frame identity.
+                "; each producer has its own inline frame, so different producers cannot join; branch inside one generator body instead".into()
             } else {
                 expected
                     .as_ref()

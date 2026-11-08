@@ -189,7 +189,7 @@ fn native(#[case] source: &str, #[case] expected: &str) {
 #[case("a = [1].unwrap()\nx = [&a].unwrap()", "cannot be stored")]
 #[case(
     "def g() -> Generator[i64]:\n    yield 1\nmut it = g()\nfor x in &it:\n    pass",
-    "borrowed generator iteration"
+    "a shared generator reference cannot be advanced"
 )]
 #[case(
     "def g(x: &i64) -> Generator[i64]:\n    yield *x",
