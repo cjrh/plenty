@@ -3575,7 +3575,7 @@ def diagonal(values: &list[f64]) -> Result[Matrix, LinalgError]
 
 ## `std.sync`
 
-Shared cooperative cancellation tokens. Errors: `AllocError`. [Reference](sync.md).
+Cancellation tokens, `Mutex`, typed deadline waits, pool result collection. Errors: `AllocError`. [Reference](sync.md).
 
 Compiler-provided: `CancellationToken`. Their signatures are on the reference page.
 
