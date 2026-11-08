@@ -16,7 +16,7 @@ the benchmark-template migration stays deferred during performance comparisons.
 The companion [error sets](error-sets.md) page records the sum contract and
 the last-resort role of builtin `Failure`; [formatting](error-formatting.md)
 records the shipped enum-capable reporting design.
-[Typestate](../typestate-and-owned-transitions.md) addresses lifecycle invariants.
+[Typestate](typestate-and-owned-transitions.md) addresses lifecycle invariants.
 
 ## Reading this family
 

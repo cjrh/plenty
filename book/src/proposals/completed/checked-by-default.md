@@ -1,15 +1,12 @@
 # Checked arithmetic by default
 
-> **Status: Core and repository adoption implemented; bounded validation complete.**
-> Function-level arithmetic boundaries, lexical `unchecked:`, independent closure
-> contracts, std/callback APIs, fixtures, shipped examples, compiler benchmark
-> templates and teaching/reference changes are implemented on this branch.
-> [Validation evidence](../completed-work/checked-default-validation.md) records the
-> isolated post-repair host gate, controlled timings/profiles, representative
-> optimized code and native/export audit, with explicit source and observation
-> limits. Neither local PR #886 nor its proxy-fixture dependency #918 is merged.
-> This is not whole-proposal performance or merge acceptance. Remaining B14
-> conveniences stay in the [backlog](../backlog.md).
+> **Status: Implemented and merged.** Local PR #886 and its proxy-fixture
+> dependency #918 are merged into `main`. Function-level arithmetic boundaries,
+> lexical `unchecked:`, independent closure contracts and coordinated repository
+> adoption shipped. [Validation evidence](../../completed-work/checked-default-validation.md)
+> preserves the original bounded observations, failures and provenance; merging
+> does not establish universal performance or ABI coverage. Remaining B14
+> conveniences stay in the [backlog](../../backlog.md).
 
 ## Recommendation
 
@@ -47,7 +44,7 @@ def invoice(quantity: i64, price: i64) -> Result[i64, OverflowError[i64]]:
 ```
 
 The multiplication has type `i64`; failure returns
-`Err(OverflowError[i64](wrapped=...))` from `scale`. A signature of `-> i64`
+`Err(OverflowError[i64](../wrapped=...))` from `scale`. A signature of `-> i64`
 is rejected for this body. The compiler reports the failing operation and the
 missing error type, with suggestions to declare a `Result`, handle a local
 `checked:` result, or deliberately opt out.

@@ -1,12 +1,12 @@
 # Dataframes backed by Polars
 
-> **Status: A bounded foundation is implemented as [`std.dataframe`](../design/stdlib/dataframe.md).**
+> **Status: Implemented within the agreed foundation scope as [`std.dataframe`](../../design/stdlib/dataframe.md).**
 > It uses a separately built optional Polars engine, bulk numeric transfers
 > and explicit expression plans. `clist` remains a distinct lightweight mutable
 > collection. The text below records the original spike and its rationale;
 > the reference describes the supported API. See the
 > [original measurements](polars-dataframes/evidence.md) and
-> [B76 in the backlog](../backlog.md) for future priorities.
+> [B76 in the backlog](../../backlog.md) for future priorities.
 
 ## Why use an existing engine?
 

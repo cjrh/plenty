@@ -7,7 +7,7 @@
 > audit remain under **B14** in the [backlog](../backlog.md); until that audit,
 > `std` always traps. Issue #764 also extends the mode to list, slice-view
 > and `Bytes` index syntax. This builds on
-> [checked arithmetic by default](checked-by-default.md).
+> [checked arithmetic by default](completed/checked-by-default.md).
 
 ## Contract
 

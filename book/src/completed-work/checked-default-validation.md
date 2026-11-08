@@ -2,8 +2,8 @@
 
 Branch-scoped validation for local PR #886. This records implemented adoption and
 bounded evidence, not a merge, universal ABI certification or performance
-superiority. The [proposal](../proposals/checked-by-default.md) records the design;
-[implementation and validation](../proposals/checked-by-default/implementation.md)
+superiority. The [proposal](../proposals/completed/checked-by-default.md) records the design;
+[implementation and validation](../proposals/completed/checked-by-default/implementation.md)
 records its integration history.
 
 ## Compared contracts
