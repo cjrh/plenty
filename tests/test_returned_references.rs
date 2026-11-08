@@ -253,7 +253,7 @@ print(r).unwrap()
 }
 
 /// A conditional's reference values join both owners, as an `if` block's
-/// arms do (issue #897); a condition's own borrow is not taken as the origin.
+/// arms do (issue #897); a borrow in the condition is not the value's origin.
 #[test]
 fn conditional_reference_values_join_their_owners() {
     run(
