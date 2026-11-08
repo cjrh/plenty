@@ -103,7 +103,7 @@ CommitError = Retry(Transaction, DbError) | Finished(TerminalCommitError)
 ```
 
 These are alternative contracts, not two names for the current SQLite method.
-The [existing typestate assessment](../typestate-and-owned-transitions.md)
+The [existing typestate assessment](../completed/typestate-and-owned-transitions.md)
 explains why SQLite's busy commit must remain retryable. Its current mutable
 method already preserves the transaction; a consuming redesign must carry it
 in the retry result. The error enum above is itself non-discardable.

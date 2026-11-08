@@ -29,6 +29,18 @@ impl Lowerer<'_, '_> {
                 self.call_if(contended, slow, address);
                 self.bcx.ins().iconst(types::I64, 0)
             }
+            MutexOp::LockNow(_) => {
+                // Only 0 is unlocked; a failed attempt leaves 1 or 2 as found
+                // and records no waiter.
+                let address = self.raw_word(value);
+                let unlocked = self.bcx.ins().iconst(types::I32, 0);
+                let locked = self.bcx.ins().iconst(types::I32, 1);
+                let previous =
+                    self.bcx
+                        .ins()
+                        .atomic_cas(MemFlagsData::trusted(), address, unlocked, locked);
+                self.bcx.ins().icmp_imm_s(IntCC::Equal, previous, 0)
+            }
             MutexOp::Unlock(_) => {
                 let address = self.raw_word(value);
                 let unlocked = self.bcx.ins().iconst(types::I32, 0);

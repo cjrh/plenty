@@ -81,4 +81,4 @@ compaction, shared concurrent access, or a node-address guarantee.
 
 These findings support the generic arena direction while leaving its production
 identity and access API open for review. Delivery and acceptance criteria live
-in B73 of the [backlog](../../backlog.md).
+in B73 of the [backlog](../../../backlog.md).

@@ -34,7 +34,7 @@ impl Lower<'_> {
         body: &[Stmt],
         ops: &mut Vec<Op>,
     ) -> Result<BlockResult> {
-        if let Some((base, args)) = mutex::lock_expression(manager) {
+        if let Some((base, call)) = mutex::lock_expression(manager) {
             if matches!(self.place_type(base), Some(Ty::Shared(_))) {
                 let mut content = shared::content(base);
                 while let Some(Ty::Shared(_)) = self.place_type(&content) {
@@ -46,7 +46,7 @@ impl Lower<'_> {
                     .and_then(crate::mutex::class)
                     .is_some()
                 {
-                    return self.with_lock(manager, &content, args, name, body, ops);
+                    return self.with_lock(manager, &content, call, name, body, ops);
                 }
             }
             if self
@@ -55,7 +55,7 @@ impl Lower<'_> {
                 .and_then(crate::mutex::class)
                 .is_some()
             {
-                return self.with_lock(manager, base, args, name, body, ops);
+                return self.with_lock(manager, base, call, name, body, ops);
             }
             if self
                 .expression_type_hint(base)
@@ -63,9 +63,10 @@ impl Lower<'_> {
                 .and_then(crate::mutex::class)
                 .is_some()
             {
-                return Err(base.at.error(
-                    "lock() requires a named mutex or a field of one; bind the mutex to a name first",
-                ));
+                return Err(base.at.error(format!(
+                    "{}() requires a named mutex or a field of one; bind the mutex to a name first",
+                    call.acquire.method()
+                )));
             }
         }
         if generators::yields(body) {

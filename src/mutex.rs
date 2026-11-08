@@ -1,5 +1,6 @@
 //! `std.sync.Mutex[T]`: a value and a futex state word, entered with
-//! `with mutex.lock() as value:`. The type is the generic class declared in
+//! `with mutex.lock() as value:` or, without waiting,
+//! `with mutex.lock_now()? as value:`. The type is the generic class declared in
 //! stdlib/std/sync.plenty, so layout, moves, destruction, and worker
 //! eligibility are ordinary class behavior. See
 //! book/src/design/facilities/03-concurrency/mutex.md.
@@ -41,6 +42,11 @@ pub enum MutexOp {
     /// Acquire: an inline compare-exchange from 0 to 1, else the runtime's
     /// futex wait loop.
     Lock(u8),
+    /// `lock_now()`: the same compare-exchange, without waiting. Pushes
+    /// whether it acquired the lock; the frontend turns that into a
+    /// `Result[(), LockError]` and propagates it with `Try`, so the guard
+    /// holds a lock only on success.
+    LockNow(u8),
     /// Release: an inline exchange to 0, then a futex wake if the previous
     /// state recorded waiters.
     Unlock(u8),
@@ -55,6 +61,7 @@ impl MutexOp {
     pub fn signature(&self) -> (Vec<Ty>, Ty) {
         match self {
             Self::Lock(_) | Self::Unlock(_) => (vec![state()], Ty::Unit),
+            Self::LockNow(_) => (vec![state()], Ty::Bool),
             Self::Exclusive(t) => (
                 vec![Ty::Ref(Arc::new(t.clone()), false)],
                 Ty::Ref(Arc::new(t.clone()), true),

@@ -203,7 +203,7 @@ def main() -> Result[(), PlotError | AllocError | IoError]:
 does not split by the plot's `colour` mapping. In ggplot2 the same setting also
 overrides the inherited mapping for that layer.
 
-After [derived serialization](../derived-serialization.md) lands, the `rows`
+After [derived serialization](../completed/derived-serialization.md) lands, the `rows`
 call can become `records(&cars)?` for a class marked `@serial`.
 
 ## A mistake and its error

@@ -1,12 +1,12 @@
 # Thread-local reference counts
 
-> **Status: Not implemented; stage 1 measured and rejected.** Design note
+> **Status: Investigation complete; stage 1 measured and rejected.** Design note
 > for issue #746. Stage 1 was built (issue #751, local PR #944) and removed
 > every locked count instruction from k-nucleotide without a measurable cycle
 > gain, so the PR was closed and stage 2 is not recommended; see
 > [measured result](#measured-result). The
-> [memory and destruction](../design/toolchain/02-architecture/memory.md) and
-> [concurrent runtime](../design/toolchain/02-architecture/concurrency.md)
+> [memory and destruction](../../design/toolchain/02-architecture/memory.md) and
+> [concurrent runtime](../../design/toolchain/02-architecture/concurrency.md)
 > pages own the current contract. Issue #744 (no count pair around borrowed
 > arguments) and issue #745 (sole-owner release) have landed.
 
@@ -73,7 +73,7 @@ one arises from:
 
 - copying an immutable heap `str`, or an inline value containing one, which
   retains instead of copying;
-- [`Shared[T]`](../design/facilities/01-builtins/shared.md) handles, whose
+- [`Shared[T]`](../../design/facilities/01-builtins/shared.md) handles, whose
   `share()` retains one box;
 - native helpers that return retained projections and builder aliases, and
   the retain/release pairs still emitted around some borrowed arguments and
@@ -108,7 +108,7 @@ final release the count word becomes the destruction queue's link
 | `Shared[T]` construction | Contents, and the box itself | Yes: every holder retains the box and copies from the contents |
 | Store under a `Mutex` lock | The stored value | Yes, when the mutex is reachable from another thread |
 | `std.actor` | Messages are copied into the receiver's heap; all actors run on one thread | No |
-| FFI | `ForeignPtr` cannot enter workers; [exports](../design/facilities/04-interop/exports.md) require one caller thread | No |
+| FFI | `ForeignPtr` cannot enter workers; [exports](../../design/facilities/04-interop/exports.md) require one caller thread | No |
 | Globals | None exist; constants are immortal | No |
 | Runtime-internal threads | The detached DNS lookup thread in `aggregates/net.rs` holds only Rust data | No |
 
@@ -277,7 +277,7 @@ counted as atomic are inline strings and literals.
 4. The parallel k-nucleotide variant in `benchmarks/game` (local PR #940) is
    the threaded workload.
 5. Any future thread that runs Plenty code, such as the proposed
-   [actor blocking-work](actor-blocking-work.md) threads, must start through
+   [actor blocking-work](../actor-blocking-work.md) threads, must start through
    `plenty_thread_start`. This only matters if count modes return.
 
 ## Sources

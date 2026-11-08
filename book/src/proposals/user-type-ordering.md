@@ -6,7 +6,7 @@ ordering. The current contracts are [classes](../design/language/03-types/classe
 [list sorting](../design/facilities/01-builtins/lists.md) and
 [`std.collections`](../design/stdlib/collections.md). Remaining work belongs in
 [B37](../backlog.md). Equality is shared with the sibling
-[hashing proposal](user-type-hashing.md).
+[hashing proposal](completed/user-type-hashing.md).
 
 [Timsort](timsort.md) is a separate algorithm and stability proposal. A
 comparison hook determines the order; it does not choose the sorting
@@ -142,7 +142,7 @@ compare (instants from different clocks) should not define `__cmp__`.
 ## Equality
 
 Classes and enums currently use structural equality, which the
-[hashing proposal](user-type-hashing.md) also depends on: a hash must agree
+[hashing proposal](completed/user-type-hashing.md) also depends on: a hash must agree
 with `==`. Rule 3 makes `__cmp__` the definition of equality for an ordered
 type. The hashing proposal admits only structural equality and hashing, so a
 type that defines `__cmp__` is not a key type: its `==` is user code that a
@@ -177,7 +177,7 @@ nothing; allocation inside `__cmp__` is the type's own, as for key callbacks.
 types, is orderable. `Heap[(i64, Task)]` orders by priority, then by `Task`.
 
 **Dictionaries and sets.** Unchanged here; see the
-[hashing proposal](user-type-hashing.md).
+[hashing proposal](completed/user-type-hashing.md).
 
 ## Ownership
 
@@ -342,7 +342,7 @@ argument eagerly, so early returns stay the idiom for expensive fields.
 - Does `then` earn its place, or should composition use early returns only?
 - Should nullary enums get a declared-order shortcut, or keep writing
   `__cmp__` over a rank method?
-- Coordination with the [hashing proposal](user-type-hashing.md): one
+- Coordination with the [hashing proposal](completed/user-type-hashing.md): one
   equality hook, and the required agreement between hash and `__cmp__`.
 
 ## Staged implementation

@@ -3,7 +3,7 @@
 **Status: Experiment complete; consuming methods implemented.** The source is
 in `experiments/typestate/`. The original model used consuming free functions
 against baseline `344dfdbd`; it now exercises explicit owned receivers. This
-refreshes the [typestate assessment](../typestate-and-owned-transitions.md).
+refreshes the [typestate assessment](typestate-and-owned-transitions.md).
 The HTTP server is unchanged. Individual [field moves](../../design/language/05-ownership/01-bindings-moves-and-copies.md#moving-fields) out of owned bindings were
 implemented later (issue #534), and the model now uses them.
 Real HTTP integration remains unexplored and is tracked in [B72](../../backlog.md).

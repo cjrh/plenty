@@ -10,7 +10,7 @@ Use the [JSON typed entry points](json-codecs.md) or
 [TOML typed entry points](toml-codecs.md) for complete documents or direct
 owning tree conversion. [Declare `@serial`](serial-derive.md) on a class or
 enum to generate ordinary checked hooks, or supply either hook yourself. The
-[serialization proposal](../../proposals/derived-serialization.md) records the
+[serialization proposal](../../proposals/completed/derived-serialization.md) records the
 staged design and rationale.
 
 ## Built-in representations

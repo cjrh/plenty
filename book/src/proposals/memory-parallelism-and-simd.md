@@ -22,7 +22,7 @@
 > automatic pipeline SIMD and measured backend evidence.
 > The completed [allocation audit](completed/allocation-audit.md) and
 > [native concurrency contract](completed/native-concurrency.md) record the
-> delivered subsets. [Checked-index arenas](arenas.md) solve node identity;
+> delivered subsets. [Checked-index arenas](completed/arenas.md) solve node identity;
 > they are distinct from the allocator-lifetime proposal here.
 >
 > **Shipped differently:** `AllocError` has two variants, `OutOfMemory` and

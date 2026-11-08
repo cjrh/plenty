@@ -4,7 +4,7 @@ Status: **Not implemented; integration assessment for issue #149.**
 Planning remains in [B72](../backlog.md). This page connects
 [linear obligations](linear-obligations.md),
 [resolution scopes](linear-scope-resolution.md), and the existing
-[typestate exploration](typestate-and-owned-transitions.md); it does not approve
+[typestate exploration](completed/typestate-and-owned-transitions.md); it does not approve
 an effects or concurrency redesign. Examples below are speculative pseudocode.
 
 ## Recommendation and boundaries

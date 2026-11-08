@@ -2,11 +2,12 @@
 
 > Companion to [checked arithmetic by default](../checked-by-default.md).
 > **Repository adoption and bounded validation complete.**
-> [Collected results and limits](../../completed-work/checked-default-validation.md)
+> [Collected results and limits](../../../completed-work/checked-default-validation.md)
 > cover the isolated host gate, all controlled timing/profile jobs, representative
 > optimized code, native/export audit and compiler benchmark-template adoption.
-> This is not universal performance/ABI or merge acceptance. Remaining **B14**
-> conveniences stay in the [backlog](../../backlog.md).
+> Local PRs #886 and #918 have since merged. This remains bounded evidence,
+> not universal performance/ABI coverage. Remaining **B14**
+> conveniences stay in the [backlog](../../../backlog.md).
 
 ## Current implementation
 
@@ -324,7 +325,7 @@ partial-mutation failures, pass alongside 15 arithmetic tests, formatting and
 strict workspace/all-target Clippy. These functional checks are not new timing
 samples. Frozen comparison inputs remain unchanged.
 
-The [validation record](../../completed-work/checked-default-validation.md) gives
+The [validation record](../../../completed-work/checked-default-validation.md) gives
 paired timing distributions, attributed allocation values, static code counts,
 source bridging and observation limits. Neither PR is merged; the proxy fixture
 patch remains only in the explicitly approved isolated validation fork.
@@ -476,7 +477,7 @@ call-heavy kernels and realistic std consumers on success and failure paths.
 Verify the no-allocation arithmetic contract and report compiler/build-time and
 code-size costs. No speedup claim is justified before these measurements.
 
-The [original checked-arithmetic design](../completed/checked-arithmetic.md)
+The [original checked-arithmetic design](../checked-arithmetic.md)
 records why local PR #678, which returned a `Result` from every operator, was
 abandoned. Preserve its lesson: use plain values between operators and a shared
 failure exit, rather than reviving per-operator wrapping and unwrapping.
