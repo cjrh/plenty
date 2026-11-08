@@ -148,6 +148,12 @@ pub(super) struct BranchJoin {
     adapter: Option<crate::ownership::Adapter>,
 }
 
+/// Whether `ty` is a generator whose frame owns its state, so an arm
+/// producing it contributes no loan to a join (issue #899).
+pub(super) fn owned_frame(ty: &super::Type) -> bool {
+    matches!(ty, Some(Ty::Generator(_))) && !ty.as_ref().is_some_and(Ty::lends_frame)
+}
+
 impl BranchJoin {
     /// Whether an arm value of type `ty` joins this branch's loan: a plain
     /// reference or one inside an Option or Result, as `unwrap_or` joins its
@@ -672,6 +678,7 @@ impl Lower<'_> {
         &mut self,
         e: &Expr,
         (yes, no): (&Expr, &Expr),
+        owned: (bool, bool),
         (mut a, mut b): (Vec<Op>, Vec<Op>),
         ty: Type,
         ops: &mut Vec<Op>,
@@ -689,8 +696,13 @@ impl Lower<'_> {
             return Ok(ty);
         }
         let joined = self.branch_value(&e.at, 2, ops, |lower, ops| {
-            lower.branch_arm_value(yes, &mut a)?;
-            lower.branch_arm_value(no, &mut b)?;
+            // An owned generator arm holds no loan, as in a `match` value.
+            if !owned.0 && !lower.owned_frame_value(yes) {
+                lower.branch_arm_value(yes, &mut a)?;
+            }
+            if !owned.1 && !lower.owned_frame_value(no) {
+                lower.branch_arm_value(no, &mut b)?;
+            }
             ops.push(super::branch(a, b));
             Ok(super::BlockResult::Continues(ty))
         })?;
@@ -821,11 +833,35 @@ impl Lower<'_> {
                 ops.push(Op::UseLoan(loan));
             }
         }
-        if function && self.yield_type.is_none() && ty.is_some_and(Ty::lends_frame) {
+        if function
+            && self.yield_type.is_none()
+            && ty.is_some_and(Ty::lends_frame)
+            && !self.owned_frame_value(e)
+        {
             let loan = self.check_returned_frame(e, ops)?;
             ops.push(Op::UseLoan(loan));
         }
         Ok(())
+    }
+
+    /// Whether `e`, returned where the function's generator type borrows,
+    /// is an arm producing an owned frame: a call to a function whose
+    /// generator owns its state, or a binding of one. It holds no loan to
+    /// check (issue #899).
+    pub(super) fn owned_frame_value(&self, e: &Expr) -> bool {
+        match &ungroup(e).kind {
+            Expression::Call(name, _) => self
+                .sigs
+                .get(name)
+                .and_then(|sig| sig.outputs.first())
+                .is_some_and(|ty| matches!(ty, Ty::Generator(_)) && !ty.lends_frame()),
+            Expression::Name(name) => self.names.get(name).is_some_and(|local| {
+                matches!(local.ty, Ty::Generator(_))
+                    && !local.ty.lends_frame()
+                    && !self.reference_locals.contains_key(&local.slot)
+            }),
+            _ => false,
+        }
     }
 
     /// The loan of a returned generator `e` whose frame borrows, after

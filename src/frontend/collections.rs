@@ -1746,6 +1746,7 @@ impl Lower<'_> {
                 self.clear_mismatch();
                 let other = self.expr_expected(no, expected.or_else(|| ty.clone()), &mut b);
                 let other = self.joined_branch(&e.at, &ty, other)?;
+                let owned = (references::owned_frame(&ty), references::owned_frame(&other));
                 let ty = match self.join_conditional(&ty, &other, &mut a, &mut b) {
                     Some(joined) => Some(joined),
                     None => {
@@ -1755,7 +1756,7 @@ impl Lower<'_> {
                         ty
                     }
                 };
-                self.conditional_value(e, (yes, no), (a, b), ty, ops)
+                self.conditional_value(e, (yes, no), owned, (a, b), ty, ops)
             }
             _ => return Ok(Hinted::Expr),
         };

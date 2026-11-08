@@ -1957,6 +1957,7 @@ impl Lower<'_> {
                 let hint = self.join_hint(&e.at);
                 let ty = self.expr_expected(yes, hint.clone(), &mut a)?;
                 let other = self.expr_expected(no, hint, &mut b)?;
+                let owned = (references::owned_frame(&ty), references::owned_frame(&other));
                 let ty = match self.join_conditional(&ty, &other, &mut a, &mut b) {
                     Some(joined) => Some(joined),
                     None => {
@@ -1966,7 +1967,7 @@ impl Lower<'_> {
                         ty
                     }
                 };
-                self.conditional_value(e, (yes, no), (a, b), ty, ops)?
+                self.conditional_value(e, (yes, no), owned, (a, b), ty, ops)?
             }
             Expression::Call(..)
             | Expression::Method(..)
@@ -3825,7 +3826,10 @@ impl Lower<'_> {
                         && !self.branch_joins.is_empty()
                         && ty.as_ref().is_some_and(references::BranchJoin::carries)
                     {
-                        self.branch_arm_value(e, ops)?;
+                        // An owned generator arm holds no loan to join.
+                        if !self.owned_frame_value(e) {
+                            self.branch_arm_value(e, ops)?;
+                        }
                     } else if matches!(tail, Tail::Value(_))
                         && ty.as_ref().is_some_and(Ty::contains_reference)
                     {

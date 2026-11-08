@@ -403,3 +403,73 @@ def main() -> Result[(), AllocError | IoError]:
     assert!(error.contains("conflicting borrow"), "{error}");
     assert!(!error.contains("without `mut`"), "{error}");
 }
+
+const NUMS: &str = r#"
+def nums(n: i64) -> Generator[i64]:
+    for i in range(n):
+        yield i
+"#;
+
+// Review of local PR #1134, round 2: an arm producing an owned generator
+// contributes no loan, in a conditional as in a `match` value, while the
+// borrowing arm still keeps its owner borrowed.
+#[test]
+fn an_owned_arm_joins_a_borrowing_arm() {
+    assert_stdout(
+        &with_evens(&format!(
+            r#"{NUMS}
+def main() -> Result[(), AllocError | IoError]:
+    ys = [2, 4]?
+    k = len(ys)
+    mut g = nums(2) if k > 9 else evens(&ys)
+    mut h = evens(&ys) if k > 9 else nums(2)
+    for v in g:
+        print(v)?
+    for v in h:
+        print(v)?
+    Ok(())
+"#
+        )),
+        "2\n4\n0\n1\n",
+    );
+    let error = check_error(&with_evens(&format!(
+        r#"{NUMS}
+def main() -> Result[(), AllocError | IoError]:
+    ys = [2, 4]?
+    mut g = nums(2) if len(ys) > 9 else evens(&ys)
+    drop(ys)
+    print(next(g))?
+    Ok(())
+"#
+    )));
+    assert!(error.contains("cannot move `ys` while it is borrowed"), "{error}");
+}
+
+#[test]
+fn a_returned_choice_accepts_an_owned_arm() {
+    assert_stdout(
+        &with_evens(&format!(
+            r#"{NUMS}
+def pick(xs: &list[i64], k: i64) -> Generator[i64]:
+    match k:
+        case 0:
+            nums(3)
+        case _:
+            evens(xs)
+
+def either(xs: &list[i64], k: i64) -> Generator[i64]:
+    evens(xs) if k > 0 else nums(3)
+
+def main() -> Result[(), AllocError | IoError]:
+    ys = [2, 4]?
+    for v in pick(&ys, 0):
+        print(v)?
+    for v in pick(&ys, 1):
+        print(v)?
+    print(either(&ys, 0).count())?
+    Ok(())
+"#
+        )),
+        "0\n1\n2\n2\n4\n3\n",
+    );
+}
