@@ -43,17 +43,23 @@ const HELLO: &str =
 /// and about 3 KB for printing (slice views, `Bytes` literals, and narrow
 /// integer formatting that `render` reaches from every `print`).
 ///
+/// The small-block pool (issue #814) adds about 3.2 KB of code, reached from
+/// the global allocator. Measured on 2026-11-08 with mold 2.40.4: default
+/// empty 57,816/28,081 and hello 138,088/84,065; checked empty 62,656/32,129
+/// and hello 146,048/90,545 (file/`.text`). The x86 empty `.text` caps and
+/// the default hello file cap are reset to about 13% above these.
+///
 /// Each budget allows about 13% growth over the largest measurement. Raise one
 /// only as a deliberate, reviewed change that records the new measurement here
 /// and explains it.
 #[cfg(all(target_arch = "x86_64", not(feature = "runtime-checks")))]
 const BUDGETS: [(&str, &str, u64, u64); 2] = [
-    ("empty", EMPTY, 58_000, 28_000),
-    ("hello", HELLO, 138_000, 85_000),
+    ("empty", EMPTY, 58_000, 32_000),
+    ("hello", HELLO, 156_000, 85_000),
 ];
 #[cfg(all(target_arch = "x86_64", feature = "runtime-checks"))]
 const BUDGETS: [(&str, &str, u64, u64); 2] = [
-    ("empty", EMPTY, 67_000, 31_000),
+    ("empty", EMPTY, 67_000, 36_500),
     ("hello", HELLO, 156_000, 92_000),
 ];
 
