@@ -1936,3 +1936,267 @@ def main() -> Result[(), PoolError | RangeError | SubmitError[()] | FutureError 
         "9\n",
     );
 }
+
+// Issue #893: an unknown capture-free callback without access to pool
+// capabilities must not turn a submission-only helper into a shutdown.
+const UNRELATED_CALLBACKS: &str = "def ping() -> ():
+    pass
+
+def apply(f: Callable[[], ()]) -> ():
+    f()
+
+def through(f: Callable[[], ()]) -> ():
+    apply(f)
+
+def recursive(f: Callable[[], ()], again: bool) -> ():
+    if again:
+        recursive(f, False)
+    else:
+        f()
+
+";
+
+#[test]
+fn unrelated_callable_does_not_shut_down_a_helpers_pool() {
+    for call in ["apply(ping)", "through(ping)", "recursive(ping, True)"] {
+        for (parameter, submit, argument) in [
+            ("&ThreadPoolExecutor", "submit", "&pool"),
+            ("Submitter", "submit_nowait", "pool.submitter()"),
+        ] {
+            let source = format!(
+                "{UNRELATED_CALLBACKS}def produce(sender: Sender[i64]) -> ():
+    drop(sender.send(1))
+
+def helper(pool: {parameter}, sender: Sender[i64]) -> ():
+    {call}
+    drop(pool.{submit}(produce, sender).drop_job())
+
+def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    with ThreadPoolExecutor(1, 1).unwrap() as pool, receiver as inbox:
+        helper({argument}, sender)
+        print(inbox.recv().unwrap()).unwrap()
+"
+            );
+            runs(&source, "1\n");
+        }
+    }
+}
+
+#[test]
+fn callable_with_pool_authority_still_shuts_down_a_helpers_pool() {
+    for (declaration, callback, call) in [
+        (
+            "def stop(pool: &ThreadPoolExecutor) -> ():\n    pool.shutdown()\n\ndef apply_pool(f: Callable[[&ThreadPoolExecutor], ()], pool: &ThreadPoolExecutor) -> ():\n    f(pool)\n",
+            "",
+            "apply_pool(stop, pool)",
+        ),
+        (
+            "def apply_closure[F: Callable[[], ()]](f: &F) -> ():\n    f()\n",
+            "    stop = def [&pool]() -> ():\n        pool.shutdown()\n",
+            "apply_closure(&stop)",
+        ),
+    ] {
+        let source = format!(
+            "{declaration}def helper(pool: &ThreadPoolExecutor, sender: Sender[i64]) -> ():
+    drop(pool.submit(produce, sender).drop_job())
+{callback}    {call}
+
+def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    with ThreadPoolExecutor(1, 1).unwrap() as pool, receiver as inbox:
+        helper(&pool, sender)
+        drop(inbox.recv())
+"
+        );
+        let error = blocked_shutdown(&source);
+        assert!(error.contains("this call to `helper`"), "{error}");
+    }
+}
+
+#[test]
+fn unrelated_callable_does_not_hide_concrete_or_owned_shutdowns() {
+    for shutdown in ["pool.shutdown()", "own = ThreadPoolExecutor(1, 1).unwrap()"] {
+        for body in [
+            format!("    apply(ping)\n    {shutdown}\n"),
+            format!("    {shutdown}\n    apply(ping)\n"),
+        ] {
+            let source = format!(
+                "{UNRELATED_CALLBACKS}def helper(pool: &ThreadPoolExecutor, sender: Sender[i64]) -> ():
+    drop(pool.submit(produce, sender).drop_job())
+{body}
+def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    with ThreadPoolExecutor(1, 1).unwrap() as pool, receiver as inbox:
+        helper(&pool, sender)
+        drop(inbox.recv())
+"
+            );
+            let error = blocked_shutdown(&source);
+            assert!(error.contains("this call to `helper`"), "{error}");
+        }
+    }
+}
+
+#[test]
+fn callable_handed_sender_can_create_and_shut_down_its_own_pool() {
+    for (ty, argument, declaration, forwarded) in [
+        ("Sender[i64]", "sender.share()", "", "sender"),
+        (
+            "list[Sender[i64]]",
+            "[sender.share()].unwrap()",
+            "",
+            "sender[0].share()",
+        ),
+        (
+            "&Holder",
+            "&Holder(sender.share())",
+            "class Holder:\n    sender: Sender[i64]\n\n",
+            "sender.sender.share()",
+        ),
+    ] {
+        let source = format!(
+            "{declaration}def stop(sender: {ty}) -> ():
+    own = ThreadPoolExecutor(1, 1).unwrap()
+    drop(own.submit(produce, {forwarded}).drop_job())
+
+def helper(f: Callable[[{ty}], ()], submitter: Submitter, sender: Sender[i64]) -> ():
+    f({argument})
+    drop(submitter.submit_nowait(produce, sender).drop_job())
+
+def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    with ThreadPoolExecutor(1, 1).unwrap() as pool, receiver as inbox:
+        helper(stop, pool.submitter(), sender)
+        drop(inbox.recv())
+"
+        );
+        let error = blocked_shutdown(&source);
+        assert!(error.contains("this call to `helper`"), "{error}");
+    }
+}
+
+#[test]
+fn callable_handed_mutex_can_create_and_shut_down_its_own_pool() {
+    let source = "from std.sync import Mutex
+
+def work(counter: Shared[Mutex[i64]]) -> ():
+    with counter.lock() as value:
+        pass
+
+def stop(counter: Shared[Mutex[i64]]) -> ():
+    own = ThreadPoolExecutor(1, 1).unwrap()
+    drop(own.submit(work, counter).drop_job())
+
+def helper(f: Callable[[Shared[Mutex[i64]]], ()], submitter: Submitter, counter: Shared[Mutex[i64]]) -> ():
+    f(counter.share())
+    drop(submitter.submit_nowait(work, counter).drop_job())
+
+def main() -> ():
+    counter = Shared(Mutex(0)).unwrap()
+    with ThreadPoolExecutor(1, 1).unwrap() as pool:
+        with counter.lock() as value:
+            helper(stop, pool.submitter(), counter.share())
+";
+    let error = support::check_source(source).unwrap_err().to_string();
+    assert!(
+        error.contains("this call to `helper` can shut down a pool")
+            && error.contains("holds a lock on a `Mutex[i64]`"),
+        "{error}"
+    );
+}
+
+#[test]
+fn erased_no_argument_callable_still_may_shut_down_a_pool() {
+    let source = format!(
+        "{UNRELATED_CALLBACKS}def helper(f: BoxedCallable[[], ()], submitter: Submitter, sender: Sender[i64]) -> ():
+    f()
+    drop(submitter.submit_nowait(produce, sender).drop_job())
+
+def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    with ThreadPoolExecutor(1, 1).unwrap() as pool, receiver as inbox:
+        helper(BoxedCallable(ping).unwrap(), pool.submitter(), sender)
+        drop(inbox.recv())
+"
+    );
+    let error = blocked_shutdown(&source);
+    assert!(error.contains("this call to `helper`"), "{error}");
+}
+
+#[test]
+fn callable_destructors_and_returned_authority_stay_conservative() {
+    for (declaration, ty, callback, invoke) in [
+        (
+            "class Guard:\n    def __del__(self) -> ():\n        pass\n\ndef finish(value: Guard) -> ():\n    drop(value)\n",
+            "Callable[[Guard], ()]",
+            "finish",
+            "f(Guard())",
+        ),
+        (
+            "def make() -> ThreadPoolExecutor:\n    ThreadPoolExecutor(1, 1).unwrap()\n",
+            "Callable[[], ThreadPoolExecutor]",
+            "make",
+            "drop(f())",
+        ),
+    ] {
+        let source = format!(
+            "{declaration}def helper(f: {ty}, submitter: Submitter, sender: Sender[i64]) -> ():
+    {invoke}
+    drop(submitter.submit_nowait(produce, sender).drop_job())
+
+def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    with ThreadPoolExecutor(1, 1).unwrap() as pool, receiver as inbox:
+        helper({callback}, pool.submitter(), sender)
+        drop(inbox.recv())
+"
+        );
+        let error = blocked_shutdown(&source);
+        assert!(error.contains("this call to `helper`"), "{error}");
+    }
+}
+
+#[test]
+fn callable_handed_aggregate_pool_authority_remains_conservative() {
+    let error = blocked_shutdown(
+        "class Holder:
+    pool: ThreadPoolExecutor
+
+def stop(holder: &Holder) -> ():
+    holder.pool.shutdown()
+
+def helper(f: Callable[[&Holder], ()], holder: &Holder, sender: Sender[i64]) -> ():
+    drop(holder.pool.submit(produce, sender).drop_job())
+    f(holder)
+
+def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    holder = Holder(ThreadPoolExecutor(1, 1).unwrap())
+    helper(stop, &holder, sender)
+    drop(receiver)
+",
+    );
+    assert!(error.contains("this call to `helper`"), "{error}");
+}
+
+#[test]
+fn unrelated_callable_does_not_hide_callee_owned_job_cleanup() {
+    for submit in [
+        "own = ThreadPoolExecutor(1, 1).unwrap()\n    drop(own.submit(produce, sender).drop_job())",
+        "drop(ThreadPoolExecutor(1, 1).unwrap().submit(produce, sender).drop_job())",
+    ] {
+        let error = blocked_shutdown(&format!(
+            "{UNRELATED_CALLBACKS}def helper(sender: Sender[i64]) -> ():
+    apply(ping)
+    {submit}
+
+def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    helper(sender)
+    drop(receiver)
+"
+        ));
+        assert!(error.contains("this call to `helper`"), "{error}");
+    }
+}

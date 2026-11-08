@@ -225,10 +225,22 @@ A pool shuts down at `pool.shutdown()`, including through a
 wherever its owner leaves scope: the end of its `with` block or of the function,
 `return`, `?`, `break`, and `continue`. A call that receives a pool, by value or
 by reference, counts as a shutdown when a function it reaches, directly or
-through further calls, calls `shutdown()` or owns a pool. A call through a
-`Callable`, closure, or boxed callable value, or to a function that makes one,
-is assumed to shut down a pool passed to it. Locals are released last declared first,
-so a receiver bound after the pool is dropped before the pool shuts down.
+through further calls, calls `shutdown()` or owns a pool. Unknown calls are
+conservative, with a bounded exception for a capture-free `Callable` whose
+input and result types cannot expose pool authority or job hazards. For example,
+calling an unrelated `Callable[[], ()]` no longer makes a submission-only helper
+count as shutting down a pool, whether it takes `&ThreadPoolExecutor` or
+`Submitter`. This does not resolve the callback's actual target. Plain data and
+`Submitter` carry no shutdown authority; borrowed and aggregate types are
+searched recursively. Pool, channel and mutex capabilities, destructor-bearing
+classes, erased values and unclassified types remain conservative. Known closure
+bodies are followed; unresolved closures, boxed/protocol calls and missing
+function bodies remain unknown. Future-result wait checks are unchanged.
+
+Explicit shutdowns and owned-pool cleanup still count, even for an unrelated
+local pool. These summaries do not match pool identity or prove call order or
+general deadlock freedom. Locals are released last declared first, so a receiver
+bound after the pool is dropped before the pool shuts down.
 
 Jobs are not matched to pools and are never assumed to have finished. A job
 submitted with `submit` or `submit_nowait` counts at every later shutdown in the

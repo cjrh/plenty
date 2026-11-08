@@ -983,6 +983,15 @@ nonblocking [`Submitter`](../design/facilities/03-concurrency/executors.md#submi
 with a check that a submitting job does not wait without a time limit on a
 queue, token, mutex, or joined thread its submitted jobs can reach (issue #789).
 
+Shutdown summaries distinguish unknown future waits from unknown shutdowns
+(issue #893, bounded precision): unrelated capture-free callbacks with data-only
+signatures no longer reject borrowed-pool or `Submitter` submission helpers.
+Executor regressions cover direct/transitive/recursive callbacks, pool authority,
+callee-owned cleanup, sender/lock capabilities, erasure and destructor limits.
+Concrete effects remain visible after unknown calls. Pool identity/order,
+unrelated concrete local pools and aggregate-argument coverage remain limited;
+this is not general effect inference or a deadlock-freedom proof.
+
 See [threads](../design/facilities/03-concurrency/threads.md),
 [channels](../design/facilities/03-concurrency/channels.md),
 [executors](../design/facilities/03-concurrency/executors.md) and
