@@ -392,8 +392,9 @@ local PR #622). Immutable holders initialized with `Nothing`, `Err(e)`, or
 parameters and `mut` holders shipped as the first part of issue #868, and
 `if`/`match` values producing these types as the second.
 `dict.get_mut` replaced dictionary indexed assignment
-(issue #580, local PR #696); heap and graph reference getters shipped
-(local PR #629).
+(issue #580, local PR #696); `dict.get_ref` and `list.get_ref`/`get_mut`
+followed with the same whole-collection loan (issue #869); heap and graph
+reference getters shipped (local PR #629).
 
 Local dictionary key/value views (issue #396), list/byte slice views
 (issue #581), mutable Bytes loops (issue #594), proven disjoint slice/loop-field
