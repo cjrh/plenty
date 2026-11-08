@@ -265,7 +265,7 @@ impl Lower<'_> {
         actual: Vec<Ty>,
         at: &Token,
     ) -> Result<String> {
-        if actual.iter().any(|ty| references::borrowing_closure(ty)) {
+        if actual.iter().any(references::borrowing_closure) {
             return Err(at.error("pass a borrowing closure by reference"));
         }
         if !self.sigs[name]
