@@ -33,9 +33,8 @@ const HELLO: &str =
 ///
 /// After the shared Linux signal/context port at `7d1e3080`, default x86
 /// measurements with mold 2.40.4 on 2026-10-30 are empty 52,568/24,689 and
-/// hello 120,848/74,417 (file/`.text`). Keep empty's `.text` cap
-/// at 28,000, about 13% above that footprint; use the newer measurements
-/// above for the other x86 caps.
+/// hello 120,848/74,417 (file/`.text`). The pool measurements below set the
+/// current x86 caps.
 ///
 /// Since the first measurement (2026-10-26, `89e5f826`: hello 122,064 file and
 /// 75,953 `.text`, checked, locally), checked hello grew by 5.6 KB of `.text`:
@@ -44,23 +43,25 @@ const HELLO: &str =
 /// integer formatting that `render` reaches from every `print`).
 ///
 /// The small-block pool (issue #814) adds about 3.2 KB of code, reached from
-/// the global allocator. Measured on 2026-11-08 with mold 2.40.4: default
-/// empty 57,816/28,081 and hello 138,088/84,065; checked empty 62,656/32,129
-/// and hello 146,048/90,545 (file/`.text`). The x86 empty `.text` caps and
-/// the default hello file cap are reset to about 13% above these.
+/// the global allocator. Measured on 2026-11-08 at the merge of `main` into
+/// `claude/issue-814`, with mold 2.40.4 (file/`.text`): default empty
+/// 58,248/28,513 and hello 138,520/84,497; checked empty 63,104/32,129 and
+/// hello 146,512/91,009. Every x86 cap is reset to about 13% above these. The
+/// checked file caps also add the CI file excess in the table above (2.7 KB
+/// for empty, 8.4 KB for hello). ARM was not remeasured for the pool.
 ///
 /// Each budget allows about 13% growth over the largest measurement. Raise one
 /// only as a deliberate, reviewed change that records the new measurement here
 /// and explains it.
 #[cfg(all(target_arch = "x86_64", not(feature = "runtime-checks")))]
 const BUDGETS: [(&str, &str, u64, u64); 2] = [
-    ("empty", EMPTY, 58_000, 32_000),
-    ("hello", HELLO, 156_000, 85_000),
+    ("empty", EMPTY, 66_000, 32_500),
+    ("hello", HELLO, 157_000, 95_500),
 ];
 #[cfg(all(target_arch = "x86_64", feature = "runtime-checks"))]
 const BUDGETS: [(&str, &str, u64, u64); 2] = [
-    ("empty", EMPTY, 67_000, 36_500),
-    ("hello", HELLO, 156_000, 92_000),
+    ("empty", EMPTY, 74_500, 36_500),
+    ("hello", HELLO, 175_500, 103_000),
 ];
 
 /// ARM budgets are measured separately: fixed-width instructions, native

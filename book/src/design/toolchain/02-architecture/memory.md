@@ -153,10 +153,10 @@ still use malloc.
   is an allocation failure, reported as `AllocError` like a failed malloc.
   Checked runtimes abort when a block is freed with a layout of another class.
 
-At binary-trees size 21, peak RSS fell from 657 MB to 527 MB (C: 264 MB).
-At size 18, user-space instructions fell from 48.1 to 33.0 billion. A list of
+At binary-trees size 21, peak RSS fell from 657 MB to 526 MB (C: 264 MB).
+At size 18, user-space instructions fell from 48.1 to 33.7 billion. A list of
 5 million boxed nodes, built and freed four times, fell from 392 MB to 314 MB
-and from 13.9 to 9.2 billion instructions. Each allocation still passes
+and from 13.9 to 9.4 billion instructions. Each allocation still passes
 through the global allocator's actor-heap and arena checks.
 
 Checked buffer growth and partial-construction cleanup implement the

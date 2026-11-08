@@ -533,7 +533,7 @@ fn check_free(block: *mut u8, class: usize) {
     // change until every block has come back.
     let (owner, end) = unsafe { ((*slab).class as usize, (*slab).end) };
     let offset = (block as usize).wrapping_sub(Slab::first(slab) as usize);
-    if owner != class || block >= end || offset % block_bytes(class) != 0 {
+    if owner != class || block >= end || !offset.is_multiple_of(block_bytes(class)) {
         std::process::abort();
     }
 }
