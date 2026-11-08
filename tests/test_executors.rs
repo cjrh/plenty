@@ -1631,6 +1631,18 @@ fn a_call_that_shuts_down_its_own_pool_blocks_on_live_receivers() {
     for call in ["scoped", "explicit", "further"] {
         let source = own_pool_main(&format!("    {call}(sender)?\n    drop(receiver)\n"));
         let error = support::check_source(&source).unwrap_err().to_string();
+        assert!(error.contains("pool shutdown is discovered"), "{error}");
+        if call == "further" {
+            assert!(error.contains("`further` calls `scoped`"), "{error}");
+        }
+        assert!(
+            error.contains(if call == "explicit" {
+                "explicit pool shutdown operation"
+            } else {
+                "owned-pool cleanup"
+            }),
+            "{error}"
+        );
         assert!(
             error.contains(&format!(
                 "this call to `{call}` can shut down a pool after a job that holds \
@@ -2011,6 +2023,19 @@ def main() -> ():
         );
         let error = blocked_shutdown(&source);
         assert!(error.contains("this call to `helper`"), "{error}");
+        if callback.is_empty() {
+            assert!(
+                error.contains("assumed in `apply_pool`: indirect Callable call"),
+                "{error}"
+            );
+        } else {
+            assert!(
+                error.contains("pool shutdown is discovered")
+                    && error.contains("explicit pool shutdown operation"),
+                "{error}"
+            );
+            assert!(!error.contains("assumed"), "{error}");
+        }
     }
 }
 
@@ -2100,7 +2125,7 @@ def main() -> ():
 ";
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(
-        error.contains("this call to `helper` can shut down a pool")
+        error.contains("this call to `helper` is assumed capable of shutting down a pool")
             && error.contains("holds a lock on a `Mutex[i64]`"),
         "{error}"
     );
@@ -2121,7 +2146,10 @@ def main() -> ():
 "
     );
     let error = blocked_shutdown(&source);
-    assert!(error.contains("this call to `helper`"), "{error}");
+    assert!(
+        error.contains("pool shutdown is assumed in `helper`: erased BoxedCallable call"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -2198,5 +2226,134 @@ def main() -> ():
 "
         ));
         assert!(error.contains("this call to `helper`"), "{error}");
+    }
+}
+
+// Issue #894: these fixtures must stay rejected for their original hazards;
+// the added notes explain the effect, not a relaxation of shutdown checking.
+#[test]
+fn shutdown_diagnostics_explain_transitive_assumptions_at_both_entry_points() {
+    for (ty, submit, argument) in [
+        ("&ThreadPoolExecutor", "submit", "&pool"),
+        ("Submitter", "submit_nowait", "pool.submitter()"),
+    ] {
+        let source = format!(
+            "def ping(sender: Sender[i64]) -> ():
+    drop(sender)
+
+def apply(f: Callable[[Sender[i64]], ()], sender: Sender[i64]) -> ():
+    f(sender)
+
+def through(sender: Sender[i64], again: bool) -> ():
+    if again:
+        through(sender, False)
+    else:
+        apply(ping, sender)
+
+def helper(pool: {ty}, sender: Sender[i64]) -> ():
+    through(sender.share(), True)
+    drop(pool.{submit}(produce, sender).drop_job())
+
+def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    with ThreadPoolExecutor(1, 1).unwrap() as pool, receiver as inbox:
+        helper({argument}, sender)
+        drop(inbox.recv())
+"
+        );
+        let error = blocked_shutdown(&source);
+        for expected in [
+            "this call to `helper` is assumed capable of shutting down a pool",
+            "`helper` calls `through`",
+            "`through` calls `apply`",
+            "pool shutdown is assumed in `apply`: indirect Callable call",
+            "input/result types may expose pool authority or job hazards",
+            "not by pool identity or call order",
+            "`receiver` holds `Receiver[i64]`",
+        ] {
+            assert!(error.contains(expected), "missing {expected}: {error}");
+        }
+        if ty == "&ThreadPoolExecutor" {
+            assert!(
+                error.contains("pool capability passed through `pool`"),
+                "{error}"
+            );
+            assert!(error.contains("the job is submitted here"), "{error}");
+        } else {
+            assert!(!error.contains("pool capability passed"), "{error}");
+        }
+        assert_eq!(error, blocked_shutdown(&source));
+    }
+}
+
+#[test]
+fn shutdown_diagnostics_explain_erased_protocol_calls() {
+    let error = blocked_shutdown(
+        "protocol Action:
+    def act(self) -> ():
+        pass
+
+class Ping:
+    def act(self) -> ():
+        pass
+
+def helper(action: &Box[Action], submitter: Submitter, sender: Sender[i64]) -> ():
+    action.act()
+    drop(submitter.submit_nowait(produce, sender).drop_job())
+
+def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    action = Box[Action](Ping()).unwrap()
+    with ThreadPoolExecutor(1, 1).unwrap() as pool, receiver as inbox:
+        helper(&action, pool.submitter(), sender)
+        drop(inbox.recv())
+",
+    );
+    assert!(
+        error.contains("pool shutdown is assumed in `helper`: erased boxed-protocol call"),
+        "{error}"
+    );
+}
+
+#[test]
+fn shutdown_diagnostics_prefer_concrete_witnesses_after_capable_callbacks() {
+    for shutdown in ["pool.shutdown()", "own = ThreadPoolExecutor(1, 1).unwrap()"] {
+        let error = blocked_shutdown(&format!(
+            "def ping(sender: Sender[i64]) -> ():
+    drop(sender)
+
+def apply(f: Callable[[Sender[i64]], ()], sender: Sender[i64]) -> ():
+    f(sender)
+
+def stop(pool: &ThreadPoolExecutor) -> ():
+    {shutdown}
+
+def helper(pool: &ThreadPoolExecutor, sender: Sender[i64]) -> ():
+    apply(ping, sender.share())
+    drop(pool.submit(produce, sender).drop_job())
+    stop(pool)
+
+def main() -> ():
+    sender, receiver = channel[i64](1).unwrap()
+    with ThreadPoolExecutor(1, 1).unwrap() as pool, receiver as inbox:
+        helper(&pool, sender)
+        drop(inbox.recv())
+"
+        ));
+        let reason = if shutdown == "pool.shutdown()" {
+            "explicit pool shutdown operation"
+        } else {
+            "owned-pool cleanup: local `own`"
+        };
+        assert!(error.contains(reason), "{error}");
+        assert!(error.contains("`helper` calls `stop`"), "{error}");
+        assert!(
+            error.contains("pool shutdown is discovered in `stop`"),
+            "{error}"
+        );
+        assert!(
+            !error.contains("assumed") && !error.contains("calls `apply`"),
+            "{error}"
+        );
     }
 }

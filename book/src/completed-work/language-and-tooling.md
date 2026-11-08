@@ -1005,6 +1005,15 @@ Concrete effects remain visible after unknown calls. Pool identity/order,
 unrelated concrete local pools and aggregate-argument coverage remain limited;
 this is not general effect inference or a deadlock-freedom proof.
 
+Shutdown diagnostics retain deterministic, bounded call-chain witnesses and
+callee source positions (issue #894). Both handed-pool and callee-owned-pool
+checks distinguish discovered shutdown/owned cleanup from assumed opaque-call
+effects, preferring concrete witnesses. Cached effects and their explanations
+share one summary per specialized function. Tests cover recursion, long chains,
+missing bodies, capability-bearing/erased callbacks, owned cleanup and source
+provenance. This changes explanations, not the accepted program set; pool
+identity/order and aggregate-only argument limitations remain unchanged.
+
 See [threads](../design/facilities/03-concurrency/threads.md),
 [channels](../design/facilities/03-concurrency/channels.md),
 [executors](../design/facilities/03-concurrency/executors.md) and

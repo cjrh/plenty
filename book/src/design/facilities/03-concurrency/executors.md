@@ -237,6 +237,15 @@ classes, erased values and unclassified types remain conservative. Known closure
 bodies are followed; unresolved closures, boxed/protocol calls and missing
 function bodies remain unknown. Future-result wait checks are unchanged.
 
+A rejected helper call reports whether shutdown was **discovered** (an explicit
+shutdown or owned-pool cleanup) or **assumed** (an unresolved call). Notes identify
+the enclosing function, available source positions and the call chain, including
+missing bodies and erased callbacks. Concrete witnesses take precedence over
+unknown calls. Chains show at most eight edges nearest the cause, with an omitted
+edge count for longer paths. A passed pool binding is identified when available;
+this is not proof that the shutdown and submitted job belong to that same pool.
+The same explanations apply to helpers handed only job inputs or a `Submitter`.
+
 Explicit shutdowns and owned-pool cleanup still count, even for an unrelated
 local pool. These summaries do not match pool identity or prove call order or
 general deadlock freedom. Locals are released last declared first, so a receiver
