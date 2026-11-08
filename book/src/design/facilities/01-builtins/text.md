@@ -18,6 +18,15 @@ method, so the two counts cannot be confused at a call site.
 searches without allocating. Both count bounds in scalars; see
 [substring views](../../language/04-expressions/slices.md#substring-views).
 
+`text.as_bytes() -> &[u8]` borrows the exact UTF-8 encoding without copying,
+retaining, allocating, or counting scalars. It works on `str`, string references,
+and substring views. A byte view's length and positions count bytes; iterating
+it yields `&u8` items, read as values with `*byte`. The string's storage remains
+borrowed until the view's last use. Bind a temporary string to a name before
+saving its byte view; an immediate call may borrow a temporary's bytes for the
+full expression. Use `std.bytes.from_text(text)?` for an independent owned byte
+copy, including when `text` is a substring view.
+
 String literals require no allocation. Results of at most seven UTF-8 bytes,
 including every single character and the empty string, also require no heap
 allocation. Longer constructed results use fallible storage. This threshold does

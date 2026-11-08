@@ -476,6 +476,186 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     );
 }
 
+#[test]
+fn as_bytes_borrows_exact_utf8_ranges_and_preserves_scalar_iteration() {
+    support::assert_stdout(
+        r#"
+import std.bytes
+
+def show(text: &str) -> Result[(), IoError]:
+    print(text.as_bytes())
+
+def show_view(text: &strview) -> Result[(), IoError]:
+    print(text.as_bytes())
+
+def main() -> Result[(), AllocError | IoError]:
+    text = "aé\0🙂z"
+    bytes: &[u8] = text.as_bytes()
+    print(len(bytes), len(text), bytes[1], bytes[-1])?
+    print((&text[1:4]).as_bytes(), &text.as_bytes()[1:4])?
+    print(std.bytes.from_text(&text[1:4])?)?
+    print("é".as_bytes(), "".as_bytes())?
+    show(&text)?
+    show_view(&text[1:2])?
+    for byte in (&text[1:2]).as_bytes():
+        print(*byte)?
+    for scalar in &text[1:2]:
+        print(scalar)?
+    Ok(())
+"#,
+        "9 5 195 122\nb\"\\xc3\\xa9\\x00\\xf0\\x9f\\x99\\x82\" b\"\\xc3\\xa9\\x00\"\nb\"\\xc3\\xa9\\x00\\xf0\\x9f\\x99\\x82\"\nb\"\\xc3\\xa9\" b\"\"\nb\"a\\xc3\\xa9\\x00\\xf0\\x9f\\x99\\x82z\"\nb\"\\xc3\\xa9\"\n195\n169\né\n",
+    );
+}
+
+#[test]
+fn as_bytes_tracks_inline_field_collection_and_shared_origins() {
+    support::assert_stdout(
+        r#"
+import std.bytes
+
+class Label:
+    text: str
+
+def replace_after_use(text: &mut str) -> Result[(), IoError]:
+    bytes = text.as_bytes()
+    print(bytes)?
+    *text = "changed"
+    Ok(())
+
+def read[T: CopyType](value: &T) -> T:
+    *value
+
+def main() -> Result[(), AllocError | IoError]:
+    mut label = Label("é")
+    field = label.text.as_bytes()
+    print(field)?
+    label.text = "x"
+    mut values = ["abc", "é"]?
+    element = values[1].as_bytes()
+    print(element)?
+    values.append("after")?
+    entries = {"key": "abc"}?
+    print(entries["key"].as_bytes())?
+    shared = Shared("é")?
+    print(shared.as_bytes())?
+    mut small = "abc"
+    replace_after_use(&mut small)?
+    print(small, read(&small))?
+    mut output = std.bytes.with_capacity(8)?
+    output.extend((&values[0][1:]).as_bytes())?
+    print(output)?
+    Ok(())
+"#,
+        "b\"\\xc3\\xa9\"\nb\"\\xc3\\xa9\"\nb\"abc\"\nb\"\\xc3\\xa9\"\nb\"abc\"\nchanged changed\nb\"bc\"\n",
+    );
+}
+
+#[test]
+fn as_bytes_temporary_owner_survives_consuming_call() {
+    support::assert_stdout(
+        r#"
+import std.bytes
+
+def make() -> str:
+    return "heap-backed temporary string"
+
+def width(bytes: &[u8]) -> i64:
+    len(bytes)
+
+def tiny() -> str:
+    return "é!"
+
+def main() -> Result[(), AllocError | IoError]:
+    print(width(make().as_bytes()), std.bytes.from_bytes(make().as_bytes())?)?
+    print(width((&make()[12:]).as_bytes()))?
+    for byte in tiny().as_bytes():
+        print(*byte)?
+    Ok(())
+"#,
+        "28 b\"heap-backed temporary string\"\n16\n195\n169\n33\n",
+    );
+}
+
+#[rstest]
+#[case(
+    "mut text = \"abc\"\n    bytes = text.as_bytes()\n    text = \"new\"\n    print(bytes)?",
+    "borrow"
+)]
+#[case(
+    "mut text = \"abc\"\n    bytes = text.as_bytes()\n    reference = &mut text\n    print(bytes)?",
+    "borrow"
+)]
+#[case(
+    "mut values = [\"abc\"]?\n    bytes = values[0].as_bytes()\n    values.append(\"new\")?\n    print(bytes)?",
+    "borrow"
+)]
+#[case(
+    "text = \"abc\"\n    mut bytes = text.as_bytes()\n    bytes[0] = 0u8",
+    "shared"
+)]
+fn as_bytes_keeps_storage_immutable_until_last_use(#[case] body: &str, #[case] message: &str) {
+    let program =
+        format!("def main() -> Result[(), AllocError | IoError]:\n    {body}\n    Ok(())\n");
+    let error = support::check_file_error(&program);
+    assert!(error.contains(message), "{error}");
+}
+
+#[rstest]
+#[case("make().as_bytes()")]
+#[case("&make().as_bytes()")]
+#[case("&make().as_bytes()[:]")]
+#[case("(&make()[:]).as_bytes()")]
+fn as_bytes_cannot_save_a_temporary_owner_view(#[case] expression: &str) {
+    let program = format!(
+        "def make() -> str:\n    return \"abc\"\n\ndef main() -> Result[(), IoError]:\n    bytes = {expression}\n    print(bytes)?\n    Ok(())\n"
+    );
+    let error = support::check_file_error(&program);
+    assert!(error.contains("temporary string"), "{error}");
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn as_bytes_allocates_nothing_and_direct_view_copy_reports_failure() {
+    support::assert_stdout(
+        r#"
+import std.bytes
+
+def main() -> Result[(), AllocError | IoError]:
+    text = "é: long heap-backed text"
+    view = &text[1:]
+    print("__test_fail_allocations_after_0__")?
+    bytes = view.as_bytes()
+    count = len(bytes)
+    first = bytes[0]
+    literal = "é".as_bytes()
+    copied = std.bytes.from_text(view)
+    print("__test_restore_allocations__")?
+    print(count, first, literal)?
+    print(copied.is_err(), std.bytes.from_text(view)?)?
+    Ok(())
+"#,
+        "__test_fail_allocations_after_0__\n__test_restore_allocations__\n23 58 b\"\\xc3\\xa9\"\nTrue b\": long heap-backed text\"\n",
+    );
+}
+
+#[rstest]
+#[case("view = &text[:] if True else &other[:]")]
+#[case("view: &strview = &text[:] if True else &other[:]")]
+#[case("print(&text[:] if True else &other[:])?")]
+#[case("bytes = text.as_bytes() if True else other.as_bytes()")]
+#[case("bytes: &[u8] = text.as_bytes() if True else other.as_bytes()")]
+#[case("print(text.as_bytes() if True else other.as_bytes())?")]
+fn conditional_byte_views_are_rejected_without_losing_their_origins(#[case] statement: &str) {
+    let program = format!(
+        "def main() -> Result[(), IoError]:\n    text = \"abc\"\n    other = \"def\"\n    {statement}\n    Ok(())\n"
+    );
+    let error = support::check_file_error(&program);
+    assert!(
+        error.contains("conditional expressions cannot produce slice views"),
+        "{error}"
+    );
+}
+
 /// The canonical view name and original alias resolve to the same view type;
 /// ordinary references to owning handles still follow generic reference rules.
 #[test]

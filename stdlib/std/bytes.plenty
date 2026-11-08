@@ -353,8 +353,8 @@ pub def with_capacity(capacity: i64) -> Result[Bytes, AllocError]:
 pub def from_list(values: &list[u8]) -> Result[Bytes, AllocError]:
     Ok(Bytes(__bytes_from_list(values)?))
 
-pub def from_text(text: &str) -> Result[Bytes, AllocError]:
-    Ok(Bytes(__bytes_from_text(text)?))
+pub def from_text(text: &strview) -> Result[Bytes, AllocError]:
+    from_bytes(text.as_bytes())
 
 # An owned, growable copy of any byte view: a literal, `Bytes`, `list[u8]`
 # or a subview of one.

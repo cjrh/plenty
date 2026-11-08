@@ -420,6 +420,16 @@ User-container membership and iterator protocols remain **B49** in the
 
 ## B12: I/O and iteration
 
+Text and substring views expose `as_bytes()`, a constant-time shared byte borrow
+that preserves the original string loan, including inline slots. Byte iteration
+uses the existing `&[u8]` view rules. `std.bytes.from_text` accepts substring
+views and copies directly into an owned buffer without an intermediate owning
+string. Ordinary `&str`/generic references, scalar indexing/iteration and the
+two-word view representation are unchanged. This delivers the byte-access slice
+of issue #864; text-operation parity and broader read-only std inputs remain
+tracked there. The [Text reference](../design/facilities/01-builtins/text.md) and
+[byte views](../design/stdlib/bytes.md#byte-views) describe the contracts.
+
 The separate borrowed text view is named `&strview`; the original `&substr`
 spelling remains a compatible alias. Ordinary `&str` references, generic `&T`
 and the two-word view layout keep their existing semantics. See
