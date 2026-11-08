@@ -1293,7 +1293,7 @@ def pick(items: &list[Item], other: &list[Item], first: bool) -> Option[&Item]:
         ),
         "returned reference must originate from the first reference parameter, `items`; this one borrows `other`",
     );
-    // A plain reference from an arm still needs B11's stored references.
+    // A plain reference from a user-written arm is not yet a reference-binding source (issue #897).
     rejects(
         r#"
 items = [1, 2].unwrap()
@@ -1445,15 +1445,48 @@ for k in [0, 1, 2].unwrap():
     }
 }
 
+/// A value copied out of one iteration stays borrowed while the next
+/// iteration evaluates the same `if`, `unwrap_or` or empty holder again
+/// (issue #868): their hidden roots are initialized once per call.
 #[test]
-fn branch_values_copied_on_some_paths_block_reevaluation() {
-    // Phase guard for B11 (issue #868): a copy kept from an earlier
-    // iteration keeps the branch binding borrowed, so its next evaluation is
-    // rejected although no owner changes. Delete when that is accepted.
+fn branch_values_reevaluate_while_an_earlier_copy_is_live() {
+    assert_stdout(
+        &with_find(
+            r#"
+def main() -> Result[(), AllocError | IoError]:
+    a = [Item("ada", 1)]?
+    b = [Item("bob", 1)]?
+    other = Item("zed", 0)
+    mut keep: Option[&Item] = Nothing
+    mut kept: Option[&Item] = Nothing
+    mut fallback: Option[&Item] = Nothing
+    for k in [0, 1]?:
+        x = if k == 0:
+            find(&a, "ada")
+        else:
+            find(&b, "bob")
+        mut h: Option[&Item] = Nothing
+        if k == 0:
+            h = find(&b, "bob")
+        r = find(&a, "q").unwrap_or(&other)
+        if k == 0:
+            keep = x
+            kept = h
+            fallback = Some(r)
+        print(x)?
+    print(keep)?
+    print(kept)?
+    print(fallback.unwrap().name)?
+    Ok(())
+"#,
+        ),
+        "Option[&Item].Some(Item(name=\"ada\", count=1))\nOption[&Item].Some(Item(name=\"bob\", count=1))\nOption[&Item].Some(Item(name=\"ada\", count=1))\nOption[&Item].Some(Item(name=\"bob\", count=1))\nzed\n",
+    );
+    // The copy still keeps every owner the expression could borrow.
     rejects(
         &with_find(
             r#"
-a = [Item("ada", 1)].unwrap()
+mut a = [Item("ada", 1)].unwrap()
 b = [Item("bob", 1)].unwrap()
 mut keep: Option[&Item] = Nothing
 for k in [0, 1].unwrap():
@@ -1463,30 +1496,30 @@ for k in [0, 1].unwrap():
         find(&b, "bob")
     if k == 0:
         keep = x
+a.clear()
 print(keep).unwrap()
 "#,
         ),
-        "cannot assign to `x` while it is borrowed",
+        "cannot modify or exclusively borrow `a` while it is borrowed",
     );
-    assert_stdout(
+    // An exclusive copy blocks the next evaluation; the note names the owners.
+    rejects(
         &with_find(
             r#"
-def main() -> Result[(), AllocError | IoError]:
-    a = [Item("ada", 1)]?
-    b = [Item("bob", 1)]?
-    mut keep: Option[&Item] = Nothing
-    for k in [0, 1]?:
-        if k == 0:
-            x = find(&a, "ada")
-            keep = x
-        else:
-            x = find(&b, "bob")
-            print(x)?
-    print(keep)?
-    Ok(())
+mut a = [Item("ada", 1)].unwrap()
+mut b = [Item("bob", 1)].unwrap()
+mut keep: Option[&mut Item] = Nothing
+for k in [0, 1].unwrap():
+    x = if k == 0:
+        find_mut(&mut a, "ada")
+    else:
+        find_mut(&mut b, "bob")
+    if k == 0:
+        keep = x
+print(keep).unwrap()
 "#,
         ),
-        "Option[&Item].Some(Item(name=\"bob\", count=1))\nOption[&Item].Some(Item(name=\"ada\", count=1))\n",
+        "`keep` still holds an earlier value of `x`, which borrows `a` or `b`; `x` cannot borrow them again while `keep` is live",
     );
 }
 
@@ -1779,4 +1812,105 @@ def main() -> Result[(), AllocError | IoError]:
         ),
         "cannot modify or exclusively borrow `items` while it is exclusively borrowed",
     );
+}
+
+/// With a borrowed payload, `map_or`, `map_or_else` and `unwrap_or_else`
+/// lower as the `match` they abbreviate (issue #868): the mapper receives
+/// the reference, and a reference result keeps both alternatives borrowed.
+#[test]
+fn borrowed_payload_adapters_lower_as_a_match() {
+    let program = r#"
+def name_of(item: &Item) -> &str:
+    &item.name
+
+def bump(item: &mut Item) -> i64:
+    item.count = 40
+    item.count
+
+def label(items: &list[Item], key: &str) -> &str:
+    find(items, key).map_or(&items[0].name, name_of)
+
+def pick(items: &list[Item], key: &str) -> Result[&Item, str]:
+    for item in items:
+        if item.name == key:
+            return Ok(item)
+    Err("missing")
+
+def main() -> Result[(), AllocError | IoError]:
+    mut items = [Item("ada", 1), Item("bob", 2)]?
+    other = Item("zed", 0)
+    print(find(&items, "bob").map_or(0, def (item: &Item) -> i64: item.count))?
+    print(find(&items, "x").map_or(0, def (item: &Item) -> i64: item.count))?
+    print(find(&items, "x").map_or(&other.name, name_of))?
+    print(label(&items, "bob"), label(&items, "x"))?
+    print(find_mut(&mut items, "bob").map_or(0, bump), items[1].count)?
+    print(pick(&items, "x").map_or(7, def (item: &Item) -> i64: item.count))?
+    counted = pick(&items, "x").map_or_else(def (error: str) -> i64: -1, def (item: &Item) -> i64: item.count)
+    print(counted)?
+    print(pick(&items, "ada").map_or_else(def (error: str) -> i64: -1, def (item: &Item) -> i64: item.count))?
+    Ok(())
+"#;
+    assert_stdout(&with_find(program), "2\n0\nzed\nbob ada\n40 40\n7\n-1\n1\n");
+    for (body, message) in [
+        (
+            "def name_of(item: &Item) -> &str:\n    &item.name\nmut items = [Item(\"ada\", 1)].unwrap()\nother = Item(\"bob\", 2)\nname = find(&items, \"x\").map_or(&other.name, name_of)\nitems.clear()\nprint(name).unwrap()\n",
+            "`name` holds a `map_or` result, which keeps both the mapped payload and the fallback borrowed",
+        ),
+        (
+            "def me(item: &mut Item) -> &mut Item:\n    item\nmut items = [Item(\"ada\", 1)].unwrap()\nmut spare = Item(\"bob\", 2)\nslot = find_mut(&mut items, \"x\").map_or(&mut spare, me)\nprint(spare.count).unwrap()\nslot.count = 3\n",
+            "cannot read or borrow `spare.count` while `spare` is exclusively borrowed",
+        ),
+        (
+            "def name_of(item: &Item) -> &str:\n    &item.name\ndef label(items: &list[Item], other: &Item) -> &str:\n    find(items, \"x\").map_or(&other.name, name_of)\n",
+            "returned reference must originate from the first reference parameter, `items`; the default of `map_or` must also borrow from `items`",
+        ),
+        (
+            "def name_of(item: &Item) -> &str:\n    &item.name\ndef label(other: &Item, items: &list[Item]) -> &str:\n    find(items, \"x\").map_or(&other.name, name_of)\n",
+            "returned reference must originate from the first reference parameter, `other`; the mapped payload of `map_or` must also borrow from `other`",
+        ),
+        (
+            "def pick(other: &Item, items: &list[Item]) -> &Item:\n    find(items, \"x\").unwrap_or(other)\n",
+            "returned reference must originate from the first reference parameter, `other`; the value of `unwrap_or` must also borrow from `other`",
+        ),
+    ] {
+        rejects(&with_find(body), message);
+    }
+}
+
+/// A reference bound below a borrowed payload can be matched again.
+#[test]
+fn sub_bindings_of_a_borrowed_match_match_again() {
+    let program = r#"
+class Q:
+    p: (i64, i64)
+    n: i64
+
+def first(qs: &mut list[Q]) -> Option[&mut Q]:
+    for q in qs:
+        return Some(q)
+    Nothing
+
+def main() -> Result[(), AllocError | IoError]:
+    mut qs = [Q((1, 2), 3)]?
+    match first(&mut qs):
+        case Some(Q(p=pp, n=nn)):
+            match pp:
+                case (l, _):
+                    *l = 5
+            *nn = 4
+        case Nothing:
+            pass
+    match first(&mut qs):
+        case Some(qq):
+            match qq:
+                case Q(p=pp, n=_):
+                    match pp:
+                        case (_, r):
+                            *r = 6
+        case Nothing:
+            pass
+    print(qs[0].p, qs[0].n)?
+    Ok(())
+"#;
+    assert_stdout(program, "(5, 6) 4\n");
 }

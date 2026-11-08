@@ -35,8 +35,10 @@ Constructing a callback and evaluating its captures still happens eagerly;
 only its body is conditional. Unused callbacks and their captures are dropped.
 These operations add no allocation, deep copying, or implicit error propagation.
 The existing restrictions on passing borrowed environments by value apply.
-Use `match` for reference-carrying payloads and callbacks that cannot be passed
-as owners.
+Use `match` for callbacks that cannot be passed as owners. With a borrowed
+payload, as in `Option[&Item]`, the callbacks take the payload reference and
+the method lowers as the `match` it abbreviates; see
+[optional references](../05-ownership/05-optional-references.md#using-the-result).
 
 Both sums also support `map_or(default, mapper)` and
 `map_or_else(fallback, mapper)`. The mapper consumes `T` and returns `U`.
