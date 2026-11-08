@@ -330,6 +330,78 @@ name first. A [block `if`](branches.md#an-if-as-a-statements-value) supports the
 same whole-statement value positions and retains these expression-position
 restrictions.
 
+## Compared to Python and Rust
+
+Plenty's `match`/`case` syntax looks like Python's, but its bindings have
+arm-local lexical scope. A pattern introduces fresh immutable locals, which may
+shadow outer names; it does not assign to those outer bindings.
+
+In Python, a [capture pattern](https://docs.python.org/3/reference/compound_stmts.html#capture-patterns)
+binds in the enclosing scope, like an assignment. A successful pattern binds
+its names **before** its guard is evaluated. For example, this Python program
+prints `1 2 3`, even though the guard is false:
+
+```python
+a, b, c = 5, 6, 7
+match (1, 2, 3):
+    case (a, b, c) if a > 10:
+        print("large")
+    case _:
+        print(a, b, c)
+```
+
+Those captures replace the enclosing `a`, `b`, and `c`; Python's successful
+pattern bindings also outlive the `match`. This is different from a pattern
+that fails partway through: Python deliberately leaves the persistence of
+partial bindings [unspecified](https://docs.python.org/3/reference/compound_stmts.html#overview).
+
+In Plenty, the same names in a selected arm shadow rather than replace the
+outer bindings:
+
+```plenty
+def main() -> Result[(), IoError]:
+    a, b, c = 5, 6, 7
+    match (1, 2, 3):
+        case (a, b, c):
+            print("inner", a, b, c)?
+    print("outer", a, b, c)?
+    Ok(())
+```
+```output
+inner 1 2 3
+outer 5 6 7
+```
+
+Calling this binding behavior “hygiene” is informal: hygiene normally describes
+name resolution in [macros](https://doc.rust-lang.org/reference/macros-by-example.html#hygiene).
+Here the rule is ordinary lexical scope and shadowing, not rollback of arbitrary
+side effects.
+
+**Plenty has no case guards.** Both Python and
+[Rust](https://doc.rust-lang.org/reference/expressions/match-expr.html#match-guards)
+support guards that can reject a matching pattern and continue trying cases.
+An `if` inside a Plenty arm runs only after that arm has been selected; a false
+condition does **not** resume matching. Handle both outcomes inside the arm, or
+use an `if`/`elif` chain when selection depends on such conditions.
+
+Plenty is closer to Rust in these respects:
+
+- Pattern bindings are [local to the arm](https://doc.rust-lang.org/reference/expressions/match-expr.html#r-expr.match.pattern-vars),
+  rather than Python-style assignments to enclosing names.
+- Matches must be [exhaustive](https://doc.rust-lang.org/book/ch06-02-match.html#matches-are-exhaustive).
+  Python permits no case to match, in which case execution simply continues.
+- Matching respects ownership: bindings can move owned noncopyable values or
+  borrow payloads when matching references. See [Ownership](#ownership) and
+  [Rust's binding modes](https://doc.rust-lang.org/reference/patterns.html#binding-modes).
+
+There are also important differences from Rust. Rust's `match` is a general
+expression; Plenty permits value-producing matches only at function tails and
+in the [whole-statement value positions](#a-match-as-a-statements-value).
+Both Rust and Python allow a bare capture name at the root of a pattern
+(in Rust, a name resolving to a constant or variant is instead a path pattern).
+Plenty deliberately requires `_ as name` for an untyped whole-value binding;
+a bare name binds only within a payload or field pattern.
+
 ## Ownership
 
 Owned matching consumes the scrutinee: bound payloads move into their bindings
