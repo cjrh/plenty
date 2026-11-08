@@ -155,7 +155,44 @@ guest
 
 A result can be bound to an immutable local. The local is a holder, not
 storage: like a reference binding, it extends the origin loan to its last use.
-Copying it shares that loan.
+Copying it shares that loan. A copy of a shared holder such as
+`Option[&Item]` can be used alongside the original. A copy of an exclusive
+holder such as `Option[&mut Item]` borrows the original exclusively, so after
+`y = x`, `x` cannot be read until the last use of `y`; `print(x)?` followed by
+`print(y)?` is rejected.
+
+An exclusive payload taken from a holder, by a `match` statement, a `match`
+or `if` value, `unwrap_or` or an adapter, exclusively borrows the holder until
+the payload's last use. Reading, printing, copying or passing the holder in
+that time is rejected, since it would reach the referent through a second
+path. This holds even when the payload is only read later; reading the holder
+after the payload's last use is accepted.
+
+```plenty-error
+class Item:
+    name: str
+    count: i64
+
+def find_mut(items: &mut list[Item], name: &str) -> Option[&mut Item]:
+    for item in items:
+        if item.name == name:
+            return Some(item)
+    Nothing
+
+def main() -> Result[(), AllocError | IoError]:
+    mut items = [Item("ada", 1)]?
+    found = find_mut(&mut items, "ada")
+    match found:
+        case Some(item):
+            print(found)?
+            print(item.count)?
+        case Nothing:
+            pass
+    Ok(())
+```
+```error
+cannot read `items` (through `found`) while it is exclusively borrowed
+```
 
 A holder initialized with a value that holds no reference, such as
 `Nothing`, `Err(e)`, or `Some(Nothing)`, borrows nothing. Give it a type
