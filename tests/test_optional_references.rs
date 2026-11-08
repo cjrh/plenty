@@ -2030,12 +2030,11 @@ def pick(items: &list[Item], other: &list[Item], first: bool) -> &Item:
     );
 }
 
-/// A conditional's view has no join loan, so it is rejected rather than
-/// left unborrowed (local PR #1126 review).
+/// A conditional's dictionary view has no join loan, so it is rejected
+/// rather than left unborrowed (local PR #1126 review).
 #[test]
 fn conditional_views_are_rejected() {
-    const VIEW: &str =
-        "a conditional expression cannot produce a view or a closure with borrowed captures";
+    const VIEW: &str = "a conditional expression cannot produce a dictionary view";
     rejects(
         r#"
 mut d = {"x": [1, 2, 3].unwrap()}.unwrap()
@@ -2065,5 +2064,33 @@ for v in (d.values() if len(d) > 0 else d.values()):
     print(v).unwrap()
 "#,
         VIEW,
+    );
+}
+
+/// A conditional may choose a closure with borrowed captures: its capture
+/// loans follow the value, so the captured owner stays borrowed.
+#[test]
+fn conditional_borrowing_closures_keep_captures_borrowed() {
+    assert_stdout(
+        r#"
+mut a = [1, 2].unwrap()
+read = def [&a]() -> i64:
+    len(a)
+g = read if len(a) > 0 else read
+print(g()).unwrap()
+a.clear()
+"#,
+        "2\n",
+    );
+    rejects(
+        r#"
+mut a = [1, 2].unwrap()
+read = def [&a]() -> i64:
+    len(a)
+g = read if len(a) > 0 else read
+a.clear()
+print(g()).unwrap()
+"#,
+        "conflicting borrow",
     );
 }
