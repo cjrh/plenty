@@ -2386,9 +2386,17 @@ impl Lower<'_> {
             }
         }
         if let Some(parent) = subject.carried {
+            // The bindings that carry the loan are the payload reference or
+            // distinct leaves below it, so they never overlap. One loan
+            // covers them all: a loan relative to the referent has no
+            // field path in the origin's root, so separate exclusive loans
+            // would conflict with each other.
+            let mut shared = None;
             for (name, ty) in bound.iter().filter(|(_, ty)| ty.carries_loan()) {
-                let root = self.loans[parent].root;
-                let loan = self.new_loan(root, ty.carries_mutable_loan(), Some(parent), body);
+                let loan = *shared.get_or_insert_with(|| {
+                    let root = self.loans[parent].root;
+                    self.new_loan(root, ty.carries_mutable_loan(), Some(parent), body)
+                });
                 self.reference_locals.insert(slots[name.as_str()], loan);
             }
         }

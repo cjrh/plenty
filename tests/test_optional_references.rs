@@ -1548,6 +1548,52 @@ pick = find(&b, "bob")
         ),
         "can be reassigned only to a reference into the owner it first borrowed; to choose between owners, start it empty, as in `mut pick: Option[&Item] = Nothing`",
     );
+    rejects(
+        &with_find(
+            r#"
+def get(items: &list[Item]) -> Result[&Item, str]:
+    for item in items:
+        return Ok(item)
+    Err("none")
+a = [Item("ada", 1)].unwrap()
+b = [Item("bob", 1)].unwrap()
+mut pick = get(&a)
+pick = get(&b)
+"#,
+        ),
+        "to choose between owners, start it empty, as in `mut pick: Result[&Item, str] = Err(error)`",
+    );
+    // A plain reference cannot start empty, so it gets no hint.
+    let error = check_error(&with_find(
+        "a = [Item(\"ada\", 1)].unwrap()\nb = [Item(\"bob\", 1)].unwrap()\nmut pick = &a[0]\npick = &b[0]\nprint(pick.name).unwrap()\n",
+    ));
+    assert!(
+        error.ends_with("can be reassigned only to a reference into the owner it first borrowed"),
+        "{error}"
+    );
+    let program = r#"
+class Item:
+    name: str
+
+def get(items: &list[Item]) -> Result[&Item, str]:
+    for item in items:
+        return Ok(item)
+    Err("none")
+
+def main() -> Result[(), AllocError | IoError]:
+    a = [Item("ada")]?
+    b = [Item("bob")]?
+    mut pick: Result[&Item, str] = Err("none")
+    pick = get(&a)
+    pick = get(&b)
+    match pick:
+        case Ok(item):
+            print(item.name)?
+        case Err(e):
+            print(e)?
+    Ok(())
+"#;
+    assert_stdout(program, "bob\n");
 }
 
 /// `unwrap_or` with a borrowed default keeps the payload's and the
@@ -1599,7 +1645,7 @@ def main() -> Result[(), AllocError | IoError]:
         ),
         (
             "def pick(items: &list[Item]) -> &Item:\n    other = Item(\"bob\", 2)\n    find(items, \"x\").unwrap_or(&other)\n",
-            "returned reference must originate from the first reference parameter, `items`",
+            "returned reference must originate from the first reference parameter, `items`; the default of `unwrap_or` must also borrow from `items`",
         ),
     ] {
         rejects(&with_find(body), message);
@@ -1679,4 +1725,58 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     ] {
         rejects(&with_find(body), message);
     }
+}
+
+/// Several exclusive bindings below one payload reference are disjoint
+/// leaves sharing its loan; a named subject and alternatives work too.
+#[test]
+fn nested_bindings_below_an_exclusive_reference_coexist() {
+    let program = r#"
+class Item:
+    name: str
+    count: i64
+
+def find_mut(items: &mut list[Item], name: &str) -> Option[&mut Item]:
+    for item in items:
+        if item.name == name:
+            return Some(item)
+    Nothing
+
+def first(values: &mut list[Option[i64]]) -> Option[&mut Option[i64]]:
+    for value in values:
+        return Some(value)
+    Nothing
+
+def main() -> Result[(), AllocError | IoError]:
+    mut items = [Item("ada", 1), Item("bob", 2)]?
+    match find_mut(&mut items, "ada"):
+        case Some(Item(name=n, count=k)):
+            *k = 7
+            print(n)?
+        case Nothing:
+            pass
+    held = find_mut(&mut items, "bob")
+    match held:
+        case Some(Item(name=n, count=1) | Item(name=n, count=2)):
+            *n = "bo"
+        case Some(_) | Nothing:
+            pass
+    print(items[0].count, items[1].name)?
+    mut values = [Some(1)]?
+    slot = first(&mut values)
+    match slot:
+        case Some(Some(v)):
+            *v = 4
+        case Some(Nothing) | Nothing:
+            pass
+    print(values)?
+    Ok(())
+"#;
+    assert_stdout(program, "ada\n7 bo\n[Option[i64].Some(4)]\n");
+    rejects(
+        &with_find(
+            "mut items = [Item(\"ada\", 1)].unwrap()\nmatch find_mut(&mut items, \"ada\"):\n    case Some(Item(name=n, count=k)):\n        items.clear()\n        *k = 2\n        print(n).unwrap()\n    case Nothing:\n        pass\n",
+        ),
+        "cannot modify or exclusively borrow `items` while it is exclusively borrowed",
+    );
 }

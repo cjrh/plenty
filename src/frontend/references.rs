@@ -493,11 +493,15 @@ impl Lower<'_> {
         }
         let (old, new) = (&self.loans[held], &self.loans[loan]);
         if new.root != old.root {
+            // Only an `Option` or `Result` holder can start without a borrow.
             let choose = match self.names.get(name).map(|local| &local.ty) {
                 Some(ty @ Ty::Enum(t)) if t.is_option() => format!(
                     "; to choose between owners, start it empty, as in `mut {name}: {ty} = Nothing`"
                 ),
-                _ => "; to choose between owners, assign it an `if` or `match` value".into(),
+                Some(ty @ Ty::Enum(t)) if t.is_result() => format!(
+                    "; to choose between owners, start it empty, as in `mut {name}: {ty} = Err(error)`"
+                ),
+                _ => String::new(),
             };
             return Err(at.error(format!(
                 "reference binding `{name}` can be reassigned only to a reference into the owner it first borrowed{choose}"
@@ -745,8 +749,24 @@ impl Lower<'_> {
         if std::mem::replace(&mut holder.returned, true) {
             return Ok(());
         }
-        for assigned in holder.assigned.clone() {
-            self.check_returned_value(assigned, at)?;
+        for (index, assigned) in holder.assigned.clone().into_iter().enumerate() {
+            let fallback = self.loans[assigned]
+                .holder
+                .is_some_and(|joined| joined.kind == crate::ownership::Joined::Fallback);
+            // An `unwrap_or` join holds the receiver's loan, then the default's.
+            let checked = self.check_returned_value(assigned, at);
+            if fallback && index == 1 && checked.is_err() {
+                let origin = self
+                    .return_origin
+                    .and_then(|slot| self.slot_names.get(slot as usize).cloned().flatten());
+                return Err(at.error(match origin {
+                    Some(origin) => format!(
+                        "returned reference must originate from the first reference parameter, `{origin}`; the default of `unwrap_or` must also borrow from `{origin}`"
+                    ),
+                    None => "returned reference must originate from the first reference parameter; the default of `unwrap_or` must also borrow from it".into(),
+                }));
+            }
+            checked?;
         }
         // A holder declared with another holder's value also returns it.
         match self.loans[decl].parent {

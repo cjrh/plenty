@@ -69,7 +69,9 @@ A pattern below the payload matches the referent, as a match on a reference
 does: `case Some(Item(name=n, count=3))` on `Option[&Item]` tests the item's
 field, and `case Some(Some(v))` on `Option[&mut Option[i64]]` binds `v` as a
 `&mut i64` into the inner option. Each name bound below the payload is a
-reference that keeps the origin borrowed, like the payload itself.
+reference that keeps the origin borrowed, like the payload itself. Names bound
+below one exclusive payload, as in `case Some(Item(name=n, count=k))` on
+`Option[&mut Item]`, are disjoint, so each can be written in the arm.
 
 ```plenty
 class Item:
