@@ -1695,6 +1695,9 @@ impl Lower<'_> {
                 let ty = self.expr_expected(yes, expected.clone(), &mut a)?;
                 let other = self.expr_expected(no, expected.or_else(|| ty.clone()), &mut b)?;
                 self.same(other, ty.clone(), &e.at)?;
+                if matches!(ty, Some(Ty::View(..))) {
+                    return Err(e.at.error("conditional expressions cannot produce slice views; select an owning value or branch around the view's use"));
+                }
                 ops.push(branch(a, b));
                 Ok(ty)
             }

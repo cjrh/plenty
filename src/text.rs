@@ -54,6 +54,8 @@ pub enum TextViewOp {
     Subview,
     /// The scalar count, which scans the view.
     Len,
+    /// The same address/count as a shared byte view; lowered without a call.
+    Bytes,
     /// Two texts or views (`true` for a `str` operand) and their kind bits
     /// -> -1, 0, or 1 in scalar order.
     Compare(bool, bool),
@@ -84,6 +86,7 @@ impl TextViewOp {
             ),
             Self::Subview => (vec![view.clone(), Ty::I64, Ty::I64, Ty::I64], view),
             Self::Len => (vec![view], Ty::I64),
+            Self::Bytes => (vec![view], crate::bytes::byte_view()),
             Self::Compare(a, b) => (vec![operand(a), operand(b), Ty::I64], Ty::I64),
             Self::Scalar | Self::ScalarBefore | Self::Index => (vec![view, Ty::I64], Ty::Str),
             Self::Copy => (
@@ -111,6 +114,7 @@ impl TextViewOp {
             Self::OfStr => TEXT_VIEW_OF_STR,
             Self::Subview => TEXT_VIEW_SUBVIEW,
             Self::Len => TEXT_VIEW_LEN,
+            Self::Bytes => unreachable!("text byte views lower directly"),
             Self::Compare(..) => TEXT_VIEW_COMPARE,
             Self::Scalar => TEXT_VIEW_SCALAR,
             Self::ScalarBefore => TEXT_VIEW_SCALAR_BEFORE,

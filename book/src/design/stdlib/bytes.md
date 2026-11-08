@@ -19,7 +19,7 @@ available on the supported x86-64 Linux GNU target.
 | `std.bytes.empty()` | `Result[Bytes, AllocError]` | Empty buffer with no reserved capacity |
 | `std.bytes.with_capacity(capacity)` | `Result[Bytes, AllocError]` | Empty buffer with exactly `capacity` bytes reserved; negative is `CapacityOverflow` |
 | `std.bytes.from_list(values: &list[u8])` | `Result[Bytes, AllocError]` | Independent copy of the list's bytes |
-| `std.bytes.from_text(text: &str)` | `Result[Bytes, AllocError]` | Independent copy of the exact UTF-8 bytes |
+| `std.bytes.from_text(text: &substr)` | `Result[Bytes, AllocError]` | Independent copy of the exact UTF-8 bytes of a whole string or substring view |
 | `std.bytes.from_bytes(source: &[u8])` | `Result[Bytes, AllocError]` | Independent copy of a [byte view](#byte-views): a literal, `Bytes`, `list[u8]`, or part of one |
 
 `Bytes` has no public constructor and its storage field is private. Every
@@ -125,6 +125,14 @@ length. `&buffer`, `&buffer[a:b]`, `&list`, a `b"..."` literal, and a view held
 by the caller all convert to it with no copy and no allocation. The range is
 part of the view, so these operations take no `start` and `stop` and report no
 range error: view bounds clamp, and a negative bound counts from the end.
+
+A string or substring supplies the same byte view through `text.as_bytes()`.
+This borrows the selected UTF-8 bytes in constant time, including embedded NUL,
+with no allocation or retain. `from_text(text)?` makes an independent owned
+copy directly from that range. Scalar length and scalar decoding are not needed
+for either byte operation. A bound byte view prevents replacing or moving its
+string origin until its last use. A temporary string can supply bytes to a call,
+but must be bound before its view can be saved in another local.
 
 ```plenty
 import std.bytes

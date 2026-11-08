@@ -884,7 +884,11 @@ impl Lowerer<'_, '_> {
         if let CollectionOp::BytesGetView(_) | CollectionOp::BytesSetView(_) = operation {
             return self.lower_bytes_view(operation);
         }
-        if let CollectionOp::Regex(crate::regex::RegexOp::TextBytes) = operation {
+        if matches!(
+            operation,
+            CollectionOp::TextView(crate::text::TextViewOp::Bytes)
+                | CollectionOp::Regex(crate::regex::RegexOp::TextBytes)
+        ) {
             // Substrings already carry a byte address and byte count. Their
             // owner's loan (including inline-string storage) covers the call.
             let (view, _) = self.pop_typed(crate::frontend::text_view())?;

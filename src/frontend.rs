@@ -1788,6 +1788,9 @@ impl Lower<'_> {
                 let ty = self.expr(yes, &mut a)?;
                 let other = self.expr(no, &mut b)?;
                 self.same(other, ty.clone(), &e.at)?;
+                if matches!(ty, Some(Ty::View(..))) {
+                    return Err(e.at.error("conditional expressions cannot produce slice views; select an owning value or branch around the view's use"));
+                }
                 ops.push(branch(a, b));
                 ty
             }
@@ -1808,6 +1811,11 @@ impl Lower<'_> {
         let Expression::Method(base, name, args, pos) = &e.kind else {
             unreachable!("method_expression lowers its own expression kind")
         };
+        if self.text_bytes_receiver(e).is_some() {
+            let (view, loan) = self.text_bytes_view(e, false, ops)?;
+            Self::end_reads(vec![loan], ops);
+            return Ok(Some(view));
+        }
         if let Some(result) = self.quantity_format_method(base, name, args, &e.at, ops) {
             return result;
         }

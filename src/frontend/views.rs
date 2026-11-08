@@ -17,7 +17,7 @@ use crate::text::TextViewOp;
 pub(super) const OPERATIONS: &str = "a view supports `len(v)`, `v[i]`, `&v[a:b]`, `==`, `for x in v`, `iter(v)`, and `print(v)`, and a `&mut [T]` view also `v[i] = x` and `v.swap(i, j)`";
 
 /// The operations a `&substr` supports, for diagnostics that reject others.
-pub(super) const TEXT_OPERATIONS: &str = "a `&substr` supports `len(v)`, `v.byte_len()`, `v[i]`, `&v[a:b]`, `v[a:b]?`, comparisons, `in`, `startswith`, `endswith`, `find`, `for c in v`, and `print(v)`; copy it to a `str` with `v[:]?` for other `str` methods";
+pub(super) const TEXT_OPERATIONS: &str = "a `&substr` supports `len(v)`, `v.byte_len()`, `v.as_bytes()`, `v[i]`, `&v[a:b]`, `v[a:b]?`, comparisons, `in`, `startswith`, `endswith`, `find`, `for c in v`, and `print(v)`; copy it to a `str` with `v[:]?` for other `str` methods";
 
 const STEPPED_VIEW: &str = "a slice view selects adjacent elements, so it takes no step; copy every k-th element with `xs[a:b:k]?`";
 
@@ -94,7 +94,11 @@ impl Lower<'_> {
         let owner = match &ungroup(base).kind {
             Expression::Text(_) if !mutable => Ty::Str,
             Expression::Bytes(_) if !mutable => Ty::ByteStr,
-            _ => match self.place_type(base).map(classes::unbox)? {
+            _ => match self
+                .place_type(base)
+                .or_else(|| self.expression_type_hint(base))
+                .map(classes::unbox)?
+            {
                 Ty::Shared(content) if !mutable => (*content).clone(),
                 owner => owner,
             },
@@ -137,7 +141,10 @@ impl Lower<'_> {
             let held = self.held_literal(base, ops)?;
             return self.slice_view(&held, bounds, mutable, ops);
         }
-        let owner = self.place_type(base).map(classes::unbox);
+        let owner = self
+            .place_type(base)
+            .or_else(|| self.expression_type_hint(base))
+            .map(classes::unbox);
         if matches!(owner, Some(Ty::Shared(_))) {
             if mutable {
                 return Err(base.at.error(shared::MUTATION));
@@ -268,6 +275,59 @@ impl Lower<'_> {
         }
     }
 
+    /// Recognize the builtin text-to-byte borrow without evaluating its owner.
+    /// This is a view-producing expression, so every binding/argument/observation
+    /// path must carry the same origin loan as a written substring borrow.
+    pub(super) fn text_bytes_receiver<'e>(&self, e: &'e Expr) -> Option<&'e Expr> {
+        let Expression::Method(base, name, _, _) = &ungroup(e).kind else {
+            return None;
+        };
+        if name != "as_bytes" {
+            return None;
+        }
+        let source = match &ungroup(base).kind {
+            Expression::Unary(op, inner) if op == "&" || op == "&mut" => &**inner,
+            _ => &**base,
+        };
+        (self.is_text_view(base)
+            || self.slice_view_type(source, false) == Some(text_view())
+            || self.expression_type_hint(source).map(classes::unbox) == Some(Ty::Str))
+        .then_some(base)
+    }
+
+    /// Reinterpret checked UTF-8 bytes without copying or retaining storage.
+    /// Saving a view of a full-expression temporary would outlive that owner;
+    /// literal holders instead have scope lifetime and remain safe to bind.
+    pub(super) fn text_bytes_view(
+        &mut self,
+        e: &Expr,
+        binding: bool,
+        ops: &mut Vec<Op>,
+    ) -> Result<(Ty, usize)> {
+        let Expression::Method(base, _, args, _) = &ungroup(e).kind else {
+            unreachable!("recognized text byte borrow")
+        };
+        if !args.is_empty() {
+            return Err(e.at.error("as_bytes takes no arguments"));
+        }
+        let (view, loan) = self.view_argument(base, false, true, ops)?;
+        self.same(Some(view), Some(text_view()), &base.at)?;
+        if binding {
+            self.check_bound_view_origin(loan, &e.at)?;
+        }
+        ops.push(Op::Collection(CollectionOp::TextView(TextViewOp::Bytes)));
+        Ok((crate::bytes::byte_view(), loan))
+    }
+
+    pub(super) fn check_bound_view_origin(&self, loan: usize, at: &Token) -> Result<()> {
+        if self.expression_temps.contains(&self.loans[loan].root) {
+            return Err(at.error(
+                "a bound byte view cannot borrow a temporary string; bind the owning string first, then call as_bytes()",
+            ));
+        }
+        Ok(())
+    }
+
     /// Whether `e` is a slice view, `&xs[a:b]`, a view binding, or a borrow
     /// of one, judged without lowering it.
     pub(super) fn is_view(&self, e: &Expr) -> bool {
@@ -286,7 +346,9 @@ impl Lower<'_> {
             Expression::Unary(op, inner) if op == "&" || op == "&mut" => {
                 match &ungroup(inner).kind {
                     Expression::Slice(owner, _) => matches!(
-                        self.place_type(owner).map(classes::unbox),
+                        self.place_type(owner)
+                            .or_else(|| self.expression_type_hint(owner))
+                            .map(classes::unbox),
                         Some(ty) if ty == Ty::Str || ty == text_view()
                     ),
                     _ => self.is_text_view(inner),
@@ -315,6 +377,9 @@ impl Lower<'_> {
     /// Lowers a view operand `e` that [`Self::is_view`] accepts. A written
     /// `&` or `&mut` sets the permission; a view binding keeps its own.
     pub(super) fn view_source(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<(Ty, usize)> {
+        if self.text_bytes_receiver(e).is_some() {
+            return self.text_bytes_view(e, false, ops);
+        }
         match &ungroup(e).kind {
             Expression::Unary(op, inner) => self.borrow(inner, op == "&mut", ops),
             _ => {
@@ -495,6 +560,14 @@ impl Lower<'_> {
         text: bool,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, usize)> {
+        if self.text_bytes_receiver(arg).is_some() {
+            if mutable {
+                return Err(arg
+                    .at
+                    .error("string bytes are immutable; as_bytes() yields a shared byte view"));
+            }
+            return self.text_bytes_view(arg, false, ops);
+        }
         // This intrinsic is argument-only: forward the substring's loan to
         // the consuming call instead of returning an untracked borrowed value.
         if let Expression::Call(name, args) = &ungroup(arg).kind

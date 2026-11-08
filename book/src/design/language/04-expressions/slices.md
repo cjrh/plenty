@@ -368,6 +368,7 @@ temporary.
 | --- | --- |
 | `len(v)` | Number of scalars; scans the view's text, as positions do |
 | `v.byte_len()` | Number of UTF-8 bytes; constant time |
+| `v.as_bytes()` | Shared `&[u8]` over the selected UTF-8 bytes, without copying, allocating or scanning |
 | `v[i]` | Scalar `i` as a one-scalar `str`; a negative index counts from the end, and an index outside the view traps |
 | `&v[a:b]` | Narrower view; bounds count scalars from the start of `v` |
 | `v[a:b]?` | An owned copy of part of the view, `Result[str, AllocError]` |
@@ -384,6 +385,13 @@ scan the text before the position, as they do on a `str`. `str` methods other
 than those listed are not available on a view; copy it with `v[:]?` to use one.
 A `str` method does not take a `&substr` argument, and `v in s` for a `str`
 `s` is written `v in &s[:]`.
+
+The byte view returned by `as_bytes()` keeps the text view's original loan,
+including inline bytes stored in a string slot. It can be bound locally, passed
+to any `&[u8]` reader, narrowed by byte positions, indexed, and iterated as an
+ordinary byte view. It grants no mutable access to string storage. General
+returned/stored views remain unsupported; `as_bytes()` is a checked builtin
+borrow operation, not permission for arbitrary functions to return views.
 
 A substring view borrows its string as other views borrow their owner: while
 it is live, the string cannot be reassigned or moved, and the view stays local

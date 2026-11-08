@@ -473,7 +473,7 @@ class Bytes
 def empty() -> Result[Bytes, AllocError]
 def with_capacity(capacity: i64) -> Result[Bytes, AllocError]
 def from_list(values: &list[u8]) -> Result[Bytes, AllocError]
-def from_text(text: &str) -> Result[Bytes, AllocError]
+def from_text(text: &substr) -> Result[Bytes, AllocError]
 def from_bytes(source: &[u8]) -> Result[Bytes, AllocError]
 def write_file(file: &mut File, source: &[u8]) -> Result[i64, IoError]
 ```

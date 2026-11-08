@@ -183,3 +183,31 @@ text with `value[a:b]?` when you need an owned `str`,
 for example to call a `str` method or keep it after the string changes. The
 [substring view reference](../../design/language/04-expressions/slices.md#substring-views)
 lists every operation.
+
+To inspect the UTF-8 encoding, borrow its bytes directly. The byte view uses byte
+positions and loops over `&u8`; the text view still loops over scalars:
+
+```plenty
+import std.bytes
+
+def main() -> Result[(), AllocError | IoError]:
+    text = "café"
+    ending = &text[3:]
+    bytes = ending.as_bytes()
+    print(len(ending), len(bytes))?
+    for byte in bytes:
+        print(*byte)?
+    owned = std.bytes.from_text(ending)?
+    print(owned)?
+    Ok(())
+```
+
+```output
+1 2
+195
+169
+b"\xc3\xa9"
+```
+
+`as_bytes()` allocates nothing and keeps the string borrowed until the byte
+view's last use. `from_text` makes an independent fallible byte-buffer copy.
