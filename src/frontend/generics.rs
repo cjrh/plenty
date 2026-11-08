@@ -1503,7 +1503,8 @@ impl Lower<'_> {
             .unwrap_or_default();
         // A lent pipeline's item type is known from its binding without
         // lowering, so it gives context to the other arguments wherever they
-        // appear, as the expected result does. `hint` stays the expected
+        // appear. It wins over the expected result here, so a mismatch is
+        // reported as one between the two rather than at a literal. `hint` stays the expected
         // result's own evidence for `combine_result_evidence`'s diagnostics.
         let mut context = hint.clone();
         for (arg, (_, pattern)) in args.iter().zip(&template.inputs) {
@@ -1526,7 +1527,7 @@ impl Lower<'_> {
             .is_ok()
             {
                 for (param, value) in evidence {
-                    context.entry(param).or_insert(value);
+                    context.insert(param, value);
                 }
             }
         }

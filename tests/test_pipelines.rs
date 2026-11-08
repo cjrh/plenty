@@ -2590,6 +2590,10 @@ fn lending_call_inference_keeps_conflict_and_borrow_rules() {
             "conflicting types for `T` in `same`: i64 and str",
         ),
         (
+            "def same[T](p: &mut Iter[T], fallback: T) -> T:\n    next(p).unwrap_or(fallback)\ndef main() -> Result[(), AllocError]:\n    mut p = iter([1u8]?)\n    x: i64 = same(&mut p, 0)\n    drop(x)\n    Ok(())\n",
+            "type parameter `T` for `same` is u8 from its arguments but i64 from the expected result type",
+        ),
+        (
             "def keep[T, K](p: &mut Iter[&T], tag: K) -> K:\n    drop(p.count())\n    tag\ndef main() -> Result[(), AllocError]:\n    mut xs = [1, 2]?\n    mut q = iter(&xs)\n    drop(keep(&mut q, 1))\n    xs.append(3)?\n    drop(q.count())\n    Ok(())\n",
             "cannot modify or exclusively borrow `xs` while it is borrowed",
         ),
