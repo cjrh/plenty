@@ -246,18 +246,143 @@ def main() -> Result[(), AllocError | IoError]:
     );
 }
 
-// B12: a generator parameter that is itself a borrowing generator, a carried
-// reference, or a lent pipeline has no loan the new frame could keep.
-// Delete when generator frames carry such loans.
+const WRAPPERS: &str = r#"
+def nums(n: i64) -> Generator[i64]:
+    for i in range(n):
+        yield i
+
+def relayed(g: Generator[i64]) -> Generator[i64]:
+    for v in g:
+        yield v
+
+def twice(g: Generator[i64]) -> Generator[i64]:
+    for v in relayed(g):
+        yield v
+
+def both(a: Generator[i64], b: Generator[i64]) -> Generator[i64]:
+    for v in a:
+        yield v
+    for v in b:
+        yield v
+
+def same(g: Generator[i64]) -> Generator[i64]:
+    g
+
+def plus(x: i64) -> i64:
+    unchecked:
+        x + 1
+
+def mapped(g: Generator[i64]) -> Generator[i64]:
+    g.map(plus).generator()
+
+def zeroed(xs: &mut list[i64]) -> Generator[i64]:
+    for x in xs:
+        *x = 0
+        yield 1
+"#;
+
+fn with_wrappers(body: &str) -> String {
+    with_evens(&format!("{WRAPPERS}\n{body}"))
+}
+
+// Issue #899: a generator parameter may be a borrowing generator; the
+// wrapper's frame keeps the argument's loans.
 #[test]
-fn a_generator_cannot_take_a_borrowing_generator_parameter_yet() {
-    let error = check_error(&with_evens(
-        "def doubled(g: Generator[i64]) -> Generator[i64]:\n    for v in g:\n        yield v\n\ndef main() -> Result[(), AllocError]:\n    xs = [1]?\n    for v in doubled(evens(&xs)):\n        pass\n    Ok(())\n",
-    ));
-    assert!(
-        error.contains("generators cannot capture references"),
-        "{error}"
+fn a_generator_wraps_a_borrowing_generator() {
+    assert_stdout(
+        &with_wrappers(
+            r#"
+def pair(xs: &list[i64], ys: &list[i64]) -> Generator[i64]:
+    both(evens(xs), relayed(evens(ys)))
+
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = [1, 2, 3, 4]?
+    ys = [6, 7]?
+    print(relayed(evens(&xs)).count())?
+    mut w = twice(evens(&xs))
+    print(next(w))?
+    for v in w:
+        print(v)?
+    xs.append(8)?
+    print(twice(evens(&xs)).count())?
+    for v in pair(&xs, &ys):
+        print(v)?
+    print(both(nums(2), evens(&ys)).count())?
+    print(same(evens(&xs)).count())?
+    print(mapped(evens(&xs)).count())?
+    Ok(())
+"#,
+        ),
+        "2\nOption[i64].Some(2)\n4\n3\n2\n4\n8\n6\n3\n3\n3\n",
     );
+}
+
+#[test]
+fn a_wrapper_keeps_the_wrapped_generator_borrowed() {
+    for (body, expected) in [
+        (
+            "    mut xs = [1, 2]?\n    mut g = twice(evens(&xs))\n    print(next(g))?\n    xs.append(4)?\n    print(next(g))?\n",
+            "cannot modify or exclusively borrow `xs` while it is borrowed",
+        ),
+        (
+            "    xs = [1, 2]?\n    ys = [3]?\n    mut g = both(evens(&xs), evens(&ys))\n    print(next(g))?\n    drop(ys)\n    print(next(g))?\n",
+            "cannot move `ys` while it is borrowed",
+        ),
+        (
+            "    ys = [1, 2]?\n    k = len(ys)\n    mut g = relayed(evens(&ys)) if k > 5 else relayed(nums(2))\n    print(next(g))?\n    drop(ys)\n    print(next(g))?\n",
+            "cannot move `ys` while it is borrowed",
+        ),
+        (
+            "    mut ys = [1, 2]?\n    mut g = relayed(zeroed(&mut ys))\n    print(next(g))?\n    print(len(ys))?\n    print(next(g))?\n",
+            "cannot read or borrow `ys` while it is exclusively borrowed",
+        ),
+        (
+            "    xs = [1, 2]?\n    mut g = mapped(evens(&xs))\n    print(next(g))?\n    drop(xs)\n    print(next(g))?\n",
+            "cannot move `xs` while it is borrowed",
+        ),
+    ] {
+        let error = check_error(&with_wrappers(&format!(
+            "def main() -> Result[(), AllocError | IoError]:\n{body}    Ok(())\n"
+        )));
+        assert!(error.contains(expected), "{body}: {error}");
+    }
+}
+
+#[test]
+fn a_returned_wrapper_borrows_only_through_reference_parameters() {
+    assert_stdout(
+        &with_wrappers(
+            r#"
+def relay(g: Generator[i64]) -> Generator[i64]:
+    relayed(g)
+
+def through(xs: &list[i64]) -> Generator[i64]:
+    twice(evens(xs))
+
+def main() -> Result[(), AllocError | IoError]:
+    xs = [2, 4]?
+    print(relay(evens(&xs)).count())?
+    print(through(&xs).count())?
+    Ok(())
+"#,
+        ),
+        "2\n2\n",
+    );
+    for wrap in [
+        "relayed(evens(&ys))",
+        "same(evens(&ys))",
+        "mapped(evens(&ys))",
+    ] {
+        let error = check_error(&with_wrappers(&format!(
+            "def leak() -> Generator[i64]:\n    ys = [1, 2].unwrap()\n    {wrap}\n\ndef main() -> Result[(), AllocError | IoError]:\n    print(leak().count())?\n    Ok(())\n"
+        )));
+        assert!(
+            error.contains(
+                "a returned generator may borrow only through the function's reference parameters"
+            ),
+            "{wrap}: {error}"
+        );
+    }
 }
 
 // Review of local PR #1134: a conditional choosing between borrowing
@@ -524,4 +649,102 @@ def main() -> Result[(), AllocError | IoError]:
             "{body}: {error}"
         );
     }
+}
+
+// Issue #899: `.generator()` over a pipeline borrowing a local, a mutable
+// reference or a reference binding keeps the source borrowed.
+#[test]
+fn a_bridged_pipeline_borrows_its_source() {
+    assert_stdout(
+        r#"
+def deref(x: &i64) -> i64:
+    *x
+
+def bump(x: &mut i64) -> i64:
+    *x = 7
+    *x
+
+def firsts(xs: &mut list[i64]) -> Generator[i64]:
+    iter(xs).map(deref).generator()
+
+def aliased(xs: &list[i64]) -> Generator[i64]:
+    r = xs
+    iter(r).map(deref).generator()
+
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = [1, 2, 3]?
+    mut g = iter(&xs).map(deref).generator()
+    print(next(g))?
+    print(g.count())?
+    xs.append(4)?
+    r = &xs
+    print(iter(r).map(deref).generator().count())?
+    print(firsts(&mut xs).count())?
+    print(aliased(&xs).count())?
+    print(iter(&mut xs).map(bump).generator().count())?
+    print(xs)?
+    Ok(())
+"#,
+        "Option[i64].Some(1)\n2\n4\n4\n4\n4\n[7, 7, 7, 7]\n",
+    );
+}
+
+#[test]
+fn a_bridged_pipeline_source_cannot_change_while_the_generator_is_live() {
+    let prelude = "def deref(x: &i64) -> i64:\n    *x\n\ndef bump(x: &mut i64) -> i64:\n    *x = 7\n    *x\n\n";
+    for (body, expected) in [
+        (
+            "    mut xs = [1, 2]?\n    mut g = iter(&xs).map(deref).generator()\n    print(next(g))?\n    xs.append(5)?\n    print(next(g))?\n",
+            "cannot modify or exclusively borrow `xs` while it is borrowed",
+        ),
+        (
+            "    xs = [1, 2]?\n    r = &xs\n    mut g = iter(r).map(deref).generator()\n    print(next(g))?\n    drop(xs)\n    print(next(g))?\n",
+            "cannot move `xs` while it is borrowed",
+        ),
+        (
+            "    mut xs = [1, 2]?\n    mut g = iter(&mut xs).map(bump).generator()\n    print(next(g))?\n    print(len(xs))?\n    print(next(g))?\n",
+            "cannot read or borrow `xs` while it is exclusively borrowed",
+        ),
+        (
+            "    mut values = [1, 2]?\n    mut g = iter(range(2)).zip(&values).map(def(k: i64, v: &i64) -> i64: *v).generator()\n    print(next(g))?\n    values.append(3)?\n    print(next(g))?\n",
+            "cannot modify or exclusively borrow `values` while it is borrowed",
+        ),
+    ] {
+        let error = check_error(&format!(
+            "{prelude}def main() -> Result[(), AllocError | IoError]:\n{body}    Ok(())\n"
+        ));
+        assert!(error.contains(expected), "{body}: {error}");
+    }
+    let error = check_error(&format!(
+        "{prelude}def mutate(xs: &mut list[i64]) -> i64:\n    mut g = iter(xs).map(deref).generator()\n    print(next(g)).unwrap()\n    xs.append(5).unwrap()\n    g.count()\n\ndef main() -> Result[(), AllocError | IoError]:\n    mut xs = [1]?\n    print(mutate(&mut xs))?\n    Ok(())\n"
+    ));
+    assert!(
+        error.contains("cannot modify or exclusively borrow `xs` while it is exclusively borrowed"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_returned_bridged_pipeline_cannot_borrow_the_function_own_values() {
+    for source in [
+        "    xs = [1, 2].unwrap()\n    iter(&xs).map(deref).generator()\n",
+        "    xs = [1, 2].unwrap()\n    r = &xs\n    iter(r).map(deref).generator()\n",
+    ] {
+        let error = check_error(&format!(
+            "def deref(x: &i64) -> i64:\n    *x\n\ndef f() -> Generator[i64]:\n{source}\ndef main() -> Result[(), AllocError | IoError]:\n    print(f().count())?\n    Ok(())\n"
+        ));
+        assert!(
+            error.contains(
+                "a returned generator may borrow only through the function's reference parameters"
+            ),
+            "{source}: {error}"
+        );
+    }
+    let error = check_error(
+        "def deref(x: &i64) -> i64:\n    *x\n\ndef f(xs: list[i64]) -> Generator[i64]:\n    iter(&xs).map(deref).generator()\n\ndef main() -> Result[(), AllocError | IoError]:\n    print(f([1, 2]?).count())?\n    Ok(())\n",
+    );
+    assert!(
+        error.contains("a returned generator may borrow only"),
+        "{error}"
+    );
 }
