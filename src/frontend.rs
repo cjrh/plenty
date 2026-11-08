@@ -1065,7 +1065,7 @@ struct Lower<'a> {
     /// For each `if` or `match` being lowered as a value, innermost last:
     /// its join loan and the loans of the borrowing values its arms produce;
     /// see [`Lower::branch_value`].
-    branch_joins: Vec<(usize, Vec<usize>)>,
+    branch_joins: Vec<references::BranchJoin>,
     /// Value slots of shared `values()`/`items()` loops, so a write through
     /// one can name the `(&mut d).values()` form (issue #803).
     shared_dictionary_values: HashSet<u8>,
@@ -3485,7 +3485,11 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         let outer = std::mem::replace(&mut self.checked_value_tail, false);
-        let result = self.branch_value(at, ops, |lower, ops| {
+        let arms = match body.last().map(|stmt| &stmt.kind) {
+            Some(Statement::If { elifs, .. }) => elifs.len() + 2,
+            _ => 0,
+        };
+        let result = self.branch_value(at, arms, ops, |lower, ops| {
             lower.block(body, ops, &Tail::Value(expected))
         });
         self.checked_value_tail = outer;

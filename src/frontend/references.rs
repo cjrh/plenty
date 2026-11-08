@@ -131,6 +131,18 @@ fn literal_index(collection: &Ty, index: &Expr) -> Option<usize> {
     (value < crate::ownership::ELEMENT_LIMIT).then_some(crate::ownership::ELEMENT | value)
 }
 
+/// An `if` or `match` being lowered as a value: see [`Lower::branch_value`].
+pub(super) struct BranchJoin {
+    /// The id of the loan the value takes.
+    join: usize,
+    /// One loan id per arm, taken by the arm's value if it borrows.
+    reserved: Vec<usize>,
+    /// The next arm whose value is recorded.
+    next: usize,
+    /// The loans of the arm values that borrow.
+    assigned: Vec<usize>,
+}
+
 /// A `mut` holder of a reference-carrying type that started empty.
 #[derive(Default)]
 pub(super) struct Holder {
@@ -576,24 +588,39 @@ impl Lower<'_> {
         Err(e.at.error("reference result requires a named reference, direct borrow, or reference-returning call"))
     }
 
-    /// Lowers an `if` or `match` used as a value with `lower`. A value of a
-    /// reference-carrying type gets a join loan, created after the arms and
-    /// rooted at a hidden referent like an empty holder's. It is a holder
-    /// that started empty and was assigned each borrowing arm value: a use
-    /// keeps every one of them borrowed, on the paths where its arm ran, and
-    /// a return checks each against the origin parameter. Arms may borrow
-    /// different owners. The join's id is reserved first so each arm's loan
-    /// names it when created.
+    /// Lowers an `if` or `match` with `arms` arms used as a value with
+    /// `lower`. A value of a reference-carrying type gets a join loan,
+    /// created after the arms and rooted at a hidden referent like an empty
+    /// holder's. It is a holder that started empty and was assigned each
+    /// borrowing arm value: a use keeps every one of them borrowed, and a
+    /// return checks each against the origin parameter. Arms may borrow
+    /// different owners.
+    ///
+    /// The ids of the join and of one loan per arm are reserved first, so
+    /// each arm can end the other arms' loans after its value: the value an
+    /// evaluation produces holds only the loan of the arm that ran, and an
+    /// earlier evaluation's loans are not carried into a later one (see
+    /// [`Loan::holder`](crate::ownership::Loan::holder) for when such an end
+    /// is ignored).
     pub(super) fn branch_value(
         &mut self,
         at: &Token,
+        arms: usize,
         ops: &mut Vec<Op>,
         lower: impl FnOnce(&mut Self, &mut Vec<Op>) -> Result<super::BlockResult>,
     ) -> Result<super::BlockResult> {
         let join = self.new_loan(0, false, None, &mut Vec::new());
-        self.branch_joins.push((join, Vec::new()));
+        let reserved = (0..arms)
+            .map(|_| self.new_loan(0, false, None, &mut Vec::new()))
+            .collect();
+        self.branch_joins.push(BranchJoin {
+            join,
+            reserved,
+            next: 0,
+            assigned: Vec::new(),
+        });
         let result = lower(self, ops);
-        let (_, arms) = self.branch_joins.pop().expect("pushed above");
+        let branch = self.branch_joins.pop().expect("pushed above");
         let result = result?;
         if let super::BlockResult::Continues(Some(ty)) = &result
             && ty.carried_reference().is_some()
@@ -606,12 +633,12 @@ impl Lower<'_> {
             loan.mutable = ty.carries_mutable_loan();
             loan.dependencies.clear();
             ops.push(Op::Loan(loan.clone()));
-            if !arms.is_empty() {
+            if !branch.assigned.is_empty() {
                 self.holders.insert(
                     join,
                     Holder {
                         first: None,
-                        assigned: arms,
+                        assigned: branch.assigned,
                         returned: false,
                     },
                 );
@@ -621,27 +648,49 @@ impl Lower<'_> {
     }
 
     /// Records the final value `e`, of a reference-carrying type, of an
-    /// arm of the innermost [`Self::branch_value`].
+    /// arm of the innermost [`Self::branch_value`], then ends the loans of
+    /// its other arms.
     pub(super) fn branch_arm_value(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<()> {
-        if loan_free(e) {
-            return Ok(());
+        let branch = self.branch_joins.last_mut().expect("inside a branch value");
+        let arm = branch.next;
+        branch.next += 1;
+        let own = branch.reserved.get(arm).copied();
+        if !loan_free(e) {
+            let origin = self.reference_origin(e, ops)?;
+            let join = self
+                .branch_joins
+                .last()
+                .expect("inside a branch value")
+                .join;
+            let mutable = self.loans[origin].mutable;
+            let fresh = self.new_loan(self.loans[origin].root, mutable, Some(origin), ops);
+            // An arm past the reserved count keeps its fresh id, and the
+            // other arms do not end it.
+            let id = own.unwrap_or(fresh);
+            let mut loan = self.loans[fresh].clone();
+            loan.id = id;
+            loan.holder = Some(crate::ownership::Assigned {
+                holder: join,
+                arm: true,
+            });
+            if let Some(Op::Loan(fact)) = ops.last_mut() {
+                *fact = loan.clone();
+            }
+            self.loans[id] = loan;
+            self.branch_joins
+                .last_mut()
+                .expect("inside a branch value")
+                .assigned
+                .push(id);
         }
-        let origin = self.reference_origin(e, ops)?;
-        let (join, _) = *self.branch_joins.last().expect("inside a branch value");
-        let mutable = self.loans[origin].mutable;
-        let loan = self.new_loan(self.loans[origin].root, mutable, Some(origin), ops);
-        self.loans[loan].holder = Some(crate::ownership::Assigned {
-            holder: join,
-            arm: true,
-        });
-        if let Some(Op::Loan(fact)) = ops.last_mut() {
-            *fact = self.loans[loan].clone();
-        }
-        self.branch_joins
-            .last_mut()
-            .expect("inside a branch value")
-            .1
-            .push(loan);
+        let branch = self.branch_joins.last().expect("inside a branch value");
+        ops.extend(
+            branch
+                .reserved
+                .iter()
+                .filter(|&&id| Some(id) != own)
+                .map(|&id| Op::EndLoan(id)),
+        );
         Ok(())
     }
 

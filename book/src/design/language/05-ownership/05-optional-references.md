@@ -204,8 +204,8 @@ holder `pick` borrows another owner, since its first borrowing assignment at lin
 ## Choosing with `if` or `match`
 
 An `if` or `match` used as a value may produce a reference-carrying value.
-Each arm may borrow a different owner. The result keeps the value of every arm
-that ran borrowed while it is used, so all those owners stay borrowed:
+Each arm may borrow a different owner. The checker does not know which arm
+ran, so while the result is used, every arm's owner stays borrowed:
 
 ```plenty
 class Item:
@@ -260,7 +260,7 @@ def main() -> Result[(), AllocError | IoError]:
 ```
 
 ```error
-`selected` holds this arm's value: an `if` or `match` value keeps the value of every arm that ran borrowed
+`selected` holds this arm's value: an `if` or `match` value keeps the value of every arm borrowed
 ```
 
 An arm cannot produce a borrow of an owner it declares, or of a temporary,
@@ -268,6 +268,11 @@ since that owner is dropped when the arm ends. A returned `if` or `match`
 value follows the [returned-reference rule](04-returned-references.md) in each
 arm. An arm's value cannot be a plain reference such as `&items[0]`, and a
 `checked:` block cannot produce a reference-carrying value.
+
+Each evaluation borrows afresh. In a loop, a result used only within its
+iteration does not keep the owners borrowed into the next one. A copy that
+outlives the iteration, such as one assigned to a `mut` holder declared
+before the loop, keeps every arm's owner borrowed wherever the copy is live.
 
 ## Passing a holder
 

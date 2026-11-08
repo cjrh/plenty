@@ -660,6 +660,12 @@ pub struct Loan {
     /// the body, since a loop can carry any of them to any use. An
     /// assignment may run on only some paths, so the loan is live only where
     /// some path created it.
+    ///
+    /// Each arm of an `if` or `match` value ends the other arms' loans after
+    /// its own value with `EndLoan`, so a use of the join keeps only the loan
+    /// of the arm that ran on that path. The end is ignored where the join or
+    /// a loan derived from it is live, since that value may come from an
+    /// earlier evaluation, as in a loop, and hold any arm's loan.
     pub holder: Option<Assigned>,
 }
 /// The holder a loan was assigned to: see [`Loan::holder`]. One field, so
@@ -2706,7 +2712,7 @@ impl Checker<'_, '_> {
                         error.notes.push((
                             at,
                             if loan.holder.is_some_and(|assigned| assigned.arm) {
-                                format!("`{holder}` holds this arm's value: an `if` or `match` value keeps the value of every arm that ran borrowed")
+                                format!("`{holder}` holds this arm's value: an `if` or `match` value keeps the value of every arm borrowed")
                             } else {
                                 format!("`{holder}` started empty, so it keeps every value assigned to it borrowed; use a separate binding per value")
                             },
@@ -2862,6 +2868,18 @@ fn uncreated_dead(
     }
 }
 
+/// Whether loan `id` is `ancestor` or derived from it.
+fn descends(id: usize, ancestor: usize, loans: &HashMap<usize, &Loan>) -> bool {
+    let mut next = Some(id);
+    while let Some(id) = next {
+        if id == ancestor {
+            return true;
+        }
+        next = loans.get(&id).and_then(|l| l.parent);
+    }
+    false
+}
+
 /// Loan liveness of `ops`, or `None` when it creates no loan.
 fn loan_flow(ops: &[Op]) -> Option<LoanFlow<'_>> {
     if !has_loans(ops) {
@@ -2891,6 +2909,16 @@ fn loan_flow(ops: &[Op]) -> Option<LoanFlow<'_>> {
             let held = held_loans(&loans);
             (nodes, reachable, loans, created, held)
         });
+    // The join of each loan an `if` or `match` arm produced; see
+    // [`Loan::holder`].
+    let joined: HashMap<usize, usize> = loans
+        .values()
+        .filter_map(|l| {
+            l.holder
+                .filter(|assigned| assigned.arm)
+                .map(|assigned| (l.id, assigned.holder))
+        })
+        .collect();
     let mut scratch = Vec::new();
     let live = crate::profile_block!("ownership::loan_liveness", {
         let mut live = vec![Live::default(); nodes.len()];
@@ -2913,7 +2941,14 @@ fn loan_flow(ops: &[Op]) -> Option<LoanFlow<'_>> {
                             before.insert(p);
                         }
                     }
-                    Some(Op::EndLoan(id)) => before.remove(id),
+                    Some(Op::EndLoan(id)) => {
+                        let carried = joined.get(id).is_some_and(|join| {
+                            before.0.iter().any(|live| descends(*live, *join, &loans))
+                        });
+                        if !carried {
+                            before.remove(id);
+                        }
+                    }
                     _ => {}
                 }
                 if before != live[i] {
