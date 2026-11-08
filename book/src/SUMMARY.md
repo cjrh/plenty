@@ -395,6 +395,7 @@
         - [`std.archive`](design/stdlib/archive.md)
         - [`std.atomic`](design/stdlib/atomic.md)
         - [`std.bytes`](design/stdlib/bytes.md)
+            - [Binary string operations](design/stdlib/bytes-stringlike.md)
         - [`std.cache.lru`](design/stdlib/cache-lru.md)
         - [`std.channel`](design/stdlib/channel.md)
         - [`std.cli`](design/stdlib/cli.md)

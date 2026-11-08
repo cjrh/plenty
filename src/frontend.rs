@@ -22,6 +22,7 @@ mod annotations;
 mod atomic;
 mod bounded;
 mod byte_buffers;
+mod byte_methods;
 mod callables;
 mod calls;
 mod casts;
@@ -2128,6 +2129,9 @@ impl Lower<'_> {
         let Expression::Binary(op, left, right) = &e.kind else {
             unreachable!("membership_expression lowers its own expression kind")
         };
+        if let Some(result) = self.byte_membership(op, left, right, ops)? {
+            return Ok(result);
+        }
         Ok({
             let (a, mut loans) = self.observe(left, ops)?;
             let (b, other_loans) = self.observe(right, ops)?;

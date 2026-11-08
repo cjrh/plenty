@@ -18,6 +18,8 @@ pub const KEY_VIEW_TO_SET: i64 = 585;
 pub const LIST_SLICE: i64 = 590;
 pub const TEXT_SLICE: i64 = 591;
 pub const BYTES_SLICE: i64 = 283;
+/// Linear reverse search over two arbitrary byte views.
+pub const BYTES_RFIND: i64 = 284;
 pub const CLIST_SLICE: i64 = 532;
 /// Bits of a slice's flags operand: which bounds the source wrote. An omitted
 /// bound's default depends on the step's sign, so no bound value can stand

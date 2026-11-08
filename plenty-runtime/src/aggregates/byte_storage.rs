@@ -330,6 +330,11 @@ pub(super) unsafe fn call(
             230 => found(byte_scan::find(view_bytes(a), b as u8)),
             231 => found(byte_scan::find_in(view_bytes(a), view_bytes(b), c != 0)),
             232 => found(byte_scan::find_bytes(view_bytes(a), view_bytes(b))),
+            // memchr guarantees linear time and constant space even for
+            // repetitive input. The dependency already serves regex searches.
+            crate::collection_opcodes::BYTES_RFIND => {
+                found(memchr::memmem::rfind(view_bytes(a), view_bytes(b)))
+            }
             233 => byte_scan::count(view_bytes(a), b as u8) as u128,
             234 => prefixed(view_bytes(a), size(b), view_bytes(c)) as u128,
             235 => prefixed(

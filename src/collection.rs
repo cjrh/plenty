@@ -1180,6 +1180,7 @@ impl CollectionOp {
                     | BytesOp::Find
                     | BytesOp::FindIn
                     | BytesOp::FindBytes
+                    | BytesOp::RFindBytes
                     | BytesOp::Count
                     | BytesOp::Matches
                     | BytesOp::MatchesText

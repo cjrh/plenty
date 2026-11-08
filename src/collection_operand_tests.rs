@@ -24,7 +24,7 @@ fn scratch_operand_contract_matches_typed_primitives() {
         Append, Overwrite, FromList, ToList, FromText, ToText, WriteFloat,
         WriteFloatSpec, Find, FindIn, FindBytes, Count, Matches, MatchesText,
         Run, Fill, Item, SetItem, ValueItem, CopyWithin, Slice,
-        SliceLiteral);
+        SliceLiteral, RFindBytes);
     check_family!(CryptoOp: New, NewKeyed, Update, UpdateText, Finish, Verify,
         Equal, NewDeriveKey, AesSeal, AesOpen, ChaChaSeal, ChaChaOpen, EdPublic,
         EdSign, EdVerify, Hkdf, XNew, XPublic, XAgree, KeyNew, RsaLoad, P256Load,
