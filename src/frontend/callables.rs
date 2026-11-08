@@ -350,6 +350,11 @@ impl Lower<'_> {
             {
                 Some(crate::sum::result(Ty::Str, crate::sum::alloc_error()))
             }
+            Expression::Index(base, _)
+                if self.slice_view_type(base, false) == Some(text_view()) =>
+            {
+                Some(Ty::Str)
+            }
             Expression::Member(..) | Expression::Index(..) => self.place_type(e),
             _ => None,
         }

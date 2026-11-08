@@ -87,9 +87,7 @@ impl Write for Stderr {
     }
 }
 
-pub(crate) unsafe fn write_stream(text: *const Text, stderr: bool) -> u128 {
-    // SAFETY: the dispatcher borrows a live text throughout this call.
-    let source = unsafe { strings::utf8(&text) };
+pub(crate) fn write_stream(source: &str, stderr: bool) -> u128 {
     let result = if stderr {
         self::stderr().write_all(source.as_bytes())
     } else {
