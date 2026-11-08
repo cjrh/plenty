@@ -1066,6 +1066,10 @@ cached tuple field offsets (issue #331).
 `floor(n/2)`-row workspace is reserved before any move, returning
 `AllocError` with the list unchanged; ordered input allocates nothing
 (issue #806).
+Tuple operators compare components with their own operators, as Rust's tuple
+`PartialOrd` does: signed zeros are equal and a NaN component makes every ordered
+relation false. Sorting keeps its separate total order (issue #616, superseding
+the total tuple-operator order of local PR #771).
 See [lists](../design/facilities/01-builtins/lists.md).
 Additional ordering contracts stay **B37** in the [backlog](../backlog.md).
 

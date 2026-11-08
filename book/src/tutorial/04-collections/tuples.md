@@ -57,9 +57,10 @@ True True
 (1, "apple") (1, "pear")
 ```
 
-Tuple float components follow sorting's total order: `-0.0` precedes `0.0`, and
-NaNs come last. This differs from scalar float comparison; tuple equality still
-uses the components' ordinary equality.
+Float components compare as scalar floats do: `-0.0` equals `0.0`, and a NaN
+component met before a deciding component makes `<`, `<=`, `>`, and `>=` all
+false. Sorting a list of tuples uses a separate total order that places `-0.0`
+before `0.0` and NaNs last; see [tuple ordering](../../design/language/03-types/tuples.md).
 
 Distinct tuple components can be borrowed and read independently. The borrow
 below protects component 1 while component 0 remains readable:

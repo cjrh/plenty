@@ -379,7 +379,7 @@ fn extrema_propagate_nan_and_preserve_ordered_values(#[case] ty: &str, #[case] o
 #[rstest::rstest]
 #[case(false)]
 #[case(true)]
-fn extrema_keep_tuple_total_order(#[case] optimize: bool) {
+fn extrema_compare_tuples_with_their_operators(#[case] optimize: bool) {
     let body = r#"    first = (1.0, f64.NAN)
     last = (2.0, f64.NAN)
     middle = (1.5, 0.0)
@@ -401,7 +401,8 @@ fn extrema_keep_tuple_total_order(#[case] optimize: bool) {
 "#;
     assert_eq!(
         run_mode(body, optimize),
-        "1.0\n1.5\n1.5\n2.0\n1.0\n2.0\n1.0\nTrue\n-0.0\n0.0\na\nz\n"
+        // Unordered and equal tuples keep the first value (issue #616).
+        "1.0\n1.5\n1.5\n2.0\n1.0\n2.0\nNaN\nTrue\n0.0\n0.0\na\nz\n"
     );
 }
 

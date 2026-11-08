@@ -65,21 +65,63 @@ print(operand(1) < operand(2)).unwrap()
     );
 }
 
+/// Tuple operators compare components with their own operators, as Rust's
+/// tuple `PartialOrd` does: signed zeros are equal, and the first unordered
+/// component makes every relation false (issue #616).
 #[test]
-fn tuple_float_order_matches_sort_including_nan_and_signed_zero() {
+fn tuple_float_operators_follow_scalar_ieee_comparison() {
+    native(
+        r#"
+def relations[T](a: T, b: T) -> (bool, bool, bool, bool, bool, bool):
+    (a < b, a <= b, a > b, a >= b, a == b, a != b)
+nan = 0.0 / 0.0
+inf = f64.INF
+print(nan <= nan, (nan,) <= (nan,), (nan,) == (nan,)).unwrap()
+print(relations((-0.0,), (0.0,))).unwrap()
+print(relations((nan, 0), (nan, 1))).unwrap()
+print(relations((0, nan), (1, nan))).unwrap()
+print(relations((1, nan), (1, 2.0))).unwrap()
+print(relations((1, 2.0), (1, nan))).unwrap()
+print(relations((nan,), (inf,))).unwrap()
+print(relations((-inf, "b"), (inf, "a"))).unwrap()
+print(relations((inf, "b"), (inf, "a"))).unwrap()
+print(relations(((1, nan), 2), ((1, nan), 3))).unwrap()
+print(relations(((0, nan), 2), ((1, nan), 3))).unwrap()
+print(relations((f32(-0.0), 1), (f32(0.0), 2))).unwrap()
+print((nan, 1) in [(nan, 1)].unwrap(), (-0.0, 1) in [(0.0, 1)].unwrap()).unwrap()
+"#,
+        "False False False\n\
+         (False, True, False, True, True, False)\n\
+         (False, False, False, False, False, True)\n\
+         (True, True, False, False, False, True)\n\
+         (False, False, False, False, False, True)\n\
+         (False, False, False, False, False, True)\n\
+         (False, False, False, False, False, True)\n\
+         (True, True, False, False, False, True)\n\
+         (False, False, True, True, False, True)\n\
+         (False, False, False, False, False, True)\n\
+         (True, True, False, False, False, True)\n\
+         (True, True, False, False, False, True)\n\
+         False True\n",
+    );
+}
+
+/// Sorting keeps its separate total order: zeros by sign, NaNs last.
+#[test]
+fn tuple_sorting_keeps_its_total_order() {
     native(
         r#"
 nan = 0.0 / 0.0
-print((-0.0,) < (0.0,), (-0.0,) == (0.0,)).unwrap()
-print((nan,) > (1.0,), (nan,) >= (nan,), (nan,) == (nan,)).unwrap()
-print(nan > 1.0, nan >= nan, -0.0 < 0.0).unwrap()
 mut values = [(nan, 2), (0.0, 0), (-0.0, 9), (-2.0, 8), (nan, 1)].unwrap()
 values.sort()
-for i in range(1, len(values)):
-    print(values[i - 1] < values[i], values[i - 1] <= values[i]).unwrap()
 print(values).unwrap()
+values.sort(True)
+print(values).unwrap()
+mut keyed = [3, 1, 2].unwrap()
+keyed.sort_by_key(def(x: &i64) -> (f64, i64): (f64.NAN if *x == 2 else -0.0 if *x == 1 else 0.0, *x))
+print(keyed).unwrap()
 "#,
-        "True True\nTrue True False\nFalse False False\nTrue True\nTrue True\nTrue True\nTrue True\n[(-2.0, 8), (-0.0, 9), (0.0, 0), (NaN, 1), (NaN, 2)]\n",
+        "[(-2.0, 8), (-0.0, 9), (0.0, 0), (NaN, 1), (NaN, 2)]\n[(NaN, 2), (NaN, 1), (0.0, 0), (-0.0, 9), (-2.0, 8)]\n[1, 3, 2]\n",
     );
 }
 
@@ -135,6 +177,9 @@ print(a, b).unwrap()
     );
 }
 
+/// Sorting agrees with the operators except where a signed zero decides the
+/// sort, so the rows avoid `-0.0`; a NaN component leaves a pair unordered,
+/// never out of order.
 #[test]
 fn flat_and_nested_tuple_sorts_match_tuple_operators() {
     native(
@@ -152,8 +197,6 @@ for i in range(2000):
     mut score = f64(s % 13) - 6.0
     if s % 31 == 0:
         score = 0.0 / 0.0
-    if s % 37 == 0:
-        score = -0.0
     rows.append((u8(s % 3 + 250), f"k{s % 5}".unwrap(), score, i32(s % 9) - 4)).unwrap()
     nested.append((s % 4, (f"n{s % 6}".unwrap(), i))).unwrap()
 rows.sort()

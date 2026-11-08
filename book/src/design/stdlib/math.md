@@ -133,9 +133,9 @@ for the list helpers), regardless of its position. The NaN returned is the
 first NaN input. The pipeline [`min()` and `max()`
 terminals](../language/09-iteration/06-pipelines.md#terminals) share this rule.
 Other types use ordinary comparisons and retain the first of equal values.
-Tuple elements retain their existing [lexicographic total
-order](../language/03-types/tuples.md), including the ordering of NaN fields;
-they are not scalar NaNs. Dictionary
+Tuples compare with their [operators](../language/03-types/tuples.md), so a pair
+left unordered by a NaN component, or equal through signed zeros, also retains the
+first value; a NaN component does not propagate as a scalar NaN does. Dictionary
 folds visit keys in insertion order; set order is unspecified. The fold start is
 always explicit and determines the result type. Generators and custom iterator
 protocols are not borrowed iterables; strings have nonnumeric elements.

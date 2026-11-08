@@ -33,9 +33,10 @@ type matching, casts, overflow, and float behavior. Membership follows the
 container's [facilities contract](../../facilities/index.md).
 
 Ordering operators accept matching integers, floats, strings, and
-[orderable tuples](../03-types/tuples.md). Tuple operators use the same
-lexicographic total order as `sort()`, including its signed-zero and NaN rules;
-scalar float comparisons retain IEEE behavior.
+[orderable tuples](../03-types/tuples.md). Tuple operators compare
+lexicographically with each component's own operator, so float components keep
+IEEE behavior: signed zeros are equal and a NaN component makes every ordered
+relation false. `sort()` has a separate total order.
 
 [Format strings](format-strings.md) build text from fields with static specs.
 Suites and conditionals have [value and exit rules](branches.md). Enums support

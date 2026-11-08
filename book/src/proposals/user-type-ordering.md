@@ -126,6 +126,12 @@ the order at each use, and makes `str` keys copy per comparison. Keep
 
 ## Total and partial order
 
+> **Superseded 2026-11-08 (issue #616):** tuple operators now compare
+> components with their own operators, as Rust's tuple `PartialOrd` does, so a
+> NaN component makes every ordered relation false and signed zeros are equal.
+> Sorting keeps the total order below. A user `__cmp__` and its use in tuple
+> operators should be reconciled with that split when B37 lands.
+
 Plenty has one total order for sorting and tuple operators, and IEEE behavior
 for scalar float operators. Rust splits `PartialOrd` from `Ord` so that floats
 can have operators but not `sort`; learners then meet `total_cmp` anyway.
