@@ -103,6 +103,9 @@ also folds that load but keeps a separate range countdown, leaving 8.
 Fold's two additional instructions reload the immutable closure address and
 threshold per row. That remaining concern is local issue #891. It is separate
 from zip state, and is also present in actual inlined callers.
+These are measurements of the column-zip revision; the subsequent
+[conditional-capture experiment](../scalar-captures/README.md) records removal
+of those two reloads, bringing fold to 8 instructions too.
 
 Whole-program `instructions:u`, arithmetic mean of three runs:
 

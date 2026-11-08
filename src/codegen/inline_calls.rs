@@ -304,6 +304,7 @@ impl Lowerer<'_, '_> {
         body: &[Op],
         args: Vec<cranelift_codegen::ir::Value>,
         track_caller: bool,
+        captures: &[cranelift_codegen::ir::Value],
     ) -> Result<()> {
         let functions = self.user_fns;
         let decl = &functions[name];
@@ -353,8 +354,11 @@ impl Lowerer<'_, '_> {
             .iter()
             .any(Ty::has_inline_storage)
             .then(|| self.inline_storage(bytes));
-        let scalar_captures =
+        let mut scalar_captures =
             scalar_captures::Captures::new(body, &locals, inputs, functions, self.bcx);
+        // These are immutable by-value scalar snapshots. Retain the actual
+        // reference arguments, but substitute direct reads in this callee.
+        scalar_captures.bind_reads(&args, captures);
         let returned = self.bcx.create_block();
         let outputs = crate::tail_abi::layout(&decl.sig).outputs;
         for &ty in &outputs {

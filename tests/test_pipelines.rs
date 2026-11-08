@@ -243,6 +243,57 @@ print(total).unwrap()
 }
 
 #[test]
+fn conditional_scalar_captures_preserve_snapshots_and_mutable_fallbacks() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("captures.plenty");
+    std::fs::write(
+        &path,
+        include_str!("../experiments/kernels/scalar-captures/semantics.plenty"),
+    )
+    .unwrap();
+    for optimize in [false, true] {
+        let mut command = std::process::Command::new(support::plenty_bin());
+        command.env("PLENTY_CACHE", "off");
+        if !optimize {
+            command.arg("--fast-compile");
+        }
+        let output = support::assert_success(command.arg(&path).output().unwrap());
+        assert_eq!(output.stdout, b"ok\n");
+    }
+}
+
+#[test]
+fn conditional_fold_keeps_immutable_capture_out_of_column_loads() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("scan.plenty");
+    std::fs::write(
+        &path,
+        include_str!("../experiments/kernels/clist-zip/scan.plenty"),
+    )
+    .unwrap();
+    let output = support::assert_success(
+        std::process::Command::new(support::plenty_bin())
+            .env("PLENTY_CACHE", "off")
+            .args(["--dump", "clif-opt", "--dump-filter", "scan_fold"])
+            .arg(&path)
+            .args(["-o", "-"])
+            .output()
+            .unwrap(),
+    );
+    let text = String::from_utf8(output.stdout).unwrap();
+    let fold = text
+        .split_once("==== scan_fold  ")
+        .expect(&text)
+        .1
+        .split("\n==== ")
+        .next()
+        .unwrap();
+    // Only key and weight are loaded. The captured runtime limit is SSA,
+    // including through the general inliner's conditional callback body.
+    assert_eq!(fold.matches("= load.f64 ").count(), 2, "{fold}");
+}
+
+#[test]
 fn optimized_scalar_captures_follow_copies_branches_and_loop_assignments() {
     // exercise(7) bounds offsets by 50, arguments by 100, and fold totals by 29. Keep scalar
     // closure copies.

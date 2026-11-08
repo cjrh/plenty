@@ -9,6 +9,9 @@ pub(super) struct Captures {
     slots: HashMap<u8, Vec<Variable>>,
     values: HashMap<NativeValue, Vec<NativeValue>>,
     borrows: HashMap<NativeValue, u8>,
+    /// Immutable capture parameters of a generally inlined closure body.
+    /// Keep the real references for calls/identity; only direct reads use SSA.
+    reads: HashMap<NativeValue, NativeValue>,
 }
 
 fn exclusive(ops: &[Op], slot: u8) -> bool {
@@ -56,10 +59,12 @@ impl Captures {
                 || closure.captures.is_empty()
                 || !closure.captures.iter().all(|(_, t)| leaf_calls::scalar(t))
                 || exclusive(ops, index as u8)
-                || !functions
-                    .get(&closure.name)
-                    .and_then(|f| f.inline.as_ref())
-                    .is_some_and(|f| f.capture_reads(closure.captures.len()))
+                || !functions.get(&closure.name).is_some_and(|f| {
+                    f.inline_body.is_some()
+                        || f.inline
+                            .as_ref()
+                            .is_some_and(|f| f.capture_reads(closure.captures.len()))
+                })
             {
                 continue;
             }
@@ -73,6 +78,15 @@ impl Captures {
             );
         }
         captures
+    }
+
+    pub(super) fn bind_reads(&mut self, references: &[NativeValue], values: &[NativeValue]) {
+        self.reads
+            .extend(references.iter().copied().zip(values.iter().copied()));
+    }
+
+    pub(super) fn read(&self, reference: NativeValue) -> Option<NativeValue> {
+        self.reads.get(&reference).copied()
     }
 }
 

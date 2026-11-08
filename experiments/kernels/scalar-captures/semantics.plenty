@@ -1,0 +1,55 @@
+import std.test
+
+def choose(limit: f64) -> Closure[[f64], f64]:
+    def [limit](value: f64) -> f64:
+        value + limit if value >= limit else limit
+
+def replace_callback(callback: &mut Closure[[f64], f64], limit: f64) -> ():
+    *callback = choose(limit)
+
+def main() -> Result[(), OverflowError[i64]]:
+    mut callback = choose(3.0)
+    for i in range(4):
+        old = callback
+        if i % 2 == 0:
+            callback = choose(f64(i))
+        else:
+            callback = choose(f64(i) + 10.0)
+        std.test.check(old(20.0) >= 20.0, "moved snapshot").unwrap()
+        std.test.check(callback(0.0) == (f64(i) if i % 2 == 0 else f64(i) + 10.0), "branch snapshot").unwrap()
+    saved = callback
+    callback = choose(20.0)
+    replace_callback(&mut callback, 50.0)
+    std.test.check(saved(0.0) == 13.0 and callback(0.0) == 50.0, "exclusive replacement").unwrap()
+    mut threshold = 3.0
+    select = def [threshold](value: f64) -> f64:
+        value if value >= threshold else threshold
+    threshold = 100.0
+    std.test.check(select(4.0) == 4.0 and threshold == 100.0, "construction snapshot").unwrap()
+    counter = 0.0
+    mut changing = def [mut counter](value: f64) -> f64:
+        counter += 1.0
+        value + counter if counter > 1.0 else counter
+    std.test.check(changing(10.0) == 1.0 and changing(10.0) == 12.0, "mutable capture").unwrap()
+    mut external = 0.0
+    mut borrowed = def [&mut external](value: f64) -> f64:
+        external += 1.0
+        value if external > 1.0 else external
+    std.test.check(borrowed(10.0) == 1.0 and borrowed(10.0) == 10.0, "borrowed capture").unwrap()
+    drop(borrowed)
+    std.test.check(external == 2.0, "borrow writes").unwrap()
+    for i in range(3):
+        bound = f64(i)
+        n = i
+        positive = i % 2 == 0
+        mixed = def [bound, n, positive](value: f64) -> f64:
+            value + bound if positive and n >= 0 else bound
+        std.test.check(mixed(10.0) == (10.0 + bound if positive else bound), "mixed captures").unwrap()
+    zero = -0.0
+    preserve = def [zero](value: f64) -> f64:
+        zero if value == 0.0 else value
+    std.test.check(1.0 / preserve(0.0) == -f64.INF, "signed zero").unwrap()
+    nan = preserve(f64.NAN)
+    std.test.check(nan != nan, "NaN").unwrap()
+    print("ok").unwrap()
+    Ok(())
