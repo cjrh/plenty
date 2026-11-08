@@ -2415,6 +2415,202 @@ next True\ndrop 5\ndrop 6\ncount 1\nend\n",
     );
 }
 
+/// Issue #874: a lending call infers type parameters from its ordinary
+/// arguments and expected result as well as from the lent item types.
+#[test]
+fn lending_calls_infer_ordinary_type_parameters() {
+    output(
+        r#"
+type Label = str
+
+class Counter:
+    seen: i64
+
+    def tag[T, K](self: &mut Counter, p: &mut Iter[T], label: K) -> Option[(K, T)]:
+        self.seen = 1
+        match next(p):
+            case Some(v):
+                Some((label, v))
+            case Nothing:
+                Nothing
+
+def tagged[T, K](p: &mut Iter[T], tag: K) -> Option[(K, T)]:
+    match next(p):
+        case Some(v):
+            Some((tag, v))
+        case Nothing:
+            Nothing
+
+def before[K, T](label: K, p: &mut Iter[T]) -> Option[(K, T)]:
+    match next(p):
+        case Some(v):
+            Some((label, v))
+        case Nothing:
+            Nothing
+
+def zip2[A, B](p: &mut Iter[A], q: &mut Iter[B]) -> Option[(A, B)]:
+    match (next(p), next(q)):
+        case (Some(a), Some(b)):
+            Some((a, b))
+        case _:
+            Nothing
+
+def apply[T, R, F: Callable[[T], R]](p: &mut Iter[T], f: &F) -> Option[R]:
+    match next(p):
+        case Some(v):
+            Some(f(v))
+        case Nothing:
+            Nothing
+
+def same_kind[T](p: &mut Iter[T], fallback: T) -> T:
+    next(p).unwrap_or(fallback)
+
+def first_kind[T](fallback: T, p: &mut Iter[T]) -> T:
+    next(p).unwrap_or(fallback)
+
+def or_default[T](p: &mut Iter[T], d: Option[T]) -> Option[T]:
+    match next(p):
+        case Some(v):
+            Some(v)
+        case Nothing:
+            d
+
+def nested[T, K](p: &mut Iter[T], tag: K, again: bool) -> Option[(K, T)]:
+    if again:
+        drop(next(p))
+        found = nested(p, tag, False)
+        drop(next(p))
+        return found
+    tagged(p, tag)
+
+def output_only[T, K](p: &mut Iter[T]) -> Option[K]:
+    drop(next(p))
+    Nothing
+
+def fallible[T, K](p: &mut Iter[T], tag: K) -> Result[(K, T), str]:
+    match next(p):
+        case Some(v):
+            Ok((tag, v))
+        case Nothing:
+            Err("empty")
+
+def stop_early[T, K](p: &mut Iter[T], tag: K) -> K:
+    for x in p:
+        break
+    tag
+
+def use_fallible(p: &mut Iter[i64]) -> Result[i64, str]:
+    pair = fallible(p, 1u8)?
+    Ok(pair[1])
+
+def word(x: i64) -> str:
+    drop(x)
+    return "x"
+
+def label() -> str:
+    print("label").unwrap()
+    "once"
+
+def main() -> Result[(), AllocError | IoError]:
+    mut p = iter(range(20))
+    mut q = iter(["a", "b"]?)
+    mut c = Counter(0)
+    print(tagged(&mut p, "first"))?
+    print(c.tag(&mut p, "method"))?
+    l: Label = "alias"
+    print(before(l, &mut p))?
+    print(zip2(&mut p, &mut q))?
+    print(apply(&mut p, &word))?
+    double = def(x: i64) -> u8:
+        drop(x)
+        2u8
+    print(apply(&mut p, &double))?
+    print(same_kind(&mut p, 0))?
+    print(nested(&mut p, "nested", True))?
+    print(tagged(&mut p, label()))?
+    print(tagged[i64, i32](&mut p, 5))?
+    mut r = iter(range(5))
+    k: Option[u8] = output_only(&mut r)
+    print(k)?
+    small: Result[(u8, i64), str] = fallible(&mut r, 3)
+    match small:
+        case Ok(v):
+            print(v)?
+        case Err(e):
+            print(e)?
+    match use_fallible(&mut r):
+        case Ok(v):
+            print(v)?
+        case Err(e):
+            print(e)?
+    print(stop_early(&mut r, "stop"))?
+    print(r.count())?
+    mut bytes = iter([7u8, 8u8, 9u8]?)
+    print(same_kind(&mut bytes, 0))?
+    print(first_kind(0, &mut bytes))?
+    print(or_default(&mut bytes, Nothing))?
+    print(or_default(&mut bytes, Nothing))?
+    mut small_ints = iter([5i32]?)
+    print(same_kind(&mut small_ints, 0))?
+    print(p.count())?
+    Ok(())
+"#,
+        "Option[tuple[str, i64]].Some((\"first\", 0))\n\
+Option[tuple[str, i64]].Some((\"method\", 1))\n\
+Option[tuple[str, i64]].Some((\"alias\", 2))\n\
+Option[tuple[i64, str]].Some((3, \"a\"))\n\
+Option[str].Some(\"x\")\n\
+Option[u8].Some(2)\n\
+6\n\
+Option[tuple[str, i64]].Some((\"nested\", 8))\n\
+label\n\
+Option[tuple[str, i64]].Some((\"once\", 10))\n\
+Option[tuple[i32, i64]].Some((5, 11))\n\
+Option[u8].Nothing\n\
+(3, 1)\n\
+2\n\
+stop\n\
+1\n\
+7\n\
+8\n\
+Option[u8].Some(9)\n\
+Option[u8].Nothing\n\
+5\n\
+8\n",
+    );
+}
+
+/// Issue #874: ordinary-argument evidence conflicts and borrows follow the
+/// rules of every generic call.
+#[test]
+fn lending_call_inference_keeps_conflict_and_borrow_rules() {
+    for (source, expected) in [
+        (
+            "def same[T](p: &mut Iter[T], fallback: T) -> T:\n    next(p).unwrap_or(fallback)\ndef main() -> ():\n    mut p = iter(range(3))\n    drop(same(&mut p, \"no\"))\n",
+            "conflicting types for `T` in `same`: i64 and str",
+        ),
+        (
+            "def same[T](p: &mut Iter[T], fallback: T) -> T:\n    next(p).unwrap_or(fallback)\ndef main() -> Result[(), AllocError]:\n    mut p = iter([1u8]?)\n    x: i64 = same(&mut p, 0)\n    drop(x)\n    Ok(())\n",
+            "type parameter `T` for `same` is u8 from its arguments but i64 from the expected result type",
+        ),
+        (
+            "def keep[T, K](p: &mut Iter[&T], tag: K) -> K:\n    drop(p.count())\n    tag\ndef main() -> Result[(), AllocError]:\n    mut xs = [1, 2]?\n    mut q = iter(&xs)\n    drop(keep(&mut q, 1))\n    xs.append(3)?\n    drop(q.count())\n    Ok(())\n",
+            "cannot modify or exclusively borrow `xs` while it is borrowed",
+        ),
+        (
+            "def keep[T, K](p: &mut Iter[T], tag: &mut K) -> i64:\n    p.count()\ndef main() -> ():\n    mut n = 0\n    mut q = iter(range(3))\n    r = &mut n\n    drop(keep(&mut q, &mut n))\n    *r = 1\n",
+            "cannot modify or exclusively borrow `n` while it is exclusively borrowed",
+        ),
+        (
+            "def unknown[T, K](p: &mut Iter[T]) -> i64:\n    p.count()\ndef main() -> ():\n    mut q = iter(range(3))\n    drop(unknown(&mut q))\n",
+            "cannot infer type parameter `K` for `unknown`",
+        ),
+    ] {
+        let error = support::check_source(source).expect_err(source).to_string();
+        assert!(error.contains(expected), "{source}\n{error}");
+    }
+}
+
 #[test]
 fn lending_keeps_borrow_and_signature_rules() {
     for (source, expected) in [
