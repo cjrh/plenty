@@ -90,15 +90,17 @@ require every alternative to qualify. If generic substitution collapses
 member arms are still duplicates. Generic inference rejects ambiguous member
 substitutions; supply explicit type arguments in that case.
 
-For reporting, a sum satisfies
-[`std.fmt.Formattable`](../../stdlib/report.md) when every normalized member
-satisfies that protocol. Formatting dispatch borrows the active member without
-allocation or consuming the sum. A missing or mismatched method on any member
-rejects the whole bound, regardless of which member is active.
+A sum satisfies a shared-receiver protocol bound, including
+[`std.fmt.Formattable`](../../stdlib/report.md), when every normalized member
+satisfies it. Dispatch borrows the active member without allocation or
+consuming the sum. A missing or mismatched method on any member rejects the
+whole bound, regardless of which member is active. See
+[protocols on anonymous sums](../07-generics/protocols.md#anonymous-sums) for
+the requirements that can be forwarded.
 
 This version does not infer residual sums after recovery (a
 [residual member pattern](#residual-members) states one explicitly), introduce
-empty sums, forward arbitrary member methods or protocols, or erase errors. See
+empty sums, forward direct method calls other than `format`, or erase errors. See
 [propagation](../08-errors/01-sums-and-propagation.md) for `?` and builtin
 `Failure`, the last-resort error that erases its cause.
 

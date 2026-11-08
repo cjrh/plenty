@@ -58,7 +58,7 @@ data parameters and contribute constructor inference evidence. Explicit instance
 and aliases are checked too; unused declaration bounds still require valid
 signature shapes.
 
-Data type arguments cannot be unit, references, or generators. Resolved owned
+Data type arguments can be [unit](../03-types/index.md) but not references or generators. Resolved owned
 closures can be arguments; see [stored callables](../06-functions/index.md).
 Generic fields, construction, moves, and destruction keep their ordinary data
 semantics, including [recursive storage](../03-types/recursive-data.md).

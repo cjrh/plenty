@@ -133,10 +133,10 @@ identity. [Protocols](protocols.md) describe exact structural interfaces without
 inheritance or registration.
 
 Generic function type arguments can be unit `()`, including when inferred from
-`Result` or `Option` payloads. Substituted signatures and bodies retain ordinary
-unit restrictions: unit can be a return type or built-in enum payload, but not
-a direct function parameter or stored collection element. A `&T` or `&mut T`
-parameter instantiated with `()` borrows unit, so a helper such as
+`Result` or `Option` payloads or from a unit argument. Unit is an
+[ordinary value type](../03-types/index.md), so a `T` parameter, binding,
+field or collection element instantiated with `()` holds unit. A `&T` or
+`&mut T` parameter instantiated with `()` borrows unit, so a helper such as
 `std.test.is_err` accepts a `Result[(), E]`. Explicit calls and specialized
 function values also accept `()`.
 

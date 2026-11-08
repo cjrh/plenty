@@ -417,6 +417,8 @@ mod test_project;
 mod test_propagation;
 #[path = "test_protocol_defaults.rs"]
 mod test_protocol_defaults;
+#[path = "test_protocol_sums.rs"]
+mod test_protocol_sums;
 #[path = "test_protocols.rs"]
 mod test_protocols;
 #[path = "test_python_habit_diagnostics.rs"]
@@ -699,6 +701,8 @@ mod test_type_cycles;
 mod test_typed_ranges;
 #[path = "test_typed_stream_prototype.rs"]
 mod test_typed_stream_prototype;
+#[path = "test_unit_values.rs"]
+mod test_unit_values;
 #[path = "test_unsigned_literals.rs"]
 mod test_unsigned_literals;
 #[path = "test_values.rs"]

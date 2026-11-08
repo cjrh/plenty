@@ -217,12 +217,9 @@ impl Lower<'_> {
     ) -> Result<Type> {
         let variant = t.get().variants[tag].name.clone();
         let fields = t.get().variants[tag].fields.clone();
-        if fields
-            .iter()
-            .any(|field| *field == Ty::Unit || field.unresolved_generator())
-        {
+        if fields.iter().any(Ty::unresolved_generator) {
             return Err(at.error(format!(
-                "variant `{}.{variant}` cannot be used as a function value because a payload is `()` or a generator; write a closure",
+                "variant `{}.{variant}` cannot be used as a function value because a payload is a generator; write a closure",
                 t.name
             )));
         }

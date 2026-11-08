@@ -87,21 +87,10 @@ def main() -> Result[(), IoError]:
 }
 
 #[test]
-fn unit_specializations_keep_parameter_storage_and_constraint_checks() {
-    for (source, diagnostic) in [
-        (
-            "def f[T](value: T) -> T:\n    value\nf[()](())",
-            "unit parameters are not supported yet",
-        ),
-        (
-            "def f[T: IntType](value: Option[T]) -> Option[T]:\n    value\nf[()](Nothing)",
-            "does not satisfy IntType",
-        ),
-        ("def f[T]() -> list[T]:\n    []\nf[()]()", "unit"),
-    ] {
-        let error = support::check_source(source).unwrap_err().to_string();
-        assert!(error.contains(diagnostic), "{error}");
-    }
+fn unit_specializations_keep_constraint_checks() {
+    let source = "def f[T: IntType](value: Option[T]) -> Option[T]:\n    value\nf[()](Nothing)";
+    let error = support::check_source(source).unwrap_err().to_string();
+    assert!(error.contains("does not satisfy IntType"), "{error}");
 }
 
 #[test]

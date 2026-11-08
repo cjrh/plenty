@@ -82,10 +82,7 @@ impl Lower<'_> {
             inputs: function
                 .inputs
                 .iter()
-                .map(|(_, t)| {
-                    t.resolve(self.aliases)?
-                        .ok_or_else(|| at.error("unit parameters are not supported yet"))
-                })
+                .map(|(_, t)| Ok(t.resolve(self.aliases)?.unwrap_or(Ty::Unit)))
                 .collect::<Result<_>>()?,
             output: function.output.resolve(self.aliases)?,
         };

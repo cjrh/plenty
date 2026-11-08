@@ -787,18 +787,45 @@ def f(flag: bool) -> i64:
 "#,
         "every case of this `match` exits, so it has no value",
     );
+    // A first `pass` case is reported against the annotation, not at the
+    // next case.
     reject(
         r#"
-def main() -> Result[(), AllocError]:
+def f(flag: bool) -> i64:
+    x: i64 = match flag:
+        case True:
+            pass
+        case False:
+            1
+    x
+"#,
+        // The first case, not the second.
+        "3:9: expected i64, got ()",
+    );
+}
+
+// Cases without a value make the match unit, which binds like any unit value
+// (issue #870).
+#[test]
+fn match_value_of_pass_cases_binds_unit() {
+    run(
+        r#"
+def main() -> Result[(), AllocError | IoError]:
     flag = True
     x = match flag:
         case True:
             pass
         case False:
             pass
+    y: () = match flag:
+        case True:
+            pass
+        case False:
+            ()
+    print(x, y)?
     Ok(())
 "#,
-        "expected a value, got ()",
+        "() ()\n",
     );
 }
 

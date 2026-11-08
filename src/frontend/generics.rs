@@ -215,6 +215,7 @@ pub(super) fn prepare(
         required: HashMap::default(),
         unsubstituted: HashMap::default(),
         protocol_instances: HashSet::default(),
+        sum_bounds: HashMap::default(),
         source_root: None,
         standard_sources: HashSet::default(),
         unchecked: crate::UncheckedMode::Trap,
@@ -326,6 +327,10 @@ pub(super) struct Engine {
     /// Specializations checked under protocol contracts, including lifted code.
     /// Method calls in these bodies cannot inherit implementation-only defaults.
     pub(super) protocol_instances: HashSet<String>,
+    /// Anonymous sums substituted for a protocol-bounded type parameter, by
+    /// instance symbol, including lifted code. Only method calls in these
+    /// bodies dispatch through the bound's protocol (issue #875).
+    pub(super) sum_bounds: HashMap<String, Vec<(Ty, String)>>,
     pub(super) source_root: Option<std::path::PathBuf>,
     pub(super) standard_sources: HashSet<Arc<str>>,
     /// The build's mode for plain `unchecked:` suites outside `std`.
@@ -547,6 +552,10 @@ impl Engine {
         for (name, at, outer) in uses {
             self.demand_method(&name, || at, outer.as_ref());
         }
+    }
+
+    pub(super) fn protocol(&self, name: &str) -> Option<&protocols::Protocol> {
+        self.protocols.get(name)
     }
 
     pub(super) fn reporting_protocol(&self) -> Option<&protocols::Protocol> {
@@ -1612,9 +1621,7 @@ impl Lower<'_> {
                     .as_ref()
                     .is_some_and(Ty::unresolved_generator)
             {
-                let expected = pattern
-                    .resolve(self.aliases)?
-                    .ok_or_else(|| pattern.at.error("unit parameters are not supported yet"))?;
+                let expected = pattern.resolve(self.aliases)?.unwrap_or(Ty::Unit);
                 loans.extend(self.call_arguments(
                     std::slice::from_ref(arg),
                     &[(String::new(), expected.clone())],
@@ -1647,8 +1654,8 @@ impl Lower<'_> {
                 let ty = if let Some(context) =
                     hinted_parameter(pattern, &template, &context, self.aliases)?
                 {
-                    self.expr_expected(arg, Some(context), ops)?
-                        .ok_or_else(|| arg.at.error("expected a value, got ()"))?
+                    let ty = self.expr_expected(arg, Some(context), ops)?;
+                    self.stored(ty, ops)
                 } else {
                     self.value(arg, ops)?
                 };
@@ -1785,6 +1792,9 @@ impl Engine {
     ) {
         if self.protocol_instances.contains(parent) {
             self.protocol_instances.insert(child.into());
+        }
+        if let Some(bounds) = self.sum_bounds.get(parent).cloned() {
+            self.sum_bounds.insert(child.into(), bounds);
         }
         let Some(parent) = table.symbol(parent) else {
             return;
@@ -2121,6 +2131,7 @@ impl Engine {
             })?;
         let template = generated.as_ref().unwrap_or(template);
         let mut demanded = Vec::new();
+        let mut sum_bounds = Vec::new();
         for ((_, bound), argument) in template.type_params.iter().zip(actual) {
             let Some(ty) = argument.as_type() else {
                 continue;
@@ -2167,6 +2178,11 @@ impl Engine {
                         &bound.at,
                         at,
                     )?;
+                    if matches!(ty, Ty::Enum(sum) if sum.anonymous())
+                        && !protocols::reporting(&protocol, &self.standard_sources)
+                    {
+                        sum_bounds.push((ty.clone(), protocol.name.clone()));
+                    }
                     // Satisfying a bound uses the methods it requires, whether
                     // or not this instance's body calls them.
                     if let Some(owner) = classes::method_owner(ty) {
@@ -2198,6 +2214,9 @@ impl Engine {
         }
         let mut symbol = String::with_capacity(24);
         write!(symbol, "__plenty_generic_{}", self.instances).unwrap();
+        if !sum_bounds.is_empty() {
+            self.sum_bounds.insert(symbol.clone(), sum_bounds);
+        }
         if self.protocol_instances.contains(name)
             || template.type_params.iter().any(|(_, bound)| {
                 bound

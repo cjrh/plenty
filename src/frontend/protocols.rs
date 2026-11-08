@@ -126,10 +126,7 @@ pub(super) fn signature(f: &Function, aliases: &TypeAliases) -> Result<generics:
     // they are registered.
     let mut inputs = Vec::with_capacity(f.inputs.len());
     for (_, t) in &f.inputs {
-        inputs.push(
-            t.resolve(aliases)?
-                .ok_or_else(|| t.at.error("unit parameters are not supported yet"))?,
-        );
+        inputs.push(t.resolve(aliases)?.unwrap_or(Ty::Unit));
     }
     Ok((inputs, f.output.resolve(aliases)?))
 }
@@ -155,9 +152,7 @@ pub(super) fn instantiate(
             arguments
                 .iter()
                 .map(|arg| {
-                    let ty = arg
-                        .resolve(aliases)?
-                        .ok_or_else(|| arg.at.error("unit protocol arguments are not supported"))?;
+                    let ty = arg.resolve(aliases)?.unwrap_or(Ty::Unit);
                     if ty.restricted_storage() {
                         return Err(arg.at.error(
                             "protocol arguments cannot contain references, generators, or closures",
@@ -172,7 +167,7 @@ pub(super) fn instantiate(
     concrete.type_params.clear();
     concrete.arguments = arguments
         .iter()
-        .map(|a| a.resolve(aliases).map(Option::unwrap))
+        .map(|a| Ok(a.resolve(aliases)?.unwrap_or(Ty::Unit)))
         .collect::<Result<_>>()?;
     for method in &mut concrete.methods {
         for bound in method
@@ -329,14 +324,16 @@ pub(super) fn check(
         )?;
     }
     if matches!(actual, Ty::Enum(sum) if sum.anonymous()) {
-        if !reporting(protocol, standard_sources) {
+        if let Some(reason) = sum_forwarding_restriction(protocol, aliases)? {
             return Err(call.error(format!(
-                "{actual} does not satisfy {}; anonymous sums only forward std.fmt.Formattable",
+                "{actual} does not satisfy {}: an anonymous sum cannot forward it because {reason}",
                 protocol.name
             )));
         }
-        // The forwarding method belongs to the reporting contract, so its
-        // payload calls must be visible from that library even for a local bound.
+        // The forwarding method is synthesized at the protocol's declaration,
+        // so its payload calls must be visible from there; a user protocol's
+        // bound must also see them, as for any other argument.
+        let reporting = reporting(protocol, standard_sources);
         for member in crate::sum::members(actual) {
             check(
                 protocol,
@@ -349,6 +346,19 @@ pub(super) fn check(
                 &protocol.at,
                 call,
             )?;
+            if !reporting {
+                check(
+                    protocol,
+                    &member,
+                    methods,
+                    templates,
+                    aliases,
+                    access,
+                    standard_sources,
+                    bound,
+                    call,
+                )?;
+            }
         }
         return Ok(());
     }
@@ -413,6 +423,61 @@ pub(super) fn check(
         }
     }
     Ok(())
+}
+
+/// Why an anonymous sum cannot satisfy `protocol` by dispatching each
+/// requirement to its active member, or `None` when it can (issue #875).
+/// The dispatcher matches on a shared borrow of the sum and forwards the
+/// other arguments, so each requirement takes `self` by shared reference,
+/// names the implementing type only as its receiver, returns no reference
+/// into the payload, and has method type parameters the forwarded arguments
+/// determine. A protocol with type parameters has no single instance for a
+/// direct call to select, so it does not forward either.
+pub(super) fn sum_forwarding_restriction(
+    protocol: &Protocol,
+    aliases: &TypeAliases,
+) -> Result<Option<String>> {
+    if !protocol.type_params.is_empty() || !protocol.arguments.is_empty() {
+        return Ok(Some("it has type parameters".into()));
+    }
+    fn mentions(ty: &TypeRef, name: &str) -> bool {
+        ty.name.as_deref() == Some(name) || ty.args.iter().any(|arg| mentions(arg, name))
+    }
+    let marker = placeholder(&protocol.name);
+    let mut scope = aliases.clone();
+    scope.insert(protocol.name.clone(), Some(marker.clone()));
+    for method in &protocol.methods {
+        let reason = |text: &str| Ok(Some(format!("`{}` {text}", method.name)));
+        let mut scope = scope.clone();
+        for (parameter, _) in &method.type_params {
+            if !method.inputs[1..]
+                .iter()
+                .any(|(_, ty)| mentions(ty, parameter))
+            {
+                return reason(&format!(
+                    "has a type parameter `{parameter}` that no argument determines"
+                ));
+            }
+            scope.insert(parameter.clone(), Some(placeholder(parameter)));
+        }
+        let (inputs, output) = signature(method, &scope)?;
+        match inputs.first() {
+            Some(Ty::Ref(_, false)) => {}
+            Some(Ty::Ref(_, true)) => return reason("has a mutable receiver"),
+            _ => return reason("has a consuming receiver"),
+        }
+        if inputs[1..]
+            .iter()
+            .chain(output.iter())
+            .any(|ty| contains_implementing_type(ty, &marker, &scope))
+        {
+            return reason("uses the implementing type outside its receiver");
+        }
+        if output.as_ref().is_some_and(Ty::contains_reference) {
+            return reason("returns a reference or view");
+        }
+    }
+    Ok(None)
 }
 
 pub(super) fn reporting(protocol: &Protocol, standard_sources: &HashSet<Arc<str>>) -> bool {

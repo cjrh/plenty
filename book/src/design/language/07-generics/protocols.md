@@ -100,7 +100,7 @@ Protocols constrain class and enum arguments, the built-in `bytes`, and an
 explicit [protocol box](boxed-protocols.md) exposing the identical protocol.
 A protocol alone is not a runtime value type. `bytes` has one
 method, `len(self) -> i64`; other built-in types have none to offer. Protocol
-parameters cannot have their own bounds; protocol arguments exclude unit,
+parameters cannot have their own bounds; protocol arguments can be unit but exclude
 references, generators, and closure environments. Fields, inheritance, multiple
 bounds, defaults, associated types, and lifecycle requirements are unsupported.
 
@@ -109,11 +109,65 @@ minimum interface rather than a separately checked abstract body. `IntType`,
 `FloatType`, [`CopyType`](index.md#copytype), and [`KeyType`](index.md#keytype)
 remain separate built-in constraints.
 
-[`std.fmt.Formattable`](../../stdlib/report.md) additionally accepts an
-anonymous sum when every normalized member satisfies its contract. The compiler
-dispatches to the active member through a shared borrow without allocation.
-This is specific to that standard-library protocol: a user-defined protocol with
-the same signature does not gain sum forwarding.
+## Anonymous sums
+
+An [anonymous sum](../03-types/anonymous-sums.md) satisfies a protocol bound
+when every normalized member satisfies the protocol and every requirement can
+be forwarded. In the generic body, each requirement call matches a shared
+borrow of the sum and calls the active member's method once, passing the other
+arguments unchanged. Nothing is allocated or erased, and member order and
+aliases do not matter:
+
+```plenty
+protocol Labelled:
+    def label(self) -> str:
+        pass
+
+class A:
+    pub def label(self) -> str:
+        return "a"
+
+enum B:
+    One
+    pub def label(self) -> str:
+        return "b"
+
+def label[T: Labelled](value: &T) -> str:
+    value.label()
+
+def main() -> Result[(), IoError]:
+    first: A | B = A()
+    second: B | A = B.One
+    print(label(&first), label(&second))?
+    Ok(())
+```
+```output
+a b
+```
+
+A requirement can be forwarded when:
+
+- its receiver is `self` or `self: &P`; a mutable or consuming receiver is
+  rejected;
+- the implementing type `P` appears only as the receiver, so `-> P`,
+  `other: &P` and `Box[P]` are rejected;
+- it returns no reference or view into the member;
+- each method type parameter appears in a forwarded argument, so the call
+  determines it. A bound on such a parameter may name the protocol itself;
+  the sum can then satisfy it.
+
+A protocol with type parameters does not forward. The diagnostic names the
+first requirement that cannot be forwarded and why. A member missing a
+method, or with a mismatched signature, rejects the whole sum regardless of
+which member is active. Member methods must be visible both from the
+protocol's declaration, where the dispatcher is created, and from the bound.
+
+Only the bound forwards. Within such a body, every value of that sum type
+dispatches, not only those typed through the parameter. A direct call such as `second.label()` outside a
+body bounded by the protocol is an error, even when every member has the
+method and some protocol requires it: match on the sum instead. The one
+exception is `sum.format(output)`, which dispatches through
+[`std.fmt.Formattable`](../../stdlib/report.md).
 
 ## Design history
 

@@ -2048,6 +2048,14 @@ impl Lower<'_> {
                 if let Some(expected) = &joined {
                     self.same(ty.clone(), expected.clone(), &case.at)?;
                 } else {
+                    // A first continuing case without a value (`pass`) is
+                    // reported against the expected type, not the next case.
+                    if ty.is_none()
+                        && let Tail::Value(Some(expected)) = tail
+                        && *expected != Ty::Unit
+                    {
+                        self.same(None, Some(expected.clone()), &case.at)?;
+                    }
                     joined = Some(ty);
                 }
             }

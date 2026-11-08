@@ -79,8 +79,8 @@ saved
 ```
 
 Here `T` is inferred as `()`. You can also write an explicit unit type argument,
-such as `keep_result[(), IoError](written)`. Unit still cannot be a direct
-function parameter, so `identity[()](())` is rejected.
+such as `keep_result[(), IoError](written)`. Unit is an ordinary value, so `T`
+can be `()` anywhere: `identity[()](())` and `identity(())` both return `()`.
 
 ## Require collection keys
 

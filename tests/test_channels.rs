@@ -1576,14 +1576,13 @@ def main() -> Result[(), AllocError | IoError | SendError[()] | SendError[i64]]:
     );
 }
 
-// Phase guard (B16, standalone unit bindings/parameters/storage): unit
-// messages cannot instantiate generics that take or bind a `T` value, or be a
-// generic data argument. Delete these rejections when B16 lifts them.
+// Generic helpers that take or bind a `T` value instantiate with unit
+// (issue #870): capacity, full, cancelled and disconnected sends, and a relay
+// that binds the received unit and resends it, also on a worker.
 #[test]
-fn generic_unit_values_stay_rejected_until_b16() {
-    let program = |body: &str| {
-        format!(
-            "import std.sync
+fn generic_unit_values_instantiate_channel_helpers() {
+    support::assert_stdout(
+        r#"import std.sync
 import std.time
 
 def relay[T](rx: &Receiver[T], tx: &Sender[T]) -> Result[(), RecvError | SendError[T]]:
@@ -1591,37 +1590,45 @@ def relay[T](rx: &Receiver[T], tx: &Sender[T]) -> Result[(), RecvError | SendErr
     tx.send(value)?
     Ok(())
 
-def main() -> Result[(), AllocError | IoError | RecvError | SendError[()]]:
+def relay_owned[T](rx: Receiver[T], tx: Sender[T]) -> Result[(), RecvError | SendError[T]]:
+    relay(&rx, &tx)
+
+def on_worker() -> Result[(), AllocError | IoError | RecvError | SendError[()] | SpawnError[()]]:
+    work_tx, work_rx = channel[()](1)?
+    back_tx, back_rx = channel[()](1)?
+    work_tx.send(())?
+    drop(work_tx)
+    with spawn(relay_owned, work_rx, back_tx).drop_job()? as task:
+        with back_rx as inbox:
+            received = inbox.recv()?
+            print(received)?
+        print(str.repr(task.join())?)?
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | RecvError | SendError[()] | SpawnError[()]]:
     cancel = CancellationToken()?
     expired = std.time.deadline_at(&std.time.monotonic_now())
     tx, rx = channel[()](1)?
-{body}    Ok(())
-"
-        )
-    };
-    for (body, expected) in [
-        (
-            "    print(str.repr(std.sync.send_before[()](&tx, (), &expired, &cancel))?)?\n",
-            "unit parameters are not supported yet",
-        ),
-        (
-            "    print(str.repr(std.sync.send_before(&tx, (), &expired, &cancel))?)?\n",
-            "expected a value, got ()",
-        ),
-        (
-            "    error: Option[std.sync.SendBeforeError[()]] = Option.Nothing\n",
-            "unit type arguments are not supported yet",
-        ),
-        ("    relay(&rx, &tx)?\n", "expected a value, got ()"),
-    ] {
-        let error = support::check_source(&program(body))
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains(expected), "{body}: {error}");
-    }
-    // A generic that matches instead of binding instantiates with unit.
-    support::check_source(&program(
-        "    std.sync.recv_before(&rx, &expired, &cancel).unwrap()\n",
-    ))
-    .unwrap();
+    print(str.repr(std.sync.send_before[()](&tx, (), &expired, &cancel))?)?
+    print(str.repr(std.sync.send_before(&tx, (), &expired, &cancel))?)?
+    out_tx, out_rx = channel[()](1)?
+    relay(&rx, &out_tx)?
+    print(out_rx.recv()?)?
+    error: Option[std.sync.SendBeforeError[()]] = Nothing
+    print(str.repr(error)?)?
+    cancel.cancel()
+    print(str.repr(std.sync.send_before(&tx, (), &expired, &cancel))?)?
+    drop(out_rx)
+    print(str.repr(std.sync.send_before(&out_tx, (), &expired, &CancellationToken()?))?)?
+    on_worker()
+"#,
+        "Result[(), std.sync.SendBeforeError[()]].Ok(())\n\
+         Result[(), std.sync.SendBeforeError[()]].Err(std.sync.SendBeforeError[()].TimedOut(()))\n\
+         ()\n\
+         Option[std.sync.SendBeforeError[()]].Nothing\n\
+         Result[(), std.sync.SendBeforeError[()]].Err(std.sync.SendBeforeError[()].Cancelled(()))\n\
+         Result[(), std.sync.SendBeforeError[()]].Err(std.sync.SendBeforeError[()].Disconnected(()))\n\
+         ()\n\
+         Result[(), RecvError | SendError[()]].Ok(())\n",
+    );
 }

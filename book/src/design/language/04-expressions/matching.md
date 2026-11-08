@@ -300,7 +300,9 @@ value. A final `if` or `match` supplies the value of its selected suite.
   no value. At least one case must continue; a match whose cases all exit is
   rejected with advice to write it as a statement.
 - A case whose final statement has no value, such as `pass` or an assignment,
-  makes the match unit, which cannot be bound.
+  gives unit `()`. When every continuing case does, the match binds unit, like
+  any [unit value](../03-types/index.md); otherwise the cases disagree on the
+  value type.
 - The value cannot be a reference or a closure with borrowed captures, because
   the case's bindings end before the statement uses it. Produce an owned value,
   or declare `mut name` and assign in each case.
