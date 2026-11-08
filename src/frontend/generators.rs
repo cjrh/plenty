@@ -295,15 +295,16 @@ impl Lower<'_> {
     pub(super) fn record_join(&mut self, at: Position, joined: Ty) -> bool {
         let hints = self.generics.join_hints.entry(self.symbol).or_default();
         // Hints only widen, so one pass can record several producers met at
-        // the same value, such as successive reassignments of a local.
+        // the same value, such as successive reassignments of a local, and
+        // re-lowering ends. A join that does not widen the hint, or does not
+        // join it at all, keeps it and asks for no pass.
         let joined = match hints.get(&at) {
-            Some(hint) if *hint == joined => return false,
-            Some(hint) => crate::generator::join_carried(hint, &joined).unwrap_or(joined),
+            Some(hint) => match crate::generator::join_carried(hint, &joined) {
+                Some(wider) if wider != *hint => wider,
+                _ => return false,
+            },
             None => joined,
         };
-        if hints.get(&at) == Some(&joined) {
-            return false;
-        }
         hints.insert(at, joined);
         self.joins.pending = true;
         true

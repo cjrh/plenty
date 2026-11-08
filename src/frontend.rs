@@ -4933,6 +4933,9 @@ fn register_with_body(
     Ok(sig)
 }
 
+/// Bound on lowering passes of one function that join generator producers.
+const MAX_JOIN_PASSES: u32 = 1 << 16;
+
 /// Lowers one function. An error in the body of a generic instance is reported
 /// at the use that first required the instance, with the body position in a
 /// note: see `ownership::Instantiation`.
@@ -4957,6 +4960,7 @@ fn lower_function(
     // recursion keeps many join sites in one function off the stack.
     // Each pass starts from the instance the previous pass completed.
     let mut f = f;
+    let mut passes = 0_u32;
     let lowered = loop {
         let lowered = generics
             .complete_instance(symbol, Arc::clone(&f), sigs)
@@ -4966,6 +4970,15 @@ fn lower_function(
             });
         if !std::mem::take(&mut generics.relower) {
             break lowered;
+        }
+        // Widening hints end the loop; this backstop turns a defect in that
+        // into a diagnostic instead of a hang. Each pass records a new or
+        // wider hint, so real functions stay far below it.
+        passes += 1;
+        if passes == MAX_JOIN_PASSES {
+            break Err(f
+                .at
+                .error("internal compiler error: generator producer joins did not settle"));
         }
     };
     aliases.data.attribute(outer);
