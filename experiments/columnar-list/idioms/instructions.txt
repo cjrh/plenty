@@ -1,0 +1,39 @@
+Compiler sources: c63d088424d3b8425b4795759af86950d31f4b30
+Compiler SHA-256: db1bcfca323d724712a5b69aeb0667656a26bc29257a0d48f4429322128d6326
+Tutorial kernels SHA-256: 1eac038eb87629907c181b645c01943cd078bc0389e6c7a4945853a9f9985d94
+Generated eight-field case: 8192 rows, 2 repeats, 2 samples plus warmup
+
+Plenty (exact tutorial functions and generated callers)
+list_mass loop 0x35-0x50: 6 instructions
+clist_mass loop 0x43-0x56: 5 instructions
+list_hot_mass loop 0x39-0x63: 9 instructions
+clist_hot_mass loop 0x7f-0xa1: 8 instructions
+list_advance loop 0x31-0x7c: 15 instructions
+clist_advance loop 0x8d-0xcf: 14 instructions
+measure_list_mass loop 0xfd-0x118: 6 instructions
+measure_list_hot_mass loop 0xfe-0x12d: 9 instructions
+measure_list_advance loop 0xf8-0x150: 16 instructions
+measure_list_advance loop 0x1f7-0x234: 11 instructions
+measure_clist_mass loop 0x10b-0x11f: 5 instructions
+measure_clist_hot_mass loop 0x143-0x16b: 8 instructions
+measure_clist_advance loop 0x153-0x1a0: 15 instructions
+measure_clist_advance loop 0x26f-0x2a7: 11 instructions
+main loop 0x1fd-0x4ac: 90 instructions
+main loop 0x693-0xa09: 108 instructions
+main loop 0xa1a-0x13eb: 82 instructions
+
+C (scalar, unrolling disabled)
+list_mass loop 0x10-0x1c: 4 instructions
+clist_mass loop 0x40-0x4b: 4 instructions
+list_hot_mass loop 0x80-0x97: 7 instructions
+clist_hot_mass loop 0xc0-0xd7: 7 instructions
+list_advance loop 0x100-0x12d: 11 instructions
+clist_advance loop 0x140-0x16d: 11 instructions
+
+Zipped-column probe (current compiler; historical baseline was 43/43/8)
+zip_fold loop 0xe7-0x109: 8 instructions
+zip_loop loop 0x75-0x97: 8 instructions
+indexed loop 0x60-0x82: 8 instructions
+main loop 0x820-0x846: 8 instructions
+main loop 0x8b1-0x8d7: 8 instructions
+main loop 0x92c-0x952: 8 instructions

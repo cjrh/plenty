@@ -71,7 +71,9 @@ borrowed, but each element is loaded directly from its native-width buffer.
 Ordinary Plenty references address tagged value slots; treating packed bytes as
 those slots would be invalid. Use scalar callback parameters with existing
 `map`, `filter`, `fold`, `zip` and other [local pipeline operations](../../language/09-iteration/06-pipelines.md).
-Recreate a column plan for a second traversal. Plans cannot escape into stored
+For read-only multi-field queries, [zip the selected columns](../../../tutorial/special-purpose/columnar-lists/index.md#filter-and-aggregate-two-fields).
+Use [indexed field writes](../../../tutorial/special-purpose/columnar-lists/index.md#update-positions-from-velocities)
+for updates. Recreate a column plan for a second traversal. Plans cannot escape into stored
 values or suspended generators.
 Column iteration is currently rejected inside generator functions, even if the
 scan would finish before a `yield`.
