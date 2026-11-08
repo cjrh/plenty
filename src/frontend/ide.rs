@@ -119,6 +119,8 @@ pub struct Analysis {
     /// The qualified names of `@serial` classes and enums, whose field and
     /// variant names are their encoded names.
     pub serial: HashSet<String>,
+    /// The callable each parameter belongs to, by symbol index.
+    pub parameter_of: HashMap<usize, usize>,
 }
 
 impl Analysis {
@@ -830,12 +832,28 @@ fn finish(recorder: Recorder) -> Analysis {
         unresolved,
         serial,
         inferred_from,
+        parameters,
         ..
     } = recorder;
     let exported: HashSet<usize> = exported
         .iter()
         .filter_map(|k| keys.get(k).copied())
         .collect();
+    // A generated constructor (`Class.new`) declares no symbol, so a written
+    // `__init__` owns its parameters.
+    let mut parameter_of = HashMap::default();
+    for (callee, owned) in &parameters {
+        let Some(&callable) = keys.get(callee) else {
+            continue;
+        };
+        for key in owned {
+            if let Some(&parameter) = keys.get(key)
+                && declared[parameter].kind == SymbolKind::Parameter
+            {
+                parameter_of.insert(parameter, callable);
+            }
+        }
+    }
     let lines: HashMap<&Arc<str>, Vec<usize>> = texts
         .iter()
         .map(|(source, (_, text))| {
@@ -963,6 +981,7 @@ fn finish(recorder: Recorder) -> Analysis {
         sources: texts.into_values().collect(),
         unresolved,
         serial,
+        parameter_of,
     }
 }
 

@@ -117,6 +117,10 @@ name that refers to the same declaration, as
   f-string fields;
 - a `from` import alias: renaming `size` in `from shapes import area as
   size` changes the alias and its uses in that file only;
+- a parameter, with the named arguments that pass it (`area(width=2)`) and
+  the constructor keywords of an `__init__` parameter: in the package and its
+  dependent members for a parameter of an exported function or of a public
+  method of an exported type, and in its file otherwise;
 - a local variable, in its function.
 
 Renaming `area` itself keeps an alias: the import becomes `from shapes import
@@ -159,15 +163,18 @@ server refuses the rename, with the reason as the request's error, when:
   or `display` or `debug`, which the language calls implicitly;
 - an uninstantiated generic body writes the member's name on a value whose
   type it does not state, so the rename cannot tell whether it is a use;
-- the name is a parameter. This is not supported yet, since rename does not
-  yet edit named arguments, though find references lists them (issue #876);
+- the name is `self`, or the callable already has a parameter with the new
+  name;
+- an uninstantiated generic body passes the parameter's name as a named
+  argument to a callee it cannot resolve, so the rename cannot tell whether
+  it is a use;
 - the name is a module, or a module alias (`s` in `import shapes as s`, at
   the import or a use);
 - the file changed since its last check; ask for the rename again.
 
-Renaming a `pub` declaration of a package with a library, or a public member
-of one (a `pub` field or method, or any variant, of a `pub` type), changes that
-package's API, since packages outside the workspace that import it must
+Renaming a `pub` declaration of a package with a library, a public member
+of one (a `pub` field or method, or any variant, of a `pub` type), or a
+parameter of a public callable, changes that package's API, since packages outside the workspace that import it must
 change. The server marks such an edit with a change annotation that needs
 confirmation; an editor without change-annotation support shows the same
 text as a warning.
@@ -316,9 +323,8 @@ differs.
   between checks. A program importing `std.http.server`, `std.json`, and five
   other large `std` modules checks in about 0.2 s with a release build.
 - Document symbols and signature help are not implemented. Rename covers
-  module-level declarations, members, import aliases, and locals, not
-  parameters; see
-  [renaming](#renaming). Moving a declaration checks each
+  module-level declarations, members, parameters, import aliases, and
+  locals; see [renaming](#renaming). Moving a declaration checks each
   entry twice, so a package with many test files takes seconds; see
   [moving a declaration](#moving-a-declaration-to-another-module).
 - Moving a declaration and then moving it back does not always restore the
