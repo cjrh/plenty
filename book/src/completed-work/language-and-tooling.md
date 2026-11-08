@@ -421,6 +421,13 @@ User-container membership and iterator protocols remain **B49** in the
 
 ## B12: I/O and iteration
 
+The advisory [`text-view-parameter` lint](../design/toolchain/01-building/warnings.md#text-view-parameter)
+suggests `&strview` for free-function `str` and ordinary `&str` parameters used
+only in recognized text reads (issue #883). It preserves ownership-dependent
+uses and fixed callable contracts, uses resolved view-input signatures for
+forwarding, and reports through CLI checks and the language server. Conservative
+exclusions and the scalar-length scanning tradeoff are documented with the lint.
+
 A documentation consistency pass reconciles the delivered text/view and byte
 contracts across the reference, tutorial, repository agent skill, and proposals
 (issue #882). Reader examples use direct byte borrows instead of temporary

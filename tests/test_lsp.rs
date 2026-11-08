@@ -1981,3 +1981,28 @@ fn a_module_alias_and_a_capturing_name_are_refused_with_their_reasons() {
     );
     client.exit();
 }
+
+#[test]
+fn text_view_parameter_advice_is_published_at_the_parameter_type() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("main.plenty");
+    write(
+        &main,
+        "def size(text: str) -> i64:\n    text.byte_len()\ndef main() -> ():\n    pass\n",
+    );
+    let mut client = Client::start(&dir.path().join("cache"));
+    let diagnostics = client.open(&main);
+    let warnings = diagnostics.as_array().unwrap();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert_eq!(warnings[0]["severity"], 2);
+    assert_eq!(warnings[0]["code"], "text-view-parameter");
+    assert_eq!(warnings[0]["range"]["start"]["line"], 0);
+    assert_eq!(warnings[0]["range"]["start"]["character"], 15);
+    assert!(
+        warnings[0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("consider `&strview`")
+    );
+    client.exit();
+}
