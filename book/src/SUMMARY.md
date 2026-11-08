@@ -687,6 +687,7 @@
     - [Timsort for stable, adaptive sorting](proposals/timsort.md)
     - [One borrowed text type](proposals/unified-borrowed-text.md)
         - [Borrowed text: representation and migration](proposals/unified-borrowed-text/representation.md)
+        - [Borrowed text: evidence and naming](proposals/unified-borrowed-text/evidence.md)
     - [Value generic parameters](proposals/value-generics.md)
     - [std.plot: a ggplot2-style plotting module](proposals/std-plot.md)
         - [Examples beside ggplot2 and plotnine](proposals/std-plot/examples.md)

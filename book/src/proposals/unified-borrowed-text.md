@@ -8,7 +8,9 @@ and [returned references](../design/language/05-ownership/04-returned-references
 define current behavior. B12 tracks text-view extensions; returned views relate
 to B11. Recording this design does not approve implementation or choose its
 runtime layout. See [representation and migration](unified-borrowed-text/representation.md)
-for the implementation tradeoffs and adoption gates.
+for the implementation tradeoffs and adoption gates, and the
+[evidence and naming assessment](unified-borrowed-text/evidence.md) for current
+implementation pointers and migration examples.
 
 ## Motivation
 
@@ -37,8 +39,9 @@ parameter is appropriate when it only reads the text.
 
 ## What exists today
 
-These facts are from source/reference inspection at local `main` `d42e1a18`
-(Plenty 0.8.14), not newly executed compiler probes.
+These facts were rechecked against local `main` `6bfe23c2`. The
+[evidence assessment](unified-borrowed-text/evidence.md) distinguishes source
+inspection from compiler probes; this proposal changes no implemented behavior.
 
 | Form | Current meaning |
 | --- | --- |
@@ -61,9 +64,10 @@ renaming a view does not implement returned-view analysis or stored lifetimes.
 
 ## Recommended public contract
 
-The recommendation is to have one shared borrowed text type, `&str`, regardless
+The candidate design has one shared borrowed text type, provisionally `&str`, regardless
 of whether it covers the whole owner or a range. The following are proposed
 rules, subject to the adoption gates rather than implemented promises.
+`&strview` is also under consideration; the [naming alternatives](unified-borrowed-text/evidence.md#naming-and-type-identity) remain open.
 
 - `str` remains the existing owning, immutable, copyable type. String literals,
   inline strings, shared heap storage, and owned assignment keep their contracts.
@@ -83,9 +87,18 @@ rules, subject to the adoption gates rather than implemented promises.
 
 The recommendation changes neither Unicode normalization nor what `len` means:
 length remains the number of Unicode scalar values, not bytes or graphemes.
-`byte_len()` remains constant-time. Preserving constant-time scalar `len` for
-shared text is a preferred adoption requirement; its layout cost must be
-measured rather than assumed negligible.
+`byte_len()` remains constant-time. A two-word view with scanning scalar `len`
+is an acceptable baseline; constant-time scalar length is not an adoption
+requirement. A cached count is an optional optimization requiring workload
+evidence. Iteration yields one-scalar `str` values, as it does today, and can
+walk byte boundaries directly without first computing scalar length.
+
+Cheap byte access is part of the proposed contract: `as_bytes()` borrows the
+UTF-8 range without allocating, direct byte-copy operations accept text views,
+and byte iteration avoids decoding scalars. The [byte-access assessment](unified-borrowed-text/evidence.md#byte-access-and-binary-operations)
+records current gaps, the internal regex precedent, and broader ASCII byte
+operations. Public byte-view loan propagation still needs implementation; the
+internal adapter alone does not make `as_bytes()` available today.
 
 ## Obtaining ownership
 
@@ -150,7 +163,10 @@ expose text views consistently. Generic algorithms that need owners should take
 owned inputs or an explicit copying callback. This is a substantial ergonomic
 exception; assess real generic code before approving it. An abstract-body bound
 that promises dereference-to-`T` must either exclude this specialization or have
-a separately justified meaning; no such new bound is proposed here.
+a separately justified meaning. The existing `CopyType` bound describes
+ordinary value copying, so it cannot by itself promise ownership extraction
+from the proposed text view. The [generic-code inventory](unified-borrowed-text/evidence.md#generic-reference-impact)
+includes concrete standard-library boundaries, especially returned `&V` values.
 
 `&mut str` should continue to reference the owning slot, so `*out = replacement`
 can replace the binding and a read through that exclusive slot can copy its
@@ -165,18 +181,30 @@ routine borrowed-text type would defeat the motivating simplification.
 
 ## Returning text and compatibility boundaries
 
-Returned shared text must follow the existing first-reference-origin rule,
-including returning a subrange, forwarding calls, and fields borrowed from an
-origin object. An existing getter returning `&str` must remain usable. Supported
-`Option[&str]` and `Result[&str, E]` results must keep their current control-flow
-and loan behavior after their payload becomes a text view.
+The preferred migration for existing whole-string getters is to return owned
+`str`, sharing the existing handle. Do not require returned substring views just
+to preserve old `&str` signatures. The public `std.mime.MediaType.type_name()`
+and `subtype()` getters are concrete examples. Returning `str` avoids copying
+the text buffer, but heap-backed handle copies still have retention/release
+costs and may keep the whole allocation alive.
 
-A returned view into a short inline string must point into the surviving origin
-slot, never a callee's temporary copy. Owned parameters and local temporary
-owners cannot escape. Call-scoped temporary arguments remain alive for the full
-expression; their borrowed results cannot be saved beyond it. Shared views must
-also retain the existing restrictions on storage and suspension until those
-features are implemented independently.
+Current Plenty **does allow returned references**, under its first-reference-
+origin rule; these getters are valid today. Changing them is a deliberate API
+migration, not a correction of forbidden code. Callers with explicit `&str`
+annotations or dereferences also need migration.
+
+A function receiving only a text view cannot recover an owner by changing its
+return annotation. It must accept an owned `str` when whole-owner retention is
+its purpose, or explicitly make a fallible copy of the selected bytes. Generic
+returned references such as `Option[&V]` need their own decision when `V = str`;
+changing all such functions to return `V` would break noncopyable value types.
+
+Returning actual substring views remains separate B11 work. If added, it must
+preserve the supported origin through narrowing, forwarding and carried
+references, and must never return pointers into copied inline handles or local
+temporary owners. A public `as_bytes()` also needs checked origin propagation;
+an intrinsic or argument-scoped implementation can establish that narrower
+capability without promising general stored or returned text views.
 
 The [representation and migration assessment](unified-borrowed-text/representation.md)
 compares layouts, identifies compiler/std boundaries, and sets the evidence

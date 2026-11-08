@@ -26,13 +26,14 @@ payload sizes, not measurements of generated call sequences or complete slots.
 | C: tagged whole/range | Distinguishes an owning-slot borrow from a byte-range borrow | Can reuse cached counts and ownership provenance for whole strings | More branches and representation cases; range counts still need storage or scans; exact packing and spill costs unproven. |
 | D: origin plus offsets | Origin handle-slot address and range bounds, with optional scalar count | Keeps origin explicit; can address inline bytes relative to their stable slot | Extra indirection, wider ranges/metadata, and special handling of nested views; no cheap owned substring exists merely because its origin is known. |
 
-**Preferred investigation: B versus A.** A is the baseline. Prototype the
-three-word layout and measure the added call/slot pressure before accepting
-scalar-length regressions for all borrowed text. A cached scalar count also
-preserves existing ASCII indexing fast paths; it does not make arbitrary
-Unicode scalar indexing constant-time.
+**Baseline: A, the current two-word view.** Keeping scalar semantics does not
+require caching scalar length. Prototype B only when workloads justify the
+larger payload and additional substring-construction work. Cached counts help
+repeated length checks and ASCII detection; they do not supply scalar-to-byte
+offsets. See the [length and indexing comparison](evidence.md#length-indexing-and-cached-counts)
+for Plenty, Rust and CPython.
 
-Computing a substring's count may require scanning its selected bytes, including
+For candidate B, computing a substring's count may require scanning its selected bytes, including
 an open-ended suffix for which the current view only finds a start boundary.
 Whole-string borrows should read the owner's cached count. Subview construction
 can reuse known counts for whole ranges or count during boundary traversal;
@@ -64,8 +65,8 @@ full-expression temporary owners. Replacing, moving or relocating an origin
 must remain forbidden while any of its text views is live. Runtime helper
 calls must not retain a borrowed byte pointer beyond its checked lifetime.
 
-The returned-reference implementation must distinguish a live origin from a
-transient view descriptor. Narrowing or forwarding a view must preserve the
+If returned views are implemented, their analysis must distinguish a live
+origin from a transient view descriptor. Narrowing or forwarding a view must preserve the
 origin loan, not borrow only the callee's descriptor slot. The same distinction
 applies when `Option`/`Result` carries a successful borrowed result. Arbitrary
 stored references and multi-origin lifetime inference remain separate B11 work;
@@ -109,17 +110,19 @@ This is one candidate scope under B12, with returned-text support drawing on B11
 The following are dependency/acceptance boundaries, not an additional work queue
 or a commitment to implement the design.
 
-1. **Resolve semantic and layout gates.** Inventory generic dereferences and
-   owner-retaining helpers; compare A and B, then decide the generic exception,
-   `copy(r)` rule and public performance contracts. Do not rename the public
+1. **Resolve semantic and layout gates.** Use the [current inventory](evidence.md),
+   audit owner-retaining helpers, and establish A as the baseline. Decide the
+   generic exception, `copy(r)` rule and public performance contracts. Do not rename the public
    type before these decisions are reviewable.
 2. **Establish range-based text operations.** Teach existing helpers and std
    input paths to consume checked ranges without allocating an intermediate
    owner. Keeping the current source types during this work permits independent
    validation of operation parity.
-3. **Establish returned text views.** Cover direct and narrowed returns,
-   forwarding, field/element origins, exclusive reborrows and supported carried
-   references. Retain existing escape rejections.
+3. **Resolve returned-reference migration.** Prefer owned `str` results for
+   whole-string getters. Decide generic `&V` results explicitly; do not silently
+   require returned substring views or globally replace references with owned
+   values. General returned views remain B11 work. Establish the narrower byte-
+   view loan support needed for `as_bytes()` as part of byte access.
 4. **Change the public spelling and migrate together.** Treat `&substr` as a
    temporary deprecated alias if a compatibility period is chosen; both
    spellings must mean exactly the same view. Such an alias cannot preserve
@@ -147,8 +150,8 @@ negative, extreme and clamped bounds; and whole versus narrowed borrows. Check
 that every supported read operation agrees on owned and borrowed text and that
 allocating operations propagate allocation failures normally.
 
-Borrow tests must cover returned getters and subranges, forwarding and nested
-calls, `Option`/`Result` success/failure paths, full-expression temporary owners,
+Borrow tests must cover migrated getters, forwarding and nested calls,
+supported `Option`/`Result` success/failure paths, full-expression temporary owners,
 exclusive-slot replacement conflicts, generic iteration over `list[str]`,
 borrowed matching, and field/element origins. Add rejection cases for local-owner
 escape and dangling inline bytes. Exercise external adapters and custom protocol
@@ -156,7 +159,8 @@ implementations rather than relying only on builtins.
 
 Measure optimized kernels for whole-string calls, repeated scalar `len`, ASCII
 indexing, negative indexing, scanning, substring construction, nested subviews,
-formatting, and returned views. Compare both layout candidates against current
+formatting, and migrated getters. Test returned subranges only if that capability
+is included separately. Compare any layout prototype against current
 whole-string and substring behavior. Include tiny values and many simultaneous
 borrows to expose copy/spill costs; include large Unicode suffixes to expose
 counting costs. Report compile time, code size, stack/register pressure and
@@ -168,7 +172,7 @@ this design record.
 
 ## Source evidence
 
-The assessment read these files at `d42e1a18`; paths are implementation pointers,
+The assessment rechecked these files at `6bfe23c2`; paths are implementation pointers,
 not a stable public interface:
 
 | Source | Relevant boundary |
@@ -180,7 +184,10 @@ not a stable public interface:
 | `plenty-runtime/src/strings.rs` | Owned header, inline representation, cached lengths and existing string primitives. |
 | `plenty-runtime/src/aggregates/text_views.rs` | Byte-range packing, scanning scalar length, narrowing and fallible copying. |
 
+The [evidence assessment](evidence.md) adds regex byte-adapter, library, generic
+reference and getter pointers, executed probes, and external comparisons.
+
 Local issue #595 and PR #738 record the original separate-view decision; issue
-#847/PR #1028 added implicit whole-string borrowing. Issue #802 concerns current
-mismatch diagnostics and is independent of this proposal; do not withhold that
-fix pending unification.
+#847/PR #1028 added implicit whole-string borrowing. Issue #802 is closed
+(fixed by local PR #1030); its diagnostic fix is no longer an outstanding
+independent prerequisite for this proposal.
