@@ -183,7 +183,22 @@ fn modes_reject_calls_their_contract_does_not_grant() {
         (
             "def one() -> i64:\n    1\nf: BoxedMutCallable[[], i64] = BoxedCallable(one).unwrap()\n"
                 .to_owned(),
-            "expected BoxedMutCallable",
+            "boxes do not convert between modes: box the original callback with `BoxedMutCallable(callback)?`",
+        ),
+        (
+            "def one() -> i64:\n    1\nf: BoxedCallable[[], i64] = BoxedOnceCallable(one).unwrap()\n"
+                .to_owned(),
+            "box the original callback with `BoxedCallable(callback)?`",
+        ),
+        (
+            "def one() -> i64:\n    1\nf = BoxedMutCallable(BoxedCallable(one).unwrap())\n"
+                .to_owned(),
+            "got a BoxedCallable; boxes do not convert between modes",
+        ),
+        (
+            "def one() -> i64:\n    1\nf = BoxedOnceCallable(BoxedMutCallable(one).unwrap())\n"
+                .to_owned(),
+            "got a BoxedMutCallable; boxes do not convert between modes",
         ),
     ] {
         let error = support::check_source(&source)

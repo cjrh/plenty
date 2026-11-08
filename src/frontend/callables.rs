@@ -21,6 +21,14 @@ pub(super) fn mismatch_hint(expected: &Ty, actual: &Ty) -> Option<String> {
         (Ty::Closure(expected), Ty::Closure(actual)) if expected.signature == actual.signature => {
             return Some(producer_hint(expected, actual));
         }
+        (Ty::BoxedCallable(expected, to), Ty::BoxedCallable(actual, from))
+            if expected == actual && to != from =>
+        {
+            return Some(format!(
+                "; boxes do not convert between modes: box the original callback with `{}(callback)?`",
+                to.name()
+            ));
+        }
         (domain, integer) if domain.domain_element().as_ref() == Some(integer) => {
             return Some(format!(
                 "; convert it with `{}.try_from(value)?`{}",
@@ -155,6 +163,12 @@ impl Lower<'_> {
             (Ty::Closure(_), None) => {
                 return Err(at.error(format!(
                     "{name} cannot call a mutable closure through a shared borrow; use BoxedMutCallable"
+                )));
+            }
+            (Ty::BoxedCallable(_, from), None) => {
+                return Err(at.error(format!(
+                    "{name} requires an owned Callable or closure, got a {}; boxes do not convert between modes, so box the original callback with {name}",
+                    from.name()
                 )));
             }
             _ => return Err(at.error(format!("{name} requires an owned Callable or closure"))),

@@ -35,7 +35,9 @@ including reference parameters and ordinary owned arguments, with at most 255
 parameters plus the hidden environment slot. A `BoxedCallable` or
 `BoxedMutCallable` satisfies a matching generic `Callable` constraint, and every
 mode satisfies `OnceCallable`; the call permission and affine ownership remain
-visible to specialization.
+visible to specialization. As with a mutable closure, a body that takes an
+owned `f: F` must rebind a `BoxedMutCallable` as `mut` before calling it; see
+[consuming a callback](../../../tutorial/10-functions/consuming-callback-apis.md).
 
 Invocation borrows the owner immutably, including through shared or mutable
 references, fields, and collection indexes. The binding need not be mutable.
@@ -139,7 +141,32 @@ concrete type; constructing the box is the only allocation, and dropping it
 frees that allocation once.
 
 A generic consumer accepts every kind, including borrowing closures, without
-allocating, so prefer it for helpers that only call a callback. A concrete
+allocating, so prefer it for helpers that only call a callback:
+
+```plenty
+def apply_all[F: Callable[[i64], ()]](values: &list[i64], callback: &mut F) -> ():
+    for value in values:
+        callback(*value)
+
+def main() -> Result[(), AllocError | IoError]:
+    values = [3, 4, 5]?
+    limit = 4
+    mut count = 0
+    mut tally = def [&limit, &mut count](value: i64) -> ():
+        if value >= limit:
+            unchecked:
+                count += 1
+    apply_all(&values, &mut tally)
+    print(count)?
+    Ok(())
+```
+
+```output
+2
+```
+
+The closure borrows `limit` and mutably borrows `count`, so it cannot be boxed
+or returned, but the generic call specializes for it. A concrete
 closure type keeps its producer: a `Closure` or `OnceClosure` annotation is
 inferred from the closure expression a function returns, every return path
 must use the same producer, and a list holds a single producer. When a type

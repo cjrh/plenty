@@ -57,8 +57,10 @@ storage. A rejection names its cause: an unresolved signature, a borrowed
 capture, a captured generator, a reference, or a generator. Classes and enums
 themselves are inline; their construction adds no environment allocation.
 Collection construction and growth remain fallible.
-For different shared-call producers behind one signature, use an explicitly
-allocated [BoxedCallable](05-boxed-callables.md).
+For different producers behind one signature, use an explicitly allocated
+[erased owner](05-boxed-callables.md): `BoxedCallable` for shared-call
+callbacks, `BoxedMutCallable` for mutable closures, or `BoxedOnceCallable` for
+one-shot closures.
 
 Calling a stored reusable callback borrows its field or element, exclusively
 for mutable captures. A live indexed callback loan protects the collection
