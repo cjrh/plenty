@@ -1881,6 +1881,15 @@ impl Lower<'_> {
         self.same(written, Some(matched), &owner.at)
     }
 
+    /// A conflict with a payload's loan names the case that bound it.
+    /// Kept out of line so nested `match` lowering keeps small frames.
+    #[inline(never)]
+    fn mark_carried_case(&self, subject: &Subject, at: &Token, body: &mut Vec<Op>) {
+        if subject.carried.is_some() {
+            self.mark(at, body);
+        }
+    }
+
     pub(super) fn match_patterns(
         &mut self,
         value: &Expr,
@@ -2087,10 +2096,7 @@ impl Lower<'_> {
                 slots.insert(name.as_str(), slot);
             }
             let alternatives = &rows[spans[arm].clone()];
-            if subject.carried.is_some() {
-                // A conflict with a payload's loan names the case that bound it.
-                self.mark(&case.at, &mut body);
-            }
+            self.mark_carried_case(&subject, &case.at, &mut body);
             self.fill_bindings(
                 &subject,
                 alternatives,
