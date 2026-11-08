@@ -25,7 +25,9 @@ types, so `cell: Cell[list[i64]] = Cell([]?)` and
 `f(Shared(Mutex([]?))?)` for a `Shared[Mutex[list[i64]]]` parameter need no
 explicit list. Any other expectation, such as an anonymous sum, leaves
 inference to the arguments, and the value widens as usual. Without an expected
-instance, output-only or phantom parameters need explicit arguments.
+instance, output-only or phantom parameters need explicit arguments. Generic
+functions and methods use the same evidence; see
+[expected results](inference.md#expected-results).
 
 A constructor's enum qualifier requires explicit arguments:
 `Choice[u8].Value(7)` constructs a concrete instance. A
