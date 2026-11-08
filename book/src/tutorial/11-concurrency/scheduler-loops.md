@@ -5,9 +5,9 @@ Start with ordinary helpers: neither submission nor the scheduling loop must
 always be inline. This finite example keeps **one accepted job outstanding**,
 receives its result, then prepares another. That deliberately simple protocol
 avoids a scheduler filling the work queue while workers fill the completion
-queue. To keep several jobs in flight, receive a completion whenever the queue
-is full, as in [keeping several jobs in flight](scheduler-window.md); a channel
-capacity equal to the worker count is not enough.
+queue. To keep several jobs in flight, collect their results with
+`std.sync.Completions`, as in [keeping several jobs in flight](scheduler-window.md);
+a channel capacity equal to the worker count is not enough.
 
 ```plenty
 enum Stopped:

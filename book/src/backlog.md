@@ -78,9 +78,10 @@ it does not schedule all catalogue entries.
   (issue #894), delivered separately under [native concurrency](completed-work/language-and-tooling.md#b22-native-concurrency).
   Richer pool identity/order and callback-effect inference remain outside that subset.
   [Several jobs in flight](tutorial/11-concurrency/scheduler-window.md) uses
-  `submit_nowait` and receives on `Full` (issue #902); a library scheduler that
-  owns admission and completion delivery, so the easiest pool use is also
-  deadlock-resistant, awaits a design decision.
+  [`std.sync.Completions`](design/stdlib/sync.md#completionst), which owns
+  admission and result delivery so the easiest pool use cannot form the
+  submit/completion cycle (issue #902); a channel scheduler receives on `Full`.
+  A wait-for-any primitive over futures would replace its 10 ms polling.
 - Automatic parallelization (B24), optional backends (B20), stored-reference
   relationships (B11), broader callback erasure (B32) and automatic deep
   recursive operations (B33) require their own contracts and acceptance checks.

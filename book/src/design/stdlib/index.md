@@ -89,7 +89,7 @@ the [prelude](../language/02-source/names.md) and are specified under
 | [`std.stat`](stat.md) | Descriptive f64 statistics, inclusive quantiles, and normal, uniform and exponential distributions with explicit RNG sampling | `StatError` |
 | [`std.plot`](plot.md) | Layered charts from owned columns or record accessors, validated mappings, grouped statistics, and deterministic streaming SVG | `PlotError` |
 | [`std.linalg`](linalg.md) | Dense f64 matrices, products, solves, LU, QR, Cholesky, SVD and eigen decompositions through an optional faer engine | `AllocError`, `LinalgError` |
-| [`std.sync`](sync.md) | Shared cooperative cancellation tokens | `AllocError` |
+| [`std.sync`](sync.md) | Cancellation tokens, `Mutex`, typed deadline waits, pool result collection | `AllocError` |
 | [`std.system`](system.md) | CPU availability estimates and bounded Linux procfs snapshots: CPUs, memory, load, uptime, block devices, disk I/O and process status | `IoError`, `SystemError` |
 | [`std.tempfile`](tempfile.md) | Unnamed and named temporary files, recursively cleaned directories, context managers and explicit ownership transfer | `IoError`, `FsError`, `StreamError`, `AllocError` |
 | [`std.test`](test.md) | Assertions that explain their failure on standard error, self-removing scratch directories, the seeded generator for `plenty test`, and fake clocks and streams | `TestError` |

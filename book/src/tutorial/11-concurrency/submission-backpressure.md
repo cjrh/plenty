@@ -35,7 +35,8 @@ def main() -> Result[(), AllocError | IoError | FutureError | PoolError]:
 
 Run a rejected job inline only when it does not depend on the caller. A job
 that sends to a channel the caller alone receives can block that caller; a
-scheduler should instead receive a completion and retry, as in
+scheduler should instead return results through futures, or receive a
+completion and retry, as in
 [keeping several jobs in flight](scheduler-window.md).
 
 When you do not need the job back, call `drop_job()` on the submission, as in

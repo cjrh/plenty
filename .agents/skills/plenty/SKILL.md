@@ -59,7 +59,7 @@ See [workflow and packages](references/workflow.md).
 For a loop that submits jobs and receives completions, read
 [pool scheduler guidance](references/concurrency.md) and the
 [runnable helper loop](../../../book/src/tutorial/11-concurrency/scheduler-loops.md);
-for several jobs in flight, the [receive-on-Full loop](../../../book/src/tutorial/11-concurrency/scheduler-window.md).
+for several jobs in flight, [`std.sync.Completions`](../../../book/src/tutorial/11-concurrency/scheduler-window.md).
 Pool drop joins accepted work; receiver-last guards protect scope exit, not
 mid-call shutdown. Use restricted `Submitter` capabilities where appropriate,
 but account for current conservative helper-call limitations. Preserve start

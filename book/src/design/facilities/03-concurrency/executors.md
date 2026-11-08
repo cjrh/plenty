@@ -65,7 +65,10 @@ A scheduler that alone receives its jobs' completions can deadlock in blocking
 `submit` while it owes receptions: workers blocked sending to a full completion
 channel stop draining the queue, and the scheduler waits for queue space
 forever. With one worker, a queue of one and a channel of one, four blocking
-submissions before any receive hang. Instead use `submit_nowait`; on
+submissions before any receive hang. Jobs that return their results through
+futures avoid the cycle; [`std.sync.Completions`](../../stdlib/sync.md#completionst)
+collects them with a fixed bound on accepted work. With a completion channel,
+use `submit_nowait`; on
 `Full(job)`, while accepted jobs remain unreceived, receive one completion and
 retry the retained job. Accepted-but-unreceived work is then bounded by workers
 plus queue capacity plus channel capacity. This assumes one completion per

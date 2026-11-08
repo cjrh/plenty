@@ -2494,3 +2494,160 @@ def main() -> Result[(), AllocError | IoError | PoolError | ScheduleError]:
         "42925\n22140\n22140\n9455\nworker error preserved\n",
     );
 }
+
+#[test]
+fn completions_bound_in_flight_jobs_and_return_rejected_jobs_intact() {
+    runs(
+        r#"from std.sync import Completions
+
+type Outcome = Result[i64, OverflowError[i64]]
+type E = AllocError | IoError | PoolError | SubmitError[()] | FutureError | OverflowError[i64]
+
+def square(value: i64) -> Outcome:
+    Ok(value * value)
+
+def run(count: i64, workers: Positive[i64], queue: Positive[i64], capacity: Positive[i64]) -> Result[i64, E]:
+    mut done = Completions[Outcome](capacity)?
+    mut total = 0
+    with ThreadPoolExecutor(workers, queue)? as pool:
+        for value in range(1, count + 1):
+            match done.submit(pool, def once [value]() -> Outcome: square(value)).drop_job()?:
+                case Some(outcome):
+                    total += outcome??
+                case Nothing:
+                    pass
+        while not done.is_empty():
+            total += done.next()??
+    Ok(total)
+
+def gated(gate: Receiver[()]) -> Outcome:
+    drop(gate.recv())
+    Ok(1)
+
+def main() -> Result[(), E | SendError[()]]:
+    print(run(50, 1, 1, 1)?)?
+    print(run(40, 3, 1, 2)?)?
+    print(run(30, 2, 2, 5)?)?
+    # Rejected job comes back intact; the finished result stays queued.
+    mut done = Completions[Outcome](1)?
+    pool = ThreadPoolExecutor(1, 1)?
+    drop(done.submit(&pool, def once () -> Outcome: Ok(9)).drop_job()?)
+    pool.shutdown()
+    match done.submit(&pool, def once () -> Outcome: Ok(4)):
+        case Err(SubmitError.Shutdown(job)):
+            print(job()?)?
+        case _ as other:
+            drop(other.drop_job())
+    print(done.len())?
+    print(done.next()??)?
+    # Queued jobs cancel; the running one finishes.
+    mut held = Completions[Outcome](3)?
+    gate_tx, gate_rx = channel[()](1)?
+    with ThreadPoolExecutor(1, 2)? as busy:
+        drop(held.submit(busy, def once [gate_rx]() -> Outcome: gated(gate_rx)).drop_job()?)
+        drop(held.submit(busy, def once () -> Outcome: Ok(2)).drop_job()?)
+        drop(held.submit(busy, def once () -> Outcome: Ok(3)).drop_job()?)
+        print(held.cancel_queued())?
+        gate_tx.send(())?
+        mut cancelled = 0
+        while not held.is_empty():
+            match held.next():
+                case Err(FutureError.Cancelled):
+                    cancelled += 1
+                case Ok(outcome):
+                    print(outcome?)?
+        print(cancelled)?
+    Ok(())
+"#,
+        "42925\n22140\n9455\n4\n1\n9\n2\n1\n2\n",
+    );
+}
+
+#[test]
+fn completions_wait_with_deadlines_and_wake_messages() {
+    runs(
+        r#"from std.sync import Completions, WaitError
+from std.time import deadline_after, milliseconds, seconds, monotonic_now
+
+type Outcome = Result[i64, OverflowError[i64]]
+
+def slow(value: i64, gate: Receiver[()]) -> Outcome:
+    drop(gate.recv())
+    Ok(value)
+
+def main() -> Result[(), AllocError | IoError | PoolError | SubmitError[()] | FutureError | OverflowError[i64] | WaitError | SendError[()] | SendError[str] | RangeError]:
+    mut done = Completions[Outcome](3)?
+    wake_tx, wake_rx = channel[str](1)?
+    gate_tx, gate_rx = channel[()](4)?
+    stop = CancellationToken()?
+    with ThreadPoolExecutor(1, 2)? as pool:
+        done.submit(pool, def once [gate_rx]() -> Outcome: slow(7, gate_rx)).drop_job()?
+        # Nothing finished: a short deadline times out.
+        deadline = deadline_after(&monotonic_now(), &milliseconds(30u32))?
+        match done.next_before(&deadline, &stop):
+            case Err(WaitError.TimedOut):
+                print("timed out")?
+            case _ as other:
+                drop(other)
+        wake_tx.send("wake")?
+        later = deadline_after(&monotonic_now(), &seconds(5u32))?
+        match done.next_or_recv_before(&wake_rx, &later, &stop):
+            case Ok(Selected.Second(message)):
+                print(message)?
+            case _ as other:
+                drop(other)
+        gate_tx.send(())?
+        match done.next_or_recv_before(&wake_rx, &later, &stop):
+            case Ok(Selected.First(outcome)):
+                print(outcome??)?
+            case _ as other:
+                drop(other)
+        print(done.is_empty())?
+    Ok(())
+"#,
+        "timed out\nwake\n7\nTrue\n",
+    );
+}
+
+#[test]
+fn completions_make_room_before_preparation_without_leaking_slots() {
+    runs(
+        r#"from std.sync import Completions
+
+type Outcome = Result[i64, OverflowError[i64]]
+type E = AllocError | IoError | PoolError | SubmitError[()] | FutureError | OverflowError[i64] | ParseError
+
+def prepare(text: &str) -> Result[i64, ParseError]:
+    i64.parse(*text)
+
+def main() -> Result[(), E]:
+    inputs = ["1", "x", "2", "y", "3", "4"]?
+    mut done = Completions[Outcome](2)?
+    mut total = 0
+    mut failed = 0
+    with ThreadPoolExecutor(1, 1)? as pool:
+        for text in &inputs:
+            # Make room before preparing, so a failed preparation holds no slot.
+            if done.is_full():
+                total += done.next()??
+            match prepare(text):
+                case Ok(value):
+                    job = def once [value]() -> Outcome:
+                        Ok(value * 10)
+                    match done.submit(pool, job).drop_job()?:
+                        case Some(_):
+                            return Ok(())
+                        case Nothing:
+                            pass
+                case Err(_):
+                    failed += 1
+        while not done.is_empty():
+            total += done.next()??
+        print(done.next_now().is_none())?
+    print(total)?
+    print(failed)?
+    Ok(())
+"#,
+        "True\n100\n2\n",
+    );
+}
