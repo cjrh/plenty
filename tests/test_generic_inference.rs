@@ -148,7 +148,7 @@ fn inference_does_not_hide_type_conflicts_missing_information_or_invalid_bounds(
             "conflicting types for `T`",
         ),
         (
-            "def make[T]() -> T:\n    1\nx: i64 = make()",
+            "def make[T]() -> T:\n    1\nx = make()",
             "cannot infer type parameter `T`",
         ),
         (

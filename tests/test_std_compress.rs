@@ -590,7 +590,10 @@ for index in range(fixture.len()):
     for bit in range(8):
         mut changed = fixture.copy()?
         original = changed.get(index)
-        changed.set(index, original ^ (1u8 << u8(bit)))
+        # bit is in 0..8, so the shift count is valid.
+        mask = unchecked:
+            1u8 << u8(bit)
+        changed.set(index, original ^ mask)
         drop(std.compress.decompress(Format.Brotli, &changed, 4096))
 for size in range(256):
     data = noise(size)?

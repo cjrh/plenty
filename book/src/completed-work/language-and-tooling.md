@@ -521,6 +521,11 @@ explain why native arithmetic uses the function's declared error boundary:
 formulas stay readable without per-operator propagation syntax, while callers
 handle explicit error contracts rather than stack-unwinding exceptions
 (issue #861).
+Shifts follow the same boundary: a count that is not an integer literal can
+fail with `ShiftCountError[T]`, an out-of-range literal count is a compile
+error, and left shifts still discard high bits. Casts keep trapping; float
+arguments to `T.try_from` give their recoverable form with the cast's
+truncation (issue #862).
 That core also supports lexical `unchecked:` suites. Their
 [build modes](../design/language/03-types/numbers.md#unchecked-blocks) followed
 (local PR #924): `--unchecked trap` checks the preconditions by default,
@@ -1227,3 +1232,15 @@ does; a first arm of `Nothing` or an empty collection reports that it needs an
 annotation. Generic function calls still infer only from their arguments. See
 [generic data](../design/language/07-generics/data.md) and
 [match values](../design/language/04-expressions/matching.md).
+
+## Expected-result inference for generic calls (issue #873)
+
+A concrete expected result type supplies type arguments to generic function
+and method calls, so `values: list[u8] = empty()?` needs no `empty[u8]()`.
+The expectation comes from annotations, return types, concrete parameters,
+fields, `Some`/`Ok` and `?`. A generic position whose type it determines takes
+that type as its context, so `k: u8 = same(3)` types the literal as `u8` and
+nested calls receive the expectation. Anonymous-sum positions supply no
+evidence because values widen into them. A parameter determined differently by
+the arguments and the expected result is an error. See
+[type argument inference](../design/language/07-generics/inference.md#expected-results).

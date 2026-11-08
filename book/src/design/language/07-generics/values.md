@@ -69,7 +69,8 @@ cannot reuse a generic parameter's name.
 Structural inference learns values from nominal arguments: `Tag[N]` matched
 against `Tag[16]` supplies `N = 16`. Repeated evidence must agree. An ordinary
 integer argument's runtime value supplies no evidence, and an output-only
-parameter needs an explicit argument. As with type parameters, supply all
+parameter needs an explicit argument unless an
+[expected result](inference.md#expected-results) names it. As with type parameters, supply all
 arguments explicitly or infer all of them. Methods supply only their own
 parameters; the receiver already fixes its class or enum arguments.
 

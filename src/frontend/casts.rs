@@ -8,7 +8,7 @@ impl Lower<'_> {
     /// A literal operand is rejected here when it does not fit; any other
     /// operand is checked when the program runs.
     pub(super) fn checked_cast(
-        &self,
+        &mut self,
         source: &Ty,
         target: &Ty,
         operand: &Expr,
@@ -26,6 +26,14 @@ impl Lower<'_> {
             _ => false,
         };
         if !literal {
+            // A literal cast is checked when compiling, so only this one can
+            // trap inside a `checked:` block.
+            if let Some(scope) = self.checked.last_mut()
+                && scope.arithmetic
+                && !scope.function
+            {
+                scope.casts = true;
+            }
             self.mark(cast, ops);
             self.push_trapping(Op::CheckedCast(target.clone()), target, ops);
             return Ok(());

@@ -9,24 +9,41 @@ pub(super) fn literal_divisor(op: &str, divisor: &Expr) -> Divisor {
     if !matches!(op, "//" | "%") {
         return Divisor::Any;
     }
-    let (negative, inner) = match &ungroup(divisor).kind {
+    literal_integer(divisor).map_or(Divisor::Any, Divisor::literal)
+}
+
+/// The value of an integer literal operand, optionally negated and
+/// parenthesized. Names, constants and arithmetic are not literals.
+pub(super) fn literal_integer(operand: &Expr) -> Option<i128> {
+    let (negative, inner) = match &ungroup(operand).kind {
         Expression::Unary(sign, inner) if sign == "-" => (true, ungroup(inner)),
-        _ => (false, ungroup(divisor)),
+        _ => (false, ungroup(operand)),
     };
     let Expression::Number(text) = &inner.kind else {
-        return Divisor::Any;
+        return None;
     };
     if text.contains(['.', 'e', 'E', 'f']) {
-        return Divisor::Any;
+        return None;
     }
     let digits = text
         .find(|c: char| c.is_ascii_alphabetic())
         .map_or(text.as_str(), |split| &text[..split])
         .replace('_', "");
-    match digits.parse::<i128>() {
-        Ok(magnitude) => Divisor::literal(if negative { -magnitude } else { magnitude }),
-        Err(_) => Divisor::Any,
-    }
+    let magnitude = digits.parse::<i128>().ok()?;
+    Some(if negative { -magnitude } else { magnitude })
+}
+
+/// Whether a shift count has the form `n & mask` (either operand order) with
+/// a literal mask in `0..width`. The result then lies in `0..=mask`, so the
+/// count is valid without a check; this is the usual masking idiom.
+fn masked_count(count: &Expr, width: i128) -> bool {
+    let Expression::Binary(op, left, right) = &ungroup(count).kind else {
+        return false;
+    };
+    op == "&"
+        && [left, right]
+            .into_iter()
+            .any(|side| literal_integer(side).is_some_and(|mask| (0..width).contains(&mask)))
 }
 
 impl Lower<'_> {
@@ -126,6 +143,40 @@ impl Lower<'_> {
         Ok(())
     }
 
+    /// Lower `<<` or `>>` with both operands on the stack. A literal count
+    /// proves itself valid or is a compile-time error; any other count may
+    /// fail with `ShiftCountError[T]` at the nearest arithmetic boundary.
+    /// See `book/src/design/language/03-types/numbers.md#checked-blocks`.
+    pub(super) fn shift_operation(
+        &mut self,
+        kind: IntegerOp,
+        ty: &Ty,
+        count: &Expr,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<()> {
+        let (min, end) = ty.int_range().expect("shifts require integers");
+        let width = i128::from((end - min).trailing_zeros());
+        if let Some(value) = literal_integer(count) {
+            if !(0..width).contains(&value) {
+                return Err(count.at.error(format!(
+                    "shift count {value} is outside 0..{width} for {ty}"
+                )));
+            }
+        } else if !masked_count(count, width) {
+            let operation = if kind == IntegerOp::ShiftLeft {
+                Checked::ShiftLeft
+            } else {
+                Checked::ShiftRight
+            };
+            if self.checked_arith(operation, ty, at, ops)? {
+                return Ok(());
+            }
+        }
+        self.push_trapping(Op::Integer(kind), ty, ops);
+        Ok(())
+    }
+
     /// The destination has already been loaded by augmented assignment.
     pub(super) fn numeric_rhs(
         &mut self,
@@ -144,7 +195,7 @@ impl Lower<'_> {
             let actual = self.expr_expected(value, Some(ty.clone()), ops)?;
             self.same(actual, Some(ty.clone()), &value.at)?;
             self.mark_arithmetic(op, ty, at, ops);
-            self.numeric_operation(op, ty.clone(), literal_divisor(op, value), at, ops)?;
+            self.numeric_operation(op, ty.clone(), value, at, ops)?;
             Ok(())
         }
     }

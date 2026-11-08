@@ -244,11 +244,10 @@ fn checked_conversions_and_signed_negation(#[case] source: &str, #[case] expecte
 }
 
 #[rstest]
-#[case("x = u8.try_from()", "try_from takes one integer argument")]
-#[case("x = u8.try_from(1, 2)", "try_from takes one integer argument")]
-#[case("x = u8.try_from(1.5)", "try_from requires an integer value")]
-#[case("x = u8.try_from('1')", "try_from requires an integer value")]
-#[case("x = u8.try_from(True)", "try_from requires an integer value")]
+#[case("x = u8.try_from()", "try_from takes one number argument")]
+#[case("x = u8.try_from(1, 2)", "try_from takes one number argument")]
+#[case("x = u8.try_from('1')", "try_from requires a number")]
+#[case("x = u8.try_from(True)", "try_from requires a number")]
 #[case("x = f64.try_from(1)", "try_from is defined for integer types")]
 #[case("x: u8 = u8.try_from(300)", "expected u8, got Result[u8, RangeError]")]
 #[case(

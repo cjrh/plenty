@@ -26,6 +26,8 @@ mod test_callable_forms;
 mod test_arithmetic_errors;
 #[path = "test_checked_defaults.rs"]
 mod test_checked_defaults;
+#[path = "test_checked_shifts.rs"]
+mod test_checked_shifts;
 #[path = "test_unchecked_modes.rs"]
 mod test_unchecked_modes;
 
@@ -259,6 +261,8 @@ mod test_float_rounding;
 #[path = "test_fs_permissions.rs"]
 mod test_fs_permissions;
 
+#[path = "test_expected_results.rs"]
+mod test_expected_results;
 #[path = "test_expected_types.rs"]
 mod test_expected_types;
 #[path = "test_fs_helpers.rs"]

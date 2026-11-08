@@ -424,7 +424,7 @@ fn casting_a_numeric_reference_suggests_reading_it(#[case] ty: &str, #[case] val
 )]
 #[case(
     "x = 5u8\nr = &x\ny = u16.try_from(r)",
-    "try_from requires an integer value, not a reference; read it with `*r`"
+    "try_from requires a number, not a reference; read it with `*r`"
 )]
 #[case(
     "x = 5u8\nr = &x\ny = u16.wrapping_from(r)",
@@ -447,10 +447,7 @@ fn reference_operands_name_the_fix(#[case] source: &str, #[case] expected: &str)
 #[rstest]
 #[case("s = \"a\"\nr = &s\ny = i64(r)", "numeric casts require a number")]
 #[case("b = True\nr = &b\ny = i64(r)", "numeric casts require a number")]
-#[case(
-    "x = 1.5\nr = &x\ny = u8.try_from(r)",
-    "try_from requires an integer value"
-)]
+#[case("b = True\nr = &b\ny = u8.try_from(r)", "try_from requires a number")]
 #[case(
     "x = 1.5\nr = &x\ny = u8.wrapping_from(r)",
     "wrapping_from requires an integer value"

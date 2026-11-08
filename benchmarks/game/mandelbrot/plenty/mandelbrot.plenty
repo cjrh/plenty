@@ -41,7 +41,9 @@ def render_row(row: &mut std.bytes.Bytes, y: i64, n: i64) -> Result[(), AllocErr
             bits = 0
             count = 0
     if count > 0:
-        bits = bits << u8(8 - count)
+        # count is in 1..8 here, so the shift count is in 1..8 too.
+        bits = unchecked:
+            bits << u8(8 - count)
         row.push(bits)?
     Ok(())
 

@@ -798,16 +798,27 @@ impl Lowerer<'_, '_> {
             .stack
             .pop()
             .ok_or("AOT: stack underflow on checked cast")?;
-        let (Some((source_min, source_end)), Some((target_min, target_end))) =
-            (source.int_range(), target.int_range())
-        else {
-            return Err("AOT: checked cast requires integer types".into());
-        };
         let Ty::Enum(error) = crate::sum::range_error() else {
             unreachable!()
         };
         let Ty::Enum(result) = crate::sum::result(target.clone(), Ty::Enum(error.clone())) else {
             unreachable!()
+        };
+        if source.is_float() {
+            // The bare cast's range test: truncation toward zero must land in
+            // the target range, and NaN never does.
+            let (min, end) = target
+                .int_range()
+                .ok_or("AOT: checked cast requires an integer target")?;
+            let out_of_range = self.float_out_of_range(value, &source, min, end);
+            let fits = self.bcx.ins().bxor_imm_u(out_of_range, 1);
+            let converted = self.cast(value, source, target.clone());
+            return self.choose_try_cast(converted, target, Some(fits), result, error);
+        }
+        let (Some((source_min, source_end)), Some((target_min, target_end))) =
+            (source.int_range(), target.int_range())
+        else {
+            return Err("AOT: checked cast requires integer types".into());
         };
         // A bound the source type cannot cross needs no comparison. One that
         // it can cross lies inside the source range, so it is representable
@@ -840,6 +851,19 @@ impl Lowerer<'_, '_> {
             });
         }
         let converted = self.cast(value, source, target.clone());
+        self.choose_try_cast(converted, target, fits, result, error)
+    }
+
+    /// Push `Ok(converted)`, or `Err(RangeError.OutOfRange)` where `fits`
+    /// is false.
+    fn choose_try_cast(
+        &mut self,
+        converted: cranelift_codegen::ir::Value,
+        target: &Ty,
+        fits: Option<cranelift_codegen::ir::Value>,
+        result: crate::nominal::Nominal<crate::sum::EnumType>,
+        error: crate::nominal::Nominal<crate::sum::EnumType>,
+    ) -> Result<()> {
         self.stack.push((converted, target.clone()));
         self.lower_enum(&EnumOp::New(result.clone(), 0))?;
         let Some(fits) = fits else {
