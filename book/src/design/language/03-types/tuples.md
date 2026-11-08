@@ -70,8 +70,8 @@ Parentheses without a comma group a target; `(x,)` requires one component.
 The same shapes work for owned and borrowed loop elements, comprehension
 bindings and generator-expression bindings. Borrowing a nested
 tuple keeps component-precise loans, so sibling components remain independent.
-Starred unpacking is unsupported. Unit components can be discarded
-or used as unit expressions without enabling standalone unit storage.
+Starred unpacking is unsupported. A unit component binds a unit value like
+any other component.
 
 An owned list also supports unpacking with an exact runtime length check at
 each list position in a nested target; tuple positions use their statically known

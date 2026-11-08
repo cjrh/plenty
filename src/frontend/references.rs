@@ -262,9 +262,11 @@ impl Lower<'_> {
             };
             return Ok((ty, Some(loan)));
         }
-        let ty = self
-            .expr_expected(value, expected, ops)?
-            .ok_or_else(|| value.at.error("expected a value, got ()"))?;
+        // A unit value is stored as the unit word (issue #870).
+        let Some(ty) = self.expr_expected(value, expected, ops)? else {
+            ops.push(Op::PushUnit);
+            return Ok((Ty::Unit, None));
+        };
         if let Ty::KeyView(_) | Ty::DictView(..) = ty {
             let parent = self.reference_origin(value, ops)?;
             let loan = self.new_loan(self.loans[parent].root, false, Some(parent), ops);
@@ -770,9 +772,6 @@ impl Lower<'_> {
             Expression::Group(e) => self.named_place(e),
             Expression::Name(name) => {
                 let local = self.names.get(name).cloned().ok_or_else(|| e.at.error(self.unknown_binding(name)))?;
-                if local.ty == Ty::Unit {
-                    return Err(e.at.error("expected a value, got ()"));
-                }
                 if matches!(local.ty, Ty::Task(_)) {
                     return Err(e.at.error("scoped tasks cannot be borrowed or stored; use task.join()"));
                 }
@@ -1360,9 +1359,8 @@ impl Lower<'_> {
             }
             Expression::Index(..) => self.observe_index(e, expected, ops),
             _ => {
-                let ty = self
-                    .expr_expected(e, expected, ops)?
-                    .ok_or_else(|| e.at.error("expected a value, got ()"))?;
+                let ty = self.expr_expected(e, expected, ops)?;
+                let ty = self.stored(ty, ops);
                 if matches!(ty, Ty::KeyView(_) | Ty::DictView(..)) {
                     let loan = self.reference_origin(e, ops)?;
                     Ok((ty, vec![loan]))
@@ -1460,9 +1458,6 @@ impl Lower<'_> {
             let Ty::Ref(value, _) = reference else {
                 unreachable!()
             };
-            if *value == Ty::Unit {
-                return Err(e.at.error("expected a value, got ()"));
-            }
             ops.push(Op::ReadRef((*value).clone()));
             return Ok(((*value).clone(), vec![loan]));
         }
@@ -1480,9 +1475,6 @@ impl Lower<'_> {
             let fields = &t.get().variants[0].fields;
             let i = slices::tuple_position(index, fields.len())?;
             let value = fields[i].clone();
-            if value == Ty::Unit {
-                return Err(e.at.error("expected a value, got ()"));
-            }
             ops.push(Op::Enum(crate::sum::EnumOp::Field(t.clone(), 0, i)));
             return Ok((value, loans));
         }

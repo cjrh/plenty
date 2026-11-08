@@ -230,7 +230,6 @@ fn collections_preserve_typed_function_results() {
 #[case("s = set().unwrap()", "empty collection needs")]
 #[case("xs = [1, True].unwrap()", "expected list[i64]")]
 #[case("xs: list[i32] = [1i64].unwrap()", "expected list[i32]")]
-#[case("xs: list[()] = [].unwrap()", "cannot be unit")]
 #[case("d: dict[list[i64], i64] = {}.unwrap()", "dictionary keys")]
 #[case("s = {[1].unwrap()}.unwrap()", "set elements")]
 #[case("type X = list[X]", "cyclic type alias")]

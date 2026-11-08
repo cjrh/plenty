@@ -153,9 +153,7 @@ impl ClassDecl {
             .fields
             .iter()
             .map(|(n, t)| {
-                let ty = t
-                    .resolve(aliases)?
-                    .ok_or_else(|| t.at.error("class fields cannot be unit"))?;
+                let ty = t.resolve(aliases)?.unwrap_or(Ty::Unit);
                 if let Some(barrier) = ty.storage_barrier() {
                     return Err(t.at.error(barrier.message("class fields")));
                 }

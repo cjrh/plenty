@@ -633,9 +633,11 @@ impl Lower<'_> {
 
 const NOT_MATCHABLE: &str = "match requires an enum, class, tuple, integer, `str`, or `bool` value, or a reference to one; compare other values with an `if`/`elif` chain";
 
-/// The types a literal pattern can match.
+/// The types a literal pattern can match, plus unit, which only wildcard and
+/// binding patterns match (issue #870), so generic `match` code instantiates
+/// with `T = ()`.
 fn literal_matchable(ty: &Ty) -> bool {
-    ty.is_int() || matches!(ty, Ty::Str | Ty::Bool)
+    ty.is_int() || matches!(ty, Ty::Str | Ty::Bool | Ty::Unit)
 }
 
 pub(super) fn prelude_variant(name: &str) -> bool {

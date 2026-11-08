@@ -24,5 +24,7 @@ def main() -> Result[(), IoError]:
 `print(value)?` therefore completes without supplying data.
 
 In a function declared `-> ()`, a bare `return` returns unit. Use `pass`
-for an intentionally empty block. Unit parameters and standalone unit bindings
-are not supported. Use `Option` for absence; there is no `None` value.
+for an intentionally empty block. Unit is an ordinary value, so `done = ()`
+binds it and a parameter can have type `()`; this mostly matters for
+[generic code](../09-generics/generic-functions.md). Use `Option` for absence;
+there is no `None` value.

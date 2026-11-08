@@ -96,8 +96,7 @@ fn aliases_are_transparent(#[case] source: &str, #[case] ty: &str, #[case] expec
 #[case("type A i32", "expected `=`")]
 #[case("type A = 32", "expected a type")]
 #[case("type A = i32 + i64", "end of the type alias declaration")]
-#[case("type Done = ()\ndef f(x: Done) -> ():\n    pass", "unit parameters")]
-#[case("type Done = ()\nx: Done = 42", "unit bindings")]
+#[case("type Done = ()\nx: Done = 42", "expected (), got i64")]
 #[case(
     "type Text = str\nText('hello')",
     "only numeric types support cast syntax"
