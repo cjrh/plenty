@@ -5,6 +5,14 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## Module-local replacement calls (issue #892)
+
+Builtin `replace` calls bind in their defining module before imported declarations
+are combined. An entrypoint helper named `replace` no longer breaks imported
+`std.test` methods. Regression coverage exercises imported generic functions and
+methods, user aliases, direct and indirect user calls, local shadowing, and public
+diagnostic spelling. See [module name resolution](../design/language/02-source/modules.md).
+
 ## Documentation fragment labels
 
 The book marks `plenty fragment` excerpts with a bordered **Fragment · not
@@ -1000,6 +1008,24 @@ unit queue stores only a count (issue #790). Workers submit through a
 nonblocking [`Submitter`](../design/facilities/03-concurrency/executors.md#submit-from-workers),
 with a check that a submitting job does not wait without a time limit on a
 queue, token, mutex, or joined thread its submitted jobs can reach (issue #789).
+
+Shutdown summaries distinguish unknown future waits from unknown shutdowns
+(issue #893, bounded precision): unrelated capture-free callbacks with data-only
+signatures no longer reject borrowed-pool or `Submitter` submission helpers.
+Executor regressions cover direct/transitive/recursive callbacks, pool authority,
+callee-owned cleanup, sender/lock capabilities, erasure and destructor limits.
+Concrete effects remain visible after unknown calls. Pool identity/order,
+unrelated concrete local pools and aggregate-argument coverage remain limited;
+this is not general effect inference or a deadlock-freedom proof.
+
+Shutdown diagnostics retain deterministic, bounded call-chain witnesses and
+callee source positions (issue #894). Both handed-pool and callee-owned-pool
+checks distinguish discovered shutdown/owned cleanup from assumed opaque-call
+effects, preferring concrete witnesses. Cached effects and their explanations
+share one summary per specialized function. Tests cover recursion, long chains,
+missing bodies, capability-bearing/erased callbacks, owned cleanup and source
+provenance. This changes explanations, not the accepted program set; pool
+identity/order and aggregate-only argument limitations remain unchanged.
 
 See [threads](../design/facilities/03-concurrency/threads.md),
 [channels](../design/facilities/03-concurrency/channels.md),

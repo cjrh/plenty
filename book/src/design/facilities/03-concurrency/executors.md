@@ -225,10 +225,31 @@ A pool shuts down at `pool.shutdown()`, including through a
 wherever its owner leaves scope: the end of its `with` block or of the function,
 `return`, `?`, `break`, and `continue`. A call that receives a pool, by value or
 by reference, counts as a shutdown when a function it reaches, directly or
-through further calls, calls `shutdown()` or owns a pool. A call through a
-`Callable`, closure, or boxed callable value, or to a function that makes one,
-is assumed to shut down a pool passed to it. Locals are released last declared first,
-so a receiver bound after the pool is dropped before the pool shuts down.
+through further calls, calls `shutdown()` or owns a pool. Unknown calls are
+conservative, with a bounded exception for a capture-free `Callable` whose
+input and result types cannot expose pool authority or job hazards. For example,
+calling an unrelated `Callable[[], ()]` no longer makes a submission-only helper
+count as shutting down a pool, whether it takes `&ThreadPoolExecutor` or
+`Submitter`. This does not resolve the callback's actual target. Plain data and
+`Submitter` carry no shutdown authority; borrowed and aggregate types are
+searched recursively. Pool, channel and mutex capabilities, destructor-bearing
+classes, erased values and unclassified types remain conservative. Known closure
+bodies are followed; unresolved closures, boxed/protocol calls and missing
+function bodies remain unknown. Future-result wait checks are unchanged.
+
+A rejected helper call reports whether shutdown was **discovered** (an explicit
+shutdown or owned-pool cleanup) or **assumed** (an unresolved call). Notes identify
+the enclosing function, available source positions and the call chain, including
+missing bodies and erased callbacks. Concrete witnesses take precedence over
+unknown calls. Chains show at most eight edges nearest the cause, with an omitted
+edge count for longer paths. A passed pool binding is identified when available;
+this is not proof that the shutdown and submitted job belong to that same pool.
+The same explanations apply to helpers handed only job inputs or a `Submitter`.
+
+Explicit shutdowns and owned-pool cleanup still count, even for an unrelated
+local pool. These summaries do not match pool identity or prove call order or
+general deadlock freedom. Locals are released last declared first, so a receiver
+bound after the pool is dropped before the pool shuts down.
 
 Jobs are not matched to pools and are never assumed to have finished. A job
 submitted with `submit` or `submit_nowait` counts at every later shutdown in the
@@ -258,6 +279,13 @@ with ThreadPoolExecutor(2, 8)? as pool, receiver as inbox:
     pool.submit(produce, sender).drop_job()?
     ...
 ```
+
+Receiver-last also leaves the guard alive during a helper call inside the
+block. It cannot prevent a mid-call shutdown from waiting for a producer that
+needs that receiver; draining later is too late. The
+[helper-based scheduler lesson](../../../tutorial/11-concurrency/scheduler-loops.md)
+shows an accepted submit/receive loop and cleanup on early exits. Other receiver
+aliases must also be released, and workers must handle disconnection.
 
 That guard is still alive at a `future.result()` inside the block, which
 [its own check](futures.md#result-waits-and-live-receivers) rejects. To wait for
@@ -300,6 +328,37 @@ It does not cover:
 
 Blocking [future retrieval](futures.md#result-waits-and-live-receivers) has its own
 check at `result()`, before any later receiver cleanup.
+
+## Helper-based schedulers
+
+Ordinary helpers may submit and receive while the owning pool stays alive.
+The [shutdown contract](#shutdown-and-live-receivers) describes the bounded
+capture-free `Callable` exception for borrowed-pool and `Submitter` helpers.
+
+Capability-bearing or erased unknown calls, missing bodies and ownership of an
+unrelated pool can still combine with transitive submissions to reject a safe
+helper. This remaining limitation is not a requirement to inline all loops.
+
+Read the diagnostic's discovered-versus-assumed shutdown provenance and
+bounded call chain before restructuring. They explain one cause, not every
+possible cause or proof of runtime execution.
+
+Keep a narrow submission helper when this limitation requires separating setup
+and bookkeeping from the pool-handed call. The
+[scheduler lesson](../../../tutorial/11-concurrency/scheduler-loops.md#when-the-current-checker-rejects-a-larger-helper)
+explains that fallback and preserving partial-preparation and typed-error
+contracts. Cancellation does not interrupt ordinary blocking sends; use
+[cooperative cleanup](cancellation.md) and keep endpoint/lock release before joins.
+Capacity equal to worker count alone does not bound outstanding messages from
+both queued and running jobs.
+
+The aggregate-argument gap above is distinct from direct field borrowing:
+`helper(&holder.pool, ...)` hands the call a pool, while passing only
+`helper(&holder, ...)` can miss recording submissions through its pool field.
+A callback whose shutdown effect remains unknown, such as an erased or
+capability-bearing callback, can nevertheless trigger rejection in the latter
+helper through the callee-owned-pool check. Neither wrapping a pool nor observing
+that one wrapper example rejects establishes safety or complete coverage.
 
 ## Shutdown and held locks
 

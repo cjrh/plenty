@@ -1379,6 +1379,129 @@ fn local_shadowing_and_identical_builtin_imports_are_allowed() {
 }
 
 #[test]
+fn replacement_builtin_is_bound_in_its_defining_module() {
+    run(
+        &[
+            (
+                "api.plenty",
+                r#"
+pub class Cell:
+    pub value: i64
+    pub def swap(self: &mut Cell, value: i64) -> i64:
+        replace(self.value, value)
+pub def swap[T](items: &mut list[T], value: T) -> T:
+    replace(items[0], value)
+"#,
+            ),
+            (
+                "main.plenty",
+                r#"
+import api
+def replace(left: i64, right: i64) -> i64:
+    right
+def main() -> ():
+    mut cell = api.Cell(7)
+    mut items = [11].unwrap()
+    print(cell.swap(8)).unwrap()
+    print(api.swap(&mut items, 12)).unwrap()
+    print(cell.value).unwrap()
+    print(items[0]).unwrap()
+    print(replace(2, 3)).unwrap()
+    operation = replace
+    print(operation(4, 5)).unwrap()
+"#,
+            ),
+        ],
+        "main.plenty",
+        "7\n11\n8\n12\n3\n5\n",
+    );
+}
+
+#[test]
+fn replacement_user_aliases_and_local_bindings_keep_their_identity() {
+    run(
+        &[
+            (
+                "helper.plenty",
+                "pub def choose[T](value: T) -> T:\n    value\n",
+            ),
+            (
+                "api.plenty",
+                r#"
+from helper import choose as replace
+pub def direct() -> i64:
+    replace(7)
+pub def explicit() -> i64:
+    replace[i64](8)
+pub def indirect() -> i64:
+    operation = replace[i64]
+    operation(9)
+"#,
+            ),
+            (
+                "main.plenty",
+                r#"
+import api
+from helper import choose
+def main() -> ():
+    print(api.direct()).unwrap()
+    print(api.explicit()).unwrap()
+    print(api.indirect()).unwrap()
+    replace = choose[i64]
+    print(replace(10)).unwrap()
+"#,
+            ),
+        ],
+        "main.plenty",
+        "7\n8\n9\n10\n",
+    );
+}
+
+#[test]
+fn replacement_in_unused_std_test_methods_is_not_shadowed_by_the_entrypoint() {
+    for declaration in [
+        "def replace(callback: &mut Closure[[f64], f64], limit: f64) -> ():\n    pass",
+        "def replace[T](value: T) -> T:\n    value",
+        "type replace = i64",
+    ] {
+        let source = format!(
+            "import std.test\n{declaration}\ndef main() -> ():\n    std.test.check(True, \"ok\").unwrap()\n"
+        );
+        let dir = workspace(&[("main.plenty", &source)]);
+        plenty::check_file(&dir.path().join("main.plenty"), None).unwrap();
+    }
+}
+
+#[test]
+fn replacement_builtin_is_not_an_indirect_or_generic_user_function() {
+    for expression in ["replace", "replace[i64]", "replace[i64](7)"] {
+        let api = format!("pub def invalid() -> ():\n    operation = {expression}\n");
+        let dir = workspace(&[
+            ("api.plenty", &api),
+            (
+                "main.plenty",
+                "import api\ndef replace[T](value: T) -> T:\n    value\ndef main() -> ():\n    pass\n",
+            ),
+        ]);
+        let error = plenty::check_file(&dir.path().join("main.plenty"), None)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("api.replace"), "{error}");
+        assert!(!error.contains("$builtin"), "{error}");
+    }
+}
+
+#[test]
+fn replacement_builtin_diagnostics_use_the_public_spelling() {
+    let dir = workspace(&[("main.plenty", "def main() -> ():\n    replace()\n")]);
+    let error = plenty::check_file(&dir.path().join("main.plenty"), None)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("replace takes a mutable field"), "{error}");
+    assert!(!error.contains("$builtin"), "{error}");
+}
+
+#[test]
 fn short_extensions_preserve_module_identity_and_interface_trust() {
     let untrusted = workspace(&[(
         "main.p",
