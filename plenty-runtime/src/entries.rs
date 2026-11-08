@@ -93,6 +93,12 @@ pub(crate) struct Words {
 }
 
 impl Words {
+    /// The buffer's first byte, derived from the owning pointer rather than
+    /// from a slice reference, so callers holding only `&Words` may return it
+    /// for a write that the compiler's exclusive loan authorizes.
+    fn base(&self) -> *mut u8 {
+        self.ptr.as_ptr().cast()
+    }
     const fn new() -> Self {
         Self {
             ptr: NonNull::dangling(),
@@ -461,6 +467,12 @@ impl Entries {
     /// packed scalar rows have only their declared width/alignment. Callers
     /// dereferencing this pointer must use the element's storage representation.
     pub fn slot(&mut self, index: usize, value: bool) -> *mut u128 {
+        self.slot_address(index, value)
+    }
+    /// [`Self::slot`] through a shared reference: lookups that lend an element
+    /// (`get_ref`, `get_mut`) must not create a `&mut Entries`, since a shared
+    /// loan of the collection may be live on other threads (issue #869).
+    pub fn slot_address(&self, index: usize, value: bool) -> *mut u128 {
         assert!(
             self.bits().is_none(),
             "bitset members have no writable slots"
@@ -473,7 +485,7 @@ impl Entries {
         );
         unsafe {
             self.data
-                .as_mut_ptr()
+                .base()
                 .add(index * self.stride + if value { self.key.slot_words() * 16 } else { 0 })
                 .cast()
         }

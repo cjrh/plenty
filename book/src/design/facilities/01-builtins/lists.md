@@ -111,14 +111,16 @@ for packed scalar elements. See [value representations](../../toolchain/02-archi
 | Operation | Result | Behavior |
 | --- | --- | --- |
 | `items.get(index: i64)` | `Option[T]` | Observe an element; `Nothing` outside the list |
+| `items.get_ref(index: i64)` | `Option[&T]` | Lend an element; `Nothing` outside the list |
+| `items.get_mut(index: i64)` | `Option[&mut T]` | Lend an element exclusively; `Nothing` outside the list |
 | `items.pop()` | `Option[T]` | Remove and own the last element |
 | `items.pop(index: i64)` | `Option[T]` | Remove and own the selected element |
 | `items.count(value)` | `i64` | Number of equal elements |
 | `items.find(value)` / `items.rfind(value)` | `Option[i64]` | First/last matching position |
 
-Indices can be references; negatives count from the end. `get` and `pop` handle
-extreme `i64` indices safely. Neither allocates; a missing `pop` leaves the list
-unchanged. `pop` requires exclusive access, preserves remaining order and capacity,
+Indices can be references; negatives count from the end. `get`, `get_ref`,
+`get_mut`, and `pop` handle extreme `i64` indices safely. None allocates; a
+missing `pop` leaves the list unchanged. `pop` requires exclusive access, preserves remaining order and capacity,
 and supports all list element types. Last-element removal touches no surviving
 rows and is constant-time in the list length, including for inline elements.
 Other positions shift and repair only subsequent rows. Extracted inline payloads
@@ -130,10 +132,25 @@ non-affine values, including copyable enums; retained results survive replacemen
 or destruction of the list. Use `pop` or explicit references for affine elements.
 There is no default argument.
 
-Search/count accept exactly the element type, including references, and support
-integers, floats, booleans, and strings. They observe both operands once, allocate
-nothing, and use IEEE float equality (NaN never matches; signed zeros do).
-Aggregate searches, optional bounds, and throwing `index` are unsupported.
+`get_ref` and `get_mut` lend the element at `index` in place, for every element
+type, or return `Nothing` outside the list instead of trapping as `&items[index]`
+and `&mut items[index]` do. They normalize negative indices as indexing does, so
+`items.get_mut(-1)` lends the last element. The index is observed before the
+receiver is borrowed. The result holds a loan of the whole list until its last
+use, shared for `get_ref` and exclusive for `get_mut`, so the list cannot grow,
+shrink, or be reassigned meanwhile. `get_mut` requires a mutable binding, a
+mutable reference, or a class field reached through one.
+
+Search/count accept exactly the element type, including references, and take
+every element type that `in` takes: numbers, `bool`, strings, classes, enums,
+tuples, nested lists, and unions of them. They use the element type's `==`,
+observe both operands once, allocate nothing, and use IEEE float equality (NaN
+never matches; signed zeros do). Numbers, `bool`, and strings use a runtime
+scan; other element types compile to a loop specialized for the element type,
+the one a [slice view](../../language/04-expressions/slices.md#operations-on-views)
+uses. Optional bounds and throwing `index` are unsupported; search part of a
+list through a view, `(&items[a:b]).find(value)`, which counts positions within
+the view.
 
 ## Insertion
 
@@ -190,7 +207,7 @@ which cannot be moved out of indexed storage. On a list of numbers or `bool`,
 `swap` compiles to inline bounds checks, loads, and stores with no runtime call;
 other element types call the runtime once. An exclusive
 [slice view](../../language/04-expressions/slices.md#slice-views), `&mut [T]`,
-has the same `swap`, with indices counted within the view.
+has the same `swap` and `reverse`, with indices counted within the view.
 
 `items.sort() -> ()` orders the elements ascending, in place, without allocating.
 It requires exclusive access and one of these element types:
@@ -281,7 +298,8 @@ by moving the destination are rejected. Use `extend(copy(source)?)` to preserve 
 copies the selected elements into a new list with Python's clamping, omitted
 bounds, and negative steps. It duplicates elements with `copy()` and `Shared`
 handles with `share()`, and leaves the source unchanged; element types that
-`copy()` rejects are a compile error.
+`copy()` rejects are a compile error. A [slice view](../../language/04-expressions/slices.md#operations-on-views)
+copies the same way with `list(v)?` or `v[a:b]?`.
 
 `items.slice(start: i64, stop: i64) -> Result[list[T], AllocError]` is the
 transfer form for an owned temporary. It takes both

@@ -15,10 +15,9 @@ def main() -> Result[(), AllocError | IoError]:
 ```
 
 The loan ends after its last use. While an element reference is live, the
-collection cannot grow, remove entries, or move. An out-of-range index traps.
-Dictionaries lend a value through
-[`get_mut`](dictionaries.md), which returns an `Option` instead of trapping on
-a missing key.
+collection cannot grow, remove entries, or move. An out-of-range index traps;
+[`get_ref` and `get_mut`](lookup.md#borrow-a-value-that-may-be-absent) lend an
+element of a list or dictionary as an `Option` instead.
 
 Two list elements written as different number literals are different places, so
 both can be borrowed at once:
@@ -107,7 +106,7 @@ def reset(values: &mut [i64]) -> ():
 
 def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     mut scores = [70, 85, 90, 65, 88]?
-    print(total(&scores)?, total(&scores[1:])?)?
+    print(total(scores)?, total(&scores[1:])?)?
     reset(&mut scores[:2])
     print(scores)?
     Ok(())
@@ -120,9 +119,31 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
 
 The positions clamp as a copying slice's do. A view supports `len`, indexing,
 narrower views, loops, and `==` with another view, and prints as a list of its
-elements. An exclusive view also takes indexed assignment and
-[`swap`](reordering.md#exchange-two-elements). A `&[T]` parameter also takes a whole list as `&scores`, which is
-a view that copies nothing. A view borrows its
+elements. It searches its elements in place with `in`, `count`, `find`, and
+`rfind`, counting positions from the start of the view. `list(v)?` or
+`v[a:b]?` copies its elements into a new list:
+
+```plenty
+def main() -> Result[(), AllocError | IoError]:
+    scores = [70, 85, 90, 85, 88]?
+    later = &scores[2:]
+    print(85 in later, 70 in later, later.count(85))?
+    best = later[:2]?
+    print(best)?
+    Ok(())
+```
+
+```output
+True False 1
+[90, 85]
+```
+
+An exclusive view also takes indexed assignment,
+[`swap`](reordering.md#exchange-two-elements), and `reverse`. Its length is
+fixed, so methods such as `append` and `pop` belong to the list. A `&[T]`
+parameter lends a whole list passed as `scores`, as a `&T` parameter would,
+and copies nothing; `&scores` means the same. An `&mut [T]` parameter needs
+`&mut scores` written out. A view borrows its
 run of the list, and the list cannot grow while the view is live. Two exclusive
 views of one list can be live together when one stops where the other starts:
 

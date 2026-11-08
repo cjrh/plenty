@@ -1,0 +1,33 @@
+# Standalone selected-field kernels: deliberately no collection allocation here.
+class Row:
+    key: f64
+    weight: f64
+
+def scan_loop(rows: &clist[Row], limit: f64) -> f64:
+    mut total = 0.0
+    for key, weight in rows.column(Row.key).zip(rows.column(Row.weight)):
+        if key >= limit:
+            total += weight
+    total
+
+def scan_fold(rows: &clist[Row], limit: f64) -> f64:
+    rows.column(Row.key).zip(rows.column(Row.weight)).fold(0.0,
+        def [limit](total: f64, key: f64, weight: f64) -> f64:
+            total + weight if key >= limit else total)
+
+def scan_index(rows: &clist[Row], limit: f64) -> f64:
+    mut total = 0.0
+    for i in range(len(rows)):
+        if rows[i].key >= limit:
+            total += rows[i].weight
+    total
+
+def main() -> Result[(), AppendError[Row] | IoError | OverflowError[i64]]:
+    mut rows = clist[Row]()
+    for i in range(8192):
+        rows.append(Row(f64(i % 7), 1.0))?
+    mut checksum = 0.0
+    for _ in range(200):
+        checksum += scan_loop(&rows, 3.0) + scan_fold(&rows, 3.0) + scan_index(&rows, 3.0)
+    print(checksum)?
+    Ok(())

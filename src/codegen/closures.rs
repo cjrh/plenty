@@ -133,7 +133,10 @@ impl Lowerer<'_, '_> {
             .ok_or("closure call underflow")?;
         let args: Vec<_> = self.stack.drain(split..).collect();
         let (reference, _) = self.stack.pop().ok_or("missing closure environment")?;
-        if let Some(captures) = self.captured_arguments(reference) {
+        let captures = self.captured_arguments(reference);
+        if let Some(captures) = &captures
+            && self.user_fns[&t.name].inline.is_some()
+        {
             self.stack.extend(
                 captures
                     .iter()
@@ -141,7 +144,7 @@ impl Lowerer<'_, '_> {
                     .map(|(i, value)| (*value, t.parameter(i))),
             );
             self.stack.extend(args);
-            return self.lower_call_captured(&t.name, &captures);
+            return self.lower_call_captured(&t.name, captures);
         }
         let storage = if t.once {
             reference
@@ -169,7 +172,7 @@ impl Lowerer<'_, '_> {
             self.stack.push((pointer, t.parameter(i)));
         }
         self.stack.extend(args);
-        self.lower_call(&t.name)
+        self.lower_call_captured(&t.name, captures.as_deref().unwrap_or(&[]))
     }
 }
 

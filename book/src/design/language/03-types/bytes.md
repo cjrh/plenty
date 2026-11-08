@@ -86,7 +86,7 @@ Operations that only read bytes, such as `find_bytes`, `matches`, `extend`, and
 every `std.io`, `std.net`, and `std.tls` stream write, take a
 [`&[u8]` view](../../stdlib/bytes.md#byte-views). A literal, a `Bytes` buffer,
 a `list[u8]`, or part of any of them converts to that view and is read in
-place; nothing is copied, and there is no implicit conversion between `bytes`
+place, and a buffer or list may be passed bare, `f(buffer)`, as for `&buffer`; nothing is copied, and there is no implicit conversion between `bytes`
 and `Bytes`. Changing or growing bytes needs a `Bytes`.
 
 The literal type is a separate prelude type rather than a static `&Bytes` view

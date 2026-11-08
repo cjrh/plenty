@@ -181,6 +181,11 @@ and before passing an exclusive view of it.
 | `v[i]` | Element `i` of the view, with list index rules: a negative index counts from the end, and an index outside the view traps |
 | `v[i] = x` | Replace element `i`; needs an exclusive view in a `mut` binding |
 | `v.swap(i, j)` | Exchange elements `i` and `j` in place, with [`list.swap`](../../facilities/01-builtins/lists.md#reordering-and-extending)'s contract; needs an exclusive view |
+| `v.reverse()` | Reverse the view's elements in place; needs an exclusive view |
+| `v.get(i)` | `Option[T]` copy of element `i`, `Nothing` outside the view; non-affine elements only |
+| `x in v`, `x not in v` | Whether an element equals `x` |
+| `v.count(x)`, `v.find(x)`, `v.rfind(x)` | Number of equal elements, and the first or last matching position within the view as `Option[i64]` |
+| `list(v)?`, `v[a:b]?` | An owned `list[T]` of copies of the elements, or of the selected ones |
 | `&v[i]`, `&mut v[i]` | Reference to element `i` |
 | `&v[a:b]`, `&mut v[a:b]` | Narrower view; bounds count from the start of `v` |
 | `for x in v` | `&T` per element, or `&mut T` for an exclusive view; `reversed(v)` and `enumerate(v)` also work |
@@ -220,11 +225,9 @@ b"bc"
 ```
 
 A view prints as a reference does, through to its elements; a `Bytes` buffer
-itself keeps its own spelling. For general non-byte list views, methods other
-than `swap`, membership with `in`, `list(v)`, and copying slices of a view
-are rejected. Byte views additionally support
+itself keeps its own spelling. [Operations on views](#operations-on-views)
+compares a view's methods with a list's. Byte views additionally support
 [binary string operations and membership](../../stdlib/bytes-stringlike.md).
-Copy from the owner, `xs[a:b]?`, for an owned list.
 
 `v.swap(i, j)` counts both indices within the view, so a negative index counts
 from the view's end, and an index outside the view traps before either element
@@ -256,6 +259,81 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
 [1, 5, 4, 3, 2]
 ```
 
+### Operations on views
+
+A view reads and reorders its elements as a list does, but its length is
+fixed: a method that would add or remove elements belongs to the owner.
+
+| Operation | `list[T]` | `&[T]` | `&mut [T]` |
+| --- | --- | --- | --- |
+| `len`, `v[i]`, `&v[a:b]`, `for`, `iter`, `==`, `print` | yes | yes | yes |
+| `v[i] = x`, `swap`, `reverse` | yes | read-only | yes |
+| `in`, `count`, `find`, `rfind` | yes | yes | yes |
+| `list(v)?`, `v[a:b]?` | yes | yes | yes |
+| `v[a:b:k]?` with a step | yes | copy from the owner | copy from the owner |
+| `sort`, `sort_by_key`, `sort_stable_by_key` | yes | read-only | not yet (issue #886) |
+| `append`, `extend`, `insert`, `pop`, `clear`, `reserve` | yes | length is fixed | length is fixed |
+| `get` | yes | yes | yes |
+| `get_ref`, `get_mut` | yes | not yet (issue #890) | not yet (issue #890) |
+
+`x in v`, `v.count(x)`, `v.find(x)`, and `v.rfind(x)` compare `x` with each
+element using the element type's `==`, so they take the element types a list's
+[membership](../../facilities/01-builtins/lists.md#lookup-and-removal) takes:
+numbers, `bool`, strings, classes, enums, tuples, nested lists, and unions of
+them. A list's `count`, `find`, and `rfind` take the same set. Floats use IEEE
+equality, so NaN never matches and signed zeros do. Positions count from the
+start of the view. `in` evaluates `x` before
+the view, as list membership does, and the methods evaluate the receiver
+first; `x` is borrowed, as a `&T` argument is, and the search allocates
+nothing.
+Each compiles to an ordinary loop over the view, specialized for its element
+type.
+
+`list(v)?` and `v[a:b]?` copy elements as a list's
+[copying slice](../../facilities/01-builtins/lists.md#slices) does: each
+element with `copy()`, and each `Shared` handle with `share()`. They reserve
+storage for every element first, then copy in order; an element type that
+`copy()` rejects is a compile error. `v[a:b]?` takes the view's bounds rules
+and no step; copy every k-th element from the owner, `xs[a:b:k]?`. On a
+`&[u8]` view, `v[a:b]?` is rejected, since the owner may be a list or a
+`Bytes` buffer: write `list(&v[a:b])?` for a list. `copy(v)` and `set(v)` are
+rejected with a pointer to `list(v)?`.
+
+`v.get(i)` returns `Some` copy of element `i`, or `Nothing` outside the view,
+with [`list.get`](../../facilities/01-builtins/lists.md#lookup-and-removal)'s
+contract: a negative index counts from the view's end, and the element type
+must not be affine; borrow an affine element with `&v[i]`. Optional borrowed
+lookup on views is issue #890.
+
+`v.reverse()` reorders an exclusive view's elements with `list.reverse`'s
+contract: every element type, and no allocation, copy, retain, or drop. Sorting
+a view in place is issue #886, recorded under B39 in the [backlog](../../../backlog.md).
+
+```plenty
+class Point:
+    x: i64
+    y: i64
+
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = [4, 1, 2, 1, 3]?
+    tail = &xs[1:]
+    print(1 in tail, tail.count(1), tail.find(1), tail.rfind(1))?
+    middle = tail[1:3]?
+    print(middle, list(&xs[3:])?)?
+    (&mut xs[1:]).reverse()
+    print(xs)?
+    points = [Point(0, 0), Point(1, 2)]?
+    print(Point(1, 2) in &points[1:])?
+    Ok(())
+```
+
+```output
+True 2 Option[i64].Some(0) Option[i64].Some(2)
+[2, 1] [1, 3]
+[4, 3, 1, 2, 1]
+True
+```
+
 ### Views borrow their owner
 
 A view holds a loan of its run of elements in its owner: a shared view a
@@ -274,7 +352,16 @@ view, as `[:]` would: `&xs` or `&mut xs` for a list, `&buffer` or a `b"..."`
 literal for `&[u8]`, and `&handle` for a `Shared` list. A reference binding to
 an owner, such as an `xs: &list[i64]` parameter, converts too. The conversion
 copies nothing and allocates nothing. Expected view types are parameters,
-including a generic `&[T]`, and annotated locals:
+including a generic `&[T]`, and annotated locals.
+
+A shared view parameter also lends a bare owned argument, as a `&T` parameter
+does: `total(xs)` is `total(&xs)`. This covers lists, `Bytes` and `bytes`
+values, `Shared` handles, projected owners such as `bag.items` or `*r`, and
+call or `?` results such as `total(make()?)`,
+which are held to the end of the statement. An `&mut [T]` parameter still
+needs `&mut xs` or an existing exclusive view; exclusive access is never
+inferred. A bare `str` is not lent as bytes; pass `s.as_bytes()`. For
+example:
 
 ```plenty
 def total(values: &[i64]) -> Result[i64, OverflowError[i64]]:
@@ -290,16 +377,17 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     xs = [1, 2, 3]?
     whole: &[i64] = &xs
     print(total(&xs)?, total(&xs[1:])?, total(whole)?, width(b"abc"))?
+    print(total(xs)?, total([4, 5]?)?)?
     Ok(())
 ```
 
 ```output
 6 5 6 3
+6 9
 ```
 
-`&xs[:]` keeps working. An owned list, `total(xs)`, is not a view and is
-rejected. A `&T` type parameter takes a reference to a whole value, not a
-view. Standard-library operations that read bytes take
+`&xs[:]` keeps working. A `&T` type parameter takes a reference to a whole
+value, not a view. Standard-library operations that read bytes take
 [`&[u8]`](../../stdlib/bytes.md#byte-views), so `buffer.extend(&other[2:])` and
 `writer.write(b"ok")` pass a view.
 A function with a view parameter may return a reference into it: the first
@@ -429,8 +517,11 @@ until stored references land (backlog B11).
 | `&mut s[1:3]` on a `str` | ``a `str` is immutable, so a substring view is shared only; write `&s[a:b]` `` |
 | `def f(xs: &list[T]) -> &[T]` | `a function cannot return a slice view yet (backlog B11)` |
 | `f(&s[1:])` for `f(s: &str)` | ``this argument is a &strview view, but the parameter takes &str; declare the parameter `&strview` to borrow it without copying, or pass an owned copy, `s[a:b]?` `` |
-| `total(xs)` for `total(v: &[i64])` | ``this parameter takes a slice view: pass `&xs` for a whole list or buffer, or `&xs[a:b]` for part of it`` |
-| `x in v` for a non-byte list view, such as `&[i64]` | ``slice views do not support `in` yet`` |
+| `width(s)` for `width(v: &[u8])` and `s: str` | ``this parameter takes a slice view; a `str` is text, so pass `s.as_bytes()` for its UTF-8 bytes`` |
+| `fill(xs)` for `fill(v: &mut [i64])` | ``this parameter takes a slice view: pass `&mut xs` for a whole list or buffer, or `&mut xs[a:b]` for part of it`` |
+| `v.append(x)` on a view | `` `append` changes a list's length, and a slice view's length is fixed; call it on the list after the view's last use `` |
+| `v.sort()` on a view | ``a slice view cannot `sort` yet (issue #886); sort the whole list, or reorder the view's elements with `swap` `` |
+| `v[a:b]?` on a `&[u8]` | ``a copying slice of &[u8] could be a `list[u8]` or a `Bytes` buffer; write `list(&v[a:b])?` for a list, or `extend` an empty `Bytes` with `&v[a:b]` `` |
 | `xs[1:3] = ys` | `slice assignment is not supported; assign elements by index, or build a new list` |
 | `m[1:2, 0]` | `a slice cannot have several dimensions` |
 | `t[n:]` on a tuple | `tuple slice bounds must be integer literals; the result type depends on them` |

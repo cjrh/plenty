@@ -4007,11 +4007,6 @@ impl Lower<'_> {
         }
         let payload = option.get().variants[usize::from(option.is_option())].fields[0].clone();
         let carried = if payload.carries_loan() {
-            if name == "unwrap_or" {
-                return Err(base
-                    .at
-                    .error("`unwrap_or` cannot choose between two borrows; use `match`"));
-            }
             Some(self.reference_origin(base, ops)?)
         } else {
             None
@@ -4035,11 +4030,21 @@ impl Lower<'_> {
         if let Some(hint) = argument_hint {
             self.same(Some(actual.clone()), Some(hint), &argument.at)?;
         }
-        if let Some(barrier) = actual.storage_barrier() {
+        // A default of the receiver's borrowed payload type is held like the
+        // payload, with the loan given below.
+        let borrowed_default = name == "unwrap_or" && payload.carries_loan();
+        if let Some(barrier) = actual.storage_barrier().filter(|_| !borrowed_default) {
             return Err(argument
                 .at
                 .error(barrier.message("Option convenience arguments")));
         }
+        // The default of a borrowed payload is another borrow, possibly of
+        // another owner: the result keeps both borrowed.
+        let defaulted = if borrowed_default && !references::loan_free(argument) {
+            Some(self.reference_origin(argument, ops)?)
+        } else {
+            None
+        };
         let fallback = self.slot(actual.clone(), &argument.at)?;
         ops.push(Op::StoreLocal(fallback));
         let result = if name == "unwrap_or" {
@@ -4055,8 +4060,15 @@ impl Lower<'_> {
             name == "ok_or",
             ops,
         );
-        if let Some(parent) = carried {
-            // The Result carries the Option's loan.
+        if let (Some(parent), Some(default)) = (carried, defaulted) {
+            self.fallback_value(
+                &argument.at,
+                &[parent, default],
+                payload.carries_mutable_loan(),
+                ops,
+            )?;
+        } else if let Some(parent) = carried {
+            // The result carries the receiver's loan.
             let root = self.loans[parent].root;
             self.new_loan(root, payload.carries_mutable_loan(), Some(parent), ops);
         }
@@ -4190,10 +4202,12 @@ impl Lower<'_> {
             if name == "swap" {
                 return self.view_swap(base, args, ops).map(Some);
             }
-            return Err(base.at.error(format!(
-                "a slice view has no method `{name}`; {}",
-                views::OPERATIONS
-            )));
+            return self.view_method(base, name, args, ops).map(Some);
+        }
+        if matches!(name, "count" | "find" | "rfind")
+            && let Some(whole) = self.whole_list_view(base)
+        {
+            return self.view_method(&whole, name, args, ops).map(Some);
         }
         if matches!(self.place_type(base), Some(Ty::Clist(_))) {
             return self.clist_method(base, name, args, ops).map(Some);
@@ -4576,8 +4590,12 @@ impl Lower<'_> {
         if name == "pop" && matches!(collection, Some(Ty::Dict(..) | Ty::List(_))) {
             return self.collection_removal(base, args, ops).map(Some);
         }
-        if name == "get_mut" && matches!(collection, Some(Ty::Dict(..))) {
-            return self.dict_get_mut(base, args, ops).map(Some);
+        if matches!(name, "get_ref" | "get_mut")
+            && matches!(collection, Some(Ty::Dict(..) | Ty::List(_)))
+        {
+            return self
+                .borrowed_lookup(base, name == "get_mut", args, ops)
+                .map(Some);
         }
         if name == "get_or_insert" && matches!(collection, Some(Ty::Dict(..))) {
             return self.dict_get_or_insert(base, args, ops).map(Some);
@@ -4952,12 +4970,6 @@ impl Lower<'_> {
         if let Ty::List(element) = &ty
             && matches!(name, "count" | "find" | "rfind")
         {
-            if !(element.is_int() || element.is_float() || matches!(**element, Ty::Bool | Ty::Str))
-            {
-                return Err(base
-                    .at
-                    .error("list search supports integer, float, bool, and str elements"));
-            }
             if args.len() != 1 {
                 return Err(base
                     .at
@@ -5173,13 +5185,15 @@ impl Lower<'_> {
                 }));
             }
             if element.affine() {
-                let (place, borrowed) = if collection == "list" {
-                    ("index", "")
+                let place = if collection == "list" { "index" } else { "key" };
+                // `copy()` rejects a `Shared` handle; a second handle comes from `share()`.
+                let duplicate = if matches!(element, Ty::Shared(_)) {
+                    format!("share the handle with `items[{place}].share()`")
                 } else {
-                    ("key", ", `get_mut(key)` for an optional exclusive borrow")
+                    format!("copy with `copy(&items[{place}])?`")
                 };
                 return Err(base.at.error(format!(
-                    "get cannot return owned {collection} values; borrow with `&items[{place}]`, which traps when absent{borrowed}, copy with `copy(&items[{place}])?`, or remove and take ownership with `pop`"
+                    "get cannot return owned {collection} values; borrow with `get_ref({place})` or `get_mut({place})`, which return `Nothing` when absent, or `&items[{place}]`, which traps; {duplicate}, or remove and take ownership with `pop`"
                 )));
             }
             let (key, key_loans) = self.observe_expected(&args[0], Some(expected.clone()), ops)?;
@@ -5320,15 +5334,32 @@ impl Lower<'_> {
         Ok(Some(result))
     }
 
-    /// `d.get_mut(k) -> Option[&mut V]`: the value for `k`, borrowed
-    /// exclusively, or `Nothing`. The result holds an exclusive loan of the
-    /// whole dictionary, as a reference-returning method's result would.
-    fn dict_get_mut(&mut self, base: &Expr, args: &[Expr], ops: &mut Vec<Op>) -> Result<Type> {
+    /// `get_ref` and `get_mut` on a dictionary or list: one lookup that lends
+    /// the stored value, or `Nothing` for a missing key or an index outside
+    /// the list (issue #869). The key or index is observed before the
+    /// receiver is borrowed, and the result holds a loan of the whole
+    /// collection until its last use.
+    fn borrowed_lookup(
+        &mut self,
+        base: &Expr,
+        mutable: bool,
+        args: &[Expr],
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let name = if mutable { "get_mut" } else { "get_ref" };
+        let ty = classes::unbox(self.place_type(base).expect("collection place"));
         let [argument] = args else {
-            return Err(base.at.error("get_mut requires one key argument"));
+            return Err(base.at.error(if matches!(ty, Ty::List(_)) {
+                format!("{name} requires one i64 index argument")
+            } else {
+                format!("{name} requires one key argument")
+            }));
         };
-        let ty = classes::unbox(self.place_type(base).expect("dictionary place"));
-        let operation = CollectionOp::DictGetMut(ty);
+        let operation = if matches!(ty, Ty::List(_)) {
+            CollectionOp::ListGetRef(ty, mutable)
+        } else {
+            CollectionOp::DictGetRef(ty, mutable)
+        };
         let (inputs, result) = operation.signature();
         let key = inputs[1].clone();
         // Observe the key before borrowing the receiver exclusively, as `pop`
@@ -5343,12 +5374,12 @@ impl Lower<'_> {
         };
         // An observed inline key must keep its original storage until the
         // runtime finishes the lookup and releases the observation.
-        let (reference, loan) = self.borrow(base, true, ops)?;
+        let (reference, loan) = self.borrow(base, mutable, ops)?;
         self.unbox_reference(reference, ops);
         ops.push(Op::Swap);
         ops.push(Op::Collection(operation));
         Self::end_reads(reads, ops);
-        let id = self.new_loan(self.loans[loan].root, true, Some(loan), ops);
+        let id = self.new_loan(self.loans[loan].root, mutable, Some(loan), ops);
         self.loans[id].precise = false;
         if let Some(Op::Loan(fact)) = ops.last_mut() {
             *fact = self.loans[id].clone();
@@ -6031,8 +6062,18 @@ impl Lower<'_> {
             return Ok(Ty::I64);
         }
         if self.is_view(&args[0]) {
+            if name == "list"
+                && let Some(Ty::View(element, _)) = self.list_view_type(&args[0])
+            {
+                return self.view_copy(&args[0], &element, at, ops);
+            }
+            let copy = if self.is_text_view(&args[0]) {
+                "v[:]?"
+            } else {
+                "list(v)?"
+            };
             return Err(args[0].at.error(format!(
-                "{name}() does not take a slice view; copy the elements with a copying slice, `xs[a:b]?`"
+                "{name}() does not take a slice view; copy the elements first, `{name}({copy})`"
             )));
         }
         let ty = self.value(&args[0], ops)?;
@@ -6611,8 +6652,16 @@ fn receiver_requirement(name: &str, ty: &Ty) -> Option<&'static str> {
             "a mutable list binding or class field"
         }
         "update" => "a mutable dictionary or set binding or class field",
-        "get_mut" | "get_or_insert" if matches!(ty, Ty::Dict(..)) => {
+        "get_or_insert" if matches!(ty, Ty::Dict(..)) => {
             "a mutable dictionary binding or class field"
+        }
+        "get_mut" if matches!(ty, Ty::Dict(..) | Ty::List(_)) => {
+            "a mutable list or dictionary binding or class field"
+        }
+        // The result lends the receiver's storage, so a temporary would be
+        // released while the reference is live.
+        "get_ref" if matches!(ty, Ty::Dict(..) | Ty::List(_)) => {
+            "a list or dictionary binding or class field"
         }
         "clear" => "a mutable list, dictionary, or set binding or class field",
         _ => return None,

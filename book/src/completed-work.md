@@ -21,6 +21,11 @@ Delivery history and retired backlog entries live here, separate from the
   [one-word reference reads](completed-work/performance.md#one-word-reference-reads-issue-844)
   of issue #844.
 
+[Selected-field column zip](completed-work/performance.md#selected-field-column-zip-issue-888)
+records the shared-cursor lowering and retained instruction evidence for issue #888.
+[Conditional callback captures](completed-work/performance.md#conditional-callback-captures-issue-891)
+records the removal of the remaining immutable fold-capture reloads.
+
 B IDs are stable. A record here means the **described subset** shipped or its
 investigation concluded; it does not mean every conceivable extension of that
 B item is implemented. Mixed items keep their remaining scope only in the
@@ -70,6 +75,13 @@ The reference now compares [Plenty text with Python, Rust, and C](design/facilit
 including assignment costs, immutable storage, mutable construction, borrowed
 views, and Unicode indexing. The comparison tables use a wider screen layout
 and independently scroll on narrow screens. This documents existing behavior.
+
+## Pattern matching comparison
+
+The [Python and Rust comparison](design/language/04-expressions/matching.md#compared-to-python-and-rust)
+clarifies arm-local shadowing versus Python captures, unsupported Plenty guards,
+and Rust similarities and value-position differences. It documents existing
+behavior with an executable shadowing example; no language feature is added.
 
 ## Reconciliation history
 

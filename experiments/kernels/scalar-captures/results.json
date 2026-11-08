@@ -1,0 +1,103 @@
+{
+  "baseline_revision": "f7515620157ee25c8403ed58935b741b4ba07261",
+  "compiler_profile": "release; optimized Plenty programs; no allocation instrumentation",
+  "host": "AMD Ryzen 7 7840HS; x86-64 Linux; scheduler-default affinity",
+  "checksum": "2808000.0",
+  "loop_static_instruction_spans": {
+    "C": 7,
+    "explicit_before": 8,
+    "explicit_after": 8,
+    "fold_before": 10,
+    "fold_after": 8,
+    "index_before": 8,
+    "index_after": 8,
+    "inlined_after": [
+      8,
+      8,
+      8
+    ]
+  },
+  "IR_variants": {
+    "a_capture_loads": 10,
+    "b_capture_ssa": 8
+  },
+  "whole_program_instructions": {
+    "runs": 3,
+    "before_mean": 44158729,
+    "after_mean": 40881853,
+    "reported_variation_percent": [
+      0,
+      0
+    ]
+  },
+  "compiler_CLI_instructions": {
+    "runs": 10,
+    "units": 1000,
+    "before_mean": 11633390139,
+    "after_mean": 11639814817,
+    "reported_variation_percent": [
+      0.01,
+      0.01
+    ]
+  },
+  "larger_program_compilation_instructions": {
+    "runs": 3,
+    "fannkuch_redux": {
+      "before_mean": 379918448,
+      "after_mean": 378490111,
+      "reported_variation_percent": [
+        0.35,
+        0.46
+      ]
+    },
+    "set_bench": {
+      "before_mean": 363813773,
+      "after_mean": 363939357,
+      "reported_variation_percent": [
+        0.52,
+        0.2
+      ]
+    }
+  },
+  "sha256": {
+    "baseline_compiler": {
+      "path": "/tmp/issue891-before",
+      "hash": "b9bebb637eb011c2ca4b4c5bb599271516399548e6bd03fc22766085a2a66663"
+    },
+    "changed_compiler": {
+      "path": "target/release/plenty",
+      "hash": "e33e28f0dff87da512108c3436501291faeba2fbd37d550406b5169db16bec49"
+    },
+    "baseline_program": {
+      "path": "/tmp/issue891-before-program",
+      "hash": "e04fed1990d67091243866cd5cb4bddc7467ad448c26284b6a4d622264f5d6f3"
+    },
+    "changed_program": {
+      "path": "/tmp/issue891-after-program",
+      "hash": "c531db16fa963f87626c6a86df3691cbed509ab805569bdc90cdf75cc9822c98"
+    },
+    "kernel": {
+      "path": "experiments/kernels/clist-zip/scan.plenty",
+      "hash": "6a72165bfb4630abf6e2d5468417809d24c1055c05b9bf43b57fa207befea826"
+    },
+    "C_kernel": {
+      "path": "experiments/kernels/clist-zip/scan.c",
+      "hash": "80f5698f6e36174608843cfcb2da9cb064528a576bb7ac272e3eed7fd2dedf4a"
+    },
+    "variants": {
+      "path": "experiments/kernels/scalar-captures/variants.clif",
+      "hash": "0c6c104ef99bd52174bca2614e6be97384ff50a53a1d716563edea0fc17c8712"
+    },
+    "semantics": {
+      "path": "experiments/kernels/scalar-captures/semantics.plenty",
+      "hash": "6b8681e6aa57fa4082d753d52e5e68e87fcd1467d6263b39468cd7c4eaba3cf9"
+    }
+  },
+  "compiler_library_instructions_after": {
+    "units": 1000,
+    "repetitions_per_process": 10,
+    "runs": 3,
+    "mean": 115184288577,
+    "reported_variation_percent": 0.04
+  }
+}

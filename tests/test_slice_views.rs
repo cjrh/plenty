@@ -28,6 +28,151 @@ def main() -> Result[(), AllocError | IoError]:
     );
 }
 
+/// Membership and search on list views use the element type's `==` and
+/// count positions within the view (issue #866).
+#[test]
+fn views_search_their_elements() {
+    support::assert_stdout(
+        r#"
+class P:
+    a: i64
+    b: str
+
+@copy
+class Q:
+    a: i64
+
+def has_three(v: &mut [i64]) -> bool:
+    3 in v
+
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = [1, 2, 3, 2]?
+    print(1 in &xs[:], 1 in &xs[1:], 5 not in &xs[1:], has_three(&mut xs[2:]))?
+    v = &xs[1:]
+    print(v.count(2), v.find(2), v.rfind(2), v.find(9), v.rfind(1))?
+    print(2 in &v[1:], (&v[1:]).find(2), (&v[3:]).count(2))?
+    empty: list[i64] = []?
+    print(1 in &empty[:], (&empty[:]).rfind(1))?
+    ps = [P(1, "x"), P(2, "y"), P(1, "x")]?
+    w = &ps[:]
+    print(P(2, "y") in w, w.count(P(1, "x")), w.rfind(P(1, "x")))?
+    qs = [Q(1), Q(2)]?
+    print(Q(2) in &qs[:], (&qs[:]).find(Q(1)))?
+    ls = [[1]?, [2, 3]?]?
+    inner = [2, 3]?
+    print(inner in &ls[:], (&ls[1:]).count(inner))?
+    ss = ["a", "b", "a"]?
+    first = &ss[0]
+    print(first in &ss[1:], (&ss[:]).count(first), "c" in &ss[:])?
+    fs = [0.0, -0.0, 1.0]?
+    nan = 0.0 / 0.0
+    print((&fs[:]).count(-0.0), nan in &fs[:])?
+    us: list[i64 | str] = [1, "a"]?
+    print("a" in &us[:], 1 in &us[1:])?
+    data = [104u8, 105u8]?
+    print(105u8 in &data[:], (&data[:]).find(105u8))?
+    Ok(())
+"#,
+        "True False True True\n2 Option[i64].Some(0) Option[i64].Some(2) Option[i64].Nothing Option[i64].Nothing\nTrue Option[i64].Some(1) 0\nFalse Option[i64].Nothing\nTrue 2 Option[i64].Some(2)\nTrue Option[i64].Some(0)\nTrue 1\nTrue 2 False\n2 False\nTrue False\nTrue Option[i64].Some(1)\n",
+    );
+}
+
+/// `list(v)?` and `v[a:b]?` copy a list view's elements into an owned list,
+/// as a list's copying slice does: `copy()` for each element and `share()`
+/// for a `Shared` handle (issue #866).
+#[test]
+fn views_copy_into_owned_lists() {
+    support::assert_stdout(
+        r#"
+class P:
+    a: i64
+    b: str
+
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = [1, 2, 3, 4]?
+    v = &xs[1:]
+    owned = list(v)?
+    print(owned, v[1:]?, v[-1:]?, v[:]?, v[5:]?, list(&v[1:2])?)?
+    ps = [P(1, "x"), P(2, "y")]?
+    mut copied = list(&ps[1:])?
+    copied[0].b = "z"
+    print(copied, ps)?
+    ls = [[1]?, [2, 3]?]?
+    whole = &ls[:]
+    mut nested = whole[1:]?
+    nested[0].append(4)?
+    print(nested, ls)?
+    hs = [Shared(1)?, Shared(2)?]?
+    handles = list(&hs[1:])?
+    print(len(handles), *handles[0])?
+    data = [104u8, 105u8]?
+    print(list(&data[1:])?)?
+    xs[0] = 9
+    print(owned, xs)?
+    Ok(())
+"#,
+        "[2, 3, 4] [3, 4] [4] [2, 3, 4] [] [3]\n[P(a=2, b=\"z\")] [P(a=1, b=\"x\"), P(a=2, b=\"y\")]\n[[2, 3, 4]] [[1], [2, 3]]\n1 2\n[105]\n[2, 3, 4] [9, 2, 3, 4]\n",
+    );
+}
+
+/// `v.get(i)` returns a copy of element `i` of the view as `list.get` does,
+/// counting a negative index from the view's end, with `Nothing` outside it
+/// (issue #866).
+#[test]
+fn views_get_copies_of_non_affine_elements() {
+    support::assert_stdout(
+        r#"
+@copy
+class Q:
+    a: i64
+
+def main() -> Result[(), AllocError | IoError]:
+    xs = [10, 20, 30]?
+    v = &xs[1:]
+    print(v.get(0), v.get(-1), v.get(2), v.get(-3), v.get(-9223372036854775807))?
+    qs = [Q(1), Q(2)]?
+    ss = ["a", "b"]?
+    w = &ss[1:]
+    print((&qs[:]).get(1), w.get(0), w.get(1))?
+    empty: list[i64] = []?
+    print((&empty[:]).get(0))?
+    Ok(())
+"#,
+        "Option[i64].Some(20) Option[i64].Some(30) Option[i64].Nothing Option[i64].Nothing Option[i64].Nothing\nOption[Q].Some(Q(a=2)) Option[str].Some(\"b\") Option[str].Nothing\nOption[i64].Nothing\n",
+    );
+}
+
+/// `v.reverse()` reorders an exclusive view's elements in place with
+/// `list.reverse`'s contract, for every element type (issue #866).
+#[test]
+fn exclusive_views_reverse_in_place() {
+    support::assert_stdout(
+        r#"
+class P:
+    a: i64
+    b: str
+
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = [1, 2, 3, 4, 5]?
+    (&mut xs[1:]).reverse()
+    print(xs)?
+    v = &mut xs[:2]
+    v.reverse()
+    (&mut xs[2:2]).reverse()
+    (&mut xs[4:]).reverse()
+    print(xs)?
+    mut ps = [P(1, "x"), P(2, "y"), P(3, "z")]?
+    (&mut ps[:]).reverse()
+    print(ps)?
+    mut ss = ["a", "b", "c", "d"]?
+    (&mut ss[1:3]).reverse()
+    print(ss)?
+    Ok(())
+"#,
+        "[1, 5, 4, 3, 2]\n[5, 1, 4, 3, 2]\n[P(a=3, b=\"z\"), P(a=2, b=\"y\"), P(a=1, b=\"x\")]\n[\"a\", \"c\", \"b\", \"d\"]\n",
+    );
+}
+
 /// Where a view type is expected, a borrow of its owner, a reference to
 /// one, or a `bytes` literal converts to the whole view, as `[:]` would
 /// (consistency rule 3, backlog B90).
@@ -529,8 +674,12 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     "a function cannot return a slice view yet (backlog B11)"
 )]
 #[case(
-    "def total(v: &[i64]) -> i64:\n    0\nxs = [1, 2].unwrap()\nn = total(xs)",
+    "def total(v: &[i64]) -> i64:\n    0\nn = total(5)",
     "this parameter takes a slice view: pass `&xs` for a whole list or buffer, or `&xs[a:b]` for part of it"
+)]
+#[case(
+    "def bump(v: &mut [i64]) -> ():\n    pass\nmut xs = [1, 2].unwrap()\nbump(xs)",
+    "this parameter takes a slice view: pass `&mut xs` for a whole list or buffer, or `&mut xs[a:b]` for part of it"
 )]
 #[case(
     "def bump(v: &mut [i64]) -> ():\n    pass\nmut xs = [1, 2].unwrap()\nbump(&xs)",
@@ -560,25 +709,86 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     "xs = [1, 2].unwrap()\nb = &xs[:1] < &xs[1:]",
     "slice views support `==` and `!=`, not `<`"
 )]
+#[case("xs = [1, 2].unwrap()\nb = \"a\" in &xs[:]", "expected &i64, got &str")]
 #[case(
-    "xs = [1, 2].unwrap()\nb = 2 in &xs[:]",
-    "slice views do not support `in` yet"
+    "hs = [Shared(1).unwrap()].unwrap()\nn = (&hs[:]).count(hs[0].share())",
+    "values containing Shared owners do not support equality"
 )]
 #[case(
     "xs = [1, 2].unwrap()\nt = f\"{&xs[:]:d}\".unwrap()",
     "format spec `d` does not apply to &[i64]"
 )]
 #[case(
-    "xs = [1, 2].unwrap()\nv = &xs[:]\nw = v[1:].unwrap()",
-    "a copying slice does not take a slice view"
+    "xs = [1, 2].unwrap()\nv = &xs[:]\nw = v[::2].unwrap()",
+    "so its copying slice takes no step"
 )]
 #[case(
-    "xs = [1, 2].unwrap()\nw = list(&xs[:]).unwrap()",
-    "list() does not take a slice view"
+    "xs = [1u8].unwrap()\nv = &xs[:]\nw = v[1:].unwrap()",
+    "a copying slice of &[u8] could be a `list[u8]` or a `Bytes` buffer"
 )]
 #[case(
-    "xs = [1, 2].unwrap()\nv = &xs[:]\nn = v.count(1)",
-    "a slice view has no method `count`"
+    "xs = [1, 2].unwrap()\nw = set(&xs[:]).unwrap()",
+    "set() does not take a slice view; copy the elements first, `set(list(v)?)`"
+)]
+#[case(
+    "xs = [1, 2].unwrap()\nw = copy(&xs[:]).unwrap()",
+    "copy() does not take a slice view; copy its elements into a list with `list(v)?` or `v[a:b]?`"
+)]
+#[case(
+    "class D:\n    a: i64\n    def __del__(self) -> ():\n        pass\nds = [D(1)].unwrap()\nw = list(&ds[:]).unwrap()",
+    "copying a view of D copies each element, and D cannot be copied"
+)]
+#[case(
+    "xs = [1, 2].unwrap()\nv = &xs[:]\nn = v.count()",
+    "view.count takes one element to search for"
+)]
+#[case(
+    "xs = [[1].unwrap()].unwrap()\nv = &xs[:]\nn = v.get(0)",
+    "get cannot return owned list[i64] values from a view"
+)]
+#[case(
+    "hs = [Shared(1).unwrap()].unwrap()\nv = &hs[:]\nh = v.get(0)",
+    "share the handle with `v[index].share()`"
+)]
+#[case(
+    "xs = [[1].unwrap()].unwrap()\nv = &xs[:]\nn = v.get_ref(0)",
+    "a slice view cannot `get_ref` yet (issue #890)"
+)]
+#[case(
+    "xs = [1, 2].unwrap()\nv = &xs[:]\nn = v.get()",
+    "get requires one index argument"
+)]
+#[case(
+    "xs = [1, 2].unwrap()\nv = &xs[:]\nn = v.count(x=2)",
+    "named arguments require a statically resolved function, method, or class constructor"
+)]
+#[case(
+    "xs = [1, 2].unwrap()\nv = &xs[:]\nn = v.find(item=2)",
+    "named arguments require a statically resolved function, method, or class constructor"
+)]
+#[case(
+    "mut xs = [1, 2].unwrap()\nv = &mut xs[:]\nv.frobnicate()",
+    "a slice view has no method `frobnicate`"
+)]
+#[case(
+    "xs = [1, 2].unwrap()\nv = &xs[:]\nv.reverse()",
+    "a shared slice view is read-only, so it has no `reverse`"
+)]
+#[case(
+    "mut xs = [1, 2].unwrap()\nv = &mut xs[:]\n(&v).reverse()",
+    "a shared slice view is read-only, so it has no `reverse`"
+)]
+#[case(
+    "mut xs = [1, 2].unwrap()\nv = &mut xs[:]\nv.append(3).unwrap()",
+    "`append` changes a list's length, and a slice view's length is fixed"
+)]
+#[case(
+    "mut xs = [1, 2].unwrap()\nv = &mut xs[:]\nv.pop()",
+    "`pop` changes a list's length, and a slice view's length is fixed"
+)]
+#[case(
+    "mut xs = [1, 2].unwrap()\nv = &mut xs[:]\nb = 1 in &xs[:]\nv.reverse()",
+    "conflicting borrow"
 )]
 #[case(
     "xs = [1, 2].unwrap()\nv = &xs[:]\nv.swap(0, 1)",
@@ -602,7 +812,7 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
 )]
 #[case(
     "mut xs = [1, 2].unwrap()\nv = &mut xs[:]\nv.sort()",
-    "a slice view has no method `sort`; a view supports `len(v)`, `v[i]`, `&v[a:b]`, `==`, `for x in v`, `iter(v)`, and `print(v)`, and a `&mut [T]` view also `v[i] = x` and `v.swap(i, j)`"
+    "a slice view cannot `sort` yet (issue #886)"
 )]
 #[case(
     "mut xs = [1, 2].unwrap()\nv = &mut xs[:]\nw = &xs[:]\nv.swap(0, 1)\nprint(w).unwrap()",
@@ -636,6 +846,10 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
 #[case(
     "xs = [1, 2].unwrap()\nv = &xs[:]\nf = def() -> i64:\n    return len(v)",
     "anonymous functions cannot capture `v`"
+)]
+#[case(
+    "mut xs = [1, 2].unwrap()\nv = &mut xs[:]\nv.frobnicate()",
+    "a slice view has no method `frobnicate`; a view supports `len(v)`, `v[i]`, `&v[a:b]`, `v[a:b]?`, `list(v)?`, `==`, `in`, `v.count(x)`, `v.find(x)`, `v.rfind(x)`, `v.get(i)`, `for x in v`, `iter(v)`, and `print(v)`, and a `&mut [T]` view also `v[i] = x`, `v.swap(i, j)`, and `v.reverse()`"
 )]
 fn invalid_views_are_rejected(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_diagnostic(source);
@@ -701,6 +915,105 @@ def main() -> Result[(), AllocError | IoError | bytes_mod.BytesError | OverflowE
         "{}",
         String::from_utf8_lossy(&output.stdout)
     );
+}
+
+/// Searching and reversing a view allocate nothing, for scalar and string
+/// elements; copying a view reserves its storage before the first element
+/// (issue #866).
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn view_searches_add_no_allocations() {
+    let output = support::run(
+        r#"
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = [1, 2, 3, 2]?
+    names = ["a", "b"]?
+    print("__test_begin_no_allocations__")?
+    v = &xs[1:]
+    found = 2 in v and "b" in &names[:] and 9 not in v
+    n = v.count(2)
+    m = (&names[:]).count("a")
+    first = v.find(2)
+    last = v.rfind(2)
+    (&mut xs[:]).reverse()
+    print("__test_end_no_allocations__")?
+    print(found, n, m, first, last, xs)?
+    print("__test_fail_allocations_after_0__")?
+    copied = list(&xs[:])
+    w = &names[:]
+    part = w[1:]
+    print("__test_restore_allocations__")?
+    print(copied.is_err(), part.is_err())?
+    Ok(())
+"#,
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout)
+            .contains("True 2 1 Option[i64].Some(0) Option[i64].Some(2) [2, 3, 2, 1]\n"),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).ends_with("True True\n"),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+}
+
+/// A copy of a view that fails part-way, after its storage is reserved,
+/// returns `AllocError`, drops the partial copy, and leaves the source
+/// intact; the exit leak check covers the `Shared` counts (issue #866).
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn view_copies_recover_from_failure_mid_copy() {
+    let mut outcomes = Vec::new();
+    for budget in 0..12 {
+        let output = support::run(&format!(
+            r#"
+class P:
+    a: i64
+    b: list[i64]
+
+def main() -> Result[(), AllocError | IoError]:
+    ps = [P(1, [1]?), P(2, [2, 3]?), P(3, [4]?)]?
+    hs = [Shared(1)?, Shared(2)?]?
+    handles = &hs[:]
+    print("__test_fail_allocations_after_{budget}__")?
+    copied = list(&ps[:])
+    print("__test_restore_allocations__")?
+    print("__test_fail_allocations_after_{budget}__")?
+    shared = handles[:]
+    print("__test_restore_allocations__")?
+    print(copied.is_err(), shared.is_err())?
+    drop(copied)
+    drop(shared)
+    print(ps, *hs[0], *hs[1])?
+    Ok(())
+"#
+        ));
+        assert!(
+            output.status.success(),
+            "budget {budget}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        assert!(
+            stdout.ends_with("[P(a=1, b=[1]), P(a=2, b=[2, 3]), P(a=3, b=[4])] 1 2\n"),
+            "budget {budget}: {stdout}"
+        );
+        outcomes.push(stdout.lines().rev().nth(1).unwrap_or("").to_owned());
+    }
+    // The reservation takes the first two allocations, so a budget of 2
+    // fails while copying the first element's list; `share()` allocates
+    // nothing, so a `Shared` copy fails only in its reservation.
+    assert_eq!(outcomes[0], "True True", "{outcomes:?}");
+    assert!(outcomes[2].starts_with("True"), "{outcomes:?}");
+    assert_eq!(outcomes[11], "False False", "{outcomes:?}");
 }
 
 /// Byte-reading std operations take `&[u8]` (B90 phase 3), so a `list[u8]`
@@ -780,6 +1093,121 @@ fn held_call_results_must_be_viewable() {
         error.contains(
             "this parameter takes a slice view of a list, Bytes, bytes, or str value, got i64"
         ),
+        "{error}"
+    );
+}
+
+/// A shared view parameter lends a bare owned argument as `&` would
+/// (issue #865): whole lists, projected owners, references, generic
+/// elements, `Bytes`, `bytes` literals and call or `?` results. Nothing is
+/// copied, and the owner stays usable or movable afterwards.
+#[test]
+fn shared_view_parameters_lend_bare_owners() {
+    let stdout = support::run_file_stdout(
+        r#"
+import std.bytes
+
+class Bag:
+    items: list[i64]
+
+def width(xs: &[i64]) -> i64:
+    len(xs)
+
+def first[T](xs: &[T]) -> &T:
+    &xs[0]
+
+def octets(data: &[u8]) -> i64:
+    len(data)
+
+def make() -> Result[list[i64], AllocError]:
+    [4, 5, 6]
+
+def eat(xs: list[i64]) -> i64:
+    len(xs)
+
+def main() -> Result[(), std.bytes.BytesError | AllocError | IoError]:
+    xs = [1, 2]?
+    r = &xs
+    bag = Bag([7, 8, 9]?)
+    buffer = std.bytes.from_bytes(b"abcd")?
+    names = ["ada", "bob"]?
+    print(width(xs), width(r), width(bag.items), *first(bag.items), *first(names))?
+    print(octets(buffer), octets(b"xyz"), width(make()?), width([1, 2, 3, 4, 5]?))?
+    handle = Shared([1, 2, 3]?)?
+    print(std.bytes.from_bytes(buffer)?, width(handle), eat(xs))?
+    Ok(())
+"#,
+    );
+    assert_eq!(stdout.trim_end(), "2 2 3 7 ada\n4 3 3 5\nb\"abcd\" 3 2");
+}
+
+/// A bare temporary lent to a view parameter is held to the end of the
+/// statement and released when a later argument's `?` returns early.
+#[test]
+fn bare_view_temporaries_are_released_on_a_later_error() {
+    let output = support::run(
+        r#"
+class Res:
+    name: str
+    def __del__(self) -> ():
+        print("drop", self.name).unwrap()
+
+def count(xs: &[Res]) -> i64:
+    len(xs)
+
+def fail() -> Result[i64, str]:
+    Err("stop")
+
+def main() -> Result[(), AllocError | IoError | str]:
+    print(count([Res("a"), Res("b")]?), fail()?)?
+    Ok(())
+"#,
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout, "drop a\ndrop b\n");
+    assert!(!output.status.success());
+}
+
+/// The implicit loan conflicts like a written `&xs`, and exclusive access is
+/// never inferred.
+#[rstest]
+#[case(
+    "def both(xs: &[i64], ys: &mut list[i64]) -> ():\n    pass\nmut xs = [1, 2].unwrap()\nboth(xs, &mut xs)",
+    "cannot modify or exclusively borrow `xs` while"
+)]
+#[case(
+    "def width(xs: &[i64]) -> i64:\n    0\nxs = [1, 2].unwrap()\nys = xs\nn = width(xs)",
+    "use of moved binding `xs`"
+)]
+#[case(
+    "def width(xs: &[i64]) -> i64:\n    0\ndef make() -> i64:\n    1\nn = width(make())",
+    "this parameter takes a slice view: pass `&xs` for a whole list or buffer"
+)]
+fn bare_view_arguments_follow_explicit_borrow_rules(#[case] body: &str, #[case] expected: &str) {
+    let error = support::check_error(body);
+    assert!(error.contains(expected), "{body}\n{error}");
+}
+
+/// `*r` names the owner a reference refers to, so it is lent like the owner
+/// at a shared view parameter, as at a `&list[T]` parameter.
+#[test]
+fn dereferenced_owners_are_lent_to_view_parameters() {
+    support::assert_stdout(
+        "def width(xs: &[i64]) -> i64:\n    len(xs)\n\
+         def inspect(xs: &list[i64]) -> i64:\n    len(xs)\n\
+         xs = [1, 2, 3].unwrap()\nr = &xs\nprint(width(*r), inspect(*r)).unwrap()",
+        "3 3\n",
+    );
+}
+
+/// Text reaches a byte view through `as_bytes()`, never implicitly.
+#[test]
+fn bare_text_at_byte_views_suggests_as_bytes() {
+    let error = support::check_error(
+        "def width(data: &[u8]) -> i64:\n    len(data)\ns = \"abc\"\nn = width(s)",
+    );
+    assert!(
+        error.contains("a `str` is text, so pass `s.as_bytes()` for its UTF-8 bytes"),
         "{error}"
     );
 }

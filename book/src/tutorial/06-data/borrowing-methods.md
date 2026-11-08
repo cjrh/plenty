@@ -95,7 +95,8 @@ bob
 Match the result directly. In the `Some` arm, `item` borrows `items`, so the
 list cannot change there. The `Nothing` arm holds no borrow, so it can append.
 `Result[&T, E]` works the same way with `Ok`; its error cannot hold a reference.
-`?` and `unwrap()` also produce the reference.
+`?` and `unwrap()` also produce the reference, and `unwrap_or(&fallback)`
+produces it or a borrowed fallback, keeping both borrowed while it is used.
 
 The result can be held in a local until it is matched, or passed to a
 parameter of the same type. The parameter borrows what the argument borrows:

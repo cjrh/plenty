@@ -97,6 +97,13 @@ key. Lookup still requires a copyable value and adds no allocation. Zero,
 `False`, and an empty string are present values. This does not insert the key.
 A stored `Nothing` produces `Some(Nothing)`, distinct from a missing key.
 
+`dictionary.get_ref(key) -> Option[&V]` lends the value for `key`, or returns
+`Nothing`. Like `get_mut`, it works for every value type, allocates nothing,
+and observes the key before borrowing the receiver. The result holds a shared
+loan of the whole dictionary until its last use: the dictionary can still be
+read, but not mutated or borrowed exclusively. Use it to inspect an affine
+value, such as a list or class instance, that `get` cannot copy.
+
 `dictionary.get_mut(key) -> Option[&mut V]` lends the value for `key`
 exclusively, or returns `Nothing`. It works for every value type, including
 affine ones, and allocates nothing. The key is observed before the receiver is

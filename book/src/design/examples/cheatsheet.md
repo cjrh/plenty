@@ -202,7 +202,8 @@ b 5
 
 Displays, comprehensions, `append`, `insert`, and `add` can fail to allocate,
 so they return `Result`. Empty displays need a type: `xs: list[i64] = []?`.
-Indexing a missing element or key traps; `get` returns an `Option`.
+Indexing a missing element or key traps; `get` returns an `Option` copy, and
+`get_ref`/`get_mut` return an `Option` reference.
 Dictionaries have no indexed assignment: `insert` adds or replaces,
 `get_mut` returns `Option[&mut V]` to change a value in place, and
 `get_or_insert(k, default)?` returns `&mut V` after inserting a missing key.
@@ -560,8 +561,8 @@ An eligible ordinary class does not need `@copy` for this explicit operation;
 nested [Shared](../facilities/01-builtins/shared.md) handles retain the same content.
 Custom destruction, recursive data, generators and captured closures restrict
 copying. `&x` lends shared access and
-`&mut x` exclusive access; a `&T` parameter borrows an owner implicitly, but
-`&mut` must be written. Iterating `&list` yields `&T`, so dereference with `*`.
+`&mut x` exclusive access; a `&T` or `&[T]` parameter borrows an owner
+implicitly, but `&mut` must be written. Iterating `&list` yields `&T`, so dereference with `*`.
 References cannot be stored in classes, enums, tuples, or collections. See
 [moves and copies](../language/05-ownership/01-bindings-moves-and-copies.md) and
 [borrowing](../language/05-ownership/02-borrowing.md).

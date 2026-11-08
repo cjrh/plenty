@@ -101,6 +101,14 @@ constant time because all fields are primitives with no destructors. It does
 not erase old bytes, shrink storage, or allocate; subsequent appends overwrite
 the newly live rows. Neither operation uses tombstones.
 
+Zipping two unadapted columns uses one shared cursor and the shorter remaining
+length, with both column addresses prepared before the loop (issue #888).
+This also applies to named column plans and columns already advanced with
+`next`. Columns from different owners need not have equal lengths. The source
+loans remain live; no row or per-item `Option` is materialized. Adapters before
+`zip`, nested pairs, and plans currently lent through `&mut Iter` use the general
+left-first pull protocol, preserving callback effects and resumable state.
+
 Column loops load the pointer and length before iteration. Checked arithmetic and floating-point rules are
 unchanged. Indexed field reads and writes use checked native-width loads and
 stores. `copy_row` checks its index once, then gathers the known fields directly

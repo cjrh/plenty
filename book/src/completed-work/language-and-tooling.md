@@ -5,6 +5,13 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## Documentation fragment labels
+
+The book marks `plenty fragment` excerpts with a bordered **Fragment · not
+executed** label above the code. Syntax colours remain unchanged; the label
+stays outside copied source. These excerpts remain excluded from runnable
+documentation tests. See [runnable documentation](../development/workflow.md#runnable-documentation).
+
 ## Completed proposal classification
 
 The [completed proposal index](../proposals/completed/index.md) and book
@@ -390,10 +397,13 @@ references (`Option[&T]`/`Result[&T, E]`) shipped as phase 1 (issue #520,
 local PR #622). Immutable holders initialized with `Nothing`, `Err(e)`, or
 `Some`/`Ok` around one borrow nothing (issue #867). Reference-carrying
 parameters and `mut` holders shipped as the first part of issue #868, and
-`if`/`match` values producing these types as the second.
+`if`/`match` values producing these types as the second. The third added
+started-empty holders that choose between owners, nested patterns through the
+carried reference, and `unwrap_or(&default)`.
 `dict.get_mut` replaced dictionary indexed assignment
-(issue #580, local PR #696); heap and graph reference getters shipped
-(local PR #629).
+(issue #580, local PR #696); `dict.get_ref` and `list.get_ref`/`get_mut`
+followed with the same whole-collection loan (issue #869); heap and graph
+reference getters shipped (local PR #629).
 
 Local dictionary key/value views (issue #396), list/byte slice views
 (issue #581), mutable Bytes loops (issue #594), proven disjoint slice/loop-field
@@ -493,6 +503,20 @@ adds a capability matrix of where item types suffice and where producer
 identity must match; mismatched producers now name the frame identity in the
 diagnostic. Joining different producers and borrowed-item pipeline `next`
 remain under B12.
+
+List slice views `&[T]` and `&mut [T]` gained list read and fixed-length
+operations (issue #866): `in`, `count`, `find` and `rfind` search the view with
+the element type's `==` and allocate nothing; `v.get(i)` copies a non-affine
+element as `list.get` does; `list(v)?` and `v[a:b]?` copy elements as a list's
+copying slice does; `v.reverse()` reorders an exclusive view in place. Each
+specializes an ordinary Plenty helper for the element type. A list's `count`,
+`find` and `rfind` now take every element type `in` takes, through the same
+helpers. Optional borrowed lookup on views is issue #890.
+Length-changing methods name the fixed length, `v[a:b]?` on a `&[u8]` asks for
+the result type, and sorting a view is issue #886. A `u8` literal now loads the
+byte-view methods of `std.bytes`, so `[104u8]` views reach them without an
+import. The [operation table](../design/language/04-expressions/slices.md#operations-on-views)
+compares views with lists.
 
 Text-file iteration, uniform borrowed iteration and borrowed temporary source
 lifetimes shipped (issues #30/#75). Allocation-free enumerate/zip/reversed
@@ -1072,6 +1096,11 @@ implicitly, as at `&str` parameters. The call preserves argument order, source
 loans, and full-expression temporary cleanup without copying or retaining text.
 Annotated view locals still require an explicit borrow; other view types keep
 their existing conversion rules.
+
+Issue #865 applies the same rule to shared `&[T]` parameters: a bare owned
+list, `Bytes`, `bytes` value, projected owner or call result is lent as if
+written `&xs`, including at generic `&[T]` parameters. `&mut [T]` parameters
+still require `&mut`.
 
 `&xs`, `&mut xs`, `&s`, reference bindings and `b"..."`/`str` literals convert
 to whole views at view types, and `&Shared[T]` converts to `&T` like `Box`

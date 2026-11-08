@@ -157,6 +157,14 @@ print(value).unwrap()
     "get cannot return owned list values"
 )]
 #[case(
+    "[Shared(1).unwrap()].unwrap().get(0)",
+    "share the handle with `items[index].share()`"
+)]
+#[case(
+    "{1: Shared(1).unwrap()}.unwrap().get(1)",
+    "share the handle with `items[key].share()`"
+)]
+#[case(
     "mut items = [1].unwrap()\nloan = &mut items\nitems.get(0)\nloan.append(2).unwrap()",
     "borrow"
 )]

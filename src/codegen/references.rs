@@ -113,6 +113,9 @@ impl Lowerer<'_, '_> {
         reference: NativeValue,
         ty: &Ty,
     ) -> NativeValue {
+        if let Some(value) = self.scalar_captures.read(reference) {
+            return value;
+        }
         let base = ty.newtype_base();
         // Exactly the types `unpack` reduces to the low word with
         // `raw_word`: a two-word native type (wide, reference, view) is not

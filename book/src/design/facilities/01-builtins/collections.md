@@ -125,9 +125,19 @@ Borrowed forms take a suffix: `get_ref` and `peek_ref` for shared references,
 `get_mut` and `peek_mut` for exclusive ones. Builtin and standard library
 containers follow the same rule, so the method name tells the reader whether
 they hold a copy or a borrow. User functions can return
-[`Option[&V]`](../../language/05-ownership/05-optional-references.md). Of the
-builtin containers, only dictionaries provide an optional borrowed lookup,
-[`get_mut`](dictionaries.md#lookup-and-removal); `get_ref` is not provided yet.
+[`Option[&V]`](../../language/05-ownership/05-optional-references.md).
+Dictionaries and lists provide both optional borrowed lookups:
+[`dictionary.get_ref` and `get_mut`](dictionaries.md#lookup-and-removal), and
+[`list.get_ref` and `get_mut`](lists.md#lookup-and-removal). They work for
+every value type, including affine ones, and return `Nothing` for a missing key
+or index.
+
+A borrowed lookup observes its key or index once, before it borrows the
+receiver, and performs one lookup. It moves, copies, and allocates nothing. The
+result holds a loan of the whole collection until its last use, shared for
+`get_ref` and exclusive for `get_mut`; a `Nothing` result holds none. While a
+`get_ref` result is live the collection can be read but not changed; while a
+`get_mut` result is live it cannot be used at all.
 
 `collection.clear() -> ()` removes all entries while retaining capacity and
 allocating no runtime storage. Removed owners drop before return: lists in
