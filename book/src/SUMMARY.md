@@ -239,6 +239,8 @@
         - [Cancel queued work and bound a future wait](tutorial/11-concurrency/future-cancellation-and-waits.md)
         - [Stop work cooperatively](tutorial/11-concurrency/cooperative-cancellation.md)
         - [Recover a job when submission cannot proceed](tutorial/11-concurrency/submission-backpressure.md)
+        - [Submit and receive in a helper loop](tutorial/11-concurrency/scheduler-loops.md)
+        - [Preserve partially prepared work](tutorial/11-concurrency/scheduler-preparation.md)
         - [Split work from inside a pool job](tutorial/11-concurrency/submit-from-workers.md)
         - [Map fallible work in parallel](tutorial/11-concurrency/parallel-fallible-map.md)
         - [Combine values in parallel](tutorial/11-concurrency/parallel-reduction.md)

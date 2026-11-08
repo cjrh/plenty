@@ -259,6 +259,13 @@ with ThreadPoolExecutor(2, 8)? as pool, receiver as inbox:
     ...
 ```
 
+Receiver-last also leaves the guard alive during a helper call inside the
+block. It cannot prevent a mid-call shutdown from waiting for a producer that
+needs that receiver; draining later is too late. The
+[helper-based scheduler lesson](../../../tutorial/11-concurrency/scheduler-loops.md)
+shows an accepted submit/receive loop and cleanup on early exits. Other receiver
+aliases must also be released, and workers must handle disconnection.
+
 That guard is still alive at a `future.result()` inside the block, which
 [its own check](futures.md#result-waits-and-live-receivers) rejects. To wait for
 the result, end the receiver's guard first:
@@ -300,6 +307,31 @@ It does not cover:
 
 Blocking [future retrieval](futures.md#result-waits-and-live-receivers) has its own
 check at `result()`, before any later receiver cleanup.
+
+## Helper-based schedulers
+
+Ordinary helpers may submit and receive while the owning pool stays alive.
+Currently, however, an unknown reachable callback or an unrelated owned pool
+can be combined with transitive submissions to reject a safe helper. This is
+a conservative analysis limitation, not a requirement to inline all loops.
+Even a helper handed only a `Submitter`, which cannot shut down its pool,
+can encounter this false positive through the callee-owned-pool check.
+
+Keep a narrow submission helper when this limitation requires separating setup
+and bookkeeping from the pool-handed call. The
+[scheduler lesson](../../../tutorial/11-concurrency/scheduler-loops.md#when-the-current-checker-rejects-a-larger-helper)
+explains that fallback and preserving partial-preparation and typed-error
+contracts. Cancellation does not interrupt ordinary blocking sends; use
+[cooperative cleanup](cancellation.md) and keep endpoint/lock release before joins.
+Capacity equal to worker count alone does not bound outstanding messages from
+both queued and running jobs.
+
+The aggregate-argument gap above is distinct from direct field borrowing:
+`helper(&holder.pool, ...)` hands the call a pool, while passing only
+`helper(&holder, ...)` can miss recording submissions through its pool field.
+An unknown callback in the latter helper can nevertheless trigger rejection
+through the callee-owned-pool check. Neither wrapping a pool nor observing that
+one wrapper example rejects establishes safety or complete coverage.
 
 ## Shutdown and held locks
 

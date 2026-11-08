@@ -111,6 +111,12 @@ so a long budget delays shutdown by that long. The
 stops a long selection on `SIGTERM`. Never assume cancellation releases
 an unbounded child wait or foreign call.
 
+For a pool scheduler that must keep receiving completions, use the
+[submit/receive helper guidance](concurrency.md). Receiver-last guards protect
+pool scope exit, not a possible shutdown inside a helper; cancellation alone
+does not unblock an ordinary send. Keep start errors and partial preparation
+obligations intact when narrowing a rejected helper.
+
 ## A confirmed worker restriction
 
 A minimal negative check distinguishes an uncertified foreign call from an API

@@ -191,3 +191,17 @@ source excerpts. See the [delivery record](completed-work/libraries.md#serializa
 Issue #787 adds bounded custom pages for rejected captures while keeping
 malformed input out of typed handlers. See the
 [delivery record](completed-work/libraries.md#http-malformed-capture-responses-issue-787).
+
+## Pool scheduler guidance (issue #895)
+
+The [helper-loop lesson](tutorial/11-concurrency/scheduler-loops.md) and
+[partial-preparation example](tutorial/11-concurrency/scheduler-preparation.md)
+teach accepted helper-based submission/reception, receiver-last exit cleanup,
+cooperative cancellation and typed-error preservation. The agent skill links
+the same guidance. [Executor explanations](design/facilities/03-concurrency/executors.md#helper-based-schedulers)
+distinguish scope-exit cleanup from mid-call shutdown and direct field borrowing
+from the aggregate-argument gap. This changes guidance, not compiler acceptance;
+current conservative helper and Submitter limitations remain explicit.
+Tutorial integration (including skill fixtures), source links, Python helper
+tests and the complete versioned-site build pass. Remaining concurrency scope stays in
+[B22](backlog.md#scope-of-follow-on-work).
