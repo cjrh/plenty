@@ -32,10 +32,8 @@ default argument.
 
 `get` leaves the dictionary and key available and does not allocate. It
 supports numbers, booleans, strings, and enums of such values. It cannot return
-mutable collections or classes: use `pop` to take ownership or
-`&dictionary[key]` to borrow an existing value. Dictionaries have no optional
-borrowed lookup yet; your own functions can
-[return a borrow that may be absent](../06-data/borrowing-methods.md#return-a-borrow-that-may-be-absent).
+mutable collections or classes; [borrow them instead](#borrow-a-value-that-may-be-absent)
+or use `pop` to take ownership.
 
 ## Read a list element that might be missing
 
@@ -62,11 +60,50 @@ no name at that position
 ```
 
 List `get` has the same element restrictions as dictionary `get`. For owned
-elements, use `pop` to transfer ownership, `copy(items[index])?` to duplicate
-one, or `&items[index]` to borrow it. Ordinary indexing still traps when the
+elements, borrow them as shown below, use `pop` to transfer ownership, or
+`copy(items[index])?` to duplicate one. Ordinary indexing still traps when the
 index is out of range. The report gives the source position, the index, and the
 length: `error: main.plenty:3:11: index out of bounds: index 5, length 3`.
 
 Both forms of `get` leave their source unchanged. Numbers, booleans, and
 enums copy; strings share immutable storage. The returned value remains valid
 if the source is updated or dropped.
+
+## Borrow a value that may be absent
+
+`get_ref` lends a stored value instead of copying it, so it works for lists,
+classes, and every other value. It returns `Option[&V]`: a reference when the
+key or index exists, or `Nothing`. `get_mut` returns `Option[&mut V]` to change
+the value in place. Dictionaries and lists provide both:
+
+```plenty
+def main() -> Result[(), AllocError | IoError]:
+    teams = {"red": ["Ada", "Bea"]?}?
+    match teams.get_ref("red"):
+        case Some(members):
+            print(len(members), members)?
+        case Nothing:
+            print("no such team")?
+    print(teams.get_ref("blue").is_some())?
+    mut rows = [[1, 2]?, [3]?]?
+    match rows.get_mut(-1):
+        case Some(row):
+            row.append(4)?
+        case Nothing:
+            pass
+    print(rows)?
+    Ok(())
+```
+
+```output
+2 ["Ada", "Bea"]
+False
+[[1, 2], [3, 4]]
+```
+
+Neither copies nor allocates. List indices count from the end when negative,
+as in indexing. While the reference is live it borrows the whole collection,
+as [`get_mut` on a dictionary](dictionaries.md) does: with `get_ref` the
+collection can still be read but not changed, and with `get_mut` it cannot be
+used at all. In the `Nothing` case there is no reference, so that branch may
+change the collection, for example to insert the missing entry.

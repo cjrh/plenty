@@ -63,6 +63,9 @@ pub const TEXT_VIEW_FIND_IN: i64 = 604;
 pub const TEXT_VIEW_ASCII_EQUAL_FOLDED: i64 = 605;
 /// Free a `BoxedOnceCallable` whose adapter has moved its content out.
 pub const ADAPTED_BOX_TAKE: i64 = 139;
+/// `list.get_ref` and `list.get_mut`: the list reference and the index ->
+/// the element row's address, or Nothing (issue #869).
+pub const LIST_GET_REF: i64 = 606;
 /// An existing text builtin executed on checked UTF-8 range operands. The
 /// original opcode still defines its result metadata, errors and native arity.
 pub const TEXT_RANGE_BASE: i64 = 1000;
