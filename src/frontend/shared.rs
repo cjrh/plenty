@@ -89,10 +89,12 @@ fn rejection(content: &Ty) -> Option<String> {
 }
 
 impl Lower<'_> {
-    /// `Shared[T](value)` names `T`; `Shared(value)` takes it from the value.
+    /// `Shared[T](value)` names `T`; `Shared(value)` takes it from the value,
+    /// which is lowered with the `context` content its expected type names.
     pub(super) fn shared_new(
         &mut self,
         types: Option<&[TypeRef]>,
+        context: Type,
         args: &[Expr],
         at: &Token,
         ops: &mut Vec<Op>,
@@ -109,7 +111,7 @@ impl Lower<'_> {
         let [value] = args else {
             return Err(at.error("Shared takes one value"));
         };
-        let actual = self.expr_expected(value, named.clone(), ops)?;
+        let actual = self.expr_expected(value, named.clone().or(context), ops)?;
         if named.is_some() {
             self.same(actual.clone(), named, &value.at)?;
         }
@@ -124,6 +126,33 @@ impl Lower<'_> {
         let output = operation.signature().1;
         ops.push(Op::Box(operation));
         Ok(Some(output))
+    }
+
+    /// `Box(value)`, with `value` lowered with the `context` content its
+    /// expected type names.
+    pub(super) fn box_new(
+        &mut self,
+        args: &[Expr],
+        context: Type,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Ty> {
+        let [content] = args else {
+            return Err(at.error("Box takes one value"));
+        };
+        let ty = match context {
+            Some(context) => self
+                .expr_expected(content, Some(context), ops)?
+                .ok_or_else(|| content.at.error("expected a value, got ()"))?,
+            None => self.value(content, ops)?,
+        };
+        if let Some(barrier) = ty.storage_barrier() {
+            return Err(content.at.error(barrier.message("a box")));
+        }
+        let operation = BoxOp::New(ty);
+        let output = operation.signature().1;
+        ops.push(Op::Box(operation));
+        Ok(output)
     }
 
     /// A method on a shared handle place. Only `share` belongs to the handle;

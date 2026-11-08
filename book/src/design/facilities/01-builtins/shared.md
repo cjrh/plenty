@@ -18,7 +18,10 @@ and its connection pool. It is a prelude name, like [`Box`](boxes.md).
 | `with handle.lock() as value:` | binds `value: &mut V` | Lock a `Shared[Mutex[V]]`; see [mutexes](../03-concurrency/mutex.md) |
 
 Construction makes one allocation, a counted box; failure drops the input and
-returns `AllocError`. `share()` increments the count and allocates nothing.
+returns `AllocError`. An expected `Shared[T]`, including the payload of a `?`
+operand's expected `Result`, is the expected type of `value`, so
+`Shared(Mutex([]?))?` can fill a `Shared[Mutex[list[i64]]]` parameter.
+`share()` increments the count and allocates nothing.
 Dropping a handle decrements it; the last drop runs `T`'s destructor once and
 frees the allocation. The count is atomic, so handles may be moved into, shared
 with, and dropped on any [worker](../03-concurrency/index.md).
