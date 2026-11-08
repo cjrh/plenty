@@ -4190,10 +4190,7 @@ impl Lower<'_> {
             if name == "swap" {
                 return self.view_swap(base, args, ops).map(Some);
             }
-            return Err(base.at.error(format!(
-                "a slice view has no method `{name}`; {}",
-                views::OPERATIONS
-            )));
+            return self.view_method(base, name, args, ops).map(Some);
         }
         if matches!(self.place_type(base), Some(Ty::Clist(_))) {
             return self.clist_method(base, name, args, ops).map(Some);
@@ -6031,8 +6028,18 @@ impl Lower<'_> {
             return Ok(Ty::I64);
         }
         if self.is_view(&args[0]) {
+            if name == "list"
+                && let Some(Ty::View(element, _)) = self.list_view_type(&args[0])
+            {
+                return self.view_copy(&args[0], &element, at, ops);
+            }
+            let copy = if self.is_text_view(&args[0]) {
+                "v[:]?"
+            } else {
+                "list(v)?"
+            };
             return Err(args[0].at.error(format!(
-                "{name}() does not take a slice view; copy the elements with a copying slice, `xs[a:b]?`"
+                "{name}() does not take a slice view; copy the elements first, `{name}({copy})`"
             )));
         }
         let ty = self.value(&args[0], ops)?;

@@ -28,6 +28,124 @@ def main() -> Result[(), AllocError | IoError]:
     );
 }
 
+/// Membership and search on list views use the element type's `==` and
+/// count positions within the view (issue #866).
+#[test]
+fn views_search_their_elements() {
+    support::assert_stdout(
+        r#"
+class P:
+    a: i64
+    b: str
+
+@copy
+class Q:
+    a: i64
+
+def has_three(v: &mut [i64]) -> bool:
+    3 in v
+
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = [1, 2, 3, 2]?
+    print(1 in &xs[:], 1 in &xs[1:], 5 not in &xs[1:], has_three(&mut xs[2:]))?
+    v = &xs[1:]
+    print(v.count(2), v.find(2), v.rfind(2), v.find(9), v.rfind(1))?
+    print(2 in &v[1:], (&v[1:]).find(2), (&v[3:]).count(2))?
+    empty: list[i64] = []?
+    print(1 in &empty[:], (&empty[:]).rfind(1))?
+    ps = [P(1, "x"), P(2, "y"), P(1, "x")]?
+    w = &ps[:]
+    print(P(2, "y") in w, w.count(P(1, "x")), w.rfind(P(1, "x")))?
+    qs = [Q(1), Q(2)]?
+    print(Q(2) in &qs[:], (&qs[:]).find(Q(1)))?
+    ls = [[1]?, [2, 3]?]?
+    inner = [2, 3]?
+    print(inner in &ls[:], (&ls[1:]).count(inner))?
+    ss = ["a", "b", "a"]?
+    first = &ss[0]
+    print(first in &ss[1:], (&ss[:]).count(first), "c" in &ss[:])?
+    fs = [0.0, -0.0, 1.0]?
+    nan = 0.0 / 0.0
+    print((&fs[:]).count(-0.0), nan in &fs[:])?
+    us: list[i64 | str] = [1, "a"]?
+    print("a" in &us[:], 1 in &us[1:])?
+    data = [104u8, 105u8]?
+    print(105u8 in &data[:], (&data[:]).find(105u8))?
+    Ok(())
+"#,
+        "True False True True\n2 Option[i64].Some(0) Option[i64].Some(2) Option[i64].Nothing Option[i64].Nothing\nTrue Option[i64].Some(1) 0\nFalse Option[i64].Nothing\nTrue 2 Option[i64].Some(2)\nTrue Option[i64].Some(0)\nTrue 1\nTrue 2 False\n2 False\nTrue False\nTrue Option[i64].Some(1)\n",
+    );
+}
+
+/// `list(v)?` and `v[a:b]?` copy a list view's elements into an owned list,
+/// as a list's copying slice does: `copy()` for each element and `share()`
+/// for a `Shared` handle (issue #866).
+#[test]
+fn views_copy_into_owned_lists() {
+    support::assert_stdout(
+        r#"
+class P:
+    a: i64
+    b: str
+
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = [1, 2, 3, 4]?
+    v = &xs[1:]
+    owned = list(v)?
+    print(owned, v[1:]?, v[-1:]?, v[:]?, v[5:]?, list(&v[1:2])?)?
+    ps = [P(1, "x"), P(2, "y")]?
+    mut copied = list(&ps[1:])?
+    copied[0].b = "z"
+    print(copied, ps)?
+    ls = [[1]?, [2, 3]?]?
+    whole = &ls[:]
+    mut nested = whole[1:]?
+    nested[0].append(4)?
+    print(nested, ls)?
+    hs = [Shared(1)?, Shared(2)?]?
+    handles = list(&hs[1:])?
+    print(len(handles), *handles[0])?
+    data = [104u8, 105u8]?
+    print(list(&data[1:])?)?
+    xs[0] = 9
+    print(owned, xs)?
+    Ok(())
+"#,
+        "[2, 3, 4] [3, 4] [4] [2, 3, 4] [] [3]\n[P(a=2, b=\"z\")] [P(a=1, b=\"x\"), P(a=2, b=\"y\")]\n[[2, 3, 4]] [[1], [2, 3]]\n1 2\n[105]\n[2, 3, 4] [9, 2, 3, 4]\n",
+    );
+}
+
+/// `v.reverse()` reorders an exclusive view's elements in place with
+/// `list.reverse`'s contract, for every element type (issue #866).
+#[test]
+fn exclusive_views_reverse_in_place() {
+    support::assert_stdout(
+        r#"
+class P:
+    a: i64
+    b: str
+
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = [1, 2, 3, 4, 5]?
+    (&mut xs[1:]).reverse()
+    print(xs)?
+    v = &mut xs[:2]
+    v.reverse()
+    (&mut xs[2:2]).reverse()
+    (&mut xs[4:]).reverse()
+    print(xs)?
+    mut ps = [P(1, "x"), P(2, "y"), P(3, "z")]?
+    (&mut ps[:]).reverse()
+    print(ps)?
+    mut ss = ["a", "b", "c", "d"]?
+    (&mut ss[1:3]).reverse()
+    print(ss)?
+    Ok(())
+"#,
+        "[1, 5, 4, 3, 2]\n[5, 1, 4, 3, 2]\n[P(a=3, b=\"z\"), P(a=2, b=\"y\"), P(a=1, b=\"x\")]\n[\"a\", \"c\", \"b\", \"d\"]\n",
+    );
+}
+
 /// Where a view type is expected, a borrow of its owner, a reference to
 /// one, or a `bytes` literal converts to the whole view, as `[:]` would
 /// (consistency rule 3, backlog B90).
@@ -560,25 +678,62 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     "xs = [1, 2].unwrap()\nb = &xs[:1] < &xs[1:]",
     "slice views support `==` and `!=`, not `<`"
 )]
+#[case("xs = [1, 2].unwrap()\nb = \"a\" in &xs[:]", "expected &i64, got &str")]
 #[case(
-    "xs = [1, 2].unwrap()\nb = 2 in &xs[:]",
-    "slice views do not support `in` yet"
+    "hs = [Shared(1).unwrap()].unwrap()\nn = (&hs[:]).count(hs[0].share())",
+    "values containing Shared owners do not support equality"
 )]
 #[case(
     "xs = [1, 2].unwrap()\nt = f\"{&xs[:]:d}\".unwrap()",
     "format spec `d` does not apply to &[i64]"
 )]
 #[case(
-    "xs = [1, 2].unwrap()\nv = &xs[:]\nw = v[1:].unwrap()",
-    "a copying slice does not take a slice view"
+    "xs = [1, 2].unwrap()\nv = &xs[:]\nw = v[::2].unwrap()",
+    "so its copying slice takes no step"
 )]
 #[case(
-    "xs = [1, 2].unwrap()\nw = list(&xs[:]).unwrap()",
-    "list() does not take a slice view"
+    "xs = [1u8].unwrap()\nv = &xs[:]\nw = v[1:].unwrap()",
+    "a copying slice of &[u8] could be a `list[u8]` or a `Bytes` buffer"
 )]
 #[case(
-    "xs = [1, 2].unwrap()\nv = &xs[:]\nn = v.count(1)",
-    "a slice view has no method `count`"
+    "xs = [1, 2].unwrap()\nw = set(&xs[:]).unwrap()",
+    "set() does not take a slice view; copy the elements first, `set(list(v)?)`"
+)]
+#[case(
+    "xs = [1, 2].unwrap()\nw = copy(&xs[:]).unwrap()",
+    "copy() does not take a slice view; copy its elements into a list with `list(v)?` or `v[a:b]?`"
+)]
+#[case(
+    "class D:\n    a: i64\n    def __del__(self) -> ():\n        pass\nds = [D(1)].unwrap()\nw = list(&ds[:]).unwrap()",
+    "copying a view of D copies each element, and D cannot be copied"
+)]
+#[case(
+    "xs = [1, 2].unwrap()\nv = &xs[:]\nn = v.count()",
+    "view.count takes one element to search for"
+)]
+#[case(
+    "xs = [1, 2].unwrap()\nv = &xs[:]\nn = v.get(0)",
+    "a slice view has no method `get`"
+)]
+#[case(
+    "xs = [1, 2].unwrap()\nv = &xs[:]\nv.reverse()",
+    "a shared slice view is read-only, so it has no `reverse`"
+)]
+#[case(
+    "mut xs = [1, 2].unwrap()\nv = &mut xs[:]\n(&v).reverse()",
+    "a shared slice view is read-only, so it has no `reverse`"
+)]
+#[case(
+    "mut xs = [1, 2].unwrap()\nv = &mut xs[:]\nv.append(3).unwrap()",
+    "`append` changes a list's length, and a slice view's length is fixed"
+)]
+#[case(
+    "mut xs = [1, 2].unwrap()\nv = &mut xs[:]\nv.pop()",
+    "`pop` changes a list's length, and a slice view's length is fixed"
+)]
+#[case(
+    "mut xs = [1, 2].unwrap()\nv = &mut xs[:]\nb = 1 in &xs[:]\nv.reverse()",
+    "conflicting borrow"
 )]
 #[case(
     "xs = [1, 2].unwrap()\nv = &xs[:]\nv.swap(0, 1)",
@@ -602,7 +757,7 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
 )]
 #[case(
     "mut xs = [1, 2].unwrap()\nv = &mut xs[:]\nv.sort()",
-    "a slice view has no method `sort`; a view supports `len(v)`, `v[i]`, `&v[a:b]`, `==`, `for x in v`, `iter(v)`, and `print(v)`, and a `&mut [T]` view also `v[i] = x` and `v.swap(i, j)`"
+    "a slice view cannot `sort` yet (issue #886)"
 )]
 #[case(
     "mut xs = [1, 2].unwrap()\nv = &mut xs[:]\nw = &xs[:]\nv.swap(0, 1)\nprint(w).unwrap()",
@@ -636,6 +791,10 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
 #[case(
     "xs = [1, 2].unwrap()\nv = &xs[:]\nf = def() -> i64:\n    return len(v)",
     "anonymous functions cannot capture `v`"
+)]
+#[case(
+    "mut xs = [1, 2].unwrap()\nv = &mut xs[:]\nv.frobnicate()",
+    "a slice view has no method `frobnicate`; a view supports `len(v)`, `v[i]`, `&v[a:b]`, `v[a:b]?`, `list(v)?`, `==`, `in`, `v.count(x)`, `v.find(x)`, `v.rfind(x)`, `for x in v`, `iter(v)`, and `print(v)`, and a `&mut [T]` view also `v[i] = x`, `v.swap(i, j)`, and `v.reverse()`"
 )]
 fn invalid_views_are_rejected(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_diagnostic(source);
@@ -698,6 +857,54 @@ def main() -> Result[(), AllocError | IoError | bytes_mod.BytesError | OverflowE
     );
     assert!(
         String::from_utf8_lossy(&output.stdout).ends_with("546 [2, 3, 3, 4, 5] aBc\n"),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+}
+
+/// Searching and reversing a view allocate nothing, for scalar and string
+/// elements; copying a view reserves its storage before the first element
+/// (issue #866).
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn view_searches_add_no_allocations() {
+    let output = support::run(
+        r#"
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = [1, 2, 3, 2]?
+    names = ["a", "b"]?
+    print("__test_begin_no_allocations__")?
+    v = &xs[1:]
+    found = 2 in v and "b" in &names[:] and 9 not in v
+    n = v.count(2)
+    m = (&names[:]).count("a")
+    first = v.find(2)
+    last = v.rfind(2)
+    (&mut xs[:]).reverse()
+    print("__test_end_no_allocations__")?
+    print(found, n, m, first, last, xs)?
+    print("__test_fail_allocations_after_0__")?
+    copied = list(&xs[:])
+    w = &names[:]
+    part = w[1:]
+    print("__test_restore_allocations__")?
+    print(copied.is_err(), part.is_err())?
+    Ok(())
+"#,
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout)
+            .contains("True 2 1 Option[i64].Some(0) Option[i64].Some(2) [2, 3, 2, 1]\n"),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).ends_with("True True\n"),
         "{}",
         String::from_utf8_lossy(&output.stdout)
     );

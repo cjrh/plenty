@@ -1,0 +1,55 @@
+def view_contains[T](item: &T, view: &[T]) -> bool:
+    for element in view:
+        if element == item:
+            return True
+    False
+
+def view_count[T](view: &[T], item: &T) -> i64:
+    mut count = 0
+    unchecked:
+        for element in view:
+            if element == item:
+                count += 1
+    count
+
+def view_find[T](view: &[T], item: &T) -> Option[i64]:
+    mut index = 0
+    unchecked:
+        for element in view:
+            if element == item:
+                return Some(index)
+            index += 1
+    Nothing
+
+def view_rfind[T](view: &[T], item: &T) -> Option[i64]:
+    mut index = len(view)
+    unchecked:
+        while index > 0:
+            index -= 1
+            if &view[index] == item:
+                return Some(index)
+    Nothing
+
+def view_copy[T](view: &[T]) -> Result[list[T], AllocError]:
+    mut copied: list[T] = []?
+    copied.reserve(len(view))?
+    for element in view:
+        copied.append(copy(element)?)?
+    Ok(copied)
+
+def view_share[T](view: &[Shared[T]]) -> Result[list[Shared[T]], AllocError]:
+    mut copied: list[Shared[T]] = []?
+    copied.reserve(len(view))?
+    for element in view:
+        copied.append(element.share())?
+    Ok(copied)
+
+def view_reverse[T](view: &mut [T]) -> ():
+    mut low = 0
+    mut high = len(view)
+    unchecked:
+        high -= 1
+        while low < high:
+            view.swap(low, high)
+            low += 1
+            high -= 1

@@ -177,8 +177,10 @@ actual `std.serial.Kind` values. Rendering borrows and preserves the error.
   declares `def write(self: &mut W, source: &[u8]) -> Result[i64, StreamError]`.
   `&mut xs[:m]` and `&mut xs[m:]` are disjoint when `m` is a literal or a
   non-`mut` `i64` name; other overlapping or unprovable ranges conflict.
-  A `&mut [T]` view takes `v[i] = x` and `v.swap(i, j)`; it has no other
-  list methods.
+  Any list view takes `x in v`, `v.count(x)`, `v.find(x)`, `v.rfind(x)`,
+  and copies with `list(v)?` or `v[a:b]?`; a `&mut [T]` view also takes
+  `v[i] = x`, `v.swap(i, j)` and `v.reverse()`. Its length is fixed, so
+  `append`/`pop`/`sort` belong to the owner.
 - A plain integer `T` accepts a `NonZero[T]` or `Positive[T]` divisor directly: `n // step`,
   `n % step`, `n //= step`, `n %= step`. The result is `T`; no zero check
   remains. Signed `MIN // -1` still requires `OverflowError[T]` in the

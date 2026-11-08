@@ -132,6 +132,9 @@ impl Lower<'_> {
             Self::end_reads(vec![loan], ops);
             return Ok(crate::sum::result(Ty::Str, alloc()));
         }
+        if let Some(ref view @ Ty::View(ref element, _)) = self.list_view_type(base) {
+            return self.view_slice(e, base, bounds, &view, &element, ops);
+        }
         if let Some(ty @ Ty::Clist(_)) = self.place_type(base) {
             // Copying rows exposes every field, as `copy_row` does.
             self.check_clist_access(&ty, &base.at)?;
@@ -222,6 +225,42 @@ impl Lower<'_> {
         Ok(crate::sum::result(result, alloc()))
     }
 
+    /// `v[a:b]?` of a list view: an owned list of copies of the elements
+    /// `&v[a:b]` selects, as `list(&v[a:b])?` (issue #866). A byte view's
+    /// owner may be a list or a `Bytes` buffer, so neither result follows
+    /// from its type; it is written as `list(...)` or `Bytes` `extend`.
+    fn view_slice(
+        &mut self,
+        e: &Expr,
+        base: &Expr,
+        bounds: &SliceBounds,
+        view: &Ty,
+        element: &Ty,
+        ops: &mut Vec<Op>,
+    ) -> Result<Ty> {
+        if let Some(step) = &bounds.step {
+            return Err(step.at.error(
+                "a slice view selects adjacent elements, so its copying slice takes no step; copy every k-th element from the owner with `xs[a:b:k]?`",
+            ));
+        }
+        if *element == Ty::U8 {
+            return Err(e.at.error(format!(
+                "a copying slice of {view} could be a `list[u8]` or a `Bytes` buffer; write `list(&v[a:b])?` for a list, or `extend` an empty `Bytes` with `&v[a:b]`"
+            )));
+        }
+        let selected = Expr {
+            at: e.at.clone(),
+            kind: Expression::Unary(
+                "&".into(),
+                Box::new(Expr {
+                    at: e.at.clone(),
+                    kind: Expression::Slice(Box::new(base.clone()), Box::new(bounds.clone())),
+                }),
+            ),
+        };
+        self.view_copy(&selected, element, &e.at, ops)
+    }
+
     /// `std.bytes.Bytes`, which a `bytes` slice produces. The loader adds
     /// `std.bytes` to a program that might need it; see `Loader::slice_bytes`.
     fn bytes_class(&self, at: &Token) -> Result<Ty> {
@@ -240,22 +279,31 @@ impl Lower<'_> {
     /// Selected list elements are duplicated as `copy()` would, and `Shared`
     /// owners as `share()` would.
     fn check_slice_element(&self, list: &Ty, element: &Ty, at: &Token) -> Result<()> {
-        if matches!(element, Ty::Shared(_)) {
+        let Some(reason) = Self::uncopyable_element(element, at)? else {
             return Ok(());
+        };
+        Err(at.error(format!(
+            "slicing {list} copies each element, and {reason}; transfer elements out of an owned temporary with `.slice(start, stop)`, or build a new list from explicit copies"
+        )))
+    }
+
+    /// Why a copying slice cannot duplicate `element`, which it copies as
+    /// `copy()` does, or a `Shared` owner as `share()` does; `None` when it
+    /// can.
+    pub(super) fn uncopyable_element(element: &Ty, at: &Token) -> Result<Option<String>> {
+        if matches!(element, Ty::Shared(_)) {
+            return Ok(None);
         }
         let facts = element.copy_facts();
-        let reason = if facts.recursive {
+        Ok(Some(if facts.recursive {
             format!("{element} is recursive data, which copy() does not copy")
         } else if !facts.copyable {
             format!("{element} cannot be copied")
         } else if element.layout_depth() >= 64 {
             return Err(at.error("type nesting exceeds the implementation limit of 64"));
         } else {
-            return Ok(());
-        };
-        Err(at.error(format!(
-            "slicing {list} copies each element, and {reason}; transfer elements out of an owned temporary with `.slice(start, stop)`, or build a new list from explicit copies"
-        )))
+            return Ok(None);
+        }))
     }
 
     /// Push start, stop, step and the flags saying which bounds were written,

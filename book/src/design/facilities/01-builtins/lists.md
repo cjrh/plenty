@@ -134,6 +134,9 @@ Search/count accept exactly the element type, including references, and support
 integers, floats, booleans, and strings. They observe both operands once, allocate
 nothing, and use IEEE float equality (NaN never matches; signed zeros do).
 Aggregate searches, optional bounds, and throwing `index` are unsupported.
+Search part of a list through a [slice view](../../language/04-expressions/slices.md#operations-on-views):
+`(&items[a:b]).find(value)` counts positions within the view and also
+accepts class, enum, and nested-list elements.
 
 ## Insertion
 
@@ -190,7 +193,7 @@ which cannot be moved out of indexed storage. On a list of numbers or `bool`,
 `swap` compiles to inline bounds checks, loads, and stores with no runtime call;
 other element types call the runtime once. An exclusive
 [slice view](../../language/04-expressions/slices.md#slice-views), `&mut [T]`,
-has the same `swap`, with indices counted within the view.
+has the same `swap` and `reverse`, with indices counted within the view.
 
 `items.sort() -> ()` orders the elements ascending, in place, without allocating.
 It requires exclusive access and one of these element types:
@@ -281,7 +284,8 @@ by moving the destination are rejected. Use `extend(copy(source)?)` to preserve 
 copies the selected elements into a new list with Python's clamping, omitted
 bounds, and negative steps. It duplicates elements with `copy()` and `Shared`
 handles with `share()`, and leaves the source unchanged; element types that
-`copy()` rejects are a compile error.
+`copy()` rejects are a compile error. A [slice view](../../language/04-expressions/slices.md#operations-on-views)
+copies the same way with `list(v)?` or `v[a:b]?`.
 
 `items.slice(start: i64, stop: i64) -> Result[list[T], AllocError]` is the
 transfer form for an owned temporary. It takes both
