@@ -1649,6 +1649,24 @@ impl Lower<'_> {
             {
                 self.prelude_constructor(name, None, expected, &e.at, ops)
             }
+            Expression::Call(name, args)
+                if matches!(name.as_str(), "Shared" | "Box")
+                    && let Some(content) =
+                        expected.as_ref().and_then(|ty| owned_content(name, ty)) =>
+            {
+                if name == "Shared" {
+                    self.shared_new(None, Some(content), args, &e.at, ops)
+                } else {
+                    self.box_new(args, Some(content), &e.at, ops).map(Some)
+                }
+            }
+            Expression::Call(name, args)
+                if let Some(expected) = &expected
+                    && let Some(symbol) =
+                        self.expected_constructor_instance(name, expected, &e.at)? =>
+            {
+                self.call_named(&symbol, args, &e.at, ops)
+            }
             Expression::Collection { .. } => self.fallible_display(e, expected, ops).map(Some),
             Expression::Call(name, args)
                 if matches!(name.as_str(), "list" | "dict" | "set")
@@ -6297,6 +6315,20 @@ pub(super) fn dictionary_items(iterable: &Expr) -> Option<(&Expr, bool)> {
         base = ungroup(inner);
     }
     Some((base, mutable))
+}
+
+/// The content type an expected `Shared[T]` or `Box[T]` names for the
+/// `Shared(value)` or `Box(value)` constructor called `name`. Both return
+/// `Result[owner, AllocError]`, so a `?` operand expects that `Result`.
+fn owned_content(name: &str, expected: &Ty) -> Option<Ty> {
+    let owner = match expected {
+        Ty::Enum(t) if t.is_result() => &t.get().variants[0].fields[0],
+        other => other,
+    };
+    match (name, owner) {
+        ("Shared", Ty::Shared(content)) | ("Box", Ty::Box(content)) => Some((**content).clone()),
+        _ => None,
+    }
 }
 
 fn kind_matches(name: &str, ty: &Ty) -> bool {

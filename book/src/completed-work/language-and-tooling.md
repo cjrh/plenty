@@ -444,6 +444,12 @@ block; float `div_checked` and nontrapping `MIN % -1` accompanied them
 (issue #557). The lexical private callback channel from issue #614 (B93)
 is superseded by independent declared function/closure error contracts in the
 [checked-default compiler core](../proposals/checked-by-default/implementation.md#current-implementation).
+The [reference rationale](../design/language/03-types/numbers.md#function-arithmetic-contracts)
+and [numeric tutorial](../tutorial/02-values/numeric-operations.md#recover-from-overflow)
+explain why native arithmetic uses the function's declared error boundary:
+formulas stay readable without per-operator propagation syntax, while callers
+handle explicit error contracts rather than stack-unwinding exceptions
+(issue #861).
 That core also supports lexical `unchecked:` suites. Their
 [build modes](../design/language/03-types/numbers.md#unchecked-blocks) followed
 (local PR #924): `--unchecked trap` checks the preconditions by default,
@@ -1131,3 +1137,17 @@ worker certification remain intact. Windows support concerns CRT errno, not
 `GetLastError` or a separate foreign CRT. Neither operation adds arbitrary pointer
 dereference, retained pointers or C record support. See the
 [adapter contracts](../design/facilities/04-interop/borrowing-text.md).
+
+## Expected types through constructors and branches (issue #797)
+
+An expected instance of a generic class supplies its constructor's type
+arguments, so the arguments take contextual types: `Pair([]?, [1]?)` for a
+`Pair[list[i64]]`, or a fallible constructor's `Result` payload. `Shared(...)`
+and `Box(...)` pass an expected owner's content type to their value, through
+`?`, so `f(Shared(Mutex([]?))?)` fills a `Shared[Mutex[list[i64]]]` parameter.
+Without an expected type, the first continuing arm of a block `if` or `match`
+supplies the expected type of the arms after it, as the inline conditional
+does; a first arm of `Nothing` or an empty collection reports that it needs an
+annotation. Generic function calls still infer only from their arguments. See
+[generic data](../design/language/07-generics/data.md) and
+[match values](../design/language/04-expressions/matching.md).

@@ -115,3 +115,134 @@ Without a path, context formatting adds no allocation. A present path still
 uses fallible `Path.display`; failure leaves the typed cause intact and may
 leave part of the report already written. See
 [bounded reports](report-formatting.md) for limits and failure handling.
+
+## One error type with labels at every layer
+
+`Context[E]` changes the error type each time it wraps: wrapping a
+`Context[ParseError]` again gives `Context[Context[ParseError]]`, so `?` cannot
+forward it in a function that returns `Context[ParseError]`. When an
+application wants a single error type for all its functions, add one class for
+"a cause with labels" to its error sum and a small `context` helper that either
+wraps a plain cause or adds a label to an existing one:
+
+```plenty
+type Base = AllocError | IoError | ParseError
+
+# Caps how many labels one error keeps, so a retry loop cannot grow it.
+# Labels are normally literals; a formatted label adds its own length.
+const FRAMES: i64 = 8
+
+# A typed cause with the innermost operation and later labels, innermost
+# first. Wrapping allocates nothing; the label list is made on first use. A
+# label past FRAMES, or one without memory to store it, is only counted.
+class Trace:
+    pub cause: Base
+    pub operation: str
+    pub outer: Option[list[str]]
+    pub omitted: i64
+
+    def add(self: &mut Trace, operation: str) -> ():
+        if self.kept() < FRAMES:
+            match &mut self.outer:
+                case Some(labels):
+                    if labels.append(operation).is_ok():
+                        return
+                case Nothing:
+                    match [operation]:
+                        case Ok(labels):
+                            self.outer = Some(labels)
+                            return
+                        case Err(_):
+                            pass
+        if self.omitted < i64.MAX:
+            unchecked:
+                self.omitted += 1
+
+    def kept(self) -> i64:
+        match &self.outer:
+            case Some(labels):
+                len(labels)
+            case Nothing:
+                0
+
+    # Outermost first, as nested `Context` descriptions read.
+    def describe(self) -> Result[str, AllocError]:
+        mut text = self.operation.concat(": ")?.concat(&str.repr(self.cause)?)?
+        match &self.outer:
+            case Some(labels):
+                for label in labels:
+                    text = label.concat(": ")?.concat(&text)?
+            case Nothing:
+                pass
+        if self.omitted > 0:
+            text = f"[{self.omitted} omitted] {text}"?
+        Ok(text)
+
+type Error = Base | Trace
+
+const DEFAULT_LIMIT: i64 = 10
+
+def context[T](result: Result[T, Error], operation: str) -> Result[T, Error]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case trace: Trace:
+                    mut traced = trace
+                    traced.add(operation)
+                    Err(traced)
+                case rest: Base:
+                    Err(Trace(rest, operation, Nothing, 0))
+
+def read_limit(text: &str) -> Result[i64, Error]:
+    context(i64.parse(text), "parse limit")
+
+def load(text: &str) -> Result[i64, Error]:
+    context(read_limit(text), "load settings")
+
+def main() -> Result[(), Error]:
+    for text in ["12", "ten"]?:
+        match load(text):
+            case Ok(limit):
+                print(limit)?
+            case Err(error):
+                match error:
+                    case trace: Trace:
+                        print(trace.describe()?)?
+                        match &trace.cause:
+                            case ParseError.Invalid:
+                                print("using the default limit", DEFAULT_LIMIT)?
+                            case _:
+                                return Err(trace)
+                    case rest: Base:
+                        return Err(rest)
+    Ok(())
+```
+
+```output
+12
+load settings: parse limit: ParseError.Invalid
+using the default limit 10
+```
+
+`Error` is `Base | Trace`, so plain `?` still forwards a `ParseError` or
+`IoError`, and `context` keeps the type at every layer. `context[T]` takes a
+type parameter so one helper serves every success type, `i64` here and `()`
+for a write; [generic functions](../09-generics/generic-functions.md) explains
+the syntax. In the helper,
+`case rest: Base:` binds whichever plain member remains, with the smaller type
+`Base`: see [recovering from one error](../03-absence/anonymous-sums.md#recover-from-one-error-and-forward-the-rest).
+
+The cause keeps its type: `main` matches `ParseError.Invalid` to recover and
+forwards anything else unchanged. Do not turn the cause into a message string
+to fit one error type; that loses what the caller could match, as `Failure`
+does.
+
+Wrapping a cause allocates nothing. Storing a later label may allocate; if it
+cannot, or `FRAMES` labels are already kept, the label is counted in `omitted`
+and the cause stays. `FRAMES` caps the number of labels, so a retry loop cannot
+grow the error; it does not cap a label's length, which is why labels are
+usually string literals. The
+[module reference](../../design/stdlib/error.md#one-application-error-with-context)
+shows the same pattern keeping the progress of a partial write.

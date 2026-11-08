@@ -56,8 +56,10 @@ impl Lower<'_> {
         });
         let mut inner = Vec::new();
         let outer = std::mem::replace(&mut self.checked_value_tail, true);
+        let branch = std::mem::replace(&mut self.branch_value_tail, false);
         let result = self.block(body, &mut inner, &Tail::Value(success));
         self.checked_value_tail = outer;
+        self.branch_value_tail = branch;
         self.names = saved;
 
         let scope = self.checked.pop().expect("pushed above");
@@ -118,8 +120,10 @@ impl Lower<'_> {
             failures: Vec::new(),
         });
         let outer = std::mem::replace(&mut self.checked_value_tail, false);
+        let branch = std::mem::replace(&mut self.branch_value_tail, false);
         let result = self.block(body, ops, tail);
         self.checked_value_tail = outer;
+        self.branch_value_tail = branch;
         self.checked.pop().expect("unchecked scope");
         self.names = saved;
         if let Ok(BlockResult::Continues(Some(ty))) = &result

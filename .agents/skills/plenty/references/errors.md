@@ -218,6 +218,115 @@ bytes. For a readable message, call `error.report()`, which writes the
 description to standard error, and return an `i32` status as in
 [exit status](#exit-status).
 
+## One application error with labels
+
+`Context[E]` changes type at each layer and does not widen
+(`Context[ParseError]` is not `Context[Base]`). For one application error
+type with labels added at many layers, add a labelled class to the sum and a
+`context` helper that wraps a plain member (`case rest: Base:`) or extends an
+existing label list. Never flatten the cause into a message string:
+
+```plenty
+type Base = AllocError | IoError | ParseError
+
+# Caps how many labels one error keeps, so a retry loop cannot grow it.
+# Labels are normally literals; a formatted label adds its own length.
+const FRAMES: i64 = 8
+
+# A typed cause with the innermost operation and later labels, innermost
+# first. Wrapping allocates nothing; the label list is made on first use. A
+# label past FRAMES, or one without memory to store it, is only counted.
+class Trace:
+    pub cause: Base
+    pub operation: str
+    pub outer: Option[list[str]]
+    pub omitted: i64
+
+    def add(self: &mut Trace, operation: str) -> ():
+        if self.kept() < FRAMES:
+            match &mut self.outer:
+                case Some(labels):
+                    if labels.append(operation).is_ok():
+                        return
+                case Nothing:
+                    match [operation]:
+                        case Ok(labels):
+                            self.outer = Some(labels)
+                            return
+                        case Err(_):
+                            pass
+        if self.omitted < i64.MAX:
+            unchecked:
+                self.omitted += 1
+
+    def kept(self) -> i64:
+        match &self.outer:
+            case Some(labels):
+                len(labels)
+            case Nothing:
+                0
+
+    # Outermost first, as nested `Context` descriptions read.
+    def describe(self) -> Result[str, AllocError]:
+        mut text = self.operation.concat(": ")?.concat(&str.repr(self.cause)?)?
+        match &self.outer:
+            case Some(labels):
+                for label in labels:
+                    text = label.concat(": ")?.concat(&text)?
+            case Nothing:
+                pass
+        if self.omitted > 0:
+            text = f"[{self.omitted} omitted] {text}"?
+        Ok(text)
+
+type Error = Base | Trace
+
+def context[T](result: Result[T, Error], operation: str) -> Result[T, Error]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case trace: Trace:
+                    mut traced = trace
+                    traced.add(operation)
+                    Err(traced)
+                case rest: Base:
+                    Err(Trace(rest, operation, Nothing, 0))
+
+def load(text: &str) -> Result[i64, Error]:
+    context(context(i64.parse(text), "parse limit"), "load settings")
+
+def main() -> Result[(), Error]:
+    for text in ["12", "ten"]?:
+        match load(text):
+            case Ok(limit):
+                print(limit)?
+            case Err(error):
+                match error:
+                    case trace: Trace:
+                        match &trace.cause:
+                            case ParseError.Invalid:
+                                print(trace.describe()?)?
+                                print("using 10")?
+                            case _:
+                                return Err(trace)
+                    case rest: Base:
+                        return Err(rest)
+    Ok(())
+```
+```output
+12
+load settings: parse limit: ParseError.Invalid
+using 10
+```
+
+Recover only from the causes you expect and forward the rest. Wrapping
+allocates nothing; a label that cannot be stored (no memory, or past `FRAMES`,
+a cap on the label count, not length) is counted in `omitted` and the typed
+cause is kept. See
+[the reference](../../../../book/src/design/stdlib/error.md#one-application-error-with-context).
+
 ## Option
 
 ```plenty
