@@ -1735,7 +1735,13 @@ impl Lower<'_> {
                 let (mut a, mut b) = (Vec::new(), Vec::new());
                 let ty = self.expr_expected(yes, expected.clone(), &mut a)?;
                 let other = self.expr_expected(no, expected.or_else(|| ty.clone()), &mut b)?;
-                self.same(other, ty.clone(), &e.at)?;
+                let ty = match self.join_conditional(ty, other, &mut a, &mut b) {
+                    Ok(ty) => ty,
+                    Err((ty, other)) => {
+                        self.same(other, ty.clone(), &e.at)?;
+                        ty
+                    }
+                };
                 if matches!(ty, Some(Ty::View(..))) {
                     return Err(e.at.error("conditional expressions cannot produce slice views; select an owning value or branch around the view's use"));
                 }

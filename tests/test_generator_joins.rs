@@ -150,7 +150,53 @@ for (v, i) in zip(choose(False), range(5)):
 }
 
 #[test]
-fn branch_values_reassignment_and_payloads_keep_one_identity() {
+fn conditional_expressions_join_producers_and_drop_once() {
+    expect(
+        &with_producers(
+            r#"
+def returned(flag: bool) -> Generator[i64]:
+    return one() if flag else two(Res(10))
+def tail(flag: bool) -> Generator[i64]:
+    one() if flag else two(Res(11))
+def mixed(n: i64) -> Generator[i64]:
+    if n == 0:
+        return pick(2)
+    one() if n == 1 else two(Res(12))
+def inner(flag: bool) -> Generator[i64]:
+    g = one() if flag else two(Res(13))
+    for v in g:
+        yield v
+def count[T](g: Generator[T]) -> i64:
+    mut n = 0
+    for v in g:
+        unchecked:
+            n = n + 1
+    n
+print(list(returned(True)).unwrap()).unwrap()
+print(list(returned(False)).unwrap()).unwrap()
+print(list(tail(False)).unwrap()).unwrap()
+for n in range(3):
+    print(list(mixed(n)).unwrap()).unwrap()
+print(list(inner(False)).unwrap()).unwrap()
+print(count(one() if False else two(Res(14)))).unwrap()
+mut g = two(Res(15)) if True else one()
+print(next(g)).unwrap()
+drop(g)
+print("after 15").unwrap()
+unstarted = one() if False else two(Res(16))
+drop(unstarted)
+print("after 16").unwrap()
+print(list((one() if True else two(Res(17))) if False else pick(2)).unwrap()).unwrap()
+"#,
+        ),
+        "[1]\ndrop 10\n[2, 10]\ndrop 11\n[2, 11]\n[1]\n[1]\ndrop 12\n[2, 12]\n\
+         drop 13\n[2, 13]\ndrop 14\n2\nOption[i64].Some(2)\ndrop 15\nafter 15\n\
+         drop 16\nafter 16\n[1]\n",
+    );
+}
+
+#[test]
+fn block_values_reassignment_and_payloads_keep_one_identity() {
     // Phase guard (issue #872): delete when these positions join producers.
     let producers = r#"
 def one() -> Generator[i64]:
@@ -158,9 +204,10 @@ def one() -> Generator[i64]:
 def two() -> Generator[i64]:
     yield 2
 "#;
-    let hint = "a variable or branch value holds one producer's inline frame";
+    let hint = "different producers join only in a conditional expression";
     for body in [
-        "def f(flag: bool) -> Generator[i64]:\n    g = one() if flag else two()\n    g\ndrop(f(True))\n",
+        "g = match 1:\n    case 0:\n        one()\n    case _:\n        two()\ndrop(g)\n",
+        "o = Some(one()) if True else Some(two())\ndrop(o)\n",
         "mut g = one()\ng = two()\ndrop(g)\n",
         "def f(flag: bool) -> Option[Generator[i64]]:\n    if flag:\n        return Some(one())\n    Some(two())\ndrop(f(True))\n",
     ] {
@@ -237,9 +284,11 @@ mut g = choose(False)
 first = next(g)
 drop(g)
 drop(choose(False))
+c = sum(one() if False else wide(5, 6, 7))
+drop(wide(1, 1, 1) if True else one())
 print("__test_restore_allocations__").unwrap()
-print(a, b, first).unwrap()
+print(a, b, first, c).unwrap()
 "#,
-        "1 9 Option[i64].Some(2)",
+        "1 9 Option[i64].Some(2) 18",
     );
 }

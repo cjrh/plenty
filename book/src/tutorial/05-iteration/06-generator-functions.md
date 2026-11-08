@@ -93,8 +93,9 @@ def main() -> Result[(), IoError]:
 3
 ```
 
-Only a factory's return joins producers. A variable keeps the producer it was
-first given, so reassigning it to another producer is rejected:
+A conditional expression such as `one() if flag else two()` joins producers the
+same way. A variable keeps the producer it was first given, so reassigning it
+to another producer is rejected:
 
 ```plenty-error
 def one() -> Generator[i64]:
@@ -109,9 +110,9 @@ def main() -> ():
     drop(values)
 ```
 ```error
-expected Generator[i64] from `one`, got Generator[i64] from `two`; a variable or branch value holds one producer's inline frame; return each producer from a factory to join them, or branch inside one generator body
+expected Generator[i64] from `one`, got Generator[i64] from `two`; different producers join only in a conditional expression (`a if c else b`) or a factory's return; reassignment, other `if`/`match` values and `Option`/`Result` payloads keep one producer
 ```
 
-Call a factory such as `choose` instead, or branch inside one generator body.
+Choose with a conditional expression or a factory such as `choose` instead.
 A generator may contain another generator, but recursive generator state is
 rejected: its inline storage would have no finite size.

@@ -347,6 +347,11 @@ impl Ty {
         match self {
             Self::Closure(t) => t.bytes(),
             Self::Range(_) => 32,
+            // A joined type built at a conditional is a fresh instance whose
+            // members were resolved where they were constructed.
+            Self::Generator(t) if !t.members.is_empty() && t.layout.get().is_none() => {
+                t.members.iter().map(Ty::inline_bytes).max().unwrap_or(0)
+            }
             Self::Generator(t) => t.layout.get().expect("resolved generator layout").bytes,
             Self::Enum(t) => *t.get().payload_bytes.get_or_init(|| {
                 t.get()

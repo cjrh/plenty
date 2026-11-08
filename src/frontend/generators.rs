@@ -247,6 +247,32 @@ impl Lower<'_> {
         Ok(None)
     }
 
+    /// Joins different producers chosen by a conditional expression: both
+    /// branch types are known here, so each branch's frame moves into storage
+    /// for their joined type (issue #872). Returns the branch types unchanged
+    /// when they do not join.
+    #[inline(never)]
+    pub(super) fn join_conditional(
+        &self,
+        yes: Type,
+        no: Type,
+        yes_ops: &mut Vec<Op>,
+        no_ops: &mut Vec<Op>,
+    ) -> std::result::Result<Type, (Type, Type)> {
+        let (Some(a), Some(b)) = (&yes, &no) else {
+            return Err((yes, no));
+        };
+        let Some(joined) = crate::generator::join(a, b) else {
+            return Err((yes, no));
+        };
+        for (ty, ops) in [(a, yes_ops), (b, no_ops)] {
+            if crate::generator::joins_into(ty, &joined) {
+                ops.push(Op::JoinFrame(Box::new((ty.clone(), joined.clone()))));
+            }
+        }
+        Ok(Some(joined))
+    }
+
     /// The function's joined generator type, when two branches of its tail
     /// returned different producers. Each branch already converted its frame
     /// or recorded the join when it returned.

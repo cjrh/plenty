@@ -1386,8 +1386,8 @@ impl Lower<'_> {
                 && got.name.is_some()
             {
                 // Issue #872: the item type matches, so name the frame identity.
-                // Only a factory's return joins producers.
-                "; a variable or branch value holds one producer's inline frame; return each producer from a factory to join them, or branch inside one generator body".into()
+                // Only conditional expressions and factory returns join.
+                "; different producers join only in a conditional expression (`a if c else b`) or a factory's return; reassignment, other `if`/`match` values and `Option`/`Result` payloads keep one producer".into()
             } else {
                 expected
                     .as_ref()
@@ -1852,7 +1852,13 @@ impl Lower<'_> {
                 let (mut a, mut b) = (Vec::new(), Vec::new());
                 let ty = self.expr(yes, &mut a)?;
                 let other = self.expr(no, &mut b)?;
-                self.same(other, ty.clone(), &e.at)?;
+                let ty = match self.join_conditional(ty, other, &mut a, &mut b) {
+                    Ok(ty) => ty,
+                    Err((ty, other)) => {
+                        self.same(other, ty.clone(), &e.at)?;
+                        ty
+                    }
+                };
                 if matches!(ty, Some(Ty::View(..))) {
                     return Err(e.at.error("conditional expressions cannot produce slice views; select an owning value or branch around the view's use"));
                 }
