@@ -100,18 +100,33 @@ parameter, the borrower is compiled once per lent pipeline, as a frame
 specialization; recursive and repeated lends of the same pipeline share it.
 A method can take a lent pipeline the same way.
 
-A generic borrower such as `def first[T](p: &mut Iter[T]) -> Option[T]` infers
-type parameters only from the lent pipelines' item types. A call that needs
-any other type parameter, even one an ordinary argument would determine,
-supplies all type arguments explicitly:
+A generic borrower infers its type parameters like any generic call: from
+the lent pipelines' item types, the ordinary arguments, callable bounds and
+the expected result together. Each argument is evaluated once, left to right,
+and conflicting evidence is an error:
 
-```text
+```plenty
 def tagged[T, K](p: &mut Iter[T], tag: K) -> Option[(K, T)]:
-    ...
+    match next(p):
+        case Some(value):
+            Some((tag, value))
+        case Nothing:
+            Nothing
 
-tagged(&mut p, "first")             # error: cannot infer type parameter `K`
-tagged[i64, str](&mut p, "first")   # Some(("first", 0))
+def main() -> Result[(), IoError]:
+    mut p = iter(range(3))
+    print(tagged(&mut p, "first"))?        # T = i64, K = str
+    print(tagged[i64, i32](&mut p, 5))?    # explicit type arguments
+    Ok(())
 ```
+
+```output
+Option[tuple[str, i64]].Some(("first", 0))
+Option[tuple[i32, i64]].Some((5, 1))
+```
+
+The instance's type parameters name only the item type. Each lent pipeline
+still gets its own frame specialization of that instance.
 
 A borrower is checked only through the calls that lend it a pipeline. One
 that no call lends a pipeline to is not checked, like an unused generic

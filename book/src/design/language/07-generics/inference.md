@@ -19,6 +19,10 @@ parameter `value: &T` can accept an owner directly. Mutable borrowing still need
 `&mut` or an existing exclusive reference. Arguments evaluate once in source
 order.
 
+A [lent pipeline](../09-iteration/06-pipelines.md#lending-a-pipeline) is
+evidence by its item type: `&mut Iter[T]` against a pipeline of `i64` learns
+`T = i64`, alongside the other arguments and the expected result.
+
 ## Expected results
 
 A concrete expected result type is evidence too. It comes from an annotated
