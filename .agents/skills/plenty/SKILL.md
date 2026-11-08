@@ -71,7 +71,9 @@ Use `@serial` on classes and enums, then `std.json.load[T]` / `dump` or
 `std.toml.load[T]` / `dump` for typed documents. `to_value`/`from_value` convert
 directly to owning format trees; `from_value` consumes its input. Derivation
 generates missing private `__encode__` and receiver-less `__decode__` hooks;
-write either hook for a custom schema. Constructor defaults apply only to
+write either hook for a custom schema. `@serial.name("wire")` on the line
+above a field or variant sets its encoded key or tag; the source name is then
+rejected on input. Constructor defaults apply only to
 absent fields; a missing optional field without a default becomes `Nothing`.
 Validated constructors returning `Fault` retain typed failures; other domain
 errors need a handwritten decoding hook. TOML omits null class fields and
