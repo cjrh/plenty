@@ -1469,3 +1469,48 @@ for k in [0, 1, 2].unwrap():
         );
     }
 }
+
+#[test]
+fn branch_values_copied_on_some_paths_block_reevaluation() {
+    // Phase guard for B11 (issue #868): a copy kept from an earlier
+    // iteration keeps the branch binding borrowed, so its next evaluation is
+    // rejected although no owner changes. Delete when that is accepted.
+    rejects(
+        &with_find(
+            r#"
+a = [Item("ada", 1)].unwrap()
+b = [Item("bob", 1)].unwrap()
+mut keep: Option[&Item] = Nothing
+for k in [0, 1].unwrap():
+    x = if k == 0:
+        find(&a, "ada")
+    else:
+        find(&b, "bob")
+    if k == 0:
+        keep = x
+print(keep).unwrap()
+"#,
+        ),
+        "cannot assign to `x` while it is borrowed",
+    );
+    assert_stdout(
+        &with_find(
+            r#"
+def main() -> Result[(), AllocError | IoError]:
+    a = [Item("ada", 1)]?
+    b = [Item("bob", 1)]?
+    mut keep: Option[&Item] = Nothing
+    for k in [0, 1]?:
+        if k == 0:
+            x = find(&a, "ada")
+            keep = x
+        else:
+            x = find(&b, "bob")
+            print(x)?
+    print(keep)?
+    Ok(())
+"#,
+        ),
+        "Option[&Item].Some(Item(name=\"bob\", count=1))\nOption[&Item].Some(Item(name=\"ada\", count=1))\n",
+    );
+}

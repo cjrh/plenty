@@ -272,7 +272,10 @@ arm. An arm's value cannot be a plain reference such as `&items[0]`, and a
 Each evaluation borrows afresh. In a loop, a result used only within its
 iteration does not keep the owners borrowed into the next one. A copy that
 outlives the iteration, such as one assigned to a `mut` holder declared
-before the loop, keeps every arm's owner borrowed wherever the copy is live.
+before the loop, keeps every arm's owner borrowed wherever the copy is live,
+and keeps the binding it was copied from borrowed too: the loop cannot
+evaluate the `if` into that binding again while the copy is live. See
+[Current limits](#current-limits) for the workaround.
 
 ## Passing a holder
 
@@ -351,6 +354,22 @@ it first and store an owned copy or an index instead.
 - A `mut` holder that started empty keeps every value ever assigned to it
   borrowed while it is used, even after a later assignment replaced that
   value.
+- A branch value copied into a holder declared before a loop, such as
+  `if k == 0: keep = x`, keeps `x` borrowed, so the next iteration's
+  `x = if ...` is rejected with "cannot assign to `x` while it is borrowed",
+  although no owner changes. Bind each arm's value separately and copy it
+  inside that arm:
+
+  ```plenty fragment
+  for k in [0, 1]?:
+      if k == 0:
+          x = find(&staff, "ada")
+          keep = x
+      else:
+          x = find(&guests, "bob")
+          print(x)?
+  ```
+
 - Patterns cannot match nested variants through the carried reference:
   `case Some(Some(v))` on `Option[&Option[i64]]` needs a second `match`.
 - A returned reference from a temporary argument follows the
