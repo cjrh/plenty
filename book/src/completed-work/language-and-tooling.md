@@ -390,7 +390,9 @@ references (`Option[&T]`/`Result[&T, E]`) shipped as phase 1 (issue #520,
 local PR #622). Immutable holders initialized with `Nothing`, `Err(e)`, or
 `Some`/`Ok` around one borrow nothing (issue #867). Reference-carrying
 parameters and `mut` holders shipped as the first part of issue #868, and
-`if`/`match` values producing these types as the second.
+`if`/`match` values producing these types as the second. The third added
+started-empty holders that choose between owners, nested patterns through the
+carried reference, and `unwrap_or(&default)`.
 `dict.get_mut` replaced dictionary indexed assignment
 (issue #580, local PR #696); heap and graph reference getters shipped
 (local PR #629).

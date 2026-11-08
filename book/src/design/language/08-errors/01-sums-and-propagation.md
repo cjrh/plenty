@@ -17,6 +17,9 @@ supplied default, discarding the error. Like the Option form, it evaluates the
 receiver and default eagerly, in that order. In
 `option.unwrap_or(compute()?)`, `compute` runs and can propagate an error even
 when the option is `Some`. Choose an eager default only when that is intended.
+For a borrowed payload, as in `Option[&Item]`, the default is a borrow too, and
+the result keeps both owners borrowed; see
+[optional references](../05-ownership/05-optional-references.md#using-the-result).
 
 The lazy alternatives consume an owned callback and invoke it at most once:
 

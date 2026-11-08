@@ -535,7 +535,7 @@ def main() -> Result[(), AllocError | IoError]:
 }
 
 #[test]
-fn mut_holders_stay_within_their_first_place() {
+fn mut_holders_keep_their_borrows_until_the_last_use() {
     rejects(
         &with_find(
             r#"
@@ -548,21 +548,6 @@ print(best.is_some()).unwrap()
 "#,
         ),
         "cannot modify or exclusively borrow `items` while it is borrowed",
-    );
-    rejects(
-        &with_find(
-            r#"
-a = [Item("ada", 1)].unwrap()
-b = [Item("bob", 1)].unwrap()
-mut pick: Option[&Item] = Nothing
-if len(a) > 0:
-    pick = Some(&a[0])
-else:
-    pick = Some(&b[0])
-print(pick.is_some()).unwrap()
-"#,
-        ),
-        "holder `pick` borrows another owner, since its first borrowing assignment at line 22; it can be assigned only borrows of that owner, and assigning `Nothing` does not release it",
     );
     // An earlier `return` in a loop can return a value assigned later.
     rejects(
@@ -1092,16 +1077,6 @@ match &o:
         &with_find(
             r#"
 items = [Item("ada", 1)].unwrap()
-other = Item("bob", 2)
-item = find(&items, "ada").unwrap_or(&other)
-"#,
-        ),
-        "`unwrap_or` cannot choose between two borrows; use `match`",
-    );
-    rejects(
-        &with_find(
-            r#"
-items = [Item("ada", 1)].unwrap()
 o = find(&items, "ada")
 f = def [o]() -> bool:
     o.is_some()
@@ -1513,4 +1488,195 @@ def main() -> Result[(), AllocError | IoError]:
         ),
         "Option[&Item].Some(Item(name=\"bob\", count=1))\nOption[&Item].Some(Item(name=\"ada\", count=1))\n",
     );
+}
+
+/// A holder that started empty may be assigned borrows of different owners
+/// (issue #868); each use keeps all of them borrowed.
+#[test]
+fn empty_holders_choose_between_owners() {
+    let program = r#"
+class Item:
+    name: str
+    count: i64
+
+def main() -> Result[(), AllocError | IoError]:
+    mut a = [Item("ada", 1)]?
+    mut b = [Item("bob", 2)]?
+    mut pick: Option[&Item] = Nothing
+    if len(a) > 5:
+        pick = Some(&a[0])
+    else:
+        pick = Some(&b[0])
+    match pick:
+        case Some(item):
+            print(item.name)?
+        case Nothing:
+            pass
+    pick = Some(&a[0])
+    match pick:
+        case Some(item):
+            print(item.name)?
+        case Nothing:
+            pass
+    a.clear()
+    b.clear()
+    Ok(())
+"#;
+    assert_stdout(program, "bob\nada\n");
+    rejects(
+        &with_find(
+            r#"
+mut a = [Item("ada", 1)].unwrap()
+b = [Item("bob", 1)].unwrap()
+mut pick: Option[&Item] = Nothing
+pick = Some(&a[0])
+pick = Some(&b[0])
+a.clear()
+print(pick.is_some()).unwrap()
+"#,
+        ),
+        "`pick` started empty, so it keeps every value assigned to it borrowed",
+    );
+    rejects(
+        &with_find(
+            r#"
+a = [Item("ada", 1)].unwrap()
+b = [Item("bob", 1)].unwrap()
+mut pick = find(&a, "ada")
+pick = find(&b, "bob")
+"#,
+        ),
+        "can be reassigned only to a reference into the owner it first borrowed; to choose between owners, start it empty, as in `mut pick: Option[&Item] = Nothing`",
+    );
+}
+
+/// `unwrap_or` with a borrowed default keeps the payload's and the
+/// default's owners borrowed (issue #868).
+#[test]
+fn unwrap_or_takes_a_borrowed_default() {
+    let program = r#"
+class Item:
+    name: str
+    count: i64
+
+def find(items: &list[Item], name: &str) -> Option[&Item]:
+    for item in items:
+        if item.name == name:
+            return Some(item)
+    Nothing
+
+def first(v: &mut list[i64]) -> Result[&mut i64, str]:
+    for x in v:
+        return Ok(x)
+    Err("empty")
+
+def pick(items: &list[Item], name: &str) -> &Item:
+    find(items, name).unwrap_or(&items[0])
+
+def main() -> Result[(), AllocError | IoError]:
+    mut items = [Item("ada", 1), Item("bob", 2)]?
+    other = Item("zed", 0)
+    print(find(&items, "bob").unwrap_or(&other).name)?
+    print(find(&items, "x").unwrap_or(&other).name)?
+    print(pick(&items, "x").name)?
+    items.clear()
+    mut xs: list[i64] = []?
+    mut spare = 0
+    slot = first(&mut xs).unwrap_or(&mut spare)
+    *slot = 5
+    print(spare)?
+    Ok(())
+"#;
+    assert_stdout(program, "bob\nzed\nada\n5\n");
+    for (body, message) in [
+        (
+            "mut items = [Item(\"ada\", 1)].unwrap()\nother = Item(\"bob\", 2)\nitem = find(&items, \"x\").unwrap_or(&other)\nitems.clear()\nprint(item.name).unwrap()\n",
+            "`item` holds an `unwrap_or` result, which keeps both the payload and the default borrowed",
+        ),
+        (
+            "items = [Item(\"ada\", 1)].unwrap()\nmut other = Item(\"bob\", 2)\nitem = find(&items, \"x\").unwrap_or(&other)\nother.count = 3\nprint(item.name).unwrap()\n",
+            "cannot modify or exclusively borrow `other.count` while `other` is borrowed",
+        ),
+        (
+            "def pick(items: &list[Item]) -> &Item:\n    other = Item(\"bob\", 2)\n    find(items, \"x\").unwrap_or(&other)\n",
+            "returned reference must originate from the first reference parameter, `items`",
+        ),
+    ] {
+        rejects(&with_find(body), message);
+    }
+}
+
+/// A pattern below the carried reference matches its referent and binds
+/// references into it (issue #868).
+#[test]
+fn nested_patterns_match_through_the_carried_reference() {
+    let program = r#"
+class Item:
+    name: str
+    count: i64
+
+def find(items: &list[Item], name: &str) -> Option[&Item]:
+    for item in items:
+        if item.name == name:
+            return Some(item)
+    Nothing
+
+def first(v: &mut list[Option[i64]]) -> Option[&mut Option[i64]]:
+    for x in v:
+        return Some(x)
+    Nothing
+
+def peek(v: &list[Option[i64]]) -> Result[&Option[i64], str]:
+    for x in v:
+        return Ok(x)
+    Err("empty")
+
+def describe(v: &list[Option[i64]]) -> Result[(), IoError]:
+    match peek(v):
+        case Ok(Some(1) | Nothing):
+            print("one or none")?
+        case Ok(Some(n)):
+            print("some", *n)?
+        case Err(e):
+            print(e)?
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    items = [Item("ada", 3), Item("bob", 2)]?
+    for name in ["ada", "bob", "x"]?:
+        match find(&items, name):
+            case Some(Item(name=n, count=3)):
+                print("three", n)?
+            case Some(Item(name=n, count=c)):
+                print(n, *c)?
+            case Nothing:
+                print("missing")?
+    mut xs = [Some(1), Nothing]?
+    match first(&mut xs):
+        case Some(Some(v)):
+            *v += 10
+        case Some(Nothing) | Nothing:
+            pass
+    print(xs)?
+    describe(&xs)?
+    describe(&[Nothing]?)?
+    describe(&[]?)?
+    Ok(())
+"#;
+    assert_stdout(
+        program,
+        "three ada\nbob 2\nmissing\n[Option[i64].Some(11), Option[i64].Nothing]\nsome 11\none or none\nempty\n",
+    );
+    for (body, message) in [
+        (
+            "mut items = [Item(\"ada\", 1)].unwrap()\nmatch find(&items, \"ada\"):\n    case Some(Item(name=n, count=_)):\n        items.clear()\n        print(n).unwrap()\n    case Nothing:\n        pass\n",
+            "cannot modify or exclusively borrow `items` while it is borrowed",
+        ),
+        (
+            "items = [Item(\"ada\", 1)].unwrap()\nmatch find(&items, \"ada\"):\n    case Some(Item(name=_, count=c)):\n        *c = 1\n    case Nothing:\n        pass\n",
+            "assignment requires an exclusive reference",
+        ),
+    ] {
+        rejects(&with_find(body), message);
+    }
 }
