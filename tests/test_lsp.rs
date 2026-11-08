@@ -1805,7 +1805,10 @@ fn a_rename_is_refused_with_its_reason() {
     );
     // `Point` is captured by a local in `main` after the rename.
     let message = rename_refused(&mut client, &main, 6, 8, "p");
-    assert!(message.starts_with("after the rename"), "{message}");
+    assert!(
+        message.starts_with("`p` already names something in scope, so after the rename the package would not check: src/main.plenty:7:9:"),
+        "{message}"
+    );
     // A package that does not check before the rename.
     write(
         &root.join("src/broken.plenty"),
@@ -1886,7 +1889,10 @@ fn a_local_rename_stays_in_its_scope_and_reads_unsaved_text() {
     );
     // The new name would capture `helper` in `first`.
     let message = rename_refused(&mut client, &main, 4, 8, "helper");
-    assert!(message.starts_with("after the rename"), "{message}");
+    assert!(
+        message.starts_with("`helper` already names something in scope, so after the rename the file would not check: 6:14:"),
+        "{message}"
+    );
     // Unsaved text: a new use of `helper`.
     let unsaved = main_text.replace("    count = 2\n", "    count = helper(2)\n");
     client.notify(
@@ -1932,5 +1938,46 @@ fn a_public_library_rename_needs_confirmation() {
         }
     }
     assert_eq!(renamed(&root, &edit, &[]).len(), 4);
+    client.exit();
+}
+
+#[test]
+fn a_module_alias_and_a_capturing_name_are_refused_with_their_reasons() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    app_package(
+        &root,
+        &[
+            ("src/util.plenty", "pub def f() -> i64:\n    1\n"),
+            (
+                "src/main.plenty",
+                "import util as u\n\ndef main() -> ():\n    a = u.f()\n    b = 2\n    c = (a, b)\n",
+            ),
+        ],
+    );
+    let main = root.join("src/main.plenty");
+    let mut client = Client::start(&dir.path().join("cache"));
+    let refusal = "renaming a module alias (`import m as a`) is not supported";
+    // The alias in the import, a use of it, and the module's name.
+    for (line, character) in [(0, 15), (3, 8), (0, 8)] {
+        let expected = if character == 8 && line == 0 {
+            "renaming a module is not supported: it means renaming its file"
+        } else {
+            refusal
+        };
+        assert_eq!(
+            prepare_rename(&mut client, &main, line, character).unwrap_err(),
+            expected
+        );
+    }
+    // `b` is an immutable local, so renaming `a` to it makes `b = 2` a
+    // reassignment.
+    let message = rename_refused(&mut client, &main, 3, 4, "b");
+    assert!(
+        message.starts_with(
+            "`b` already names something in scope, so after the rename the file would not check: "
+        ),
+        "{message}"
+    );
     client.exit();
 }

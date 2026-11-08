@@ -187,6 +187,14 @@ fn subject(
         if let Some(found) = alias_at(analysis, path, text, line, column)? {
             return Ok(found);
         }
+        // The analysis records no reference for a module alias's uses
+        // (`u` in `u.f()`).
+        let spelled = word_at(text, line, column);
+        if !spelled.is_empty()
+            && aliases(text).is_ok_and(|all| all.iter().any(|a| a.module && a.alias == spelled))
+        {
+            return Err(MODULE_ALIAS.into());
+        }
         return Err("there is no name to rename here".into());
     };
     let symbol = &analysis.symbols[reference.symbol];
@@ -217,6 +225,10 @@ fn subject(
         }
         SymbolKind::Parameter => return not_yet("a parameter", "named arguments"),
         SymbolKind::Module => {
+            let spelled = written(text, &name_at(text, &reference.location));
+            if spelled != short {
+                return Err(MODULE_ALIAS.into());
+            }
             return Err("renaming a module is not supported: it means renaming its file".into());
         }
         _ => {}
@@ -244,7 +256,7 @@ fn subject(
         // declaration.
         let binding = aliases(text)?
             .into_iter()
-            .find(|a| a.name == short && a.alias == spelled)
+            .find(|a| !a.module && a.name == short && a.alias == spelled)
             .ok_or_else(|| format!("cannot rename `{spelled}`, written for `{short}`"))?;
         let subject = Subject::Alias {
             identity,
@@ -272,6 +284,8 @@ struct Alias {
     /// The alias, from 1.
     line: u32,
     column: u32,
+    /// `import a.b as c`, which names a module.
+    module: bool,
 }
 
 fn aliases(text: &str) -> Result<Vec<Alias>, String> {
@@ -295,10 +309,6 @@ fn aliases(text: &str) -> Result<Vec<Alias>, String> {
             let (Some(name_text), Some(alias_text)) = (word(name), word(alias)) else {
                 continue;
             };
-            // `import a.b as c` names a module, which is not renamed.
-            if !from {
-                continue;
-            }
             out.push(Alias {
                 name: name_text.to_owned(),
                 name_line: name.line,
@@ -306,6 +316,7 @@ fn aliases(text: &str) -> Result<Vec<Alias>, String> {
                 alias: alias_text.to_owned(),
                 line: alias.line,
                 column: alias.column,
+                module: !from,
             });
         }
     }
@@ -328,13 +339,16 @@ fn alias_at(
     }) else {
         return Ok(None);
     };
+    if alias.module {
+        return Err(MODULE_ALIAS.into());
+    }
     let file = File::Path(path.to_owned());
     let item = analysis
         .reference_at(&file, alias.name_line, alias.name_column)
         .ok_or_else(|| format!("cannot tell what `{}` names", alias.name))?;
     let symbol = &analysis.symbols[item.symbol];
     if symbol.kind == SymbolKind::Module {
-        return Err("renaming a module alias is not supported".into());
+        return Err(MODULE_ALIAS.into());
     }
     let declared = symbol
         .location
@@ -353,6 +367,33 @@ fn alias_at(
         column: alias.column,
     };
     Ok(Some((subject, location)))
+}
+
+const MODULE_ALIAS: &str = "renaming a module alias (`import m as a`) is not supported";
+
+/// The identifier containing (`line`, `column`), from 1, or "".
+fn word_at(text: &str, line: u32, column: u32) -> String {
+    let Some(chars) = text
+        .lines()
+        .nth(line as usize - 1)
+        .map(|l| l.chars().collect::<Vec<_>>())
+    else {
+        return String::new();
+    };
+    let part = |c: &char| c.is_ascii_alphanumeric() || *c == '_';
+    let at = column as usize - 1;
+    if !chars.get(at).is_some_and(part) {
+        return String::new();
+    }
+    let start = chars[..at]
+        .iter()
+        .rposition(|c| !part(c))
+        .map_or(0, |i| i + 1);
+    let end = chars[at..]
+        .iter()
+        .position(|c| !part(c))
+        .map_or(chars.len(), |i| at + i);
+    chars[start..end].iter().collect()
 }
 
 /// The last name of a dotted reference, which is the part a rename edits.
@@ -563,9 +604,14 @@ fn in_file(
         after_overlay.into_iter().collect();
     let after = recheck(&after_overlay);
     if let Some(error) = after.diagnostics.first() {
+        let detail = format!("{}:{}: {}", error.line, error.column, error.message);
+        if mentions(text, new_name) {
+            return Err(format!(
+                "`{new_name}` already names something in scope, so after the rename the file would not check: {detail}"
+            ));
+        }
         return Err(format!(
-            "after the rename the file would not check: {}:{}: {}",
-            error.line, error.column, error.message
+            "after the rename the file would not check: {detail}"
         ));
     }
     let paths: HashSet<PathBuf> = [path.to_owned()].into_iter().collect();
@@ -680,7 +726,7 @@ fn declaration(
             // A use through `from m import old as alias` keeps the alias.
             let aliased = aliases(text)?
                 .iter()
-                .any(|a| a.name == old && a.alias == spelled);
+                .any(|a| !a.module && a.name == old && a.alias == spelled);
             if aliased {
                 continue;
             }
@@ -759,7 +805,19 @@ fn declaration(
     }
     let (after, _) = package
         .analyze(&after_overlay, Some((&reach, &edited)), Errors::Stop)
-        .map_err(|e| format!("after the rename the package would not check: {e}"))?;
+        .map_err(|e| {
+            let taken = texts.values().any(|t| mentions(t, new_name))
+                || read_files
+                    .iter()
+                    .any(|f| read(overlay, f).is_ok_and(|t| mentions(&t, new_name)));
+            if taken {
+                format!(
+                    "`{new_name}` already names something in scope, so after the rename the package would not check: {e}"
+                )
+            } else {
+                format!("after the rename the package would not check: {e}")
+            }
+        })?;
     let paths: HashSet<PathBuf> = edited.iter().cloned().collect();
     let edit_map: HashMap<PathBuf, Vec<TextEdit>> =
         edits.iter().map(|(p, e)| (p.clone(), e.clone())).collect();

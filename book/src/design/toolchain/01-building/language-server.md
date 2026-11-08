@@ -122,12 +122,16 @@ server refuses the rename, with the reason as the request's error, when:
 - the new name is not an identifier, is a reserved word, or is the old name;
 - another name already written as the new name would conflict, or the
   rename would change what any name refers to (a local capturing a
-  function, for instance);
+  function, for instance). When the edited code would not check and the
+  new name already appears there, the reason says so and gives the
+  compile error;
 - the package or the file does not check before the rename, or would not
   check after it;
 - an [`if const`](../../language/02-source/target-conditionals.md) block
-  mentions the old or new name, since the arms a build does not select are
-  not checked;
+  mentions the old name, or the new name in a file where it would be
+  written bare (the declaring module, a module importing it with `from`
+  without an alias, or the file of a local or alias), since the arms a
+  build does not select are not checked;
 - one name in an uninstantiated generic body refers to different
   declarations in different instantiations;
 - the declaration is in `std` or a dependency outside the workspace, or is
@@ -135,7 +139,8 @@ server refuses the rename, with the reason as the request's error, when:
 - the name is a field, method, enum variant, or parameter. These are not
   supported yet, since constructor calls, `case` patterns, named arguments,
   and members in generic bodies are not resolved (issue #876);
-- the name is a module, or a module alias (`import shapes as s`);
+- the name is a module, or a module alias (`s` in `import shapes as s`, at
+  the import or a use);
 - the file changed since its last check; ask for the rename again.
 
 Renaming a `pub` declaration of a package with a library changes that
