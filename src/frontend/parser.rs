@@ -46,7 +46,8 @@ pub(super) struct Parser {
     /// Method syntax that may require the view-based std.bytes implementation.
     pub(super) byte_methods: bool,
     /// Whether the module can introduce a `bytes` value: it has a `b"..."`
-    /// literal, `include_bytes`, a byte type, or `as_bytes` method syntax. See
+    /// literal, `include_bytes`, a byte type, a `u8` literal, or `as_bytes`
+    /// method syntax. See
     /// [`modules::Loader::slice_bytes`].
     pub(super) mentions_bytes: bool,
     /// Whether the module has the word `FormatError`, the prelude name that
@@ -144,6 +145,9 @@ impl Parser {
                 self.mentions_bytes |= match &token.kind {
                     Kind::Bytes(_) => true,
                     Kind::Word(word) => matches!(&**word, "bytes" | "include_bytes" | "u8"),
+                    // `[104u8]` builds a `list[u8]`, whose views take the
+                    // byte methods.
+                    Kind::Number(number) => number.ends_with("u8"),
                     _ => false,
                 };
                 self.mentions_format_error |=

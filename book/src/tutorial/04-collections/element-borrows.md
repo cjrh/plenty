@@ -119,10 +119,31 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
 
 The positions clamp as a copying slice's do. A view supports `len`, indexing,
 narrower views, loops, and `==` with another view, and prints as a list of its
-elements. An exclusive view also takes indexed assignment and
-[`swap`](reordering.md#exchange-two-elements). A `&[T]` parameter lends a whole
-list passed as `scores`, as a `&T` parameter would, and copies nothing; `&scores`
-means the same. An `&mut [T]` parameter needs `&mut scores` written out. A view borrows its
+elements. It searches its elements in place with `in`, `count`, `find`, and
+`rfind`, counting positions from the start of the view. `list(v)?` or
+`v[a:b]?` copies its elements into a new list:
+
+```plenty
+def main() -> Result[(), AllocError | IoError]:
+    scores = [70, 85, 90, 85, 88]?
+    later = &scores[2:]
+    print(85 in later, 70 in later, later.count(85))?
+    best = later[:2]?
+    print(best)?
+    Ok(())
+```
+
+```output
+True False 1
+[90, 85]
+```
+
+An exclusive view also takes indexed assignment,
+[`swap`](reordering.md#exchange-two-elements), and `reverse`. Its length is
+fixed, so methods such as `append` and `pop` belong to the list. A `&[T]`
+parameter lends a whole list passed as `scores`, as a `&T` parameter would,
+and copies nothing; `&scores` means the same. An `&mut [T]` parameter needs
+`&mut scores` written out. A view borrows its
 run of the list, and the list cannot grow while the view is live. Two exclusive
 views of one list can be live together when one stops where the other starts:
 
