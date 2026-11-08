@@ -1,8 +1,8 @@
-# One byte per element in contiguous native storage. Every offset is validated
-# here; one outside the buffer is a caller bug and traps with `__trap`, like a
-# list index. The native primitives only repeat the check.
-# A `&[u8]` view holds a loan of its owner, so the borrow checker rejects
-# growth or movement while one is live.
+# Contiguous native byte storage; invalid positions trap. Views hold owner loans.
+# Binary methods model Python bytes operations:
+# https://docs.python.org/3/library/stdtypes.html#bytes-and-bytearray-operations
+# Reverse search uses already-shipped memchr 2.8.0 (MIT OR Unlicense):
+# its constant-space linear algorithm avoids quadratic searches.
 
 pub enum BytesError:
     InvalidUtf8
@@ -353,8 +353,8 @@ pub def with_capacity(capacity: i64) -> Result[Bytes, AllocError]:
 pub def from_list(values: &list[u8]) -> Result[Bytes, AllocError]:
     Ok(Bytes(__bytes_from_list(values)?))
 
-pub def from_text(text: &str) -> Result[Bytes, AllocError]:
-    Ok(Bytes(__bytes_from_text(text)?))
+pub def from_text(text: &strview) -> Result[Bytes, AllocError]:
+    from_bytes(text.as_bytes())
 
 # An owned, growable copy of any byte view: a literal, `Bytes`, `list[u8]`
 # or a subview of one.
@@ -367,3 +367,226 @@ pub def from_bytes(source: &[u8]) -> Result[Bytes, AllocError]:
 # bytes moved. The view carries its own range, so there is no range error.
 pub def write_file(file: &mut File, source: &[u8]) -> Result[i64, IoError]:
     __io_file_write(source, file)
+
+# Binary string operations share one view-based implementation across static
+# literals, buffers and selected ranges. No function decodes Unicode.
+pub def find(source: &[u8], needle: &[u8]) -> Option[i64]:
+    after(0, __bytes_find_bytes(source, needle))
+
+pub def find_byte(source: &[u8], value: u8) -> Option[i64]:
+    after(0, __bytes_find(source, value))
+
+pub def rfind(source: &[u8], needle: &[u8]) -> Option[i64]:
+    after(0, __bytes_rfind_bytes(source, needle))
+
+pub def rfind_byte(source: &[u8], value: u8) -> Option[i64]:
+    mut at = len(source)
+    while at > 0:
+        # at is positive, so subtraction and the following index are valid.
+        unchecked:
+            at -= 1
+        if source[at] == value:
+            return Some(at)
+    Nothing
+
+pub def count(source: &[u8], needle: &[u8]) -> i64:
+    if len(needle) == 0:
+        # An addressable allocation cannot occupy i64.MAX bytes plus its
+        # storage metadata, so the number of boundaries fits in i64.
+        unchecked:
+            return len(source) + 1
+    mut found = 0
+    mut at = 0
+    while at < len(source):
+        match find(&source[at:], needle):
+            case Some(offset):
+                # Each nonempty match consumes bytes within the source.
+                unchecked:
+                    at += offset + len(needle)
+                    found += 1
+            case Nothing:
+                break
+    found
+
+pub def count_byte(source: &[u8], value: u8) -> i64:
+    __bytes_count(source, value)
+
+pub def starts_with(source: &[u8], prefix: &[u8]) -> bool:
+    __bytes_matches(source, 0, prefix)
+
+pub def ends_with(source: &[u8], suffix: &[u8]) -> bool:
+    if len(suffix) > len(source):
+        return False
+    unchecked:
+        __bytes_matches(source, len(source) - len(suffix), suffix)
+
+pub def is_ascii(source: &[u8]) -> bool:
+    __bytes_run(source, 0u8) == len(source)
+
+pub def is_space(source: &[u8]) -> bool:
+    len(source) > 0 and __bytes_find_in(source, b" \t\n\r\x0b\x0c", 0u8) < 0
+
+pub def is_digit(source: &[u8]) -> bool:
+    if len(source) == 0:
+        return False
+    for byte in source:
+        if byte < 48u8 or byte > 57u8:
+            return False
+    True
+
+pub def is_alpha(source: &[u8]) -> bool:
+    if len(source) == 0:
+        return False
+    for byte in source:
+        if not ascii_alpha(*byte):
+            return False
+    True
+
+pub def is_alnum(source: &[u8]) -> bool:
+    if len(source) == 0:
+        return False
+    for byte in source:
+        if not ascii_alpha(*byte) and (byte < 48u8 or byte > 57u8):
+            return False
+    True
+
+def ascii_alpha(byte: u8) -> bool:
+    (byte >= 65u8 and byte <= 90u8) or (byte >= 97u8 and byte <= 122u8)
+
+pub def lower(source: &[u8]) -> Result[Bytes, AllocError]:
+    mut result = from_bytes(source)?
+    for at in range(len(source)):
+        byte = source[at]
+        if byte >= 65u8 and byte <= 90u8:
+            # ASCII uppercase plus 32 is always an ASCII lowercase byte.
+            unchecked:
+                result.set(at, byte + 32u8)
+    Ok(result)
+
+pub def upper(source: &[u8]) -> Result[Bytes, AllocError]:
+    mut result = from_bytes(source)?
+    for at in range(len(source)):
+        byte = source[at]
+        if byte >= 97u8 and byte <= 122u8:
+            unchecked:
+                result.set(at, byte - 32u8)
+    Ok(result)
+
+pub def lstrip(source: &[u8], set: &[u8] = b" \t\n\r\x0b\x0c") -> Result[Bytes, AllocError]:
+    start = strip_start(source, set)
+    from_bytes(&source[start:])
+
+pub def rstrip(source: &[u8], set: &[u8] = b" \t\n\r\x0b\x0c") -> Result[Bytes, AllocError]:
+    stop = strip_stop(source, set)
+    from_bytes(&source[:stop])
+
+pub def strip(source: &[u8], set: &[u8] = b" \t\n\r\x0b\x0c") -> Result[Bytes, AllocError]:
+    start = strip_start(source, set)
+    stop = strip_stop(source, set)
+    if start >= stop:
+        return empty()
+    from_bytes(&source[start:stop])
+
+def strip_start(source: &[u8], set: &[u8]) -> i64:
+    match after(0, __bytes_find_in(source, set, 0u8)):
+        case Some(at):
+            at
+        case Nothing:
+            len(source)
+
+def strip_stop(source: &[u8], set: &[u8]) -> i64:
+    mut at = len(source)
+    while at > 0:
+        mut last = at
+        unchecked:
+            last -= 1
+        if __bytes_find(set, source[last]) < 0:
+            break
+        at = last
+    at
+
+# Explicit separators preserve empty fields. An empty separator is invalid,
+# matching text split's programmer-error policy.
+pub def split(source: &[u8], separator: &[u8]) -> Result[list[Bytes], AllocError]:
+    if len(separator) == 0:
+        __trap("bytes.split: separator is empty")
+    mut result: list[Bytes] = []?
+    mut at = 0
+    while True:
+        match find(&source[at:], separator):
+            case Some(offset):
+                mut stop = at
+                unchecked:
+                    stop += offset
+                result.append(from_bytes(&source[at:stop])?)?
+                unchecked:
+                    at = stop + len(separator)
+            case Nothing:
+                result.append(from_bytes(&source[at:])?)?
+                break
+    Ok(result)
+
+pub def split_whitespace(source: &[u8]) -> Result[list[Bytes], AllocError]:
+    mut result: list[Bytes] = []?
+    mut at = strip_start(source, b" \t\n\r\x0b\x0c")
+    while at < len(source):
+        width = __bytes_find_in(&source[at:], b" \t\n\r\x0b\x0c", 1u8)
+        mut stop = len(source)
+        if width >= 0:
+            unchecked:
+                stop = at + width
+        result.append(from_bytes(&source[at:stop])?)?
+        unchecked:
+            at = stop + strip_start(&source[stop:], b" \t\n\r\x0b\x0c")
+    Ok(result)
+
+pub def replace(source: &[u8], old: &[u8], replacement: &[u8]) -> Result[Bytes, AllocError]:
+    # Grow the result through checked byte-buffer operations. Even an empty
+    # needle consumes a byte between insertions, so the loop always advances.
+    mut result = empty()?
+    if len(old) == 0:
+        result.extend(replacement)?
+        for at in range(len(source)):
+            result.push(source[at])?
+            result.extend(replacement)?
+        return Ok(result)
+    mut at = 0
+    while at < len(source):
+        match find(&source[at:], old):
+            case Some(offset):
+                mut stop = at
+                unchecked:
+                    stop += offset
+                result.extend(&source[at:stop])?
+                result.extend(replacement)?
+                unchecked:
+                    at = stop + len(old)
+            case Nothing:
+                result.extend(&source[at:])?
+                break
+    Ok(result)
+
+pub def join[T](separator: &[u8], parts: &list[T]) -> Result[Bytes, AllocError]:
+    mut size = 0
+    mut first = True
+    # Preflight every addition before allocating the result. The same checked
+    # bound also covers multiplication by the number of separators.
+    for part in parts:
+        if not first:
+            unchecked:
+                if len(separator) > i64.MAX - size:
+                    return Err(AllocError.CapacityOverflow)
+                size += len(separator)
+        first = False
+        unchecked:
+            if len(part) > i64.MAX - size:
+                return Err(AllocError.CapacityOverflow)
+            size += len(part)
+    mut result = with_capacity(size)?
+    first = True
+    for part in parts:
+        if not first:
+            result.extend(separator)?
+        first = False
+        result.extend(part)?
+    Ok(result)

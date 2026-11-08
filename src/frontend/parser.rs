@@ -43,8 +43,10 @@ pub(super) struct Parser {
     pub(super) formats: bool,
     /// Whether the module has a slice, which can produce `std.bytes.Bytes`.
     pub(super) slices: bool,
+    /// Method syntax that may require the view-based std.bytes implementation.
+    pub(super) byte_methods: bool,
     /// Whether the module can introduce a `bytes` value: it has a `b"..."`
-    /// literal, `include_bytes`, or the word `bytes`. See
+    /// literal, `include_bytes`, a byte type, or `as_bytes` method syntax. See
     /// [`modules::Loader::slice_bytes`].
     pub(super) mentions_bytes: bool,
     /// Whether the module has the word `FormatError`, the prelude name that
@@ -80,6 +82,7 @@ impl Parser {
             deepest: 0,
             formats: false,
             slices: false,
+            byte_methods: false,
             mentions_bytes: false,
             mentions_format_error: false,
             scratch_stmts: Vec::new(),
@@ -140,7 +143,7 @@ impl Parser {
                 }
                 self.mentions_bytes |= match &token.kind {
                     Kind::Bytes(_) => true,
-                    Kind::Word(word) => matches!(&**word, "bytes" | "include_bytes"),
+                    Kind::Word(word) => matches!(&**word, "bytes" | "include_bytes" | "u8"),
                     _ => false,
                 };
                 self.mentions_format_error |=
@@ -1743,6 +1746,8 @@ impl Parser {
                 let at = left.at.clone();
                 left = if self.eat("(") {
                     let args = self.arguments()?;
+                    self.byte_methods |= super::byte_methods::supported(&name);
+                    self.mentions_bytes |= name == "as_bytes";
                     Expr {
                         at,
                         kind: Expression::Method(Box::new(left), name, args, pos),

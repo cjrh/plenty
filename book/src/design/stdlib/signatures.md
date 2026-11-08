@@ -24,89 +24,89 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.actor.http.server`](#stdactorhttpserver): 286-349
 - [`std.archive`](#stdarchive): 351-417
 - [`std.atomic`](#stdatomic): 419-428
-- [`std.bytes`](#stdbytes): 430-479
-- [`std.cache.lru`](#stdcachelru): 481-503
-- [`std.channel`](#stdchannel): 505-509
-- [`std.cli`](#stdcli): 511-541
-- [`std.cli.fileinput`](#stdclifileinput): 543-552
-- [`std.cli.progress`](#stdcliprogress): 554-578
-- [`std.collections`](#stdcollections): 580-607
-- [`std.complex`](#stdcomplex): 609-635
-- [`std.compress`](#stdcompress): 637-667
-- [`std.concurrent`](#stdconcurrent): 669-673
-- [`std.crypto`](#stdcrypto): 675-756
-- [`std.csv`](#stdcsv): 758-821
-- [`std.dataframe`](#stddataframe): 823-1022
-- [`std.db.kv`](#stddbkv): 1024-1056
-- [`std.db.sqlite`](#stddbsqlite): 1058-1122
-- [`std.deque`](#stddeque): 1124-1138
-- [`std.diff`](#stddiff): 1140-1169
-- [`std.encoding`](#stdencoding): 1171-1238
-- [`std.env`](#stdenv): 1240-1254
-- [`std.error`](#stderror): 1256-1276
-- [`std.fmt`](#stdfmt): 1278-1345
-- [`std.fs`](#stdfs): 1347-1446
-- [`std.fs.dirs`](#stdfsdirs): 1448-1458
-- [`std.fs.lock`](#stdfslock): 1460-1475
-- [`std.fs.watch`](#stdfswatch): 1477-1512
-- [`std.graph`](#stdgraph): 1514-1602
-- [`std.http`](#stdhttp): 1604-1675
-- [`std.http.decoder`](#stdhttpdecoder): 1677-1694
-- [`std.http.body`](#stdhttpbody): 1696-1731
-- [`std.http.client`](#stdhttpclient): 1733-1843
-- [`std.http.cookie`](#stdhttpcookie): 1845-1877
-- [`std.http.files`](#stdhttpfiles): 1879-1892
-- [`std.http.https`](#stdhttphttps): 1894-1908
-- [`std.http.proxy`](#stdhttpproxy): 1910-1931
-- [`std.http.server`](#stdhttpserver): 1933-2034
-- [`std.http.sse`](#stdhttpsse): 2036-2055
-- [`std.http.tls`](#stdhttptls): 2057-2074
-- [`std.http.typed`](#stdhttptyped): 2076-2109
-- [`std.http.websocket`](#stdhttpwebsocket): 2111-2146
-- [`std.http.wss`](#stdhttpwss): 2148-2154
-- [`std.image`](#stdimage): 2156-2202
-- [`std.io`](#stdio): 2204-2310
-- [`std.io.typed`](#stdiotyped): 2312-2350
-- [`std.serial`](#stdserial): 2352-2416
-- [`std.json`](#stdjson): 2418-2570
-- [`std.jwt`](#stdjwt): 2572-2619
-- [`std.log`](#stdlog): 2621-2688
-- [`std.markdown`](#stdmarkdown): 2690-2724
-- [`std.template`](#stdtemplate): 2726-2763
-- [`std.math`](#stdmath): 2765-2836
-- [`std.mime`](#stdmime): 2838-2864
-- [`std.net`](#stdnet): 2866-2948
-- [`std.path`](#stdpath): 2950-2967
-- [`std.process`](#stdprocess): 2969-3027
-- [`std.random`](#stdrandom): 3029-3050
-- [`std.ready`](#stdready): 3052-3083
-- [`std.regex`](#stdregex): 3085-3138
-- [`std.report`](#stdreport): 3140-3151
-- [`std.secrets`](#stdsecrets): 3153-3179
-- [`std.shlex`](#stdshlex): 3181-3190
-- [`std.sketch`](#stdsketch): 3192-3230
-- [`std.sketch.xor`](#stdsketchxor): 3232-3243
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3245-3260
-- [`std.signal`](#stdsignal): 3262-3279
-- [`std.simd`](#stdsimd): 3281-3382
-- [`std.stat`](#stdstat): 3384-3417
-- [`std.plot`](#stdplot): 3419-3508
-- [`std.linalg`](#stdlinalg): 3510-3551
-- [`std.sync`](#stdsync): 3553-3573
-- [`std.system`](#stdsystem): 3575-3634
-- [`std.tempfile`](#stdtempfile): 3636-3668
-- [`std.test`](#stdtest): 3670-3712
-- [`std.text`](#stdtext): 3714-3757
-- [`std.thread`](#stdthread): 3759-3763
-- [`std.time`](#stdtime): 3765-3809
-- [`std.tls`](#stdtls): 3811-3893
-- [`std.toml`](#stdtoml): 3895-3994
-- [`std.unicode`](#stdunicode): 3996-4008
-- [`std.units`](#stdunits): 4010-4247
-- [`std.units.catalogue`](#stdunitscatalogue): 4249-5027
-- [`std.url`](#stdurl): 5029-5057
-- [`std.uuid`](#stduuid): 5059-5082
-- [`std.xml`](#stdxml): 5084-5117
+- [`std.bytes`](#stdbytes): 430-501
+- [`std.cache.lru`](#stdcachelru): 503-525
+- [`std.channel`](#stdchannel): 527-531
+- [`std.cli`](#stdcli): 533-563
+- [`std.cli.fileinput`](#stdclifileinput): 565-574
+- [`std.cli.progress`](#stdcliprogress): 576-600
+- [`std.collections`](#stdcollections): 602-629
+- [`std.complex`](#stdcomplex): 631-657
+- [`std.compress`](#stdcompress): 659-689
+- [`std.concurrent`](#stdconcurrent): 691-695
+- [`std.crypto`](#stdcrypto): 697-778
+- [`std.csv`](#stdcsv): 780-843
+- [`std.dataframe`](#stddataframe): 845-1044
+- [`std.db.kv`](#stddbkv): 1046-1078
+- [`std.db.sqlite`](#stddbsqlite): 1080-1144
+- [`std.deque`](#stddeque): 1146-1160
+- [`std.diff`](#stddiff): 1162-1191
+- [`std.encoding`](#stdencoding): 1193-1260
+- [`std.env`](#stdenv): 1262-1276
+- [`std.error`](#stderror): 1278-1298
+- [`std.fmt`](#stdfmt): 1300-1367
+- [`std.fs`](#stdfs): 1369-1468
+- [`std.fs.dirs`](#stdfsdirs): 1470-1480
+- [`std.fs.lock`](#stdfslock): 1482-1497
+- [`std.fs.watch`](#stdfswatch): 1499-1534
+- [`std.graph`](#stdgraph): 1536-1624
+- [`std.http`](#stdhttp): 1626-1697
+- [`std.http.decoder`](#stdhttpdecoder): 1699-1716
+- [`std.http.body`](#stdhttpbody): 1718-1753
+- [`std.http.client`](#stdhttpclient): 1755-1865
+- [`std.http.cookie`](#stdhttpcookie): 1867-1899
+- [`std.http.files`](#stdhttpfiles): 1901-1914
+- [`std.http.https`](#stdhttphttps): 1916-1930
+- [`std.http.proxy`](#stdhttpproxy): 1932-1953
+- [`std.http.server`](#stdhttpserver): 1955-2056
+- [`std.http.sse`](#stdhttpsse): 2058-2077
+- [`std.http.tls`](#stdhttptls): 2079-2096
+- [`std.http.typed`](#stdhttptyped): 2098-2131
+- [`std.http.websocket`](#stdhttpwebsocket): 2133-2168
+- [`std.http.wss`](#stdhttpwss): 2170-2176
+- [`std.image`](#stdimage): 2178-2224
+- [`std.io`](#stdio): 2226-2332
+- [`std.io.typed`](#stdiotyped): 2334-2372
+- [`std.serial`](#stdserial): 2374-2438
+- [`std.json`](#stdjson): 2440-2592
+- [`std.jwt`](#stdjwt): 2594-2641
+- [`std.log`](#stdlog): 2643-2710
+- [`std.markdown`](#stdmarkdown): 2712-2746
+- [`std.template`](#stdtemplate): 2748-2785
+- [`std.math`](#stdmath): 2787-2858
+- [`std.mime`](#stdmime): 2860-2886
+- [`std.net`](#stdnet): 2888-2970
+- [`std.path`](#stdpath): 2972-2989
+- [`std.process`](#stdprocess): 2991-3049
+- [`std.random`](#stdrandom): 3051-3072
+- [`std.ready`](#stdready): 3074-3105
+- [`std.regex`](#stdregex): 3107-3160
+- [`std.report`](#stdreport): 3162-3173
+- [`std.secrets`](#stdsecrets): 3175-3201
+- [`std.shlex`](#stdshlex): 3203-3212
+- [`std.sketch`](#stdsketch): 3214-3252
+- [`std.sketch.xor`](#stdsketchxor): 3254-3265
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3267-3282
+- [`std.signal`](#stdsignal): 3284-3301
+- [`std.simd`](#stdsimd): 3303-3404
+- [`std.stat`](#stdstat): 3406-3439
+- [`std.plot`](#stdplot): 3441-3530
+- [`std.linalg`](#stdlinalg): 3532-3573
+- [`std.sync`](#stdsync): 3575-3595
+- [`std.system`](#stdsystem): 3597-3656
+- [`std.tempfile`](#stdtempfile): 3658-3690
+- [`std.test`](#stdtest): 3692-3734
+- [`std.text`](#stdtext): 3736-3779
+- [`std.thread`](#stdthread): 3781-3785
+- [`std.time`](#stdtime): 3787-3831
+- [`std.tls`](#stdtls): 3833-3915
+- [`std.toml`](#stdtoml): 3917-4016
+- [`std.unicode`](#stdunicode): 4018-4030
+- [`std.units`](#stdunits): 4032-4269
+- [`std.units.catalogue`](#stdunitscatalogue): 4271-5049
+- [`std.url`](#stdurl): 5051-5079
+- [`std.uuid`](#stduuid): 5081-5104
+- [`std.xml`](#stdxml): 5106-5139
 
 ## `std.actor`
 
@@ -473,9 +473,31 @@ class Bytes
 def empty() -> Result[Bytes, AllocError]
 def with_capacity(capacity: i64) -> Result[Bytes, AllocError]
 def from_list(values: &list[u8]) -> Result[Bytes, AllocError]
-def from_text(text: &str) -> Result[Bytes, AllocError]
+def from_text(text: &strview) -> Result[Bytes, AllocError]
 def from_bytes(source: &[u8]) -> Result[Bytes, AllocError]
 def write_file(file: &mut File, source: &[u8]) -> Result[i64, IoError]
+def find(source: &[u8], needle: &[u8]) -> Option[i64]
+def find_byte(source: &[u8], value: u8) -> Option[i64]
+def rfind(source: &[u8], needle: &[u8]) -> Option[i64]
+def rfind_byte(source: &[u8], value: u8) -> Option[i64]
+def count(source: &[u8], needle: &[u8]) -> i64
+def count_byte(source: &[u8], value: u8) -> i64
+def starts_with(source: &[u8], prefix: &[u8]) -> bool
+def ends_with(source: &[u8], suffix: &[u8]) -> bool
+def is_ascii(source: &[u8]) -> bool
+def is_space(source: &[u8]) -> bool
+def is_digit(source: &[u8]) -> bool
+def is_alpha(source: &[u8]) -> bool
+def is_alnum(source: &[u8]) -> bool
+def lower(source: &[u8]) -> Result[Bytes, AllocError]
+def upper(source: &[u8]) -> Result[Bytes, AllocError]
+def lstrip(source: &[u8], set: &[u8] = b" \t\n\r\x0b\x0c") -> Result[Bytes, AllocError]
+def rstrip(source: &[u8], set: &[u8] = b" \t\n\r\x0b\x0c") -> Result[Bytes, AllocError]
+def strip(source: &[u8], set: &[u8] = b" \t\n\r\x0b\x0c") -> Result[Bytes, AllocError]
+def split(source: &[u8], separator: &[u8]) -> Result[list[Bytes], AllocError]
+def split_whitespace(source: &[u8]) -> Result[list[Bytes], AllocError]
+def replace(source: &[u8], old: &[u8], replacement: &[u8]) -> Result[Bytes, AllocError]
+def join[T](separator: &[u8], parts: &list[T]) -> Result[Bytes, AllocError]
 ```
 
 ## `std.cache.lru`
@@ -1302,17 +1324,17 @@ class Formatter[W]
     def completed(self) -> i64
     def has_failed(self) -> bool
     def text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]
-    def substr(self: &mut Formatter[W], value: &substr) -> Result[(), FormatError]
+    def substr(self: &mut Formatter[W], value: &strview) -> Result[(), FormatError]
     def boolean(self: &mut Formatter[W], value: bool) -> Result[(), FormatError]
     def floating(self: &mut Formatter[W], value: f64, width: NonNegative[i64]) -> Result[(), FormatError]
     def unsigned(self: &mut Formatter[W], value: u64, base: i64, width: NonNegative[i64] = 0) -> Result[(), FormatError]
     def integer(self: &mut Formatter[W], value: i64, width: NonNegative[i64] = 0) -> Result[(), FormatError]
     def debug_text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]
-    def debug_substr(self: &mut Formatter[W], value: &substr) -> Result[(), FormatError]
+    def debug_substr(self: &mut Formatter[W], value: &strview) -> Result[(), FormatError]
     def ascii_text(self: &mut Formatter[W], value: &str) -> Result[(), FormatError]
     def char_spec(self: &mut Formatter[W], code: i64, spec: &Spec) -> Result[(), FormatError]
     def text_spec(self: &mut Formatter[W], value: &str, spec: &Spec) -> Result[(), FormatError]
-    def substr_spec(self: &mut Formatter[W], value: &substr, spec: &Spec) -> Result[(), FormatError]
+    def substr_spec(self: &mut Formatter[W], value: &strview, spec: &Spec) -> Result[(), FormatError]
     def signed_spec(self: &mut Formatter[W], value: i64, spec: &Spec) -> Result[(), FormatError]
     def unsigned_spec(self: &mut Formatter[W], value: u64, spec: &Spec) -> Result[(), FormatError]
     def float_spec(self: &mut Formatter[W], value: f64, spec: &Spec) -> Result[(), FormatError]
@@ -1336,7 +1358,7 @@ def repr_result(spelled: Result[str, AllocError | FormatError]) -> Result[str, F
 def allocation_only(built: Result[str, FormatError]) -> Result[str, AllocError]
 def allocation_or_format(built: Result[str, FormatError]) -> Result[str, AllocError | FormatError]
 def debug_string(value: &str) -> Result[str, FormatError]
-def repr_substr_string(value: &substr) -> Result[str, FormatError]
+def repr_substr_string(value: &strview) -> Result[str, FormatError]
 def ascii_string(value: &str) -> Result[str, FormatError]
 def list_with[T, W, F: Callable[[&T, &mut Formatter[W]], Result[(), FormatError]]](values: &list[T], output: &mut Formatter[W], render: F) -> Result[(), FormatError]
 def pair_with[A, B, W, F: Callable[[&A, &mut Formatter[W]], Result[(), FormatError]], G: Callable[[&B, &mut Formatter[W]], Result[(), FormatError]]](value: &(A, B), output: &mut Formatter[W], first: F, second: G) -> Result[(), FormatError]

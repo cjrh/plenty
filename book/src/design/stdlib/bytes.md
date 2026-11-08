@@ -19,7 +19,7 @@ available on the supported x86-64 Linux GNU target.
 | `std.bytes.empty()` | `Result[Bytes, AllocError]` | Empty buffer with no reserved capacity |
 | `std.bytes.with_capacity(capacity)` | `Result[Bytes, AllocError]` | Empty buffer with exactly `capacity` bytes reserved; negative is `CapacityOverflow` |
 | `std.bytes.from_list(values: &list[u8])` | `Result[Bytes, AllocError]` | Independent copy of the list's bytes |
-| `std.bytes.from_text(text: &str)` | `Result[Bytes, AllocError]` | Independent copy of the exact UTF-8 bytes |
+| `std.bytes.from_text(text: &strview)` | `Result[Bytes, AllocError]` | Independent copy of the exact UTF-8 bytes of a whole string or substring view |
 | `std.bytes.from_bytes(source: &[u8])` | `Result[Bytes, AllocError]` | Independent copy of a [byte view](#byte-views): a literal, `Bytes`, `list[u8]`, or part of one |
 
 `Bytes` has no public constructor and its storage field is private. Every
@@ -31,10 +31,14 @@ read another byte sequence take a [`&[u8]` view](#byte-views), so they accept a
 literal, a buffer, a list, or part of any of them without copying.
 
 `len(buffer)` calls its shared `len` method and returns the number of bytes,
-just as `len` does for a byte literal or byte slice view. Membership operators
-are unsupported on `Bytes`; use the explicit search methods below.
+just as `len` does for a byte literal or byte slice view. Membership accepts a
+single `u8` or a byte subsequence. [Binary string operations](bytes-stringlike.md)
+add view-based searching, ASCII processing, splitting, replacement and joining.
 
 ## Operations
+
+The [binary string methods](bytes-stringlike.md) also operate on byte literals
+and byte views, without a temporary owning buffer.
 
 `start`, `stop`, `index`, `offset`, `count`, and sizes are `i64`; elements are `u8`.
 
@@ -125,6 +129,14 @@ length. `&buffer`, `&buffer[a:b]`, `&list`, a `b"..."` literal, and a view held
 by the caller all convert to it with no copy and no allocation. The range is
 part of the view, so these operations take no `start` and `stop` and report no
 range error: view bounds clamp, and a negative bound counts from the end.
+
+A string or substring supplies the same byte view through `text.as_bytes()`.
+This borrows the selected UTF-8 bytes in constant time, including embedded NUL,
+with no allocation or retain. `from_text(text)?` makes an independent owned
+copy directly from that range. Scalar length and scalar decoding are not needed
+for either byte operation. A bound byte view prevents replacing or moving its
+string origin until its last use. A temporary string can supply bytes to a call,
+but must be bound before its view can be saved in another local.
 
 ```plenty
 import std.bytes
@@ -451,8 +463,9 @@ The older [binary I/O builtins](../facilities/02-io/bytes-paths.md) and
 [`std.path`](path.md) still take and return `list[u8]`. Convert explicitly with
 `from_list` and `to_list`; each conversion allocates and copies.
 
-
 ## Acknowledgements
 
 - `find_bytes` uses the [two-way](https://doi.org/10.1145/116825.116845) string-matching algorithm by Maxime Crochemore and Dominique Perrin (1991), as Rust's `core` string search does.
 - Word-at-a-time scans use the zero-byte test from Sean Eron Anderson's [Bit Twiddling Hacks](https://graphics.stanford.edu/~seander/bithacks.html#ZeroInWord), which credits a 1987 newsgroup post by Alan Mycroft.
+- [Python bytes operations](https://docs.python.org/3/library/stdtypes.html#bytes-and-bytearray-operations) model the binary string method semantics; Plenty keeps optional indices and fallible owned results.
+- [memchr](https://github.com/BurntSushi/memchr), licensed MIT OR Unlicense, supplies linear-time, constant-space reverse substring search through the runtime's existing pinned dependency.

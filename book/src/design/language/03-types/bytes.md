@@ -62,14 +62,17 @@ contents cannot change.
 | `value[a:b:c]` | A [slice](../04-expressions/slices.md): `Result[std.bytes.Bytes, AllocError]`, a new owned buffer; no import needed |
 | `&value[a:b]` | A shared [slice view](../04-expressions/slices.md#slice-views), `&[u8]`, of the selected bytes; no copy |
 | `for byte in value`, `reversed(value)` | Each byte as `u8` |
-| `x in value` | Whether the `u8` `x` occurs |
+| `x in value` | Whether a `u8` or byte subsequence occurs |
 | `==`, `!=` | Content equality with another `bytes` |
 | `print(value)` | The literal spelling, which reads back as the same bytes: printable ASCII, `\\`, `\"`, `\n`, `\r`, `\t`, and `\xhh` for every other byte; see [printing bytes](../../stdlib/bytes.md#printing) |
 
 `bytes` values can be elements, set members, dictionary keys, class fields, and
-enum payloads, and can be captured and passed to scoped threads. `len` is the
-only method; it lets `bytes` satisfy a [protocol](../07-generics/protocols.md)
-that requires it. There are no ordering comparisons and no concatenation. A slice copies into an
+enum payloads, and can be captured and passed to scoped threads. The
+[binary string methods](../../stdlib/bytes-stringlike.md) provide searching,
+ASCII classification/case conversion, stripping, splitting, replacement and
+joining. The `len` method also lets `bytes` satisfy a
+[protocol](../07-generics/protocols.md) that requires it. There are no ordering
+comparisons and no concatenation. A slice copies into an
 owned `Bytes` rather than producing another `bytes`. `bytes` and
 `str` are distinct: neither converts to the other implicitly.
 

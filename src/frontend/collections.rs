@@ -1695,6 +1695,9 @@ impl Lower<'_> {
                 let ty = self.expr_expected(yes, expected.clone(), &mut a)?;
                 let other = self.expr_expected(no, expected.or_else(|| ty.clone()), &mut b)?;
                 self.same(other, ty.clone(), &e.at)?;
+                if matches!(ty, Some(Ty::View(..))) {
+                    return Err(e.at.error("conditional expressions cannot produce slice views; select an owning value or branch around the view's use"));
+                }
                 ops.push(branch(a, b));
                 Ok(ty)
             }
@@ -2386,7 +2389,7 @@ impl Lower<'_> {
             (view, vec![loan])
         } else if self.is_view(iterable) {
             let (view, loan) = self.view_source(iterable, ops)?;
-            // A `&substr` yields one-scalar `str` values, as a `str` does.
+            // A `&strview` yields one-scalar `str` values, as a `str` does.
             borrowed = view != text_view();
             mutable = matches!(view, Ty::View(_, true));
             (view, vec![loan])
@@ -4026,6 +4029,9 @@ impl Lower<'_> {
                 source_spelling(base),
                 if args.is_empty() { "" } else { "..." }
             )));
+        }
+        if let Some(result) = self.byte_string_method(base, name, args, ops)? {
+            return Ok(Some(result));
         }
         if self.is_text_view(base) {
             return self.text_view_method(base, name, args, ops).map(Some);

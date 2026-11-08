@@ -443,6 +443,7 @@ impl Lower<'_> {
                 Some(Ty::I64)
             }
             Expression::Text(_) => Some(Ty::Str),
+            Expression::Bytes(_) => Some(Ty::ByteStr),
             Expression::Bool(_) => Some(Ty::Bool),
             Expression::Number(n) => self.number(n, false, &e.at, &mut Vec::new()).ok(),
             Expression::Unary(op, inner) if op == "&" || op == "&mut" => self.operator_hint(inner),

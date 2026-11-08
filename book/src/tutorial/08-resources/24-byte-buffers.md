@@ -227,3 +227,28 @@ A byte literal accepts only ASCII characters, so `b"é"` is an error; use
 
 See [the module reference](../../design/stdlib/bytes.md) for every operation,
 its costs, and what views cannot do yet.
+
+## Process ASCII fields without decoding
+
+Byte literals, buffers and borrowed byte ranges support familiar binary string
+operations. Searches return byte positions; ASCII case conversion leaves bytes
+above 127 intact. The transformations below create independent buffers and can
+fail to allocate.
+
+```plenty
+def main() -> Result[(), AllocError | IoError]:
+    wire = b"  NAME=\xff\x00  "
+    print(b"=" in wire, wire.find(b"="))?
+    fields = wire.strip()?.lower()?.split(b"=")?
+    print(b":".join(&fields)?)?
+    Ok(())
+```
+```output
+True Option[i64].Some(6)
+b"name:\xff\x00"
+```
+
+`split()` without a separator splits runs of ASCII whitespace. An explicit
+separator preserves empty fields. A separator's `join` reads a borrowed list of
+byte literals or buffers. See [binary string operations](../../design/stdlib/bytes-stringlike.md)
+for byte-view arguments, empty-pattern behavior and allocation costs.

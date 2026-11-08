@@ -1,8 +1,11 @@
 # One borrowed text type
 
-**Status: Not implemented; proposal for discussion.** This page explores making
-`&str` the borrowed text view currently spelled `&substr`, while retaining the
-existing owning `str`. The [Text reference](../design/facilities/01-builtins/text.md),
+**Status: Not implemented; background alternative for discussion.** The implemented
+design preserves ordinary `&str` references and names the separate text view
+`&strview`, with `&substr` retained as an alias. See the
+[Text reference](../design/facilities/01-builtins/text.md). Unification remains
+unapproved. This page explores making `&str` the borrowed text view while
+retaining the existing owning `str`. The [Text reference](../design/facilities/01-builtins/text.md),
 [substring views](../design/language/04-expressions/slices.md#substring-views),
 and [returned references](../design/language/05-ownership/04-returned-references.md)
 define current behavior. B12 tracks text-view extensions; returned views relate
@@ -67,7 +70,10 @@ renaming a view does not implement returned-view analysis or stored lifetimes.
 The candidate design has one shared borrowed text type, provisionally `&str`, regardless
 of whether it covers the whole owner or a range. The following are proposed
 rules, subject to the adoption gates rather than implemented promises.
-`&strview` is also under consideration; the [naming alternatives](unified-borrowed-text/evidence.md#naming-and-type-identity) remain open.
+A unified view could instead use the `&strview` spelling; that would change
+its relationship to ordinary references beyond the implemented separate-view
+name. The [unification alternatives](unified-borrowed-text/evidence.md#naming-and-type-identity)
+remain open.
 
 - `str` remains the existing owning, immutable, copyable type. String literals,
   inline strings, shared heap storage, and owned assignment keep their contracts.

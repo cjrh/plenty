@@ -22,6 +22,7 @@ mod annotations;
 mod atomic;
 mod bounded;
 mod byte_buffers;
+mod byte_methods;
 mod callables;
 mod calls;
 mod casts;
@@ -154,7 +155,7 @@ impl TypeRef {
         let ty = self.resolve_inner(aliases)?;
         if ty == Some(Ty::Text) {
             return Err(self.at.error(
-                "`substr` is only the borrowed form `&substr`, a view of part of a string such as `&s[a:b]`; an owned string is `str`",
+                "`strview` is only the borrowed form `&strview` (`&substr` is a compatibility alias), a view of part of a string such as `&s[a:b]`; an owned string is `str`",
             ));
         }
         if ty.as_ref().is_some_and(|t| t.layout_depth() > 64) {
@@ -293,12 +294,12 @@ impl TypeRef {
         }
         if matches!(name.as_str(), "&" | "&mut") {
             if self.args[0].concrete.is_none()
-                && self.args[0].name.as_deref() == Some(SUBSTR)
+                && matches!(self.args[0].name.as_deref(), Some(STRVIEW | SUBSTR))
                 && self.args[0].args.is_empty()
             {
                 if name == "&mut" {
                     return Err(self.at.error(
-                        "a `str` is immutable, so a substring view is shared only; write `&substr`",
+                        "a `str` is immutable, so a substring view is shared only; write `&strview`",
                     ));
                 }
                 return Ok(Some(text_view()));
@@ -566,7 +567,7 @@ fn named_type(name: &str) -> Type {
         "f64" => Ty::F64,
         "bool" => Ty::Bool,
         "str" => Ty::Str,
-        SUBSTR => Ty::Text,
+        STRVIEW | SUBSTR => Ty::Text,
         "bytes" => Ty::ByteStr,
         "File" => Ty::File,
         "FsReadDir" => Ty::FsReadDir,
@@ -1788,6 +1789,9 @@ impl Lower<'_> {
                 let ty = self.expr(yes, &mut a)?;
                 let other = self.expr(no, &mut b)?;
                 self.same(other, ty.clone(), &e.at)?;
+                if matches!(ty, Some(Ty::View(..))) {
+                    return Err(e.at.error("conditional expressions cannot produce slice views; select an owning value or branch around the view's use"));
+                }
                 ops.push(branch(a, b));
                 ty
             }
@@ -1808,6 +1812,11 @@ impl Lower<'_> {
         let Expression::Method(base, name, args, pos) = &e.kind else {
             unreachable!("method_expression lowers its own expression kind")
         };
+        if self.text_bytes_receiver(e).is_some() {
+            let (view, loan) = self.text_bytes_view(e, false, ops)?;
+            Self::end_reads(vec![loan], ops);
+            return Ok(Some(view));
+        }
         if let Some(result) = self.quantity_format_method(base, name, args, &e.at, ops) {
             return result;
         }
@@ -2128,6 +2137,9 @@ impl Lower<'_> {
         let Expression::Binary(op, left, right) = &e.kind else {
             unreachable!("membership_expression lowers its own expression kind")
         };
+        if let Some(result) = self.byte_membership(op, left, right, ops)? {
+            return Ok(result);
+        }
         Ok({
             let (a, mut loans) = self.observe(left, ops)?;
             let (b, other_loans) = self.observe(right, ops)?;
@@ -2138,7 +2150,7 @@ impl Lower<'_> {
                     _ if a == text_view() => false,
                     _ => {
                         return Err(e.at.error(format!(
-                            "`{op}` on a `&substr` looks for a `str` or `&substr`, not {a}"
+                            "`{op}` on a `&strview` looks for a `str` or `&strview`, not {a}"
                         )));
                     }
                 };
@@ -2159,7 +2171,7 @@ impl Lower<'_> {
             }
             if a == text_view() && b == Ty::Str {
                 return Err(e.at.error(format!(
-                    "`{op}` on a `str` looks for a `str`; search for a `&substr` with `&s[:]`, as `v in &s[:]`"
+                    "`{op}` on a `str` looks for a `str`; search for a `&strview` with `&s[:]`, as `v in &s[:]`"
                 )));
             }
             if let Ty::View(..) = b {
@@ -4004,11 +4016,12 @@ fn mixed_numeric(left: &Expr, a: &Ty, right: &Expr, b: &Ty) -> Box<dyn Error> {
     }
 }
 
-/// The type-reference names of `&[T]` and `&mut [T]`.
-/// The element name of `&substr`, a view of part of a string (issue #595).
+/// The element name of `&strview`, a shared view of a string's bytes.
+pub(crate) const STRVIEW: &str = "strview";
+/// The compatible original spelling of `&strview` (issue #595).
 pub(crate) const SUBSTR: &str = "substr";
 
-/// `&substr`: a shared view of a run of a string's scalars.
+/// `&strview`: a shared view of a run of a string's scalars.
 pub(crate) fn text_view() -> Ty {
     Ty::View(Arc::new(Ty::Text), false)
 }

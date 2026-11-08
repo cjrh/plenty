@@ -189,6 +189,10 @@ impl Lower<'_> {
         expected: Type,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, Option<usize>)> {
+        if self.text_bytes_receiver(value).is_some() {
+            let (view, loan) = self.text_bytes_view(value, true, ops)?;
+            return Ok((view, Some(loan)));
+        }
         if self.is_pipeline(value) && !self.is_dictionary_projection(value) {
             let outer = std::mem::replace(&mut self.pipeline.binding, true);
             let plan = self.pipeline(value, ops);
@@ -215,6 +219,9 @@ impl Lower<'_> {
         };
         if let Some((place, mutable)) = place {
             let (ty, loan) = self.borrow(place, mutable, ops)?;
+            if matches!(ty, Ty::View(..)) {
+                self.check_bound_view_origin(loan, &value.at)?;
+            }
             let ty = match &expected {
                 Some(expected) => self.unbox_to(ty, expected, ops),
                 None => ty,
@@ -228,6 +235,11 @@ impl Lower<'_> {
             let parent = self.reference_origin(value, ops)?;
             let loan = self.new_loan(self.loans[parent].root, false, Some(parent), ops);
             return Ok((ty, Some(loan)));
+        }
+        if matches!(ty, Ty::View(..)) {
+            return Err(value.at.error(
+                "a view binding requires a direct borrow, named view, or text as_bytes() borrow",
+            ));
         }
         if ty.carried_reference().is_some() {
             if loan_free(value) {
@@ -641,6 +653,14 @@ impl Lower<'_> {
         indices: &mut Option<std::slice::Iter<'_, u8>>,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, usize)> {
+        if self.text_bytes_receiver(e).is_some() {
+            if mutable {
+                return Err(e
+                    .at
+                    .error("string bytes are immutable; as_bytes() yields a shared byte view"));
+            }
+            return self.text_bytes_view(e, false, ops);
+        }
         if let Expression::Slice(base, bounds) = &ungroup(e).kind {
             return self.slice_view(base, bounds, mutable, ops);
         }
@@ -652,9 +672,12 @@ impl Lower<'_> {
                 };
                 return self.borrow_with_indices(&element, mutable, indices, ops);
             }
-            let collection = self.place_type(base).ok_or_else(|| {
-                e.at.error("element borrowing requires a named collection or field")
-            })?;
+            let collection = self
+                .place_type(base)
+                .or_else(|| self.expression_type_hint(base))
+                .ok_or_else(|| {
+                    e.at.error("element borrowing requires a named collection or field")
+                })?;
             if let Ty::Enum(t) = &collection
                 && t.tuple()
             {
@@ -682,7 +705,7 @@ impl Lower<'_> {
             }
             if collection == text_view() {
                 return Err(e.at.error(
-                    "a `&substr` has no element slots to borrow; `v[i]` reads the scalar as a one-scalar `str`, and `&v[i:i + 1]` views it",
+                    "a `&strview` has no element slots to borrow; `v[i]` reads the scalar as a one-scalar `str`, and `&v[i:i + 1]` views it",
                 ));
             }
             if let Ty::View(element, _) = &collection {
@@ -1078,6 +1101,10 @@ impl Lower<'_> {
         expected: Type,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, Vec<usize>)> {
+        if self.text_bytes_receiver(e).is_some() {
+            let (view, loan) = self.text_bytes_view(e, false, ops)?;
+            return Ok((view, vec![loan]));
+        }
         match &e.kind {
             Expression::Group(inner) => self.observe_inner(inner, expected, ops),
             Expression::Unary(op, inner)
