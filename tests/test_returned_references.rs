@@ -252,18 +252,29 @@ print(r).unwrap()
     );
 }
 
+/// A conditional's reference values join both owners, as an `if` block's
+/// arms do (issue #897); a condition's own borrow is not taken as the origin.
 #[test]
-fn conditional_reference_values_do_not_guess_an_origin() {
-    reject(
+fn conditional_reference_values_join_their_owners() {
+    run(
         r#"
 def view(value: &i64) -> &i64:
     value
 left = 1
 right = 2
-prior = &left
-print(view(&left) if True else view(&right)).unwrap()
+print(*(view(&left) if False else view(&right))).unwrap()
 "#,
-        "a conditional expression cannot produce a reference",
+        "2\n",
+    );
+    reject(
+        r#"
+mut a = [1].unwrap()
+b = [2].unwrap()
+r = &a[0] if len(b) > 5 else &b[0]
+a.clear()
+print(*r).unwrap()
+"#,
+        "an `if` or `match` value keeps the value of every arm borrowed",
     );
 }
 
@@ -525,10 +536,14 @@ fn a_wrong_origin_names_both_parameters() {
 }
 
 #[test]
-fn a_conditional_reference_names_the_if_statement() {
+fn a_returned_conditional_reference_checks_each_origin() {
+    run(
+        "def pick(items: &list[str], c: bool) -> &str:\n    &items[0] if c else &items[1]\nwords = [\"a\", \"b\"].unwrap()\nprint(pick(&words, False)).unwrap()\n",
+        "b\n",
+    );
     reject(
-        "def pick(items: &list[str], c: bool) -> &str:\n    &items[0] if c else &items[1]\n",
-        "a conditional expression cannot produce a reference; choose with an `if` statement that returns or assigns each borrow",
+        "def pick(items: &list[str], other: &list[str], c: bool) -> &str:\n    &items[0] if c else &other[0]\n",
+        "returned reference must originate from the first reference parameter, `items`; this one borrows `other`",
     );
     run(
         "def pick(items: &list[str], c: bool) -> &str:\n    if c:\n        return &items[0]\n    &items[1]\nwords = [\"a\", \"b\"].unwrap()\nprint(pick(&words, False)).unwrap()\n",

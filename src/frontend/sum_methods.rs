@@ -296,7 +296,7 @@ impl Lower<'_> {
             Some(vec![binding(&payload_name)]),
             mapped,
         );
-        self.plain_reference_arms = Some(match name {
+        self.branch_adapter = Some(match name {
             "map_or" => crate::ownership::Adapter::MapOr,
             "map_or_else" => crate::ownership::Adapter::MapOrElse,
             _ => crate::ownership::Adapter::UnwrapOrElse,

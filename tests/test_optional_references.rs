@@ -1293,18 +1293,6 @@ def pick(items: &list[Item], other: &list[Item], first: bool) -> Option[&Item]:
         ),
         "returned reference must originate from the first reference parameter, `items`; this one borrows `other`",
     );
-    // A plain reference from a user-written arm is not yet a reference-binding source (issue #897).
-    rejects(
-        r#"
-items = [1, 2].unwrap()
-x = if len(items) > 0:
-    &items[0]
-else:
-    &items[1]
-print(*x).unwrap()
-"#,
-        "an `if` or `match` block used as a value cannot produce a reference",
-    );
     rejects(
         &with_find(
             r#"
@@ -1913,4 +1901,131 @@ def main() -> Result[(), AllocError | IoError]:
     Ok(())
 "#;
     assert_stdout(program, "(5, 6) 4\n");
+}
+
+/// An `if` or `match` value may be a plain `&T` or `&mut T` from different
+/// owners, joining them as `unwrap_or` does (issue #897).
+#[test]
+fn branch_values_produce_plain_references() {
+    assert_stdout(
+        &with_find(
+            r#"
+a = [Item("ada", 1), Item("bob", 2)].unwrap()
+b = [Item("cy", 3)].unwrap()
+r = match find(&a, "x"):
+    case Some(item):
+        item
+    case Nothing:
+        &b[0]
+print(r.name).unwrap()
+s = if len(a) > 0:
+    &a[1].name
+else:
+    &b[0].name
+print(s).unwrap()
+mut m = [1, 2].unwrap()
+mut n = [3].unwrap()
+w = if len(a) > 0:
+    &mut m[0]
+else:
+    &mut n[0]
+*w = 9
+print(m[0]).unwrap()
+for k in [0, 1].unwrap():
+    x = if k == 0:
+        &a[0]
+    else:
+        &b[0]
+    print(x.name).unwrap()
+"#,
+        ),
+        "cy\nbob\n9\nada\ncy\n",
+    );
+    assert_stdout(
+        &with_find(
+            r#"
+def pick(items: &list[Item], first: bool) -> &Item:
+    if first:
+        &items[0]
+    else:
+        &items[1]
+a = [Item("ada", 1), Item("bob", 2)].unwrap()
+print(pick(&a, False).name).unwrap()
+"#,
+        ),
+        "bob\n",
+    );
+    assert_stdout(
+        &with_find(
+            r#"
+a = [Item("ada", 1)].unwrap()
+b = [Item("bob", 2)].unwrap()
+o = find(&a, "x") if len(a) > 5 else find(&b, "bob")
+print(o).unwrap()
+mut m = [1].unwrap()
+mut n = [2].unwrap()
+w = &mut m[0] if len(a) > 0 else &mut n[0]
+*w = 7
+print(m[0]).unwrap()
+"#,
+        ),
+        "Option[&Item].Some(Item(name=\"bob\", count=2))\n7\n",
+    );
+}
+
+#[test]
+fn plain_branch_references_keep_every_owner_borrowed() {
+    rejects(
+        &with_find(
+            r#"
+mut a = [Item("ada", 1)].unwrap()
+b = [Item("bob", 2)].unwrap()
+r = if len(a) > 5:
+    &a[0]
+else:
+    &b[0]
+a.clear()
+print(r.name).unwrap()
+"#,
+        ),
+        "`r` holds this arm's value: an `if` or `match` value keeps the value of every arm borrowed",
+    );
+    rejects(
+        r#"
+mut m = [1, 2].unwrap()
+w = if len(m) > 0:
+    &mut m[0]
+else:
+    &mut m[1]
+print(m[1]).unwrap()
+*w = 3
+"#,
+        "cannot read or borrow `m[1]` while it is exclusively borrowed",
+    );
+    rejects(
+        &with_find(
+            r#"
+a = [Item("ada", 1)].unwrap()
+v = if len(a) > 0:
+    local = Item("tmp", 0)
+    &local
+else:
+    &a[0]
+print(v.name).unwrap()
+"#,
+        ),
+        "cannot drop `local` while it is borrowed",
+    );
+    rejects(
+        &with_find(
+            r#"
+def pick(items: &list[Item], other: &list[Item], first: bool) -> &Item:
+    return if first:
+        &items[0]
+    else:
+        &other[0]
+"#,
+        ),
+        "returned reference must originate from the first reference parameter, `items`; this one borrows `other`",
+    );
 }

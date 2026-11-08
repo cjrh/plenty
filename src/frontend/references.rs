@@ -141,15 +141,17 @@ pub(super) struct BranchJoin {
     next: usize,
     /// The loans of the arm values that borrow.
     assigned: Vec<usize>,
-    /// The sum method whose arms may produce a plain reference; see
-    /// `Lower::plain_reference_arms`.
-    plain: Option<crate::ownership::Adapter>,
+    /// The sum method this branch lowers, if any; see
+    /// `Lower::branch_adapter`.
+    adapter: Option<crate::ownership::Adapter>,
 }
 
 impl BranchJoin {
-    /// Whether an arm value of type `ty` joins this branch's loan.
-    pub(super) fn carries(&self, ty: &Ty) -> bool {
-        ty.carried_reference().is_some() || (self.plain.is_some() && matches!(ty, Ty::Ref(..)))
+    /// Whether an arm value of type `ty` joins this branch's loan: a plain
+    /// reference or one inside an Option or Result, as `unwrap_or` joins its
+    /// operands (issue #897).
+    pub(super) fn carries(ty: &Ty) -> bool {
+        ty.carries_loan()
     }
 }
 
@@ -317,6 +319,9 @@ impl Lower<'_> {
         if !matches!(
             &ungroup(value).kind,
             Expression::Call(..)
+                | Expression::If(..)
+                | Expression::Match(..)
+                | Expression::Conditional { .. }
                 | Expression::Invoke(..)
                 | Expression::GenericCall(..)
                 | Expression::Method(..)
@@ -324,7 +329,7 @@ impl Lower<'_> {
                 | Expression::Try(..)
         ) {
             return Err(value.at.error(
-                "reference bindings require a named reference, a direct borrow, or a reference-returning call",
+                "reference bindings require a named reference, a direct borrow, a reference-returning call, or an `if`, `match` or conditional value",
             ));
         }
         let loan = self.reference_origin(value, ops)?;
@@ -565,6 +570,7 @@ impl Lower<'_> {
                 Expression::Call(..)
                     | Expression::If(..)
                     | Expression::Match(..)
+                    | Expression::Conditional { .. }
                     | Expression::GenericCall(..)
                     | Expression::Method(..)
                     | Expression::GenericMethod(..)
@@ -581,13 +587,10 @@ impl Lower<'_> {
         {
             return Ok(id);
         }
-        if matches!(&ungroup(e).kind, Expression::Conditional { .. }) {
-            return Err(e.at.error("a conditional expression cannot produce a reference; choose with an `if` statement that returns or assigns each borrow"));
-        }
         Err(e.at.error("reference result requires a named reference, direct borrow, or reference-returning call"))
     }
 
-    /// Lowers an `if` or `match` with `arms` arms used as a value with
+    /// Lowers an `if`, `match` or conditional expression with `arms` arms used as a value with
     /// `lower`. A value of a reference-carrying type gets a join loan,
     /// created after the arms and rooted at a hidden referent like an empty
     /// holder's. It is a holder that started empty and was assigned each
@@ -617,13 +620,13 @@ impl Lower<'_> {
             reserved,
             next: 0,
             assigned: Vec::new(),
-            plain: std::mem::take(&mut self.plain_reference_arms),
+            adapter: std::mem::take(&mut self.branch_adapter),
         });
         let result = lower(self, ops);
         let branch = self.branch_joins.pop().expect("pushed above");
         let result = result?;
         if let super::BlockResult::Continues(Some(ty)) = &result
-            && branch.carries(ty)
+            && BranchJoin::carries(ty)
         {
             let referent = self.absent_referent(at)?;
             let loan = &mut self.loans[join];
@@ -642,6 +645,36 @@ impl Lower<'_> {
             }
         }
         Ok(result)
+    }
+
+    /// Emits the conditional expression `e`, whose operands `yes` and `no`
+    /// were lowered into `a` and `b` and joined as `ty`. A reference joins
+    /// both operands' owners as an `if` block's arms do (issue #897).
+    pub(super) fn conditional_value(
+        &mut self,
+        e: &Expr,
+        (yes, no): (&Expr, &Expr),
+        (mut a, mut b): (Vec<Op>, Vec<Op>),
+        ty: Type,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        if matches!(ty, Some(Ty::View(..))) {
+            return Err(e.at.error("conditional expressions cannot produce slice views; select an owning value or branch around the view's use"));
+        }
+        if !ty.as_ref().is_some_and(BranchJoin::carries) {
+            ops.push(super::branch(a, b));
+            return Ok(ty);
+        }
+        let joined = self.branch_value(&e.at, 2, ops, |lower, ops| {
+            lower.branch_arm_value(yes, &mut a)?;
+            lower.branch_arm_value(no, &mut b)?;
+            ops.push(super::branch(a, b));
+            Ok(super::BlockResult::Continues(ty))
+        })?;
+        let super::BlockResult::Continues(ty) = joined else {
+            unreachable!("a conditional expression continues")
+        };
+        Ok(ty)
     }
 
     /// Records the final value `e`, of a reference-carrying type, of an
@@ -666,7 +699,7 @@ impl Lower<'_> {
             let id = own.unwrap_or(fresh);
             let mut loan = self.loans[fresh].clone();
             loan.id = id;
-            let method = self.branch_joins.last().and_then(|branch| branch.plain);
+            let method = self.branch_joins.last().and_then(|branch| branch.adapter);
             loan.holder = Some(crate::ownership::Assigned {
                 holder: join,
                 kind: method.map_or(
