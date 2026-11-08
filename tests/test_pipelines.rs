@@ -33,20 +33,13 @@ def main() -> ():
     );
 }
 
+// Borrowed sources convert since issue #899 (see
+// tests/test_borrowed_generators.rs); reference captures still cannot.
 #[test]
-fn generator_bridge_rejects_borrowed_sources_and_captures_even_after_owned_mapping() {
-    for source in [
-        "values = [1, 2].unwrap()\np = iter(&values).map(def(n: &i64) -> i64: *n)\ng = p.generator()\n",
-        "def fixture_add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(a + b)\nvalues = {1: 2}.unwrap()\np = iter(values.items()).map(def(k: &i64, v: &i64) -> i64: fixture_add(*k, *v).unwrap())\ng = p.generator()\n",
-        "def fixture_add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(a + b)\nn = 2\np = iter(range(3)).map(def [&n](x: i64) -> i64: fixture_add(x, n).unwrap())\ng = p.generator()\n",
-        "def fixture_add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(a + b)\nvalues = [1, 2].unwrap()\np = iter(range(2)).zip(&values).map(def(k: i64, v: &i64) -> i64: fixture_add(k, *v).unwrap())\ng = p.generator()\n",
-    ] {
-        let error = support::check_source(source).unwrap_err().to_string();
-        assert!(
-            error.contains("owned sources and owned callback captures"),
-            "{error}"
-        );
-    }
+fn generator_bridge_rejects_borrowed_callback_captures() {
+    let source = "def fixture_add(a: i64, b: i64) -> Result[i64, OverflowError[i64]]:\n    Ok(a + b)\nn = 2\np = iter(range(3)).map(def [&n](x: i64) -> i64: fixture_add(x, n).unwrap())\ng = p.generator()\n";
+    let error = support::check_source(source).unwrap_err().to_string();
+    assert!(error.contains("owned callback captures"), "{error}");
 }
 
 #[test]

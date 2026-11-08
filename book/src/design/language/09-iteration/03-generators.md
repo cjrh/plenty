@@ -241,10 +241,42 @@ fluent terminal, passed by value to a function, or returned. A generator
 passed by value keeps its loans until the call returns, so a later argument
 cannot move or exclusively borrow the data it reads. It cannot be stored
 where its loan would be lost: in an `Option` or `Result` payload, a tuple, a
-class field or a by-value closure capture. A generator parameter that is itself a
-borrowing generator, a carried reference such as `Option[&T]`, or a lent
-pipeline is rejected with "generators cannot capture references". Yielded
-items stay owned: `Generator[&T]` remains unsupported (backlog B12).
+class field or a by-value closure capture.
+
+A generator parameter may itself be a borrowing generator. The wrapper's frame
+keeps the argument's loans, so the caller's data stays borrowed until the
+wrapper's last use, and the wrapper may be returned when the wrapped generator
+borrows only through the function's reference parameters:
+
+```plenty
+def evens(xs: &list[i64]) -> Generator[i64]:
+    for x in xs:
+        if *x % 2 == 0:
+            yield *x
+
+def relayed(g: Generator[i64]) -> Generator[i64]:
+    for v in g:
+        yield v
+
+def evens_of(xs: &list[i64]) -> Generator[i64]:
+    relayed(evens(xs))
+
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = [1, 2, 3, 4]?
+    print(relayed(evens(&xs)).count())?
+    xs.append(6)?
+    print(evens_of(&xs).count())?
+    Ok(())
+```
+```output
+2
+3
+```
+
+A generator parameter that carries a reference, such as `Option[&T]`, or a
+lent pipeline is rejected with "generators cannot capture references" (issue
+#913). Yielded items stay owned: `Generator[&T]` remains unsupported (issue
+#912, backlog B12).
 
 ## Fluent transformations
 
@@ -255,9 +287,11 @@ the fluent adapters do not each construct another suspended frame.
 
 A pipeline can become a returnable resumable stream through explicit
 `.generator()`. It transfers already prepared source and capture state into
-one frame without advancing any item. The source may be owned or borrowed
-through a shared reference or view parameter, which makes a
-[borrowing frame](#borrowing-frames); callback captures must be owned. There is
+one frame without advancing any item. The source may be owned or borrowed: a
+borrowed local, a reference or view parameter, a `&mut` source, or a
+reference binding makes a [borrowing frame](#borrowing-frames) that keeps the
+source borrowed, shared or exclusive as the pipeline borrows it. Callback
+captures must be owned. There is
 no implicit conversion at a `Generator[T]` parameter or return annotation. The
 resulting frame follows the specialization, suspension and cleanup rules above.
 
