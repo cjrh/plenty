@@ -1497,13 +1497,40 @@ impl Lower<'_> {
                 args.len()
             )));
         }
-        if let Some(symbol) = self.lending_instance(name, &template, args, at)? {
-            return self.call_named_with_receiver(&symbol, args, at, method, ops);
-        }
         let mut inferred = HashMap::default();
         let hint = expected
             .map(|e| result_evidence(&template, e.ty, e.open_error, self.aliases, at))
             .unwrap_or_default();
+        // A lent pipeline's item type is known from its binding without
+        // lowering, so it gives context to the other arguments wherever they
+        // appear. It wins over the expected result here, so a mismatch is
+        // reported as one between the two rather than at a literal. `hint` stays the expected
+        // result's own evidence for `combine_result_evidence`'s diagnostics.
+        let mut context = hint.clone();
+        for (arg, (_, pattern)) in args.iter().zip(&template.inputs) {
+            let Some(lent) = lent_pattern(pattern)
+                .then(|| self.lendable_type(arg))
+                .flatten()
+                .and_then(|lent| declared_lent(&lent))
+            else {
+                continue;
+            };
+            let mut evidence = HashMap::default();
+            if infer(
+                pattern,
+                &lent,
+                &template,
+                &mut evidence,
+                self.aliases,
+                &arg.at,
+            )
+            .is_ok()
+            {
+                for (param, value) in evidence {
+                    context.insert(param, value);
+                }
+            }
+        }
         let mut loans = Vec::new();
         let mut arguments = Vec::new();
         let mut argument_ends = Vec::new();
@@ -1513,7 +1540,31 @@ impl Lower<'_> {
         // that type as its context; other generic positions get none, so their
         // literals use their defaults.
         let mut reservation = None;
+        // A lent pipeline's state follows the declared arguments, and the
+        // lender's own loans stay live across the call (issue #874).
+        let mut hidden = (Vec::new(), Vec::new());
+        let mut lent_loans = Vec::new();
         for (index, (arg, (_, pattern))) in args.iter().zip(&template.inputs).enumerate() {
+            if let Some(declared) = lent_pattern(pattern)
+                .then(|| self.lendable_type(arg))
+                .flatten()
+                .and_then(|lent| declared_lent(&lent))
+            {
+                let (ty, loan) =
+                    self.lend_argument(arg, &declared, &mut hidden, &mut lent_loans, ops)?;
+                loans.push(loan);
+                infer(
+                    pattern,
+                    &ty,
+                    &template,
+                    &mut inferred,
+                    self.aliases,
+                    &arg.at,
+                )?;
+                arguments.push(ty);
+                argument_ends.push(ops.len());
+                continue;
+            }
             let callback_pattern = if matches!(pattern.name.as_deref(), Some("&" | "&mut")) {
                 &pattern.args[0]
             } else {
@@ -1590,7 +1641,8 @@ impl Lower<'_> {
                     self.call_borrow(arg, pattern.name.as_deref() == Some("&mut"), None, ops)?;
                 loans.push(loan);
                 ty
-            } else if let Some(context) = hinted_parameter(pattern, &template, &hint, self.aliases)?
+            } else if let Some(context) =
+                hinted_parameter(pattern, &template, &context, self.aliases)?
             {
                 let ty = self.expr_expected(arg, Some(context), ops)?;
                 self.stored(ty, ops)
@@ -1647,53 +1699,36 @@ impl Lower<'_> {
             self.mark(at, ops);
             loans[0] = self.activate_receiver(loan, ops);
         }
+        let (pushes, state) = hidden;
+        ops.extend(pushes);
+        loans.extend(state);
         self.record_direct_call(&callee, at, &loans, ops);
         self.passes(start, &sig.inputs, sig.outputs.first(), ops);
         self.push_call(Op::Call(callee.clone()), &sig.inputs, &loans, at, ops)?;
         self.call_reference_result(&callee, &sig, &loans, ops);
         Self::end_reads(loans, ops);
+        ops.extend(lent_loans.into_iter().map(Op::UseLoan));
         Ok(sig.outputs.first().cloned())
     }
 }
 
-impl Lower<'_> {
-    /// The instance a call lending a pipeline to generic `name` names. Lending
-    /// needs the borrower's concrete signature before any argument is lowered,
-    /// so the type parameters come from the lent pipelines' item types alone.
-    fn lending_instance(
-        &mut self,
-        name: &str,
-        template: &Function,
-        args: &[Expr],
-        at: &Token,
-    ) -> Result<Option<String>> {
-        let mut inferred = HashMap::default();
-        let mut lending = false;
-        for (arg, (_, pattern)) in args.iter().zip(&template.inputs) {
-            if pattern.name.as_deref() != Some("&mut")
-                || pattern.args.first().and_then(|t| t.name.as_deref()) != Some("Iter")
-            {
-                continue;
-            }
-            if let Some(ty) = self.lendable_type(arg) {
-                infer(pattern, &ty, template, &mut inferred, self.aliases, &arg.at)?;
-                lending = true;
-            }
-        }
-        if !lending {
-            return Ok(None);
-        }
-        let actual = template
-            .type_params
-            .iter()
-            .map(|(param, _)| {
-                inferred.remove(param).ok_or_else(|| {
-                    at.error(format!("cannot infer type parameter `{param}` for `{name}` from its lent pipelines; supply explicit type arguments"))
-                })
-            })
-            .collect::<Result<_>>()?;
-        self.specialize(name, actual, at).map(Some)
-    }
+/// Whether a template parameter is a `&mut Iter[T]` that a pipeline binding
+/// is lent to.
+fn lent_pattern(pattern: &TypeRef) -> bool {
+    pattern.name.as_deref() == Some("&mut")
+        && pattern.args.first().and_then(|t| t.name.as_deref()) == Some("Iter")
+}
+
+/// The declared `&mut Iter[T]` parameter type that lending `lent` checks
+/// against: its item type, without a plan identity.
+fn declared_lent(lent: &Ty) -> Option<Ty> {
+    let Ty::Ref(inner, true) = lent else {
+        return None;
+    };
+    let Ty::Iter(item, _) = &**inner else {
+        return None;
+    };
+    Some(Ty::Ref(Arc::new(Ty::Iter(item.clone(), usize::MAX)), true))
 }
 
 /// `name[types]`, as diagnostics name an instance.
