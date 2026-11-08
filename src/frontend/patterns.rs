@@ -2060,7 +2060,8 @@ impl Lower<'_> {
 
         let saved = self.names.clone();
         let mut bodies = Vec::with_capacity(cases.len());
-        let mut joined: Option<Type> = None;
+        // An earlier pass may have joined the cases' producers (issue #872).
+        let mut joined: Option<Type> = self.case_hint(&value.at);
         let mut continuing = Vec::new();
         for (arm, case) in cases.iter().enumerate() {
             self.names = saved.clone();
@@ -2103,9 +2104,10 @@ impl Lower<'_> {
                 }
                 _ => tail,
             };
-            if let BlockResult::Continues(ty) =
-                self.branch_block(&case.body, &case.at, &mut body, tail)?
-            {
+            self.enter_case(&value.at, tail);
+            let result = self.branch_block(&case.body, &case.at, &mut body, tail)?;
+            self.leave_case();
+            if let BlockResult::Continues(ty) = result {
                 if !matches!(tail, Tail::Function) {
                     self.cleanup(case_start, &mut body);
                 }

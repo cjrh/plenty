@@ -1739,7 +1739,9 @@ impl Lower<'_> {
                 let cond = self.expr(condition, ops)?;
                 self.same(cond, Some(Ty::Bool), &condition.at)?;
                 let (mut a, mut b) = (Vec::new(), Vec::new());
-                let expected = expected.or_else(|| self.join_hint(&e.at));
+                // A join an earlier pass found here is more specific than a
+                // context that names only the item type.
+                let expected = self.join_hint(&e.at).or(expected);
                 let ty = self.expr_expected(yes, expected.clone(), &mut a)?;
                 self.clear_mismatch();
                 let other = self.expr_expected(no, expected.or_else(|| ty.clone()), &mut b);

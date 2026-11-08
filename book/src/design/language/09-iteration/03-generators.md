@@ -115,7 +115,43 @@ chosen, and their types then join:
   including in a generator body; branches that exit with `return`, `break`
   or `continue` take no part;
 - a factory, a function without `yield` that returns `Generator[T]`, through
-  its `return` statements, a tail `if`/`else`, or a tail `match`.
+  its `return` statements, a tail `if`/`else`, or a tail `match`;
+- reassignment of a local, such as `mut g = one()` then `g = two()`,
+  including inside a loop; the local's type is the join of every producer
+  assigned to it;
+- a `Some(...)` or `Ok(...)` built at any of those positions, such as
+  `Some(one()) if c else Some(two())` or a factory returning
+  `Option[Generator[T]]`, at any depth of standard `Option`/`Result` wrappers.
+
+```plenty
+def one() -> Generator[i64]:
+    yield 1
+
+def two() -> Generator[i64]:
+    yield 2
+    yield 3
+
+def pick(flag: bool) -> Option[Generator[i64]]:
+    if flag:
+        return Some(one())
+    Some(two())
+
+def main() -> Result[(), AllocError | IoError]:
+    mut g = one()
+    g = two()
+    print(g.count())?
+    match pick(False):
+        case Some(chosen):
+            print(chosen.count())?
+        case Nothing:
+            pass
+    Ok(())
+```
+
+```output
+2
+2
+```
 
 The joined frame is inline storage sized for the largest member, and each
 member's frame is copied into it where the join happens. Frames already
@@ -131,12 +167,20 @@ interchangeable.
 | Conditional expression `a if c else b` | Yes: the producers join | |
 | `if`/`match` value, such as `g = match n: ...` | Yes: the producers join | |
 | Factory return (`return`, tail `if`/`else`, tail `match`) | Yes: the producers join | |
-| Reassignment of one binding | | Yes |
-| `Option`/`Result` payloads, such as `Some(a) if c else Some(b)` | | Yes |
+| Reassignment of a local | Yes: the producers join | |
+| `Some(...)`/`Ok(...)` built at a joining position | Yes: the producers join | |
+| An `Option`/`Result` value already built, such as a call result | | Yes (issue #900) |
 
 When two different producers meet where one identity is required, the
-diagnostic names both and lists where producers join. Joins for those
-remaining positions, and an explicit erased generator, are planned (issue #872).
+diagnostic names both and lists where producers join. For an already-built
+`Option` or `Result`, `match` it and rebuild the payload in each arm. There is
+no erased generator: every join above is a fixed set of known members, so
+none needs heap allocation or dynamic dispatch.
+
+A join is found while checking the function: when a value's type was fixed
+before a different producer met it, the function is checked again with the
+joined type at that value. Each further join costs one more pass over that
+function only.
 
 A suspended frame retains its live owned locals. Completion releases them;
 dropping a suspended or never-started frame releases remaining locals and

@@ -209,8 +209,11 @@ def one() -> Generator[i64]:
     yield 1
 def two() -> Generator[i64]:
     yield 2
+def replace(source: &mut Generator[i64]) -> ():
+    # The caller's frame has one member's layout, so it cannot take another.
+    *source = two()
 mut source = one()
-source = two()
+replace(&mut source)
 drop(source)
 "#,
     );

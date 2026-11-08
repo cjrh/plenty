@@ -1438,7 +1438,13 @@ impl Lower<'_> {
                     &Ty::Generator(expected.clone()),
                     &Ty::Generator(got.clone()),
                 );
-                "; different producers join only where a value is chosen: a conditional expression (`a if c else b`), an `if` or `match` value, or a factory's return; reassignment and `Option`/`Result` payloads keep one producer".into()
+                "; different producers join only where a value is chosen or reassigned: a conditional expression (`a if c else b`), an `if` or `match` value, a factory's return, or `x = ...` for a local, including inside `Some(...)` or `Ok(...)` built there".into()
+            } else if let (Some(expected), Some(got)) = (&expected, &got)
+                && !matches!(expected, Ty::Generator(_))
+                && crate::generator::join_carried(expected, got).is_some()
+            {
+                // Issue #900: a built payload has one member's frame layout.
+                "; an `Option` or `Result` value already built with one generator producer cannot join another; build `Some(...)` or `Ok(...)` where the value is chosen, or `match` it and rebuild the payload in each arm".into()
             } else {
                 expected
                     .as_ref()
@@ -3386,12 +3392,16 @@ impl Lower<'_> {
             .ok_or_else(|| at.error("return outside a function"))?;
         let mut returned = Vec::new();
         let ty = match e {
-            Some(e) => self.tail_expression(
-                e,
-                expected.clone(),
-                &mut returned,
-                self.yield_type.is_none(),
-            )?,
+            Some(e) => {
+                self.clear_mismatch();
+                let value = self.tail_expression(
+                    e,
+                    expected.clone(),
+                    &mut returned,
+                    self.yield_type.is_none(),
+                );
+                self.joined_return(value)?
+            }
             None => None,
         };
         // Only the value's own operations: an exit guard also moves its
@@ -3754,6 +3764,7 @@ impl Lower<'_> {
                 }
                 Statement::Expr(e) => {
                     let value_start = ops.len();
+                    self.clear_mismatch();
                     let ty = self.tail_expression(
                         e,
                         match tail {
@@ -3763,7 +3774,12 @@ impl Lower<'_> {
                         },
                         ops,
                         last && self.yield_type.is_none(),
-                    )?;
+                    );
+                    let ty = if matches!(tail, Tail::Function) {
+                        self.joined_return(ty)?
+                    } else {
+                        ty?
+                    };
                     if matches!(tail, Tail::Value(_))
                         && !self.checked_value_tail
                         && ty.as_ref().is_some_and(|ty| {
@@ -4087,6 +4103,8 @@ impl Lower<'_> {
                     elifs,
                     no,
                 } => {
+                    let hinted = self.hinted_tail(tail, &stmt.at);
+                    let tail = hinted.as_deref().unwrap_or(tail);
                     let condition_start = ops.len();
                     let cond = self.expr(condition, ops)?;
                     self.same(cond, Some(Ty::Bool), &condition.at)?;
@@ -4113,7 +4131,8 @@ impl Lower<'_> {
                         self.same(cond, Some(Ty::Bool), &elif.condition.at)?;
                         self.building(&elif.condition.at, condition_start, &mut test, false);
                         self.finish_temporaries(temporary_start, &mut test);
-                        let result = self.branch_block(
+                        let result = self.case_block(
+                            &stmt.at,
                             &elif.body,
                             &elif.at,
                             &mut arm,
@@ -4125,7 +4144,8 @@ impl Lower<'_> {
                     }
                     self.names = saved.clone();
                     let mut otherwise = Vec::new();
-                    let mut result = self.branch_block(
+                    let mut result = self.case_block(
+                        &stmt.at,
                         no,
                         &stmt.at,
                         &mut otherwise,
@@ -5030,7 +5050,10 @@ fn lower_body(
                 source_tail: Vec::new(),
                 tail_candidates: Vec::new(),
                 closure_loans: HashMap::default(),
-                joins: generators::Rejoin::new(generics.join_hints.get(&symbol)),
+                joins: generators::Rejoin::new(
+                    generics.join_hints.get(&symbol),
+                    generics.joined_returns.contains(&symbol),
+                ),
                 captures: f
                     .captures
                     .iter()
@@ -5168,9 +5191,19 @@ fn lower_body(
             },
         )
     );
+    if lowered.is_err() {
+        lower.join_failed_case();
+    }
     if lower.joins.pending {
         // A value met a different producer after its type was fixed: lower
         // again with the joined type at that value (issue #872).
+        if let Some(returned) = lower.joins.returned.take() {
+            *lower.sigs.sig_mut(symbol) = Arc::new(FnSig {
+                inputs: sig.inputs.clone(),
+                outputs: vec![returned],
+            });
+            lower.generics.joined_returns.insert(symbol);
+        }
         drop(lower);
         generics.active.remove(&symbol);
         return lower_function(symbol, f, heap, sigs, generics, aliases, access);

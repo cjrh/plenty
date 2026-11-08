@@ -153,7 +153,7 @@ the remaining items:
 ```plenty
 def main() -> Result[(), AllocError | IoError]:
     lines = ["name,score", "ada,3", "bob,5"]?
-    mut rows = iter(lines)
+    mut rows = iter(&lines)
     match next(rows):
         case Some(header):
             print("columns:", header)?
@@ -170,10 +170,11 @@ columns: name,score
 2 bob,5
 ```
 
-The binding needs `mut` because `next` advances it. `next` returns an owned
-`Option`, so it needs owned items: here `iter(lines)` moves the list into the
-pipeline. For a borrowed source, first `map` each item to an owned value.
-Once `next` returns `Nothing`, the pipeline stays empty.
+The binding needs `mut` because `next` advances it. `iter(&lines)` borrows the
+list, so `next` returns `Option[&str]`: `header` borrows from `lines`, which
+cannot change while `header` is in use. Over an owned source, such as
+`iter(lines)`, `next` returns owned items. Once `next` returns `Nothing`, the
+pipeline stays empty.
 
 ## Lend a pipeline to a function
 

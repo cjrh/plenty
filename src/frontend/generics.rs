@@ -213,6 +213,7 @@ pub(super) fn prepare(
         lent: Vec::new(),
         lent_ids: HashMap::default(),
         join_hints: HashMap::default(),
+        joined_returns: HashSet::default(),
         required: HashMap::default(),
         unsubstituted: HashMap::default(),
         protocol_instances: HashSet::default(),
@@ -322,6 +323,9 @@ pub(super) struct Engine {
     /// Joined producer types by function and the position of the value that
     /// takes them; see [`super::generators::Rejoin`].
     pub(super) join_hints: HashMap<functions::Symbol, HashMap<crate::diagnostic::Position, Ty>>,
+    /// Factories whose inferred output joins producers in `Option`/`Result`
+    /// payloads, so a later pass may join further producers.
+    pub(super) joined_returns: HashSet<functions::Symbol>,
     /// The use that first required each generic instance, by function symbol.
     /// Functions of ordinary code have no entry.
     pub(super) required: HashMap<functions::Symbol, Arc<Instantiation>>,

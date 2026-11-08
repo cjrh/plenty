@@ -20,14 +20,22 @@ pub(super) struct Rejoin {
     declared: HashMap<u8, Position>,
     /// The producers of the last generator mismatch: expected, then got.
     mismatch: std::cell::RefCell<Option<(Ty, Ty)>>,
+    /// A factory's joined output, for its signature in the next pass.
+    pub(super) returned: Option<Ty>,
+    /// Whether an earlier pass joined this factory's output.
+    inferred_return: bool,
+    /// The `match` values whose later case is being lowered, innermost
+    /// last, with the earlier cases' type; see [`Lower::enter_case`].
+    cases: Vec<(Position, Ty)>,
     /// Whether this pass recorded a new joined type.
     pub(super) pending: bool,
 }
 
 impl Rejoin {
-    pub(super) fn new(hints: Option<&HashMap<Position, Ty>>) -> Self {
+    pub(super) fn new(hints: Option<&HashMap<Position, Ty>>, inferred_return: bool) -> Self {
         Self {
             hints: hints.cloned().unwrap_or_default(),
+            inferred_return,
             ..Self::default()
         }
     }
@@ -253,6 +261,13 @@ impl Lower<'_> {
         self.joins.hints.get(&at.position()).cloned()
     }
 
+    /// The joined type of the `match` value at `at`, as the type its cases
+    /// join to. Outlined to keep the recursive match frame small.
+    #[inline(never)]
+    pub(super) fn case_hint(&self, at: &Token) -> Option<Type> {
+        self.join_hint(at).map(Some)
+    }
+
     /// Records `joined` for the value at `at` and requests another pass,
     /// unless an earlier pass already lowered that value with it.
     pub(super) fn record_join(&mut self, at: Position, joined: Ty) -> bool {
@@ -301,6 +316,103 @@ impl Lower<'_> {
     ) -> Result<T> {
         if lowered.is_err()
             && let Some(base) = base
+        {
+            self.request_join(at.position(), base);
+        }
+        lowered
+    }
+
+    /// A factory's returned value: when it failed on a producer different
+    /// from one the output inferred so far holds, as an `Option`/`Result`
+    /// payload, the next pass returns their join. Clear the mismatch first.
+    #[inline(never)]
+    pub(super) fn joined_return(&mut self, lowered: Result<Type>) -> Result<Type> {
+        if lowered.is_err()
+            && (self.joins.inferred_return || self.inferring_frame())
+            && let Some(Some(base)) = self.return_type.clone()
+            && let Some((expected, got)) = self.joins.mismatch.take()
+            && let Some(joined) = crate::generator::replace_carried(&base, &expected, &got)
+                .and_then(|other| crate::generator::join_carried(&base, &other))
+            && joined != base
+        {
+            self.joins.returned = Some(joined);
+            self.joins.pending = true;
+        }
+        lowered
+    }
+
+    /// The tail of an `if` value at `at` that an earlier pass gave a joined
+    /// type, which is more specific than its context's.
+    #[inline(never)]
+    pub(super) fn hinted_tail(&self, tail: &Tail, at: &Token) -> Option<Box<Tail>> {
+        // Boxed so the recursive `if` and `match` lowering keeps small frames.
+        matches!(tail, Tail::Value(_))
+            .then(|| self.join_hint(at))
+            .flatten()
+            .map(|ty| Box::new(Tail::Value(Some(ty))))
+    }
+
+    /// Notes that a case of the `match` value at `at` is lowered expecting
+    /// the earlier cases' type in `tail`. A failure on a different producer
+    /// inside it is joined by [`Lower::join_failed_case`]. A stack, rather
+    /// than a check around each case, keeps deeply nested matches' frames
+    /// small.
+    #[inline(never)]
+    pub(super) fn enter_case(&mut self, at: &Token, tail: &Tail) {
+        let base = match tail {
+            Tail::Value(Some(base)) if carries_generator(base) => base.clone(),
+            _ => Ty::Unit,
+        };
+        self.clear_mismatch();
+        self.joins.cases.push((at.position(), base));
+    }
+
+    #[inline(never)]
+    pub(super) fn leave_case(&mut self) {
+        self.joins.cases.pop();
+    }
+
+    /// After the function failed to lower: when the innermost open `match`
+    /// case failed on a different producer than its earlier cases hold,
+    /// records their join for another pass.
+    pub(super) fn join_failed_case(&mut self) {
+        if !self.joins.pending
+            && let Some((at, base)) = self.joins.cases.last().cloned()
+            && base != Ty::Unit
+        {
+            self.request_join(at, &base);
+        }
+    }
+
+    /// A later branch body of the `if` or `match` at `at`, through
+    /// [`Lower::joined_case`].
+    /// Outlined so deeply nested matches keep their recursion frames small.
+    #[inline(never)]
+    pub(super) fn case_block(
+        &mut self,
+        at: &Token,
+        suite: &[Stmt],
+        case_at: &Token,
+        body: &mut Vec<Op>,
+        tail: &Tail,
+    ) -> Result<BlockResult> {
+        self.clear_mismatch();
+        let lowered = self.branch_block(suite, case_at, body, tail);
+        self.joined_case(at, tail, lowered)
+    }
+
+    /// A later branch of the `if` or `match` value at `at`, lowered with
+    /// `tail`, which holds the earlier branches' type: when it failed on a
+    /// different producer, records their join for another pass.
+    #[inline(never)]
+    pub(super) fn joined_case(
+        &mut self,
+        at: &Token,
+        tail: &Tail,
+        lowered: Result<BlockResult>,
+    ) -> Result<BlockResult> {
+        if lowered.is_err()
+            && let Tail::Value(Some(base)) = tail
         {
             self.request_join(at.position(), base);
         }

@@ -275,23 +275,102 @@ print("after across").unwrap()
 }
 
 #[test]
-fn reassignment_and_payloads_keep_one_identity() {
-    // Phase guard (issue #872): delete when these positions join producers.
-    let producers = r#"
-def one() -> Generator[i64]:
-    yield 1
-def two() -> Generator[i64]:
-    yield 2
-"#;
-    let hint = "different producers join only where a value is chosen";
-    for body in [
-        "o = Some(one()) if True else Some(two())\ndrop(o)\n",
-        "mut g = one()\ng = two()\ndrop(g)\n",
-        "def f(flag: bool) -> Option[Generator[i64]]:\n    if flag:\n        return Some(one())\n    Some(two())\ndrop(f(True))\n",
-    ] {
-        let error = check_error(&format!("{producers}{body}"));
-        assert!(error.contains(hint), "{error}");
-    }
+fn reassignment_joins_producers_and_drops_each_frame_once() {
+    expect(
+        &with_producers(
+            r#"
+def replaced() -> ():
+    mut g = two(Res(50))
+    print(next(g)).unwrap()
+    g = one()
+    print(list(g).unwrap()).unwrap()
+def looped() -> ():
+    mut g = one()
+    for i in range(3):
+        if i == 1:
+            g = two(Res(52))
+        elif i == 2:
+            g = choose(True)
+    print(list(g).unwrap()).unwrap()
+replaced()
+looped()
+"#,
+        ),
+        "Option[i64].Some(2)\ndrop 50\n[1]\ndrop 52\n[1]\n",
+    );
+}
+
+#[test]
+fn option_and_result_payloads_built_where_chosen_join_producers() {
+    expect(
+        &with_producers(
+            r#"
+def show(o: Option[Generator[i64]]) -> ():
+    match o:
+        case Some(g):
+            print(list(g).unwrap()).unwrap()
+        case Nothing:
+            print("none").unwrap()
+def factory(flag: bool) -> Option[Generator[i64]]:
+    if flag:
+        return Some(one())
+    Some(two(Res(60)))
+def fallible(n: i64) -> Result[Option[Generator[i64]], str]:
+    if n < 0:
+        return Err("negative")
+    if n == 0:
+        return Ok(Some(one()))
+    Ok(Some(two(Res(n))))
+def main_body(flag: bool) -> ():
+    show(Some(one()) if flag else Some(two(Res(61))))
+    x = if flag:
+        Some(two(Res(62)))
+    else:
+        Some(one())
+    show(x)
+    y = match 1:
+        case 0:
+            Some(one())
+        case _:
+            Some(two(Res(63)))
+    show(y)
+    mut z = Some(one())
+    z = Some(two(Res(64)))
+    show(z)
+    show(factory(True))
+    show(factory(False))
+    match fallible(65):
+        case Ok(o):
+            show(o)
+        case Err(e):
+            print(e).unwrap()
+    match fallible(-1):
+        case Ok(o):
+            show(o)
+        case Err(e):
+            print(e).unwrap()
+main_body(True)
+"#,
+        ),
+        "[1]\ndrop 62\n[2, 62]\ndrop 63\n[2, 63]\ndrop 64\n[2, 64]\n[1]\ndrop 60\n[2, 60]\ndrop 65\n[2, 65]\nnegative\n",
+    );
+}
+
+#[test]
+fn an_already_built_payload_keeps_its_producer() {
+    // Phase guard (issue #900): delete when built payloads join.
+    let error = check_error(&with_producers(
+        r#"
+def maybe() -> Option[Generator[i64]]:
+    Some(one())
+o = maybe() if True else Some(two(Res(1)))
+drop(o)
+"#,
+    ));
+    assert!(
+        error.contains("already built with one generator producer"),
+        "{error}"
+    );
 }
 
 #[test]
