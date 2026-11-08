@@ -179,8 +179,9 @@ Ada
 
 A function takes a substring as `&strview`. Passing a whole string as `line`
 implicitly borrows it for the call; `&line` or a literal also works. Copy the
-text with `value[a:b]?` when you need an owned `str`,
-for example to call a `str` method or keep it after the string changes. The
+text with `value[a:b]?` when you need an owned `str` to keep after the string
+changes. Text methods such as `value.upper()?` and `value.split()?` work directly
+on a view and return owned results. The
 [substring view reference](../../design/language/04-expressions/slices.md#substring-views)
 lists every operation.
 

@@ -4,7 +4,8 @@
 //! byte range into a new string and can fail with an allocation error.
 //! Byte substring search (op 367) uses allocation-free memchr; parsing,
 //! compilation, batching, matching and limits remain Plenty.
-use crate::strings::{self, Text};
+use crate::aggregates::text_views;
+use crate::strings;
 
 fn property(code: u32, property: i64) -> bool {
     let Some(scalar) = char::from_u32(code) else {
@@ -70,9 +71,8 @@ pub(crate) unsafe fn call(op: i64, a: u128, b: u128, c: u128) -> u128 {
             0 => &[],
             count => unsafe { std::slice::from_raw_parts(a as u64 as *const u8, count) },
         };
-        let needle = b as *const Text;
-        // SAFETY: b is a borrowed string word, live for this call.
-        let needle = unsafe { strings::bytes(&needle) };
+        // SAFETY: b is a checked text view borrowed throughout this call.
+        let needle = unsafe { text_views::bytes(b) };
         return memchr::memmem::find(source, needle).map_or(-1, |at| at as i64) as u128;
     }
     if op == 360 {
@@ -81,11 +81,8 @@ pub(crate) unsafe fn call(op: i64, a: u128, b: u128, c: u128) -> u128 {
     if op == 365 {
         return case(a as u32, b != 0) as u128;
     }
-    let text = a as *const Text;
-    // SAFETY: the compiler passes a borrowed text word that outlives the call.
-    let source = unsafe { strings::bytes(&text) };
-    // SAFETY: `str` values are always valid UTF-8.
-    let source = unsafe { std::str::from_utf8_unchecked(source) };
+    // SAFETY: the compiler passes a checked UTF-8 view borrowed for this call.
+    let source = unsafe { text_views::text(a) };
     match op {
         361 => at(source, b as i64) as u128,
         362 => usize::try_from(b as i64)
@@ -104,9 +101,8 @@ pub(crate) unsafe fn call(op: i64, a: u128, b: u128, c: u128) -> u128 {
             }
         }
         364 => {
-            let needle = b as *const Text;
             // SAFETY: as for the haystack.
-            let needle = unsafe { std::str::from_utf8_unchecked(strings::bytes(&needle)) };
+            let needle = unsafe { text_views::text(b) };
             usize::try_from(c as i64)
                 .ok()
                 .and_then(|start| Some(start + source.get(start..)?.find(needle)?))

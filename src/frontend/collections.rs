@@ -1326,8 +1326,8 @@ impl Lower<'_> {
         }
         let mut loans = Vec::new();
         for (arg, expected) in args.iter().zip(inputs) {
-            if let Ty::View(_, mutable) = &expected {
-                let (ty, loan) = self.view_argument(arg, *mutable, false, ops)?;
+            if let Ty::View(element, mutable) = &expected {
+                let (ty, loan) = self.view_argument(arg, *mutable, **element == Ty::Text, ops)?;
                 self.same(Some(ty), Some(expected.clone()), &arg.at)?;
                 loans.push(loan);
                 continue;
@@ -2600,14 +2600,22 @@ impl Lower<'_> {
     /// `str`. Collections and strings are observed and measured before the one
     /// output allocation; a generator is one-shot, so it is consumed like a
     /// loop source and its pieces are buffered (`text-building.md`).
-    fn join_text(&mut self, argument: &Expr, ops: &mut Vec<Op>) -> Result<Ty> {
+    pub(super) fn join_text(
+        &mut self,
+        argument: &Expr,
+        range: bool,
+        ops: &mut Vec<Op>,
+    ) -> Result<Ty> {
         let owned = match &ungroup(argument).kind {
             Expression::Name(name) => self.names.get(name).map(|local| &local.ty),
             _ => None,
         };
         let owned = matches!(owned, Some(Ty::Generator(_)));
         let place = self.place_type(argument).filter(|_| !owned);
-        let (ty, loans) = if owned {
+        let (ty, loans) = if range && self.slice_view_type(argument, false) == Some(text_view()) {
+            let (ty, loan) = self.view_argument(argument, false, true, ops)?;
+            (ty, vec![loan])
+        } else if owned {
             let ty = self.value(argument, ops)?;
             let slot = self.slot(ty.clone(), &argument.at)?;
             ops.extend([Op::StoreLocal(slot), Op::LoadLocal(slot)]);
@@ -2636,7 +2644,11 @@ impl Lower<'_> {
             };
             self.observe_expected(argument, hint, ops)?
         };
-        if ty.element() != Some(Ty::Str) {
+        if ty.element() != Some(Ty::Str)
+            && !(range
+                && (ty == text_view()
+                    || matches!(&ty, Ty::View(element, _) if **element == Ty::Str)))
+        {
             return Err(argument.at.error(format!(
                 "join requires an iterable of str (a list, set, dictionary keys, str, or generator), got {ty}"
             )));
@@ -2648,7 +2660,13 @@ impl Lower<'_> {
                 .at
                 .error("join consumes a generator; pass it by value, not by reference"));
         }
-        let operation = CollectionOp::TextTryJoin(ty);
+        let input = if ty == text_view() { Ty::Str } else { ty };
+        let operation = CollectionOp::TextTryJoin(input);
+        let operation = if range {
+            crate::text::TextViewOp::apply(operation)
+        } else {
+            operation
+        };
         let (_, result) = operation.signature();
         ops.push(Op::Collection(operation));
         Self::end_reads(loans, ops);
@@ -4299,6 +4317,16 @@ impl Lower<'_> {
                 if args.len() != 1 {
                     return Err(base.at.error("parse takes one string argument"));
                 }
+                if self.is_text_view(&args[0]) {
+                    return self
+                        .system_call(
+                            crate::text::TextViewOp::apply(CollectionOp::ParseNumber(ty)),
+                            args,
+                            &base.at,
+                            ops,
+                        )
+                        .map(Some);
+                }
                 let (actual, loans) = self.observe(&args[0], ops)?;
                 self.same(Some(actual), Some(Ty::Str), &args[0].at)?;
                 let operation = CollectionOp::ParseNumber(ty);
@@ -4849,7 +4877,7 @@ impl Lower<'_> {
                 ));
             }
             if name == "join" {
-                let result = self.join_text(&args[0], ops)?;
+                let result = self.join_text(&args[0], false, ops)?;
                 Self::end_reads(loans, ops);
                 return Ok(Some(result));
             }

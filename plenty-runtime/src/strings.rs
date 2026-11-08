@@ -241,13 +241,15 @@ pub(crate) fn from_codepoint(code: u32) -> Option<*mut Text> {
 }
 
 pub(crate) unsafe fn try_case(text: *const Text, upper: bool) -> Result<*mut Text, AllocError> {
-    unsafe {
-        let source = utf8(&text);
-        if upper {
-            try_characters(source.chars().flat_map(char::to_uppercase))
-        } else {
-            try_characters(source.chars().flat_map(char::to_lowercase))
-        }
+    // SAFETY: the caller lends a live string word for this call.
+    try_case_range(unsafe { utf8(&text) }, upper)
+}
+
+pub(crate) fn try_case_range(source: &str, upper: bool) -> Result<*mut Text, AllocError> {
+    if upper {
+        try_characters(source.chars().flat_map(char::to_uppercase))
+    } else {
+        try_characters(source.chars().flat_map(char::to_lowercase))
     }
 }
 
@@ -334,6 +336,15 @@ pub(crate) unsafe fn try_concat(a: *const Text, b: *const Text) -> Result<*mut T
     unsafe { try_join(None, [a, b].into_iter()) }
 }
 
+pub(crate) fn try_concat_range(a: &str, b: &str) -> Result<*mut Text, AllocError> {
+    let bytes = add_length(a.len() as u64, b.len() as u64)?;
+    let scalars = add_length(a.chars().count() as u64, b.chars().count() as u64)?;
+    try_build(bytes, scalars, |out| {
+        let offset = put(out, 0, a.as_bytes());
+        put(out, offset, b.as_bytes());
+    })
+}
+
 fn add_length(total: u64, length: u64) -> Result<u64, AllocError> {
     total
         .checked_add(length)
@@ -357,27 +368,62 @@ pub(crate) unsafe fn try_replace(
     old: *const Text,
     new: *const Text,
 ) -> Result<*mut Text, AllocError> {
+    // SAFETY: the caller keeps all three owning words live through the call.
     unsafe {
-        let source = utf8(&text);
-        let matches = source.match_indices(utf8(&old));
-        let count = matches.clone().count() as u64;
-        let total = replacement_length(byte_len(text), byte_len(old), byte_len(new), count)?;
-        let scalars =
-            replacement_length(scalar_len(text), scalar_len(old), scalar_len(new), count)?;
-        let replacement = bytes(&new);
-        try_build(total, scalars, |out| {
-            let mut offset = 0;
-            let mut append = |data: &[u8]| offset = put(out, offset, data);
-            let mut previous = 0;
-            for (index, matched) in matches {
-                append(&source.as_bytes()[previous..index]);
-                append(replacement);
-                previous = index + matched.len();
-            }
-            append(&source.as_bytes()[previous..]);
-            debug_assert_eq!(offset, total as usize);
-        })
+        replace_range(
+            utf8(&text),
+            utf8(&old),
+            utf8(&new),
+            (scalar_len(text), scalar_len(old), scalar_len(new)),
+        )
     }
+}
+
+pub(crate) fn try_replace_range(
+    source: &str,
+    old: &str,
+    new: &str,
+) -> Result<*mut Text, AllocError> {
+    replace_range(
+        source,
+        old,
+        new,
+        (
+            source.chars().count() as u64,
+            old.chars().count() as u64,
+            new.chars().count() as u64,
+        ),
+    )
+}
+
+fn replace_range(
+    source: &str,
+    old: &str,
+    new: &str,
+    scalars: (u64, u64, u64),
+) -> Result<*mut Text, AllocError> {
+    let matches = source.match_indices(old);
+    let count = matches.clone().count() as u64;
+    let total = replacement_length(
+        source.len() as u64,
+        old.len() as u64,
+        new.len() as u64,
+        count,
+    )?;
+    let scalars = replacement_length(scalars.0, scalars.1, scalars.2, count)?;
+    let replacement = new.as_bytes();
+    try_build(total, scalars, |out| {
+        let mut offset = 0;
+        let mut append = |data: &[u8]| offset = put(out, offset, data);
+        let mut previous = 0;
+        for (index, matched) in matches {
+            append(&source.as_bytes()[previous..index]);
+            append(replacement);
+            previous = index + matched.len();
+        }
+        append(&source.as_bytes()[previous..]);
+        debug_assert_eq!(offset, total as usize);
+    })
 }
 
 /// Borrow UTF-8 texts in a stable sequence. Cloning the iterator must enumerate
@@ -387,13 +433,36 @@ pub(crate) unsafe fn try_join(
     separator: Option<*const Text>,
     pieces: impl Clone + Iterator<Item = *const Text>,
 ) -> Result<*mut Text, AllocError> {
+    // SAFETY: every word remains live for both passes; inline separator bytes
+    // borrow the stable local Option payload for this synchronous call.
+    unsafe {
+        let between = separator.as_ref().map_or("", |word| utf8(word));
+        let scalars = separator.map_or(0, |word| scalar_len(word));
+        join_range(between, scalars, pieces)
+    }
+}
+
+pub(crate) unsafe fn try_join_range(
+    separator: &str,
+    pieces: impl Clone + Iterator<Item = *const Text>,
+) -> Result<*mut Text, AllocError> {
+    // SAFETY: the caller keeps every piece word live for both passes.
+    unsafe { join_range(separator, separator.chars().count() as u64, pieces) }
+}
+
+unsafe fn join_range(
+    separator: &str,
+    separator_scalars: u64,
+    pieces: impl Clone + Iterator<Item = *const Text>,
+) -> Result<*mut Text, AllocError> {
+    // SAFETY: each iterator pass yields live borrowed owning string words.
     unsafe {
         let (mut total, mut scalars) = (0, 0);
         let mut first = true;
         for piece in pieces.clone() {
-            if !first && let Some(separator) = separator {
-                total = add_length(total, byte_len(separator))?;
-                scalars = add_length(scalars, scalar_len(separator))?;
+            if !first {
+                total = add_length(total, separator.len() as u64)?;
+                scalars = add_length(scalars, separator_scalars)?;
             }
             total = add_length(total, byte_len(piece))?;
             scalars = add_length(scalars, scalar_len(piece))?;
@@ -401,13 +470,12 @@ pub(crate) unsafe fn try_join(
         }
         try_build(total, scalars, |out| {
             let mut offset = 0;
-            let mut append = |text: *const Text| offset = put(out, offset, bytes(&text));
             let mut first = true;
             for piece in pieces {
-                if !first && let Some(separator) = separator {
-                    append(separator);
+                if !first {
+                    offset = put(out, offset, separator.as_bytes());
                 }
-                append(piece);
+                offset = put(out, offset, bytes(&piece));
                 first = false;
             }
             debug_assert_eq!(offset, total as usize);
@@ -421,24 +489,47 @@ pub(crate) unsafe fn try_join_scalars(
     separator: *const Text,
     text: *const Text,
 ) -> Result<*mut Text, AllocError> {
+    // SAFETY: both owning words stay live throughout the synchronous build.
     unsafe {
-        let gaps = scalar_len(text).saturating_sub(1);
-        let repeated = |length: u64| length.checked_mul(gaps).ok_or(AllocError::CapacityOverflow);
-        let total = add_length(byte_len(text), repeated(byte_len(separator))?)?;
-        let scalars = add_length(scalar_len(text), repeated(scalar_len(separator))?)?;
-        let (source, between) = (utf8(&text), bytes(&separator));
-        try_build(total, scalars, |out| {
-            let mut offset = 0;
-            for (index, character) in source.char_indices() {
-                if index != 0 {
-                    offset = put(out, offset, between);
-                }
-                let length = character.len_utf8();
-                offset = put(out, offset, &source.as_bytes()[index..index + length]);
-            }
-            debug_assert_eq!(offset, total as usize);
-        })
+        join_scalars_range(
+            utf8(&separator),
+            utf8(&text),
+            scalar_len(separator),
+            scalar_len(text),
+        )
     }
+}
+
+pub(crate) fn try_join_scalars_range(separator: &str, text: &str) -> Result<*mut Text, AllocError> {
+    join_scalars_range(
+        separator,
+        text,
+        separator.chars().count() as u64,
+        text.chars().count() as u64,
+    )
+}
+
+fn join_scalars_range(
+    separator: &str,
+    source: &str,
+    separator_scalars: u64,
+    source_scalars: u64,
+) -> Result<*mut Text, AllocError> {
+    let gaps = source_scalars.saturating_sub(1);
+    let repeated = |length: u64| length.checked_mul(gaps).ok_or(AllocError::CapacityOverflow);
+    let total = add_length(source.len() as u64, repeated(separator.len() as u64)?)?;
+    let scalars = add_length(source_scalars, repeated(separator_scalars)?)?;
+    try_build(total, scalars, |out| {
+        let mut offset = 0;
+        for (index, character) in source.char_indices() {
+            if index != 0 {
+                offset = put(out, offset, separator.as_bytes());
+            }
+            let length = character.len_utf8();
+            offset = put(out, offset, &source.as_bytes()[index..index + length]);
+        }
+        debug_assert_eq!(offset, total as usize);
+    })
 }
 
 /// A generator cannot be measured without consuming it. Its pieces are
@@ -450,13 +541,31 @@ pub(crate) unsafe fn try_join_generator(
     separator: *const Text,
     generator: *mut crate::generators::Generator,
 ) -> Result<*mut Text, AllocError> {
+    // SAFETY: the caller lends the separator and owns the generator frame.
+    unsafe { join_generator_range(utf8(&separator), scalar_len(separator), generator) }
+}
+
+pub(crate) unsafe fn try_join_generator_range(
+    separator: &str,
+    generator: *mut crate::generators::Generator,
+) -> Result<*mut Text, AllocError> {
+    // SAFETY: the caller lends the separator and owns the generator frame.
+    unsafe { join_generator_range(separator, separator.chars().count() as u64, generator) }
+}
+
+unsafe fn join_generator_range(
+    separator: &str,
+    separator_scalars: u64,
+    generator: *mut crate::generators::Generator,
+) -> Result<*mut Text, AllocError> {
+    // SAFETY: the compiler supplies a live owned generator of str values;
+    // each yielded owner is released after its bytes enter the scratch buffer.
     unsafe {
         let mut buffer = Vec::<u8>::new();
         let (mut total, mut scalars) = (0, 0);
-        let mut append = |text: *const Text| -> Result<(), AllocError> {
-            total = add_length(total, byte_len(text))?;
-            scalars = add_length(scalars, scalar_len(text))?;
-            let data = bytes(&text);
+        let mut append = |data: &[u8], scalar_count: u64| -> Result<(), AllocError> {
+            total = add_length(total, data.len() as u64)?;
+            scalars = add_length(scalars, scalar_count)?;
             memory::try_reserve_amortized(&mut buffer, data.len())?;
             buffer.extend_from_slice(data);
             Ok(())
@@ -469,9 +578,10 @@ pub(crate) unsafe fn try_join_generator(
             }
             let piece = item as *const Text;
             let appended = if first {
-                append(piece)
+                append(bytes(&piece), scalar_len(piece))
             } else {
-                append(separator).and_then(|()| append(piece))
+                append(separator.as_bytes(), separator_scalars)
+                    .and_then(|()| append(bytes(&piece), scalar_len(piece)))
             };
             memory::plenty_release(piece as *mut Header);
             appended?;
@@ -699,23 +809,29 @@ fn repeated_length(length: u64, count: i64) -> Result<u64, AllocError> {
 }
 
 pub(crate) unsafe fn try_repeat(text: *const Text, count: i64) -> Result<*mut Text, AllocError> {
-    unsafe {
-        let total = repeated_length(byte_len(text), count)?;
-        let scalars = repeated_length(scalar_len(text), count)?;
-        let source = bytes(&text);
-        try_build(total, scalars, |out| {
-            if out.is_empty() {
-                return;
-            }
-            let mut filled = put(out, 0, source);
-            while filled < out.len() {
-                // Doubling the initialized prefix avoids one copy per repeat.
-                let count = filled.min(out.len() - filled);
-                out.copy_within(..count, filled);
-                filled += count;
-            }
-        })
-    }
+    // SAFETY: the caller keeps the string word live through the call.
+    unsafe { repeat_range(bytes(&text), scalar_len(text), count) }
+}
+
+pub(crate) fn try_repeat_range(source: &str, count: i64) -> Result<*mut Text, AllocError> {
+    repeat_range(source.as_bytes(), source.chars().count() as u64, count)
+}
+
+fn repeat_range(source: &[u8], scalar_len: u64, count: i64) -> Result<*mut Text, AllocError> {
+    let total = repeated_length(source.len() as u64, count)?;
+    let scalars = repeated_length(scalar_len, count)?;
+    try_build(total, scalars, |out| {
+        if out.is_empty() {
+            return;
+        }
+        let mut filled = put(out, 0, source);
+        while filled < out.len() {
+            // Doubling the initialized prefix avoids one copy per repeat.
+            let count = filled.min(out.len() - filled);
+            out.copy_within(..count, filled);
+            filled += count;
+        }
+    })
 }
 
 /// Trim Unicode White_Space at selected ends, then allocate only the final text.
@@ -724,16 +840,22 @@ pub(crate) unsafe fn try_strip(
     left: bool,
     right: bool,
 ) -> Result<*mut Text, AllocError> {
-    unsafe {
-        let mut source = utf8(&text);
-        if left {
-            source = source.trim_start();
-        }
-        if right {
-            source = source.trim_end();
-        }
-        try_new(source)
+    // SAFETY: the caller keeps the string word live through the call.
+    try_strip_range(unsafe { utf8(&text) }, left, right)
+}
+
+pub(crate) fn try_strip_range(
+    mut source: &str,
+    left: bool,
+    right: bool,
+) -> Result<*mut Text, AllocError> {
+    if left {
+        source = source.trim_start();
     }
+    if right {
+        source = source.trim_end();
+    }
+    try_new(source)
 }
 
 /// Copy a forward Unicode-scalar slice directly from its UTF-8 byte interval.
@@ -753,21 +875,28 @@ unsafe fn try_scalar_range(
     text: *const Text,
     bounds: std::ops::Range<usize>,
 ) -> Result<*mut Text, AllocError> {
-    unsafe {
-        if bounds.is_empty() {
-            return try_new("");
-        }
-        let source = utf8(&text);
-        if is_ascii(text) {
-            return try_new(&source[bounds]);
-        }
-        let start = source.char_indices().nth(bounds.start).unwrap().0;
-        let end = source[start..]
-            .char_indices()
-            .nth(bounds.len())
-            .map_or(source.len(), |(offset, _)| start + offset);
-        try_new(&source[start..end])
+    // SAFETY: the caller keeps the string word live through the call.
+    // SAFETY: the same live string exposes its cached byte/scalar counts.
+    scalar_range(unsafe { utf8(&text) }, bounds, unsafe { is_ascii(text) })
+}
+
+fn scalar_range(
+    source: &str,
+    bounds: std::ops::Range<usize>,
+    ascii: bool,
+) -> Result<*mut Text, AllocError> {
+    if bounds.is_empty() {
+        return try_new("");
     }
+    if ascii {
+        return try_new(&source[bounds]);
+    }
+    let start = source.char_indices().nth(bounds.start).unwrap().0;
+    let end = source[start..]
+        .char_indices()
+        .nth(bounds.len())
+        .map_or(source.len(), |(offset, _)| start + offset);
+    try_new(&source[start..end])
 }
 
 /// Copy `count` scalars `step` apart from scalar `first`, positions that
@@ -775,52 +904,66 @@ unsafe fn try_scalar_range(
 /// The result has exact size and is the only allocation.
 pub(crate) unsafe fn try_stepped_slice(
     text: *const Text,
+    positions: (usize, i64, usize),
+) -> Result<*mut Text, AllocError> {
+    // SAFETY: the caller keeps the string word live through the call.
+    // SAFETY: the same live string exposes its cached byte/scalar counts.
+    stepped_slice_range(unsafe { utf8(&text) }, positions, unsafe { is_ascii(text) })
+}
+
+pub(crate) fn try_stepped_slice_range(
+    source: &str,
+    positions: (usize, i64, usize),
+) -> Result<*mut Text, AllocError> {
+    stepped_slice_range(source, positions, source.is_ascii())
+}
+
+fn stepped_slice_range(
+    source: &str,
     (first, step, count): (usize, i64, usize),
+    ascii: bool,
 ) -> Result<*mut Text, AllocError> {
     use crate::aggregates::slice_position;
-    unsafe {
-        if step == 1 || count <= 1 {
-            return try_scalar_range(text, first..first + count);
-        }
-        if is_ascii(text) {
-            let source = bytes(&text);
-            return try_build(count as u64, count as u64, |out| {
-                for (k, byte) in out.iter_mut().enumerate() {
-                    byte.write(source[slice_position(first, step, k)]);
-                }
-            });
-        }
-        // Visit the selected scalars in text order, from the lowest position.
-        let low = if step > 0 {
-            first
-        } else {
-            slice_position(first, step, count - 1)
-        };
-        let source = utf8(&text);
-        let selected = || {
-            source
-                .chars()
-                .skip(low)
-                .step_by(step.unsigned_abs() as usize)
-                .take(count)
-        };
-        let total: usize = selected().map(char::len_utf8).sum();
-        try_build(total as u64, count as u64, |out| {
-            // A reversed slice writes each scalar so that it ends where the
-            // previous one starts, filling the output from its end.
-            let mut offset = if step > 0 { 0 } else { out.len() };
-            for character in selected() {
-                let length = character.len_utf8();
-                if step < 0 {
-                    offset -= length;
-                }
-                put(out, offset, character.encode_utf8(&mut [0; 4]).as_bytes());
-                if step > 0 {
-                    offset += length;
-                }
-            }
-        })
+    if step == 1 || count <= 1 {
+        return scalar_range(source, first..first + count, ascii);
     }
+    if ascii {
+        let source = source.as_bytes();
+        return try_build(count as u64, count as u64, |out| {
+            for (k, byte) in out.iter_mut().enumerate() {
+                byte.write(source[slice_position(first, step, k)]);
+            }
+        });
+    }
+    // Visit the selected scalars in text order, from the lowest position.
+    let low = if step > 0 {
+        first
+    } else {
+        slice_position(first, step, count - 1)
+    };
+    let selected = || {
+        source
+            .chars()
+            .skip(low)
+            .step_by(step.unsigned_abs() as usize)
+            .take(count)
+    };
+    let total: usize = selected().map(char::len_utf8).sum();
+    try_build(total as u64, count as u64, |out| {
+        // A reversed slice writes each scalar so that it ends where the
+        // previous one starts, filling the output from its end.
+        let mut offset = if step > 0 { 0 } else { out.len() };
+        for character in selected() {
+            let length = character.len_utf8();
+            if step < 0 {
+                offset -= length;
+            }
+            put(out, offset, character.encode_utf8(&mut [0; 4]).as_bytes());
+            if step > 0 {
+                offset += length;
+            }
+        }
+    })
 }
 
 pub(crate) unsafe fn at_byte(text: *const Text, offset: usize) -> *mut Text {

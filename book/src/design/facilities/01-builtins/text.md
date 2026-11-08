@@ -15,7 +15,9 @@ method, so the two counts cannot be confused at a call site.
 
 `s[a:b]?` copies the scalars from `a` to `b` into a new `str`;
 `&s[a:b]` borrows them in place as a `&strview`, which loops, compares, and
-searches without allocating. Both count bounds in scalars; see
+searches without allocating. Text methods, mixed concatenation and membership,
+`ord`, and numeric `T.parse` accept views directly; methods returning owned text
+keep their fallible result types. Both count bounds in scalars; see
 [substring views](../../language/04-expressions/slices.md#substring-views).
 
 `text.as_bytes() -> &[u8]` borrows the exact UTF-8 encoding without copying,

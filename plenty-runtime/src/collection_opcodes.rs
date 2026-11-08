@@ -56,6 +56,12 @@ pub const GET_OR_INSERT_HIT: i64 = 2;
 pub const LIST_INSERT: i64 = 602;
 /// Borrowed list[str] to a private packed C pointer table and string owner.
 pub const C_STRINGS: i64 = 603;
+/// Checked text view, ASCII byte set, membership flag -> scalar position or -1.
+pub const TEXT_VIEW_FIND_IN: i64 = 604;
+pub const TEXT_VIEW_ASCII_EQUAL_FOLDED: i64 = 605;
+/// An existing text builtin executed on checked UTF-8 range operands. The
+/// original opcode still defines its result metadata, errors and native arity.
+pub const TEXT_RANGE_BASE: i64 = 1000;
 
 /// Operands after the three fixed input words of `plenty_op_<N>` calls.
 /// The result occupies word 3; only actual fourth/fifth inputs initialize
@@ -66,6 +72,9 @@ pub const C_STRINGS: i64 = 603;
 /// native ABI arity, including hidden operands such as a column field index.
 #[inline(always)]
 pub const fn scratch_operand_count(op: i64) -> usize {
+    if op >= TEXT_RANGE_BASE && op <= TEXT_RANGE_BASE + 640 {
+        return scratch_operand_count(op - TEXT_RANGE_BASE);
+    }
     match op {
         // Float formatting; datagram receive.
         281 | 417 => 2,
