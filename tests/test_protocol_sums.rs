@@ -365,7 +365,9 @@ def main() -> ():
     {call}
 "#
             ),
-            &format!("A | B does not satisfy P: an anonymous sum cannot forward it because {expected}"),
+            &format!(
+                "A | B does not satisfy P: an anonymous sum cannot forward it because {expected}"
+            ),
         );
     }
 }
