@@ -625,13 +625,16 @@ def main() -> Result[(), AllocError | IoError]:
     view = &text[1:]
     print("__test_fail_allocations_after_0__")?
     bytes = view.as_bytes()
-    print(len(bytes), bytes[0], "é".as_bytes())?
+    count = len(bytes)
+    first = bytes[0]
+    literal = "é".as_bytes()
     copied = std.bytes.from_text(view)
     print("__test_restore_allocations__")?
+    print(count, first, literal)?
     print(copied.is_err(), std.bytes.from_text(view)?)?
     Ok(())
 "#,
-        "23 58 b\"\\xc3\\xa9\"\nTrue b\": long heap-backed text\"\n",
+        "__test_fail_allocations_after_0__\n__test_restore_allocations__\n23 58 b\"\\xc3\\xa9\"\nTrue b\": long heap-backed text\"\n",
     );
 }
 
