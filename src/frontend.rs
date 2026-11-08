@@ -1028,6 +1028,13 @@ struct Lower<'a> {
     /// The innermost block producing a value is an `if` or `match` arm, so an
     /// untyped final value is described as a branch (issue #797).
     branch_value_tail: bool,
+    /// How many method calls enclose the expression being lowered.
+    method_depth: usize,
+    /// The expected result of the method call at this depth with this name,
+    /// which a generic method takes as type-argument evidence (issue #873).
+    /// Method dispatch passes through many paths, so the expectation travels
+    /// here rather than through every one of them.
+    expected_method: Option<(usize, String, Ty)>,
     indexed_lists: Vec<collections::IndexedLists>,
     /// The list place and slot of the last counted `range(..., len(xs))`
     /// whose stop was saved; see [`collections::IndexedLists::stop`].
@@ -1845,9 +1852,34 @@ impl Lower<'_> {
             }));
         }
         ide::enter_method(*pos, name);
+        self.method_depth += 1;
         let ty = self.method(base, name, args, ops);
+        self.method_depth -= 1;
         ide::leave_method();
         ty
+    }
+    /// A method call `e` whose context expects `expected`; a generic method
+    /// takes it as evidence for its type arguments (issue #873).
+    #[inline(never)]
+    fn method_expected(&mut self, e: &Expr, expected: Ty, ops: &mut Vec<Op>) -> Result<Type> {
+        let Expression::Method(_, name, _, _) = &e.kind else {
+            unreachable!("method_expected lowers method calls")
+        };
+        let outer = self
+            .expected_method
+            .replace((self.method_depth + 1, name.clone(), expected));
+        let ty = self.expr(e, ops);
+        self.expected_method = outer;
+        ty
+    }
+    /// The expected result of the method call generic method `callee` is
+    /// lowering, if its context supplied one.
+    pub(super) fn method_expectation(&mut self, callee: &str) -> Option<Ty> {
+        let depth = self.method_depth;
+        let short = callee.rsplit('.').next()?;
+        self.expected_method
+            .take_if(|(d, name, _)| *d == depth && name == short)
+            .map(|(_, _, ty)| ty)
     }
     /// A binary operator other than `in`, `not in`, `and` and `or`. Outlined
     /// so that its locals do not enlarge the frame of every recursive `expr`
@@ -4846,6 +4878,8 @@ fn lower_body(
                 checked: Vec::new(),
                 checked_value_tail: false,
                 branch_value_tail: false,
+                method_depth: 0,
+                expected_method: None,
                 yield_type: yield_type.clone(),
                 loans: Vec::new(),
                 reference_locals: HashMap::default(),

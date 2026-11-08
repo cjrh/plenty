@@ -259,6 +259,8 @@ mod test_float_rounding;
 #[path = "test_fs_permissions.rs"]
 mod test_fs_permissions;
 
+#[path = "test_expected_results.rs"]
+mod test_expected_results;
 #[path = "test_expected_types.rs"]
 mod test_expected_types;
 #[path = "test_fs_helpers.rs"]

@@ -743,6 +743,163 @@ fn infer(
     infer_inner(pattern, actual, template, inferred, aliases, at, true)
 }
 
+/// The type arguments an expected result type `expected` names for a call of
+/// `template` (issue #873), learned by matching the declared output against
+/// it. Only exact positions are evidence: a value converts into an anonymous
+/// sum, so a parameter matched against one, such as the error of a `?`
+/// operand inside a function with a wider error type, learns nothing. A
+/// parameter matched twice against different types learns nothing either.
+fn result_evidence(
+    template: &Function,
+    expected: &Ty,
+    aliases: &TypeAliases,
+    at: &Token,
+) -> HashMap<String, Argument> {
+    let mut evidence = HashMap::default();
+    let mut ambiguous = Vec::new();
+    match_result(
+        &template.output,
+        &Argument::Type(expected.clone()),
+        template,
+        aliases,
+        at,
+        &mut evidence,
+        &mut ambiguous,
+    );
+    for name in ambiguous {
+        evidence.remove(&name);
+    }
+    evidence
+}
+
+fn match_result(
+    pattern: &TypeRef,
+    expected: &Argument,
+    template: &Function,
+    aliases: &TypeAliases,
+    at: &Token,
+    evidence: &mut HashMap<String, Argument>,
+    ambiguous: &mut Vec<String>,
+) {
+    if !mentions_parameter(pattern, template) {
+        return;
+    }
+    if let Some(name) = pattern
+        .name
+        .as_ref()
+        .filter(|name| template.type_params.iter().any(|(n, _)| n == *name))
+    {
+        let exact = match expected {
+            Argument::Type(ty) => {
+                pattern.args.is_empty()
+                    && *ty != Ty::Unit
+                    && !ty.unresolved_generator()
+                    && !matches!(ty, Ty::Enum(sum) if sum.anonymous())
+            }
+            Argument::Value(_) => true,
+        };
+        if !exact {
+            return;
+        }
+        match evidence.get(name) {
+            Some(previous) if previous != expected => ambiguous.push(name.clone()),
+            Some(_) => {}
+            None => {
+                evidence.insert(name.clone(), expected.clone());
+            }
+        }
+        return;
+    }
+    let Argument::Type(expected) = expected else {
+        return;
+    };
+    if let Some((name, arguments)) = aliases.data.arguments(expected)
+        && pattern.name.as_ref() == Some(&name)
+        && pattern.args.len() == arguments.len()
+    {
+        for (pattern, argument) in pattern.args.iter().zip(&arguments) {
+            match_result(
+                pattern, argument, template, aliases, at, evidence, ambiguous,
+            );
+        }
+        return;
+    }
+    let reified = type_ref(expected, at);
+    if pattern.name.as_deref() == Some("|")
+        || reified.name != pattern.name
+        || reified.args.len() != pattern.args.len()
+    {
+        return;
+    }
+    for (pattern, child) in pattern.args.iter().zip(&reified.args) {
+        let child = child.concrete.as_deref().cloned().unwrap_or(Ty::Unit);
+        match_result(
+            pattern,
+            &Argument::Type(child),
+            template,
+            aliases,
+            at,
+            evidence,
+            ambiguous,
+        );
+    }
+}
+
+/// The concrete type of parameter `pattern` when the expected result's
+/// `hint` determines every type parameter it mentions.
+fn hinted_parameter(
+    pattern: &TypeRef,
+    template: &Function,
+    hint: &HashMap<String, Argument>,
+    aliases: &TypeAliases,
+) -> Result<Option<Ty>> {
+    if hint.is_empty() {
+        return Ok(None);
+    }
+    let mut replacements = Substitution::default();
+    for (name, _) in &template.type_params {
+        if let Some(Argument::Type(ty)) = hint.get(name) {
+            replacements.insert(name.clone(), type_ref(ty, &pattern.at));
+        }
+    }
+    let mut concrete = pattern.clone();
+    substitute(&mut concrete, &replacements)?;
+    if mentions_parameter(&concrete, template) {
+        return Ok(None);
+    }
+    concrete.resolve(aliases)
+}
+
+/// Adds the expected result's evidence to the arguments' (issue #873). Both
+/// are exact, so a parameter they determine differently is an error rather
+/// than a choice between them.
+fn combine_result_evidence(
+    name: &str,
+    hint: HashMap<String, Argument>,
+    inferred: &mut HashMap<String, Argument>,
+    at: &Token,
+) -> Result<()> {
+    for (param, expected) in hint {
+        match inferred.get(&param) {
+            None => {
+                inferred.insert(param, expected);
+            }
+            Some(actual) if *actual == expected => {}
+            Some(Argument::Type(actual))
+                if expected.as_type().is_some_and(|expected| {
+                    crate::generator::refine(expected, actual).is_some()
+                        || crate::sum::accepts(expected, actual)
+                }) => {}
+            Some(actual) => {
+                return Err(at.error(format!(
+                    "type parameter `{param}` for `{name}` is {actual} from its arguments but {expected} from the expected result type; make them agree or supply explicit type arguments"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Check an argument against a parameter type that mentions no type parameter.
 fn check_expected(
     expected: &Ty,
@@ -1143,7 +1300,22 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
-        self.generic_call_inner(name, types, args, at, false, ops)
+        self.generic_call_inner(name, types, args, at, false, None, ops)
+    }
+
+    /// A call of generic function `name` whose context expects a result of
+    /// type `expected`, which supplies the type arguments that its output
+    /// determines (issue #873).
+    pub(super) fn generic_call_expected(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        expected: &Ty,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        self.sync_data()?;
+        self.generic_call_inner(name, None, args, at, false, Some(expected), ops)
     }
 
     /// The instance of generic class constructor `name` that `expected` names,
@@ -1211,7 +1383,8 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
-        self.generic_call_inner(name, types, args, at, true, ops)
+        let expected = self.method_expectation(name);
+        self.generic_call_inner(name, types, args, at, true, expected.as_ref(), ops)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1222,6 +1395,7 @@ impl Lower<'_> {
         args: &[Expr],
         at: &Token,
         method: bool,
+        expected: Option<&Ty>,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         if self.names.contains_key(name) {
@@ -1239,7 +1413,7 @@ impl Lower<'_> {
             return self.call_named_with_receiver(&symbol, args, at, method, ops);
         }
         if let Some((callee, arguments)) = self.prepare_named_call(name, args, at, method)? {
-            return self.generic_call_inner(&callee, None, &arguments, at, method, ops);
+            return self.generic_call_inner(&callee, None, &arguments, at, method, expected, ops);
         }
         let template = self.generics.templates[name].clone();
         if args.len() != template.inputs.len() {
@@ -1253,12 +1427,17 @@ impl Lower<'_> {
             return self.call_named_with_receiver(&symbol, args, at, method, ops);
         }
         let mut inferred = HashMap::default();
+        let hint = expected
+            .map(|ty| result_evidence(&template, ty, self.aliases, at))
+            .unwrap_or_default();
         let mut loans = Vec::new();
         let mut arguments = Vec::new();
         let mut argument_ends = Vec::new();
         let start = ops.len();
         // Lower once, left to right, using ordinary ownership and borrow rules.
-        // Generic positions get no contextual type: literals use their defaults.
+        // A generic position whose type the expected result determines takes
+        // that type as its context; other generic positions get none, so their
+        // literals use their defaults.
         let mut reservation = None;
         for (index, (arg, (_, pattern))) in args.iter().zip(&template.inputs).enumerate() {
             let callback_pattern = if matches!(pattern.name.as_deref(), Some("&" | "&mut")) {
@@ -1339,6 +1518,10 @@ impl Lower<'_> {
                     self.call_borrow(arg, pattern.name.as_deref() == Some("&mut"), None, ops)?;
                 loans.push(loan);
                 ty
+            } else if let Some(context) = hinted_parameter(pattern, &template, &hint, self.aliases)?
+            {
+                self.expr_expected(arg, Some(context), ops)?
+                    .ok_or_else(|| arg.at.error("expected a value, got ()"))?
             } else {
                 self.value(arg, ops)?
             };
@@ -1358,6 +1541,7 @@ impl Lower<'_> {
             }
         }
         self.sync_data()?;
+        combine_result_evidence(name, hint, &mut inferred, at)?;
         self.generics
             .infer_bounds(&template, &mut inferred, self.aliases, self.access, at)?;
         let actual = template.type_params.iter().map(|(param, _)| {
