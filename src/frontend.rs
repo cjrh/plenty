@@ -1035,6 +1035,9 @@ struct Lower<'a> {
     yield_type: Type,
     loans: Vec<crate::ownership::Loan>,
     reference_locals: HashMap<u8, usize>,
+    /// Slots that stand for the absent referent of an empty reference-carrying
+    /// holder; see [`Lower::empty_holder_loan`].
+    absent_referents: HashSet<u8>,
     /// Value slots of shared `values()`/`items()` loops, so a write through
     /// one can name the `(&mut d).values()` form (issue #803).
     shared_dictionary_values: HashSet<u8>,
@@ -3245,7 +3248,9 @@ impl Lower<'_> {
         let marker = self.returning(at, &returned);
         self.refine_return(ty, at)?;
         let returned_loan = if self.return_origin.is_some() && !references::loan_free(e.unwrap()) {
+            // A value from an empty holder borrows nothing across cleanup.
             Some(self.check_return_reference(e.unwrap(), &returned)?)
+                .filter(|loan| !self.absent_loan(*loan))
         } else {
             None
         };
@@ -3616,7 +3621,11 @@ impl Lower<'_> {
                         && !references::loan_free(e)
                     {
                         let loan = self.check_return_reference(e, ops)?;
-                        ops.push(Op::UseLoan(loan));
+                        // A value from an empty holder borrows nothing past
+                        // the frame, as in a `return` statement.
+                        if !self.absent_loan(loan) {
+                            ops.push(Op::UseLoan(loan));
+                        }
                     }
                     if last && self.yield_type.is_none() {
                         self.refine_return(ty.clone(), &e.at)?;
@@ -3857,6 +3866,11 @@ impl Lower<'_> {
                         if let Some(origin) = origin {
                             self.check_stored_reference(origin, &value.at)?;
                             self.bind_reference(slot, origin, *mutable, ops);
+                            if self.absent_loan(origin) && self.loans[origin].parent.is_none() {
+                                // Conflicts on the hidden referent name the
+                                // holder rather than a temporary value.
+                                self.name_slot(self.loans[origin].root, name);
+                            }
                         }
                         slot
                     };
@@ -4849,6 +4863,7 @@ fn lower_body(
                 yield_type: yield_type.clone(),
                 loans: Vec::new(),
                 reference_locals: HashMap::default(),
+                absent_referents: HashSet::default(),
                 shared_dictionary_values: HashSet::default(),
                 indexed_lists: Vec::new(),
                 range_stop: None,

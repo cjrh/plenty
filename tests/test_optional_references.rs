@@ -290,10 +290,176 @@ fn later_phases_stay_rejected() {
         &with_find("def take(o: Option[&Item]) -> ():\n    pass\n"),
         "parameter `o` cannot be Option[&Item]",
     );
-    rejects(
-        "n: Option[&str] = Nothing\n",
-        "a binding of type Option[&str] must hold a borrow, and this value holds none",
+}
+
+/// Issue #867: an empty or error-only holder has no referent and borrows no
+/// place, so its origin stays free to change while the holder is live.
+#[test]
+fn empty_holders_borrow_nothing() {
+    assert_stdout(
+        r#"
+def main() -> Result[(), AllocError | IoError]:
+    o: Option[&str] = Nothing
+    r: Result[&str, i64] = Err(1)
+    copy = o
+    print(o)?
+    print(str.repr(r)?)?
+    print(copy.is_none())?
+    print(r.is_err())?
+    match o:
+        case Some(text):
+            print(text)?
+        case Nothing:
+            print("none")?
+    match r:
+        case Ok(text):
+            print(text)?
+        case Err(code):
+            print(code)?
+    drop(o)
+    Ok(())
+"#,
+        "Option[&str].Nothing\nResult[&str, i64].Err(1)\nTrue\nTrue\nnone\n1\n",
     );
+    assert_stdout(
+        &with_find(
+            r#"
+def pick(items: &mut list[Item], name: &str) -> Option[&mut Item]:
+    missing: Option[&mut Item] = Nothing
+    unused: Option[&mut Item] = Nothing
+    items[0].count = 5
+    match unused:
+        case Some(item):
+            item.count = 7
+        case Nothing:
+            pass
+    for item in items:
+        if item.name == name:
+            return Some(item)
+    missing
+
+def main() -> Result[(), AllocError | IoError]:
+    mut items = [Item("ada", 1)]?
+    match pick(&mut items, "bob"):
+        case Some(item):
+            item.count = 9
+        case Nothing:
+            print("missing")?
+    print(items[0].count)?
+    Ok(())
+"#,
+        ),
+        "missing\n5\n",
+    );
+}
+
+#[test]
+fn nested_empty_holders_return_without_an_origin() {
+    assert_stdout(
+        r#"
+def first(words: &list[str]) -> Option[&str]:
+    nested: Option[Option[&str]] = Some(Nothing)
+    match nested:
+        case Some(found):
+            if len(words) == 0:
+                return found
+        case Nothing:
+            pass
+    empty: Option[&str] = Nothing
+    wrapped: Result[Option[&str], i64] = Ok(empty)
+    match wrapped:
+        case Ok(found):
+            if len(words) == 1:
+                return found
+        case Err(_):
+            pass
+    Some(&words[0])
+
+def main() -> Result[(), AllocError | IoError]:
+    none: list[str] = []?
+    print(first(&none))?
+    one = ["a"]?
+    print(first(&one))?
+    two = ["a", "b"]?
+    print(first(&two))?
+    Ok(())
+"#,
+        "Option[&str].Nothing\nOption[&str].Nothing\nOption[&str].Some(\"a\")\n",
+    );
+}
+
+#[test]
+fn empty_holders_keep_real_borrows_and_inference_checked() {
+    rejects(
+        r#"
+def escape(words: &list[str]) -> Option[&str]:
+    local = "x"
+    empty: Option[&str] = Nothing
+    match empty:
+        case Some(_):
+            return Some(&local)
+        case Nothing:
+            pass
+    Nothing
+"#,
+        "returned reference must originate from the first reference parameter",
+    );
+    rejects(
+        r#"
+def escape(words: &list[str]) -> Option[&str]:
+    local = "x"
+    o = Some(&local)
+    o
+"#,
+        "returned reference must originate from the first reference parameter",
+    );
+    // The empty holder's loan precedes the real borrow in these returned
+    // values, so the real borrow must still be the origin that is checked.
+    rejects(
+        r#"
+def escape(words: &list[str]) -> Option[&str]:
+    local = "x"
+    s = &local
+    o: Option[&str] = Nothing
+    drop(o)
+    Some(s)
+"#,
+        "returned reference must originate from the first reference parameter",
+    );
+    rejects(
+        r#"
+def h(text: &str, flag: bool) -> &str:
+    text
+def escape(words: &list[str]) -> &str:
+    local = "x"
+    o: Option[&str] = Nothing
+    h(&local, o.is_none())
+"#,
+        "returned reference must originate from the first reference parameter",
+    );
+    // A conflict on the hidden referent names the empty holder.
+    rejects(
+        r#"
+o: Option[&mut i64] = Nothing
+q = o
+match o:
+    case Some(v):
+        *v = 2
+    case Nothing:
+        pass
+match q:
+    case Some(w):
+        *w = 3
+    case Nothing:
+        pass
+"#,
+        "cannot modify or exclusively borrow `o` (through `o`)",
+    );
+    rejects(
+        "o = Nothing\ndrop(o)\n",
+        "cannot infer `Nothing`; provide an Option annotation",
+    );
+    rejects("o: Option[&str] = Some(1)\n", "expected &str, got i64");
 }
 
 #[test]
