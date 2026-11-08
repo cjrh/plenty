@@ -99,7 +99,10 @@ actual `std.serial.Kind` values. Rendering borrows and preserves the error.
   declare `OverflowError[T]` for `+`, `-`, `*`, unary `-`, and integer `pow`;
   `//` and `%` by a variable also require `ZeroDivisionError` (signed `//` can
   overflow). A nonzero literal divisor adds neither, except that `x // -1` can
-  overflow: `x // 2` cannot fail.
+  overflow: `x // 2` cannot fail. `<<` and `>>` add `ShiftCountError[T]`
+  unless the count is a literal or a mask `n & L` with literal `L` below the
+  width. Casts such as `u8(x)` trap; use `u8.try_from(x)` (integers or floats)
+  to recover.
   Write explicit `Ok(...)` on success. Use `checked:` for local recovery or a
   small, justified `unchecked trap:` suite for deliberate termination. Plain
   `unchecked:` asserts arithmetic preconditions: violations trap by default but
@@ -195,8 +198,12 @@ actual `std.serial.Kind` values. Rendering borrows and preserves the error.
   success; do that only when the program genuinely recovers.
 - Name error groups with an alias: `type AppError = AllocError | IoError | ParseError`.
   Define an enum only to add meaning, and map into it with `.map_error(...)`.
-- Prefer borrowed parameters (`&str`, `&list[T]`) unless the function keeps the
-  value. Avoid `copy` unless two owners are needed. Never write `copy(x)?`
+- Prefer `&strview` for text readers and `&list[T]` for borrowed lists.
+  Ordinary `&str` remains useful for generic references and sharing a whole
+  owning string handle; use `str` when the function keeps an owning value.
+  On text views, scalar `len` scans; `byte_len()` and `as_bytes()` are O(1).
+  `as_bytes()` lends a read-only `&[u8]` with the text owner’s loan;
+  `std.bytes.from_bytes(...)` makes an independent mutable copy. Avoid `copy` unless two owners are needed. Never write `copy(x)?`
   or `copy(&x)?` when `x` copies (`str`, numbers, `@copy` classes): write `x`;
   for a reference `r: &str`, write `*r` instead of `copy(r)?`. `plenty --check`
   reports them as `redundant-copy` warnings; apply the suggested replacements.

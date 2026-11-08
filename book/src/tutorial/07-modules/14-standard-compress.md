@@ -19,7 +19,7 @@ from std.compress import Format
 def main() -> Result[(), AllocError | IoError | std.compress.CompressError | std.bytes.BytesError]:
     mut text = std.bytes.empty()?
     for _ in range(0, 100):
-        text.extend(&std.bytes.from_text("to be or not to be ")?)?
+        text.extend("to be or not to be ".as_bytes())?
     packed = std.compress.compress(Format.Gzip, &text, 6)?
     print(text.len())?
     print(packed.len())?

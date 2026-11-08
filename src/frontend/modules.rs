@@ -2711,6 +2711,9 @@ pub class ZeroDivisionError:
 pub class OverflowError[T]:
     pub wrapped: T
 
+pub class ShiftCountError[T]:
+    pub count: T
+
 @copy
 pub class Quantity[T, D: Dimension]:
     value: T

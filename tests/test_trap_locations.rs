@@ -136,12 +136,12 @@ fn main_trap(body: &str) -> String {
     "4:24: division by zero"
 )]
 #[case::shift_left(
-    "    count = 64\n    print(1 << count)?\n",
-    "3:11: shift count outside integer width"
+    "    count = 64\n    unchecked:\n        print(1 << count)?\n",
+    "4:15: shift count outside integer width"
 )]
 #[case::shift_right(
-    "    count = -1\n    print(8 >> count)?\n",
-    "3:11: shift count outside integer width"
+    "    count = -1\n    unchecked:\n        print(8 >> count)?\n",
+    "4:15: shift count outside integer width"
 )]
 #[case::cast(
     "    wide = 300\n    print(u8(wide))?\n",

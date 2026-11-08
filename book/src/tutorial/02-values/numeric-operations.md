@@ -145,9 +145,9 @@ variable or constant still requires `ZeroDivisionError`, and for a signed
 type `OverflowError[T]`, even when you know it is nonzero or not `-1`.
 Use `/` for floating-point division.
 
-Integers also support bitwise operations and shifts. A shift count must be
-nonnegative and smaller than the integer width. Signed right shifts preserve
-the sign; unsigned right shifts fill with zero. Left shifts discard high bits.
+Integers also support bitwise operations and shifts. Signed right shifts
+preserve the sign; unsigned right shifts fill with zero. Left shifts discard
+high bits.
 
 ```plenty
 def main() -> Result[(), IoError]:
@@ -180,6 +180,38 @@ Use `wrapping_add`, `wrapping_sub`, or `wrapping_mul` when a calculation
 deliberately wraps at the integer width, as in a hash or a random-number
 generator. Ordinary arithmetic returns a typed overflow error. Parenthesize mixed
 bitwise expressions when that makes the intended grouping easier to read.
+
+A shift count must be nonnegative and smaller than the integer width. A literal
+count outside that range, such as `bits << 8` on a `u8`, is rejected when the
+program is compiled. A count held in a variable can be invalid, so the shift
+can fail with `ShiftCountError[T]`, whose `count` field holds the rejected
+count. It follows the same error rules as division by zero:
+
+```plenty
+def high_bits(value: u8, count: u8) -> Result[u8, ShiftCountError[u8]]:
+    Ok(value >> count)
+
+def show(value: u8, count: u8) -> Result[(), IoError]:
+    match high_bits(value, count):
+        case Ok(bits):
+            print(bits)?
+        case Err(ShiftCountError(rejected)):
+            print("invalid shift count", rejected)?
+    Ok(())
+
+def main() -> Result[(), IoError]:
+    show(200u8, 4u8)?
+    show(200u8, 8u8)?
+    Ok(())
+```
+
+```output
+12
+invalid shift count 8
+```
+
+Masking the count with a literal below the width, as in `value >> (count & 7u8)`,
+keeps it in range, so that shift adds no error.
 
 `rotate_left` and `rotate_right` move bits around the ends of an integer
 instead of discarding them. The count has the integer's own type. No count

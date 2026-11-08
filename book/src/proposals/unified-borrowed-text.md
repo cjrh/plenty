@@ -109,9 +109,10 @@ walk byte boundaries directly without first computing scalar length.
 Cheap byte access is part of the proposed contract: `as_bytes()` borrows the
 UTF-8 range without allocating, direct byte-copy operations accept text views,
 and byte iteration avoids decoding scalars. The [byte-access assessment](unified-borrowed-text/evidence.md#byte-access-and-binary-operations)
-records current gaps, the internal regex precedent, and broader ASCII byte
-operations. Public byte-view loan propagation still needs implementation; the
-internal adapter alone does not make `as_bytes()` available today.
+records the implemented byte bridge, the internal regex precedent, and broader
+ASCII byte operations. Public `as_bytes()` and its checked origin-loan
+propagation are implemented for the separate string/view model; they do not
+depend on approving unification.
 
 ## Obtaining ownership
 
@@ -216,9 +217,10 @@ changing all such functions to return `V` would break noncopyable value types.
 Returning actual substring views remains separate B11 work. If added, it must
 preserve the supported origin through narrowing, forwarding and carried
 references, and must never return pointers into copied inline handles or local
-temporary owners. A public `as_bytes()` also needs checked origin propagation;
-an intrinsic or argument-scoped implementation can establish that narrower
-capability without promising general stored or returned text views.
+temporary owners. The implemented public `as_bytes()` already propagates its
+origin loan through the checked builtin borrow paths. That narrower capability
+does not provide general stored or returned text views; a unification change
+must preserve it.
 
 The [representation and migration assessment](unified-borrowed-text/representation.md)
 compares layouts, identifies compiler/std boundaries, and sets the evidence

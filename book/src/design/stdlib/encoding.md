@@ -194,7 +194,7 @@ table construction and MIME's temporary buffers.
 |---|---|---|
 | `_encode`, `_decode` | One buffer of exactly the output size, after the range and length checks | Linear in the range |
 | `_text` | The encoded buffer, then a `str` copy of it | Linear |
-| `_from_text` | A `Bytes` copy of the text, then the decoded buffer | Linear |
+| `_from_text` | The decoded buffer; input bytes are borrowed | Linear |
 | `append_` | Only when capacity is exceeded, as `Bytes.resize` | Constant, amortized |
 | `pack_`, `unpack_` | Nothing | Constant |
 

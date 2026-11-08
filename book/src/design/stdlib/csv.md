@@ -276,7 +276,7 @@ Short fields are bounded by the cost of the calls made per field, about
 | `reader`: one buffer; `record`, `writer`: empty storage | `Reader.read` once the record's capacity covers the record |
 | `Reader.read`, when a record outgrows the `Record` | `Record.append_to` within the capacity of `out` |
 | `Record.text` and `bytes`: one copy; `texts`: one list and a copy per field | `Record.data`, `start`, `stop`, `len`, `clear` |
-| `Writer.text`: one temporary copy of the text | `Writer.field`, `record`, `end_record`, `flush` within the writer's capacity |
+| `Writer.text`, when its field outgrows the writer’s buffer | `Writer.text`, `field`, `record`, `end_record`, `flush` within the writer’s capacity; text input is borrowed |
 | `Writer.field`, when a record outgrows the writer's buffer | `Writer.discard`, `records`, `pending` |
 
 A `Record` holds at most `max_record` bytes of content and `max_fields`

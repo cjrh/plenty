@@ -176,7 +176,7 @@ HKDF output size, image dimensions, actor heaps and procfs read sizes. Decoded s
 `max_capacity` has no ceiling. General bounded integers and lower bounds above
 one remain [B96](../../../backlog.md).
 
-The same mechanism checks open modes. `__open_mode` after a `str` or `&str`
+The same mechanism checks open modes. `__open_mode` after a `str`, `&str`, or `&strview`
 parameter or field requires an argument the module-constant evaluator can fold
 (a literal, a module constant or a constant expression) to pass the runtime's
 `OpenMode::parse`, the check builtin `open` applies to its mode.

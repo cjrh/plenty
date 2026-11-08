@@ -1171,11 +1171,12 @@ pub enum Op {
         body: Arc<[Op]>,
         result: Ty,
     },
-    /// Pop `T T`; push the result of `operation`. On overflow or a zero
-    /// divisor, release the operands pending above the innermost
-    /// `CheckedBlock`, run `cleanup` (the block's locals) and exit that block
-    /// with `ZeroDivisionError` or `OverflowError[T]`, whose `wrapped` field
-    /// is the result modulo 2**N. Unary minus is `0 - x`.
+    /// Pop `T T`; push the result of `operation`. On overflow, a zero
+    /// divisor or an invalid shift count, release the operands pending above
+    /// the innermost `CheckedBlock`, run `cleanup` (the block's locals) and
+    /// exit that block with `ZeroDivisionError`, `OverflowError[T]`, whose
+    /// `wrapped` field is the result modulo 2**N, or `ShiftCountError[T]`,
+    /// whose `count` field is the count. Unary minus is `0 - x`.
     CheckedArith {
         operation: crate::numeric::Checked,
         ty: Ty,
@@ -1307,10 +1308,11 @@ pub enum Op {
     /// zero. Conversions to a float type, and integer conversions that
     /// preserve every source value, emit no check.
     CheckedCast(Ty),
-    /// Pop an integer of any width; push `Result[target, RangeError]`: `Ok`
-    /// with the value at the target integer width when it is in range, and
-    /// `Err(RangeError.OutOfRange)` otherwise. Unlike `Cast`, it never
-    /// changes the value's mathematical meaning.
+    /// Pop an integer of any width or a float; push
+    /// `Result[target, RangeError]`: `Ok` with the value at the target
+    /// integer width when it is in range, and `Err(RangeError.OutOfRange)`
+    /// otherwise. A float is truncated toward zero first and NaN is out of
+    /// range, as for `CheckedCast`; an integer keeps its mathematical value.
     TryCast(Ty),
     /// Pop `start stop step` (two integers of the given type and the nonzero
     /// `i64` step); push the `i64` element count of `range(start, stop, step)`.
