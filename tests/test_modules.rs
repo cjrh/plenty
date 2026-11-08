@@ -1501,6 +1501,162 @@ fn replacement_builtin_diagnostics_use_the_public_spelling() {
     assert!(!error.contains("$builtin"), "{error}");
 }
 
+/// Pipeline sources and loop adapters bind in the module that writes the call,
+/// so entrypoint declarations of the same names do not capture them (issue
+/// #898).
+#[test]
+fn iteration_builtins_are_bound_in_their_defining_module() {
+    run(
+        &[
+            (
+                "api.plenty",
+                r#"
+pub def total(values: &list[i64]) -> i64:
+    iter(values).sum().unwrap()
+pub def loops(values: &list[i64]) -> Result[i64, OverflowError[i64]]:
+    mut n = 0
+    for i, v in enumerate(values):
+        n += i * *v
+    for a, b in zip(values, values):
+        n += *a * *b
+    for v in reversed(values):
+        n += *v
+    Ok(n)
+pub def counts(values: &list[i64]) -> Result[i64, OverflowError[i64]]:
+    Ok(enumerate(values).count() + zip(values, values).count())
+pub def any_set(flags: &list[bool]) -> bool:
+    iter(flags).any()
+pub def first[T](values: &list[T]) -> i64:
+    iter(values).count()
+pub def doubled(values: &list[i64]) -> list[i64]:
+    [*v for v in iter(values)].unwrap()
+"#,
+            ),
+            (
+                "main.plenty",
+                r#"
+import api
+def iter(value: i64) -> i64:
+    value
+def enumerate(value: i64) -> i64:
+    value
+def zip(left: i64, right: i64) -> i64:
+    left
+def reversed(value: i64) -> i64:
+    value
+def any(value: i64) -> i64:
+    value
+def all(value: i64) -> i64:
+    value
+def main() -> ():
+    values = [1, 2].unwrap()
+    print(api.total(&values)).unwrap()
+    print(api.loops(&values).unwrap()).unwrap()
+    print(api.counts(&values).unwrap()).unwrap()
+    print(api.any_set(&[False, True].unwrap())).unwrap()
+    print(api.first(&values)).unwrap()
+    print(api.doubled(&values)).unwrap()
+    print(iter(4), enumerate(5), zip(6, 7), reversed(8), any(9), all(10)).unwrap()
+    operation = iter
+    print(operation(11)).unwrap()
+"#,
+            ),
+        ],
+        "main.plenty",
+        "3\n10\n4\nTrue\n2\n[1, 2]\n4 5 6 8 9 10\n11\n",
+    );
+}
+
+#[test]
+fn imported_iteration_names_shadow_only_their_importing_module() {
+    run(
+        &[
+            (
+                "helper.plenty",
+                "pub def iter(value: i64) -> i64:\n    value\n",
+            ),
+            (
+                "api.plenty",
+                "from helper import iter\npub def direct() -> i64:\n    iter(3)\n",
+            ),
+            (
+                "main.plenty",
+                r#"
+import api
+def main() -> ():
+    values = [1, 2].unwrap()
+    print(api.direct()).unwrap()
+    print(iter(&values).count()).unwrap()
+"#,
+            ),
+        ],
+        "main.plenty",
+        "3\n2\n",
+    );
+}
+
+#[test]
+fn iteration_builtins_are_not_indirect_user_functions() {
+    for name in ["iter", "enumerate", "zip", "reversed", "any", "all"] {
+        let api = format!("pub def invalid() -> ():\n    operation = {name}\n");
+        let main = format!(
+            "import api\ndef {name}(value: i64) -> i64:\n    value\ndef main() -> ():\n    pass\n"
+        );
+        let dir = workspace(&[("api.plenty", &api), ("main.plenty", &main)]);
+        let error = plenty::check_file(&dir.path().join("main.plenty"), None)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(&format!("api.{name}")), "{error}");
+        assert!(!error.contains("$builtin"), "{error}");
+    }
+}
+
+#[test]
+fn iteration_builtin_diagnostics_ignore_entrypoint_declarations() {
+    for (call, expected) in [
+        ("any(flags)", "any is not a builtin function"),
+        ("all(flags)", "all is not a builtin function"),
+        ("reversed(flags)", "reversed is supported directly"),
+    ] {
+        let api = format!("pub def invalid(flags: &list[bool]) -> ():\n    {call}\n");
+        let dir = workspace(&[
+            ("api.plenty", &api),
+            (
+                "main.plenty",
+                "import api\ndef any(value: i64) -> i64:\n    value\ndef all(value: i64) -> i64:\n    value\ndef enumerate(value: i64) -> i64:\n    value\ndef reversed(value: i64) -> i64:\n    value\ndef main() -> ():\n    pass\n",
+            ),
+        ]);
+        let error = plenty::check_file(&dir.path().join("main.plenty"), None)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(expected), "{call}: {error}");
+        assert!(!error.contains("$builtin"), "{error}");
+    }
+}
+
+#[test]
+fn generic_iteration_builtin_calls_name_the_builtin() {
+    let dir = workspace(&[
+        (
+            "api.plenty",
+            "pub def invalid(xs: &list[i64]) -> i64:\n    iter[i64](xs).count()\n",
+        ),
+        (
+            "main.plenty",
+            "import api\ndef iter[T](value: T) -> T:\n    value\ndef main() -> ():\n    pass\n",
+        ),
+    ]);
+    let error = plenty::check_file(&dir.path().join("main.plenty"), None)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("`iter` is not a generic function"),
+        "{error}"
+    );
+    assert!(!error.contains("api.iter"), "{error}");
+    assert!(!error.contains("$builtin"), "{error}");
+}
+
 #[test]
 fn short_extensions_preserve_module_identity_and_interface_trust() {
     let untrusted = workspace(&[(
