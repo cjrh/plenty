@@ -948,6 +948,21 @@ fn declaration(
             "renames public `{path}` to `{new_name}`, so packages outside this workspace that import it must change"
         ));
     }
+    // Encoding writes `@serial` field and variant names, so the rename
+    // changes the format; it stays allowed while no data exists yet.
+    if let Some(kind @ (SymbolKind::Field | SymbolKind::Variant)) = member
+        && analysis.serial.contains(type_name)
+    {
+        let what = if kind == SymbolKind::Field {
+            "a field"
+        } else {
+            "a variant"
+        };
+        api_changes.push(format!(
+            "renames {what} of `@serial` `{}`, so data encoded before the rename no longer decodes",
+            type_name.rsplit('.').next().unwrap_or(type_name)
+        ));
+    }
     Ok(Rename {
         name: old.to_owned(),
         new_name: new_name.to_owned(),

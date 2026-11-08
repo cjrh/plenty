@@ -578,12 +578,17 @@ impl Walk<'_> {
             }
             Expression::Checked(_, body) | Expression::If(body) => self.nested(body, scope, &[]),
             Expression::Ambiguous { generic, .. } => self.expr(generic, scope),
+            // The operands include the fields of nested format specs.
+            Expression::Format(format) => {
+                for operand in format.operands() {
+                    self.expr(operand, scope);
+                }
+            }
             Expression::GenericValue(..)
             | Expression::ClassNew(_)
             | Expression::Type(_)
             | Expression::Number(_)
             | Expression::Text(_)
-            | Expression::Format(_)
             | Expression::Bytes(_)
             | Expression::Bool(_)
             | Expression::Unit

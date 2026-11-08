@@ -2078,7 +2078,9 @@ impl Scope {
                 return Ok(());
             }
             if let Some(symbol) = self.symbol(name, &ty.at)? {
-                if super::ide::active() {
+                // The implicit `self` type is anchored at the `def` keyword,
+                // where no type name is written.
+                if super::ide::active() && ty.at.text() == name.split('.').next() {
                     let written = name.chars().count() as u32;
                     super::ide::refer(&ty.at, Find::At(written), super::ide::global(&symbol));
                 }
@@ -3195,6 +3197,11 @@ fn resolve(
                 let mut target = alias.target.clone();
                 scope.ty(&mut target)?;
                 aliases.insert(qualified(&m.name, &alias.name), target);
+            }
+            if super::ide::active() {
+                for name in &m.serial {
+                    super::ide::serial(qualified(&m.name, name));
+                }
             }
             for c in &mut m.classes {
                 if !m.serial.contains(&c.name) {

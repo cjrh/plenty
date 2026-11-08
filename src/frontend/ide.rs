@@ -116,6 +116,9 @@ pub struct Analysis {
     /// analysis cannot tell. A rename cannot know whether they name what it
     /// renames.
     pub unresolved: Vec<Location>,
+    /// The qualified names of `@serial` classes and enums, whose field and
+    /// variant names are their encoded names.
+    pub serial: HashSet<String>,
 }
 
 impl Analysis {
@@ -212,6 +215,8 @@ struct Recorder {
     exported: HashSet<String>,
     /// See [`Analysis::unresolved`].
     unresolved: Vec<(Anchor, Find)>,
+    /// See [`Analysis::serial`].
+    serial: HashSet<String>,
     /// The index in `references` of the first reference found in
     /// uninstantiated generic bodies.
     inferred_from: Option<usize>,
@@ -508,6 +513,13 @@ pub(super) fn unresolved_member(at: &Token, pos: Pos, name: &str) {
         r.unresolved
             .push((anchor, Find::At(name.chars().count() as u32)));
         Some(())
+    });
+}
+
+/// Records that the type `name` (qualified) is `@serial`.
+pub(super) fn serial(name: String) {
+    with(|r| {
+        r.serial.insert(name);
     });
 }
 
@@ -816,6 +828,7 @@ fn finish(recorder: Recorder) -> Analysis {
         warnings,
         exported,
         unresolved,
+        serial,
         inferred_from,
         ..
     } = recorder;
@@ -949,6 +962,7 @@ fn finish(recorder: Recorder) -> Analysis {
         inferred_bindings,
         sources: texts.into_values().collect(),
         unresolved,
+        serial,
     }
 }
 

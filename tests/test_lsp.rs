@@ -2541,3 +2541,197 @@ fn text_view_parameter_advice_is_published_at_the_parameter_type() {
     );
     client.exit();
 }
+
+const FORMAT_GENERIC: &str = "class Point:
+    x: i64
+
+    def norm(self, scale: i64) -> i64:
+        unchecked:
+            self.x * scale
+
+def fmt_generic[T](t: T) -> Result[(), AllocError | IoError]:
+    p = Point(x=1)
+    print(f\"{p.x} {p.norm(2)}\"?)?
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError]:
+    a = Point(x=2)
+    print(f\"{a.x}\"?)?
+    Ok(())
+";
+
+/// Fields and methods in the f-string fields of a generic body that no call
+/// instantiates are found and renamed (issue #876).
+#[test]
+fn members_in_f_strings_of_uninstantiated_generic_bodies() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    app_package(&root, &[("src/main.plenty", FORMAT_GENERIC)]);
+    let main = root.join("src/main.plenty");
+    let mut client = Client::start(&dir.path().join("cache"));
+    for ((line, character), expected) in [
+        (
+            (1, 4),
+            vec![(1, 4), (5, 17), (8, 14), (9, 15), (13, 14), (14, 15)],
+        ),
+        ((3, 8), vec![(3, 8), (9, 21)]),
+    ] {
+        let found: Vec<(u64, u64)> = positions(
+            &root,
+            &references(&mut client, &main, line, character, true),
+        )
+        .into_iter()
+        .map(|(_, l, c)| (l, c))
+        .collect();
+        assert_eq!(found, expected, "from {line}:{character}");
+    }
+    let (edit, warnings) = rename_reply(&mut client, &main, 9, 15, "z").unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(
+        renamed(&root, &edit, &[]),
+        [(
+            "src/main.plenty".to_owned(),
+            FORMAT_GENERIC
+                .replace("x: i64", "z: i64")
+                .replace(".x", ".z")
+                .replace("x=", "z=")
+        )]
+        .into()
+    );
+    let (edit, _) = rename_reply(&mut client, &main, 9, 21, "length").unwrap();
+    assert_eq!(
+        renamed(&root, &edit, &[]),
+        [(
+            "src/main.plenty".to_owned(),
+            FORMAT_GENERIC.replace("norm", "length")
+        )]
+        .into()
+    );
+    client.exit();
+}
+
+/// A method or protocol requirement whose name is at least as long as its
+/// owner's resolves to itself, not to the implicit `self` type anchored at
+/// its `def` (issue #876).
+#[test]
+fn a_requirement_or_method_name_longer_than_its_owner_resolves_to_itself() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let source = "protocol Named:
+    def label(self) -> i64:
+        pass
+
+class Point:
+    x: i64
+
+    def label(self) -> i64:
+        self.x
+
+    def describe(self) -> i64:
+        self.x
+
+def show[T: Named](t: &T) -> i64:
+    t.label()
+
+def main() -> ():
+    p = Point(x=1)
+    n = show(&p)
+    d = p.describe()
+";
+    app_package(&root, &[("src/main.plenty", source)]);
+    let main = root.join("src/main.plenty");
+    let mut client = Client::start(&dir.path().join("cache"));
+    for ((line, character), expected) in [
+        ((1, 8), vec![(1, 8)]),
+        ((7, 8), vec![(7, 8), (14, 6)]),
+        ((10, 8), vec![(10, 8), (19, 10)]),
+        ((0, 9), vec![(0, 9), (13, 12)]),
+    ] {
+        let found: Vec<(u64, u64)> = positions(
+            &root,
+            &references(&mut client, &main, line, character, true),
+        )
+        .into_iter()
+        .map(|(_, l, c)| (l, c))
+        .collect();
+        assert_eq!(found, expected, "from {line}:{character}");
+    }
+    assert_eq!(
+        rename_refused(&mut client, &main, 1, 8, "title"),
+        "renaming a protocol requirement is not supported: a class or enum satisfies it by declaring a method of that name, which a rename does not edit"
+    );
+    assert_eq!(
+        prepare_rename(&mut client, &main, 10, 8).unwrap()["placeholder"],
+        "describe"
+    );
+    let (edit, _) = rename_reply(&mut client, &main, 10, 8, "summary").unwrap();
+    assert_eq!(
+        renamed(&root, &edit, &[]),
+        [(
+            "src/main.plenty".to_owned(),
+            source.replace("describe", "summary")
+        )]
+        .into()
+    );
+    client.exit();
+}
+
+/// Renaming a field or variant of a `@serial` type warns that it changes the
+/// encoded name; a method rename does not (issue #876).
+#[test]
+fn a_serial_field_or_variant_rename_warns_about_encoded_data() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let records = "@serial
+pub class Record:
+    pub count: i64
+
+    pub def twice(self) -> i64:
+        unchecked:
+            self.count * 2
+
+@serial
+pub enum Kind:
+    Small
+    Large
+";
+    let main_source = "from records import Kind, Record
+
+def main() -> ():
+    r = Record(count=1)
+    n = r.twice()
+    k = Kind.Small
+";
+    app_package(
+        &root,
+        &[
+            ("src/records.plenty", records),
+            ("src/main.plenty", main_source),
+        ],
+    );
+    let path = root.join("src/records.plenty");
+    let mut client = Client::start(&dir.path().join("cache"));
+    for (line, character, new_name, expected) in [
+        (
+            2,
+            8,
+            "total",
+            vec![
+                "renames a field of `@serial` `Record`, so data encoded before the rename no longer decodes",
+            ],
+        ),
+        (
+            10,
+            4,
+            "Tiny",
+            vec![
+                "renames a variant of `@serial` `Kind`, so data encoded before the rename no longer decodes",
+            ],
+        ),
+        (4, 12, "double", vec![]),
+    ] {
+        let (_, warnings) = rename_reply(&mut client, &path, line, character, new_name).unwrap();
+        assert_eq!(warnings, expected, "{new_name}");
+    }
+    client.exit();
+}

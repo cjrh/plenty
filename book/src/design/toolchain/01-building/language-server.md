@@ -126,8 +126,9 @@ is not renamed with its file. The edit uses the unsaved text of open files,
 names each open document's version, and writes nothing until the editor
 applies it. Renaming a field or variant of a
 [`@serial`](../../stdlib/serial-derive.md) type also changes the name it is
-encoded under, so data written before the rename no longer decodes; the
-server does not warn about this.
+encoded under, so data written before the rename no longer decodes. The server
+allows the rename, since no data may exist yet, and marks it with a change
+annotation that needs confirmation, as it marks a change to a package's API.
 
 The rename is checked twice. Before it, the package (or, for a local or an
 alias, the file) must check without errors, so that every use is resolved.
