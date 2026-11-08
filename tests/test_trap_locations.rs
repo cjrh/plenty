@@ -496,9 +496,20 @@ fn directly_scheduled_std_jobs_do_not_inherit_an_earlier_jobs_tail_caller() {
         &["read_tail"],
         Some("42\n"),
     );
+    // The guard can move as the formatter implementation changes. Keep the
+    // assertion exact so an inherited caller note still fails this regression.
+    let guard = include_str!("../stdlib/std/fmt.plenty")
+        .lines()
+        .position(|line| {
+            line.contains("__trap(\"std.fmt.string_formatter: max_depth is above 64\")")
+        })
+        .expect("string_formatter depth guard")
+        + 1;
     assert_eq!(
         error,
-        "error: std/fmt.plenty:720:9: std.fmt.string_formatter: max_depth is above 64\n"
+        format!(
+            "error: std/fmt.plenty:{guard}:9: std.fmt.string_formatter: max_depth is above 64\n"
+        )
     );
 }
 
