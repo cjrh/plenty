@@ -2357,3 +2357,347 @@ def main() -> ():
         );
     }
 }
+
+/// Issue #902: a scheduler that is its jobs' only receiver hangs in blocking
+/// `submit` once workers block on a full completion channel and the queue
+/// fills. One worker, queue 1 and channel 1 fit three jobs; the fourth hangs.
+/// This records the documented limitation (B22); the program is killed by the
+/// watchdog below rather than left hanging.
+#[test]
+fn blocking_submission_before_receiving_hangs_once_completions_fill() {
+    let program = |batch: usize| {
+        format!(
+            r#"type E = AllocError | IoError | PoolError | RecvError | OverflowError[i64] | SubmitError[()]
+
+def work(value: i64, sender: Sender[i64]) -> ():
+    drop(sender.send(value))
+
+def dispatch(pool: &ThreadPoolExecutor, outbox: &Sender[i64], inbox: &Receiver[i64]) -> Result[i64, E]:
+    mut i = 0
+    while i < {batch}:
+        drop(pool.submit(work, 1, outbox.share()).drop_job()?)
+        i += 1
+    mut total = 0
+    while i > 0:
+        total += inbox.recv()?
+        i -= 1
+    Ok(total)
+
+def main() -> Result[(), E]:
+    outbox, receiver = channel[i64](1)?
+    with ThreadPoolExecutor(1, 1)? as pool, receiver as inbox:
+        print(dispatch(pool, &outbox, inbox)?)?
+    Ok(())
+"#
+        )
+    };
+    let (_dir, three) = support::build_file(&program(3));
+    let output = support::output_within(
+        &mut std::process::Command::new(three),
+        b"",
+        std::time::Duration::from_secs(15),
+    );
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n");
+
+    let (_dir, four) = support::build_file(&program(4));
+    let mut child = std::process::Command::new(four)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while std::time::Instant::now() < deadline {
+        if let Some(status) = child.try_wait().unwrap() {
+            panic!("the saturated blocking scheduler finished with {status:?}");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    child.kill().unwrap();
+    child.wait().unwrap();
+}
+
+/// Issue #902: receiving one completion whenever `submit_nowait` reports
+/// `Full`, then retrying the retained job, completes batches far larger than
+/// workers + queue + channel capacity, for differing capacities, and keeps a
+/// worker's typed error.
+#[test]
+fn receiving_on_full_completes_batches_beyond_pool_and_channel_capacity() {
+    runs(
+        r#"type Completion = Result[i64, OverflowError[i64]]
+type ScheduleError = OverflowError[i64] | RecvError | SubmitError[()]
+
+def square(value: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(value * value)
+
+def work(value: i64, sender: Sender[Completion]) -> ():
+    drop(sender.send(square(value)))
+
+def receive_one(inbox: &Receiver[Completion], outstanding: &mut i64, received: &mut i64) -> Result[i64, ScheduleError]:
+    completion = inbox.recv()?
+    *outstanding -= 1
+    *received += 1
+    Ok(completion?)
+
+def admit[F: OnceCallable[[], ()]](pool: &ThreadPoolExecutor, job: F, inbox: &Receiver[Completion], outstanding: &mut i64, received: &mut i64, total: &mut i64) -> Result[(), ScheduleError]:
+    mut attempt = pool.submit_nowait(job)
+    while True:
+        match attempt:
+            case Err(SubmitError.Full(job)):
+                if *outstanding == 0:
+                    attempt = pool.submit(job)
+                else:
+                    *total += receive_one(inbox, outstanding, received)?
+                    attempt = pool.submit_nowait(job)
+            case _ as other:
+                drop(other.drop_job()?)
+                break
+    *outstanding += 1
+    Ok(())
+
+def dispatch(pool: &ThreadPoolExecutor, count: i64, poison: i64, outbox: &Sender[Completion], inbox: &Receiver[Completion]) -> Result[i64, ScheduleError]:
+    mut outstanding = 0
+    mut received = 0
+    mut total = 0
+    mut i = 1
+    while i <= count:
+        value = 9223372036854775807 if i == poison else i
+        sender = outbox.share()
+        job = def once [value, sender]() -> ():
+            work(value, sender)
+        admit(pool, job, inbox, &mut outstanding, &mut received, &mut total)?
+        i += 1
+    while outstanding > 0:
+        total += receive_one(inbox, &mut outstanding, &mut received)?
+    # Every accepted job's completion was received exactly once.
+    if received != count:
+        return Ok(-1)
+    Ok(total)
+
+def run(count: i64, poison: i64, workers: Positive[i64], queue: Positive[i64], completions: Positive[i64]) -> Result[i64, AllocError | PoolError | ScheduleError]:
+    outbox, receiver = channel[Completion](completions)?
+    with ThreadPoolExecutor(workers, queue)? as pool, receiver as inbox:
+        return dispatch(pool, count, poison, &outbox, inbox)
+
+def main() -> Result[(), AllocError | IoError | PoolError | ScheduleError]:
+    print(run(50, 0, 1, 1, 1)?)?
+    print(run(40, 0, 1, 3, 2)?)?
+    print(run(40, 0, 3, 1, 1)?)?
+    print(run(30, 0, 2, 2, 5)?)?
+    match run(30, 7, 1, 1, 1):
+        case Err(OverflowError(_)):
+            print("worker error preserved")?
+        case _ as other:
+            drop(other?)
+    Ok(())
+"#,
+        "42925\n22140\n22140\n9455\nworker error preserved\n",
+    );
+}
+
+#[test]
+fn completions_bound_in_flight_jobs_and_return_rejected_jobs_intact() {
+    runs(
+        r#"from std.sync import Completions
+
+type Outcome = Result[i64, OverflowError[i64]]
+type E = AllocError | IoError | PoolError | SubmitError[()] | FutureError | OverflowError[i64]
+
+def square(value: i64) -> Outcome:
+    Ok(value * value)
+
+def run(count: i64, workers: Positive[i64], queue: Positive[i64], capacity: Positive[i64]) -> Result[i64, E]:
+    mut done = Completions[Outcome](capacity)?
+    mut total = 0
+    with ThreadPoolExecutor(workers, queue)? as pool:
+        for value in range(1, count + 1):
+            match done.submit(pool, def once [value]() -> Outcome: square(value)).drop_job()?:
+                case Some(outcome):
+                    total += outcome??
+                case Nothing:
+                    pass
+        while True:
+            match done.next():
+                case Some(outcome):
+                    total += outcome??
+                case Nothing:
+                    break
+    Ok(total)
+
+def gated(started: Sender[()], gate: Receiver[()]) -> Outcome:
+    drop(started.send(()))
+    drop(gate.recv())
+    Ok(1)
+
+def main() -> Result[(), E | SendError[()] | RecvError]:
+    print(run(50, 1, 1, 1)?)?
+    print(run(40, 3, 1, 2)?)?
+    print(run(30, 2, 2, 5)?)?
+    # Rejected job comes back intact; the finished result stays queued.
+    mut done = Completions[Outcome](1)?
+    pool = ThreadPoolExecutor(1, 1)?
+    drop(done.submit(&pool, def once () -> Outcome: Ok(9)).drop_job()?)
+    pool.shutdown()
+    match done.submit(&pool, def once () -> Outcome: Ok(4)):
+        case Err(SubmitError.Shutdown(job)):
+            print(job()?)?
+        case _ as other:
+            drop(other.drop_job())
+    print(done.len())?
+    match done.next():
+        case Some(outcome):
+            print(outcome??)?
+        case Nothing:
+            print("missing")?
+    print(done.next().is_none())?
+    # Queued jobs cancel; the running one finishes.
+    mut held = Completions[Outcome](3)?
+    gate_tx, gate_rx = channel[()](1)?
+    started_tx, started_rx = channel[()](1)?
+    with ThreadPoolExecutor(1, 2)? as busy, started_rx as started_inbox:
+        drop(held.submit(busy, def once [started_tx, gate_rx]() -> Outcome: gated(started_tx, gate_rx)).drop_job()?)
+        drop(held.submit(busy, def once () -> Outcome: Ok(2)).drop_job()?)
+        drop(held.submit(busy, def once () -> Outcome: Ok(3)).drop_job()?)
+        # The worker holds the gated job, so exactly the other two are queued.
+        started_inbox.recv()?
+        print(held.cancel_queued())?
+        gate_tx.send(())?
+        mut cancelled = 0
+        while True:
+            match held.next():
+                case Some(Err(FutureError.Cancelled)):
+                    cancelled += 1
+                case Some(Ok(outcome)):
+                    print(outcome?)?
+                case Nothing:
+                    break
+        print(cancelled)?
+    Ok(())
+"#,
+        "42925\n22140\n9455\n4\n1\n9\nTrue\n2\n1\n2\n",
+    );
+}
+
+#[test]
+fn completions_wait_with_deadlines_and_wake_messages() {
+    runs(
+        r#"from std.sync import Completions, WaitError
+from std.time import deadline_after, milliseconds, seconds, monotonic_now
+
+type Outcome = Result[i64, OverflowError[i64]]
+
+def slow(value: i64, gate: Receiver[()]) -> Outcome:
+    drop(gate.recv())
+    Ok(value)
+
+def started(signal: Sender[()]) -> Outcome:
+    drop(signal.send(()))
+    Ok(2)
+
+def main() -> Result[(), AllocError | IoError | PoolError | SubmitError[()] | FutureError | OverflowError[i64] | WaitError | SendError[()] | SendError[str] | RangeError | RecvError]:
+    mut done = Completions[Outcome](3)?
+    stop = CancellationToken()?
+    # An empty collector has nothing to wait for.
+    soon = deadline_after(&monotonic_now(), &seconds(5u32))?
+    print(done.next_before(&soon, &stop)?.is_none())?
+    wake_tx, wake_rx = channel[str](1)?
+    gate_tx, gate_rx = channel[()](4)?
+    with ThreadPoolExecutor(1, 2)? as pool:
+        done.submit(pool, def once [gate_rx]() -> Outcome: slow(7, gate_rx)).drop_job()?
+        # Nothing finished: a short deadline times out.
+        deadline = deadline_after(&monotonic_now(), &milliseconds(30u32))?
+        match done.next_before(&deadline, &stop):
+            case Err(WaitError.TimedOut):
+                print("timed out")?
+            case _ as other:
+                drop(other)
+        wake_tx.send("wake")?
+        later = deadline_after(&monotonic_now(), &seconds(5u32))?
+        match done.next_or_recv_before(&wake_rx, &later, &stop):
+            case Ok(Selected.Second(message)):
+                print(message)?
+            case _ as other:
+                drop(other)
+        gate_tx.send(())?
+        match done.next_or_recv_before(&wake_rx, &later, &stop):
+            case Ok(Selected.First(outcome)):
+                print(outcome??)?
+            case _ as other:
+                drop(other)
+        print(done.is_empty())?
+    # A waiting message wins over a finished job.
+    mut ready = Completions[Outcome](2)?
+    signal_tx, signal_rx = channel[()](1)?
+    with ThreadPoolExecutor(1, 2)? as pool, signal_rx as signal_inbox:
+        ready.submit(pool, def once () -> Outcome: Ok(1)).drop_job()?
+        ready.submit(pool, def once [signal_tx]() -> Outcome: started(signal_tx)).drop_job()?
+        # One worker runs jobs in order, so the first job has finished.
+        signal_inbox.recv()?
+        wake_tx.send("stop")?
+        later = deadline_after(&monotonic_now(), &seconds(5u32))?
+        match ready.next_or_recv_before(&wake_rx, &later, &stop):
+            case Ok(Selected.Second(message)):
+                print(message)?
+            case _ as other:
+                drop(other)
+        match ready.next_or_recv_before(&wake_rx, &later, &stop):
+            case Ok(Selected.First(outcome)):
+                print(outcome??)?
+            case _ as other:
+                drop(other)
+    Ok(())
+"#,
+        "True\ntimed out\nwake\n7\nTrue\nstop\n1\n",
+    );
+}
+
+#[test]
+fn completions_make_room_before_preparation_without_leaking_slots() {
+    runs(
+        r#"from std.sync import Completions
+
+type Outcome = Result[i64, OverflowError[i64]]
+type E = AllocError | IoError | PoolError | SubmitError[()] | FutureError | OverflowError[i64] | ParseError
+
+def prepare(text: &str) -> Result[i64, ParseError]:
+    i64.parse(*text)
+
+def main() -> Result[(), E]:
+    inputs = ["1", "x", "2", "y", "3", "4"]?
+    mut done = Completions[Outcome](2)?
+    mut total = 0
+    mut failed = 0
+    with ThreadPoolExecutor(1, 1)? as pool:
+        for text in &inputs:
+            # Make room before preparing, so a failed preparation holds no slot.
+            if done.is_full():
+                match done.next():
+                    case Some(outcome):
+                        total += outcome??
+                    case Nothing:
+                        pass
+            match prepare(text):
+                case Ok(value):
+                    job = def once [value]() -> Outcome:
+                        Ok(value * 10)
+                    match done.submit(pool, job).drop_job()?:
+                        case Some(_):
+                            return Ok(())
+                        case Nothing:
+                            pass
+                case Err(_):
+                    failed += 1
+        while True:
+            match done.next():
+                case Some(outcome):
+                    total += outcome??
+                case Nothing:
+                    break
+        print(done.next_now().is_none())?
+    print(total)?
+    print(failed)?
+    Ok(())
+"#,
+        "True\n100\n2\n",
+    );
+}

@@ -122,3 +122,169 @@ pub def select_recv_before[A, B](first: &Receiver[A], second: &Receiver[B], dead
                 if deadline.expired(&monotonic_now()):
                     return Err(WaitError.TimedOut)
     Err(WaitError.TimedOut)
+
+# Results of pool jobs, collected in completion order. Each accepted job keeps
+# its future in one of `capacity` slots until its result is taken, so a worker
+# never waits to deliver a result, and a blocking pool submission waits only
+# for queue space that running workers free. That removes the cycle in which
+# workers block on a full completion channel while its only receiver waits to
+# submit. Futures have no wait-for-any primitive: waits sleep on one future for
+# at most ten milliseconds and then check every slot, like the typed waits above.
+pub class Completions[T]:
+    _slots: list[Option[Future[T]]]
+    _count: i64
+
+    pub def __init__(self, capacity: Positive[i64]) -> Result[(), AllocError]:
+        size = capacity.get()
+        self._slots = list[Option[Future[T]]].with_capacity(size)?
+        for index in range(size):
+            self._slots.append(Nothing)?
+        self._count = 0
+        Ok(())
+
+    pub def len(self) -> i64:
+        self._count
+
+    pub def is_empty(self) -> bool:
+        self._count == 0
+
+    pub def is_full(self) -> bool:
+        self._count == len(self._slots)
+
+    pub def capacity(self) -> i64:
+        len(self._slots)
+
+    # When every slot is occupied, waits for a finished job first and returns
+    # its result after the new job is accepted. A rejected job comes back intact
+    # in its error and the finished result stays queued for `next`.
+    pub def submit[F: OnceCallable[[], T]](self: &mut Completions[T], pool: &ThreadPoolExecutor, job: F) -> Result[Option[Result[T, FutureError]], SubmitError[F]]:
+        if self._count < len(self._slots):
+            future = pool.submit(job)?
+            index = self.vacant()
+            replace(self._slots[index], Some(future))
+            # Bounded by the slot count.
+            unchecked:
+                self._count += 1
+            return Ok(Nothing)
+        mut index = self.finished()
+        while index < 0:
+            self.pause(10u64)
+            index = self.finished()
+        future = pool.submit(job)?
+        match replace(self._slots[index], Some(future)):
+            case Some(previous):
+                Ok(Some(previous.result()))
+            case Nothing:
+                __trap("Completions.submit: finished slot is empty")
+
+    pub def next_now(self: &mut Completions[T]) -> Option[Result[T, FutureError]]:
+        index = self.finished()
+        if index < 0:
+            return Nothing
+        Some(self.take(index))
+
+    # Nothing when no job is outstanding.
+    pub def next(self: &mut Completions[T]) -> Option[Result[T, FutureError]]:
+        if self._count == 0:
+            return Nothing
+        while True:
+            index = self.finished()
+            if index >= 0:
+                return Some(self.take(index))
+            self.pause(10u64)
+        Nothing
+
+    # Ok(Nothing) when no job is outstanding.
+    pub def next_before(self: &mut Completions[T], deadline: &Deadline, cancel: &CancellationToken) -> Result[Option[Result[T, FutureError]], WaitError]:
+        if self._count == 0:
+            return Ok(Nothing)
+        while True:
+            index = self.finished()
+            if index >= 0:
+                return Ok(Some(self.take(index)))
+            if cancel.is_cancelled():
+                return Err(WaitError.Cancelled)
+            if deadline.expired(&monotonic_now()):
+                return Err(WaitError.TimedOut)
+            self.pause(wait_slice(deadline))
+        Err(WaitError.TimedOut)
+
+    # Waits for a message or a finished job. A message already waiting wins over
+    # finished jobs, so a stop or wake-up is not delayed by a stream of results.
+    # With no outstanding job it waits for the message alone.
+    pub def next_or_recv_before[M](self: &mut Completions[T], receiver: &Receiver[M], deadline: &Deadline, cancel: &CancellationToken) -> Result[Selected[Result[T, FutureError], M], WaitError]:
+        while True:
+            if cancel.is_cancelled():
+                return Err(WaitError.Cancelled)
+            match receiver.recv_timeout_ms(0u64):
+                case Ok(message):
+                    return Ok(Selected[Result[T, FutureError], M].Second(message))
+                case Err(RecvTimeoutError.Disconnected):
+                    return Err(WaitError.Disconnected)
+                case Err(RecvTimeoutError.TimedOut):
+                    pass
+            index = self.finished()
+            if index >= 0:
+                return Ok(Selected[Result[T, FutureError], M].First(self.take(index)))
+            if deadline.expired(&monotonic_now()):
+                return Err(WaitError.TimedOut)
+            if self._count > 0:
+                self.pause(wait_slice(deadline))
+            else:
+                match receiver.recv_timeout_ms(wait_slice(deadline)):
+                    case Ok(message):
+                        return Ok(Selected[Result[T, FutureError], M].Second(message))
+                    case Err(RecvTimeoutError.Disconnected):
+                        return Err(WaitError.Disconnected)
+                    case Err(RecvTimeoutError.TimedOut):
+                        pass
+        Err(WaitError.TimedOut)
+
+    # Cancels jobs that have not started. Their results arrive from `next` as
+    # `FutureError.Cancelled`; running jobs finish normally.
+    pub def cancel_queued(self) -> i64:
+        mut cancelled = 0
+        for index in range(len(self._slots)):
+            match &self._slots[index]:
+                case Some(future):
+                    if future.cancel():
+                        unchecked:
+                            cancelled += 1
+                case Nothing:
+                    pass
+        cancelled
+
+    def vacant(self) -> i64:
+        for index in range(len(self._slots)):
+            if self._slots[index].is_none():
+                return index
+        __trap("Completions: no vacant slot below capacity")
+
+    def finished(self) -> i64:
+        for index in range(len(self._slots)):
+            match &self._slots[index]:
+                case Some(future):
+                    if future.done():
+                        return index
+                case Nothing:
+                    pass
+        -1
+
+    # Sleeps on the first occupied slot for at most `slice` milliseconds.
+    def pause(self, slice: u64) -> ():
+        for index in range(len(self._slots)):
+            match &self._slots[index]:
+                case Some(future):
+                    drop(future.wait_timeout_ms(slice))
+                    return
+                case Nothing:
+                    pass
+
+    def take(self: &mut Completions[T], index: i64) -> Result[T, FutureError]:
+        match replace(self._slots[index], Nothing):
+            case Some(future):
+                unchecked:
+                    self._count -= 1
+                future.result()
+            case Nothing:
+                __trap("Completions: slot is empty")

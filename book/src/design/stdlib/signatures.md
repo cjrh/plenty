@@ -92,21 +92,21 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.stat`](#stdstat): 3407-3440
 - [`std.plot`](#stdplot): 3442-3531
 - [`std.linalg`](#stdlinalg): 3533-3574
-- [`std.sync`](#stdsync): 3576-3596
-- [`std.system`](#stdsystem): 3598-3657
-- [`std.tempfile`](#stdtempfile): 3659-3691
-- [`std.test`](#stdtest): 3693-3735
-- [`std.text`](#stdtext): 3737-3780
-- [`std.thread`](#stdthread): 3782-3786
-- [`std.time`](#stdtime): 3788-3832
-- [`std.tls`](#stdtls): 3834-3916
-- [`std.toml`](#stdtoml): 3918-4017
-- [`std.unicode`](#stdunicode): 4019-4031
-- [`std.units`](#stdunits): 4033-4270
-- [`std.units.catalogue`](#stdunitscatalogue): 4272-5050
-- [`std.url`](#stdurl): 5052-5080
-- [`std.uuid`](#stduuid): 5082-5105
-- [`std.xml`](#stdxml): 5107-5140
+- [`std.sync`](#stdsync): 3576-3608
+- [`std.system`](#stdsystem): 3610-3669
+- [`std.tempfile`](#stdtempfile): 3671-3703
+- [`std.test`](#stdtest): 3705-3747
+- [`std.text`](#stdtext): 3749-3792
+- [`std.thread`](#stdthread): 3794-3798
+- [`std.time`](#stdtime): 3800-3844
+- [`std.tls`](#stdtls): 3846-3928
+- [`std.toml`](#stdtoml): 3930-4029
+- [`std.unicode`](#stdunicode): 4031-4043
+- [`std.units`](#stdunits): 4045-4282
+- [`std.units.catalogue`](#stdunitscatalogue): 4284-5062
+- [`std.url`](#stdurl): 5064-5092
+- [`std.uuid`](#stduuid): 5094-5117
+- [`std.xml`](#stdxml): 5119-5152
 
 ## `std.actor`
 
@@ -3575,7 +3575,7 @@ def diagonal(values: &list[f64]) -> Result[Matrix, LinalgError]
 
 ## `std.sync`
 
-Shared cooperative cancellation tokens. Errors: `AllocError`. [Reference](sync.md).
+Cancellation tokens, `Mutex`, typed deadline waits, pool result collection. Errors: `AllocError`. [Reference](sync.md).
 
 Compiler-provided: `CancellationToken`. Their signatures are on the reference page.
 
@@ -3593,6 +3593,18 @@ def send_before[T](sender: &Sender[T], value: T, deadline: &Deadline, cancel: &C
 def future_before[T](future: &Future[T], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WaitError]
 def cancelled_before(token: &CancellationToken, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WaitError]
 def select_recv_before[A, B](first: &Receiver[A], second: &Receiver[B], deadline: &Deadline, cancel: &CancellationToken) -> Result[Selected[A, B], WaitError]
+class Completions[T]
+    def __init__(self, capacity: Positive[i64]) -> Result[(), AllocError]
+    def len(self) -> i64
+    def is_empty(self) -> bool
+    def is_full(self) -> bool
+    def capacity(self) -> i64
+    def submit[F: OnceCallable[[], T]](self: &mut Completions[T], pool: &ThreadPoolExecutor, job: F) -> Result[Option[Result[T, FutureError]], SubmitError[F]]
+    def next_now(self: &mut Completions[T]) -> Option[Result[T, FutureError]]
+    def next(self: &mut Completions[T]) -> Option[Result[T, FutureError]]
+    def next_before(self: &mut Completions[T], deadline: &Deadline, cancel: &CancellationToken) -> Result[Option[Result[T, FutureError]], WaitError]
+    def next_or_recv_before[M](self: &mut Completions[T], receiver: &Receiver[M], deadline: &Deadline, cancel: &CancellationToken) -> Result[Selected[Result[T, FutureError], M], WaitError]
+    def cancel_queued(self) -> i64
 ```
 
 ## `std.system`

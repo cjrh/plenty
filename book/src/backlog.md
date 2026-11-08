@@ -77,6 +77,14 @@ it does not schedule all catalogue entries.
   exception (issue #893) and discovered-versus-assumed shutdown provenance
   (issue #894), delivered separately under [native concurrency](completed-work/language-and-tooling.md#b22-native-concurrency).
   Richer pool identity/order and callback-effect inference remain outside that subset.
+  [Several jobs in flight](tutorial/11-concurrency/scheduler-window.md) uses
+  [`std.sync.Completions`](design/stdlib/sync.md#completionst), which owns
+  admission and result delivery so the easiest pool use cannot form the
+  submit/completion cycle (issue #902); a channel scheduler receives on `Full`.
+  Its waits poll futures in 10 ms slices; a wait-for-any would replace that,
+  either as a pool-level completion condition variable with a generation count
+  (`next` would then borrow the pool) or as per-collector wakers registered on
+  each future.
 - Automatic parallelization (B24), optional backends (B20), stored-reference
   relationships (B11), broader callback erasure (B32) and automatic deep
   recursive operations (B33) require their own contracts and acceptance checks.

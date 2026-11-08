@@ -5,8 +5,9 @@ Start with ordinary helpers: neither submission nor the scheduling loop must
 always be inline. This finite example keeps **one accepted job outstanding**,
 receives its result, then prepares another. That deliberately simple protocol
 avoids a scheduler filling the work queue while workers fill the completion
-queue. More parallelism requires an explicit bound on outstanding work, not
-just a channel capacity equal to the worker count.
+queue. To keep several jobs in flight, collect their results with
+`std.sync.Completions`, as in [keeping several jobs in flight](scheduler-window.md);
+a channel capacity equal to the worker count is not enough.
 
 ```plenty
 enum Stopped:
@@ -153,4 +154,6 @@ second parse leaves no earlier run outstanding. For batching, see
 Do not wrap the pool in a class to evade the check. Do not replace blocking
 submission or completion delivery with ignored `Full` errors or endless
 `nowait` retries: these lose work or can still hang, and change backpressure
-semantics. See [recovering rejected submissions](submission-backpressure.md).
+semantics. Retrying a `Full` job after receiving a completion is different: it
+waits on progress, as in [keeping several jobs in flight](scheduler-window.md).
+See [recovering rejected submissions](submission-backpressure.md).

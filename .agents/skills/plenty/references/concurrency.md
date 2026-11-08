@@ -87,4 +87,13 @@ Do not ignore `Full` or busy-retry `send_nowait`/`submit_nowait` to satisfy a
 check. They change delivery/backpressure semantics; silent loss and infinite
 retries are not shutdown solutions. Blocking pool submission never returns
 `Full`, but can itself deadlock if the scheduler submits indefinitely instead
-of receiving completions. Design the protocol, then check it.
+of receiving completions. For several jobs in flight, prefer
+`std.sync.Completions[T]`: jobs return results, `done.submit(pool, job)` hands
+back a finished result when all slots are full, and `done.next()` drains (`Nothing` once empty). Call
+`is_full()`/`next()` before expensive preparation. With a completion channel
+instead, use `submit_nowait`; on `Full(job)` with accepted jobs unreceived,
+receive one completion, then retry the same retained job. Count only accepted
+jobs; never await a completion for a rejected one, and never run a rejected
+sender inline. See the
+[several-jobs lesson](../../../../book/src/tutorial/11-concurrency/scheduler-window.md).
+Design the protocol, then check it.
