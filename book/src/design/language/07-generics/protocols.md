@@ -162,7 +162,8 @@ method, or with a mismatched signature, rejects the whole sum regardless of
 which member is active. Member methods must be visible both from the
 protocol's declaration, where the dispatcher is created, and from the bound.
 
-Only the bound forwards. A direct call such as `second.label()` outside a
+Only the bound forwards. Within such a body, every value of that sum type
+dispatches, not only those typed through the parameter. A direct call such as `second.label()` outside a
 body bounded by the protocol is an error, even when every member has the
 method and some protocol requires it: match on the sum instead. The one
 exception is `sum.format(output)`, which dispatches through
