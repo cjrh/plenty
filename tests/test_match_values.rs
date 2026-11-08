@@ -829,9 +829,11 @@ def main() -> Result[(), AllocError | IoError]:
     );
 }
 
+/// A match value may be a plain reference, as `unwrap_or` produces one
+/// (issue #897); a view still cannot be one.
 #[test]
-fn match_value_cannot_produce_a_reference() {
-    reject(
+fn match_value_produces_a_reference() {
+    run(
         &format!(
             r#"{SHAPE}
 def main() -> Result[(), IoError]:
@@ -845,7 +847,21 @@ def main() -> Result[(), IoError]:
     Ok(())
 "#
         ),
-        "an `if` or `match` block used as a value cannot produce a reference",
+        "6\n",
+    );
+    reject(
+        r#"
+def main() -> Result[(), AllocError | IoError]:
+    a = [1, 2]?
+    view = match len(a):
+        case 0:
+            &a[0:1]
+        case _:
+            &a[1:2]
+    print(len(view))?
+    Ok(())
+"#,
+        "an `if` or `match` block used as a value cannot produce a view",
     );
 }
 
@@ -977,17 +993,6 @@ def main() -> ():
         1
 "#,
         "expected",
-    );
-    reject(
-        r#"
-def main() -> ():
-    a = 1
-    value = if True:
-        &a
-    else:
-        &a
-"#,
-        "cannot produce a reference",
     );
     reject(
         r#"

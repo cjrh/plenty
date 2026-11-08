@@ -1755,11 +1755,7 @@ impl Lower<'_> {
                         ty
                     }
                 };
-                if matches!(ty, Some(Ty::View(..))) {
-                    return Err(e.at.error("conditional expressions cannot produce slice views; select an owning value or branch around the view's use"));
-                }
-                ops.push(branch(a, b));
-                Ok(ty)
+                self.conditional_value(e, (yes, no), (a, b), ty, ops)
             }
             _ => return Ok(Hinted::Expr),
         };

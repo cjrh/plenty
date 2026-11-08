@@ -82,24 +82,43 @@ contents, with no formatting or string-key encoding.
 
 Tuples whose components are integers, floats, strings, or recursively orderable
 tuples support `<`, `<=`, `>`, and `>=`. Both operands must have exactly the same
-type. They compare lexicographically, using the first differing component, with
-the same allocation-free total order as `list.sort()`. This also works through
-references and in generic functions; comparison observes both operands.
+type. They compare lexicographically: the first component pair that is not equal
+decides, using that component's own comparison. Comparison allocates nothing,
+works through references and in generic functions, and observes both operands.
 Booleans, unit, classes, ordinary enums, and collections are not orderable fields.
 
-Floating-point tuple fields use the sorting order: negative zero precedes positive
-zero, and all NaNs compare equal in order and follow every number. Structural `==`
-and `!=` still use IEEE equality. Consequently, `(-0.0,) == (0.0,)` and
-`(-0.0,) < (0.0,)` are both true; a NaN tuple is `<=` itself but not `==` itself.
-Scalar float operators keep their [IEEE behavior](numbers.md).
+Float components keep their [IEEE comparisons](numbers.md), as Rust's tuple
+comparison does, so wrapping a value in a tuple never changes a result. Signed
+zeros are equal: `(-0.0,) < (0.0,)` is false and `(-0.0,) == (0.0,)` is true. A
+NaN component reached before a deciding component leaves the tuples unordered,
+and every ordered relation is false: `(nan, 0) < (nan, 1)` is false, while
+`(0, nan) < (1, nan)` is true because the first component decides. Structural
+`==` and `!=` compare components with `==`, so a tuple containing NaN is not
+equal to itself.
 
-The difference is deliberate. Tuple ordering exists to sort and rank records,
-so it must be total: every pair of tuples is ordered, and `<` on tuples agrees
-with `sort()`. IEEE ordering would make a tuple containing NaN unordered
-against every other tuple. Plenty has one total order rather than separate
-partial and total orders; the
+```plenty
+def main() -> Result[(), IoError]:
+    nan = f64.NAN
+    print((nan,) <= (nan,), (nan, 0) < (nan, 1), (0, nan) < (1, nan))?
+    print((-0.0,) < (0.0,), (-0.0,) == (0.0,), (1, 2.5) < (1, 3.0))?
+    Ok(())
+```
+```output
+False False True
+False True True
+```
+
+Sorting is the explicit total order. [`sort()`](../../facilities/01-builtins/lists.md#reordering-and-extending),
+`sorted`, `sort_by_key` and their stable forms must place every value, so
+negative zero precedes positive zero and all NaNs compare equal and follow every
+number. The operators and the sort disagree where a signed zero or a NaN
+decides. A NaN makes a sorted pair unordered. A signed zero can reverse one:
+sorting `[(0.0, 0), (-0.0, 9)]` gives `[(-0.0, 9), (0.0, 0)]`, yet `>` sees
+equal zeros, compares `9` with `0` and reports the first element greater.
+[`std.math`](../../stdlib/math.md) `min`, `max`, `min_all` and `max_all` use
+the sort's order for tuples, so they agree with `sorted`. The
 [ordering proposal](../../../proposals/user-type-ordering.md#total-and-partial-order)
-gives the rationale.
+records the decision (issue #616).
 
 Distinct components of a named tuple can be borrowed independently. Reads of
 one component can continue while another is exclusively borrowed; whole-tuple

@@ -12,9 +12,10 @@ private `list[T]`; no native code or runtime primitive is involved.
 `Heap[T]` uses the element type's own `<`. Classes, ordinary enums, collections,
 and tuples containing unordered fields are rejected at compile time with
 "operator `<` does not accept" the type. A scalar NaN element compares false
-against everything and leaves the removal order unspecified. Tuples use the
-[lexicographic total sorting order](../language/03-types/tuples.md), including
-signed zeros and NaNs, so `Heap[(i64, str)]` orders by priority then text.
+against everything and leaves the removal order unspecified. Tuples compare
+[lexicographically with their components' operators](../language/03-types/tuples.md),
+so `Heap[(i64, str)]` orders by priority then text; a NaN component leaves the
+removal order unspecified as a scalar NaN does.
 
 `HeapBy(before)` stores a comparator `F: Callable[[&T, &T], bool]`: a named
 function or an owned closure. `before(a, b)` returns whether `a` must leave

@@ -1615,16 +1615,34 @@ unsafe fn equal(a: u128, b: u128, ty: &Type) -> bool {
 /// tuples of those. Values that compare equal are indistinguishable apart from
 /// NaN payloads, so an unstable sort has one observable result.
 unsafe fn compare(a: u128, b: u128, ty: &Type) -> Ordering {
+    // SAFETY: forwarded from the caller.
+    unsafe { order::<true>(a, b, ty) }.unwrap_or(Ordering::Equal)
+}
+
+/// The order tuple operators use: lexicographic over the components' ordinary
+/// comparisons, as Rust's tuple `PartialOrd` is (issue #616). Signed zeros are
+/// equal, and the first unordered component, a NaN, makes the tuples unordered.
+unsafe fn partial_compare(a: u128, b: u128, ty: &Type) -> Option<Ordering> {
+    // SAFETY: forwarded from the caller.
+    unsafe { order::<false>(a, b, ty) }
+}
+
+/// Lexicographic order of two values of `ty`; `TOTAL` selects sorting's float
+/// order, under which the result is never `None`.
+unsafe fn order<const TOTAL: bool>(a: u128, b: u128, ty: &Type) -> Option<Ordering> {
     // `<` leaves NaN unordered and equates the zeros. Sorting needs every value
     // placed: zeros order by sign and every NaN follows the numbers.
-    fn float(a: f64, b: f64) -> Ordering {
-        match (a.is_nan(), b.is_nan()) {
+    fn float<const TOTAL: bool>(a: f64, b: f64) -> Option<Ordering> {
+        if !TOTAL {
+            return a.partial_cmp(&b);
+        }
+        Some(match (a.is_nan(), b.is_nan()) {
             (false, false) => a.total_cmp(&b),
             (a, b) => a.cmp(&b),
-        }
+        })
     }
     unsafe {
-        match ty.kind {
+        Some(match ty.kind {
             b'1' => (a as i8).cmp(&(b as i8)),
             b'2' => (a as i16).cmp(&(b as i16)),
             b'3' => (a as i32).cmp(&(b as i32)),
@@ -1633,26 +1651,30 @@ unsafe fn compare(a: u128, b: u128, ty: &Type) -> Ordering {
             b'6' => (a as u16).cmp(&(b as u16)),
             b'7' => (a as u32).cmp(&(b as u32)),
             b'8' => (a as u64).cmp(&(b as u64)),
-            b'f' => float(
-                f32::from_bits(a as u32).into(),
-                f32::from_bits(b as u32).into(),
-            ),
-            b'd' => float(f64::from_bits(a as u64), f64::from_bits(b as u64)),
+            b'f' => {
+                return float::<TOTAL>(
+                    f32::from_bits(a as u32).into(),
+                    f32::from_bits(b as u32).into(),
+                );
+            }
+            b'd' => return float::<TOTAL>(f64::from_bits(a as u64), f64::from_bits(b as u64)),
             // UTF-8 byte order is code point order.
             b's' => strings::bytes(&(a as *const Text)).cmp(strings::bytes(&(b as *const Text))),
-            b'B' => match (ty.record(a), ty.record(b)) {
-                (Some(left), Some(right)) => left
-                    .slots()
-                    .zip(right.slots())
-                    .map(|((a, ty), (b, _))| compare(a.read(), b.read(), ty))
-                    .find(|order| order.is_ne())
-                    .unwrap_or(Ordering::Equal),
-                _ => ty.payload(a).map_or(Ordering::Equal, |field| {
-                    compare(ty.unpack(a), ty.unpack(b), field)
-                }),
-            },
+            b'B' => {
+                return match (ty.record(a), ty.record(b)) {
+                    (Some(left), Some(right)) => left
+                        .slots()
+                        .zip(right.slots())
+                        .map(|((a, ty), (b, _))| order::<TOTAL>(a.read(), b.read(), ty))
+                        .find(|order| *order != Some(Ordering::Equal))
+                        .unwrap_or(Some(Ordering::Equal)),
+                    _ => ty.payload(a).map_or(Some(Ordering::Equal), |field| {
+                        order::<TOTAL>(ty.unpack(a), ty.unpack(b), field)
+                    }),
+                };
+            }
             _ => crate::fail("sort does not support this element type"),
-        }
+        })
     }
 }
 /// A tuple of scalars and strings, with each field's word offset resolved once
@@ -2632,6 +2654,23 @@ pub(crate) unsafe extern "C" fn plenty_order_compare(
     let b = u128::from(b_high) << 64 | u128::from(b_low);
     // SAFETY: the compiler passes two live values of the orderable descriptor.
     unsafe { compare(a, b, &*descriptor) as i64 }
+}
+
+/// Narrow ABI: the operator order of two values of `descriptor`'s type as -1,
+/// 0, or 1, or 2 when they are unordered. Operands arrive as 64-bit halves;
+/// neither changes ownership.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_order_partial(
+    a_low: u64,
+    a_high: u64,
+    b_low: u64,
+    b_high: u64,
+    descriptor: *const Type,
+) -> i64 {
+    let a = u128::from(a_high) << 64 | u128::from(a_low);
+    let b = u128::from(b_high) << 64 | u128::from(b_low);
+    // SAFETY: the compiler passes two live values of the orderable descriptor.
+    unsafe { partial_compare(a, b, &*descriptor) }.map_or(2, |order| order as i64)
 }
 
 /// A comparator generated for one key sort: callback reference and two row

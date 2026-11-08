@@ -7,8 +7,8 @@ parameter cannot return a reference, and a mutable result requires an `&mut`
 origin. Every return path must originate in the origin; later reference
 parameters, local owners, and owned parameters cannot escape. Direct parameter
 references, reborrows, field and element projections, borrowed-match payloads,
-and forwarding calls are supported. Branches may use explicit returns;
-conditional reference expressions are unsupported.
+and forwarding calls are supported. Each arm of a returned `if`, `match`, or
+inline conditional must originate in the origin.
 
 ```plenty
 class Pair:

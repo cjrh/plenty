@@ -1110,6 +1110,9 @@ struct Runtime {
     list_sort_stable_by: FuncId,
     /// `plenty_order_compare(a_low, a_high, b_low, b_high, descriptor) -> i64`.
     order_compare: FuncId,
+    /// `plenty_order_partial(a_low, a_high, b_low, b_high, descriptor) -> i64`:
+    /// the tuple operator order, with 2 for unordered.
+    order_partial: FuncId,
     /// `plenty_view_equal(a_rows, a_len, b_rows, b_len, descriptor) -> bool`.
     view_equal: FuncId,
     /// `plenty_view_swap(first_row, second_row, descriptor)`, for rows of
@@ -1399,6 +1402,14 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             sig.params.push(AbiParam::new(PTR_TY));
             sig.returns.push(AbiParam::new(types::I64));
             module.declare_function("plenty_order_compare", Linkage::Import, &sig)?
+        },
+        order_partial: {
+            let mut sig = module.make_signature();
+            sig.call_conv = crate::target::native_call_conv();
+            sig.params.extend([AbiParam::new(types::I64); 4]);
+            sig.params.push(AbiParam::new(PTR_TY));
+            sig.returns.push(AbiParam::new(types::I64));
+            module.declare_function("plenty_order_partial", Linkage::Import, &sig)?
         },
         view_equal: helper(
             module,
@@ -3483,27 +3494,31 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
-    /// Tuples share sorting's lexicographic total order. Scalar floats retain
-    /// IEEE comparisons, and scalar integers use their declared signedness.
+    /// Tuples compare lexicographically with their components' operators, so
+    /// a NaN component leaves them unordered as a scalar NaN is (issue #616);
+    /// sorting keeps its separate total order. Scalar floats use IEEE
+    /// comparisons, and scalar integers use their declared signedness.
     fn int_cmp(&mut self, signed: IntCC, unsigned: IntCC) -> Result<()> {
         let (a, b, ty) = self.pop_pair()?;
         if ty == Ty::Str || matches!(&ty, Ty::Enum(t) if t.tuple()) {
-            let (operation, descriptor) = if ty == Ty::Str {
-                (crate::collection::CollectionOp::TextCompare, None)
+            let value = if ty == Ty::Str {
+                let operation = crate::collection::CollectionOp::TextCompare;
+                let order = self.collection_call(operation.opcode(), &[a, b], None)?;
+                let order = self.bcx.ins().ireduce(types::I64, order);
+                self.bcx.ins().icmp_imm_s(signed, order, 0)
             } else {
-                (
-                    crate::collection::CollectionOp::OrderCompare(ty.clone()),
-                    Some(&ty),
-                )
+                // -1, 0 and 1 are ordered results and 2 is unordered, which
+                // every relation rejects.
+                let order = self.order_partial(a, b, &ty);
+                let (cc, rhs) = match signed {
+                    IntCC::SignedLessThan => (IntCC::Equal, -1),
+                    IntCC::SignedLessThanOrEqual => (IntCC::SignedLessThanOrEqual, 0),
+                    IntCC::SignedGreaterThan => (IntCC::Equal, 1),
+                    IntCC::SignedGreaterThanOrEqual => (IntCC::UnsignedLessThanOrEqual, 1),
+                    _ => unreachable!(),
+                };
+                self.bcx.ins().icmp_imm_s(cc, order, rhs)
             };
-            let order = match descriptor {
-                Some(ty) => self.order_compare(a, b, ty),
-                None => {
-                    let order = self.collection_call(operation.opcode(), &[a, b], None)?;
-                    self.bcx.ins().ireduce(types::I64, order)
-                }
-            };
-            let value = self.bcx.ins().icmp_imm_s(signed, order, 0);
             for operand in [a, b] {
                 if !(ty == Ty::Str && self.forget_slot_copy(operand)) {
                     self.release(operand, &ty);
