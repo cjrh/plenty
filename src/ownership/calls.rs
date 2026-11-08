@@ -5,7 +5,7 @@
 use super::Hazard;
 use crate::executor::{ExecutorOp, Job as Submitted};
 use crate::hash::{HashMap, HashSet};
-use crate::op::{CompiledFn, Op, Ty};
+use crate::op::{CallableSig, CompiledFn, Op, Ty};
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// The functions of a program whose bodies are being checked. The call table
@@ -40,6 +40,8 @@ struct Body<'p> {
     shuts: bool,
     /// It calls a value whose function is unknown.
     indirect: bool,
+    /// An unresolved call can reach shutdown authority or caller job inputs.
+    unknown_shutdown: bool,
     callees: Vec<&'p str>,
     /// What each job it submits can block on, with the job's result type.
     jobs: Vec<Job<'p>>,
@@ -52,6 +54,8 @@ pub(super) struct Effects {
     shuts: bool,
     /// The callee, or a function it reaches, is not known.
     unknown: bool,
+    /// Unlike future waits, some indirect calls cannot access pool hazards.
+    unknown_shutdown: bool,
 }
 
 impl Effects {
@@ -60,9 +64,9 @@ impl Effects {
         self.unknown || self.results.contains(result)
     }
 
-    /// The call can shut down a pool it is handed.
+    /// The call can shut down a pool it is handed or creates for caller inputs.
     pub(super) fn shuts(&self) -> bool {
-        self.unknown || self.shuts
+        self.unknown_shutdown || self.shuts
     }
 }
 
@@ -259,16 +263,20 @@ impl<'p> Program<'p> {
     pub(super) fn effects(&self, callee: Option<&str>) -> Effects {
         let mut effects = Effects {
             unknown: callee.is_none(),
+            unknown_shutdown: callee.is_none(),
             ..Effects::default()
         };
         let Some(callee) = callee else {
             return effects;
         };
         self.reach(callee, |body| {
-            let Some(body) = body.filter(|body| !body.indirect) else {
+            let Some(body) = body else {
                 effects.unknown = true;
-                return false;
+                effects.unknown_shutdown = true;
+                return true;
             };
+            effects.unknown |= body.indirect;
+            effects.unknown_shutdown |= body.unknown_shutdown;
             effects.shuts |= body.shuts;
             for result in &body.results {
                 if !effects.results.contains(result) {
@@ -414,6 +422,66 @@ pub fn future_results(ty: &Ty) -> Vec<Ty> {
     found
 }
 
+/// A plain `Callable` is a code address, not an environment, and module
+/// constants cannot hold runtime resources. With only data in its signature,
+/// an unknown target cannot shut down a caller's pool or feed caller-owned
+/// endpoints/locks to a pool it creates. This is deliberately not a general
+/// effect proof: erased values, destructors and unclassified types stay unknown.
+/// Include results too, so returned authority is not silently certified.
+#[expect(
+    clippy::mutable_key_type,
+    reason = "nominal identities exclude definition cells"
+)]
+fn callable_may_shut_down(signature: &CallableSig) -> bool {
+    let mut pending: Vec<_> = signature
+        .inputs
+        .iter()
+        .chain(signature.output.iter())
+        .cloned()
+        .collect();
+    let mut seen = HashSet::default();
+    while let Some(ty) = pending.pop() {
+        if !seen.insert(ty.clone()) {
+            continue;
+        }
+        match &ty {
+            Ty::I8
+            | Ty::I16
+            | Ty::I32
+            | Ty::I64
+            | Ty::U8
+            | Ty::U16
+            | Ty::U32
+            | Ty::U64
+            | Ty::F32
+            | Ty::F64
+            | Ty::Bool
+            | Ty::Unit
+            | Ty::Str
+            | Ty::ByteStr
+            | Ty::Text
+            // A Submitter cannot shut down its pool, even on drop.
+            | Ty::Submitter => {}
+            Ty::Class(class)
+                if class.get().destructor.is_none() && crate::mutex::class(&ty).is_none() =>
+            {
+                crate::threading::contained(&ty, &mut pending);
+            }
+            Ty::Enum(_)
+            | Ty::Ref(..)
+            | Ty::View(..)
+            | Ty::List(_)
+            | Ty::Clist(_)
+            | Ty::Set(_)
+            | Ty::Dict(..)
+            | Ty::Box(_)
+            | Ty::Shared(_) => crate::threading::contained(&ty, &mut pending),
+            _ => return true,
+        }
+    }
+    false
+}
+
 fn body<'p>(function: &'p CompiledFn, program: &Program<'p>) -> Body<'p> {
     let mut body = Body {
         shuts: function
@@ -442,12 +510,113 @@ fn body<'p>(function: &'p CompiledFn, program: &Program<'p>) -> Body<'p> {
         }
         Op::Call(name) | Op::TailCall(name) => body.callees.push(name),
         Op::ClosureCall(closure) if !closure.name.is_empty() => body.callees.push(&closure.name),
-        Op::ClosureCall(_)
-        | Op::CallIndirect(_)
-        | Op::TailCallIndirect(_)
-        | Op::BoxedCallableCall(..)
-        | Op::ProtocolBoxCall(..) => body.indirect = true,
+        Op::CallIndirect(signature) | Op::TailCallIndirect(signature) => {
+            body.indirect = true;
+            body.unknown_shutdown |= callable_may_shut_down(signature);
+        }
+        Op::ClosureCall(_) | Op::BoxedCallableCall(..) | Op::ProtocolBoxCall(..) => {
+            body.indirect = true;
+            body.unknown_shutdown = true;
+        }
         _ => {}
     });
     body
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::op::{BoxedMode, FnSig};
+
+    fn signature(inputs: Vec<Ty>, output: Option<Ty>) -> Arc<CallableSig> {
+        Arc::new(CallableSig { inputs, output })
+    }
+
+    #[test]
+    fn callable_shutdown_capabilities_include_inputs_and_results() {
+        for ty in [
+            Ty::Executor,
+            Ty::Ref(Arc::new(Ty::Executor), false),
+            Ty::List(Arc::new(Ty::Channel(Arc::new(Ty::I64), true))),
+            Ty::BoxedCallable(signature(vec![], None), BoxedMode::Shared),
+            Ty::ForeignPtr("Opaque".into(), crate::foreign::Threads::None),
+        ] {
+            assert!(callable_may_shut_down(&signature(vec![ty.clone()], None)));
+            assert!(callable_may_shut_down(&signature(vec![], Some(ty))));
+        }
+        for ty in [
+            Ty::I64,
+            Ty::Submitter,
+            Ty::Ref(Arc::new(Ty::List(Arc::new(Ty::Str))), false),
+        ] {
+            assert!(!callable_may_shut_down(&signature(vec![ty.clone()], None)));
+            assert!(!callable_may_shut_down(&signature(vec![], Some(ty))));
+        }
+    }
+
+    fn function(body: Vec<Op>) -> CompiledFn {
+        CompiledFn {
+            location: None,
+            origins: Arc::default(),
+            generator: None,
+            sig: Arc::new(FnSig {
+                inputs: vec![],
+                outputs: vec![],
+            }),
+            doc: "".into(),
+            body: body.into(),
+            locals: Arc::default(),
+        }
+    }
+
+    #[test]
+    fn unknown_future_waits_do_not_imply_unknown_shutdown() {
+        let ops = [Op::DefineFn(
+            "apply".into(),
+            function(vec![Op::CallIndirect(signature(vec![], None))]).into(),
+        )];
+        let program = Program::new(&ops);
+        let effects = program.effects(Some("apply"));
+        assert!(effects.waits(&Ty::I64));
+        assert!(!effects.shuts());
+        assert!(program.effects(None).shuts());
+        assert!(program.effects(Some("missing")).shuts());
+    }
+
+    #[test]
+    fn effect_traversal_keeps_concrete_effects_after_unknown_calls() {
+        let ops = [
+            Op::DefineFn(
+                "root".into(),
+                function(vec![
+                    Op::Call("concrete".into()),
+                    Op::Call("unknown".into()),
+                ])
+                .into(),
+            ),
+            Op::DefineFn(
+                "unknown".into(),
+                function(vec![
+                    Op::CallIndirect(signature(vec![], None)),
+                    Op::Call("root".into()),
+                    Op::Call("missing".into()),
+                ])
+                .into(),
+            ),
+            Op::DefineFn(
+                "concrete".into(),
+                function(vec![
+                    Op::Executor(ExecutorOp::Shutdown),
+                    Op::Executor(ExecutorOp::Result(Ty::I64)),
+                ])
+                .into(),
+            ),
+        ];
+        let program = Program::new(&ops);
+        let effects = program.effects(Some("root"));
+        assert!(effects.unknown);
+        assert!(effects.unknown_shutdown);
+        assert!(effects.shuts);
+        assert_eq!(effects.results, [Ty::I64]);
+    }
 }
