@@ -197,7 +197,7 @@ fn lex(text: &str) -> Result<Lexed, String> {
 /// arm is an indented suite (the parser rejects one-line arms), which ends
 /// at its matching dedent; the lexer emits no layout tokens inside
 /// brackets.
-fn conditionals(text: &str) -> Result<Vec<(u32, u32)>, String> {
+pub(super) fn conditionals(text: &str) -> Result<Vec<(u32, u32)>, String> {
     let lexed = lex(text)?;
     let tokens = &lexed.all;
     let layout = |t: &Token| {
@@ -282,7 +282,7 @@ fn conditionals(text: &str) -> Result<Vec<(u32, u32)>, String> {
 }
 
 /// Whether `text` contains `name` as a whole word.
-fn mentions(text: &str, name: &str) -> bool {
+pub(super) fn mentions(text: &str, name: &str) -> bool {
     let is_word = |c: char| c.is_alphanumeric() || c == '_';
     text.match_indices(name).any(|(at, _)| {
         !text[..at].chars().next_back().is_some_and(is_word)
@@ -291,11 +291,11 @@ fn mentions(text: &str, name: &str) -> bool {
 }
 
 /// The tokens of each top-level item of `text`, without layout tokens.
-fn top_level(text: &str) -> Result<Vec<Vec<Token>>, String> {
+pub(super) fn top_level(text: &str) -> Result<Vec<Vec<Token>>, String> {
     lex(text).map(|l| l.items)
 }
 
-fn is_import(tokens: &[Token]) -> bool {
+pub(super) fn is_import(tokens: &[Token]) -> bool {
     tokens
         .first()
         .is_some_and(|t| t.column == 1 && (t.is("import") || t.is("from")))
@@ -361,7 +361,7 @@ fn items(text: &str) -> Result<Vec<Item>, String> {
     Ok(out)
 }
 
-fn word(token: &Token) -> Option<&str> {
+pub(super) fn word(token: &Token) -> Option<&str> {
     match &token.kind {
         Kind::Word(w) => Some(w),
         _ => None,
@@ -552,7 +552,7 @@ fn import_statement(tokens: &[Token], lines: &[&str]) -> Result<Import, String> 
 
 /// How a reference names its symbol.
 #[derive(Clone, Debug, PartialEq)]
-enum Form {
+pub(super) enum Form {
     /// A bare name: a declaration of the same module or a `from` import.
     Bare { column: u32, name: String },
     /// `qualifier.name`, where the qualifier names a module.
@@ -565,7 +565,7 @@ enum Form {
     Other,
 }
 
-fn form(line: &str, location: &Location) -> Form {
+pub(super) fn form(line: &str, location: &Location) -> Form {
     let chars: Vec<char> = line.chars().collect();
     let start = location.column as usize - 1;
     let end = (start + location.length as usize).min(chars.len());
@@ -2170,7 +2170,7 @@ impl Work<'_, '_> {
 /// Where the point (`line`, `column`), from 0, is after `edits`, which
 /// do not overlap; None when an edit replaces it. Text inserted at the point
 /// comes before it.
-fn map_point(edits: &[TextEdit], line: u32, column: u32) -> Option<(u32, u32)> {
+pub(super) fn map_point(edits: &[TextEdit], line: u32, column: u32) -> Option<(u32, u32)> {
     let mut sorted: Vec<&TextEdit> = edits.iter().collect();
     sorted.sort_by_key(|e| (e.line, e.column, e.end_line, e.end_column));
     let mut point = (line, column);
@@ -2236,7 +2236,7 @@ fn insert(line: u32, column: u32, text: &str) -> TextEdit {
     }
 }
 
-fn replace(line: u32, column: u32, length: u32, text: &str) -> TextEdit {
+pub(super) fn replace(line: u32, column: u32, length: u32, text: &str) -> TextEdit {
     TextEdit {
         line,
         column,

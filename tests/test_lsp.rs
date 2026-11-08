@@ -1506,3 +1506,478 @@ fn references_warn_when_an_entry_does_not_check_and_work_outside_a_package() {
     assert_eq!(lines, vec![0, 4, 5]);
     client.exit();
 }
+
+/// A rename's reply: the workspace edit and the warnings the server showed,
+/// or the reason it was refused.
+fn rename_reply(
+    client: &mut Client,
+    path: &Path,
+    line: u32,
+    character: u32,
+    new_name: &str,
+) -> Result<(Value, Vec<String>), String> {
+    client.next += 1;
+    let id = client.next;
+    client.send(
+        json!({"jsonrpc": "2.0", "id": id, "method": "textDocument/rename",
+        "params": {"textDocument": {"uri": uri(path)},
+            "position": {"line": line, "character": character}, "newName": new_name}}),
+    );
+    let mut warnings = vec![];
+    loop {
+        let message = client.receive();
+        if message["method"] == "window/showMessage" {
+            warnings.push(message["params"]["message"].as_str().unwrap().to_owned());
+        }
+        if message["id"] == id {
+            if let Some(error) = message.get("error") {
+                assert_eq!(error["code"], -32803, "{message}");
+                return Err(error["message"].as_str().unwrap().to_owned());
+            }
+            return Ok((message["result"].clone(), warnings));
+        }
+    }
+}
+
+/// The reason a rename is refused.
+#[track_caller]
+fn rename_refused(
+    client: &mut Client,
+    path: &Path,
+    line: u32,
+    character: u32,
+    new_name: &str,
+) -> String {
+    match rename_reply(client, path, line, character, new_name) {
+        Ok((edit, _)) => panic!("the rename was accepted: {edit}"),
+        Err(message) => message,
+    }
+}
+
+/// The reason `textDocument/prepareRename` refuses the position, or its
+/// placeholder and range.
+fn prepare_rename(
+    client: &mut Client,
+    path: &Path,
+    line: u32,
+    character: u32,
+) -> Result<Value, String> {
+    let params = json!({"textDocument": {"uri": uri(path)},
+        "position": {"line": line, "character": character}});
+    client.next += 1;
+    let id = client.next;
+    client.send(
+        json!({"jsonrpc": "2.0", "id": id, "method": "textDocument/prepareRename",
+        "params": params}),
+    );
+    loop {
+        let message = client.receive();
+        if message["id"] == id {
+            return match message.get("error") {
+                Some(error) => Err(error["message"].as_str().unwrap().to_owned()),
+                None => Ok(message["result"].clone()),
+            };
+        }
+    }
+}
+
+/// Each edited file's text below `root` after applying `edit`, whose
+/// columns count UTF-16 units, to `texts` or the file on disk.
+#[track_caller]
+fn renamed(
+    root: &Path,
+    edit: &Value,
+    texts: &[(&Path, &str)],
+) -> std::collections::BTreeMap<String, String> {
+    let files: Vec<(String, Value)> = match edit["documentChanges"].as_array() {
+        Some(changes) => changes
+            .iter()
+            .map(|c| {
+                (
+                    c["textDocument"]["uri"].as_str().unwrap().to_owned(),
+                    c["edits"].clone(),
+                )
+            })
+            .collect(),
+        None => edit["changes"]
+            .as_object()
+            .unwrap_or_else(|| panic!("no edit: {edit}"))
+            .iter()
+            .map(|(u, e)| (u.clone(), e.clone()))
+            .collect(),
+    };
+    let mut out = std::collections::BTreeMap::new();
+    for (file, edits) in files {
+        let path = Path::new(file.strip_prefix("file://").unwrap());
+        let text = texts.iter().find(|(p, _)| *p == path).map_or_else(
+            || std::fs::read_to_string(path).unwrap(),
+            |(_, t)| (*t).to_owned(),
+        );
+        let mut lines: Vec<Vec<u16>> = text
+            .split('\n')
+            .map(|l| l.encode_utf16().collect())
+            .collect();
+        let mut edits = edits.as_array().unwrap().clone();
+        edits.sort_by_key(|e| {
+            let start = &e["range"]["start"];
+            (start["line"].as_u64(), start["character"].as_u64())
+        });
+        for e in edits.iter().rev() {
+            let (start, end) = (&e["range"]["start"], &e["range"]["end"]);
+            assert_eq!(start["line"], end["line"], "{e}");
+            let line = &mut lines[start["line"].as_u64().unwrap() as usize];
+            let (from, to) = (
+                start["character"].as_u64().unwrap() as usize,
+                end["character"].as_u64().unwrap() as usize,
+            );
+            line.splice(from..to, e["newText"].as_str().unwrap().encode_utf16());
+        }
+        let text: Vec<String> = lines
+            .iter()
+            .map(|l| String::from_utf16(l).unwrap())
+            .collect();
+        let relative = path.strip_prefix(root).unwrap().display().to_string();
+        out.insert(relative, text.join("\n"));
+    }
+    out
+}
+
+#[test]
+fn a_rename_spans_members_tests_and_qualified_uses_and_keeps_aliases() {
+    let dir = tempfile::tempdir().unwrap();
+    for (path, text) in REFERENCES_WORKSPACE {
+        write(&dir.path().join(path), text);
+    }
+    let root = dir.path().canonicalize().unwrap();
+    let shapes = root.join("tools/src/shapes.plenty");
+    let main = root.join("app/src/main.plenty");
+    let test = root.join("tools/tests/test_shapes.plenty");
+    let mut client = Client::start(&dir.path().join("cache"));
+    let expected: std::collections::BTreeMap<String, String> = [
+        (
+            "app/src/main.plenty",
+            "import tools.shapes as s\n\ndef main() -> Result[(), IoError]:\n    print((\"𝄞\", s.measure(2)))?\n    Ok(())\n",
+        ),
+        (
+            "tools/src/lib.plenty",
+            "from shapes import measure\n\npub def total(n: i64) -> i64:\n    unchecked:\n        measure(n) + measure(1)\n",
+        ),
+        // The parameter `area` is another declaration.
+        (
+            "tools/src/shapes.plenty",
+            "pub def measure(n: i64) -> i64:\n    unchecked:\n        n * 2\n\npub def twice(area: i64) -> i64:\n    unchecked:\n        area + area\n",
+        ),
+        // The alias and its uses stay.
+        (
+            "tools/tests/test_shapes.plenty",
+            "import std.test as t\nfrom tools.shapes import measure as size\n\ndef test_area() -> Result[(), AllocError | t.TestError]:\n    t.equal(&size(2), &4)?\n    Ok(())\n",
+        ),
+    ]
+    .into_iter()
+    .map(|(p, t)| (p.to_owned(), t.to_owned()))
+    .collect();
+    let api = "renames public `tools.shapes.area` to `measure`, so packages outside this workspace that import it must change";
+    // From the declaration and from a qualified use in another member,
+    // after a character outside the BMP, which counts two UTF-16 units.
+    for (path, line, character) in [(&shapes, 0, 8), (&main, 3, 21)] {
+        let (edit, warnings) = rename_reply(&mut client, path, line, character, "measure").unwrap();
+        assert_eq!(renamed(&root, &edit, &[]), expected);
+        // The client shows no change annotations, so the API change is a
+        // warning.
+        assert_eq!(warnings, vec![api.to_owned()]);
+    }
+    assert_eq!(
+        prepare_rename(&mut client, &main, 3, 21),
+        Ok(
+            json!({"range": {"start": {"line": 3, "character": 19}, "end": {"line": 3, "character": 23}},
+            "placeholder": "area"})
+        )
+    );
+    // Renaming the alias, from a use or from the import, changes only the
+    // test file.
+    let aliased = "import std.test as t\nfrom tools.shapes import area as sized\n\ndef test_area() -> Result[(), AllocError | t.TestError]:\n    t.equal(&sized(2), &4)?\n    Ok(())\n";
+    for (line, character) in [(4, 14), (1, 34)] {
+        assert_eq!(
+            prepare_rename(&mut client, &test, line, character).unwrap()["placeholder"],
+            "size"
+        );
+        let (edit, warnings) = rename_reply(&mut client, &test, line, character, "sized").unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let files = renamed(&root, &edit, &[]);
+        assert_eq!(
+            files,
+            [(
+                "tools/tests/test_shapes.plenty".to_owned(),
+                aliased.to_owned()
+            )]
+            .into()
+        );
+    }
+    // Nothing is written.
+    assert_eq!(
+        std::fs::read_to_string(&shapes).unwrap(),
+        REFERENCES_WORKSPACE[3].1
+    );
+    client.exit();
+}
+
+#[test]
+fn a_rename_is_refused_with_its_reason() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    app_package(
+        &root,
+        &[
+            (
+                "src/shapes.plenty",
+                "pub class Point:\n    pub x: i64\n\n    pub def norm(self) -> i64:\n        self.x\n\npub enum Shape:\n    Circle(i64)\n    Square(i64)\n\npub def area(width: i64) -> i64:\n    width\n\npub def other() -> i64:\n    1\n",
+            ),
+            (
+                "src/main.plenty",
+                "from shapes import Point, area, other\nfrom std.math import gcd\n\ndef main() -> ():\n    p = Point(x=1)\n    n = p.norm()\n    a = area(p.x)\n    g = gcd(4, 6)\n",
+            ),
+        ],
+    );
+    let shapes = root.join("src/shapes.plenty");
+    let main = root.join("src/main.plenty");
+    let mut client = Client::start(&dir.path().join("cache"));
+    let not_yet = "is not supported yet: the editor analysis does not record";
+    for (path, line, character, starts) in [
+        (&shapes, 1, 8, "renaming a field"),
+        (&main, 5, 10, "renaming a method"),
+        (&shapes, 7, 4, "renaming an enum variant"),
+        (&shapes, 10, 13, "renaming a parameter"),
+    ] {
+        let message = prepare_rename(&mut client, path, line, character).unwrap_err();
+        assert!(
+            message.starts_with(starts)
+                && message.contains(not_yet)
+                && message.ends_with("(issue #876)"),
+            "{message}"
+        );
+        assert_eq!(
+            rename_refused(&mut client, path, line, character, "z"),
+            message
+        );
+    }
+    let message = prepare_rename(&mut client, &main, 7, 8).unwrap_err();
+    assert!(
+        message.starts_with("`gcd` is declared in the standard library"),
+        "{message}"
+    );
+    assert_eq!(
+        prepare_rename(&mut client, &main, 1, 10).unwrap_err(),
+        "renaming a module is not supported: it means renaming its file"
+    );
+    assert_eq!(
+        prepare_rename(&mut client, &main, 3, 0).unwrap_err(),
+        "there is no name to rename here"
+    );
+    // The new name.
+    for (name, message) in [
+        ("def", "`def` is a reserved word"),
+        ("None", "`None` is a reserved word"),
+        (
+            "1st",
+            "`1st` is not a name: a name is ASCII letters, digits and `_`, and does not start with a digit",
+        ),
+        (
+            "a-b",
+            "`a-b` is not a name: a name is ASCII letters, digits and `_`, and does not start with a digit",
+        ),
+        ("area", "the name is already `area`"),
+        (
+            "other",
+            "`other` already names something at src/main.plenty:1:33",
+        ),
+    ] {
+        assert_eq!(rename_refused(&mut client, &main, 6, 8, name), message);
+    }
+    // A collision in the declaring module, and in a module importing the
+    // declaration without an alias.
+    assert_eq!(
+        rename_refused(&mut client, &shapes, 13, 9, "Shape"),
+        "`Shape` already names something at src/shapes.plenty:7:10"
+    );
+    assert_eq!(
+        rename_refused(&mut client, &shapes, 13, 9, "area"),
+        "`area` already names something at src/main.plenty:1:27"
+    );
+    // `Point` is captured by a local in `main` after the rename.
+    let message = rename_refused(&mut client, &main, 6, 8, "p");
+    assert!(
+        message.starts_with("`p` already names something in scope, so after the rename the package would not check: src/main.plenty:7:9:"),
+        "{message}"
+    );
+    // A package that does not check before the rename.
+    write(
+        &root.join("src/broken.plenty"),
+        "from shapes import area\n\ndef f() -> i64:\n    area(\"x\")\n",
+    );
+    let message = rename_refused(&mut client, &main, 6, 8, "size");
+    assert!(
+        message.starts_with(
+            "the package does not check, so the rename cannot be verified: src/broken.plenty:4:"
+        ),
+        "{message}"
+    );
+    std::fs::remove_file(root.join("src/broken.plenty")).unwrap();
+    // An `if const` arm the analysis does not see.
+    write(
+        &root.join("src/arms.plenty"),
+        "from shapes import other\n\nif const target.os == \"linux\":\n    def pick() -> i64:\n        other()\nelse:\n    def pick() -> i64:\n        other()\n",
+    );
+    assert_eq!(
+        rename_refused(&mut client, &shapes, 13, 9, "another"),
+        "the `if const` block at src/arms.plenty:3 mentions `other`; a rename cannot check the arms a build does not select"
+    );
+    std::fs::remove_file(root.join("src/arms.plenty")).unwrap();
+    // A file no target or test reads.
+    write(
+        &root.join("examples/demo.plenty"),
+        "def one() -> i64:\n    1\n\ndef main() -> ():\n    a = one()\n",
+    );
+    assert_eq!(
+        rename_refused(&mut client, &root.join("examples/demo.plenty"), 0, 4, "two"),
+        "no target or test of the package reads examples/demo.plenty, so a rename cannot find every use"
+    );
+    // Outside a package, only a local is renamed.
+    let outside = tempfile::tempdir().unwrap();
+    let single = outside.path().canonicalize().unwrap().join("script.plenty");
+    write(
+        &single,
+        "def one() -> i64:\n    1\n\ndef main() -> ():\n    a = one()\n    b = a\n",
+    );
+    assert_eq!(
+        prepare_rename(&mut client, &single, 0, 4).unwrap_err(),
+        "renaming a module-level declaration needs a package: this file has no plenty.toml"
+    );
+    let (edit, _) = rename_reply(&mut client, &single, 5, 8, "c").unwrap();
+    let outside_root = single.parent().unwrap();
+    assert_eq!(
+        renamed(outside_root, &edit, &[])["script.plenty"],
+        "def one() -> i64:\n    1\n\ndef main() -> ():\n    c = one()\n    b = c\n"
+    );
+    client.exit();
+}
+
+#[test]
+fn a_local_rename_stays_in_its_scope_and_reads_unsaved_text() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let main_text = "def helper(n: i64) -> i64:\n    n\n\ndef first() -> i64:\n    mut count = 1\n    count = helper(count)\n    count\n\ndef second() -> i64:\n    count = 2\n    count\n\ndef main() -> ():\n    a = first()\n    b = second()\n";
+    app_package(&root, &[("src/main.plenty", main_text)]);
+    let main = root.join("src/main.plenty");
+    let mut client = Client::start_with(
+        &dir.path().join("cache"),
+        json!([]),
+        json!({"documentChanges": true, "changeAnnotationSupport": {"groupsOnLabel": false}}),
+    );
+    client.open(&main);
+    let (edit, _) = rename_reply(&mut client, &main, 5, 19, "total").unwrap();
+    // A private declaration of a package without a library changes no
+    // public API, so the edit carries no annotation; the open document's
+    // version is named.
+    assert!(edit.get("changeAnnotations").is_none(), "{edit}");
+    assert_eq!(edit["documentChanges"][0]["textDocument"]["version"], 1);
+    assert_eq!(
+        renamed(&root, &edit, &[])["src/main.plenty"],
+        main_text.replace(
+            "mut count = 1\n    count = helper(count)\n    count\n",
+            "mut total = 1\n    total = helper(total)\n    total\n"
+        )
+    );
+    // The new name would capture `helper` in `first`.
+    let message = rename_refused(&mut client, &main, 4, 8, "helper");
+    assert!(
+        message.starts_with("`helper` already names something in scope, so after the rename the file would not check: 6:14:"),
+        "{message}"
+    );
+    // Unsaved text: a new use of `helper`.
+    let unsaved = main_text.replace("    count = 2\n", "    count = helper(2)\n");
+    client.notify(
+        "textDocument/didChange",
+        json!({"textDocument": {"uri": uri(&main), "version": 2},
+            "contentChanges": [{"text": unsaved}]}),
+    );
+    let (edit, _) = rename_reply(&mut client, &main, 0, 4, "assist").unwrap();
+    assert_eq!(edit["documentChanges"][0]["textDocument"]["version"], 2);
+    assert_eq!(
+        renamed(&root, &edit, &[(&main, &unsaved)])["src/main.plenty"],
+        unsaved.replace("helper", "assist")
+    );
+    client.exit();
+}
+
+#[test]
+fn a_public_library_rename_needs_confirmation() {
+    let dir = tempfile::tempdir().unwrap();
+    for (path, text) in REFERENCES_WORKSPACE {
+        write(&dir.path().join(path), text);
+    }
+    let root = dir.path().canonicalize().unwrap();
+    let shapes = root.join("tools/src/shapes.plenty");
+    let mut client = Client::start_with(
+        &dir.path().join("cache"),
+        json!([]),
+        json!({"documentChanges": true, "changeAnnotationSupport": {"groupsOnLabel": false}}),
+    );
+    let (edit, warnings) = rename_reply(&mut client, &shapes, 0, 8, "measure").unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(
+        edit["changeAnnotations"],
+        json!({"api": {
+            "label": "Rename `area` to `measure`",
+            "needsConfirmation": true,
+            "description": "renames public `tools.shapes.area` to `measure`, so packages outside this workspace that import it must change",
+        }})
+    );
+    for change in edit["documentChanges"].as_array().unwrap() {
+        for e in change["edits"].as_array().unwrap() {
+            assert_eq!(e["annotationId"], "api", "{e}");
+        }
+    }
+    assert_eq!(renamed(&root, &edit, &[]).len(), 4);
+    client.exit();
+}
+
+#[test]
+fn a_module_alias_and_a_capturing_name_are_refused_with_their_reasons() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    app_package(
+        &root,
+        &[
+            ("src/util.plenty", "pub def f() -> i64:\n    1\n"),
+            (
+                "src/main.plenty",
+                "import util as u\n\ndef main() -> ():\n    a = u.f()\n    b = 2\n    c = (a, b)\n",
+            ),
+        ],
+    );
+    let main = root.join("src/main.plenty");
+    let mut client = Client::start(&dir.path().join("cache"));
+    let refusal = "renaming a module alias (`import m as a`) is not supported";
+    // The alias in the import, a use of it, and the module's name.
+    for (line, character) in [(0, 15), (3, 8), (0, 8)] {
+        let expected = if character == 8 && line == 0 {
+            "renaming a module is not supported: it means renaming its file"
+        } else {
+            refusal
+        };
+        assert_eq!(
+            prepare_rename(&mut client, &main, line, character).unwrap_err(),
+            expected
+        );
+    }
+    // `b` is an immutable local, so renaming `a` to it makes `b = 2` a
+    // reassignment.
+    let message = rename_refused(&mut client, &main, 3, 4, "b");
+    assert!(
+        message.starts_with(
+            "`b` already names something in scope, so after the rename the file would not check: "
+        ),
+        "{message}"
+    );
+    client.exit();
+}

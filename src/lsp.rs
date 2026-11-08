@@ -221,6 +221,31 @@ impl Server {
             "textDocument/definition" => Some(self.query(params, output, Self::definition)?),
             "textDocument/completion" => Some(self.query(params, output, Self::completion)?),
             "textDocument/references" => Some(self.references(params, output)?),
+            "textDocument/prepareRename" | "textDocument/rename" => {
+                let prepare = method == "textDocument/prepareRename";
+                match self.rename(params, output, prepare)? {
+                    Ok((result, api_changes)) => {
+                        if !self.change_annotations && !api_changes.is_empty() {
+                            write_message(
+                                output,
+                                &json!({"jsonrpc": "2.0", "method": "window/showMessage",
+                                    "params": {"type": 2, "message": api_changes.join("; ")}}),
+                            )?;
+                        }
+                        Some(result)
+                    }
+                    Err(message) => {
+                        // RequestFailed: the rename was refused and nothing
+                        // changes; the editor shows the reason.
+                        write_message(
+                            output,
+                            &json!({"jsonrpc": "2.0", "id": id, "error": {
+                                "code": -32803, "message": message}}),
+                        )?;
+                        None
+                    }
+                }
+            }
             "textDocument/codeAction" => Some(self.code_actions(params)),
             "codeAction/resolve" => match self.resolve_action(params) {
                 Ok((action, api_changes)) => {
@@ -289,6 +314,7 @@ impl Server {
                 "inlayHintProvider": {"resolveProvider": false},
                 "definitionProvider": true,
                 "referencesProvider": true,
+                "renameProvider": {"prepareProvider": true},
                 "completionProvider": {"triggerCharacters": ["."]},
                 "codeActionProvider": {
                     "codeActionKinds": ["refactor.move"],
@@ -310,18 +336,7 @@ impl Server {
             overlay.insert(path, document.text.clone());
         }
         let path = document.path.clone();
-        let is_script = crate::script::header(&document.text, &path.display().to_string())
-            .is_ok_and(|header| header.manifest.is_some())
-            || document
-                .text
-                .lines()
-                .next()
-                .is_some_and(|line| line.starts_with("#!") && line.contains("plenty script"));
-        let graph = if is_script {
-            crate::script::editor_graph(&path, &document.text)
-        } else {
-            source_graph(&path)
-        };
+        let graph = document_graph(&path, &document.text);
         let mut analysis = ide::analyze(&path, graph.as_ref(), overlay.into_iter().collect());
         // A file that does not parse yields no names; keep the last ones so
         // queries away from the edit still work.
@@ -698,6 +713,68 @@ impl Server {
         Ok(Value::Array(found))
     }
 
+    /// What a rename at the position would change (`prepare`), or the
+    /// workspace edit renaming it to `newName`, with the public API changes
+    /// it makes; an `Err` says why it is refused.
+    #[allow(clippy::type_complexity)]
+    fn rename(
+        &mut self,
+        params: &Value,
+        output: &mut impl Write,
+        prepare: bool,
+    ) -> Result<std::result::Result<(Value, Vec<String>), String>> {
+        // The plan reads every open document's current text, so the
+        // cursor's name must come from a check of that same text.
+        let Some(uri) = self.analysis_uri_checked(params, output, true)? else {
+            return Ok(Err("this document cannot be renamed in".into()));
+        };
+        let document = &self.documents[&uri];
+        let line = params["position"]["line"].as_u64().unwrap_or(0) as u32;
+        let units = params["position"]["character"].as_u64().unwrap_or(0) as u32;
+        let text = document.text.lines().nth(line as usize).unwrap_or_default();
+        let column = self.column(text, units) + 1;
+        let path = document
+            .path
+            .canonicalize()
+            .unwrap_or(document.path.clone());
+        let analysis = &self.analyses[&uri];
+        if prepare {
+            return Ok(
+                ide::rename::prepare(analysis, &path, &document.text, line + 1, column).map(
+                    |target| {
+                        let range = self.range_in(&document.text, &target.location);
+                        (json!({"range": range, "placeholder": target.name}), vec![])
+                    },
+                ),
+            );
+        }
+        let Some(new_name) = params["newName"].as_str() else {
+            return Ok(Err("the rename has no new name".into()));
+        };
+        let mut overlay = self.overlay();
+        overlay.insert(path.clone(), document.text.clone());
+        let graph = document_graph(&document.path, &document.text);
+        let recheck = |overlay: &HashMap<PathBuf, String>| {
+            ide::analyze(&path, graph.as_ref(), overlay.clone().into_iter().collect())
+        };
+        let plan = match ide::rename::plan(
+            analysis,
+            &path,
+            line + 1,
+            column,
+            new_name,
+            &overlay,
+            &recheck,
+        ) {
+            Ok(plan) => plan,
+            Err(message) => return Ok(Err(message)),
+        };
+        let label = format!("Rename `{}` to `{}`", plan.name, plan.new_name);
+        Ok(self
+            .workspace_edit(&plan.files, &plan.api_changes, &label)
+            .map(|edit| (edit, plan.api_changes)))
+    }
+
     /// Unsaved text of every document the client opened, by canonical path.
     fn overlay(&self) -> HashMap<PathBuf, String> {
         self.documents
@@ -804,10 +881,28 @@ impl Server {
         }
         let overlay = self.overlay();
         let plan = ide::relocate::plan(&path, line, &destination, &overlay)?;
+        let edit = self.workspace_edit(
+            &plan.files,
+            &plan.api_changes,
+            &format!("Move `{}` to `{}`", plan.name, plan.destination),
+        )?;
+        let mut resolved = action.clone();
+        resolved["edit"] = edit;
+        Ok((resolved, plan.api_changes))
+    }
+
+    /// A workspace edit making `files`' edits, which need confirmation when
+    /// they change a public API and the client can ask for it.
+    fn workspace_edit(
+        &self,
+        files: &[ide::relocate::FileEdits],
+        api_changes: &[String],
+        label: &str,
+    ) -> std::result::Result<Value, String> {
         let annotation = "api";
         let mut changes = serde_json::Map::new();
         let mut document_changes = vec![];
-        for file in &plan.files {
+        for file in files {
             // An open document's edits name the client's URI, which can
             // differ from the canonical path through a symbolic link.
             let open = self
@@ -837,7 +932,7 @@ impl Server {
                         },
                         "newText": e.text,
                     });
-                    if self.change_annotations && !plan.api_changes.is_empty() {
+                    if self.change_annotations && !api_changes.is_empty() {
                         edit["annotationId"] = json!(annotation);
                     }
                     edit
@@ -853,22 +948,19 @@ impl Server {
                 changes.insert(uri, json!(edits));
             }
         }
-        let edit = if self.document_changes {
+        Ok(if self.document_changes {
             let mut edit = json!({"documentChanges": document_changes});
-            if self.change_annotations && !plan.api_changes.is_empty() {
+            if self.change_annotations && !api_changes.is_empty() {
                 edit["changeAnnotations"] = json!({annotation: {
-                    "label": format!("Move `{}` to `{}`", plan.name, plan.destination),
+                    "label": label,
                     "needsConfirmation": true,
-                    "description": plan.api_changes.join("; "),
+                    "description": api_changes.join("; "),
                 }});
             }
             edit
         } else {
             json!({"changes": changes})
-        };
-        let mut resolved = action.clone();
-        resolved["edit"] = edit;
-        Ok((resolved, plan.api_changes))
+        })
     }
 
     /// The character offset of `units` client units into `text`.
@@ -1152,6 +1244,21 @@ fn names(analysis: &Analysis, file: &File, line: u32) -> Vec<Value> {
             .map(|k| json!({"label": k, "kind": 14})),
     );
     items
+}
+
+/// The graph a document is checked with: a script's own, or its package's.
+fn document_graph(path: &Path, text: &str) -> Option<crate::project::SourceGraph> {
+    let is_script = crate::script::header(text, &path.display().to_string())
+        .is_ok_and(|header| header.manifest.is_some())
+        || text
+            .lines()
+            .next()
+            .is_some_and(|line| line.starts_with("#!") && line.contains("plenty script"));
+    if is_script {
+        crate::script::editor_graph(path, text)
+    } else {
+        source_graph(path)
+    }
 }
 
 /// The package graph a file belongs to, read without fetching or locking: a
