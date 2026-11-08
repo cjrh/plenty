@@ -155,6 +155,56 @@ pub fn join(a: &Ty, b: &Ty) -> Option<Ty> {
     })))
 }
 
+/// The success payload of an `Option` or `Result`, by which a value can
+/// carry a generator whose producer is joined.
+fn carried(ty: &Ty) -> Option<Ty> {
+    match ty {
+        Ty::Enum(t) if t.is_option() => Some(t.get().variants[1].fields[0].clone()),
+        Ty::Enum(t) if t.is_result() => Some(t.get().variants[0].fields[0].clone()),
+        _ => None,
+    }
+}
+
+/// `ty` with its success payload replaced; `ty` is an `Option` or `Result`.
+fn with_carried(ty: &Ty, payload: Ty) -> Ty {
+    match ty {
+        Ty::Enum(t) if t.is_option() => crate::sum::option(payload),
+        Ty::Enum(t) => crate::sum::result(payload, t.get().variants[1].fields[0].clone()),
+        _ => unreachable!("only an Option or Result carries a payload"),
+    }
+}
+
+/// The joined type of two values that differ only in the producer of a
+/// generator held directly or as an `Option`/`Result` success payload, at
+/// any depth (issue #872). None when they are not such values.
+pub fn join_carried(a: &Ty, b: &Ty) -> Option<Ty> {
+    match (a, b) {
+        (Ty::Generator(_), Ty::Generator(_)) => {
+            join(a, b).filter(|j| matches!(j, Ty::Generator(t) if !t.members.is_empty()))
+        }
+        (Ty::Enum(x), Ty::Enum(y))
+            if (x.is_option() && y.is_option())
+                || (x.is_result()
+                    && y.is_result()
+                    && x.get().variants[1].fields[0] == y.get().variants[1].fields[0]) =>
+        {
+            let payload = join_carried(&carried(a)?, &carried(b)?)?;
+            Some(with_carried(a, payload))
+        }
+        _ => None,
+    }
+}
+
+/// `ty` with the generator `from`, held directly or as a success payload,
+/// replaced by `to`. None when `ty` does not hold `from` that way.
+pub fn replace_carried(ty: &Ty, from: &Ty, to: &Ty) -> Option<Ty> {
+    if ty == from {
+        return Some(to.clone());
+    }
+    let payload = replace_carried(&carried(ty)?, from, to)?;
+    Some(with_carried(ty, payload))
+}
+
 /// Source annotations constrain the yielded type while allowing the producer
 /// identity to be inferred. Concrete identities must agree at joins and moves.
 pub fn refine(pattern: &Ty, actual: &Ty) -> Option<Ty> {

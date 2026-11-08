@@ -1054,6 +1054,8 @@ fn exited_block(body: &[Stmt], index: usize) -> Result<BlockResult> {
 struct Lower<'a> {
     /// Pipeline lowering's state for the current function.
     pipeline: pipelines::State,
+    /// Producers joined after a first pass; see [`generators::Rejoin`].
+    joins: generators::Rejoin,
     function_name: String,
     /// `function_name` in the function table.
     symbol: functions::Symbol,
@@ -1458,9 +1460,22 @@ impl Lower<'_> {
                 && got.name.is_some()
             {
                 // Issue #872: the item type matches, so name the frame identity.
-                // Only chosen values (conditional expressions, `if`/`match` values
-                // and factory returns) join.
-                "; different producers join only where a value is chosen: a conditional expression (`a if c else b`), an `if` or `match` value, or a factory's return; reassignment and `Option`/`Result` payloads keep one producer".into()
+                // A caller that can build the value with the joined type
+                // lowers the function again; see [`Lower::request_join`].
+                self.joins.mismatched(
+                    &Ty::Generator(expected.clone()),
+                    &Ty::Generator(got.clone()),
+                );
+                "; different producers join only where a value is chosen or reassigned: a conditional expression (`a if c else b`), an `if` or `match` value, a factory's return, or `x = ...` for a local, including inside `Some(...)` or `Ok(...)` built there".into()
+            } else if let (Some(expected), Some(got)) = (&expected, &got)
+                && !matches!(expected, Ty::Generator(_))
+                && crate::generator::join_carried(expected, got).is_some()
+            {
+                // Issue #900: a built payload has one member's frame layout.
+                // A caller that chose this value can build it again with the
+                // joined type; see [`Lower::request_join`].
+                self.joins.mismatched(expected, got);
+                "; an `Option` or `Result` value already built with one generator producer cannot join another; build `Some(...)` or `Ok(...)` where the value is chosen, or `match` it and rebuild the payload in each arm".into()
             } else {
                 expected
                     .as_ref()
@@ -1478,6 +1493,19 @@ impl Lower<'_> {
                 .dimension_error(at, message, expected.iter().chain(&got)))
         }
     }
+    /// The type a declaration's annotation `ann` gives its value at `at`,
+    /// joined with producers a later reassignment met (issue #872): the
+    /// annotation names only the item type. Outlined to keep the recursive
+    /// statement frame small.
+    #[inline(never)]
+    fn annotated_context(&self, ann: &syntax::TypeRef, at: &Token) -> Result<Type> {
+        let context = ann.resolve(self.aliases)?;
+        if context.as_ref().is_some_and(Ty::unresolved_sum_member) {
+            return Err(ann.at.error(UNRESOLVED_SUM_MEMBER));
+        }
+        Ok(self.hinted_expected(at, context))
+    }
+
     /// Success type of a Result that `?` can propagate in this function.
     /// Keep diagnostic advice subject to the same residual rules as lowering.
     fn result_success(&self, ty: &Ty) -> Option<Ty> {
@@ -1926,12 +1954,15 @@ impl Lower<'_> {
                 let cond = self.expr(condition, ops)?;
                 self.same(cond, Some(Ty::Bool), &condition.at)?;
                 let (mut a, mut b) = (Vec::new(), Vec::new());
-                let ty = self.expr(yes, &mut a)?;
-                let other = self.expr(no, &mut b)?;
+                let hint = self.join_hint(&e.at);
+                let ty = self.expr_expected(yes, hint.clone(), &mut a)?;
+                let other = self.expr_expected(no, hint, &mut b)?;
                 let ty = match self.join_conditional(&ty, &other, &mut a, &mut b) {
                     Some(joined) => Some(joined),
                     None => {
-                        self.same(other, ty.clone(), &e.at)?;
+                        if !self.join_mismatched(&e.at, &ty, &other) {
+                            self.same(other, ty.clone(), &e.at)?;
+                        }
                         ty
                     }
                 };
@@ -3391,12 +3422,16 @@ impl Lower<'_> {
             .ok_or_else(|| at.error("return outside a function"))?;
         let mut returned = Vec::new();
         let ty = match e {
-            Some(e) => self.tail_expression(
-                e,
-                expected.clone(),
-                &mut returned,
-                self.yield_type.is_none(),
-            )?,
+            Some(e) => {
+                self.clear_mismatch();
+                let value = self.tail_expression(
+                    e,
+                    expected.clone(),
+                    &mut returned,
+                    self.yield_type.is_none(),
+                );
+                self.joined_return(value)?
+            }
             None => None,
         };
         // Only the value's own operations: an exit guard also moves its
@@ -3759,6 +3794,7 @@ impl Lower<'_> {
                 }
                 Statement::Expr(e) => {
                     let value_start = ops.len();
+                    self.clear_mismatch();
                     let ty = self.tail_expression(
                         e,
                         match tail {
@@ -3768,7 +3804,12 @@ impl Lower<'_> {
                         },
                         ops,
                         last && self.yield_type.is_none(),
-                    )?;
+                    );
+                    let ty = if matches!(tail, Tail::Function) {
+                        self.joined_return(ty)?
+                    } else {
+                        ty?
+                    };
                     if matches!(tail, Tail::Value(_))
                         && !self.checked_value_tail
                         && !self.branch_joins.is_empty()
@@ -3807,7 +3848,7 @@ impl Lower<'_> {
                         ty
                     };
                     if last && self.yield_type.is_none() {
-                        self.refine_return(ty.clone(), &e.at)?;
+                        self.refine_joined_return(ty.clone(), &e.at)?;
                         // The function's result is in flight through the
                         // frame's release, which shuts its pools down.
                         if let Some(marker) = self.returning(&e.at, &ops[value_start..]) {
@@ -3973,13 +4014,12 @@ impl Lower<'_> {
                         continue;
                     }
                     let context = if let Some(ann) = annotation {
-                        let context = ann.resolve(self.aliases)?;
-                        if context.as_ref().is_some_and(Ty::unresolved_sum_member) {
-                            return Err(ann.at.error(UNRESOLVED_SUM_MEMBER));
-                        }
-                        context
+                        self.annotated_context(ann, &value.at)?
                     } else {
-                        self.names.get(name).map(|l| l.ty.clone())
+                        match self.names.get(name) {
+                            Some(local) => Some(local.ty.clone()),
+                            None => self.join_hint(&value.at),
+                        }
                     };
                     let value_start = ops.len();
                     let converted = match &context {
@@ -3996,13 +4036,26 @@ impl Lower<'_> {
                         && self.names.get(name).is_some_and(|local| {
                             local.mutable && local.ty.carried_reference().is_some()
                         });
-                    let (ty, origin) = if emptied {
-                        let ty = self
-                            .expr_expected(value, context, ops)?
-                            .ok_or_else(|| value.at.error("expected a value, got ()"))?;
-                        (ty, None)
+                    self.clear_mismatch();
+                    let lowered = if emptied {
+                        self.expr_expected(value, context, ops).and_then(|ty| {
+                            let ty =
+                                ty.ok_or_else(|| value.at.error("expected a value, got ()"))?;
+                            Ok((ty, None))
+                        })
                     } else {
-                        self.binding_value(value, context, ops)?
+                        self.binding_value(value, context, ops)
+                    };
+                    let (ty, origin) = match lowered {
+                        Ok(lowered) => lowered,
+                        Err(error) => {
+                            if annotation.is_none()
+                                && let Some(local) = self.names.get(name).cloned()
+                            {
+                                self.request_reassigned_join(local.slot, &local.ty);
+                            }
+                            return Err(error);
+                        }
                     };
                     let diagnostic_origin = annotation
                         .as_ref()
@@ -4021,7 +4074,8 @@ impl Lower<'_> {
                                 .at
                                 .error(format!("`{name}` is immutable; declare it with `mut`")));
                         }
-                        self.same(Some(ty.clone()), Some(local.ty.clone()), &stmt.at)?;
+                        let ty = self.join_reassigned(local.slot, &local.ty, ty.clone(), ops);
+                        self.same(Some(ty), Some(local.ty.clone()), &stmt.at)?;
                         if let Some(origin) = origin {
                             self.retarget_reference(name, local.slot, origin, &stmt.at, ops)?;
                         }
@@ -4033,6 +4087,7 @@ impl Lower<'_> {
                                     .error("at most 256 parameter/local slots are supported")
                             })?;
                         self.locals.push(ty.clone());
+                        self.note_declared(slot, &ty, &value.at);
                         ide::local_type(&stmt.at, &ty);
                         if annotation.is_none() {
                             ide::inferred_binding(&stmt.at, name, &ty);
@@ -4073,6 +4128,8 @@ impl Lower<'_> {
                     elifs,
                     no,
                 } => {
+                    let hinted = self.hinted_tail(tail, &stmt.at);
+                    let tail = hinted.as_deref().unwrap_or(tail);
                     let condition_start = ops.len();
                     let cond = self.expr(condition, ops)?;
                     self.same(cond, Some(Ty::Bool), &condition.at)?;
@@ -4099,7 +4156,8 @@ impl Lower<'_> {
                         self.same(cond, Some(Ty::Bool), &elif.condition.at)?;
                         self.building(&elif.condition.at, condition_start, &mut test, false);
                         self.finish_temporaries(temporary_start, &mut test);
-                        let result = self.branch_block(
+                        let result = self.case_block(
+                            &stmt.at,
                             &elif.body,
                             &elif.at,
                             &mut arm,
@@ -4111,7 +4169,8 @@ impl Lower<'_> {
                     }
                     self.names = saved.clone();
                     let mut otherwise = Vec::new();
-                    let mut result = self.branch_block(
+                    let mut result = self.case_block(
+                        &stmt.at,
                         no,
                         &stmt.at,
                         &mut otherwise,
@@ -4136,6 +4195,13 @@ impl Lower<'_> {
                         .chain([(&stmt.at, yes_result)]);
                     for (at, branch) in branches {
                         result = match (branch, result) {
+                            // Payload producers that differ join at the
+                            // whole `if`, whose hint every branch reads.
+                            (BlockResult::Continues(ty), BlockResult::Continues(other))
+                                if !last && self.join_mismatched(&stmt.at, &ty, &other) =>
+                            {
+                                BlockResult::Continues(ty)
+                            }
                             (BlockResult::Continues(ty), BlockResult::Continues(other)) => {
                                 let joined = self.join_branch(&ty, &other, last, at)?;
                                 BlockResult::Continues(joined.unwrap_or(ty))
@@ -4886,6 +4952,9 @@ fn register_with_body(
     Ok(sig)
 }
 
+/// Bound on lowering passes of one function that join generator producers.
+const MAX_JOIN_PASSES: u32 = 1 << 16;
+
 /// Lowers one function. An error in the body of a generic instance is reported
 /// at the use that first required the instance, with the body position in a
 /// note: see `ownership::Instantiation`.
@@ -4906,9 +4975,31 @@ fn lower_function(
     let outer = aliases
         .data
         .attribute(required.clone().map(data::Requiring::Instance));
-    let lowered = generics
-        .complete_instance(symbol, f, sigs)
-        .and_then(|f| lower_body(symbol, f, heap, sigs, generics, aliases, access));
+    // A pass that joined producers asks for another; a loop rather than
+    // recursion keeps many join sites in one function off the stack.
+    // Each pass starts from the instance the previous pass completed.
+    let mut f = f;
+    let mut passes = 0_u32;
+    let lowered = loop {
+        let lowered = generics
+            .complete_instance(symbol, Arc::clone(&f), sigs)
+            .and_then(|done| {
+                f = Arc::clone(&done);
+                lower_body(symbol, done, heap, sigs, generics, aliases, access)
+            });
+        if !std::mem::take(&mut generics.relower) {
+            break lowered;
+        }
+        // Widening hints end the loop; this backstop turns a defect in that
+        // into a diagnostic instead of a hang. Each pass records a new or
+        // wider hint, so real functions stay far below it.
+        passes += 1;
+        if passes == MAX_JOIN_PASSES {
+            break Err(f
+                .at
+                .error("internal compiler error: generator producer joins did not settle"));
+        }
+    };
     aliases.data.attribute(outer);
     lowered.map_err(|error| -> Box<dyn Error> {
         let error = Diagnostic::from_boxed(error);
@@ -5016,6 +5107,10 @@ fn lower_body(
                 source_tail: Vec::new(),
                 tail_candidates: Vec::new(),
                 closure_loans: HashMap::default(),
+                joins: generators::Rejoin::new(
+                    generics.join_hints.get(&symbol),
+                    generics.joined_returns.contains(&symbol),
+                ),
                 captures: f
                     .captures
                     .iter()
@@ -5152,7 +5247,26 @@ fn lower_body(
                 &Tail::Discard
             },
         )
-    )?;
+    );
+    if lowered.is_err() {
+        lower.join_failed_case();
+    }
+    if lower.joins.pending {
+        // A value met a different producer after its type was fixed: lower
+        // again with the joined type at that value (issue #872).
+        if let Some(returned) = lower.joins.returned.take() {
+            *lower.sigs.sig_mut(symbol) = Arc::new(FnSig {
+                inputs: sig.inputs.clone(),
+                outputs: vec![returned],
+            });
+            lower.generics.joined_returns.insert(symbol);
+        }
+        drop(lower);
+        generics.active.remove(&symbol);
+        generics.relower = true;
+        return Ok(());
+    }
+    let lowered = lowered?;
     crate::profile_block!("frontend::finish_function", {
         if let BlockResult::Continues(output) = lowered {
             if let Some(doc_at) = f

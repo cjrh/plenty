@@ -1896,6 +1896,15 @@ impl Lower<'_> {
         self.same(written, Some(matched), &owner.at)
     }
 
+    /// A conflict with a payload's loan names the case that bound it.
+    /// Kept out of line so nested `match` lowering keeps small frames.
+    #[inline(never)]
+    fn mark_carried_case(&self, subject: &Subject, at: &Token, body: &mut Vec<Op>) {
+        if subject.carried.is_some() {
+            self.mark(at, body);
+        }
+    }
+
     pub(super) fn match_patterns(
         &mut self,
         value: &Expr,
@@ -2075,7 +2084,9 @@ impl Lower<'_> {
 
         let saved = self.names.clone();
         let mut bodies = Vec::with_capacity(cases.len());
-        let mut joined: Option<Type> = None;
+        // An earlier pass may have joined the cases' producers (issue #872).
+        let mut joined: Option<Type> = self.case_hint(&value.at, tail);
+        let hinted = joined.is_some();
         let mut continuing = Vec::new();
         for (arm, case) in cases.iter().enumerate() {
             self.names = saved.clone();
@@ -2100,10 +2111,7 @@ impl Lower<'_> {
                 slots.insert(name.as_str(), slot);
             }
             let alternatives = &rows[spans[arm].clone()];
-            if subject.carried.is_some() {
-                // A conflict with a payload's loan names the case that bound it.
-                self.mark(&case.at, &mut body);
-            }
+            self.mark_carried_case(&subject, &case.at, &mut body);
             self.fill_bindings(
                 &subject,
                 alternatives,
@@ -2114,22 +2122,26 @@ impl Lower<'_> {
             );
             // Without an expected type, later cases take the first continuing
             // case's type, as the inline conditional's second value does.
+            // Every case takes a joined type an earlier pass recorded.
             let inferred;
             let tail = match (tail, &joined) {
-                (Tail::Value(None), Some(Some(ty))) => {
+                (Tail::Value(expected), Some(Some(ty))) if hinted || expected.is_none() => {
                     inferred = Tail::Value(Some(ty.clone()));
                     &inferred
                 }
                 _ => tail,
             };
-            if let BlockResult::Continues(ty) =
-                self.branch_block(&case.body, &case.at, &mut body, tail)?
-            {
+            self.enter_case(&value.at, tail);
+            let result = self.branch_block(&case.body, &case.at, &mut body, tail)?;
+            // The case stays open while its value joins the earlier cases',
+            // so a different producer there joins them too.
+            if let BlockResult::Continues(ty) = result {
                 if !matches!(tail, Tail::Function) {
                     self.cleanup(case_start, &mut body);
                 }
                 self.case_value(&mut joined, &mut continuing, arm, ty, tail, &case.at)?;
             }
+            self.leave_case();
             bodies.push(Some(body));
         }
         self.names = saved;

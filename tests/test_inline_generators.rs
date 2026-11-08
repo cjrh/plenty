@@ -233,8 +233,10 @@ def a() -> Generator[i64]:
     yield 1
 def b() -> Generator[i64]:
     yield 2
+def replace(source: &mut Generator[i64]) -> ():
+    *source = b()
 mut source = a()
-source = b()
+replace(&mut source)
 drop(source)
 "#,
             "expected Generator[i64] from `a`, got Generator[i64] from `b`",

@@ -536,8 +536,21 @@ one member set, and a member that contains the factory is rejected as a
 recursive layout. A conditional expression `a if c else b` and an `if` or
 `match` value join their branches the same way wherever they appear, including
 across `yield` in a generator body; a branch that exits with `return`, `break`
-or `continue` takes no part. Reassignment and `Option`/`Result` payloads still
-require one producer.
+or `continue` takes no part.
+
+Issue #872 slice 3 completes generator composition. Reassigning a local joins
+its producers, including inside a loop, and a `Some(...)` or `Ok(...)` built
+where a value is chosen, reassigned or returned joins the producers it holds.
+A value whose type was fixed before a different producer met it makes the
+checker check that function again with the joined type there; no erased
+generator or allocation is needed. An `Option`/`Result` value already built
+with one producer still keeps it (issue #900). `next` on a pipeline of
+references returns `Option[&T]` or `Option[&mut T]` borrowing the pipeline's
+source: the item outlives `drop(p)`, may be returned through the source's
+origin parameter, and conflicts with source mutation and a second live
+`&mut` item; a lent pipeline's item cannot leave the borrower. A pipeline over
+borrowed data still cannot be returned or stored (issue #899). See
+[advancing one item](../design/language/09-iteration/06-pipelines.md#advancing-one-item).
 
 List slice views `&[T]` and `&mut [T]` gained list read and fixed-length
 operations (issue #866): `in`, `count`, `find` and `rfind` search the view with

@@ -6,6 +6,56 @@ const MAX_CONSUMER_FRAMES: usize = 16_384;
 /// functions' total.
 const MAX_FRAMES: usize = 65_536;
 
+/// Producers joined where a value's type is fixed before a different
+/// producer meets it: a binding reassigned another producer, or a choice
+/// whose branches build `Option`/`Result` payloads around different
+/// producers. The first pass records the joined type at the position of the
+/// value that must hold it and lowers the function again, so that value is
+/// built with the joined type from the start (issue #872).
+#[derive(Default)]
+pub(super) struct Rejoin {
+    /// Joined types from earlier passes, by the position of the value.
+    hints: HashMap<Position, Ty>,
+    /// The position of each generator-holding binding's declared value.
+    declared: HashMap<u8, Position>,
+    /// The producers of the last generator mismatch: expected, then got.
+    mismatch: std::cell::RefCell<Option<(Ty, Ty)>>,
+    /// A factory's joined output, for its signature in the next pass.
+    pub(super) returned: Option<Ty>,
+    /// Whether an earlier pass joined this factory's output.
+    inferred_return: bool,
+    /// The `match` values whose later case is being lowered, innermost
+    /// last, with the earlier cases' type; see [`Lower::enter_case`].
+    cases: Vec<(Position, Ty)>,
+    /// Whether this pass recorded a new joined type.
+    pub(super) pending: bool,
+}
+
+impl Rejoin {
+    pub(super) fn new(hints: Option<&HashMap<Position, Ty>>, inferred_return: bool) -> Self {
+        Self {
+            hints: hints.cloned().unwrap_or_default(),
+            inferred_return,
+            ..Self::default()
+        }
+    }
+
+    /// Notes the producers `same` found different, for [`Lower::request_join`].
+    pub(super) fn mismatched(&self, expected: &Ty, got: &Ty) {
+        *self.mismatch.borrow_mut() = Some((expected.clone(), got.clone()));
+    }
+}
+
+/// Whether `ty` is a generator or carries one as a success payload.
+fn carries_generator(ty: &Ty) -> bool {
+    match ty {
+        Ty::Generator(_) => true,
+        Ty::Enum(t) if t.is_option() => carries_generator(&t.get().variants[1].fields[0]),
+        Ty::Enum(t) if t.is_result() => carries_generator(&t.get().variants[0].fields[0]),
+        _ => false,
+    }
+}
+
 pub(super) fn yields(body: &[Stmt]) -> bool {
     body.iter().any(|stmt| match &stmt.kind {
         Statement::Yield(_) => true,
@@ -197,6 +247,274 @@ impl Lower<'_> {
             at: source.at.clone(),
             kind: Expression::Name(name),
         })
+    }
+
+    /// The type to build the value at `at` with, given the type its context
+    /// expects: the context's joined with a type an earlier pass recorded
+    /// there. An inner choice's recorded join can be narrower than the
+    /// outer's, and an annotation names only the item type.
+    #[inline(never)]
+    pub(super) fn hinted_expected(&self, at: &Token, expected: Type) -> Type {
+        let Some(hint) = self.join_hint(at) else {
+            return expected;
+        };
+        let Some(context) = expected else {
+            return Some(hint);
+        };
+        crate::generator::join_carried(&hint, &context)
+            .or_else(|| crate::generator::refine(&context, &hint))
+            .or(Some(context))
+    }
+
+    /// The joined type an earlier pass recorded for the value at `at`.
+    pub(super) fn join_hint(&self, at: &Token) -> Option<Ty> {
+        if self.joins.hints.is_empty() {
+            return None;
+        }
+        self.joins.hints.get(&at.position()).cloned()
+    }
+
+    /// The joined type of the `match` value at `at`, as the type its cases
+    /// join to. Outlined to keep the recursive match frame small.
+    #[inline(never)]
+    pub(super) fn case_hint(&self, at: &Token, tail: &Tail) -> Option<Type> {
+        self.join_hint(at)?;
+        let expected = match tail {
+            Tail::Value(expected) => expected.clone(),
+            _ => None,
+        };
+        Some(self.hinted_expected(at, expected))
+    }
+
+    /// Records `joined` for the value at `at` and requests another pass,
+    /// unless an earlier pass already lowered that value with it.
+    pub(super) fn record_join(&mut self, at: Position, joined: Ty) -> bool {
+        let hints = self.generics.join_hints.entry(self.symbol).or_default();
+        // Hints only widen, so one pass can record several producers met at
+        // the same value, such as successive reassignments of a local, and
+        // re-lowering ends. A join that does not widen the hint, or does not
+        // join it at all, keeps it and asks for no pass.
+        let joined = match hints.get(&at) {
+            Some(hint) => match crate::generator::join_carried(hint, &joined) {
+                Some(wider) if wider != *hint => wider,
+                _ => return false,
+            },
+            None => joined,
+        };
+        hints.insert(at, joined);
+        self.joins.pending = true;
+        true
+    }
+
+    /// After lowering a value failed, records the join of `base`, the type
+    /// the value was expected to have, with the producer that differed from
+    /// one `base` holds. False when the failure was not such a mismatch.
+    pub(super) fn request_join(&mut self, at: Position, base: &Ty) -> bool {
+        let Some((expected, got)) = self.joins.mismatch.take() else {
+            return false;
+        };
+        let joined = crate::generator::replace_carried(base, &expected, &got)
+            .and_then(|other| crate::generator::join_carried(base, &other))
+            // A context naming only the item type, such as an annotated
+            // `Option[Generator[i64]]`, holds no producer to replace: the
+            // mismatched values themselves join.
+            .or_else(|| {
+                crate::generator::join_carried(&expected, &got)
+                    .filter(|joined| crate::generator::refine(base, joined).is_some())
+            });
+        joined.is_some_and(|joined| self.record_join(at, joined))
+    }
+
+    /// Records the join of two chosen values that differ only in producers
+    /// held as `Option`/`Result` payloads, which conversion after the fact
+    /// cannot move: another pass builds both with the joined type.
+    #[inline(never)]
+    /// True when it recorded one: the pass then continues so that it can
+    /// record joins at other values, and is lowered again.
+    pub(super) fn join_mismatched(&mut self, at: &Token, ty: &Type, other: &Type) -> bool {
+        if let (Some(a), Some(b)) = (ty, other)
+            && let Some(joined) = crate::generator::join_carried(a, b)
+        {
+            return self.record_join(at.position(), joined);
+        }
+        false
+    }
+
+    /// A later branch of the choice at `at`, lowered expecting the earlier
+    /// branches' type `base`: when it failed on a different producer, records
+    /// their join for another pass. Clear the mismatch before lowering it.
+    /// When it records a join, the pass continues with `base`, so that one
+    /// pass records the joins of every such choice; its code is discarded.
+    #[inline(never)]
+    pub(super) fn joined_branch(
+        &mut self,
+        at: &Token,
+        base: &Type,
+        lowered: Result<Type>,
+    ) -> Result<Type> {
+        if lowered.is_err()
+            && let Some(base) = base
+            && self.request_join(at.position(), base)
+        {
+            return Ok(Some(base.clone()));
+        }
+        lowered
+    }
+
+    /// A factory's returned value: when it failed on a producer different
+    /// from one the output inferred so far holds, as an `Option`/`Result`
+    /// payload, the next pass returns their join. Clear the mismatch first.
+    #[inline(never)]
+    pub(super) fn joined_return(&mut self, lowered: Result<Type>) -> Result<Type> {
+        if lowered.is_err()
+            && (self.joins.inferred_return || self.inferring_frame())
+            && let Some(Some(base)) = self.return_type.clone()
+            && let Some((expected, got)) = self.joins.mismatch.take()
+            && let Some(joined) = crate::generator::replace_carried(&base, &expected, &got)
+                .and_then(|other| crate::generator::join_carried(&base, &other))
+            && joined != base
+        {
+            self.joins.returned = Some(joined);
+            self.joins.pending = true;
+        }
+        lowered
+    }
+
+    /// The tail of an `if` value at `at` that an earlier pass gave a joined
+    /// type, which is more specific than its context's.
+    #[inline(never)]
+    pub(super) fn hinted_tail(&self, tail: &Tail, at: &Token) -> Option<Box<Tail>> {
+        // Boxed so the recursive `if` and `match` lowering keeps small frames.
+        let Tail::Value(expected) = tail else {
+            return None;
+        };
+        self.join_hint(at)?;
+        Some(Box::new(Tail::Value(
+            self.hinted_expected(at, expected.clone()),
+        )))
+    }
+
+    /// Notes that a case of the `match` value at `at` is lowered expecting
+    /// the earlier cases' type in `tail`. A failure on a different producer
+    /// inside it is joined by [`Lower::join_failed_case`]. A stack, rather
+    /// than a check around each case, keeps deeply nested matches' frames
+    /// small.
+    #[inline(never)]
+    pub(super) fn enter_case(&mut self, at: &Token, tail: &Tail) {
+        let base = match tail {
+            Tail::Value(Some(base)) if carries_generator(base) => base.clone(),
+            _ => Ty::Unit,
+        };
+        self.clear_mismatch();
+        self.joins.cases.push((at.position(), base));
+    }
+
+    #[inline(never)]
+    pub(super) fn leave_case(&mut self) {
+        self.joins.cases.pop();
+    }
+
+    /// After the function failed to lower: when the innermost open `match`
+    /// case failed on a different producer than its earlier cases hold,
+    /// records their join for another pass.
+    pub(super) fn join_failed_case(&mut self) {
+        if !self.joins.pending
+            && let Some((at, base)) = self.joins.cases.last().cloned()
+            && base != Ty::Unit
+        {
+            self.request_join(at, &base);
+        }
+    }
+
+    /// A later branch body of the `if` or `match` at `at`, through
+    /// [`Lower::joined_case`].
+    /// Outlined so deeply nested matches keep their recursion frames small.
+    #[inline(never)]
+    pub(super) fn case_block(
+        &mut self,
+        at: &Token,
+        suite: &[Stmt],
+        case_at: &Token,
+        body: &mut Vec<Op>,
+        tail: &Tail,
+    ) -> Result<BlockResult> {
+        self.clear_mismatch();
+        let lowered = self.branch_block(suite, case_at, body, tail);
+        self.joined_case(at, tail, lowered)
+    }
+
+    /// A later branch of the `if` or `match` value at `at`, lowered with
+    /// `tail`, which holds the earlier branches' type: when it failed on a
+    /// different producer, records their join for another pass.
+    #[inline(never)]
+    pub(super) fn joined_case(
+        &mut self,
+        at: &Token,
+        tail: &Tail,
+        lowered: Result<BlockResult>,
+    ) -> Result<BlockResult> {
+        if lowered.is_err()
+            && let Tail::Value(Some(base)) = tail
+        {
+            self.request_join(at.position(), base);
+        }
+        lowered
+    }
+
+    /// Forgets an earlier mismatch before lowering a value whose failure
+    /// [`Lower::request_join`] may inspect.
+    pub(super) fn clear_mismatch(&self) {
+        self.joins.mismatch.take();
+    }
+
+    /// Notes where a binding holding a generator was declared, so a later
+    /// reassignment can join its producer there.
+    pub(super) fn note_declared(&mut self, slot: u8, ty: &Ty, value: &Token) {
+        if carries_generator(ty) {
+            self.joins.declared.insert(slot, value.position());
+        }
+    }
+
+    /// A reassigned binding's value: a member producer of the binding's
+    /// joined type moves into its storage. When the value holds a producer
+    /// the binding's type lacks, records their join at the declaration.
+    pub(super) fn join_reassigned(
+        &mut self,
+        slot: u8,
+        binding: &Ty,
+        ty: Ty,
+        ops: &mut Vec<Op>,
+    ) -> Ty {
+        if crate::generator::joins_into(&ty, binding) {
+            ops.push(Op::JoinFrame(Box::new((ty, binding.clone()))));
+            return binding.clone();
+        }
+        if let Some(joined) = crate::generator::join_carried(binding, &ty)
+            && let Some(at) = self.joins.declared.get(&slot).cloned()
+            && self.record_join(at, joined)
+        {
+            // The pass continues to record later reassignments' producers
+            // too; its code is discarded.
+            return binding.clone();
+        }
+        ty
+    }
+
+    /// After a reassigned value failed, records the producer join that
+    /// would have let it be built with the binding's type.
+    pub(super) fn request_reassigned_join(&mut self, slot: u8, binding: &Ty) {
+        if let Some(at) = self.joins.declared.get(&slot).cloned() {
+            self.request_join(at, binding);
+        }
+    }
+
+    /// [`Lower::refine_return`] for a function's tail value. A value whose
+    /// payload joined a wider producer than earlier returns gave the output
+    /// joins them too. Outlined to keep the recursive block frame small.
+    #[inline(never)]
+    pub(super) fn refine_joined_return(&mut self, actual: Type, at: &Token) -> Result<()> {
+        let refined = self.refine_return(actual, at).map(|()| None);
+        self.joined_return(refined).map(|_| ())
     }
 
     pub(super) fn refine_return(&mut self, actual: Type, at: &Token) -> Result<()> {

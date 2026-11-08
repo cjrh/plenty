@@ -1503,7 +1503,27 @@ impl Lower<'_> {
             }));
             plan
         };
-        if let Some(barrier) = plan.item.ty.storage_barrier() {
+        // A reference item borrows what the pipeline borrows: the returned
+        // option derives its loan from the item's, so it keeps the source
+        // borrowed, and a lent pipeline's item stays inside the call
+        // (issue #872).
+        let item_loan = match &plan.item.ty {
+            Ty::Ref(inner, _) if inner.storage_barrier().is_none() => self
+                .reference_locals
+                .get(&plan.item.slot)
+                .copied()
+                .or_else(|| plan.loans.last().copied()),
+            _ => None,
+        };
+        if item_loan.is_none()
+            && let Some(barrier) = plan.item.ty.storage_barrier()
+        {
+            if barrier == crate::op::StorageBarrier::Reference {
+                return Err(at.error(format!(
+                    "next returns `Option[&T]` only for an item that is itself a reference; this item is {}, which holds a reference inside it; map to an owned value or a single reference first",
+                    type_name(Some(plan.item.ty.clone()))
+                )));
+            }
             return Err(at.error(barrier.message("a next result; map to an owned value first")));
         }
         self.pipeline.resumed_ends.extend(
@@ -1535,6 +1555,14 @@ impl Lower<'_> {
             body: body.into(),
         });
         ops.extend(plan.loans.iter().chain(&loans).copied().map(Op::UseLoan));
+        if let Some(item) = item_loan {
+            let (root, mutable) = (self.loans[item].root, self.loans[item].mutable);
+            let loan = self.new_loan(root, mutable, Some(item), ops);
+            self.loans[loan].precise = false;
+            if let Some(Op::Loan(fact)) = ops.last_mut() {
+                *fact = self.loans[loan].clone();
+            }
+        }
         ops.push(Op::MoveLocal(result));
         Ok(ty)
     }
