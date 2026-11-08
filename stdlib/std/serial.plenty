@@ -324,11 +324,24 @@ pub def require_field[T, E, D: Decoder[E]](slot: &mut Option[T], source: &D, nam
         case Nothing:
             at(absent[T, E, D](source, name), Step.Field(*name))
 
-# A validated constructor may reject with format-neutral Fault. Other domain
-# errors need an explicit handwritten decode hook to choose their wire mapping.
+# A validated constructor may reject with format-neutral Fault.
 pub def constructed[T, E, D: Decoder[E]](value: Result[T, Fault], source: &D) -> Result[T, SerialError[E]]:
     match value:
         case Ok(result):
             Ok(result)
         case Err(cause):
             Err(error(source.reject(cause)))
+
+# Constructors and defaults that allocate as well as validate route each cause
+# to its own decoder domain: allocation as `allocated` does, faults by `reject`.
+# Other domain errors still need a handwritten hook to choose a wire mapping.
+pub def constructed_or_allocated[T, E, D: Decoder[E]](value: Result[T, AllocError | Fault], source: &D) -> Result[T, SerialError[E]]:
+    match value:
+        case Ok(result):
+            Ok(result)
+        case Err(cause):
+            match cause:
+                case allocation: AllocError:
+                    Err(error(source.allocation(allocation)))
+                case fault: Fault:
+                    Err(error(source.reject(fault)))

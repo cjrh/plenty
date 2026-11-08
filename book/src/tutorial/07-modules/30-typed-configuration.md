@@ -98,9 +98,42 @@ Keep the complete error type when propagating a failure. `SerialError[JsonError]
 and `SerialError[TomlError]` preserve their format-specific causes and collect
 the available field, variant, key and index path. Path collection can fail to
 allocate; `complete=False` marks the truncated path while retaining the cause.
-Constructor errors of type `Fault` use that same format error domain. A
-constructor returning another error type needs a handwritten decoding hook to
-choose its mapping.
+Constructor errors of type `Fault` use that same format error domain.
+
+A default that allocates, such as an empty list, makes the constructor return
+`AllocError`. Decoding reports that failure as the format's allocation fault,
+and each decoded value receives its own fresh list:
+
+```plenty
+import std.json
+from std.json import JsonError
+from std.serial import SerialError
+
+@serial
+class Agent:
+    command: str
+    args: list[str]
+
+    def __init__(self, command: str, args: list[str] = []?) -> Result[(), AllocError]:
+        self.command = command
+        self.args = args
+        Ok(())
+
+def main() -> Result[(), IoError | AllocError | SerialError[JsonError]]:
+    options = std.json.codec_options()
+    mut agent = std.json.load[Agent](b"{\"command\":\"claude\"}", &options)?
+    other = std.json.load[Agent](b"{\"command\":\"codex\"}", &options)?
+    agent.args.append("-p")?
+    print(agent.args, other.args)?
+    Ok(())
+```
+```output
+["-p"] []
+```
+
+A constructor that also validates returns `AllocError | Fault`. A constructor
+returning another error type needs a handwritten decoding hook to choose its
+mapping.
 
 ## Readable errors
 

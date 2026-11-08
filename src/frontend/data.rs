@@ -148,7 +148,7 @@ impl DataTypes {
     pub(super) fn serial_field(&self, at: &Token) -> Option<String> {
         self.classes
             .values()
-            .filter(|c| c.derived_encode || c.derived_decode)
+            .filter(|c| c.derived_encode || c.derived_decode.is_some())
             .find_map(|c| {
                 c.fields
                     .iter()
