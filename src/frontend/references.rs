@@ -148,6 +148,25 @@ pub(super) struct BranchJoin {
     adapter: Option<crate::ownership::Adapter>,
 }
 
+/// Rejects assigning `value`, a borrowing generator, to the binding `name`
+/// declared with the owned frame type `declared`. Generator equality
+/// ignores `lends`, so the binding would hold the frame without its loan
+/// (issue #899). Outlined: statements lower recursively.
+#[inline(never)]
+pub(super) fn check_frame_reassignment(
+    name: &str,
+    declared: &Ty,
+    value: &Ty,
+    at: &Token,
+) -> Result<()> {
+    if value.lends_frame() && !declared.lends_frame() {
+        return Err(at.error(format!(
+            "`{name}` holds a generator that owns its state; assigning one that borrows needs a new binding"
+        )));
+    }
+    Ok(())
+}
+
 /// Whether `ty` is a generator whose frame owns its state, so an arm
 /// producing it contributes no loan to a join (issue #899).
 pub(super) fn owned_frame(ty: &super::Type) -> bool {
