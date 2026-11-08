@@ -556,6 +556,14 @@ impl Lower<'_> {
             ancestor = self.loans[id].parent;
         }
         let (old, new) = (&self.loans[held], &self.loans[loan]);
+        if new.root != old.root
+            && self
+                .names
+                .get(name)
+                .is_some_and(|local| local.ty.lends_frame())
+        {
+            return Err(self.frame_retarget_error(name, old.root, at));
+        }
         if new.root != old.root {
             // Only an `Option` or `Result` holder can start without a borrow.
             let choose = match self.names.get(name).map(|local| &local.ty) {
@@ -577,6 +585,19 @@ impl Lower<'_> {
             )));
         }
         Ok(true)
+    }
+
+    /// A generator binding keeps the loans of the frame it first held, so it
+    /// cannot take one borrowing another owner (issue #899).
+    #[inline(never)]
+    fn frame_retarget_error(&self, name: &str, root: u8, at: &Token) -> Box<dyn Error> {
+        let owner = match self.slot_names.get(usize::from(root)) {
+            Some(Some(owner)) => format!("`{owner}`"),
+            _ => "its source".into(),
+        };
+        at.error(format!(
+            "`{name}` holds a generator that borrows {owner}; a generator borrowing another owner needs a new binding"
+        ))
     }
 
     /// Gives a just-lowered success payload `arg` of type `ty` its own loan
@@ -869,11 +890,12 @@ impl Lower<'_> {
     /// check (issue #899).
     pub(super) fn owned_frame_value(&self, e: &Expr) -> bool {
         match &ungroup(e).kind {
-            Expression::Call(name, _) => self
-                .sigs
-                .get(name)
-                .and_then(|sig| sig.outputs.first())
-                .is_some_and(|ty| matches!(ty, Ty::Generator(_)) && !ty.lends_frame()),
+            // A function taking a generator specializes per argument, and
+            // wrapping a borrowing generator makes its frame borrow too.
+            Expression::Call(name, _) => self.sigs.get(name).is_some_and(|sig| {
+                owned_frame(&sig.outputs.first().cloned())
+                    && !sig.inputs.iter().any(|(_, ty)| ty.unresolved_generator())
+            }),
             // A binding declared with an owned frame cannot later be
             // assigned a borrowing one (rejected in `assign`), so its
             // declared type is what it holds.

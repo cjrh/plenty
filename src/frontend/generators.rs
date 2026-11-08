@@ -819,6 +819,7 @@ impl Lower<'_> {
         let start = ops.len();
         let mut hidden = (Vec::new(), Vec::new());
         let mut lent_loans = Vec::new();
+        let mut frames = Vec::new();
         for (index, (arg, (_, expected))) in args.iter().zip(&signature.inputs).enumerate() {
             if pipelines::lent_declared(expected) {
                 let (ty, loan) =
@@ -848,7 +849,7 @@ impl Lower<'_> {
             } else if ty.lends_frame() {
                 // The frame's loans stay live across the call, as a
                 // reference argument's do (issue #899).
-                lent_loans.extend(self.frame_argument(arg, ops));
+                frames.extend(self.frame_argument(arg, ops));
             }
             self.same(Some(ty.clone()), Some(expected.clone()), &arg.at)?;
             if ty.unresolved_generator() {
@@ -872,8 +873,12 @@ impl Lower<'_> {
         self.record_direct_call(&symbol, at, &loans, ops);
         self.passes(start, &sig.inputs, sig.outputs.first(), ops);
         self.push_call(Op::Call(symbol.clone()), &sig.inputs, &loans, at, ops)?;
-        self.call_reference_result(&symbol, &sig, &loans, ops);
+        // A generator wrapping a borrowing frame argument keeps that frame's
+        // loans, as it keeps a reference argument's.
+        let held: Vec<usize> = loans.iter().chain(&frames).copied().collect();
+        self.call_reference_result(&symbol, &sig, &held, ops);
         Self::end_reads(loans, ops);
+        lent_loans.extend(frames);
         // The lender's own loans, such as of a borrowed source, stay live
         // across the call: the borrower reads through them.
         ops.extend(lent_loans.into_iter().map(Op::UseLoan));

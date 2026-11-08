@@ -568,6 +568,10 @@ every arm's loans, and a generator passed by value keeps its loans until the
 call returns. Storage that would lose the loan (`Option`/`Result` payloads,
 tuples, class fields, by-value closure captures) is rejected. See
 [borrowing frames](../design/language/09-iteration/03-generators.md#borrowing-frames).
+A second slice lets a generator parameter be a borrowing generator, so a
+generator can wrap or relay one and keep its loans, and lets `.generator()`
+convert a pipeline over a borrowed local, a `&mut` source or a reference
+binding; the frame keeps the source borrowed as the pipeline does.
 
 List slice views `&[T]` and `&mut [T]` gained list read and fixed-length
 operations (issue #866): `in`, `count`, `find` and `rfind` search the view with

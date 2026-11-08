@@ -43,9 +43,10 @@ in the expression that creates it, such as `yield iter(&flags).any()`; a
 pipeline local or a loop over a pipeline is rejected. A pipeline can be [lent](#lending-a-pipeline) to a
 `&mut Iter[T]` parameter, and an eligible pipeline can leave its scope after
 explicit [`.generator()` conversion](#returning-a-resumable-stream). A pipeline
-over data borrowed through a shared reference or view parameter converts to a
-frame that keeps that borrow; a pipeline over a borrowed local owner, or with
-borrowed captures, cannot leave its scope.
+over borrowed data, such as a local, a reference or view parameter, or a
+`&mut` source, converts to a frame that keeps that borrow; a returned frame may
+borrow only through the function's reference parameters. A pipeline with
+borrowed callback captures cannot leave its scope.
 
 ## Advancing one item
 
