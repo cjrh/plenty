@@ -172,7 +172,8 @@ The source and existing encoding remain unchanged on failure.
 MIME encoding holds ordinary base64 plus its wrapped result; MIME decoding
 holds a whitespace-free copy plus its decoded result. These are whole-buffer
 copies, not zero-copy adapters. `_text` additionally copies output into a `str`;
-`_from_text` additionally copies input into `Bytes`, as with existing codecs.
+`_from_text` borrows the input’s UTF-8 bytes; the decoding working buffers
+listed here are still required.
 PEM encoding holds ordinary base64 plus the framed result; PEM decoding holds
 the base64 body without line terminators plus its decoded result. A decoded
 private key is therefore left in freed buffers that are not zeroed; see

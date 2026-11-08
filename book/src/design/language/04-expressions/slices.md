@@ -220,9 +220,11 @@ b"bc"
 ```
 
 A view prints as a reference does, through to its elements; a `Bytes` buffer
-itself keeps its own spelling. Other list operations, such as methods other
-than `swap`, `in`, `list(v)`, and copying slices of a view, are rejected. Copy
-from the owner, `xs[a:b]?`, for an owned value.
+itself keeps its own spelling. For general non-byte list views, methods other
+than `swap`, membership with `in`, `list(v)`, and copying slices of a view
+are rejected. Byte views additionally support
+[binary string operations and membership](../../stdlib/bytes-stringlike.md).
+Copy from the owner, `xs[a:b]?`, for an owned list.
 
 `v.swap(i, j)` counts both indices within the view, so a negative index counts
 from the view's end, and an index outside the view traps before either element
@@ -428,7 +430,7 @@ until stored references land (backlog B11).
 | `def f(xs: &list[T]) -> &[T]` | `a function cannot return a slice view yet (backlog B11)` |
 | `f(&s[1:])` for `f(s: &str)` | ``this argument is a &strview view, but the parameter takes &str; declare the parameter `&strview` to borrow it without copying, or pass an owned copy, `s[a:b]?` `` |
 | `total(xs)` for `total(v: &[i64])` | ``this parameter takes a slice view: pass `&xs` for a whole list or buffer, or `&xs[a:b]` for part of it`` |
-| `x in v` for a view `v` | ``slice views do not support `in` yet`` |
+| `x in v` for a non-byte list view, such as `&[i64]` | ``slice views do not support `in` yet`` |
 | `xs[1:3] = ys` | `slice assignment is not supported; assign elements by index, or build a new list` |
 | `m[1:2, 0]` | `a slice cannot have several dimensions` |
 | `t[n:]` on a tuple | `tuple slice bounds must be integer literals; the result type depends on them` |

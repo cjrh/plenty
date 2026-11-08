@@ -66,12 +66,11 @@ pub class Site:
                 exchange.send_text(200, &f"{address} is {who}"?)?
         Ok(())
 
-def fetch(port: u16, request: &str) -> Result[str, AllocError | IoError | std.bytes.BytesError | std.net.NetError | RangeError]:
+def fetch(port: u16, request: &strview) -> Result[str, AllocError | IoError | std.bytes.BytesError | std.net.NetError | RangeError]:
     never = CancellationToken()?
     deadline = std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(5u32))?
     mut stream = std.net.connect(&std.net.loopback_v4(port), &deadline, &never)?
-    data = std.bytes.from_text(request)?
-    stream.write_all_before(&data, &deadline, &never)?
+    stream.write_all_before(request.as_bytes(), &deadline, &never)?
     mut reply = std.bytes.empty()?
     mut buffer = std.bytes.empty()?
     buffer.resize(512, 0u8)?

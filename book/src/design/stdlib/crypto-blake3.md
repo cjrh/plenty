@@ -14,8 +14,8 @@ same `Digest` and `Mac` methods and range rules as SHA and HMAC.
 | `digest(Algorithm.Blake3)` | `Result[Digest, CryptoError]` | Incremental unkeyed hash |
 | `blake3_keyed(key: &[u8], data: &[u8])` | `Result[Bytes, CryptoError]` | Native keyed hash; exactly 32 key bytes |
 | `blake3_keyed_hasher(key: &[u8])` | `Result[Mac, CryptoError]` | Incremental keyed hash, including constant-time `verify` |
-| `blake3_derive_key(context: &str, key_material: &[u8])` | `Result[Bytes, CryptoError]` | Derive a key from high-entropy material under a context |
-| `blake3_derive_hasher(context: &str)` | `Result[Digest, CryptoError]` | Incremental key derivation |
+| `blake3_derive_key(context: &strview, key_material: &[u8])` | `Result[Bytes, CryptoError]` | Derive a key from high-entropy material under a context |
+| `blake3_derive_hasher(context: &strview)` | `Result[Digest, CryptoError]` | Incremental key derivation |
 
 `output_size(Algorithm.Blake3)` is 32. A keyed constructor rejects any other
 key length with `CryptoError.InvalidKeyLength`. Generate keys with
