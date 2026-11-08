@@ -909,6 +909,26 @@ const NONE_TYPE: &str =
 const IF_VALUE_POSITION: &str = "an `if` block is a value only as the whole right side of a binding, a single-target assignment, or `return`; bind its value to a name first";
 const MATCH_VALUE_POSITION: &str = "a `match` block is a value only as the whole right side of a binding, a single-target assignment, or `return`; bind its value to a name first";
 
+fn collection_example(kind: &str) -> Option<&'static str> {
+    match kind {
+        "list" => Some("list[i64]"),
+        "dict" => Some("dict[str, i64]"),
+        "set" => Some("set[i64]"),
+        _ => None,
+    }
+}
+
+/// Records the expected type that `result`, a branch of a block `if` whose
+/// context supplies no expected type, gives the branches after it.
+fn first_value(tail: &Tail, result: &BlockResult, inferred: &mut Option<Tail>) {
+    if inferred.is_none()
+        && matches!(tail, Tail::Value(None))
+        && let BlockResult::Continues(Some(ty)) = result
+    {
+        *inferred = Some(Tail::Value(Some(ty.clone())));
+    }
+}
+
 /// What becomes of the value of a suite's final expression.
 #[derive(Clone)]
 enum Tail {
@@ -1003,6 +1023,9 @@ struct Lower<'a> {
     /// The innermost block producing a value is a `checked:` block rather
     /// than a `match`, which only changes how a rejected tail is described.
     checked_value_tail: bool,
+    /// The innermost block producing a value is an `if` or `match` arm, so an
+    /// untyped final value is described as a branch (issue #797).
+    branch_value_tail: bool,
     indexed_lists: Vec<collections::IndexedLists>,
     /// The list place and slot of the last counted `range(..., len(xs))`
     /// whose stop was saved; see [`collections::IndexedLists::stop`].
@@ -1661,7 +1684,7 @@ impl Lower<'_> {
                     return self.atomic_new(Some(types), args, None, &e.at, ops);
                 }
                 if name == "Shared" {
-                    return self.shared_new(Some(types), args, &e.at, ops);
+                    return self.shared_new(Some(types), None, args, &e.at, ops);
                 }
                 if self.aliases.data.contains(name) {
                     let ty = TypeRef {
@@ -2556,20 +2579,12 @@ impl Lower<'_> {
                     .map(|ty| Some(Some(ty)));
             }
             if name == "Shared" {
-                return self.shared_new(None, args, &e.at, ops).map(Some);
+                return self.shared_new(None, None, args, &e.at, ops).map(Some);
             }
             if name == "Box" {
-                let [content] = args.as_slice() else {
-                    return Err(e.at.error("Box takes one value"));
-                };
-                let ty = self.value(content, ops)?;
-                if let Some(barrier) = ty.storage_barrier() {
-                    return Err(content.at.error(barrier.message("a box")));
-                }
-                let operation = crate::boxed::BoxOp::New(ty);
-                let output = operation.signature().1;
-                ops.push(Op::Box(operation));
-                return Ok(Some(Some(output)));
+                return self
+                    .box_new(args, None, &e.at, ops)
+                    .map(|ty| Some(Some(ty)));
             }
             if name == "next" {
                 return self.next(args, &e.at, ops).map(Some);
@@ -3334,6 +3349,34 @@ impl Lower<'_> {
             )),
         }
     }
+    /// An example annotation for `e`, a final branch expression whose type
+    /// only its context supplies: `Nothing` or an empty collection.
+    fn untyped_branch_value<'e>(&self, e: &'e Expr) -> Option<(&'static str, &'e Token)> {
+        let e = match &ungroup(e).kind {
+            Expression::Try(inner) => ungroup(inner),
+            _ => ungroup(e),
+        };
+        let example = match &e.kind {
+            Expression::Name(name) if name == "Nothing" && !self.names.contains_key(name) => {
+                Some("Option[i64]")
+            }
+            Expression::Collection {
+                kind,
+                entries,
+                clauses,
+            } if entries.is_empty() && clauses.is_empty() => collection_example(kind),
+            Expression::Call(name, args)
+                if args.is_empty()
+                    && !self.names.contains_key(name)
+                    && !self.sigs.contains_key(name)
+                    && !self.generics.templates.contains_key(name) =>
+            {
+                collection_example(name)
+            }
+            _ => None,
+        };
+        example.map(|example| (example, &e.at))
+    }
     fn block(&mut self, body: &[Stmt], ops: &mut Vec<Op>, tail: &Tail) -> Result<BlockResult> {
         let start = self.locals.len();
         let result = self.block_inner(body, ops, tail)?;
@@ -3343,6 +3386,20 @@ impl Lower<'_> {
             self.cleanup(start, ops);
         }
         Ok(result)
+    }
+    /// An `if` or `match` arm: a [`Self::returning_block`] whose untyped
+    /// final value is reported as a branch's.
+    pub(super) fn branch_block(
+        &mut self,
+        body: &[Stmt],
+        at: &Token,
+        ops: &mut Vec<Op>,
+        tail: &Tail,
+    ) -> Result<BlockResult> {
+        let outer = std::mem::replace(&mut self.branch_value_tail, true);
+        let result = self.returning_block(body, at, ops, tail);
+        self.branch_value_tail = outer;
+        result
     }
     /// A suite of `return if` or `return match` without a value returns unit,
     /// so no selected arm continues past the statement.
@@ -3449,6 +3506,15 @@ impl Lower<'_> {
                 Statement::Expr(e) if matches!(tail, Tail::Return) => {
                     self.return_statement(Some(e), &e.at, temporary_start, ops)?;
                     return exited_block(body, i);
+                }
+                Statement::Expr(e)
+                    if matches!(tail, Tail::Value(None))
+                        && self.branch_value_tail
+                        && let Some((example, at)) = self.untyped_branch_value(e) =>
+                {
+                    return Err(at.error(format!(
+                        "this branch's value has no type: no annotation or earlier continuing branch supplies one; annotate the binding, as in `name: {example} = ...`, or put a branch with a typed value first"
+                    )));
                 }
                 Statement::Expr(e) => {
                     let value_start = ops.len();
@@ -3742,7 +3808,12 @@ impl Lower<'_> {
                     self.finish_temporaries(temporary_start, ops);
                     let saved = self.names.clone();
                     let mut then = Vec::new();
-                    let yes_result = self.returning_block(yes, &stmt.at, &mut then, tail)?;
+                    let yes_result = self.branch_block(yes, &stmt.at, &mut then, tail)?;
+                    // Without an expected type, later branches take the first
+                    // continuing branch's type, as the inline conditional's
+                    // second value does.
+                    let mut inferred = None;
+                    first_value(tail, &yes_result, &mut inferred);
                     let elif_start = self.locals.len();
                     let mut arms = Vec::with_capacity(elifs.len());
                     let mut results = Vec::with_capacity(elifs.len());
@@ -3756,7 +3827,14 @@ impl Lower<'_> {
                         self.same(cond, Some(Ty::Bool), &elif.condition.at)?;
                         self.building(&elif.condition.at, condition_start, &mut test, false);
                         self.finish_temporaries(temporary_start, &mut test);
-                        results.push(self.returning_block(&elif.body, &elif.at, &mut arm, tail)?);
+                        let result = self.branch_block(
+                            &elif.body,
+                            &elif.at,
+                            &mut arm,
+                            inferred.as_ref().unwrap_or(tail),
+                        )?;
+                        first_value(tail, &result, &mut inferred);
+                        results.push(result);
                         arms.push(ElifArm {
                             condition: test.into(),
                             body: arm.into(),
@@ -3764,7 +3842,12 @@ impl Lower<'_> {
                     }
                     self.names = saved.clone();
                     let mut otherwise = Vec::new();
-                    let mut result = self.returning_block(no, &stmt.at, &mut otherwise, tail)?;
+                    let mut result = self.branch_block(
+                        no,
+                        &stmt.at,
+                        &mut otherwise,
+                        inferred.as_ref().unwrap_or(tail),
+                    )?;
                     self.names = saved;
                     ops.push(Op::If {
                         then: then.into(),
@@ -4690,6 +4773,7 @@ fn lower_body(
                 loop_scopes: Vec::new(),
                 checked: Vec::new(),
                 checked_value_tail: false,
+                branch_value_tail: false,
                 yield_type: yield_type.clone(),
                 loans: Vec::new(),
                 reference_locals: HashMap::default(),

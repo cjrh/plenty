@@ -38,8 +38,11 @@ The cases that continue must produce one type. A case may instead leave with
 value and nothing is bound.
 
 The same block is the value of an assignment to a `mut` local, a field, or a
-collection element, and of `return`. An annotation gives every case its
-expected type, which `Nothing` needs:
+collection element, and of `return`. A known type, such as the function's
+return type, is the expected type of every case. Without one, the first case
+that continues sets the type for the cases after it, so `found` needs no
+annotation: `half(8)` makes it `Option[i64]`, and the later `Nothing` takes
+that type:
 
 ```plenty
 def half(number: i64) -> Option[i64]:
@@ -53,7 +56,7 @@ def half(number: i64) -> Option[i64]:
 def main() -> Result[(), AllocError | IoError]:
     mut halves = [0, 0]?
     for index in range(2):
-        found: Option[i64] = match index:
+        found = match index:
             case 0:
                 half(8)
             case _:
@@ -74,7 +77,9 @@ Option[i64].Nothing
 ```
 
 `return match` returns the final expression of the selected case, so nothing
-after the block runs.
+after the block runs. If the first continuing case were `Nothing` or an empty
+collection, it would have no type of its own; annotate the binding, as in
+`found: Option[i64] = match index:`, or put a typed case first.
 
 The block must be the whole right-hand side. Inside a larger expression it is
 rejected; bind it first:

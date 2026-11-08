@@ -263,9 +263,14 @@ either error to the caller, as with `try_from`. An `OverflowError` holds the
 wrapped result in its `wrapped` field: `250 + 10` on a `u8` wraps to 4.
 [Keep several error types](../03-absence/anonymous-sums.md) shows how to
 handle each error instead of passing it on.
+Arithmetic uses the function's error contract so formulas stay readable:
+you do not need parentheses and `?` around each potentially failing operator.
+The signature still tells callers which errors they must handle, without
+exception handling or stack unwinding. Calls such as `try_from` keep their
+explicit `Result` handling. See the
+[arithmetic contract rationale](../../design/language/03-types/numbers.md#function-arithmetic-contracts).
 
-
-For local recovery, use `checked:`. Its final expression becomes the
+For local recovery from arithmetic errors, use `checked:`. Its final expression becomes the
 successful value of the block's `Result`; no explicit `Ok` is needed there:
 
 ```plenty

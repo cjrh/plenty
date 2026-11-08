@@ -14,8 +14,18 @@ enum Choice[T]:
 `Cell[u8](7)` constructs a `Cell[u8]` directly using the ordinary class rules.
 Class constructor parameters can be inferred from generated field order or an
 explicit initializer's signature: `Cell(7u8)` selects `u8`, while `Cell(7)` selects
-`i64`. Output-only or phantom parameters need explicit arguments; a result
-annotation does not influence argument inference.
+`i64`.
+
+An expected instance of the class supplies every argument, exactly as an
+explicit list would. The expectation comes from an annotation, a parameter, a
+field, a return type, or an enclosing constructor such as `Some`, `Shared`, or
+`Box`. A fallible constructor matches the success payload of an expected
+`Result`, including a `?` operand's. The arguments then take their contextual
+types, so `cell: Cell[list[i64]] = Cell([]?)` and
+`f(Shared(Mutex([]?))?)` for a `Shared[Mutex[list[i64]]]` parameter need no
+explicit list. Any other expectation, such as an anonymous sum, leaves
+inference to the arguments, and the value widens as usual. Without an expected
+instance, output-only or phantom parameters need explicit arguments.
 
 A constructor's enum qualifier requires explicit arguments:
 `Choice[u8].Value(7)` constructs a concrete instance. A

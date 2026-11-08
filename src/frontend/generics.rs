@@ -1146,6 +1146,63 @@ impl Lower<'_> {
         self.generic_call_inner(name, types, args, at, false, ops)
     }
 
+    /// The instance of generic class constructor `name` that `expected` names,
+    /// as if the call spelled its type arguments (issue #797). `expected` is
+    /// the class instance, or a `Result` of one for a fallible constructor or
+    /// a `?` operand. Anything else, including an anonymous sum, names no
+    /// instance, and the call infers its type arguments from its arguments.
+    pub(super) fn expected_constructor_instance(
+        &mut self,
+        name: &str,
+        expected: &Ty,
+        at: &Token,
+    ) -> Result<Option<String>> {
+        if self.names.contains_key(name) || !self.aliases.data.is_class(name) {
+            return Ok(None);
+        }
+        let Some(template) = self.generics.templates.get(name).cloned() else {
+            return Ok(None);
+        };
+        let instance = match expected {
+            Ty::Enum(t) if t.is_result() => &t.get().variants[0].fields[0],
+            other => other,
+        };
+        if self
+            .aliases
+            .data
+            .arguments(instance)
+            .is_none_or(|(owner, _)| owner != name)
+        {
+            return Ok(None);
+        }
+        let pattern = match (&template.output.name, template.output.args.as_slice()) {
+            (Some(result), [success, _]) if result == "Result" => success,
+            _ => &template.output,
+        };
+        let mut inferred = HashMap::default();
+        if infer(
+            pattern,
+            instance,
+            &template,
+            &mut inferred,
+            self.aliases,
+            at,
+        )
+        .is_err()
+        {
+            return Ok(None);
+        }
+        let Some(actual) = template
+            .type_params
+            .iter()
+            .map(|(param, _)| inferred.remove(param))
+            .collect::<Option<Vec<_>>>()
+        else {
+            return Ok(None);
+        };
+        self.specialize(name, actual, at).map(Some)
+    }
+
     pub(super) fn generic_method_call(
         &mut self,
         name: &str,

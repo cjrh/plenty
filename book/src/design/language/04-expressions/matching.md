@@ -290,8 +290,12 @@ value. A final `if` or `match` supplies the value of its selected suite.
 
 - Continuing cases must agree on one type. An annotation, or the type of the
   assigned local, is the expected type of every case's final expression, as it
-  is for an ordinary right-hand side; without one, each case is inferred alone,
-  so `Nothing` or `[]?` needs the annotation.
+  is for an ordinary right-hand side. Without one, the first continuing case is
+  inferred alone and its type is the expected type of the cases after it, as
+  for the second value of an inline conditional. A later case can therefore be
+  `Nothing` or `[]?`; a first continuing case that is one needs the annotation,
+  or a typed case before it. Expected types never convert a value, so a
+  `[text]?` of `&str` still differs from a `list[str]`.
 - A case that ends in `return`, `break`, `continue`, or a propagating `?` gives
   no value. At least one case must continue; a match whose cases all exit is
   rejected with advice to write it as a statement.
