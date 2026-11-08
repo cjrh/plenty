@@ -55,7 +55,9 @@ with bounds checks. This avoids dispatching through a generic runtime helper for
 each field, but does not make every access pattern faster. Use column pipelines
 for repeated scans when the calculation needs selected fields.
 
-Next, [count matching integer values](02-counting.md) with an automatically
-optimized column pipeline. See the
+For paired list/clist examples, see [the selected-field idioms](index.md#choose-an-idiom),
+including indexed loops for multi-field queries and updates.
+[Count matching integer values](02-counting.md) with an automatically optimized
+column pipeline when that matches the calculation you need. See the
 [columnar-list reference](../../../design/facilities/01-builtins/clists.md)
 for the allocation, borrowing and representation contracts.

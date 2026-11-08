@@ -168,7 +168,10 @@ scalar-valued pipelines. Ordered removal/clear retain capacity without allocatin
 per-field runtime dispatch (issue #432); bounded optimized integer count/filter
 SIMD is recorded under [B23](performance.md#b23-simd). It remains distinct from
 Polars-backed dataframes. [Columnar evidence](../proposals/columnar-list.md)
-records whole-row tradeoffs. Remaining scope stays **B76** in the [backlog](../backlog.md).
+records whole-row tradeoffs. The [paired list/clist tutorial idioms](../tutorial/special-purpose/columnar-lists/index.md)
+cover aggregation, conditional aggregation and simulation updates, with retained
+emitted-code counts and eight-/64-field correctness checks (issue #887). The investigation also records zipped
+column iteration overhead as issue #888. Remaining scope stays **B76** in the [backlog](../backlog.md).
 
 ## B78: Diffs
 
