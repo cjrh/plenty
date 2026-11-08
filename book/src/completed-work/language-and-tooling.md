@@ -955,7 +955,8 @@ is checked before and after the edit and refuses what it cannot verify
 keywords, `case` variants and fields, and variant constructors (issue #876,
 slice 1). References cover members in uninstantiated generic bodies, by the
 types written there, and rename covers fields, methods and enum variants
-(issue #876, slice 2).
+(issue #876, slice 2), and parameters with their named arguments (issue #876,
+slice 3).
 Compile-time constants/static assertions, embedded data and `if const target.*`
 shipped (local PR #628). Module constant indexing and import/module diagnostics
 were improved (issues #562/#568/#587).

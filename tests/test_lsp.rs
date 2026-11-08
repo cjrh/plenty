@@ -2287,14 +2287,10 @@ fn a_rename_is_refused_with_its_reason() {
     let shapes = root.join("src/shapes.plenty");
     let main = root.join("src/main.plenty");
     let mut client = Client::start(&dir.path().join("cache"));
-    // Phase guard: parameter rename is issue #876's last slice; B17.
-    let message = prepare_rename(&mut client, &shapes, 10, 13).unwrap_err();
-    assert!(
-        message.starts_with("renaming a parameter is not supported yet: ")
-            && message.ends_with("(issue #876)"),
-        "{message}"
+    assert_eq!(
+        prepare_rename(&mut client, &shapes, 3, 17).unwrap_err(),
+        "`self` names the receiver, so it cannot be renamed"
     );
-    assert_eq!(rename_refused(&mut client, &shapes, 10, 13, "z"), message);
     let message = prepare_rename(&mut client, &main, 7, 8).unwrap_err();
     assert!(
         message.starts_with("`gcd` is declared in the standard library"),
@@ -2733,5 +2729,168 @@ def main() -> ():
         let (_, warnings) = rename_reply(&mut client, &path, line, character, new_name).unwrap();
         assert_eq!(warnings, expected, "{new_name}");
     }
+    client.exit();
+}
+
+const PARAMETERS_SHAPES: &str = "pub class Point:
+    pub x: i64
+
+    pub def scaled(self, factor: i64) -> i64:
+        unchecked:
+            self.x * factor
+
+pub def area(width: i64, height: i64) -> i64:
+    unchecked:
+        width * height
+
+def helper(count: i64) -> i64:
+    count
+
+def twice[T](value: T, times: i64) -> i64:
+    helper(count=times)
+
+pub def uses() -> i64:
+    p = Point(x=1)
+    unchecked:
+        area(width=2, height=3) + p.scaled(factor=2) + helper(count=4)
+";
+
+const PARAMETERS_MAIN: &str = "from shapes import Point, area
+
+def main() -> ():
+    p = Point(x=1)
+    a = area(width=2, height=p.x)
+    s = p.scaled(factor=3)
+";
+
+/// A parameter rename edits its named arguments: across the package for a
+/// callable other modules can call, and in its file otherwise (issue #876).
+#[test]
+fn a_parameter_rename_edits_its_named_arguments() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    app_package(
+        &root,
+        &[
+            ("src/shapes.plenty", PARAMETERS_SHAPES),
+            ("src/main.plenty", PARAMETERS_MAIN),
+            // A library, so a public callable is part of its API.
+            ("src/lib.plenty", "pub def one() -> i64:\n    1\n"),
+        ],
+    );
+    let shapes = root.join("src/shapes.plenty");
+    let main = root.join("src/main.plenty");
+    let mut client = Client::start(&dir.path().join("cache"));
+    let both = |old: &str, new: &str| -> std::collections::BTreeMap<String, String> {
+        [
+            (
+                "src/main.plenty".to_owned(),
+                PARAMETERS_MAIN.replace(old, new),
+            ),
+            (
+                "src/shapes.plenty".to_owned(),
+                PARAMETERS_SHAPES.replace(old, new),
+            ),
+        ]
+        .into()
+    };
+    // From a named argument in another module, and from the declaration.
+    for (path, line, character) in [(&main, 4, 13), (&shapes, 7, 13)] {
+        assert_eq!(
+            prepare_rename(&mut client, path, line, character).unwrap()["placeholder"],
+            "width"
+        );
+        let (edit, warnings) = rename_reply(&mut client, path, line, character, "w").unwrap();
+        assert_eq!(renamed(&root, &edit, &[]), both("width", "w"));
+        assert_eq!(
+            warnings,
+            [
+                "renames parameter `width` of public `app.shapes.area` to `w`, so packages outside this workspace that pass `width=` must change"
+            ]
+        );
+    }
+    let (edit, warnings) = rename_reply(&mut client, &shapes, 3, 25, "k").unwrap();
+    assert_eq!(renamed(&root, &edit, &[]), both("factor", "k"));
+    assert_eq!(
+        warnings,
+        [
+            "renames parameter `factor` of public `app.shapes.Point.scaled` to `k`, so packages outside this workspace that pass `factor=` must change"
+        ]
+    );
+    // Only its module can call `helper`, including from an uninstantiated
+    // generic body.
+    let (edit, warnings) = rename_reply(&mut client, &shapes, 15, 11, "n").unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(
+        renamed(&root, &edit, &[]),
+        [(
+            "src/shapes.plenty".to_owned(),
+            PARAMETERS_SHAPES.replace("count", "n")
+        )]
+        .into()
+    );
+    assert_eq!(
+        rename_refused(&mut client, &main, 4, 13, "height"),
+        "`area` already has a parameter named `height`"
+    );
+    assert_eq!(
+        rename_refused(&mut client, &shapes, 3, 25, "self"),
+        "`Point.scaled` already has a parameter named `self`"
+    );
+    client.exit();
+}
+
+/// A parameter rename is refused when a generic body that no call
+/// instantiates passes the name to a callee the analysis cannot tell.
+#[test]
+fn a_parameter_rename_is_refused_when_a_generic_body_may_name_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    app_package(
+        &root,
+        &[(
+            "src/main.plenty",
+            "def helper(count: i64) -> i64:\n    count\n\nclass Holder[T]:\n    item: T\n\n    def go(self) -> i64:\n        self.item.run(count=1)\n\ndef main() -> ():\n    n = helper(count=1)\n",
+        )],
+    );
+    let main = root.join("src/main.plenty");
+    let mut client = Client::start(&dir.path().join("cache"));
+    assert_eq!(
+        rename_refused(&mut client, &main, 0, 11, "n"),
+        "`count=` is written at main.plenty:8:23 in a generic body that no call instantiates, to a callee the editor analysis cannot tell, so a rename cannot tell whether it names the parameter of `helper`"
+    );
+    client.exit();
+}
+
+/// A parameter of a method, of `__init__` (passed as a constructor keyword),
+/// of a generic function, and of a closure is renamed in its file.
+#[test]
+fn a_parameter_rename_covers_methods_initializers_and_closures() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let text =
+        format!("{NAMED_ARGUMENTS}    f = def(value: i64) -> i64:\n        value\n    k = f(4)\n");
+    app_package(&root, &[("src/main.plenty", &text)]);
+    let main = root.join("src/main.plenty");
+    let mut client = Client::start(&dir.path().join("cache"));
+    for ((line, character), old, new) in [
+        ((14, 16), "start", "initial"),
+        ((6, 31), "by", "times"),
+        ((16, 23), "first", "head"),
+        ((17, 12), "value", "item"),
+    ] {
+        let (edit, warnings) = rename_reply(&mut client, &main, line, character, new)
+            .unwrap_or_else(|e| panic!("from {line}:{character}: {e}"));
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(
+            renamed(&root, &edit, &[]),
+            [("src/main.plenty".to_owned(), text.replace(old, new))].into(),
+            "from {line}:{character}"
+        );
+    }
+    assert_eq!(
+        rename_refused(&mut client, &main, 10, 12, "second"),
+        "`pick` already has a parameter named `second`"
+    );
     client.exit();
 }
