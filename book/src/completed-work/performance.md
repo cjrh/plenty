@@ -428,3 +428,18 @@ medians, not guarantees of changes this small. Width is encoded once in the
 storage alternative, with scalar operations for small domains. Copying reuses
 the validated representation and allocates only the new owner, avoiding storage
 reclassification and unnecessary reservation or membership counting.
+
+## Selected-field column zip (issue #888)
+
+Unadapted `clist` columns zipped together now use a shared cursor over their
+shorter remaining range, with column pointers prepared once. Named and partially
+advanced owned column plans preserve their positions; callbacks, filtering and
+lent iterator state retain the general left-first pull path. The source owner
+loans remain active throughout consumption.
+
+The retained C/Plenty and IR probes in `experiments/kernels/clist-zip/`
+attribute internal pending options, nested pull control and duplicate counters.
+On the selected-field kernel, the static innermost-loop instruction span drops
+from 43 to 8 for explicit zip and from 43 to 10 for zip/fold; indexed access stays
+at 8 and scalar C at 7. These spans are not elapsed-time speedups. See the probe
+for traced paths, whole-program instruction counts and remaining limits.

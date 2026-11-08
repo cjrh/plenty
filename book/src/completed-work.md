@@ -21,6 +21,9 @@ Delivery history and retired backlog entries live here, separate from the
   [one-word reference reads](completed-work/performance.md#one-word-reference-reads-issue-844)
   of issue #844.
 
+[Selected-field column zip](completed-work/performance.md#selected-field-column-zip-issue-888)
+records the shared-cursor lowering and retained instruction evidence for issue #888.
+
 B IDs are stable. A record here means the **described subset** shipped or its
 investigation concluded; it does not mean every conceivable extension of that
 B item is implemented. Mixed items keep their remaining scope only in the
