@@ -212,6 +212,7 @@ pub(super) fn prepare(
         frame_instances: HashMap::default(),
         lent: Vec::new(),
         lent_ids: HashMap::default(),
+        join_hints: HashMap::default(),
         required: HashMap::default(),
         unsubstituted: HashMap::default(),
         protocol_instances: HashSet::default(),
@@ -318,6 +319,9 @@ pub(super) struct Engine {
     /// entries.
     pub(super) lent: Vec<Arc<super::pipelines::Lent>>,
     pub(super) lent_ids: HashMap<(functions::Symbol, usize), usize>,
+    /// Joined producer types by function and the position of the value that
+    /// takes them; see [`super::generators::Rejoin`].
+    pub(super) join_hints: HashMap<functions::Symbol, HashMap<crate::diagnostic::Position, Ty>>,
     /// The use that first required each generic instance, by function symbol.
     /// Functions of ordinary code have no entry.
     pub(super) required: HashMap<functions::Symbol, Arc<Instantiation>>,

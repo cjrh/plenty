@@ -1024,6 +1024,8 @@ fn exited_block(body: &[Stmt], index: usize) -> Result<BlockResult> {
 struct Lower<'a> {
     /// Pipeline lowering's state for the current function.
     pipeline: pipelines::State,
+    /// Producers joined after a first pass; see [`generators::Rejoin`].
+    joins: generators::Rejoin,
     function_name: String,
     /// `function_name` in the function table.
     symbol: functions::Symbol,
@@ -1425,8 +1427,12 @@ impl Lower<'_> {
                 && got.name.is_some()
             {
                 // Issue #872: the item type matches, so name the frame identity.
-                // Only chosen values (conditional expressions, `if`/`match` values
-                // and factory returns) join.
+                // A caller that can build the value with the joined type
+                // lowers the function again; see [`Lower::request_join`].
+                self.joins.mismatched(
+                    &Ty::Generator(expected.clone()),
+                    &Ty::Generator(got.clone()),
+                );
                 "; different producers join only where a value is chosen: a conditional expression (`a if c else b`), an `if` or `match` value, or a factory's return; reassignment and `Option`/`Result` payloads keep one producer".into()
             } else {
                 expected
@@ -1890,11 +1896,13 @@ impl Lower<'_> {
                 let cond = self.expr(condition, ops)?;
                 self.same(cond, Some(Ty::Bool), &condition.at)?;
                 let (mut a, mut b) = (Vec::new(), Vec::new());
-                let ty = self.expr(yes, &mut a)?;
-                let other = self.expr(no, &mut b)?;
+                let hint = self.join_hint(&e.at);
+                let ty = self.expr_expected(yes, hint.clone(), &mut a)?;
+                let other = self.expr_expected(no, hint, &mut b)?;
                 let ty = match self.join_conditional(&ty, &other, &mut a, &mut b) {
                     Some(joined) => Some(joined),
                     None => {
+                        self.join_mismatched(&e.at, &ty, &other);
                         self.same(other, ty.clone(), &e.at)?;
                         ty
                     }
@@ -3961,7 +3969,10 @@ impl Lower<'_> {
                         }
                         context
                     } else {
-                        self.names.get(name).map(|l| l.ty.clone())
+                        match self.names.get(name) {
+                            Some(local) => Some(local.ty.clone()),
+                            None => self.join_hint(&value.at),
+                        }
                     };
                     let value_start = ops.len();
                     let converted = match &context {
@@ -3978,13 +3989,26 @@ impl Lower<'_> {
                         && self.names.get(name).is_some_and(|local| {
                             local.mutable && local.ty.carried_reference().is_some()
                         });
-                    let (ty, origin) = if emptied {
-                        let ty = self
-                            .expr_expected(value, context, ops)?
-                            .ok_or_else(|| value.at.error("expected a value, got ()"))?;
-                        (ty, None)
+                    self.clear_mismatch();
+                    let lowered = if emptied {
+                        self.expr_expected(value, context, ops).and_then(|ty| {
+                            let ty =
+                                ty.ok_or_else(|| value.at.error("expected a value, got ()"))?;
+                            Ok((ty, None))
+                        })
                     } else {
-                        self.binding_value(value, context, ops)?
+                        self.binding_value(value, context, ops)
+                    };
+                    let (ty, origin) = match lowered {
+                        Ok(lowered) => lowered,
+                        Err(error) => {
+                            if annotation.is_none()
+                                && let Some(local) = self.names.get(name).cloned()
+                            {
+                                self.request_reassigned_join(local.slot, &local.ty);
+                            }
+                            return Err(error);
+                        }
                     };
                     let diagnostic_origin = annotation
                         .as_ref()
@@ -4003,7 +4027,8 @@ impl Lower<'_> {
                                 .at
                                 .error(format!("`{name}` is immutable; declare it with `mut`")));
                         }
-                        self.same(Some(ty.clone()), Some(local.ty.clone()), &stmt.at)?;
+                        let ty = self.join_reassigned(local.slot, &local.ty, ty.clone(), ops);
+                        self.same(Some(ty), Some(local.ty.clone()), &stmt.at)?;
                         if let Some(origin) = origin {
                             self.retarget_reference(name, local.slot, origin, &stmt.at, ops)?;
                         }
@@ -4015,6 +4040,7 @@ impl Lower<'_> {
                                     .error("at most 256 parameter/local slots are supported")
                             })?;
                         self.locals.push(ty.clone());
+                        self.note_declared(slot, &ty, &value.at);
                         ide::local_type(&stmt.at, &ty);
                         if annotation.is_none() {
                             ide::inferred_binding(&stmt.at, name, &ty);
@@ -4998,6 +5024,7 @@ fn lower_body(
                 source_tail: Vec::new(),
                 tail_candidates: Vec::new(),
                 closure_loans: HashMap::default(),
+                joins: generators::Rejoin::new(generics.join_hints.get(&symbol)),
                 captures: f
                     .captures
                     .iter()
@@ -5133,7 +5160,15 @@ fn lower_body(
                 &Tail::Discard
             },
         )
-    )?;
+    );
+    if lower.joins.pending {
+        // A value met a different producer after its type was fixed: lower
+        // again with the joined type at that value (issue #872).
+        drop(lower);
+        generics.active.remove(&symbol);
+        return lower_function(symbol, f, heap, sigs, generics, aliases, access);
+    }
+    let lowered = lowered?;
     crate::profile_block!("frontend::finish_function", {
         if let BlockResult::Continues(output) = lowered {
             if let Some(doc_at) = f
