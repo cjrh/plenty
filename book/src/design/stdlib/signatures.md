@@ -43,9 +43,9 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.diff`](#stddiff): 1163-1192
 - [`std.encoding`](#stdencoding): 1194-1261
 - [`std.env`](#stdenv): 1263-1277
-- [`std.error`](#stderror): 1279-1300
-- [`std.fmt`](#stdfmt): 1302-1369
-- [`std.fs`](#stdfs): 1371-1470
+- [`std.error`](#stderror): 1279-1299
+- [`std.fmt`](#stdfmt): 1301-1368
+- [`std.fs`](#stdfs): 1370-1470
 - [`std.fs.dirs`](#stdfsdirs): 1472-1482
 - [`std.fs.lock`](#stdfslock): 1484-1499
 - [`std.fs.watch`](#stdfswatch): 1501-1536
@@ -1296,7 +1296,6 @@ class Context[E]
 def context[T, E](result: Result[T, E], operation: str) -> Result[T, Context[E]]
 def path_context[T, E](result: Result[T, E], operation: str, path: &Path) -> Result[T, Context[E]]
 def native_code(error: IoError) -> Option[i32]
-def native_message(code: i32) -> Option[str]
 ```
 
 ## `std.fmt`
@@ -1379,6 +1378,7 @@ class Root
     def open_dir(self, name: &Path) -> Result[Root, IoError]
     def read_file(self, name: &Path) -> Result[FileStream, IoError]
     def create_dir(self, name: &Path, unix_mode: u32 = 0o700u32) -> Result[(), IoError]
+    def create_dirs(self, path: &Path, unix_mode: u32 = 0o700u32) -> Result[Root, IoError]
     def create_file(self, name: &Path, unix_mode: u32 = 0o600u32) -> Result[FileStream, IoError]
     def set_unix_mode(self, unix_mode: u32) -> Result[(), IoError]
     def remove_file(self, name: &Path) -> Result[(), IoError]
