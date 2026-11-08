@@ -168,6 +168,7 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     print(&line[:4] == "name", "Love" in value, count(line, "a")?)?
     first = value[:3]?
     print(first)?
+    print(value.upper()?, value.split()?)?
     Ok(())
 ```
 
@@ -175,6 +176,7 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
 Ada Lovelace 12
 True True 3
 Ada
+ADA LOVELACE ["Ada", "Lovelace"]
 ```
 
 A function takes a substring as `&strview`. Passing a whole string as `line`
