@@ -74,7 +74,7 @@ All formatting methods use an exclusive receiver and return
 | `text(&str)` | Exact UTF-8, including embedded NUL |
 | `debug_text(&str)` | Double quotes; escapes `"`, `\`, LF, CR, TAB; other C0/C1 controls use lowercase `\u{hex}`; other Unicode is preserved |
 | `ascii_text(&str)` | The text with each non-ASCII scalar as lowercase `\u{hex}`; ASCII is unchanged |
-| `substr(&substr)`, `debug_substr(&substr)` | `text` and `debug_text` for a [substring view](../language/04-expressions/slices.md#substring-views), without copying it |
+| `substr(&strview)`, `debug_substr(&strview)` | `text` and `debug_text` for a [substring view](../language/04-expressions/slices.md#substring-views), without copying it |
 | `boolean(bool)` | `True` or `False` |
 | `integer(i64, width: NonNegative[i64] = 0)` | Signed decimal, including `i64.MIN` |
 | `unsigned(u64, base, width: NonNegative[i64] = 0)` | Base 2, 8, 10, or 16, lowercase digits, no prefix |
@@ -126,7 +126,7 @@ A `Bytes` buffer, `bytes` literal, or `&[u8]` view spells as a byte literal
 the `str.repr`, `debug_text`, and `ascii_text` spellings as fallible strings.
 A `&T` parameter cannot take a [slice view](../language/04-expressions/slices.md#slice-views),
 so `represent_view(v, &mut out)` and `repr_view_string(v)` do the same for a
-`&[T]`; f-strings call them for view fields. For a `&substr`, f-strings call
+`&[T]`; f-strings call them for view fields. For a `&strview`, f-strings call
 `substr`, `substr_spec(v, &spec)` (the `text_spec` options), and
 `repr_substr_string(v)`, the `debug_substr` spelling as a fallible string.
 When a field's `str.repr` spelling runs a `debug` method, the f-string calls

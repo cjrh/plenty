@@ -149,12 +149,12 @@ lists its operations and limits.
 
 ## Borrow part of a string
 
-`&text[a:b]` borrows part of a string the same way. Its type is `&substr`, and
+`&text[a:b]` borrows part of a string the same way. Its type is `&strview`, and
 its positions count characters, as a [copying string slice](slices.md#text)'s
 do. Loop over it, compare it with a string, or search it without copying:
 
 ```plenty
-def count(text: &substr, letter: &str) -> Result[i64, OverflowError[i64]]:
+def count(text: &strview, letter: &str) -> Result[i64, OverflowError[i64]]:
     mut n = 0
     for c in text:
         if c == letter:
@@ -177,9 +177,37 @@ True True 3
 Ada
 ```
 
-A function takes a substring as `&substr`. Passing a whole string as `line`
+A function takes a substring as `&strview`. Passing a whole string as `line`
 implicitly borrows it for the call; `&line` or a literal also works. Copy the
 text with `value[a:b]?` when you need an owned `str`,
 for example to call a `str` method or keep it after the string changes. The
 [substring view reference](../../design/language/04-expressions/slices.md#substring-views)
 lists every operation.
+
+To inspect the UTF-8 encoding, borrow its bytes directly. The byte view uses byte
+positions and loops over `&u8`; the text view still loops over scalars:
+
+```plenty
+import std.bytes
+
+def main() -> Result[(), AllocError | IoError]:
+    text = "café"
+    ending = &text[3:]
+    bytes = ending.as_bytes()
+    print(len(ending), len(bytes))?
+    for byte in bytes:
+        print(*byte)?
+    owned = std.bytes.from_text(ending)?
+    print(owned)?
+    Ok(())
+```
+
+```output
+1 2
+195
+169
+b"\xc3\xa9"
+```
+
+`as_bytes()` allocates nothing and keeps the string borrowed until the byte
+view's last use. `from_text` makes an independent fallible byte-buffer copy.

@@ -252,6 +252,9 @@ impl Lower<'_> {
                     &e.at,
                 )
             }
+            Expression::Method(..) if self.text_bytes_receiver(e).is_some() => {
+                Some(crate::bytes::byte_view())
+            }
             Expression::Method(base, name, args, _) => {
                 if let Some(result) = self.byte_string_method_hint(base, name, args) {
                     return Some(result);

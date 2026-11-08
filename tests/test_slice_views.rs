@@ -546,7 +546,7 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
 )]
 #[case(
     "def n[T](t: &T) -> i64:\n    0\nxs = [1u8].unwrap()\nk = n(&xs[:])",
-    "a slice view is passed to a `&[T]` or `&substr` parameter, not to a `&T` type parameter"
+    "a slice view is passed to a `&[T]` or `&strview` parameter, not to a `&T` type parameter"
 )]
 #[case(
     "def bump(v: &mut [i64]) -> ():\n    pass\nmut xs = [1, 2].unwrap()\nbump(&xs[:])",

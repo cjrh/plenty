@@ -151,8 +151,9 @@ such as `name[1:]?` or `name[::-1]?` copies, so it needs `?`. See
 [building text](../facilities/01-builtins/text-building.md), and
 [format strings](../language/04-expressions/format-strings.md).
 
-A `&substr` function parameter accepts a whole string as `f(s)`, implicitly
-borrowed without copying, or a substring as `f(&s[a:b])`. Explicit whole-string
+`&substr` remains a compatible alias for `&strview`. A plain `&s` still
+produces an ordinary `&str`. A `&strview` function parameter accepts a whole
+string as `f(s)`, implicitly borrowed without copying, or a substring as `f(&s[a:b])`. Explicit whole-string
 borrows, existing `&str` bindings, and literals work too. A view has fewer
 operations than `str`; see the [Text argument table](../facilities/01-builtins/text.md#function-arguments).
 
@@ -643,7 +644,7 @@ def main() -> Result[(), IoError | OverflowError[i64]]:
 | `abs(x)`, `min`, `max`, `sum(xs)` | Integer `std.math.abs(x)?`, `min`, `max`, `sum(&xs, 0)?`; float `abs_float` / `sum_float` |
 | `if items:` | `if len(items) > 0:` |
 | `a < b < c` | `a < b and b < c` |
-| `xs[1:3]`, `s[1:3]` | `xs[1:3]?`, `s[1:3]?`: a slice allocates a copy; `&xs[1:3]` borrows a list view, and `&s[1:3]` a `&substr`, in place |
+| `xs[1:3]`, `s[1:3]` | `xs[1:3]?`, `s[1:3]?`: a slice allocates a copy; `&xs[1:3]` borrows a list view, and `&s[1:3]` a `&strview`, in place |
 | `lambda x: x + 1` | `def(x: i64) -> Result[i64, OverflowError[i64]]: Ok(x + 1)` inside brackets |
 | `map(f, xs)`, `filter(p, xs)`, `reduce(f, xs, init)` | `iter(&xs).filter(p).map(f)`, `.fold(init, f)`; no import |
 | `any(flags)`, `all(p(x) for x in xs)` | `iter(&flags).any()`, `iter(&xs).all(p)` |
