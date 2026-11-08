@@ -30,8 +30,11 @@ pub(super) fn blocks(op: &Op) -> bool {
             ChannelOp::New(_) => false,
         },
         Op::Mutex(op) => match op {
-            MutexOp::Lock(_) => true,
-            MutexOp::Unlock(_) | MutexOp::Exclusive(_) | MutexOp::IntoInner(_) => false,
+            MutexOp::Lock(_) | MutexOp::Wait(..) => true,
+            MutexOp::LockNow(_)
+            | MutexOp::Unlock(_)
+            | MutexOp::Exclusive(_)
+            | MutexOp::IntoInner(_) => false,
         },
         Op::Executor(op) => match op {
             ExecutorOp::Submit(_, nowait) => !nowait,

@@ -2,7 +2,9 @@
 
 `plenty lsp` serves the [Language Server Protocol](https://microsoft.github.io/language-server-protocol/)
 on standard input and output. It checks files with the compiler's own front
-end, so its errors and names match `plenty check` and `plentyc --check`. Neovim
+end, so its errors and names match `plenty check` and `plentyc --check`. A
+file below a package's `tests/` directory is checked as `plenty test` checks
+it, so it can import its own package by name. Neovim
 is the supported editor; see [Neovim support](neovim.md) for its setup.
 
 ## Features
@@ -12,6 +14,8 @@ is the supported editor; see [Neovim support](neovim.md) for its setup.
 | Diagnostics | The file's check errors and [warnings](warnings.md), published when it is opened, saved, or edited (after a 150 ms pause) |
 | Hover | The declaration as written and its docstring, as Markdown |
 | Go to definition | The declaration's name, in the same file, another module, a dependency, or `std` |
+| Find references | Every written name that refers to the declaration, across the package and the workspace members that depend on it; see [finding references](#finding-references) |
+| Rename | A module-level declaration, an import alias, or a local, across the same files as find references; checked before and after, and refused with a reason; see [renaming](#renaming) |
 | Inlay hints | Inferred types after unannotated simple local binding names, when the current check succeeds |
 | Completion | Names in scope and keywords; fields, methods, enum variants, and module members after `.` |
 | Code actions | `refactor.move`: move a top-level declaration to another module of the package, previewed before it is applied |
@@ -54,6 +58,96 @@ Hint positions are immediately after the binding name, within the requested
 half-open range, using the negotiated UTF-8, UTF-16 (default), or UTF-32
 position encoding. Hint requests reuse the document's analysis; a pending edit
 is checked first, just as for hover. No parameter-name hints are provided.
+
+## Finding references
+
+Find references lists every place a name refers to the same declaration as
+the name under the cursor, by what the checker resolved rather than by
+spelling: a parameter or local that shadows a function is a different
+declaration, and a `from` import alias (`from shapes import area as size`)
+refers to `area` both in the import and where `size` is used. The
+declaration's own name is listed unless the client asks to exclude it.
+
+The search covers the package holding the declaration and the workspace
+members that depend on it. As when
+[moving a declaration](#moving-a-declaration-to-another-module), each
+library, executable, and test file of those packages is checked as an
+entry, and then each `src/` file no entry reached, with the unsaved text of
+open files in place of their saved text. A declaration in `std` or in a
+dependency outside the workspace is searched for in the package of the file
+being edited and the members that depend on it; references inside `std` and
+the declaration's copy are listed only as the declaration itself. A local or
+parameter, and any name in a file outside a package, is answered from the
+file's own check. A package file that no entry reads, such as one under
+`examples/`, adds its own check's references to the package's.
+
+An entry that does not check still contributes the references its check
+recorded. The server then shows a warning that the list may be incomplete,
+with the first error. A search of a package-level declaration checks every
+entry once, so in a package with many test files it takes seconds.
+
+The list contains only names the checker resolves, so it misses the
+references the [limits](#limits) leave unresolved: named arguments
+(`area(n=2)`) and constructor fields (`Point(x=1)`), variants and fields in
+`case` patterns, a variant used as a constructor (`Shape.Circle(r)`), members
+used in an uninstantiated generic body (issue #876), and names
+in unselected [`if const`](../../language/02-source/target-conditionals.md)
+arms. Text in strings, comments, and docstrings is never a reference.
+
+## Renaming
+
+Rename (`textDocument/rename`, with `prepareRename`) changes a name and every
+name that refers to the same declaration, as
+[find references](#finding-references) finds them. It renames:
+
+- a top-level function, class, enum, protocol, constant, or type alias, in
+  the package holding it and the workspace members that depend on it;
+- a `from` import alias: renaming `size` in `from shapes import area as
+  size` changes the alias and its uses in that file only;
+- a local variable, in its function.
+
+Renaming `area` itself keeps an alias: the import becomes `from shapes import
+measure as size`, and `size(2)` stays. A qualified use `s.area` becomes
+`s.measure`. Strings, comments, and docstrings are not edited, and a module
+is not renamed with its file. The edit uses the unsaved text of open files,
+names each open document's version, and writes nothing until the editor
+applies it.
+
+The rename is checked twice. Before it, the package (or, for a local or an
+alias, the file) must check without errors, so that every use is resolved.
+After it, the edited files are checked again, and each renamed name and each
+other name in them must still refer to the declaration it did before. The
+server refuses the rename, with the reason as the request's error, when:
+
+- the new name is not an identifier, is a reserved word, or is the old name;
+- another name already written as the new name would conflict, or the
+  rename would change what any name refers to (a local capturing a
+  function, for instance). When the edited code would not check and the
+  new name already appears there, the reason says so and gives the
+  compile error;
+- the package or the file does not check before the rename, or would not
+  check after it;
+- an [`if const`](../../language/02-source/target-conditionals.md) block
+  mentions the old name, or the new name in a file where it would be
+  written bare (the declaring module, a module importing it with `from`
+  without an alias, or the file of a local or alias), since the arms a
+  build does not select are not checked;
+- one name in an uninstantiated generic body refers to different
+  declarations in different instantiations;
+- the declaration is in `std` or a dependency outside the workspace, or is
+  written in a file no target or test of its package reads;
+- the name is a field, method, enum variant, or parameter. These are not
+  supported yet, since constructor calls, `case` patterns, named arguments,
+  and members in generic bodies are not resolved (issue #876);
+- the name is a module, or a module alias (`s` in `import shapes as s`, at
+  the import or a use);
+- the file changed since its last check; ask for the rename again.
+
+Renaming a `pub` declaration of a package with a library changes that
+package's API, since packages outside the workspace that import it must
+change. The server marks such an edit with a change annotation that needs
+confirmation; an editor without change-annotation support shows the same
+text as a warning.
 
 ## Moving a declaration to another module
 
@@ -190,7 +284,9 @@ differs.
   names and locals only.
 - Builtin functions, methods of built-in types such as `list` and `str`, and
   `Ok`, `Err`, `Some`, and `Nothing` have no declaration to show.
-- Variant names in `case` patterns are not resolved.
+- Variant names and fields in `case` patterns, variant constructors, named
+  arguments, and the field names of a constructor call are not resolved
+  (issue #876).
 - Locals offered by completion are those bound in the enclosing function
   above the cursor, by line.
 - An error in a module other than the open file is shown on the file's first
@@ -198,8 +294,9 @@ differs.
 - Each check reads the whole program again; there is no incremental reuse
   between checks. A program importing `std.http.server`, `std.json`, and five
   other large `std` modules checks in about 0.2 s with a release build.
-- Find references, rename, document symbols, and signature help are not
-  implemented. Moving a declaration is the only refactoring. It checks each
+- Document symbols and signature help are not implemented. Rename covers
+  module-level declarations, import aliases, and locals; see
+  [renaming](#renaming). Moving a declaration checks each
   entry twice, so a package with many test files takes seconds; see
   [moving a declaration](#moving-a-declaration-to-another-module).
 - Moving a declaration and then moving it back does not always restore the

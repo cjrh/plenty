@@ -1700,7 +1700,10 @@ def main() -> Result[(), PoolError | AllocError]:
 
 #[test]
 fn a_call_that_shuts_down_its_own_pool_blocks_under_a_lock() {
-    let source = "from std.sync import Mutex
+    // `lock_now()` cannot wait, but the lock it takes is held like any other.
+    for (lock, error_type) in [("lock()", ""), ("lock_now()?", " | LockError")] {
+        let source = format!(
+            "from std.sync import Mutex, LockError
 
 def bump(counter: Shared[Mutex[i64]]) -> Result[(), OverflowError[i64]]:
     with counter.lock() as value:
@@ -1712,20 +1715,22 @@ def bumping(counter: Shared[Mutex[i64]]) -> Result[(), PoolError | AllocError]:
         drop(own.submit(bump, counter).drop_job())
     Ok(())
 
-def main() -> Result[(), AllocError | PoolError]:
+def main() -> Result[(), AllocError | PoolError{error_type}]:
     counter = Shared(Mutex(0))?
-    with counter.lock() as value:
+    with counter.{lock} as value:
         bumping(counter.share())?
     Ok(())
-";
-    let error = support::check_source(source).unwrap_err().to_string();
-    assert!(
-        error.contains(
-            "this call to `bumping` can shut down a pool after a job that can lock a \
-             `Mutex[i64]` was submitted, while this function holds a lock on a `Mutex[i64]`"
-        ),
-        "{error}"
-    );
+"
+        );
+        let error = support::check_source(&source).unwrap_err().to_string();
+        assert!(
+            error.contains(
+                "this call to `bumping` can shut down a pool after a job that can lock a \
+                 `Mutex[i64]` was submitted, while this function holds a lock on a `Mutex[i64]`"
+            ),
+            "{source}\n{error}"
+        );
+    }
 }
 
 /// The receiver is gone before the call, and a helper whose job holds only

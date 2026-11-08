@@ -1,16 +1,30 @@
-# `Mutex[T]`: a value and the futex word that guards it. `lock()` and
-# `into_inner()` are provided by the compiler; see
-# book/src/design/stdlib/sync.md. `CancellationToken` is also compiler-provided.
+# `Mutex[T]`: a value and the futex words that guard it. `lock()`,
+# `lock_now()`, `lock_when()` and `into_inner()` are provided by the compiler;
+# see book/src/design/stdlib/sync.md. `CancellationToken` is also
+# compiler-provided.
 from std.atomic import Atomic
 
-# State 0 is unlocked, 1 locked, and 2 locked with possible waiters.
+# State bits 0-1 are 0 unlocked, 1 locked, and 2 locked with possible lock
+# waiters; bit 2 records `lock_when` waiters. Each unlock that finds that bit
+# advances `sequence`, which those waiters sleep on.
 pub class Mutex[T]:
     state: Atomic[u32]
+    sequence: Atomic[u32]
     value: T
 
     pub def __init__(self, value: T) -> ():
         self.state = Atomic[u32](0)
+        self.sequence = Atomic[u32](0)
         self.value = value
+
+# Why a lock was not acquired. `with mutex.lock_now()? as value:` fails with
+# WouldBlock when another holder has the lock;
+# `with mutex.lock_when(ready, &deadline, &cancel)? as value:` fails with
+# TimedOut or Cancelled when its predicate did not become true in time.
+pub enum LockError:
+    WouldBlock
+    TimedOut
+    Cancelled
 
 # Typed total-budget waits over the compiler's millisecond primitives. Polling
 # is bounded because channel and future condition variables do not observe a

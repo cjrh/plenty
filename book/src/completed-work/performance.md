@@ -125,7 +125,7 @@ optimization: required UTF-8 validation, eager default construction and
 bookkeeping for helpers that can trap retain their contracts. See
 [dictionary operations](../design/facilities/01-builtins/collections.md),
 [sole-owner release](../design/toolchain/02-architecture/memory.md#sole-owner-release)
-and the [rejected counting experiment](../proposals/thread-local-reference-counts.md#measured-result).
+and the [rejected counting experiment](../proposals/completed/thread-local-reference-counts.md#measured-result).
 The child issue/PR records retain their measurements against different intermediate
 revisions; their percentages must not be added or treated as a fresh combined
 speedup. The original serial-versus-seven-thread wall-time ratio is likewise

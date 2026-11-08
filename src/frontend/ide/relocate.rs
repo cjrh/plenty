@@ -4,7 +4,8 @@
 //! Every unsupported case is refused before any edit is returned, and the
 //! edited files are checked again before the plan is accepted.
 use super::super::lexer::{Kind, Lexer, Token};
-use super::{Analysis, File, HashMap, HashSet, Location, SymbolKind, analyze};
+use super::index::{Errors, Package, Reach, Use, one_per_place, source_files};
+use super::{File, HashMap, HashSet, Location, SymbolKind};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
 
@@ -196,7 +197,7 @@ fn lex(text: &str) -> Result<Lexed, String> {
 /// arm is an indented suite (the parser rejects one-line arms), which ends
 /// at its matching dedent; the lexer emits no layout tokens inside
 /// brackets.
-fn conditionals(text: &str) -> Result<Vec<(u32, u32)>, String> {
+pub(super) fn conditionals(text: &str) -> Result<Vec<(u32, u32)>, String> {
     let lexed = lex(text)?;
     let tokens = &lexed.all;
     let layout = |t: &Token| {
@@ -281,7 +282,7 @@ fn conditionals(text: &str) -> Result<Vec<(u32, u32)>, String> {
 }
 
 /// Whether `text` contains `name` as a whole word.
-fn mentions(text: &str, name: &str) -> bool {
+pub(super) fn mentions(text: &str, name: &str) -> bool {
     let is_word = |c: char| c.is_alphanumeric() || c == '_';
     text.match_indices(name).any(|(at, _)| {
         !text[..at].chars().next_back().is_some_and(is_word)
@@ -290,11 +291,11 @@ fn mentions(text: &str, name: &str) -> bool {
 }
 
 /// The tokens of each top-level item of `text`, without layout tokens.
-fn top_level(text: &str) -> Result<Vec<Vec<Token>>, String> {
+pub(super) fn top_level(text: &str) -> Result<Vec<Vec<Token>>, String> {
     lex(text).map(|l| l.items)
 }
 
-fn is_import(tokens: &[Token]) -> bool {
+pub(super) fn is_import(tokens: &[Token]) -> bool {
     tokens
         .first()
         .is_some_and(|t| t.column == 1 && (t.is("import") || t.is("from")))
@@ -360,7 +361,7 @@ fn items(text: &str) -> Result<Vec<Item>, String> {
     Ok(out)
 }
 
-fn word(token: &Token) -> Option<&str> {
+pub(super) fn word(token: &Token) -> Option<&str> {
     match &token.kind {
         Kind::Word(w) => Some(w),
         _ => None,
@@ -551,7 +552,7 @@ fn import_statement(tokens: &[Token], lines: &[&str]) -> Result<Import, String> 
 
 /// How a reference names its symbol.
 #[derive(Clone, Debug, PartialEq)]
-enum Form {
+pub(super) enum Form {
     /// A bare name: a declaration of the same module or a `from` import.
     Bare { column: u32, name: String },
     /// `qualifier.name`, where the qualifier names a module.
@@ -564,7 +565,7 @@ enum Form {
     Other,
 }
 
-fn form(line: &str, location: &Location) -> Form {
+pub(super) fn form(line: &str, location: &Location) -> Form {
     let chars: Vec<char> = line.chars().collect();
     let start = location.column as usize - 1;
     let end = (start + location.length as usize).min(chars.len());
@@ -603,42 +604,15 @@ fn form(line: &str, location: &Location) -> Form {
     }
 }
 
-/// A reference from any analysis, keyed by where it is written.
-#[derive(Clone, Debug)]
-struct Use {
-    path: PathBuf,
-    location: Location,
-    /// The declaration's position: `(file, line, column)`; None for `std`.
-    target: Option<(PathBuf, u32, u32)>,
-    /// The declaration's position in any file, `std` included.
-    identity: Option<(File, u32, u32)>,
-    kind: SymbolKind,
-}
-
 /// A file the move reads: its text and how its module is imported.
 struct Source {
     text: String,
     imports: Result<Vec<Import>, String>,
 }
 
-/// The files each analysis read: each entry's, then each unreached file's.
-#[derive(Default)]
-struct Reach {
-    entries: Vec<BTreeSet<PathBuf>>,
-    files: BTreeMap<PathBuf, BTreeSet<PathBuf>>,
-}
-
-impl Reach {
-    /// The files the targets and tests reach.
-    fn reached(&self) -> BTreeSet<PathBuf> {
-        self.entries.iter().flatten().cloned().collect()
-    }
-}
-
 struct Planner<'a> {
     overlay: &'a HashMap<PathBuf, String>,
-    project: crate::project::Project,
-    member: usize,
+    package: Package,
     source_path: PathBuf,
     destination_path: PathBuf,
     source_module: String,
@@ -646,13 +620,6 @@ struct Planner<'a> {
     /// Whether the destination is the package's library, which code outside
     /// `src/` imports under the package name.
     destination_is_library: bool,
-    /// The package targets and tests, with their graphs.
-    entries: Vec<(PathBuf, crate::project::SourceGraph)>,
-    /// Every source file, checked as its own entry when no target reaches
-    /// it, so code no target imports is still read.
-    files: Vec<(PathBuf, crate::project::SourceGraph)>,
-    /// How many analyses the plan has run.
-    analyses: std::cell::Cell<usize>,
 }
 
 fn package_src(path: &Path) -> Option<PathBuf> {
@@ -660,22 +627,6 @@ fn package_src(path: &Path) -> Option<PathBuf> {
     let manifest = directory.join("src");
     let src = manifest.canonicalize().ok()?;
     path.starts_with(&src).then_some(src)
-}
-
-fn source_files(directory: &Path, files: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(directory) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            source_files(&path, files);
-        } else if crate::source_path::is_source(&path)
-            && let Ok(path) = path.canonicalize()
-        {
-            files.push(path);
-        }
-    }
 }
 
 fn module_path(src: &Path, file: &Path) -> Option<String> {
@@ -703,26 +654,21 @@ impl<'a> Planner<'a> {
         let destination_path = destination
             .canonicalize()
             .map_err(|e| format!("{}: {e}", destination.display()))?;
-        let directory = source_path
+        source_path
             .parent()
             .and_then(|p| crate::project::discover(p).ok())
             .ok_or("moving a declaration needs a package: this file has no plenty.toml")?;
-        let options = crate::project::ResolveOptions {
-            locked: true,
-            offline: true,
-            ..Default::default()
-        };
-        let project = crate::project::Project::load(&directory, &options)
-            .map_err(|e| format!("cannot load the package: {e}"))?;
-        let found = project.members.iter().copied().find(|&m| {
-            project.packages[m]
-                .directory
-                .join("src")
-                .canonicalize()
-                .is_ok_and(|src| source_path.starts_with(src))
-        });
-        let member = found.ok_or("only files below a package's src/ can move declarations")?;
-        let package = &project.packages[member];
+        let index = Package::open(&source_path)?;
+        let package = &index.project.packages[index.member];
+        let in_src = |src: &PathBuf| source_path.starts_with(src);
+        if !package
+            .directory
+            .join("src")
+            .canonicalize()
+            .is_ok_and(|src| in_src(&src))
+        {
+            return Err("only files below a package's src/ can move declarations".into());
+        }
         let src = package
             .directory
             .join("src")
@@ -749,50 +695,14 @@ impl<'a> Planner<'a> {
         let destination_is_library = library.as_ref() == Some(&destination_path);
         let destination_module =
             module_path(&src, &destination_path).ok_or("destination module path")?;
-        // The targets and tests of this package and of workspace members
-        // that depend on it, and every source file of those packages.
-        let mut entries = vec![];
-        let mut all_files = vec![];
-        for &m in &project.members {
-            let package = &project.packages[m];
-            if m != member && !package.dependencies.iter().any(|(_, d)| *d == member) {
-                continue;
-            }
-            let graph = project.source_graph(m);
-            let mut files = vec![];
-            source_files(&package.directory.join("src"), &mut files);
-            files.sort();
-            for target in package
-                .manifest
-                .library
-                .iter()
-                .chain(package.manifest.binaries.iter().map(|(_, e)| e))
-            {
-                if let Ok(path) = package.directory.join(target).canonicalize() {
-                    entries.push((path, graph.clone()));
-                }
-            }
-            all_files.extend(files.into_iter().map(|f| (f, graph.clone())));
-            let mut tests = vec![];
-            source_files(&package.directory.join("tests"), &mut tests);
-            tests.sort();
-            if !tests.is_empty() {
-                let graph = project.test_graph(m);
-                entries.extend(tests.into_iter().map(|f| (f, graph.clone())));
-            }
-        }
         Ok(Planner {
             overlay,
-            project,
-            member,
+            package: index,
             source_path,
             destination_path,
             source_module,
             destination_module,
             destination_is_library,
-            entries,
-            files: all_files,
-            analyses: std::cell::Cell::new(0),
         })
     }
 
@@ -833,11 +743,12 @@ impl<'a> Planner<'a> {
 
     /// Each workspace member's `src/` directory.
     fn sources_dirs(&self) -> Vec<PathBuf> {
-        self.project
+        self.package
+            .project
             .members
             .iter()
             .filter_map(|&m| {
-                self.project.packages[m]
+                self.package.project.packages[m]
                     .directory
                     .join("src")
                     .canonicalize()
@@ -859,7 +770,7 @@ impl<'a> Planner<'a> {
         let mut any_arm = false;
         // The package's `.plenty` files, then each module they import that
         // is not one of them, such as a `.plentyi` module.
-        let mut pending: Vec<PathBuf> = self.files.iter().map(|f| f.0.clone()).collect();
+        let mut pending: Vec<PathBuf> = self.package.files.iter().map(|f| f.0.clone()).collect();
         while let Some(path) = pending.pop() {
             if graph.contains_key(&path) {
                 continue;
@@ -880,7 +791,7 @@ impl<'a> Planner<'a> {
             self.sources_dirs()
                 .iter()
                 .find_map(|src| module_path(src, path))
-                .unwrap_or_else(|| self.relative(path))
+                .unwrap_or_else(|| self.package.relative(path))
         };
         for from in edited {
             // An edge is new unless it was a top-level import before: one
@@ -944,135 +855,6 @@ impl<'a> Planner<'a> {
         }
     }
 
-    /// Analyze the targets and then each file they do not reach, with
-    /// `overlay`; the references found and what each analysis read. Each
-    /// file is read by as few analyses as its imports allow. With
-    /// `previous`, an analysis that read none of the `edited` files is not
-    /// repeated: its files, and so its result, are unchanged.
-    fn analyze(
-        &self,
-        overlay: &HashMap<PathBuf, String>,
-        previous: Option<(&Reach, &BTreeSet<PathBuf>)>,
-    ) -> Result<(Vec<Use>, Reach), String> {
-        let mut uses: BTreeMap<(PathBuf, u32, u32, u32), Use> = BTreeMap::new();
-        let mut reach = Reach::default();
-        let unchanged = |read: Option<&BTreeSet<PathBuf>>| {
-            let (_, edited) = previous?;
-            read.filter(|read| read.is_disjoint(edited)).cloned()
-        };
-        for (i, (root, graph)) in self.entries.iter().enumerate() {
-            let read = match unchanged(previous.and_then(|(p, _)| p.entries.get(i))) {
-                Some(read) => read,
-                None => self.analyze_one(root, graph, overlay, &mut uses)?,
-            };
-            reach.entries.push(read);
-        }
-        let mut seen = reach.reached();
-        for (root, graph) in &self.files {
-            if seen.contains(root) {
-                continue;
-            }
-            let read = match unchanged(previous.and_then(|(p, _)| p.files.get(root))) {
-                Some(read) => read,
-                None => self.analyze_one(root, graph, overlay, &mut uses)?,
-            };
-            seen.extend(read.iter().cloned());
-            reach.files.insert(root.clone(), read);
-        }
-        Ok((uses.into_values().collect(), reach))
-    }
-
-    /// Analyze one entry, adding its references to `uses`; the files it read.
-    fn analyze_one(
-        &self,
-        root: &Path,
-        graph: &crate::project::SourceGraph,
-        overlay: &HashMap<PathBuf, String>,
-        uses: &mut BTreeMap<(PathBuf, u32, u32, u32), Use>,
-    ) -> Result<BTreeSet<PathBuf>, String> {
-        self.analyses.set(self.analyses.get() + 1);
-        let analysis: Analysis = analyze(root, Some(graph), overlay.clone());
-        if let Some(error) = analysis.diagnostics.first() {
-            let at = match &error.file {
-                Some(File::Path(path)) => {
-                    format!("{}:{}:{}: ", self.relative(path), error.line, error.column)
-                }
-                _ => String::new(),
-            };
-            return Err(format!("{at}{}", error.message));
-        }
-        for reference in &analysis.references {
-            let File::Path(path) = &reference.location.file else {
-                continue;
-            };
-            let symbol = &analysis.symbols[reference.symbol];
-            // Format strings record calls to `std.fmt` methods at their
-            // fields, such as `p.x}` or `gree` for the methods that write
-            // `p.x` and `greet()`. A name is written as a name or a dotted
-            // name, and a member, which no import renames, as its own name.
-            let l = &reference.location;
-            let written: String = analysis
-                .sources
-                .get(&l.file)
-                .and_then(|text| text.lines().nth(l.line as usize - 1))
-                .map(|line| {
-                    line.chars()
-                        .skip(l.column as usize - 1)
-                        .take(l.length as usize)
-                        .collect()
-                })
-                .unwrap_or_default();
-            let dotted = written.split('.').all(|part| {
-                !part.is_empty() && part.chars().all(|c| c.is_alphanumeric() || c == '_')
-            });
-            let member = symbol.name.rsplit('.').next().unwrap_or_default();
-            let named = matches!(
-                symbol.kind,
-                SymbolKind::Method | SymbolKind::Field | SymbolKind::Variant
-            )
-            .then(|| written.rsplit('.').next() == Some(member));
-            if !dotted || named == Some(false) {
-                continue;
-            }
-            let target = match &symbol.location {
-                Some(Location {
-                    file: File::Path(file),
-                    line,
-                    column,
-                    ..
-                }) => Some((file.clone(), *line, *column)),
-                _ => None,
-            };
-            let identity = symbol
-                .location
-                .as_ref()
-                .map(|l| (l.file.clone(), l.line, l.column));
-            uses.entry((path.clone(), l.line, l.column, l.length))
-                .or_insert_with(|| Use {
-                    path: path.clone(),
-                    location: l.clone(),
-                    target,
-                    identity,
-                    kind: symbol.kind,
-                });
-        }
-        Ok(analysis
-            .sources
-            .keys()
-            .filter_map(|f| match f {
-                File::Path(path) => Some(path.clone()),
-                File::Standard(_) => None,
-            })
-            .collect())
-    }
-
-    fn relative(&self, path: &Path) -> String {
-        path.strip_prefix(&self.project.root)
-            .unwrap_or(path)
-            .display()
-            .to_string()
-    }
-
     fn plan(&self, line: u32) -> Result<Move, String> {
         let source_text = self.text(&self.source_path)?;
         let destination_text = self.text(&self.destination_path)?;
@@ -1086,13 +868,14 @@ impl<'a> Planner<'a> {
         // A target's entry file runs its own `main`.
         if name == "main"
             && self
+                .package
                 .entries
                 .iter()
                 .any(|(path, _)| *path == self.source_path)
         {
             return Err(format!(
                 "{} runs `main`; a target's `main` cannot move",
-                self.relative(&self.source_path)
+                self.package.relative(&self.source_path)
             ));
         }
         // `include_str` and `include_bytes` paths are relative to the
@@ -1103,12 +886,14 @@ impl<'a> Planner<'a> {
         {
             return Err(format!(
                 "`{name}` includes a file by a path relative to {}/; move it to a module in that directory, or change the path first",
-                self.relative(directory)
+                self.package.relative(directory)
             ));
         }
         let (uses, reach_before) = self
-            .analyze(self.overlay, None)
+            .package
+            .analyze(self.overlay, None, Errors::Stop)
             .map_err(|e| format!("fix this error before moving `{name}`: {e}"))?;
+        let uses = one_per_place(uses);
         let target = (
             self.source_path.clone(),
             declaration.line,
@@ -1204,8 +989,10 @@ impl<'a> Planner<'a> {
         }
         let edited: BTreeSet<PathBuf> = files.iter().map(|f| f.path.clone()).collect();
         let (uses_after, reach_after) = self
-            .analyze(&overlay, Some((reach_before, &edited)))
+            .package
+            .analyze(&overlay, Some((reach_before, &edited)), Errors::Stop)
             .map_err(|e| format!("after moving `{name}`, the package would not check: {e}"))?;
+        let uses_after = one_per_place(uses_after);
         work.check_identities(&files, &overlay, &uses_after)?;
         self.arm_cycle(&name, &overlay, &edited)?;
         // A module left without declarations may stop being imported; any
@@ -1223,7 +1010,7 @@ impl<'a> Planner<'a> {
         {
             return Err(format!(
                 "after moving `{name}`, no target would import {}",
-                self.relative(lost)
+                self.package.relative(lost)
             ));
         }
         Ok(Move {
@@ -1326,7 +1113,7 @@ impl Work<'_, '_> {
         self.sources[path]
             .imports
             .clone()
-            .map_err(|e| format!("{}: {e}", self.planner.relative(path)))
+            .map_err(|e| format!("{}: {e}", self.planner.package.relative(path)))
     }
 
     /// The module the `index`th module path of `import` names, as the
@@ -1400,7 +1187,7 @@ impl Work<'_, '_> {
         {
             return Err(format!(
                 "{}:{}: `{name}` has an `if const` block, whose unselected arms the move cannot check",
-                self.planner.relative(self.source()),
+                self.planner.package.relative(self.source()),
                 first + 1
             ));
         }
@@ -1465,7 +1252,7 @@ impl Work<'_, '_> {
                 if let Some(found) = names.iter().find(|n| mentions(&arm, n)) {
                     return Err(format!(
                         "{}:{}: an `if const` block names `{found}`; the move cannot check its unselected arms",
-                        self.planner.relative(path),
+                        self.planner.package.relative(path),
                         first + 1
                     ));
                 }
@@ -1478,7 +1265,7 @@ impl Work<'_, '_> {
         if import.comment {
             return Err(format!(
                 "{}:{}: an import with a comment cannot be rewritten",
-                self.planner.relative(path),
+                self.planner.package.relative(path),
                 import.line + 1
             ));
         }
@@ -1558,7 +1345,7 @@ impl Work<'_, '_> {
         let at = |u: &Use, column: u32| {
             format!(
                 "{}:{}:{}",
-                self.planner.relative(&u.path),
+                self.planner.package.relative(&u.path),
                 u.location.line,
                 column + 1
             )
@@ -1910,7 +1697,7 @@ impl Work<'_, '_> {
         let cannot_rewrite = |path: &Path, u: &Use| {
             format!(
                 "{}:{}:{}: cannot rewrite this reference to `{name}`",
-                self.planner.relative(path),
+                self.planner.package.relative(path),
                 u.location.line,
                 u.location.column
             )
@@ -1997,7 +1784,7 @@ impl Work<'_, '_> {
                     else {
                         return Err(format!(
                             "{}:{}: cannot rewrite this import of `{name}`",
-                            self.planner.relative(path),
+                            self.planner.package.relative(path),
                             import.line + 1
                         ));
                     };
@@ -2180,7 +1967,7 @@ impl Work<'_, '_> {
                 self.planner.destination_module
             ));
         }
-        let member = &self.planner.project.packages[self.planner.member];
+        let member = &self.planner.package.project.packages[self.planner.package.member];
         if self.declaration.private_at.is_none() && member.manifest.library.is_some() {
             let package = &member.manifest.name;
             self.api_changes.push(format!(
@@ -2383,7 +2170,7 @@ impl Work<'_, '_> {
 /// Where the point (`line`, `column`), from 0, is after `edits`, which
 /// do not overlap; None when an edit replaces it. Text inserted at the point
 /// comes before it.
-fn map_point(edits: &[TextEdit], line: u32, column: u32) -> Option<(u32, u32)> {
+pub(super) fn map_point(edits: &[TextEdit], line: u32, column: u32) -> Option<(u32, u32)> {
     let mut sorted: Vec<&TextEdit> = edits.iter().collect();
     sorted.sort_by_key(|e| (e.line, e.column, e.end_line, e.end_column));
     let mut point = (line, column);
@@ -2449,7 +2236,7 @@ fn insert(line: u32, column: u32, text: &str) -> TextEdit {
     }
 }
 
-fn replace(line: u32, column: u32, length: u32, text: &str) -> TextEdit {
+pub(super) fn replace(line: u32, column: u32, length: u32, text: &str) -> TextEdit {
     TextEdit {
         line,
         column,
@@ -2554,6 +2341,6 @@ mod tests {
         // three tests that import `shapes`, and `shapes` itself, which no
         // target imports any more; the library and the `version` tests read
         // no edited file.
-        assert_eq!(planner.analyses.get(), 8 + 5);
+        assert_eq!(planner.package.analyses.get(), 8 + 5);
     }
 }

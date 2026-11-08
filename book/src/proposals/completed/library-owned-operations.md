@@ -183,7 +183,7 @@ cleanup on ordinary exits; `__exit__` returns unit and has no success/failure
 argument. It cannot replace explicit fallible commit/rollback handling or infer
 that a body succeeded. Traps do not unwind it. Coarse distinct transaction/state
 owners may enforce sequencing better than method hiding; see
-[typestate](../typestate-and-owned-transitions.md). Ownership transfers, retryable
+[typestate](typestate-and-owned-transitions.md). Ownership transfers, retryable
 failure and extraction of affine fields still need an API design.
 
 ## What the stdlib actually needs

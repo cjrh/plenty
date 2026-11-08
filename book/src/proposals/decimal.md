@@ -165,9 +165,9 @@ and `hash(Decimal("1.0")) == hash(Decimal("1.00"))` (`__eq__` uses `_cmp`;
    because its `==` would be wrong. A separate `__eq__` is not needed and the
    ordering proposal rejects one; Python's own six methods all reduce to
    `_cmp`.
-2. **Keys: a key projection.** Under the [hashing proposal](user-type-hashing.md)
+2. **Keys: a key projection.** Under the [hashing proposal](completed/user-type-hashing.md)
    (B74), keys hash structurally, so a type defining `__cmp__` is not a key
-   type. Its [key projection](user-type-hashing.md#possible-later-extension-key-projection)
+   type. Its [key projection](completed/user-type-hashing.md#possible-later-extension-key-projection)
    extension is the consistent route: `Decimal.__key__()` returns the
    normalized parts (coefficient without trailing zeros, scale, sign), a
    structural key value, so equal decimals hash and look up equally. That

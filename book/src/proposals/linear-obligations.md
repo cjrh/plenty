@@ -48,7 +48,7 @@ The source locations below are audit pointers, not additional specifications.
 | Owned `with` calls borrowed `__exit__ -> ()`, then drops its manager | [Resource scopes](../design/language/08-errors/03-resource-scopes.md); `src/frontend/contexts.rs`. This is not yet a consuming resolver. |
 | Worker checking follows reachable native effects, concrete callbacks, and destructors | [Effects](../design/facilities/03-concurrency/effects.md); `src/effects.rs`, `src/threading.rs`. It rejects uncertified indirect/foreign calls, including through stdlib helpers. |
 | Dropping a future does not cancel or wait; its worker retains execution responsibility | [Futures](../design/facilities/03-concurrency/futures.md), [executors](../design/facilities/03-concurrency/executors.md); `plenty-runtime/src/executors.rs`, especially `run_worker`, `stop`, and `destroy_job`. Cancelled captures and unclaimed results can still be destroyed. |
-| SQLite commit/rollback borrow the transaction; a busy commit permits retry | `stdlib/std/db/sqlite.plenty`, `Transaction`; [typestate exploration](typestate-and-owned-transitions.md). Existing fallback rollback is not a new linear contract. |
+| SQLite commit/rollback borrow the transaction; a busy commit permits retry | `stdlib/std/db/sqlite.plenty`, `Transaction`; [typestate exploration](completed/typestate-and-owned-transitions.md). Existing fallback rollback is not a new linear contract. |
 
 ## Proposed ownership rules
 

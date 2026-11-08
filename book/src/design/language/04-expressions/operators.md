@@ -151,7 +151,7 @@ False True
 User-defined ordering through one `__cmp__` hook is planned under
 [B37](../../../backlog.md), and user-defined keys under
 [B74](../../../backlog.md); see the [ordering](../../../proposals/user-type-ordering.md)
-and [hashing](../../../proposals/user-type-hashing.md) proposals.
+and [hashing](../../../proposals/completed/user-type-hashing.md) proposals.
 
 ## Reserved method names
 

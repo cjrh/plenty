@@ -87,7 +87,12 @@ fn slots(ops: &[Op], out: &mut BTreeSet<u8>) {
                 crate::threading::ThreadOp::Start(_, slot, _)
                 | crate::threading::ThreadOp::Finish(_, slot),
             )
-            | Op::Mutex(crate::mutex::MutexOp::Lock(slot) | crate::mutex::MutexOp::Unlock(slot)) => {
+            | Op::Mutex(
+                crate::mutex::MutexOp::Lock(slot)
+                | crate::mutex::MutexOp::LockNow(slot)
+                | crate::mutex::MutexOp::Unlock(slot)
+                | crate::mutex::MutexOp::Wait(slot, _),
+            ) => {
                 out.insert(*slot);
             }
             Op::Loan(loan) => {
@@ -274,8 +279,14 @@ impl Relocation<'_> {
                 Op::Mutex(crate::mutex::MutexOp::Lock(i)) => {
                     Op::Mutex(crate::mutex::MutexOp::Lock(self.slot(*i)?))
                 }
+                Op::Mutex(crate::mutex::MutexOp::LockNow(i)) => {
+                    Op::Mutex(crate::mutex::MutexOp::LockNow(self.slot(*i)?))
+                }
                 Op::Mutex(crate::mutex::MutexOp::Unlock(i)) => {
                     Op::Mutex(crate::mutex::MutexOp::Unlock(self.slot(*i)?))
+                }
+                Op::Mutex(crate::mutex::MutexOp::Wait(i, ready)) => {
+                    Op::Mutex(crate::mutex::MutexOp::Wait(self.slot(*i)?, ready.clone()))
                 }
                 Op::Loop { condition, body } => Op::Loop {
                     condition: self.ops(condition)?.into(),

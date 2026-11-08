@@ -92,21 +92,21 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.stat`](#stdstat): 3384-3417
 - [`std.plot`](#stdplot): 3419-3508
 - [`std.linalg`](#stdlinalg): 3510-3551
-- [`std.sync`](#stdsync): 3553-3571
-- [`std.system`](#stdsystem): 3573-3632
-- [`std.tempfile`](#stdtempfile): 3634-3666
-- [`std.test`](#stdtest): 3668-3710
-- [`std.text`](#stdtext): 3712-3755
-- [`std.thread`](#stdthread): 3757-3761
-- [`std.time`](#stdtime): 3763-3807
-- [`std.tls`](#stdtls): 3809-3891
-- [`std.toml`](#stdtoml): 3893-3992
-- [`std.unicode`](#stdunicode): 3994-4006
-- [`std.units`](#stdunits): 4008-4245
-- [`std.units.catalogue`](#stdunitscatalogue): 4247-5025
-- [`std.url`](#stdurl): 5027-5055
-- [`std.uuid`](#stduuid): 5057-5080
-- [`std.xml`](#stdxml): 5082-5115
+- [`std.sync`](#stdsync): 3553-3573
+- [`std.system`](#stdsystem): 3575-3634
+- [`std.tempfile`](#stdtempfile): 3636-3668
+- [`std.test`](#stdtest): 3670-3712
+- [`std.text`](#stdtext): 3714-3757
+- [`std.thread`](#stdthread): 3759-3763
+- [`std.time`](#stdtime): 3765-3809
+- [`std.tls`](#stdtls): 3811-3893
+- [`std.toml`](#stdtoml): 3895-3994
+- [`std.unicode`](#stdunicode): 3996-4008
+- [`std.units`](#stdunits): 4010-4247
+- [`std.units.catalogue`](#stdunitscatalogue): 4249-5027
+- [`std.url`](#stdurl): 5029-5057
+- [`std.uuid`](#stduuid): 5059-5082
+- [`std.xml`](#stdxml): 5084-5117
 
 ## `std.actor`
 
@@ -3559,6 +3559,8 @@ Compiler-provided: `CancellationToken`. Their signatures are on the reference pa
 ```text
 class Mutex[T]
     def __init__(self, value: T) -> ()
+enum LockError
+    WouldBlock | TimedOut | Cancelled
 enum WaitError
     TimedOut | Cancelled | Disconnected
 enum SendBeforeError[T]

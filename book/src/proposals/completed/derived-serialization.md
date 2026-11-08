@@ -1,12 +1,12 @@
 # Derived serialization for classes and enums
 
-**Status: Implemented.** [`std.serial`](../design/stdlib/serial.md),
-[`@serial` derivation](../design/stdlib/serial-derive.md),
-[typed JSON codecs](../design/stdlib/json-codecs.md) and
-[typed TOML codecs](../design/stdlib/toml-codecs.md) deliver issue #781 / B77.
+**Status: Implemented.** [`std.serial`](../../design/stdlib/serial.md),
+[`@serial` derivation](../../design/stdlib/serial-derive.md),
+[typed JSON codecs](../../design/stdlib/json-codecs.md) and
+[typed TOML codecs](../../design/stdlib/toml-codecs.md) deliver issue #781 / B77.
 JSON supports complete buffers, bounded incremental reader loading and direct
 owning tree conversion. TOML uses bounded owning trees. The
-[measurement record](../development/serialization-measurements.md) includes
+[measurement record](../../development/serialization-measurements.md) includes
 the pre-derivation gate and equivalent handwritten-hook comparisons. This
 proposal retains design rationale and historical probes; reference pages own
 the implemented contracts and limits. Runtime reflection and user macros are
@@ -53,7 +53,7 @@ These historical probes preceded the handwritten-hook milestone and ran on local
 | Generic code reaches another module's methods only when the type and method are `pub`; automatic destruction ignores `__del__` privacy | Compiler-dispatched hooks can follow the `__del__` rule instead |
 | The runtime prints `Point(x=3, y=4)` by walking a static descriptor with field names (`plenty-runtime/src/aggregates.rs`) | A descriptor-driven serializer is possible, at the cost discussed below |
 | `std.json` has a resumable event decoder; `std.toml` has only a tree, because TOML tables can be extended anywhere in a file | The data model must work over both an event stream and a tree |
-| A closed set of declaration annotations exists with one member, [`@copy`](../design/language/03-types/classes.md#copy-classes) on classes; [protocol method bodies](protocol-method-bodies/final-and-visibility.md#method-annotations) agreed `@final` and `@protocol.Name`, not yet implemented | An opt-in can extend that closed set rather than introduce user decorators |
+| A closed set of declaration annotations exists with one member, [`@copy`](../../design/language/03-types/classes.md#copy-classes) on classes; [protocol method bodies](../protocol-method-bodies/final-and-visibility.md#method-annotations) agreed `@final` and `@protocol.Name`, not yet implemented | An opt-in can extend that closed set rather than introduce user decorators |
 
 ## Precedents
 
@@ -125,7 +125,7 @@ pub enum Mode:
 ```
 
 `@serial` extends the closed annotation set agreed for
-[protocol method bodies](protocol-method-bodies/final-and-visibility.md#method-annotations)
+[protocol method bodies](../protocol-method-bodies/final-and-visibility.md#method-annotations)
 to class and enum declarations. The parser already reads class annotations
 for `@copy`; `@serial` adds a member and accepts annotations on `enum`. It derives each of two hooks the type does not
 already define:
@@ -192,7 +192,7 @@ their compiled frames. `Fault.StackLimit` can precede the configured format
 depth limit for wide records or small thread stacks; unavailable bounds and
 unbounded call segments fail conservatively. This closes the native-stack
 exhaustion gap that a document-depth counter alone cannot address. The
-[codec reference](../design/stdlib/serial.md#errors-and-costs) records the
+[codec reference](../../design/stdlib/serial.md#errors-and-costs) records the
 reporting-path and callback limits.
 
 The decoder is pull-based and typed: the derived code asks for the type it
@@ -429,7 +429,7 @@ many fields could use a length-then-bytes switch; measure first.
 - **A richer data model now** (serde's records, tuple structs and newtypes as
   separate kinds). It serves positional binary formats; JSON and TOML do not
   need it. It can be added as new protocol methods with defaults once
-  [protocol method bodies](protocol-method-bodies.md) ship.
+  [protocol method bodies](../protocol-method-bodies.md) ship.
 - **Internally or adjacently tagged enums as the default.** Internal tags need
   a reserved member name and buffering when the tag arrives late.
 
@@ -520,9 +520,9 @@ Before stage 3 is accepted:
 
 1. Compile time and object size for 200 classes of 10 fields, each encoded and
    decoded through JSON and TOML, against the same program with no derives
-   (`compile_bench` method in [profiling](../development/profiling.md)).
+   (`compile_bench` method in [profiling](../../development/profiling.md)).
 2. Decode and encode throughput for the 8 MB document in the
-   [`std.json` costs](../design/stdlib/json.md#costs), comparing derived code
+   [`std.json` costs](../../design/stdlib/json.md#costs), comparing derived code
    with `json.parse` to a tree and with a hand-written event codec. Derived
    code should match the hand-written codec.
 3. Member-name dispatch cost for 4, 16 and 64 fields.

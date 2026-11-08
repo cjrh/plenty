@@ -1072,10 +1072,12 @@ struct Runtime {
     caller_leave: FuncId,
     thread_start: FuncId,
     thread_join: FuncId,
-    /// `plenty_mutex_lock_slow(*const u32)` and `plenty_mutex_wake(*const u32)`:
-    /// the futex paths of a contended `Mutex`.
+    /// The contended and waiting paths of a `Mutex`; see
+    /// plenty-runtime/src/mutex.rs.
     mutex_lock_slow: FuncId,
-    mutex_wake: FuncId,
+    mutex_try_lock: FuncId,
+    mutex_release: FuncId,
+    mutex_wait: FuncId,
     thread_adapters: HashMap<String, FuncId>,
     /// Type metadata declared so far. Only the thread placing code in the
     /// object declares symbols; the lock lets threads building IR share the
@@ -1294,7 +1296,19 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         )?,
         thread_join: one_arg(module, "plenty_thread_join", PTR_TY)?,
         mutex_lock_slow: one_arg(module, "plenty_mutex_lock_slow", PTR_TY)?,
-        mutex_wake: one_arg(module, "plenty_mutex_wake", PTR_TY)?,
+        mutex_try_lock: helper(module, "plenty_mutex_try_lock", &[PTR_TY], Some(types::I8))?,
+        mutex_release: helper(
+            module,
+            "plenty_mutex_release",
+            &[PTR_TY, PTR_TY, types::I32],
+            None,
+        )?,
+        mutex_wait: helper(
+            module,
+            "plenty_mutex_wait",
+            &[PTR_TY, PTR_TY, types::I64],
+            Some(types::I8),
+        )?,
         thread_adapters: Default::default(),
         generator_init: {
             let mut sig = module.make_signature();

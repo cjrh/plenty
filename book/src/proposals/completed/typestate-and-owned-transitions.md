@@ -1,19 +1,19 @@
 # Typestate and owned transitions
 
 **Status: Investigation complete.** This explores existing facilities and
-limits, not a new language feature. [Moves](../design/language/05-ownership/01-bindings-moves-and-copies.md)
-and [destruction](../design/language/05-ownership/07-destruction.md) define current
-behavior. Scheduling belongs in [B72](../backlog.md).
+limits, not a new language feature. [Moves](../../design/language/05-ownership/01-bindings-moves-and-copies.md)
+and [destruction](../../design/language/05-ownership/07-destruction.md) define current
+behavior. Scheduling belongs in [B72](../../backlog.md).
 
-The [owned response experiment](completed/typestate-response-experiment.md) refreshes this
+The [owned response experiment](typestate-response-experiment.md) refreshes this
 assessment, with native cleanup/retry checks and compiler rejections. Explicit
-owned receivers now support method-shaped transitions, and [field moves](../design/language/05-ownership/01-bindings-moves-and-copies.md#moving-fields) out of
+owned receivers now support method-shaped transitions, and [field moves](../../design/language/05-ownership/01-bindings-moves-and-copies.md#moving-fields) out of
 owned bindings are implemented (issue #534).
 
-The separate [linear-obligations proposal](linear-obligations.md) (issue #149)
+The separate [linear-obligations proposal](../linear-obligations.md) (issue #149)
 addresses non-abandonment of an owner, including retry errors. Typestate can
 remain affine when abandoning a state is harmless. See the
-[integration assessment](linear-integration.md) for a protocol example combining
+[integration assessment](../linear-integration.md) for a protocol example combining
 state transitions with obligations, worker effects, and execution responsibility.
 
 ## What Plenty can express now
@@ -28,9 +28,9 @@ visibility must prevent callers fabricating the supposedly validated state.
 A small `Draft` to `Ready` probe type-checked with the available local debug
 compiler during this assessment. This was a smoke check of that binary, not a
 fresh build or an exhaustive typestate conformance test. The design basis is
-the current [ownership](../design/language/05-ownership/index.md),
-[classes](../design/language/03-types/classes.md), and
-[function](../design/language/06-functions/01-signatures-and-calls.md) contracts.
+the current [ownership](../../design/language/05-ownership/index.md),
+[classes](../../design/language/03-types/classes.md), and
+[function](../../design/language/06-functions/01-signatures-and-calls.md) contracts.
 
 Ordinary methods borrow their receiver by default. Explicit `self: Class` or
 `self: Enum` uses the same by-value rules as a function argument. For affine
@@ -42,10 +42,10 @@ There are no specialized method declarations for `Connection[Open]` versus
 Generic instance methods are now checked only when used (issue #515), so an
 unused method need not work for every argument type. This improves flexibility
 but does not add explicit state-specialized method sets. Owned receivers are
-an independent feature, documented with [method contracts](../design/language/06-functions/01-signatures-and-calls.md).
+an independent feature, documented with [method contracts](../../design/language/06-functions/01-signatures-and-calls.md).
 
 Moving an entire owner is supported, and so is moving an affine field out of
-an owned binding (issue #534; see [field moves](../design/language/05-ownership/01-bindings-moves-and-copies.md#moving-fields)). A transition that rebuilds a wrapper
+an owned binding (issue #534; see [field moves](../../design/language/05-ownership/01-bindings-moves-and-copies.md#moving-fields)). A transition that rebuilds a wrapper
 around an owned connection can move the connection field out of the consumed
 state. A class with `__del__` still needs an `Option` plus `replace`, an enum
 whose payload can be consumed, or API restructuring.

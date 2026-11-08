@@ -3,7 +3,7 @@
 mod support;
 use support::check_file_error as rejected;
 
-const HEADER: &str = "from std.fmt import FormatError\nfrom std.sync import Mutex\n";
+const HEADER: &str = "from std.fmt import FormatError\nfrom std.sync import Mutex, LockError\n";
 
 fn program(body: &str) -> String {
     let body = body
@@ -273,10 +273,14 @@ def main() -> Result[(), IoError | SpawnError[()] | OverflowError[i64]]:
 fn locks_allocate_nothing_and_into_inner_keeps_the_heap_balanced() {
     let source = format!(
         r#"{HEADER}
-def main() -> Result[(), AllocError | IoError | FormatError]:
+def main() -> Result[(), AllocError | IoError | FormatError | LockError]:
     words = Mutex([f"word {{n}}"? for n in range(2000)]?)
     print("__test_begin_no_allocations__")?
     with words.lock() as values:
+        values.reverse()
+    with words.lock_now()? as values:
+        values.reverse()
+    with words.lock_now()? as values:
         values.reverse()
     print("__test_end_no_allocations__")?
     values = words.into_inner()
@@ -390,7 +394,7 @@ fn lock_is_only_a_with_manager() {
     );
     rejects_body(
         "m = Mutex(1)\nm.get()",
-        "Mutex has no method `get`; it supports `with mutex.lock() as value:` and into_inner()",
+        "Mutex has no method `get`; it supports `with mutex.lock() as value:`, `with mutex.lock_now()? as value:`, `with mutex.lock_when(ready, &deadline, &cancel)? as value:`, and into_inner()",
     );
 }
 
@@ -445,6 +449,335 @@ fn mutexes_have_no_value_operations() {
     rejects_body(
         "m = Mutex(1)\nprint(m.value)?",
         "a Mutex's fields are private; reach its value with `with mutex.lock() as value:`",
+    );
+}
+
+#[test]
+fn lock_now_acquires_or_reports_would_block() {
+    let source = format!(
+        r#"{HEADER}
+def bump(m: &Mutex[i64]) -> Result[i64, LockError | OverflowError[i64]]:
+    with m.lock_now()? as v:
+        *v = *v + 1
+        return Ok(*v)
+
+def show(result: Result[i64, LockError | OverflowError[i64]]) -> Result[(), IoError]:
+    match result:
+        case Ok(value):
+            print(value)?
+        case Err(error):
+            match error:
+                case LockError.WouldBlock:
+                    print("busy")?
+                case _:
+                    print("other error")?
+    Ok(())
+
+# Possibly aliasing places nest only with lock_now: it fails instead of
+# waiting for itself.
+def add(cells: &list[Mutex[i64]], i: i64, j: i64) -> Result[i64, LockError | OverflowError[i64]]:
+    with cells[i].lock() as a, cells[j].lock_now()? as b:
+        *b = *b + *a
+        return Ok(*b)
+
+def work(m: &Mutex[i64]) -> Result[(), OverflowError[i64]]:
+    with m.lock() as v:
+        *v = *v + 1
+    Ok(())
+
+# A failing lock_now joins the task without holding a lock.
+def race(m: &Mutex[i64]) -> Result[(), SpawnError[()] | LockError | OverflowError[i64]]:
+    with spawn(work, m)?, m.lock_now()? as v:
+        *v = *v + 10
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | SpawnError[()] | LockError | OverflowError[i64]]:
+    m = Mutex(1)
+    show(bump(&m))?
+    with m.lock():
+        show(bump(&m))?
+    cells = [Mutex(1), Mutex(2)]?
+    show(add(&cells, 0, 1))?
+    show(add(&cells, 1, 1))?
+    # The failed lock_now unwound the comma header and released cells[1].
+    show(add(&cells, 1, 0))?
+    drop(race(&m))
+    with m.lock_now()? as v:
+        print(*v)?
+    Ok(())
+"#
+    );
+    let printed = output(&source);
+    let lines: Vec<_> = printed.lines().collect();
+    assert_eq!(lines[..5], ["2", "busy", "3", "busy", "4"], "{printed}");
+    // The worker either runs before or after the attempt; it always adds one.
+    assert!(matches!(lines[5..], ["13"] | ["3"]), "{printed}");
+}
+
+#[test]
+fn lock_now_fails_while_another_thread_holds_the_lock() {
+    let source = format!(
+        r#"{HEADER}
+def hold(m: &Mutex[i64], locked: Sender[()], release: Receiver[()]) -> Result[(), OverflowError[i64] | SendError[()]]:
+    with m.lock() as v:
+        *v = *v + 1
+        locked.send(())?
+        drop(release.recv())
+    Ok(())
+
+def attempt(m: &Mutex[i64]) -> Result[(), LockError]:
+    with m.lock_now()? as v:
+        unchecked:
+            *v = *v + 10
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | SpawnError[()] | RecvError | SendError[()]]:
+    m = Mutex(0)
+    locked_tx, locked_rx = channel[()](1)?
+    release_tx, release_rx = channel[()](1)?
+    with spawn(hold, &m, locked_tx, release_rx)?, locked_rx as locked, release_tx as release:
+        locked.recv()?
+        print(attempt(&m).is_err())?
+        release.send(())?
+    print(attempt(&m).is_ok())?
+    print(m.into_inner())?
+    Ok(())
+"#
+    );
+    assert_eq!(output(&source), "True\nTrue\n11");
+}
+
+#[test]
+fn lock_now_diagnostics() {
+    rejects_body(
+        "m = Mutex(1)\nwith m.lock() as a:\n    with m.lock_now()? as b:\n        pass",
+        "`m` is already locked by an enclosing `with` block, so this lock_now() always fails; use the existing binding, or release the lock before relocking",
+    );
+    rejects(
+        &format!(
+            "{HEADER}def main() -> Result[(), LockError]:\n    m = Mutex(1)\n    with m.lock_now()? as a, m.lock_now()? as b:\n        pass\n    Ok(())\n"
+        ),
+        "this lock_now() always fails",
+    );
+    // A blocking lock nested in a lock_now block is checked as under lock().
+    rejects(
+        &format!(
+            "{HEADER}def main() -> Result[(), LockError]:\n    m = Mutex(1)\n    r = &m\n    with r.lock_now()? as a:\n        with m.lock() as b:\n            pass\n    Ok(())\n"
+        ),
+        "this locks `m` while an enclosing `with` block holds a lock on `r`",
+    );
+    let form = "lock_now() is valid only as a propagated `with` manager: `with mutex.lock_now()? as value:`";
+    rejects_body("m = Mutex(1)\nwith m.lock_now() as v:\n    pass", form);
+    rejects_body("m = Mutex(1)\nm.lock_now()?", form);
+    rejects_body(
+        "m = Mutex(1)\nwith m.lock_now(1)? as v:\n    pass",
+        "lock_now takes no arguments",
+    );
+    rejects(
+        &format!(
+            "{HEADER}def make() -> Mutex[i64]:\n    Mutex(1)\n\ndef main() -> Result[(), LockError]:\n    with make().lock_now()? as v:\n        pass\n    Ok(())\n"
+        ),
+        "lock_now() requires a named mutex or a field of one; bind the mutex to a name first",
+    );
+    rejects_body(
+        "m = Mutex(1)\nwith m.lock_now()? as v:\n    pass",
+        "`?` operand error std.sync.LockError cannot propagate as",
+    );
+    rejects(
+        &format!(
+            "{HEADER}def values() -> Generator[i64]:\n    m = Mutex(1)\n    with m.lock_now()? as v:\n        yield *v\n\ndef main() -> ():\n    pass\n"
+        ),
+        "yield inside a mutex lock block",
+    );
+}
+
+const WHEN_HEADER: &str = "from std.time import Deadline, deadline_after, deadline_at, milliseconds, monotonic_now, seconds\n";
+
+#[test]
+fn lock_when_waits_for_changes_and_reports_timeout_and_cancellation() {
+    let source = format!(
+        r#"{HEADER}from std.sync import CancellationToken
+{WHEN_HEADER}
+
+class Turns:
+    turn: i64
+    total: i64
+
+# Four workers take 200 turns each in order: every turn waits for the unlock
+# that ends the previous one.
+def take(turns: &Mutex[Turns], me: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), LockError | OverflowError[i64] | ZeroDivisionError]:
+    mine = def [me](t: &Turns) -> bool:
+        t.turn % 4 == me
+    for _ in range(200):
+        with turns.lock_when(&mine, deadline, cancel)? as t:
+            t.turn = t.turn + 1
+            t.total = t.total + me
+    Ok(())
+
+def never(t: &Turns) -> bool:
+    False
+
+def stuck(turns: &Mutex[Turns], cancel: CancellationToken) -> Result[(), LockError | RangeError]:
+    deadline = deadline_after(&monotonic_now(), &seconds(60))?
+    with turns.lock_when(never, &deadline, &cancel)?:
+        pass
+    Ok(())
+
+def started(t: &Turns) -> bool:
+    True
+
+def main() -> Result[(), AllocError | IoError | FormatError | RangeError | LockError | OverflowError[i64] | ZeroDivisionError | SpawnError[()]]:
+    turns = Mutex(Turns(0, 0))
+    cancel = CancellationToken()?
+    deadline = deadline_after(&monotonic_now(), &seconds(60))?
+    with spawn(take, &turns, 0, &deadline, &cancel)? as a, spawn(take, &turns, 1, &deadline, &cancel)? as b, spawn(take, &turns, 2, &deadline, &cancel)? as c, spawn(take, &turns, 3, &deadline, &cancel)? as d:
+        a.join()?
+        b.join()?
+        c.join()?
+        d.join()?
+    with turns.lock() as t:
+        print(f"{{t.turn}} {{t.total}}"?)?
+    # A predicate that holds succeeds even after the deadline.
+    passed = deadline_at(&monotonic_now())
+    with turns.lock_when(started, &passed, &cancel)? as t:
+        print("ready at the deadline")?
+    soon = deadline_after(&monotonic_now(), &milliseconds(20))?
+    match stuck_until(&turns, &soon, &cancel):
+        case Err(LockError.TimedOut):
+            print("timed out")?
+        case _:
+            print("unexpected")?
+    stop = CancellationToken()?
+    with spawn(stuck, &turns, stop.share())? as waiter:
+        stop.cancel()
+        match waiter.join():
+            case Err(LockError.Cancelled):
+                print("cancelled")?
+            case _:
+                print("unexpected")?
+    with turns.lock_now()? as t:
+        print(t.turn)?
+    Ok(())
+
+def stuck_until(turns: &Mutex[Turns], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), LockError]:
+    with turns.lock_when(never, deadline, cancel)?:
+        pass
+    Ok(())
+"#
+    );
+    assert_eq!(
+        output(&source),
+        "800 1200\nready at the deadline\ntimed out\ncancelled\n800"
+    );
+}
+
+#[test]
+fn lock_when_diagnostics() {
+    let program = |definitions: &str| {
+        format!(
+            "{HEADER}from std.sync import CancellationToken\n{WHEN_HEADER}\ndef ready(v: &i64) -> bool:\n    *v > 0\n\n{definitions}\ndef main() -> ():\n    pass\n"
+        )
+    };
+    let waiter = |line: &str| {
+        program(&format!(
+            "def f(m: &Mutex[i64], o: &Mutex[i64], d: &Deadline, c: &CancellationToken) -> Result[(), LockError]:\n{line}\n    Ok(())\n"
+        ))
+    };
+    let holding = "lock_when() would wait while this function holds a lock on `o`, keeping that mutex locked for as long as it waits";
+    rejects(
+        &waiter(
+            "    with o.lock():\n        with m.lock_when(ready, d, c)? as v:\n            pass",
+        ),
+        holding,
+    );
+    rejects(
+        &waiter("    with o.lock(), m.lock_when(ready, d, c)? as v:\n        pass"),
+        holding,
+    );
+    rejects(
+        &waiter(
+            "    with m.lock_when(ready, d, c)?:\n        with m.lock_when(ready, d, c)?:\n            pass",
+        ),
+        "lock_when() would wait while this function holds a lock on `m`",
+    );
+    // The predicate runs with the mutex locked, so it must not wait.
+    let waits = "can wait, lock a mutex, or call a function whose body is not known here; it runs while the mutex is locked";
+    rejects(
+        &program(
+            "def blocks(v: &i64) -> bool:\n    match CancellationToken():\n        case Ok(t):\n            t.wait()\n        case Err(_):\n            pass\n    True\n\ndef f(m: &Mutex[i64], d: &Deadline, c: &CancellationToken) -> Result[(), LockError]:\n    with m.lock_when(blocks, d, c)?:\n        pass\n    Ok(())\n",
+        ),
+        &format!("the `lock_when` predicate `blocks` {waits}"),
+    );
+    rejects(
+        &program(
+            "def blocks(v: &i64) -> bool:\n    match CancellationToken():\n        case Ok(t):\n            t.wait()\n        case Err(_):\n            pass\n    True\n\ndef f(m: &Mutex[i64], d: &Deadline, c: &CancellationToken) -> Result[(), LockError]:\n    check = def (v: &i64) -> bool:\n        blocks(v)\n    with m.lock_when(&check, d, c)?:\n        pass\n    Ok(())\n",
+        ),
+        &format!("the `lock_when` predicate {waits}"),
+    );
+    // A function value's body is not known where it is called.
+    rejects(
+        &program(
+            "def f(m: &Mutex[i64], r: Callable[[&i64], bool], d: &Deadline, c: &CancellationToken) -> Result[(), LockError]:\n    with m.lock_when(r, d, c)?:\n        pass\n    Ok(())\n",
+        ),
+        &format!("the `lock_when` predicate {waits}"),
+    );
+    rejects(
+        &waiter("    with m.lock_when((def (v: &i64) -> bool: True), d, c)?:\n        pass"),
+        "lock_when's predicate must be named",
+    );
+    rejects(
+        &program(
+            "def count(v: &i64) -> i64:\n    *v\n\ndef f(m: &Mutex[i64], d: &Deadline, c: &CancellationToken) -> Result[(), LockError]:\n    with m.lock_when(count, d, c)?:\n        pass\n    Ok(())\n",
+        ),
+        "lock_when's predicate must return bool, not i64",
+    );
+    let mutating = "lock_when's predicate must take the value as `&T`, not `&mut T`";
+    rejects(
+        &program(
+            "def bump(v: &mut i64) -> bool:\n    *v = 1\n    True\n\ndef f(m: &Mutex[i64], d: &Deadline, c: &CancellationToken) -> Result[(), LockError]:\n    with m.lock_when(bump, d, c)?:\n        pass\n    Ok(())\n",
+        ),
+        mutating,
+    );
+    rejects(
+        &waiter(
+            "    bump = (def (v: &mut i64) -> bool: True)\n    with m.lock_when(&bump, d, c)?:\n        pass",
+        ),
+        mutating,
+    );
+    rejects(
+        &waiter("    with m.lock_when(ready, c, d)?:\n        pass"),
+        "lock_when's second argument must name a std.time `Deadline`: `&deadline`",
+    );
+    rejects(
+        &waiter("    with m.lock_when(ready, d, d)?:\n        pass"),
+        "lock_when's third argument must name a `CancellationToken`: `&cancel`",
+    );
+    rejects(
+        &waiter("    with m.lock_when(ready, d)?:\n        pass"),
+        "lock_when takes three arguments: `lock_when(ready, &deadline, &cancel)`",
+    );
+    let form = "lock_when() is valid only as a propagated `with` manager: `with mutex.lock_when(ready, &deadline, &cancel)? as value:`";
+    rejects(
+        &waiter("    with m.lock_when(ready, d, c) as v:\n        pass"),
+        form,
+    );
+    rejects(&waiter("    m.lock_when(ready, d, c)?"), form);
+    rejects(
+        &program(
+            "def f(m: &Mutex[i64], d: &Deadline, c: &CancellationToken) -> Result[(), AllocError]:\n    with m.lock_when(ready, d, c)?:\n        pass\n    Ok(())\n",
+        ),
+        "`?` operand error std.sync.LockError cannot propagate as",
+    );
+}
+
+#[test]
+fn joining_under_a_lock_now_is_rejected() {
+    let worker = "def work(m: &Mutex[i64]) -> Result[(), OverflowError[i64]]:\n    with m.lock() as v:\n        *v = *v + 1\n    Ok(())\n\n";
+    rejects(
+        &format!(
+            "{HEADER}{worker}def main() -> Result[(), SpawnError[()] | LockError]:\n    m = Mutex(1)\n    with m.lock_now()? as a:\n        with spawn(work, &m)?:\n            pass\n    Ok(())\n"
+        ),
+        "leaving this `with` block joins a task whose worker can lock a `Mutex[i64]` while this function holds a lock on a `Mutex[i64]`",
     );
 }
 

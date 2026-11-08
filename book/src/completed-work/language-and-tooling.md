@@ -5,6 +5,18 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## Completed proposal classification
+
+The [completed proposal index](../proposals/completed/index.md) and book
+navigation now group delivered derived serialization (B77), structural keys
+(B74), checked-default arithmetic (B14), the Polars foundation (B76), and the
+already completed boxed-protocol design. Concluded arena, typestate and
+thread-local reference-count investigations live there with explicit outcomes;
+none implies a new arena API, linear obligations or a non-atomic count mode.
+Current reference/delivery records and local merge metadata establish this
+classification. Feature suites were not rerun for this documentation move.
+Partly delivered and unimplemented designs retain their active entries.
+
 ## Joins with nonblocking workers (issue #793)
 
 A join, pool shutdown, or result wait is no longer rejected for a live opposite
@@ -443,7 +455,7 @@ return typed integer overflow/zero-division errors for arithmetic written in the
 block; float `div_checked` and nontrapping `MIN % -1` accompanied them
 (issue #557). The lexical private callback channel from issue #614 (B93)
 is superseded by independent declared function/closure error contracts in the
-[checked-default compiler core](../proposals/checked-by-default/implementation.md#current-implementation).
+[checked-default compiler core](../proposals/completed/checked-by-default/implementation.md#current-implementation).
 The [reference rationale](../design/language/03-types/numbers.md#function-arithmetic-contracts)
 and [numeric tutorial](../tutorial/02-values/numeric-operations.md#recover-from-overflow)
 explain why native arithmetic uses the function's declared error boundary:
@@ -772,6 +784,11 @@ See the
 The [language server](../design/toolchain/01-building/language-server.md)
 provides diagnostics, hover, definition, completion and simple-local inferred
 type hints, with Neovim integration (issues #155/#554, local PR #196).
+Find references searches the declaring package and the workspace members that
+depend on it, through the package index shared with move-to-module (issue
+#821, slice 1). Rename of module-level declarations, import aliases and locals
+is checked before and after the edit and refuses what it cannot verify;
+members wait on issue #876 (issue #821).
 Compile-time constants/static assertions, embedded data and `if const target.*`
 shipped (local PR #628). Module constant indexing and import/module diagnostics
 were improved (issues #562/#568/#587).

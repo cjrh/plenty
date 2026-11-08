@@ -153,7 +153,7 @@ Integer-key checked as-of joins shipped (issue #453); Date/Datetime units,
 naive/UTC metadata, nullable epochs and calendar formatting followed (issue #457).
 Numeric widths, owned binary columns and nested list/struct schema/access/
 Parquet interchange shipped with issues #458–#460, preserving parent/child nulls.
-The [original spike](../proposals/polars-dataframes/evidence.md) records its evidence.
+The [original spike](../proposals/completed/polars-dataframes/evidence.md) records its evidence.
 
 The [sales report application](../tutorial/special-purpose/dataframe-application.md)
 and `examples/sales_report/` exercise catalogue validation, CSV/partitioned
@@ -461,6 +461,29 @@ arbitrary bytes, such as subprocess output, to text by replacing each maximal
 ill-formed subpart with U+FFFD, as Unicode and WHATWG specify. Strict
 `to_text` stays the default. The result is at most three bytes per input byte,
 and allocation failure is `AllocError`. See [lossy text](../design/stdlib/bytes.md#lossy-text).
+
+## Nonblocking mutex lock (issue #791, part 1)
+
+`with mutex.lock_now()? as value:` takes a `Mutex[T]` only if it is free and
+otherwise propagates `std.sync.LockError.WouldBlock`. It is an inline
+compare-exchange with no allocation or waiting. It may nest under a lock on a
+place that might alias it, such as `cells[i]` then `cells[j]`. Relocking a held
+place is still rejected, and the wait checks treat the lock as held. See
+[locking without waiting](../design/facilities/03-concurrency/mutex.md#locking-without-waiting).
+Condition waiting followed in
+[part 2](#mutex-condition-waits-issue-791-part-2).
+
+## Mutex condition waits (issue #791, part 2)
+
+`with mutex.lock_when(ready, &deadline, &cancel)? as value:` locks a
+`Mutex[T]`, waits until `ready(value)` holds, and runs the block with the lock
+held, or propagates `LockError.TimedOut` or `LockError.Cancelled` after
+unlocking. Every unlock that follows a change wakes the waiters through a
+sequence word in the mutex, so there is no notify call or separate condition
+variable; nothing allocates. The compiler rejects a predicate that can wait or
+whose body it cannot see, and `lock_when` under another lock. See
+[waiting for a condition](../design/facilities/03-concurrency/mutex.md#waiting-for-a-condition).
+A deadline for acquiring the lock itself (`lock_before`) remains in B56.
 
 ## Memory-mapping package experiment (issue #480)
 

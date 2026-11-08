@@ -181,7 +181,12 @@ impl Liveness {
             Op::MoveLocal(slot)
             | Op::BorrowLocal(slot, _)
             | Op::Next(slot)
-            | Op::Mutex(crate::mutex::MutexOp::Lock(slot) | crate::mutex::MutexOp::Unlock(slot))
+            | Op::Mutex(
+                crate::mutex::MutexOp::Lock(slot)
+                | crate::mutex::MutexOp::LockNow(slot)
+                | crate::mutex::MutexOp::Unlock(slot)
+                | crate::mutex::MutexOp::Wait(slot, _),
+            )
             | Op::Thread(
                 crate::threading::ThreadOp::Start(_, slot, _)
                 | crate::threading::ThreadOp::Finish(_, slot),

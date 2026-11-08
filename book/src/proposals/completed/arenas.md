@@ -3,14 +3,14 @@
 > **Status: Investigation complete.** Owned-chain and tree-rotation examples,
 > an arena lesson, and a checked-source prototype exercise existing Plenty.
 > No `std.arena` API or new borrowing capability has shipped. The
-> [recursive-storage](../design/language/03-types/recursive-data.md),
-> [borrowing](../design/language/05-ownership/02-borrowing.md), and
-> [box](../design/facilities/01-builtins/boxes.md) references own current behavior.
-> B73 in the [backlog](../backlog.md) owns arena delivery; B11 owns broader
+> [recursive-storage](../../design/language/03-types/recursive-data.md),
+> [borrowing](../../design/language/05-ownership/02-borrowing.md), and
+> [box](../../design/facilities/01-builtins/boxes.md) references own current behavior.
+> B73 in the [backlog](../../backlog.md) owns arena delivery; B11 owns broader
 > borrowed traversal and collection-loan precision.
 
 For representation and destruction rationale, see
-[recursive owned data](recursive-data.md). This assessment focuses on how to
+[recursive owned data](../recursive-data.md). This assessment focuses on how to
 write and manipulate those structures using today's language.
 
 ## Make the correct representation easy to use
@@ -47,9 +47,9 @@ a 32-byte header before its payload; simpler syntax is not evidence of lower
 per-node memory cost. No comparative timing benchmark was performed.
 
 For ordinary stacks use a list; for queues use the existing
-[`std.deque`](../design/stdlib/deque.md). Its growth already preserves existing
+[`std.deque`](../../design/stdlib/deque.md). Its growth already preserves existing
 contents on failure. Keep owned chains and tree rotations as
-[teaching examples](../design/examples/data-structures/index.md) until an
+[teaching examples](../../design/examples/data-structures/index.md) until an
 application motivates a stronger packaged collection API.
 
 ## Candidate arena contract
@@ -96,8 +96,8 @@ domain. A non-reusing runtime token is one possible narrow primitive; an owned
 issuer with enforced domain separation is another. Concurrency, copying,
 serialization, and exhaustion determine which contract is sound and convenient.
 
-[`std.atomic`](../design/stdlib/atomic.md) and
-[`std.sync.Mutex`](../design/stdlib/sync.md) now provide synchronized mutation
+[`std.atomic`](../../design/stdlib/atomic.md) and
+[`std.sync.Mutex`](../../design/stdlib/sync.md) now provide synchronized mutation
 through scoped shared borrows. An atomic counter could serve one identity issuer,
 but separate counters can issue the same numbers: issuer uniqueness and lifetime
 remain part of the arena contract. Atomics do not by themselves provide shared
