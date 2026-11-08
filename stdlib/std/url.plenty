@@ -133,15 +133,17 @@ pub class Pair:
 
 # `max_bytes` bounds the UTF-8 length of `text`; nothing proportional to a
 # longer input is allocated.
-pub def parse(text: &str, max_bytes: NonNegative[i64]) -> Result[Url, UrlError]:
+pub def parse(text: &strview, max_bytes: NonNegative[i64]) -> Result[Url, UrlError]:
     # Separators and suffixes advance only within the bounded input; two-byte advances follow length checks.
     unchecked:
-        source = bounded(text, max_bytes.get())?
-        count = source.len()
-        colon = until(&source, 0, count, 3)?
+        if text.byte_len() > max_bytes.get():
+            return Err(UrlError.LimitExceeded)
+        source = text.as_bytes()
+        count = len(source)
+        colon = until(source, 0, count, 3)?
         if colon == 0 or colon == count or i64(source[colon]) != 58:
             return Err(UrlError.MissingScheme)
-        check_scheme(&source, 0, colon)?
+        check_scheme(source, 0, colon)?
         mut index = colon + 1
         mut user_start = -1
         mut user_end = -1
@@ -149,21 +151,21 @@ pub def parse(text: &str, max_bytes: NonNegative[i64]) -> Result[Url, UrlError]:
         mut host_end = -1
         mut port = -1
         if count - index >= 2 and i64(source[index]) == 47 and i64(source[index + 1]) == 47:
-            end = until(&source, index + 2, count, 0)?
+            end = until(source, index + 2, count, 0)?
             host_start = index + 2
             # Neither userinfo nor a host may contain `@`, so the first one
             # separates them and any other is an error in the host.
-            match source.find(64u8, host_start, end):
+            match byte_find_range(source, 64u8, host_start, end):
                 case Some(at):
                     user_start = host_start
                     user_end = at
                     host_start = at + 1
-                    check(&source, user_start, user_end, 0, True)?
+                    check(source, user_start, user_end, 0, True)?
                 case Nothing:
                     pass
             host_end = end
             if host_start < end and i64(source[host_start]) == 91:
-                match source.find(93u8, host_start, end):
+                match byte_find_range(source, 93u8, host_start, end):
                     case Some(close):
                         host_end = close + 1
                     case Nothing:
@@ -171,34 +173,34 @@ pub def parse(text: &str, max_bytes: NonNegative[i64]) -> Result[Url, UrlError]:
                 if host_end < end:
                     if i64(source[host_end]) != 58:
                         return Err(UrlError.InvalidHost(host_end))
-                    port = port_number(&source, host_end + 1, end)?
+                    port = port_number(source, host_end + 1, end)?
             else:
-                match source.find(58u8, host_start, end):
+                match byte_find_range(source, 58u8, host_start, end):
                     case Some(separator):
                         host_end = separator
-                        port = port_number(&source, separator + 1, end)?
+                        port = port_number(source, separator + 1, end)?
                     case Nothing:
                         pass
-            check_host(&source, host_start, host_end)?
+            check_host(source, host_start, host_end)?
             index = end
-        path_end = until(&source, index, count, 1)?
-        check(&source, index, path_end, 2, False)?
+        path_end = until(source, index, count, 1)?
+        check(source, index, path_end, 2, False)?
         mut query_start = -1
         mut query_end = path_end
         if path_end < count and i64(source[path_end]) == 63:
             query_start = path_end + 1
-            query_end = until(&source, query_start, count, 2)?
-            check(&source, query_start, query_end, 3, False)?
+            query_end = until(source, query_start, count, 2)?
+            check(source, query_start, query_end, 3, False)?
         mut fragment_start = -1
         if query_end < count:
             fragment_start = query_end + 1
-            check(&source, fragment_start, count, 3, False)?
-        scheme = text_of(&source, 0, colon)?
-        userinfo = optional(&source, user_start, user_end)?
-        host = optional(&source, host_start, host_end)?
-        path = text_of(&source, index, path_end)?
-        query = optional(&source, query_start, query_end)?
-        fragment = optional(&source, fragment_start, count)?
+            check(source, fragment_start, count, 3, False)?
+        scheme = text_of(source, 0, colon)?
+        userinfo = optional(source, user_start, user_end)?
+        host = optional(source, host_start, host_end)?
+        path = text_of(source, index, path_end)?
+        query = optional(source, query_start, query_end)?
+        fragment = optional(source, fragment_start, count)?
         mut port_value = Option[i64].Nothing
         if port >= 0:
             port_value = Some(port)
@@ -272,44 +274,44 @@ def percent_from(source: &[u8], start: i64) -> i64:
             return len(source)
         start + found
 
-pub def encode(text: &str, component: Component) -> Result[str, UrlError]:
-    source = allocated(std.bytes.from_text(text))?
-    lifted(encode_bytes(&source, component)?.to_text())
+pub def encode(text: &strview, component: Component) -> Result[str, UrlError]:
+    source = text.as_bytes()
+    lifted(encode_bytes(source, component)?.to_text())
 
 # `InvalidUtf8` when the decoded bytes are not UTF-8; use `decode_bytes` for
 # data that is not text.
-pub def decode(text: &str) -> Result[str, UrlError]:
-    source = allocated(std.bytes.from_text(text))?
-    lifted(decode_bytes(&source)?.to_text())
+pub def decode(text: &strview) -> Result[str, UrlError]:
+    source = text.as_bytes()
+    lifted(decode_bytes(source)?.to_text())
 
 # One pair per `&`-separated piece, split at its first `=`, then decoded. A
 # piece without `=` has an empty value. The empty query has no pairs.
-pub def query_pairs(query: &str) -> Result[list[Pair], UrlError]:
+pub def query_pairs(query: &strview) -> Result[list[Pair], UrlError]:
     # Found separators are within source; the last pair breaks before advancing past count.
     unchecked:
-        source = allocated(std.bytes.from_text(query))?
-        count = source.len()
+        source = query.as_bytes()
+        count = len(source)
         mut pairs = allocated(list[Pair]())?
         if count == 0:
             return Ok(pairs)
         mut start = 0
         while start <= count:
             mut stop = count
-            match source.find(38u8, start, count):
+            match byte_find_range(source, 38u8, start, count):
                 case Some(found):
                     stop = found
                 case Nothing:
                     pass
             mut split = stop
-            match source.find(61u8, start, stop):
+            match byte_find_range(source, 61u8, start, stop):
                 case Some(found):
                     split = found
                 case Nothing:
                     pass
-            key = lifted(decoded_part(&source, start, split)?.to_text())?
+            key = lifted(decoded_part(source, start, split)?.to_text())?
             mut value = ""
             if split < stop:
-                value = lifted(decoded_part(&source, split + 1, stop)?.to_text())?
+                value = lifted(decoded_part(source, split + 1, stop)?.to_text())?
             allocated(pairs.append(Pair(key, value)))?
             if stop == count:
                 break
@@ -363,28 +365,22 @@ def allocated[T](result: Result[T, AllocError]) -> Result[T, UrlError]:
 def emit(target: &mut Bytes, value: i64) -> Result[(), UrlError]:
     allocated(target.push(u8(value)))
 
-def put(target: &mut Bytes, text: &str) -> Result[(), UrlError]:
-    piece = allocated(std.bytes.from_text(text))?
-    allocated(target.extend(&piece))
+def put(target: &mut Bytes, text: &strview) -> Result[(), UrlError]:
+    piece = text.as_bytes()
+    allocated(target.extend(piece))
 
-def text_of(source: &Bytes, start: i64, stop: i64) -> Result[str, UrlError]:
-    lifted(source.to_text_range(start, stop))
+def text_of(source: &[u8], start: i64, stop: i64) -> Result[str, UrlError]:
+    lifted(std.bytes.to_text(&source[start:stop]))
 
-def optional(source: &Bytes, start: i64, stop: i64) -> Result[Option[str], UrlError]:
+def optional(source: &[u8], start: i64, stop: i64) -> Result[Option[str], UrlError]:
     if start < 0:
         return Ok(Nothing)
     Ok(Some(text_of(source, start, stop)?))
 
-# The limit is checked before the copy, so over-limit text allocates nothing.
-def bounded(text: &str, max_bytes: i64) -> Result[Bytes, UrlError]:
-    if text.byte_len() > max_bytes:
-        return Err(UrlError.LimitExceeded)
-    allocated(std.bytes.from_text(text))
-
 # First index in the range holding a delimiter, or `stop`. Level 0 stops at
 # `/`, `?`, `#`; 1 at `?`, `#`; 2 at `#`; 3 at `:` as well as level 0. Each
 # native scan only searches before the earliest delimiter found so far.
-def until(source: &Bytes, start: i64, stop: i64, level: i64) -> Result[i64, UrlError]:
+def until(source: &[u8], start: i64, stop: i64, level: i64) -> Result[i64, UrlError]:
     mut end = earliest(source, 35u8, start, stop)?
     if level != 2:
         end = earliest(source, 63u8, start, end)?
@@ -394,8 +390,8 @@ def until(source: &Bytes, start: i64, stop: i64, level: i64) -> Result[i64, UrlE
         end = earliest(source, 58u8, start, end)?
     Ok(end)
 
-def earliest(source: &Bytes, value: u8, start: i64, stop: i64) -> Result[i64, UrlError]:
-    match source.find(value, start, stop):
+def earliest(source: &[u8], value: u8, start: i64, stop: i64) -> Result[i64, UrlError]:
+    match byte_find_range(source, value, start, stop):
         case Some(found):
             Ok(found)
         case Nothing:
@@ -468,7 +464,7 @@ def hex_value(code: i64) -> i64:
         -1
 
 # A component as written: literals of its kind and well-formed escapes.
-def check(source: &Bytes, start: i64, stop: i64, kind: i64, colon: bool) -> Result[(), UrlError]:
+def check(source: &[u8], start: i64, stop: i64, kind: i64, colon: bool) -> Result[(), UrlError]:
     # Ranges are validated by private callers; each escape is length-checked before advancing.
     unchecked:
         mut index = start
@@ -484,7 +480,7 @@ def check(source: &Bytes, start: i64, stop: i64, kind: i64, colon: bool) -> Resu
                 return Err(UrlError.InvalidByte(index))
         Ok(())
 
-def check_scheme(source: &Bytes, start: i64, stop: i64) -> Result[(), UrlError]:
+def check_scheme(source: &[u8], start: i64, stop: i64) -> Result[(), UrlError]:
     if start == stop:
         return Err(UrlError.MissingScheme)
     for index in range(start, stop):
@@ -494,7 +490,7 @@ def check_scheme(source: &Bytes, start: i64, stop: i64) -> Result[(), UrlError]:
     Ok(())
 
 # One to five digits with no leading zero, at most 65535.
-def port_number(source: &Bytes, start: i64, stop: i64) -> Result[i64, UrlError]:
+def port_number(source: &[u8], start: i64, stop: i64) -> Result[i64, UrlError]:
     # At most five validated decimal digits fit i64, including the intermediate ASCII offset.
     unchecked:
         if stop == start or stop - start > 5:
@@ -509,7 +505,7 @@ def port_number(source: &Bytes, start: i64, stop: i64) -> Result[i64, UrlError]:
             return Err(UrlError.InvalidPort(start))
         Ok(value)
 
-def check_host(source: &Bytes, start: i64, stop: i64) -> Result[(), UrlError]:
+def check_host(source: &[u8], start: i64, stop: i64) -> Result[(), UrlError]:
     # The bracket/length checks bound each two-byte advance and final-byte subtraction.
     unchecked:
         if start == stop or i64(source[start]) != 91:
@@ -527,7 +523,7 @@ def check_host(source: &Bytes, start: i64, stop: i64) -> Result[(), UrlError]:
         Ok(())
 
 # RFC 3986 `IPvFuture` after its `v`: hex digits, `.`, then address text.
-def future(source: &Bytes, start: i64, stop: i64) -> Result[bool, UrlError]:
+def future(source: &[u8], start: i64, stop: i64) -> Result[bool, UrlError]:
     # Cursors advance only below stop; the dot/address check precedes the final +1.
     unchecked:
         mut index = start
@@ -543,7 +539,7 @@ def future(source: &Bytes, start: i64, stop: i64) -> Result[bool, UrlError]:
 
 # RFC 3986 `IPv6address`: eight 16-bit groups, where one `::` stands for one
 # or more zero groups and a dotted IPv4 address may replace the last two.
-def ipv6(source: &Bytes, start: i64, stop: i64) -> Result[bool, UrlError]:
+def ipv6(source: &[u8], start: i64, stop: i64) -> Result[bool, UrlError]:
     # Cursors stay within source, and group increments count a subset of consumed bytes.
     unchecked:
         if stop - start < 2:
@@ -587,7 +583,7 @@ def ipv6(source: &Bytes, start: i64, stop: i64) -> Result[bool, UrlError]:
         Ok(groups == 8)
 
 # Four decimal octets, each 0 to 255 with no leading zero.
-def ipv4(source: &Bytes, start: i64, stop: i64) -> Result[bool, UrlError]:
+def ipv4(source: &[u8], start: i64, stop: i64) -> Result[bool, UrlError]:
     # At most four decimal digits are accumulated before rejecting an overlong octet.
     unchecked:
         mut index = start
@@ -608,3 +604,12 @@ def ipv4(source: &Bytes, start: i64, stop: i64) -> Result[bool, UrlError]:
                     return Ok(False)
                 index += 1
         Ok(index == stop)
+
+# Internal callers supply 0 <= start <= stop <= len(data). A found
+# relative position is below stop - start, so adding start stays in range.
+def byte_find_range(data: &[u8], value: u8, start: i64, stop: i64) -> Option[i64]:
+    found = __bytes_find(&data[start:stop], value)
+    if found < 0:
+        return Nothing
+    unchecked:
+        Some(start + found)

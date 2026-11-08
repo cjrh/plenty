@@ -287,13 +287,13 @@ pub class WebSocket[T]:
             at = end
         Ok(())
 
-    # Sends `text` as one text message. The text is first copied into a
-    # buffer; `send` with Kind.Text sends bytes the caller already holds.
-    pub def send_text(self: &mut WebSocket[T], text: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]:
+    # Sends `text` as one text message, reading its UTF-8 bytes directly.
+    # `send` with Kind.Text accepts bytes the caller already holds.
+    pub def send_text(self: &mut WebSocket[T], text: &strview, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]:
         if cancel.is_cancelled():
             return Err(WebSocketError.Net(NetError.Cancelled))
-        data = allocated(std.bytes.from_text(text))?
-        self.send(Kind.Text, &data, deadline, cancel)
+        data = text.as_bytes()
+        self.send(Kind.Text, data, deadline, cancel)
 
     # Sends a ping with `data`, at most 125 bytes, as its payload. The peer's
     # pong is skipped by `receive`.
@@ -311,7 +311,7 @@ pub class WebSocket[T]:
     # sends the close, skips any messages still arriving until the peer's
     # close, then shuts the stream down. Closing a connection whose closing
     # handshake already finished does nothing.
-    pub def close(self: &mut WebSocket[T], code: i64, reason: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]:
+    pub def close(self: &mut WebSocket[T], code: i64, reason: &strview, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]:
         if cancel.is_cancelled():
             return Err(WebSocketError.Net(NetError.Cancelled))
         if self._state == state_done:
@@ -326,8 +326,8 @@ pub class WebSocket[T]:
                 2 + reason.byte_len()
             mut payload = allocated(std.bytes.with_capacity(capacity))?
             encoded(std.encoding.append_u16(&mut payload, u16(code), Endian.Big))?
-            spelled = allocated(std.bytes.from_text(reason))?
-            allocated(payload.extend(&spelled))?
+            spelled = reason.as_bytes()
+            allocated(payload.extend(spelled))?
             outcome = self.frame(op_close, &payload, True, deadline, cancel)
             self.sent(outcome)?
             self._state = state_closing
@@ -707,7 +707,7 @@ def opened[T](stream: T, input: Bytes, client: bool, config: &Config, subprotoco
 
 # Whether a comma-separated element of a field named `name` is `token`:
 # ignoring ASCII case when `folded`, else exactly.
-def lists(headers: &list[Header], name: &str, token: &str, folded: bool) -> Result[bool, WebSocketError]:
+def lists(headers: &list[Header], name: &strview, token: &strview, folded: bool) -> Result[bool, WebSocketError]:
     for index in range(len(headers)):
         if std.http.same_name(headers[index].name, name):
             elements = allocated(headers[index].value.split(","))?
@@ -715,13 +715,13 @@ def lists(headers: &list[Header], name: &str, token: &str, folded: bool) -> Resu
                 trimmed = allocated(element.strip())?
                 if folded and std.http.same_name(trimmed, token):
                     return Ok(True)
-                if not folded and trimmed == *token:
+                if not folded and trimmed == token:
                     return Ok(True)
     Ok(False)
 
 # The value of the only field named `name`, or Nothing when there is none
 # or more than one.
-def only(headers: &list[Header], name: &str) -> Option[str]:
+def only(headers: &list[Header], name: &strview) -> Option[str]:
     mut found: Option[str] = Nothing
     for index in range(len(headers)):
         if std.http.same_name(headers[index].name, name):
@@ -731,7 +731,7 @@ def only(headers: &list[Header], name: &str) -> Option[str]:
     found
 
 # base64(SHA-1(key + GUID)), the Sec-WebSocket-Accept value (section 4.2.2).
-def accept_key(key: &str) -> Result[str, WebSocketError]:
+def accept_key(key: &strview) -> Result[str, WebSocketError]:
     mut digest = hashed(std.crypto.digest(Algorithm.Sha1))?
     hashed(digest.update_text(key))?
     hashed(digest.update_text("258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))?
@@ -843,7 +843,7 @@ def url_of[T](result: Result[T, UrlError]) -> Result[T, WebSocketError]:
 
 # Parses a `ws://` or `wss://` URL. URLs with credentials or a fragment are
 # rejected (RFC 6455 section 3).
-pub def target(url: &str) -> Result[Target, WebSocketError]:
+pub def target(url: &strview) -> Result[Target, WebSocketError]:
     parsed = url_of(std.url.parse(url, max_url))?
     scheme = allocated(parsed.scheme.lower())?
     if scheme != "ws" and scheme != "wss":
@@ -1006,7 +1006,7 @@ pub def handshake[T: Transport](stream: T, target: &Target, config: &Config, dea
     opened(opened_stream, input, True, config, agreed, cancel.share(), cancel.share())
 
 # Connects to a `ws://` URL. `wss://` URLs need std.http.wss.
-pub def connect(url: &str, config: &Config, deadline: &Deadline, cancel: &CancellationToken) -> Result[WebSocket[TcpStream], WebSocketError]:
+pub def connect(url: &strview, config: &Config, deadline: &Deadline, cancel: &CancellationToken) -> Result[WebSocket[TcpStream], WebSocketError]:
     found = target(url)?
     if found.secure:
         return Err(WebSocketError.UnsupportedScheme)

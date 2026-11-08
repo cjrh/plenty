@@ -79,7 +79,7 @@ def opened[T](result: Result[T, IoError]) -> Result[Option[T], FilesError]:
                 return Ok(Nothing)
             Err(FilesError.Io(error))
 
-def segment(data: &Bytes, start: i64, stop: i64) -> Result[Option[std.path.Path], FilesError]:
+def segment(data: &[u8], start: i64, stop: i64) -> Result[Option[std.path.Path], FilesError]:
     # Empty segments come from a leading `/` or `//`; a leading `.` covers
     # `.`, `..` and hidden files such as `.env` or `.git`.
     if stop == start or data[start] == 46u8:
@@ -87,7 +87,7 @@ def segment(data: &Bytes, start: i64, stop: i64) -> Result[Option[std.path.Path]
     for index in range(start, stop):
         if data[index] == 0u8:
             return Ok(Nothing)
-    text = lifted(data.to_text_range(start, stop))?
+    text = lifted(std.bytes.to_text(&data[start:stop]))?
     match std.path.from_text(&text):
         case Ok(name):
             Ok(Some(name))
@@ -99,21 +99,21 @@ def segment(data: &Bytes, start: i64, stop: i64) -> Result[Option[std.path.Path]
 # path is refused (empty, absolute, a segment that is empty or starts with
 # `.`, a NUL byte, longer than max_path) or names no regular file reachable
 # without following a link.
-pub def open_file(root: &Root, path: &str) -> Result[Option[FileStream], FilesError]:
+pub def open_file(root: &Root, path: &strview) -> Result[Option[FileStream], FilesError]:
     if path.byte_len() == 0 or path.byte_len() > max_path:
         return Ok(Nothing)
-    data = allocated(std.bytes.from_text(path))?
-    count = data.len()
+    data = path.as_bytes()
+    count = len(data)
     mut directory: Option[Root] = Nothing
     mut at = 0
     while True:
         mut stop = count
-        match data.find(47u8, at, count):
+        match byte_find_range(data, 47u8, at, count):
             case Some(found):
                 stop = found
             case Nothing:
                 pass
-        name = match segment(&data, at, stop)?:
+        name = match segment(data, at, stop)?:
             case Some(value):
                 value
             case Nothing:
@@ -141,7 +141,7 @@ pub def open_file(root: &Root, path: &str) -> Result[Option[FileStream], FilesEr
 
 # The media type for `name`'s extension, compared without case;
 # application/octet-stream for any other. The table is std.mime's.
-pub def media_type(name: &str) -> str:
+pub def media_type(name: &strview) -> str:
     std.mime.from_file_name(name)
 
 # Dates
@@ -173,7 +173,7 @@ pub def http_date(timestamp: &Timestamp) -> Result[Option[str], FilesError]:
     http(std.http.http_date(timestamp))
 
 # The decimal number in data[start:start + count], or -1.
-def digits(data: &Bytes, start: i64, count: i64) -> i64:
+def digits(data: &[u8], start: i64, count: i64) -> i64:
     # Only fixed date fields reach here: count is 2 or 4 and
     # start+count<=29. Validated decimal bytes accumulate at most 9999
     # (including the pre-subtraction intermediate, at most 10047).
@@ -186,7 +186,7 @@ def digits(data: &Bytes, start: i64, count: i64) -> i64:
             value = value * 10 + byte - 48
         value
 
-def same_bytes(data: &Bytes, start: i64, text: &Bytes, offset: i64, count: i64) -> bool:
+def same_bytes(data: &[u8], start: i64, text: &[u8], offset: i64, count: i64) -> bool:
     # Callers validate both byte ranges; index<count implies
     # start+index<len(data) and offset+index<len(text).
     unchecked:
@@ -197,30 +197,30 @@ def same_bytes(data: &Bytes, start: i64, text: &Bytes, offset: i64, count: i64) 
 
 # Seconds since the epoch of an IMF-fixdate. The obsolete RFC 850 and
 # asctime forms are not accepted; a date that does not parse is ignored.
-pub def parse_http_date(text: &str) -> Result[Option[Timestamp], FilesError]:
+pub def parse_http_date(text: &strview) -> Result[Option[Timestamp], FilesError]:
     # The fixed 29-byte layout bounds digits to four decimal places;
     # validated years are 1970..9999, months 1..12, days 1..31. Month
     # indexes are at most 36. Converted days have magnitude below four
     # million; second totals stay below 4e6*86400+86400, far below MAX.
     unchecked:
-        data = allocated(std.bytes.from_text(text))?
-        if data.len() != 29:
+        data = text.as_bytes()
+        if len(data) != 29:
             return Ok(Nothing)
         tail = allocated(std.bytes.from_text(" GMT"))?
-        if not same_bytes(&data, 25, &tail, 0, 4) or data[3] != 44u8 or data[4] != 32u8 or data[7] != 32u8 or data[11] != 32u8 or data[16] != 32u8 or data[19] != 58u8 or data[22] != 58u8:
+        if not same_bytes(data, 25, &tail, 0, 4) or data[3] != 44u8 or data[4] != 32u8 or data[7] != 32u8 or data[11] != 32u8 or data[16] != 32u8 or data[19] != 58u8 or data[22] != 58u8:
             return Ok(Nothing)
         months = allocated(std.bytes.from_text(month_names()))?
         mut month = 0
         for index in range(12):
-            if same_bytes(&data, 8, &months, index * 3, 3):
+            if same_bytes(data, 8, &months, index * 3, 3):
                 month = index + 1
         if month == 0:
             return Ok(Nothing)
-        day = digits(&data, 5, 2)
-        year = digits(&data, 12, 4)
-        hour = digits(&data, 17, 2)
-        minute = digits(&data, 20, 2)
-        second = digits(&data, 23, 2)
+        day = digits(data, 5, 2)
+        year = digits(data, 12, 4)
+        hour = digits(data, 17, 2)
+        minute = digits(data, 20, 2)
+        second = digits(data, 23, 2)
         if day < 1 or day > 31 or year < 1970 or hour < 0 or hour > 23 or minute < 0 or minute > 59 or second < 0 or second > 59:
             return Ok(Nothing)
         seconds = days_from_civil(year, month, day) * 86400 + hour * 3600 + minute * 60 + second
@@ -235,7 +235,7 @@ pub def parse_http_date(text: &str) -> Result[Option[Timestamp], FilesError]:
 
 # Conditional requests
 
-def trimmed(data: &Bytes, start: i64, stop: i64) -> (i64, i64):
+def trimmed(data: &[u8], start: i64, stop: i64) -> (i64, i64):
     # 0<=start<=stop<=len(data); increments require first<last,
     # decrements require last>first>=0, so last-1 and each step fit.
     unchecked:
@@ -249,22 +249,22 @@ def trimmed(data: &Bytes, start: i64, stop: i64) -> (i64, i64):
 
 # Weak comparison (RFC 9110 section 8.8.3.2): `W/` is ignored on both sides.
 # `*` matches any existing file, including one without a tag (section 13.1.2).
-def tag_listed(field: &str, tag: &Option[Bytes]) -> Result[bool, FilesError]:
+def tag_listed(field: &strview, tag: &Option[Bytes]) -> Result[bool, FilesError]:
     # Positions stay in 0..count; weak-prefix indexes require
     # last-first>=2. Generated validator tags have at least two bytes.
     # Matching lengths bound same_bytes ranges; stop+1 requires stop<count.
     unchecked:
-        data = allocated(std.bytes.from_text(field))?
-        count = data.len()
+        data = field.as_bytes()
+        count = len(data)
         mut at = 0
         while at <= count:
             mut stop = count
-            match data.find(44u8, at, count):
+            match byte_find_range(data, 44u8, at, count):
                 case Some(found):
                     stop = found
                 case Nothing:
                     pass
-            (first, last) = trimmed(&data, at, stop)
+            (first, last) = trimmed(data, at, stop)
             if last - first == 1 and data[first] == 42u8:
                 return Ok(True)
             match tag:
@@ -274,7 +274,7 @@ def tag_listed(field: &str, tag: &Option[Bytes]) -> Result[bool, FilesError]:
                         begin = first + 2
                     # `value` is `W/"..."`; compare its quoted part.
                     quoted = value.len() - 2
-                    if last - begin == quoted and same_bytes(&data, begin, value, 2, quoted):
+                    if last - begin == quoted and same_bytes(data, begin, value, 2, quoted):
                         return Ok(True)
                 case Nothing:
                     pass
@@ -369,7 +369,7 @@ def add_validators(head: &mut ResponseHead, found: &Validators) -> Result[(), Fi
 # matches, 404 for a refused or missing path, 405 with `Allow: GET, HEAD` for
 # any other method. Memory is one 16 KiB buffer and the response head,
 # whatever the file's size.
-pub def serve[T: Transport](exchange: &mut Exchange[T], root: &Root, path: &str) -> Result[i64, FilesError]:
+pub def serve[T: Transport](exchange: &mut Exchange[T], root: &Root, path: &strview) -> Result[i64, FilesError]:
     method = exchange.request.method
     if method != "GET" and method != "HEAD":
         mut head = http(std.http.response(405, "Method Not Allowed"))?
@@ -426,3 +426,12 @@ pub def serve[T: Transport](exchange: &mut Exchange[T], root: &Root, path: &str)
             remaining -= count
     http(exchange.end())?
     Ok(200)
+
+# Internal callers supply 0 <= start <= stop <= len(data). A found
+# relative position is below stop - start, so adding start stays in range.
+def byte_find_range(data: &[u8], value: u8, start: i64, stop: i64) -> Option[i64]:
+    found = __bytes_find(&data[start:stop], value)
+    if found < 0:
+        return Nothing
+    unchecked:
+        Some(start + found)

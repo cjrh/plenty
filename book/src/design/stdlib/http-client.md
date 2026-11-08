@@ -74,7 +74,7 @@ def main() -> Result[(), SpawnError[()] | std.http.server.ServerError | std.net.
 | `client.send(request, &deadline, &cancel)` | `Result[Response[T], ClientError]`: the final response head, after redirects |
 | `client.send_from(request, &mut body, &upload, &deadline, &cancel)` | `send` with the body read from `body`, a `std.io` `Reader`; see [Streamed bodies](#streamed-bodies) |
 | `client.fetch(request, &deadline, &cancel)` | `Result[Fetched, ClientError]`: `send`, read the whole body, `finish` |
-| `client.get(url: &str, &deadline, &cancel)` | `fetch` of a `GET` |
+| `client.get(url: &strview, &deadline, &cancel)` | `fetch` of a `GET` |
 | `client.finish(response)` | Pool the connection if the body was read to its end and both sides allow reuse; otherwise close it |
 | `client.close_idle()` | Close the connections pooled when it is called |
 | `client.idle()` | `i64`: pooled connections |
@@ -95,7 +95,7 @@ before it takes a connection, so it leaves pooled connections alone.
 
 | Item | Meaning |
 |---|---|
-| `request(method: &str, url: &str)` | `Result[Request, ClientError]` with no fields and an empty body |
+| `request(method: &strview, url: &strview)` | `Result[Request, ClientError]` with no fields and an empty body |
 | `Request.method`, `url`, `headers: list[Header]`, `body: Bytes` | Public fields |
 | `request.add(name, value)` | `Result[(), ClientError]`: append a field |
 | `Response.status`, `head: ResponseHead`, `url`, `redirects` | Final status and head, the URL that answered, and redirects followed |
@@ -274,7 +274,7 @@ body closes it.
 
 | Item | Meaning |
 |---|---|
-| `proxy(url: &str)` | `Result[Proxy, ClientError]` for `http://host:port`, no path or credentials |
+| `proxy(url: &strview)` | `Result[Proxy, ClientError]` for `http://host:port`, no path or credentials |
 | `Proxy.endpoint`, `authorization: Option[str]` | Where to connect, and the `Proxy-Authorization` value |
 
 With `config.proxy` set, every `http` request goes to the proxy with an

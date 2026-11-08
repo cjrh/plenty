@@ -56,6 +56,10 @@ forged token rejected
 
 See the [signature index](signatures.md#stdjwt) for complete declarations.
 
+Token inputs accept `&strview`, including selected substring ranges. The
+bounded token working buffer remains owned while header parsing and signature
+verification run; returned headers and claims retain owned values.
+
 ## Keys and algorithms
 
 A key is bound to one algorithm when it is made. `sign` uses that algorithm,

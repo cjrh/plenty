@@ -31,7 +31,7 @@ pub class MediaType:
         &self._params
 
     # The value of the parameter `name`, compared without case.
-    pub def param(self, name: &str) -> Option[str]:
+    pub def param(self, name: &strview) -> Option[str]:
         for item in &self._params:
             if same_ascii(&item.name, name):
                 return Some(item.value)
@@ -76,11 +76,11 @@ pub class MediaType:
     # Adds the parameter, or replaces the value of one with the same name.
     # `name` must be a token; `value` may be any text without control
     # characters other than tab.
-    pub def set_param(self: &mut MediaType, name: &str, value: &str) -> Result[(), MimeError]:
+    pub def set_param(self: &mut MediaType, name: &strview, value: &strview) -> Result[(), MimeError]:
         if not token_text(name) or not value_text(value):
             return Err(MimeError.Invalid)
         lower = name.lower().map_error(MimeError.Allocation)?
-        stored = value.lower().map_error(MimeError.Allocation)? if lower == "charset" else *value
+        stored = value.lower().map_error(MimeError.Allocation)? if lower == "charset" else value[:].map_error(MimeError.Allocation)?
         for index in range(len(self._params)):
             if self._params[index].name == lower:
                 self._params[index] = Param(lower, stored)
@@ -89,7 +89,7 @@ pub class MediaType:
         Ok(())
 
     # Removes the parameter `name`, compared without case; False when absent.
-    pub def remove_param(self: &mut MediaType, name: &str) -> bool:
+    pub def remove_param(self: &mut MediaType, name: &strview) -> bool:
         for index in range(len(self._params)):
             if same_ascii(&self._params[index].name, name):
                 drop(self._params.pop(index))
@@ -145,14 +145,14 @@ def ows(code: i64) -> bool:
 def text_byte(code: i64) -> bool:
     code == 9 or (code >= 32 and code != 127)
 
-def scalar_code(scalar: &str) -> i64:
+def scalar_code(scalar: &strview) -> i64:
     match ord(scalar):
         case Ok(code):
             i64(code)
         case Err(_):
             -1
 
-def token_text(text: &str) -> bool:
+def token_text(text: &strview) -> bool:
     if text.byte_len() == 0:
         return False
     for scalar in text:
@@ -160,7 +160,7 @@ def token_text(text: &str) -> bool:
             return False
     True
 
-def value_text(text: &str) -> bool:
+def value_text(text: &strview) -> bool:
     for scalar in text:
         if not text_byte(scalar_code(&scalar)):
             return False
@@ -175,49 +175,52 @@ def ascii_folded(code: i64) -> i64:
         code
 
 # ASCII comparison without case; parameter names are ASCII tokens.
-def same_ascii(left: &str, right: &str) -> bool:
-    # Equal byte lengths of ASCII text are equal scalar counts, so indexing
-    # `right` by `left`'s positions stays in range.
-    if left.byte_len() != right.byte_len() or not left.isascii() or not right.isascii():
+def same_ascii(left: &strview, right: &strview) -> bool:
+    same_ascii_bytes(left.as_bytes(), right.as_bytes())
+
+def same_ascii_bytes(left: &[u8], right: &[u8]) -> bool:
+    if len(left) != len(right):
         return False
-    for index, scalar in enumerate(left):
-        if ascii_folded(scalar_code(&scalar)) != ascii_folded(scalar_code(&right[index])):
+    for index in range(len(left)):
+        first = i64(left[index])
+        second = i64(right[index])
+        if first >= 128 or second >= 128 or ascii_folded(first) != ascii_folded(second):
             return False
     True
 
-def quoted(value: &str) -> Result[str, AllocError]:
+def quoted(value: &strview) -> Result[str, AllocError]:
     if token_text(value):
-        return Ok(*value)
+        return value[:]
     escaped = value.replace("\\", "\\\\")?.replace("\"", "\\\"")?
     "".join(&["\"", escaped, "\""]?)
 
-def token_end(data: &Bytes, start: i64, stop: i64) -> i64:
+def token_end(data: &[u8], start: i64, stop: i64) -> i64:
     mut index = start
     while index < stop and tchar(i64(data[index])):
-        # 0 <= index < stop <= data.len() <= i64.MAX.
+        # 0 <= index < stop <= len(data) <= i64.MAX.
         unchecked:
             index += 1
     index
 
-def ows_end(data: &Bytes, start: i64, stop: i64) -> i64:
+def ows_end(data: &[u8], start: i64, stop: i64) -> i64:
     mut index = start
     while index < stop and ows(i64(data[index])):
-        # 0 <= index < stop <= data.len() <= i64.MAX.
+        # 0 <= index < stop <= len(data) <= i64.MAX.
         unchecked:
             index += 1
     index
 
-def lowered(data: &Bytes, start: i64, stop: i64) -> Result[str, MimeError]:
-    text = lifted(data.to_text_range(start, stop))?
+def lowered(data: &[u8], start: i64, stop: i64) -> Result[str, MimeError]:
+    text = lifted(std.bytes.to_text(&data[start:stop]))?
     text.lower().map_error(MimeError.Allocation)
 
 # Parses `type/subtype *( OWS ";" OWS [ name=value ] )`, allowing OWS around
 # the whole text. Type, subtype and parameter names, and the value of
 # `charset`, are stored in lowercase; other values keep their case. A
 # repeated parameter name is an error.
-pub def parse(text: &str) -> Result[MediaType, MimeError]:
-    data = std.bytes.from_text(text).map_error(MimeError.Allocation)?
-    mut stop = data.len()
+pub def parse(text: &strview) -> Result[MediaType, MimeError]:
+    data = text.as_bytes()
+    mut stop = len(data)
     while stop > 0:
         # stop is a positive buffer endpoint.
         last = unchecked:
@@ -225,34 +228,34 @@ pub def parse(text: &str) -> Result[MediaType, MimeError]:
         if not ows(i64(data[last])):
             break
         stop = last
-    start = ows_end(&data, 0, stop)
-    slash = token_end(&data, start, stop)
+    start = ows_end(data, 0, stop)
+    slash = token_end(data, start, stop)
     if slash == start or slash == stop or data[slash] != 47u8:
         return Err(MimeError.Invalid)
     # The slash check proves slash < stop <= i64.MAX.
     subtype_start = unchecked:
         slash + 1
-    subtype_end = token_end(&data, subtype_start, stop)
+    subtype_end = token_end(data, subtype_start, stop)
     if subtype_end == subtype_start:
         return Err(MimeError.Invalid)
-    type_name = lowered(&data, start, slash)?
-    subtype = lowered(&data, subtype_start, subtype_end)?
+    type_name = lowered(data, start, slash)?
+    subtype = lowered(data, subtype_start, subtype_end)?
     mut params = list[Param]().map_error(MimeError.Allocation)?
     mut index = subtype_end
     while index < stop:
-        index = ows_end(&data, index, stop)
+        index = ows_end(data, index, stop)
         if data[index] != 59u8:
             return Err(MimeError.Invalid)
         # index points at a semicolon before stop.
         after_separator = unchecked:
             index + 1
-        index = ows_end(&data, after_separator, stop)
+        index = ows_end(data, after_separator, stop)
         if index == stop or data[index] == 59u8:
             continue
-        name_end = token_end(&data, index, stop)
+        name_end = token_end(data, index, stop)
         if name_end == index or name_end == stop or data[name_end] != 61u8:
             return Err(MimeError.Invalid)
-        name = lowered(&data, index, name_end)?
+        name = lowered(data, index, name_end)?
         # name_end points at an equals sign before stop.
         unchecked:
             index = name_end + 1
@@ -288,10 +291,10 @@ pub def parse(text: &str) -> Result[MediaType, MimeError]:
                 return Err(MimeError.Invalid)
             value = lifted(unquoted.to_text())?
         else:
-            value_end = token_end(&data, index, stop)
+            value_end = token_end(data, index, stop)
             if value_end == index:
                 return Err(MimeError.Invalid)
-            value = lifted(data.to_text_range(index, value_end))?
+            value = lifted(std.bytes.to_text(&data[index:value_end]))?
             index = value_end
         for item in &params:
             if item.name == name:
@@ -302,30 +305,13 @@ pub def parse(text: &str) -> Result[MediaType, MimeError]:
     Ok(MediaType(type_name, subtype, params))
 
 # A media type without parameters. Both names must be tokens.
-pub def new(type_name: &str, subtype: &str) -> Result[MediaType, MimeError]:
+pub def new(type_name: &strview, subtype: &strview) -> Result[MediaType, MimeError]:
     if not token_text(type_name) or not token_text(subtype):
         return Err(MimeError.Invalid)
     params = list[Param]().map_error(MimeError.Allocation)?
     Ok(MediaType(type_name.lower().map_error(MimeError.Allocation)?, subtype.lower().map_error(MimeError.Allocation)?, params))
 
 # Extensions
-
-# True when the scalars of `text` from `start` spell the lowercase ASCII
-# `expected`, compared without ASCII case.
-def extension_at(text: &str, start: i64, expected: &str) -> bool:
-    count = expected.byte_len()
-    # Callers pass 0 or one past a found dot: 0 <= start <= len(text).
-    remaining = unchecked:
-        len(text) - start
-    if remaining != count:
-        return False
-    for index in range(count):
-        # index < count == len(text) - start, so the sum is below len(text).
-        at = unchecked:
-            start + index
-        if ascii_folded(scalar_code(&text[at])) != scalar_code(&expected[index]):
-            return False
-    True
 
 # The fixed extension table: each row is an extension and its Content-Type.
 def table(index: i64) -> Option[(str, str)]:
@@ -375,16 +361,17 @@ def table(index: i64) -> Option[(str, str)]:
 
 # The Content-Type for a file extension given without its dot, compared
 # without ASCII case, or Nothing when the table has no entry.
-pub def from_extension(extension: &str) -> Option[str]:
-    lookup(extension, 0)
+pub def from_extension(extension: &strview) -> Option[str]:
+    lookup(extension.as_bytes())
 
-def lookup(text: &str, start: i64) -> Option[str]:
+def lookup(text: &[u8]) -> Option[str]:
     mut index = 0
     while True:
         match table(index):
             case Some(row):
-                if extension_at(text, start, &row[0]):
-                    return Some(row[1])
+                extension, content_type = row
+                if same_ascii_bytes(text, extension.as_bytes()):
+                    return Some(content_type)
             case Nothing:
                 return Nothing
         # table returns Nothing at 20, before the counter can grow further.
@@ -394,13 +381,14 @@ def lookup(text: &str, start: i64) -> Option[str]:
 
 # The Content-Type for the extension of the file name or path `name`, or
 # application/octet-stream when it has none in the table. Allocates nothing.
-pub def from_file_name(name: &str) -> str:
-    match name.rfind("."):
+pub def from_file_name(name: &strview) -> str:
+    data = name.as_bytes()
+    match std.bytes.rfind_byte(data, 46u8):
         case Some(dot):
-            # rfind returns a scalar position strictly below len(name).
+            # The found dot byte is strictly below len(data).
             start = unchecked:
                 dot + 1
-            match lookup(name, start):
+            match lookup(&data[start:]):
                 case Some(found):
                     found
                 case Nothing:

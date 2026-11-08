@@ -336,3 +336,21 @@ print(std.text.fill(empty, 10)? == "", std.text.join(&pieces, empty, 2)? == "ab"
         "9 True\nTrue True\n3 0\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue True"
     );
 }
+
+#[test]
+fn normalization_and_scalar_properties_accept_ranges() {
+    assert_eq!(
+        run(r#"
+source = "!é\0🙂!"
+print(std.unicode.nfc(&source[1:-1], 4)? == "é\0🙂")?
+composed = "!é!"
+print(std.unicode.nfd(&composed[1:-1], 2)? == "é")?
+compatibility = "!ﬃ!"
+print(std.unicode.nfkc(&compatibility[1:-1], 3)? == "ffi", std.unicode.nfkd(&compatibility[1:-1], 3)? == "ffi")?
+mark = "!́!"
+print(std.unicode.combining_class(&mark[1:-1]).unwrap() == 230u32, std.unicode.is_mark(&mark[1:-1]).unwrap())?
+print(absent(std.unicode.combining_class(&mark[0:0])), std.unicode.nfc(&source[0:0], 0)? == "")?
+"#),
+        "True\nTrue\nTrue True\nTrue True\nTrue True"
+    );
+}

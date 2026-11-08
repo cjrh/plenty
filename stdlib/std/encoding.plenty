@@ -38,11 +38,11 @@ pub class Encoding:
     pub def text(self, source: &[u8]) -> Result[str, EncodingError]:
         lifted(self.encode(source)?.to_text())
 
-    pub def from_text(self, text: &str) -> Result[Bytes, EncodingError]:
-        source = std.bytes.from_text(text).map_error(EncodingError.Allocation)?
-        self.decode(&source)
+    pub def from_text(self, text: &strview) -> Result[Bytes, EncodingError]:
+        source = text.as_bytes()
+        self.decode(source)
 
-pub def custom(symbols: &str, padding: Option[u8] = Some(61u8)) -> Result[Encoding, EncodingError]:
+pub def custom(symbols: &strview, padding: Option[u8] = Some(61u8)) -> Result[Encoding, EncodingError]:
     # Alphabet length is 2..64 before subtraction; the bit count stays in 1..6.
     unchecked:
         count = len(symbols)
@@ -82,9 +82,9 @@ pub def base32_decode(source: &[u8]) -> Result[Bytes, EncodingError]:
 pub def base32_text(source: &[u8]) -> Result[str, EncodingError]:
     lifted(base32_encode(source)?.to_text())
 
-pub def base32_from_text(text: &str) -> Result[Bytes, EncodingError]:
-    source = std.bytes.from_text(text).map_error(EncodingError.Allocation)?
-    base32_decode(&source)
+pub def base32_from_text(text: &strview) -> Result[Bytes, EncodingError]:
+    source = text.as_bytes()
+    base32_decode(source)
 
 pub def base32hex_encode(source: &[u8]) -> Result[Bytes, EncodingError]:
     encode_radix(source, b"0123456789ABCDEFGHIJKLMNOPQRSTUV", 5, 61)
@@ -95,9 +95,9 @@ pub def base32hex_decode(source: &[u8]) -> Result[Bytes, EncodingError]:
 pub def base32hex_text(source: &[u8]) -> Result[str, EncodingError]:
     lifted(base32hex_encode(source)?.to_text())
 
-pub def base32hex_from_text(text: &str) -> Result[Bytes, EncodingError]:
-    source = std.bytes.from_text(text).map_error(EncodingError.Allocation)?
-    base32hex_decode(&source)
+pub def base32hex_from_text(text: &strview) -> Result[Bytes, EncodingError]:
+    source = text.as_bytes()
+    base32hex_decode(source)
 
 # MIME's 76-column layout, CRLF between lines, no final line terminator.
 pub def base64mime_encode(source: &[u8]) -> Result[Bytes, EncodingError]:
@@ -142,9 +142,9 @@ pub def base64mime_decode(source: &[u8]) -> Result[Bytes, EncodingError]:
 pub def base64mime_text(source: &[u8]) -> Result[str, EncodingError]:
     lifted(base64mime_encode(source)?.to_text())
 
-pub def base64mime_from_text(text: &str) -> Result[Bytes, EncodingError]:
-    source = std.bytes.from_text(text).map_error(EncodingError.Allocation)?
-    base64mime_decode(&source)
+pub def base64mime_from_text(text: &strview) -> Result[Bytes, EncodingError]:
+    source = text.as_bytes()
+    base64mime_decode(source)
 
 # RFC 7468 strict PEM: one BEGIN line, base64 lines of exactly 64 symbols
 # except a shorter last line, the matching END line and one line terminator.
@@ -233,9 +233,9 @@ pub def pem_decode(source: &[u8], label: &[u8]) -> Result[Bytes, EncodingError]:
                     case _:
                         Err(error)
 
-pub def pem_from_text(text: &str, label: &[u8]) -> Result[Bytes, EncodingError]:
-    source = std.bytes.from_text(text).map_error(EncodingError.Allocation)?
-    pem_decode(&source, label)
+pub def pem_from_text(text: &strview, label: &[u8]) -> Result[Bytes, EncodingError]:
+    source = text.as_bytes()
+    pem_decode(source, label)
 
 # RFC 7468 section 3: printable ASCII except `-`, with single spaces or
 # hyphens only between such characters. The empty label is rejected because
@@ -442,9 +442,9 @@ pub def hex_decode(source: &[u8]) -> Result[Bytes, EncodingError]:
 pub def hex_text(source: &[u8]) -> Result[str, EncodingError]:
     lifted(hex_encode(source)?.to_text())
 
-pub def hex_from_text(text: &str) -> Result[Bytes, EncodingError]:
-    source = std.bytes.from_text(text).map_error(EncodingError.Allocation)?
-    hex_decode(&source)
+pub def hex_from_text(text: &strview) -> Result[Bytes, EncodingError]:
+    source = text.as_bytes()
+    hex_decode(source)
 
 # RFC 4648 section 4: `+` and `/`, always padded with `=` to a multiple of four.
 pub def base64_encode(source: &[u8]) -> Result[Bytes, EncodingError]:
@@ -456,9 +456,9 @@ pub def base64_decode(source: &[u8]) -> Result[Bytes, EncodingError]:
 pub def base64_text(source: &[u8]) -> Result[str, EncodingError]:
     lifted(encode64(source, False)?.to_text())
 
-pub def base64_from_text(text: &str) -> Result[Bytes, EncodingError]:
-    source = std.bytes.from_text(text).map_error(EncodingError.Allocation)?
-    decode64(&source, False)
+pub def base64_from_text(text: &strview) -> Result[Bytes, EncodingError]:
+    source = text.as_bytes()
+    decode64(source, False)
 
 # RFC 4648 section 5: `-` and `_`, never padded.
 pub def base64url_encode(source: &[u8]) -> Result[Bytes, EncodingError]:
@@ -470,9 +470,9 @@ pub def base64url_decode(source: &[u8]) -> Result[Bytes, EncodingError]:
 pub def base64url_text(source: &[u8]) -> Result[str, EncodingError]:
     lifted(encode64(source, True)?.to_text())
 
-pub def base64url_from_text(text: &str) -> Result[Bytes, EncodingError]:
-    source = std.bytes.from_text(text).map_error(EncodingError.Allocation)?
-    decode64(&source, True)
+pub def base64url_from_text(text: &strview) -> Result[Bytes, EncodingError]:
+    source = text.as_bytes()
+    decode64(source, True)
 
 # `pack_` overwrites existing bytes and never grows the buffer; `append_`
 # grows it by exactly the width, or not at all.

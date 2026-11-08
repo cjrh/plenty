@@ -18,10 +18,11 @@ implementation pointers and migration examples.
 ## Motivation
 
 A function that reads text should usually accept either a whole string or a
-substring without the caller allocating. Today, authors choose between `&str`,
-which exposes all whole-string operations, and `&substr`, which accepts both
-forms but offers fewer operations. Passing `&s[a:b]` to an ordinary `&str`
-parameter fails even when the callee only inspects the text.
+substring without the caller allocating. The original motivation was the gap
+between ordinary `&str` parameters and the limited `&substr` view. The selected
+design addresses that usability gap through a complete separate `&strview`
+reader, while retaining ordinary string references. Passing `&s[a:b]` to an
+ordinary `&str` parameter still fails; read-only APIs use `&strview` instead.
 
 The distinction follows the current representation, but need not be a public
 language distinction. The desired interface is:
@@ -42,22 +43,24 @@ parameter is appropriate when it only reads the text.
 
 ## What exists today
 
-These facts were rechecked against local `main` `6bfe23c2`. The
-[evidence assessment](unified-borrowed-text/evidence.md) distinguishes source
-inspection from compiler probes; this proposal changes no implemented behavior.
+The original investigation inspected local `main` `6bfe23c2`. The current
+separate-view implementation is described in the [Text reference](../design/facilities/01-builtins/text.md)
+and [text input inventory](../design/stdlib/text-input-views.md). The
+[evidence assessment](unified-borrowed-text/evidence.md) preserves the original
+probes and records the delivered route; this unification proposal remains unimplemented.
 
 | Form | Current meaning |
 | --- | --- |
 | `str` | Copyable owner of immutable UTF-8. Copying a heap-backed handle shares storage without allocating. |
 | `&str` | Shared reference to an owning string slot. `*r` obtains an owned handle without copying text. |
-| `&substr` | Borrowed byte range on scalar boundaries. No owning handle can be recovered from its address and length. |
+| `&strview` (`&substr` alias) | Borrowed byte range on scalar boundaries. No owning handle can be recovered from its address and length. |
 | `&mut str` | Exclusive reference that can replace an owning string binding. It cannot edit string bytes. |
 | `s[a:b]?` | Fallible owned copy, independent of the original storage. |
 | `&s[a:b]` | Allocation-free borrowed substring with scalar-position bounds. |
 
 Owned strings cache their scalar count. Substring views contain only their
 first byte's address and byte count, so `len(view)` scans. A whole-string
-`&substr` parameter already accepts an owned argument through implicit
+`&strview` parameter already accepts an owned argument through implicit
 borrowing, including a temporary held for the full expression.
 
 Whole-string references can be returned, including through the supported
@@ -187,8 +190,9 @@ routine borrowed-text type would defeat the motivating simplification.
 
 ## Returning text and compatibility boundaries
 
-The preferred migration for existing whole-string getters is to return owned
-`str`, sharing the existing handle. Do not require returned substring views just
+If unification were adopted, existing whole-string getters could return owned
+`str`, sharing the existing handle. The selected separate-view design preserves
+ordinary `&str` getters and generic references; it requires no such migration. Do not require returned substring views just
 to preserve old `&str` signatures. The public `std.mime.MediaType.type_name()`
 and `subtype()` getters are concrete examples. Returning `str` avoids copying
 the text buffer, but heap-backed handle copies still have retention/release

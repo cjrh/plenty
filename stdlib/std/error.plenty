@@ -48,7 +48,7 @@ pub class Context[E]:
         self.describe_with(&str.repr(self.cause)?)
 
     # For a cause with its own presentation, such as a nested Context.
-    pub def describe_with(self, cause: &str) -> Result[str, AllocError]:
+    pub def describe_with(self, cause: &strview) -> Result[str, AllocError]:
         match &self.subject:
             case Subject.Absent:
                 self.operation.concat(": ")?.concat(cause)
@@ -80,7 +80,7 @@ pub class Context[E]:
                 drop(write_stderr(self.operation))
                 drop(write_stderr(": no memory to describe the error\n"))
 
-def line(text: &str) -> Result[str, AllocError]:
+def line(text: &strview) -> Result[str, AllocError]:
     "error: ".concat(text)?.concat("\n")
 
 def displayed(path: &Path) -> Result[str, AllocError]:

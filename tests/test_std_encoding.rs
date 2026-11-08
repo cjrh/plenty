@@ -1244,3 +1244,30 @@ print(std.encoding.unpack_f32(&record, 0, Endian.Big), std.encoding.unpack_f64(&
     );
     assert_eq!(run.stdout, b"c0200000000000000000f03f\n-2.5 1.0\n");
 }
+
+#[test]
+fn text_decoders_accept_ranges_without_an_encoded_input_buffer() {
+    native(
+        r#"
+hex = "!c3a900!"
+print(std.encoding.hex_from_text(&hex[1:-1])?.to_text()? == "é\0")?
+base32 = "!MY======!"
+base32hex = "!CO======!"
+print(std.encoding.base32_from_text(&base32[1:-1])?.to_text()? == "f")?
+print(std.encoding.base32hex_from_text(&base32hex[1:-1])?.to_text()? == "f")?
+base64 = "!Zg==!"
+url = "!Zg!"
+print(std.encoding.base64_from_text(&base64[1:-1])?.to_text()? == "f")?
+print(std.encoding.base64url_from_text(&url[1:-1])?.to_text()? == "f")?
+mime = "!Zg==\r\n!"
+print(std.encoding.base64mime_from_text(&mime[1:-1])?.to_text()? == "f")?
+symbols = "!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/!"
+custom = std.encoding.custom(&symbols[1:-1])?
+print(custom.from_text(&base64[1:-1])?.to_text()? == "f")?
+pem = "!-----BEGIN DATA-----\nZg==\n-----END DATA-----\n!"
+print(std.encoding.pem_from_text(&pem[1:-1], b"DATA")?.to_text()? == "f")?
+print(std.encoding.hex_from_text(&hex[1:1])?.to_text()? == "")?
+"#,
+        "True\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue",
+    );
+}

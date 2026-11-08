@@ -15,6 +15,10 @@ renders the HTML that the specification's examples show. It reads
 [`std.bytes`](bytes.md) buffers, writes [`std.io`](io.md) streams, and is
 available on the supported x86-64 Linux GNU target.
 
+Text entry points accept `&strview`, including selected substring ranges.
+They read the selected bytes directly into the parser’s owned working state;
+no caller-side owning string copy is needed.
+
 ## Accepted text
 
 | Rule | Behavior |
@@ -124,7 +128,7 @@ pub enum Event:
 
 ```text
 pub def parser(source: &[u8], bounds: &Limits) -> Result[Parser, MarkdownError]
-pub def parser_text(text: &str, bounds: &Limits) -> Result[Parser, MarkdownError]
+pub def parser_text(text: &strview, bounds: &Limits) -> Result[Parser, MarkdownError]
 Parser.next(self: &mut Parser) -> Result[Event, MarkdownError]
 ```
 
@@ -160,7 +164,7 @@ HtmlRenderer.take(self: &mut HtmlRenderer) -> Result[Bytes, MarkdownError]
 pub def write_pending[W: Writer](source: &mut HtmlRenderer, writer: &mut W) -> Result[(), MarkdownError]
 pub def write_html[W: Writer](source: &mut Parser, writer: &mut W, bounds: &Limits) -> Result[(), MarkdownError]
 pub def render(source: &[u8], bounds: &Limits) -> Result[Bytes, MarkdownError]
-pub def to_html(text: &str, bounds: &Limits) -> Result[str, MarkdownError]
+pub def to_html(text: &strview, bounds: &Limits) -> Result[str, MarkdownError]
 ```
 
 A renderer appends the HTML for each event to an owned buffer. `pending` counts

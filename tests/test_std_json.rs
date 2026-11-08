@@ -2014,3 +2014,41 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
 "#;
     assert_eq!(output(source), "True True True True True");
 }
+
+#[test]
+fn text_parser_lookup_and_number_writer_accept_ranges() {
+    assert_eq!(
+        support::run_file_stdout(
+            r#"
+import std.json
+import std.bytes
+from std.json import Json, Member
+def main() -> Result[(), AllocError | IoError | std.json.JsonError | std.bytes.BytesError]:
+    source = "![\"é\\u0000🙂\"]!"
+    bounds = std.json.limits()
+    value = std.json.parse_text(&source[1:-1], &bounds)?
+    mut matches = False
+    match &value:
+        case Json.Array(items):
+            if len(items) == 1:
+                match &items[0]:
+                    case Json.Text(text):
+                        matches = text == "é\0🙂"
+                    case _:
+                        pass
+        case _:
+            pass
+    print(matches)?
+    name = "!key!"
+    members = [Member("key", Json.Int(1))]?
+    print(std.json.find(&members, &name[1:-1]).unwrap())?
+    number = "!1.25e2!"
+    mut out = std.json.encoder(&bounds)?
+    out.number(&number[1:-1])?
+    print(out.take()?.to_text()? == "1.25e2")?
+    Ok(())
+"#
+        ),
+        "True\n0\nTrue"
+    );
+}

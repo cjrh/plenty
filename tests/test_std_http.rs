@@ -1449,3 +1449,34 @@ fn out_of_domain_limit_literals_are_rejected() {
         );
     }
 }
+
+#[test]
+fn header_cookie_and_file_readers_accept_selected_text_ranges() {
+    let source = r#"
+import std.http
+import std.http.cookie
+import std.http.files
+from std.http import Header
+
+def main() -> Result[(), AllocError | IoError | std.http.cookie.CookieError | std.http.files.FilesError]:
+    name = "!content-type!"
+    other = "!CONTENT-TYPE!"
+    headers = [Header("Content-Type", "text/plain")]?
+    print(std.http.find(&headers, &name[1:-1]).unwrap(), std.http.same_name(&name[1:-1], &other[1:-1]))?
+    mut key = "!session!"
+    mut value = "!abc!"
+    cookie = std.http.cookie.set_cookie(&key[1:-1], &value[1:-1])?
+    key = "changed"
+    value = "changed"
+    print(cookie.name == "session", cookie.value == "abc")?
+    file = "!café.HTML!"
+    print(std.http.files.media_type(&file[1:-1]) == "text/html; charset=utf-8")?
+    date = "!Sun, 06 Nov 1994 08:49:37 GMT!"
+    print(std.http.files.parse_http_date(&date[1:-1])?.is_some())?
+    Ok(())
+"#;
+    assert_eq!(
+        support::run_file_stdout(source),
+        "0 True\nTrue True\nTrue\nTrue"
+    );
+}

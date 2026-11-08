@@ -58,21 +58,26 @@ pub class Proxies:
     # Trusts the proxies at `network`: `10.0.0.0/8`, `fd00::/8`, or one
     # address. Host bits below the prefix are InvalidNetwork, so a typo
     # such as `10.0.0.1/8` does not trust more than was meant.
-    pub def trust(self: &mut Proxies, network: &str) -> Result[(), ProxyError]:
+    pub def trust(self: &mut Proxies, network: &strview) -> Result[(), ProxyError]:
         # 0 <= slash <= count; slash+1 requires slash<count. At most three
         # decimal digits are accumulated (0..999); accepted bits are 0..width<=128.
         unchecked:
-            source = allocated(std.bytes.from_text(network))?
-            count = source.len()
+            source = network.as_bytes()
+            count = len(source)
             mut slash = count
-            match source.find(47u8, 0, count):
+            match byte_find_range(source, 47u8, 0, count):
                 case Some(found):
                     slash = found
                 case Nothing:
                     pass
-            ip = match std.net.parse_ip(&lifted(source.to_text_range(0, slash))?):
-                case Ok(parsed):
-                    mapped(parsed)
+            parsed = match network.find("/"):
+                case Some(end):
+                    std.net.parse_ip(&network[:end])
+                case Nothing:
+                    std.net.parse_ip(network)
+            ip = match parsed:
+                case Ok(address):
+                    mapped(address)
                 case Err(_):
                     return Err(ProxyError.InvalidNetwork)
             width = match ip:
@@ -181,15 +186,15 @@ class Hop:
 # The address in a node: `192.0.2.1`, `192.0.2.1:8080`, `2001:db8::1`, or
 # `[2001:db8::1]:8080`. Anything else, including `unknown` and obfuscated
 # `_name` identifiers, is InvalidForwarded.
-def node_ip(node: &Bytes) -> Result[IpAddress, ProxyError]:
+def node_ip(node: &[u8]) -> Result[IpAddress, ProxyError]:
     # Found positions are below count, so close+1 and first+1 are
     # at most count. No input-length sentinel advances beyond count.
     unchecked:
-        count = node.len()
+        count = len(node)
         mut start = 0
         mut stop = count
         if count > 0 and node[0] == 91u8:
-            close = match node.find(93u8, 1, count):
+            close = match byte_find_range(node, 93u8, 1, count):
                 case Some(found):
                     found
                 case Nothing:
@@ -199,16 +204,16 @@ def node_ip(node: &Bytes) -> Result[IpAddress, ProxyError]:
             start = 1
             stop = close
         else:
-            match node.find(58u8, 0, count):
+            match byte_find_range(node, 58u8, 0, count):
                 case Some(first):
-                    match node.find(58u8, first + 1, count):
+                    match byte_find_range(node, 58u8, first + 1, count):
                         case Some(_):
                             pass
                         case Nothing:
                             stop = first
                 case Nothing:
                     pass
-        text = lifted(node.to_text_range(start, stop))?
+        text = lifted(std.bytes.to_text(&node[start:stop]))?
         match std.net.parse_ip(&text):
             case Ok(ip):
                 Ok(mapped(ip))
@@ -216,7 +221,7 @@ def node_ip(node: &Bytes) -> Result[IpAddress, ProxyError]:
                 Err(ProxyError.InvalidForwarded)
 
 # Comma-separated items of every field named `name`, in order, trimmed.
-def items(headers: &list[Header], name: &str, limit: i64) -> Result[list[Bytes], ProxyError]:
+def items(headers: &list[Header], name: &strview, limit: i64) -> Result[list[Bytes], ProxyError]:
     # Positions stay in 0..count. Trimming increments only below stop
     # or decrements only above first>=0. stop+1 requires stop<count.
     unchecked:
@@ -224,12 +229,12 @@ def items(headers: &list[Header], name: &str, limit: i64) -> Result[list[Bytes],
         for index in range(len(headers)):
             if not std.http.same_name(&headers[index].name, name):
                 continue
-            data = allocated(std.bytes.from_text(&headers[index].value))?
-            count = data.len()
+            data = headers[index].value.as_bytes()
+            count = len(data)
             mut at = 0
             while at <= count:
                 mut stop = count
-                match data.find(44u8, at, count):
+                match byte_find_range(data, 44u8, at, count):
                     case Some(found):
                         stop = found
                     case Nothing:
@@ -243,14 +248,14 @@ def items(headers: &list[Header], name: &str, limit: i64) -> Result[list[Bytes],
                 if last > first:
                     if len(out) >= limit:
                         return Err(ProxyError.TooManyHops)
-                    allocated(out.append(allocated(data.slice(first, last))?))?
+                    allocated(out.append(allocated(std.bytes.from_bytes(&data[first:last]))?))?
                 if stop == count:
                     break
                 at = stop + 1
         Ok(out)
 
-def scheme_of(value: &Bytes) -> Result[str, ProxyError]:
-    match lifted(value.to_text())?.lower():
+def scheme_of(value: &[u8]) -> Result[str, ProxyError]:
+    match lifted(std.bytes.to_text(value))?.lower():
         case Ok(folded):
             if folded == "http" or folded == "https":
                 return Ok(folded)
@@ -275,11 +280,11 @@ def x_forwarded(headers: &list[Header], limit: i64) -> Result[list[Hop], ProxyEr
 
 # One Forwarded element `pair *( ";" pair )`, with quoted values unquoted.
 # A missing `for` leaves the node empty, which `node_ip` rejects.
-def element(data: &Bytes) -> Result[Hop, ProxyError]:
+def element(data: &[u8]) -> Result[Hop, ProxyError]:
     # at stays in 0..count; every increment follows at<count,
     # including the byte after an escape, checked before its final increment.
     unchecked:
-        count = data.len()
+        count = len(data)
         mut node = allocated(std.bytes.empty())?
         mut proto: Option[str] = Nothing
         mut at = 0
@@ -293,7 +298,7 @@ def element(data: &Bytes) -> Result[Hop, ProxyError]:
                 at += 1
             if at == count or data[at] != 61u8:
                 return Err(ProxyError.InvalidForwarded)
-            name = match lifted(data.to_text_range(start, at))?.lower():
+            name = match lifted(std.bytes.to_text(&data[start:at]))?.lower():
                 case Ok(folded):
                     folded
                 case Err(cause):
@@ -344,8 +349,8 @@ def forwarded(headers: &list[Header], limit: i64) -> Result[list[Hop], ProxyErro
         for index in range(len(headers)):
             if not std.http.same_name(&headers[index].name, "forwarded"):
                 continue
-            data = allocated(std.bytes.from_text(&headers[index].value))?
-            count = data.len()
+            data = headers[index].value.as_bytes()
+            count = len(data)
             mut start = 0
             mut quoted = False
             mut at = 0
@@ -356,15 +361,15 @@ def forwarded(headers: &list[Header], limit: i64) -> Result[list[Hop], ProxyErro
                 if at < count and data[at] == 34u8:
                     quoted = not quoted
                 if at == count or (data[at] == 44u8 and not quoted):
-                    piece = allocated(data.slice(start, at))?
+                    piece = &data[start:at]
                     mut blank = True
-                    for position in range(piece.len()):
+                    for position in range(len(piece)):
                         if not is_blank(piece[position]):
                             blank = False
                     if not blank:
                         if len(hops) >= limit:
                             return Err(ProxyError.TooManyHops)
-                        allocated(hops.append(element(&piece)?))?
+                        allocated(hops.append(element(piece)?))?
                     if at == count:
                         break
                     start = at + 1
@@ -420,3 +425,12 @@ pub def client_of[T: Transport](exchange: &Exchange[T], proxies: &Proxies) -> Re
             client(peer, &exchange.request.headers, proxies)
         case Nothing:
             Err(ProxyError.UnknownPeer)
+
+# Internal callers supply 0 <= start <= stop <= len(data). A found
+# relative position is below stop - start, so adding start stays in range.
+def byte_find_range(data: &[u8], value: u8, start: i64, stop: i64) -> Option[i64]:
+    found = __bytes_find(&data[start:stop], value)
+    if found < 0:
+        return Nothing
+    unchecked:
+        Some(start + found)
