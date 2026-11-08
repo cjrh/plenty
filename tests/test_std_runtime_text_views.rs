@@ -63,7 +63,7 @@ def main() -> Result[(), IoError | AllocError | std.net.NetError]:
     address = std.net.parse_address(&source[1:13])?
     print(address.port)?
     ip = std.net.parse_ip(&source[1:10])?
-    print(std.net.format_ip(&ip)? == "127.0.0.1")?
+    print(std.net.format_ip(ip)? == "127.0.0.1")?
     path = "\0é/☃\0"
     native = std.path.from_text(&path[1:4])?
     print(native.to_text()? == "é/☃")?
@@ -99,7 +99,7 @@ def main() -> ():
     state.update_text(b"\xff").unwrap()
 "#;
     let error = support::check_file_error(source);
-    assert!(error.contains("strview"), "{error}");
+    assert!(error.contains("substring view"), "{error}");
 }
 
 #[test]
@@ -142,8 +142,8 @@ def client() -> Result[std.tls.ClientConfig, IoError | AllocError | std.tls.TlsE
     pem = ("\0" + read_text("FIXTURES/ca.pem")?)?
     roots = std.tls.roots_from_pem(&pem[1:])?
     mut builder = std.tls.client_builder(&roots)?
-    protocol = "\0h2\0"
-    builder.application_protocol(&protocol[1:3])?
+    alpn = "\0h2\0"
+    builder.application_protocol(&alpn[1:3])?
     builder.build()
 
 def session(config: &std.tls.ClientConfig) -> Result[std.tls.Session, std.tls.TlsError]:
@@ -223,7 +223,7 @@ def main() -> Result[(), IoError | AllocError | std.fs.FsError | std.io.StreamEr
     file.flush()?
     filename = file.path().to_text()?
     wrapped = ("\0" + filename)?
-    mut input = std.io.open_file(&wrapped[1:], "rb")?
+    mut input = std.io.open_file(&wrapped[1:], "r")?
     mut bytes = std.bytes.with_capacity(2)?
     bytes.resize(2, 0u8)?
     input.read(&mut bytes, 0, 2)?

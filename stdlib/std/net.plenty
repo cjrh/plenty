@@ -525,7 +525,7 @@ def ip_in(source: &[u8], start: i64, stop: i64) -> Result[IpAddress, NetError]:
 # `127.0.0.1` or `::1`. Scopes and names are not addresses here.
 pub def parse_ip(text: &strview) -> Result[IpAddress, NetError]:
     source = text.as_bytes()
-    ip_in(&source, 0, source.len())
+    ip_in(&source, 0, len(source))
 
 # `127.0.0.1:80`, `[::1]:80` or `[fe80::1%2]:80`, with a numeric port and
 # scope.
@@ -533,7 +533,7 @@ pub def parse_address(text: &strview) -> Result[SocketAddress, NetError]:
     # A found separator is below stop; the second-byte checks precede all two-byte advances.
     unchecked:
         source = text.as_bytes()
-        stop = source.len()
+        stop = len(source)
         if stop > 0 and source[0] == 91u8:
             close = found(&source, 93u8, 1, stop)?
             if close < 0 or close + 1 >= stop or source[close + 1] != 58u8:

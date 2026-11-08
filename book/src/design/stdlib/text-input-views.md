@@ -61,7 +61,8 @@ relax path, SQL, TLS or mode validation.
 ## Scope
 
 The standard-library text-input inventory separates 49 runtime-backed reader
-declarations in 13 modules from 127 Plenty-level readers. The generated
+declarations in 13 modules from 127 Plenty-level readers, with two byte-bridge
+declarations (`from_text` and `matches_text`) tracked separately. The generated
 signature index is authoritative for implemented signatures. The deliberately
 unchanged cases are two MIME getters returning ordinary `&str`, three serial
 protocol helpers, nine JSON protocol callbacks and four TOML protocol callbacks:
