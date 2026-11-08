@@ -1145,6 +1145,7 @@ struct Runtime {
     text_prev_byte: FuncId,
     text_ascii_equal_folded: FuncId,
     text_find_in: FuncId,
+    text_view_find_in: FuncId,
     /// Generated key-sort comparators, by adapter name.
     sort_adapters: HashMap<String, FuncId>,
     /// Formatting adapters, by type and whether they call `display` rather
@@ -1508,6 +1509,12 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             module,
             "plenty_text_find_in",
             &[PTR_TY, PTR_TY, types::I64, types::I64],
+            Some(types::I64),
+        )?,
+        text_view_find_in: helper(
+            module,
+            "plenty_text_view_find_in",
+            &[PTR_TY, types::I64, PTR_TY, types::I64, types::I64],
             Some(types::I64),
         )?,
         text_next_byte: helper(

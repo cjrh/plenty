@@ -138,15 +138,19 @@ import std.text
 def main() -> Result[(), AllocError | IoError | std.bytes.BytesError]:
     set = std.bytes.from_text(";=")?
     long = "a heap string, long enough to leave the inline form; then €;".concat("=")?
+    source = "!é\0🙂;!"
+    selected = &source[1:-1]
     print("__test_fail_allocations_after_0__")?
     a = std.text.find_in(&long, &set)
     b = std.text.find_not_in(&long, b"abcdefghijklmnopqrstuvwxyz ,")
     c = std.text.find_in("é;", &set)
+    d = std.text.find_in(selected, b"\0")
+    e = std.text.find_in(selected, b"x!")
     print("__test_restore_allocations__")?
-    print(a, b, c)?
+    print(a, b, c, d, e)?
     Ok(())
 "#,
-        "Option[i64].Some(51) Option[i64].Some(51) Option[i64].Some(1)",
+        "Option[i64].Some(51) Option[i64].Some(51) Option[i64].Some(1) Option[i64].Some(1) Option[i64].Nothing",
     );
 }
 
@@ -159,7 +163,7 @@ fn scans_call_only_the_narrow_helper() {
         dir.path().join("main.plenty"),
         "import std.http.cookie\nimport std.text\nfrom std.bytes import Bytes\n\
          def main() -> Result[(), AllocError | IoError | std.http.cookie.CookieError]:\n    \
-         print(std.text.find_not_in(\"ab\", b\"a\"))?\n    \
+         print(std.text.find_in(\"ab\", b\"b\"), std.text.find_not_in(\"ab\", b\"a\"))?\n    \
          keys = list[Bytes].new()?\n    \
          print(std.http.cookie.verify(&keys, \"sid\", \"v\")?)?\n    \
          Ok(())\n",
@@ -186,9 +190,9 @@ fn scans_call_only_the_narrow_helper() {
     let functions: Vec<&str> = clif.split("\n==== ").collect();
     let scans: Vec<&&str> = functions
         .iter()
-        .filter(|f| f.starts_with("std.text.find_not_in "))
+        .filter(|f| f.starts_with("std.text.find_in ") || f.starts_with("std.text.find_not_in "))
         .collect();
-    assert!(!scans.is_empty(), "find_not_in missing");
+    assert_eq!(scans.len(), 2, "find_in/find_not_in missing");
     for body in scans {
         let calls: Vec<&str> = body
             .lines()
@@ -196,7 +200,8 @@ fn scans_call_only_the_narrow_helper() {
             .filter_map(|line| line.rsplit("; ").next())
             .collect();
         // `located` is lowered in the caller (issue #722).
-        assert_eq!(calls, ["plenty_text_find_in"], "{body}");
+        assert_eq!(calls, ["plenty_text_view_find_in"], "{body}");
+        assert!(!body.contains("explicit_slot"), "{body}");
     }
     let all_bytes = functions
         .iter()

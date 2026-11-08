@@ -372,7 +372,8 @@ impl Lowerer<'_, '_> {
     /// descriptor, or caller frame, because it never calls back into Plenty
     /// (issue #364). It takes the receiver word (`true`: read through the shared
     /// reference the frontend keeps under its loan; `false`: owned and released
-    /// here), the remaining inputs as words, and then the site, if any.
+    /// here), or a view's address/count, the remaining inputs as words, and
+    /// then the site, if any.
     fn narrow_helper(&self, operation: &CollectionOp) -> Option<(FuncId, bool, Site)> {
         use crate::bytes::BytesOp;
         let runtime = &self.runtime;
@@ -406,6 +407,9 @@ impl Lowerer<'_, '_> {
             CollectionOp::Len(Ty::ByteStr) => (runtime.text_byte_len, false, Site::None),
             CollectionOp::Text(crate::text::TextOp::FindIn) => {
                 (runtime.text_find_in, true, Site::None)
+            }
+            CollectionOp::TextView(crate::text::TextViewOp::FindIn) => {
+                (runtime.text_view_find_in, true, Site::None)
             }
             CollectionOp::QueryRef(query) => {
                 let helper = match query {
@@ -1270,10 +1274,13 @@ impl Lowerer<'_, '_> {
             }
             trailing.reverse();
             let (receiver, ty) = self.pop_typed(inputs[0].clone())?;
-            let owner = if borrowed {
-                self.reference_word(receiver)
+            let mut args = if matches!(ty, Ty::View(..)) {
+                let (address, len) = self.bcx.ins().isplit(receiver);
+                vec![address, len]
+            } else if borrowed {
+                vec![self.reference_word(receiver)]
             } else {
-                receiver
+                vec![receiver]
             };
             // Byte method arguments can separate the receiver load from this
             // call. Its recorded slot/field copy remains borrowed while the
@@ -1284,7 +1291,6 @@ impl Lowerer<'_, '_> {
                     operation,
                     CollectionOp::Bytes(crate::bytes::BytesOp::Get | crate::bytes::BytesOp::Set)
                 ) && self.forget_slot_copy(receiver));
-            let mut args = vec![owner];
             args.extend(trailing);
             match site {
                 Site::None => {}
