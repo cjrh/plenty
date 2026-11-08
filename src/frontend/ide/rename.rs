@@ -1,8 +1,8 @@
-//! Rename a module-level declaration, an import alias or a local (issue
-//! #821). A plan is computed from editor analyses and returned as text
-//! edits; nothing is written. A module-level declaration is renamed across
-//! its package and the workspace members that depend on it; an alias or a
-//! local only in its file. Every unsupported case is refused before any
+//! Rename a module-level declaration, a field, method or enum variant, an
+//! import alias or a local (issues #821 and #876). A plan is computed from
+//! editor analyses and returned as text edits; nothing is written. A
+//! declaration or member is renamed across its package and the workspace
+//! members that depend on it; an alias or a local only in its file. Every unsupported case is refused before any
 //! edit is returned, and the edited files are checked again before the
 //! plan is accepted. Strings, comments and docstrings are not edited.
 use super::index::{Errors, Package, Use};
@@ -43,11 +43,14 @@ fn in_dependency(name: &str) -> String {
 
 /// What the cursor names.
 enum Subject {
-    /// A module-level declaration, from any of its references.
+    /// A module-level declaration, or a member of a class, enum or
+    /// protocol, from any of its references.
     Declaration {
         identity: (File, u32, u32),
         name: String,
         qualified: String,
+        /// The kind of a member; None for a module-level declaration.
+        member: Option<SymbolKind>,
     },
     /// The alias of a `from` import, `h` in `from m import f as h`.
     Alias {
@@ -125,14 +128,22 @@ pub fn plan(
             identity,
             name,
             qualified,
-        } => declaration(
-            (&path, &location),
-            &identity,
-            &name,
-            &qualified,
-            new_name,
-            &overlay,
-        ),
+            member,
+        } => {
+            if member == Some(SymbolKind::Method) && implicit(new_name) {
+                return Err(format!(
+                    "`{new_name}` is a method name the language calls implicitly, so a method cannot be renamed to it"
+                ));
+            }
+            declaration(
+                analysis,
+                (&path, &location),
+                &identity,
+                (&name, &qualified, member),
+                new_name,
+                &overlay,
+            )
+        }
         Subject::Alias {
             identity,
             alias,
@@ -204,16 +215,7 @@ fn subject(
             "renaming {what} is not supported yet: {reason} (issue #876)"
         ))
     };
-    let generic = "the editor analysis does not record members used in generic bodies that no call instantiates";
     match symbol.kind {
-        SymbolKind::Field => return not_yet("a field", generic),
-        SymbolKind::Method => return not_yet("a method", generic),
-        SymbolKind::Variant => {
-            return not_yet(
-                "an enum variant",
-                "rename does not yet edit variant names, though find references lists their uses",
-            );
-        }
         SymbolKind::Parameter => {
             return not_yet(
                 "a parameter",
@@ -247,6 +249,38 @@ fn subject(
     }
     let identity = (declared.file.clone(), declared.line, declared.column);
     let spelled = written(text, &location);
+    let member = matches!(
+        symbol.kind,
+        SymbolKind::Field | SymbolKind::Method | SymbolKind::Variant
+    )
+    .then_some(symbol.kind);
+    if let Some(kind) = member {
+        if spelled != short {
+            return Err(format!("cannot rename `{spelled}`, written for `{short}`"));
+        }
+        if kind == SymbolKind::Method {
+            if implicit(short) {
+                return Err(format!(
+                    "`{short}` is a method name the language calls implicitly, so it cannot be renamed"
+                ));
+            }
+            let owner = symbol.name.rsplit_once('.').map_or("", |(o, _)| o);
+            if analysis
+                .symbols
+                .iter()
+                .any(|s| s.kind == SymbolKind::Protocol && s.name == owner)
+            {
+                return Err("renaming a protocol requirement is not supported: a class or enum satisfies it by declaring a method of that name, which a rename does not edit".into());
+            }
+        }
+        let subject = Subject::Declaration {
+            identity,
+            name: short.to_owned(),
+            qualified: symbol.name.clone(),
+            member,
+        };
+        return Ok((subject, location));
+    }
     if spelled != short {
         // A use of an alias: the alias binding is renamed, not the
         // declaration.
@@ -266,8 +300,16 @@ fn subject(
         identity,
         name: short.to_owned(),
         qualified: symbol.name.clone(),
+        member: None,
     };
     Ok((subject, location))
+}
+
+/// A method name with a meaning to the language: a `__name__` hook, or a
+/// formatting method that `print` and f-strings call.
+fn implicit(name: &str) -> bool {
+    (name.len() > 4 && name.starts_with("__") && name.ends_with("__"))
+        || matches!(name, "display" | "debug")
 }
 
 /// An alias of a `from` import at the left margin.
@@ -631,13 +673,13 @@ fn in_file(
     })
 }
 
-/// Rename a module-level declaration across its package and the workspace
-/// members that depend on it.
+/// Rename a module-level declaration or a member across its package and
+/// the workspace members that depend on it. `analysis` is the cursor file's.
 fn declaration(
+    analysis: &Analysis,
     (path, cursor): (&Path, &Location),
     identity: &(File, u32, u32),
-    old: &str,
-    qualified: &str,
+    (old, qualified, member): (&str, &str, Option<SymbolKind>),
     new_name: &str,
     overlay: &HashMap<PathBuf, String>,
 ) -> Result<Rename, String> {
@@ -699,12 +741,26 @@ fn declaration(
             ));
         }
     }
+    let type_name = qualified.rsplit_once('.').map_or("", |(o, _)| o);
+    if member.is_some() {
+        members(
+            analysis,
+            &package,
+            overlay,
+            &reach,
+            (type_name, old, qualified),
+            new_name,
+        )?;
+    }
     let mut texts: HashMap<PathBuf, String> = HashMap::default();
     let mut edits: BTreeMap<PathBuf, Vec<TextEdit>> = BTreeMap::new();
     // Files where the new name is written bare, so it must not already
-    // name something else there.
+    // name something else there. A member is always written after a `.`,
+    // as a declaration in its owner, or as a named field of a pattern.
     let mut bare: HashSet<PathBuf> = HashSet::default();
-    bare.insert(declared.clone());
+    if member.is_none() {
+        bare.insert(declared.clone());
+    }
     for u in uses.iter().filter(|u| u.identity == target) {
         if package.member_of(&u.path).is_none() {
             return Err(format!(
@@ -720,9 +776,10 @@ fn declaration(
         let spelled = written(text, &location);
         if spelled != old {
             // A use through `from m import old as alias` keeps the alias.
-            let aliased = aliases(text)?
-                .iter()
-                .any(|a| !a.module && a.name == old && a.alias == spelled);
+            let aliased = member.is_none()
+                && aliases(text)?
+                    .iter()
+                    .any(|a| !a.module && a.name == old && a.alias == spelled);
             if aliased {
                 continue;
             }
@@ -735,7 +792,7 @@ fn declaration(
             .lines()
             .nth(location.line as usize - 1)
             .unwrap_or_default();
-        if matches!(form(line, &location), Form::Bare { .. }) {
+        if member.is_none() && matches!(form(line, &location), Form::Bare { .. }) {
             bare.insert(u.path.clone());
         }
         edits.entry(u.path.clone()).or_default().push(replace(
@@ -831,10 +888,36 @@ fn declaration(
     let owner = package
         .member_of(declared)
         .map(|m| &package.project.packages[m]);
-    let public = texts
-        .get(declared)
-        .and_then(|t| t.lines().nth(identity.1 as usize - 1))
-        .is_some_and(|l| l.trim_start().starts_with("pub "));
+    let declared_pub = |line: u32| {
+        texts
+            .get(declared)
+            .and_then(|t| t.lines().nth(line as usize - 1))
+            .is_some_and(|l| l.trim_start().starts_with("pub "))
+    };
+    // A member is public when its owner is, and a field or method only with
+    // its own `pub`; every variant of a public enum is public.
+    let public = match member {
+        None => declared_pub(identity.1),
+        Some(kind) => {
+            let owner_line = analysis
+                .symbols
+                .iter()
+                .find(|s| {
+                    s.name == type_name && matches!(s.kind, SymbolKind::Class | SymbolKind::Enum)
+                })
+                .and_then(|s| s.location.as_ref())
+                .map(|l| l.line);
+            owner_line.is_some_and(declared_pub)
+                && (kind == SymbolKind::Variant || declared_pub(identity.1))
+        }
+    };
+    let shown = match member {
+        Some(_) => format!(
+            "{}.{old}",
+            type_name.rsplit('.').next().unwrap_or(type_name)
+        ),
+        None => old.to_owned(),
+    };
     if let Some(owner) = owner
         && public
         && let Some(library) = &owner.manifest.library
@@ -857,12 +940,27 @@ fn declaration(
         let is_library =
             owner.directory.join(library).canonicalize().ok().as_ref() == Some(declared);
         let path = match module {
-            Some(_) if is_library => format!("{package_name}.{old}"),
-            Some(module) => format!("{package_name}.{module}.{old}"),
+            Some(_) if is_library => format!("{package_name}.{shown}"),
+            Some(module) => format!("{package_name}.{module}.{shown}"),
             None => format!("{package_name}: {qualified}"),
         };
         api_changes.push(format!(
             "renames public `{path}` to `{new_name}`, so packages outside this workspace that import it must change"
+        ));
+    }
+    // Encoding writes `@serial` field and variant names, so the rename
+    // changes the format; it stays allowed while no data exists yet.
+    if let Some(kind @ (SymbolKind::Field | SymbolKind::Variant)) = member
+        && analysis.serial.contains(type_name)
+    {
+        let what = if kind == SymbolKind::Field {
+            "a field"
+        } else {
+            "a variant"
+        };
+        api_changes.push(format!(
+            "renames {what} of `@serial` `{}`, so data encoded before the rename no longer decodes",
+            type_name.rsplit('.').next().unwrap_or(type_name)
         ));
     }
     Ok(Rename {
@@ -874,4 +972,43 @@ fn declaration(
             .collect(),
         api_changes,
     })
+}
+
+/// Refuse a member rename that would clash with another member of `owner`,
+/// or that could miss a use: a place in a generic body that no call
+/// instantiates, where the member's name is written on a value whose type
+/// the analysis cannot tell.
+fn members(
+    analysis: &Analysis,
+    package: &Package,
+    overlay: &HashMap<PathBuf, String>,
+    reach: &super::index::Reach,
+    (owner, old, qualified): (&str, &str, &str),
+    new_name: &str,
+) -> Result<(), String> {
+    let taken = format!("{owner}.{new_name}");
+    if analysis.symbols.iter().any(|s| {
+        s.name == taken
+            && matches!(
+                s.kind,
+                SymbolKind::Field | SymbolKind::Method | SymbolKind::Variant
+            )
+    }) {
+        let short = owner.rsplit('.').next().unwrap_or(owner);
+        return Err(format!("`{short}` already has a member named `{new_name}`"));
+    }
+    for (file, location) in &reach.unresolved {
+        if package.member_of(file).is_none() {
+            continue;
+        }
+        if written(&read(overlay, file)?, location) == old {
+            return Err(format!(
+                "`{old}` is written at {}:{}:{} in a generic body that no call instantiates, on a value whose type the editor analysis cannot tell, so a rename cannot tell whether it names `{qualified}`",
+                package.relative(file),
+                location.line,
+                location.column
+            ));
+        }
+    }
+    Ok(())
 }

@@ -15,7 +15,7 @@ is the supported editor; see [Neovim support](neovim.md) for its setup.
 | Hover | The declaration as written and its docstring, as Markdown |
 | Go to definition | The declaration's name, in the same file, another module, a dependency, or `std` |
 | Find references | Every written name that refers to the declaration, across the package and the workspace members that depend on it; see [finding references](#finding-references) |
-| Rename | A module-level declaration, an import alias, or a local, across the same files as find references; checked before and after, and refused with a reason; see [renaming](#renaming) |
+| Rename | A module-level declaration, a field, method, or enum variant, an import alias, or a local, across the same files as find references; checked before and after, and refused with a reason; see [renaming](#renaming) |
 | Inlay hints | Inferred types after unannotated simple local binding names, when the current check succeeds |
 | Completion | Names in scope and keywords; fields, methods, enum variants, and module members after `.` |
 | Code actions | `refactor.move`: move a top-level declaration to another module of the package, previewed before it is applied |
@@ -92,9 +92,16 @@ entry once, so in a package with many test files it takes seconds.
 The list contains only names the checker resolves. Named arguments
 (`area(n=2)`) refer to the parameter, constructor keywords (`Point(x=1)`) to
 the field or `__init__` parameter, and variants and fields in `case` patterns
-and variant constructors (`Shape.Circle(r)`) to their declaration. The list
-misses members used in an uninstantiated generic body (issue #876) and names
-in unselected [`if const`](../../language/02-source/target-conditionals.md)
+and variant constructors (`Shape.Circle(r)`) to their declaration.
+
+A generic function or method that no call instantiates is not type-checked,
+so its members are found by the types written in it. A field or method of a
+parameter, `self`, or a local whose class the body states, through an
+annotation, a constructor, a field, or a call's declared result, refers to
+that member; a method of a protocol-bounded type parameter refers to the
+protocol's requirement. A member of a value whose type the body does not
+state, such as `points[0].x`, is not listed. The list also misses names in
+unselected [`if const`](../../language/02-source/target-conditionals.md)
 arms. Text in strings, comments, and docstrings is never a reference.
 
 ## Renaming
@@ -105,6 +112,9 @@ name that refers to the same declaration, as
 
 - a top-level function, class, enum, protocol, constant, or type alias, in
   the package holding it and the workspace members that depend on it;
+- a field, method, or enum variant, in the same packages: its declaration,
+  member accesses and calls, constructor keywords, `case` patterns, and
+  f-string fields;
 - a `from` import alias: renaming `size` in `from shapes import area as
   size` changes the alias and its uses in that file only;
 - a local variable, in its function.
@@ -114,7 +124,11 @@ measure as size`, and `size(2)` stays. A qualified use `s.area` becomes
 `s.measure`. Strings, comments, and docstrings are not edited, and a module
 is not renamed with its file. The edit uses the unsaved text of open files,
 names each open document's version, and writes nothing until the editor
-applies it.
+applies it. Renaming a field or variant of a
+[`@serial`](../../stdlib/serial-derive.md) type also changes the name it is
+encoded under, so data written before the rename no longer decodes. The server
+allows the rename, since no data may exist yet, and marks it with a change
+annotation that needs confirmation, as it marks a change to a package's API.
 
 The rename is checked twice. Before it, the package (or, for a local or an
 alias, the file) must check without errors, so that every use is resolved.
@@ -139,15 +153,20 @@ server refuses the rename, with the reason as the request's error, when:
   declarations in different instantiations;
 - the declaration is in `std` or a dependency outside the workspace, or is
   written in a file no target or test of its package reads;
-- the name is a field, method, enum variant, or parameter. These are not
-  supported yet: members in uninstantiated generic bodies are not resolved,
-  and rename does not yet edit variant names or named arguments, though find
-  references lists them (issue #876);
+- the class or enum already has a member with the new name;
+- the method is a protocol requirement, since implementations satisfy it by
+  name and are not edited; or the old or new method name is a `__name__` hook
+  or `display` or `debug`, which the language calls implicitly;
+- an uninstantiated generic body writes the member's name on a value whose
+  type it does not state, so the rename cannot tell whether it is a use;
+- the name is a parameter. This is not supported yet, since rename does not
+  yet edit named arguments, though find references lists them (issue #876);
 - the name is a module, or a module alias (`s` in `import shapes as s`, at
   the import or a use);
 - the file changed since its last check; ask for the rename again.
 
-Renaming a `pub` declaration of a package with a library changes that
+Renaming a `pub` declaration of a package with a library, or a public member
+of one (a `pub` field or method, or any variant, of a `pub` type), changes that
 package's API, since packages outside the workspace that import it must
 change. The server marks such an edit with a change annotation that needs
 confirmation; an editor without change-annotation support shows the same
@@ -285,7 +304,8 @@ differs.
   parameter opens the method of the class it was instantiated with, not the
   protocol's requirement. A method of a generic class is instantiated only
   where it is used. An uninstantiated generic body resolves its module-level
-  names and locals only.
+  names and locals, and members only by the types written in it; see
+  [find references](#finding-references).
 - Builtin functions, methods of built-in types such as `list` and `str`, and
   `Ok`, `Err`, `Some`, and `Nothing` have no declaration to show.
 - Locals offered by completion are those bound in the enclosing function
@@ -296,7 +316,8 @@ differs.
   between checks. A program importing `std.http.server`, `std.json`, and five
   other large `std` modules checks in about 0.2 s with a release build.
 - Document symbols and signature help are not implemented. Rename covers
-  module-level declarations, import aliases, and locals; see
+  module-level declarations, members, import aliases, and locals, not
+  parameters; see
   [renaming](#renaming). Moving a declaration checks each
   entry twice, so a package with many test files takes seconds; see
   [moving a declaration](#moving-a-declaration-to-another-module).

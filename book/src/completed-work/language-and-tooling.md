@@ -950,10 +950,12 @@ type hints, with Neovim integration (issues #155/#554, local PR #196).
 Find references searches the declaring package and the workspace members that
 depend on it, through the package index shared with move-to-module (issue
 #821, slice 1). Rename of module-level declarations, import aliases and locals
-is checked before and after the edit and refuses what it cannot verify;
-members wait on issue #876 (issue #821). References and definition resolve
-named arguments, constructor keywords, `case` variants and fields, and variant
-constructors (issue #876, slice 1).
+is checked before and after the edit and refuses what it cannot verify
+(issue #821). References and definition resolve named arguments, constructor
+keywords, `case` variants and fields, and variant constructors (issue #876,
+slice 1). References cover members in uninstantiated generic bodies, by the
+types written there, and rename covers fields, methods and enum variants
+(issue #876, slice 2).
 Compile-time constants/static assertions, embedded data and `if const target.*`
 shipped (local PR #628). Module constant indexing and import/module diagnostics
 were improved (issues #562/#568/#587).
