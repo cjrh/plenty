@@ -1479,12 +1479,38 @@ impl Lower<'_> {
         expected: Type,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        if self.propagated.is_some()
+            && matches!(e.kind, Expression::Call(..) | Expression::Method(..))
+            && self.propagated == expected
+        {
+            return self.propagated_call(e, expected, ops);
+        }
+        let method = match (&e.kind, &expected) {
+            (Expression::Method(..), Some(ty)) => Some(ty.clone()),
+            _ => None,
+        };
         match self.hinted_form(e, expected, ops)? {
             Hinted::Done(ty) => Ok(ty),
-            Hinted::Expr => self.expr(e, ops),
+            Hinted::Expr => match method {
+                Some(expected) => self.method_expected(e, expected, ops),
+                None => self.expr(e, ops),
+            },
             Hinted::Expected(inner, expected) => self.expr_expected(inner, expected, ops),
             Hinted::Arithmetic(ty) => self.hinted_arithmetic(e, ty, ops),
         }
+    }
+
+    /// A call that is the direct operand of `?` (possibly through branch
+    /// arms). Its arguments are lowered without the `?` context, so a nested
+    /// call that expects the same type still takes its error as evidence.
+    #[inline(never)]
+    fn propagated_call(&mut self, e: &Expr, expected: Type, ops: &mut Vec<Op>) -> Result<Type> {
+        let context = self.propagated.take();
+        let outer = std::mem::replace(&mut self.open_operand, std::ptr::addr_of!(*e) as usize);
+        let ty = self.expr_hinted(e, expected, ops);
+        self.open_operand = outer;
+        self.propagated = context;
+        ty
     }
 
     /// `left op right` for an arithmetic operator in a numeric context.
@@ -1667,6 +1693,13 @@ impl Lower<'_> {
             {
                 self.call_named(&symbol, args, &e.at, ops)
             }
+            Expression::Call(name, _)
+                if expected.is_some()
+                    && !self.names.contains_key(name)
+                    && self.generics.templates.contains_key(name) =>
+            {
+                self.generic_call_in_context(e, expected.unwrap(), ops)
+            }
             Expression::Collection { .. } => self.fallible_display(e, expected, ops).map(Some),
             Expression::Call(name, args)
                 if matches!(name.as_str(), "list" | "dict" | "set")
@@ -1704,6 +1737,28 @@ impl Lower<'_> {
             _ => return Ok(Hinted::Expr),
         };
         ty.map(Hinted::Done)
+    }
+
+    /// A call `e` of a generic function's name whose context expects
+    /// `expected`. A builtin of that name keeps its meaning.
+    #[inline(never)]
+    fn generic_call_in_context(
+        &mut self,
+        e: &Expr,
+        expected: Ty,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        if let Some(result) = self.call_builtin(e, ops)? {
+            return Ok(result);
+        }
+        let Expression::Call(name, args) = &e.kind else {
+            unreachable!("generic_call_in_context lowers calls")
+        };
+        let expected = generics::Expectation {
+            ty: &expected,
+            open_error: std::ptr::addr_of!(*e) as usize == self.open_operand,
+        };
+        self.generic_call_expected(name, args, expected, &e.at, ops)
     }
 
     pub(super) fn fallible_display(
