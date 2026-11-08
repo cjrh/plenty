@@ -824,11 +824,12 @@ def main() -> Result[(), std.bytes.BytesError | AllocError | IoError]:
     names = ["ada", "bob"]?
     print(width(xs), width(r), width(bag.items), *first(bag.items), *first(names))?
     print(octets(buffer), octets(b"xyz"), width(make()?), width([1, 2, 3, 4, 5]?))?
-    print(std.bytes.from_bytes(buffer)?, eat(xs))?
+    handle = Shared([1, 2, 3]?)?
+    print(std.bytes.from_bytes(buffer)?, width(handle), eat(xs))?
     Ok(())
 "#,
     );
-    assert_eq!(stdout.trim_end(), "2 2 3 7 ada\n4 3 3 5\nb\"abcd\" 2");
+    assert_eq!(stdout.trim_end(), "2 2 3 7 ada\n4 3 3 5\nb\"abcd\" 3 2");
 }
 
 /// A bare temporary lent to a view parameter is held to the end of the
