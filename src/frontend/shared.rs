@@ -100,22 +100,17 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         let named = match types {
-            Some([content]) => Some(
-                content
-                    .resolve(self.aliases)?
-                    .ok_or_else(|| content.at.error("a shared owner cannot hold unit"))?,
-            ),
+            Some([content]) => Some(content.resolve(self.aliases)?.unwrap_or(Ty::Unit)),
             Some(_) => return Err(at.error("Shared requires 1 type argument")),
             None => None,
         };
         let [value] = args else {
             return Err(at.error("Shared takes one value"));
         };
-        let actual = self.expr_expected(value, named.clone().or(context), ops)?;
+        let content = self.stored_value(value, named.clone().or(context), ops)?;
         if named.is_some() {
-            self.same(actual.clone(), named, &value.at)?;
+            self.same(Some(content.clone()), named, &value.at)?;
         }
-        let content = actual.ok_or_else(|| value.at.error("a shared owner cannot hold unit"))?;
         if let Some(barrier) = content.storage_barrier() {
             return Err(value.at.error(barrier.message("a shared owner")));
         }
@@ -140,12 +135,7 @@ impl Lower<'_> {
         let [content] = args else {
             return Err(at.error("Box takes one value"));
         };
-        let ty = match context {
-            Some(context) => self
-                .expr_expected(content, Some(context), ops)?
-                .ok_or_else(|| content.at.error("expected a value, got ()"))?,
-            None => self.value(content, ops)?,
-        };
+        let ty = self.stored_value(content, context, ops)?;
         if let Some(barrier) = ty.storage_barrier() {
             return Err(content.at.error(barrier.message("a box")));
         }

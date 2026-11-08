@@ -363,13 +363,9 @@ class C[R]:
         assert!(!error.contains("unknown type `R`"), "{error}");
         assert!(!error.contains("<constructor result>"), "{error}");
     }
-    // Unit class arguments remain unsupported; a unit-alias initializer in
-    // an otherwise valid generic class is covered separately above.
+    // With `R = ()` this `__init__` must return unit, not `Ok(())`.
     let error = check_diagnostic(&format!("{declaration}\ntype Unit = ()\ndrop(C[Unit](1))"));
-    assert!(
-        error.contains("unit type arguments are not supported yet"),
-        "{error}"
-    );
+    assert!(error.contains("cannot instantiate `C[()].new`"), "{error}");
 }
 
 #[test]

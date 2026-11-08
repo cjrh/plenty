@@ -6,15 +6,41 @@ as `b"\x89PNG"`. There is no built-in `int`; use a width or a
 [transparent alias](aliases.md). [Numbers](numbers.md) have local literal
 inference and explicit conversions rather than implicit widening.
 
-The unit type `()` denotes completion without data. It can be an expression,
-function result, enum or tuple component, a type argument to a builtin type
-such as `Option[()]`, `Result[(), E]` or `SendError[()]`, or a
-[channel message type](../../facilities/03-concurrency/channels.md#unit-messages).
-Unsupported uses are a by-value unit parameter, a unit binding, a collection
-element, a class field, and a unit type argument to a user-defined generic enum
-or class, such as `std.sync.SendBeforeError[()]`. A reference to unit, `&()`
-or `&mut ()`, is an ordinary reference: borrowed unit payloads have this type,
-and a `&()` parameter lends a unit argument like any other temporary. There is no `None` type or value.
+The unit type `()` denotes completion without data. It has one value, also
+written `()`, and is an ordinary value type: a binding, parameter, function
+result, tuple component, class field, enum payload, collection element,
+generator item, [channel message](../../facilities/03-concurrency/channels.md#unit-messages)
+or type argument to any generic function, class, enum or protocol can be `()`.
+So a generic `T` can be instantiated with `T = ()`, as in
+`std.sync.SendBeforeError[()]`. Unit values print as `()`, are equal to each
+other, are copyable and own nothing. Unit is not a
+[supported key type](../../facilities/01-builtins/collections.md): a set element or dictionary key
+cannot be `()`. A reference to unit, `&()` or `&mut ()`, is an ordinary
+reference. There is no `None` type or value.
+
+```plenty
+class Done[T]:
+    value: T
+
+def identity[T](value: T) -> T:
+    value
+
+def main() -> Result[(), AllocError | IoError]:
+    marker = ()
+    done = Done[()](identity(marker))
+    signals: list[()] = [(), ()]?
+    print(done.value, len(signals), marker == ())?
+    Ok(())
+```
+
+```output
+() 2 True
+```
+
+A stored unit value currently takes the same word as any scalar: a unit
+parameter is passed in a register, and a unit field or list element takes a
+value slot. Only a [unit channel](../../facilities/03-concurrency/channels.md#unit-messages)
+stores no messages. Programs cannot observe the difference.
 
 [Tuples](tuples.md) are structural products. [Classes](classes.md) and
 [enums](enums.md) are nominal: identical fields or payloads do not make separately

@@ -699,6 +699,8 @@ mod test_type_cycles;
 mod test_typed_ranges;
 #[path = "test_typed_stream_prototype.rs"]
 mod test_typed_stream_prototype;
+#[path = "test_unit_values.rs"]
+mod test_unit_values;
 #[path = "test_unsigned_literals.rs"]
 mod test_unsigned_literals;
 #[path = "test_values.rs"]

@@ -126,10 +126,7 @@ pub(super) fn signature(f: &Function, aliases: &TypeAliases) -> Result<generics:
     // they are registered.
     let mut inputs = Vec::with_capacity(f.inputs.len());
     for (_, t) in &f.inputs {
-        inputs.push(
-            t.resolve(aliases)?
-                .ok_or_else(|| t.at.error("unit parameters are not supported yet"))?,
-        );
+        inputs.push(t.resolve(aliases)?.unwrap_or(Ty::Unit));
     }
     Ok((inputs, f.output.resolve(aliases)?))
 }
@@ -155,9 +152,7 @@ pub(super) fn instantiate(
             arguments
                 .iter()
                 .map(|arg| {
-                    let ty = arg
-                        .resolve(aliases)?
-                        .ok_or_else(|| arg.at.error("unit protocol arguments are not supported"))?;
+                    let ty = arg.resolve(aliases)?.unwrap_or(Ty::Unit);
                     if ty.restricted_storage() {
                         return Err(arg.at.error(
                             "protocol arguments cannot contain references, generators, or closures",
@@ -172,7 +167,7 @@ pub(super) fn instantiate(
     concrete.type_params.clear();
     concrete.arguments = arguments
         .iter()
-        .map(|a| a.resolve(aliases).map(Option::unwrap))
+        .map(|a| Ok(a.resolve(aliases)?.unwrap_or(Ty::Unit)))
         .collect::<Result<_>>()?;
     for method in &mut concrete.methods {
         for bound in method

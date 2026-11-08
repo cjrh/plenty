@@ -787,19 +787,6 @@ def f(flag: bool) -> i64:
 "#,
         "every case of this `match` exits, so it has no value",
     );
-    reject(
-        r#"
-def main() -> Result[(), AllocError]:
-    flag = True
-    x = match flag:
-        case True:
-            pass
-        case False:
-            pass
-    Ok(())
-"#,
-        "expected a value, got ()",
-    );
 }
 
 #[test]

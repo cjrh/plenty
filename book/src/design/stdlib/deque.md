@@ -40,7 +40,7 @@ b
 
 Mutation requires a mutable owner or exclusive reference. Empty removals return
 `Nothing`. Stored elements follow ordinary collection storage restrictions,
-including affine owners; references, generators, and unit elements are unsupported.
+including affine owners; references and generators are unsupported.
 
 End removal takes constant time apart from payload cleanup and allocates nothing.
 Appending is amortized constant time; growth takes linear time and doubles

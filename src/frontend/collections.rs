@@ -806,9 +806,6 @@ impl Lower<'_> {
                 targets.push(None);
                 continue;
             }
-            if *ty == Ty::Unit {
-                return Err(value.at.error("unit bindings are not supported yet; use _"));
-            }
             let slot = if let Some(local) = self.names.get(name) {
                 if mutable || !local.mutable {
                     return Err(value
@@ -925,9 +922,6 @@ impl Lower<'_> {
             }
             if !seen.insert(name) {
                 return Err(at.error("duplicate unpacking binding"));
-            }
-            if *field == Ty::Unit {
-                return Err(at.error("unit bindings are not supported yet; use _"));
             }
             if self.names.contains_key(name) {
                 return Err(at.error(format!(
@@ -1168,10 +1162,6 @@ impl Lower<'_> {
             slots.push(
                 if matches!(&ungroup(target).kind, Expression::Name(name) if name == "_") {
                     None
-                } else if *ty == Ty::Unit {
-                    return Err(target
-                        .at
-                        .error("unit bindings are not supported yet; use _"));
                 } else {
                     Some(self.slot(ty.clone(), &value.at)?)
                 },
@@ -1379,6 +1369,18 @@ impl Lower<'_> {
         };
         let ty = self.expr_hinted(e, hint, ops)?;
         self.widen_to_expected(ty, expected, ops)
+    }
+
+    /// `e` as a value stored into a slot of type `expected`: a unit
+    /// expression, which has no operand, pushes the unit word (issue #870).
+    pub(super) fn stored_value(
+        &mut self,
+        e: &Expr,
+        expected: Type,
+        ops: &mut Vec<Op>,
+    ) -> Result<Ty> {
+        let ty = self.expr_expected(e, expected, ops)?;
+        Ok(self.stored(ty, ops))
     }
 
     /// The member of an anonymous sum that a constructor-like `e` builds, or
@@ -1985,17 +1987,13 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
         let element = ty.as_ref().and_then(Ty::element);
-        let k = self
-            .expr_expected(key, element, ops)?
-            .ok_or_else(|| key.at.error("collection elements cannot be unit"))?;
+        let k = self.stored_value(key, element, ops)?;
         let inferred = if let Some(value) = value {
             let expected = match ty {
                 Some(Ty::Dict(_, v)) => Some((**v).clone()),
                 _ => None,
             };
-            let v = self
-                .expr_expected(value, expected, ops)?
-                .ok_or_else(|| value.at.error("collection elements cannot be unit"))?;
+            let v = self.stored_value(value, expected, ops)?;
             if !k.hashable() {
                 return Err(key
                     .at

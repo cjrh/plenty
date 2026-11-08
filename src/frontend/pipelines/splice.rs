@@ -228,13 +228,7 @@ impl Lower<'_> {
         let inputs = function
             .inputs
             .iter()
-            .map(|(name, t)| {
-                Ok((
-                    name.clone(),
-                    t.resolve(self.aliases)?
-                        .ok_or_else(|| at.error("unit parameters are not supported yet"))?,
-                ))
-            })
+            .map(|(name, t)| Ok((name.clone(), t.resolve(self.aliases)?.unwrap_or(Ty::Unit))))
             .collect::<Result<Vec<_>>>()?;
         let output = function.output.resolve(self.aliases)?;
         callables::validate(

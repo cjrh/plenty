@@ -88,6 +88,5 @@ name is empty
 ```
 
 Unit is a real success payload, distinct from the absence represented by
-`Nothing`. `Option[()]` also works. Standalone unit bindings and unit parameters
-remain unsupported. User-defined enum variants still use their enum's prefix,
+`Nothing`. `Option[()]` also works. User-defined enum variants still use their enum's prefix,
 even if a variant happens to be named `Ok` or `Some`.

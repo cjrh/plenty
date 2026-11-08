@@ -778,6 +778,16 @@ Outstanding conveniences stay **B14/B71** in the [backlog](../backlog.md).
 
 ## B16: Values and syntax
 
+Unit `()` is an ordinary value type (issue #870): it binds, passes as a
+direct or generic parameter, instantiates user generic data, classes,
+protocols, closures and function values, and is stored in fields, tuples,
+lists, dict values, `Box`, `Shared`, generators and channels. Generic helpers
+such as `std.sync.send_before` therefore accept `T = ()` and report
+`SendBeforeError[()]`. Unit is not hashable, so it is not a set element or dict
+key. Its representation is unchanged: one dummy word, so storage is not yet
+zero-size outside the channel ring; see
+[unit](../design/language/03-types/index.md).
+
 Block `if`/`elif`/`else` supports whole-RHS bindings, single-place assignments,
 and explicit returns with the same contextual types, cleanup and lifetime
 restrictions as match-valued statements (issue #674). Arbitrary expression

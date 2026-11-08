@@ -117,18 +117,6 @@ fn native(#[case] source: &str, #[case] expected: &str) {
 #[case("match Some(1):\n    case Some(x):\n        pass", "non-exhaustive")]
 #[case("def Ok() -> i64:\n    1", "builtin")]
 #[case(
-    "match Some(()):\n    case Some(u):\n        print(u).unwrap()\n    case Nothing:\n        pass",
-    "expected a value, got ()"
-)]
-#[case(
-    "match Some(()):\n    case Some(u):\n        x = copy(u).unwrap()\n    case Nothing:\n        pass",
-    "expected a value, got ()"
-)]
-#[case(
-    "match Some(()):\n    case Some(u):\n        r = &u\n    case Nothing:\n        pass",
-    "expected a value, got ()"
-)]
-#[case(
     "x = 42\ny = [Some(&x)].unwrap()",
     "carrying a reference cannot be stored in collections"
 )]
