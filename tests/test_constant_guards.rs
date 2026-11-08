@@ -182,7 +182,8 @@ def neg_one(x: i64) -> i64:
         x // -1
 
 def shr(x: u32, n: u32) -> u32:
-    x >> n
+    unchecked:
+        x >> n
 
 def bump(x: u8) -> u8:
     unchecked:
@@ -228,14 +229,14 @@ fn guards_that_can_fire_keep_their_diagnostics() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("traps.plenty"), TRAPS).unwrap();
     let cases = [
-        "traps.plenty:29:19: division by zero",
-        "traps.plenty:32:19: integer overflow",
-        "traps.plenty:35:19: shift count outside integer width",
+        "traps.plenty:30:19: division by zero",
+        "traps.plenty:33:19: integer overflow",
+        "traps.plenty:36:19: shift count outside integer width",
         "traps.plenty:5:9: division by zero",
         "traps.plenty:5:9: integer overflow",
         "traps.plenty:9:9: integer overflow",
-        "traps.plenty:12:5: shift count outside integer width",
-        "traps.plenty:16:9: integer overflow",
+        "traps.plenty:13:9: shift count outside integer width",
+        "traps.plenty:17:9: integer overflow",
     ];
     for mode in [&["--fast-compile"][..], &["--release"][..]] {
         let executable = dir.path().join("traps");

@@ -77,7 +77,7 @@ bytes (`parse_text`, `encode_text`, `from_text`). A `_bytes` suffix names the
 byte form of an operation whose main form takes text (`get_bytes`,
 `command_bytes`, `send_bytes`). The suffix does not yet predict the type:
 `std.path.from_bytes` takes `list[u8]` and `std.bytes.from_bytes` takes
-`bytes` (see [Bytes](#bytes)).
+`&[u8]` (see [Bytes](#bytes)).
 
 ### Predicates
 
@@ -361,7 +361,7 @@ protocol from `std.fmt`; `std.report` provides rendering helpers.
 | Area | Deviation | Tracking |
 |---|---|---|
 | Invalid arguments | Builtin policies differ | Issue #629 |
-| Enums | Builtin `open`, `std.io.open_file` and `open_path` take `&str` modes; literal and constant modes are checked at compile time | B40; issue #807 |
+| Enums | Builtin `open`, `std.io.open_file` and `open_path` take `&strview` modes; literal and constant modes are checked at compile time | B40; issue #807 |
 | Containers | `in` does not dispatch to std container methods | B49; issue #623 records the length/diagnostic fix |
 | Bytes | `list[u8]` OS strings | B39 |
 | Streams | `TcpStream.close` returns `StreamError` | Issue #533 (intentional) |

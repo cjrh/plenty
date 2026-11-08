@@ -166,8 +166,9 @@ impl Divisor {
 }
 
 /// Arithmetic that exits the innermost enclosing `checked:` block with an
-/// error instead of trapping: `+ - *`, unary `-` (as `0 - x`), `//`, `%` and
-/// `pow` on integers, and float division for `div_checked`. The rules are in
+/// error instead of trapping: `+ - *`, unary `-` (as `0 - x`), `//`, `%`,
+/// `pow` and shifts by a count that is not a literal on integers, and float
+/// division for `div_checked`. The rules are in
 /// `book/src/design/language/03-types/numbers.md#checked-blocks`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Checked {
@@ -177,6 +178,8 @@ pub enum Checked {
     FloorDiv(Divisor),
     Modulo(Divisor),
     Pow,
+    ShiftLeft,
+    ShiftRight,
     FloatDiv,
 }
 
@@ -203,8 +206,14 @@ impl Checked {
             Self::FloorDiv(proof) => {
                 proof.may_be_minus_one() && matches!(ty, Ty::I8 | Ty::I16 | Ty::I32 | Ty::I64)
             }
-            Self::Modulo(_) | Self::FloatDiv => false,
+            Self::Modulo(_) | Self::ShiftLeft | Self::ShiftRight | Self::FloatDiv => false,
         }
+    }
+
+    /// Whether a count outside `0..width` is an error. Left shifts discard
+    /// high bits rather than overflow.
+    pub fn shifts(self) -> bool {
+        matches!(self, Self::ShiftLeft | Self::ShiftRight)
     }
 
     /// Whether a zero divisor is an error.

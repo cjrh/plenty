@@ -24,12 +24,18 @@ zero survives. Separators and hexadecimal forms are invalid.
 ## Checked conversion
 
 `T.try_from(value) -> Result[T, RangeError]` is defined for every integer type
-`T` and takes one value of any integer type. It returns `Ok` with the same
-mathematical value when `T` can represent it and `Err(RangeError.OutOfRange)`
-otherwise. `RangeError` has just that one variant, so an exhaustive error match
-needs one arm. Conversion allocates nothing and does not call the
-runtime. Float and non-numeric arguments are compile-time errors, as is
-`try_from` on a float type; float conversions use casts.
+`T` and takes one value of any integer or float type. It is the recoverable
+form of the [cast](../../language/03-types/numbers.md) `T(value)`: it returns
+`Ok(T(value))` where the cast succeeds and `Err(RangeError.OutOfRange)` where
+the cast would trap. An integer keeps its mathematical value. A float is
+truncated toward zero first, so `u8.try_from(255.9)` is `Ok(255)`; NaN, an
+infinity, and a float whose truncation `T` cannot represent are out of range.
+`RangeError` has just that one variant, so an exhaustive error match needs one
+arm. A literal argument outside the range, as in `u8.try_from(300)`, is not a
+compile-time error; it returns `Err`. Conversion allocates nothing and does not
+call the runtime. Non-numeric arguments are compile-time errors, as is
+`try_from` on a float type: conversions to a float never fail, so they use
+casts.
 [`NonZero.try_from(value)`](../../language/03-types/numbers.md#nonzero-integers)
 fails with the same error for zero.
 

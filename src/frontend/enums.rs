@@ -264,6 +264,7 @@ pub(super) fn resolve_types(
             && !matches!(
                 name,
                 "OverflowError"
+                    | "ShiftCountError"
                     | "ZeroDivisionError"
                     | "NonZero"
                     | "Positive"

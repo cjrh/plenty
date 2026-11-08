@@ -63,12 +63,13 @@ def main() -> Result[(), IoError | ParseError | OverflowError[i64]]:
   `7u8`, `1.5f32`. Integers may be hexadecimal, octal, or binary (`0xFFu8`,
   `0o755`, `0b1010`) and use `_` separators (`1_000_000`).
 - Types never widen implicitly; cast with `f64(n)`, `u8(n)` (traps if out of
-  range), `T.try_from(n)`, or `T.wrapping_from(n)`. `T.parse(text)` returns
+  range), `T.try_from(n)` (also for floats), or `T.wrapping_from(n)`. `T.parse(text)` returns
   `Result[T, ParseError]`.
 - `//` floors and `%` is integer-only. Integer arithmetic returns errors from
   the function: include `OverflowError[T]` and, for divisors other than
   nonzero literals, `ZeroDivisionError` in its `Result` signature. `x // 2`
-  cannot fail at all. Still write `Ok(...)` on
+  cannot fail at all. A shift by a count other than a literal adds
+  `ShiftCountError[T]`. Still write `Ok(...)` on
   success; operators themselves return ordinary numbers. No `**`: use `x.pow(n)`.
 - `abs`, `min`, `max`, `sum` come from [`std.math`](../stdlib/math.md).
 
@@ -154,8 +155,10 @@ such as `name[1:]?` or `name[::-1]?` copies, so it needs `?`. See
 `&substr` remains a compatible alias for `&strview`. A plain `&s` still
 produces an ordinary `&str`. A `&strview` function parameter accepts a whole
 string as `f(s)`, implicitly borrowed without copying, or a substring as `f(&s[a:b])`. Explicit whole-string
-borrows, existing `&str` bindings, and literals work too. A view has fewer
-operations than `str`; see the [Text argument table](../facilities/01-builtins/text.md#function-arguments).
+borrows, existing `&str` bindings, and literals work too. Views support scalar
+text operations and byte access; see [substring views](../language/04-expressions/slices.md#substring-views)
+for operations and ownership limits. Scalar `len(view)` scans; `view.byte_len()`
+and `view.as_bytes()` are O(1).
 
 ## Collections
 
