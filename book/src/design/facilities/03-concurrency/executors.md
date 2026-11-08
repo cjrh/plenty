@@ -225,10 +225,13 @@ A pool shuts down at `pool.shutdown()`, including through a
 wherever its owner leaves scope: the end of its `with` block or of the function,
 `return`, `?`, `break`, and `continue`. A call that receives a pool, by value or
 by reference, counts as a shutdown when a function it reaches, directly or
-through further calls, calls `shutdown()` or owns a pool. A call through a
-`Callable`, closure, or boxed callable value, or to a function that makes one,
-is assumed to shut down a pool passed to it. Locals are released last declared first,
-so a receiver bound after the pool is dropped before the pool shuts down.
+through further calls, calls `shutdown()` or owns a pool. Unknown calls remain
+conservative except for capture-free `Callable` signatures with recognized
+data-only inputs and results, as explained under [helper-based schedulers](#helper-based-schedulers).
+Known closure bodies are followed; unresolved closures, erased calls and missing
+bodies remain unknown. Explicit shutdown and owned-pool cleanup still count,
+even for an unrelated pool. Locals are released last declared first, so a receiver
+bound after the pool is dropped before the pool shuts down.
 
 Jobs are not matched to pools and are never assumed to have finished. A job
 submitted with `submit` or `submit_nowait` counts at every later shutdown in the
@@ -311,11 +314,27 @@ check at `result()`, before any later receiver cleanup.
 ## Helper-based schedulers
 
 Ordinary helpers may submit and receive while the owning pool stays alive.
-Currently, however, an unknown reachable callback or an unrelated owned pool
-can be combined with transitive submissions to reject a safe helper. This is
-a conservative analysis limitation, not a requirement to inline all loops.
-Even a helper handed only a `Submitter`, which cannot shut down its pool,
-can encounter this false positive through the callee-owned-pool check.
+An indirect call through a capture-free `Callable` with recognized data-only
+input and result types does not imply pool shutdown. Recognized signatures may
+also contain `Submitter`, which carries no shutdown authority; borrowed and
+aggregate contents are checked recursively. This applies to submission helpers
+taking either `&ThreadPoolExecutor` or `Submitter`. Pool, channel and mutex
+capabilities, destructor-bearing classes, erased values and unclassified types
+remain conservative. This bounded exception does not resolve callback targets
+or change future-result wait checks.
+
+Capability-bearing or erased unknown calls, missing bodies and ownership of an
+unrelated pool can still combine with transitive submissions to reject a safe
+helper. This remaining limitation is not a requirement to inline all loops.
+
+Read the diagnostic's shutdown provenance before restructuring. **Discovered**
+means an explicit shutdown or owned-pool cleanup was found; **assumed** means
+an unresolved call may shut down a pool, not that it is proved to do so. Notes
+show the enclosing function, available source positions and a bounded call
+chain; a concrete witness takes precedence over an unknown one. They explain
+one cause, not every possible cause or proof of runtime execution. Even a named
+pool binding does not establish pool identity or call order. These explanations
+also apply to helpers handed only job inputs or a `Submitter`.
 
 Keep a narrow submission helper when this limitation requires separating setup
 and bookkeeping from the pool-handed call. The
@@ -329,9 +348,10 @@ both queued and running jobs.
 The aggregate-argument gap above is distinct from direct field borrowing:
 `helper(&holder.pool, ...)` hands the call a pool, while passing only
 `helper(&holder, ...)` can miss recording submissions through its pool field.
-An unknown callback in the latter helper can nevertheless trigger rejection
-through the callee-owned-pool check. Neither wrapping a pool nor observing that
-one wrapper example rejects establishes safety or complete coverage.
+A callback whose shutdown effect remains unknown, such as an erased or
+capability-bearing callback, can nevertheless trigger rejection in the latter
+helper through the callee-owned-pool check. Neither wrapping a pool nor observing
+that one wrapper example rejects establishes safety or complete coverage.
 
 ## Shutdown and held locks
 

@@ -118,21 +118,29 @@ end the receiver guard before [waiting on a future](future-cancellation-and-wait
 
 ## When the current checker rejects a larger helper
 
-The example's helper loop is accepted. The current checker can nevertheless
-combine transitive submissions with an unrelated unknown callback or an
-unrelated owned pool, and reject a larger helper as potentially shutting down.
-This is an analysis limitation, not a rule that all scheduler loops must be
-inline. The checker matches endpoint types rather than queue/pool identities;
-it does not prove capacity bounds or that a drained running set means jobs
-have finished. See [helper-call limitations](../../design/facilities/03-concurrency/executors.md#helper-based-schedulers).
+The example's helper loop is accepted. Capture-free `Callable` calls with
+recognized data-only input and result types also do not imply shutdown.
+Other unknown effects, including capability-bearing or erased calls and missing
+bodies, and unrelated owned pools can still combine with transitive submissions
+to reject a larger helper. This remaining limitation does not require all
+scheduler loops to be inline. The checker matches endpoint types rather than
+queue/pool identities; it does not prove capacity bounds or that a drained
+running set means jobs have finished. See [helper-call limitations](../../design/facilities/03-concurrency/executors.md#helper-based-schedulers).
+
+Before changing the loop, read the diagnostic notes. A **discovered** shutdown
+comes from an explicit operation or owned-pool cleanup; an **assumed** shutdown
+comes from an unresolved call, not proof that it shuts down. Follow the bounded
+call chain and available source positions. Even a discovered shutdown may involve
+an unrelated pool: the explanation does not prove pool identity or call order.
 
 A narrow fallback is to keep `submit_run`, move the dispatch loop into the
 pool-owning block, and separate preparation and completion bookkeeping from
 the pool-handed helper. The loop body can still call `prepare`, `submit_run`,
 `hand_off`, and `await_one`; only the small submission helper needs the pool.
 Do this only where a rejected call graph requires it, not as a universal
-architecture. `Submitter` is a useful restricted capability, but currently
-is not a guaranteed workaround for this false positive.
+architecture. The data-only `Callable` case is also accepted for a `Submitter`
+helper. `Submitter` is still not a universal workaround for other unknown
+effects or unrelated owned-pool cleanup.
 
 When preparation creates resources for several runs, a later error must not
 lose earlier cleanup obligations. Return or accumulate already-prepared runs

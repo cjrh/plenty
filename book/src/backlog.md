@@ -73,8 +73,10 @@ it does not schedule all catalogue entries.
   [channel](design/facilities/03-concurrency/channels.md#what-the-rule-does-not-decide)
   and [executor](design/facilities/03-concurrency/executors.md#shutdown-and-live-receivers)
   checks do not establish deadlock freedom. [Helper-scheduler guidance](completed-work.md#pool-scheduler-guidance-issue-895)
-  is delivered (issue #895); effect precision and diagnostic provenance remain
-  tracked by issues #893 and #894.
+  is delivered (issue #895), covering the bounded capture-free `Callable`
+  exception (issue #893) and discovered-versus-assumed shutdown provenance
+  (issue #894), delivered separately under [native concurrency](completed-work/language-and-tooling.md#b22-native-concurrency).
+  Richer pool identity/order and callback-effect inference remain outside that subset.
 - Automatic parallelization (B24), optional backends (B20), stored-reference
   relationships (B11), broader callback erasure (B32) and automatic deep
   recursive operations (B33) require their own contracts and acceptance checks.
