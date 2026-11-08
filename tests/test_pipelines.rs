@@ -2278,7 +2278,7 @@ end\ndrop 3\n",
 }
 
 #[test]
-fn next_rejects_immutable_consumed_and_reference_pipelines() {
+fn next_rejects_immutable_consumed_and_nested_reference_pipelines() {
     let immutable = support::check_error(
         r#"
 def main() -> ():
@@ -2303,12 +2303,12 @@ def main() -> ():
         r#"
 def main() -> ():
     xs = [1, 2].unwrap()
-    mut p = iter(&xs)
+    mut p = iter(&xs).enumerate()
     drop(next(p))
 "#,
     );
     assert!(
-        reference.contains("references cannot be stored in a next result"),
+        reference.contains("next returns `Option[&T]` only for an item that is itself a reference"),
         "{reference}"
     );
     let conflict = support::check_error(
@@ -2325,6 +2325,69 @@ def main() -> ():
 }
 
 #[cfg(feature = "runtime-checks")]
+#[test]
+fn next_on_reference_pipelines_returns_borrowed_options() {
+    // Issue #872: the option borrows the pipeline's source, not the pipeline.
+    output(
+        r#"
+def head(names: &list[str]) -> Option[&str]:
+    mut p = iter(names).filter(def(s: &str) -> bool: len(s) > 1)
+    next(p)
+def lent_length(p: &mut Iter[&str]) -> i64:
+    match next(p):
+        case Some(s):
+            len(s)
+        case Nothing:
+            0
+def main() -> Result[(), AllocError | IoError]:
+    mut names = ["a", "bb", "ccc"]?
+    mut p = iter(&names)
+    first = next(p)
+    second = next(p)
+    print(first, second)?
+    print(lent_length(&mut p))?
+    print(next(p))?
+    drop(p)
+    print(first)?
+    print(head(&names))?
+    names.append("dddd")?
+    mut q = iter(&mut names)
+    match next(q):
+        case Some(s):
+            *s = "z"
+        case Nothing:
+            pass
+    match next(q):
+        case Some(s):
+            *s = "y"
+        case Nothing:
+            pass
+    drop(q)
+    print(names)?
+    Ok(())
+"#,
+        "Option[&str].Some(\"a\") Option[&str].Some(\"bb\")\n3\nOption[&str].Nothing\n\
+         Option[&str].Some(\"a\")\nOption[&str].Some(\"bb\")\n[\"z\", \"y\", \"ccc\", \"dddd\"]\n",
+    );
+    for (source, expected) in [
+        (
+            "def main() -> Result[(), AllocError | IoError]:\n    mut names = [\"a\"]?\n    mut p = iter(&names)\n    first = next(p)\n    names.append(\"b\")?\n    print(first)?\n    Ok(())\n",
+            "cannot modify or exclusively borrow `names` while it is borrowed",
+        ),
+        (
+            "def main() -> Result[(), AllocError | IoError]:\n    mut xs = [1, 2]?\n    mut p = iter(&mut xs)\n    a = next(p)\n    b = next(p)\n    print(a)?\n    drop(b)\n    Ok(())\n",
+            "while it is exclusively borrowed",
+        ),
+        (
+            "def first(p: &mut Iter[&str]) -> Option[&str]:\n    next(p)\ndef main() -> Result[(), AllocError]:\n    names = [\"a\"]?\n    mut p = iter(&names)\n    drop(first(&mut p))\n    Ok(())\n",
+            "an item of a lent pipeline cannot be returned",
+        ),
+    ] {
+        let error = support::check_source(source).expect_err(source).to_string();
+        assert!(error.contains(expected), "{source}\n{error}");
+    }
+}
+
 #[test]
 fn next_partial_pipelines_release_owned_state() {
     support::assert_visible_stdout(
@@ -2719,11 +2782,11 @@ fn lending_keeps_borrow_and_signature_rules() {
         ),
         (
             "def f(p: &mut Iter[&i64]) -> Option[&i64]:\n    next(p)\ndef main() -> Result[(), AllocError]:\n    xs = [1, 2]?\n    mut p = iter(&xs)\n    drop(f(&mut p))\n    Ok(())\n",
-            "references cannot be stored in a next result",
+            "an item of a lent pipeline cannot be returned",
         ),
         (
-            "def f(p: &mut Iter[&i64]) -> i64:\n    match next(p):\n        case Some(x):\n            *x\n        case Nothing:\n            0\ndef main() -> Result[(), AllocError]:\n    xs = [1, 2]?\n    mut p = iter(&xs)\n    drop(f(&mut p))\n    Ok(())\n",
-            "references cannot be stored in a next result",
+            "def f(p: &mut Iter[&i64]) -> Option[&i64]:\n    item = next(p)\n    item\ndef main() -> Result[(), AllocError]:\n    xs = [1, 2]?\n    mut p = iter(&xs)\n    drop(f(&mut p))\n    Ok(())\n",
+            "an item of a lent pipeline cannot be returned",
         ),
         (
             "def f[T](p: &mut Iter[T]) -> i64:\n    p.count()\ndef main() -> Result[(), AllocError]:\n    xs = [1, 2]?\n    mut p = iter(&xs)\n    drop(f(&mut p))\n    Ok(())\n",
