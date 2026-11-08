@@ -1237,10 +1237,12 @@ fn references_and_warnings(
 ) -> (Value, Vec<String>) {
     client.next += 1;
     let id = client.next;
-    client.send(json!({"jsonrpc": "2.0", "id": id, "method": "textDocument/references",
+    client.send(
+        json!({"jsonrpc": "2.0", "id": id, "method": "textDocument/references",
         "params": {"textDocument": {"uri": uri(path)},
             "position": {"line": line, "character": character},
-            "context": {"includeDeclaration": declaration}}}));
+            "context": {"includeDeclaration": declaration}}}),
+    );
     let mut warnings = vec![];
     loop {
         let message = client.receive();
