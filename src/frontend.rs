@@ -605,6 +605,10 @@ const BYTES_ADOPT: &str = "__bytes_adopt";
 /// and exits like any run-time trap.
 const TRAP: &str = "__trap";
 
+/// A lexically resolved builtin call, distinct from user declarations named
+/// `replace` in other modules (including the unqualified entry module).
+const FIELD_REPLACE: &str = "$builtin.replace";
+
 /// Native intrinsics that only std modules call. Each family belongs to the
 /// std module that validates its operands and maps its results.
 fn std_only_intrinsic(name: &str) -> bool {
@@ -2721,11 +2725,7 @@ impl Lower<'_> {
             if name == "sorted" {
                 return self.sorted(args, &e.at, ops).map(Some);
             }
-            if name == "replace"
-                && !self.sigs.contains_key(name)
-                && !self.generics.templates.contains_key(name)
-                && !self.aliases.contains_key(name)
-            {
+            if name == FIELD_REPLACE {
                 return self
                     .replace_field(args, &e.at, ops)
                     .map(|ty| Some(Some(ty)));
