@@ -14,7 +14,7 @@ use crate::ownership::{Bound, range_step};
 use crate::text::TextViewOp;
 
 /// The operations a view supports, for diagnostics that reject others.
-pub(super) const OPERATIONS: &str = "a view supports `len(v)`, `v[i]`, `&v[a:b]`, `==`, `for x in v`, `iter(v)`, and `print(v)`, and a `&mut [T]` view also `v[i] = x` and `v.swap(i, j)`";
+pub(super) const OPERATIONS: &str = "a view supports `len(v)`, `v[i]`, `&v[a:b]`, `v[a:b]?`, `list(v)?`, `==`, `in`, `v.count(x)`, `v.find(x)`, `v.rfind(x)`, `v.get(i)`, `for x in v`, `iter(v)`, and `print(v)`, and a `&mut [T]` view also `v[i] = x`, `v.swap(i, j)`, and `v.reverse()`";
 
 /// The operations a `&strview` supports, for diagnostics that reject others.
 pub(super) const TEXT_OPERATIONS: &str = "a `&strview` supports `len(v)`, `v.byte_len()`, `v.as_bytes()`, `v[i]`, `&v[a:b]`, `v[a:b]?`, comparisons, `in`, string search/transform/split/join methods, `for c in v`, and `print(v)`; owned results allocate as their `str` counterparts do";

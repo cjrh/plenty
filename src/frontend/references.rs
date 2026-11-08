@@ -1666,7 +1666,7 @@ impl Lower<'_> {
         let (ty, loans) = self.observe(arg, ops)?;
         if matches!(ty, Ty::View(..)) {
             return Err(at.error(
-                "copy() does not take a slice view; copy the elements with a copying slice, `xs[a:b]?`",
+                "copy() does not take a slice view; copy its elements into a list with `list(v)?` or `v[a:b]?`",
             ));
         }
         // A nested handle is shared, as `share()` would; a bare handle is
