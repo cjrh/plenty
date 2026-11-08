@@ -146,9 +146,6 @@ pub(super) struct BranchJoin {
 /// A `mut` holder of a reference-carrying type that started empty.
 #[derive(Default)]
 pub(super) struct Holder {
-    /// The loan of the first borrowing assignment lowered, which fixes the
-    /// place, and that assignment's line.
-    pub(super) first: Option<(usize, u32)>,
     /// The loans of every borrowing assignment lowered so far.
     pub(super) assigned: Vec<usize>,
     /// Whether some `return` returns the holder.
@@ -404,10 +401,10 @@ impl Lower<'_> {
     /// holder that started empty keeps its declaration loan, so every use
     /// names it wherever it lies relative to an assignment. Each assignment
     /// adds a loan of its own to the holder, which every such use keeps
-    /// live; see [`crate::ownership::Loan::holder`]. The first assignment
-    /// lowered fixes the place, and later values must lie within it. A value
-    /// of another started-empty holder borrows whatever that holder's values
-    /// borrow, so it is not treated as `Nothing`.
+    /// live; see [`crate::ownership::Loan::holder`], so values may borrow
+    /// different places and owners. A value of another started-empty holder
+    /// borrows whatever that holder's values borrow, so it is not treated as
+    /// `Nothing`.
     pub(super) fn retarget_reference(
         &mut self,
         name: &str,
@@ -422,7 +419,7 @@ impl Lower<'_> {
             return Ok(());
         }
         if self.absent_loan(held) && !self.loans[held].precise {
-            return self.assign_holder(name, slot, held, origin, at, ops);
+            return self.assign_holder(held, origin, at, ops);
         }
         if self.check_retargeted_reference(name, slot, origin, at)? {
             ops.push(Op::EndLoan(held));
@@ -432,17 +429,13 @@ impl Lower<'_> {
 
     fn assign_holder(
         &mut self,
-        name: &str,
-        slot: u8,
         held: usize,
         origin: usize,
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
-        let source = self.holder_of(origin);
         let holder = self.holders.entry(held).or_default();
-        let (returned, first) = (holder.returned, holder.first);
-        if returned {
+        if holder.returned {
             // A `return` of the holder, possibly earlier in a loop, can
             // return this value, so it must have the returned origin.
             self.check_returned_value(origin, at)?;
@@ -450,34 +443,9 @@ impl Lower<'_> {
         // A loan of its own, emitted here, so the checker sees it marked.
         let mutable = self.loans[origin].mutable;
         let loan = self.new_loan(self.loans[origin].root, mutable, Some(origin), ops);
-        match first {
-            // The value of another holder: the new loan descends from that
-            // holder's declaration loan, so a use of this holder keeps every
-            // value assigned to the other one borrowed, including later ones.
-            // Its place is the other holder's, so it fixes none here.
-            _ if source.is_some() => {}
-            None => {
-                self.bind_reference(slot, loan, true, ops);
-                self.reference_locals.insert(slot, held);
-                self.holders.get_mut(&held).expect("holder").first = Some((loan, at.line));
-            }
-            Some((first, line)) => {
-                let (old, new) = (&self.loans[first], &self.loans[loan]);
-                if new.root != old.root {
-                    return Err(at.error(format!(
-                        "holder `{name}` borrows another owner, since its first borrowing assignment at line {line}; it can be assigned only borrows of that owner, and assigning `Nothing` does not release it: use one holder per owner"
-                    )));
-                }
-                if !new.fields.starts_with(&old.fields) {
-                    return Err(at.error(format!(
-                        "holder `{name}` borrows a place since its first borrowing assignment at line {line}; it can be assigned only borrows within that place"
-                    )));
-                }
-            }
-        }
         self.loans[loan].holder = Some(crate::ownership::Assigned {
             holder: held,
-            arm: false,
+            kind: crate::ownership::Joined::Assignment,
         });
         if let Some(Op::Loan(fact)) = ops
             .iter_mut()
@@ -525,8 +493,18 @@ impl Lower<'_> {
         }
         let (old, new) = (&self.loans[held], &self.loans[loan]);
         if new.root != old.root {
+            // Only an `Option` or `Result` holder can start without a borrow.
+            let choose = match self.names.get(name).map(|local| &local.ty) {
+                Some(ty @ Ty::Enum(t)) if t.is_option() => format!(
+                    "; to choose between owners, start it empty, as in `mut {name}: {ty} = Nothing`"
+                ),
+                Some(ty @ Ty::Enum(t)) if t.is_result() => format!(
+                    "; to choose between owners, start it empty, as in `mut {name}: {ty} = Err(error)`"
+                ),
+                _ => String::new(),
+            };
             return Err(at.error(format!(
-                "reference binding `{name}` can be reassigned only to a reference into the owner it first borrowed"
+                "reference binding `{name}` can be reassigned only to a reference into the owner it first borrowed{choose}"
             )));
         }
         if !new.fields.starts_with(&old.fields) {
@@ -639,7 +617,6 @@ impl Lower<'_> {
                 self.holders.insert(
                     join,
                     Holder {
-                        first: None,
                         assigned: branch.assigned,
                         returned: false,
                     },
@@ -673,7 +650,7 @@ impl Lower<'_> {
             loan.id = id;
             loan.holder = Some(crate::ownership::Assigned {
                 holder: join,
-                arm: true,
+                kind: crate::ownership::Joined::Arm,
             });
             if let Some(Op::Loan(fact)) = ops.last_mut() {
                 *fact = loan.clone();
@@ -692,6 +669,47 @@ impl Lower<'_> {
                 .iter()
                 .filter(|&&id| Some(id) != own)
                 .map(|&id| Op::EndLoan(id)),
+        );
+        Ok(())
+    }
+
+    /// Gives the value just produced from the borrows `origins`, which may
+    /// borrow different owners, a join loan like [`Self::branch_value`]'s:
+    /// a use of the value keeps every origin borrowed.
+    pub(super) fn fallback_value(
+        &mut self,
+        at: &Token,
+        origins: &[usize],
+        mutable: bool,
+        ops: &mut Vec<Op>,
+    ) -> Result<()> {
+        let join = self.new_loan(0, false, None, &mut Vec::new());
+        let mut assigned = Vec::with_capacity(origins.len());
+        for &origin in origins {
+            let id = self.new_loan(self.loans[origin].root, mutable, Some(origin), ops);
+            self.loans[id].holder = Some(crate::ownership::Assigned {
+                holder: join,
+                kind: crate::ownership::Joined::Fallback,
+            });
+            if let Some(Op::Loan(fact)) = ops.last_mut() {
+                *fact = self.loans[id].clone();
+            }
+            assigned.push(id);
+        }
+        let referent = self.slot(Ty::Unit, at)?;
+        ops.extend([Op::PushUnit, Op::StoreLocal(referent)]);
+        self.absent_referents.insert(referent);
+        let loan = &mut self.loans[join];
+        loan.root = referent;
+        loan.mutable = mutable;
+        loan.dependencies.clear();
+        ops.push(Op::Loan(loan.clone()));
+        self.holders.insert(
+            join,
+            Holder {
+                assigned,
+                returned: false,
+            },
         );
         Ok(())
     }
@@ -731,8 +749,24 @@ impl Lower<'_> {
         if std::mem::replace(&mut holder.returned, true) {
             return Ok(());
         }
-        for assigned in holder.assigned.clone() {
-            self.check_returned_value(assigned, at)?;
+        for (index, assigned) in holder.assigned.clone().into_iter().enumerate() {
+            let fallback = self.loans[assigned]
+                .holder
+                .is_some_and(|joined| joined.kind == crate::ownership::Joined::Fallback);
+            // An `unwrap_or` join holds the receiver's loan, then the default's.
+            let checked = self.check_returned_value(assigned, at);
+            if fallback && index == 1 && checked.is_err() {
+                let origin = self
+                    .return_origin
+                    .and_then(|slot| self.slot_names.get(slot as usize).cloned().flatten());
+                return Err(at.error(match origin {
+                    Some(origin) => format!(
+                        "returned reference must originate from the first reference parameter, `{origin}`; the default of `unwrap_or` must also borrow from `{origin}`"
+                    ),
+                    None => "returned reference must originate from the first reference parameter; the default of `unwrap_or` must also borrow from it".into(),
+                }));
+            }
+            checked?;
         }
         // A holder declared with another holder's value also returns it.
         match self.loans[decl].parent {

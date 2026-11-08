@@ -4013,11 +4013,6 @@ impl Lower<'_> {
         }
         let payload = option.get().variants[usize::from(option.is_option())].fields[0].clone();
         let carried = if payload.carries_loan() {
-            if name == "unwrap_or" {
-                return Err(base
-                    .at
-                    .error("`unwrap_or` cannot choose between two borrows; use `match`"));
-            }
             Some(self.reference_origin(base, ops)?)
         } else {
             None
@@ -4041,11 +4036,21 @@ impl Lower<'_> {
         if let Some(hint) = argument_hint {
             self.same(Some(actual.clone()), Some(hint), &argument.at)?;
         }
-        if let Some(barrier) = actual.storage_barrier() {
+        // A default of the receiver's borrowed payload type is held like the
+        // payload, with the loan given below.
+        let borrowed_default = name == "unwrap_or" && payload.carries_loan();
+        if let Some(barrier) = actual.storage_barrier().filter(|_| !borrowed_default) {
             return Err(argument
                 .at
                 .error(barrier.message("Option convenience arguments")));
         }
+        // The default of a borrowed payload is another borrow, possibly of
+        // another owner: the result keeps both borrowed.
+        let defaulted = if borrowed_default && !references::loan_free(argument) {
+            Some(self.reference_origin(argument, ops)?)
+        } else {
+            None
+        };
         let fallback = self.slot(actual.clone(), &argument.at)?;
         ops.push(Op::StoreLocal(fallback));
         let result = if name == "unwrap_or" {
@@ -4061,8 +4066,15 @@ impl Lower<'_> {
             name == "ok_or",
             ops,
         );
-        if let Some(parent) = carried {
-            // The Result carries the Option's loan.
+        if let (Some(parent), Some(default)) = (carried, defaulted) {
+            self.fallback_value(
+                &argument.at,
+                &[parent, default],
+                payload.carries_mutable_loan(),
+                ops,
+            )?;
+        } else if let Some(parent) = carried {
+            // The result carries the receiver's loan.
             let root = self.loans[parent].root;
             self.new_loan(root, payload.carries_mutable_loan(), Some(parent), ops);
         }

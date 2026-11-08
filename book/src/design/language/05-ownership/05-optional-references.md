@@ -56,13 +56,66 @@ modify the origin. These forms take the reference out or inspect the result:
   rejected because the result already holds a reference.
 - `?` propagates `Nothing` or `Err` and produces the reference.
 - `unwrap()`, `ok_or(e)`, `is_some()`, `is_none()`, `is_ok()`, and `is_err()`.
+- `unwrap_or(&default)`, which produces the payload reference or the default
+  reference. The result keeps both owners borrowed while it is used, as an
+  [`if` or `match` value](#choosing-with-if-or-match) keeps every arm's
+  borrow.
 - Returning the result from a function with the same origin, directly or from
   a local.
 - Printing and `str.repr`, which show the referenced value:
   `Option[&str].Some("ada")`.
 
-`unwrap_or(default)` is rejected: it would choose between two borrows. Use
-`match`.
+A pattern below the payload matches the referent, as a match on a reference
+does: `case Some(Item(name=n, count=3))` on `Option[&Item]` tests the item's
+field, and `case Some(Some(v))` on `Option[&mut Option[i64]]` binds `v` as a
+`&mut i64` into the inner option. Each name bound below the payload is a
+reference that keeps the origin borrowed, like the payload itself. Names bound
+below one exclusive payload, as in `case Some(Item(name=n, count=k))` on
+`Option[&mut Item]`, are disjoint, so each can be written in the arm.
+
+```plenty
+class Item:
+    name: str
+    count: i64
+
+def find(items: &list[Item], name: &str) -> Option[&Item]:
+    for item in items:
+        if item.name == name:
+            return Some(item)
+    Nothing
+
+def first(values: &mut list[Option[i64]]) -> Option[&mut Option[i64]]:
+    for value in values:
+        return Some(value)
+    Nothing
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    items = [Item("ada", 3)]?
+    other = Item("guest", 0)
+    print(find(&items, "bob").unwrap_or(&other).name)?
+    match find(&items, "ada"):
+        case Some(Item(name=name, count=3)):
+            print(name, "has three")?
+        case Some(_) | Nothing:
+            pass
+    mut values = [Some(1)]?
+    match first(&mut values):
+        case Some(Some(value)):
+            *value += 10
+        case Some(Nothing) | Nothing:
+            pass
+    print(values)?
+    Ok(())
+```
+
+```output
+guest
+ada has three
+[Option[i64].Some(11)]
+```
+
+`unwrap_or_else`, `map_or`, and `map_or_else` still take only owned payloads;
+use `match` for a borrowed one.
 
 ## Holding the result
 
@@ -103,11 +156,11 @@ Option[&str].Nothing
 True
 ```
 
-A `mut` holder can be reassigned, following
+A `mut` holder declared with a borrowing value can be reassigned, following
 [reference rebinding](03-reference-rebinding.md): later values must borrow
 within the place its first value borrowed. A `mut` holder that starts empty
-borrows nothing until its first assignment of a borrowing value, the first in
-the source, which fixes its place. Every use of the holder keeps every value
+borrows nothing until it is assigned a borrowing value, and its values may
+borrow different places and owners. Every use of the holder keeps every value
 assigned to it borrowed, on each path where one of those assignments ran,
 including through a loop to a use written before the assignment. A copy of
 the holder keeps them borrowed too, and so does another started-empty holder
@@ -178,28 +231,33 @@ def main() -> Result[(), AllocError | IoError]:
 `cur` started empty, so it keeps every value assigned to it borrowed; use a separate binding per value
 ```
 
-Assigning `Nothing` or `Err(e)` does not release the place: the holder still
-borrows that owner, and values that borrow a different owner need one holder
-per owner.
+Assigning `Nothing` or `Err(e)` does not release the earlier values. To
+choose between owners, start the holder empty:
 
-```plenty-error
+```plenty
 class Item:
     name: str
 
 def main() -> Result[(), AllocError | IoError]:
-    a = [Item("ada")]?
-    b = [Item("bob")]?
+    staff = [Item("ada")]?
+    guests = [Item("bob")]?
     mut pick: Option[&Item] = Nothing
-    pick = Some(&a[0])
-    pick = Nothing
-    pick = Some(&b[0])
+    if len(staff) > 1:
+        pick = Some(&staff[0])
+    else:
+        pick = Some(&guests[0])
     print(pick)?
     Ok(())
 ```
 
-```error
-holder `pick` borrows another owner, since its first borrowing assignment at line 8
+```output
+Option[&Item].Some(Item(name="bob"))
 ```
+
+A holder declared with a borrowing value is rejected when assigned a borrow of
+another owner, with "reference binding `pick` can be reassigned only to a
+reference into the owner it first borrowed; to choose between owners, start it
+empty".
 
 ## Choosing with `if` or `match`
 
@@ -349,8 +407,8 @@ it first and store an owned copy or an index instead.
 
 ## Current limits
 
-- A `mut` holder stays within the owner its first value borrowed; a holder
-  that should choose between owners needs one holder per owner.
+- A `mut` holder declared with a borrowing value stays within the place that
+  value borrowed; start it empty to choose between owners.
 - A `mut` holder that started empty keeps every value ever assigned to it
   borrowed while it is used, even after a later assignment replaced that
   value.
@@ -370,8 +428,8 @@ it first and store an owned copy or an index instead.
           print(x)?
   ```
 
-- Patterns cannot match nested variants through the carried reference:
-  `case Some(Some(v))` on `Option[&Option[i64]]` needs a second `match`.
+- `unwrap_or_else`, `map_or` and `map_or_else` reject borrowed payloads; use
+  `match` or `unwrap_or(&default)`.
 - A returned reference from a temporary argument follows the
   [returned-reference rule](04-returned-references.md): the result cannot be
   bound to a local.
