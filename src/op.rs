@@ -274,8 +274,8 @@ impl Ty {
     pub fn is_numeric(&self) -> bool {
         self.is_int() || self.is_float()
     }
-    /// Types covered by the runtime's total sorting order. Tuple ordering
-    /// recursively uses that same order, including for floating-point fields.
+    /// Types with `<` and a total sorting order. Tuple operators compare
+    /// components with their own operators; sorting uses the total order.
     pub fn is_orderable(&self) -> bool {
         match self {
             Self::Str => true,

@@ -1670,6 +1670,29 @@ impl Lowerer<'_, '_> {
         b: cranelift_codegen::ir::Value,
         ty: &Ty,
     ) -> cranelift_codegen::ir::Value {
+        let function = self.runtime.order_compare;
+        self.order_call(function, a, b, ty)
+    }
+
+    /// The tuple operator order of two borrowed values: -1, 0, or 1, or 2
+    /// when a NaN component leaves them unordered.
+    pub(super) fn order_partial(
+        &mut self,
+        a: cranelift_codegen::ir::Value,
+        b: cranelift_codegen::ir::Value,
+        ty: &Ty,
+    ) -> cranelift_codegen::ir::Value {
+        let function = self.runtime.order_partial;
+        self.order_call(function, a, b, ty)
+    }
+
+    fn order_call(
+        &mut self,
+        function: FuncId,
+        a: cranelift_codegen::ir::Value,
+        b: cranelift_codegen::ir::Value,
+        ty: &Ty,
+    ) -> cranelift_codegen::ir::Value {
         let a = self.pack(a, ty);
         let b = self.pack(b, ty);
         let (a_low, a_high) = self.bcx.ins().isplit(a);
@@ -1677,9 +1700,7 @@ impl Lowerer<'_, '_> {
         let id = self.module.metadata(ty);
         let gv = self.module.declare_data_in_func(id, self.bcx.func);
         let descriptor = self.bcx.ins().symbol_value(PTR_TY, gv);
-        let function = self
-            .module
-            .declare_func_in_func(self.runtime.order_compare, self.bcx.func);
+        let function = self.module.declare_func_in_func(function, self.bcx.func);
         let call = self
             .bcx
             .ins()
