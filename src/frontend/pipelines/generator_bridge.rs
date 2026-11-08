@@ -48,6 +48,8 @@ pub(super) fn initialized_after(ops: &[Op], initialized: &mut BTreeSet<u8>) {
     }
 }
 
+const BORROWED: &str = "generator conversion requires owned sources and owned callback captures, or a source borrowed through a shared reference or view parameter; borrowed state cannot be suspended";
+
 impl Lower<'_> {
     pub(in crate::frontend) fn pipeline_generator(
         &mut self,
@@ -57,9 +59,6 @@ impl Lower<'_> {
         let saved = self.names.clone();
         let plan = self.pipeline_source(source, ops)?;
         self.names = saved;
-        if !plan.owned {
-            return Err(source.at.error("generator conversion requires owned sources and owned callback captures; borrowed state cannot be suspended"));
-        }
         if plan.item.ty.restricted_storage() {
             return Err(source.at.error(
                 "generator elements cannot be references, generators, closures, or scoped tasks",
@@ -84,7 +83,7 @@ impl Lower<'_> {
         let mut read = BTreeSet::new();
         let mut loans = BTreeSet::new();
         inspect(&body, &mut read, &mut loans);
-        let captures: Vec<_> = plan
+        let mut captures: Vec<_> = plan
             .resources
             .iter()
             .copied()
@@ -94,6 +93,21 @@ impl Lower<'_> {
                         || self.locals[*slot as usize - self.parameters].managed())
             })
             .collect();
+        // A shared reference or view the plan reads from its creating scope,
+        // such as a reference parameter, is copied into the frame; the
+        // result's loan keeps its referent borrowed (issue #899).
+        let shared: Vec<u8> = read
+            .iter()
+            .copied()
+            .filter(|slot| {
+                !plan.resources.contains(slot)
+                    && matches!(
+                        self.slot_type(*slot),
+                        Some((Ty::Ref(_, false) | Ty::View(_, false), _))
+                    )
+            })
+            .collect();
+        captures.extend(&shared);
         let order: Vec<_> = captures
             .iter()
             .copied()
@@ -111,12 +125,39 @@ impl Lower<'_> {
             .collect();
         let types: Vec<_> = order
             .iter()
-            .map(|slot| self.locals[*slot as usize - self.parameters].clone())
+            .map(|slot| self.slot_type(*slot).expect("plan slot").0.clone())
             .collect();
-        if types[..captures.len()].iter().any(Ty::contains_reference) {
-            return Err(source
-                .at
-                .error("generator conversion cannot suspend reference-containing state"));
+        // A borrowed source reaches the frame as a reference, view or
+        // borrowing generator, whose loans the caller keeps while the frame
+        // lives (issue #899). A borrowing callback environment has no such
+        // loan.
+        let lends = |ty: &Ty| matches!(ty, Ty::Ref(..) | Ty::View(..)) || ty.lends_frame();
+        if types[..captures.len()]
+            .iter()
+            .any(|ty| ty.contains_reference() && !lends(ty))
+        {
+            return Err(source.at.error(
+                "generator conversion cannot suspend a callback that borrows; capture owned values with `def [name]`",
+            ));
+        }
+        let lends = types[..captures.len()].iter().any(lends);
+        // Without a borrowed capture, unowned state such as a column plan's
+        // raw rows has no loan the frame could carry.
+        if !plan.owned && !lends {
+            return Err(source.at.error(BORROWED));
+        }
+        let mut held = plan.loans.clone();
+        for &slot in &captures {
+            match self.reference_locals.get(&slot) {
+                Some(&loan) => held.push(loan),
+                // A reference parameter has no loan of its own here; one
+                // rooted at it ties the frame to it.
+                None if shared.contains(&slot) => {
+                    let loan = self.new_loan(slot, false, None, ops);
+                    held.push(loan);
+                }
+                None => {}
+            }
         }
         let name = format!(
             "__plenty_pipeline_{}_{}_{}_{}",
@@ -126,13 +167,20 @@ impl Lower<'_> {
         if let Some(sig) = self.sigs.get(&name) {
             let sig = sig.clone();
             for &slot in &captures {
-                ops.push(Op::MoveLocal(slot));
+                ops.push(if shared.contains(&slot) {
+                    Op::LoadLocal(slot)
+                } else {
+                    Op::MoveLocal(slot)
+                });
             }
             self.record_direct_call(&name, &source.at, &[], ops);
             self.push_call(Op::Call(name), &sig.inputs, &[], &source.at, ops)?;
+            if lends {
+                self.lending_frame_result(&held, ops);
+            }
             return Ok(sig.outputs[0].clone());
         }
-        let ty = crate::generator::ty(plan.item.ty.clone(), Some(name.clone()));
+        let ty = crate::generator::producer(plan.item.ty.clone(), Some(name.clone()), lends);
         let Ty::Generator(frame) = &ty else {
             unreachable!()
         };
@@ -183,10 +231,17 @@ impl Lower<'_> {
             }),
         ));
         for slot in captures {
-            ops.push(Op::MoveLocal(slot));
+            ops.push(if shared.contains(&slot) {
+                Op::LoadLocal(slot)
+            } else {
+                Op::MoveLocal(slot)
+            });
         }
         self.record_direct_call(&name, &source.at, &[], ops);
         self.push_call(Op::Call(name), &sig.inputs, &[], &source.at, ops)?;
+        if lends {
+            self.lending_frame_result(&held, ops);
+        }
         Ok(ty)
     }
 }
@@ -202,6 +257,9 @@ fn inspect(ops: &[Op], read: &mut BTreeSet<u8>, loans: &mut BTreeSet<usize>) {
             }
             Op::Loan(loan) => {
                 loans.insert(loan.id);
+                // A loan through a reference parameter names it as its root.
+                read.insert(loan.root);
+                read.extend(loan.through);
             }
             Op::Loop { condition, body } => {
                 inspect(condition, read, loans);
@@ -240,11 +298,7 @@ fn relocate(
     loans: &BTreeSet<usize>,
     at: &Token,
 ) -> Result<Vec<Op>> {
-    let slot = |old: &u8| {
-        slots.get(old).copied().ok_or_else(|| {
-            at.error("generator conversion cannot retain a reference to its creating scope")
-        })
-    };
+    let slot = |old: &u8| slots.get(old).copied().ok_or_else(|| at.error(BORROWED));
     let mut result = Vec::with_capacity(ops.len());
     for op in ops {
         result.push(match op {
@@ -255,13 +309,20 @@ fn relocate(
             Op::EmptyLocal(i) => Op::EmptyLocal(slot(i)?),
             Op::BorrowLocal(i, mutable) => Op::BorrowLocal(slot(i)?, *mutable),
             Op::Next(i) => Op::Next(slot(i)?),
-            Op::Access(i, mutable, loan) => Op::Access(slot(i)?, *mutable, *loan),
+            // Loans made before the frame stay with the creating scope: the
+            // frame's own reference parameters stand for them.
+            Op::Access(i, mutable, loan) => {
+                Op::Access(slot(i)?, *mutable, loan.filter(|id| loans.contains(id)))
+            }
             Op::FieldMove(fact) => Op::FieldMove(fact.with_root(slot(&fact.root())?)),
             Op::Loan(loan) => {
                 let mut loan = loan.clone();
                 loan.root = slot(&loan.root)?;
                 loan.through = loan.through.map(|i| slot(&i)).transpose()?;
                 loan.binding = loan.binding.map(|i| slot(&i)).transpose()?;
+                loan.parent = loan.parent.filter(|id| loans.contains(id));
+                loan.dependencies.retain(|id| loans.contains(id));
+                loan.holder = loan.holder.filter(|held| loans.contains(&held.holder));
                 Op::Loan(loan)
             }
             Op::UseLoan(id) if !loans.contains(id) => continue,

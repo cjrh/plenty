@@ -71,14 +71,15 @@ gives them.
 item is. Both stop as soon as they know the answer:
 
 ```plenty
-def positive(values: list[i64]) -> Generator[bool]:
+def positive(values: &list[i64]) -> Generator[bool]:
     for value in values:
-        yield value > 0
+        yield *value > 0
 
 def main() -> Result[(), AllocError | IoError]:
     present = [True, False, True]?
     print(iter(&present).any(), iter(reversed(&present)).all())?
-    print(positive([2, -1, 3]?).any(), positive([2, -1, 3]?).all())?
+    numbers = [2, -1, 3]?
+    print(positive(&numbers).any(), positive(&numbers).all())?
     none: list[bool] = []?
     print(iter(&none).any(), iter(&none).all())?
     Ok(())

@@ -507,6 +507,10 @@ impl Lower<'_> {
                 Some(field.clone())
             };
             let actual = self.expr_expected(arg, expected.clone(), ops)?;
+            if actual.as_ref().is_some_and(Ty::lends_frame) {
+                // The payload would carry the frame without its loans.
+                return Err(arg.at.error("references cannot be stored in enum payloads"));
+            }
             self.same(actual.clone(), expected, &arg.at)?;
             if t.propagatable() && tag == usize::from(t.is_option()) {
                 self.carried_payload(arg, field, ops)?;

@@ -548,9 +548,21 @@ with one producer still keeps it (issue #900). `next` on a pipeline of
 references returns `Option[&T]` or `Option[&mut T]` borrowing the pipeline's
 source: the item outlives `drop(p)`, may be returned through the source's
 origin parameter, and conflicts with source mutation and a second live
-`&mut` item; a lent pipeline's item cannot leave the borrower. A pipeline over
-borrowed data still cannot be returned or stored (issue #899). See
+`&mut` item; a lent pipeline's item cannot leave the borrower. See
 [advancing one item](../design/language/09-iteration/06-pipelines.md#advancing-one-item).
+
+Generators borrow through reference parameters (issue #899, first slice). A
+generator function may take `&T`, `&mut T` and view parameters, and
+`.generator()` converts a pipeline whose source is borrowed through a shared
+reference or view parameter, or is a borrowing generator. The call result
+keeps every argument loan until its last use, so the caller cannot change the
+borrowed data while the frame may resume, and a function may return such a
+generator when it borrows only through its own reference parameters. A
+conditional or `if`/`match` value choosing between borrowing generators keeps
+every arm's loans, and a generator passed by value keeps its loans until the
+call returns. Storage that would lose the loan (`Option`/`Result` payloads,
+tuples, class fields, by-value closure captures) is rejected. See
+[borrowing frames](../design/language/09-iteration/03-generators.md#borrowing-frames).
 
 List slice views `&[T]` and `&mut [T]` gained list read and fixed-length
 operations (issue #866): `in`, `count`, `find` and `rfind` search the view with

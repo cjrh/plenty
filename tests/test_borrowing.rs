@@ -191,8 +191,10 @@ fn native(#[case] source: &str, #[case] expected: &str) {
     "def g() -> Generator[i64]:\n    yield 1\nmut it = g()\nfor x in &it:\n    pass",
     "a shared generator reference cannot be advanced"
 )]
+// A `&i64` generator parameter borrows through the frame's loan (issue #899);
+// a carried reference has no loan the frame could keep (backlog B12).
 #[case(
-    "def g(x: &i64) -> Generator[i64]:\n    yield *x",
+    "def g(x: Option[&i64]) -> Generator[i64]:\n    yield 1",
     "capture references"
 )]
 #[case("x = 1\ndrop(&x)", "owned value")]

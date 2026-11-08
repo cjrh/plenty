@@ -70,6 +70,8 @@ mod test_bitwise;
 mod test_book_highlighting;
 #[path = "test_boolean_lowering.rs"]
 mod test_boolean_lowering;
+#[path = "test_borrowed_generators.rs"]
+mod test_borrowed_generators;
 #[path = "test_borrowed_iteration.rs"]
 mod test_borrowed_iteration;
 #[path = "test_borrowed_list_rows.rs"]

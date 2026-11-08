@@ -16,6 +16,10 @@ pub struct GeneratorType {
     /// each frame records its own resume function and slot metadata, so
     /// advancing and dropping need no tag (issue #872).
     pub members: Vec<Ty>,
+    /// Whether the frame holds a loan of its caller's data: a reference or
+    /// view parameter. A call's result then keeps the argument loans live
+    /// until the frame's last use (issue #899).
+    pub lends: bool,
 }
 
 /// Frames and environments nested more deeply than this are rejected.
@@ -94,12 +98,19 @@ impl GeneratorType {
     }
 }
 pub fn ty(element: Ty, name: Option<String>) -> Ty {
+    producer(element, name, false)
+}
+
+/// The type of a producer named `name`, whose frame borrows its caller's
+/// data when `lends`.
+pub fn producer(element: Ty, name: Option<String>, lends: bool) -> Ty {
     Ty::Generator(Arc::new(GeneratorType {
         element,
         name,
         slots: OnceLock::new(),
         layout: OnceLock::new(),
         members: Vec::new(),
+        lends,
     }))
 }
 
@@ -146,12 +157,14 @@ pub fn join(a: &Ty, b: &Ty) -> Option<Ty> {
         return Some(members.pop().unwrap());
     }
     let joined = members.iter().map(name).collect::<Vec<_>>().join(" | ");
+    let lends = members.iter().any(Ty::lends_frame);
     Some(Ty::Generator(Arc::new(GeneratorType {
         element: x.element.clone(),
         name: Some(joined),
         slots: OnceLock::new(),
         layout: OnceLock::new(),
         members,
+        lends,
     })))
 }
 

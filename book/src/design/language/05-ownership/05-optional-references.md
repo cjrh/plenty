@@ -513,9 +513,11 @@ it first and store an owned copy or an index instead.
 - A parameter cannot borrow a reference-carrying value, as in
   `&Option[&Item]`, since references to references are not supported; pass
   the `Option[&Item]` itself, which lends its borrow to the call.
-- A generator cannot take a reference-carrying parameter, as it cannot take
-  a reference parameter: its frame would store the borrow, which needs
-  stored references (backlog B11).
+- A generator cannot take a reference-carrying parameter. A
+  [borrowing frame](../09-iteration/03-generators.md#borrowing-frames) keeps
+  its `&T` and view parameters through the call result's loan, but an
+  `Option[&T]` argument has no loan of its own that the frame could keep
+  (backlog B12).
 - A returned reference from a temporary argument follows the
   [returned-reference rule](04-returned-references.md): the result cannot be
   bound to a local.
