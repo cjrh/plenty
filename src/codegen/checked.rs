@@ -108,10 +108,11 @@ impl Lowerer<'_, '_> {
             Checked::ShiftLeft | Checked::ShiftRight => {
                 // Unsigned comparison rejects negative signed counts as well.
                 let width = clif_type(ty.clone()).bits();
-                let invalid =
-                    self.bcx
-                        .ins()
-                        .icmp_imm_s(IntCC::UnsignedGreaterThanOrEqual, b, i64::from(width));
+                let invalid = self.bcx.ins().icmp_imm_s(
+                    IntCC::UnsignedGreaterThanOrEqual,
+                    b,
+                    i64::from(width),
+                );
                 // Cranelift masks the count; the result is unused on failure.
                 let value = match operation {
                     Checked::ShiftLeft => self.bcx.ins().ishl(a, b),

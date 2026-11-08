@@ -27,9 +27,16 @@ fn every_width_reports_the_invalid_count() {
         ));
         let last = width - 1;
         let mut lines = vec![
-            format!("    print(shl_{ty}({ty}(1), {ty}({last})).is_ok(), shr_{ty}({ty}(1), {ty}({last})).unwrap())?"),
-            format!("    print(count_{ty}(shl_{ty}({ty}(1), {ty}({width}))), count_{ty}(shr_{ty}({ty}(1), {ty}({width}))))?"),
-            format!("    print(count_{ty}(shl_{ty}({ty}(1), {ty}({}))))?", width + 1),
+            format!(
+                "    print(shl_{ty}({ty}(1), {ty}({last})).is_ok(), shr_{ty}({ty}(1), {ty}({last})).unwrap())?"
+            ),
+            format!(
+                "    print(count_{ty}(shl_{ty}({ty}(1), {ty}({width}))), count_{ty}(shr_{ty}({ty}(1), {ty}({width}))))?"
+            ),
+            format!(
+                "    print(count_{ty}(shl_{ty}({ty}(1), {ty}({}))))?",
+                width + 1
+            ),
         ];
         expected.push_str(&format!("True 0\n{width} {width}\n{}\n", width + 1));
         if signed {
@@ -39,11 +46,16 @@ fn every_width_reports_the_invalid_count() {
             let min = -(1i128 << (width - 1));
             expected.push_str(&format!("-1 {min}\n"));
         } else {
-            lines.push(format!("    print(count_{ty}(shl_{ty}({ty}(1), {ty}.MAX)))?"));
+            lines.push(format!(
+                "    print(count_{ty}(shl_{ty}({ty}(1), {ty}.MAX)))?"
+            ));
             let max = (1u128 << width) - 1;
             expected.push_str(&format!("{max}\n"));
         }
-        source.push_str(&format!("def run_{ty}() -> Result[(), IoError]:\n{}\n    Ok(())\n", lines.join("\n")));
+        source.push_str(&format!(
+            "def run_{ty}() -> Result[(), IoError]:\n{}\n    Ok(())\n",
+            lines.join("\n")
+        ));
     }
     source.push_str("def main() -> Result[(), IoError]:\n");
     for (ty, _, _) in WIDTHS {
@@ -76,7 +88,10 @@ def main() -> Result[(), ShiftCountError[i64] | ShiftCountError[u8] | IoError]:
 
 #[test]
 fn function_defaults_require_the_error_in_the_contract() {
-    for (body, error) in [("a << b", "ShiftCountError[i64]"), ("a >> b", "ShiftCountError[i64]")] {
+    for (body, error) in [
+        ("a << b", "ShiftCountError[i64]"),
+        ("a >> b", "ShiftCountError[i64]"),
+    ] {
         let source = format!(
             "def bad(a: i64, b: i64) -> i64:\n    {body}\ndef main() -> ():\n    drop(bad(1, 2))\n"
         );

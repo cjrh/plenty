@@ -146,9 +146,9 @@ impl Lower<'_> {
             let (min, end) = ty.int_range().expect("shifts require integers");
             let width = i128::from((end - min).trailing_zeros());
             if !(0..width).contains(&value) {
-                return Err(count
-                    .at
-                    .error(format!("shift count {value} is outside 0..{width} for {ty}")));
+                return Err(count.at.error(format!(
+                    "shift count {value} is outside 0..{width} for {ty}"
+                )));
             }
         } else {
             let operation = if kind == IntegerOp::ShiftLeft {

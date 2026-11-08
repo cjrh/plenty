@@ -77,7 +77,9 @@ fn invalid_counts_trap_before_machine_shift_masking() {
                 .unwrap_err()
                 .to_string();
             assert!(
-                error.contains(&format!("shift count {width} is outside 0..{width} for {ty}")),
+                error.contains(&format!(
+                    "shift count {width} is outside 0..{width} for {ty}"
+                )),
                 "{error}"
             );
             let output = support::run(&format!(
@@ -90,7 +92,8 @@ fn invalid_counts_trap_before_machine_shift_masking() {
             );
         }
     }
-    let output = support::run("count = -1\nvalue = unchecked:\n    1 << count\nprint(value).unwrap()\n");
+    let output =
+        support::run("count = -1\nvalue = unchecked:\n    1 << count\nprint(value).unwrap()\n");
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("shift count outside integer width"));
 }
