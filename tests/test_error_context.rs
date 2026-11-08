@@ -561,7 +561,8 @@ const TRACE: &str = r#"from std.io import Partial, StreamError, write_all
 
 type Base = AllocError | IoError | ParseError | Partial
 
-# Bounds the labels one error collects, so a retry loop cannot grow it.
+# Caps how many labels one error keeps, so a retry loop cannot grow it.
+# Labels are normally literals; a formatted label adds its own length.
 const FRAMES: i64 = 8
 
 # A typed cause with the innermost operation and later labels, innermost
@@ -733,6 +734,36 @@ def main() -> Result[(), AllocError | IoError]:
         ),
         0,
         "0 1\nparse error kept\n[1 omitted] parse: ParseError.Invalid\n",
+        "",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn a_trace_label_list_that_cannot_grow_counts_the_label() {
+    run_both(
+        &format!(
+            r#"{TRACE}
+def main() -> Result[(), AllocError | IoError]:
+    once = context(context(i64.parse("x"), "parse"), "one")
+    print("__test_fail_allocations_after_0__")?
+    twice = context(once, "two")
+    print("__test_restore_allocations__")?
+    match twice:
+        case Ok(_):
+            print("parsed")?
+        case Err(error):
+            match error:
+                case trace: Trace:
+                    print(trace.kept(), trace.omitted)?
+                    print(trace.describe()?)?
+                case _:
+                    print("plain")?
+    Ok(())
+"#
+        ),
+        0,
+        "1 1\n[1 omitted] one: parse: ParseError.Invalid\n",
         "",
     );
 }

@@ -229,7 +229,8 @@ existing label list. Never flatten the cause into a message string:
 ```plenty
 type Base = AllocError | IoError | ParseError
 
-# Bounds the labels one error collects, so a retry loop cannot grow it.
+# Caps how many labels one error keeps, so a retry loop cannot grow it.
+# Labels are normally literals; a formatted label adds its own length.
 const FRAMES: i64 = 8
 
 # A typed cause with the innermost operation and later labels, innermost
@@ -297,23 +298,33 @@ def load(text: &str) -> Result[i64, Error]:
     context(context(i64.parse(text), "parse limit"), "load settings")
 
 def main() -> Result[(), Error]:
-    match load("ten"):
-        case Ok(limit):
-            print(limit)?
-        case Err(error):
-            match error:
-                case trace: Trace:
-                    print(trace.describe()?)?
-                case _:
-                    print("plain error")?
+    for text in ["12", "ten"]?:
+        match load(text):
+            case Ok(limit):
+                print(limit)?
+            case Err(error):
+                match error:
+                    case trace: Trace:
+                        match &trace.cause:
+                            case ParseError.Invalid:
+                                print(trace.describe()?)?
+                                print("using 10")?
+                            case _:
+                                return Err(trace)
+                    case rest: Base:
+                        return Err(rest)
     Ok(())
 ```
 ```output
+12
 load settings: parse limit: ParseError.Invalid
+using 10
 ```
 
-Wrapping allocates nothing; a label that cannot be stored (no memory, or past
-`FRAMES`) is counted in `omitted` and the typed cause is kept. See
+Recover only from the causes you expect and forward the rest. Wrapping
+allocates nothing; a label that cannot be stored (no memory, or past `FRAMES`,
+a cap on the label count, not length) is counted in `omitted` and the typed
+cause is kept. See
 [the reference](../../../../book/src/design/stdlib/error.md#one-application-error-with-context).
 
 ## Option

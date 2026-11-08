@@ -178,7 +178,8 @@ from std.io import Partial, StreamError, write_all
 
 type Base = AllocError | IoError | ParseError | Partial
 
-# Bounds the labels one error collects, so a retry loop cannot grow it.
+# Caps how many labels one error keeps, so a retry loop cannot grow it.
+# Labels are normally literals; a formatted label adds its own length.
 const FRAMES: i64 = 8
 
 # A typed cause with the innermost operation and later labels, innermost
@@ -264,7 +265,7 @@ def setup(out: &mut Limited) -> Result[i64, Error]:
     context(save(out), "save settings")?
     Ok(i64.parse("10")?)
 
-def main() -> Result[(), AllocError | IoError]:
+def main() -> Result[(), Error]:
     mut out = Limited(3)
     match context(setup(&mut out), "setup"):
         case Ok(limit):
@@ -272,14 +273,16 @@ def main() -> Result[(), AllocError | IoError]:
         case Err(error):
             match error:
                 case trace: Trace:
-                    print(trace.describe()?)?
                     match &trace.cause:
+                        # A full device is expected here: report the progress
+                        # and continue. Forward every other failure.
                         case partial: Partial:
+                            print(trace.describe()?)?
                             print(partial.completed, "bytes written")?
                         case _:
-                            pass
-                case _:
-                    print("plain error")?
+                            return Err(trace)
+                case rest: Base:
+                    return Err(rest)
     Ok(())
 ```
 ```output
@@ -302,7 +305,9 @@ The pattern keeps the contracts of `Context`:
 - Wrapping a cause allocates nothing. Each later label may allocate the label
   list. A label that cannot be stored, for lack of memory or past `FRAMES`, is
   counted in `omitted`; the cause and earlier labels are kept.
-- The labels are bounded, so a retry loop cannot grow an error without limit.
+- `FRAMES` caps the number of labels, so a retry loop cannot grow an error
+  without limit. It does not cap a label's length; labels are normally string
+  literals, and a formatted label costs its own size.
 - A `Trace` can cross threads when every `Base` member can, so a worker can
   return `Result[T, Error]` through `join`.
 
