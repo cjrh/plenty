@@ -1124,7 +1124,7 @@ class Regex:
     _x: list[i64]
     _y: list[i64]
 
-    def holds(self, kind: i64, at: i64, text: &str, data: &[u8], textual: bool) -> bool:
+    def holds(self, kind: i64, at: i64, text: &strview, data: &[u8], textual: bool) -> bool:
         False
 
 {vm}
@@ -1410,7 +1410,7 @@ print(caps.name(&names[1:-1]).unwrap().text(text)? == "éé")?
 print(regex.captures_at(text, 6)?.unwrap().get(0).unwrap().text(text)? == "é")?
 mut cursor = regex.cursor()?
 print(regex.next_match(text, &mut cursor)?.unwrap().start)?
-print(regex.find_all(text, 4)?.len())?
+print(len(regex.find_all(text, 4)?))?
 print(regex.split(text, 4)? == ["a", "\0", "z"]?)?
 template = "!${word}x!"
 print(regex.replace(text, &template[1:-1], 30)? == "aééx\0éz")?
