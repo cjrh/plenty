@@ -110,7 +110,9 @@ borrows nothing until its first assignment of a borrowing value, the first in
 the source, which fixes its place. Every use of the holder keeps every value
 assigned to it borrowed, on each path where one of those assignments ran,
 including through a loop to a use written before the assignment. A copy of
-the holder keeps them borrowed too.
+the holder keeps them borrowed too, and so does another started-empty holder
+assigned its value: a use of that holder keeps every value assigned to the
+first one borrowed, before or after the copy.
 
 ```plenty
 class Item:
@@ -144,7 +146,37 @@ Option[&Item].Some(Item(name="grace"))
 `items` can change before `last` is first assigned, but not while `last` is
 live afterwards. A `return` of a `mut` holder that is still empty can run
 again after a later assignment in a loop, so once a function returns such a
-holder, every assignment to it must borrow the origin parameter.
+holder, every assignment to it must borrow the origin parameter, as must
+every assignment to a holder whose value it was assigned.
+
+Because earlier values stay borrowed, an exclusive holder cannot take a second
+exclusive borrow of the same owner while it is used afterwards, even in
+straight-line code. Use a separate binding per value:
+
+```plenty-error
+class Item:
+    name: str
+    count: i64
+
+def find_mut(items: &mut list[Item], name: &str) -> Option[&mut Item]:
+    for item in items:
+        if item.name == name:
+            return Some(item)
+    Nothing
+
+def main() -> Result[(), AllocError | IoError]:
+    mut items = [Item("ada", 1), Item("bob", 2)]?
+    mut cur: Option[&mut Item] = Nothing
+    cur = find_mut(&mut items, "ada")
+    print(cur)?
+    cur = find_mut(&mut items, "bob")
+    print(cur)?
+    Ok(())
+```
+
+```error
+`cur` started empty, so it keeps every value assigned to it borrowed; use a separate binding per value
+```
 
 Assigning `Nothing` or `Err(e)` does not release the place: the holder still
 borrows that owner, and values that borrow a different owner need one holder

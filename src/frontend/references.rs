@@ -391,7 +391,9 @@ impl Lower<'_> {
     /// names it wherever it lies relative to an assignment. Each assignment
     /// adds a loan of its own to the holder, which every such use keeps
     /// live; see [`crate::ownership::Loan::holder`]. The first assignment
-    /// lowered fixes the place, and later values must lie within it.
+    /// lowered fixes the place, and later values must lie within it. A value
+    /// of another started-empty holder borrows whatever that holder's values
+    /// borrow, so it is not treated as `Nothing`.
     pub(super) fn retarget_reference(
         &mut self,
         name: &str,
@@ -401,11 +403,12 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<()> {
         let held = self.reference_locals[&slot];
-        if self.absent_loan(origin) {
+        let source = self.holder_of(origin);
+        if self.absent_loan(origin) && source.is_none() {
             return Ok(());
         }
         if self.absent_loan(held) && !self.loans[held].precise {
-            return self.assign_holder(name, slot, held, origin, at, ops);
+            return self.assign_holder(name, slot, held, origin, source, at, ops);
         }
         if self.check_retargeted_reference(name, slot, origin, at)? {
             ops.push(Op::EndLoan(held));
@@ -419,6 +422,7 @@ impl Lower<'_> {
         slot: u8,
         held: usize,
         origin: usize,
+        source: Option<usize>,
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
@@ -427,12 +431,17 @@ impl Lower<'_> {
         if returned {
             // A `return` of the holder, possibly earlier in a loop, can
             // return this value, so it must have the returned origin.
-            self.check_returned_loan(origin, at)?;
+            self.check_returned_value(origin, at)?;
         }
         // A loan of its own, emitted here, so the checker sees it marked.
         let mutable = self.loans[origin].mutable;
         let loan = self.new_loan(self.loans[origin].root, mutable, Some(origin), ops);
         match first {
+            // The value of another holder: the new loan descends from that
+            // holder's declaration loan, so a use of this holder keeps every
+            // value assigned to the other one borrowed, including later ones.
+            // Its place is the other holder's, so it fixes none here.
+            _ if source.is_some() => {}
             None => {
                 self.bind_reference(slot, loan, true, ops);
                 self.reference_locals.insert(slot, held);
@@ -564,22 +573,47 @@ impl Lower<'_> {
 
     pub(super) fn check_return_reference(&mut self, e: &Expr, ops: &[Op]) -> Result<usize> {
         let id = self.reference_origin(e, ops)?;
-        if self.absent_loan(id) {
-            // A `mut` holder that started empty can return any value
-            // assigned to it, before or after this return in a loop.
-            let mut ancestor = Some(id);
-            while let Some(loan) = ancestor {
-                let holder = self.holders.entry(loan).or_default();
-                holder.returned = true;
-                for assigned in holder.assigned.clone() {
-                    self.check_returned_loan(assigned, &e.at)?;
-                }
-                ancestor = self.loans[loan].parent;
-            }
-            return Ok(id);
-        }
-        self.check_returned_loan(id, &e.at)?;
+        self.check_returned_value(id, &e.at)?;
         Ok(id)
+    }
+
+    /// The declaration loan of the started-empty `mut` holder that `loan`
+    /// is a use of, or derives from through calls and copies.
+    pub(super) fn holder_of(&self, loan: usize) -> Option<usize> {
+        let mut ancestor = Some(loan);
+        while let Some(id) = ancestor {
+            if self.holders.contains_key(&id) {
+                return Some(id);
+            }
+            ancestor = self.loans[id].parent;
+        }
+        None
+    }
+
+    /// Checks that a value with loan `id`, returned at `at`, borrows from
+    /// the function's origin parameter. A value from a started-empty holder
+    /// can be any value assigned to it, before or after the `return` in a
+    /// loop, so each is checked, and later ones as they are assigned.
+    fn check_returned_value(&mut self, id: usize, at: &Token) -> Result<()> {
+        let Some(decl) = self.holder_of(id) else {
+            if self.absent_loan(id) {
+                // `Nothing` or `Err`: no reference exists.
+                return Ok(());
+            }
+            return self.check_returned_loan(id, at);
+        };
+        let holder = self.holders.get_mut(&decl).expect("holder");
+        if std::mem::replace(&mut holder.returned, true) {
+            return Ok(());
+        }
+        for assigned in holder.assigned.clone() {
+            self.check_returned_value(assigned, at)?;
+        }
+        // A holder declared with another holder's value also returns it.
+        match self.loans[decl].parent {
+            Some(parent) => self.check_returned_value(parent, at),
+            None => Ok(()),
+        }
     }
 
     /// Checks that loan `id`, of a reference returned at `at`, borrows from

@@ -2687,6 +2687,16 @@ impl Checker<'_, '_> {
                                 .unwrap_or_default()
                         ),
                     ));
+                    if let Some(holder) = loan
+                        .holder
+                        .and_then(|decl| loans.get(&decl)?.binding)
+                        .and_then(|slot| self.place(slot, &[], false))
+                    {
+                        error.notes.push((
+                            at,
+                            format!("`{holder}` started empty, so it keeps every value assigned to it borrowed; use a separate binding per value"),
+                        ));
+                    }
                 }
                 // A later use inside the conflicting expression itself, such as
                 // the call both arguments feed, adds nothing to the primary line.

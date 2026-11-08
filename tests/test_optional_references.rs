@@ -781,6 +781,127 @@ def main() -> Result[(), AllocError | IoError]:
     );
 }
 
+/// A holder assigned another started-empty holder keeps every value assigned
+/// to that one borrowed, and returns them all.
+#[test]
+fn mut_holders_keep_values_assigned_from_other_holders() {
+    const PUT: &str = r#"
+def put(o: Option[&mut Item], v: i64) -> ():
+    match o:
+        case Some(i):
+            i.count = v
+        case Nothing:
+            pass
+"#;
+    assert_stdout(
+        &with_find(
+            r#"
+def main() -> Result[(), AllocError | IoError]:
+    mut items = [Item("ada", 1), Item("bob", 2)]?
+    mut best: Option[&Item] = Nothing
+    mut keep: Option[&Item] = Nothing
+    keep = find(&items, "bob")
+    for name in ["ada", "bob"]?:
+        best = find(&items, name)
+        if name == "ada":
+            keep = best
+    print(keep)?
+    items.clear()
+    Ok(())
+"#,
+        ),
+        "Option[&Item].Some(Item(name=\"ada\", count=1))\n",
+    );
+    rejects(
+        &with_find(
+            r#"
+def main() -> Result[(), AllocError | IoError]:
+    mut items = [Item("ada", 1)]?
+    mut best: Option[&Item] = Nothing
+    mut keep: Option[&Item] = Nothing
+    best = find(&items, "ada")
+    keep = best
+    items.clear()
+    print(keep)?
+    Ok(())
+"#,
+        ),
+        "cannot modify or exclusively borrow `items` while it is borrowed",
+    );
+    rejects(
+        &with_find(
+            r#"
+def main() -> Result[(), AllocError | IoError]:
+    mut items = [Item("ada", 1)]?
+    mut best: Option[&Item] = Nothing
+    mut keep: Option[&Item] = Nothing
+    for k in [0, 1]?:
+        best = find(&items, "ada")
+        if k == 0:
+            keep = best
+    items.clear()
+    print(keep)?
+    Ok(())
+"#,
+        ),
+        "cannot modify or exclusively borrow `items` while it is borrowed",
+    );
+    rejects(
+        &with_find(&format!(
+            r#"{PUT}
+def main() -> Result[(), AllocError | IoError]:
+    mut items = [Item("ada", 1)]?
+    mut cur: Option[&mut Item] = Nothing
+    mut keep: Option[&mut Item] = Nothing
+    cur = find_mut(&mut items, "ada")
+    keep = cur
+    other = find_mut(&mut items, "ada")
+    put(keep, 1)
+    put(other, 2)
+    Ok(())
+"#
+        )),
+        "cannot modify or exclusively borrow `items` while it is exclusively borrowed",
+    );
+    // The return check covers values assigned to the source holder before
+    // and after the copy.
+    for body in [
+        "    a = find(&local, \"z\")\n    b = a",
+        "    b = find(items, \"z\")\n    for k in [0, 1]?:\n        b = a\n        a = find(&local, \"z\")",
+    ] {
+        rejects(
+            &with_find(&format!(
+                "
+def pick(items: &list[Item], local: list[Item]) -> Result[Option[&Item], AllocError]:
+    mut a: Option[&Item] = Nothing
+    mut b: Option[&Item] = Nothing
+{body}
+    Ok(b)
+def main() -> ():
+    pass
+"
+            )),
+            "returned reference must originate from the first reference parameter, `items`",
+        );
+    }
+    // A conflict on a value a holder keeps names the holder.
+    rejects(
+        &with_find(&format!(
+            r#"{PUT}
+def main() -> Result[(), AllocError | IoError]:
+    mut items = [Item("ada", 1), Item("bob", 2)]?
+    mut cur: Option[&mut Item] = Nothing
+    cur = find_mut(&mut items, "ada")
+    put(cur, 5)
+    cur = find_mut(&mut items, "bob")
+    put(cur, 6)
+    Ok(())
+"#
+        )),
+        "`cur` started empty, so it keeps every value assigned to it borrowed; use a separate binding per value",
+    );
+}
+
 /// Issue #867: an empty or error-only holder has no referent and borrows no
 /// place, so its origin stays free to change while the holder is live.
 #[test]

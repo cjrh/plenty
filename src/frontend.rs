@@ -3311,7 +3311,9 @@ impl Lower<'_> {
         let marker = self.returning(at, &returned);
         self.refine_return(ty, at)?;
         let returned_loan = if self.return_origin.is_some() && !references::loan_free(e.unwrap()) {
-            // A value from an empty holder borrows nothing across cleanup.
+            // A value from a started-empty holder names no real loan; the
+            // return check confined each value assigned to it to the origin
+            // parameter, which cleanup cannot reach.
             Some(self.check_return_reference(e.unwrap(), &returned)?)
                 .filter(|loan| !self.absent_loan(*loan))
         } else {
@@ -3684,8 +3686,9 @@ impl Lower<'_> {
                         && !references::loan_free(e)
                     {
                         let loan = self.check_return_reference(e, ops)?;
-                        // A value from an empty holder borrows nothing past
-                        // the frame, as in a `return` statement.
+                        // As in a `return` statement, a value from a
+                        // started-empty holder borrows only the origin
+                        // parameter, which outlives the frame.
                         if !self.absent_loan(loan) {
                             ops.push(Op::UseLoan(loan));
                         }
@@ -3934,6 +3937,11 @@ impl Lower<'_> {
                         if let Some(origin) = origin {
                             self.check_stored_reference(origin, &value.at)?;
                             self.bind_reference(slot, origin, *mutable, ops);
+                            if *mutable && self.absent_loan(origin) {
+                                // A holder that started empty; see
+                                // [`Lower::retarget_reference`].
+                                self.holders.entry(origin).or_default();
+                            }
                             if self.absent_loan(origin) && self.loans[origin].parent.is_none() {
                                 // Conflicts on the hidden referent name the
                                 // holder rather than a temporary value.
