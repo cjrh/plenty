@@ -133,7 +133,7 @@ impl Lower<'_> {
             return Ok(crate::sum::result(Ty::Str, alloc()));
         }
         if let Some(ref view @ Ty::View(ref element, _)) = self.list_view_type(base) {
-            return self.view_slice(e, base, bounds, &view, &element, ops);
+            return self.view_slice(e, base, bounds, view, element, ops);
         }
         if let Some(ty @ Ty::Clist(_)) = self.place_type(base) {
             // Copying rows exposes every field, as `copy_row` does.

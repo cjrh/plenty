@@ -119,7 +119,7 @@ impl Lower<'_> {
                 if !args.is_empty() {
                     return Err(base.at.error("view.reverse takes no arguments"));
                 }
-                self.view_helper("view_reverse", &element, &[base.clone()], &base.at, ops)
+                self.view_helper("view_reverse", &element, std::slice::from_ref(base), &base.at, ops)
             }
             "sort" | "sort_by_key" | "sort_stable_by_key" => Err(base.at.error(format!(
                 "a slice view cannot `{name}` yet (issue #{SORT_ISSUE}); sort the whole list, or reorder the view's elements with `swap`"
@@ -152,9 +152,9 @@ impl Lower<'_> {
         }
         let copied = match element {
             Ty::Shared(content) => {
-                self.view_helper("view_share", &content.clone(), &[view.clone()], at, ops)?
+                self.view_helper("view_share", content, std::slice::from_ref(view), at, ops)?
             }
-            _ => self.view_helper("view_copy", element, &[view.clone()], at, ops)?,
+            _ => self.view_helper("view_copy", element, std::slice::from_ref(view), at, ops)?,
         };
         Ok(copied.expect("a view copy returns its Result"))
     }
