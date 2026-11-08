@@ -469,3 +469,35 @@ fn out_of_domain_limits_and_widths_are_compile_errors() {
         assert!(error.contains("cannot be negative"), "{call}: {error}");
     }
 }
+
+#[test]
+fn formatting_text_entry_points_accept_bounded_views() {
+    assert_eq!(
+        run(r#"
+import std.fmt
+def main() -> Result[(), AllocError | IoError | std.fmt.FormatError]:
+    source = "!hé\0🙂!"
+    value = &source[1:-1]
+    mut out = std.fmt.string_formatter(200, 8)?
+    out.text(value)?
+    print(std.fmt.finish(&out)? == "hé\0🙂")?
+    out = std.fmt.string_formatter(200, 8)?
+    out.debug_text(value)?
+    print(std.fmt.finish(&out)? == "\"hé\\u{0}🙂\"")?
+    out = std.fmt.string_formatter(200, 8)?
+    out.ascii_text(value)?
+    print(std.fmt.finish(&out)? == "h\\u{e9}\0\\u{1f642}")?
+    out = std.fmt.string_formatter(200, 8)?
+    out.text_spec(value, &std.fmt.spec(width=6))?
+    print(std.fmt.finish(&out)? == "hé\0🙂  ")?
+    directions = "!>!"
+    print(std.fmt.spec_fill(&source[2:3], &directions[1:2])? == "é")?
+    print(std.fmt.spec_align(&directions[1:2])? == ">")?
+    print(std.fmt.debug_string(value)? == "\"hé\\u{0}🙂\"")?
+    print(std.fmt.ascii_string(value)? == "h\\u{e9}\0\\u{1f642}")?
+    print(std.fmt.debug_string(&source[1:1])? == "\"\"")?
+    Ok(())
+"#),
+        "True\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue"
+    );
+}

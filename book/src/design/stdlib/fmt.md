@@ -66,15 +66,21 @@ max_depth)` and `to_debug(...)` construct a formatter, invoke the corresponding
 user contract below, and return a string. They return no partial string on error.
 Use a formatter directly to inspect partial progress or reuse storage.
 
+Text arguments accept [`&strview`](../language/04-expressions/slices.md#substring-views),
+including borrowed substring ranges, without an owning input copy. Direct stderr
+formatting preserves its allocation-free text write path. `substr`,
+`debug_substr`, `substr_spec` and `repr_substr_string` remain compatible aliases
+of the corresponding general text operations.
+
 All formatting methods use an exclusive receiver and return
 `Result[(), FormatError]`:
 
 | Method | Form |
 |---|---|
-| `text(&str)` | Exact UTF-8, including embedded NUL |
-| `debug_text(&str)` | Double quotes; escapes `"`, `\`, LF, CR, TAB; other C0/C1 controls use lowercase `\u{hex}`; other Unicode is preserved |
-| `ascii_text(&str)` | The text with each non-ASCII scalar as lowercase `\u{hex}`; ASCII is unchanged |
-| `substr(&strview)`, `debug_substr(&strview)` | `text` and `debug_text` for a [substring view](../language/04-expressions/slices.md#substring-views), without copying it |
+| `text(&strview)` | Exact UTF-8, including embedded NUL |
+| `debug_text(&strview)` | Double quotes; escapes `"`, `\`, LF, CR, TAB; other C0/C1 controls use lowercase `\u{hex}`; other Unicode is preserved |
+| `ascii_text(&strview)` | The text with each non-ASCII scalar as lowercase `\u{hex}`; ASCII is unchanged |
+| `substr(&strview)`, `debug_substr(&strview)` | Compatibility spellings of `text` and `debug_text` |
 | `boolean(bool)` | `True` or `False` |
 | `integer(i64, width: NonNegative[i64] = 0)` | Signed decimal, including `i64.MIN` |
 | `unsigned(u64, base, width: NonNegative[i64] = 0)` | Base 2, 8, 10, or 16, lowercase digits, no prefix |
@@ -103,7 +109,7 @@ example `spec(width=8, precision=2, kind="f")`. Width and precision are at most
 
 | Method | Options |
 |---|---|
-| `text_spec(&str, &Spec)` | Fill, alignment (default left), width; precision truncates. Widths count scalars |
+| `text_spec(&strview, &Spec)` | Fill, alignment (default left), width; precision truncates. Widths count scalars |
 | `signed_spec(i64, &Spec)`, `unsigned_spec(u64, &Spec)` | Types `d`, `x`, `X`, `o`, `b`; `#` prefixes; sign; `,` (decimal) or `_` grouping; `0` grouped zero padding; default right |
 | `signed_spec`, `unsigned_spec` with kind `n` | As `d`, without grouping |
 | `char_spec(i64, &Spec)` | Kind `c`: the scalar with that code point; fill, alignment (default right), width, `0` padding; `InvalidSpec` for a value that is not a Unicode scalar |

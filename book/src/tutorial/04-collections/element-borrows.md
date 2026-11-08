@@ -214,3 +214,29 @@ b"\xc3\xa9"
 
 `as_bytes()` allocates nothing and keeps the string borrowed until the byte
 view's last use. `from_text` makes an independent fallible byte-buffer copy.
+
+Standard-library text operations also accept borrowed ranges. This pipeline
+wraps a field directly, then writes the result into a bounded text builder:
+
+```plenty
+import std.text
+
+def main() -> Result[(), AllocError | IoError | std.text.TextError]:
+    line = "message: café 🙂"
+    field = &line[9:]
+    wrapped = std.text.hard_wrap(field, 4, 32)?
+    mut output = std.text.builder(40)?
+    output.append("[")?
+    output.append(&wrapped)?
+    output.append("]")?
+    print(output.finish()?)?
+    Ok(())
+```
+
+```output
+[café
+ 🙂]
+```
+
+The borrowed field needs no owning input copy. The wrapped text and final
+builder result are owned strings, and their allocations remain fallible.

@@ -5,18 +5,23 @@ scans. [Word wrapping and indentation](text-wrapping.md) add Python-style
 paragraph tools. Import `std.text`; every allocating operation returns
 `Result[..., TextError]`.
 
+Text inputs use [`&strview`](../language/04-expressions/slices.md#substring-views),
+so strings, ordinary string references and borrowed substring ranges work with
+the same operations. `join` keeps its owning-string collection argument; only
+the separator is a text view. No intermediate owning input string is required.
+
 | Operation | Behavior |
 |---|---|
 | `builder(max_bytes: NonNegative[i64])` | New empty `Builder` |
 | `Builder.byte_len()`, `Builder.limit()` | Current UTF-8 byte count and configured maximum |
-| `Builder.append(text: &str)` | Append a copy, or leave contents unchanged on failure |
+| `Builder.append(text: &strview)` | Append a copy, or leave contents unchanged on failure |
 | `Builder.clear()` | Empty the builder, retaining its allocation |
 | `Builder.to_text()` | Independent UTF-8 string snapshot; builder remains reusable |
 | `Builder.finish()` | Final UTF-8 string; consumes the builder on success or failure |
-| `join(pieces: &list[str], separator: &str, max_bytes: NonNegative[i64])` | Separator between pieces, including empty pieces; empty list yields empty text |
-| `hard_wrap(text: &str, width: Positive[i64], max_bytes: NonNegative[i64])` | Hard wrap at `width` Unicode scalars, inserting LF |
-| `find_in(text: &str, set: &[u8])` | `Option[i64]`: scalar position of the first ASCII scalar whose byte is in `set` |
-| `find_not_in(text: &str, set: &[u8])` | `Option[i64]`: scalar position of the first scalar that is not such a member: the end of a run |
+| `join(pieces: &list[str], separator: &strview, max_bytes: NonNegative[i64])` | Separator between pieces, including empty pieces; empty list yields empty text |
+| `hard_wrap(text: &strview, width: Positive[i64], max_bytes: NonNegative[i64])` | Hard wrap at `width` Unicode scalars, inserting LF |
+| `find_in(text: &strview, set: &[u8])` | `Option[i64]`: scalar position of the first ASCII scalar whose byte is in `set` |
+| `find_not_in(text: &strview, set: &[u8])` | `Option[i64]`: scalar position of the first scalar that is not such a member: the end of a run |
 
 `TextError` has `InvalidLimit`, `LimitExceeded`, `Allocation(AllocError)`, and
 `Bytes(BytesError)` variants. Limits and widths are domain types, so
@@ -25,9 +30,8 @@ placeholder that cannot fit. A literal converts where a limit is expected; a
 computed value needs `NonNegative.try_from(value)?`. Byte-buffer failures preserve their typed cause;
 normalization uses the direct allocation variant. Limits apply to output bytes,
 not characters. Appending checks the complete input size without allocating,
-then appends atomically. Appends of at most four UTF-8 bytes reserve capacity
-before writing directly, without a temporary encoding; larger appends encode a
-temporary buffer. Empty appends allocate nothing. Invalid UTF-8 must be
+then appends atomically. Appends read the input byte view directly; neither
+small scalar appends nor larger appends allocate a temporary encoding buffer. Empty appends allocate nothing. Invalid UTF-8 must be
 handled at [byte decoding](bytes.md); `str` is always valid UTF-8. Embedded NUL
 is preserved. Public builder operations preserve complete UTF-8.
 
@@ -96,7 +100,7 @@ character class without a per-scalar loop:
 ```plenty
 import std.text
 
-def token(text: &str) -> bool:
+def token(text: &strview) -> bool:
     text.byte_len() > 0 and std.text.find_not_in(text, b"!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz").is_none()
 
 def main() -> Result[(), AllocError | IoError]:
