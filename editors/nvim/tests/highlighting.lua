@@ -24,6 +24,8 @@ local cases = {
   {'def example(x: i64) -> bool:', 'def', 'plentyKeyword'},
   {'def example(x: i64) -> bool:', 'example', 'plentyFunction'},
   {'def example(x: i64) -> bool:', 'i64', 'plentyType'},
+  {'def inspect(text: &strview) -> ():', 'strview', 'plentyType'},
+  {'def inspect(text: &substr) -> ():', 'substr', 'plentyType'},
   {'if True and not False:', 'True', 'plentyBoolean'},
   {'if True and not False:', 'and', 'plentyOperator'},
   {'for x in items:', 'for', 'plentyRepeat'},

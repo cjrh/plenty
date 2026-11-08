@@ -421,6 +421,13 @@ User-container membership and iterator protocols remain **B49** in the
 
 ## B12: I/O and iteration
 
+A documentation consistency pass reconciles the delivered text/view and byte
+contracts across the reference, tutorial, repository agent skill, and proposals
+(issue #882). Reader examples use direct byte borrows instead of temporary
+buffers; allocation tables distinguish borrowed input from owned output.
+Neovim syntax highlighting recognizes `strview` and its `substr` alias.
+Ordinary string references and generic-reference examples remain supported.
+
 Read-only text inputs in 120 pure-Plenty standard-library declarations accept
 `&strview`, including substring ranges: text builders and wrapping, formatting,
 regex, JSON/TOML and Markdown parsing, Unicode normalization, codecs, URLs,

@@ -199,9 +199,8 @@ f(v)</code></pre></td>
 </div>
 
 A `&strview` parameter is the most general borrowed text interface among these
-three types: it accepts whole strings and substring views. Use it when its
-supported operations are sufficient. It currently has fewer operations than
-`&str`: for example, it supports `find`, but not `rfind`, `strip`, or `upper`.
+three types: it accepts whole strings and substring views. Views support
+text operations including `find`, `rfind`, `strip`, and `upper`.
 See [substring views](../../language/04-expressions/slices.md#substring-views)
 for the complete operation list. A view does not provide an owning string
 handle; use `val[:]?` when an owned copy is needed.
@@ -216,9 +215,9 @@ from it requires a value copy such as `*value`. See
 atomic reference-count increment and a later release. Borrowing as `&str` or
 `&strview` avoids that ownership bookkeeping. Tiny inline strings and literals need no
 reference counting, and compiler optimizations can eliminate unnecessary
-retains and releases. Prefer `&strview` when its supported operations suffice
-and the function should accept both whole strings and substrings; use `&str`
-when it needs the full string operations. Use `str` when it needs an owning
+retains and releases. Prefer `&strview` for text readers that should accept
+both whole strings and substrings. Use ordinary `&str` for generic reference
+interfaces, callbacks, getters, or sharing a whole owning handle. Use `str` when it needs an owning
 value, for example to keep it after the call.
 References can introduce indirection, so they are not guaranteed to be faster
 in every case; measure when the cost matters.

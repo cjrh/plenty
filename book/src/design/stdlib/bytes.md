@@ -161,10 +161,12 @@ The operations taking `&[u8]` are `extend`, `overwrite`, `find_in`,
 `find_not_in`, `find_bytes`, and `matches` here, the stream writes in
 [`std.io`](io.md), [`std.net`](net.md), and [`std.tls`](tls.md), and the
 read-only inputs of [`std.crypto`](crypto.md). Each is one compiled body for
-every byte owner; native operations read the view's bytes in place. A view has
-`len()`, indexing, slicing, `==`, and iteration, but no methods. The receiver
-of a `Bytes` method is always a buffer: copy a literal or view with `from_bytes` to
-scan it with `find` or `count`, or to change it.
+every byte owner; native operations read the view's bytes in place. Byte views
+also support [binary string methods](bytes-stringlike.md), including `find`,
+`count`, classification and owned transformations. Scan a literal or view
+directly; use `from_bytes` when an independent mutable buffer is needed.
+The older buffer methods with explicit `start`/`stop` arguments remain
+`Bytes` methods.
 
 `std.bytes.ByteSource`, the protocol these operations took before, is
 removed; naming it is a compile error that points to `&[u8]`.
@@ -346,10 +348,11 @@ or `&mut [u8]` of the selected bytes, and holds the same whole-buffer loan as
 `&Bytes` or `&mut Bytes`. It supports `len`, index reads and writes, loops,
 `iter` pipelines, narrower views, and `==`, and prints as a `bytes` literal,
 `b"bc"`. A `&[u8]` parameter also accepts views of `list[u8]` and `bytes`
-literals. It has no `Bytes` methods: a scan's receiver is the buffer and its
-range, while the operations that read [another byte sequence](#byte-views) take
-the view itself. A view cannot be stored or returned yet; that needs stored
-references (backlog B11).
+literals. [Binary string methods](bytes-stringlike.md) read the selected
+range directly and report view-relative positions. Buffer growth, capacity
+and the older explicit-range methods still belong to `Bytes`; a view's own
+extent does not change. A view cannot be stored or returned yet; that needs
+stored references (backlog B11).
 
 ## Costs
 

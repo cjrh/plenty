@@ -154,8 +154,10 @@ such as `name[1:]?` or `name[::-1]?` copies, so it needs `?`. See
 `&substr` remains a compatible alias for `&strview`. A plain `&s` still
 produces an ordinary `&str`. A `&strview` function parameter accepts a whole
 string as `f(s)`, implicitly borrowed without copying, or a substring as `f(&s[a:b])`. Explicit whole-string
-borrows, existing `&str` bindings, and literals work too. A view has fewer
-operations than `str`; see the [Text argument table](../facilities/01-builtins/text.md#function-arguments).
+borrows, existing `&str` bindings, and literals work too. Views support scalar
+text operations and byte access; see [substring views](../language/04-expressions/slices.md#substring-views)
+for operations and ownership limits. Scalar `len(view)` scans; `view.byte_len()`
+and `view.as_bytes()` are O(1).
 
 ## Collections
 

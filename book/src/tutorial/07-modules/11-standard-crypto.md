@@ -39,7 +39,7 @@ Result[(), std.crypto.CryptoError].Err(std.crypto.CryptoError.Finished)
 ```
 
 `finish` ends a digest. Feeding it afterwards is the error `Finished`, not a
-new hash; make a new `Digest` instead. `update(data, start, stop)` takes a
+new hash; make a new `Digest` instead. `update(&data[start:stop])` borrows a
 range of a buffer, so a large input can be hashed while it is read, without
 first collecting it in memory.
 
