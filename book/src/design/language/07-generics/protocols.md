@@ -111,11 +111,12 @@ remain separate built-in constraints.
 
 ## Anonymous sums
 
-An [anonymous sum](../03-types/anonymous-sums.md) satisfies a protocol when
-every normalized member satisfies it and every requirement can be forwarded.
-Each call matches a shared borrow of the sum and calls the active member's
-method once, passing the other arguments unchanged. Nothing is allocated or
-erased, and member order and aliases do not matter:
+An [anonymous sum](../03-types/anonymous-sums.md) satisfies a protocol bound
+when every normalized member satisfies the protocol and every requirement can
+be forwarded. In the generic body, each requirement call matches a shared
+borrow of the sum and calls the active member's method once, passing the other
+arguments unchanged. Nothing is allocated or erased, and member order and
+aliases do not matter:
 
 ```plenty
 protocol Labelled:
@@ -137,7 +138,7 @@ def label[T: Labelled](value: &T) -> str:
 def main() -> Result[(), IoError]:
     first: A | B = A()
     second: B | A = B.One
-    print(label(&first), second.label())?
+    print(label(&first), label(&second))?
     Ok(())
 ```
 ```output
@@ -161,12 +162,11 @@ method, or with a mismatched signature, rejects the whole sum regardless of
 which member is active. Member methods must be visible both from the
 protocol's declaration, where the dispatcher is created, and from the bound.
 
-A direct call such as `second.label()` dispatches through a declared protocol
-that requires the method and that every member satisfies, whether or not the
-caller names it. [`std.fmt.Formattable`](../../stdlib/report.md) is tried
-first, then other protocols by name; the first satisfied one is used. Without
-such a protocol, a method call on a sum is an error, even when every member has
-the method: match on the sum instead.
+Only the bound forwards. A direct call such as `second.label()` outside a
+body bounded by the protocol is an error, even when every member has the
+method and some protocol requires it: match on the sum instead. The one
+exception is `sum.format(output)`, which dispatches through
+[`std.fmt.Formattable`](../../stdlib/report.md).
 
 ## Design history
 

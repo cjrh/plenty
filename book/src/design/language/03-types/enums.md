@@ -91,7 +91,7 @@ existing behavior. Anonymous sums cannot declare methods. They forward a shared-
 protocol, such as [`std.fmt.Formattable`](../../stdlib/report.md), when every
 member satisfies it; see
 [protocols on anonymous sums](../07-generics/protocols.md#anonymous-sums).
-Member methods are not forwarded without such a protocol.
+Direct method calls on a sum are not forwarded, except `format`.
 
 Enums can satisfy [structural protocols](../07-generics/protocols.md) with
 accessible matching methods. They can also supply `display` and `debug` methods

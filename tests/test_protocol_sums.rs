@@ -78,14 +78,13 @@ def main() -> Result[(), IoError]:
     first: A | B = A()
     second: Either = B.Two(7)
     mut calls = 0
-    print(label(&first), label(&second), second.label())?
+    print(label(&first), label(&second))?
     print(weigh(&first, 3, &mut calls), calls)?
     print(weigh(&second, 3, &mut calls), calls)?
-    print(second.weight(2, &mut calls), calls)?
     Ok(())
 "#
         )),
-        "a b b\n3 1\n7 11\n7 21"
+        "a b\n3 1\n7 11"
     );
 }
 
@@ -131,10 +130,10 @@ def apply[T: Scaled, U](value: &T, item: &U) -> i64:
 def main() -> Result[(), IoError]:
     small: Small | Large = Small()
     large: Small | Large = Large()
-    print(apply(&small, &1), apply(&large, &True), large.scaled(&small, 3))?
+    print(apply(&small, &1), apply(&large, &True))?
     Ok(())
 "#),
-        "2 200 200"
+        "2 200"
     );
 }
 
@@ -197,7 +196,7 @@ def main() -> Result[(), IoError]:
     print("__test_fail_allocations_after_0__")?
     print("__test_begin_no_allocations__")?
     first = weigh(&value, 5, &mut calls)
-    second = value.weight(1, &mut calls)
+    second = weigh(&value, 1, &mut calls)
     print("__test_restore_allocations__")?
     print("__test_end_no_allocations__")?
     print(first, second, calls)?
@@ -244,21 +243,99 @@ def main() -> ():
 }
 
 #[test]
-fn direct_calls_need_a_protocol_every_member_satisfies() {
+fn direct_calls_do_not_forward_even_after_a_bound_does() {
+    // Only a body that received the sum through a bound dispatches; a bound
+    // checked earlier must not make a direct call elsewhere compile.
     rejects(
-        r#"
-class A:
-    pub def f(self) -> i64:
-        1
-class B:
-    pub def f(self) -> i64:
-        2
-def main() -> ():
+        &format!(
+            r#"{LABELLED}
+def main() -> Result[(), IoError]:
     value: A | B = A()
-    value.f()
-"#,
-        "A | B has no method `f`; an anonymous sum dispatches a method only through a protocol",
+    print(label(&value))?
+    print(value.label())?
+    Ok(())
+"#
+        ),
+        "unknown method `label` on",
     );
+}
+
+#[test]
+fn lifted_code_in_a_bounded_body_dispatches() {
+    assert_eq!(
+        run(&format!(
+            r#"{LABELLED}
+def lifted[T: Labelled](value: &T) -> str:
+    inner = def [&value]() -> str:
+        value.label()
+    inner()
+def main() -> Result[(), IoError]:
+    value: A | B = B.One
+    print(lifted(&value))?
+    Ok(())
+"#
+        )),
+        "b"
+    );
+}
+
+/// Writes the modules, then checks `main.plenty`.
+fn check_modules(modules: &[(&str, &str)]) -> Result<(), String> {
+    let directory = tempfile::tempdir().unwrap();
+    for (name, source) in modules {
+        std::fs::write(directory.path().join(name), source).unwrap();
+    }
+    plenty::check_file(&directory.path().join("main.plenty"), None)
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+const SHAPES: &str = r#"
+pub protocol Secret:
+    def secret(self) -> str:
+        pass
+pub class Square:
+    def secret(self) -> str:
+        return "square"
+pub class Circle:
+    def secret(self) -> str:
+        return "circle"
+"#;
+
+#[test]
+fn private_members_stay_private_through_a_foreign_protocol() {
+    let direct = check_modules(&[
+        ("shapes.plenty", SHAPES),
+        (
+            "main.plenty",
+            "from shapes import Square, Circle\ndef main() -> ():\n    value: Square | Circle = Square()\n    value.secret()\n",
+        ),
+    ])
+    .unwrap_err();
+    assert!(direct.contains("unknown method `secret` on"), "{direct}");
+    let bound = check_modules(&[
+        ("shapes.plenty", SHAPES),
+        (
+            "main.plenty",
+            "from shapes import Square, Circle, Secret\ndef reveal[T: Secret](value: &T) -> str:\n    value.secret()\ndef main() -> ():\n    value: Square | Circle = Square()\n    reveal(&value)\n",
+        ),
+    ])
+    .unwrap_err();
+    assert!(bound.contains("private to its defining module"), "{bound}");
+}
+
+#[test]
+fn transitively_loaded_protocols_do_not_affect_direct_calls() {
+    let helper = "protocol Named:\n    def name(self) -> str:\n        pass\npub def helper() -> i64:\n    1\n";
+    let mid = "import helper\npub def mid() -> i64:\n    helper.helper()\n";
+    let main = "import mid\npub class A:\n    pub def name(self) -> str:\n        return \"a\"\npub class B:\n    pub def name(self) -> str:\n        return \"b\"\ndef main() -> ():\n    value: A | B = A()\n    value.name()\n";
+    let error = check_modules(&[
+        ("helper.plenty", helper),
+        ("mid.plenty", mid),
+        ("main.plenty", main),
+    ])
+    .unwrap_err();
+    assert!(error.contains("unknown method `name` on"), "{error}");
 }
 
 #[test]

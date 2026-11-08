@@ -1269,12 +1269,12 @@ the lender's loans stay live across the call. See
 
 ## Protocols on anonymous sums (issue #875)
 
-An anonymous sum satisfies any protocol, not only `std.fmt.Formattable`, when
+An anonymous sum satisfies any protocol bound, not only `std.fmt.Formattable`, when
 every member satisfies it and every requirement has a shared receiver, uses
 the implementing type only as that receiver, returns no reference and has
-method type parameters its arguments determine. Each call dispatches once to
-the active member through a synthesized `match` on a shared borrow, without
-allocation. Direct method calls on a sum use the first satisfied protocol
-requiring the method, `std.fmt.Formattable` first. Mutable, consuming,
+method type parameters its arguments determine. Each requirement call in the
+bounded body dispatches once to the active member through a synthesized
+`match` on a shared borrow, without allocation. Direct method calls on a sum
+are unchanged: only `format` forwards. Mutable, consuming,
 `Self`-using and generic protocols are rejected with the reason. See
 [protocols on anonymous sums](../design/language/07-generics/protocols.md#anonymous-sums).

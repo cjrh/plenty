@@ -102,7 +102,7 @@ of that enum's variants, so its own match handles both.
 The sum does not forward a method just because every member has one with the
 same signature. Match to select a member, or choose the wrapper pattern when
 several callers need the same operation. When a protocol describes the shared
-method, the sum satisfies it; see
+method, the sum satisfies it as a generic bound; see
 [protocols on anonymous sums](../../design/language/07-generics/protocols.md#anonymous-sums).
 
 Both forms store a tag and payload inline; wrapping adds no heap allocation.

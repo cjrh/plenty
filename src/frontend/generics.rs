@@ -215,6 +215,7 @@ pub(super) fn prepare(
         required: HashMap::default(),
         unsubstituted: HashMap::default(),
         protocol_instances: HashSet::default(),
+        sum_bounds: HashMap::default(),
         source_root: None,
         standard_sources: HashSet::default(),
         unchecked: crate::UncheckedMode::Trap,
@@ -326,6 +327,10 @@ pub(super) struct Engine {
     /// Specializations checked under protocol contracts, including lifted code.
     /// Method calls in these bodies cannot inherit implementation-only defaults.
     pub(super) protocol_instances: HashSet<String>,
+    /// Anonymous sums substituted for a protocol-bounded type parameter, by
+    /// instance symbol, including lifted code. Only method calls in these
+    /// bodies dispatch through the bound's protocol (issue #875).
+    pub(super) sum_bounds: HashMap<String, Vec<(Ty, String)>>,
     pub(super) source_root: Option<std::path::PathBuf>,
     pub(super) standard_sources: HashSet<Arc<str>>,
     /// The build's mode for plain `unchecked:` suites outside `std`.
@@ -549,23 +554,10 @@ impl Engine {
         }
     }
 
-    /// The protocols that could forward method `name` through an anonymous
-    /// sum: the reporting contract first, then the others by name, so the
-    /// choice and its diagnostics do not depend on declaration order.
-    pub(super) fn sum_forwarding_candidates(&self, name: &str) -> Vec<protocols::Protocol> {
-        let reporting = self.reporting_protocol().map(|p| p.name.clone());
-        let mut candidates: Vec<_> = self
-            .protocols
-            .values()
-            .filter(|p| p.type_params.is_empty() && p.methods.iter().any(|m| m.name == name))
-            .cloned()
-            .collect();
-        candidates.sort_by(|a, b| {
-            (Some(&a.name) != reporting.as_ref(), &a.name)
-                .cmp(&(Some(&b.name) != reporting.as_ref(), &b.name))
-        });
-        candidates
+    pub(super) fn protocol(&self, name: &str) -> Option<&protocols::Protocol> {
+        self.protocols.get(name)
     }
+
     pub(super) fn reporting_protocol(&self) -> Option<&protocols::Protocol> {
         self.protocols
             .get("std.fmt.Formattable")
@@ -1803,6 +1795,9 @@ impl Engine {
         if self.protocol_instances.contains(parent) {
             self.protocol_instances.insert(child.into());
         }
+        if let Some(bounds) = self.sum_bounds.get(parent).cloned() {
+            self.sum_bounds.insert(child.into(), bounds);
+        }
         let Some(parent) = table.symbol(parent) else {
             return;
         };
@@ -2138,6 +2133,7 @@ impl Engine {
             })?;
         let template = generated.as_ref().unwrap_or(template);
         let mut demanded = Vec::new();
+        let mut sum_bounds = Vec::new();
         for ((_, bound), argument) in template.type_params.iter().zip(actual) {
             let Some(ty) = argument.as_type() else {
                 continue;
@@ -2184,6 +2180,11 @@ impl Engine {
                         &bound.at,
                         at,
                     )?;
+                    if matches!(ty, Ty::Enum(sum) if sum.anonymous())
+                        && !protocols::reporting(&protocol, &self.standard_sources)
+                    {
+                        sum_bounds.push((ty.clone(), protocol.name.clone()));
+                    }
                     // Satisfying a bound uses the methods it requires, whether
                     // or not this instance's body calls them.
                     if let Some(owner) = classes::method_owner(ty) {
@@ -2215,6 +2216,9 @@ impl Engine {
         }
         let mut symbol = String::with_capacity(24);
         write!(symbol, "__plenty_generic_{}", self.instances).unwrap();
+        if !sum_bounds.is_empty() {
+            self.sum_bounds.insert(symbol.clone(), sum_bounds);
+        }
         if self.protocol_instances.contains(name)
             || template.type_params.iter().any(|(_, bound)| {
                 bound

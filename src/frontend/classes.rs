@@ -1333,10 +1333,15 @@ impl Lower<'_> {
                 }
             }
         }
+        let mut callee = callee;
         if let Some(ty @ Ty::Enum(_)) = self.place_type(base).map(unbox)
             && matches!(&ty, Ty::Enum(sum) if sum.anonymous())
         {
-            self.protocol_sum_method(&ty, name, &callee, &base.at)?;
+            if let Some(dispatcher) = self.bounded_sum_method(&ty, name)? {
+                callee = dispatcher;
+            } else if name == "format" {
+                self.report_sum_method(&ty, &callee, &base.at)?;
+            }
         }
         modules::check_member(self.access, owner, name, &base.at)?;
         if let Some(template) = self.generics.templates.get(&callee) {
@@ -1481,42 +1486,52 @@ impl Lower<'_> {
         Ok(sig.outputs.first().cloned())
     }
 
-    /// Dispatches `name` on an anonymous sum to its active member through
-    /// the first protocol, in `sum_forwarding_candidates` order, that requires
-    /// `name` and that every member satisfies (issue #875). The dispatcher is
-    /// a synthesized method template that matches a shared borrow of the sum.
-    fn protocol_sum_method(&mut self, ty: &Ty, name: &str, callee: &str, at: &Token) -> Result<()> {
-        let candidates = self.generics.sum_forwarding_candidates(name);
-        if candidates.is_empty() {
-            if name == "format" {
-                return Err(at.error("anonymous sum formatting requires std.fmt.Formattable"));
-            }
-            return Err(at.error(format!(
-                "{ty} has no method `{name}`; an anonymous sum dispatches a method only through a protocol requiring it that every member satisfies"
-            )));
-        }
-        let mut first_error = None;
-        for protocol in candidates {
-            // Use the protocol's visibility boundary even for a direct call:
-            // private member methods must not become a public implementation.
-            match protocols::check(
-                &protocol,
-                ty,
-                &self.generics.methods,
-                &self.generics.templates,
-                self.aliases,
-                self.access,
-                &self.generics.standard_sources,
-                &protocol.at,
-                at,
-            ) {
-                Ok(()) => return self.sum_dispatcher(&protocol, ty, name, callee),
-                Err(error) => {
-                    first_error.get_or_insert(error);
-                }
-            }
-        }
-        Err(first_error.expect("at least one candidate"))
+    /// The dispatcher for `name` on an anonymous sum that this body received
+    /// as a type argument bounded by a protocol requiring `name` (issue #875).
+    /// The instance's bound check already accepted every member, so only the
+    /// bound decides; a direct call on a sum elsewhere is unaffected. The
+    /// dispatcher is named after the protocol, so it cannot serve a direct
+    /// call or a different protocol's requirement of the same name.
+    fn bounded_sum_method(&mut self, ty: &Ty, name: &str) -> Result<Option<String>> {
+        let Some(bounds) = self.generics.sum_bounds.get(&self.function_name) else {
+            return Ok(None);
+        };
+        let Some(protocol) = bounds
+            .iter()
+            .filter(|(bounded, _)| bounded == ty)
+            .filter_map(|(_, protocol)| self.generics.protocol(protocol))
+            .find(|protocol| protocol.methods.iter().any(|m| m.name == name))
+            .cloned()
+        else {
+            return Ok(None);
+        };
+        let owner = classes::method_owner(ty).expect("an anonymous sum has an owner");
+        let dispatcher = method(owner, &format!("{name}.{}", protocol.name));
+        self.sum_dispatcher(&protocol, ty, name, &dispatcher)?;
+        Ok(Some(dispatcher))
+    }
+
+    /// Direct `sum.format(...)` dispatches through `std.fmt.Formattable`.
+    fn report_sum_method(&mut self, ty: &Ty, callee: &str, at: &Token) -> Result<()> {
+        let protocol = self
+            .generics
+            .reporting_protocol()
+            .ok_or_else(|| at.error("anonymous sum formatting requires std.fmt.Formattable"))?
+            .clone();
+        // Use the protocol's visibility boundary even for a local bound:
+        // private member methods must not become a public implementation.
+        protocols::check(
+            &protocol,
+            ty,
+            &self.generics.methods,
+            &self.generics.templates,
+            self.aliases,
+            self.access,
+            &self.generics.standard_sources,
+            &protocol.at,
+            at,
+        )?;
+        self.sum_dispatcher(&protocol, ty, "format", callee)
     }
 
     fn sum_dispatcher(

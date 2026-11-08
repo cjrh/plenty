@@ -62,7 +62,7 @@ entered by `render`. Aliases, reordered members and singleton normalization
 preserve this behavior. Direct `sum.format(&mut output)` uses the same dispatch
 without entering a depth level. A missing, private, or mismatched method on any
 member fails the bound, even when that member is inactive. Other shared-receiver
-protocols forward the same way; see
+protocols forward through generic bounds only; see
 [protocols on anonymous sums](../language/07-generics/protocols.md#anonymous-sums).
 
 ## Helpers and destinations
