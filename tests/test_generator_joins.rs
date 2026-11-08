@@ -196,7 +196,86 @@ print(list((one() if True else two(Res(17))) if False else pick(2)).unwrap()).un
 }
 
 #[test]
-fn block_values_reassignment_and_payloads_keep_one_identity() {
+fn if_and_match_values_join_producers_and_drop_once() {
+    expect(
+        &with_producers(
+            r#"
+def three(a: i64, b: i64) -> Generator[i64]:
+    yield a
+    yield b
+def matched(n: i64) -> Option[list[i64]]:
+    g = match n:
+        case 0:
+            one()
+        case 1:
+            two(Res(10))
+        case 2:
+            return Nothing
+        case _:
+            three(5, 6)
+    Some(list(g).unwrap())
+def chosen(n: i64, flag: bool) -> list[i64]:
+    g = if flag:
+        match n:
+            case 0:
+                one()
+            case _:
+                two(Res(21))
+    elif n > 5:
+        three(n, n)
+    else:
+        one()
+    list(g).unwrap()
+def unstarted(flag: bool) -> ():
+    g = if flag:
+        two(Res(40))
+    else:
+        one()
+    drop(g)
+def across(skip: i64) -> Generator[i64]:
+    for i in range(3):
+        g = match i:
+            case 0:
+                one()
+            case 1:
+                if skip == 1:
+                    continue
+                two(Res(51))
+            case _:
+                break
+        for v in g:
+            yield v
+        yield 0
+for n in range(4):
+    print(matched(n)).unwrap()
+print(chosen(0, True)).unwrap()
+print(chosen(1, True)).unwrap()
+print(chosen(9, False)).unwrap()
+print(chosen(2, False)).unwrap()
+unstarted(True)
+unstarted(False)
+print("after unstarted").unwrap()
+print(list(across(0)).unwrap()).unwrap()
+print(list(across(1)).unwrap()).unwrap()
+mut g = across(0)
+print(next(g)).unwrap()
+print(next(g)).unwrap()
+print(next(g)).unwrap()
+drop(g)
+print("after across").unwrap()
+"#,
+        ),
+        "Option[list[i64]].Some([1])\ndrop 10\nOption[list[i64]].Some([2, 10])\n\
+         Option[list[i64]].Nothing\nOption[list[i64]].Some([5, 6])\n\
+         [1]\ndrop 21\n[2, 21]\n[9, 9]\n[1]\n\
+         drop 40\nafter unstarted\n\
+         drop 51\n[1, 0, 2, 51, 0]\n[1, 0]\n\
+         Option[i64].Some(1)\nOption[i64].Some(0)\nOption[i64].Some(2)\ndrop 51\nafter across\n",
+    );
+}
+
+#[test]
+fn reassignment_and_payloads_keep_one_identity() {
     // Phase guard (issue #872): delete when these positions join producers.
     let producers = r#"
 def one() -> Generator[i64]:
@@ -204,9 +283,8 @@ def one() -> Generator[i64]:
 def two() -> Generator[i64]:
     yield 2
 "#;
-    let hint = "different producers join only in a conditional expression";
+    let hint = "different producers join only where a value is chosen";
     for body in [
-        "g = match 1:\n    case 0:\n        one()\n    case _:\n        two()\ndrop(g)\n",
         "o = Some(one()) if True else Some(two())\ndrop(o)\n",
         "mut g = one()\ng = two()\ndrop(g)\n",
         "def f(flag: bool) -> Option[Generator[i64]]:\n    if flag:\n        return Some(one())\n    Some(two())\ndrop(f(True))\n",
@@ -218,20 +296,20 @@ def two() -> Generator[i64]:
 
 #[test]
 fn joined_producers_with_different_items_stay_rejected() {
-    let error = check_error(
-        r#"
+    let producers = r#"
 def one() -> Generator[i64]:
     yield 1
 def two() -> Generator[str]:
     yield "x"
-def f(flag: bool) -> Generator[i64]:
-    if flag:
-        return one()
-    two()
-drop(f(True))
-"#,
-    );
-    assert!(error.contains("got Generator[str]"), "{error}");
+"#;
+    for body in [
+        "def f(flag: bool) -> Generator[i64]:\n    if flag:\n        return one()\n    two()\ndrop(f(True))\n",
+        "g = match 1:\n    case 0:\n        one()\n    case _:\n        two()\ndrop(g)\n",
+        "g = if True:\n    one()\nelse:\n    two()\ndrop(g)\n",
+    ] {
+        let error = check_error(&format!("{producers}{body}"));
+        assert!(error.contains("got Generator[str]"), "{error}");
+    }
 }
 
 #[test]
@@ -286,9 +364,15 @@ drop(g)
 drop(choose(False))
 c = sum(one() if False else wide(5, 6, 7))
 drop(wide(1, 1, 1) if True else one())
+m = match c:
+    case 18:
+        wide(1, 2, 3)
+    case _:
+        one()
+d = sum(m)
 print("__test_restore_allocations__").unwrap()
-print(a, b, first, c).unwrap()
+print(a, b, first, c, d).unwrap()
 "#,
-        "1 9 Option[i64].Some(2) 18",
+        "1 9 Option[i64].Some(2) 18 6",
     );
 }

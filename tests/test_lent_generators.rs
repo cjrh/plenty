@@ -216,7 +216,7 @@ drop(source)
     );
     assert!(
         error.contains(
-            "expected Generator[i64] from `one`, got Generator[i64] from `two`; different producers join only in a conditional expression"
+            "expected Generator[i64] from `one`, got Generator[i64] from `two`; different producers join only where a value is chosen"
         ),
         "{error}"
     );

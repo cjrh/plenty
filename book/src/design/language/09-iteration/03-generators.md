@@ -107,10 +107,13 @@ Each producer and concrete specialization has a distinct frame identity.
 `Generator[T]` describes the yield contract without erasing that identity.
 Local annotations preserve the initializer's producer, and parameters,
 references, aliases, and standard sum wrappers specialize to actual frames.
-Different producers with the same item type may meet in two places, and their
-types then join:
+Different producers with the same item type may meet wherever a value is
+chosen, and their types then join:
 
 - a conditional expression, `a if c else b`, wherever it appears;
+- an `if` or `match` value, such as `g = match n: ...`, wherever it appears,
+  including in a generator body; branches that exit with `return`, `break`
+  or `continue` take no part;
 - a factory, a function without `yield` that returns `Generator[T]`, through
   its `return` statements, a tail `if`/`else`, or a tail `match`.
 
@@ -126,8 +129,8 @@ interchangeable.
 | Parameter `Generator[T]` or `&mut Generator[T]` | Yes: each producer gets its own specialization | |
 | `for`, `next`, comprehension, `iter(...)` source | Yes | |
 | Conditional expression `a if c else b` | Yes: the producers join | |
+| `if`/`match` value, such as `g = match n: ...` | Yes: the producers join | |
 | Factory return (`return`, tail `if`/`else`, tail `match`) | Yes: the producers join | |
-| `if`/`match` value outside a function's tail, such as `g = match n: ...` | | Yes |
 | Reassignment of one binding | | Yes |
 | `Option`/`Result` payloads, such as `Some(a) if c else Some(b)` | | Yes |
 

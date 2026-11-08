@@ -2061,6 +2061,7 @@ impl Lower<'_> {
         let saved = self.names.clone();
         let mut bodies = Vec::with_capacity(cases.len());
         let mut joined: Option<Type> = None;
+        let mut continuing = Vec::new();
         for (arm, case) in cases.iter().enumerate() {
             self.names = saved.clone();
             let case_start = self.locals.len();
@@ -2108,28 +2109,16 @@ impl Lower<'_> {
                 if !matches!(tail, Tail::Function) {
                     self.cleanup(case_start, &mut body);
                 }
-                if let Some(expected) = &joined {
-                    let function_tail = matches!(tail, Tail::Function);
-                    if let Some(returned) =
-                        self.join_branch(expected, &ty, function_tail, &case.at)?
-                    {
-                        joined = Some(returned);
-                    }
-                } else {
-                    // A first continuing case without a value (`pass`) is
-                    // reported against the expected type, not the next case.
-                    if ty.is_none()
-                        && let Tail::Value(Some(expected)) = tail
-                        && *expected != Ty::Unit
-                    {
-                        self.same(None, Some(expected.clone()), &case.at)?;
-                    }
-                    joined = Some(ty);
-                }
+                self.case_value(&mut joined, &mut continuing, arm, ty, tail, &case.at)?;
             }
             bodies.push(Some(body));
         }
         self.names = saved;
+        if !matches!(tail, Tail::Function)
+            && let Some(ty) = self.join_cases(&mut bodies, &continuing)
+        {
+            joined = Some(Some(ty));
+        }
 
         // A case with alternatives and bindings records which one matched.
         let choose = |row: usize| {
@@ -2425,6 +2414,43 @@ const LIBRARY_GENERICS: [&str; 7] = [
 ];
 
 /// Arms selected by position; the last takes the wildcard an integer match needs.
+impl Lower<'_> {
+    /// Records the type `ty` of case `arm`, which continues with a value,
+    /// against the earlier cases' `joined` type. Kept out of line so deeply
+    /// nested matches keep their recursion frames small.
+    #[inline(never)]
+    fn case_value(
+        &mut self,
+        joined: &mut Option<Type>,
+        continuing: &mut Vec<(usize, Ty)>,
+        arm: usize,
+        ty: Type,
+        tail: &Tail,
+        at: &Token,
+    ) -> Result<()> {
+        if let Some(ty) = &ty {
+            continuing.push((arm, ty.clone()));
+        }
+        if let Some(expected) = joined {
+            let function_tail = matches!(tail, Tail::Function);
+            if let Some(returned) = self.join_branch(expected, &ty, function_tail, at)? {
+                *joined = Some(returned);
+            }
+        } else {
+            // A first continuing case without a value (`pass`) is
+            // reported against the expected type, not the next case.
+            if ty.is_none()
+                && let Tail::Value(Some(expected)) = tail
+                && *expected != Ty::Unit
+            {
+                self.same(None, Some(expected.clone()), at)?;
+            }
+            *joined = Some(ty);
+        }
+        Ok(())
+    }
+}
+
 fn numbered(bodies: Vec<Vec<Op>>) -> Arc<[MatchArm]> {
     let last = bodies.len() - 1;
     bodies

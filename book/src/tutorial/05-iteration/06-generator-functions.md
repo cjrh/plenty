@@ -93,8 +93,9 @@ def main() -> Result[(), IoError]:
 3
 ```
 
-A conditional expression such as `one() if flag else two()` joins producers the
-same way. A variable keeps the producer it was first given, so reassigning it
+A conditional expression such as `one() if flag else two()`, or an `if` or
+`match` that gives a variable its value, joins producers the same way. A
+variable keeps the producer it was first given, so reassigning it
 to another producer is rejected:
 
 ```plenty-error
@@ -110,9 +111,10 @@ def main() -> ():
     drop(values)
 ```
 ```error
-expected Generator[i64] from `one`, got Generator[i64] from `two`; different producers join only in a conditional expression (`a if c else b`) or a factory's return; reassignment, other `if`/`match` values and `Option`/`Result` payloads keep one producer
+expected Generator[i64] from `one`, got Generator[i64] from `two`; different producers join only where a value is chosen: a conditional expression (`a if c else b`), an `if` or `match` value, or a factory's return; reassignment and `Option`/`Result` payloads keep one producer
 ```
 
-Choose with a conditional expression or a factory such as `choose` instead.
+Choose with a conditional expression, an `if` or `match` value, or a factory
+such as `choose` instead.
 A generator may contain another generator, but recursive generator state is
 rejected: its inline storage would have no finite size.

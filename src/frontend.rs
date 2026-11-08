@@ -947,6 +947,45 @@ enum BlockResult {
 }
 
 impl Lower<'_> {
+    /// The operation of an `if` statement, after joining the different producers
+    /// its branches choose when `join` (see [`Lower::join_values`]). Kept
+    /// out of line so deeply nested blocks keep their recursion frames small.
+    #[inline(never)]
+    fn if_statement_op(
+        &self,
+        join: bool,
+        (yes, mut then): (&BlockResult, Vec<Op>),
+        mut arms: Vec<(Vec<Op>, Vec<Op>)>,
+        results: &[BlockResult],
+        (no, mut otherwise): (&BlockResult, Vec<Op>),
+    ) -> Op {
+        if join {
+            let bodies = std::iter::once((yes, &mut then))
+                .chain(results.iter().zip(arms.iter_mut().map(|(_, arm)| arm)))
+                .chain([(no, &mut otherwise)]);
+            let mut values: Vec<_> = bodies
+                .filter_map(|(result, ops)| match result {
+                    BlockResult::Continues(Some(ty)) => Some((ty, ops)),
+                    _ => None,
+                })
+                .collect();
+            self.join_values(&mut values);
+        }
+        Op::If {
+            then: then.into(),
+            elifs: arms
+                .into_iter()
+                .map(|(condition, body)| ElifArm {
+                    condition: condition.into(),
+                    body: body.into(),
+                })
+                .collect(),
+            otherwise: otherwise.into(),
+        }
+    }
+}
+
+impl Lower<'_> {
     /// `__trap("message")`. The message is a literal so that reporting it
     /// cannot itself fail to allocate.
     fn trap_statement(&mut self, args: &[Expr], at: &Token, ops: &mut Vec<Op>) -> Result<()> {
@@ -1386,8 +1425,9 @@ impl Lower<'_> {
                 && got.name.is_some()
             {
                 // Issue #872: the item type matches, so name the frame identity.
-                // Only conditional expressions and factory returns join.
-                "; different producers join only in a conditional expression (`a if c else b`) or a factory's return; reassignment, other `if`/`match` values and `Option`/`Result` payloads keep one producer".into()
+                // Only chosen values (conditional expressions, `if`/`match` values
+                // and factory returns) join.
+                "; different producers join only where a value is chosen: a conditional expression (`a if c else b`), an `if` or `match` value, or a factory's return; reassignment and `Option`/`Result` payloads keep one producer".into()
             } else {
                 expected
                     .as_ref()
@@ -4049,10 +4089,7 @@ impl Lower<'_> {
                         )?;
                         first_value(tail, &result, &mut inferred);
                         results.push(result);
-                        arms.push(ElifArm {
-                            condition: test.into(),
-                            body: arm.into(),
-                        });
+                        arms.push((test, arm));
                     }
                     self.names = saved.clone();
                     let mut otherwise = Vec::new();
@@ -4063,11 +4100,13 @@ impl Lower<'_> {
                         inferred.as_ref().unwrap_or(tail),
                     )?;
                     self.names = saved;
-                    ops.push(Op::If {
-                        then: then.into(),
-                        elifs: arms.into(),
-                        otherwise: otherwise.into(),
-                    });
+                    ops.push(self.if_statement_op(
+                        !last,
+                        (&yes_result, then),
+                        arms,
+                        &results,
+                        (&result, otherwise),
+                    ));
                     // Each branch joins what follows it, as `elif` did when it
                     // was an `if` nested in `else`: a disagreement is reported
                     // at the last `if` or `elif` whose branch differs.

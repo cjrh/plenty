@@ -229,8 +229,8 @@ impl Lower<'_> {
     }
 
     /// Checks that a branch's type `ty` matches the earlier branches'
-    /// `expected`, or, in a function's tail, that both joined into its
-    /// returned generator; that joined type is returned. Kept out of line so
+    /// `expected`, or that both are producers that join: in a function's
+    /// tail, into its returned generator. That joined type is returned. Kept out of line so
     /// deeply nested branches keep their recursion frames small.
     #[inline(never)]
     pub(super) fn join_branch(
@@ -242,6 +242,14 @@ impl Lower<'_> {
     ) -> Result<Option<Type>> {
         if function_tail && let Some(joined) = self.joined_tail(expected, ty) {
             return Ok(Some(joined));
+        }
+        // Elsewhere the caller converts each member branch's frame once every
+        // branch type is known; see [`Lower::join_values`].
+        if !function_tail
+            && let (Some(a), Some(b)) = (expected, ty)
+            && let Some(joined) = crate::generator::join(a, b)
+        {
+            return Ok(Some(Some(joined)));
         }
         self.same(ty.clone(), expected.clone(), at)?;
         Ok(None)
@@ -268,6 +276,46 @@ impl Lower<'_> {
             }
         }
         Some(joined)
+    }
+
+    /// Joins the different producers an `if` or `match` value chooses outside
+    /// a function's tail: each member branch's frame moves into storage for
+    /// the joined type at the end of its body (issue #872). None leaves the
+    /// branches unchanged, when they all have one type or do not join.
+    #[inline(never)]
+    pub(super) fn join_values(&self, values: &mut [(&Ty, &mut Vec<Op>)]) -> Option<Ty> {
+        let (first, rest) = values.split_first()?;
+        let joined = rest.iter().try_fold(first.0.clone(), |joined, (ty, _)| {
+            crate::generator::join(&joined, ty)
+        })?;
+        if !matches!(&joined, Ty::Generator(t) if !t.members.is_empty()) {
+            return None;
+        }
+        for (ty, ops) in values.iter_mut() {
+            if crate::generator::joins_into(ty, &joined) {
+                ops.push(Op::JoinFrame(Box::new(((*ty).clone(), joined.clone()))));
+            }
+        }
+        Some(joined)
+    }
+
+    /// [`Lower::join_values`] for the bodies of a `match`'s cases, given the
+    /// case number and type of each one that continues with a value.
+    #[inline(never)]
+    pub(super) fn join_cases(
+        &self,
+        bodies: &mut [Option<Vec<Op>>],
+        continuing: &[(usize, Ty)],
+    ) -> Option<Ty> {
+        let mut values: Vec<_> = bodies
+            .iter_mut()
+            .enumerate()
+            .filter_map(|(arm, body)| {
+                let (_, ty) = continuing.iter().find(|(case, _)| *case == arm)?;
+                Some((ty, body.as_mut()?))
+            })
+            .collect();
+        self.join_values(&mut values)
     }
 
     /// The function's joined generator type, when two branches of its tail
