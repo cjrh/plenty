@@ -1548,6 +1548,168 @@ fn references_and_renames_of_an_entry_iter_skip_imported_builtin_calls() {
     client.exit();
 }
 
+/// Named arguments, constructor keywords, `case` patterns and variant
+/// constructors refer to the parameter, field or variant they name
+/// (issue #876).
+const CALL_AND_PATTERN_NAMES: &str = "class Point:
+    x: i64
+    y: i64
+
+enum Shape:
+    Circle(i64)
+    Square(i64)
+
+def area(width: i64) -> i64:
+    width
+
+def size(s: &Shape) -> i64:
+    match s:
+        case Shape.Circle(r):
+            *r
+        case Shape.Square(n):
+            *n
+
+def origin(p: &Point) -> bool:
+    match p:
+        case Point(x=0, y=0):
+            True
+        case Point(x=_, y=_):
+            False
+
+def main() -> ():
+    p = Point(x=1, y=2)
+    a = area(width=p.x)
+    s = size(&Shape.Circle(a))
+    o = origin(&p)
+";
+
+#[test]
+fn references_cover_named_arguments_patterns_and_variant_constructors() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    app_package(&root, &[("src/main.plenty", CALL_AND_PATTERN_NAMES)]);
+    let main = root.join("src/main.plenty");
+    let mut client = Client::start(&dir.path().join("cache"));
+    let at = |found: Vec<(String, u64, u64)>| -> Vec<(u64, u64)> {
+        found.into_iter().map(|(_, l, c)| (l, c)).collect()
+    };
+    for ((line, character), expected) in [
+        ((1, 4), vec![(1, 4), (20, 19), (22, 19), (26, 14), (27, 21)]),
+        ((8, 9), vec![(8, 9), (9, 4), (27, 13)]),
+        ((5, 4), vec![(5, 4), (13, 19), (28, 20)]),
+    ] {
+        let found = positions(
+            &root,
+            &references(&mut client, &main, line, character, true),
+        );
+        assert_eq!(at(found), expected, "from {line}:{character}");
+    }
+    // Definition uses the same references: each use opens its declaration.
+    for ((line, character), declared) in
+        [((27, 21), (1, 4)), ((27, 13), (8, 9)), ((28, 20), (5, 4))]
+    {
+        let (_, l, c) = client.definition(&main, line, character);
+        assert_eq!((l, c), declared, "from {line}:{character}");
+    }
+    client.exit();
+}
+
+/// Named arguments of methods, written initializers and generic functions.
+const NAMED_ARGUMENTS: &str = "class Counter:
+    count: i64
+
+    def __init__(self: &mut Counter, start: i64) -> ():
+        self.count = start
+
+    def scaled(self: &Counter, by: i64) -> i64:
+        unchecked:
+            self.count * by
+
+def pick[T](first: T, second: T) -> T:
+    first
+
+def main() -> ():
+    c = Counter(start=1)
+    n = c.scaled(by=2)
+    m = pick(second=n, first=3)
+";
+
+#[test]
+fn references_cover_method_initializer_and_generic_named_arguments() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    app_package(&root, &[("src/main.plenty", NAMED_ARGUMENTS)]);
+    let main = root.join("src/main.plenty");
+    let mut client = Client::start(&dir.path().join("cache"));
+    let at = |found: Vec<(String, u64, u64)>| -> Vec<(u64, u64)> {
+        found.into_iter().map(|(_, l, c)| (l, c)).collect()
+    };
+    for ((line, character), expected) in [
+        ((3, 37), vec![(3, 37), (4, 21), (14, 16)]),
+        ((6, 31), vec![(6, 31), (8, 25), (15, 17)]),
+        ((10, 12), vec![(10, 12), (11, 4), (16, 23)]),
+        ((10, 22), vec![(10, 22), (16, 13)]),
+    ] {
+        let found = positions(
+            &root,
+            &references(&mut client, &main, line, character, true),
+        );
+        assert_eq!(at(found), expected, "from {line}:{character}");
+    }
+    client.exit();
+}
+
+#[test]
+fn references_cover_module_qualified_variants_and_named_arguments() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    app_package(
+        &root,
+        &[
+            (
+                "src/shapes.plenty",
+                "pub enum Shape:\n    Circle(i64)\n    Dot\n\npub def area(width: i64) -> i64:\n    width\n",
+            ),
+            (
+                "src/main.plenty",
+                "import shapes as s\n\ndef size(v: &s.Shape) -> i64:\n    match v:\n        case s.Shape.Circle(r):\n            *r\n        case s.Shape.Dot:\n            0\n\ndef main() -> ():\n    n = size(&s.Shape.Circle(s.area(width=2)))\n",
+            ),
+        ],
+    );
+    let shapes = root.join("src/shapes.plenty");
+    let mut client = Client::start(&dir.path().join("cache"));
+    let r = |path: &str, line: u64, character: u64| (path.to_owned(), line, character);
+    for ((line, character), expected) in [
+        (
+            (1, 4),
+            vec![
+                r("src/main.plenty", 4, 21),
+                r("src/main.plenty", 10, 22),
+                r("src/shapes.plenty", 1, 4),
+            ],
+        ),
+        (
+            (2, 4),
+            vec![r("src/main.plenty", 6, 21), r("src/shapes.plenty", 2, 4)],
+        ),
+        (
+            (4, 13),
+            vec![
+                r("src/main.plenty", 10, 36),
+                r("src/shapes.plenty", 4, 13),
+                r("src/shapes.plenty", 5, 4),
+            ],
+        ),
+    ] {
+        let found = positions(
+            &root,
+            &references(&mut client, &shapes, line, character, true),
+        );
+        assert_eq!(found, expected, "from {line}:{character}");
+    }
+    client.exit();
+}
+
 /// A rename's reply: the workspace edit and the warnings the server showed,
 /// or the reason it was refused.
 fn rename_reply(
@@ -1782,7 +1944,7 @@ fn a_rename_is_refused_with_its_reason() {
     let shapes = root.join("src/shapes.plenty");
     let main = root.join("src/main.plenty");
     let mut client = Client::start(&dir.path().join("cache"));
-    let not_yet = "is not supported yet: the editor analysis does not record";
+    let not_yet = "is not supported yet: ";
     for (path, line, character, starts) in [
         (&shapes, 1, 8, "renaming a field"),
         (&main, 5, 10, "renaming a method"),

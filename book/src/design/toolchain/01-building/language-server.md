@@ -86,11 +86,11 @@ recorded. The server then shows a warning that the list may be incomplete,
 with the first error. A search of a package-level declaration checks every
 entry once, so in a package with many test files it takes seconds.
 
-The list contains only names the checker resolves, so it misses the
-references the [limits](#limits) leave unresolved: named arguments
-(`area(n=2)`) and constructor fields (`Point(x=1)`), variants and fields in
-`case` patterns, a variant used as a constructor (`Shape.Circle(r)`), members
-used in an uninstantiated generic body (issue #876), and names
+The list contains only names the checker resolves. Named arguments
+(`area(n=2)`) refer to the parameter, constructor keywords (`Point(x=1)`) to
+the field or `__init__` parameter, and variants and fields in `case` patterns
+and variant constructors (`Shape.Circle(r)`) to their declaration. The list
+misses members used in an uninstantiated generic body (issue #876) and names
 in unselected [`if const`](../../language/02-source/target-conditionals.md)
 arms. Text in strings, comments, and docstrings is never a reference.
 
@@ -137,8 +137,9 @@ server refuses the rename, with the reason as the request's error, when:
 - the declaration is in `std` or a dependency outside the workspace, or is
   written in a file no target or test of its package reads;
 - the name is a field, method, enum variant, or parameter. These are not
-  supported yet, since constructor calls, `case` patterns, named arguments,
-  and members in generic bodies are not resolved (issue #876);
+  supported yet: members in uninstantiated generic bodies are not resolved,
+  and rename does not yet edit variant names or named arguments, though find
+  references lists them (issue #876);
 - the name is a module, or a module alias (`s` in `import shapes as s`, at
   the import or a use);
 - the file changed since its last check; ask for the rename again.
@@ -284,9 +285,6 @@ differs.
   names and locals only.
 - Builtin functions, methods of built-in types such as `list` and `str`, and
   `Ok`, `Err`, `Some`, and `Nothing` have no declaration to show.
-- Variant names and fields in `case` patterns, variant constructors, named
-  arguments, and the field names of a constructor call are not resolved
-  (issue #876).
 - Locals offered by completion are those bound in the enclosing function
   above the cursor, by line.
 - An error in a module other than the open file is shown on the file's first

@@ -638,7 +638,9 @@ impl Server {
                 .collect()
         };
         let mut warning = None;
-        let mut locations = if matches!(symbol.kind, SymbolKind::Local | SymbolKind::Parameter)
+        // A named argument can name a parameter in another module, so only
+        // a local's uses are all in its own file.
+        let mut locations = if symbol.kind == SymbolKind::Local
             || crate::project::discover(path.parent().unwrap_or(&path)).is_err()
         {
             local()
