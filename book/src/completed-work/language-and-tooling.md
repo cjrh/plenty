@@ -1073,6 +1073,11 @@ loans, and full-expression temporary cleanup without copying or retaining text.
 Annotated view locals still require an explicit borrow; other view types keep
 their existing conversion rules.
 
+Issue #865 applies the same rule to shared `&[T]` parameters: a bare owned
+list, `Bytes`, `bytes` value, projected owner or call result is lent as if
+written `&xs`, including at generic `&[T]` parameters. `&mut [T]` parameters
+still require `&mut`.
+
 `&xs`, `&mut xs`, `&s`, reference bindings and `b"..."`/`str` literals convert
 to whole views at view types, and `&Shared[T]` converts to `&T` like `Box`
 (local PR #784). Byte-reading std APIs, including the prelude byte writers and

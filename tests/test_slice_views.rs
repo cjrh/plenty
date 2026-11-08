@@ -529,8 +529,12 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     "a function cannot return a slice view yet (backlog B11)"
 )]
 #[case(
-    "def total(v: &[i64]) -> i64:\n    0\nxs = [1, 2].unwrap()\nn = total(xs)",
+    "def total(v: &[i64]) -> i64:\n    0\nn = total(5)",
     "this parameter takes a slice view: pass `&xs` for a whole list or buffer, or `&xs[a:b]` for part of it"
+)]
+#[case(
+    "def bump(v: &mut [i64]) -> ():\n    pass\nmut xs = [1, 2].unwrap()\nbump(xs)",
+    "this parameter takes a slice view: pass `&mut xs` for a whole list or buffer, or `&mut xs[a:b]` for part of it"
 )]
 #[case(
     "def bump(v: &mut [i64]) -> ():\n    pass\nmut xs = [1, 2].unwrap()\nbump(&xs)",
@@ -780,6 +784,121 @@ fn held_call_results_must_be_viewable() {
         error.contains(
             "this parameter takes a slice view of a list, Bytes, bytes, or str value, got i64"
         ),
+        "{error}"
+    );
+}
+
+/// A shared view parameter lends a bare owned argument as `&` would
+/// (issue #865): whole lists, projected owners, references, generic
+/// elements, `Bytes`, `bytes` literals and call or `?` results. Nothing is
+/// copied, and the owner stays usable or movable afterwards.
+#[test]
+fn shared_view_parameters_lend_bare_owners() {
+    let stdout = support::run_file_stdout(
+        r#"
+import std.bytes
+
+class Bag:
+    items: list[i64]
+
+def width(xs: &[i64]) -> i64:
+    len(xs)
+
+def first[T](xs: &[T]) -> &T:
+    &xs[0]
+
+def octets(data: &[u8]) -> i64:
+    len(data)
+
+def make() -> Result[list[i64], AllocError]:
+    [4, 5, 6]
+
+def eat(xs: list[i64]) -> i64:
+    len(xs)
+
+def main() -> Result[(), std.bytes.BytesError | AllocError | IoError]:
+    xs = [1, 2]?
+    r = &xs
+    bag = Bag([7, 8, 9]?)
+    buffer = std.bytes.from_bytes(b"abcd")?
+    names = ["ada", "bob"]?
+    print(width(xs), width(r), width(bag.items), *first(bag.items), *first(names))?
+    print(octets(buffer), octets(b"xyz"), width(make()?), width([1, 2, 3, 4, 5]?))?
+    handle = Shared([1, 2, 3]?)?
+    print(std.bytes.from_bytes(buffer)?, width(handle), eat(xs))?
+    Ok(())
+"#,
+    );
+    assert_eq!(stdout.trim_end(), "2 2 3 7 ada\n4 3 3 5\nb\"abcd\" 3 2");
+}
+
+/// A bare temporary lent to a view parameter is held to the end of the
+/// statement and released when a later argument's `?` returns early.
+#[test]
+fn bare_view_temporaries_are_released_on_a_later_error() {
+    let output = support::run(
+        r#"
+class Res:
+    name: str
+    def __del__(self) -> ():
+        print("drop", self.name).unwrap()
+
+def count(xs: &[Res]) -> i64:
+    len(xs)
+
+def fail() -> Result[i64, str]:
+    Err("stop")
+
+def main() -> Result[(), AllocError | IoError | str]:
+    print(count([Res("a"), Res("b")]?), fail()?)?
+    Ok(())
+"#,
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout, "drop a\ndrop b\n");
+    assert!(!output.status.success());
+}
+
+/// The implicit loan conflicts like a written `&xs`, and exclusive access is
+/// never inferred.
+#[rstest]
+#[case(
+    "def both(xs: &[i64], ys: &mut list[i64]) -> ():\n    pass\nmut xs = [1, 2].unwrap()\nboth(xs, &mut xs)",
+    "cannot modify or exclusively borrow `xs` while"
+)]
+#[case(
+    "def width(xs: &[i64]) -> i64:\n    0\nxs = [1, 2].unwrap()\nys = xs\nn = width(xs)",
+    "use of moved binding `xs`"
+)]
+#[case(
+    "def width(xs: &[i64]) -> i64:\n    0\ndef make() -> i64:\n    1\nn = width(make())",
+    "this parameter takes a slice view: pass `&xs` for a whole list or buffer"
+)]
+fn bare_view_arguments_follow_explicit_borrow_rules(#[case] body: &str, #[case] expected: &str) {
+    let error = support::check_error(body);
+    assert!(error.contains(expected), "{body}\n{error}");
+}
+
+/// `*r` names the owner a reference refers to, so it is lent like the owner
+/// at a shared view parameter, as at a `&list[T]` parameter.
+#[test]
+fn dereferenced_owners_are_lent_to_view_parameters() {
+    support::assert_stdout(
+        "def width(xs: &[i64]) -> i64:\n    len(xs)\n\
+         def inspect(xs: &list[i64]) -> i64:\n    len(xs)\n\
+         xs = [1, 2, 3].unwrap()\nr = &xs\nprint(width(*r), inspect(*r)).unwrap()",
+        "3 3\n",
+    );
+}
+
+/// Text reaches a byte view through `as_bytes()`, never implicitly.
+#[test]
+fn bare_text_at_byte_views_suggests_as_bytes() {
+    let error = support::check_error(
+        "def width(data: &[u8]) -> i64:\n    len(data)\ns = \"abc\"\nn = width(s)",
+    );
+    assert!(
+        error.contains("a `str` is text, so pass `s.as_bytes()` for its UTF-8 bytes"),
         "{error}"
     );
 }
