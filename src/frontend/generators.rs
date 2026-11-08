@@ -162,14 +162,10 @@ impl Lower<'_> {
         inputs: &mut Vec<(String, TypeRef)>,
         ops: &mut Vec<Op>,
     ) -> Result<Expr> {
-        if let Expression::Call(name, args) = &ungroup(source).kind
-            && matches!(name.as_str(), "enumerate" | "zip" | "reversed")
-            && !self.names.contains_key(name)
-            && !self.sigs.contains_key(name)
-            && !self.generics.templates.contains_key(name)
-            && !self.aliases.contains_key(name)
+        if let Expression::Call(function, args) = &ungroup(source).kind
+            && let Some(name @ ("enumerate" | "zip" | "reversed")) = builtin_call(function)
         {
-            let (valid, expected) = match name.as_str() {
+            let (valid, expected) = match name {
                 "enumerate" => ((1..=2).contains(&args.len()), "1 or 2"),
                 "zip" => (args.len() == 2, "2"),
                 _ => (args.len() == 1, "1"),
@@ -186,7 +182,7 @@ impl Lower<'_> {
                 .collect::<Result<_>>()?;
             return Ok(Expr {
                 at: source.at.clone(),
-                kind: Expression::Call(name.clone(), args),
+                kind: Expression::Call(function.clone(), args),
             });
         }
         let ty = self.value(source, ops)?;
