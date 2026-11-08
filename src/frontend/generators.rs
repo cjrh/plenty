@@ -211,11 +211,56 @@ impl Lower<'_> {
             return Err(at.error("a closure with borrowed captures cannot escape its function"));
         }
         let expected = self.return_type.clone().flatten();
+        if let (Some(expected), Some(actual)) = (&expected, &actual)
+            && let Some(joined) = crate::generator::join(expected, actual)
+            && self.inferring_frame()
+        {
+            // Issue #872: a factory returning different producers returns
+            // their joined frame. Lowering repeats with the joined signature,
+            // and `join_returned_frame` then converts each returned member.
+            self.return_type = Some(Some(joined));
+            return Ok(());
+        }
         self.same(actual.clone(), expected.clone(), at)?;
         if let (Some(expected), Some(actual)) = (expected, actual) {
             self.return_type = Some(crate::generator::refine(&expected, &actual));
         }
         Ok(())
+    }
+
+    /// The function's joined generator type, when two branches of its tail
+    /// returned different producers. Each branch already converted its frame
+    /// or recorded the join when it returned.
+    pub(super) fn joined_tail(&self, a: &Type, b: &Type) -> Option<Type> {
+        let (Some(a), Some(b)) = (a, b) else {
+            return None;
+        };
+        crate::generator::join(a, b)?;
+        let returned = self.return_type.clone().flatten()?;
+        let fits = |ty: &Ty| *ty == returned || crate::generator::joins_into(ty, &returned);
+        (fits(a) && fits(b)).then_some(Some(returned))
+    }
+
+    /// Whether this function's declared output still awaits a concrete
+    /// producer, so its returns may join different producers.
+    fn inferring_frame(&self) -> bool {
+        self.yield_type.is_none()
+            && self
+                .sigs
+                .get(&self.function_name)
+                .is_some_and(|sig| sig.outputs.iter().any(Ty::unresolved_generator))
+    }
+
+    /// Converts a returned member producer's frame to the function's joined
+    /// generator type, appending the conversion to the value's operations.
+    pub(super) fn join_returned_frame(&self, actual: Type, ops: &mut Vec<Op>) -> Type {
+        if let (Some(Some(expected)), Some(member)) = (&self.return_type, &actual)
+            && crate::generator::joins_into(member, expected)
+        {
+            ops.push(Op::JoinFrame(member.clone(), expected.clone()));
+            return Some(expected.clone());
+        }
+        actual
     }
 
     pub(super) fn ensure_concrete_output(&mut self, name: &str, at: &Token) -> Result<()> {

@@ -11,6 +11,11 @@ pub struct GeneratorType {
     pub name: Option<String>,
     pub slots: OnceLock<Vec<Ty>>,
     pub layout: OnceLock<Measured>,
+    /// The producers a joined identity can hold, sorted by name, or empty
+    /// for one producer. A joined frame is as large as its largest member;
+    /// each frame records its own resume function and slot metadata, so
+    /// advancing and dropping need no tag (issue #872).
+    pub members: Vec<Ty>,
 }
 
 /// Frames and environments nested more deeply than this are rejected.
@@ -57,6 +62,7 @@ impl GeneratorType {
         let mut seen = crate::hash::HashSet::default();
         while let Some(ty) = work.pop() {
             match ty {
+                Ty::Generator(t) if !t.members.is_empty() => work.extend(&t.members),
                 Ty::Generator(t) => {
                     if t.name == self.name {
                         return Err(format!(
@@ -93,7 +99,60 @@ pub fn ty(element: Ty, name: Option<String>) -> Ty {
         name,
         slots: OnceLock::new(),
         layout: OnceLock::new(),
+        members: Vec::new(),
     }))
+}
+
+/// The producers `ty` stands for: its members, or itself.
+pub fn producers(ty: &Ty) -> Vec<Ty> {
+    match ty {
+        Ty::Generator(t) if !t.members.is_empty() => t.members.clone(),
+        _ => vec![ty.clone()],
+    }
+}
+
+/// Whether every producer `member` stands for is one of `joined`'s, so a
+/// frame of type `member` fits storage laid out for `joined`.
+pub fn joins_into(member: &Ty, joined: &Ty) -> bool {
+    let joined_producers = producers(joined);
+    member != joined
+        && matches!(joined, Ty::Generator(t) if !t.members.is_empty())
+        && producers(member)
+            .iter()
+            .all(|m| joined_producers.contains(m))
+}
+
+/// The joined identity of two concrete generators with the same item type
+/// and different producers: one frame layout large enough for each.
+pub fn join(a: &Ty, b: &Ty) -> Option<Ty> {
+    let (Ty::Generator(x), Ty::Generator(y)) = (a, b) else {
+        return None;
+    };
+    if x.element != y.element || x.name.is_none() || y.name.is_none() {
+        return None;
+    }
+    let mut members = producers(a);
+    for member in producers(b) {
+        if !members.contains(&member) {
+            members.push(member);
+        }
+    }
+    let name = |ty: &Ty| match ty {
+        Ty::Generator(t) => t.name.clone().unwrap_or_default(),
+        _ => unreachable!(),
+    };
+    members.sort_by_key(name);
+    if members.len() == 1 {
+        return Some(members.pop().unwrap());
+    }
+    let joined = members.iter().map(name).collect::<Vec<_>>().join(" | ");
+    Some(Ty::Generator(Arc::new(GeneratorType {
+        element: x.element.clone(),
+        name: Some(joined),
+        slots: OnceLock::new(),
+        layout: OnceLock::new(),
+        members,
+    })))
 }
 
 /// Source annotations constrain the yielded type while allowing the producer
@@ -352,6 +411,17 @@ pub fn measure(ty: &Ty, active: &mut Vec<String>) -> Result<Measured, String> {
         Ty::Generator(t) => {
             if let Some(cached) = t.layout.get().and_then(|m| m.at_depth(active.len())) {
                 return Ok(cached);
+            }
+            if !t.members.is_empty() {
+                // Not a nesting level of its own: each member is laid out
+                // where the joined frame occurs.
+                let mut joined = Measured { bytes: 0, reach: 0 };
+                for member in &t.members {
+                    let member = measure(member, active)?;
+                    joined.bytes = joined.bytes.max(member.bytes);
+                    joined.reach = joined.reach.max(member.reach);
+                }
+                return Ok(*t.layout.get_or_init(|| joined));
             }
             let name = t
                 .name

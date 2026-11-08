@@ -2046,7 +2046,14 @@ impl Lower<'_> {
                     self.cleanup(case_start, &mut body);
                 }
                 if let Some(expected) = &joined {
-                    self.same(ty.clone(), expected.clone(), &case.at)?;
+                    if let Some(returned) = self
+                        .joined_tail(expected, &ty)
+                        .filter(|_| matches!(tail, Tail::Function))
+                    {
+                        joined = Some(returned);
+                    } else {
+                        self.same(ty.clone(), expected.clone(), &case.at)?;
+                    }
                 } else {
                     // A first continuing case without a value (`pass`) is
                     // reported against the expected type, not the next case.

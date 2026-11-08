@@ -107,21 +107,27 @@ Each producer and concrete specialization has a distinct frame identity.
 `Generator[T]` describes the yield contract without erasing that identity.
 Local annotations preserve the initializer's producer, and parameters,
 references, aliases, and standard sum wrappers specialize to actual frames.
-A factory must resolve to one producer per specialization; equal yield types
-do not allow different producers to join. `Nothing` or `Err` alone cannot
-infer an absent producer. No hidden boxing makes frames interchangeable.
+A factory, a function without `yield` that returns `Generator[T]`, may return
+different producers with the same item type from `return` statements, a tail
+`if`/`else`, or a tail `match`. Its output is then a joined frame: inline
+storage sized for the largest member, with each member's frame copied into it
+at the return. Frames already describe their own resume, drop and relocation,
+so the join needs no tag and allocates nothing; nested joins flatten into one
+set of members. `Nothing` or `Err` alone cannot infer an absent producer. No
+hidden boxing makes frames interchangeable.
 
 | Position | Matching `Generator[T]` item type suffices | Producer identity must match |
 |---|---|---|
 | Parameter `Generator[T]` or `&mut Generator[T]` | Yes: each producer gets its own specialization | |
 | `for`, `next`, comprehension, `iter(...)` source | Yes | |
-| Factory return, `if`/`match` branches, reassignment of one binding | | Yes |
+| Factory return (`return`, tail `if`/`else`, tail `match`) | Yes: the producers join | |
+| Branch value (`a if c else b`), reassignment of one binding | | Yes |
 | `Option`/`Result` payload joined across branches | | Yes |
 
 When two different producers meet where one identity is required, the
-diagnostic names both and suggests branching inside one generator body.
-Joining different producers through an inline sum of their frames or an
-explicit erased generator is planned (issue #872).
+diagnostic names both and suggests returning each from a factory or branching
+inside one generator body. Joining inside `Option`/`Result` payloads, branch
+values, and an explicit erased generator remain planned (issue #872).
 
 A suspended frame retains its live owned locals. Completion releases them;
 dropping a suspended or never-started frame releases remaining locals and

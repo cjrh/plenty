@@ -1385,7 +1385,8 @@ impl Lower<'_> {
                 && got.name.is_some()
             {
                 // Issue #872: the item type matches, so name the frame identity.
-                "; each producer has its own inline frame, so different producers cannot join; branch inside one generator body instead".into()
+                // Only a factory's return joins producers.
+                "; a variable or branch value holds one producer's inline frame; return each producer from a factory to join them, or branch inside one generator body".into()
             } else {
                 expected
                     .as_ref()
@@ -3333,6 +3334,7 @@ impl Lower<'_> {
         // Only the value's own operations: an exit guard also moves its
         // binding, to drop it before the join.
         let marker = self.returning(at, &returned);
+        let ty = self.join_returned_frame(ty, &mut returned);
         self.refine_return(ty, at)?;
         let returned_loan = if self.return_origin.is_some() && !references::loan_free(e.unwrap()) {
             // A value from a started-empty holder names no real loan; the
@@ -3731,6 +3733,11 @@ impl Lower<'_> {
                             ops.push(Op::UseLoan(loan));
                         }
                     }
+                    let ty = if last && self.yield_type.is_none() {
+                        self.join_returned_frame(ty, ops)
+                    } else {
+                        ty
+                    };
                     if last && self.yield_type.is_none() {
                         self.refine_return(ty.clone(), &e.at)?;
                         // The function's result is in flight through the
@@ -4063,8 +4070,13 @@ impl Lower<'_> {
                     for (at, branch) in branches {
                         result = match (branch, result) {
                             (BlockResult::Continues(ty), BlockResult::Continues(other)) => {
-                                self.same(other, ty.clone(), at)?;
-                                BlockResult::Continues(ty)
+                                if let Some(joined) = self.joined_tail(&other, &ty).filter(|_| last)
+                                {
+                                    BlockResult::Continues(joined)
+                                } else {
+                                    self.same(other, ty.clone(), at)?;
+                                    BlockResult::Continues(ty)
+                                }
                             }
                             (BlockResult::Continues(ty), BlockResult::Exits)
                             | (BlockResult::Exits, BlockResult::Continues(ty)) => {

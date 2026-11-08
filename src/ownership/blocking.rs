@@ -154,6 +154,7 @@ pub(super) fn blocks(op: &Op) -> bool {
         | Op::StoreLocal { .. }
         | Op::Match { .. }
         | Op::Cast { .. }
+        | Op::JoinFrame(..)
         | Op::CheckedCast { .. }
         | Op::TryCast { .. }
         | Op::RangeLength { .. }

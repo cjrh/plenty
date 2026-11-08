@@ -234,9 +234,8 @@ def a() -> Generator[i64]:
 def b() -> Generator[i64]:
     yield 2
 def choose(flag: bool) -> Generator[i64]:
-    if flag:
-        return a()
-    b()
+    source = a() if flag else b()
+    source
 drop(choose(True))
 "#,
             "expected Generator[i64] from `a`, got Generator[i64] from `b`",

@@ -209,16 +209,14 @@ def one() -> Generator[i64]:
     yield 1
 def two() -> Generator[i64]:
     yield 2
-def choose(flag: bool) -> Generator[i64]:
-    if flag:
-        return one()
-    two()
-drop(choose(True))
+mut source = one()
+source = two()
+drop(source)
 "#,
     );
     assert!(
         error.contains(
-            "expected Generator[i64] from `one`, got Generator[i64] from `two`; each producer has its own inline frame"
+            "expected Generator[i64] from `one`, got Generator[i64] from `two`; a variable or branch value holds one producer's inline frame"
         ),
         "{error}"
     );

@@ -495,6 +495,16 @@ identity must match; mismatched producers now name the frame identity in the
 diagnostic. Joining different producers and borrowed-item pipeline `next`
 remain under B12.
 
+A factory may return different producers with one item type from `return`,
+a tail `if`/`else` or a tail `match` (issue #872, slice 2). Its output is a
+[joined frame](../design/language/09-iteration/03-generators.md#frame-ownership-and-identity)
+sized for the largest member; each member frame is copied into it at the
+return. Frames carry their own resume, drop and relocation entries, so the
+join needs no tag and no allocation. Nested and generic factories flatten into
+one member set, and a member that contains the factory is rejected as a
+recursive layout. Branch values, reassignment and `Option`/`Result` payloads
+still require one producer.
+
 Text-file iteration, uniform borrowed iteration and borrowed temporary source
 lifetimes shipped (issues #30/#75). Allocation-free enumerate/zip/reversed
 sources and boolean reductions (issue #35) now compose through B75 pipelines;
