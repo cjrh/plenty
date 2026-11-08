@@ -119,3 +119,274 @@ pub def native_code(error: IoError) -> Option[i32]:
             Some(code)
         case _:
             Nothing
+
+# The text the GNU C library gives each Linux error number in the C locale,
+# fixed here so the result does not depend on the locale, the C library
+# version or shared state, and needs no allocation. Codes are those of the
+# x86-64 Linux kernel (1 to 133; 41 and 58 are unassigned).
+pub def native_message(code: i32) -> Option[str]:
+    match code:
+        case 1i32:
+            Some("Operation not permitted")  # EPERM
+        case 2i32:
+            Some("No such file or directory")  # ENOENT
+        case 3i32:
+            Some("No such process")  # ESRCH
+        case 4i32:
+            Some("Interrupted system call")  # EINTR
+        case 5i32:
+            Some("Input/output error")  # EIO
+        case 6i32:
+            Some("No such device or address")  # ENXIO
+        case 7i32:
+            Some("Argument list too long")  # E2BIG
+        case 8i32:
+            Some("Exec format error")  # ENOEXEC
+        case 9i32:
+            Some("Bad file descriptor")  # EBADF
+        case 10i32:
+            Some("No child processes")  # ECHILD
+        case 11i32:
+            Some("Resource temporarily unavailable")  # EAGAIN
+        case 12i32:
+            Some("Cannot allocate memory")  # ENOMEM
+        case 13i32:
+            Some("Permission denied")  # EACCES
+        case 14i32:
+            Some("Bad address")  # EFAULT
+        case 15i32:
+            Some("Block device required")  # ENOTBLK
+        case 16i32:
+            Some("Device or resource busy")  # EBUSY
+        case 17i32:
+            Some("File exists")  # EEXIST
+        case 18i32:
+            Some("Invalid cross-device link")  # EXDEV
+        case 19i32:
+            Some("No such device")  # ENODEV
+        case 20i32:
+            Some("Not a directory")  # ENOTDIR
+        case 21i32:
+            Some("Is a directory")  # EISDIR
+        case 22i32:
+            Some("Invalid argument")  # EINVAL
+        case 23i32:
+            Some("Too many open files in system")  # ENFILE
+        case 24i32:
+            Some("Too many open files")  # EMFILE
+        case 25i32:
+            Some("Inappropriate ioctl for device")  # ENOTTY
+        case 26i32:
+            Some("Text file busy")  # ETXTBSY
+        case 27i32:
+            Some("File too large")  # EFBIG
+        case 28i32:
+            Some("No space left on device")  # ENOSPC
+        case 29i32:
+            Some("Illegal seek")  # ESPIPE
+        case 30i32:
+            Some("Read-only file system")  # EROFS
+        case 31i32:
+            Some("Too many links")  # EMLINK
+        case 32i32:
+            Some("Broken pipe")  # EPIPE
+        case 33i32:
+            Some("Numerical argument out of domain")  # EDOM
+        case 34i32:
+            Some("Numerical result out of range")  # ERANGE
+        case 35i32:
+            Some("Resource deadlock avoided")  # EDEADLOCK
+        case 36i32:
+            Some("File name too long")  # ENAMETOOLONG
+        case 37i32:
+            Some("No locks available")  # ENOLCK
+        case 38i32:
+            Some("Function not implemented")  # ENOSYS
+        case 39i32:
+            Some("Directory not empty")  # ENOTEMPTY
+        case 40i32:
+            Some("Too many levels of symbolic links")  # ELOOP
+        case 42i32:
+            Some("No message of desired type")  # ENOMSG
+        case 43i32:
+            Some("Identifier removed")  # EIDRM
+        case 44i32:
+            Some("Channel number out of range")  # ECHRNG
+        case 45i32:
+            Some("Level 2 not synchronized")  # EL2NSYNC
+        case 46i32:
+            Some("Level 3 halted")  # EL3HLT
+        case 47i32:
+            Some("Level 3 reset")  # EL3RST
+        case 48i32:
+            Some("Link number out of range")  # ELNRNG
+        case 49i32:
+            Some("Protocol driver not attached")  # EUNATCH
+        case 50i32:
+            Some("No CSI structure available")  # ENOCSI
+        case 51i32:
+            Some("Level 2 halted")  # EL2HLT
+        case 52i32:
+            Some("Invalid exchange")  # EBADE
+        case 53i32:
+            Some("Invalid request descriptor")  # EBADR
+        case 54i32:
+            Some("Exchange full")  # EXFULL
+        case 55i32:
+            Some("No anode")  # ENOANO
+        case 56i32:
+            Some("Invalid request code")  # EBADRQC
+        case 57i32:
+            Some("Invalid slot")  # EBADSLT
+        case 59i32:
+            Some("Bad font file format")  # EBFONT
+        case 60i32:
+            Some("Device not a stream")  # ENOSTR
+        case 61i32:
+            Some("No data available")  # ENODATA
+        case 62i32:
+            Some("Timer expired")  # ETIME
+        case 63i32:
+            Some("Out of streams resources")  # ENOSR
+        case 64i32:
+            Some("Machine is not on the network")  # ENONET
+        case 65i32:
+            Some("Package not installed")  # ENOPKG
+        case 66i32:
+            Some("Object is remote")  # EREMOTE
+        case 67i32:
+            Some("Link has been severed")  # ENOLINK
+        case 68i32:
+            Some("Advertise error")  # EADV
+        case 69i32:
+            Some("Srmount error")  # ESRMNT
+        case 70i32:
+            Some("Communication error on send")  # ECOMM
+        case 71i32:
+            Some("Protocol error")  # EPROTO
+        case 72i32:
+            Some("Multihop attempted")  # EMULTIHOP
+        case 73i32:
+            Some("RFS specific error")  # EDOTDOT
+        case 74i32:
+            Some("Bad message")  # EBADMSG
+        case 75i32:
+            Some("Value too large for defined data type")  # EOVERFLOW
+        case 76i32:
+            Some("Name not unique on network")  # ENOTUNIQ
+        case 77i32:
+            Some("File descriptor in bad state")  # EBADFD
+        case 78i32:
+            Some("Remote address changed")  # EREMCHG
+        case 79i32:
+            Some("Can not access a needed shared library")  # ELIBACC
+        case 80i32:
+            Some("Accessing a corrupted shared library")  # ELIBBAD
+        case 81i32:
+            Some(".lib section in a.out corrupted")  # ELIBSCN
+        case 82i32:
+            Some("Attempting to link in too many shared libraries")  # ELIBMAX
+        case 83i32:
+            Some("Cannot exec a shared library directly")  # ELIBEXEC
+        case 84i32:
+            Some("Invalid or incomplete multibyte or wide character")  # EILSEQ
+        case 85i32:
+            Some("Interrupted system call should be restarted")  # ERESTART
+        case 86i32:
+            Some("Streams pipe error")  # ESTRPIPE
+        case 87i32:
+            Some("Too many users")  # EUSERS
+        case 88i32:
+            Some("Socket operation on non-socket")  # ENOTSOCK
+        case 89i32:
+            Some("Destination address required")  # EDESTADDRREQ
+        case 90i32:
+            Some("Message too long")  # EMSGSIZE
+        case 91i32:
+            Some("Protocol wrong type for socket")  # EPROTOTYPE
+        case 92i32:
+            Some("Protocol not available")  # ENOPROTOOPT
+        case 93i32:
+            Some("Protocol not supported")  # EPROTONOSUPPORT
+        case 94i32:
+            Some("Socket type not supported")  # ESOCKTNOSUPPORT
+        case 95i32:
+            Some("Operation not supported")  # ENOTSUP
+        case 96i32:
+            Some("Protocol family not supported")  # EPFNOSUPPORT
+        case 97i32:
+            Some("Address family not supported by protocol")  # EAFNOSUPPORT
+        case 98i32:
+            Some("Address already in use")  # EADDRINUSE
+        case 99i32:
+            Some("Cannot assign requested address")  # EADDRNOTAVAIL
+        case 100i32:
+            Some("Network is down")  # ENETDOWN
+        case 101i32:
+            Some("Network is unreachable")  # ENETUNREACH
+        case 102i32:
+            Some("Network dropped connection on reset")  # ENETRESET
+        case 103i32:
+            Some("Software caused connection abort")  # ECONNABORTED
+        case 104i32:
+            Some("Connection reset by peer")  # ECONNRESET
+        case 105i32:
+            Some("No buffer space available")  # ENOBUFS
+        case 106i32:
+            Some("Transport endpoint is already connected")  # EISCONN
+        case 107i32:
+            Some("Transport endpoint is not connected")  # ENOTCONN
+        case 108i32:
+            Some("Cannot send after transport endpoint shutdown")  # ESHUTDOWN
+        case 109i32:
+            Some("Too many references: cannot splice")  # ETOOMANYREFS
+        case 110i32:
+            Some("Connection timed out")  # ETIMEDOUT
+        case 111i32:
+            Some("Connection refused")  # ECONNREFUSED
+        case 112i32:
+            Some("Host is down")  # EHOSTDOWN
+        case 113i32:
+            Some("No route to host")  # EHOSTUNREACH
+        case 114i32:
+            Some("Operation already in progress")  # EALREADY
+        case 115i32:
+            Some("Operation now in progress")  # EINPROGRESS
+        case 116i32:
+            Some("Stale file handle")  # ESTALE
+        case 117i32:
+            Some("Structure needs cleaning")  # EUCLEAN
+        case 118i32:
+            Some("Not a XENIX named type file")  # ENOTNAM
+        case 119i32:
+            Some("No XENIX semaphores available")  # ENAVAIL
+        case 120i32:
+            Some("Is a named type file")  # EISNAM
+        case 121i32:
+            Some("Remote I/O error")  # EREMOTEIO
+        case 122i32:
+            Some("Disk quota exceeded")  # EDQUOT
+        case 123i32:
+            Some("No medium found")  # ENOMEDIUM
+        case 124i32:
+            Some("Wrong medium type")  # EMEDIUMTYPE
+        case 125i32:
+            Some("Operation canceled")  # ECANCELED
+        case 126i32:
+            Some("Required key not available")  # ENOKEY
+        case 127i32:
+            Some("Key has expired")  # EKEYEXPIRED
+        case 128i32:
+            Some("Key has been revoked")  # EKEYREVOKED
+        case 129i32:
+            Some("Key was rejected by service")  # EKEYREJECTED
+        case 130i32:
+            Some("Owner died")  # EOWNERDEAD
+        case 131i32:
+            Some("State not recoverable")  # ENOTRECOVERABLE
+        case 132i32:
+            Some("Operation not possible due to RF-kill")  # ERFKILL
+        case 133i32:
+            Some("Memory page has hardware error")  # EHWPOISON
+        case _:
+            Nothing

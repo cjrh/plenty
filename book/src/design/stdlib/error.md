@@ -30,6 +30,7 @@ pub class Context[E]:
 | `error.report()` | `()` | Writes `error: ` and the description to standard error |
 | `error.report_with(description)` | `()` | The same for a description `Result` the caller built |
 | `native_code(error)` | `Option[i32]` | The OS code of `IoError.System(code)`; otherwise `Nothing` |
+| `native_message(code)` | `Option[str]` | The fixed English description of a Linux error number; otherwise `Nothing`; allocates nothing |
 
 `context` and `path_context` consume the Result and return `Ok` payloads
 unchanged, including `()` from operations such as `flush_stdout()` and
@@ -66,6 +67,48 @@ read settings "settings.toml": IoError.System(2)
 True
 using default settings
 ```
+
+## Describing a native code
+
+`native_message(code)` returns the description of a Linux error number, the
+text the GNU C library gives it in the C locale, such as
+`"No such file or directory"` for 2. It takes any OS code, so it also serves
+codes held by other errors, such as `ThreadError.System(code)`. The text is a
+string literal fixed in `std.error`: the call allocates nothing, reads no
+`errno`, locale or other shared state, is safe on any worker, and gives the
+same text whatever C library the program links. A code outside the x86-64
+Linux numbers 1 to 133, or one of the unassigned numbers 41 and 58, returns
+`Nothing`; the caller chooses the fallback. The error value keeps its numeric
+code: combine the two where the application reports.
+
+```plenty
+from std.error import native_code, native_message, path_context
+from std.path import from_text
+
+def main() -> Result[(), AllocError | IoError]:
+    path = from_text("settings.toml")?
+    match path_context(read_bytes(path.as_bytes()), "read settings", &path):
+        case Ok(bytes):
+            print(len(bytes), "bytes of settings")?
+        case Err(error):
+            match native_code(error.cause):
+                case Some(code):
+                    message = native_message(code).unwrap_or("unknown error")
+                    cause = f"{message} (os error {code})"?
+                    print(error.describe_with(&cause)?)?
+                case Nothing:
+                    print(error.describe()?)?
+    print(native_message(9999i32))?
+    Ok(())
+```
+```output
+read settings "settings.toml": No such file or directory (os error 2)
+Option[str].Nothing
+```
+
+The [entrypoint report](../toolchain/01-building/entry-report.md) of an
+`IoError.System(code)` asks the C library at run time, so it can differ from
+`native_message` under another C library.
 
 ## Explicit error mapping
 
@@ -351,7 +394,8 @@ and `report_with` APIs keep their description-based behavior.
    `AllocError`, as `WalkError.Allocation` and `DataError.Allocation` do.
    Allocation failure is never folded into `Other` or `Failure`.
 3. A native code is kept as `IoError.System(code)` and never translated to
-   text in the error value.
+   text in the error value; code that reports it calls
+   [`native_message`](#describing-a-native-code).
 4. A composite operation that must say which step or path failed returns
    `Context[E]`, or an enum whose variants hold contexts. The operation label is
    a string literal naming the public operation, such as `read_dir`.
@@ -368,7 +412,9 @@ and `report_with` APIs keep their description-based behavior.
 - `describe` and `report` require a cause type `str.repr` accepts. A cause
   holding recursive data or a generator is rejected where one of them is first
   called for that `Context[E]`.
-- No OS description text is added to a native code.
+- `describe`, `format` and `report` add no OS description to a native code;
+  use [`native_message`](#describing-a-native-code). Descriptions are English
+  only and cover the x86-64 Linux error numbers.
 - The legacy `report` and `report_with` methods use `write_stderr`: a pipe whose
   reader has gone terminates the process with `SIGPIPE`. The `std.report`
   formatter and entrypoint reporter suppress it and preserve normal cleanup.
