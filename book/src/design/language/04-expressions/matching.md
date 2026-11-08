@@ -303,9 +303,12 @@ value. A final `if` or `match` supplies the value of its selected suite.
   gives unit `()`. When every continuing case does, the match binds unit, like
   any [unit value](../03-types/index.md); otherwise the cases disagree on the
   value type.
-- The value cannot be a reference or a closure with borrowed captures, because
-  the case's bindings end before the statement uses it. Produce an owned value,
-  or declare `mut name` and assign in each case.
+- The value may be a reference, plain or inside an `Option` or `Result`, into
+  an owner that outlives the match, such as a binding of a borrowed scrutinee.
+  While it is used, every case's owner stays borrowed; see
+  [choosing with `if` or `match`](../05-ownership/05-optional-references.md#choosing-with-if-or-match).
+  It cannot be a view or a closure with borrowed captures. Produce an owned
+  value, or declare `mut name` and assign in each case.
 - Earlier expressions in a case are discarded as in any suite, so an unhandled
   `Result` there is still an error.
 
