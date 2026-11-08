@@ -4345,14 +4345,14 @@ impl Lower<'_> {
                         .error("try_from is defined for integer types; use a cast for floats"));
                 }
                 if args.len() != 1 {
-                    return Err(base.at.error("try_from takes one integer argument"));
+                    return Err(base.at.error("try_from takes one number argument"));
                 }
                 let source = self.value(&args[0], ops)?;
-                if !source.is_int() {
+                if !source.is_numeric() {
                     return Err(casts::operand_error(
-                        "try_from requires an integer value",
+                        "try_from requires a number",
                         &source,
-                        Ty::is_int,
+                        Ty::is_numeric,
                         &args[0],
                         &args[0].at,
                     ));

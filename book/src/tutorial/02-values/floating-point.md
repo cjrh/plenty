@@ -26,6 +26,31 @@ def main() -> Result[(), IoError]:
 Float-to-integer casts discard the fractional part toward zero. The result must
 fit the integer type: `u8(255.9)` is `255`, while a `300.7`, an infinity, or NaN
 held in a variable stops the program with `error: integer cast out of range`.
+When the value might not fit, `u8.try_from(x)` truncates the same way but
+returns `Err(RangeError.OutOfRange)` instead of stopping:
+
+```plenty
+def show(x: f64) -> Result[(), IoError]:
+    match u8.try_from(x):
+        case Ok(byte):
+            print(byte)?
+        case Err(_):
+            print("out of range")?
+    Ok(())
+
+def main() -> Result[(), IoError]:
+    show(2.9)?
+    show(300.7)?
+    show(f64.NAN)?
+    Ok(())
+```
+
+```output
+2
+out of range
+out of range
+```
+
 Integer-to-float casts and `f64` to `f32` casts may round. There is no implicit widening or narrowing:
 
 ```plenty-error

@@ -1,6 +1,6 @@
-//! `checked:` blocks: integer `+ - * // %`, unary `-` and `pow` inside one
-//! exit the block with an `Err` holding `OverflowError[T]` or
-//! `ZeroDivisionError` instead of trapping; float `div_checked` is a block
+//! `checked:` blocks: integer `+ - * // %`, unary `-`, `pow` and shifts
+//! inside one exit the block with an `Err` holding `OverflowError[T]`,
+//! `ZeroDivisionError` or `ShiftCountError[T]` instead of trapping; float `div_checked` is a block
 //! holding one float division. See
 //! `book/src/design/language/03-types/numbers.md#checked-blocks`.
 //!
@@ -105,6 +105,22 @@ impl Lowerer<'_, '_> {
                 let (value, overflow) = self.int_pow_checked(a, b, ty)?;
                 (value, vec![(overflow, TrapKind::Overflow)])
             }
+            Checked::ShiftLeft | Checked::ShiftRight => {
+                // Unsigned comparison rejects negative signed counts as well.
+                let width = clif_type(ty.clone()).bits();
+                let invalid = self.bcx.ins().icmp_imm_s(
+                    IntCC::UnsignedGreaterThanOrEqual,
+                    b,
+                    i64::from(width),
+                );
+                // Cranelift masks the count; the result is unused on failure.
+                let value = match operation {
+                    Checked::ShiftLeft => self.bcx.ins().ishl(a, b),
+                    _ if is_signed(ty.clone()) => self.bcx.ins().sshr(a, b),
+                    _ => self.bcx.ins().ushr(a, b),
+                };
+                (value, vec![(invalid, TrapKind::Shift)])
+            }
             Checked::FloatDiv => {
                 let failures = if known::known_float(&self.bcx.func.dfg, b)
                     .is_some_and(|divisor| divisor != 0.0)
@@ -124,11 +140,13 @@ impl Lowerer<'_, '_> {
                 (self.bcx.ins().fdiv(a, b), failures)
             }
         };
+        // A shift error reports its count; the others the wrapped result.
+        let reported = if operation.shifts() { b } else { value };
         for (flag, kind) in failures {
             if known::known_int(&self.bcx.func.dfg, flag) == Some(0) {
                 continue;
             }
-            self.exit_checked_if(flag, kind, value, ty, cleanup)?;
+            self.exit_checked_if(flag, kind, reported, ty, cleanup)?;
         }
         self.stack.push((value, ty.clone()));
         Ok(())
@@ -183,8 +201,9 @@ impl Lowerer<'_, '_> {
     }
 
     /// The error a failure of `kind` reports, as a value of `error`: an
-    /// `OverflowError[T]` holding `wrapped`, or a `ZeroDivisionError`,
-    /// widened into `error` when it is a union.
+    /// `OverflowError[T]` holding `wrapped`, a `ShiftCountError[T]` holding
+    /// the count passed as `wrapped`, or a `ZeroDivisionError`, widened into
+    /// `error` when it is a union.
     fn arithmetic_error(
         &mut self,
         kind: TrapKind,
@@ -195,6 +214,7 @@ impl Lowerer<'_, '_> {
         // A generic instance's name carries its arguments.
         let (name, field) = match kind {
             TrapKind::Overflow => ("OverflowError[", format!("OverflowError[{ty}]")),
+            TrapKind::Shift => ("ShiftCountError[", format!("ShiftCountError[{ty}]")),
             _ => ("ZeroDivisionError", "ZeroDivisionError".to_string()),
         };
         let member = crate::sum::members(error)
@@ -204,9 +224,10 @@ impl Lowerer<'_, '_> {
                     if class.name.starts_with(name) && class.name.ends_with(&field[name.len()..]))
             })
             .ok_or_else(|| format!("AOT: {error} does not include {field}"))?;
-        // `OverflowError[T]` is a newtype, represented as its field;
-        // `ZeroDivisionError` has no fields and occupies no storage.
-        let value = if kind == TrapKind::Overflow {
+        // `OverflowError[T]` and `ShiftCountError[T]` are newtypes,
+        // represented as their field; `ZeroDivisionError` has no fields and
+        // occupies no storage.
+        let value = if matches!(kind, TrapKind::Overflow | TrapKind::Shift) {
             self.pack(wrapped, ty)
         } else {
             let zero = self.bcx.ins().iconst(types::I64, 0);
