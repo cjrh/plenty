@@ -42,7 +42,9 @@ stored data. In generator functions, a pipeline must be consumed by a terminal
 in the expression that creates it, such as `yield iter(&flags).any()`; a
 pipeline local or a loop over a pipeline is rejected. A pipeline can be [lent](#lending-a-pipeline) to a
 `&mut Iter[T]` parameter, and an eligible owned pipeline can leave its scope
-after explicit `.generator()` conversion.
+after explicit `.generator()` conversion. A pipeline over borrowed data, or
+with borrowed captures, cannot leave its scope: conversion requires owned
+state, since a generator frame cannot hold references (issue #899).
 
 ## Advancing one item
 
@@ -60,11 +62,26 @@ records: list[Record] = rows.map(parse_row).try_collect()?
 `next` expands the fused step inline: there is no frame and no dispatch. It
 returns `Nothing` once the pipeline is exhausted, and every later `next`,
 loop or terminal sees an empty pipeline: `take_while` stays stopped after its
-first rejected item, and `zip` stays stopped after either side ends. Items
-must be storable in an `Option`, so a pipeline of references is rejected;
-`map` to an owned value first. Loans held by the pipeline stay live until it is
-consumed or dropped, so mutating a borrowed source between two `next` calls is
-a borrow error. `next` on a consumed pipeline is a use of a moved binding.
+first rejected item, and `zip` stays stopped after either side ends. Loans
+held by the pipeline stay live until it is consumed or dropped, so mutating a
+borrowed source between two `next` calls is a borrow error. `next` on a
+consumed pipeline is a use of a moved binding.
+
+On a pipeline of references, such as `iter(&names)` or
+`iter(&mut scores)`, `next` returns `Option[&T]` or `Option[&mut T]`. The item
+borrows the pipeline's source, not the pipeline, so it stays usable after
+`drop(p)` and can be returned through a parameter the source borrows from:
+
+```text
+def first_long(names: &list[str]) -> Option[&str]:
+    mut p = iter(names).filter(def(n: &str) -> bool: len(n) > 3)
+    next(p)
+```
+
+While an item is live, the source cannot be mutated, and two `&mut` items
+from one pipeline cannot be live together. An item whose type holds a
+reference inside other data, such as an `enumerate` pair `(i64, &T)`, is
+rejected; `map` it to a reference or an owned value first.
 
 ## Lending a pipeline
 
@@ -154,8 +171,8 @@ Costs and limits:
   `&mut Iter[&T]`. Each item borrows the lender's source, which stays borrowed
   for the whole call, so the borrower can use items in loops, adapters and
   local closures, and lend the pipeline on. An item cannot leave the call:
-  returning it or a reference derived from it is an error, and `next(p)` on
-  reference items is rejected as in the creating function. A generic borrower
+  returning it or a reference derived from it is an error, including the
+  `Option[&T]` from `next(p)`, which the borrower can still match on and use. A generic borrower
   cannot take one, since type arguments cannot be references; write
   `&mut Iter[&T]` with a concrete `T`.
 - A pipeline cannot be lent when it holds a reference inside other state, such
