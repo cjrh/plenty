@@ -5163,6 +5163,7 @@ fn lower(
         .flat_map(|e| &e.methods)
         .chain(generic_classes.iter().flat_map(|c| &c.methods))
         .collect();
+    let text_view_escapes = lints::text_view_escapes(&functions, &kept, &standard_sources);
     let (mut generics, prepared) =
         generics::prepare(functions, &aliases, protocols, &kept, &mut sigs)?;
     drop(kept);
@@ -5205,6 +5206,8 @@ fn lower(
     for f in unused_methods {
         register_signature(&f, &aliases, &mut sigs)?;
     }
+    let text_view_warnings = lints::text_view_parameters(&generics, &sigs, &text_view_escapes);
+    generics.warnings.extend(text_view_warnings);
     foreign::check_symbols(boundary.iter().copied(), &sigs)?;
     let mut exports = Vec::new();
     let mut symbols = HashSet::default();

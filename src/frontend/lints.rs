@@ -4,6 +4,11 @@
 use super::*;
 use crate::diagnostic::{Lint, Warning};
 
+mod text_parameters;
+pub(super) use text_parameters::{
+    escapes as text_view_escapes, parameters as text_view_parameters,
+};
+
 impl Lower<'_> {
     /// Reports `copy(argument)?` whose `payload` type copies on every use, so
     /// the argument itself is the same value (issue #819). The rule is the

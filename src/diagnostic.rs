@@ -97,6 +97,8 @@ pub enum Lint {
     RedundantCopy,
     /// An explicit import binding has no resolved uses in its defining module.
     UnusedImport,
+    /// A string parameter only supplies text reads and can accept a view.
+    TextViewParameter,
 }
 
 impl Lint {
@@ -105,6 +107,7 @@ impl Lint {
         match self {
             Lint::RedundantCopy => "redundant-copy",
             Lint::UnusedImport => "unused-import",
+            Lint::TextViewParameter => "text-view-parameter",
         }
     }
 }
