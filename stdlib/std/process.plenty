@@ -217,11 +217,10 @@ pub class Command:
                 # are held before this append, so it cannot grow the list.
                 match self._files.append(file):
                     case Ok(_):
-                        # Below file_slots, so the shift cannot overflow;
-                        # index_shift is within i64's width.
-                        code = unchecked:
-                            redirected | ((len(self._files) - 1) << index_shift)
-                        self.assign(stream, code)
+                        # The append leaves the list nonempty.
+                        at = unchecked:
+                            len(self._files) - 1
+                        self.assign(stream, redirected | (at << index_shift))
                     case Err(_):
                         pass
 
@@ -230,10 +229,7 @@ pub class Command:
         old = self.code(stream)
         self.set_code(stream, code)
         if old & mode_mask == redirected:
-            # index_shift is within i64's width.
-            at = unchecked:
-                old >> index_shift
-            self.release(at)
+            self.release(old >> index_shift)
 
     # Removes the file at `at` by swapping the last file into its place.
     def release(self: &mut Command, at: i64) -> ():
@@ -244,11 +240,8 @@ pub class Command:
             self._files.swap(at, last)
             for stream in range(3):
                 code = self.code(stream)
-                # index_shift is within i64's width, and `at` is below
-                # file_slots, so the shifts cannot fail or overflow.
-                unchecked:
-                    if code & mode_mask == redirected and code >> index_shift == last:
-                        self.set_code(stream, redirected | (at << index_shift))
+                if code & mode_mask == redirected and code >> index_shift == last:
+                    self.set_code(stream, redirected | (at << index_shift))
         match self._files.pop():
             case _:
                 pass

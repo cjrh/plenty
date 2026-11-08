@@ -141,8 +141,10 @@ returns `OverflowError[T]` for `T.MIN // -1`. The contract follows the
 operators and operand types, with one exception: a divisor written as an
 integer literal rules out what it cannot cause. `n // 3` and `n % 3` can fail
 with neither error, and `n // -1` only with overflow. A divisor held in a
-variable or constant still requires `ZeroDivisionError`, and for a signed
-type `OverflowError[T]`, even when you know it is nonzero or not `-1`.
+variable still requires `ZeroDivisionError`, and for a signed type
+`OverflowError[T]`, even when you know it is nonzero or not `-1`. An integer
+[module constant](../07-modules/03-standard-math.md) proves the same as the
+literal it holds.
 Use `/` for floating-point division.
 
 Integers also support bitwise operations and shifts. Signed right shifts
@@ -211,7 +213,8 @@ invalid shift count 8
 ```
 
 Masking the count with a literal below the width, as in `value >> (count & 7u8)`,
-keeps it in range, so that shift adds no error.
+keeps it in range, so that shift adds no error. As with divisors, an integer
+module constant count or mask proves the same as its literal.
 
 `rotate_left` and `rotate_right` move bits around the ends of an integer
 instead of discarding them. The count has the integer's own type. No count

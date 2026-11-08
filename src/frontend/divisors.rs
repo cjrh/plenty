@@ -1,20 +1,11 @@
-//! Division by a nominal domain value retains its proof after unwrapping.
+//! Divisor and shift-count proofs: literals, module constants and nominal
+//! domain values (which retain their proof after unwrapping).
 use super::*;
 use crate::numeric::{Checked, Divisor};
 
-/// The proof an integer literal divisor of `//` or `%` supplies: `x // 2`
-/// cannot divide by zero, and only `-1` can overflow. Other divisors,
-/// including named constants, prove nothing (issue #796).
-pub(super) fn literal_divisor(op: &str, divisor: &Expr) -> Divisor {
-    if !matches!(op, "//" | "%") {
-        return Divisor::Any;
-    }
-    literal_integer(divisor).map_or(Divisor::Any, Divisor::literal)
-}
-
 /// The value of an integer literal operand, optionally negated and
-/// parenthesized. Names, constants and arithmetic are not literals.
-pub(super) fn literal_integer(operand: &Expr) -> Option<i128> {
+/// parenthesized.
+fn literal_integer(operand: &Expr) -> Option<i128> {
     let (negative, inner) = match &ungroup(operand).kind {
         Expression::Unary(sign, inner) if sign == "-" => (true, ungroup(inner)),
         _ => (false, ungroup(operand)),
@@ -33,20 +24,56 @@ pub(super) fn literal_integer(operand: &Expr) -> Option<i128> {
     Some(if negative { -magnitude } else { magnitude })
 }
 
-/// Whether a shift count has the form `n & mask` (either operand order) with
-/// a literal mask in `0..width`. The result then lies in `0..=mask`, so the
-/// count is valid without a check; this is the usual masking idiom.
-fn masked_count(count: &Expr, width: i128) -> bool {
-    let Expression::Binary(op, left, right) = &ungroup(count).kind else {
-        return false;
-    };
-    op == "&"
-        && [left, right]
-            .into_iter()
-            .any(|side| literal_integer(side).is_some_and(|mask| (0..width).contains(&mask)))
-}
-
 impl Lower<'_> {
+    /// The value of an operand that is an integer literal or a read of an
+    /// integer module constant, optionally parenthesized. `consts::fold` has
+    /// already replaced each constant's initializer with the literal it
+    /// denotes, so a constant proves exactly what that literal proves (issue
+    /// #863). Locals and arithmetic, including a negated constant, prove
+    /// nothing.
+    pub(super) fn known_integer(&self, operand: &Expr) -> Option<i128> {
+        match &ungroup(operand).kind {
+            Expression::Call(name, args) if args.is_empty() => {
+                let getter = self.generics.constants.get(name)?;
+                match getter.body.as_slice() {
+                    [
+                        Stmt {
+                            kind: Statement::Expr(value),
+                            ..
+                        },
+                    ] => literal_integer(value),
+                    _ => None,
+                }
+            }
+            _ => literal_integer(operand),
+        }
+    }
+
+    /// The proof a known divisor of `//` or `%` supplies: `x // 2` cannot
+    /// divide by zero, and only `-1` can overflow. Other divisors prove
+    /// nothing (issue #796).
+    pub(super) fn known_divisor(&self, op: &str, divisor: &Expr) -> Divisor {
+        if !matches!(op, "//" | "%") {
+            return Divisor::Any;
+        }
+        self.known_integer(divisor)
+            .map_or(Divisor::Any, Divisor::literal)
+    }
+
+    /// Whether a shift count has the form `n & mask` (either operand order)
+    /// with a known mask in `0..width`. The result then lies in `0..=mask`, so
+    /// the count is valid without a check; this is the usual masking idiom.
+    fn masked_count(&self, count: &Expr, width: i128) -> bool {
+        let Expression::Binary(op, left, right) = &ungroup(count).kind else {
+            return false;
+        };
+        op == "&"
+            && [left, right].into_iter().any(|side| {
+                self.known_integer(side)
+                    .is_some_and(|mask| (0..width).contains(&mask))
+            })
+    }
+
     fn divisor_type(&self, op: &str, value: &Expr) -> Option<(Ty, Divisor)> {
         if !matches!(op, "//" | "%") {
             return None;
@@ -143,8 +170,8 @@ impl Lower<'_> {
         Ok(())
     }
 
-    /// Lower `<<` or `>>` with both operands on the stack. A literal count
-    /// proves itself valid or is a compile-time error; any other count may
+    /// Lower `<<` or `>>` with both operands on the stack. A literal or
+    /// module-constant count proves itself valid or is a compile-time error; any other count may
     /// fail with `ShiftCountError[T]` at the nearest arithmetic boundary.
     /// See `book/src/design/language/03-types/numbers.md#checked-blocks`.
     pub(super) fn shift_operation(
@@ -157,13 +184,13 @@ impl Lower<'_> {
     ) -> Result<()> {
         let (min, end) = ty.int_range().expect("shifts require integers");
         let width = i128::from((end - min).trailing_zeros());
-        if let Some(value) = literal_integer(count) {
+        if let Some(value) = self.known_integer(count) {
             if !(0..width).contains(&value) {
                 return Err(count.at.error(format!(
                     "shift count {value} is outside 0..{width} for {ty}"
                 )));
             }
-        } else if !masked_count(count, width) {
+        } else if !self.masked_count(count, width) {
             let operation = if kind == IntegerOp::ShiftLeft {
                 Checked::ShiftLeft
             } else {

@@ -518,7 +518,9 @@ Shifts follow the same boundary: a count that is not an integer literal can
 fail with `ShiftCountError[T]`, an out-of-range literal count is a compile
 error, and left shifts still discard high bits. Casts keep trapping; float
 arguments to `T.try_from` give their recoverable form with the cast's
-truncation (issue #862).
+truncation (issue #862). Integer module constants prove divisors, shift
+counts and masks as their literals do (issue #863; see
+[literal divisors](#literal-divisors-issue-796)).
 That core also supports lexical `unchecked:` suites. Their
 [build modes](../design/language/03-types/numbers.md#unchecked-blocks) followed
 (local PR #924): `--unchecked trap` checks the preconditions by default,
@@ -1195,6 +1197,13 @@ literal other than `-1` adds no signed `OverflowError[T]`, so `x // 2` needs
 no error contract. Constants, variables and guards still prove nothing; typed
 `NonZero[T]` and `Positive[T]` divisors carry other proofs. See
 [checked blocks](../design/language/03-types/numbers.md#checked-blocks).
+
+An integer module constant now proves what the literal it folds to proves, as
+a divisor, a shift count, or the mask in `n & L`, including imported, aliased
+and forward constants and those initialized by constant expressions. Constants
+of `0` and signed `-1` keep their errors, an out-of-range constant count is a
+compile error, and locals, guards and negated constants still prove nothing
+(issue #863).
 
 ## Call-scoped FFI string vectors and native errors (issues #779/#780)
 
