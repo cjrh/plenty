@@ -492,7 +492,12 @@ pub(crate) fn alloc(class: usize) -> *mut u8 {
 #[cold]
 #[inline(never)]
 fn refill(bin: &mut Bin, class: usize) -> *mut u8 {
-    lock().fill(class, bin, cache_limit(class) / 2);
+    let mut central = lock();
+    central.fill(class, bin, cache_limit(class) / 2);
+    // After `fill`, which prefers an empty slab to a new mapping: a program
+    // that keeps allocating without emptying slabs still returns old ones.
+    central.trim(now_ms());
+    drop(central);
     if bin.head.is_null() {
         null_mut()
     } else {
@@ -503,6 +508,8 @@ fn refill(bin: &mut Bin, class: usize) -> *mut u8 {
 /// Free `block`, which `alloc(class)` returned on any thread.
 #[inline]
 pub(crate) fn free(block: *mut u8, class: usize) {
+    #[cfg(feature = "allocation-checks")]
+    check_free(block, class);
     let cached = CACHE.try_with(|cache| {
         // SAFETY: as in `alloc`.
         let bin = unsafe { (*cache.get()).0.get_unchecked_mut(class) };
@@ -517,12 +524,28 @@ pub(crate) fn free(block: *mut u8, class: usize) {
     }
 }
 
+/// glibc tolerated a free with a layout other than the allocation's; here it
+/// would put the block on another class's list. Abort instead.
+#[cfg(feature = "allocation-checks")]
+fn check_free(block: *mut u8, class: usize) {
+    let slab = Slab::of(block);
+    // SAFETY: a live block's slab is mapped, and its class and end do not
+    // change until every block has come back.
+    let (owner, end) = unsafe { ((*slab).class as usize, (*slab).end) };
+    let offset = (block as usize).wrapping_sub(Slab::first(slab) as usize);
+    if owner != class || block >= end || offset % block_bytes(class) != 0 {
+        std::process::abort();
+    }
+}
+
 /// Return half of a full bin under one lock.
 #[cold]
 #[inline(never)]
 fn flush(bin: &mut Bin) {
     let half = bin.count / 2;
-    bin.give_back(&mut lock(), half);
+    let mut central = lock();
+    central.trim(now_ms());
+    bin.give_back(&mut central, half);
 }
 
 #[cfg(test)]
