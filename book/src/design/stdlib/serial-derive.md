@@ -11,7 +11,7 @@ compiler dependency under an inaccessible name; the module need not import
 ## Classes
 
 All declared fields, including private fields, are encoded in declaration order
-under their unchanged names. Decoding accepts fields in any order, rejects
+under their source names, or under their [wire names](#wire-names). Decoding accepts fields in any order, rejects
 duplicates and missing required fields, and delegates unknown fields to the
 format adapter's `unknown_fields` policy. An absent `Option[T]` becomes `Nothing`.
 A present `null` also becomes `Nothing`; its field slot remains present, so a
@@ -70,7 +70,8 @@ apply; no separate unlimited record size is promised.
 ## Enums
 
 A nullary variant is encoded as its name string. A variant with payload is an
-object containing exactly one member whose name is the variant name. A single
+object containing exactly one member whose name is the variant name. Either
+name is the variant's [wire name](#wire-names) when it has one. A single
 payload is encoded directly; two or more payloads use a fixed-length array.
 For example, `Mode.Idle`, `Mode.Value(3)` and `Mode.Pair("x", 4u8)` become
 `"Idle"`, `{"Value":3}` and `{"Pair":["x",4]}` in JSON.
@@ -79,6 +80,65 @@ Decoding rejects unknown variants, a payload on a nullary variant, a missing
 payload, objects with zero or multiple tags, and payload arrays with the wrong
 arity. A payload failure carries `Step.Variant`; positional payload failures also
 carry `Step.Index`. Generic enums specialize their payload codecs normally.
+
+## Wire names
+
+`@serial.name("wire")`, alone on the line above a field or variant, sets the
+name that member is encoded and decoded under. It applies to class object keys
+and to enum tags, with or without payload, in every format.
+
+```plenty
+import std.json
+
+@serial
+enum AgentKind:
+    @serial.name("pi")
+    Pi
+    @serial.name("command")
+    Command(str)
+
+@serial
+class Agent:
+    @serial.name("agent-kind")
+    kind: AgentKind
+    name: str
+
+def main() -> Result[(), IoError]:
+    options = std.json.codec_options()
+    agent = std.json.load[Agent](b"{\"agent-kind\":{\"command\":\"run\"},\"name\":\"a\"}", &options).unwrap()
+    print(agent.kind)?
+    print(std.json.dump(&Agent(AgentKind.Pi, "b"), &std.json.limits()).unwrap().to_text().unwrap())?
+    Ok(())
+```
+
+```output
+AgentKind.Command("run")
+{"agent-kind":"pi","name":"b"}
+```
+
+The wire name replaces the source name; it is not an alias. Decoding rejects
+the source name as an unknown field or variant, under the usual
+`unknown_fields` policy. Missing-field and duplicate-field faults and
+`Step.Field`/`Step.Variant` path steps report wire names, because they locate
+data in the document. The source name remains the member's name everywhere
+else: field access, privacy, `match` patterns, printing, and the constructor
+parameter that decoding passes the value to.
+
+The compiler rejects:
+
+- `@serial.name` on a method, at top level, or in a type without `@serial`;
+- an argument other than one nonempty string literal, and a second
+  `@serial.name` on the same member;
+- a wire name equal to the member's source name;
+- two members of one type with the same effective wire name, including a
+  renamed member and an unchanged one;
+- `@serial.name` in a type that writes both `__encode__` and `__decode__`,
+  where it would have no effect.
+
+A type that writes one hook keeps the wire name on its derived side; the
+handwritten hook must use the same name. There is one wire name per member;
+case-conversion policies, decode aliases and per-format names are not
+supported.
 
 ## Composition and errors
 

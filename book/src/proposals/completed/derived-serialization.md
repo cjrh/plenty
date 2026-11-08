@@ -443,6 +443,9 @@ Each records the choice and the alternatives considered.
 2. **Renaming members: declared names only, for now.** Deferred: a closed
    field annotation such as `@serial.name("userId")`, which would be the first
    annotation on fields, and a per-call naming policy (snake to camel case).
+   Later delivered for fields and variants as
+   [wire names](../../design/stdlib/serial-derive.md#wire-names) (issue #908);
+   a naming policy remains deferred.
 3. **Unknown members: reject by default, with a per-call option to skip
    them.** This matches the strictness of both parsers. Rejected: skipping by
    default, as serde and Swift do, which hides typos in configuration files.

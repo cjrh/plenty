@@ -2681,6 +2681,8 @@ fn a_serial_field_or_variant_rename_warns_about_encoded_data() {
     let records = "@serial
 pub class Record:
     pub count: i64
+    @serial.name(\"label\")
+    pub name: str
 
     pub def twice(self) -> i64:
         unchecked:
@@ -2690,11 +2692,13 @@ pub class Record:
 pub enum Kind:
     Small
     Large
+    @serial.name(\"huge\")
+    Huge
 ";
     let main_source = "from records import Kind, Record
 
 def main() -> ():
-    r = Record(count=1)
+    r = Record(count=1, name=\"x\")
     n = r.twice()
     k = Kind.Small
 ";
@@ -2717,14 +2721,17 @@ def main() -> ():
             ],
         ),
         (
-            10,
+            12,
             4,
             "Tiny",
             vec![
                 "renames a variant of `@serial` `Kind`, so data encoded before the rename no longer decodes",
             ],
         ),
-        (4, 12, "double", vec![]),
+        (6, 12, "double", vec![]),
+        // An explicit wire name keeps the encoded name; see issue #908.
+        (4, 8, "title", vec![]),
+        (15, 4, "Giant", vec![]),
     ] {
         let (_, warnings) = rename_reply(&mut client, &path, line, character, new_name).unwrap();
         assert_eq!(warnings, expected, "{new_name}");

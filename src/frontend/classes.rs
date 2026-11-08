@@ -8,6 +8,8 @@ pub(super) struct ClassDecl {
     pub(super) name: String,
     pub(super) type_params: Vec<(String, Option<TypeRef>)>,
     pub(super) fields: Vec<(String, TypeRef)>,
+    /// `@serial.name` wire names, by index into `fields`.
+    pub(super) wire_names: Vec<(usize, annotations::WireName)>,
     pub(super) methods: Vec<Function>,
     pub(super) public_members: HashSet<String>,
     /// The `@copy` annotation, if the declaration has one.
@@ -37,6 +39,7 @@ impl ClassDecl {
             name: self.name.clone(),
             type_params: Vec::new(),
             fields: self.fields.clone(),
+            wire_names: self.wire_names.clone(),
             methods: self.methods.iter().map(header).collect(),
             public_members: self.public_members.clone(),
             copy: self.copy.clone(),
@@ -78,12 +81,22 @@ impl Parser {
         self.kind(Kind::Newline, "a newline after `:`")?;
         self.kind(Kind::Indent, "an indented class declaration")?;
         let mut fields = Vec::new();
+        let mut wire_names = Vec::new();
         let mut methods = Vec::new();
         let mut names = HashSet::default();
         let mut public_members = HashSet::default();
         while !matches!(self.peek().kind, Kind::Dedent | Kind::Eof) {
+            let wire = self.wire_name()?;
             self.misplaced_annotations("class members")?;
             let public = self.eat("pub");
+            if let Some(wire) = &wire
+                && (self.peek().is("def") || self.peek().is("pass"))
+            {
+                return Err(wire.at.error(annotations::WIRE_NAME_PLACE));
+            }
+            if let Some(wire) = wire {
+                wire_names.push((fields.len(), wire));
+            }
             let member = if self.peek().is("def") {
                 let mut f = self.function_in(Some(&name))?;
                 if f.type_params
@@ -136,6 +149,7 @@ impl Parser {
             name,
             type_params,
             fields,
+            wire_names,
             methods,
             public_members,
             copy: None,
