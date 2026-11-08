@@ -195,7 +195,9 @@ every test after a failure and writes `target/nextest/ci/junit.xml`.
 `tests/test_tutorial.rs` reads tutorial and `design/` pages in `SUMMARY.md`
 order. A `plenty` fence has an `output` fence and runs both through
 compile-and-run and an explicitly compiled binary. A `plenty fragment` fence is
-an explanatory excerpt, such as a signature shape, and is not run. A `plenty-error` fence has an
+an explanatory excerpt, such as a signature shape, and is not run. The rendered
+book labels it **Fragment · not executed**, outside the copyable source, while
+retaining normal Plenty syntax colours. A `plenty-error` fence has an
 `error` substring and must fail without executing effects. A `plenty-file`
 companion module remains on the same page as its example. Every book page must
 appear in `SUMMARY.md`. The examples run as 16 tests in parallel, each taking

@@ -4190,10 +4190,12 @@ impl Lower<'_> {
             if name == "swap" {
                 return self.view_swap(base, args, ops).map(Some);
             }
-            return Err(base.at.error(format!(
-                "a slice view has no method `{name}`; {}",
-                views::OPERATIONS
-            )));
+            return self.view_method(base, name, args, ops).map(Some);
+        }
+        if matches!(name, "count" | "find" | "rfind")
+            && let Some(whole) = self.whole_list_view(base)
+        {
+            return self.view_method(&whole, name, args, ops).map(Some);
         }
         if matches!(self.place_type(base), Some(Ty::Clist(_))) {
             return self.clist_method(base, name, args, ops).map(Some);
@@ -4956,12 +4958,6 @@ impl Lower<'_> {
         if let Ty::List(element) = &ty
             && matches!(name, "count" | "find" | "rfind")
         {
-            if !(element.is_int() || element.is_float() || matches!(**element, Ty::Bool | Ty::Str))
-            {
-                return Err(base
-                    .at
-                    .error("list search supports integer, float, bool, and str elements"));
-            }
             if args.len() != 1 {
                 return Err(base
                     .at
@@ -5178,8 +5174,14 @@ impl Lower<'_> {
             }
             if element.affine() {
                 let place = if collection == "list" { "index" } else { "key" };
+                // `copy()` rejects a `Shared` handle; a second handle comes from `share()`.
+                let duplicate = if matches!(element, Ty::Shared(_)) {
+                    format!("share the handle with `items[{place}].share()`")
+                } else {
+                    format!("copy with `copy(&items[{place}])?`")
+                };
                 return Err(base.at.error(format!(
-                    "get cannot return owned {collection} values; borrow with `get_ref({place})` or `get_mut({place})`, which return `Nothing` when absent, or `&items[{place}]`, which traps; copy with `copy(&items[{place}])?`, or remove and take ownership with `pop`"
+                    "get cannot return owned {collection} values; borrow with `get_ref({place})` or `get_mut({place})`, which return `Nothing` when absent, or `&items[{place}]`, which traps; {duplicate}, or remove and take ownership with `pop`"
                 )));
             }
             let (key, key_loans) = self.observe_expected(&args[0], Some(expected.clone()), ops)?;
@@ -6048,8 +6050,18 @@ impl Lower<'_> {
             return Ok(Ty::I64);
         }
         if self.is_view(&args[0]) {
+            if name == "list"
+                && let Some(Ty::View(element, _)) = self.list_view_type(&args[0])
+            {
+                return self.view_copy(&args[0], &element, at, ops);
+            }
+            let copy = if self.is_text_view(&args[0]) {
+                "v[:]?"
+            } else {
+                "list(v)?"
+            };
             return Err(args[0].at.error(format!(
-                "{name}() does not take a slice view; copy the elements with a copying slice, `xs[a:b]?`"
+                "{name}() does not take a slice view; copy the elements first, `{name}({copy})`"
             )));
         }
         let ty = self.value(&args[0], ops)?;

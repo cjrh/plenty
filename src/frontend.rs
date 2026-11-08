@@ -79,6 +79,7 @@ mod target;
 mod text_methods;
 mod threads;
 mod value_generics;
+mod view_methods;
 mod views;
 use value_generics::Argument;
 
@@ -2235,6 +2236,36 @@ impl Lower<'_> {
             Some(ty.clone())
         })
     }
+    /// Rejects element types whose values have no automatic equality, for
+    /// membership and the search methods of lists and slice views.
+    pub(super) fn membership_equality(element: &Ty, at: &Token) -> Result<()> {
+        if element.recursive_data() {
+            return Err(at.error("automatic equality is not supported for recursive data; search using selected fields"));
+        }
+        let facts = element.facts();
+        if facts.closure {
+            return Err(at.error("values containing closures do not support membership equality"));
+        }
+        if facts.concurrent_handle {
+            return Err(at.error(
+                "values containing channel endpoints, executors, or futures do not support membership equality",
+            ));
+        }
+        if facts.shared {
+            return Err(at.error(shared::EQUALITY));
+        }
+        if facts.atomic {
+            let subject = if mutex::holds_mutex(element) {
+                "mutexes"
+            } else {
+                "atomics"
+            };
+            return Err(at.error(format!(
+                "values containing {subject} do not support membership equality"
+            )));
+        }
+        Ok(())
+    }
     /// `in` and `not in`. Outlined so that its locals do not enlarge the frame
     /// of every recursive `expr` call (issue #841).
     #[inline(never)]
@@ -2244,6 +2275,9 @@ impl Lower<'_> {
         };
         if let Some(result) = self.byte_membership(op, left, right, ops)? {
             return Ok(result);
+        }
+        if let Some(Ty::View(element, _)) = self.list_view_type(right) {
+            return self.view_membership(op, left, right, &element, &e.at, ops);
         }
         if (self.is_text_view(left) || self.is_text_view(right))
             && self.slice_view_type(left, false) == Some(text_view())
@@ -2301,11 +2335,6 @@ impl Lower<'_> {
                     "`{op}` on a `str` looks for a `str`; search for a `&strview` with `&s[:]`, as `v in &s[:]`"
                 )));
             }
-            if let Ty::View(..) = b {
-                return Err(e.at.error(format!(
-                    "slice views do not support `{op}` yet; compare the elements in a loop"
-                )));
-            }
             if b.restricted_storage() && !matches!(b, Ty::KeyView(_)) {
                 return Err(e
                     .at
@@ -2318,32 +2347,7 @@ impl Lower<'_> {
                         "membership is not defined for `{b}`; `in` and `not in` do not call user methods; search explicitly using the container's API"
                     ))
                 })?;
-            if element.recursive_data() {
-                return Err(e.at.error("automatic equality is not supported for recursive data; search using selected fields"));
-            }
-            if element.facts().closure {
-                return Err(e
-                    .at
-                    .error("values containing closures do not support membership equality"));
-            }
-            if element.facts().concurrent_handle {
-                return Err(e.at.error(
-                    "values containing channel endpoints, executors, or futures do not support membership equality",
-                ));
-            }
-            if element.facts().shared {
-                return Err(e.at.error(shared::EQUALITY));
-            }
-            if element.facts().atomic {
-                let subject = if mutex::holds_mutex(&element) {
-                    "mutexes"
-                } else {
-                    "atomics"
-                };
-                return Err(e.at.error(format!(
-                    "values containing {subject} do not support membership equality"
-                )));
-            }
+            Self::membership_equality(&element, &e.at)?;
             // Preserve left-to-right evaluation: the observed collection is
             // already on top, so retag the probe beneath it in place.
             let a = if a != element && matches!(&element, Ty::Enum(sum) if sum.anonymous()) {
