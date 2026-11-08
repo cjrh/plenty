@@ -520,7 +520,7 @@ impl Lower<'_> {
     pub(super) fn refine_return(&mut self, actual: Type, at: &Token) -> Result<()> {
         if actual
             .as_ref()
-            .is_some_and(|t| !t.carries_loan() && t.contains_reference())
+            .is_some_and(|t| !t.carries_loan() && !t.lends_frame() && t.contains_reference())
         {
             return Err(at.error("a closure with borrowed captures cannot escape its function"));
         }
@@ -845,6 +845,10 @@ impl Lower<'_> {
             }
             if ty.carried_reference().is_some() {
                 loans.push(self.carried_argument(arg, &ty, ops)?);
+            } else if ty.lends_frame() {
+                // The frame's loans stay live across the call, as a
+                // reference argument's do (issue #899).
+                lent_loans.extend(self.frame_argument(arg, ops));
             }
             self.same(Some(ty.clone()), Some(expected.clone()), &arg.at)?;
             if ty.unresolved_generator() {
@@ -972,6 +976,9 @@ impl Lower<'_> {
         }
         self.mark(at, ops);
         ops.push(Op::Next(local.slot));
+        if let Some(&loan) = self.reference_locals.get(&local.slot) {
+            ops.push(Op::UseLoan(loan));
+        }
         Ok(Some(crate::sum::option(element.element.clone())))
     }
 }

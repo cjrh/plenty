@@ -246,6 +246,7 @@ impl Lower<'_> {
         let (_, worker) = take_call(ops, begin)
             .ok_or_else(|| at.error("submit requires a statically selected function"))?;
         let captures = self.sigs[&worker].inputs.clone();
+        self.generator_argument("submit", function, &captures, args, at)?;
         if captures.iter().any(|(_, ty)| !ty.heap_storable()) {
             return Err(
                 at.error("executor arguments must be owned; borrowed work belongs in scoped spawn")
