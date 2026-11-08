@@ -1,8 +1,10 @@
 # Count matching integer values
 
-Write the ordinary calculation you need. For a simple comparison over an `i32`
-or `u32` column, the default optimized profile can count matches with SIMD: the CPU compares four
-values together. You do not choose a vector width or handle leftover rows.
+Write the ordinary calculation you need. For a simple comparison over an
+integer column of up to 32 bits, the default optimized profile can count matches
+with SIMD: the CPU compares several values together, 4 for `i32` and 16 for
+`u8`. You do not choose a vector width or handle leftover rows. The narrowest
+field type that fits your values uses the least memory and scans fastest.
 
 ```plenty
 class Sample:

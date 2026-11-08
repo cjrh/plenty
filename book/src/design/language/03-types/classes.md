@@ -177,6 +177,9 @@ annotations are `@copy`, `@newtype`, `@redacted`, `@serial`, `@thread_safe`,
 and `@newtype` apply only to class declarations, including `pub class`;
 `@redacted` also applies to enums. [`@serial`](../../stdlib/serial-derive.md)
 applies to classes and enums and generates missing format-neutral codec hooks.
+Inside such a type, `@serial.name("wire")` above a field or variant is the one
+member annotation; it sets the member's
+[wire name](../../stdlib/serial-derive.md#wire-names).
 `@thread_safe` applies only to `extern def`
 in a `.plentyi` interface; see
 [worker threads](../../facilities/04-interop/trusted-declarations.md#worker-threads).

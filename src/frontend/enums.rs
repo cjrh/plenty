@@ -7,6 +7,8 @@ pub(super) struct EnumDecl {
     pub(super) name: String,
     pub(super) type_params: Vec<(String, Option<TypeRef>)>,
     pub(super) variants: Vec<(String, Vec<TypeRef>)>,
+    /// `@serial.name` wire names, by index into `variants`.
+    pub(super) wire_names: Vec<(usize, annotations::WireName)>,
     pub(super) methods: Vec<Function>,
     pub(super) public_members: HashSet<String>,
     /// Declared `@redacted`: automatic formatting writes `Name(@redacted)`.
@@ -22,6 +24,7 @@ impl EnumDecl {
             name: self.name.clone(),
             type_params: Vec::new(),
             variants: self.variants.clone(),
+            wire_names: self.wire_names.clone(),
             methods: self.methods.iter().map(classes::header).collect(),
             public_members: self.public_members.clone(),
             redacted: self.redacted,
@@ -44,12 +47,17 @@ impl Parser {
         self.kind(Kind::Newline, "a newline after `:`")?;
         self.kind(Kind::Indent, "an indented enum declaration")?;
         let mut variants = Vec::new();
+        let mut wire_names = Vec::new();
         let mut methods = Vec::new();
         let mut public_members = HashSet::default();
         let mut declared = HashSet::default();
         while !matches!(self.peek().kind, Kind::Dedent | Kind::Eof) {
+            let wire = self.wire_name()?;
             self.misplaced_annotations("enum members")?;
             let public = self.eat("pub");
+            if let Some(wire) = wire {
+                wire_names.push((variants.len(), wire));
+            }
             if self.peek().is("def") {
                 let mut f = self.function_in(Some(&name))?;
                 if matches!(
@@ -132,6 +140,7 @@ impl Parser {
             name,
             type_params,
             variants,
+            wire_names,
             methods,
             public_members,
             redacted: false,

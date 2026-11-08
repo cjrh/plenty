@@ -108,6 +108,11 @@ handwritten comparisons. Static specialization has a substantial code-size
 cost; no performance-free abstraction or parity with a schema-free event scan
 is claimed. Runtime reflection and user macros were not prerequisites.
 
+[Wire names](../design/stdlib/serial-derive.md#wire-names) (issue #908) give a
+field or variant one explicit encoded name with `@serial.name("...")`. The
+compiler rejects clashing, redundant and ineffective names; the source name is
+not accepted as an alias. Naming policies and aliases remain unsupported.
+
 ## Native qualification build reuse (issue #850)
 
 [Native OS qualification](../development/ci-workflow.md#native-os-qualification)

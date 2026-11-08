@@ -895,6 +895,8 @@ impl Items<'_, '_> {
             {
                 module.serial.insert(c.name.clone());
                 serial_import(module, &c.at);
+            } else if let Some((_, wire)) = c.wire_names.first() {
+                return Err(wire.at.error(annotations::WIRE_NAME_PLACE));
             }
             c.redacted = redacted;
             let name = c.name.clone();
@@ -913,6 +915,8 @@ impl Items<'_, '_> {
             {
                 module.serial.insert(e.name.clone());
                 serial_import(module, &e.at);
+            } else if let Some((_, wire)) = e.wire_names.first() {
+                return Err(wire.at.error(annotations::WIRE_NAME_PLACE));
             }
             e.redacted = redacted;
             let name = e.name.clone();
@@ -3201,6 +3205,18 @@ fn resolve(
             if super::ide::active() {
                 for name in &m.serial {
                     super::ide::serial(qualified(&m.name, name));
+                }
+                let classes = m
+                    .classes
+                    .iter()
+                    .flat_map(|c| c.wire_names.iter().map(|(i, _)| (&c.name, &c.fields[*i].0)));
+                let enums = m.enums.iter().flat_map(|e| {
+                    e.wire_names
+                        .iter()
+                        .map(|(i, _)| (&e.name, &e.variants[*i].0))
+                });
+                for (owner, member) in classes.chain(enums) {
+                    super::ide::wire_named(format!("{}.{member}", qualified(&m.name, owner)));
                 }
             }
             for c in &mut m.classes {

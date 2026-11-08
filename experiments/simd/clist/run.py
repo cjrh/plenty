@@ -25,7 +25,7 @@ def main():
     parser.add_argument("--cpu", type=int, default=8)
     parser.add_argument("--samples", type=int, default=3)
     parser.add_argument("--verify-only", action="store_true")
-    parser.add_argument("--scenario", choices=["constant", "threshold", "range"], default="constant")
+    parser.add_argument("--scenario", choices=["constant", "threshold", "range", "narrow"], default="constant")
     args = parser.parse_args()
     out, compiler = args.out.resolve(), args.compiler.resolve()
     out.mkdir(parents=True, exist_ok=True)
@@ -51,7 +51,8 @@ subprocess.run(["cc", "-fuse-ld=bfd", *sys.argv[1:]], check=True)
     clif = (out / "dump/clif.txt").read_text()
     vector = clif.split("==== simd_count ")[1].split("==== ")[0]
     scalar = clif.split("==== scalar_count ")[1].split("==== ")[0]
-    assert "load.i32x4" in vector and "load.i32x4" not in scalar
+    load = "load.i8x16" if args.scenario == "narrow" else "load.i32x4"
+    assert load in vector and load not in scalar
     subprocess.run(["objcopy", "--redefine-sym", "main=unused_plenty_main",
                     "--rename-section", ".text.subsection=.plenty_scan_text",
                     "--globalize-symbol", "__plenty_fn_simd_count",
@@ -60,7 +61,7 @@ subprocess.run(["cc", "-fuse-ld=bfd", *sys.argv[1:]], check=True)
     subprocess.run(["objcopy", "--redefine-sym", "main=unused_runtime_main",
                     str(out / "runtime.a"), str(out / "harness-runtime.a")], check=True)
     subprocess.run(["cc", "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-c",
-                    *(["-DSCAN_RANGE"] if args.scenario == "range" else []),
+                    *({"range": ["-DSCAN_RANGE"], "narrow": ["-DSCAN_NARROW"]}.get(args.scenario, [])),
                     str(HERE / "harness.c"), "-o", str(out / "harness.o")], check=True)
     link = json.loads((out / "link.json").read_text())
     variants = {}
@@ -114,7 +115,7 @@ subprocess.run(["cc", "-fuse-ld=bfd", *sys.argv[1:]], check=True)
         compiler_sha256=hashlib.sha256(compiler.read_bytes()).hexdigest(),
         object_sha256=hashlib.sha256((out / "scan.o").read_bytes()).hexdigest(),
         scenario=args.scenario,
-        method="One object; Plenty function sections moved together to four verified text starts 16 bytes apart; randomized order seed 23; one warmup excluded. Internal timings cover repeated calls; perf includes process setup and input construction. Explicit scalar column loop is the reference; thresholds are runtime arguments in threshold/range scenarios. Constant scenario compares against 5; threshold against runtime 5; range is [-1073741824,1073741824).",
+        method="One object; Plenty function sections moved together to four verified text starts 16 bytes apart; randomized order seed 23; one warmup excluded. Internal timings cover repeated calls; perf includes process setup and input construction. Explicit scalar column loop is the reference; thresholds are runtime arguments in threshold/range scenarios. Constant scenario compares against 5; threshold against runtime 5; range is [-1073741824,1073741824); narrow is a u8 column compared against 127.",
         variants=variants)
     (out / "report.json").write_text(json.dumps(report, indent=2) + "\n")
 
