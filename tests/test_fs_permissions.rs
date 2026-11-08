@@ -25,22 +25,42 @@ impl Program {
         }
     }
     fn run(&self, path: &Path, mask: u32) -> String {
+        let output = self.output(path, mask, None);
+        assert!(output.status.success(), "{output:?}");
+        String::from_utf8(output.stdout).unwrap()
+    }
+    /// Runs with an optional descriptor limit, so leaked descriptors fail fast.
+    fn output(&self, path: &Path, mask: u32, files: Option<u64>) -> std::process::Output {
+        #[repr(C)]
+        struct Limit {
+            current: u64,
+            maximum: u64,
+        }
+        const RLIMIT_NOFILE: i32 = 7;
         let mut command = Command::new(&self.executable);
         command.arg(path);
-        // SAFETY: the child sets its own mask before exec using only the
-        // async-signal-safe syscall; the parallel test harness is unaffected.
+        // SAFETY: the child sets its own mask and limit before exec using only
+        // async-signal-safe syscalls; the parallel test harness is unaffected.
         unsafe {
             command.pre_exec(move || {
                 unsafe extern "C" {
                     fn umask(mode: u32) -> u32;
+                    fn setrlimit(resource: i32, limit: *const Limit) -> i32;
                 }
                 umask(mask);
+                if let Some(files) = files {
+                    let limit = Limit {
+                        current: files,
+                        maximum: files,
+                    };
+                    if setrlimit(RLIMIT_NOFILE, &limit) != 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                }
                 Ok(())
             });
         }
-        let output = command.output().unwrap();
-        assert!(output.status.success(), "{output:?}");
-        String::from_utf8(output.stdout).unwrap()
+        command.output().unwrap()
     }
 }
 fn mode(path: &Path) -> u32 {
@@ -275,4 +295,243 @@ def attempt(parent: &fs.Root, name: &path.Path, marker: &str) -> Result[(), IoEr
     let fixture = tempfile::tempdir().unwrap();
     program.run(fixture.path(), 0);
     assert_eq!(std::fs::read_dir(fixture.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn create_dirs_applies_the_mode_to_new_components_only() {
+    let program = Program::new(
+        "",
+        r#"
+    state = parent.create_dirs(&path.from_text("old/new//deeper/")?, unix_mode=0o750u32)?
+    mut stream = state.create_file(&path.from_text("file")?)?
+    stream.close()?
+    drop(parent.create_dirs(&path.from_text("old/new/deeper")?)?)
+    drop(parent.create_dirs(&path.from_text("old")?, unix_mode=0o777u32)?)
+"#,
+    );
+    for mask in [0, 0o027] {
+        let fixture = tempfile::tempdir().unwrap();
+        std::fs::create_dir(fixture.path().join("old")).unwrap();
+        std::fs::set_permissions(
+            fixture.path().join("old"),
+            std::fs::Permissions::from_mode(0o701),
+        )
+        .unwrap();
+        program.run(fixture.path(), mask);
+        assert_eq!(mode(&fixture.path().join("old")), 0o701);
+        assert_eq!(mode(&fixture.path().join("old/new")), 0o750 & !mask);
+        assert_eq!(mode(&fixture.path().join("old/new/deeper")), 0o750 & !mask);
+        assert!(fixture.path().join("old/new/deeper/file").is_file());
+    }
+}
+
+#[test]
+fn create_dirs_opens_existing_directories_without_parent_write_access() {
+    let program = Program::new(
+        "",
+        r#"
+    drop(parent.create_dirs(&path.from_text("locked/inside")?)?)
+    show(parent.create_dirs(&path.from_text("locked/missing")?))?
+"#,
+    );
+    let fixture = tempfile::tempdir().unwrap();
+    let locked = fixture.path().join("locked");
+    std::fs::create_dir_all(locked.join("inside")).unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o500)).unwrap();
+    let output = program.run(fixture.path(), 0);
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
+    // Root bypasses permission checks; only assert the denial when it applies.
+    if unsafe { libc_geteuid() } != 0 {
+        assert_eq!(output, "IoError.System(13)\n");
+    }
+    assert!(!locked.join("missing").exists());
+}
+
+unsafe extern "C" {
+    #[link_name = "geteuid"]
+    fn libc_geteuid() -> u32;
+}
+
+#[test]
+fn create_dirs_stops_at_files_and_symlinks_and_keeps_earlier_components() {
+    let fixture = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::create_dir(fixture.path().join("real")).unwrap();
+    std::fs::write(fixture.path().join("file"), b"keep").unwrap();
+    std::os::unix::fs::symlink(outside.path(), fixture.path().join("out")).unwrap();
+    std::os::unix::fs::symlink("real", fixture.path().join("inner")).unwrap();
+    std::os::unix::fs::symlink(outside.path().join("gone"), fixture.path().join("dangling"))
+        .unwrap();
+    let body = r#"
+    for text in ["file", "file/child", "out", "out/child", "inner/child", "dangling/child"]?:
+        show(parent.create_dirs(&path.from_text(text)?))?
+    show(parent.create_dirs(&path.from_text("made/new/LONG")?))?
+"#
+    .replace("LONG", &"x".repeat(300));
+    let program = Program::new("", &body);
+    let output = program.run(fixture.path(), 0);
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(
+        lines,
+        [
+            "IoError.System(20)",
+            "IoError.System(20)",
+            "IoError.System(20)",
+            "IoError.System(20)",
+            "IoError.System(20)",
+            "IoError.System(20)",
+            "IoError.System(36)",
+        ],
+        "{output}"
+    );
+    assert_eq!(std::fs::read(fixture.path().join("file")).unwrap(), b"keep");
+    assert_eq!(std::fs::read_dir(outside.path()).unwrap().count(), 0);
+    assert_eq!(
+        std::fs::read_dir(fixture.path().join("real"))
+            .unwrap()
+            .count(),
+        0
+    );
+    // A failure leaves the directories created before it.
+    assert_eq!(
+        std::fs::read_dir(fixture.path().join("made/new"))
+            .unwrap()
+            .count(),
+        0
+    );
+}
+
+#[test]
+fn create_dirs_rejects_paths_that_leave_or_restate_the_root() {
+    let program = Program::new(
+        "",
+        r#"
+    for text in ["", "/", "/abs", "//abs", ".", "./a", "a/.", "a/./b", "..", "a/../b", "a/..", "a/nul\0x", "a/b/c\0"]?:
+        show(parent.create_dirs(&path.from_text(text)?))?
+    for bits in [0o1000u32, u32.MAX]?:
+        show(parent.create_dirs(&path.from_text("a/b")?, unix_mode=bits))?
+"#,
+    );
+    let fixture = tempfile::tempdir().unwrap();
+    let output = program.run(fixture.path(), 0);
+    assert_eq!(
+        output.matches("IoError.InvalidInput").count(),
+        15,
+        "{output}"
+    );
+    assert_eq!(std::fs::read_dir(fixture.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn concurrent_create_dirs_calls_all_succeed() {
+    let program = Program::new(
+        "",
+        r#"
+    drop(parent.create_dirs(&path.from_text("a/b/c/d/e/f/g/h")?)?)
+    print("done")?
+"#,
+    );
+    // Each round starts empty so the processes race to create every level.
+    for _ in 0..10 {
+        let fixture = tempfile::tempdir().unwrap();
+        std::thread::scope(|scope| {
+            let runs: Vec<_> = (0..8)
+                .map(|_| scope.spawn(|| program.run(fixture.path(), 0)))
+                .collect();
+            for run in runs {
+                assert_eq!(run.join().unwrap(), "done\n");
+            }
+        });
+        assert!(fixture.path().join("a/b/c/d/e/f/g/h").is_dir());
+    }
+}
+
+#[test]
+fn create_dirs_error_paths_release_descriptors() {
+    let fixture = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(fixture.path().join("file"), b"").unwrap();
+    std::os::unix::fs::symlink(outside.path(), fixture.path().join("out")).unwrap();
+    std::fs::create_dir(fixture.path().join("locked")).unwrap();
+    std::fs::set_permissions(
+        fixture.path().join("locked"),
+        std::fs::Permissions::from_mode(0o500),
+    )
+    .unwrap();
+    let program = Program::new(
+        "",
+        r#"
+    mut failures = list[u8]()?
+    for _ in range(500):
+        for text in ["a/b/file/c", "a/file", "out/c", "a/b/c/../d", "locked/x", "a\0b", "a/b/c/"]?:
+            if parent.create_dirs(&path.from_text(text)?).is_err():
+                failures.append(0u8)?
+    print(len(failures))?
+"#,
+    );
+    std::fs::create_dir_all(fixture.path().join("a/b")).unwrap();
+    std::fs::write(fixture.path().join("a/file"), b"").unwrap();
+    std::fs::write(fixture.path().join("a/b/file"), b"").unwrap();
+    // Enough for stdio, the receiver and one walk; a leak per call exhausts it.
+    let output = program.output(fixture.path(), 0, Some(16));
+    std::fs::set_permissions(
+        fixture.path().join("locked"),
+        std::fs::Permissions::from_mode(0o700),
+    )
+    .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let expected = if unsafe { libc_geteuid() } == 0 {
+        2500
+    } else {
+        3000
+    };
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        format!("{expected}\n")
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn create_dirs_allocation_failures_return_errors_and_keep_created_parents() {
+    let calls = (0..40)
+        .map(|budget| {
+            format!("    attempt(&parent, \"__test_fail_allocations_after_{budget}__\")?\n")
+        })
+        .collect::<String>();
+    let program = Program::new(
+        r#"
+def attempt(parent: &fs.Root, marker: &str) -> Result[(), AllocError | IoError]:
+    name = path.from_text("a/bb/ccc/dddd")?
+    print(marker).unwrap()
+    result = parent.create_dirs(&name)
+    print("__test_restore_allocations__").unwrap()
+    match result:
+        case Ok(_):
+            print("ok")?
+        case Err(IoError.Data(DataError.Allocation(_))):
+            print("oom")?
+        case Err(error):
+            return Err(error)
+    Ok(())
+"#,
+        &calls,
+    );
+    let fixture = tempfile::tempdir().unwrap();
+    let output = program.output(fixture.path(), 0, None);
+    assert!(output.status.success(), "{output:?}");
+    // The runtime reports leaked allocations on stderr.
+    assert!(output.stderr.is_empty(), "{output:?}");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let lines: Vec<&str> = stdout
+        .lines()
+        .filter(|line| !line.starts_with("__test_"))
+        .collect();
+    assert_eq!(lines.len(), 40, "{stdout}");
+    assert_eq!(lines[0], "oom");
+    assert_eq!(lines[39], "ok");
+    // Once a budget succeeds, every larger one does.
+    let first = lines.iter().position(|line| *line == "ok").unwrap();
+    assert!(lines[first..].iter().all(|line| *line == "ok"), "{stdout}");
+    assert!(fixture.path().join("a/bb/ccc/dddd").is_dir());
 }
