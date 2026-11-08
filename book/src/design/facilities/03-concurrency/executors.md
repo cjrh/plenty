@@ -33,7 +33,7 @@ Inputs and results must be wholly owned and satisfy the [worker checks](index.md
 Jobs share state through [`Shared[T]`](../01-builtins/shared.md) handles:
 pass each job its own `handle.share()`.
 Borrowed captures/arguments, generator frames, and uncertified indirect effects
-are rejected. Executors and futures cannot enter workers; a
+are rejected; a generator argument's diagnostic names the parameter. Executors and futures cannot enter workers; a
 [`Submitter`](#submit-from-workers) can.
 
 User jobs must own their inputs because a future can outlive the borrow that

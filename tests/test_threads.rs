@@ -976,3 +976,88 @@ def main() -> Result[(), AllocError | IoError | SpawnError[()] | OverflowError[i
         .unwrap_or_else(|| panic!("{scoped}"));
     assert!(first.contains("ss0 = explicit_slot 32,"), "{scoped}");
 }
+
+/// Generator frames cannot enter workers. A generator argument, owned or
+/// borrowed, at any start is rejected naming the argument, instead of
+/// panicking while measuring the task layout (issue #909).
+#[test]
+fn generator_task_arguments_are_rejected_naming_the_argument() {
+    let generator = "
+def numbers(stop: i64) -> Generator[i64]:
+    for i in range(stop):
+        yield i
+";
+    for (body, at, expected) in [
+        (
+            "
+def work(g: Generator[i64]) -> i64:
+    7
+def main() -> Result[(), SpawnError[()]]:
+    g = numbers(3)
+    with spawn(work, g).drop_job()?:
+        pass
+    Ok(())
+",
+            "10:22",
+            "spawn argument `g` of `work`",
+        ),
+        (
+            "
+def work(g: &mut Generator[i64]) -> i64:
+    7
+def main() -> Result[(), SpawnError[()]]:
+    mut g = numbers(3)
+    with spawn(work, &mut g)?:
+        pass
+    Ok(())
+",
+            "10:22",
+            "spawn argument `g` of `work`",
+        ),
+        (
+            "
+def work(n: i64, g: Option[Generator[i64]]) -> i64:
+    n
+def main() -> Result[(), SpawnError[()]]:
+    with spawn(work, g=Some(numbers(3)), n=1).drop_job()?:
+        pass
+    Ok(())
+",
+            "9:22",
+            "spawn argument `g` of `work`",
+        ),
+        (
+            "
+def work(g: Generator[i64]) -> i64:
+    7
+def main() -> Result[(), PoolError | SubmitError[()] | FutureError]:
+    with ThreadPoolExecutor(2, 2)? as pool:
+        future = pool.submit(work, numbers(3)).drop_job()?
+        _ = future.result()?
+    Ok(())
+",
+            "10:36",
+            "submit argument `g` of `work`",
+        ),
+        (
+            "
+def work(g: Generator[i64]) -> ():
+    pass
+def main() -> Result[(), PoolError | SubmitError[()]]:
+    with ThreadPoolExecutor(2, 2)? as pool:
+        submitter = pool.submitter()
+        submitter.submit_nowait(work, numbers(3)).drop_job()?
+    Ok(())
+",
+            "11:39",
+            "submit argument `g` of `work`",
+        ),
+    ] {
+        let source = format!("{generator}{body}");
+        let error = plenty::check_source(&source).unwrap_err().to_string();
+        assert!(
+            error.contains(&format!("{at}: {expected} holds a generator frame")),
+            "{source}\n{error}"
+        );
+    }
+}

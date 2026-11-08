@@ -41,6 +41,42 @@ fn reference_closure(lower: &Lower<'_>, worker: &Expr) -> Option<(bool, bool)> {
     }
 }
 
+/// Generator frames are excluded from worker threads (see the concurrency
+/// eligibility rules). Reject an owned or borrowed generator argument of a
+/// named `spawn` or `submit` start here, naming it: otherwise the task layout
+/// measures a frame whose layout is not yet resolved and panics, and a borrow
+/// is reported against an internal adapter name (issue #909).
+pub(super) fn generator_argument(
+    start: &str,
+    function: &str,
+    params: &[(String, Ty)],
+    args: &[Expr],
+    at: &Token,
+) -> Result<()> {
+    let positional: Vec<_> = args
+        .iter()
+        .filter(|arg| !matches!(arg.kind, Expression::NamedArgument(..)))
+        .collect();
+    for (index, (param, ty)) in params.iter().enumerate() {
+        let mut held = ty;
+        while let Ty::Ref(inner, _) = held {
+            held = inner;
+        }
+        if !held.contains_generator_frame() {
+            continue;
+        }
+        let at = args
+            .iter()
+            .find(|arg| matches!(&arg.kind, Expression::NamedArgument(label, _) if label == param))
+            .or_else(|| positional.get(index).copied())
+            .map_or(at, |arg| &arg.at);
+        return Err(at.error(format!(
+            "{start} argument `{param}` of `{function}` holds a generator frame, which cannot enter a worker thread; collect its items into a list and pass that instead"
+        )));
+    }
+    Ok(())
+}
+
 const DROP_JOB_RECEIVER: &str =
     "drop_job requires a SpawnError or SubmitError, or a Result whose error is one";
 
@@ -99,6 +135,7 @@ impl Lower<'_> {
                         .error("spawn requires a statically selected function")
                 })?;
                 let captures = self.sigs[&symbol].inputs.clone();
+                generator_argument("spawn", function, &captures, args, &call.at)?;
                 // Owned arguments bind a one-shot job, as `pool.submit` does,
                 // so a failed start returns them in `SpawnError[F]` (issue
                 // #630). A borrowed argument cannot be returned in an error,
