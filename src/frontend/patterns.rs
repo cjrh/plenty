@@ -2413,7 +2413,6 @@ const LIBRARY_GENERICS: [&str; 7] = [
     "ParallelError",
 ];
 
-/// Arms selected by position; the last takes the wildcard an integer match needs.
 impl Lower<'_> {
     /// Records the type `ty` of case `arm`, which continues with a value,
     /// against the earlier cases' `joined` type. Kept out of line so deeply
@@ -2451,6 +2450,7 @@ impl Lower<'_> {
     }
 }
 
+/// Arms selected by position; the last takes the wildcard an integer match needs.
 fn numbered(bodies: Vec<Vec<Op>>) -> Arc<[MatchArm]> {
     let last = bodies.len() - 1;
     bodies
