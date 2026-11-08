@@ -1102,7 +1102,7 @@ struct Lower<'a> {
     /// borrowed sum method whose `match` it is: its arms may produce a plain
     /// reference. A user-written `if` or `match` value still carries only a
     /// reference inside an Option or Result (issue #897).
-    plain_reference_arms: Option<&'static str>,
+    plain_reference_arms: Option<crate::ownership::Adapter>,
     /// Value slots of shared `values()`/`items()` loops, so a write through
     /// one can name the `(&mut d).values()` form (issue #803).
     shared_dictionary_values: HashSet<u8>,

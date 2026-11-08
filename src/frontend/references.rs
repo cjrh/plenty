@@ -143,7 +143,7 @@ pub(super) struct BranchJoin {
     assigned: Vec<usize>,
     /// The sum method whose arms may produce a plain reference; see
     /// `Lower::plain_reference_arms`.
-    plain: Option<&'static str>,
+    plain: Option<crate::ownership::Adapter>,
 }
 
 impl BranchJoin {
@@ -778,10 +778,12 @@ impl Lower<'_> {
                 Some(Joined::Fallback) => "default of `unwrap_or`".to_string(),
                 // Its `match` lists the payload's arm first.
                 Some(Joined::Method(method)) if index == 0 => {
-                    format!("mapped payload of `{method}`")
+                    format!("mapped payload of `{}`", method.name())
                 }
-                Some(Joined::Method("map_or")) => "default of `map_or`".to_string(),
-                Some(Joined::Method(method)) => format!("fallback of `{method}`"),
+                Some(Joined::Method(crate::ownership::Adapter::MapOr)) => {
+                    "default of `map_or`".to_string()
+                }
+                Some(Joined::Method(method)) => format!("fallback of `{}`", method.name()),
                 _ => String::new(),
             };
             let checked = self.check_returned_value(assigned, at);

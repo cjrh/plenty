@@ -689,9 +689,28 @@ pub enum Joined {
     /// The payload or the default of `unwrap_or`; the holder is its result's
     /// join loan.
     Fallback,
-    /// An [`Self::Arm`] of the `match` that the named `map_or`, `map_or_else`
-    /// or `unwrap_or_else` with a borrowed payload lowers to.
-    Method(&'static str),
+    /// An [`Self::Arm`] of the `match` that this method with a borrowed
+    /// payload lowers to.
+    Method(Adapter),
+}
+
+/// A sum method that lowers to a `match` for a borrowed payload. An enum, not
+/// the name, keeps [`Joined`] and so [`crate::op::Op`] small.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Adapter {
+    MapOr,
+    MapOrElse,
+    UnwrapOrElse,
+}
+
+impl Adapter {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::MapOr => "map_or",
+            Self::MapOrElse => "map_or_else",
+            Self::UnwrapOrElse => "unwrap_or_else",
+        }
+    }
 }
 /// Live loan ids, sorted ascending: the order in which conflicts are tried.
 /// Liveness revisits every node until nothing changes, so a set is rebuilt in
@@ -2757,7 +2776,7 @@ impl Checker<'_, '_> {
                                 _ => match loan.holder.map(|assigned| assigned.kind) {
                                 Some(Joined::Arm) => format!("`{holder}` holds this arm's value: an `if` or `match` value keeps the value of every arm borrowed"),
                                 Some(Joined::Fallback) => format!("`{holder}` holds an `unwrap_or` result, which keeps both the payload and the default borrowed"),
-                                Some(Joined::Method(method)) => format!("`{holder}` holds a `{method}` result, which keeps both the mapped payload and the fallback borrowed"),
+                                Some(Joined::Method(method)) => format!("`{holder}` holds a `{}` result, which keeps both the mapped payload and the fallback borrowed", method.name()),
                                 _ => format!("`{holder}` started empty, so it keeps every value assigned to it borrowed; use a separate binding per value"),
                                 },
                             },
