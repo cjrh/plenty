@@ -1,5 +1,8 @@
 # `std.net`
 
+Read-only text inputs accept whole strings and scalar-aligned substring views; see
+[Text inputs and substring views](text-input-views.md) for borrowing and native-copy contracts.
+
 `import std.net` provides TCP listeners and streams, UDP sockets, IPv4 and IPv6
 addresses, and name lookup. Its deadline operations take a
 [`Deadline`](time.md) and a [cancellation token](sync.md) and wait through
@@ -230,7 +233,7 @@ split; the rest is discarded. A datagram too large to send is
 
 ## Name lookup
 
-`resolve(host: &str, port: u16, deadline: &Deadline, cancel: &CancellationToken)`
+`resolve(host: &strview, port: u16, deadline: &Deadline, cancel: &CancellationToken)`
 returns `Result[list[SocketAddress], NetError]`. An IP literal returns that
 address without a lookup. Otherwise the system resolver (`getaddrinfo`) is
 called once and its addresses are returned in its order, each with `port`. No
@@ -243,7 +246,7 @@ on the reading end within the deadline and the token, so it returns
 An abandoned lookup finishes on the resolver's own timeouts
 (`/etc/resolv.conf`), then discards its result and exits. At most 32 lookups
 run at once in a process, counting abandoned ones; another is `TryAgain`.
-`start_lookup(host: &str, port: u16)` returns `Result[Lookup, NetError]`: the
+`start_lookup(host: &strview, port: u16)` returns `Result[Lookup, NetError]`: the
 same lookup without waiting. `lookup.watch(&mut selector, key)` reports it
 ready when the reply arrives, and `lookup.finish_now()` returns `WouldBlock`
 until then and the addresses or error afterwards. Dropping an unfinished

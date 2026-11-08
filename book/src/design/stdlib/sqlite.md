@@ -1,5 +1,8 @@
 # std.db.sqlite
 
+Read-only text inputs accept whole strings and scalar-aligned substring views; see
+[Text inputs and substring views](text-input-views.md) for borrowing and native-copy contracts.
+
 `import std.db.sqlite` stores and queries data in SQLite databases through
 prepared statements with typed parameters and typed column reads. It has one
 error type, `DbError`.
@@ -40,7 +43,7 @@ lamp 25
 
 | Function | Result | Contract |
 |---|---|---|
-| `connect(path: &str, mode: Mode, max_length: i64)` | `Result[Connection, DbError]` | The database file at `path` |
+| `connect(path: &strview, mode: Mode, max_length: i64)` | `Result[Connection, DbError]` | The database file at `path` |
 | `memory(max_length: i64)` | `Result[Connection, DbError]` | A new private database in memory, gone when the connection closes |
 
 `Mode` is `ReadOnly`, `ReadWrite` (the file must exist), or `Create`. A
@@ -59,13 +62,13 @@ copied into a new `str` or `Bytes`.
 
 | Method | Result | Contract |
 |---|---|---|
-| `execute(sql: &str)` | `Result[(), DbError]` | Run every statement in `sql` to completion, discarding rows |
-| `prepare(sql: &str)` | `Result[Statement, DbError]` | Compile exactly one statement |
+| `execute(sql: &strview)` | `Result[(), DbError]` | Run every statement in `sql` to completion, discarding rows |
+| `prepare(sql: &strview)` | `Result[Statement, DbError]` | Compile exactly one statement |
 | `begin(mode: Begin)` | `Result[Transaction, DbError]` | Start a transaction |
 | `changes()` | `i64` | Rows changed by the most recent INSERT, UPDATE, or DELETE |
 | `last_insert_rowid()` | `i64` | The rowid of the most recent successful INSERT |
 | `set_busy_timeout(budget: &Duration)` | `Result[(), DbError]` | How long to retry a locked database; see [Busy databases](#busy-databases) |
-| `load_extension(path: &str, entrypoint: &str = "")` | `Result[(), DbError]` | Load a trusted native SQLite extension into this connection |
+| `load_extension(path: &strview, entrypoint: &strview = "")` | `Result[(), DbError]` | Load a trusted native SQLite extension into this connection |
 | `close()` | `Result[(), DbError]` | Close now |
 
 `execute` takes no parameters and is meant for schema and fixed SQL.
@@ -109,11 +112,11 @@ Parameters are numbered from 1 and columns from 0.
 | Method | Result | Contract |
 |---|---|---|
 | `parameter_count()` | `i64` | The largest parameter number |
-| `parameter_index(name: &str)` | `Result[i64, DbError]` | The number of `:name`, `@name`, or `$name`, prefix included; unknown is `OutOfRange` |
+| `parameter_index(name: &strview)` | `Result[i64, DbError]` | The number of `:name`, `@name`, or `$name`, prefix included; unknown is `OutOfRange` |
 | `bind_null(index)` | `Result[(), DbError]` | |
 | `bind_integer(index, value: i64)` | `Result[(), DbError]` | |
 | `bind_real(index, value: f64)` | `Result[(), DbError]` | NaN is `OutOfRange` |
-| `bind_text(index, value: &str)` | `Result[(), DbError]` | Copied |
+| `bind_text(index, value: &strview)` | `Result[(), DbError]` | Copied |
 | `bind_blob(index, value: &[u8])` | `Result[(), DbError]` | Copied |
 | `clear_bindings()` | `Result[(), DbError]` | Every parameter back to NULL |
 | `step()` | `Result[bool, DbError]` | Advance: `True` with a row current, `False` once finished |

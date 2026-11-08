@@ -1,5 +1,8 @@
 # std.tls
 
+Read-only text inputs accept whole strings and scalar-aligned substring views; see
+[Text inputs and substring views](text-input-views.md) for borrowing and native-copy contracts.
+
 `import std.tls` runs TLS 1.2 and 1.3 over a [`std.net`](net.md) TCP stream.
 A client verifies the server's certificate chain against chosen trust roots
 and checks that it names the server; a server presents a certificate chain
@@ -64,10 +67,10 @@ closing the TCP stream after a failed close-notify.
 
 | Function | Result | Contract |
 |---|---|---|
-| `roots_from_pem(pem: &str)` | `Result[TrustRoots, TlsError]` | The `CERTIFICATE` blocks of `pem` as trust anchors |
+| `roots_from_pem(pem: &strview)` | `Result[TrustRoots, TlsError]` | The `CERTIFICATE` blocks of `pem` as trust anchors |
 | `system_roots()` | `Result[TrustRoots, TlsError]` | The operating system's certificate bundle |
 | `client_config(roots: &TrustRoots)` | `Result[ClientConfig, TlsError]` | Client settings verifying servers against `roots` |
-| `server_config(chain_pem: &str, key_pem: &str)` | `Result[ServerConfig, TlsError]` | Server settings presenting `chain_pem`, leaf first, with its private key |
+| `server_config(chain_pem: &strview, key_pem: &strview)` | `Result[ServerConfig, TlsError]` | Server settings presenting `chain_pem`, leaf first, with its private key |
 
 `roots_from_pem` skips blocks of other types. PEM that does not decode is
 `InvalidCertificate`. A decoded certificate that cannot serve as a trust
@@ -111,16 +114,16 @@ configuration as `client_config` or `server_config`.
 | Function | Result |
 |---|---|
 | `client_builder(roots: &TrustRoots)` | `Result[ClientBuilder, TlsError]` |
-| `server_builder(chain_pem: &str, key_pem: &str)` | `Result[ServerBuilder, TlsError]` |
+| `server_builder(chain_pem: &strview, key_pem: &strview)` | `Result[ServerBuilder, TlsError]` |
 
 | Method | On | Contract |
 |---|---|---|
-| `certificate(chain_pem: &str, key_pem: &str) -> Result[(), TlsError]` | both | Client: the chain presented when a server asks. Server: another chain to choose by name |
+| `certificate(chain_pem: &strview, key_pem: &strview) -> Result[(), TlsError]` | both | Client: the chain presented when a server asks. Server: another chain to choose by name |
 | `verify_clients(roots: &TrustRoots, certificates: ClientCertificates) -> ()` | server | Ask clients for a certificate and verify it against `roots` |
-| `application_protocol(name: &str) -> Result[(), TlsError]` | both | Offer or accept `name` in ALPN, after the names already given |
+| `application_protocol(name: &strview) -> Result[(), TlsError]` | both | Offer or accept `name` in ALPN, after the names already given |
 | `minimum_version(version: TlsVersion) -> ()` | both | `Tls13` refuses TLS 1.2 peers |
 | `cipher_suite(suite: CipherSuite) -> ()` | both | Allow `suite`; once any is allowed, only allowed suites are used |
-| `revocation_list(crl_pem: &str) -> Result[(), TlsError]` | both | Reject peer certificates that a CRL in `crl_pem` names |
+| `revocation_list(crl_pem: &strview) -> Result[(), TlsError]` | both | Reject peer certificates that a CRL in `crl_pem` names |
 | `build() -> Result[ClientConfig or ServerConfig, TlsError]` | both | The configuration |
 
 ```text
@@ -183,7 +186,7 @@ configuration.
 
 | Function | Result | Contract |
 |---|---|---|
-| `connect(tcp: TcpStream, config: &ClientConfig, server_name: &str, deadline: &Deadline, cancel: &CancellationToken)` | `Result[TlsStream, TlsError]` | Complete a client handshake over `tcp` |
+| `connect(tcp: TcpStream, config: &ClientConfig, server_name: &strview, deadline: &Deadline, cancel: &CancellationToken)` | `Result[TlsStream, TlsError]` | Complete a client handshake over `tcp` |
 | `accept(tcp: TcpStream, config: &ServerConfig, deadline: &Deadline, cancel: &CancellationToken)` | `Result[TlsStream, TlsError]` | Complete a server handshake over `tcp` |
 
 Both take ownership of the TCP stream and return only after the handshake

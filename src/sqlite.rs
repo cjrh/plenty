@@ -82,11 +82,23 @@ impl SqliteOp {
         let opened = || sum::result(handle(), Ty::I64);
         match self {
             // Path, open flags, value length limit.
-            Self::Open => (vec![Ty::Str, Ty::I64, Ty::I64], opened()),
+            Self::Open => (
+                vec![crate::frontend::text_view(), Ty::I64, Ty::I64],
+                opened(),
+            ),
             Self::Message => (vec![], sum::result(Ty::Str, sum::alloc_error())),
-            Self::Execute | Self::ParameterIndex => (vec![handle(), Ty::Str], Ty::I64),
-            Self::LoadExtension => (vec![handle(), Ty::Str, Ty::Str], Ty::I64),
-            Self::Prepare => (vec![handle(), Ty::Str], opened()),
+            Self::Execute | Self::ParameterIndex => {
+                (vec![handle(), crate::frontend::text_view()], Ty::I64)
+            }
+            Self::LoadExtension => (
+                vec![
+                    handle(),
+                    crate::frontend::text_view(),
+                    crate::frontend::text_view(),
+                ],
+                Ty::I64,
+            ),
+            Self::Prepare => (vec![handle(), crate::frontend::text_view()], opened()),
             Self::Begin => (vec![handle(), Ty::I64], opened()),
             Self::Changes
             | Self::LastRowid
@@ -103,7 +115,10 @@ impl SqliteOp {
             }
             Self::BindInteger => (vec![handle(), Ty::I64, Ty::I64], Ty::I64),
             Self::BindReal => (vec![handle(), Ty::I64, Ty::F64], Ty::I64),
-            Self::BindText => (vec![handle(), Ty::I64, Ty::Str], Ty::I64),
+            Self::BindText => (
+                vec![handle(), Ty::I64, crate::frontend::text_view()],
+                Ty::I64,
+            ),
             // The blob is a read-only `&[u8]` view, copied by SQLite (B90).
             Self::BindBlob => (vec![handle(), Ty::I64, crate::bytes::byte_view()], Ty::I64),
             Self::ColumnReal => (vec![handle(), Ty::I64], Ty::F64),

@@ -1,5 +1,8 @@
 # `std.actor.tls`
 
+Read-only text inputs accept whole strings and scalar-aligned substring views; see
+[Text inputs and substring views](text-input-views.md) for borrowing and native-copy contracts.
+
 Plaintext space accounts for TLS record overhead without an overflowing
 round-up addition, including for `i64.MAX` free ciphertext bytes. Cursor updates
 are bounded by the offered slices and allocated plaintext/ciphertext buffers;

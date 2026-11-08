@@ -18,7 +18,7 @@
 use super::byte_storage::{Storage, from_slice, result};
 use super::wrap;
 use crate::memory::{self, AllocError, Header, plenty_release, plenty_retain};
-use crate::strings::{self, Text};
+use crate::strings;
 use std::cell::RefCell;
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::ptr;
@@ -274,9 +274,8 @@ unsafe fn statement(value: u128) -> *mut Stmt {
 
 /// A NUL-terminated copy of a text operand, or `None` if it contains NUL.
 unsafe fn c_text(value: u128) -> Result<Option<Vec<u8>>, AllocError> {
-    let text = value as *const Text;
-    // SAFETY: the compiler lends a live text for the call.
-    let bytes = unsafe { strings::bytes(&text) };
+    // SAFETY: the text-view signature keeps valid UTF-8 borrowed for the call.
+    let bytes = unsafe { super::text_views::bytes(value) };
     if bytes.contains(&0) {
         return Ok(None);
     }
@@ -437,9 +436,8 @@ unsafe fn execute(handle: u128, sql: u128) -> i64 {
         Ok(db) => db,
         Err(code) => return code,
     };
-    let text = sql as *const Text;
-    // SAFETY: the compiler lends a live text for the call.
-    let mut sql = unsafe { strings::bytes(&text) };
+    // SAFETY: the text-view signature keeps valid UTF-8 borrowed for the call.
+    let mut sql = unsafe { super::text_views::bytes(sql) };
     unsafe {
         locked(db, || {
             loop {
@@ -470,9 +468,8 @@ unsafe fn execute(handle: u128, sql: u128) -> i64 {
 unsafe fn prepare(handle: u128, sql: u128) -> Result<u128, i64> {
     let db = unsafe { database(handle) }?;
     let connection = unsafe { connection(handle) };
-    let text = sql as *const Text;
-    // SAFETY: the compiler lends a live text for the call.
-    let sql = unsafe { strings::bytes(&text) };
+    // SAFETY: the text-view signature keeps valid UTF-8 borrowed for the call.
+    let sql = unsafe { super::text_views::bytes(sql) };
     let owner = memory::try_allocate::<Statement, u8>(0).map_err(allocation)?;
     // SAFETY: the statement is finalized on every path that does not hand it
     // to its owner object; `owner` is fresh and freed on failure.
@@ -783,8 +780,7 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
             }
             459 => {
                 let stmt = statement(a);
-                let text = c as *const Text;
-                let bytes = strings::bytes(&text);
+                let bytes = super::text_views::bytes(c);
                 bind(stmt, || {
                     sqlite3_bind_text64(
                         stmt,

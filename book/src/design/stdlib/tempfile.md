@@ -1,5 +1,8 @@
 # `std.tempfile`
 
+Read-only text inputs accept whole strings and scalar-aligned substring views; see
+[Text inputs and substring views](text-input-views.md) for borrowing and native-copy contracts.
+
 Owned temporary files and directories, with automatic cleanup and explicit
 fallible cleanup methods. Prefer this module for scratch storage; use
 [`std.fs`](fs/temporary.md) for descriptor-rooted staging and atomic publication.

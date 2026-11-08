@@ -415,15 +415,17 @@ def hex(value: u8) -> i64:
             return i64(value) - 55
         digit(value)
 
-def found(source: &Bytes, value: u8, start: i64, stop: i64) -> Result[i64, NetError]:
-    match source.find(value, start, stop):
+def found(source: &[u8], value: u8, start: i64, stop: i64) -> Result[i64, NetError]:
+    match std.bytes.find_byte(&source[start:stop], value):
         case Some(at):
-            Ok(at)
+            # The match is within the validated selected range.
+            unchecked:
+                Ok(start + at)
         case Nothing:
             Ok(-1)
 
 # Decimal digits only, at most `limit`.
-def decimal(source: &Bytes, start: i64, stop: i64, limit: i64) -> Result[i64, NetError]:
+def decimal(source: &[u8], start: i64, stop: i64, limit: i64) -> Result[i64, NetError]:
     # Private endpoints are within source; at most ten digits produce at most 9,999,999,999.
     unchecked:
         if start >= stop or stop - start > 10:
@@ -439,7 +441,7 @@ def decimal(source: &Bytes, start: i64, stop: i64, limit: i64) -> Result[i64, Ne
         Ok(value)
 
 # Four decimal parts of at most three digits, without leading zeros.
-def v4_in(source: &Bytes, start: i64, stop: i64) -> Result[u32, NetError]:
+def v4_in(source: &[u8], start: i64, stop: i64) -> Result[u32, NetError]:
     # Cursors stay within source; at most four decimal octets produce at most u32.MAX in i64.
     unchecked:
         mut bits = 0
@@ -461,7 +463,7 @@ def v4_in(source: &Bytes, start: i64, stop: i64) -> Result[u32, NetError]:
 
 # Hex groups separated by `:`, at most one `::`, and optionally a dotted IPv4
 # tail in place of the last two groups.
-def v6_in(source: &Bytes, start: i64, stop: i64) -> Result[IpAddress, NetError]:
+def v6_in(source: &[u8], start: i64, stop: i64) -> Result[IpAddress, NetError]:
     # Cursors stay within source; five scanned hex digits fit 20 bits, and group indices stay bounded by 8.
     unchecked:
         mut groups = allocated(list[i64].with_capacity(8))?
@@ -515,23 +517,23 @@ def v6_in(source: &Bytes, start: i64, stop: i64) -> Result[IpAddress, NetError]:
                 low = (low << 16u64) | u64(value)
         Ok(IpAddress.V6(high, low))
 
-def ip_in(source: &Bytes, start: i64, stop: i64) -> Result[IpAddress, NetError]:
+def ip_in(source: &[u8], start: i64, stop: i64) -> Result[IpAddress, NetError]:
     if found(source, 58u8, start, stop)? >= 0:
         return v6_in(source, start, stop)
     Ok(IpAddress.V4(v4_in(source, start, stop)?))
 
 # `127.0.0.1` or `::1`. Scopes and names are not addresses here.
-pub def parse_ip(text: &str) -> Result[IpAddress, NetError]:
-    source = allocated(std.bytes.from_text(text))?
-    ip_in(&source, 0, source.len())
+pub def parse_ip(text: &strview) -> Result[IpAddress, NetError]:
+    source = text.as_bytes()
+    ip_in(&source, 0, len(source))
 
 # `127.0.0.1:80`, `[::1]:80` or `[fe80::1%2]:80`, with a numeric port and
 # scope.
-pub def parse_address(text: &str) -> Result[SocketAddress, NetError]:
+pub def parse_address(text: &strview) -> Result[SocketAddress, NetError]:
     # A found separator is below stop; the second-byte checks precede all two-byte advances.
     unchecked:
-        source = allocated(std.bytes.from_text(text))?
-        stop = source.len()
+        source = text.as_bytes()
+        stop = len(source)
         if stop > 0 and source[0] == 91u8:
             close = found(&source, 93u8, 1, stop)?
             if close < 0 or close + 1 >= stop or source[close + 1] != 58u8:
@@ -604,7 +606,7 @@ def reply_of(file: File, deadline: &Deadline, cancel: &CancellationToken) -> Res
 # the system resolver, in its preference order. The lookup runs on a helper
 # thread; the caller waits for its reply within the deadline and stops on
 # cancellation, abandoning a lookup still in progress.
-pub def resolve(host: &str, port: u16, deadline: &Deadline, cancel: &CancellationToken) -> Result[list[SocketAddress], NetError]:
+pub def resolve(host: &strview, port: u16, deadline: &Deadline, cancel: &CancellationToken) -> Result[list[SocketAddress], NetError]:
     match parse_ip(host):
         case Ok(ip):
             mut single = allocated(list[SocketAddress].with_capacity(1))?
@@ -694,7 +696,7 @@ pub class Lookup:
 
 # Starts looking up `host` and returns at once. An IP literal needs no
 # lookup; `parse_ip` it first, as `resolve` does.
-pub def start_lookup(host: &str, port: u16) -> Result[Lookup, NetError]:
+pub def start_lookup(host: &strview, port: u16) -> Result[Lookup, NetError]:
     data = allocated(std.bytes.with_capacity(256))?
     Ok(Lookup(FileStream(started(__net_resolve(host))?), data, port))
 
