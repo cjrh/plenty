@@ -442,7 +442,10 @@ def main() -> Result[(), AllocError | IoError]:
     Ok(())
 "#
     )));
-    assert!(error.contains("cannot move `ys` while it is borrowed"), "{error}");
+    assert!(
+        error.contains("cannot move `ys` while it is borrowed"),
+        "{error}"
+    );
 }
 
 #[test]

@@ -1957,7 +1957,10 @@ impl Lower<'_> {
                 let hint = self.join_hint(&e.at);
                 let ty = self.expr_expected(yes, hint.clone(), &mut a)?;
                 let other = self.expr_expected(no, hint, &mut b)?;
-                let owned = (references::owned_frame(&ty), references::owned_frame(&other));
+                let owned = (
+                    references::owned_frame(&ty),
+                    references::owned_frame(&other),
+                );
                 let ty = match self.join_conditional(&ty, &other, &mut a, &mut b) {
                     Some(joined) => Some(joined),
                     None => {
