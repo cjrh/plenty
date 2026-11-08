@@ -1,5 +1,8 @@
 # std.env
 
+Read-only text inputs accept whole strings and scalar-aligned substring views; see
+[Text inputs and substring views](text-input-views.md) for borrowing and native-copy contracts.
+
 `import std.env` reads the process environment and the working directory.
 Names, values, and directories are operating-system byte strings; text is a
 checked view of them.
@@ -28,7 +31,7 @@ True
 
 | Function | Result | Contract |
 |---|---|---|
-| `get(name: &str)` | `Result[Option[str], IoError]` | The value as text; `Nothing` when unset |
+| `get(name: &strview)` | `Result[Option[str], IoError]` | The value as text; `Nothing` when unset |
 | `get_bytes(name: &list[u8])` | `Result[Option[list[u8]], IoError]` | The value unchanged |
 | `vars()` | `Result[list[Variable], IoError]` | A snapshot of every variable |
 | `valid_name(name: &list[u8])` | `bool` | Nonempty, with no `=` and no NUL |

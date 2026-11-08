@@ -1,5 +1,8 @@
 # `std.actor.net`
 
+Read-only text inputs accept whole strings and scalar-aligned substring views; see
+[Text inputs and substring views](text-input-views.md) for borrowing and native-copy contracts.
+
 TCP for [`std.actor`](actor.md): a listener that starts one actor per
 connection, a connection with bounded buffers and deadlines, and connect and
 name lookup that do not block the stage. A connection's buffers are allocated

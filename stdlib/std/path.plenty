@@ -40,5 +40,5 @@ pub class Path:
 pub def from_bytes(bytes: list[u8]) -> Path:
     Path(bytes)
 
-pub def from_text(text: &str) -> Result[Path, IoError]:
+pub def from_text(text: &strview) -> Result[Path, IoError]:
     Ok(Path(encode_utf8(text)?))

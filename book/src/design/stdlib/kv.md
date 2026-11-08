@@ -1,5 +1,8 @@
 # std.db.kv
 
+Read-only text inputs accept whole strings and scalar-aligned substring views; see
+[Text inputs and substring views](text-input-views.md) for borrowing and native-copy contracts.
+
 `import std.db.kv` provides persistent, ordered byte-key storage without SQL
 in application code. The small public API is implemented in Plenty over the
 existing [`std.db.sqlite`](sqlite.md) engine. It adds no native dependency.

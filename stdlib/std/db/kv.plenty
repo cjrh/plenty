@@ -60,7 +60,7 @@ def initialized(connection: &mut sqlite.Connection) -> Result[(), KvError]:
         return Err(KvError.ForeignDatabase)
     checked(transaction.commit())
 
-def table_name(name: &str) -> Result[(), KvError]:
+def table_name(name: &strview) -> Result[(), KvError]:
     if name.byte_len() == 0:
         return Err(KvError.InvalidName)
     Ok(())
@@ -119,7 +119,7 @@ pub class Store:
     pub def close(self: &mut Store) -> Result[(), KvError]:
         checked(self._connection.close())
 
-    pub def put(self: &mut Store, table: &str, key: &[u8], value: &[u8]) -> Result[(), KvError]:
+    pub def put(self: &mut Store, table: &strview, key: &[u8], value: &[u8]) -> Result[(), KvError]:
         table_name(table)?
         mut statement = checked(self._connection.prepare("INSERT INTO plenty_kv(table_name,key,value) VALUES(?1,?2,?3) ON CONFLICT(table_name,key) DO UPDATE SET value=excluded.value"))?
         checked(statement.bind_text(1, table))?
@@ -127,7 +127,7 @@ pub class Store:
         checked(statement.bind_blob(3, value))?
         checked(statement.run())
 
-    pub def get(self: &mut Store, table: &str, key: &[u8]) -> Result[Option[Bytes], KvError]:
+    pub def get(self: &mut Store, table: &strview, key: &[u8]) -> Result[Option[Bytes], KvError]:
         table_name(table)?
         mut statement = checked(self._connection.prepare("SELECT value FROM plenty_kv WHERE table_name=?1 AND key=?2"))?
         checked(statement.bind_text(1, table))?
@@ -136,14 +136,14 @@ pub class Store:
             return Ok(Some(checked(statement.blob(0))?))
         Ok(Nothing)
 
-    pub def contains(self: &mut Store, table: &str, key: &[u8]) -> Result[bool, KvError]:
+    pub def contains(self: &mut Store, table: &strview, key: &[u8]) -> Result[bool, KvError]:
         table_name(table)?
         mut statement = checked(self._connection.prepare("SELECT 1 FROM plenty_kv WHERE table_name=?1 AND key=?2"))?
         checked(statement.bind_text(1, table))?
         checked(statement.bind_blob(2, key))?
         checked(statement.step())
 
-    pub def remove(self: &mut Store, table: &str, key: &[u8]) -> Result[bool, KvError]:
+    pub def remove(self: &mut Store, table: &strview, key: &[u8]) -> Result[bool, KvError]:
         table_name(table)?
         mut statement = checked(self._connection.prepare("DELETE FROM plenty_kv WHERE table_name=?1 AND key=?2"))?
         checked(statement.bind_text(1, table))?
@@ -151,14 +151,14 @@ pub class Store:
         checked(statement.run())?
         Ok(self._connection.changes() != 0)
 
-    pub def clear(self: &mut Store, table: &str) -> Result[i64, KvError]:
+    pub def clear(self: &mut Store, table: &strview) -> Result[i64, KvError]:
         table_name(table)?
         mut statement = checked(self._connection.prepare("DELETE FROM plenty_kv WHERE table_name=?1"))?
         checked(statement.bind_text(1, table))?
         checked(statement.run())?
         Ok(self._connection.changes())
 
-    pub def len(self: &mut Store, table: &str) -> Result[i64, KvError]:
+    pub def len(self: &mut Store, table: &strview) -> Result[i64, KvError]:
         table_name(table)?
         mut statement = checked(self._connection.prepare("SELECT count(*) FROM plenty_kv WHERE table_name=?1"))?
         checked(statement.bind_text(1, table))?
@@ -167,7 +167,7 @@ pub class Store:
 
     # Inclusive start, exclusive stop. Set after=True to exclude start too,
     # for continuing after the final key of an ascending limited scan.
-    pub def scan(self: &mut Store, table: &str, start: &[u8], stop: &[u8], max_rows: NonNegative[i64], after: bool = False, reverse: bool = False) -> Result[Scan, KvError]:
+    pub def scan(self: &mut Store, table: &strview, start: &[u8], stop: &[u8], max_rows: NonNegative[i64], after: bool = False, reverse: bool = False) -> Result[Scan, KvError]:
         table_name(table)?
         query = "SELECT key,value FROM plenty_kv WHERE table_name=?1 AND key>=?2 AND key<?3 AND (?5=0 OR key>?2) ORDER BY key DESC LIMIT ?4" if reverse else "SELECT key,value FROM plenty_kv WHERE table_name=?1 AND key>=?2 AND key<?3 AND (?5=0 OR key>?2) ORDER BY key ASC LIMIT ?4"
         mut statement = checked(self._connection.prepare(&query))?
@@ -178,7 +178,7 @@ pub class Store:
         checked(statement.bind_integer(5, 1 if after else 0))?
         Ok(Scan(statement, False, False))
 
-    pub def scan_all(self: &mut Store, table: &str, max_rows: NonNegative[i64], reverse: bool = False) -> Result[Scan, KvError]:
+    pub def scan_all(self: &mut Store, table: &strview, max_rows: NonNegative[i64], reverse: bool = False) -> Result[Scan, KvError]:
         table_name(table)?
         query = "SELECT key,value FROM plenty_kv WHERE table_name=?1 ORDER BY key DESC LIMIT ?2" if reverse else "SELECT key,value FROM plenty_kv WHERE table_name=?1 ORDER BY key ASC LIMIT ?2"
         mut statement = checked(self._connection.prepare(&query))?
@@ -186,7 +186,7 @@ pub class Store:
         checked(statement.bind_integer(2, max_rows.get()))?
         Ok(Scan(statement, False, False))
 
-pub def connect(path: &str, mode: Mode = Mode.Create, max_length: i64 = 1048576) -> Result[Store, KvError]:
+pub def connect(path: &strview, mode: Mode = Mode.Create, max_length: i64 = 1048576) -> Result[Store, KvError]:
     sql_mode = match mode:
         case Mode.ReadOnly:
             sqlite.Mode.ReadOnly

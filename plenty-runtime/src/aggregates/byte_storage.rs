@@ -337,11 +337,7 @@ pub(super) unsafe fn call(
             }
             233 => byte_scan::count(view_bytes(a), b as u8) as u128,
             234 => prefixed(view_bytes(a), size(b), view_bytes(c)) as u128,
-            235 => prefixed(
-                view_bytes(a),
-                size(b),
-                strings::bytes(&(c as *const strings::Text)),
-            ) as u128,
+            235 => prefixed(view_bytes(a), size(b), super::text_views::bytes(c)) as u128,
             236 => {
                 let bytes = view_bytes(a);
                 let run = if b == 0 {
@@ -599,10 +595,9 @@ mod tests {
             let len = text.len() as u128;
             assert_eq!(run(234, [data, len - 1, crlf, 0, 0]), 0);
             assert_eq!(run(234, [data, len, view_operand(&[]), 0, 0]), 1);
-            let next = strings::try_new("next").unwrap();
-            assert_eq!(run(235, [data, 12, next as u128, 0, 0]), 1);
-            assert_eq!(run(235, [data, 13, next as u128, 0, 0]), 0);
-            memory::plenty_release(next as *mut Header);
+            let next = view_operand(b"next");
+            assert_eq!(run(235, [data, 12, next, 0, 0]), 1);
+            assert_eq!(run(235, [data, 13, next, 0, 0]), 0);
             let mixed: &[u8] = &[b'a', b'b', 0xc3, 0xa9, 0xff, b'c'];
             assert_eq!(run(236, [view_operand(mixed), 0, 0, 0, 0]), 2);
             assert_eq!(run(236, [view_operand(mixed), 1, 0, 0, 0]), 4);

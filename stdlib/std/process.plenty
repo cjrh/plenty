@@ -128,7 +128,7 @@ pub class Command:
             self._argc + 1
         Ok(())
 
-    pub def arg(self: &mut Command, value: &str) -> Result[(), IoError]:
+    pub def arg(self: &mut Command, value: &strview) -> Result[(), IoError]:
         encoded = encode_utf8(value)?
         self.arg_bytes(&encoded)
 
@@ -146,7 +146,7 @@ pub class Command:
             allocated(edit.append(value[index]))?
         terminated(&mut self._env, &edit)
 
-    pub def env(self: &mut Command, name: &str, value: &str) -> Result[(), IoError]:
+    pub def env(self: &mut Command, name: &strview, value: &strview) -> Result[(), IoError]:
         encoded_name = encode_utf8(name)?
         encoded_value = encode_utf8(value)?
         self.env_bytes(&encoded_name, &encoded_value)
@@ -156,7 +156,7 @@ pub class Command:
             return Err(IoError.InvalidInput)
         terminated(&mut self._env, name)
 
-    pub def env_remove(self: &mut Command, name: &str) -> Result[(), IoError]:
+    pub def env_remove(self: &mut Command, name: &strview) -> Result[(), IoError]:
         encoded = encode_utf8(name)?
         self.env_remove_bytes(&encoded)
 
@@ -327,13 +327,13 @@ pub def command_bytes(program: &list[u8]) -> Result[Command, IoError]:
     files = allocated(list[File].with_capacity(file_slots))?
     Ok(Command(spec, allocated(list[u8].new())?, allocated(list[u8].new())?, 0, inherit, inherit, inherit, files, False, False, ProcessGroup.Inherit, allocated(list[File].new())?))
 
-pub def command(program: &str) -> Result[Command, IoError]:
+pub def command(program: &strview) -> Result[Command, IoError]:
     encoded = encode_utf8(program)?
     command_bytes(&encoded)
 
 # The explicit shell: `/bin/sh -c script`. The script is shell syntax, so
 # never build it from untrusted text.
-pub def shell(script: &str) -> Result[Command, IoError]:
+pub def shell(script: &strview) -> Result[Command, IoError]:
     mut built = command("/bin/sh")?
     built.arg("-c")?
     built.arg(script)?

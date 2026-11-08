@@ -76,7 +76,7 @@ impl TlsOp {
         let range = || vec![handle(), handle(), Ty::I64, Ty::I64];
         match self {
             // PEM text.
-            Self::Roots => (vec![Ty::Str], opened()),
+            Self::Roots => (vec![crate::frontend::text_view()], opened()),
             Self::RootsCount | Self::State | Self::Close | Self::Version | Self::Suite => {
                 (vec![handle()], Ty::I64)
             }
@@ -93,18 +93,33 @@ impl TlsOp {
             // Builder, roots, and whether clients must present a certificate.
             Self::BuilderRoots => (vec![handle(), handle(), Ty::I64], Ty::I64),
             // Builder, certificate chain and private key.
-            Self::BuilderCertificate => (vec![handle(), Ty::Str, Ty::Str], Ty::I64),
+            Self::BuilderCertificate => (
+                vec![
+                    handle(),
+                    crate::frontend::text_view(),
+                    crate::frontend::text_view(),
+                ],
+                Ty::I64,
+            ),
             // Builder and an ALPN name or revocation list PEM.
-            Self::BuilderProtocol | Self::BuilderRevocations => (vec![handle(), Ty::Str], Ty::I64),
+            Self::BuilderProtocol | Self::BuilderRevocations => {
+                (vec![handle(), crate::frontend::text_view()], Ty::I64)
+            }
             // Builder and minimum version (12 or 13) or suite index.
             Self::BuilderVersion | Self::BuilderSuite => (vec![handle(), Ty::I64], Ty::I64),
             // Session and the buffer that receives the detail.
             Self::Protocol | Self::ServerName | Self::PeerCertificate => (range(), Ty::I64),
             // Certificate chain and private key, both PEM.
-            Self::ServerConfig => (vec![Ty::Str, Ty::Str], opened()),
+            Self::ServerConfig => (
+                vec![crate::frontend::text_view(), crate::frontend::text_view()],
+                opened(),
+            ),
             // Configuration and server name.
             Self::Client => (
-                vec![Ty::Ref(std::sync::Arc::new(handle()), false), Ty::Str],
+                vec![
+                    Ty::Ref(std::sync::Arc::new(handle()), false),
+                    crate::frontend::text_view(),
+                ],
                 opened(),
             ),
             // Session, buffer, start, stop.

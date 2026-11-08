@@ -786,7 +786,7 @@ pub class Resolving:
 # Starts looking up `host` from the running actor; the result arrives
 # through `Resolving.handle`. A zero timeout waits indefinitely. At most 32
 # lookups run at once in the process; past that the result is TryAgain.
-pub def lookup[M, E](host: &str, port: u16, timeout: &Duration, context: &mut Context[M, E]) -> Result[Resolving, NetError | TimerError]:
+pub def lookup[M, E](host: &strview, port: u16, timeout: &Duration, context: &mut Context[M, E]) -> Result[Resolving, NetError | TimerError]:
     pending = start_lookup(host, port)?
     watch = watched(context.watch(&pending, Interest.Read))?
     mut timer: Option[Timer] = Nothing

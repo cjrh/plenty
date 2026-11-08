@@ -80,11 +80,11 @@ impl CryptoOp {
         let state = || sum::result(storage(), sum::alloc_error());
         match self {
             Self::New => (vec![Ty::U8], state()),
-            Self::NewDeriveKey => (vec![Ty::Str], state()),
+            Self::NewDeriveKey => (vec![crate::frontend::text_view()], state()),
             Self::NewKeyed => (vec![Ty::U8, view()], state()),
             // False once the state has finished.
             Self::Update => (vec![storage(), view()], Ty::Bool),
-            Self::UpdateText => (vec![storage(), Ty::Str], Ty::Bool),
+            Self::UpdateText => (vec![storage(), crate::frontend::text_view()], Ty::Bool),
             Self::Finish => (vec![storage(), storage(), Ty::I64], Ty::Bool),
             // 1 for a match, 0 for a mismatch, -1 once finished.
             Self::Verify => (vec![storage(), view()], Ty::I64),

@@ -175,7 +175,7 @@ pub class Bytes:
         __bytes_matches(&self[:], offset, source)
 
     # Whether the UTF-8 bytes of `text` occur at `offset`.
-    pub def matches_text(self, offset: i64, text: &str) -> bool:
+    pub def matches_text(self, offset: i64, text: &strview) -> bool:
         if offset < 0 or offset > __bytes_len(self._owner):
             __trap("Bytes.matches_text: offset is outside 0..=len()")
         __bytes_matches_text(&self[:], offset, text)
@@ -362,6 +362,10 @@ pub def from_bytes(source: &[u8]) -> Result[Bytes, AllocError]:
     mut owner = __bytes_new(len(source))?
     __bytes_append(owner, source)?
     Ok(Bytes(owner))
+
+# Decode exactly this byte range as UTF-8, allocating only the resulting str.
+pub def to_text(source: &[u8]) -> Result[str, BytesError]:
+    text_in(source)
 
 # Direct transport out of a view: at most one native write, returning the
 # bytes moved. The view carries its own range, so there is no range error.
