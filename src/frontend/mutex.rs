@@ -404,6 +404,21 @@ impl Lower<'_> {
                 "lock_when's predicate must be named: pass a function, or a callable bound to a local, so its body can be checked not to wait",
             ));
         }
+        // A predicate that mutated the value would not advance the sequence
+        // word, so no waiter would wake to see its change.
+        let hint = match self.expression_type_hint(ready) {
+            Some(Ty::Ref(inner, _)) => Some((*inner).clone()),
+            other => other,
+        };
+        if let Some(Ty::Ref(_, true)) = hint
+            .as_ref()
+            .and_then(super::callables::signature)
+            .and_then(|sig| sig.inputs.first())
+        {
+            return Err(ready.at.error(
+                "lock_when's predicate must take the value as `&T`, not `&mut T`: it only reads the value, and a change it made would not wake other waiters",
+            ));
+        }
         let deadline = unborrowed(deadline);
         if !matches!(self.place_type(deadline), Some(Ty::Class(c)) if c.get().name == DEADLINE) {
             return Err(deadline.at.error(

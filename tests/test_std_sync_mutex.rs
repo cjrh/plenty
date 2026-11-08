@@ -731,6 +731,19 @@ fn lock_when_diagnostics() {
         ),
         "lock_when's predicate must return bool, not i64",
     );
+    let mutating = "lock_when's predicate must take the value as `&T`, not `&mut T`";
+    rejects(
+        &program(
+            "def bump(v: &mut i64) -> bool:\n    *v = 1\n    True\n\ndef f(m: &Mutex[i64], d: &Deadline, c: &CancellationToken) -> Result[(), LockError]:\n    with m.lock_when(bump, d, c)?:\n        pass\n    Ok(())\n",
+        ),
+        mutating,
+    );
+    rejects(
+        &waiter(
+            "    bump = (def (v: &mut i64) -> bool: True)\n    with m.lock_when(&bump, d, c)?:\n        pass",
+        ),
+        mutating,
+    );
     rejects(
         &waiter("    with m.lock_when(ready, c, d)?:\n        pass"),
         "lock_when's second argument must name a std.time `Deadline`: `&deadline`",

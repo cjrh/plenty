@@ -95,7 +95,9 @@ passes, or `LockError.Cancelled` once the `CancellationToken` is cancelled; `?`
 propagates the error after unlocking. Each round checks the token first and
 then the predicate, so a predicate that holds when the deadline passes still
 succeeds. A token cancelled during a sleep is seen within 10 ms. The deadline
-is read once, when the manager starts. The place forms, `as` binding, and
+is read once, when the manager starts, and compared with the real monotonic
+clock, so a `Deadline` made from a [`FakeClock`](../../stdlib/test.md#test-doubles)
+times out on real time. The place forms, `as` binding, and
 unlock on every exit are those of `lock()`. `lock_when()` is valid only in this
 propagated form.
 
@@ -131,7 +133,9 @@ def main() -> Result[(), AllocError | IoError | LockError | RangeError | Overflo
 ```
 
 `ready` is the name of a function, a local anonymous function, or a reference
-to either, optionally written `&ready`. The predicate runs while the lock is
+to either, optionally written `&ready`. It takes the value as `&T`; `&mut T`
+is an error, because a change made by the predicate would not wake other
+waiters. The predicate runs while the lock is
 held, so the compiler rejects one that can wait: one that locks a mutex, waits
 on a channel, token, task, or pool, or calls a function whose body is not
 visible, such as a `Callable` parameter or a boxed callable. Pass a named
