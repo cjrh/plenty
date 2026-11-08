@@ -79,20 +79,20 @@ pub(super) fn validate(sig: &CallableSig, at: &Token) -> Result<()> {
             "callable signatures do not yet support generator frames or closure environments",
         ));
     }
-    if let Some(ty) = sig.inputs.iter().find(|ty| match ty {
-        Ty::Ref(inner, _) => inner.carried_reference().is_some(),
-        ty => ty.carried_reference().is_some(),
-    }) {
+    if let Some(Ty::Ref(inner, _)) = sig
+        .inputs
+        .iter()
+        .find(|ty| matches!(ty, Ty::Ref(inner, _) if inner.carried_reference().is_some()))
+    {
         return Err(at.error(format!(
-            "callable parameters cannot be {ty}: an Option or Result carrying a reference may only be returned or held in a local"
+            "callable parameters cannot borrow {inner}: take the {inner} itself, which lends its borrow to the call"
         )));
     }
     if let Some(output) = sig.output.as_ref().filter(|ty| ty.carries_loan()) {
         let Some(origin) = sig.inputs.iter().find(|ty| references::lends(ty)) else {
             return Err(at.error(super::no_origin(output)));
         };
-        if output.carries_mutable_loan() && !matches!(origin, Ty::Ref(_, true) | Ty::View(_, true))
-        {
+        if output.carries_mutable_loan() && !references::lends_mutably(origin) {
             return Err(at.error(super::immutable_origin(output)));
         }
     }

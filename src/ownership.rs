@@ -653,6 +653,13 @@ pub struct Loan {
     pub retargetable: bool,
     /// Borrowing an environment keeps all references stored inside it live.
     pub dependencies: Vec<usize>,
+    /// The declaration loan of a `mut` holder that started empty, when this
+    /// loan is one assigned to it. Every use of that loan or a loan derived
+    /// from it keeps all such assigned loans live, whatever their order in
+    /// the body, since a loop can carry any of them to any use. An
+    /// assignment may run on only some paths, so the loan is live only where
+    /// some path created it.
+    pub holder: Option<usize>,
 }
 /// Live loan ids, sorted ascending: the order in which conflicts are tried.
 /// Liveness revisits every node until nothing changes, so a set is rebuilt in
@@ -2442,6 +2449,7 @@ impl Checker<'_, '_> {
             loans,
             created,
             live,
+            held,
         }) = loan_flow(ops)
         else {
             return Ok(());
@@ -2491,7 +2499,7 @@ impl Checker<'_, '_> {
                     let keeps = match &nodes[n].op {
                         Some(Op::UseLoan(id)) | Some(Op::Access(_, _, Some(id))) => {
                             let mut used = Live::default();
-                            use_loan(*id, &loans, &mut used);
+                            use_loan(*id, &loans, &held, &mut used);
                             used.contains(&loan)
                         }
                         Some(Op::Loan(l)) => l.parent == Some(loan),
@@ -2679,6 +2687,16 @@ impl Checker<'_, '_> {
                                 .unwrap_or_default()
                         ),
                     ));
+                    if let Some(holder) = loan
+                        .holder
+                        .and_then(|decl| loans.get(&decl)?.binding)
+                        .and_then(|slot| self.place(slot, &[], false))
+                    {
+                        error.notes.push((
+                            at,
+                            format!("`{holder}` started empty, so it keeps every value assigned to it borrowed; use a separate binding per value"),
+                        ));
+                    }
                 }
                 // A later use inside the conflicting expression itself, such as
                 // the call both arguments feed, adds nothing to the primary line.
@@ -2705,12 +2723,42 @@ impl Checker<'_, '_> {
 }
 
 /// Mark `id` live, with the loans it depends on.
-fn use_loan(id: usize, loans: &HashMap<usize, &Loan>, live: &mut Live) {
+fn use_loan(id: usize, loans: &HashMap<usize, &Loan>, held: &Held, live: &mut Live) {
     if live.insert(id) {
         for dependency in loans.get(&id).map_or(&[][..], |l| &l.dependencies) {
-            use_loan(*dependency, loans, live);
+            use_loan(*dependency, loans, held, live);
+        }
+        for dependency in held.get(&id).map_or(&[][..], Vec::as_slice) {
+            use_loan(*dependency, loans, held, live);
         }
     }
+}
+
+/// For each loan derived from the declaration loan of a `mut` holder that
+/// started empty, the loans assigned to that holder; see [`Loan::holder`].
+type Held = HashMap<usize, Vec<usize>>;
+
+fn held_loans(loans: &HashMap<usize, &Loan>) -> Held {
+    let mut assigned: Held = HashMap::default();
+    for loan in loans.values() {
+        if let Some(holder) = loan.holder {
+            assigned.entry(holder).or_default().push(loan.id);
+        }
+    }
+    let mut held = Held::default();
+    if assigned.is_empty() {
+        return held;
+    }
+    for loan in loans.values() {
+        let mut ancestor = Some(loan.id);
+        while let Some(id) = ancestor {
+            if let Some(members) = assigned.get(&id) {
+                held.entry(loan.id).or_default().extend(members);
+            }
+            ancestor = loans.get(&id).and_then(|l| l.parent);
+        }
+    }
+    held
 }
 
 fn has_loans(ops: &[Op]) -> bool {
@@ -2746,6 +2794,7 @@ struct LoanFlow<'a> {
     created: HashMap<usize, Option<Site>>,
     /// The loans live on entry to each node.
     live: Vec<Live>,
+    held: Held,
 }
 
 impl LoanFlow<'_> {
@@ -2758,33 +2807,75 @@ impl LoanFlow<'_> {
     }
 }
 
+/// Removes each loan assigned to a holder from the nodes no path from the entry reaches
+/// through its creation. Liveness runs backward from uses, so a loan created
+/// on only some paths would otherwise be live up to the entry on the others.
+fn uncreated_dead(
+    nodes: &[Node<'_>],
+    reachable: &[usize],
+    loans: &HashMap<usize, &Loan>,
+    live: &mut [Live],
+) {
+    let mut created = vec![Live::default(); nodes.len()];
+    let mut out = Live::default();
+    let mut scratch = Vec::new();
+    loop {
+        let mut changed = false;
+        // Descending visits predecessors first, the forward direction.
+        for &i in reachable.iter().rev() {
+            out.0.clone_from(&created[i].0);
+            if let Some(Op::Loan(l)) = nodes[i].op
+                && l.holder.is_some()
+            {
+                out.insert(l.id);
+            }
+            for &s in nodes[i].successors.as_slice() {
+                let before = created[s].0.len();
+                created[s].union(&out, &mut scratch);
+                changed |= created[s].0.len() != before;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    for &i in reachable {
+        let created = &created[i];
+        live[i].0.retain(|id| {
+            !loans.get(id).is_some_and(|l| l.holder.is_some()) || created.contains(id)
+        });
+    }
+}
+
 /// Loan liveness of `ops`, or `None` when it creates no loan.
 fn loan_flow(ops: &[Op]) -> Option<LoanFlow<'_>> {
     if !has_loans(ops) {
         return None;
     }
-    let (nodes, reachable, loans, created) = crate::profile_block!("ownership::loan_graph", {
-        let mut nodes = vec![Node::default()];
-        let entry = graph(ops, None, 0, None, None, &mut nodes);
-        let mut seen = vec![false; nodes.len()];
-        let mut todo = vec![entry];
-        while let Some(n) = todo.pop() {
-            if !std::mem::replace(&mut seen[n], true) {
-                todo.extend(nodes[n].successors.as_slice());
+    let (nodes, reachable, loans, created, held) =
+        crate::profile_block!("ownership::loan_graph", {
+            let mut nodes = vec![Node::default()];
+            let entry = graph(ops, None, 0, None, None, &mut nodes);
+            let mut seen = vec![false; nodes.len()];
+            let mut todo = vec![entry];
+            while let Some(n) = todo.pop() {
+                if !std::mem::replace(&mut seen[n], true) {
+                    todo.extend(nodes[n].successors.as_slice());
+                }
             }
-        }
-        // Ascending, as liveness visits successors before their predecessors.
-        let reachable: Vec<usize> = (0..nodes.len()).filter(|&n| seen[n]).collect();
-        let mut loans = HashMap::default();
-        let mut created = HashMap::default();
-        for node in &nodes {
-            if let Some(Op::Loan(l)) = node.op {
-                loans.insert(l.id, l);
-                created.insert(l.id, node.site);
+            // Ascending, as liveness visits successors before their predecessors.
+            let reachable: Vec<usize> = (0..nodes.len()).filter(|&n| seen[n]).collect();
+            let mut loans = HashMap::default();
+            let mut created = HashMap::default();
+            for node in &nodes {
+                if let Some(Op::Loan(l)) = node.op {
+                    loans.insert(l.id, l);
+                    created.insert(l.id, node.site);
+                }
             }
-        }
-        (nodes, reachable, loans, created)
-    });
+            let held = held_loans(&loans);
+            (nodes, reachable, loans, created, held)
+        });
     let mut scratch = Vec::new();
     let live = crate::profile_block!("ownership::loan_liveness", {
         let mut live = vec![Live::default(); nodes.len()];
@@ -2799,7 +2890,7 @@ fn loan_flow(ops: &[Op]) -> Option<LoanFlow<'_>> {
                 match &nodes[i].op {
                     Some(Op::UseLoan(id)) | Some(Op::Access(_, _, Some(id))) => {
                         before.remove(id);
-                        use_loan(*id, &loans, &mut before);
+                        use_loan(*id, &loans, &held, &mut before);
                     }
                     Some(Op::Loan(l)) => {
                         before.remove(&l.id);
@@ -2819,6 +2910,9 @@ fn loan_flow(ops: &[Op]) -> Option<LoanFlow<'_>> {
                 break;
             }
         }
+        if !held.is_empty() {
+            uncreated_dead(&nodes, &reachable, &loans, &mut live);
+        }
         live
     });
     Some(LoanFlow {
@@ -2827,6 +2921,7 @@ fn loan_flow(ops: &[Op]) -> Option<LoanFlow<'_>> {
         loans,
         created,
         live,
+        held,
     })
 }
 

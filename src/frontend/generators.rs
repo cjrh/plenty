@@ -265,10 +265,7 @@ impl Lower<'_> {
         actual: Vec<Ty>,
         at: &Token,
     ) -> Result<String> {
-        if actual
-            .iter()
-            .any(|ty| !matches!(ty, Ty::Ref(..) | Ty::View(..)) && ty.contains_reference())
-        {
+        if actual.iter().any(references::borrowing_closure) {
             return Err(at.error("pass a borrowing closure by reference"));
         }
         if !self.sigs[name]
@@ -394,8 +391,11 @@ impl Lower<'_> {
                 self.expr_expected(arg, Some(expected.clone()), ops)?
                     .ok_or_else(|| arg.at.error("expected a generator argument, got ()"))?
             };
-            if !matches!(ty, Ty::Ref(..) | Ty::View(..)) && ty.contains_reference() {
+            if references::borrowing_closure(&ty) {
                 return Err(arg.at.error("pass a borrowing closure by reference"));
+            }
+            if ty.carried_reference().is_some() {
+                loans.push(self.carried_argument(arg, &ty, ops)?);
             }
             self.same(Some(ty.clone()), Some(expected.clone()), &arg.at)?;
             if ty.unresolved_generator() {
