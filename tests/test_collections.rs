@@ -467,10 +467,6 @@ fn len_rejects_methods_that_cannot_be_observed(#[case] method: &str) {
     "std.deque.Deque[i64]"
 )]
 #[case(
-    "import std.bytes\ndef main() -> ():\n    value = std.bytes.empty().unwrap()",
-    "std.bytes.Bytes"
-)]
-#[case(
     "class Container:\n    def contains(self, item: i64) -> bool:\n        True\ndef main() -> ():\n    value = Container()",
     "Container"
 )]

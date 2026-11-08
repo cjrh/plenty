@@ -3260,7 +3260,7 @@ pub(crate) unsafe fn collection_at(
             )),
             84 => crate::text_io::input(),
             142..=149 => crate::text_io::result(bytes::call(op, a, b, descriptor)),
-            80 | 82 => crate::io::write_stream(a as *const Text, op == 82),
+            80 | 82 => crate::io::write_stream(text_views::text(a), op == 82),
             510 => crate::io::report_write(a, b as i64),
             511 => crate::io::is_terminal(a as u8) as u128,
             81 | 83 => crate::io::flush_stream(op == 83),

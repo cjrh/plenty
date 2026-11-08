@@ -844,15 +844,66 @@ def main() -> Result[(), IoError]:
     found = v.find("hé")
     number = i64.parse(d)
     scalar = ord(&text[6:7])
-    case = v.upper()
+    upper_result = v.upper()
     repeated = v.repeat(2)
     pieces = v.split()
     copy = v[:]
     print("__test_restore_allocations__")?
     print(found, str.repr(number).unwrap(), str.repr(scalar).unwrap())?
-    print(case.is_err(), repeated.is_err(), pieces.is_err(), copy.is_err())?
+    print(upper_result.is_err(), repeated.is_err(), pieces.is_err(), copy.is_err())?
     Ok(())
 "#,
         "__test_fail_allocations_after_0__\n__test_restore_allocations__\nOption[i64].Some(5) Result[i64, ParseError].Ok(123) Result[u32, ParseError].Ok(104)\nTrue True True True\n",
+    );
+}
+
+#[test]
+fn text_stream_writers_borrow_selected_ranges_and_count_scalars() {
+    let output = support::run(
+        r#"
+def main() -> Result[(), IoError]:
+    text = "!hé🙂!"
+    selected = &text[1:-1]
+    count = write_stdout(selected)?
+    errors = write_stderr(selected)?
+    print(count, errors)?
+    Ok(())
+"#,
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "hé🙂3 3\n");
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "hé🙂");
+}
+
+#[test]
+fn scalar_index_results_are_implicitly_borrowed_as_owned_text() {
+    let output = support::run(
+        r#"
+def scalar(text: &strview) -> Result[u32, ParseError]:
+    return ord(text)
+
+def ordinary(text: &str) -> Result[u32, ParseError]:
+    return ord(text)
+
+def main() -> Result[(), IoError | ParseError]:
+    text = "!hé🙂!"
+    selected = &text[1:-1]
+    print(scalar(selected[0])?, scalar(selected[1])?, ordinary(selected[2])?)?
+    print(selected[1].byte_len(), selected[2].as_bytes()[0])?
+    Ok(())
+"#,
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "104 233 128578\n2 240\n"
     );
 }
