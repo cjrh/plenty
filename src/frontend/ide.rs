@@ -14,6 +14,7 @@ use super::*;
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 
+pub mod index;
 pub mod relocate;
 
 thread_local! {
