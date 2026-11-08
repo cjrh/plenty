@@ -157,6 +157,12 @@ A result can be bound to an immutable local. The local is a holder, not
 storage: like a reference binding, it extends the origin loan to its last use.
 Copying it shares that loan.
 
+An exclusive payload taken from a holder, by a `match` statement, a `match`
+or `if` value, `unwrap_or` or an adapter, exclusively borrows the holder until
+the payload's last use. Reading, printing, copying or passing the holder in
+that time is rejected, since it would reach the referent through a second
+path; reading it after the payload's last use is accepted.
+
 A holder initialized with a value that holds no reference, such as
 `Nothing`, `Err(e)`, or `Some(Nothing)`, borrows nothing. Give it a type
 annotation, since `Nothing` alone does not name the payload type. Its origin

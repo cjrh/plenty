@@ -2094,3 +2094,77 @@ print(g()).unwrap()
         "conflicting borrow",
     );
 }
+
+/// A `&mut` payload matched out of a holder reborrows the holder's loan
+/// exclusively, so the holder cannot be read until the payload's last use
+/// (issue #901).
+#[test]
+fn an_exclusive_payload_borrows_its_holder() {
+    let conflict = "cannot read `a` (through `x`) while it is exclusively borrowed";
+    rejects(
+        &with_find(
+            r#"
+mut a = [Item("ada", 1)].unwrap()
+x = find_mut(&mut a, "ada")
+match x:
+    case Some(i):
+        print(x).unwrap()
+        i.count = 5
+    case Nothing:
+        pass
+"#,
+        ),
+        conflict,
+    );
+    for value in [
+        "match x:\n    case Some(i):\n        i\n    case Nothing:\n        &mut b[0]",
+        "match x:\n    case Some(i):\n        Some(i)\n    case Nothing:\n        Some(&mut b[0])",
+        "x.unwrap_or(&mut b[0])",
+        "x.map_or(&mut b[0], def(i: &mut Item) -> &mut Item: i)",
+    ] {
+        let use_r = if value.contains("Some(&mut") {
+            "match r:\n    case Some(j):\n        j.count = 5\n    case Nothing:\n        pass"
+        } else {
+            "r.count = 5"
+        };
+        rejects(
+            &with_find(&format!(
+                "mut a = [Item(\"ada\", 1)].unwrap()\nmut b = [Item(\"bob\", 2)].unwrap()\nx = find_mut(&mut a, \"ada\")\nr = {value}\nprint(x).unwrap()\n{use_r}\n"
+            )),
+            conflict,
+        );
+    }
+    // Reading the holder after the payload's last use, or on a later
+    // iteration after it is replaced, stays accepted.
+    let program = format!(
+        "{FIND}{}",
+        r#"
+def main() -> Result[(), AllocError | IoError]:
+    mut a = [Item("ada", 1)]?
+    x = find_mut(&mut a, "ada")
+    match x:
+        case Some(i):
+            i.count = 5
+            print(x)?
+        case Nothing:
+            pass
+    print(x)?
+    mut y = find_mut(&mut a, "ada")
+    while True:
+        match y:
+            case Some(i):
+                i.count = 6
+                print(y)?
+                y = Nothing
+            case Nothing:
+                break
+    Ok(())
+"#
+    );
+    assert_stdout(
+        &program,
+        "Option[&mut Item].Some(Item(name=\"ada\", count=5))\n\
+         Option[&mut Item].Some(Item(name=\"ada\", count=5))\n\
+         Option[&mut Item].Some(Item(name=\"ada\", count=6))\n",
+    );
+}

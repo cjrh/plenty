@@ -985,11 +985,14 @@ impl Lower<'_> {
         }
         ops.push(Op::Collection(operation));
     }
-    /// Reading a reference-carrying local uses the loan it holds.
+    /// Reading a reference-carrying local reads through the loan it holds,
+    /// so it conflicts with a live exclusive reborrow of that loan, such as
+    /// a `&mut` payload matched out of it (issue #901).
     pub(super) fn use_carried(&self, local: &Local, ops: &mut Vec<Op>) {
         if local.ty.carried_reference().is_some()
             && let Some(&loan) = self.reference_locals.get(&local.slot)
         {
+            ops.push(Op::Access(self.loans[loan].root, false, Some(loan)));
             ops.push(Op::UseLoan(loan));
         }
     }
