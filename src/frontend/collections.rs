@@ -4517,6 +4517,9 @@ impl Lower<'_> {
                     .fallible_constructor(ty, name, args, &base.at, ops)
                     .map(Some);
             }
+            if let Ty::Enum(t) = &ty {
+                super::ide::variant_call(&base.at, name, &t.name);
+            }
             return self.variant(ty, name, Some(args), &base.at, ops).map(Some);
         }
         if let Some(ty) = self.place_type(base).map(classes::unbox)

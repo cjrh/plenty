@@ -135,6 +135,7 @@ impl Lower<'_> {
                             .at
                             .error(format!("unknown named argument `{label}` for `{name}`"))
                     })?;
+                super::ide::named_argument(&argument.at, label, name, index);
                 (index, &**value)
             } else {
                 if saw_named {
