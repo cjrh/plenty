@@ -2357,3 +2357,140 @@ def main() -> ():
         );
     }
 }
+
+/// Issue #902: a scheduler that is its jobs' only receiver hangs in blocking
+/// `submit` once workers block on a full completion channel and the queue
+/// fills. One worker, queue 1 and channel 1 fit three jobs; the fourth hangs.
+/// This records the documented limitation (B22); the program is killed by the
+/// watchdog below rather than left hanging.
+#[test]
+fn blocking_submission_before_receiving_hangs_once_completions_fill() {
+    let program = |batch: usize| {
+        format!(
+            r#"type E = AllocError | IoError | PoolError | RecvError | OverflowError[i64] | SubmitError[()]
+
+def work(value: i64, sender: Sender[i64]) -> ():
+    drop(sender.send(value))
+
+def dispatch(pool: &ThreadPoolExecutor, outbox: &Sender[i64], inbox: &Receiver[i64]) -> Result[i64, E]:
+    mut i = 0
+    while i < {batch}:
+        drop(pool.submit(work, 1, outbox.share()).drop_job()?)
+        i += 1
+    mut total = 0
+    while i > 0:
+        total += inbox.recv()?
+        i -= 1
+    Ok(total)
+
+def main() -> Result[(), E]:
+    outbox, receiver = channel[i64](1)?
+    with ThreadPoolExecutor(1, 1)? as pool, receiver as inbox:
+        print(dispatch(pool, &outbox, inbox)?)?
+    Ok(())
+"#
+        )
+    };
+    let (_dir, three) = support::build_file(&program(3));
+    let output = support::output_within(
+        &mut std::process::Command::new(three),
+        b"",
+        std::time::Duration::from_secs(15),
+    );
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n");
+
+    let (_dir, four) = support::build_file(&program(4));
+    let mut child = std::process::Command::new(four)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while std::time::Instant::now() < deadline {
+        if let Some(status) = child.try_wait().unwrap() {
+            panic!("the saturated blocking scheduler finished with {status:?}");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    child.kill().unwrap();
+    child.wait().unwrap();
+}
+
+/// Issue #902: receiving one completion whenever `submit_nowait` reports
+/// `Full`, then retrying the retained job, completes batches far larger than
+/// workers + queue + channel capacity, for differing capacities, and keeps a
+/// worker's typed error.
+#[test]
+fn receiving_on_full_completes_batches_beyond_pool_and_channel_capacity() {
+    runs(
+        r#"type Completion = Result[i64, OverflowError[i64]]
+type ScheduleError = OverflowError[i64] | RecvError | SubmitError[()]
+
+def square(value: i64) -> Result[i64, OverflowError[i64]]:
+    Ok(value * value)
+
+def work(value: i64, sender: Sender[Completion]) -> ():
+    drop(sender.send(square(value)))
+
+def receive_one(inbox: &Receiver[Completion], outstanding: &mut i64, received: &mut i64) -> Result[i64, ScheduleError]:
+    completion = inbox.recv()?
+    *outstanding -= 1
+    *received += 1
+    Ok(completion?)
+
+def admit[F: OnceCallable[[], ()]](pool: &ThreadPoolExecutor, job: F, inbox: &Receiver[Completion], outstanding: &mut i64, received: &mut i64, total: &mut i64) -> Result[(), ScheduleError]:
+    mut attempt = pool.submit_nowait(job)
+    while True:
+        match attempt:
+            case Err(SubmitError.Full(job)):
+                if *outstanding == 0:
+                    attempt = pool.submit(job)
+                else:
+                    *total += receive_one(inbox, outstanding, received)?
+                    attempt = pool.submit_nowait(job)
+            case _ as other:
+                drop(other.drop_job()?)
+                break
+    *outstanding += 1
+    Ok(())
+
+def dispatch(pool: &ThreadPoolExecutor, count: i64, poison: i64, outbox: &Sender[Completion], inbox: &Receiver[Completion]) -> Result[i64, ScheduleError]:
+    mut outstanding = 0
+    mut received = 0
+    mut total = 0
+    mut i = 1
+    while i <= count:
+        value = 9223372036854775807 if i == poison else i
+        sender = outbox.share()
+        job = def once [value, sender]() -> ():
+            work(value, sender)
+        admit(pool, job, inbox, &mut outstanding, &mut received, &mut total)?
+        i += 1
+    while outstanding > 0:
+        total += receive_one(inbox, &mut outstanding, &mut received)?
+    # Every accepted job's completion was received exactly once.
+    if received != count:
+        return Ok(-1)
+    Ok(total)
+
+def run(count: i64, poison: i64, workers: Positive[i64], queue: Positive[i64], completions: Positive[i64]) -> Result[i64, AllocError | PoolError | ScheduleError]:
+    outbox, receiver = channel[Completion](completions)?
+    with ThreadPoolExecutor(workers, queue)? as pool, receiver as inbox:
+        return dispatch(pool, count, poison, &outbox, inbox)
+
+def main() -> Result[(), AllocError | IoError | PoolError | ScheduleError]:
+    print(run(50, 0, 1, 1, 1)?)?
+    print(run(40, 0, 1, 3, 2)?)?
+    print(run(40, 0, 3, 1, 1)?)?
+    print(run(30, 0, 2, 2, 5)?)?
+    match run(30, 7, 1, 1, 1):
+        case Err(OverflowError(_)):
+            print("worker error preserved")?
+        case _ as other:
+            drop(other?)
+    Ok(())
+"#,
+        "42925\n22140\n22140\n9455\nworker error preserved\n",
+    );
+}

@@ -59,6 +59,22 @@ reported before job allocation; waiting for space precedes allocation and transf
 Construction uses one allocation; each accepted job needs one fallible cell.
 Status, cancellation, result transfer, waiting, and shutdown allocate nothing.
 
+## Submission and completion capacity
+
+A scheduler that alone receives its jobs' completions can deadlock in blocking
+`submit` while it owes receptions: workers blocked sending to a full completion
+channel stop draining the queue, and the scheduler waits for queue space
+forever. With one worker, a queue of one and a channel of one, four blocking
+submissions before any receive hang. Instead use `submit_nowait`; on
+`Full(job)`, while accepted jobs remain unreceived, receive one completion and
+retry the retained job. Accepted-but-unreceived work is then bounded by workers
+plus queue capacity plus channel capacity. This assumes one completion per
+accepted job on that channel, no other submitters whose jobs wait on the
+scheduler, and workers that reach their send; `cancel_pending()` removes jobs
+that will never complete. The
+[several-jobs lesson](../../../tutorial/11-concurrency/scheduler-window.md)
+shows the loop. The compiler does not check capacities or this protocol.
+
 ## Lifetime
 
 `with ThreadPoolExecutor(workers, capacity)? as pool:` owns the executor and
@@ -350,7 +366,7 @@ explains that fallback and preserving partial-preparation and typed-error
 contracts. Cancellation does not interrupt ordinary blocking sends; use
 [cooperative cleanup](cancellation.md) and keep endpoint/lock release before joins.
 Capacity equal to worker count alone does not bound outstanding messages from
-both queued and running jobs.
+both queued and running jobs; see [submission and completion capacity](#submission-and-completion-capacity).
 
 The aggregate-argument gap above is distinct from direct field borrowing:
 `helper(&holder.pool, ...)` hands the call a pool, while passing only

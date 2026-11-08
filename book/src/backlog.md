@@ -77,6 +77,10 @@ it does not schedule all catalogue entries.
   exception (issue #893) and discovered-versus-assumed shutdown provenance
   (issue #894), delivered separately under [native concurrency](completed-work/language-and-tooling.md#b22-native-concurrency).
   Richer pool identity/order and callback-effect inference remain outside that subset.
+  [Several jobs in flight](tutorial/11-concurrency/scheduler-window.md) uses
+  `submit_nowait` and receives on `Full` (issue #902); a library scheduler that
+  owns admission and completion delivery, so the easiest pool use is also
+  deadlock-resistant, awaits a design decision.
 - Automatic parallelization (B24), optional backends (B20), stored-reference
   relationships (B11), broader callback erasure (B32) and automatic deep
   recursive operations (B33) require their own contracts and acceptance checks.
