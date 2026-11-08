@@ -844,13 +844,13 @@ def main() -> Result[(), IoError]:
     found = v.find("hé")
     number = i64.parse(d)
     scalar = ord(&text[6:7])
-    case = v.upper()
+    upper_result = v.upper()
     repeated = v.repeat(2)
     pieces = v.split()
     copy = v[:]
     print("__test_restore_allocations__")?
     print(found, str.repr(number).unwrap(), str.repr(scalar).unwrap())?
-    print(case.is_err(), repeated.is_err(), pieces.is_err(), copy.is_err())?
+    print(upper_result.is_err(), repeated.is_err(), pieces.is_err(), copy.is_err())?
     Ok(())
 "#,
         "__test_fail_allocations_after_0__\n__test_restore_allocations__\nOption[i64].Some(5) Result[i64, ParseError].Ok(123) Result[u32, ParseError].Ok(104)\nTrue True True True\n",
