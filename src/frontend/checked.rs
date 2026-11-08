@@ -158,6 +158,9 @@ impl Lower<'_> {
         if operation.overflows(ty) {
             failures.push(self.arithmetic_error("OverflowError", Some(ty), at)?);
         }
+        if operation.shifts() {
+            failures.push(self.arithmetic_error("ShiftCountError", Some(ty), at)?);
+        }
         if failures.is_empty() {
             return Ok(false);
         }
@@ -231,7 +234,8 @@ impl Lower<'_> {
         }
     }
 
-    /// `ZeroDivisionError`, or `OverflowError[T]` for `operand` `T`.
+    /// `ZeroDivisionError`, or `OverflowError[T]` or `ShiftCountError[T]`
+    /// for `operand` `T`.
     fn arithmetic_error(&self, name: &str, operand: Option<&Ty>, at: &Token) -> Result<Ty> {
         let args = operand
             .map(|ty| TypeRef {

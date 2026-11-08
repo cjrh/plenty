@@ -244,7 +244,7 @@ pub(super) fn prepare(
             // These builtin factories only construct concrete fields; they
             // add no generic dependency depth. Counting Quantity would change
             // the reported limit even in programs that never use dimensions.
-            if !matches!(f.name.as_str(), "OverflowError" | "Quantity") {
+            if !matches!(f.name.as_str(), "OverflowError" | "ShiftCountError" | "Quantity") {
                 engine.specializable += 1;
             }
             engine.templates.insert(f.name.clone(), Arc::new(f));

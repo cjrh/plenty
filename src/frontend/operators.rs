@@ -383,7 +383,11 @@ impl Lower<'_> {
                 if !a.is_int() {
                     return Err(e.at.error("bitwise operations require integers"));
                 }
-                self.push_trapping(Op::Integer(kind), &a, ops);
+                if matches!(kind, IntegerOp::ShiftLeft | IntegerOp::ShiftRight) {
+                    self.shift_operation(kind, &a, right, &e.at, ops)?;
+                } else {
+                    self.push_trapping(Op::Integer(kind), &a, ops);
+                }
                 Self::end_reads(loans, ops);
                 return Ok(Some(a));
             }

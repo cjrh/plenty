@@ -76,7 +76,7 @@ impl Lowerer<'_, '_> {
     /// A float converts when its truncation toward zero lies in the target
     /// range: `target_min - 1 < value < target_end`. Both comparisons are
     /// unordered, so NaN is out of range.
-    fn float_out_of_range(
+    pub(super) fn float_out_of_range(
         &mut self,
         value: NativeValue,
         source: &Ty,

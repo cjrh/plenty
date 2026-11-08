@@ -27,7 +27,10 @@ pub def hash_u64(key: u64, seed: u64 = 0u64) -> u64:
 
 def word(out: &mut Bytes, value: u64) -> Result[(), AllocError]:
     for shift in range(0, 64, 8):
-        out.push(u8((value >> u64(shift)) & 255u64))?
+        # shift is 0..56, within u64's width.
+        byte = unchecked:
+            u8((value >> u64(shift)) & 255u64)
+        out.push(byte)?
     Ok(())
 
 def read_word(data: &[u8], offset: i64) -> u64:
@@ -53,7 +56,8 @@ pub class HyperLogLog:
             i64(value & u64(self._registers.len() - 1))
         max_rank = unchecked:
             u8(64 - self._precision)
-        mut tail = value >> u64(self._precision)
+        mut tail = unchecked:
+            value >> u64(self._precision)
         mut rank = 1u8
         while tail & 1u64 == 0u64 and rank <= max_rank:
             # max_rank <= 60, so rank never exceeds 61.
@@ -110,7 +114,9 @@ pub class HyperLogLog:
 pub def hyperloglog(precision: i64 = 12, seed: u64 = 0u64) -> Result[HyperLogLog, SketchError]:
     if precision < 4 or precision > 18:
         return Err(SketchError.InvalidArgument)
-    size = 1 << precision
+    # precision is 4..18, within i64's width.
+    size = unchecked:
+        1 << precision
     mut registers = std.bytes.with_capacity(size).map_error(SketchError.Allocation)?
     registers.resize(size, 0u8).map_error(SketchError.Allocation)?
     Ok(HyperLogLog(precision, seed, registers))
@@ -125,8 +131,9 @@ pub def hyperloglog_from_bytes(data: &[u8], max_precision: i64 = 18) -> Result[H
         return Err(SketchError.InvalidData)
     if i64(precision) > max_precision:
         return Err(SketchError.Limit)
-    size = 1 << i64(precision)
     # Precision was validated in 4..18; all following offsets are below 20 + 2^18.
+    size = unchecked:
+        1 << i64(precision)
     expected = unchecked:
         20 + size
     if len(data) != expected:

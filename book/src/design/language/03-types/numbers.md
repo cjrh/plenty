@@ -38,7 +38,10 @@ one argument's literal width from another.
 Explicit casts use numeric type names, for example `u8(200)`. A cast to an
 integer type requires the target to represent the value. An integer keeps its
 mathematical value; one outside the target's range traps, unlike the default
-recoverable integer arithmetic errors. This covers narrowing, a negative value
+recoverable integer arithmetic errors. A cast is written as a call, so it
+keeps one contract everywhere, including inside `checked:`;
+[`T.try_from(value)`](../../facilities/01-builtins/numbers.md#checked-conversion)
+is its recoverable form. This covers narrowing, a negative value
 cast to an unsigned type, and an unsigned value above a signed type's maximum. A float is
 truncated toward zero first: `u8(255.9)` is `255` and `u8(-0.9)` is `0`. A float
 whose truncated value is outside the target's range, an infinity, or NaN is the
@@ -57,9 +60,10 @@ Casts to a float type never fail. Integer-to-float and narrowing float casts may
 round, and an `f64` beyond `f32`'s range becomes an infinity. Widening `f32` to
 `f64` is exact.
 
-Two other forms convert between integer types.
+Two other forms convert to integer types.
 [`T.try_from(value)`](../../facilities/01-builtins/numbers.md#checked-conversion)
-returns a `Result` instead of stopping the program.
+accepts the same integer and float values as the cast, with the same
+truncation, and returns a `Result` instead of stopping the program.
 [`T.wrapping_from(value)`](../../facilities/01-builtins/numbers.md#wrapping-conversion)
 keeps the low bits and never fails.
 
@@ -88,7 +92,10 @@ signed zero, infinities, NaN, and underflow; arithmetic overflow may yield infin
 Integers support bitwise `&`, `|`, `^`, and unary `~`, and shifts `<<` and `>>`.
 Operands must have the same integer type; a typed left operand guides an
 unsuffixed count literal. Counts must be nonnegative and less than the integer
-width; invalid counts trap before shifting. Left shifts discard high bits.
+width. A count written as an integer literal outside that range, such as
+`x << 64` on an `i64`, is a compile-time error. Any other count can fail with
+`ShiftCountError[T]`, a recoverable arithmetic error like overflow, before
+shifting. Left shifts discard high bits rather than overflow.
 Signed right shifts extend the sign bit; unsigned right shifts fill with zero.
 From lower to higher precedence: `|`, `^`, `&`, shifts, addition/subtraction,
 multiplication/division/modulo, unary operators. Comparisons bind below `|`.
@@ -261,12 +268,21 @@ operators can produce:
 | `+`, `-`, `*`, unary `-` and `pow` on `T` | `OverflowError[T]` |
 | `//` on a signed `T` with a `T` or `NonZero[T]` divisor (`T.MIN // -1`), unless the divisor is a literal other than `-1` | `OverflowError[T]` |
 | `//` and `%` with a plain integer divisor, unless the divisor is a nonzero literal | `ZeroDivisionError` |
+| `<<` and `>>` on `T`, unless the count is an integer literal | `ShiftCountError[T]` |
 
 `OverflowError[T]` has one field, `wrapped: T`, the exact result modulo
-2<sup>N</sup> for an N-bit `T`. `ZeroDivisionError` has no fields. Both are
-builtin classes; their names cannot be redefined. `T.MIN % -1` is `0`, inside
-or outside a block. Shifts, casts, and float arithmetic are unchanged: they
-neither add an error nor exit the block. A negative `pow` exponent still traps,
+2<sup>N</sup> for an N-bit `T`. `ShiftCountError[T]` has one field, `count: T`,
+the count that is negative or not less than N. `ZeroDivisionError` has no
+fields. All three are builtin classes; their names cannot be redefined.
+`T.MIN % -1` is `0`, inside or outside a block. A left shift by a valid count
+discards high bits and is not an overflow. A literal count outside `0..N` is a
+compile-time error, so a literal count never adds an error.
+
+Casts and float arithmetic are unchanged: they neither add an error nor exit
+the block. A cast is call-shaped, and the block does not consume call results;
+write `T.try_from(value)` and handle its `Result[T, RangeError]` to recover
+from a value outside the target range, including a float that is NaN or
+infinite or whose truncation does not fit. A negative `pow` exponent still traps,
 since it has no integer result. Float `a.div_checked(b)` returns
 `Result[F, ZeroDivisionError]`, failing for either signed zero divisor; it
 behaves as a one-operation block and may appear anywhere.
@@ -287,14 +303,37 @@ def halve_sum(a: i64, b: i64) -> i64:
             (wrapped // 2) ^ i64.MIN
 ```
 
+An invalid shift count is recovered the same way:
+
+```plenty
+def shifted_or_zero(value: u32, count: u32) -> u32:
+    result = checked:
+        value << count
+    match result:
+        case Ok(bits):
+            bits
+        case Err(ShiftCountError(_)):
+            # An unsigned count is invalid only at or past the width, which
+            # would shift every bit out.
+            0u32
+
+def main() -> Result[(), IoError]:
+    print(shifted_or_zero(3u32, 4u32), shifted_or_zero(3u32, 32u32))?
+    Ok(())
+```
+```output
+48 0
+```
+
 The error type follows the operators and operand types, not their values,
-with one exception: a divisor written as an integer literal, such as `4`,
-`-3` or `(4u8)`, removes the failures it rules out. A nonzero literal cannot
+with one exception: a divisor or shift count written as an integer literal,
+such as `4`, `-3` or `(4u8)`, removes the failures it rules out. A nonzero literal cannot
 divide by zero, and a literal other than `-1` cannot overflow, so `n // 4`
 and `n % -3` add no error, `n // -1` adds only `OverflowError[T]` for a signed
-`T`, and `n // 0` still adds `ZeroDivisionError`. The rule applies to the
-divisor's spelling only. A module constant, a variable assigned from a literal,
-a guard such as `if d != 0:` and arithmetic such as `1 + 1` prove nothing; use
+`T`, and `n // 0` still adds `ZeroDivisionError`. A valid literal shift count,
+as in `x << 3`, adds no error. The rule applies to the operand's spelling
+only. A module constant, a variable assigned from a literal, a guard such as
+`if d != 0:` or `if n < 64:` and arithmetic such as `1 + 1` prove nothing; use
 a [`NonZero[T]`](#nonzero-integers) or [`Positive[T]`](#positive-and-non-negative-integers)
 divisor to carry a proof checked elsewhere. Guards do not narrow other
 operations either: `-x` adds `OverflowError[T]` even inside

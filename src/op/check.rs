@@ -1026,9 +1026,9 @@ fn step(
         }
         Op::TryCast(target) => {
             let top = stack.pop().ok_or("stack underflow on checked cast")?;
-            if !top.is_int() || !target.is_int() {
+            if !top.is_numeric() || !target.is_int() {
                 return Err(format!(
-                    "checked cast to {target} requires integer source and target types, got {top}"
+                    "checked cast to {target} requires a numeric source and an integer target, got {top}"
                 )
                 .into());
             }

@@ -5,7 +5,7 @@ fn program(source: &str) -> String {
     let source = support::program(source);
     let source = source.replacen(
         "def main() -> ():",
-        "def main() -> Result[(), OverflowError[i64] | ZeroDivisionError]:",
+        "def main() -> Result[(), OverflowError[i64] | ShiftCountError[i64] | ZeroDivisionError]:",
         1,
     );
     let end = source.rfind("    pass\n").unwrap();

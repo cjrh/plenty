@@ -698,6 +698,7 @@ pub(crate) fn builtin(name: &str) -> bool {
                 | "clist"
                 | "AppendError"
                 | "OverflowError"
+                | "ShiftCountError"
                 | "ZeroDivisionError"
                 | "Quantity"
                 | "NonZero"
@@ -1219,8 +1220,7 @@ impl Lower<'_> {
         self.same(Some(b), Some(ty.clone()), &right.at)?;
         loans.extend(other_loans);
         self.mark_arithmetic(op, &ty, at, ops);
-        let proof = divisors::literal_divisor(op, right);
-        let output = self.numeric_operation(op, ty, proof, at, ops)?;
+        let output = self.numeric_operation(op, ty, right, at, ops)?;
         Self::end_reads(loans, ops);
         Ok(output)
     }
@@ -1236,7 +1236,7 @@ impl Lower<'_> {
         &mut self,
         op: &str,
         ty: Ty,
-        proof: crate::numeric::Divisor,
+        right: &Expr,
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
@@ -1244,9 +1244,14 @@ impl Lower<'_> {
             if !ty.is_int() {
                 return Err(at.error("bitwise operations require integers"));
             }
-            self.push_trapping(Op::Integer(kind), &ty, ops);
+            if matches!(kind, IntegerOp::ShiftLeft | IntegerOp::ShiftRight) {
+                self.shift_operation(kind, &ty, right, at, ops)?;
+            } else {
+                self.push_trapping(Op::Integer(kind), &ty, ops);
+            }
             return Ok(ty);
         }
+        let proof = divisors::literal_divisor(op, right);
         if op == "/" && !ty.is_float() {
             return Err(at.error("use `//` for integer division; `/` requires floats"));
         }

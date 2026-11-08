@@ -506,6 +506,11 @@ explain why native arithmetic uses the function's declared error boundary:
 formulas stay readable without per-operator propagation syntax, while callers
 handle explicit error contracts rather than stack-unwinding exceptions
 (issue #861).
+Shifts follow the same boundary: a count that is not an integer literal can
+fail with `ShiftCountError[T]`, an out-of-range literal count is a compile
+error, and left shifts still discard high bits. Casts keep trapping; float
+arguments to `T.try_from` give their recoverable form with the cast's
+truncation (issue #862).
 That core also supports lexical `unchecked:` suites. Their
 [build modes](../design/language/03-types/numbers.md#unchecked-blocks) followed
 (local PR #924): `--unchecked trap` checks the preconditions by default,

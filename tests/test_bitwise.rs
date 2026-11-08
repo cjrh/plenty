@@ -39,7 +39,7 @@ fn integer_bits_and_wrapping_work_at_every_width() {
 fn precedence_borrows_and_overflow_boundaries() {
     let output = run(
         "x = 12\nprint(*(&x) & 5).unwrap()\nprint(1 | 2 ^ 3 & 4 << 1 + 1).unwrap()\nprint(-8 >> 2).unwrap()\nprint(128u8 >> 7).unwrap()\nprint(1u8 << 7).unwrap()\nprint(127i8.wrapping_add(1)).unwrap()\nprint(0u8.wrapping_sub(1)).unwrap()\nprint(64u8.wrapping_mul(4)).unwrap()\nprint(18446744073709551615u64.wrapping_mul(6364136223846793005)).unwrap()\n",
-        "OverflowError[i64]",
+        "OverflowError[i64] | ShiftCountError[i64]",
     );
     assert!(output.status.success());
     assert_eq!(
@@ -71,7 +71,18 @@ fn invalid_counts_trap_before_machine_shift_masking() {
         ("u64", 64),
     ] {
         for op in ["<<", ">>"] {
-            let output = support::run(&format!("print(1{ty} {op} {width}).unwrap()\n"));
+            // A literal count is checked when compiling; see test_checked_shifts
+            // for recoverable variable counts.
+            let error = support::check_source(&format!("print(1{ty} {op} {width}).unwrap()\n"))
+                .unwrap_err()
+                .to_string();
+            assert!(
+                error.contains(&format!("shift count {width} is outside 0..{width} for {ty}")),
+                "{error}"
+            );
+            let output = support::run(&format!(
+                "count = {width}{ty}\nvalue = unchecked:\n    1{ty} {op} count\nprint(value).unwrap()\n"
+            ));
             assert!(!output.status.success());
             assert!(
                 String::from_utf8_lossy(&output.stderr)
@@ -79,7 +90,7 @@ fn invalid_counts_trap_before_machine_shift_masking() {
             );
         }
     }
-    let output = support::run("print(1 << -1).unwrap()\n");
+    let output = support::run("count = -1\nvalue = unchecked:\n    1 << count\nprint(value).unwrap()\n");
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("shift count outside integer width"));
 }

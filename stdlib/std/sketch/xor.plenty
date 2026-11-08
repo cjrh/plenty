@@ -147,7 +147,10 @@ pub def build(keys: &list[u64], max_keys: NonNegative[i64] __max(16777216), seed
 
 def word(out: &mut Bytes, value: u64) -> Result[(), AllocError]:
     for shift in range(0, 64, 8):
-        out.push(u8((value >> u64(shift)) & 255u64))?
+        # shift is 0..56, within u64's width.
+        byte = unchecked:
+            u8((value >> u64(shift)) & 255u64)
+        out.push(byte)?
     Ok(())
 
 def read_word(data: &[u8], offset: i64) -> u64:
