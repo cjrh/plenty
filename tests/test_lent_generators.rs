@@ -101,9 +101,14 @@ pair = [10, 20].unwrap()
 for a, b in zip(&mut h, &pair):
     print(a).unwrap()
 print(next(h)).unwrap()
+# As the last input, `k` is not advanced once `pair` ends.
+mut k = numbers(5)
+for b, a in zip(&pair, &mut k):
+    print(a).unwrap()
+print(next(k)).unwrap()
 "#,
         ),
-        "[2, 4]\nOption[i64].Nothing\n0\n1\nOption[i64].Some(3)\n",
+        "[2, 4]\nOption[i64].Nothing\n0\n1\nOption[i64].Some(3)\n0\n1\nOption[i64].Some(2)\n",
     );
 }
 

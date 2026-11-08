@@ -55,8 +55,9 @@ or storing it in a new collection. Other arithmetic observes numeric references
 as well.
 `for value in &mut g` [lends a generator](03-generators.md#lending-a-generator):
 it advances the owner in place and keeps its remaining progress after `break`.
-A shared generator reference cannot be a loop source. Use `for item in copy(values)?` for an explicit independent snapshot
-when the original must be mutated during iteration.
+A shared generator reference cannot be a loop source. Use
+`for item in copy(values)?` for an explicit independent snapshot when the
+original must be mutated during iteration.
 
 `for key, value in dictionary.items():` borrows a named dictionary or field
 and preserves insertion order. Keys are `&K` and values are `&V`, regardless

@@ -57,7 +57,8 @@ or `?`, the owner keeps the remaining items for a later `next`, loop or owning
 consumer, and drops the suspended frame at its own scope end. Comprehensions,
 `enumerate`, `zip` and `iter` accept `&mut g` the same way. A `zip` that
 stops because a later input ended has already taken one more item from an
-earlier generator; that item is dropped.
+earlier generator; that item is dropped. Pass a lent generator as the last
+`zip` input to keep every item.
 
 ```plenty
 def numbers(stop: i64) -> Generator[i64]:
@@ -93,9 +94,12 @@ The exclusive loan lasts for the whole loop, so `next(&mut g)` or another use
 of `g` inside the body is a conflicting borrow. A shared `&g` cannot advance,
 and `reversed(&mut g)` is rejected. Inside a generator body the loan cannot
 cross `yield`; consume the owned frame with `for value in g` or call `next`
-between yields instead. A lent loop adds no allocation. Assignment, arguments, and returns transfer ownership. Standard
-Option/Result wrappers may own frames, including nested wrappers, and remain
-affine. Frames cannot enter collections, class fields, tuples, user enum
+between yields instead. A lent loop adds no allocation.
+
+## Frame ownership and identity
+
+Assignment, arguments, and returns transfer ownership. Standard Option/Result
+wrappers may own frames, including nested wrappers, and remain affine. Frames cannot enter collections, class fields, tuples, user enum
 payloads, or heap-stored closures. Printing, comparison, length, and membership
 are undefined for frames.
 
