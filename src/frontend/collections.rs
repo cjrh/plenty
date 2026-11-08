@@ -1437,6 +1437,12 @@ impl Lower<'_> {
     #[inline(never)]
     fn widen_to_expected(&mut self, ty: Type, expected: Type, ops: &mut Vec<Op>) -> Result<Type> {
         Ok(match (ty, expected) {
+            // A stored unit read where unit is expected (a `-> ()` tail, for
+            // example) is the unit expression, which has no operand.
+            (Some(Ty::Unit), None) => {
+                ops.push(Op::Drop);
+                None
+            }
             (None, Some(expected)) if crate::sum::accepts(&expected, &Ty::Unit) => {
                 ops.push(Op::PushUnit);
                 if expected != Ty::Unit {

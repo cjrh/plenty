@@ -1546,7 +1546,9 @@ impl Lower<'_> {
                     .collect::<Vec<_>>(),
                     &mut body,
                 )?;
-                self.same(actual, Some(ty.clone()), callback.at())?;
+                // A unit callback result pushes the unit word to store.
+                let actual = self.stored(actual, &mut body);
+                self.same(Some(actual), Some(ty.clone()), callback.at())?;
                 body.push(Op::StoreLocal(slot));
                 Some((ty, slot))
             }

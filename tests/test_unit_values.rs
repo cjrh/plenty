@@ -158,6 +158,10 @@ fn unit_keeps_key_option_and_exit_rules() {
         ("x = None", "Plenty has no `None`"),
         ("x: () = 1", "expected (), got i64"),
         ("x: i64 = ()", "expected i64, got ()"),
+        (
+            "u = ()\nmatch u:\n    case 1:\n        pass",
+            "an integer pattern cannot match a value of type ()",
+        ),
         ("mut x = ()\nx = 1", "expected (), got i64"),
         (
             "def f(flag: bool) -> i64:\n    x = match flag:\n        case True:\n            return 1\n        case False:\n            return 2\n    x",
@@ -167,4 +171,57 @@ fn unit_keeps_key_option_and_exit_rules() {
         let error = support::check_source(source).unwrap_err().to_string();
         assert!(error.contains(expected), "{source}: {error}");
     }
+}
+
+// Review of PR #1104: captures, generator expressions, `match` and `fold` read
+// a unit value as an operand, including at `T = ()`.
+#[test]
+fn unit_is_captured_matched_and_folded() {
+    support::assert_stdout(
+        r#"class Done:
+    marker: ()
+
+def cap[T](x: T) -> T:
+    f = (def [x]() -> T: x)
+    f()
+
+def kind[T](x: T) -> i64:
+    match x:
+        case _:
+            1
+
+def same[T](x: T) -> T:
+    match x:
+        case _ as y:
+            y
+
+def marker(d: &Done) -> ():
+    d.marker
+
+def first(t: ((), i64)) -> ():
+    t[0]
+
+def step(acc: (), item: &()) -> Result[(), str]:
+    Ok(acc)
+
+def main() -> Result[(), AllocError | IoError]:
+    u = ()
+    print(cap(()), cap(u), cap(1), kind(u), same(()))?
+    f = (def [u]() -> (): u)
+    print(f())?
+    for v in (u for _ in range(2)):
+        print(v)?
+    match u:
+        case _ as w:
+            print("matched", w)?
+    d = Done(())
+    print(marker(&d), first(((), 1)), str.repr(Some(d.marker))?)?
+    xs = [(), ()]?
+    print(iter(&xs).fold((), def(acc: (), item: &()) -> (): acc))?
+    print(iter(&xs).fold(u, def(acc: (), item: &()) -> (): acc))?
+    print(str.repr(iter(&xs).try_fold((), step))?)?
+    Ok(())
+"#,
+        "() () 1 1 ()\n()\n()\n()\nmatched ()\n() () Option[()].Some(())\n()\n()\nResult[(), str].Ok(())\n",
+    );
 }

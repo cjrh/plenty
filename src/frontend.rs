@@ -1409,9 +1409,12 @@ impl Lower<'_> {
         };
         refined
     }
+    /// Evaluates `e` as an operand. A unit expression pushes the unit word, so
+    /// unit captures, scrutinees and accumulators work (issue #870); callers
+    /// that need a particular type reject `()` by type.
     fn value(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Ty> {
-        self.expr(e, ops)?
-            .ok_or_else(|| e.at.error("expected a value, got ()"))
+        let ty = self.expr(e, ops)?;
+        Ok(self.stored(ty, ops))
     }
     /// An expression type as a stored value: unit pushes the unit word
     /// (issue #870).
@@ -1616,7 +1619,7 @@ impl Lower<'_> {
         if self.is_pipeline(e) && !self.is_dictionary_projection(e) {
             return Err(e.at.error("iterator pipelines cannot escape their creating scope; bind locally or consume with a loop or terminal"));
         }
-        match &e.kind {
+        let ty = match &e.kind {
             Expression::Call(name, _) if !self.names_dimension(name) => {
                 self.call_expression(e, ops)
             }
@@ -1629,7 +1632,16 @@ impl Lower<'_> {
             Expression::Group(inner) => self.expr(inner, ops),
             Expression::Unary(..) => self.unary_expression(e, ops),
             _ => self.expr_other(e, ops),
+        }?;
+        // A unit expression has no operand: a read of a stored unit (a
+        // field, element, deref or `T = ()` result) drops its word, so every
+        // consumer sees unit the same way and storage pushes it once
+        // (issue #870).
+        if ty == Some(Ty::Unit) {
+            ops.push(Op::Drop);
+            return Ok(None);
         }
+        Ok(ty)
     }
 
     /// Whether `name` here is a dimension, which has no values.

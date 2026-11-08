@@ -12,7 +12,9 @@ result, tuple component, class field, enum payload, collection element,
 generator item, [channel message](../../facilities/03-concurrency/channels.md#unit-messages)
 or type argument to any generic function, class, enum or protocol can be `()`.
 So a generic `T` can be instantiated with `T = ()`, as in
-`std.sync.SendBeforeError[()]`. Unit values print as `()`, are equal to each
+`std.sync.SendBeforeError[()]`. Closures and generator expressions capture
+unit, `fold` accepts a unit accumulator, and `match` on unit takes `_` or
+`_ as name` cases. Unit values print as `()`, are equal to each
 other, are copyable and own nothing. Unit is not a
 [supported key type](../../facilities/01-builtins/collections.md): a set element or dictionary key
 cannot be `()`. A reference to unit, `&()` or `&mut ()`, is an ordinary
