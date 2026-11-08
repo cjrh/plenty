@@ -1635,6 +1635,26 @@ fn iteration_builtin_diagnostics_ignore_entrypoint_declarations() {
 }
 
 #[test]
+fn generic_iteration_builtin_calls_name_the_builtin() {
+    let dir = workspace(&[
+        (
+            "api.plenty",
+            "pub def invalid(xs: &list[i64]) -> i64:\n    iter[i64](xs).count()\n",
+        ),
+        (
+            "main.plenty",
+            "import api\ndef iter[T](value: T) -> T:\n    value\ndef main() -> ():\n    pass\n",
+        ),
+    ]);
+    let error = plenty::check_file(&dir.path().join("main.plenty"), None)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("`iter` is not a generic function"), "{error}");
+    assert!(!error.contains("api.iter"), "{error}");
+    assert!(!error.contains("$builtin"), "{error}");
+}
+
+#[test]
 fn short_extensions_preserve_module_identity_and_interface_trust() {
     let untrusted = workspace(&[(
         "main.p",

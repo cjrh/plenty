@@ -2464,7 +2464,7 @@ impl Scope {
             canonical_facility_expression(e);
             return Ok(());
         }
-        let builtin_call = matches!(&e.kind, Expression::Call(name, _) if SHADOWABLE_BUILTINS.contains(&name.as_str()));
+        let builtin_call = matches!(&e.kind, Expression::Call(name, _) | Expression::GenericCall(name, _, _) if SHADOWABLE_BUILTINS.contains(&name.as_str()));
         match &mut e.kind {
             Expression::Name(n)
             | Expression::Call(n, _)

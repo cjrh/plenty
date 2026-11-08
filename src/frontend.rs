@@ -625,6 +625,11 @@ const SHADOWABLE_BUILTINS: &[&str] = &[
 
 const FIELD_REPLACE: &str = "$builtin.replace";
 
+#[test]
+fn field_replace_is_a_builtin_call() {
+    assert_eq!(builtin_call(FIELD_REPLACE), Some("replace"));
+}
+
 /// The written name of `function` when it is a lexically resolved builtin call.
 fn builtin_call(function: &str) -> Option<&str> {
     function.strip_prefix(BUILTIN_CALL)
@@ -1809,6 +1814,9 @@ impl Lower<'_> {
                 Some(self.function_value(&symbol, &e.at, ops)?)
             }
             Expression::GenericCall(name, types, args) => {
+                if let Some(name) = builtin_call(name) {
+                    return Err(e.at.error(format!("`{name}` is not a generic function")));
+                }
                 if name == "Box" {
                     return self.protocol_box(types, args, &e.at, ops).map(Some);
                 }

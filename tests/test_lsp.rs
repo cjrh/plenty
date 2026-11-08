@@ -1507,6 +1507,47 @@ fn references_warn_when_an_entry_does_not_check_and_work_outside_a_package() {
     client.exit();
 }
 
+/// An entry module's `def iter` does not capture builtin `iter` calls in
+/// a module it imports (issue #898).
+#[test]
+fn references_and_renames_of_an_entry_iter_skip_imported_builtin_calls() {
+    let dir = tempfile::tempdir().unwrap();
+    let main_text = "from helper import count\n\ndef iter(n: i64) -> i64:\n    n\n\ndef main() -> Result[(), AllocError | IoError]:\n    xs = [1, 2].unwrap()\n    print(iter(count(&xs)))?\n    Ok(())\n";
+    let helper_text = "pub def count(xs: &list[i64]) -> i64:\n    iter(xs).count()\n";
+    for (path, text) in [
+        (
+            "plenty.toml",
+            "manifest-version = 1\n\n[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+        ),
+        ("src/main.plenty", main_text),
+        ("src/helper.plenty", helper_text),
+    ] {
+        write(&dir.path().join(path), text);
+    }
+    let root = dir.path().canonicalize().unwrap();
+    let main = root.join("src/main.plenty");
+    let mut client = Client::start(&dir.path().join("cache"));
+    let r = |line: u64, character: u64| {
+        (
+            "src/main.plenty".to_owned(),
+            line,
+            character,
+            "iter".to_owned(),
+        )
+    };
+    let found = reference_list(&root, &references(&mut client, &main, 2, 4, true));
+    assert_eq!(found, vec![r(2, 4), r(7, 10)]);
+    let (edit, _) = rename_reply(&mut client, &main, 2, 4, "walk").unwrap();
+    let edited = renamed(&root, &edit, &[]);
+    assert_eq!(
+        edited.keys().collect::<Vec<_>>(),
+        vec!["src/main.plenty"],
+        "{edited:?}"
+    );
+    assert_eq!(edited["src/main.plenty"], main_text.replace("iter", "walk"));
+    client.exit();
+}
+
 /// A rename's reply: the workspace edit and the warnings the server showed,
 /// or the reason it was refused.
 fn rename_reply(
