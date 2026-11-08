@@ -127,8 +127,9 @@ or a commitment to implement the design.
 3. **Resolve returned-reference migration.** Prefer owned `str` results for
    whole-string getters. Decide generic `&V` results explicitly; do not silently
    require returned substring views or globally replace references with owned
-   values. General returned views remain B11 work. Establish the narrower byte-
-   view loan support needed for `as_bytes()` as part of byte access.
+   values. General returned views remain B11 work. Preserve the narrower byte-
+   view loan support already implemented for `as_bytes()` in the separate-view
+   design.
 4. **Change the public spelling and migrate together.** Treat `&substr` as a
    temporary deprecated alias if a compatibility period is chosen; both
    spellings must mean exactly the same view. Such an alias cannot preserve

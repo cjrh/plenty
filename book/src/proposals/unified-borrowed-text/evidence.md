@@ -119,7 +119,7 @@ Implementation boundaries and original precedents:
 | `src/codegen/collections.rs`, `narrow_helper`; `tests/test_std_text_set_scans.rs` | Text-set scan adapters must preserve scalar-result helper lowering when accepting views; issue #880 records this code-generation boundary. |
 | `stdlib/std/regex.plenty`, `search_bytes` call using `__regex_text_bytes(text)` | Actual consumer of the loan-preserving byte adapter. |
 | `stdlib/std/bytes.plenty`, `from_text` | Public owned-byte conversion accepts `&strview` and copies its `as_bytes()` range directly. |
-| `stdlib/std/bytes.plenty`, `Bytes.extend`, `Bytes.overwrite` | Shared byte-view consumers that a public text-to-byte borrow should feed directly. |
+| `stdlib/std/bytes.plenty`, `Bytes.extend`, `Bytes.overwrite` | Shared byte-view consumers that text `as_bytes()` feeds directly. |
 | `stdlib/std/fmt.plenty`, `text`, `substr` | View-capable formatting entries share the range-capable output path; legacy helper names remain compatible. |
 | `src/frontend/text_methods.rs`, `src/text.rs` | Range-capable builtin text dispatch and checked-view native adapter selection preserve ordinary owner fast paths. |
 | `plenty-runtime/src/aggregates/text_ranges.rs` | Bounded range readers implement text operations without manufacturing an intermediate owning string. |

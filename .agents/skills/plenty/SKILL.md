@@ -198,8 +198,12 @@ actual `std.serial.Kind` values. Rendering borrows and preserves the error.
   success; do that only when the program genuinely recovers.
 - Name error groups with an alias: `type AppError = AllocError | IoError | ParseError`.
   Define an enum only to add meaning, and map into it with `.map_error(...)`.
-- Prefer borrowed parameters (`&str`, `&list[T]`) unless the function keeps the
-  value. Avoid `copy` unless two owners are needed. Never write `copy(x)?`
+- Prefer `&strview` for text readers and `&list[T]` for borrowed lists.
+  Ordinary `&str` remains useful for generic references and sharing a whole
+  owning string handle; use `str` when the function keeps an owning value.
+  On text views, scalar `len` scans; `byte_len()` and `as_bytes()` are O(1).
+  `as_bytes()` lends a read-only `&[u8]` with the text owner’s loan;
+  `std.bytes.from_bytes(...)` makes an independent mutable copy. Avoid `copy` unless two owners are needed. Never write `copy(x)?`
   or `copy(&x)?` when `x` copies (`str`, numbers, `@copy` classes): write `x`;
   for a reference `r: &str`, write `*r` instead of `copy(r)?`. `plenty --check`
   reports them as `redundant-copy` warnings; apply the suggested replacements.

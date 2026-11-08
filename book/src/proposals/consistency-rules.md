@@ -248,6 +248,14 @@ Annotated view locals and non-text view parameters retain their existing rules.
 
 ### Today
 
+> **Update 2026-11-08:** range-capable text readers now accept `&strview`
+> (`&substr` remains an alias), completing the read-only text-input scope.
+> APIs retaining whole string handles and unchanged protocol/getter interfaces
+> keep their documented ordinary-reference contracts. See the
+> [current input inventory](../design/stdlib/text-input-views.md) and
+> [B12 delivery record](../completed-work/language-and-tooling.md#b12-io-and-iteration).
+> The dated probes below describe the earlier implementation.
+
 > **Update 2026-11-01:** phases 1 and 3 shipped. Owners convert to views at
 > view types, byte-reading std APIs take `&[u8]`, and `ByteSource` is removed;
 > naming it is a compile error pointing to `&[u8]`. The remaining

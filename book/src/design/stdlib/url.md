@@ -202,11 +202,11 @@ Every operation is linear in its input and allocates in proportion to it.
 
 | Operation | Allocates |
 |---|---|
-| `parse` | One copy of the text, then one string per present component. A text of more than `max_bytes` UTF-8 bytes is rejected before the copy, so the copy never exceeds `max_bytes` |
+| `parse` | Owned component strings; input bytes are borrowed. Text exceeding `max_bytes` UTF-8 bytes is rejected before component allocation |
 | `to_string` | One growing buffer, a temporary per component, and the result |
 | `encode_bytes`, `decode_bytes` | One buffer of exactly the output size, after validation |
-| `encode`, `decode` | A `Bytes` copy of the text, the coded buffer, then the `str` |
-| `query_pairs` | A copy of the query, the list, and two strings per pair |
+| `encode`, `decode` | The coded buffer, then the owned `str`; input bytes are borrowed |
+| `query_pairs` | The list, decoded component buffers, and two owned strings per pair; query bytes are borrowed |
 | `query_text` | One growing buffer and two temporaries per pair |
 
 Encoded output is at most three times its input. The encoder counts literal

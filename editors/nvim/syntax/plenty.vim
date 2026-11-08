@@ -12,7 +12,7 @@ syntax keyword plentyInclude import from as
 syntax keyword plentyOperator and or not in
 syntax keyword plentyBoolean True False
 syntax keyword plentyConstant None
-syntax keyword plentyType i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 bool str bytes
+syntax keyword plentyType i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 bool str strview substr bytes
 syntax keyword plentyType list dict set tuple
 syntax match plentyOperator /[-+*\/%=<>!&|^~?]/
 syntax match plentyDelimiter /[()[\]{},.:]/

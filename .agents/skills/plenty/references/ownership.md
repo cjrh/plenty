@@ -127,7 +127,10 @@ Rules:
 - A function returning `&T` borrows the result from its first reference
   parameter; it cannot return a reference to a local or an owned parameter.
   When in doubt, return an owned value.
-- Prefer `&str` and `&list[T]` parameters unless the function keeps the value.
+- Prefer `&strview` for read-only text and `&list[T]` for borrowed lists.
+  Use ordinary `&str` for generic reference interfaces or access to a whole
+  owning string handle, and `str` when retaining an owning value. A view that
+  must become owned requires an explicit text copy, `view[:]?`.
 
 ## Classes
 

@@ -168,8 +168,8 @@ that returns when the connection closes.
 
 | Item | Meaning |
 |---|---|
-| `connect(url: &str, &config, &deadline, &cancel)` | `Result[WebSocket[TcpStream], WebSocketError]`: dial and handshake a `ws` URL |
-| `target(url: &str)` | `Result[Target, WebSocketError]`: parse a `ws` or `wss` URL |
+| `connect(url: &strview, &config, &deadline, &cancel)` | `Result[WebSocket[TcpStream], WebSocketError]`: dial and handshake a `ws` URL |
+| `target(url: &strview)` | `Result[Target, WebSocketError]`: parse a `ws` or `wss` URL |
 | `dial(&target, &deadline, &cancel)` | `Result[TcpStream, WebSocketError]`: a TCP connection to the target |
 | `handshake(stream, &target, &config, &deadline, &cancel)` | `Result[WebSocket[T], WebSocketError]`: the client handshake over a connected stream |
 | `Target.secure`, `host`, `port` | `wss` or not; the host, lowercase without IPv6 brackets; the port, 80 or 443 by default |
@@ -195,7 +195,7 @@ their own. `cancel` ends every later wait with `Net(Cancelled)`.
 
 | Item | Meaning |
 |---|---|
-| `connect(url: &str, &tls: ClientConfig, &config, &deadline, &cancel)` | `Result[WebSocket[TlsTransport], WebSocketError]` for a `wss` URL |
+| `connect(url: &strview, &tls: ClientConfig, &config, &deadline, &cancel)` | `Result[WebSocket[TlsTransport], WebSocketError]` for a `wss` URL |
 
 The server's certificate is verified against `tls`'s roots with the URL's
 host as the name, as for [HTTPS](http-client.md#https). A TLS failure is

@@ -387,7 +387,8 @@ Borrowed enum matching/payload loans, reference rebinding within the original
 place, precise first-reference return origins and disjoint literal-index loans
 landed (issues #1/#30/#41, local PRs #488/#490). Optional/fallible returned
 references (`Option[&T]`/`Result[&T, E]`) shipped as phase 1 (issue #520,
-local PR #622). `dict.get_mut` replaced dictionary indexed assignment
+local PR #622). Immutable holders initialized with `Nothing`, `Err(e)`, or
+`Some`/`Ok` around one borrow nothing (issue #867). `dict.get_mut` replaced dictionary indexed assignment
 (issue #580, local PR #696); heap and graph reference getters shipped
 (local PR #629).
 
@@ -419,6 +420,13 @@ User-container membership and iterator protocols remain **B49** in the
 [backlog](../backlog.md); Python `__len__` and `__contains__` names remain reserved.
 
 ## B12: I/O and iteration
+
+A documentation consistency pass reconciles the delivered text/view and byte
+contracts across the reference, tutorial, repository agent skill, and proposals
+(issue #882). Reader examples use direct byte borrows instead of temporary
+buffers; allocation tables distinguish borrowed input from owned output.
+Neovim syntax highlighting recognizes `strview` and its `substr` alias.
+Ordinary string references and generic-reference examples remain supported.
 
 Read-only text inputs in 120 pure-Plenty standard-library declarations accept
 `&strview`, including substring ranges: text builders and wrapping, formatting,
