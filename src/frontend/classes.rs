@@ -89,11 +89,6 @@ impl Parser {
             let wire = self.wire_name()?;
             self.misplaced_annotations("class members")?;
             let public = self.eat("pub");
-            if let Some(wire) = &wire
-                && (self.peek().is("def") || self.peek().is("pass"))
-            {
-                return Err(wire.at.error(annotations::WIRE_NAME_PLACE));
-            }
             if let Some(wire) = wire {
                 wire_names.push((fields.len(), wire));
             }

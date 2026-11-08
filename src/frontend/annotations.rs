@@ -132,7 +132,12 @@ impl Parser {
             ));
         };
         self.take();
-        self.expect(")")?;
+        if !self.peek().is(")") {
+            return Err(self.peek().error(
+                "`@serial.name` takes one string literal, such as `@serial.name(\"user_id\")`",
+            ));
+        }
+        self.take();
         if self.peek().kind != Kind::Newline {
             return Err(self
                 .peek()
@@ -147,6 +152,19 @@ impl Parser {
                 .peek()
                 .error("duplicate `@serial.name`; a member has one wire name"));
         }
+        // The next line must declare a field or variant, possibly after `pub`
+        // or another annotation, which `misplaced_annotations` then reports.
+        let mut next = self.pos;
+        if self.peek().is("pub") {
+            next += 1;
+        }
+        let member = self.token(next).is_some_and(|t| match &t.kind {
+            Kind::Word(word) => !reserved(word),
+            _ => t.is("@"),
+        });
+        if !member {
+            return Err(at.error(WIRE_NAME_PLACE));
+        }
         Ok(Some(WireName {
             at,
             name: name.to_string(),
@@ -156,6 +174,21 @@ impl Parser {
     /// Reject annotations where no declaration accepts them, after checking
     /// that each is well formed.
     pub(super) fn misplaced_annotations(&mut self, place: &str) -> Result<()> {
+        // Report the first known annotation before parsing the rest, so one
+        // stacked above `@serial.name` is named rather than the wire name.
+        if self.peek().is("@")
+            && let Some(annotation) = self
+                .token(self.pos + 1)
+                .and_then(|t| t.text())
+                .and_then(Annotation::named)
+            && !self.token(self.pos + 2).is_some_and(|t| t.is("."))
+        {
+            return Err(self.peek().error(format!(
+                "`@{}` applies only to {}, not {place}",
+                annotation.name(),
+                annotation.targets()
+            )));
+        }
         if let Some((at, annotation)) = self.annotations()?.into_iter().next() {
             return Err(at.error(format!(
                 "`@{}` applies only to {}, not {place}",

@@ -56,9 +56,6 @@ impl Parser {
             self.misplaced_annotations("enum members")?;
             let public = self.eat("pub");
             if let Some(wire) = wire {
-                if self.peek().is("def") {
-                    return Err(wire.at.error(annotations::WIRE_NAME_PLACE));
-                }
                 wire_names.push((variants.len(), wire));
             }
             if self.peek().is("def") {

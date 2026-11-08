@@ -875,6 +875,34 @@ fn wire_name_diagnostics() {
             "`@serial.name` applies only to fields",
         ),
         (
+            "@serial\nclass C:\n    @redacted\n    @serial.name(\"x\")\n    a: i64\n",
+            "`@redacted` applies only to class and enum declarations, not class members",
+        ),
+        (
+            "@serial\nenum E:\n    @serial.name(\"x\")\n    @copy\n    A\n",
+            "`@copy` applies only to class declarations, not enum members",
+        ),
+        (
+            "@serial\nclass C:\n    a: i64\n    @serial.name(\"x\")\n",
+            "`@serial.name` applies only to fields",
+        ),
+        (
+            "@serial\nenum E:\n    A\n    @serial.name(\"x\")\n",
+            "`@serial.name` applies only to fields",
+        ),
+        (
+            "@serial\nclass C:\n    a: i64\n    @serial.name(\"x\")\nconst N: i64 = 1\n",
+            "`@serial.name` applies only to fields",
+        ),
+        (
+            "@serial\nclass C:\n    @serial.name(\"x\")\n    pub def f(self) -> i64:\n        1\n    a: i64\n",
+            "`@serial.name` applies only to fields",
+        ),
+        (
+            "@serial\nclass C:\n    @serial.name(\"x\", \"y\")\n    a: i64\n",
+            "`@serial.name` takes one string literal",
+        ),
+        (
             "@serial\nclass C:\n    @serial.name(\"\")\n    a: i64\n",
             "`@serial.name` needs a nonempty name",
         ),
