@@ -1,9 +1,10 @@
-//! Rename a module-level declaration, a field, method or enum variant, an
-//! import alias or a local (issues #821 and #876). A plan is computed from
-//! editor analyses and returned as text edits; nothing is written. A
-//! declaration or member is renamed across its package and the workspace
-//! members that depend on it; an alias or a local only in its file. Every unsupported case is refused before any
-//! edit is returned, and the edited files are checked again before the
+//! Rename a module-level declaration, a field, method or enum variant, a
+//! parameter, an import alias or a local (issues #821 and #876). A plan is
+//! computed from editor analyses and returned as text edits; nothing is
+//! written. A declaration, member, or parameter that other modules can pass
+//! by name is renamed across its package and the workspace members that
+//! depend on it; an alias, a local, or another parameter only in its file.
+//! Every unsupported case is refused before any edit is returned, and the edited files are checked again before the
 //! plan is accepted. Strings, comments and docstrings are not edited.
 use super::index::{Errors, Package, Use};
 use super::relocate::{
@@ -176,6 +177,33 @@ pub fn plan(
             if refs.iter().any(|l| l.file != File::Path(path.clone())) {
                 return Err(format!("`{name}` is written in another file"));
             }
+            if let Some(&callable) = analysis.parameter_of.get(&symbol) {
+                parameter_clash(analysis, callable, new_name)?;
+                // Name the file as the package path does, relative to the
+                // workspace root; only a refusal needs it.
+                let shown = || {
+                    Package::open(&path).map_or_else(
+                        |_| {
+                            path.file_name().map_or_else(
+                                || path.display().to_string(),
+                                |n| n.to_string_lossy().into(),
+                            )
+                        },
+                        |package| package.relative(&path),
+                    )
+                };
+                for location in &analysis.unresolved {
+                    if location.file == File::Path(path.clone()) {
+                        uncertain(
+                            &text,
+                            location,
+                            &shown,
+                            (&name, &analysis.symbols[callable].name),
+                            true,
+                        )?;
+                    }
+                }
+            }
             let first = refs.remove(0);
             in_file(
                 analysis, &path, &text, &name, new_name, refs, first, &overlay, recheck,
@@ -210,17 +238,9 @@ fn subject(
     };
     let symbol = &analysis.symbols[reference.symbol];
     let short = symbol.name.rsplit('.').next().unwrap_or(&symbol.name);
-    let not_yet = |what: &str, reason: &str| {
-        Err(format!(
-            "renaming {what} is not supported yet: {reason} (issue #876)"
-        ))
-    };
     match symbol.kind {
-        SymbolKind::Parameter => {
-            return not_yet(
-                "a parameter",
-                "rename does not yet edit named arguments, though find references lists them",
-            );
+        SymbolKind::Parameter if short == "self" => {
+            return Err("`self` names the receiver, so it cannot be renamed".into());
         }
         SymbolKind::Module => {
             let spelled = written(text, &name_at(text, &reference.location));
@@ -240,7 +260,18 @@ fn subject(
         ));
     }
     let location = name_at(text, &reference.location);
-    if symbol.kind == SymbolKind::Local {
+    // A parameter that only its own module can name, by a named argument
+    // or in the body, is renamed in its file like a local; so is a closure
+    // parameter, which no named argument names.
+    let callable = analysis.parameter_of.get(&reference.symbol);
+    let exported = symbol.kind == SymbolKind::Parameter && callable.is_some() && symbol.exported;
+    if symbol.kind == SymbolKind::Parameter && written(text, &location) != short {
+        return Err(format!(
+            "cannot rename `{}`, written for `{short}`",
+            written(text, &location)
+        ));
+    }
+    if symbol.kind == SymbolKind::Local || (symbol.kind == SymbolKind::Parameter && !exported) {
         let subject = Subject::Local {
             symbol: reference.symbol,
             name: short.to_owned(),
@@ -249,6 +280,15 @@ fn subject(
     }
     let identity = (declared.file.clone(), declared.line, declared.column);
     let spelled = written(text, &location);
+    if let Some(&callable) = callable.filter(|_| exported) {
+        let subject = Subject::Declaration {
+            identity,
+            name: short.to_owned(),
+            qualified: format!("{}.{short}", analysis.symbols[callable].name),
+            member: Some(SymbolKind::Parameter),
+        };
+        return Ok((subject, location));
+    }
     let member = matches!(
         symbol.kind,
         SymbolKind::Field | SymbolKind::Method | SymbolKind::Variant
@@ -742,13 +782,13 @@ fn declaration(
         }
     }
     let type_name = qualified.rsplit_once('.').map_or("", |(o, _)| o);
-    if member.is_some() {
+    if let Some(kind) = member {
         members(
             analysis,
             &package,
             overlay,
             &reach,
-            (type_name, old, qualified),
+            (kind, type_name, old, qualified),
             new_name,
         )?;
     }
@@ -898,6 +938,8 @@ fn declaration(
     // its own `pub`; every variant of a public enum is public.
     let public = match member {
         None => declared_pub(identity.1),
+        // Only a parameter that another module can name takes this path.
+        Some(SymbolKind::Parameter) => true,
         Some(kind) => {
             let owner_line = analysis
                 .symbols
@@ -912,6 +954,22 @@ fn declaration(
         }
     };
     let shown = match member {
+        Some(SymbolKind::Parameter) => {
+            let kind = analysis
+                .symbols
+                .iter()
+                .find(|s| {
+                    s.name == type_name
+                        && matches!(s.kind, SymbolKind::Function | SymbolKind::Method)
+                })
+                .map(|s| s.kind);
+            let mut parts = type_name.rsplitn(3, '.');
+            let last = parts.next().unwrap_or(type_name);
+            match (kind, parts.next()) {
+                (Some(SymbolKind::Method), Some(owner)) => format!("{owner}.{last}"),
+                _ => last.to_owned(),
+            }
+        }
         Some(_) => format!(
             "{}.{old}",
             type_name.rsplit('.').next().unwrap_or(type_name)
@@ -944,9 +1002,15 @@ fn declaration(
             Some(module) => format!("{package_name}.{module}.{shown}"),
             None => format!("{package_name}: {qualified}"),
         };
-        api_changes.push(format!(
-            "renames public `{path}` to `{new_name}`, so packages outside this workspace that import it must change"
-        ));
+        api_changes.push(if member == Some(SymbolKind::Parameter) {
+            format!(
+                "renames parameter `{old}` of public `{path}` to `{new_name}`, so packages outside this workspace that pass `{old}=` must change"
+            )
+        } else {
+            format!(
+                "renames public `{path}` to `{new_name}`, so packages outside this workspace that import it must change"
+            )
+        });
     }
     // Encoding writes `@serial` field and variant names, so the rename
     // changes the format; it stays allowed while no data exists yet.
@@ -974,41 +1038,113 @@ fn declaration(
     })
 }
 
-/// Refuse a member rename that would clash with another member of `owner`,
-/// or that could miss a use: a place in a generic body that no call
-/// instantiates, where the member's name is written on a value whose type
-/// the analysis cannot tell.
+/// Refuse a member or exported parameter rename that would clash with
+/// another member of `owner` (the callable, for a parameter), or that could
+/// miss a use: a place in a generic body that no call instantiates, where
+/// the name is written on a value whose type, or as a named argument to a
+/// callee, the analysis cannot tell.
 fn members(
     analysis: &Analysis,
     package: &Package,
     overlay: &HashMap<PathBuf, String>,
     reach: &super::index::Reach,
-    (owner, old, qualified): (&str, &str, &str),
+    (kind, owner, old, qualified): (SymbolKind, &str, &str, &str),
     new_name: &str,
 ) -> Result<(), String> {
-    let taken = format!("{owner}.{new_name}");
-    if analysis.symbols.iter().any(|s| {
-        s.name == taken
-            && matches!(
-                s.kind,
-                SymbolKind::Field | SymbolKind::Method | SymbolKind::Variant
-            )
-    }) {
-        let short = owner.rsplit('.').next().unwrap_or(owner);
-        return Err(format!("`{short}` already has a member named `{new_name}`"));
+    let parameter = kind == SymbolKind::Parameter;
+    if parameter {
+        if let Some(callable) = analysis.symbols.iter().position(|s| {
+            s.name == owner && matches!(s.kind, SymbolKind::Function | SymbolKind::Method)
+        }) {
+            parameter_clash(analysis, callable, new_name)?;
+        }
+    } else {
+        let taken = format!("{owner}.{new_name}");
+        if analysis.symbols.iter().any(|s| {
+            s.name == taken
+                && matches!(
+                    s.kind,
+                    SymbolKind::Field | SymbolKind::Method | SymbolKind::Variant
+                )
+        }) {
+            let short = owner.rsplit('.').next().unwrap_or(owner);
+            return Err(format!("`{short}` already has a member named `{new_name}`"));
+        }
     }
     for (file, location) in &reach.unresolved {
         if package.member_of(file).is_none() {
             continue;
         }
-        if written(&read(overlay, file)?, location) == old {
-            return Err(format!(
-                "`{old}` is written at {}:{}:{} in a generic body that no call instantiates, on a value whose type the editor analysis cannot tell, so a rename cannot tell whether it names `{qualified}`",
-                package.relative(file),
-                location.line,
-                location.column
-            ));
-        }
+        let owner = if parameter { owner } else { qualified };
+        uncertain(
+            &read(overlay, file)?,
+            location,
+            &|| package.relative(file),
+            (old, owner),
+            parameter,
+        )?;
+    }
+    Ok(())
+}
+
+/// Refuse a rename to the name of another parameter of `callable`.
+fn parameter_clash(analysis: &Analysis, callable: usize, new_name: &str) -> Result<(), String> {
+    let taken = analysis
+        .parameter_of
+        .iter()
+        .any(|(&p, &c)| c == callable && analysis.symbols[p].name == new_name);
+    if taken {
+        let name = &analysis.symbols[callable].name;
+        let short = match analysis.symbols[callable].kind {
+            SymbolKind::Method => {
+                let mut parts = name.rsplitn(3, '.');
+                let method = parts.next().unwrap_or(name);
+                match parts.next() {
+                    Some(owner) => format!("{owner}.{method}"),
+                    None => method.to_owned(),
+                }
+            }
+            _ => name.rsplit('.').next().unwrap_or(name).to_owned(),
+        };
+        return Err(format!(
+            "`{short}` already has a parameter named `{new_name}`"
+        ));
+    }
+    Ok(())
+}
+
+/// Refuse when `old` is written at `location` of `text`, a place the
+/// analysis could not resolve, so it may name what the rename changes:
+/// `owner` is the member's qualified name, or a parameter's callable. A
+/// parameter is named only by a named argument, `old=`.
+fn uncertain(
+    text: &str,
+    location: &Location,
+    shown: &dyn Fn() -> String,
+    (old, owner): (&str, &str),
+    parameter: bool,
+) -> Result<(), String> {
+    if written(text, location) != old {
+        return Ok(());
+    }
+    let place = format!("{}:{}:{}", shown(), location.line, location.column);
+    if !parameter {
+        return Err(format!(
+            "`{old}` is written at {place} in a generic body that no call instantiates, on a value whose type the editor analysis cannot tell, so a rename cannot tell whether it names `{owner}`"
+        ));
+    }
+    let after: String = text
+        .lines()
+        .nth(location.line as usize - 1)
+        .unwrap_or_default()
+        .chars()
+        .skip((location.column + location.length) as usize - 1)
+        .collect();
+    let after = after.trim_start();
+    if after.starts_with('=') && !after.starts_with("==") {
+        return Err(format!(
+            "`{old}=` is written at {place} in a generic body that no call instantiates, to a callee the editor analysis cannot tell, so a rename cannot tell whether it names the parameter of `{owner}`"
+        ));
     }
     Ok(())
 }
