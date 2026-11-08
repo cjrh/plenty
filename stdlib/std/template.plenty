@@ -1503,19 +1503,19 @@ pub class Engine:
     _expression_nodes: i64
 
     # Registration is transactional: a failure leaves the registry unchanged.
-    pub def add(self: &mut Engine, name: &strview, source: &strview) -> Result[(), TemplateError]:
+    pub def add(self: &mut Engine, name: &str, source: &strview) -> Result[(), TemplateError]:
         if name == "":
             return Err(TemplateError.Syntax(0))
         for template in &self._templates:
             if template.name == name:
-                return Err(TemplateError.DuplicateTemplate(allocated(name[:])?))
+                return Err(TemplateError.DuplicateTemplate(*name))
         if len(self._templates) >= self._bounds.max_templates.get():
             return Err(TemplateError.LimitExceeded)
         named_bytes = bounded_total(self._source_bytes, name.byte_len(), self._bounds.max_source.get())?
         source_bytes = bounded_total(named_bytes, source.byte_len(), self._bounds.max_source.get())?
         remaining_nodes = unchecked:
             self._bounds.max_expression_nodes.get() - self._expression_nodes
-        template = parse(allocated(name[:])?, source, &self._bounds, remaining_nodes)?
+        template = parse(*name, source, &self._bounds, remaining_nodes)?
         count = len(template.tokens)
         token_count = bounded_total(self._token_count, count, self._bounds.max_tokens.get())?
         mut expression_nodes = self._expression_nodes

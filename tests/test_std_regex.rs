@@ -1389,13 +1389,14 @@ print(__regex_bytes_find(b"", "abc"))?
 }
 
 #[test]
-fn regex_text_inputs_and_retained_patterns_accept_bounded_views() {
+fn regex_text_views_and_explicit_owned_patterns_preserve_ranges() {
     assert_eq!(
         output(&program(
             r#"
 limits = std.regex.limits()
 mut pattern = "!(?P<word>é+)!"
-regex = std.regex.compile(&pattern[1:-1], &limits)?
+owned_pattern = pattern[1:-1]?
+regex = std.regex.compile(&owned_pattern, &limits)?
 pattern = "replaced after compilation"
 names = "!word!"
 print(regex.group_index(&names[1:-1]).unwrap())?
@@ -1421,4 +1422,31 @@ print(not regex.is_match(empty)?, regex.find(empty)?.is_none())?
         )),
         "1\nTrue\n1 5 True\nTrue\nTrue\nTrue\n1\n2\nTrue\nTrue\nTrue\nTrue True"
     );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn compilation_shares_pattern_storage_without_an_extra_full_text_copy() {
+    let source = r#"
+import std.regex
+
+def needed(pattern: &str) -> Result[i64, AllocError | IoError]:
+    bounds = std.regex.limits()
+    for budget in range(300):
+        marker = "__test_fail_allocations_after_".concat(str.from(budget)?)?.concat("__")?
+        print(marker)?
+        result = std.regex.compile(pattern, &bounds)
+        print("__test_restore_allocations__")?
+        if result.is_ok():
+            return Ok(budget)
+    Ok(-1)
+
+def main() -> Result[(), AllocError | IoError]:
+    # Redundant flag changes increase source size without adding instructions.
+    short = needed("a")?
+    long = needed("(?i)(?-i)(?i)(?-i)(?i)(?-i)(?i)(?-i)(?i)(?-i)a")?
+    print(short >= 0, short == long)?
+    Ok(())
+"#;
+    assert_eq!(output_with_optimization(source, false), "True True");
 }

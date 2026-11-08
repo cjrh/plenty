@@ -60,13 +60,56 @@ relax path, SQL, TLS or mode validation.
 
 ## Scope
 
-The standard-library text-input inventory separates 49 runtime-backed reader
-declarations in 13 modules from 127 Plenty-level readers, with two byte-bridge
-declarations (`from_text` and `matches_text`) tracked separately. The generated
-signature index is authoritative for implemented signatures. The deliberately
-unchanged cases are two MIME getters returning ordinary `&str`, three serial
-protocol helpers, nine JSON protocol callbacks and four TOML protocol callbacks:
-returning references and user protocol signatures need their own contracts.
+The inventory covers 196 public declarations: 120 Plenty-level declarations,
+49 runtime-backed declarations in 13 modules, and two byte-bridge declarations
+(`from_text` and `matches_text`) accept text views. The other 25 declarations
+preserve ordinary string references: two MIME getters, three serial protocol
+helpers, nine JSON protocol callbacks, four TOML protocol callbacks, and seven
+whole-handle retention APIs. The generated [signature index](signatures.md) is
+authoritative.
+
+The seven retention declarations are `std.http.client.request`, `Client.get`,
+`std.http.cookie.set_cookie`, `removal`, `std.regex.compile`,
+`std.http.server.Exchange.send`, and `std.actor.http.server.Response.send`.
+They share existing immutable string handles rather than allocating replacement
+text. Four view-capable declarations mix parameter roles:
+
+| API | Ordinary `&str` retained argument | `&strview` inspected argument |
+| --- | --- | --- |
+| `std.http.cookie.signed_cookie` | Cookie name | Value to sign |
+| `std.http.server.Router.add` | Method | Pattern to parse |
+| `std.template.Engine.add` | Template name | Source to parse |
+| `std.mime.MediaType.set_param` | Stored value | Name to normalize |
+
+These mixed declarations are already included in the 120 view-capable count.
+The retention boundary restores 13 ordinary parameter roles across 11
+declarations; those are parameter and declaration counts, not additional
+disjoint inventory groups. `indent_with` also keeps its ordinary-reference
+callback contract.
+
+A raw two-word view contains a byte address and byte count, not an owning
+string handle. Implicitly copying it inside every retaining API would discard
+Plenty's cheap handle-sharing behavior. Materialize a selected range explicitly
+when that is the intended ownership cost:
+
+```plenty
+import std.http.cookie
+
+def main() -> Result[(), AllocError | IoError | std.http.cookie.CookieError]:
+    source = "!session!"
+    view = &source[1:-1]
+    owned_name = view[:]?
+    cookie = std.http.cookie.set_cookie(&owned_name, "value")?
+    print(cookie.name)?
+    Ok(())
+```
+```output
+session
+```
+
+Parsing, normalization, encoding, response serialization, and error construction
+still allocate their owned outputs or working storage where required; a parsed
+or transformed result does not require an ordinary reference for every input.
 
 Views remain two words. Scalar `len()` scans a view; `byte_len()` and
 [`as_bytes()`](bytes-stringlike.md) give constant-time access to its byte extent.

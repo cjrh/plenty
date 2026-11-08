@@ -289,7 +289,7 @@ pub class Router[R]:
     # Adds a route. `method` is a request method, or `*` for any; `pattern`
     # starts with `/`. Routes are tried in the order they were added. Several
     # patterns may carry equal route values.
-    pub def add(self: &mut Router[R], method: &strview, pattern: &strview, route: R) -> Result[(), ServerError]:
+    pub def add(self: &mut Router[R], method: &str, pattern: &strview, route: R) -> Result[(), ServerError]:
         if not valid_method(method):
             return Err(ServerError.InvalidPattern)
         if not pattern.startswith("/"):
@@ -299,7 +299,7 @@ pub class Router[R]:
             entry = &self._routes[index]
             if entry.method == method and same_segments(&entry.segments, &segments):
                 return Err(ServerError.DuplicateRoute)
-        allocated(self._routes.append(Entry(allocated(method[:])?, segments, route)))
+        allocated(self._routes.append(Entry(*method, segments, route)))
 
     # The first route whose pattern matches `path` and whose method is
     # `method` or `*`; a GET route also answers HEAD. Captures are returned
@@ -1006,9 +1006,9 @@ pub class Exchange[T]:
         Ok(())
 
     # Sends `body` with the given status and Content-Type.
-    pub def send(self: &mut Exchange[T], status: i64, content_type: &strview, body: &[u8]) -> Result[(), HttpError]:
+    pub def send(self: &mut Exchange[T], status: i64, content_type: &str, body: &[u8]) -> Result[(), HttpError]:
         mut head = std.http.response(status, reason(status))?
-        head.add("Content-Type", http_allocated(content_type[:])?)?
+        head.add("Content-Type", *content_type)?
         self.respond(head, body)
 
     # Sends UTF-8 text as text/plain.

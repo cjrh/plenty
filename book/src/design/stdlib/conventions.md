@@ -218,8 +218,14 @@ and drops its moved arguments, because an error cannot carry a loan.
 
 Borrow (`&T`) what the call only reads. Text readers use `&strview` to accept
 whole strings and selected substring ranges without an input copy. Ordinary
-`&str` remains appropriate for generic references, protocol callbacks, and
-getters returning a reference to an owned string field. Use `&mut T` for state
+`&str` remains appropriate for generic references, protocol callbacks, getters
+returning a reference to an owned string field, and parameters whose whole
+immutable string handle is retained. Reading through an ordinary `&str` lets
+the callee share `*text` without allocating a text buffer. A two-word view has
+no owning handle to share: callers of a retaining API explicitly copy a view
+with `view[:]?` before passing the owned result. Classify each parameter by its
+role; one method can borrow parsed input as `&strview` and retain another
+argument through `&str`. Use `&mut T` for state
 or a buffer it updates. Take ownership (`T`) only when the result or a queue keeps the value:
 `std.io.cursor(data: Bytes)`, `std.xml.reader(inner: R, ...)`. An adapter that
 owns its inner stream exposes it as a public `inner` field so the caller can

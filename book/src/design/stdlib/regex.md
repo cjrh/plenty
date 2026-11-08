@@ -7,12 +7,12 @@ pattern or search can consume has an explicit limit. Pattern and search errors
 use `RegexError`; arithmetic on freely constructed `Match` offsets has the
 separate contract described below.
 
-Patterns, haystacks, replacement templates and group names accept
+Haystacks, replacement templates and group names accept
 [`&strview`](../language/04-expressions/slices.md#substring-views), including
 borrowed substring ranges. Byte offsets are relative to the supplied view.
-Searching inspects its borrowed input directly; `compile` explicitly makes a
-fallible owning copy of the pattern it retains, so the compiled regex does not
-keep a loan of the caller's string. Match extraction and replacements still
+Searching inspects its borrowed input directly. `compile` takes its retained
+pattern as ordinary `&str` and shares its owning handle; compiling a selected
+range requires an explicit owned copy first. Match extraction and replacements
 return independent owned results.
 
 The parser, compiler and matching engines are Plenty code in the module:
@@ -63,7 +63,7 @@ Released 15/03/2024, patched 02/04/2024.
 | Item | Result | Contract |
 |---|---|---|
 | `limits()` | `Limits` | The default limits, listed below |
-| `compile(pattern: &strview, bounds: &Limits)` | `Result[Regex, RegexError]` | The compiled pattern, or its first error |
+| `compile(pattern: &str, bounds: &Limits)` | `Result[Regex, RegexError]` | The compiled pattern, or its first error |
 
 `Limits(max_pattern_bytes, max_nesting, max_repeat, max_instructions,
 max_memory, max_work)` has public `NonNegative[i64]` fields in that order. A

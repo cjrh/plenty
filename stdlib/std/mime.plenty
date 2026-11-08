@@ -76,11 +76,11 @@ pub class MediaType:
     # Adds the parameter, or replaces the value of one with the same name.
     # `name` must be a token; `value` may be any text without control
     # characters other than tab.
-    pub def set_param(self: &mut MediaType, name: &strview, value: &strview) -> Result[(), MimeError]:
+    pub def set_param(self: &mut MediaType, name: &strview, value: &str) -> Result[(), MimeError]:
         if not token_text(name) or not value_text(value):
             return Err(MimeError.Invalid)
         lower = name.lower().map_error(MimeError.Allocation)?
-        stored = value.lower().map_error(MimeError.Allocation)? if lower == "charset" else value[:].map_error(MimeError.Allocation)?
+        stored = value.lower().map_error(MimeError.Allocation)? if lower == "charset" else *value
         for index in range(len(self._params)):
             if self._params[index].name == lower:
                 self._params[index] = Param(lower, stored)

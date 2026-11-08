@@ -1465,7 +1465,9 @@ def main() -> Result[(), AllocError | IoError | std.http.cookie.CookieError | st
     print(std.http.find(&headers, &name[1:-1]).unwrap(), std.http.same_name(&name[1:-1], &other[1:-1]))?
     mut key = "!session!"
     mut value = "!abc!"
-    cookie = std.http.cookie.set_cookie(&key[1:-1], &value[1:-1])?
+    owned_key = key[1:-1]?
+    owned_value = value[1:-1]?
+    cookie = std.http.cookie.set_cookie(&owned_key, &owned_value)?
     key = "changed"
     value = "changed"
     print(cookie.name == "session", cookie.value == "abc")?

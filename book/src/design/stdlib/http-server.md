@@ -115,6 +115,10 @@ peer or a test that plays one. `stop` and
 
 ## Routing
 
+`Router.add` retains its method through ordinary `&str`, sharing its immutable
+handle. The pattern is parsed from `&strview`; lookup method/path inputs also
+accept views, with owned captures built from the selected path.
+
 | Item | Meaning |
 |---|---|
 | `router[R]()` | `Result[Router[R], ServerError]`: an empty table whose routes carry values of type `R` |
@@ -264,6 +268,11 @@ the [structural protocol](../language/07-generics/protocols.md). The handler is
 shared across requests; the selected route value is borrowed from the router.
 
 ## Exchanges
+
+`send` takes its Content-Type as ordinary `&str` so the temporary response
+header shares that existing handle. Its byte body and `send_text` input remain
+borrowed views. Copy a selected Content-Type range explicitly before calling
+this retaining boundary.
 
 The handler receives an `Exchange[T]` for one request.
 

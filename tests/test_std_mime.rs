@@ -268,7 +268,8 @@ subtype = "!PLAIN!"
 print(std.mime.new(&kind[1:-1], &subtype[1:-1])?.to_string()? == "text/plain")?
 key = "!name!"
 mut stored = "!café 🙂!"
-value.set_param(&key[1:-1], &stored[1:-1])?
+owned_value = stored[1:-1]?
+value.set_param(&key[1:-1], &owned_value)?
 stored = "replaced after retention"
 print(value.param(&key[1:-1]).unwrap() == "café 🙂")?
 print(value.remove_param(&key[1:-1]))?
@@ -281,4 +282,27 @@ print(*ordinary == "text")?
 "#,
         "True\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue",
     );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn stored_parameter_values_share_their_existing_text_handle() {
+    let source = r#"
+import std.mime
+
+def retained() -> Result[std.mime.MediaType, AllocError | IoError | std.mime.MimeError]:
+    mut media = std.mime.parse("text/plain; x=old")?
+    value = "a parameter value ".concat("beyond inline storage")?
+    print("__test_begin_no_allocations__")?
+    changed = media.set_param("x", &value)
+    print("__test_end_no_allocations__")?
+    changed?
+    Ok(media)
+
+def main() -> Result[(), AllocError | IoError | std.mime.MimeError]:
+    media = retained()?
+    print(media.param("x").unwrap() == "a parameter value beyond inline storage")?
+    Ok(())
+"#;
+    assert_eq!(support::http_program_output(source), "True");
 }

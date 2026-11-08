@@ -327,10 +327,10 @@ pub class Request:
     pub def add(self: &mut Request, name: str, value: str) -> Result[(), ClientError]:
         alloc(self.headers.append(Header(name, value)))
 
-pub def request(method: &strview, url: &strview) -> Result[Request, ClientError]:
+pub def request(method: &str, url: &str) -> Result[Request, ClientError]:
     headers = alloc(list[Header].new())?
     body = alloc(std.bytes.empty())?
-    Ok(Request(alloc(method[:])?, alloc(url[:])?, headers, body))
+    Ok(Request(*method, *url, headers, body))
 
 # A whole response, its body read into memory.
 pub class Fetched:
@@ -994,7 +994,7 @@ pub class Client[T, C]:
         status = head.status
         Ok(Fetched(status, head, url, redirects, body))
 
-    pub def get(self, url: &strview, deadline: &Deadline, cancel: &CancellationToken) -> Result[Fetched, ClientError]:
+    pub def get(self, url: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[Fetched, ClientError]:
         self.fetch(request("GET", url)?, deadline, cancel)
 
     # Returns a response's connection to the pool when its body was read to

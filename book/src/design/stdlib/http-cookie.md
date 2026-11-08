@@ -44,9 +44,8 @@ A pair whose name is not a token or whose value has a byte outside RFC
 as is a piece without `=`. The field carries cookies set by every
 application on the host, and one malformed cookie must not make every
 request fail. A value wrapped in double quotes loses them. More than `limit`
-valid cookies is `TooManyCookies`. Each field is copied once into a byte
-buffer and checked with bulk scans; only valid cookies are copied out as
-text, so a skipped pair allocates nothing.
+valid cookies is `TooManyCookies`. Each field is inspected through borrowed bytes and bulk scans; only valid
+cookies are copied out as text, so a skipped pair allocates nothing.
 
 Values are not decoded. A cookie's value is whatever the client sends; check
 it, or [sign](#signing) it, before trusting it.
@@ -61,6 +60,12 @@ it, or [sign](#signing) it, before trusting it.
 | `cookie.to_string()` | `Result[str, CookieError]`: the field value, after checking every part |
 | `add(&mut head, &cookie)` | Append a `Set-Cookie` field to a `ResponseHead` |
 | `SameSite` | `Strict`, `Lax`, or `Unrestricted` (`SameSite=None`) |
+
+`set_cookie` takes its retained name and value as ordinary `&str` and shares
+their immutable storage without allocation. `removal` and `signed_cookie` also
+retain the name through `&str`; the value being signed accepts `&strview`.
+Copy a selected range explicitly before passing it as retained text; see
+[text input ownership](text-input-views.md#scope).
 
 `set_cookie` gives `Path=/`, `Secure`, `HttpOnly`, `SameSite=Lax` and no
 `Max-Age`, which ends the cookie with the browser session. Change the

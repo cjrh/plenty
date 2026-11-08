@@ -420,12 +420,17 @@ User-container membership and iterator protocols remain **B49** in the
 
 ## B12: I/O and iteration
 
-Read-only text inputs in 127 pure-Plenty standard-library declarations accept
+Read-only text inputs in 120 pure-Plenty standard-library declarations accept
 `&strview`, including substring ranges: text builders and wrapping, formatting,
 regex, JSON/TOML and Markdown parsing, Unicode normalization, codecs, URLs,
 MIME, shell words, templates, diffs, and HTTP text helpers. Byte-oriented readers
-inspect `as_bytes()` directly. Retained names, compiled regex patterns, returned
-strings, and parser working buffers keep explicit fallible ownership boundaries.
+inspect `as_bytes()` directly. Whole-handle retention parameters keep ordinary `&str` and share their
+existing immutable storage; selected ranges need an explicit owned copy at
+those boundaries. Parsed results and working buffers keep fallible allocation
+contracts. Allocation-budget regressions protect the existing HTTP request,
+cookie and router sharing behavior (issue #135), and cover compiled patterns,
+template names, MIME values and response metadata. Text decoders borrow input
+bytes directly; partial output-owner failures release their allocated storage.
 Ordinary generic references, serialization callbacks, and MIME getters remain
 unchanged. See the [input inventory](../design/stdlib/text-input-views.md) for
 exceptions, runtime-reader coverage and allocation contracts. This delivers the
