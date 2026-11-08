@@ -2464,6 +2464,7 @@ impl Scope {
             canonical_facility_expression(e);
             return Ok(());
         }
+        let replacement_call = matches!(&e.kind, Expression::Call(name, _) if name == "replace");
         match &mut e.kind {
             Expression::Name(n)
             | Expression::Call(n, _)
@@ -2474,12 +2475,14 @@ impl Scope {
                 let written = n.chars().count() as u32;
                 if let Some(symbol) = self.symbol(n, &e.at)? {
                     *n = symbol;
-                } else if n != "replace"
-                    && !matches!(
-                        n.as_str(),
-                        "iter" | "enumerate" | "zip" | "reversed" | "any" | "all"
-                    )
-                    && !builtin(n)
+                } else if replacement_call {
+                    // Bind the builtin in this module, before lowering sees
+                    // other modules' declarations in the combined program.
+                    *n = FIELD_REPLACE.into();
+                } else if !matches!(
+                    n.as_str(),
+                    "iter" | "enumerate" | "zip" | "reversed" | "any" | "all"
+                ) && !builtin(n)
                 {
                     // `p` alone, bound by `import p` or `import p.sub`.
                     if let Some(message) = self.module_path(n) {
