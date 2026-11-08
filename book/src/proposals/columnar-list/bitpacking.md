@@ -112,9 +112,15 @@ native SSE2. FOR and delta skipping reach the same 0.06–0.17 from the metadata
 they already store. This gain comes from block statistics, not packing: the
 native zone map has the same benefit at 4.06 bytes per row.
 
-On uniform data, few blocks can be settled. Branching on each block's bounds
-then costs time: at 1% selectivity, the zone-map scan ran at 0.37–0.43 ns/row
-on 64M rows, against 0.12–0.13 for native SSE2 without statistics. Statistics
+On uniform data, few blocks can be settled, and the zone-map scan is slower
+than plain SIMD even though it executes fewer instructions (1.78–2.16 against
+2.25 per row at 1% selectivity on 1M and 64M rows). The slowdown grows with
+size: about 1.5 times at 1M rows and 0.37–0.43 against 0.12–0.13 ns/row (about 3 times) at 64M rows.
+A review measured 0.42 branch misses per block, accounting for about 7% of the
+extra cycles at 64M rows, so the skip branch is not the main cost. The cause
+was not measured; memory access resuming after skipped blocks is a plausible
+one. The kernel's per-block call also adds about 0.5 instructions per row.
+Statistics
 would need explicit opt-in or an adaptive fallback, and invalidation on writes,
 as the [chunk statistics proposal](chunks.md) already discusses.
 
@@ -174,8 +180,8 @@ because rows move across block boundaries.
   much as 8- or 16-bit bitpacking; the vector count would make those columns
   the fastest to scan rather than the slowest.
 - **Block statistics, not packing, are the route to skipping.** Evaluate them
-  with [chunks and statistics](chunks.md), where the invalidation and
-  unpredictable-skip costs measured here apply.
+  with [chunks and statistics](chunks.md), where the invalidation costs and
+  the shuffled-data slowdown measured here apply.
 - **No public codec or Rust format compatibility.** No `std` module or
   interchange format needs bitpacked integers. Wrapping the Rust crate would
   bring a format without a consumer; a codec written in Plenty would also need
@@ -186,7 +192,9 @@ because rows move across block boundaries.
 The kernels are C on one x86-64 machine (Ryzen 7 7840HS), single-threaded, in
 hot repeated scans. All kernels share one compiler and harness, so they compare
 fairly with each other; Plenty's own vector count costs 3.0 instructions per row
-against 2.25 for the matching C kernel. Only
+against 2.25 for the matching C kernel. The C kernel compares unsigned values
+and pays a bias `xor` that Plenty's signed `i32` count does not, so Plenty's
+extra cost is somewhat more than 0.75 instructions per row. Only
 128-row blocks and the 4x layout were measured. Wider-vector layouts (8x with
 AVX2) were not measured, since Plenty targets the SSE2 baseline. Timings were
 taken while other agents were building. The instruction counts, and the

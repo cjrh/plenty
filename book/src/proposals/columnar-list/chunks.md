@@ -71,8 +71,8 @@ For clist, start with optional conservative integer bounds for explicit
 field comparisons, only after chunking itself is justified.
 The [bitpacking investigation](bitpacking.md#block-skipping) measured this on
 native columns with 128-row bounds: sorted data skipped almost every block,
-while shuffled data scanned about three times slower than plain SIMD because
-each block's skip branch was unpredictable.
+while shuffled data on 64M rows scanned about three times slower than plain
+SIMD despite executing fewer instructions; branch misses explained little of it.
 
 Deleting rows may leave old min/max values as a wider conservative bound:
 that loses pruning opportunities but does not hide a matching live row.

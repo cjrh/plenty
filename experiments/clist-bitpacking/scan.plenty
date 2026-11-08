@@ -1,5 +1,5 @@
 # Issue #655: per-row instruction counts of today's clist filter/count paths.
-# run.py rewrites ROWS, REPS and KIND, then subtracts the counts of a
+# run.py rewrites REPS and KIND, then subtracts the counts of a
 # REPS = 1 build from a REPS = 101 build to cancel startup and construction.
 const ROWS: i64 = 1048576
 const REPS: i64 = 1
