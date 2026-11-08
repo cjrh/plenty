@@ -116,6 +116,7 @@ Implementation boundaries and original precedents:
 | `src/frontend/views.rs`, `__regex_text_bytes` handling | Internal adapter forwards the text origin's loan to a shared byte-view argument. It is argument-only, not a general returned-view mechanism. |
 | `src/regex.rs`, `RegexOp::TextBytes` | Records conversion from text view to byte view. |
 | `src/codegen/collections.rs`, `lower_collection` | Regex conversion reuses the existing address/count operand with byte-view type; no byte allocation or copy. |
+| `src/codegen/collections.rs`, `narrow_helper`; `tests/test_std_text_set_scans.rs` | Text-set scan adapters must preserve scalar-result helper lowering when accepting views; issue #880 records this code-generation boundary. |
 | `stdlib/std/regex.plenty`, `search_bytes` call using `__regex_text_bytes(text)` | Actual consumer of the loan-preserving byte adapter. |
 | `stdlib/std/bytes.plenty`, `from_text` | Public owned-byte conversion accepts `&strview` and copies its `as_bytes()` range directly. |
 | `stdlib/std/bytes.plenty`, `Bytes.extend`, `Bytes.overwrite` | Shared byte-view consumers that a public text-to-byte borrow should feed directly. |
