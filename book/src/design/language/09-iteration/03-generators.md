@@ -46,9 +46,60 @@ and its Option wrapper add no allocation beyond body operations.
 
 Loops, comprehensions, and iterable collection constructors consume frames.
 `break` destroys a loop's hidden frame without executing subsequent generator
-statements. Assignment, arguments, and returns transfer ownership. Standard
-Option/Result wrappers may own frames, including nested wrappers, and remain
-affine. Frames cannot enter collections, class fields, tuples, user enum
+statements.
+
+## Lending a generator
+
+`for value in &mut g` advances a mutable owner in place, and `for value in g`
+does the same through an exclusive `g: &mut Generator[T]` parameter. Items are
+owned, as from `next`. The loop never drops the frame: after `break`, `return`
+or `?`, the owner keeps the remaining items for a later `next`, loop or owning
+consumer, and drops the suspended frame at its own scope end. Comprehensions,
+`enumerate`, `zip` and `iter` accept `&mut g` the same way. A `zip` that
+stops because a later input ended has already taken one more item from an
+earlier generator; that item is dropped. Pass a lent generator as the last
+`zip` input to keep every item.
+
+```plenty
+def numbers(stop: i64) -> Generator[i64]:
+    mut value = 0
+    while value < stop:
+        yield value
+        # value starts at zero and value < stop <= i64.MAX.
+        unchecked:
+            value = value + 1
+
+def skip_small(g: &mut Generator[i64]) -> Option[i64]:
+    for value in g:
+        if value >= 2:
+            return Some(value)
+    Nothing
+
+def main() -> Result[(), IoError]:
+    mut g = numbers(5)
+    print(skip_small(&mut g))?
+    for value in &mut g:
+        print(value)?
+    print(next(g))?
+    Ok(())
+```
+```output
+Option[i64].Some(2)
+3
+4
+Option[i64].Nothing
+```
+
+The exclusive loan lasts for the whole loop, so `next(&mut g)` or another use
+of `g` inside the body is a conflicting borrow. A shared `&g` cannot advance,
+and `reversed(&mut g)` is rejected. Inside a generator body the loan cannot
+cross `yield`; consume the owned frame with `for value in g` or call `next`
+between yields instead. A lent loop adds no allocation.
+
+## Frame ownership and identity
+
+Assignment, arguments, and returns transfer ownership. Standard Option/Result
+wrappers may own frames, including nested wrappers, and remain affine. Frames cannot enter collections, class fields, tuples, user enum
 payloads, or heap-stored closures. Printing, comparison, length, and membership
 are undefined for frames.
 
@@ -59,6 +110,18 @@ references, aliases, and standard sum wrappers specialize to actual frames.
 A factory must resolve to one producer per specialization; equal yield types
 do not allow different producers to join. `Nothing` or `Err` alone cannot
 infer an absent producer. No hidden boxing makes frames interchangeable.
+
+| Position | Matching `Generator[T]` item type suffices | Producer identity must match |
+|---|---|---|
+| Parameter `Generator[T]` or `&mut Generator[T]` | Yes: each producer gets its own specialization | |
+| `for`, `next`, comprehension, `iter(...)` source | Yes | |
+| Factory return, `if`/`match` branches, reassignment of one binding | | Yes |
+| `Option`/`Result` payload joined across branches | | Yes |
+
+When two different producers meet where one identity is required, the
+diagnostic names both and suggests branching inside one generator body.
+Joining different producers through an inline sum of their frames or an
+explicit erased generator is planned (issue #872).
 
 A suspended frame retains its live owned locals. Completion releases them;
 dropping a suspended or never-started frame releases remaining locals and

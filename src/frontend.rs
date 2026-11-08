@@ -1054,6 +1054,10 @@ struct Lower<'a> {
     /// derived from one that some `return` returned; see
     /// [`Lower::retarget_reference`].
     holders: HashMap<usize, references::Holder>,
+    /// For each `if` or `match` being lowered as a value, innermost last:
+    /// its join loan and the loans of the borrowing values its arms produce;
+    /// see [`Lower::branch_value`].
+    branch_joins: Vec<references::BranchJoin>,
     /// Value slots of shared `values()`/`items()` loops, so a write through
     /// one can name the `(&mut d).values()` form (issue #803).
     shared_dictionary_values: HashSet<u8>,
@@ -1374,6 +1378,14 @@ impl Lower<'_> {
                 && copyable_through_reference(inner)
             {
                 "; copy the value with `*`".into()
+            } else if let (Some(Ty::Generator(expected)), Some(Ty::Generator(got))) =
+                (&expected, &got)
+                && expected.element == got.element
+                && expected.name.is_some()
+                && got.name.is_some()
+            {
+                // Issue #872: the item type matches, so name the frame identity.
+                "; each producer has its own inline frame, so different producers cannot join; branch inside one generator body instead".into()
             } else {
                 expected
                     .as_ref()
@@ -3493,7 +3505,13 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         let outer = std::mem::replace(&mut self.checked_value_tail, false);
-        let result = self.block(body, ops, &Tail::Value(expected));
+        let arms = match body.last().map(|stmt| &stmt.kind) {
+            Some(Statement::If { elifs, .. }) => elifs.len() + 2,
+            _ => 0,
+        };
+        let result = self.branch_value(at, arms, ops, |lower, ops| {
+            lower.block(body, ops, &Tail::Value(expected))
+        });
         self.checked_value_tail = outer;
         match result? {
             BlockResult::Continues(ty) => Ok(ty),
@@ -3682,6 +3700,14 @@ impl Lower<'_> {
                         last && self.yield_type.is_none(),
                     )?;
                     if matches!(tail, Tail::Value(_))
+                        && !self.checked_value_tail
+                        && ty
+                            .as_ref()
+                            .is_some_and(|ty| ty.carried_reference().is_some())
+                        && !self.branch_joins.is_empty()
+                    {
+                        self.branch_arm_value(e, ops)?;
+                    } else if matches!(tail, Tail::Value(_))
                         && ty.as_ref().is_some_and(Ty::contains_reference)
                     {
                         // The case's bindings and locals end before the value
@@ -4953,6 +4979,7 @@ fn lower_body(
                 absent_referents: HashSet::default(),
                 parameter_referents: HashSet::default(),
                 holders: HashMap::default(),
+                branch_joins: Vec::new(),
                 shared_dictionary_values: HashSet::default(),
                 indexed_lists: Vec::new(),
                 range_stop: None,

@@ -389,7 +389,8 @@ landed (issues #1/#30/#41, local PRs #488/#490). Optional/fallible returned
 references (`Option[&T]`/`Result[&T, E]`) shipped as phase 1 (issue #520,
 local PR #622). Immutable holders initialized with `Nothing`, `Err(e)`, or
 `Some`/`Ok` around one borrow nothing (issue #867). Reference-carrying
-parameters and `mut` holders shipped as the first part of issue #868.
+parameters and `mut` holders shipped as the first part of issue #868, and
+`if`/`match` values producing these types as the second.
 `dict.get_mut` replaced dictionary indexed assignment
 (issue #580, local PR #696); heap and graph reference getters shipped
 (local PR #629).
@@ -480,6 +481,18 @@ The separate borrowed text view is named `&strview`; the original `&substr`
 spelling remains a compatible alias. Ordinary `&str` references, generic `&T`
 and the two-word view layout keep their existing semantics. See
 [substring views](../design/language/04-expressions/slices.md#substring-views).
+
+`for value in &mut g` and `for value in g` through a `&mut Generator[T]`
+parameter advance a lent generator in place (issue #872, slice 1). Items are
+owned; `break`, `return` and `?` leave the remaining items with the owner,
+which drops the suspended frame at its own scope end. Comprehensions and
+`enumerate` accept the lent source. The loop holds the exclusive loan, so
+advancing the generator again in the body is a borrow error, and the loan
+cannot cross `yield`. The [generator reference](../design/language/09-iteration/03-generators.md#lending-a-generator)
+adds a capability matrix of where item types suffice and where producer
+identity must match; mismatched producers now name the frame identity in the
+diagnostic. Joining different producers and borrowed-item pipeline `next`
+remain under B12.
 
 Text-file iteration, uniform borrowed iteration and borrowed temporary source
 lifetimes shipped (issues #30/#75). Allocation-free enumerate/zip/reversed
