@@ -37,19 +37,29 @@ impl RegexOp {
                 vec![crate::frontend::text_view()],
                 crate::bytes::byte_view(),
             ),
-            Self::BytesFind => (vec![crate::bytes::byte_view(), Ty::Str], Ty::I64),
+            Self::BytesFind => (
+                vec![crate::bytes::byte_view(), crate::frontend::text_view()],
+                Ty::I64,
+            ),
             Self::Property => (vec![Ty::U32, Ty::I64], Ty::Bool),
             // `code * 8 + width` of the scalar at a byte offset, -1 at the
             // end, or -2 when the offset is not a scalar boundary.
-            Self::TextAt => (vec![Ty::Str, Ty::I64], Ty::I64),
+            Self::TextAt => (vec![crate::frontend::text_view(), Ty::I64], Ty::I64),
             // The byte at an offset, or -1 outside the text.
-            Self::TextByte => (vec![Ty::Str, Ty::I64], Ty::I64),
+            Self::TextByte => (vec![crate::frontend::text_view(), Ty::I64], Ty::I64),
             Self::TextSlice => (
-                vec![Ty::Str, Ty::I64, Ty::I64],
+                vec![crate::frontend::text_view(), Ty::I64, Ty::I64],
                 sum::result(Ty::Str, sum::alloc_error()),
             ),
             // The first byte offset of a needle at or after a boundary, or -1.
-            Self::TextFind => (vec![Ty::Str, Ty::Str, Ty::I64], Ty::I64),
+            Self::TextFind => (
+                vec![
+                    crate::frontend::text_view(),
+                    crate::frontend::text_view(),
+                    Ty::I64,
+                ],
+                Ty::I64,
+            ),
             // The single-scalar lowercase (false) or uppercase (true) mapping.
             Self::Case => (vec![Ty::U32, Ty::Bool], Ty::U32),
         }

@@ -17,7 +17,7 @@ use crate::text::TextViewOp;
 pub(super) const OPERATIONS: &str = "a view supports `len(v)`, `v[i]`, `&v[a:b]`, `==`, `for x in v`, `iter(v)`, and `print(v)`, and a `&mut [T]` view also `v[i] = x` and `v.swap(i, j)`";
 
 /// The operations a `&strview` supports, for diagnostics that reject others.
-pub(super) const TEXT_OPERATIONS: &str = "a `&strview` supports `len(v)`, `v.byte_len()`, `v.as_bytes()`, `v[i]`, `&v[a:b]`, `v[a:b]?`, comparisons, `in`, `startswith`, `endswith`, `find`, `for c in v`, and `print(v)`; copy it to a `str` with `v[:]?` for other `str` methods";
+pub(super) const TEXT_OPERATIONS: &str = "a `&strview` supports `len(v)`, `v.byte_len()`, `v.as_bytes()`, `v[i]`, `&v[a:b]`, `v[a:b]?`, comparisons, `in`, string search/transform/split/join methods, `for c in v`, and `print(v)`; owned results allocate as their `str` counterparts do";
 
 const STEPPED_VIEW: &str = "a slice view selects adjacent elements, so it takes no step; copy every k-th element with `xs[a:b:k]?`";
 

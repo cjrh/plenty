@@ -168,6 +168,7 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     print(&line[:4] == "name", "Love" in value, count(line, "a")?)?
     first = value[:3]?
     print(first)?
+    print(value.upper()?, value.split()?)?
     Ok(())
 ```
 
@@ -175,12 +176,14 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
 Ada Lovelace 12
 True True 3
 Ada
+ADA LOVELACE ["Ada", "Lovelace"]
 ```
 
 A function takes a substring as `&strview`. Passing a whole string as `line`
 implicitly borrows it for the call; `&line` or a literal also works. Copy the
-text with `value[a:b]?` when you need an owned `str`,
-for example to call a `str` method or keep it after the string changes. The
+text with `value[a:b]?` when you need an owned `str` to keep after the string
+changes. Text methods such as `value.upper()?` and `value.split()?` work directly
+on a view and return owned results. The
 [substring view reference](../../design/language/04-expressions/slices.md#substring-views)
 lists every operation.
 

@@ -95,7 +95,7 @@ impl Lower<'_> {
             !self.sigs[&self.function_name]
                 .inputs
                 .get(loan.root as usize)
-                .is_some_and(|(_, ty)| matches!(ty, Ty::Ref(..)))
+                .is_some_and(|(_, ty)| matches!(ty, Ty::Ref(..) | Ty::View(..)))
         }) {
             let mut at = None;
             let mut borrow = None;

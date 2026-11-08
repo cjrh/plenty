@@ -41,7 +41,8 @@ mod removal_tests;
 mod set_hash_tests;
 #[cfg(plenty_runtime_sqlite)]
 mod sqlite;
-mod text_views;
+mod text_ranges;
+pub(crate) mod text_views;
 mod tls;
 mod watch;
 
@@ -2719,6 +2720,12 @@ operation_entries! {
     125 126 127 128 129 130 131 132 133 134 135 136 137 138 140 166 167 366 510 511 580 581 582
     583 584 585 590 591 592 593 594 595 596 597 598 599 600 601 602 603
 }
+// Checked UTF-8 range forms of existing text builtins (original opcode +1000).
+operation_entries! {
+    604 605
+    1034 1035 1036 1037 1046 1047 1048 1049 1050 1051 1052 1053 1054 1055 1056
+    1071 1072 1076 1077 1078 1107 1129 1130 1133 1134 1135 1136 1138 1591
+}
 // `std.bytes` storage and single-call byte transport.
 operation_entries! {
     142 143 144 145 146 147 148 149 170 171 172 173 174 175 176 177 178 179 180 181
@@ -2868,9 +2875,16 @@ unsafe fn operation(op: i64, args: *const u128, descriptor: *const Type, site: *
             out.write(byte_storage::call(op, operands, descriptor, site));
             return;
         }
-        if (TEXT_VIEW_SUBVIEW..=TEXT_VIEW_SEARCH).contains(&op) {
+        if (TEXT_VIEW_SUBVIEW..=TEXT_VIEW_SEARCH).contains(&op)
+            || matches!(op, TEXT_VIEW_FIND_IN | TEXT_VIEW_ASCII_EQUAL_FOLDED)
+        {
             let operands = read_operands::<5>(op, args);
             out.write(text_views::call(op, operands, site));
+            return;
+        }
+        if (TEXT_RANGE_BASE..=TEXT_RANGE_BASE + 640).contains(&op) {
+            let operands = read_operands::<5>(op, args);
+            out.write(text_ranges::call(op, operands, descriptor, site));
             return;
         }
         if matches!(op, LIST_SLICE | TEXT_SLICE) {
@@ -3188,13 +3202,13 @@ pub(crate) unsafe fn collection_at(
             515 => crate::text_io::result(filesystem::contiguous(a).and_then(|path| {
                 crate::files::open_bytes(
                     &path,
-                    strings::utf8(&(b as *const Text)),
+                    text_views::text(b),
                     (*descriptor).variants[0].fields[0],
                 )
             })),
             89 => crate::text_io::result(crate::files::open(
-                strings::utf8(&(a as *const Text)),
-                strings::utf8(&(b as *const Text)),
+                text_views::text(a),
+                text_views::text(b),
                 (*descriptor).variants[0].fields[0],
             )),
             90 => crate::text_io::result(crate::files::close(a as *mut crate::files::File)),
@@ -3246,8 +3260,8 @@ pub(crate) unsafe fn collection_at(
             )),
             84 => crate::text_io::input(),
             142..=149 => crate::text_io::result(bytes::call(op, a, b, descriptor)),
-            80 | 82 => crate::io::write_stream(a as *const Text, op == 82),
-            510 => crate::io::report_write(a as *const Text, b as i64),
+            80 | 82 => crate::io::write_stream(text_views::text(a), op == 82),
+            510 => crate::io::report_write(a, b as i64),
             511 => crate::io::is_terminal(a as u8) as u128,
             81 | 83 => crate::io::flush_stream(op == 83),
             79 => match crate::numbers::format(a, (*descriptor).kind) {

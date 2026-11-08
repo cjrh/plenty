@@ -255,10 +255,6 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     "a `&strview` has no element slots to borrow"
 )]
 #[case(
-    "s = \"abc\"\nv = &s[:1]\nb = v in s",
-    "search for a `&strview` with `&s[:]`"
-)]
-#[case(
     "mut s = \"abc\"\nv = &s[1:]\ns = \"zz\"\nn = len(v)",
     "cannot assign to `s` while it is borrowed"
 )]
@@ -289,10 +285,6 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
 #[case(
     "def g[T](xs: &[T]) -> i64:\n    len(xs)\n\ns = \"abc\"\nn = g(&s[:])",
     "`&s[a:b]` is a `&strview`"
-)]
-#[case(
-    "s = \"abc\"\nv = &s[:]\nn = v.upper()",
-    "a `&strview` has no method `upper`"
 )]
 fn invalid_substr_views_are_rejected(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_diagnostic(source);
@@ -711,4 +703,207 @@ def main() -> Result[(), AllocError | IoError]:
 fn strview_type_rules_and_alias_diagnostics(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_diagnostic(source);
     assert!(error.contains(expected), "{source}\n{error}");
+}
+
+#[test]
+fn text_view_builtin_parity_and_mixed_operands() {
+    support::assert_stdout(
+        r#"
+def main() -> Result[(), AllocError | IoError]:
+    text = "!hé hé!"
+    v = &text[1:-1]
+    needle = &text[1:3]
+    print(v.get(0), v.get(-1), v.get(99), v.rfind(needle), v.count(needle))?
+    print(v.startswith(needle), v.endswith(needle), needle in text, needle not in text)?
+    print(text.find(needle), text.rfind(needle), text.count(needle))?
+    print(v.lower()?, v.upper()?, v.concat(needle)?, (v + "!")?, ("!" + v)?)?
+    print(v.replace(needle, "a")?, text.replace("!", needle)?)?
+    print(v.removeprefix(needle)?, v.removesuffix(needle)?, v.repeat(2)?)?
+    print(v.slice(1, 4)?, v[::-1]?, v[::2]?, v[-100:100:2]?)?
+    print(v.split()?, v.split(" ")?, text.split(needle)?)?
+    pad = "  Hé\t"
+    p = &pad[:]
+    print(p.strip()?, p.lstrip()?, p.rstrip()?, p.isascii(), p.isalpha())?
+    digits = "123"
+    d = &digits[:]
+    print(d.isdigit(), d.isalnum(), d.isascii(), d.isspace(), (&pad[:2]).isspace())?
+    line = "a\r\nb\nc"
+    l = &line[:]
+    print(l.splitlines()?, l.splitlines(True)?)?
+    Ok(())
+"#,
+        concat!(
+            "Option[str].Some(\"h\") Option[str].Some(\"é\") Option[str].Nothing Option[i64].Some(3) 2\n",
+            "True True True False\nOption[i64].Some(1) Option[i64].Some(4) 2\n",
+            "hé hé HÉ HÉ hé héhé hé hé! !hé hé\na a héhé héhé\n hé hé  hé héhé hé\n",
+            "é h éh éh h é h é\n",
+            "[\"hé\", \"hé\"] [\"hé\", \"hé\"] [\"!\", \" \", \"!\"]\n",
+            "Hé Hé\t   Hé False False\nTrue True True False True\n",
+            "[\"a\", \"b\", \"c\"] [\"a\\r\\n\", \"b\\n\", \"c\"]\n",
+        ),
+    );
+}
+
+#[test]
+fn text_view_join_supports_existing_iterables_and_temporary_strings() {
+    support::assert_stdout(
+        r#"
+def source() -> str:
+    print("source").unwrap()
+    "hé🙂"
+
+def main() -> Result[(), AllocError | IoError]:
+    separator = "|-|"
+    sep = &separator[1:2]
+    letters = "hé🙂"
+    text = &letters[:]
+    pieces = ["hé", "🙂"]?
+    keys = {"b": 2, "a": 1}?
+    print(sep.join("ab")?, sep.join(source())?, "-".join(text)?, sep.join(text)?)?
+    print(sep.join(pieces)?, sep.join(&pieces[:])?, sep.join(keys)?)?
+    generator = (word for word in ["a", "b"]?)
+    print(sep.join(generator)?, sep.join([]?)?, sep.join("")?)?
+    Ok(())
+"#,
+        "source\na-b h-é-🙂 h-é-🙂 h-é-🙂\nhé-🙂 hé-🙂 b-a\na-b  \n",
+    );
+}
+
+#[test]
+fn text_view_numeric_parse_and_ord_preserve_errors() {
+    support::assert_stdout(
+        r#"
+def main() -> Result[(), IoError]:
+    digits = "! 255 !"
+    value = &digits[1:-1]
+    print(str.repr(u8.parse(value)).unwrap(), str.repr(i8.parse(value)).unwrap(), str.repr(f64.parse(value)).unwrap())?
+    scalar = "!é!"
+    print(str.repr(ord(&scalar[1:2])).unwrap(), str.repr(ord(&scalar[:0])).unwrap(), str.repr(ord(&scalar[:])).unwrap())?
+    invalid = "12x"
+    print(str.repr(i64.parse(&invalid[:])).unwrap())?
+    Ok(())
+"#,
+        "Result[u8, ParseError].Ok(255) Result[i8, ParseError].Err(ParseError.OutOfRange) Result[f64, ParseError].Ok(255.0)\nResult[u32, ParseError].Ok(233) Result[u32, ParseError].Err(ParseError.Invalid) Result[u32, ParseError].Err(ParseError.Invalid)\nResult[i64, ParseError].Err(ParseError.Invalid)\n",
+    );
+}
+
+#[test]
+fn text_view_method_chains_keep_owned_result_hints() {
+    support::assert_stdout(
+        r#"
+def main() -> Result[(), AllocError | IoError]:
+    source = "!HÉ!"
+    v = &source[1:-1]
+    needle_source = "é"
+    needle = &needle_source[:]
+    print(v.lower()?.concat(needle)?, v.lower()?.find(needle))?
+    print((v + "!")?.replace(needle, "a")?, "-".join(v.lower()?)?)?
+    Ok(())
+"#,
+        "héé Option[i64].Some(1)\nHÉ! h-é\n",
+    );
+}
+
+#[test]
+fn range_operations_hold_source_loans_through_all_arguments() {
+    for source in [
+        "mut s = \"héllo\"\nv = &s[:]\ndef change(x: &mut str) -> str:\n    *x = \"new\"\n    \"x\"\nn = v.replace(\"h\", change(&mut s))",
+        "mut s = \"héllo\"\nv = &s[:]\ndef change(x: &mut str) -> str:\n    *x = \"new\"\n    \"x\"\nn = v.join(change(&mut s))",
+    ] {
+        let error = support::check_diagnostic(source);
+        assert!(error.contains("borrow"), "{error}");
+    }
+    support::assert_stdout(
+        r#"
+class Label:
+    text: str
+
+def main() -> Result[(), AllocError | IoError]:
+    mut labels = [Label("HÉ"), Label("🙂")]?
+    v = &labels[0].text[:]
+    result = v.lower()?.concat(&labels[1].text[:])?
+    labels = []?
+    print(result)?
+    Ok(())
+"#,
+        "hé🙂\n",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn range_readers_do_not_allocate_and_owned_results_fail_cleanly() {
+    support::assert_stdout(
+        r#"
+def main() -> Result[(), IoError]:
+    text = "!long héllo text!"
+    v = &text[1:-1]
+    digits = "123"
+    d = &digits[:]
+    print("__test_fail_allocations_after_0__")?
+    found = v.find("hé")
+    number = i64.parse(d)
+    scalar = ord(&text[6:7])
+    upper_result = v.upper()
+    repeated = v.repeat(2)
+    pieces = v.split()
+    copy = v[:]
+    print("__test_restore_allocations__")?
+    print(found, str.repr(number).unwrap(), str.repr(scalar).unwrap())?
+    print(upper_result.is_err(), repeated.is_err(), pieces.is_err(), copy.is_err())?
+    Ok(())
+"#,
+        "__test_fail_allocations_after_0__\n__test_restore_allocations__\nOption[i64].Some(5) Result[i64, ParseError].Ok(123) Result[u32, ParseError].Ok(104)\nTrue True True True\n",
+    );
+}
+
+#[test]
+fn text_stream_writers_borrow_selected_ranges_and_count_scalars() {
+    let output = support::run(
+        r#"
+def main() -> Result[(), IoError]:
+    text = "!hé🙂!"
+    selected = &text[1:-1]
+    count = write_stdout(selected)?
+    errors = write_stderr(selected)?
+    print(count, errors)?
+    Ok(())
+"#,
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "hé🙂3 3\n");
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "hé🙂");
+}
+
+#[test]
+fn scalar_index_results_are_implicitly_borrowed_as_owned_text() {
+    let output = support::run(
+        r#"
+def scalar(text: &strview) -> Result[u32, ParseError]:
+    return ord(text)
+
+def ordinary(text: &str) -> Result[u32, ParseError]:
+    return ord(text)
+
+def main() -> Result[(), IoError | ParseError]:
+    text = "!hé🙂!"
+    selected = &text[1:-1]
+    print(scalar(selected[0])?, scalar(selected[1])?, ordinary(selected[2])?)?
+    print(selected[1].byte_len(), selected[2].as_bytes()[0])?
+    Ok(())
+"#,
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "104 233 128578\n2 240\n"
+    );
 }

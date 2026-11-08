@@ -553,7 +553,7 @@ fn file_ownership_types_and_mutability_are_checked() {
         "def work() -> Result[(), IoError]:\n    file = open(\"x\")?\n    other = file\n    print(file.closed).unwrap()\n    Ok(())\n",
         "moved",
     );
-    reject("open(1)", "expected str");
+    reject("open(1)", "this parameter takes a substring view");
     reject("open()", "takes a path");
 }
 

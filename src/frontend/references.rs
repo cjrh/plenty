@@ -145,7 +145,14 @@ impl Lower<'_> {
         expected: Type,
         ops: &mut Vec<Op>,
     ) -> Result<(Ty, usize)> {
-        if self.place_type(e).is_some() || self.is_function_place(e) {
+        // Text-view indexing produces an owned one-scalar string, rather than
+        // an addressable element slot. Lend that result as a full-expression
+        // temporary, just as an owned string returned by a call is lent.
+        let scalar_text = matches!(
+            &ungroup(e).kind,
+            Expression::Index(base, _) if self.slice_view_type(base, false) == Some(text_view())
+        );
+        if !scalar_text && (self.place_type(e).is_some() || self.is_function_place(e)) {
             return self.borrow(e, false, ops);
         }
         // A unit argument still needs an addressable temporary to lend.
