@@ -399,7 +399,9 @@ local PR #622). Immutable holders initialized with `Nothing`, `Err(e)`, or
 parameters and `mut` holders shipped as the first part of issue #868, and
 `if`/`match` values producing these types as the second. The third added
 started-empty holders that choose between owners, nested patterns through the
-carried reference, and `unwrap_or(&default)`.
+carried reference, and `unwrap_or(&default)`. The fourth lowers `map_or`,
+`map_or_else` and `unwrap_or_else` on borrowed payloads as a `match`, and
+lets a loop re-evaluate an `if`/`match` value while an earlier copy is live.
 `dict.get_mut` replaced dictionary indexed assignment
 (issue #580, local PR #696); `dict.get_ref` and `list.get_ref`/`get_mut`
 followed with the same whole-collection loan (issue #869); heap and graph
