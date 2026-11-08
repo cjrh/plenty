@@ -1931,7 +1931,7 @@ impl Checker<'_, '_> {
     fn body_locks(&self) -> bool {
         let mut locks = false;
         crate::threading::walk(self.body, &mut |op| {
-            locks |= matches!(op, Op::Mutex(MutexOp::Lock(_)));
+            locks |= matches!(op, Op::Mutex(MutexOp::Lock(_) | MutexOp::LockNow(_)));
         });
         locks
     }

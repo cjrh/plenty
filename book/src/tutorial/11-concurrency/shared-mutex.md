@@ -113,22 +113,37 @@ def transfer(accounts: &list[Mutex[i64]], source: i64, target: i64) -> Result[()
         *received = *received + 5
     Ok(())
 
+def attempt(accounts: &list[Mutex[i64]], source: i64, target: i64) -> Result[(), IoError | OverflowError[i64]]:
+    match transfer(accounts, source, target):
+        case Ok(_):
+            print("moved")?
+        case Err(error):
+            match error:
+                case LockError.WouldBlock:
+                    print("busy")?
+                case overflow: OverflowError[i64]:
+                    return Err(overflow)
+                case _:
+                    print("not moved")?
+    Ok(())
+
 def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     accounts = [Mutex(20), Mutex(20)]?
-    print(transfer(&accounts, 0, 1).is_ok())?
-    print(transfer(&accounts, 1, 1).is_ok())?
+    attempt(&accounts, 0, 1)?
+    attempt(&accounts, 1, 1)?
     with accounts[1].lock() as balance:
         print(*balance)?
     Ok(())
 ```
 ```output
-True
-False
+moved
+busy
 25
 ```
 
-Another thread holding the inner mutex also gives `WouldBlock`, so a caller
-can retry later or skip the work.
+`WouldBlock` also reports another thread holding `target`, even briefly. When
+other threads contend for these locks, compare the indices first and lock once
+when they are equal, or retry the transfer.
 
 The compiler cannot see a relock inside a called
 function, a join inside a function called while the lock is held, or two
