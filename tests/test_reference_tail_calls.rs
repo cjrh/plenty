@@ -656,7 +656,7 @@ def text_second(text: &strview, n: i64) -> i64:
 
 def list_first(items: &[i64], n: i64) -> i64:
     if n == 0:
-        return *items[0]
+        return items[0]
     next = unchecked:
         n - 1
     list_second(&items[:], next)
@@ -687,7 +687,7 @@ fn locally_owned_text_still_cannot_leave_a_recursive_tail_frame(
     let source = format!(
         r#"
 def make() -> str:
-    "hé🙂"
+    return "hé🙂"
 def walk(input: &strview) -> i64:
     text = "local text"
     walk({argument})

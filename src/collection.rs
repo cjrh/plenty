@@ -765,7 +765,7 @@ impl CollectionOp {
             SerialStackReady { .. } => (vec![], Ty::Bool),
             ActorHeap => (vec![Ty::I64, Ty::I64], Ty::I64),
             WriteStdout | WriteStderr => (
-                vec![Ty::Str],
+                vec![crate::frontend::text_view()],
                 crate::sum::result(Ty::I64, crate::sum::io_error()),
             ),
             ReportWrite => (
