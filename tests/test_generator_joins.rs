@@ -412,6 +412,12 @@ fn annotated_locals_join_producers_on_reassignment() {
     expect(
         &with_producers(
             r#"
+def show(o: Option[Generator[i64]]) -> ():
+    match o:
+        case Some(h):
+            print(list(h).unwrap()).unwrap()
+        case Nothing:
+            pass
 def main_body() -> ():
     mut g: Generator[i64] = one()
     g = two(Res(80))
@@ -423,10 +429,24 @@ def main_body() -> ():
             print(list(h).unwrap()).unwrap()
         case Nothing:
             pass
+    for k in range(2):
+        m: Option[Generator[i64]] = match k:
+            case 0:
+                Some(one())
+            case _:
+                Some(two(Res(82)))
+        b: Option[Generator[i64]] = if k == 0:
+            Some(one())
+        else:
+            Some(two(Res(83)))
+        c: Option[Generator[i64]] = Some(one()) if k == 0 else Some(two(Res(84)))
+        show(m)
+        show(b)
+        show(c)
 main_body()
 "#,
         ),
-        "drop 80\n[2, 80]\ndrop 81\n[2, 81]\n",
+        "drop 80\n[2, 80]\ndrop 81\n[2, 81]\n[1]\n[1]\n[1]\ndrop 82\n[2, 82]\ndrop 83\n[2, 83]\ndrop 84\n[2, 84]\n",
     );
 }
 

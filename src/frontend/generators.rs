@@ -317,7 +317,14 @@ impl Lower<'_> {
             return false;
         };
         let joined = crate::generator::replace_carried(base, &expected, &got)
-            .and_then(|other| crate::generator::join_carried(base, &other));
+            .and_then(|other| crate::generator::join_carried(base, &other))
+            // A context naming only the item type, such as an annotated
+            // `Option[Generator[i64]]`, holds no producer to replace: the
+            // mismatched values themselves join.
+            .or_else(|| {
+                crate::generator::join_carried(&expected, &got)
+                    .filter(|joined| crate::generator::refine(base, joined).is_some())
+            });
         joined.is_some_and(|joined| self.record_join(at, joined))
     }
 

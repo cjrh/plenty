@@ -4176,6 +4176,13 @@ impl Lower<'_> {
                         .chain([(&stmt.at, yes_result)]);
                     for (at, branch) in branches {
                         result = match (branch, result) {
+                            // Payload producers that differ join at the
+                            // whole `if`, whose hint every branch reads.
+                            (BlockResult::Continues(ty), BlockResult::Continues(other))
+                                if !last && self.join_mismatched(&stmt.at, &ty, &other) =>
+                            {
+                                BlockResult::Continues(ty)
+                            }
                             (BlockResult::Continues(ty), BlockResult::Continues(other)) => {
                                 let joined = self.join_branch(&ty, &other, last, at)?;
                                 BlockResult::Continues(joined.unwrap_or(ty))
