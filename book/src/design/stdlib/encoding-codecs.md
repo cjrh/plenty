@@ -37,7 +37,7 @@ not accept whitespace, `0`/`1` substitutions, or nonzero unused trailing bits.
 | `_encode(source: &[u8])` | `Result[Bytes, EncodingError]` |
 | `_decode(source: &[u8])` | `Result[Bytes, EncodingError]` |
 | `_text(source: &[u8])` | `Result[str, EncodingError]` |
-| `_from_text(text: &str)` | `Result[Bytes, EncodingError]` |
+| `_from_text(text: &strview)` | `Result[Bytes, EncodingError]` |
 
 For example, `f` encodes as `MY======` or `CO======`. Unpadded forms are
 available through `custom` below; a decoder never guesses the padding policy.
@@ -78,7 +78,7 @@ pem_text(source: &[u8], label: &[u8])
     -> Result[str, EncodingError]
 pem_decode(source: &[u8], label: &[u8])
     -> Result[Bytes, EncodingError]
-pem_from_text(text: &str, label: &[u8]) -> Result[Bytes, EncodingError]
+pem_from_text(text: &strview, label: &[u8]) -> Result[Bytes, EncodingError]
 ```
 
 These read and write one block in the strict form of
@@ -130,7 +130,7 @@ empty range has no strict PEM form and is `InvalidLength`.
 ## Reusable custom encoding
 
 ```text
-custom(symbols: &str, padding: Option[u8] = Some(61u8))
+custom(symbols: &strview, padding: Option[u8] = Some(61u8))
     -> Result[Encoding, EncodingError]
 ```
 
@@ -147,7 +147,7 @@ With no configured padding, `=` may itself be an alphabet symbol.
 | `encode(source: &[u8])` | `Result[Bytes, EncodingError]` |
 | `decode(source: &[u8])` | `Result[Bytes, EncodingError]` |
 | `text(source: &[u8])` | `Result[str, EncodingError]` |
-| `from_text(text: &str)` | `Result[Bytes, EncodingError]` |
+| `from_text(text: &strview)` | `Result[Bytes, EncodingError]` |
 
 Bits are read most significant first. Padding completes the smallest group of
 symbols representing whole bytes. Decoding accepts only the selected alphabet

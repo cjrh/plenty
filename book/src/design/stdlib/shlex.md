@@ -8,12 +8,16 @@ Prefer [`std.process.Command.arg`](process.md#building-a-command) when you
 already have individual arguments: pass them directly, without quoting.
 Use `split` for an argument string supplied by a configuration file or user.
 
+Both text inputs accept `&strview`, so a selected `&text[start:stop]` range
+needs no caller-side copy. Returned words and quoted text are owned strings;
+reported scalar positions are relative to the selected range.
+
 ## Interface
 
 | Function | Result | Contract |
 |---|---|---|
-| `split(text: &str, comments: bool = False)` | `Result[list[str], ShlexError]` | Remove word quoting and escapes, returning owned arguments |
-| `quote(text: &str)` | `Result[str, ShlexError]` | Encode one argument for a POSIX shell |
+| `split(text: &strview, comments: bool = False)` | `Result[list[str], ShlexError]` | Remove word quoting and escapes, returning owned arguments |
+| `quote(text: &strview)` | `Result[str, ShlexError]` | Encode one argument for a POSIX shell |
 
 ```plenty
 import std.shlex

@@ -6,12 +6,12 @@ string `"17.0.0"`.
 
 | Function | Result |
 |---|---|
-| `nfd(text: &str, max_scalars: NonNegative[i64])` | Canonical decomposition |
-| `nfc(text: &str, max_scalars: NonNegative[i64])` | Canonical decomposition and composition |
-| `nfkd(text: &str, max_scalars: NonNegative[i64])` | Compatibility decomposition |
-| `nfkc(text: &str, max_scalars: NonNegative[i64])` | Compatibility decomposition and canonical composition |
-| `combining_class(scalar: &str)` | `Option[u32]`: canonical combining class of exactly one scalar |
-| `is_mark(scalar: &str)` | `Option[bool]`: General_Category is Mark for exactly one scalar |
+| `nfd(text: &strview, max_scalars: NonNegative[i64])` | Canonical decomposition |
+| `nfc(text: &strview, max_scalars: NonNegative[i64])` | Canonical decomposition and composition |
+| `nfkd(text: &strview, max_scalars: NonNegative[i64])` | Compatibility decomposition |
+| `nfkc(text: &strview, max_scalars: NonNegative[i64])` | Compatibility decomposition and canonical composition |
+| `combining_class(scalar: &strview)` | `Option[u32]`: canonical combining class of exactly one scalar |
+| `is_mark(scalar: &strview)` | `Option[bool]`: General_Category is Mark for exactly one scalar |
 
 ```plenty
 import std.unicode
@@ -78,6 +78,10 @@ The native tables add no external libraries or build-time network access and
 ship inside both runtime archives. Supported target: x86_64 Linux GNU. See
 [the lesson](../../tutorial/08-resources/25-text-unicode.md) and
 [`std.text`](text.md) for bounded output construction and error variants.
+
+Text and single-scalar inputs accept `&strview`, including selected substring
+ranges. Normalization returns owned text and keeps the same scalar limits;
+no scalar count is cached in the borrowed view.
 
 ## Acknowledgements
 

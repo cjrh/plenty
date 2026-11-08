@@ -1457,3 +1457,25 @@ print(encoded(&value, &bounds)?)?
         );
     }
 }
+
+#[test]
+fn toml_text_tree_and_owned_document_accept_ranges() {
+    native(
+        r#"
+mut source = "!word='café 🙂'\n!"
+bounds = std.toml.limits()
+value = std.toml.parse_text(&source[1:-1], &bounds)?
+print(std.toml.encode_text(&value, &bounds)? == "word = \"café 🙂\"\n")?
+mut doc = std.toml.document_text(&source[1:-1], &bounds)?
+source = "changed"
+print(doc.text()? == "word='café 🙂'\n")?
+name = "!word!"
+match value:
+    case Toml.Table(entries):
+        print(std.toml.find(&entries, &name[1:-1]).unwrap())?
+    case _:
+        print("wrong")?
+"#,
+        "True\nTrue\n0",
+    );
+}

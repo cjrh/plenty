@@ -187,3 +187,21 @@ print(str.repr(quote{budget})?)?
         );
     }
 }
+
+#[test]
+fn shell_word_operations_accept_borrowed_ranges() {
+    assert_eq!(
+        support::run_file_stdout(&program(
+            r#"
+source = "!one 'café 🙂'!"
+print(std.shlex.split(&source[1:-1])? == ["one", "café 🙂"]?)?
+safe = "!café!"
+print(std.shlex.quote(&safe[1:-1])? == "'café'")?
+plain = "!file.txt!"
+print(std.shlex.quote(&plain[1:-1])? == "file.txt")?
+print(std.shlex.split(&plain[1:1])? == list[str]().unwrap())?
+"#
+        )),
+        "True\nTrue\nTrue\nTrue"
+    );
+}

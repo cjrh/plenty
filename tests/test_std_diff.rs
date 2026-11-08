@@ -825,3 +825,21 @@ fn diff_reference_and_tutorial_examples_keep_their_documented_output() {
     }
     assert_eq!(examples, 3);
 }
+
+#[test]
+fn text_differences_and_patch_labels_accept_ranges() {
+    native(
+        r#"
+old = "!café\0🙂\n!"
+new = "!café\0🦀\n!"
+print(std.diff.chars(&old[1:-1], &new[1:-1])?.has_changes())?
+print(std.diff.words(&old[1:-1], &old[1:-1])?.has_changes())?
+diff = std.diff.lines(&old[1:-1], &new[1:-1])?
+label = "!selected!"
+patch = diff.unified(0, &label[1:-1], &label[1:-1])?
+print(patch.startswith("--- selected\n+++ selected\n"))?
+print(std.diff.lines(&old[0:0], &new[0:0])?.has_changes())?
+"#,
+        "True\nFalse\nTrue\nFalse",
+    );
+}

@@ -4,8 +4,8 @@
 named URL component, and splits and builds query strings. It has one error
 type, `UrlError`.
 
-The module is checked Plenty code over [`std.bytes`](bytes.md), with no native
-primitives of its own. It is available on the supported x86-64 Linux GNU
+The module is checked Plenty code over [`std.bytes`](bytes.md) and its
+byte-view search primitives, with no separate runtime library. It is available on the supported x86-64 Linux GNU
 target. A URL is not a filesystem path: [`std.path`](path.md) is a separate
 type and nothing converts between them.
 
@@ -33,6 +33,11 @@ page = 2
 a%20b%2Fc
 q=fish%20%26%20chips&n=1
 ```
+
+Text inputs accept `&strview`, including selected `&text[start:stop]` ranges.
+Parsing and percent decoding read those bytes directly; parsed components
+and returned text own their storage. Limits and error offsets are relative to
+the selected range.
 
 ## The accepted syntax
 
@@ -75,7 +80,7 @@ no `//` authority. An address literal keeps its brackets: `[::1]`.
 
 | Function | Result | Contract |
 |---|---|---|
-| `std.url.parse(text: &str, max_bytes: NonNegative[i64])` | `Result[Url, UrlError]` | Split and validate `text`, whose UTF-8 length must not exceed `max_bytes` |
+| `std.url.parse(text: &strview, max_bytes: NonNegative[i64])` | `Result[Url, UrlError]` | Split and validate `text`, whose UTF-8 length must not exceed `max_bytes` |
 | `url.to_string()` | `Result[str, UrlError]` | Validate every component and join them |
 
 `parse` checks the length first: `LimitExceeded` for a longer text. It then
@@ -100,9 +105,9 @@ module does not lowercase schemes or hosts and does not decode escapes, so
 
 | Function | Result | Contract |
 |---|---|---|
-| `encode(text: &str, component)` | `Result[str, UrlError]` | Escape the UTF-8 bytes of `text` for `component` |
+| `encode(text: &strview, component)` | `Result[str, UrlError]` | Escape the UTF-8 bytes of `text` for `component` |
 | `encode_bytes(source: &[u8], component)` | `Result[Bytes, UrlError]` | The same for a byte view |
-| `decode(text: &str)` | `Result[str, UrlError]` | Replace each `%hh`; the result must be UTF-8 |
+| `decode(text: &strview)` | `Result[str, UrlError]` | Replace each `%hh`; the result must be UTF-8 |
 | `decode_bytes(source: &[u8])` | `Result[Bytes, UrlError]` | Replace each `%hh` in a byte view; an `InvalidEscape` index is relative to the view |
 
 Ranges follow the `std.bytes` [range rule](bytes.md#the-range-rule).
@@ -141,7 +146,7 @@ pub class Pair:
 
 | Function | Result | Contract |
 |---|---|---|
-| `query_pairs(query: &str)` | `Result[list[Pair], UrlError]` | Split at `&`, split each piece at its first `=`, decode both sides |
+| `query_pairs(query: &strview)` | `Result[list[Pair], UrlError]` | Split at `&`, split each piece at its first `=`, decode both sides |
 | `query_text(pairs: &list[Pair])` | `Result[str, UrlError]` | Join `key=value` with `&`, each side encoded as `QueryPart` |
 
 Every `&`-separated piece is one pair, in order, including empty pieces and

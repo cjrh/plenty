@@ -76,7 +76,7 @@ def bytes_result[T](value: Result[T, BytesError]) -> Result[T, TemplateError]:
         case Err(error):
             Err(TemplateError.Bytes(error))
 
-def identifier(text: &str) -> bool:
+def identifier(text: &strview) -> bool:
     if len(text) == 0:
         return False
     for index, scalar in enumerate(text):
@@ -123,14 +123,15 @@ class Expression:
 def empty_expression() -> Result[Expression, TemplateError]:
     Ok(Expression(allocated(list[ExprNode]())?, -1))
 
-def quoted(text: &str, at: i64) -> Result[str, TemplateError]:
-    if len(text) < 2 or text[-1] != text[0]:
+def quoted(text: &strview, at: i64) -> Result[str, TemplateError]:
+    count = len(text)
+    if count < 2 or text[-1] != text[0]:
         return Err(TemplateError.Syntax(at))
     mut pieces: list[str] = allocated(list[str]())?
     mut escaped = False
     # The length check proves at least two scalars.
     last = unchecked:
-        len(text) - 1
+        count - 1
     for index, scalar in enumerate(text):
         if index == 0 or index == last:
             continue
@@ -142,7 +143,7 @@ def quoted(text: &str, at: i64) -> Result[str, TemplateError]:
             elif scalar == "t":
                 allocated(pieces.append("\t"))?
             elif scalar == "\\" or scalar == "'" or scalar == "\"":
-                allocated(pieces.append(*scalar))?
+                allocated(pieces.append(scalar))?
             else:
                 return Err(TemplateError.Syntax(at))
             escaped = False
@@ -151,7 +152,7 @@ def quoted(text: &str, at: i64) -> Result[str, TemplateError]:
         elif scalar == text[0]:
             return Err(TemplateError.Syntax(at))
         else:
-            allocated(pieces.append(*scalar))?
+            allocated(pieces.append(scalar))?
     if escaped:
         return Err(TemplateError.Syntax(at))
     allocated("".join(&pieces))
@@ -159,11 +160,11 @@ def quoted(text: &str, at: i64) -> Result[str, TemplateError]:
 def valid_filter(name: &str) -> bool:
     name == "upper" or name == "lower" or name == "trim" or name == "length" or name == "escape" or name == "safe" or name == "escape_text" or name == "escape_double_quoted" or name == "escape_single_quoted"
 
-def expression_words(source: &str, at: i64) -> Result[list[str], TemplateError]:
-    data = allocated(std.bytes.from_text(source))?
+def expression_words(source: &strview, at: i64) -> Result[list[str], TemplateError]:
+    data = source.as_bytes()
     mut words = allocated(list[str]())?
     mut index = 0
-    while index < data.len():
+    while index < len(data):
         byte = data[index]
         next = unchecked:
             index + 1
@@ -175,7 +176,7 @@ def expression_words(source: &str, at: i64) -> Result[list[str], TemplateError]:
             index = next
             mut escaped = False
             mut closed = False
-            while index < data.len():
+            while index < len(data):
                 current = data[index]
                 unchecked:
                     index += 1
@@ -189,7 +190,7 @@ def expression_words(source: &str, at: i64) -> Result[list[str], TemplateError]:
             if not closed:
                 return Err(TemplateError.Syntax(at))
         elif byte == 61u8 or byte == 33u8:
-            if next >= data.len() or data[next] != 61u8:
+            if next >= len(data) or data[next] != 61u8:
                 return Err(TemplateError.Syntax(at))
             unchecked:
                 index = next + 1
@@ -197,13 +198,13 @@ def expression_words(source: &str, at: i64) -> Result[list[str], TemplateError]:
             index = next
         else:
             index = next
-            while index < data.len():
+            while index < len(data):
                 current = data[index]
                 if current == 32u8 or current == 9u8 or current == 10u8 or current == 13u8 or current == 11u8 or current == 12u8 or current == 39u8 or current == 34u8 or current == 61u8 or current == 33u8 or current == 40u8 or current == 41u8 or current == 124u8:
                     break
                 unchecked:
                     index += 1
-        word = bytes_result(data.to_text_range(start, index))?
+        word = bytes_result(std.bytes.to_text(&data[start:index]))?
         # Preserve Unicode whitespace around the old path/filter forms too.
         text = allocated(word.strip())?
         if text != "":
@@ -346,7 +347,7 @@ class ExprParser:
                             return Err(TemplateError.Syntax(self.at))
         self.push(ExprNode(0, value, path, allocated(list[str]())?, -1, -1, 1), bounds)
 
-def expression(source: &str, at: i64, bounds: &Limits, remaining: &mut i64) -> Result[Expression, TemplateError]:
+def expression(source: &strview, at: i64, bounds: &Limits, remaining: &mut i64) -> Result[Expression, TemplateError]:
     mut parser = ExprParser(expression_words(source, at)?, 0, allocated(list[ExprNode]())?, at, *remaining)
     root = parser.disjunction(1, bounds)?
     if parser.peek() != "":
@@ -392,12 +393,12 @@ def bounded_total(current: i64, amount: i64, limit: i64) -> Result[i64, Template
 def trim_space(byte: u8) -> bool:
     byte == 32u8 or (byte >= 9u8 and byte <= 13u8)
 
-def closing(source: &Bytes, start: i64, close: u8, comment: bool) -> Result[i64, TemplateError]:
+def closing(source: &[u8], start: i64, close: u8, comment: bool) -> Result[i64, TemplateError]:
     mut quote = 0u8
     mut escaped = False
     mut index = start
-    while has_pair(index, source.len()):
-        # has_pair proves index + 1 < source.len().
+    while has_pair(index, len(source)):
+        # has_pair proves index + 1 < len(source).
         next = unchecked:
             index + 1
         scalar = source[index]
@@ -423,8 +424,9 @@ def push_token(tokens: &mut list[Token], token: Token, bounds: &Limits) -> Resul
         return Err(TemplateError.LimitExceeded)
     allocated(tokens.append(token))
 
-def include_expression(source: &str, at: i64, bounds: &Limits, remaining: &mut i64) -> Result[(str, Expression, i64), TemplateError]:
-    if len(source) < 2 or (source[0] != "'" and source[0] != "\""):
+def include_expression(source: &strview, at: i64, bounds: &Limits, remaining: &mut i64) -> Result[(str, Expression, i64), TemplateError]:
+    count = len(source)
+    if count < 2 or (source[0] != "'" and source[0] != "\""):
         return Err(TemplateError.Syntax(at))
     mut escaped = False
     for index, scalar in enumerate(source):
@@ -441,7 +443,7 @@ def include_expression(source: &str, at: i64, bounds: &Limits, remaining: &mut i
             name = quoted(&allocated(source.slice(0, after))?, at)?
             if name == "":
                 return Err(TemplateError.Syntax(at))
-            rest = allocated(allocated(source.slice(after, len(source)))?.strip())?
+            rest = allocated(allocated(source.slice(after, count))?.strip())?
             if rest == "":
                 return Ok((name, empty_expression()?, 0))
             if not rest.startswith("with "):
@@ -450,9 +452,9 @@ def include_expression(source: &str, at: i64, bounds: &Limits, remaining: &mut i
             return Ok((name, expr, 1))
     Err(TemplateError.Syntax(at))
 
-def parse(name: str, source: &str, bounds: &Limits, node_budget: i64) -> Result[Template, TemplateError]:
+def parse(name: str, source: &strview, bounds: &Limits, node_budget: i64) -> Result[Template, TemplateError]:
     mut remaining = node_budget
-    data = allocated(std.bytes.from_text(source))?
+    data = source.as_bytes()
     mut tokens: list[Token] = allocated(list[Token]())?
     mut stack: list[i64] = allocated(list[i64]())?
     mut blocks: list[str] = allocated(list[str]())?
@@ -460,11 +462,11 @@ def parse(name: str, source: &str, bounds: &Limits, node_budget: i64) -> Result[
     mut index = 0
     mut start = 0
     mut significant = False
-    while index < data.len():
-        # The loop guard proves index + 1 <= data.len().
+    while index < len(data):
+        # The loop guard proves index + 1 <= len(data).
         next = unchecked:
             index + 1
-        if not has_pair(index, data.len()) or data[index] != 123u8 or (data[next] != 123u8 and data[next] != 37u8 and data[next] != 35u8):
+        if not has_pair(index, len(data)) or data[index] != 123u8 or (data[next] != 123u8 and data[next] != 37u8 and data[next] != 35u8):
             index = next
             continue
         # Keep original byte endpoints for syntax errors and source budgets.
@@ -473,9 +475,9 @@ def parse(name: str, source: &str, bounds: &Limits, node_budget: i64) -> Result[
         marker = data[next]
         mut content_start = opening_end
         mut literal_end = index
-        mut trim_left = opening_end < data.len() and data[opening_end] == 45u8
+        mut trim_left = opening_end < len(data) and data[opening_end] == 45u8
         # Compact negative literals predate trimming; their sign stays content.
-        if trim_left and marker == 123u8 and has_pair(opening_end, data.len()):
+        if trim_left and marker == 123u8 and has_pair(opening_end, len(data)):
             following = unchecked:
                 opening_end + 1
             byte = data[following]
@@ -491,14 +493,14 @@ def parse(name: str, source: &str, bounds: &Limits, node_budget: i64) -> Result[
             content_start = unchecked:
                 opening_end + 1
         if literal_end > start:
-            text = bytes_result(data.to_text_range(start, literal_end))?
+            text = bytes_result(std.bytes.to_text(&data[start:literal_end]))?
             if allocated(text.strip())? != "":
                 significant = True
                 if parent != "" and len(stack) == 0:
                     return Err(TemplateError.Syntax(start))
             push_token(&mut tokens, Token(0, text, empty_expression()?, -1, -1, start), bounds)?
         close = 125u8 if marker == 123u8 else marker
-        end = closing(&data, opening_end, close, marker == 35u8)?
+        end = closing(data, opening_end, close, marker == 35u8)?
         mut content_end = end
         mut trim_right = False
         if end > content_start:
@@ -507,13 +509,13 @@ def parse(name: str, source: &str, bounds: &Limits, node_budget: i64) -> Result[
             if data[previous] == 45u8:
                 content_end = previous
                 trim_right = True
-        content = allocated(bytes_result(data.to_text_range(content_start, content_end))?.strip())?
+        content = allocated(bytes_result(std.bytes.to_text(&data[content_start:content_end]))?.strip())?
         at = index
         # closing only returns an index with two bytes still present.
         unchecked:
             index = end + 2
         if trim_right:
-            while index < data.len() and trim_space(data[index]):
+            while index < len(data) and trim_space(data[index]):
                 index = unchecked:
                     index + 1
         start = index
@@ -623,7 +625,7 @@ def parse(name: str, source: &str, bounds: &Limits, node_budget: i64) -> Result[
     if len(stack) != 0:
         return Err(TemplateError.Syntax(tokens[stack[-1]].at))
     if index > start:
-        text = bytes_result(data.to_text_range(start, index))?
+        text = bytes_result(std.bytes.to_text(&data[start:index]))?
         if parent != "" and allocated(text.strip())? != "":
             return Err(TemplateError.Syntax(start))
         push_token(&mut tokens, Token(0, text, empty_expression()?, -1, -1, start), bounds)?
@@ -663,7 +665,7 @@ def step(state: &mut State, bounds: &Limits) -> Result[(), TemplateError]:
     state.steps = bounded_total(state.steps, 1, bounds.max_steps.get())?
     Ok(())
 
-def context_bytes(state: &mut State, text: &str, bounds: &Limits) -> Result[(), TemplateError]:
+def context_bytes(state: &mut State, text: &strview, bounds: &Limits) -> Result[(), TemplateError]:
     state.bytes = bounded_total(state.bytes, text.byte_len(), bounds.max_context_bytes.get())?
     Ok(())
 
@@ -787,10 +789,10 @@ def path_value(path: &list[str], state: &mut State, bounds: &Limits) -> Result[V
             return Err(TemplateError.TypeMismatch)
     Ok(value_copy(&state.nodes[node].value))
 
-pub def escape(text: &str, context: HtmlContext, max_bytes: NonNegative[i64] = 16777216) -> Result[str, TemplateError]:
+pub def escape(text: &strview, context: HtmlContext, max_bytes: NonNegative[i64] = 16777216) -> Result[str, TemplateError]:
     escape_bounded(text, context, max_bytes.get())
 
-def escape_bounded(text: &str, context: HtmlContext, max_bytes: i64) -> Result[str, TemplateError]:
+def escape_bounded(text: &strview, context: HtmlContext, max_bytes: i64) -> Result[str, TemplateError]:
     # Escaping never shrinks its input. Reject before copying an oversized
     # source so the output cap also bounds input scanning and temporary bytes.
     if text.byte_len() > max_bytes:
@@ -799,8 +801,8 @@ def escape_bounded(text: &str, context: HtmlContext, max_bytes: i64) -> Result[s
     double_quote = context == HtmlContext.DoubleQuotedAttribute or context == HtmlContext.TextAndAttributes
     single_quote = context == HtmlContext.SingleQuotedAttribute or context == HtmlContext.TextAndAttributes
     mut output = allocated(std.bytes.empty())?
-    encoded = allocated(std.bytes.from_text(text))?
-    for byte in &encoded:
+    encoded = text.as_bytes()
+    for byte in encoded:
         mut replacement = b""
         if *byte == 38u8:
             replacement = b"&amp;"
@@ -909,14 +911,14 @@ def evaluate_node(expr: &Expression, index: i64, state: &mut State, bounds: &Lim
                 return Err(TemplateError.LimitExceeded)
     Ok(value)
 
-def append(state: &mut State, text: &str, bounds: &Limits) -> Result[(), TemplateError]:
+def append(state: &mut State, text: &strview, bounds: &Limits) -> Result[(), TemplateError]:
     # Both operands are nonnegative; append keeps output within this budget.
     remaining = unchecked:
         bounds.max_output.get() - state.output.len()
     if text.byte_len() > remaining:
         return Err(TemplateError.LimitExceeded)
-    encoded = allocated(std.bytes.from_text(text))?
-    allocated(state.output.extend(&encoded))
+    encoded = text.as_bytes()
+    allocated(state.output.extend(encoded))
 
 def emit(state: &mut State, value: &Value, bounds: &Limits, name: &str, at: i64) -> Result[(), TemplateError]:
     mut text = ""
@@ -1230,13 +1232,13 @@ class HtmlCheck:
 def html_state() -> Result[HtmlState, TemplateError]:
     Ok(HtmlState(0, "", "", False, allocated(list[str]())?, allocated(list[str]())?, True, "", 0))
 
-def html_space(text: &str) -> bool:
+def html_space(text: &strview) -> bool:
     text in " \t\n\r\u{c}"
 
-def html_letter(text: &str) -> bool:
+def html_letter(text: &strview) -> bool:
     text in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-def html_name(text: &str) -> bool:
+def html_name(text: &strview) -> bool:
     html_letter(text) or text in "0123456789-_"
 
 def html_tag(name: &str) -> bool:
@@ -1295,10 +1297,10 @@ def html_attribute(name: &str) -> bool:
 def html_url(name: &str) -> bool:
     name == "href" or name == "src" or name == "action" or name == "formaction" or name == "poster" or name == "cite" or name == "srcset"
 
-def html_piece(current: &str, text: &str) -> Result[str, TemplateError]:
+def html_piece(current: &strview, text: &strview) -> Result[str, TemplateError]:
     if current.byte_len() >= 64:
         return Err(TemplateError.LimitExceeded)
-    allocated(*current + allocated(text.lower())?)
+    allocated(current.concat(&allocated(text.lower())?))
 
 def html_finish(html: &mut HtmlState, name: &str, at: i64, bounds: &Limits) -> Result[(), TemplateError]:
     if html.closing:
@@ -1323,7 +1325,7 @@ def html_attribute_end(html: &mut HtmlState, name: &str, at: i64) -> Result[(), 
         return Err(TemplateError.InvalidHtml(*name, at))
     allocated(html.attributes.append(html.attribute))
 
-def html_text(html: &mut HtmlState, text: &str, name: &str, start: i64, bounds: &Limits) -> Result[(), TemplateError]:
+def html_text(html: &mut HtmlState, text: &strview, name: &str, start: i64, bounds: &Limits) -> Result[(), TemplateError]:
     mut offset = start
     for scalar in text:
         html.source = *name
@@ -1501,19 +1503,19 @@ pub class Engine:
     _expression_nodes: i64
 
     # Registration is transactional: a failure leaves the registry unchanged.
-    pub def add(self: &mut Engine, name: &str, source: &str) -> Result[(), TemplateError]:
+    pub def add(self: &mut Engine, name: &strview, source: &strview) -> Result[(), TemplateError]:
         if name == "":
             return Err(TemplateError.Syntax(0))
         for template in &self._templates:
             if template.name == name:
-                return Err(TemplateError.DuplicateTemplate(*name))
+                return Err(TemplateError.DuplicateTemplate(allocated(name[:])?))
         if len(self._templates) >= self._bounds.max_templates.get():
             return Err(TemplateError.LimitExceeded)
         named_bytes = bounded_total(self._source_bytes, name.byte_len(), self._bounds.max_source.get())?
         source_bytes = bounded_total(named_bytes, source.byte_len(), self._bounds.max_source.get())?
         remaining_nodes = unchecked:
             self._bounds.max_expression_nodes.get() - self._expression_nodes
-        template = parse(*name, source, &self._bounds, remaining_nodes)?
+        template = parse(allocated(name[:])?, source, &self._bounds, remaining_nodes)?
         count = len(template.tokens)
         token_count = bounded_total(self._token_count, count, self._bounds.max_tokens.get())?
         mut expression_nodes = self._expression_nodes
@@ -1525,11 +1527,11 @@ pub class Engine:
         self._expression_nodes = expression_nodes
         Ok(())
 
-    pub def validate(self, name: &str, schema: &Shape) -> Result[(), TemplateError]:
+    pub def validate(self, name: &strview, schema: &Shape) -> Result[(), TemplateError]:
         mut shapes = schema_state(schema, &self._bounds)?
         self.schema_registered(name, &mut shapes, 0)
 
-    pub def render_checked(self, name: &str, context: &Json, schema: &Shape, html: bool = True) -> Result[str, TemplateError]:
+    pub def render_checked(self, name: &strview, context: &Json, schema: &Shape, html: bool = True) -> Result[str, TemplateError]:
         mut shapes = schema_state(schema, &self._bounds)?
         self.schema_registered(name, &mut shapes, 0)?
         mut state = State(allocated(list[Node]())?, allocated(list[Binding]())?, 0, 0, allocated(list[i64]())?, 0, shapes.steps, allocated(std.bytes.empty())?, html, Nothing)
@@ -1543,7 +1545,7 @@ pub class Engine:
         self.render_registered(name, &mut state, 0)?
         bytes_result(state.output.to_text())
 
-    pub def render(self, name: &str, context: &Json, html: bool = True) -> Result[str, TemplateError]:
+    pub def render(self, name: &strview, context: &Json, html: bool = True) -> Result[str, TemplateError]:
         mut state = State(allocated(list[Node]())?, allocated(list[Binding]())?, 0, 0, allocated(list[i64]())?, 0, 0, allocated(std.bytes.empty())?, html, Nothing)
         match context:
             case Json.Object(_):
@@ -1556,11 +1558,11 @@ pub class Engine:
 
     # Preflight visits every reachable syntactic branch before values/output.
     # It validates the effective inheritance layout, not unused registry entries.
-    pub def validate_html(self, name: &str) -> Result[(), TemplateError]:
+    pub def validate_html(self, name: &strview) -> Result[(), TemplateError]:
         drop(self.html_preflight(name)?)
         Ok(())
 
-    pub def render_html(self, name: &str, context: &Json) -> Result[str, TemplateError]:
+    pub def render_html(self, name: &strview, context: &Json) -> Result[str, TemplateError]:
         check = self.html_preflight(name)?
         mut state = State(allocated(list[Node]())?, allocated(list[Binding]())?, 0, 0, allocated(list[i64]())?, 0, check.steps, allocated(std.bytes.empty())?, True, Some(html_state()?))
         match context:
@@ -1572,14 +1574,14 @@ pub class Engine:
         self.render_registered(name, &mut state, 0)?
         bytes_result(state.output.to_text())
 
-    def html_preflight(self, name: &str) -> Result[HtmlCheck, TemplateError]:
+    def html_preflight(self, name: &strview) -> Result[HtmlCheck, TemplateError]:
         mut check = HtmlCheck(html_state()?, allocated(list[i64]())?, 0)
         self.html_registered(name, &mut check, 0)?
         if check.html.mode != 0 or len(check.html.stack) != 0:
             return Err(TemplateError.InvalidHtml(check.html.source, check.html.offset))
         Ok(check)
 
-    def html_registered(self, name: &str, check: &mut HtmlCheck, depth: i64) -> Result[(), TemplateError]:
+    def html_registered(self, name: &strview, check: &mut HtmlCheck, depth: i64) -> Result[(), TemplateError]:
         if depth > self._bounds.max_depth.get():
             return Err(TemplateError.LimitExceeded)
         mut current = self.find(name)?
@@ -1702,7 +1704,7 @@ pub class Engine:
 
     # Each invocation owns its inheritance overrides and loop scope, while all
     # invocations charge the same context, output and work budgets.
-    def render_registered(self, name: &str, state: &mut State, depth: i64) -> Result[(), TemplateError]:
+    def render_registered(self, name: &strview, state: &mut State, depth: i64) -> Result[(), TemplateError]:
         if depth > self._bounds.max_depth.get():
             return Err(TemplateError.LimitExceeded)
         mut current = self.find(name)?
@@ -1745,7 +1747,7 @@ pub class Engine:
             drop(state.active.pop())
         Ok(())
 
-    def schema_registered(self, name: &str, state: &mut SchemaState, depth: i64) -> Result[(), TemplateError]:
+    def schema_registered(self, name: &strview, state: &mut SchemaState, depth: i64) -> Result[(), TemplateError]:
         if depth > self._bounds.max_depth.get():
             return Err(TemplateError.LimitExceeded)
         mut current = self.find(name)?
@@ -1788,11 +1790,11 @@ pub class Engine:
             drop(state.active.pop())
         Ok(())
 
-    def find(self, name: &str) -> Result[i64, TemplateError]:
+    def find(self, name: &strview) -> Result[i64, TemplateError]:
         for index in range(len(self._templates)):
             if self._templates[index].name == name:
                 return Ok(index)
-        Err(TemplateError.UnknownTemplate(*name))
+        Err(TemplateError.UnknownTemplate(allocated(name[:])?))
 
     def run(self, template: i64, begin: i64, end: i64, state: &mut State, overrides: &list[Override], depth: i64) -> Result[(), TemplateError]:
         if depth > self._bounds.max_depth.get():

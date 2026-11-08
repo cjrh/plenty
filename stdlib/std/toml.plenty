@@ -714,7 +714,7 @@ class Parser:
             return self.number()
         Err(self.unexpected())
 
-    def word(self: &mut Parser, text: &str, flag: bool) -> Result[Toml, TomlFault]:
+    def word(self: &mut Parser, text: &strview, flag: bool) -> Result[Toml, TomlFault]:
         # matches_text proved the complete token fits at this input position.
         if not self.src.matches_text(self.at, text):
             return Err(TomlFault.UnexpectedByte)
@@ -1171,7 +1171,7 @@ pub def parse(source: &[u8], bounds: &Limits) -> Result[Toml, TomlError]:
         return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input.get(), 0, 0))
     run(started(reserved(std.bytes.from_bytes(source)))?, bounds)
 
-pub def parse_text(text: &str, bounds: &Limits) -> Result[Toml, TomlError]:
+pub def parse_text(text: &strview, bounds: &Limits) -> Result[Toml, TomlError]:
     check_depth(bounds)
     if text.byte_len() > bounds.max_input.get():
         return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input.get(), 0, 0))
@@ -1217,7 +1217,7 @@ pub def read_value[R: Reader](reader: &mut R, bounds: &Limits) -> Result[Toml, T
     run(data, bounds)
 
 # The index of the first entry named `key`.
-pub def find(entries: &list[Entry], key: &str) -> Option[i64]:
+pub def find(entries: &list[Entry], key: &strview) -> Option[i64]:
     for index in range(len(entries)):
         if entries[index].key == key:
             return Some(index)
@@ -1379,17 +1379,17 @@ class Emitter:
     # A basic string. `"`, `\`, and control characters are escaped; every
     # other scalar is written as UTF-8. The copy of `text` lets each unescaped
     # run be written at once; see the costs in book/src/design/stdlib/toml.md.
-    def quote(self: &mut Emitter, text: &str) -> Result[(), TomlFault]:
+    def quote(self: &mut Emitter, text: &strview) -> Result[(), TomlFault]:
         # Escaped byte is 0..31 or DEL (127): division/modulo by positive 16
         # and ASCII digit biases fit. index < count bounds run = index + 1.
-        source = reserved(std.bytes.from_text(text))?
-        count = source.len()
+        source = text.as_bytes()
+        count = len(source)
         self.put(34)?
         mut run = 0
-        mut index = run_end(source.find_in(&self.escaped, 0, count), count)
+        mut index = run_end(byte_find_set_range(source, &self.escaped, 0, count, True), count)
         while index < count:
-            byte = i64(source.get(index))
-            self.extend(&source, run, index)?
+            byte = i64(source[index])
+            self.extend(source, run, index)?
             self.put(92)?
             if byte == 34 or byte == 92:
                 self.put(byte)?
@@ -1417,20 +1417,20 @@ class Emitter:
                         self.put(55 + digit)?
             run = unchecked:
                 index + 1
-            index = run_end(source.find_in(&self.escaped, run, count), count)
-        self.extend(&source, run, count)?
+            index = run_end(byte_find_set_range(source, &self.escaped, run, count, True), count)
+        self.extend(source, run, count)?
         self.put(34)
 
     # Bare when every byte is allowed in a bare key, otherwise quoted.
-    def key(self: &mut Emitter, name: &str) -> Result[(), TomlFault]:
-        source = reserved(std.bytes.from_text(name))?
-        count = source.len()
-        if count > 0 and run_end(source.find_not_in(&self.bare, 0, count), count) == count:
-            return self.extend(&source, 0, count)
+    def key(self: &mut Emitter, name: &strview) -> Result[(), TomlFault]:
+        source = name.as_bytes()
+        count = len(source)
+        if count > 0 and run_end(byte_find_set_range(source, &self.bare, 0, count, False), count) == count:
+            return self.extend(source, 0, count)
         self.quote(name)
 
     # ASCII text, all or none.
-    def ascii(self: &mut Emitter, text: &str) -> Result[(), TomlFault]:
+    def ascii(self: &mut Emitter, text: &strview) -> Result[(), TomlFault]:
         # 0 <= out.len() <= max_output; subtracting the remaining budget fits.
         unchecked:
             if text.byte_len() > self.max_output - self.out.len():
@@ -1892,7 +1892,7 @@ pub def document(source: &[u8], bounds: &Limits) -> Result[Document, TomlError]:
     state = document_state(started(reserved(std.bytes.from_bytes(source)))?, bounds)?
     Ok(Document(state, Limits(bounds.max_depth, bounds.max_input, bounds.max_output)))
 
-pub def document_text(text: &str, bounds: &Limits) -> Result[Document, TomlError]:
+pub def document_text(text: &strview, bounds: &Limits) -> Result[Document, TomlError]:
     check_depth(bounds)
     if text.byte_len() > bounds.max_input.get():
         return Err(TomlError(TomlFault.InputTooLarge, bounds.max_input.get(), 0, 0))
@@ -2324,6 +2324,14 @@ pub def dump[T](value: &T, options: &CodecOptions) -> Result[str, std.serial.Ser
     tree = to_value(value, &options.tree_limits)?
     std.serial.wrap(encode_text(&tree, &options.limits))
 
-pub def load[T](text: &str, options: &CodecOptions) -> Result[T, std.serial.SerialError[TomlError]]:
+pub def load[T](text: &strview, options: &CodecOptions) -> Result[T, std.serial.SerialError[TomlError]]:
     tree = std.serial.wrap(parse_text(text, &options.limits))?
     from_value[T](tree, &options.tree_limits, options.unknown_fields)
+
+# Internal callers supply a validated span; a found offset is within it.
+def byte_find_set_range(data: &[u8], set: &[u8], start: i64, stop: i64, member: bool) -> Option[i64]:
+    found = __bytes_find_in(&data[start:stop], set, 1u8 if member else 0u8)
+    if found < 0:
+        return Nothing
+    unchecked:
+        Some(start + found)

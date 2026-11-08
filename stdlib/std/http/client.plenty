@@ -127,7 +127,7 @@ pub def dial(endpoint: &Endpoint, deadline: &Deadline, cancel: &CancellationToke
         case Nothing:
             reach(&endpoint.host, endpoint.port, deadline, cancel)
 
-def reach(host: &str, port: u16, deadline: &Deadline, cancel: &CancellationToken) -> Result[TcpStream, ClientError]:
+def reach(host: &strview, port: u16, deadline: &Deadline, cancel: &CancellationToken) -> Result[TcpStream, ClientError]:
     addresses = netted(std.net.resolve(host, port, deadline, cancel))?
     mut last = NetError.NameNotFound
     for index in range(len(addresses)):
@@ -173,8 +173,8 @@ pub class Dialled:
 
 # `host:port` for a request target or Host field, with an IPv6 address
 # in brackets.
-def host_port(host: &str, port: u16) -> Result[str, AllocError]:
-    mut named = *host
+def host_port(host: &strview, port: u16) -> Result[str, AllocError]:
+    mut named = host[:]?
     if host.find(":").is_some():
         named = "[".concat(host)?.concat("]")?
     named.concat(":")?.concat(&str.from(i64(port))?)
@@ -232,7 +232,7 @@ pub class Proxy:
 
 # A proxy at `http://host:port`. Credentials in the URL are refused; set
 # `authorization` instead.
-pub def proxy(url: &str) -> Result[Proxy, ClientError]:
+pub def proxy(url: &strview) -> Result[Proxy, ClientError]:
     target = target_of(url)?
     if target.scheme != "http" or target.path != "/" or target.query.is_some():
         return Err(ClientError.InvalidUrl)
@@ -327,10 +327,10 @@ pub class Request:
     pub def add(self: &mut Request, name: str, value: str) -> Result[(), ClientError]:
         alloc(self.headers.append(Header(name, value)))
 
-pub def request(method: &str, url: &str) -> Result[Request, ClientError]:
+pub def request(method: &strview, url: &strview) -> Result[Request, ClientError]:
     headers = alloc(list[Header].new())?
     body = alloc(std.bytes.empty())?
-    Ok(Request(*method, *url, headers, body))
+    Ok(Request(alloc(method[:])?, alloc(url[:])?, headers, body))
 
 # A whole response, its body read into memory.
 pub class Fetched:
@@ -413,7 +413,7 @@ class Target:
     path: str
     query: Option[str]
 
-def target_of(text: &str) -> Result[Target, ClientError]:
+def target_of(text: &strview) -> Result[Target, ClientError]:
     url = parsed(std.url.parse(text, max_url))?
     scheme = alloc(url.scheme.lower())?
     if scheme != "http" and scheme != "https":
@@ -468,7 +468,7 @@ def origin_form(target: &Target) -> Result[str, AllocError]:
         case Nothing:
             Ok(target.path)
 
-def absolute_form(target: &Target, form: &str) -> Result[str, AllocError]:
+def absolute_form(target: &Target, form: &strview) -> Result[str, AllocError]:
     target.scheme.concat("://")?.concat(&authority(target)?)?.concat(form)
 
 # Pooled connections are shared only by requests to the same endpoint over
@@ -485,7 +485,7 @@ def same_origin(left: &Target, right: &Target) -> bool:
     left.scheme == right.scheme and left.name == right.name and left.port == right.port
 
 # RFC 3986 section 5.2.4, on a path that starts with `/`.
-def without_dots(path: &str) -> Result[str, AllocError]:
+def without_dots(path: &strview) -> Result[str, AllocError]:
     # The loop is entered only below len(pieces), so its last-index subtraction fits.
     unchecked:
         pieces = path.split("/")?
@@ -503,10 +503,10 @@ def without_dots(path: &str) -> Result[str, AllocError]:
         "/".concat("/".join(&kept)?)
 
 # The absolute URL a Location value names, resolved against `base`.
-def resolved(base: &Target, location: &str) -> Result[str, ClientError]:
+def resolved(base: &Target, location: &strview) -> Result[str, ClientError]:
     match std.url.parse(location, max_url):
         case Ok(_):
-            return Ok(*location)
+            return alloc(location[:])
         case Err(UrlError.MissingScheme):
             pass
         case Err(UrlError.Allocation(cause)):
@@ -515,12 +515,12 @@ def resolved(base: &Target, location: &str) -> Result[str, ClientError]:
             return Err(ClientError.InvalidRedirect)
     alloc(joined(base, location))
 
-def joined(base: &Target, location: &str) -> Result[str, AllocError]:
+def joined(base: &Target, location: &strview) -> Result[str, AllocError]:
     # rfind returns an index below path length, so its following scalar position fits.
     unchecked:
         # RFC 3986 section 3.5: everything after the first `#` is the fragment,
         # which is never sent, even when a `?` follows it.
-        mut reference = *location
+        mut reference = location[:]?
         match reference.find("#"):
             case Some(at):
                 reference = reference.slice(0, at)?
@@ -553,15 +553,15 @@ def joined(base: &Target, location: &str) -> Result[str, AllocError]:
 
 # Fields the client writes itself or does not support. Proxy credentials go
 # in `Proxy.authorization`, so they cannot leak to an origin.
-def managed(name: &str) -> Result[bool, AllocError]:
+def managed(name: &strview) -> Result[bool, AllocError]:
     lowered = name.lower()?
     Ok(lowered == "host" or lowered == "content-length" or lowered == "transfer-encoding" or lowered == "connection" or lowered == "keep-alive" or lowered == "upgrade" or lowered == "te" or lowered == "trailer" or lowered == "expect" or lowered == "proxy-authorization" or lowered == "proxy-connection")
 
 # RFC 9110 token characters, so that a bad method fails before connecting.
-def token(text: &str) -> bool:
+def token(text: &strview) -> bool:
     text.byte_len() > 0 and std.text.find_not_in(text, b"!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz").is_none()
 
-def idempotent(method: &str) -> bool:
+def idempotent(method: &strview) -> bool:
     method == "GET" or method == "HEAD" or method == "OPTIONS" or method == "TRACE" or method == "PUT" or method == "DELETE"
 
 # Connections
@@ -994,7 +994,7 @@ pub class Client[T, C]:
         status = head.status
         Ok(Fetched(status, head, url, redirects, body))
 
-    pub def get(self, url: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[Fetched, ClientError]:
+    pub def get(self, url: &strview, deadline: &Deadline, cancel: &CancellationToken) -> Result[Fetched, ClientError]:
         self.fetch(request("GET", url)?, deadline, cancel)
 
     # Returns a response's connection to the pool when its body was read to
@@ -1342,7 +1342,7 @@ pub class Client[T, C]:
             Err(ClientError.UnexpectedInterim)
 
     # The body that follows `head` on `conn`.
-    def incoming(self, conn: BufReader[ClientError, Wire[T]], head: &ResponseHead, method: &str, complete: bool) -> Result[Incoming[T], ClientError]:
+    def incoming(self, conn: BufReader[ClientError, Wire[T]], head: &ResponseHead, method: &strview, complete: bool) -> Result[Incoming[T], ClientError]:
         mut owned = conn
         framing = framed(std.http.response_framing(head, method))?
         # A request whose body was never sent leaves the server expecting it.
@@ -1403,7 +1403,7 @@ def stream_body[T, R: Reader](conn: &mut BufReader[ClientError, Wire[T]], body: 
         Ok(())
 
 # Whether following a redirect with `status` drops the request body.
-def bodiless(status: i64, method: &str) -> bool:
+def bodiless(status: i64, method: &strview) -> bool:
     (status == 303 and method != "HEAD") or ((status == 301 or status == 302) and method == "POST")
 
 # Failures that a reused connection closed by its server produces before any
@@ -1448,7 +1448,7 @@ def follow(request: &mut Request, status: i64, next: str, sensitive: &list[str])
     request.url = next
     Ok(())
 
-def listed(names: &list[str], name: &str) -> Result[bool, ClientError]:
+def listed(names: &list[str], name: &strview) -> Result[bool, ClientError]:
     for index in range(len(names)):
         if alloc(names[index].lower())? == name:
             return Ok(True)

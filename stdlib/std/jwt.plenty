@@ -410,7 +410,7 @@ class Parts:
     first: i64
     second: i64
 
-def split(token: &str, max_size: i64) -> Result[Parts, JwtError]:
+def split(token: &strview, max_size: i64) -> Result[Parts, JwtError]:
     if token.byte_len() > max_size:
         return Err(JwtError.TooLarge)
     source = std.bytes.from_text(token).map_error(JwtError.Allocation)?
@@ -481,7 +481,7 @@ def read_header(parts: &Parts) -> Result[Header, JwtError]:
 # Reads the header without verifying anything, for example to choose a key
 # by `kid`. The result is attacker-controlled until `verify` succeeds. The
 # default is `default_max_size`.
-pub def decode_header(token: &str, max_size: Positive[i64] __max(1048576) = 8192) -> Result[Header, JwtError]:
+pub def decode_header(token: &strview, max_size: Positive[i64] __max(1048576) = 8192) -> Result[Header, JwtError]:
     if max_size.get() > max_token_size:
         __trap("std.jwt.decode_header: max_size is above max_token_size")
     parts = split(token, max_size.get())?
@@ -626,7 +626,7 @@ def check_claims(claims: &list[Member], rules: &Validation) -> Result[(), JwtErr
 # Checks, in order: settings, size, structure, header, algorithm, signature,
 # claims JSON, then claim rules. The claims are not parsed before the
 # signature verifies.
-pub def verify(token: &str, key: &VerifyingKey, rules: &Validation) -> Result[Token, JwtError]:
+pub def verify(token: &strview, key: &VerifyingKey, rules: &Validation) -> Result[Token, JwtError]:
     if rules.max_size.get() > max_token_size:
         __trap("std.jwt.verify: max_size is above max_token_size")
     if not valid_rules(rules):

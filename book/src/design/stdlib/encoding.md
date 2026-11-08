@@ -38,6 +38,10 @@ hi!
 258
 ```
 
+Text decoder inputs are `&strview`: an owned string, `&str`, or selected
+`&text[start:stop]` range is accepted without an intermediate encoded-input
+buffer. Decoders read the selected UTF-8 bytes and return owned output.
+
 ## Codecs
 
 `source` is a byte view `&[u8]`: pass `&buffer` for a whole `Bytes`,
@@ -52,7 +56,7 @@ hi!
 | `base64url_encode(source)` | `Result[Bytes, EncodingError]` | RFC 4648 section 5, unpadded |
 | `base64url_decode(source)` | `Result[Bytes, EncodingError]` | The unpadded form only |
 | `hex_text`, `base64_text`, `base64url_text` `(source)` | `Result[str, EncodingError]` | The same encoding as a `str` |
-| `hex_from_text`, `base64_from_text`, `base64url_from_text` `(text: &str)` | `Result[Bytes, EncodingError]` | Decode the whole text |
+| `hex_from_text`, `base64_from_text`, `base64url_from_text` `(text: &strview)` | `Result[Bytes, EncodingError]` | Decode the whole text |
 
 Each result is a new buffer whose capacity equals its length. Encoders produce
 ASCII only.

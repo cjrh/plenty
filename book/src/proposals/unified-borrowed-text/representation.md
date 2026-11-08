@@ -4,6 +4,12 @@
 The public contract and generic-reference exception there are recommendations.
 This page records layout alternatives and acceptance evidence; it does not
 choose an ABI, schedule implementation, or change the current reference.
+The delivered separate-view design keeps ordinary `&str` and the existing
+two-word `&strview` (`&substr` alias), without a cached scalar count. Range
+operations, direct byte access and read-only standard-library inputs are
+described by the [current reference](../../design/facilities/01-builtins/text.md)
+and [input inventory](../../design/stdlib/text-input-views.md). The ABI changes
+and generic specialization discussed below apply only if unification is adopted.
 Planned work remains in B12/B11 in the [backlog](../../backlog.md).
 
 ## Representation choices
@@ -99,8 +105,8 @@ even though Plenty's internal function ABI changes. Compiler/runtime artifacts,
 compiled std bodies and affected caches must agree on the new layout; existing
 private machine-code interfaces cannot be assumed compatible.
 
-Formatting currently distinguishes whole text and substring metadata and has
-separate `std.fmt` entry points. Consolidation should preserve escaping, Unicode
+Formatting retains separate whole-text and substring metadata; its existing
+`std.fmt` helper names now accept the separate text view. Consolidation should preserve escaping, Unicode
 format widths, precision and fallible output contracts. Remove redundant helper
 spellings only through an explicit source migration.
 

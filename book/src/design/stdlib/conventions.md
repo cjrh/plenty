@@ -47,7 +47,7 @@ standard library.
 | `with_capacity(capacity)` | Empty container with reserved storage | `std.bytes.with_capacity` |
 | `__init__` | Containers built with the class name | `Deque[T]()`, `LruCache(capacity)` |
 
-A format defined over text alone takes `parse(text: &str)` (`std.url`,
+A format defined over text alone takes `parse(text: &strview)` (`std.url`,
 `std.uuid`, `std.mime`). `new` is used only by `std.image` and `std.mime`; do
 not add it.
 
@@ -216,8 +216,11 @@ and drops its moved arguments, because an error cannot carry a loan.
 
 ### Ownership
 
-Borrow (`&T`) what the call only reads. Use `&mut T` for state or a buffer it
-updates. Take ownership (`T`) only when the result or a queue keeps the value:
+Borrow (`&T`) what the call only reads. Text readers use `&strview` to accept
+whole strings and selected substring ranges without an input copy. Ordinary
+`&str` remains appropriate for generic references, protocol callbacks, and
+getters returning a reference to an owned string field. Use `&mut T` for state
+or a buffer it updates. Take ownership (`T`) only when the result or a queue keeps the value:
 `std.io.cursor(data: Bytes)`, `std.xml.reader(inner: R, ...)`. An adapter that
 owns its inner stream exposes it as a public `inner` field so the caller can
 recover it.

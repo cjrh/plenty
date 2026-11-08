@@ -21,6 +21,11 @@ def main() -> Result[(), TemplateError | AllocError | IoError]:
 <p>Hello Ada &amp; Grace!</p>
 ```
 
+Text inputs accept `&strview`, including template names and source ranges.
+Registration copies the name and parsed text it retains through the existing
+fallible allocation contract. Lookup, validation, rendering, and escaping
+inspect their selected input without a caller-side owning string copy.
+
 ## Declared context validation
 
 Use `validate(name, schema)` to check every reachable field path and operation
@@ -216,7 +221,7 @@ do not treat untrusted templates as a markup sanitizer.
 
 ### Escaping individual values
 
-Use `escape(text: &str, context: HtmlContext, max_bytes: NonNegative[i64] = 16777216)`
+Use `escape(text: &strview, context: HtmlContext, max_bytes: NonNegative[i64] = 16777216)`
 when assembling a fragment directly or matching another renderer's exact output.
 It returns `Result[str, TemplateError]`. Choose the context from the position
 where the value will appear; the escaper does not parse surrounding HTML.

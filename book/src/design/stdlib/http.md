@@ -57,8 +57,8 @@ POST /notes hello
 | `ResponseHead(minor, status: i64, reason: str, headers)` | |
 | `request(method, target)`, `response(status, reason)` | `Result` with a head using HTTP/1.1 and no fields; fails only when allocating the field list fails |
 | `head.add(name, value)` | `Result[(), HttpError]`: append a field |
-| `find(headers: &list[Header], name: &str)` | `Option[i64]`: index of the first field named `name`, ignoring ASCII case |
-| `same_name(left: &str, right: &str)` | `bool`: whether two names are equal ignoring ASCII case; never allocates, and non-ASCII text never matches |
+| `find(headers: &list[Header], name: &strview)` | `Option[i64]`: index of the first field named `name`, ignoring ASCII case |
+| `same_name(left: &strview, right: &strview)` | `bool`: whether two names are equal ignoring ASCII case; never allocates, and non-ASCII text never matches |
 
 Parsed names keep the case they arrived in. Values have surrounding spaces
 and tabs removed. Fields stay in arrival order and repeated names stay
@@ -129,7 +129,7 @@ and consumed-byte progress.
 | Function | Result |
 |---|---|
 | `request_framing(head: &RequestHead)` | `Result[Framing, HttpError]`; no framing field is `Empty` |
-| `response_framing(head: &ResponseHead, method: &str)` | `Result[Framing, HttpError]`; no framing field is `UntilClose` |
+| `response_framing(head: &ResponseHead, method: &strview)` | `Result[Framing, HttpError]`; no framing field is `UntilClose` |
 | `request_keeps_alive(head)` | HTTP/1.1 unless `Connection: close`; HTTP/1.0 only with `Connection: keep-alive` |
 | `response_keeps_alive(head, framing: &Framing)` | As for requests, and never after an `UntilClose` body |
 

@@ -519,3 +519,22 @@ def main() -> Result[(), IoError | AllocError | SerialError[JsonError]]:
         "80 local\nstd.json.JsonFault.DepthExceeded [std.serial.Step.Field(\"ignored\")] True\n",
     );
 }
+
+#[test]
+fn toml_text_adapter_accepts_ranges_without_changing_generic_codec_callbacks() {
+    support::assert_stdout(
+        r#"
+import std.toml
+import std.serial
+
+def main() -> Result[(), IoError | std.serial.SerialError[std.toml.TomlError]]:
+    source = "!name='café 🙂'\n!"
+    options = std.toml.codec_options()
+    value = std.toml.load[dict[str, str]](&source[1:-1], &options)?
+    print(value.get("name").unwrap() == "café 🙂")?
+    print(std.toml.dump(&value, &options)?.startswith("name = "))?
+    Ok(())
+"#,
+        "True\nTrue\n",
+    );
+}

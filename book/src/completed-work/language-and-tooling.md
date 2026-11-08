@@ -420,15 +420,17 @@ User-container membership and iterator protocols remain **B49** in the
 
 ## B12: I/O and iteration
 
-`std.text`, `std.fmt` and `std.regex` accept `&strview` inputs, including
-substring ranges, for their text operations. Builders copy directly from borrowed
-UTF-8 bytes; unchanged wrapping input is split directly from its borrowed range.
-Regex matching reads the range directly, while compilation fallibly copies the
-pattern it retains. Ordinary string references and the `indent_with` callback
-contract remain unchanged. See [text](../design/stdlib/text.md),
-[formatting](../design/stdlib/fmt.md) and [regex](../design/stdlib/regex.md).
-This is partial read-only standard-library delivery for issue #864; other
-parsers and readers remain tracked there.
+Read-only text inputs in 127 pure-Plenty standard-library declarations accept
+`&strview`, including substring ranges: text builders and wrapping, formatting,
+regex, JSON/TOML and Markdown parsing, Unicode normalization, codecs, URLs,
+MIME, shell words, templates, diffs, and HTTP text helpers. Byte-oriented readers
+inspect `as_bytes()` directly. Retained names, compiled regex patterns, returned
+strings, and parser working buffers keep explicit fallible ownership boundaries.
+Ordinary generic references, serialization callbacks, and MIME getters remain
+unchanged. See the [input inventory](../design/stdlib/text-input-views.md) for
+exceptions, runtime-reader coverage and allocation contracts. This delivers the
+pure-Plenty reader portion of issue #864; runtime-backed readers are recorded
+with their separate implementation.
 
 Text and substring views expose `as_bytes()`, a constant-time shared byte borrow
 that preserves the original string loan, including inline slots. Byte iteration
