@@ -92,11 +92,12 @@ signed zero, infinities, NaN, and underflow; arithmetic overflow may yield infin
 Integers support bitwise `&`, `|`, `^`, and unary `~`, and shifts `<<` and `>>`.
 Operands must have the same integer type; a typed left operand guides an
 unsuffixed count literal. Counts must be nonnegative and less than the integer
-width. A count written as an integer literal outside that range, such as
-`x << 64` on an `i64`, is a compile-time error. A count of the form `n & L`
-or `L & n`, where `L` is an integer literal in `0..width`, lies in `0..=L` and
-adds no error either; this covers the masking idiom `x << (n & 63)`. Any other
-count can fail with
+width. A count written as an integer literal or an integer
+[module constant](../02-source/modules.md#constants) outside that range, such
+as `x << 64` on an `i64`, is a compile-time error. A count of the form `n & L`
+or `L & n`, where `L` is such a literal or constant in `0..width`, lies in
+`0..=L` and adds no error either; this covers the masking idiom
+`x << (n & 63)`. Any other count can fail with
 `ShiftCountError[T]`, a recoverable arithmetic error like overflow, before
 shifting. Left shifts discard high bits rather than overflow.
 Signed right shifts extend the sign bit; unsigned right shifts fill with zero.
@@ -269,17 +270,17 @@ operators can produce:
 | Operation inside the block | Error |
 | --- | --- |
 | `+`, `-`, `*`, unary `-` and `pow` on `T` | `OverflowError[T]` |
-| `//` on a signed `T` with a `T` or `NonZero[T]` divisor (`T.MIN // -1`), unless the divisor is a literal other than `-1` | `OverflowError[T]` |
-| `//` and `%` with a plain integer divisor, unless the divisor is a nonzero literal | `ZeroDivisionError` |
-| `<<` and `>>` on `T`, unless the count is an integer literal or `n & L` with a literal `L` below the width | `ShiftCountError[T]` |
+| `//` on a signed `T` with a `T` or `NonZero[T]` divisor (`T.MIN // -1`), unless the divisor is a literal or module constant other than `-1` | `OverflowError[T]` |
+| `//` and `%` with a plain integer divisor, unless the divisor is a nonzero literal or module constant | `ZeroDivisionError` |
+| `<<` and `>>` on `T`, unless the count is an integer literal or module constant, or `n & L` with such an `L` below the width | `ShiftCountError[T]` |
 
 `OverflowError[T]` has one field, `wrapped: T`, the exact result modulo
 2<sup>N</sup> for an N-bit `T`. `ShiftCountError[T]` has one field, `count: T`,
 the count that is negative or not less than N. `ZeroDivisionError` has no
 fields. All three are builtin classes; their names cannot be redefined.
 `T.MIN % -1` is `0`, inside or outside a block. A left shift by a valid count
-discards high bits and is not an overflow. A literal count outside `0..N` is a
-compile-time error, so a literal count never adds an error.
+discards high bits and is not an overflow. A literal or constant count outside
+`0..N` is a compile-time error, so such a count never adds an error.
 
 Casts and float arithmetic are unchanged: they neither add an error nor exit
 the block. A cast is call-shaped, and the block does not consume call results;
@@ -332,13 +333,19 @@ def main() -> Result[(), IoError]:
 
 The error type follows the operators and operand types, not their values,
 with one exception: a divisor or shift count written as an integer literal,
-such as `4`, `-3` or `(4u8)`, removes the failures it rules out. A nonzero literal cannot
-divide by zero, and a literal other than `-1` cannot overflow, so `n // 4`
+such as `4`, `-3` or `(4u8)`, or as an integer
+[module constant](../02-source/modules.md#constants), removes the failures it
+rules out. A constant proves what the literal it evaluates to proves, whether
+it is local, imported or aliased, and whatever constant expression initializes
+it. A nonzero divisor cannot
+divide by zero, and one other than `-1` cannot overflow, so `n // 4`
 and `n % -3` add no error, `n // -1` adds only `OverflowError[T]` for a signed
-`T`, and `n // 0` still adds `ZeroDivisionError`. A valid literal shift count,
-as in `x << 3`, adds no error, nor does a count masked by such a literal, as in
-`x << (n & 7)`. The rule applies to the operand's spelling
-only. A module constant, a variable assigned from a literal, a guard such as
+`T`, and `n // 0` still adds `ZeroDivisionError`; the same holds for
+`n // step` after `const step: i64 = 4`. A valid shift count, as in `x << 3`,
+adds no error, nor does a count masked by such a literal or constant, as in
+`x << (n & 7)`. The rule applies to the operand's form
+only. A variable assigned from a literal or constant, a negated constant such
+as `-step`, a guard such as
 `if d != 0:` or `if n < 64:` and arithmetic such as `1 + 1` prove nothing; use
 a [`NonZero[T]`](#nonzero-integers) or [`Positive[T]`](#positive-and-non-negative-integers)
 divisor to carry a proof checked elsewhere. Guards do not narrow other

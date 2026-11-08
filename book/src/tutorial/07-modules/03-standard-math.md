@@ -91,6 +91,35 @@ module. See [constants](../../design/language/02-source/modules.md#constants)
 for the accepted expressions, static assertions, and file contents included as
 constants.
 
+An integer constant used as a divisor or shift count proves what its value
+proves, exactly as the same literal would in
+[integer arithmetic](../02-values/numeric-operations.md). A nonzero constant
+divisor adds no `ZeroDivisionError`, and a constant count below the width adds
+no `ShiftCountError[T]`:
+
+```plenty
+const bucket_size: i64 = 16
+const bucket_bits: i64 = 4
+
+def bucket(offset: i64) -> (i64, i64):
+    (offset // bucket_size, offset % bucket_size)
+
+def bucket_start(index: i64) -> i64:
+    index << bucket_bits
+
+def main() -> Result[(), IoError]:
+    print(bucket(-1), bucket(37), bucket_start(2))?
+    Ok(())
+```
+
+```output
+(-1, 15) (2, 5) 32
+```
+
+A constant of `0` keeps `ZeroDivisionError`, a signed constant of `-1` keeps
+the quotient's `OverflowError[T]`, and a constant count outside the width is a
+compile-time error. A local variable copied from a constant proves nothing.
+
 See the [math reference](../../design/stdlib/math.md) for available functions
 and their fixed-width and numerical limits. The
 [standard library reference](../../design/stdlib/index.md) lists every module.

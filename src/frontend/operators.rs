@@ -397,7 +397,7 @@ impl Lower<'_> {
                 return Ok(Some(crate::sum::result(Ty::Str, crate::sum::alloc_error())));
             }
             self.mark_arithmetic(op, &a, &e.at, ops);
-            let proof = divisors::literal_divisor(op, right);
+            let proof = self.known_divisor(op, right);
             if a.is_int()
                 && let Some(operation) = crate::numeric::Checked::named(op, proof)
                 && self.checked_arith(operation, &a, &e.at, ops)?
