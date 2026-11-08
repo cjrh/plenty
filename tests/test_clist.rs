@@ -541,20 +541,25 @@ for x in rows.column(Values.a):
 #[case("items[0].x = 10", "borrow")]
 #[case("moved = items", "borrow")]
 fn column_plan_protects_the_whole_owner(#[case] mutation: &str, #[case] expected: &str) {
-    let error = support::check_source(&format!(
-        r#"
+    for source in [
+        "items.column(Point.x)",
+        "items.column(Point.x).zip(items.column(Point.x))",
+    ] {
+        let error = support::check_source(&format!(
+            r#"
 class Point:
     x: i64
 mut items = clist[Point]()
 items.append(Point(1)).unwrap()
-values = items.column(Point.x)
+values = {source}
 {mutation}
 print(values.count()).unwrap()
 "#
-    ))
-    .unwrap_err()
-    .to_string();
-    assert!(error.contains(expected), "{error}");
+        ))
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains(expected), "{error}");
+    }
 }
 
 #[rstest]
@@ -1260,5 +1265,97 @@ fn owner_paths_fall_back_when_the_loop_can_resize_the_clist() {
             String::from_utf8_lossy(&output.stdout),
             "46.0\n33.0\n33.0\n110.0\n33.0\n"
         );
+    }
+}
+
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn zipped_columns_share_a_cursor_without_changing_remaining_ranges(#[case] release: bool) {
+    let source = r#"
+class Row:
+    flag: bool
+    small: i8
+    medium: i16
+    wide: u64
+    value: f32
+
+def first(values: &mut Iter[i8]) -> Option[i8]:
+    next(values)
+
+def visit(value: i8) -> i8:
+    print("left").unwrap()
+    value
+
+def effects() -> ():
+    mut left = clist[Row]()
+    mut empty = clist[Row]()
+    left.append(Row(True, 1i8, 1i16, 1u64, 1.0f32)).unwrap()
+    # The left callback must still run once when the right side is empty.
+    for a, b in left.column(Row.small).map(visit).zip(empty.column(Row.small)):
+        check(False, "right empty").unwrap()
+
+def main() -> Result[(), AppendError[Row] | IoError | OverflowError[i64]]:
+    for length in range(18):
+        mut left = clist[Row]()
+        mut right = clist[Row]()
+        for i in range(length):
+            left.append(Row(i % 2 == 0, i8(i), i16(i), u64(i), f32(i)))?
+        for i in range(length // 2):
+            right.append(Row(True, i8(i), i16(i), u64(i), f32(i)))?
+        mut seen = 0
+        for flag, value in left.column(Row.flag).zip(left.column(Row.value)):
+            check(flag == (i64(value) % 2 == 0), "mixed scalar columns").unwrap()
+            seen += 1
+        check(seen == length, "all rows").unwrap()
+        # Empty and unequal owners still stop at the shorter side.
+        check(left.column(Row.wide).zip(right.column(Row.small)).count() == length // 2, "right shortest").unwrap()
+        check(right.column(Row.wide).zip(left.column(Row.small)).count() == length // 2, "left shortest").unwrap()
+        mut a = left.column(Row.small)
+        mut b = left.column(Row.wide)
+        drop(next(a))
+        drop(next(b))
+        drop(next(b))
+        mut pairs = a.zip(b)
+        # next, then a terminal, must preserve the fused cursor's progress.
+        match next(pairs):
+            case Some((small, wide)):
+                check(small == 1i8 and wide == 2u64, "shifted pair values").unwrap()
+            case Nothing:
+                check(length <= 2, "empty remaining range").unwrap()
+        expected = length - 3 if length > 3 else 0
+        check(pairs.count() == expected, "resumed zip").unwrap()
+        for medium, small in left.column(Row.medium).zip(left.column(Row.small)):
+            check(medium == i16(small), "two-byte column stride").unwrap()
+        mut lent = left.column(Row.small)
+        drop(first(&mut lent))
+        mut n = 1
+        for small, wide in lent.zip(left.column(Row.wide)):
+            check(i64(small) == n and u64(n - 1) == wide, "previously lent column").unwrap()
+            n += 1
+    effects()
+    print("ok")?
+    Ok(())
+"#;
+    let output = run_mode(source, release);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout, b"left\nok\n");
+}
+
+#[test]
+fn selected_field_zip_avoids_nested_pull_loops_and_pending_options() {
+    let dir = loops_dir(include_str!("../experiments/kernels/clist-zip/scan.plenty"));
+    for function in ["scan_loop", "scan_fold"] {
+        let ops = dump(dir.path(), "ops", function);
+        assert_eq!(
+            ops.lines().filter(|line| line.trim() == "Loop").count(),
+            1,
+            "{ops}"
+        );
+        assert!(!ops.contains("Option["), "{ops}");
     }
 }

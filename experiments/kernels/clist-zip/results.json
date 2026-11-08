@@ -1,0 +1,54 @@
+{
+  "baseline_revision": "ad134bd6",
+  "compiler_profile": "release, optimized, no allocation instrumentation",
+  "cpu": "x86-64 baseline codegen",
+  "checksum": "2808000.0",
+  "static_spans": {
+    "C": 7,
+    "zip_loop_before": 43,
+    "zip_loop_after": 8,
+    "zip_fold_before": 43,
+    "zip_fold_after": 10,
+    "indexed_before": 8,
+    "indexed_after": 8,
+    "inlined_zip_loop_after": 8,
+    "inlined_zip_fold_after": 10
+  },
+  "matching_explicit_zip_path": {
+    "before": 31,
+    "after": 8
+  },
+  "ir_variants": {
+    "pulls": 43,
+    "direct": 12,
+    "shared": 9
+  },
+  "whole_program_instructions": {
+    "runs": 3,
+    "before_mean": 118124312,
+    "after_mean": 44158708
+  },
+  "compile_cli_instructions": {
+    "units": 1000,
+    "runs": 10,
+    "before_mean": 11643972034,
+    "after_mean": 11646251790,
+    "before_reported_variation_percent": 0.01,
+    "after_reported_variation_percent": 0.02
+  },
+  "compile_library_instructions_after": {
+    "units": 1000,
+    "repetitions": 10,
+    "runs": 3,
+    "mean": 115059439912
+  },
+  "sha256": {
+    "/tmp/issue888-before": "f25f10cec80ce8b0f5b2926126ebe2afa9cc62e700d06f700e51d8726277cfe5",
+    "target/release/plenty": "fb6770edc60d9209f7ad30d7832c0b12d7b82a21305d2bc8e5e6fd33457aad64",
+    "experiments/kernels/clist-zip/scan.plenty": "6a72165bfb4630abf6e2d5468417809d24c1055c05b9bf43b57fa207befea826",
+    "/tmp/issue888-before-program": "4c1c676646b3a65ef8746878a5e6bd687851b00ec9a18c5cea94b638449b3ddc",
+    "/tmp/issue888-after-program": "563ffa3ce3f24a1128c734cba369d187c638c52ff971ab71dfadc6c903752e8c"
+  },
+  "host_cpu": "AMD Ryzen 7 7840HS",
+  "cpu_affinity": "scheduler default; instruction counts only"
+}
