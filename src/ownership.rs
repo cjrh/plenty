@@ -2707,6 +2707,29 @@ impl Checker<'_, '_> {
                                     ),
                                 ));
                             } else if let Some(at) = site
+                                && loan.mutable
+                                && loan.holder.is_none()
+                                && let Some(accessed) = accessed
+                                && loan.parent == Some(accessed.id)
+                                && let Some(copy) = loan.binding
+                                && accessed.binding.is_some_and(|original| original != copy)
+                                // A holder copy, not a `&mut r` reborrow.
+                                && self
+                                    .locals
+                                    .get(copy as usize)
+                                    .is_some_and(|ty| ty.carried_reference().is_some())
+                                && let Some(copy) = self.place(copy, &[], false)
+                                && let Some(original) = accessed
+                                    .binding
+                                    .and_then(|slot| self.place(slot, &[], false))
+                            {
+                                hint = Some((
+                                    at,
+                                    format!(
+                                        "`{copy}` copies `{original}` and shares its exclusive borrow, so `{original}` cannot be used while `{copy}` is live; use `{copy}` instead"
+                                    ),
+                                ));
+                            } else if let Some(at) = site
                                 && !write
                                 && loan.mutable
                                 && loan.binding.is_none()
