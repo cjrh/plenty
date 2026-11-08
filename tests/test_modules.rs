@@ -1474,7 +1474,14 @@ fn replacement_in_unused_std_test_methods_is_not_shadowed_by_the_entrypoint() {
 
 #[test]
 fn replacement_builtin_is_not_an_indirect_or_generic_user_function() {
-    for expression in ["replace", "replace[i64]", "replace[i64](7)"] {
+    // A value use resolves in the writing module, which declares no
+    // `replace`; a generic call is the builtin and reports its written
+    // name, as `iter[i64](xs)` does (issue #898).
+    for (expression, expected) in [
+        ("replace", "unknown binding `api.replace`"),
+        ("replace[i64]", "`api.replace` is not a generic function"),
+        ("replace[i64](7)", "`replace` is not a generic function"),
+    ] {
         let api = format!("pub def invalid() -> ():\n    operation = {expression}\n");
         let dir = workspace(&[
             ("api.plenty", &api),
@@ -1486,7 +1493,7 @@ fn replacement_builtin_is_not_an_indirect_or_generic_user_function() {
         let error = plenty::check_file(&dir.path().join("main.plenty"), None)
             .unwrap_err()
             .to_string();
-        assert!(error.contains("api.replace"), "{error}");
+        assert!(error.contains(expected), "{expression}: {error}");
         assert!(!error.contains("$builtin"), "{error}");
     }
 }
