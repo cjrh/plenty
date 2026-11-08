@@ -41,46 +41,57 @@ fn reference_closure(lower: &Lower<'_>, worker: &Expr) -> Option<(bool, bool)> {
     }
 }
 
-/// Generator frames are excluded from worker threads (see the concurrency
-/// eligibility rules). Reject an owned or borrowed generator argument of a
-/// named `spawn` or `submit` start here, naming it: otherwise the task layout
-/// measures a frame whose layout is not yet resolved and panics, and a borrow
-/// is reported against an internal adapter name (issue #909).
-pub(super) fn generator_argument(
-    start: &str,
-    function: &str,
-    params: &[(String, Ty)],
-    args: &[Expr],
-    at: &Token,
-) -> Result<()> {
-    let positional: Vec<_> = args
-        .iter()
-        .filter(|arg| !matches!(arg.kind, Expression::NamedArgument(..)))
-        .collect();
-    for (index, (param, ty)) in params.iter().enumerate() {
-        let mut held = ty;
-        while let Ty::Ref(inner, _) = held {
-            held = inner;
-        }
-        if !held.contains_generator_frame() {
-            continue;
-        }
-        let at = args
-            .iter()
-            .find(|arg| matches!(&arg.kind, Expression::NamedArgument(label, _) if label == param))
-            .or_else(|| positional.get(index).copied())
-            .map_or(at, |arg| &arg.at);
-        return Err(at.error(format!(
-            "{start} argument `{param}` of `{function}` holds a generator frame, which cannot enter a worker thread; collect its items into a list and pass that instead"
-        )));
-    }
-    Ok(())
-}
-
 const DROP_JOB_RECEIVER: &str =
     "drop_job requires a SpawnError or SubmitError, or a Result whose error is one";
 
 impl Lower<'_> {
+    /// Generator frames are excluded from worker threads (see the concurrency
+    /// eligibility rules). Reject an owned or borrowed generator argument of a
+    /// named `spawn` or `submit` start here, naming it: otherwise the task
+    /// layout measures a frame whose layout is not yet resolved and panics, and
+    /// a borrow is reported against an internal adapter name (issue #909).
+    ///
+    /// A lent pipeline's hidden `<lent k>` state parameters follow the declared
+    /// ones, so a frame in that state is attributed to the declared parameter
+    /// whose plan owns it.
+    pub(super) fn generator_argument(
+        &self,
+        start: &str,
+        function: &str,
+        params: &[(String, Ty)],
+        args: &[Expr],
+        at: &Token,
+    ) -> Result<()> {
+        let holds_frame = |ty: &Ty| {
+            let mut held = ty;
+            while let Ty::Ref(inner, _) = held {
+                held = inner;
+            }
+            held.contains_generator_frame()
+        };
+        let positional: Vec<_> = args
+            .iter()
+            .filter(|arg| !matches!(arg.kind, Expression::NamedArgument(..)))
+            .collect();
+        let declared = params.iter().filter(|(name, _)| !name.starts_with("<lent "));
+        for (index, (param, ty)) in declared.enumerate() {
+            let lent = pipelines::lent_identity(ty)
+                .is_some_and(|id| self.generics.lent[id].hidden().any(|t| holds_frame(&t)));
+            if !lent && !holds_frame(ty) {
+                continue;
+            }
+            let at = args
+                .iter()
+                .find(|arg| matches!(&arg.kind, Expression::NamedArgument(label, _) if label == param))
+                .or_else(|| positional.get(index).copied())
+                .map_or(at, |arg| &arg.at);
+            return Err(at.error(format!(
+                "{start} argument `{param}` of `{function}` holds a generator frame, which cannot enter a worker thread; collect its items into a list and pass that instead"
+            )));
+        }
+        Ok(())
+    }
+
     pub(super) fn with_thread(
         &mut self,
         call: &Expr,
@@ -135,7 +146,7 @@ impl Lower<'_> {
                         .error("spawn requires a statically selected function")
                 })?;
                 let captures = self.sigs[&symbol].inputs.clone();
-                generator_argument("spawn", function, &captures, args, &call.at)?;
+                self.generator_argument("spawn", function, &captures, args, &call.at)?;
                 // Owned arguments bind a one-shot job, as `pool.submit` does,
                 // so a failed start returns them in `SpawnError[F]` (issue
                 // #630). A borrowed argument cannot be returned in an error,

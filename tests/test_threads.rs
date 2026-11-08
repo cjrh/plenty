@@ -1052,6 +1052,35 @@ def main() -> Result[(), PoolError | SubmitError[()]]:
             "11:39",
             "submit argument `g` of `work`",
         ),
+        // A lent pipeline's generator lives in hidden state parameters; the
+        // diagnostic names the declared parameter and its argument.
+        (
+            "
+def work(g: &mut Iter[i64]) -> i64:
+    7
+def main() -> Result[(), SpawnError[()]]:
+    mut p = iter(numbers(3)).filter(def(n: &i64) -> bool: *n > 0)
+    with spawn(work, &mut p)?:
+        pass
+    Ok(())
+",
+            "10:22",
+            "spawn argument `g` of `work`",
+        ),
+        (
+            "
+def work(g: &mut Iter[i64]) -> i64:
+    7
+def main() -> Result[(), PoolError | SubmitError[()] | FutureError]:
+    mut p = iter(numbers(3)).filter(def(n: &i64) -> bool: *n > 0)
+    with ThreadPoolExecutor(2, 2)? as pool:
+        future = pool.submit(work, &mut p).drop_job()?
+        _ = future.result()?
+    Ok(())
+",
+            "11:36",
+            "submit argument `g` of `work`",
+        ),
     ] {
         let source = format!("{generator}{body}");
         let error = plenty::check_source(&source).unwrap_err().to_string();
