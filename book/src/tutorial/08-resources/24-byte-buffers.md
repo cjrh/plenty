@@ -187,8 +187,9 @@ Operations that only read another sequence of bytes, such as `find_bytes`,
 `matches`, `find_in`, and `extend`, take a literal as readily as a buffer. Their
 parameter is a `&[u8]`
 [slice view](../../design/language/04-expressions/slices.md#slice-views): a
-literal, `&buffer`, or part of either, `&buffer[a:b]`, converts to it, so each
-call reads the bytes where they are and nothing is copied. Your own functions
+literal, a buffer such as `header` (lent as `&header` would be), or part of
+either, `&buffer[a:b]`, converts to it, so each call reads the bytes where they
+are and nothing is copied. Your own functions
 can accept every form the same way:
 
 ```plenty
@@ -199,11 +200,11 @@ def starts_png(data: &[u8]) -> bool:
 
 def main() -> Result[(), AllocError | IoError]:
     magic = b"\x89PNG"
-    mut header = std.bytes.from_bytes(&magic)?
+    mut header = std.bytes.from_bytes(magic)?
     header.extend(b"\r\n\x1a\n")?
     print(header.find_bytes(b"\r\n", 0, header.len()))?
     print(header.matches(0, &magic[:4]), header.find_in(b"\n\r", 0, header.len()))?
-    print(starts_png(&header), starts_png(&header[4:]), starts_png(b"GIF8"))?
+    print(starts_png(header), starts_png(&header[4:]), starts_png(b"GIF8"))?
     Ok(())
 ```
 ```output

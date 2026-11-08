@@ -274,7 +274,14 @@ view, as `[:]` would: `&xs` or `&mut xs` for a list, `&buffer` or a `b"..."`
 literal for `&[u8]`, and `&handle` for a `Shared` list. A reference binding to
 an owner, such as an `xs: &list[i64]` parameter, converts too. The conversion
 copies nothing and allocates nothing. Expected view types are parameters,
-including a generic `&[T]`, and annotated locals:
+including a generic `&[T]`, and annotated locals.
+
+A shared view parameter also lends a bare owned argument, as a `&T` parameter
+does: `total(xs)` is `total(&xs)`. This covers lists, `Bytes`, projected
+owners such as `bag.items`, and call or `?` results such as `total(make()?)`,
+which are held to the end of the statement. An `&mut [T]` parameter still
+needs `&mut xs` or an existing exclusive view; exclusive access is never
+inferred:
 
 ```plenty
 def total(values: &[i64]) -> Result[i64, OverflowError[i64]]:
@@ -290,16 +297,17 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     xs = [1, 2, 3]?
     whole: &[i64] = &xs
     print(total(&xs)?, total(&xs[1:])?, total(whole)?, width(b"abc"))?
+    print(total(xs)?, total([4, 5]?)?)?
     Ok(())
 ```
 
 ```output
 6 5 6 3
+6 9
 ```
 
-`&xs[:]` keeps working. An owned list, `total(xs)`, is not a view and is
-rejected. A `&T` type parameter takes a reference to a whole value, not a
-view. Standard-library operations that read bytes take
+`&xs[:]` keeps working. A `&T` type parameter takes a reference to a whole
+value, not a view. Standard-library operations that read bytes take
 [`&[u8]`](../../stdlib/bytes.md#byte-views), so `buffer.extend(&other[2:])` and
 `writer.write(b"ok")` pass a view.
 A function with a view parameter may return a reference into it: the first
@@ -429,7 +437,7 @@ until stored references land (backlog B11).
 | `&mut s[1:3]` on a `str` | ``a `str` is immutable, so a substring view is shared only; write `&s[a:b]` `` |
 | `def f(xs: &list[T]) -> &[T]` | `a function cannot return a slice view yet (backlog B11)` |
 | `f(&s[1:])` for `f(s: &str)` | ``this argument is a &strview view, but the parameter takes &str; declare the parameter `&strview` to borrow it without copying, or pass an owned copy, `s[a:b]?` `` |
-| `total(xs)` for `total(v: &[i64])` | ``this parameter takes a slice view: pass `&xs` for a whole list or buffer, or `&xs[a:b]` for part of it`` |
+| `fill(xs)` for `fill(v: &mut [i64])` | ``this parameter takes a slice view: pass `&mut xs` for a whole list or buffer, or `&mut xs[a:b]` for part of it`` |
 | `x in v` for a non-byte list view, such as `&[i64]` | ``slice views do not support `in` yet`` |
 | `xs[1:3] = ys` | `slice assignment is not supported; assign elements by index, or build a new list` |
 | `m[1:2, 0]` | `a slice cannot have several dimensions` |

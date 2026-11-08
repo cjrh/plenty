@@ -496,18 +496,7 @@ impl Lower<'_> {
             Expression::Slice(base, bounds) => (ungroup(base), Some(bounds)),
             _ => (ungroup(inner), None),
         };
-        let held = |kind: &Expression| {
-            matches!(
-                kind,
-                Expression::Call(..)
-                    | Expression::GenericCall(..)
-                    | Expression::Method(..)
-                    | Expression::GenericMethod(..)
-                    | Expression::Invoke(..)
-                    | Expression::Try(..)
-            )
-        };
-        if !held(&owner.kind) || self.place_type(owner).is_some() {
+        if !held_kind(&owner.kind) || self.place_type(owner).is_some() {
             return Ok(None);
         }
         let ty = self
@@ -549,6 +538,41 @@ impl Lower<'_> {
         }))
     }
 
+    /// `&arg` for an owned list, buffer or `bytes` value passed bare to a
+    /// shared `&[T]` parameter, as a `&T` parameter lends an owned argument
+    /// (issue #865). The rewrite makes `f(xs)` exactly `f(&xs)`: the same
+    /// place or full-expression temporary is lent and nothing is copied. An
+    /// exclusive view is never inferred, and a `&strview` lends whole strings
+    /// through its own path. `None` leaves `arg` as written.
+    fn implicit_whole_view(&self, arg: &Expr, mutable: bool, text: bool) -> Option<Expr> {
+        if mutable || text || matches!(ungroup(arg).kind, Expression::Unary(..)) {
+            return None;
+        }
+        let lend = || {
+            Some(Expr {
+                at: arg.at.clone(),
+                kind: Expression::Unary("&".into(), Box::new(arg.clone())),
+            })
+        };
+        let Some(owner) = self
+            .place_type(arg)
+            .or_else(|| self.expression_type_hint(arg))
+            .map(classes::unbox)
+        else {
+            // A call or `?` result whose type is known only once lowered,
+            // such as `[1, 2]?`: `&` holds it as a full-expression temporary
+            // and reports a type that has no view.
+            return held_kind(&ungroup(arg).kind).then(lend).flatten();
+        };
+        let owner = match owner {
+            Ty::Shared(content) => classes::unbox(Ty::clone(&content)),
+            owner => owner,
+        };
+        let viewable = matches!(owner, Ty::List(_) | Ty::ByteStr)
+            || byte_buffers::byte_buffer(&owner).is_some();
+        viewable.then(lend).flatten()
+    }
+
     /// A `&[T]` or `&mut [T]` argument: `&xs[a:b]`, `&mut xs[a:b]`, a view
     /// binding, or an owner that [`Self::owner_view`] converts. `text`
     /// marks a `&strview`, which also borrows whole strings as a `&str` call
@@ -585,6 +609,8 @@ impl Lower<'_> {
             )));
             return Ok((crate::bytes::byte_view(), loan));
         }
+        let lent = self.implicit_whole_view(arg, mutable, text);
+        let arg = lent.as_ref().unwrap_or(arg);
         let held = if mutable {
             None
         } else {
@@ -986,4 +1012,18 @@ impl Lower<'_> {
         ops.push(Op::ReadRef((**element).clone()));
         Ok(((**element).clone(), reads))
     }
+}
+
+/// An owner that a `&` argument holds until the end of the full expression:
+/// the result of a call or of `?`.
+fn held_kind(kind: &Expression) -> bool {
+    matches!(
+        kind,
+        Expression::Call(..)
+            | Expression::GenericCall(..)
+            | Expression::Method(..)
+            | Expression::GenericMethod(..)
+            | Expression::Invoke(..)
+            | Expression::Try(..)
+    )
 }
