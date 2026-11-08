@@ -3083,9 +3083,11 @@ pub(crate) unsafe fn collection_at(
                 b as u8,
                 value as i64,
             )),
+            // Lookups that lend an element read through `&Collection`; see
+            // `Entries::slot_address`.
             112 => {
                 let owner = *(a as *const u128);
-                let c = &mut *(owner as *mut Collection);
+                let c = &*(owner as *const Collection);
                 let position = if c.ty().kind == b'L' {
                     index(b as i64, c.entries.len(), site)
                 } else {
@@ -3097,7 +3099,7 @@ pub(crate) unsafe fn collection_at(
                         )
                     })
                 };
-                c.entries.slot(position, c.ty().kind != b'L') as u128
+                c.entries.slot_address(position, c.ty().kind != b'L') as u128
             }
             // `list.insert`: the position is checked before any reservation,
             // so an out-of-range index traps with the list unchanged.
@@ -3131,9 +3133,9 @@ pub(crate) unsafe fn collection_at(
             // outside the list; never traps.
             LIST_GET_REF => {
                 let owner = *(a as *const u128);
-                let c = &mut *(owner as *mut Collection);
+                let c = &*(owner as *const Collection);
                 match checked_index(b as i64, c.entries.len()) {
-                    Some(index) => wrap(c.entries.slot(index, false) as u128, 1),
+                    Some(index) => wrap(c.entries.slot_address(index, false) as u128, 1),
                     None => wrap(0, 0),
                 }
             }
@@ -3141,9 +3143,9 @@ pub(crate) unsafe fn collection_at(
             // Nothing; never traps.
             113 => {
                 let owner = *(a as *const u128);
-                let c = &mut *(owner as *mut Collection);
+                let c = &*(owner as *const Collection);
                 match c.find(b) {
-                    Some(position) => wrap(c.entries.slot(position, true) as u128, 1),
+                    Some(position) => wrap(c.entries.slot_address(position, true) as u128, 1),
                     None => wrap(0, 0),
                 }
             }

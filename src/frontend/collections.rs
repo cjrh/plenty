@@ -5320,9 +5320,6 @@ impl Lower<'_> {
         Ok(Some(result))
     }
 
-    /// `d.get_mut(k) -> Option[&mut V]`: the value for `k`, borrowed
-    /// exclusively, or `Nothing`. The result holds an exclusive loan of the
-    /// whole dictionary, as a reference-returning method's result would.
     /// `get_ref` and `get_mut` on a dictionary or list: one lookup that lends
     /// the stored value, or `Nothing` for a missing key or an index outside
     /// the list (issue #869). The key or index is observed before the
