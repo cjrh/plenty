@@ -287,8 +287,8 @@ pub class WebSocket[T]:
             at = end
         Ok(())
 
-    # Sends `text` as one text message. The text is first copied into a
-    # buffer; `send` with Kind.Text sends bytes the caller already holds.
+    # Sends `text` as one text message, reading its UTF-8 bytes directly.
+    # `send` with Kind.Text accepts bytes the caller already holds.
     pub def send_text(self: &mut WebSocket[T], text: &strview, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]:
         if cancel.is_cancelled():
             return Err(WebSocketError.Net(NetError.Cancelled))

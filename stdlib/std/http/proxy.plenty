@@ -361,15 +361,15 @@ def forwarded(headers: &list[Header], limit: i64) -> Result[list[Hop], ProxyErro
                 if at < count and data[at] == 34u8:
                     quoted = not quoted
                 if at == count or (data[at] == 44u8 and not quoted):
-                    piece = allocated(data.slice(start, at))?
+                    piece = &data[start:at]
                     mut blank = True
-                    for position in range(piece.len()):
+                    for position in range(len(piece)):
                         if not is_blank(piece[position]):
                             blank = False
                     if not blank:
                         if len(hops) >= limit:
                             return Err(ProxyError.TooManyHops)
-                        allocated(hops.append(element(&piece)?))?
+                        allocated(hops.append(element(piece)?))?
                     if at == count:
                         break
                     start = at + 1

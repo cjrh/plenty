@@ -1377,8 +1377,8 @@ class Emitter:
         self.spelled(at, stop)
 
     # A basic string. `"`, `\`, and control characters are escaped; every
-    # other scalar is written as UTF-8. The copy of `text` lets each unescaped
-    # run be written at once; see the costs in book/src/design/stdlib/toml.md.
+    # other scalar is written as UTF-8. Borrowed bytes let each unescaped run
+    # be written at once; see the costs in book/src/design/stdlib/toml.md.
     def quote(self: &mut Emitter, text: &strview) -> Result[(), TomlFault]:
         # Escaped byte is 0..31 or DEL (127): division/modulo by positive 16
         # and ASCII digit biases fit. index < count bounds run = index + 1.
