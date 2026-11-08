@@ -7,6 +7,7 @@ use support::assert_visible_stdout as native;
 #[case("constant")]
 #[case("threshold")]
 #[case("range")]
+#[case("narrow")]
 fn filter_count_does_not_read_past_guard_page(#[case] scenario: &str) {
     let dir = tempfile::tempdir().unwrap();
     let output = std::process::Command::new("python3")
@@ -341,32 +342,31 @@ def main() -> Result[(), IoError]:
     }
 }
 
-/// 8- and 16-bit lane counters are widened before they can wrap: 255
-/// vectors of bytes and 65,535 of words. These columns run past both.
+/// 8- and 16-bit lane counters are widened before they can wrap: after 255
+/// vectors of bytes and 65,535 of words. Every row matches, so each lane
+/// counter reaches its maximum; lengths one row and one vector either side
+/// of each chunk make an off-by-one chunk length wrap and miscount.
 #[test]
 fn filter_count_widens_narrow_lane_counters_before_they_wrap() {
     let source = r#"
 class Row:
     byte: u8
     word: i16
+bytes = 255 * 16
+words = 65535 * 8
+lengths = [bytes - 16, bytes - 1, bytes, bytes + 1, bytes + 16, words - 8, words - 1, words, words + 1, words + 8].unwrap()
 mut rows = clist[Row]()
-rows.reserve(600007).unwrap()
-for n in range(600007):
-    rows.append(Row(u8(n % 3 * 100), i16(n % 5 - 2))).unwrap()
-mut bytes = 0
-mut words = 0
-for n in range(len(rows)):
-    if rows[n].byte >= 100u8:
-        bytes += 1
-    if rows[n].word != 0i16:
-        words += 1
-check(rows.column(Row.byte).filter(def(x: &u8) -> bool: *x >= 100u8).count() == bytes, "bytes").unwrap()
-check(rows.column(Row.word).filter(def(x: &i16) -> bool: *x != 0i16).count() == words, "words").unwrap()
-print(bytes, words).unwrap()
+rows.reserve(words + 8).unwrap()
+for length in lengths:
+    while len(rows) < length:
+        rows.append(Row(255u8, i16.MIN)).unwrap()
+    check(rows.column(Row.byte).filter(def(x: &u8) -> bool: *x == 255u8).count() == length, "bytes").unwrap()
+    check(rows.column(Row.word).filter(def(x: &i16) -> bool: *x != 5i16).count() == length, "words").unwrap()
+print("ok").unwrap()
 "#;
     let source = support::program(source).replacen(
         "def main() -> ():",
-        "def main() -> Result[(), OverflowError[i64] | ZeroDivisionError]:",
+        "def main() -> Result[(), OverflowError[i64]]:",
         1,
     );
     let source = format!("{source}    Ok(())\n");
@@ -376,7 +376,7 @@ print(bytes, words).unwrap()
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(output.stdout, b"400004 480006\n");
+    assert_eq!(output.stdout, b"ok\n");
 }
 
 #[test]

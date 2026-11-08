@@ -10,9 +10,9 @@ would add.
 separate read-only representation. On the SSE2 baseline the decode costs about
 as much per row as the native vector comparison it replaces. A narrower native
 field type gives a larger speedup and keeps every mutation contract. The
-automatic counts now cover 8- and 16-bit columns (issue #904). Large wins on sorted or clustered data come from skipping blocks
-by their min/max, which needs no bitpacking and belongs with
-[chunk statistics](chunks.md).
+automatic counts now cover 8- and 16-bit columns (issue #904). Large wins on
+sorted or clustered data come from skipping blocks by their min/max, which needs
+no bitpacking and belongs with [chunk statistics](chunks.md).
 
 ## Method
 
