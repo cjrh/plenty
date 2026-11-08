@@ -638,9 +638,10 @@ impl Server {
                 .collect()
         };
         let mut warning = None;
-        // A named argument can name a parameter in another module, so only
-        // a local's uses are all in its own file.
+        // A local's uses are all in its file, and so are a parameter's
+        // unless its callable can be called from another module.
         let mut locations = if symbol.kind == SymbolKind::Local
+            || (symbol.kind == SymbolKind::Parameter && !symbol.exported)
             || crate::project::discover(path.parent().unwrap_or(&path)).is_err()
         {
             local()

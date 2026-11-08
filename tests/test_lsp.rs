@@ -1710,6 +1710,90 @@ fn references_cover_module_qualified_variants_and_named_arguments() {
     client.exit();
 }
 
+/// Only a callable another module can call is searched across the package
+/// for its parameters' named arguments; the failing test entry makes that
+/// search warn, and a file-local answer does not.
+#[test]
+fn private_parameters_are_answered_from_their_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let util = "pub def helper(width: i64) -> i64:\n    secret(width=width)\n\ndef secret(width: i64) -> i64:\n    width\n\npub class Meter:\n    pub v: i64\n\n    pub def shown(self, by: i64) -> i64:\n        self.hidden(by=by)\n\n    def hidden(self, by: i64) -> i64:\n        by\n";
+    app_package(
+        &root,
+        &[
+            ("src/lib.plenty", "pub def version() -> i64:\n    1\n"),
+            ("src/util.plenty", util),
+            (
+                "src/main.plenty",
+                "from util import helper, Meter\n\ndef main() -> ():\n    n = helper(width=1)\n    m = Meter(v=1).shown(by=2)\n",
+            ),
+            (
+                "tests/test_util.plenty",
+                "from app.util import helper\n\ndef test_helper() -> ():\n    n: str = helper(width=1)\n",
+            ),
+        ],
+    );
+    let util = root.join("src/util.plenty");
+    let mut client = Client::start(&dir.path().join("cache"));
+    for ((line, character), searched, expected) in [
+        (
+            (0, 15),
+            true,
+            vec![
+                ("src/main.plenty", 3),
+                ("src/util.plenty", 0),
+                ("src/util.plenty", 1),
+                ("tests/test_util.plenty", 3),
+            ],
+        ),
+        (
+            (3, 11),
+            false,
+            vec![
+                ("src/util.plenty", 1),
+                ("src/util.plenty", 3),
+                ("src/util.plenty", 4),
+            ],
+        ),
+        (
+            (9, 24),
+            true,
+            vec![
+                ("src/main.plenty", 4),
+                ("src/util.plenty", 9),
+                ("src/util.plenty", 10),
+            ],
+        ),
+        (
+            (12, 21),
+            false,
+            vec![
+                ("src/util.plenty", 10),
+                ("src/util.plenty", 12),
+                ("src/util.plenty", 13),
+            ],
+        ),
+    ] {
+        let (result, warnings) = references_and_warnings(&mut client, &util, line, character, true);
+        assert_eq!(
+            warnings.len(),
+            usize::from(searched),
+            "from {line}:{character}: {warnings:?}"
+        );
+        let mut found: Vec<_> = reference_list(&root, &result)
+            .into_iter()
+            .map(|(path, line, _, _)| (path, line))
+            .collect();
+        found.dedup();
+        let expected: Vec<_> = expected
+            .into_iter()
+            .map(|(p, l)| (p.to_owned(), l))
+            .collect();
+        assert_eq!(found, expected, "from {line}:{character}");
+    }
+    client.exit();
+}
+
 /// A rename's reply: the workspace edit and the warnings the server showed,
 /// or the reason it was refused.
 fn rename_reply(

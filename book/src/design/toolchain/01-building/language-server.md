@@ -76,9 +76,12 @@ entry, and then each `src/` file no entry reached, with the unsaved text of
 open files in place of their saved text. A declaration in `std` or in a
 dependency outside the workspace is searched for in the package of the file
 being edited and the members that depend on it; references inside `std` and
-the declaration's copy are listed only as the declaration itself. A local or
-parameter, and any name in a file outside a package, is answered from the
-file's own check. A package file that no entry reads, such as one under
+the declaration's copy are listed only as the declaration itself. A local, a
+parameter of a callable only its own module can call, and any name in a file
+outside a package are answered from the file's own check. A parameter of an
+exported function, or of a public method of an exported type, is searched like
+a package-level declaration, since named arguments to it can be in other
+modules. A package file that no entry reads, such as one under
 `examples/`, adds its own check's references to the package's.
 
 An entry that does not check still contributes the references its check

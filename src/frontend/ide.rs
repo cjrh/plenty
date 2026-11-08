@@ -66,6 +66,9 @@ pub struct Symbol {
     pub declaration: String,
     pub doc: String,
     pub location: Option<Location>,
+    /// A parameter of a callable another module can call, so named arguments
+    /// can name it outside its file.
+    pub exported: bool,
 }
 
 /// A written name and the declaration it refers to. A declaration's own name
@@ -196,6 +199,8 @@ struct Recorder {
     /// key: a function's or method's parameters, and a class constructor's
     /// fields or `__init__` parameters (after `self`).
     parameters: HashMap<String, Vec<String>>,
+    /// The keys of parameters of callables other modules can call.
+    exported: HashSet<String>,
     /// Method names being lowered, innermost last.
     methods: Vec<(Pos, String)>,
     /// Functions whose bodies did not resolve: they keep their signatures,
@@ -481,6 +486,12 @@ pub(super) fn named_argument(at: &Token, label: &str, callee: &str, index: usize
     });
 }
 
+/// Marks the parameters of `f` as reachable from other modules: `f` is an
+/// exported function or a public member of an exported type.
+pub(super) fn export_parameters(f: &Function) {
+    with(|r| r.exported.extend(parameters(f)));
+}
+
 fn parameters(f: &Function) -> Vec<String> {
     f.inputs
         .iter()
@@ -764,8 +775,13 @@ fn finish(recorder: Recorder) -> Analysis {
         inferred_bindings,
         diagnostics,
         warnings,
+        exported,
         ..
     } = recorder;
+    let exported: HashSet<usize> = exported
+        .iter()
+        .filter_map(|k| keys.get(k).copied())
+        .collect();
     let lines: HashMap<&Arc<str>, Vec<usize>> = texts
         .iter()
         .map(|(source, (_, text))| {
@@ -793,7 +809,7 @@ fn finish(recorder: Recorder) -> Analysis {
         ))
     };
     let mut symbols = Vec::with_capacity(declared.len());
-    for d in &declared {
+    for (index, d) in declared.iter().enumerate() {
         let found = d
             .anchor
             .as_ref()
@@ -835,6 +851,7 @@ fn finish(recorder: Recorder) -> Analysis {
             declaration,
             doc: d.doc.clone(),
             location: found.map(|(_, (location, _))| location),
+            exported: exported.contains(&index),
         });
     }
     let mut seen = HashSet::default();
