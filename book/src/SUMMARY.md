@@ -630,6 +630,8 @@
     - [Recursive owned data](proposals/recursive-data.md)
     - [Typed ranges, generic calls, and expression-local inference](proposals/typed-ranges-and-expression-inference.md)
     - [Package language editions](proposals/language-editions.md)
+    - [Integrated source formatter](proposals/plenty-fmt.md)
+        - [Implementation and validation](proposals/plenty-fmt/implementation.md)
     - [Plenty toolchain manager](proposals/plenty-manager.md)
     - [Faster linking](proposals/faster-linking.md)
     - [C interop and dynamic libraries](proposals/ffi-and-dynamic-libraries.md)
