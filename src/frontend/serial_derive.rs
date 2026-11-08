@@ -102,10 +102,70 @@ fn hook(
     Ok(f)
 }
 
+/// The name each member is serialized under: its `@serial.name`, or its
+/// source name. A wire name must differ from the source name and from every
+/// other member's wire name, and needs a derived hook to apply to.
+fn wire_names<'a>(
+    kind: &str,
+    owner: &str,
+    members: impl Iterator<Item = &'a str>,
+    renamed: &[(usize, annotations::WireName)],
+    methods: &[Function],
+) -> Result<Vec<String>> {
+    let sources: Vec<&str> = members.collect();
+    if let Some((_, first)) = renamed.first()
+        && methods.iter().any(|f| f.name == "__encode__")
+        && methods.iter().any(|f| f.name == "__decode__")
+    {
+        return Err(first.at.error(format!(
+            "`@serial.name` has no effect: `{owner}` writes both `__encode__` and `__decode__`; remove it, or use the name in the hooks"
+        )));
+    }
+    let mut wire: Vec<String> = sources.iter().map(|&s| s.to_owned()).collect();
+    for (index, name) in renamed {
+        if sources[*index] == name.name {
+            return Err(name.at.error(format!(
+                "`@serial.name({:?})` repeats the {kind}'s own name; remove it",
+                name.name
+            )));
+        }
+        wire[*index] = name.name.clone();
+    }
+    let annotation = |i: usize| {
+        renamed
+            .iter()
+            .find(|(index, _)| *index == i)
+            .map(|(_, w)| w)
+    };
+    let mut seen: HashMap<&str, usize> = HashMap::default();
+    for (i, name) in wire.iter().enumerate() {
+        if let Some(&first) = seen.get(name.as_str()) {
+            // Source names are distinct, so at least one of the pair is renamed.
+            let at = &annotation(i)
+                .or_else(|| annotation(first))
+                .expect("a clash involves a renamed member")
+                .at;
+            return Err(at.error(format!(
+                "{kind}s `{}` and `{}` of `{owner}` both serialize as {name:?}; wire names must be distinct",
+                sources[first], sources[i]
+            )));
+        }
+        seen.insert(name, i);
+    }
+    Ok(wire)
+}
+
 pub(super) fn class(
     c: &mut classes::ClassDecl,
     resolve: &dyn Fn(&TypeRef) -> Result<TypeRef>,
 ) -> Result<Vec<Function>> {
+    let wire = wire_names(
+        "field",
+        &c.name,
+        c.fields.iter().map(|(name, _)| name.as_str()),
+        &c.wire_names,
+        &c.methods,
+    )?;
     let mut names = names();
     for (i, (name, _)) in c.fields.iter().enumerate() {
         names.push((format!("field{i}"), name.clone()));
@@ -117,7 +177,7 @@ pub(super) fn class(
     let types = add_types(&c.fields, owner_type(&c.at, &c.name, &c.type_params));
     if !c.methods.iter().any(|f| f.name == "__encode__") {
         let mut source = "def __encode__[ErrType, Adapter: SER.Encoder[ErrType]](self, out: &mut Adapter) -> Result[(), SER.SerialError[ErrType]]:\n    SER.wrap(out.start_object())?\n".to_string();
-        for (i, (name, _)) in c.fields.iter().enumerate() {
+        for (i, name) in wire.iter().enumerate() {
             writeln!(
                 source,
                 "    SER.at(SER.wrap(out.field({name:?})), SER.Step.Field({name:?}))?"
@@ -246,7 +306,7 @@ pub(super) fn class(
         );
     } else {
         source.push_str("                match name:\n");
-        for (i, (name, _)) in c.fields.iter().enumerate() {
+        for (i, name) in wire.iter().enumerate() {
             writeln!(source,"                    case {name:?}:\n                        SER.read_field[FieldType{i}, ErrType, Adapter](&mut slots[{i}], source, {name:?})?").unwrap();
         }
         source.push_str("                    case _:\n                        SER.at(SER.wrap(source.unknown_key(&name)), SER.Step.Field(name))?\n");
@@ -258,7 +318,7 @@ pub(super) fn class(
     let mut construction = String::new();
     let mut args = vec![];
     for &i in &order {
-        let name = &c.fields[i].0;
+        let name = &wire[i];
         let value = match default_calls.get(&i) {
             Some(call) if fallible => format!(
                 "SER.at(SER.constructed[FieldType{i}, ErrType, Adapter]({call}, source), SER.Step.Field({name:?}))?"
@@ -334,6 +394,13 @@ pub(super) fn class(
 }
 
 pub(super) fn enumeration(e: &mut enums::EnumDecl) -> Result<()> {
+    let wire = wire_names(
+        "variant",
+        &e.name,
+        e.variants.iter().map(|(name, _)| name.as_str()),
+        &e.wire_names,
+        &e.methods,
+    )?;
     let mut names = names();
     names.push(("EnumName".into(), e.name.clone()));
     let mut types = generics::Substitution::default();
@@ -364,7 +431,7 @@ pub(super) fn enumeration(e: &mut enums::EnumDecl) -> Result<()> {
     }
     if !e.methods.iter().any(|f| f.name == "__encode__") {
         let mut source="def __encode__[ErrType, Adapter: SER.Encoder[ErrType]](self, out: &mut Adapter) -> Result[(), SER.SerialError[ErrType]]:\n    match self:\n".to_string();
-        for (v, (name, fields)) in e.variants.iter().enumerate() {
+        for (v, ((_, fields), name)) in e.variants.iter().zip(&wire).enumerate() {
             if fields.is_empty() {
                 writeln!(source,"        case EnumName.variant{v}:\n            SER.at(SER.wrap(out.text({name:?})), SER.Step.Variant({name:?}))").unwrap();
                 continue;
@@ -437,7 +504,7 @@ pub(super) fn enumeration(e: &mut enums::EnumDecl) -> Result<()> {
         return Ok(());
     }
     let mut source="def __decode__[ErrType, Adapter: SER.Decoder[ErrType]](source: &mut Adapter) -> Result[OwnerType, SER.SerialError[ErrType]]:\n    tag, payload = SER.wrap(source.variant())?\n    match tag:\n".to_string();
-    for (v, (name, fields)) in e.variants.iter().enumerate() {
+    for (v, ((_, fields), name)) in e.variants.iter().zip(&wire).enumerate() {
         writeln!(source, "        case {name:?}:").unwrap();
         writeln!(source,"            if {}payload:\n                return Err(SER.error(source.reject(SER.Fault.UnexpectedKind)).at(SER.Step.Variant({name:?})))",if fields.is_empty(){""}else{"not "}).unwrap();
         if fields.is_empty() {

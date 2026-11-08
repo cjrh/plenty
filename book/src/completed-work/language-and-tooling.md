@@ -108,6 +108,11 @@ handwritten comparisons. Static specialization has a substantial code-size
 cost; no performance-free abstraction or parity with a schema-free event scan
 is claimed. Runtime reflection and user macros were not prerequisites.
 
+[Wire names](../design/stdlib/serial-derive.md#wire-names) (issue #908) give a
+field or variant one explicit encoded name with `@serial.name("...")`. The
+compiler rejects clashing, redundant and ineffective names; the source name is
+not accepted as an alias. Naming policies and aliases remain unsupported.
+
 ## Native qualification build reuse (issue #850)
 
 [Native OS qualification](../development/ci-workflow.md#native-os-qualification)
@@ -563,6 +568,10 @@ every arm's loans, and a generator passed by value keeps its loans until the
 call returns. Storage that would lose the loan (`Option`/`Result` payloads,
 tuples, class fields, by-value closure captures) is rejected. See
 [borrowing frames](../design/language/09-iteration/03-generators.md#borrowing-frames).
+A second slice lets a generator parameter be a borrowing generator, so a
+generator can wrap or relay one and keep its loans, and lets `.generator()`
+convert a pipeline over a borrowed local, a `&mut` source or a reference
+binding; the frame keeps the source borrowed as the pipeline does.
 
 List slice views `&[T]` and `&mut [T]` gained list read and fixed-length
 operations (issue #866): `in`, `count`, `find` and `rfind` search the view with

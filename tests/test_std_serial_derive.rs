@@ -697,3 +697,237 @@ fn serialization_function_values_require_a_direct_wrapper() {
         );
     }
 }
+
+const WIRE_NAMES: &str = r#"
+import std.json
+import std.toml
+import std.serial
+from std.serial import Fault
+
+@serial
+enum AgentKind:
+    @serial.name("pi")
+    Pi
+    @serial.name("claude")
+    Claude
+    Codex
+    @serial.name("command")
+    Command(str)
+    @serial.name("pair")
+    Pair(str, u8)
+
+def default_retries() -> i64:
+    3
+
+@serial
+class Agent:
+    @serial.name("agentKind")
+    kind: AgentKind
+    name: str
+    @serial.name("max-retries")
+    retries: i64
+    def __init__(self, kind: AgentKind, name: str, retries: i64 = default_retries()) -> Result[(), Fault]:
+        if retries < 0:
+            return Err(Fault.OutOfRange)
+        self.kind = kind
+        self.name = name
+        self.retries = retries
+        Ok(())
+
+def show[T](result: Result[T, std.serial.SerialError[std.json.JsonError]]) -> Result[(), IoError]:
+    match result:
+        case Ok(_):
+            print("unexpected")
+        case Err(error):
+            if error.path.is_none():
+                return print(error.cause.fault, "no path")
+            print(error.cause.fault, error.path.unwrap())
+"#;
+
+#[test]
+fn wire_names_roundtrip_json_and_toml_and_keep_constructor_matching() {
+    support::assert_stdout(
+        &format!(
+            r#"{WIRE_NAMES}
+def main() -> Result[(), IoError | AllocError]:
+    options = std.json.codec_options()
+    values = [Agent(AgentKind.Pi, "a", retries=1).unwrap(), Agent(AgentKind.Command("run"), "b").unwrap(), Agent(AgentKind.Pair("x", 4u8), "c").unwrap(), Agent(AgentKind.Codex, "d").unwrap()]?
+    bytes = std.json.dump(&values, &std.json.limits()).unwrap()
+    print(bytes.to_text().unwrap())?
+    print(std.json.load[list[Agent]](&bytes, &options).unwrap() == values)?
+    stored = std.json.load[list[AgentKind]](b"[\"pi\",\"claude\",\"Codex\",{{\"command\":\"go\"}}]", &options).unwrap()
+    print(stored == [AgentKind.Pi, AgentKind.Claude, AgentKind.Codex, AgentKind.Command("go")]?)?
+    defaulted = std.json.load[Agent](b"{{\"name\":\"e\",\"agentKind\":\"claude\"}}", &options).unwrap()
+    print(defaulted.retries)?
+    toml = std.toml.codec_options()
+    for value in &values:
+        text = std.toml.dump(value, &toml).unwrap()
+        decoded = std.toml.load[Agent](&text, &toml).unwrap()
+        print(&decoded == value)?
+    print(std.toml.dump(&values[1], &toml).unwrap())?
+    Ok(())
+"#
+        ),
+        concat!(
+            "[{\"agentKind\":\"pi\",\"name\":\"a\",\"max-retries\":1},",
+            "{\"agentKind\":{\"command\":\"run\"},\"name\":\"b\",\"max-retries\":3},",
+            "{\"agentKind\":{\"pair\":[\"x\",4]},\"name\":\"c\",\"max-retries\":3},",
+            "{\"agentKind\":\"Codex\",\"name\":\"d\",\"max-retries\":3}]\n",
+            "True\nTrue\n3\nTrue\nTrue\nTrue\nTrue\n",
+            "name = \"b\"\nmax-retries = 3\n\n[agentKind]\ncommand = \"run\"\n\n",
+        ),
+    );
+}
+
+#[test]
+fn wire_names_replace_source_names_in_decoding_and_paths() {
+    support::assert_stdout(
+        &format!(
+            r#"{WIRE_NAMES}
+def main() -> Result[(), IoError | AllocError]:
+    options = std.json.codec_options()
+    show(std.json.load[Agent](b"{{\"kind\":\"pi\",\"name\":\"a\"}}", &options))?
+    show(std.json.load[Agent](b"{{\"name\":\"a\"}}", &options))?
+    show(std.json.load[Agent](b"{{\"agentKind\":\"Pi\",\"name\":\"a\"}}", &options))?
+    show(std.json.load[Agent](b"{{\"agentKind\":{{\"Command\":\"x\"}},\"name\":\"a\"}}", &options))?
+    show(std.json.load[Agent](b"{{\"agentKind\":{{\"pair\":[\"x\",256]}},\"name\":\"a\"}}", &options))?
+    show(std.json.load[Agent](b"{{\"agentKind\":\"pi\",\"name\":\"a\",\"max-retries\":1,\"max-retries\":2}}", &options))?
+    show(std.json.load[Agent](b"{{\"agentKind\":\"pi\",\"name\":\"a\",\"max-retries\":-1}}", &options))?
+    mut lenient = std.json.codec_options()
+    lenient.unknown_fields = std.serial.UnknownFields.Ignore
+    print(std.json.load[Agent](b"{{\"retries\":9,\"agentKind\":\"pi\",\"name\":\"a\"}}", &lenient).unwrap().retries)?
+    Ok(())
+"#
+        ),
+        concat!(
+            "std.json.JsonFault.Serialization(std.serial.Fault.UnknownField(\"kind\")) [std.serial.Step.Field(\"kind\")]\n",
+            "std.json.JsonFault.Serialization(std.serial.Fault.MissingField(\"agentKind\")) [std.serial.Step.Field(\"agentKind\")]\n",
+            "std.json.JsonFault.Serialization(std.serial.Fault.UnknownVariant(\"Pi\")) [std.serial.Step.Field(\"agentKind\")]\n",
+            "std.json.JsonFault.Serialization(std.serial.Fault.UnknownVariant(\"Command\")) [std.serial.Step.Field(\"agentKind\")]\n",
+            "std.json.JsonFault.Serialization(std.serial.Fault.OutOfRange) [std.serial.Step.Index(1), std.serial.Step.Variant(\"pair\"), std.serial.Step.Field(\"agentKind\")]\n",
+            "std.json.JsonFault.Serialization(std.serial.Fault.DuplicateField(\"max-retries\")) [std.serial.Step.Field(\"max-retries\")]\n",
+            "std.json.JsonFault.Serialization(std.serial.Fault.OutOfRange) no path\n",
+            "3\n",
+        ),
+    );
+}
+
+#[test]
+fn wire_names_apply_to_the_derived_side_of_a_one_sided_hook() {
+    support::assert_stdout(
+        r#"
+import std.json
+import std.serial
+@serial
+class Port:
+    @serial.name("port")
+    value: i64
+    def __encode__[E, S: std.serial.Encoder[E]](self, out: &mut S) -> Result[(), std.serial.SerialError[E]]:
+        # A handwritten side spells the wire name itself.
+        std.serial.wrap(out.start_object())?
+        std.serial.wrap(out.field("port"))?
+        std.serial.wrap(out.integer(self.value))?
+        std.serial.wrap(out.end_object())
+
+def main() -> Result[(), IoError]:
+    bytes = std.json.dump(&Port(8), &std.json.limits()).unwrap()
+    print(bytes.to_text().unwrap())?
+    print(std.json.load[Port](&bytes, &std.json.codec_options()).unwrap().value)?
+    Ok(())
+"#,
+        "{\"port\":8}\n8\n",
+    );
+}
+
+#[test]
+fn wire_name_diagnostics() {
+    for (source, expected) in [
+        (
+            "@serial\nclass C:\n    @serial.name(\"b\")\n    a: i64\n    b: i64\n",
+            "fields `a` and `b` of `C` both serialize as \"b\"; wire names must be distinct",
+        ),
+        (
+            "@serial\nenum E:\n    @serial.name(\"x\")\n    A\n    @serial.name(\"x\")\n    B\n",
+            "variants `A` and `B` of `E` both serialize as \"x\"",
+        ),
+        (
+            "@serial\nclass C:\n    @serial.name(\"a\")\n    a: i64\n",
+            "`@serial.name(\"a\")` repeats the field's own name; remove it",
+        ),
+        (
+            "class C:\n    @serial.name(\"x\")\n    a: i64\n",
+            "`@serial.name` applies only to fields of an `@serial` class and variants of an `@serial` enum",
+        ),
+        (
+            "enum E:\n    @serial.name(\"x\")\n    A\n",
+            "`@serial.name` applies only to fields",
+        ),
+        (
+            "@serial\nclass C:\n    a: i64\n    @serial.name(\"x\")\n    def f(self) -> i64:\n        self.a\n",
+            "`@serial.name` applies only to fields",
+        ),
+        (
+            "@serial\nenum E:\n    A\n    @serial.name(\"x\")\n    def f(self) -> i64:\n        1\n",
+            "`@serial.name` applies only to fields",
+        ),
+        (
+            "@serial.name(\"x\")\nclass C:\n    a: i64\n",
+            "`@serial.name` applies only to fields",
+        ),
+        (
+            "@serial\nclass C:\n    @redacted\n    @serial.name(\"x\")\n    a: i64\n",
+            "`@redacted` applies only to class and enum declarations, not class members",
+        ),
+        (
+            "@serial\nenum E:\n    @serial.name(\"x\")\n    @copy\n    A\n",
+            "`@copy` applies only to class declarations, not enum members",
+        ),
+        (
+            "@serial\nclass C:\n    a: i64\n    @serial.name(\"x\")\n",
+            "`@serial.name` applies only to fields",
+        ),
+        (
+            "@serial\nenum E:\n    A\n    @serial.name(\"x\")\n",
+            "`@serial.name` applies only to fields",
+        ),
+        (
+            "@serial\nclass C:\n    a: i64\n    @serial.name(\"x\")\nconst N: i64 = 1\n",
+            "`@serial.name` applies only to fields",
+        ),
+        (
+            "@serial\nclass C:\n    @serial.name(\"x\")\n    pub def f(self) -> i64:\n        1\n    a: i64\n",
+            "`@serial.name` applies only to fields",
+        ),
+        (
+            "@serial\nclass C:\n    @serial.name(\"x\", \"y\")\n    a: i64\n",
+            "`@serial.name` takes one string literal",
+        ),
+        (
+            "@serial\nclass C:\n    @serial.name(\"\")\n    a: i64\n",
+            "`@serial.name` needs a nonempty name",
+        ),
+        (
+            "@serial\nclass C:\n    @serial.name(\"x\")\n    @serial.name(\"y\")\n    a: i64\n",
+            "duplicate `@serial.name`",
+        ),
+        (
+            "@serial\nclass C:\n    @serial.name(x)\n    a: i64\n",
+            "`@serial.name` takes one string literal",
+        ),
+        (
+            "@serial\nclass C:\n    @serial.alias(\"x\")\n    a: i64\n",
+            "expected `name` after `@serial.`",
+        ),
+        (
+            "@serial\nclass C:\n    @serial.name(\"x\") a: i64\n",
+            "alone on the line above the field or variant",
+        ),
+        (
+            "import std.serial\n@serial\nclass C:\n    @serial.name(\"x\")\n    value: i64\n    def __encode__[E, S: std.serial.Encoder[E]](self, out: &mut S) -> Result[(), std.serial.SerialError[E]]:\n        std.serial.wrap(out.integer(self.value))\n    def __decode__[E, D: std.serial.Decoder[E]](source: &mut D) -> Result[C, std.serial.SerialError[E]]:\n        Ok(C(std.serial.wrap(source.integer())?))\n",
+            "`@serial.name` has no effect: `C` writes both `__encode__` and `__decode__`",
+        ),
+    ] {
+        let error = support::check_error(&format!("{source}def main() -> ():\n    pass\n"));
+        assert!(error.contains(expected), "{source}\n{error}");
+    }
+}

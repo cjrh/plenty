@@ -1013,9 +1013,11 @@ fn declaration(
         });
     }
     // Encoding writes `@serial` field and variant names, so the rename
-    // changes the format; it stays allowed while no data exists yet.
+    // changes the format; it stays allowed while no data exists yet. A member
+    // with an explicit `@serial.name` keeps its wire name.
     if let Some(kind @ (SymbolKind::Field | SymbolKind::Variant)) = member
         && analysis.serial.contains(type_name)
+        && !analysis.wire_named.contains(qualified)
     {
         let what = if kind == SymbolKind::Field {
             "a field"

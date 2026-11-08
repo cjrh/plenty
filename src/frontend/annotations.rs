@@ -1,7 +1,8 @@
 //! Declaration annotations: compiler-known facts written alone on the lines
 //! above a declaration, such as `@copy`, `@newtype`, `@redacted`,
 //! `@thread_safe`, `@thread_movable` or `@thread_shareable`. The set
-//! is closed; there are no user decorators. Names live after `@`, outside the
+//! is closed; there are no user decorators. `@serial.name("wire")` is the one
+//! member annotation and the one that takes an argument. Names live after `@`, outside the
 //! value namespace, so `@copy` does not reserve the builtin `copy` function's
 //! name. See
 //! book/src/design/language/03-types/classes.md#copy-classes,
@@ -9,6 +10,18 @@
 //! book/src/design/language/04-expressions/operators.md#newtype-forwarding and
 //! book/src/design/facilities/04-interop/trusted-declarations.md#worker-threads.
 use super::*;
+
+pub(super) const WIRE_NAME_PLACE: &str =
+    "`@serial.name` applies only to fields of an `@serial` class and variants of an `@serial` enum";
+
+/// An explicit wire name: `@serial.name("wire")` above a field or variant.
+/// Derived hooks encode and decode the member under this name instead of its
+/// source name; see book/src/design/stdlib/serial-derive.md#wire-names.
+#[derive(Clone)]
+pub(super) struct WireName {
+    pub(super) at: Token,
+    pub(super) name: String,
+}
 
 /// One known annotation. Later annotations, such as the agreed `@final` and
 /// `@protocol.Name`, extend this set.
@@ -69,6 +82,9 @@ impl Parser {
             let Kind::Word(spelling) = &name.kind else {
                 return Err(name.error("expected an annotation name after `@`, such as `@copy`"));
             };
+            if spelling.as_ref() == "serial" && self.peek().is(".") {
+                return Err(at.error(WIRE_NAME_PLACE));
+            }
             let Some(annotation) = Annotation::named(spelling) else {
                 return Err(name.error(format!(
                     "unknown annotation `@{spelling}`; the annotations are `@copy`, `@newtype`, `@redacted`, `@thread_safe`, `@thread_movable`, `@thread_shareable` and `@serial`"
@@ -89,9 +105,90 @@ impl Parser {
         Ok(annotations)
     }
 
+    /// Parse an optional `@serial.name("wire")` line above a class field or
+    /// enum variant: the one member annotation. Whether the member and its
+    /// owner accept it is checked by the caller and by `serial_derive`.
+    pub(super) fn wire_name(&mut self) -> Result<Option<WireName>> {
+        let is_wire = |p: &Self| {
+            p.peek().is("@")
+                && p.token(p.pos + 1).is_some_and(|t| t.is("serial"))
+                && p.token(p.pos + 2).is_some_and(|t| t.is("."))
+        };
+        if !is_wire(self) {
+            return Ok(None);
+        }
+        let at = self.take();
+        self.take();
+        self.take();
+        if !self.eat("name") {
+            return Err(self.peek().error(
+                "expected `name` after `@serial.`; the member annotation is `@serial.name(\"wire name\")`",
+            ));
+        }
+        self.expect("(")?;
+        let Kind::Text(name) = self.peek().kind.clone() else {
+            return Err(self.peek().error(
+                "`@serial.name` takes one string literal, such as `@serial.name(\"user_id\")`",
+            ));
+        };
+        self.take();
+        if !self.peek().is(")") {
+            return Err(self.peek().error(
+                "`@serial.name` takes one string literal, such as `@serial.name(\"user_id\")`",
+            ));
+        }
+        self.take();
+        if self.peek().kind != Kind::Newline {
+            return Err(self
+                .peek()
+                .error("write `@serial.name(...)` alone on the line above the field or variant"));
+        }
+        self.take();
+        if name.is_empty() {
+            return Err(at.error("`@serial.name` needs a nonempty name"));
+        }
+        if is_wire(self) {
+            return Err(self
+                .peek()
+                .error("duplicate `@serial.name`; a member has one wire name"));
+        }
+        // The next line must declare a field or variant, possibly after `pub`
+        // or another annotation, which `misplaced_annotations` then reports.
+        let mut next = self.pos;
+        if self.peek().is("pub") {
+            next += 1;
+        }
+        let member = self.token(next).is_some_and(|t| match &t.kind {
+            Kind::Word(word) => !reserved(word),
+            _ => t.is("@"),
+        });
+        if !member {
+            return Err(at.error(WIRE_NAME_PLACE));
+        }
+        Ok(Some(WireName {
+            at,
+            name: name.to_string(),
+        }))
+    }
+
     /// Reject annotations where no declaration accepts them, after checking
     /// that each is well formed.
     pub(super) fn misplaced_annotations(&mut self, place: &str) -> Result<()> {
+        // Report the first known annotation before parsing the rest, so one
+        // stacked above `@serial.name` is named rather than the wire name.
+        if self.peek().is("@")
+            && let Some(annotation) = self
+                .token(self.pos + 1)
+                .and_then(|t| t.text())
+                .and_then(Annotation::named)
+            && !self.token(self.pos + 2).is_some_and(|t| t.is("."))
+        {
+            return Err(self.peek().error(format!(
+                "`@{}` applies only to {}, not {place}",
+                annotation.name(),
+                annotation.targets()
+            )));
+        }
         if let Some((at, annotation)) = self.annotations()?.into_iter().next() {
             return Err(at.error(format!(
                 "`@{}` applies only to {}, not {place}",

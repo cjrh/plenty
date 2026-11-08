@@ -4951,11 +4951,12 @@ fn register_with_body(
     if generators::yields(body)
         && let Some(Ty::Generator(t)) = &output
     {
-        // A frame holding a reference or view parameter borrows the caller's
-        // data; other borrowing parameters are rejected when the body lowers.
+        // A frame holding a reference or view parameter, or a borrowing
+        // generator, borrows the caller's data; other borrowing parameters
+        // are rejected when the body lowers.
         let lends = inputs
             .iter()
-            .any(|(_, ty)| matches!(ty, Ty::Ref(..) | Ty::View(..)));
+            .any(|(_, ty)| matches!(ty, Ty::Ref(..) | Ty::View(..)) || ty.lends_frame());
         output = Some(crate::generator::producer(
             t.element.clone(),
             Some(f.name.clone()),
@@ -5215,20 +5216,24 @@ fn lower_body(
             // Parameter loans start at the function header.
             lower.mark(&f.at, &mut body);
             for (i, (name, ty)) in sig.inputs.iter().enumerate() {
-                // A generator frame keeps reference and view parameters, whose
-                // loans its caller holds while the frame lives (issue #899).
-                // A borrowing parameter of another kind, or a lent pipeline,
-                // has no loan the result could keep.
+                // A generator frame keeps reference and view parameters and
+                // borrowing generators, whose loans its caller holds while the
+                // frame lives (issue #899). A carried reference or a lent
+                // pipeline has no loan the result could keep.
                 if yield_type.is_some()
-                    && (ty.lends_frame()
-                        || ty.carried_reference().is_some()
-                        || pipelines::lent_identity(ty).is_some())
+                    && (ty.carried_reference().is_some() || pipelines::lent_identity(ty).is_some())
                 {
                     return Err(f.at.error("generators cannot capture references"));
                 }
                 let (root, mutable) = match ty {
                     Ty::Ref(_, mutable) | Ty::View(_, mutable) => (i as u8, *mutable),
-                    ty if ty.carried_reference().is_some() => {
+                    // A borrowing generator's loans are its caller's, kept
+                    // through a hidden referent as a carried reference's are,
+                    // so a frame returned from it borrows only caller data. A
+                    // generator body needs none: it cannot return the frame.
+                    ty if ty.carried_reference().is_some()
+                        || (ty.lends_frame() && yield_type.is_none()) =>
+                    {
                         let referent = lower.slot(Ty::Unit, &f.at)?;
                         body.extend([Op::PushUnit, Op::StoreLocal(referent)]);
                         lower.name_slot(referent, name);

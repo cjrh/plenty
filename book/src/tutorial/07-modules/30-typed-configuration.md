@@ -56,6 +56,40 @@ configuration keys. Set `options.unknown_fields = std.serial.UnknownFields.Ignor
 on mutable options when deliberately accepting extra fields. A type can define
 its own private `__decode__` hook for a different schema or constructor mapping.
 
+When stored keys or tags differ from Plenty names, put
+`@serial.name("...")` on the line above the field or variant. The code keeps
+the Plenty name; the document uses only the wire name:
+
+```plenty
+import std.toml
+from std.toml import TomlError
+from std.serial import SerialError
+
+@serial
+enum Level:
+    @serial.name("debug")
+    Debug
+    @serial.name("info")
+    Info
+
+@serial
+class Logging:
+    @serial.name("log-level")
+    level: Level
+
+def main() -> Result[(), IoError | SerialError[TomlError]]:
+    options = std.toml.codec_options()
+    logging = std.toml.load[Logging]("log-level = \"debug\"\n", &options)?
+    print(logging.level)?
+    Ok(())
+```
+```output
+Level.Debug
+```
+
+See [wire names](../../design/stdlib/serial-derive.md#wire-names) for the
+rules the compiler checks.
+
 TOML has no null value. The encoder omits a class field whose value is
 `Nothing`; the decoder restores an absent optional field. A dictionary entry
 with a null value is rejected so a round trip cannot silently lose its key.

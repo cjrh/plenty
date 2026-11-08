@@ -119,6 +119,9 @@ pub struct Analysis {
     /// The qualified names of `@serial` classes and enums, whose field and
     /// variant names are their encoded names.
     pub serial: HashSet<String>,
+    /// The qualified names of `@serial` fields and variants with an explicit
+    /// `@serial.name`, whose encoded name does not follow the source name.
+    pub wire_named: HashSet<String>,
     /// The callable each parameter belongs to, by symbol index.
     pub parameter_of: HashMap<usize, usize>,
 }
@@ -219,6 +222,8 @@ struct Recorder {
     unresolved: Vec<(Anchor, Find)>,
     /// See [`Analysis::serial`].
     serial: HashSet<String>,
+    /// See [`Analysis::wire_named`].
+    wire_named: HashSet<String>,
     /// The index in `references` of the first reference found in
     /// uninstantiated generic bodies.
     inferred_from: Option<usize>,
@@ -522,6 +527,13 @@ pub(super) fn unresolved_member(at: &Token, pos: Pos, name: &str) {
 pub(super) fn serial(name: String) {
     with(|r| {
         r.serial.insert(name);
+    });
+}
+
+/// Records that the member `name` (qualified) has an explicit wire name.
+pub(super) fn wire_named(name: String) {
+    with(|r| {
+        r.wire_named.insert(name);
     });
 }
 
@@ -831,6 +843,7 @@ fn finish(recorder: Recorder) -> Analysis {
         exported,
         unresolved,
         serial,
+        wire_named,
         inferred_from,
         parameters,
         ..
@@ -981,6 +994,7 @@ fn finish(recorder: Recorder) -> Analysis {
         sources: texts.into_values().collect(),
         unresolved,
         serial,
+        wire_named,
         parameter_of,
     }
 }

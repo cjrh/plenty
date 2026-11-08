@@ -133,6 +133,8 @@ applies it. Renaming a field or variant of a
 encoded under, so data written before the rename no longer decodes. The server
 allows the rename, since no data may exist yet, and marks it with a change
 annotation that needs confirmation, as it marks a change to a package's API.
+A member with a [wire name](../../stdlib/serial-derive.md#wire-names) keeps its
+encoded name, so renaming it is not marked.
 
 The rename is checked twice. Before it, the package (or, for a local or an
 alias, the file) must check without errors, so that every use is resolved.
