@@ -12,7 +12,8 @@ type. An `if` without `else` can only produce unit. The inline conditional uses
 `value_if_true if condition else value_if_false`; only its selected value is
 evaluated. Without an expected type from its context, the first value's type is
 the expected type of the second: `Some(1) if ready else Nothing` works, while
-`Nothing if ready else Some(1)` needs an annotation.
+`Nothing if ready else Some(1)` needs an annotation. Its values may be
+references into different owners, joined as an `if` block's arms are.
 
 An `if` takes any number of `elif` arms. The arms are alternatives at one level,
 tested in order; they do not count toward the
@@ -77,9 +78,12 @@ produces unit on its unselected path; unit cannot be stored in a binding.
 Conditions are evaluated in order; only the selected suite runs. Its locals
 are cleaned up before the binding or assignment, including before evaluating
 [destination indices](assignment.md). `?`, `return`, `break`, and `continue`
-keep their enclosing function or loop. A binding or assignment cannot receive a
-reference or a closure with borrowed captures from the block; produce an owned
-value instead. These are the same lifetime and evaluation rules as a
+keep their enclosing function or loop. The block may produce a reference, plain
+or inside an `Option` or `Result`; while it is used, every arm's owner stays
+borrowed, as for [`unwrap_or`](../05-ownership/05-optional-references.md#choosing-with-if-or-match).
+A binding or assignment cannot receive a view or a closure with borrowed
+captures from the block; produce an owned value instead. These are the same
+lifetime and evaluation rules as a
 [match used as a value](matching.md#a-match-as-a-statements-value).
 
 `return if condition:` returns each selected suite's final expression as though
