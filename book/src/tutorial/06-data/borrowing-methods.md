@@ -132,7 +132,8 @@ missing
 Such a result cannot be stored in a list or a field: match it and store an
 owned copy or an index. The
 [reference](../../design/language/05-ownership/05-optional-references.md)
-lists every rule, including `mut` holders that start as `Nothing`.
+lists every rule, including `mut` holders that start as `Nothing` and `if` or
+`match` values that choose between such results.
 
 Shared arguments can borrow temporaries, as in `size("ada")` for a `size(s: &str)`
 function. The temporary lives through the expression. A result borrowing it may

@@ -201,6 +201,82 @@ def main() -> Result[(), AllocError | IoError]:
 holder `pick` borrows another owner, since its first borrowing assignment at line 8
 ```
 
+## Choosing with `if` or `match`
+
+An `if` or `match` used as a value may produce a reference-carrying value.
+Each arm may borrow a different owner. The checker does not know which arm
+ran, so while the result is used, every arm's owner stays borrowed:
+
+```plenty
+class Item:
+    name: str
+    count: i64
+
+def find(items: &list[Item], name: &str) -> Option[&Item]:
+    for item in items:
+        if item.name == name:
+            return Some(item)
+    Nothing
+
+def main() -> Result[(), AllocError | IoError]:
+    mut staff = [Item("ada", 1)]?
+    guests = [Item("bob", 2)]?
+    selected = if len(guests) > 0:
+        find(&guests, "bob")
+    else:
+        find(&staff, "ada")
+    print(selected)?
+    staff.clear()
+    Ok(())
+```
+
+```output
+Option[&Item].Some(Item(name="bob", count=2))
+```
+
+Modifying `staff` before the last use of `selected` is rejected, even though
+the `if` chose `guests`:
+
+```plenty-error
+class Item:
+    name: str
+
+def find(items: &list[Item], name: &str) -> Option[&Item]:
+    for item in items:
+        if item.name == name:
+            return Some(item)
+    Nothing
+
+def main() -> Result[(), AllocError | IoError]:
+    mut staff = [Item("ada")]?
+    guests = [Item("bob")]?
+    selected = if len(guests) > 0:
+        find(&guests, "bob")
+    else:
+        find(&staff, "ada")
+    staff.clear()
+    print(selected)?
+    Ok(())
+```
+
+```error
+`selected` holds this arm's value: an `if` or `match` value keeps the value of every arm borrowed
+```
+
+An arm cannot produce a borrow of an owner it declares, or of a temporary,
+since that owner is dropped when the arm ends. A returned `if` or `match`
+value follows the [returned-reference rule](04-returned-references.md) in each
+arm. An arm's value cannot be a plain reference such as `&items[0]`, and a
+`checked:` block cannot produce a reference-carrying value.
+
+Each evaluation borrows afresh. In a loop, a result used only within its
+iteration does not keep the owners borrowed into the next one. A copy that
+outlives the iteration, such as one assigned to a `mut` holder declared
+before the loop, keeps every arm's owner borrowed wherever the copy is live,
+and keeps the binding it was copied from borrowed too: the loop cannot
+evaluate the `if` into that binding again while the copy is live. See
+[Current limits](#current-limits) for the workaround.
+
 ## Passing a holder
 
 A parameter may have a reference-carrying type, such as
@@ -278,7 +354,22 @@ it first and store an owned copy or an index instead.
 - A `mut` holder that started empty keeps every value ever assigned to it
   borrowed while it is used, even after a later assignment replaced that
   value.
-- An `if` or `match` used as a value cannot produce one.
+- A branch value copied into a holder declared before a loop, such as
+  `if k == 0: keep = x`, keeps `x` borrowed, so the next iteration's
+  `x = if ...` is rejected with "cannot assign to `x` while it is borrowed",
+  although no owner changes. Bind each arm's value separately and copy it
+  inside that arm:
+
+  ```plenty fragment
+  for k in [0, 1]?:
+      if k == 0:
+          x = find(&staff, "ada")
+          keep = x
+      else:
+          x = find(&guests, "bob")
+          print(x)?
+  ```
+
 - Patterns cannot match nested variants through the carried reference:
   `case Some(Some(v))` on `Option[&Option[i64]]` needs a second `match`.
 - A returned reference from a temporary argument follows the
