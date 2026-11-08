@@ -855,6 +855,9 @@ impl Lower<'_> {
                 .get(name)
                 .and_then(|sig| sig.outputs.first())
                 .is_some_and(|ty| matches!(ty, Ty::Generator(_)) && !ty.lends_frame()),
+            // A binding declared with an owned frame cannot later be
+            // assigned a borrowing one (rejected in `assign`), so its
+            // declared type is what it holds.
             Expression::Name(name) => self.names.get(name).is_some_and(|local| {
                 matches!(local.ty, Ty::Generator(_))
                     && !local.ty.lends_frame()

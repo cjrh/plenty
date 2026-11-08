@@ -4086,6 +4086,14 @@ impl Lower<'_> {
                                 .at
                                 .error(format!("`{name}` is immutable; declare it with `mut`")));
                         }
+                        // Generator equality ignores `lends`, so a binding
+                        // declared with an owned frame would hold a borrowed
+                        // one without its loan (issue #899).
+                        if ty.lends_frame() && !local.ty.lends_frame() {
+                            return Err(stmt.at.error(format!(
+                                "`{name}` holds a generator that owns its state; assigning one that borrows needs a new binding"
+                            )));
+                        }
                         let ty = self.join_reassigned(local.slot, &local.ty, ty.clone(), ops);
                         self.same(Some(ty), Some(local.ty.clone()), &stmt.at)?;
                         if let Some(origin) = origin {

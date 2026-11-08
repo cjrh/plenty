@@ -233,7 +233,8 @@ through that function's own reference or view parameters; returning one that
 borrows a local or an owned parameter is rejected. A conditional expression or
 an `if`/`match` value that chooses between borrowing generators keeps every
 arm's loans, and a returned choice checks each arm; an arm producing an
-owned generator contributes no loan.
+owned generator contributes no loan. A `mut` binding that holds an owned
+generator cannot be assigned a borrowing one; bind it to a new name.
 
 A borrowing generator can be bound, advanced, iterated, consumed by a
 fluent terminal, passed by value to a function, or returned. A generator

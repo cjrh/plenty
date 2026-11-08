@@ -476,3 +476,52 @@ def main() -> Result[(), AllocError | IoError]:
         "0\n1\n2\n2\n4\n3\n",
     );
 }
+
+// Review of local PR #1134, round 3: generator equality ignores whether the
+// frame borrows, so a binding declared with an owned frame must not take a
+// borrowing one; it would hold no loan.
+#[test]
+fn an_owned_generator_binding_cannot_take_a_borrowing_frame() {
+    for (body, function) in [
+        ("    h = evens(&ys)\n    print(next(h))?", false),
+        (
+            "    if len(ys) > 0:\n        h = evens(&ys)\n    print(next(h))?",
+            false,
+        ),
+        (
+            "    h = evens(&ys)\n    mut g = h if len(ys) > 0 else nums(3)\n    print(next(g))?",
+            false,
+        ),
+        ("", true),
+    ] {
+        let program = if function {
+            format!(
+                r#"{NUMS}
+def pick(xs: &list[i64], k: i64) -> Generator[i64]:
+    mut h = nums(2)
+    h = evens(xs)
+    return h if k > 0 else nums(3)
+
+def main() -> ():
+    pass
+"#
+            )
+        } else {
+            format!(
+                r#"{NUMS}
+def main() -> Result[(), AllocError | IoError]:
+    ys = [2, 4]?
+    mut h = nums(2)
+{body}
+    drop(ys)
+    Ok(())
+"#
+            )
+        };
+        let error = check_error(&with_evens(&program));
+        assert!(
+            error.contains("assigning one that borrows needs a new binding"),
+            "{body}: {error}"
+        );
+    }
+}
