@@ -2085,6 +2085,10 @@ impl Lower<'_> {
                 slots.insert(name.as_str(), slot);
             }
             let alternatives = &rows[spans[arm].clone()];
+            if subject.carried.is_some() {
+                // A conflict with a payload's loan names the case that bound it.
+                self.mark(&case.at, &mut body);
+            }
             self.fill_bindings(
                 &subject,
                 alternatives,
