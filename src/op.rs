@@ -111,7 +111,7 @@ pub enum Ty {
     /// for as long as the view is used. Local-only until stored references
     /// (backlog B11); see book/src/design/language/04-expressions/slices.md.
     View(Arc<Ty>, bool),
-    /// The element marker of `&substr`, `View(Text, false)`: a borrowed run
+    /// The element marker of `&strview`, `View(Text, false)`: a borrowed run
     /// of UTF-8 bytes inside a `str` (issue #595). It appears only inside a
     /// view; its value is the first byte's address and the byte count.
     Text,
@@ -888,7 +888,7 @@ impl fmt::Display for Ty {
                 return write!(f, "{}View[{t}]", if *values { "Value" } else { "Item" });
             }
             Ty::KeyView(t) => return write!(f, "KeyView[{t}]"),
-            Ty::View(t, false) if **t == Ty::Text => "&substr",
+            Ty::View(t, false) if **t == Ty::Text => "&strview",
             Ty::View(t, false) => return write!(f, "&[{t}]"),
             Ty::View(t, true) => return write!(f, "&mut [{t}]"),
             Ty::Clist(t) => return write!(f, "clist[{t}]"),

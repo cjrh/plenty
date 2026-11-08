@@ -42,7 +42,7 @@ impl TextOp {
     }
 }
 
-/// Operations on `&substr` views (issue #595), which the runtime runs in
+/// Operations on `&strview` views (issue #595), which the runtime runs in
 /// `aggregates/text_views.rs`. A view is the address of its first byte and
 /// its byte count; positions count Unicode scalars, as on `str`.
 #[derive(Clone, Copy, Debug, PartialEq)]

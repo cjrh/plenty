@@ -1807,7 +1807,7 @@ impl Lower<'_> {
     }
 }
 
-/// The call that writes a `&substr` field: its text, as a `str` field
+/// The call that writes a `&strview` field: its text, as a `str` field
 /// writes, or with `!r` or `!a` the quoted spelling `str.repr` makes.
 fn text_view_field(
     field: &Field,
@@ -1860,7 +1860,7 @@ enum Lent {
     Reference,
     /// A slice view, as a `&[T]`.
     View,
-    /// A `&substr`.
+    /// A `&strview`.
     Text,
 }
 
@@ -1927,7 +1927,7 @@ fn format_function(
                     let ty = format!("__plenty_T{}", inputs.len());
                     let lent = views.next().copied().unwrap_or(Lent::Reference);
                     let input = match lent {
-                        Lent::Text => type_ref(at, "&", vec![type_ref(at, SUBSTR, vec![])]),
+                        Lent::Text => type_ref(at, "&", vec![type_ref(at, STRVIEW, vec![])]),
                         Lent::View => type_ref(at, VIEW_TYPE, vec![type_ref(at, &ty, vec![])]),
                         Lent::Reference => type_ref(at, "&", vec![type_ref(at, &ty, vec![])]),
                     };
