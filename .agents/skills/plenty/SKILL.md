@@ -212,6 +212,11 @@ actual `std.serial.Kind` values. Rendering borrows and preserves the error.
   in its module, including types and generic bodies. Remove unneeded imports,
   but retain an import that intentionally keeps a module in checking: deleting
   it can reduce validation coverage. Warnings are advisory and do not fail a check.
+- Checks report `text-view-parameter` when a `str` or ordinary `&str`
+  parameter only supplies recognized text reads. Consider `&strview` to accept
+  substring inputs too; this is advisory and preserves ordinary reference and
+  ownership-dependent signatures. Scalar `len(view)` scans; this suggestion
+  does not promise a speedup.
 - Reserve capacity when the size is known: `list[i64].with_capacity(n)?`.
 - Mark a class or enum that holds a secret `@redacted`: `print`, `str.repr`
   and f-strings then show `ApiKey(@redacted)` at any depth, while field access is

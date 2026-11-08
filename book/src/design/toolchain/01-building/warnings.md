@@ -36,6 +36,7 @@ one type argument can be needed for another.
 |---|---|
 | `unused-import` | An explicit import binding has no resolved use in its module |
 | `redundant-copy` | `copy(x)?` or `copy(&x)?` when the type of `x` already copies |
+| `text-view-parameter` | A `str` or ordinary `&str` parameter only supplies recognized text reads |
 
 ### `redundant-copy`
 
@@ -112,3 +113,57 @@ Imports also determine validation coverage: retain an unused import when it
 intentionally includes a module in checking. Removing that import can make the
 module unreachable from all package targets; `plenty check` then reports the
 unimported source separately. No automatic removal is offered.
+
+### `text-view-parameter`
+
+A text reader can usually accept a whole string and a substring through
+`&strview`. This lint suggests that type for a `str` or ordinary `&str`
+parameter when all its uses are recognized text reads. For example:
+
+```text
+parameter `text` only supplies text reads; consider `&strview` instead of `str` to also accept substring views [text-view-parameter]
+```
+
+The warning points to the parameter's type. A caller still passes a whole
+string normally; a borrowed range now works too:
+
+```plenty
+def byte_count(text: &strview) -> i64:
+    text.byte_len()
+
+def main() -> Result[(), IoError]:
+    text = "héllo"
+    print(byte_count(text), byte_count(&text[1:3]))?
+    Ok(())
+```
+
+```output
+6 3
+```
+
+This is advice about accepted inputs, not a promise of faster execution.
+A view's `byte_len()` is constant time, but scalar `len(view)` scans the text;
+owned strings cache their scalar count. Review repeated length queries before
+changing the signature. See [substring views](../../language/04-expressions/slices.md#substring-views).
+
+The analysis is deliberately conservative. It recognizes direct parameter uses
+in scalar iteration, indexing and copying slices, builtin text methods,
+`len`, `ord`, printing and formatting, text operations with literal operands,
+and forwarding to a resolved `&strview` input (including named arguments).
+An unused parameter is not reported. Any unrecognized use suppresses the
+suggestion, including aliasing, returning or storing the owning handle, taking
+an ordinary reference, explicit dereferencing, or passing it to an owning,
+ordinary-reference or generic input. The lint does not infer that another
+`str` reader should change in the same edit.
+
+Methods, generic functions and their instances, anonymous/generated bodies,
+foreign functions, C exports, functions with defaults, generators and functions
+returning loans are excluded. A function used as a value anywhere in the
+checked user graph keeps its callable signature, including uses in generic
+bodies that have not been instantiated. Parameter shadowing and captures also
+suppress advice. Standard-library sources report no warnings.
+
+The lint does not automatically rewrite signatures. Ordinary `&str` remains
+appropriate for generic references, returned references, retained string handles
+and fixed callback or protocol contracts. Public API changes still need review;
+absence of a warning does not mean that a text view would be unsuitable.
