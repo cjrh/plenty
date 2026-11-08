@@ -5174,8 +5174,14 @@ impl Lower<'_> {
             }
             if element.affine() {
                 let place = if collection == "list" { "index" } else { "key" };
+                // `copy()` rejects a `Shared` handle; a second handle comes from `share()`.
+                let duplicate = if matches!(element, Ty::Shared(_)) {
+                    format!("share the handle with `items[{place}].share()`")
+                } else {
+                    format!("copy with `copy(&items[{place}])?`")
+                };
                 return Err(base.at.error(format!(
-                    "get cannot return owned {collection} values; borrow with `get_ref({place})` or `get_mut({place})`, which return `Nothing` when absent, or `&items[{place}]`, which traps; copy with `copy(&items[{place}])?`, or remove and take ownership with `pop`"
+                    "get cannot return owned {collection} values; borrow with `get_ref({place})` or `get_mut({place})`, which return `Nothing` when absent, or `&items[{place}]`, which traps; {duplicate}, or remove and take ownership with `pop`"
                 )));
             }
             let (key, key_loans) = self.observe_expected(&args[0], Some(expected.clone()), ops)?;

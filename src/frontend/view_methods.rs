@@ -145,8 +145,14 @@ impl Lower<'_> {
                     return Err(base.at.error("get requires one index argument"));
                 };
                 if element.affine() {
+                    // `copy()` rejects a `Shared` handle; a second handle comes from `share()`.
+                    let duplicate = if matches!(*element, Ty::Shared(_)) {
+                        "share the handle with `v[index].share()`"
+                    } else {
+                        "copy with `copy(&v[index])?`"
+                    };
                     return Err(base.at.error(format!(
-                        "get cannot return owned {element} values from a view; borrow with `&v[index]`, which traps when absent, or copy with `copy(&v[index])?`"
+                        "get cannot return owned {element} values from a view; borrow with `&v[index]`, which traps when absent, or {duplicate}"
                     )));
                 }
                 self.view_helper(

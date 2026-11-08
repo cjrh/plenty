@@ -747,6 +747,10 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     "get cannot return owned list[i64] values from a view"
 )]
 #[case(
+    "hs = [Shared(1).unwrap()].unwrap()\nv = &hs[:]\nh = v.get(0)",
+    "share the handle with `v[index].share()`"
+)]
+#[case(
     "xs = [[1].unwrap()].unwrap()\nv = &xs[:]\nn = v.get_ref(0)",
     "a slice view cannot `get_ref` yet (issue #890)"
 )]
