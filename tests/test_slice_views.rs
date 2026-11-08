@@ -115,6 +115,33 @@ def main() -> Result[(), AllocError | IoError]:
     );
 }
 
+/// `v.get(i)` returns a copy of element `i` of the view as `list.get` does,
+/// counting a negative index from the view's end, with `Nothing` outside it
+/// (issue #866).
+#[test]
+fn views_get_copies_of_non_affine_elements() {
+    support::assert_stdout(
+        r#"
+@copy
+class Q:
+    a: i64
+
+def main() -> Result[(), AllocError | IoError]:
+    xs = [10, 20, 30]?
+    v = &xs[1:]
+    print(v.get(0), v.get(-1), v.get(2), v.get(-3), v.get(-9223372036854775807))?
+    qs = [Q(1), Q(2)]?
+    ss = ["a", "b"]?
+    w = &ss[1:]
+    print((&qs[:]).get(1), w.get(0), w.get(1))?
+    empty: list[i64] = []?
+    print((&empty[:]).get(0))?
+    Ok(())
+"#,
+        "Option[i64].Some(20) Option[i64].Some(30) Option[i64].Nothing Option[i64].Nothing Option[i64].Nothing\nOption[Q].Some(Q(a=2)) Option[str].Some(\"b\") Option[str].Nothing\nOption[i64].Nothing\n",
+    );
+}
+
 /// `v.reverse()` reorders an exclusive view's elements in place with
 /// `list.reverse`'s contract, for every element type (issue #866).
 #[test]
@@ -716,8 +743,24 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     "view.count takes one element to search for"
 )]
 #[case(
-    "xs = [1, 2].unwrap()\nv = &xs[:]\nn = v.get(0)",
-    "a slice view has no method `get`"
+    "xs = [[1].unwrap()].unwrap()\nv = &xs[:]\nn = v.get(0)",
+    "get cannot return owned list[i64] values from a view"
+)]
+#[case(
+    "xs = [1, 2].unwrap()\nv = &xs[:]\nn = v.get()",
+    "get requires one index argument"
+)]
+#[case(
+    "xs = [1, 2].unwrap()\nv = &xs[:]\nn = v.count(x=2)",
+    "named arguments require a statically resolved function, method, or class constructor"
+)]
+#[case(
+    "xs = [1, 2].unwrap()\nv = &xs[:]\nn = v.find(item=2)",
+    "named arguments require a statically resolved function, method, or class constructor"
+)]
+#[case(
+    "mut xs = [1, 2].unwrap()\nv = &mut xs[:]\nv.frobnicate()",
+    "a slice view has no method `frobnicate`"
 )]
 #[case(
     "xs = [1, 2].unwrap()\nv = &xs[:]\nv.reverse()",
@@ -798,7 +841,7 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
 )]
 #[case(
     "mut xs = [1, 2].unwrap()\nv = &mut xs[:]\nv.frobnicate()",
-    "a slice view has no method `frobnicate`; a view supports `len(v)`, `v[i]`, `&v[a:b]`, `v[a:b]?`, `list(v)?`, `==`, `in`, `v.count(x)`, `v.find(x)`, `v.rfind(x)`, `for x in v`, `iter(v)`, and `print(v)`, and a `&mut [T]` view also `v[i] = x`, `v.swap(i, j)`, and `v.reverse()`"
+    "a slice view has no method `frobnicate`; a view supports `len(v)`, `v[i]`, `&v[a:b]`, `v[a:b]?`, `list(v)?`, `==`, `in`, `v.count(x)`, `v.find(x)`, `v.rfind(x)`, `v.get(i)`, `for x in v`, `iter(v)`, and `print(v)`, and a `&mut [T]` view also `v[i] = x`, `v.swap(i, j)`, and `v.reverse()`"
 )]
 fn invalid_views_are_rejected(#[case] source: &str, #[case] expected: &str) {
     let error = support::check_diagnostic(source);
@@ -912,6 +955,57 @@ def main() -> Result[(), AllocError | IoError]:
         "{}",
         String::from_utf8_lossy(&output.stdout)
     );
+}
+
+/// A copy of a view that fails part-way, after its storage is reserved,
+/// returns `AllocError`, drops the partial copy, and leaves the source
+/// intact; the exit leak check covers the `Shared` counts (issue #866).
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn view_copies_recover_from_failure_mid_copy() {
+    let mut outcomes = Vec::new();
+    for budget in 0..12 {
+        let output = support::run(&format!(
+            r#"
+class P:
+    a: i64
+    b: list[i64]
+
+def main() -> Result[(), AllocError | IoError]:
+    ps = [P(1, [1]?), P(2, [2, 3]?), P(3, [4]?)]?
+    hs = [Shared(1)?, Shared(2)?]?
+    handles = &hs[:]
+    print("__test_fail_allocations_after_{budget}__")?
+    copied = list(&ps[:])
+    print("__test_restore_allocations__")?
+    print("__test_fail_allocations_after_{budget}__")?
+    shared = handles[:]
+    print("__test_restore_allocations__")?
+    print(copied.is_err(), shared.is_err())?
+    drop(copied)
+    drop(shared)
+    print(ps, *hs[0], *hs[1])?
+    Ok(())
+"#
+        ));
+        assert!(
+            output.status.success(),
+            "budget {budget}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        assert!(
+            stdout.ends_with("[P(a=1, b=[1]), P(a=2, b=[2, 3]), P(a=3, b=[4])] 1 2\n"),
+            "budget {budget}: {stdout}"
+        );
+        outcomes.push(stdout.lines().rev().nth(1).unwrap_or("").to_owned());
+    }
+    // The reservation takes the first two allocations, so a budget of 2
+    // fails while copying the first element's list; `share()` allocates
+    // nothing, so a `Shared` copy fails only in its reservation.
+    assert_eq!(outcomes[0], "True True", "{outcomes:?}");
+    assert!(outcomes[2].starts_with("True"), "{outcomes:?}");
+    assert_eq!(outcomes[11], "False False", "{outcomes:?}");
 }
 
 /// Byte-reading std operations take `&[u8]` (B90 phase 3), so a `list[u8]`

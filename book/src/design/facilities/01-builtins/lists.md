@@ -130,13 +130,16 @@ non-affine values, including copyable enums; retained results survive replacemen
 or destruction of the list. Use `pop` or explicit references for affine elements.
 There is no default argument.
 
-Search/count accept exactly the element type, including references, and support
-integers, floats, booleans, and strings. They observe both operands once, allocate
-nothing, and use IEEE float equality (NaN never matches; signed zeros do).
-Aggregate searches, optional bounds, and throwing `index` are unsupported.
-Search part of a list through a [slice view](../../language/04-expressions/slices.md#operations-on-views):
-`(&items[a:b]).find(value)` counts positions within the view and also
-accepts class, enum, and nested-list elements.
+Search/count accept exactly the element type, including references, and take
+every element type that `in` takes: numbers, `bool`, strings, classes, enums,
+tuples, nested lists, and unions of them. They use the element type's `==`,
+observe both operands once, allocate nothing, and use IEEE float equality (NaN
+never matches; signed zeros do). Numbers, `bool`, and strings use a runtime
+scan; other element types compile to a loop specialized for the element type,
+the one a [slice view](../../language/04-expressions/slices.md#operations-on-views)
+uses. Optional bounds and throwing `index` are unsupported; search part of a
+list through a view, `(&items[a:b]).find(value)`, which counts positions within
+the view.
 
 ## Insertion
 

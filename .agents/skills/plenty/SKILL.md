@@ -177,7 +177,7 @@ actual `std.serial.Kind` values. Rendering borrows and preserves the error.
   declares `def write(self: &mut W, source: &[u8]) -> Result[i64, StreamError]`.
   `&mut xs[:m]` and `&mut xs[m:]` are disjoint when `m` is a literal or a
   non-`mut` `i64` name; other overlapping or unprovable ranges conflict.
-  Any list view takes `x in v`, `v.count(x)`, `v.find(x)`, `v.rfind(x)`,
+  Any list view takes `x in v`, `v.count(x)`, `v.find(x)`, `v.rfind(x)`, `v.get(i)`,
   and copies with `list(v)?` or `v[a:b]?`; a `&mut [T]` view also takes
   `v[i] = x`, `v.swap(i, j)` and `v.reverse()`. Its length is fixed, so
   `append`/`pop`/`sort` belong to the owner.

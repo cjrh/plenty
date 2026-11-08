@@ -4192,6 +4192,11 @@ impl Lower<'_> {
             }
             return self.view_method(base, name, args, ops).map(Some);
         }
+        if matches!(name, "count" | "find" | "rfind")
+            && let Some(whole) = self.whole_list_view(base)
+        {
+            return self.view_method(&whole, name, args, ops).map(Some);
+        }
         if matches!(self.place_type(base), Some(Ty::Clist(_))) {
             return self.clist_method(base, name, args, ops).map(Some);
         }
@@ -4949,12 +4954,6 @@ impl Lower<'_> {
         if let Ty::List(element) = &ty
             && matches!(name, "count" | "find" | "rfind")
         {
-            if !(element.is_int() || element.is_float() || matches!(**element, Ty::Bool | Ty::Str))
-            {
-                return Err(base
-                    .at
-                    .error("list search supports integer, float, bool, and str elements"));
-            }
             if args.len() != 1 {
                 return Err(base
                     .at

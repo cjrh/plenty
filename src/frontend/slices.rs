@@ -389,7 +389,7 @@ impl Lower<'_> {
 fn unsliceable(ty: &Ty) -> String {
     match ty {
         Ty::Dict(..) => "dict does not support slicing".into(),
-        Ty::View(..) => "a copying slice does not take a slice view; take a narrower view, `&v[a:b]`, or copy from the owner, `xs[a:b]?`".into(),
+        Ty::View(..) => "a copying slice of a view needs the view by name; bind it, `v = &xs[a:b]`, then copy with `v[c:d]?`, or take a narrower view, `&v[c:d]`".into(),
         Ty::Shared(_) => {
             format!("{ty} does not support slicing; index the handle, or copy its contents first")
         }

@@ -496,9 +496,12 @@ remain under B12.
 
 List slice views `&[T]` and `&mut [T]` gained list read and fixed-length
 operations (issue #866): `in`, `count`, `find` and `rfind` search the view with
-the element type's `==` and allocate nothing; `list(v)?` and `v[a:b]?` copy
-elements as a list's copying slice does; `v.reverse()` reorders an exclusive
-view in place. Each specializes an ordinary Plenty helper for the element type.
+the element type's `==` and allocate nothing; `v.get(i)` copies a non-affine
+element as `list.get` does; `list(v)?` and `v[a:b]?` copy elements as a list's
+copying slice does; `v.reverse()` reorders an exclusive view in place. Each
+specializes an ordinary Plenty helper for the element type. A list's `count`,
+`find` and `rfind` now take every element type `in` takes, through the same
+helpers. Optional borrowed lookup on views is issue #890.
 Length-changing methods name the fixed length, `v[a:b]?` on a `&[u8]` asks for
 the result type, and sorting a view is issue #886. A `u8` literal now loads the
 byte-view methods of `std.bytes`, so `[104u8]` views reach them without an

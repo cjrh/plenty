@@ -182,6 +182,7 @@ and before passing an exclusive view of it.
 | `v[i] = x` | Replace element `i`; needs an exclusive view in a `mut` binding |
 | `v.swap(i, j)` | Exchange elements `i` and `j` in place, with [`list.swap`](../../facilities/01-builtins/lists.md#reordering-and-extending)'s contract; needs an exclusive view |
 | `v.reverse()` | Reverse the view's elements in place; needs an exclusive view |
+| `v.get(i)` | `Option[T]` copy of element `i`, `Nothing` outside the view; non-affine elements only |
 | `x in v`, `x not in v` | Whether an element equals `x` |
 | `v.count(x)`, `v.find(x)`, `v.rfind(x)` | Number of equal elements, and the first or last matching position within the view as `Option[i64]` |
 | `list(v)?`, `v[a:b]?` | An owned `list[T]` of copies of the elements, or of the selected ones |
@@ -272,15 +273,16 @@ fixed: a method that would add or remove elements belongs to the owner.
 | `v[a:b:k]?` with a step | yes | copy from the owner | copy from the owner |
 | `sort`, `sort_by_key`, `sort_stable_by_key` | yes | read-only | not yet (issue #886) |
 | `append`, `extend`, `insert`, `pop`, `clear`, `reserve` | yes | length is fixed | length is fixed |
-| `get` | yes | no | no |
+| `get` | yes | yes | yes |
+| `get_ref`, `get_mut` | yes | not yet (issue #890) | not yet (issue #890) |
 
 `x in v`, `v.count(x)`, `v.find(x)`, and `v.rfind(x)` compare `x` with each
 element using the element type's `==`, so they take the element types a list's
 [membership](../../facilities/01-builtins/lists.md#lookup-and-removal) takes:
-numbers, `bool`, strings, classes, enums, nested lists, and unions of them.
-Floats use IEEE equality, so NaN never matches and signed zeros do. A list's
-`count` and `find` accept only scalars and strings; a view's accept the wider
-set. Positions count from the start of the view. `in` evaluates `x` before
+numbers, `bool`, strings, classes, enums, tuples, nested lists, and unions of
+them. A list's `count`, `find`, and `rfind` take the same set. Floats use IEEE
+equality, so NaN never matches and signed zeros do. Positions count from the
+start of the view. `in` evaluates `x` before
 the view, as list membership does, and the methods evaluate the receiver
 first; `x` is borrowed, as a `&T` argument is, and the search allocates
 nothing.
@@ -296,6 +298,12 @@ and no step; copy every k-th element from the owner, `xs[a:b:k]?`. On a
 `&[u8]` view, `v[a:b]?` is rejected, since the owner may be a list or a
 `Bytes` buffer: write `list(&v[a:b])?` for a list. `copy(v)` and `set(v)` are
 rejected with a pointer to `list(v)?`.
+
+`v.get(i)` returns `Some` copy of element `i`, or `Nothing` outside the view,
+with [`list.get`](../../facilities/01-builtins/lists.md#lookup-and-removal)'s
+contract: a negative index counts from the view's end, and the element type
+must not be affine; borrow an affine element with `&v[i]`. Optional borrowed
+lookup on views is issue #890.
 
 `v.reverse()` reorders an exclusive view's elements with `list.reverse`'s
 contract: every element type, and no allocation, copy, retain, or drop. Sorting

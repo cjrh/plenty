@@ -106,6 +106,44 @@ print(d).unwrap()
     );
 }
 
+/// `count`, `find`, and `rfind` take every element type `in` takes, as a
+/// slice view's do: other element types search the whole list's view with
+/// the element type's `==` (issue #866).
+#[test]
+fn searches_take_every_membership_element_type() {
+    native(
+        r#"
+class P:
+    a: i64
+    b: str
+
+enum Shape:
+    Dot
+    Square(i64)
+
+def last(items: &list[P]) -> Option[i64]:
+    items.rfind(P(1, "x"))
+
+def make() -> Result[list[list[i64]], AllocError]:
+    [[1]?, [2, 3]?]
+
+def main() -> Result[(), AllocError | IoError]:
+    ps = [P(1, "x"), P(2, "y"), P(1, "x")]?
+    print(ps.count(P(1, "x")), ps.find(P(2, "y")), ps.rfind(P(9, "z")), last(&ps))?
+    shapes = [Shape.Dot, Shape.Square(2), Shape.Square(2)]?
+    print(shapes.count(Shape.Square(2)), shapes.find(Shape.Dot))?
+    inner = [2, 3]?
+    print(make()?.find(inner), make()?.count(inner))?
+    pairs = [(1, "a"), (2, "b")]?
+    print(pairs.rfind((2, "b")))?
+    empty: list[P] = []?
+    print(empty.find(P(1, "x")))?
+    Ok(())
+"#,
+        "2 Option[i64].Some(1) Option[i64].Nothing Option[i64].Some(2)\n2 Option[i64].Some(0)\nOption[i64].Some(1) 1\nOption[i64].Some(1)\nOption[i64].Nothing",
+    );
+}
+
 #[rstest]
 #[case("print([1].unwrap().find()).unwrap()", "requires one element argument")]
 #[case(
@@ -117,8 +155,12 @@ print(d).unwrap()
     "expected u8"
 )]
 #[case(
-    "print([[1].unwrap()].unwrap().find([1].unwrap())).unwrap()",
-    "list search supports"
+    "hs = [Shared(1).unwrap()].unwrap()\nprint(hs.count(hs[0].share())).unwrap()",
+    "values containing Shared owners do not support equality"
+)]
+#[case(
+    "xs = [[1].unwrap()].unwrap()\nprint(xs.find(item=[1].unwrap())).unwrap()",
+    "named arguments"
 )]
 #[case(
     "mut a = [1].unwrap()\nr = &mut a\nprint(a.count(1)).unwrap()\nr.append(2).unwrap()",

@@ -34,6 +34,38 @@ impl Lower<'_> {
         (matches!(view, Ty::View(..)) && view != text_view()).then_some(view)
     }
 
+    /// `&base[:]` when `base` is a list whose elements the runtime list
+    /// search does not compare: anything but numbers, `bool`, and `str`. A
+    /// list's `count`, `find`, and `rfind` then search its whole view, so
+    /// lists and views accept the same element types.
+    pub(super) fn whole_list_view(&self, base: &Expr) -> Option<Expr> {
+        let mut ty = self.expression_type_hint(base)?;
+        while let Ty::Ref(inner, _) = ty {
+            ty = (*inner).clone();
+        }
+        let Ty::List(element) = ty else {
+            return None;
+        };
+        if element.is_int() || element.is_float() || matches!(*element, Ty::Bool | Ty::Str) {
+            return None;
+        }
+        let bounds = SliceBounds {
+            start: None,
+            stop: None,
+            step: None,
+        };
+        Some(Expr {
+            kind: Expression::Unary(
+                "&".into(),
+                Box::new(Expr {
+                    kind: Expression::Slice(Box::new(base.clone()), Box::new(bounds)),
+                    at: base.at.clone(),
+                }),
+            ),
+            at: base.at.clone(),
+        })
+    }
+
     /// Calls helper `name` from `view_methods.plenty`, specialized for
     /// `element`, with `args` in source order.
     fn view_helper(
@@ -99,7 +131,32 @@ impl Lower<'_> {
                 views::OPERATIONS
             )));
         };
+        if let Some(named) = args
+            .iter()
+            .find(|arg| matches!(arg.kind, Expression::NamedArgument(..)))
+        {
+            return Err(named.at.error(
+                "named arguments require a statically resolved function, method, or class constructor",
+            ));
+        }
         match name {
+            "get" => {
+                let [index] = args else {
+                    return Err(base.at.error("get requires one index argument"));
+                };
+                if element.affine() {
+                    return Err(base.at.error(format!(
+                        "get cannot return owned {element} values from a view; borrow with `&v[index]`, which traps when absent, or copy with `copy(&v[index])?`"
+                    )));
+                }
+                self.view_helper(
+                    "view_get",
+                    &element,
+                    &[base.clone(), index.clone()],
+                    &base.at,
+                    ops,
+                )
+            }
             "count" | "find" | "rfind" => {
                 let [item] = args else {
                     return Err(base.at.error(format!(

@@ -53,3 +53,14 @@ def view_reverse[T](view: &mut [T]) -> ():
             view.swap(low, high)
             low += 1
             high -= 1
+
+def view_get[T](view: &[T], index: i64) -> Option[T]:
+    count = len(view)
+    mut position = index
+    unchecked:
+        if position < 0:
+            position += count
+    if position < 0 or position >= count:
+        return Nothing
+    unchecked:
+        return Some(view[position])
