@@ -1001,7 +1001,6 @@ impl generics::Engine {
         for f in &functions {
             if !f.type_params.is_empty() {
                 self.validate_template(f, aliases)?;
-                self.method_name(&f.name);
                 self.templates.insert(f.name.clone(), Arc::new(f.clone()));
                 self.specializable += 1;
                 continue;

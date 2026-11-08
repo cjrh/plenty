@@ -1479,6 +1479,12 @@ impl Lower<'_> {
         expected: Type,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
+        if self.propagated.is_some()
+            && matches!(e.kind, Expression::Call(..) | Expression::Method(..))
+            && self.propagated == expected
+        {
+            return self.propagated_call(e, expected, ops);
+        }
         let method = match (&e.kind, &expected) {
             (Expression::Method(..), Some(ty)) => Some(ty.clone()),
             _ => None,
@@ -1492,6 +1498,19 @@ impl Lower<'_> {
             Hinted::Expected(inner, expected) => self.expr_expected(inner, expected, ops),
             Hinted::Arithmetic(ty) => self.hinted_arithmetic(e, ty, ops),
         }
+    }
+
+    /// A call that is the direct operand of `?` (possibly through branch
+    /// arms). Its arguments are lowered without the `?` context, so a nested
+    /// call that expects the same type still takes its error as evidence.
+    #[inline(never)]
+    fn propagated_call(&mut self, e: &Expr, expected: Type, ops: &mut Vec<Op>) -> Result<Type> {
+        let context = self.propagated.take();
+        let outer = std::mem::replace(&mut self.open_operand, std::ptr::addr_of!(*e) as usize);
+        let ty = self.expr_hinted(e, expected, ops);
+        self.open_operand = outer;
+        self.propagated = context;
+        ty
     }
 
     /// `left op right` for an arithmetic operator in a numeric context.
@@ -1735,7 +1754,11 @@ impl Lower<'_> {
         let Expression::Call(name, args) = &e.kind else {
             unreachable!("generic_call_in_context lowers calls")
         };
-        self.generic_call_expected(name, args, &expected, &e.at, ops)
+        let expected = generics::Expectation {
+            ty: &expected,
+            open_error: std::ptr::addr_of!(*e) as usize == self.open_operand,
+        };
+        self.generic_call_expected(name, args, expected, &e.at, ops)
     }
 
     pub(super) fn fallible_display(

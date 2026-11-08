@@ -49,7 +49,9 @@ it into the enclosing function's error type: erased into `Failure` or widened
 into a sum. In a function returning `Result[i64, Failure]`,
 `v: i64 = passthrough(r)?` with `r: Result[i64, str]` keeps `E = str`, and a
 generic error that only the result type names, as in `fails[T, E]() -> Result[T, E]`,
-needs explicit arguments. With no expected type,
+needs explicit arguments. The rule covers only the operand itself: in
+`wrap(mkerr())?`, `mkerr()` takes its expected type from `wrap`'s parameter,
+as it does without `?`. With no expected type,
 as in `x = none()`, the call needs explicit arguments.
 
 Evidence from arguments, constraints, and the expected result must agree. A

@@ -317,3 +317,68 @@ def main() -> ():
         "type parameter `T` for `apply` is i64 from its arguments but u8 from the expected result type",
     );
 }
+
+#[test]
+fn generic_methods_of_unannotated_generic_class_receivers() {
+    // The receiver's class instance is created by the call itself, after the
+    // expectation is recorded.
+    run(
+        r#"
+class Holder[T]:
+    value: T
+
+    def get[U: IntType](self) -> U:
+        U(7)
+
+def main() -> Result[(), AllocError | IoError]:
+    b = Holder(1)
+    a: u8 = b.get()
+    print(a)?
+    Ok(())
+"#,
+        "7\n",
+    );
+}
+
+#[test]
+fn only_the_direct_operand_of_try_ignores_its_error() {
+    // `wrap`'s parameter, not `?`, gives `mkerr()` its expected type, so its
+    // error is evidence as it is without `?`.
+    run(
+        r#"
+def mkerr[E]() -> Result[i64, E]:
+    Ok(4)
+
+def wrap(r: Result[i64, str]) -> Result[i64, str]:
+    r
+
+def passthrough[T, E](r: Result[T, E]) -> Result[T, E]:
+    r
+
+def direct() -> Result[i64, str]:
+    a: Result[i64, str] = wrap(mkerr())
+    v: i64 = wrap(mkerr())?
+    drop(a?)
+    Ok(v)
+
+def arms(c: bool) -> Result[i64, Failure]:
+    r: Result[i64, str] = Ok(5)
+    v: i64 = (passthrough(r) if c else passthrough(r))?
+    Ok(v)
+
+def main() -> Result[(), AllocError | IoError]:
+    match direct():
+        case Ok(v):
+            print(v)?
+        case Err(e):
+            print(e)?
+    match arms(True):
+        case Ok(v):
+            print(v)?
+        case Err(_):
+            print("err")?
+    Ok(())
+"#,
+        "4\n5\n",
+    );
+}

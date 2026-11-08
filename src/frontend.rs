@@ -1034,11 +1034,14 @@ struct Lower<'a> {
     /// which a generic method takes as type-argument evidence (issue #873).
     /// Method dispatch passes through many paths, so the expectation travels
     /// here rather than through every one of them.
-    expected_method: Option<(usize, String, Ty)>,
+    /// The last field says whether the call is the direct operand of `?`.
+    expected_method: Option<(usize, String, Ty, bool)>,
     /// The context of the `?` operand being lowered, whose error position is
-    /// not type-argument evidence (issue #873). A nested expression that
-    /// expects the same type only loses that evidence.
+    /// not type-argument evidence (issue #873); cleared while lowering a call
+    /// that expects it, so only that call, not its arguments, sees it.
     propagated: Option<Ty>,
+    /// The address of the call that is the direct operand of `?`.
+    open_operand: usize,
     indexed_lists: Vec<collections::IndexedLists>,
     /// The list place and slot of the last counted `range(..., len(xs))`
     /// whose stop was saved; see [`collections::IndexedLists::stop`].
@@ -1878,24 +1881,22 @@ impl Lower<'_> {
         let Expression::Method(_, name, _, _) = &e.kind else {
             unreachable!("method_expected lowers method calls")
         };
-        if !self.generics.method_names.contains(name) {
-            return self.expr(e, ops);
-        }
-        let outer = self
-            .expected_method
-            .replace((self.method_depth + 1, name.clone(), expected));
+        let open = std::ptr::addr_of!(*e) as usize == self.open_operand;
+        let outer =
+            self.expected_method
+                .replace((self.method_depth + 1, name.clone(), expected, open));
         let ty = self.expr(e, ops);
         self.expected_method = outer;
         ty
     }
     /// The expected result of the method call generic method `callee` is
     /// lowering, if its context supplied one.
-    pub(super) fn method_expectation(&mut self, callee: &str) -> Option<Ty> {
+    pub(super) fn method_expectation(&mut self, callee: &str) -> Option<(Ty, bool)> {
         let depth = self.method_depth;
         let short = callee.rsplit('.').next()?;
         self.expected_method
-            .take_if(|(d, name, _)| *d == depth && name == short)
-            .map(|(_, _, ty)| ty)
+            .take_if(|(d, name, _, _)| *d == depth && name == short)
+            .map(|(_, _, ty, open)| (ty, open))
     }
     /// A binary operator other than `in`, `not in`, `and` and `or`. Outlined
     /// so that its locals do not enlarge the frame of every recursive `expr`
@@ -4908,6 +4909,7 @@ fn lower_body(
                 method_depth: 0,
                 expected_method: None,
                 propagated: None,
+                open_operand: 0,
                 yield_type: yield_type.clone(),
                 loans: Vec::new(),
                 reference_locals: HashMap::default(),

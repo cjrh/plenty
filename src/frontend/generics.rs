@@ -189,7 +189,6 @@ pub(super) fn prepare(
         protocols: declarations,
         methods,
         templates: HashMap::default(),
-        method_names: HashSet::default(),
         defaults: HashMap::default(),
         ceilings: HashMap::default(),
         constants: HashMap::default(),
@@ -248,7 +247,6 @@ pub(super) fn prepare(
             if !matches!(f.name.as_str(), "OverflowError" | "Quantity") {
                 engine.specializable += 1;
             }
-            engine.method_name(&f.name);
             engine.templates.insert(f.name.clone(), Arc::new(f));
         }
     }
@@ -268,9 +266,6 @@ pub(super) struct Engine {
     protocols: HashMap<String, protocols::Protocol>,
     pub(super) methods: HashMap<String, Signature>,
     pub(super) templates: HashMap<String, Arc<Function>>,
-    /// The method names of generic method templates, so that only a call that
-    /// may reach one records its expected result (issue #873).
-    pub(super) method_names: HashSet<String>,
     /// Retained after lowering without keeping complete function bodies alive.
     pub(super) defaults: HashMap<String, Vec<Option<Expr>>>,
     pub(super) ceilings: HashMap<String, Vec<(String, Option<StaticCheck>)>>,
@@ -746,6 +741,14 @@ fn infer(
     at: &Token,
 ) -> Result<()> {
     infer_inner(pattern, actual, template, inferred, aliases, at, true)
+}
+
+/// The expected result of a generic call (issue #873). `open_error` marks
+/// the direct operand of `?`, whose error position is not evidence.
+#[derive(Clone, Copy)]
+pub(super) struct Expectation<'t> {
+    pub(super) ty: &'t Ty,
+    pub(super) open_error: bool,
 }
 
 /// The type arguments an expected result type `expected` names for a call of
@@ -1374,7 +1377,7 @@ impl Lower<'_> {
         &mut self,
         name: &str,
         args: &[Expr],
-        expected: &Ty,
+        expected: Expectation,
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
@@ -1448,7 +1451,11 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         let expected = self.method_expectation(name);
-        self.generic_call_inner(name, types, args, at, true, expected.as_ref(), ops)
+        let expected = expected.as_ref().map(|(ty, open_error)| Expectation {
+            ty,
+            open_error: *open_error,
+        });
+        self.generic_call_inner(name, types, args, at, true, expected, ops)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1459,7 +1466,7 @@ impl Lower<'_> {
         args: &[Expr],
         at: &Token,
         method: bool,
-        expected: Option<&Ty>,
+        expected: Option<Expectation>,
         ops: &mut Vec<Op>,
     ) -> Result<Type> {
         if self.names.contains_key(name) {
@@ -1492,10 +1499,7 @@ impl Lower<'_> {
         }
         let mut inferred = HashMap::default();
         let hint = expected
-            .map(|ty| {
-                let open_error = self.propagated.as_ref() == Some(ty);
-                result_evidence(&template, ty, open_error, self.aliases, at)
-            })
+            .map(|e| result_evidence(&template, e.ty, e.open_error, self.aliases, at))
             .unwrap_or_default();
         let mut loans = Vec::new();
         let mut arguments = Vec::new();
@@ -1727,11 +1731,6 @@ pub(super) fn substitute(t: &mut TypeRef, replacements: &Substitution) -> Result
 }
 
 impl Engine {
-    pub(super) fn method_name(&mut self, template: &str) {
-        if let Some((_, method)) = template.rsplit_once('.') {
-            self.method_names.insert(method.to_owned());
-        }
-    }
     /// Code lifted out of `parent`, or copied from it, is checked on behalf of
     /// the same use.
     pub(super) fn inherit_requirement(
