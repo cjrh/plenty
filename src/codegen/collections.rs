@@ -1418,7 +1418,11 @@ impl Lowerer<'_, '_> {
             CollectionOp::KeyViewToSet(t) => Some(Ty::Set(Arc::new(t.element().unwrap()))),
             _ => None,
         };
-        let descriptor = match operation {
+        let descriptor_operation = match operation {
+            CollectionOp::TextView(crate::text::TextViewOp::Apply(original)) => &**original,
+            original => original,
+        };
+        let descriptor = match descriptor_operation {
             CollectionOp::KeySetAlgebra(..) | CollectionOp::KeyViewToSet(_) => key_set.as_ref(),
             CollectionOp::Filesystem(_)
             | CollectionOp::Bytes(_)

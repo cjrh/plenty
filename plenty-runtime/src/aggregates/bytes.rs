@@ -96,10 +96,10 @@ pub(super) unsafe fn call(
                 let option = (*descriptor).variants[0].fields[0];
                 record(&mut text_io::Stdin, a as u8, option.variants[1].fields[0])
             }
-            144 => {
-                let text = a as *const strings::Text;
-                copy(strings::bytes(&text), (*descriptor).variants[0].fields[0])
-            }
+            144 => copy(
+                super::text_views::bytes(a),
+                (*descriptor).variants[0].fields[0],
+            ),
             145 => {
                 let bytes = contiguous(&*(a as *const Collection))?;
                 Ok(strings::try_from_utf8(&bytes).ok_or(Error::InvalidUtf8)?? as u128)

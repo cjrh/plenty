@@ -81,8 +81,8 @@ impl Lower<'_> {
             self.unbox_reference(expected, ops);
             return Ok(vec![loan]);
         }
-        if let Ty::View(_, mutable) = &expected {
-            let (ty, loan) = self.view_argument(arg, *mutable, false, ops)?;
+        if let Ty::View(element, mutable) = &expected {
+            let (ty, loan) = self.view_argument(arg, *mutable, **element == Ty::Text, ops)?;
             self.same(Some(ty), Some(expected.clone()), &arg.at)?;
             return Ok(vec![loan]);
         }
@@ -107,6 +107,14 @@ impl Lower<'_> {
         let [text, set, member] = args else {
             return Err(at.error(format!("expected 3 arguments, got {}", args.len())));
         };
+        if self.is_text_view(text) {
+            return self.system_call(
+                CollectionOp::TextView(crate::text::TextViewOp::FindIn),
+                args,
+                at,
+                ops,
+            );
+        }
         if self.place_type(text) != Some(Ty::Str) {
             return Err(text.at.error("expected a `str` place"));
         }
@@ -239,14 +247,16 @@ impl Lower<'_> {
         if let Some(mode) = args.get(1) {
             self.check_open_mode(mode)?;
         }
-        let mut loans = Vec::new();
-        for arg in args {
-            let (ty, read) = self.observe(arg, ops)?;
-            self.same(Some(ty), Some(Ty::Str), &arg.at)?;
-            loans.extend(read);
+        let mut arguments = args.to_vec();
+        if arguments.len() == 1 {
+            arguments.push(Expr {
+                at: at.clone(),
+                kind: Expression::Text("r".into()),
+            });
         }
-        if args.len() == 1 {
-            ops.push(Op::PushStr(self.heap.add_str("r".into())));
+        let mut loans = Vec::new();
+        for argument in &arguments {
+            loans.extend(self.operand(argument, text_view(), ops)?);
         }
         ops.push(Op::Collection(CollectionOp::OpenFile));
         Self::end_reads(loans, ops);

@@ -112,12 +112,23 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Ty> {
         let alloc = crate::sum::alloc_error;
-        if self.place_type(base) == Some(text_view()) {
-            // Narrow in place, then copy only the selected bytes.
-            let (_, loan) = self.slice_view(base, bounds, false, ops)?;
-            ops.push(Op::Collection(CollectionOp::TextView(
-                crate::text::TextViewOp::Copy,
-            )));
+        if self.is_text_view(base) {
+            let (_, loan) = self.view_argument(base, false, true, ops)?;
+            let reads = if bounds.start.is_none() && bounds.stop.is_none() && bounds.step.is_none()
+            {
+                ops.push(Op::Collection(CollectionOp::TextView(
+                    crate::text::TextViewOp::Copy,
+                )));
+                vec![]
+            } else {
+                let reads = self.slice_operands(bounds, ops)?;
+                self.mark(&e.at, ops);
+                ops.push(Op::Collection(crate::text::TextViewOp::apply(
+                    CollectionOp::TextSlice,
+                )));
+                reads
+            };
+            Self::end_reads(reads, ops);
             Self::end_reads(vec![loan], ops);
             return Ok(crate::sum::result(Ty::Str, alloc()));
         }
