@@ -3910,10 +3910,9 @@ impl Lowerer<'_, '_> {
             return Ok(());
         }
         if let Some(body) = decl.inline_body.clone()
-            && captures.is_empty()
             && !in_generator
         {
-            return self.lower_inlined_call(name, &body, args, track_caller);
+            return self.lower_inlined_call(name, &body, args, track_caller, captures);
         }
         let outputs = decl.sig.outputs.clone();
         let func_id = decl.id;
@@ -4034,7 +4033,7 @@ impl Lowerer<'_, '_> {
             && !in_generator
         {
             self.release_locals();
-            self.lower_inlined_call(name, &body, args, track_caller)?;
+            self.lower_inlined_call(name, &body, args, track_caller, &[])?;
             return self.lower(&Op::Return);
         }
         let func_id = decl.id;

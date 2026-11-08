@@ -342,6 +342,15 @@ whose call would otherwise also keep the loop around it from being versioned.
 The product bound keeps a helper called from dozens of places, as in the
 regular-expression parser, a call, so code size and compile time grow little.
 
+Immutable by-value scalar closure captures stay in SSA variables through local
+assignments and joins. Both scalar leaf substitution and general call-site
+inlining can reuse those snapshots (issue #891), including conditional callback
+bodies. General inlining retains the real capture references for calls and
+identity, substituting only their direct value reads. Mutable, borrowed and
+one-shot captures keep their memory reads; exclusively borrowing a closure local
+also disables its snapshots because an alias could replace the environment.
+The callback's control flow, effects, arithmetic and trap locations are unchanged.
+
 A tail call is inlined only when the caller has no managed locals or has just
 one tail-call site; otherwise it retains the shared tail-exit cleanup, keeping
 code growth linear in the number of owned locals and exits. C string adapter failures also return through
