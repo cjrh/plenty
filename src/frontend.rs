@@ -1268,7 +1268,7 @@ impl Lower<'_> {
             }
             return Ok(ty);
         }
-        let proof = divisors::literal_divisor(op, right);
+        let proof = self.known_divisor(op, right);
         if op == "/" && !ty.is_float() {
             return Err(at.error("use `//` for integer division; `/` requires floats"));
         }

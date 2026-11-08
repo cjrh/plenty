@@ -67,9 +67,9 @@ def main() -> Result[(), IoError | ParseError | OverflowError[i64]]:
   `Result[T, ParseError]`.
 - `//` floors and `%` is integer-only. Integer arithmetic returns errors from
   the function: include `OverflowError[T]` and, for divisors other than
-  nonzero literals, `ZeroDivisionError` in its `Result` signature. `x // 2`
-  cannot fail at all. A shift by a count other than a literal adds
-  `ShiftCountError[T]`. Still write `Ok(...)` on
+  nonzero literals or module constants, `ZeroDivisionError` in its `Result`
+  signature. `x // 2` cannot fail at all. A shift by a count other than a
+  literal or module constant adds `ShiftCountError[T]`. Still write `Ok(...)` on
   success; operators themselves return ordinary numbers. No `**`: use `x.pow(n)`.
 - `abs`, `min`, `max`, `sum` come from [`std.math`](../stdlib/math.md).
 

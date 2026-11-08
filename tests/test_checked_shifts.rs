@@ -151,7 +151,8 @@ fn cast_only_checked_blocks_point_at_try_from() {
     assert!(!diagnostic.contains("try_from"), "{diagnostic}");
 }
 
-/// A literal proves the count; a module constant or guard does not.
+/// A literal proves the count; a guard does not. Module constants are
+/// covered by `test_constant_proofs`.
 #[test]
 fn literal_counts_add_no_error_and_out_of_range_literals_are_rejected() {
     assert_eq!(
@@ -176,13 +177,10 @@ def main() -> Result[(), IoError]:
         let diagnostic = check_diagnostic(&source);
         assert!(diagnostic.contains(message), "{diagnostic}");
     }
-    for body in [
-        "const shift: u8 = 3\ndef bad(a: u8) -> u8:\n    a << shift\n",
-        "def bad(a: u8, n: u8) -> u8:\n    if n < 8u8:\n        return a << n\n    0u8\n",
-    ] {
-        let diagnostic = check_diagnostic(&format!("{body}def main() -> ():\n    pass\n"));
-        assert!(diagnostic.contains("ShiftCountError[u8]"), "{diagnostic}");
-    }
+    let diagnostic = check_diagnostic(
+        "def bad(a: u8, n: u8) -> u8:\n    if n < 8u8:\n        return a << n\n    0u8\ndef main() -> ():\n    pass\n",
+    );
+    assert!(diagnostic.contains("ShiftCountError[u8]"), "{diagnostic}");
 }
 
 #[test]

@@ -371,7 +371,6 @@ def lifted[T](result: Result[T, NetError | TimerError]) -> Result[T, TlsError | 
 # free is nonnegative buffer space. Avoid rounding up with free + size - 1.
 def plaintext_room(free: i64) -> i64:
     # records <= i64.MAX // 16384 + 1, so records * 32 fits; room >= -32.
-    # Both divisors are the positive fixed record_size (16384).
     unchecked:
         mut records = free // record_size
         if free % record_size != 0:

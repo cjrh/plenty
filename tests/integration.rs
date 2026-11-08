@@ -28,6 +28,8 @@ mod test_arithmetic_errors;
 mod test_checked_defaults;
 #[path = "test_checked_shifts.rs"]
 mod test_checked_shifts;
+#[path = "test_constant_proofs.rs"]
+mod test_constant_proofs;
 #[path = "test_unchecked_modes.rs"]
 mod test_unchecked_modes;
 
