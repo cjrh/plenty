@@ -312,11 +312,8 @@ pub def new(type_name: &strview, subtype: &strview) -> Result[MediaType, MimeErr
 
 # True when the scalars of `text` from `start` spell the lowercase ASCII
 # `expected`, compared without ASCII case.
-def extension_at(text: &strview, start: i64, expected: &strview) -> bool:
+def extension_at(text: &strview, start: i64, remaining: i64, expected: &strview) -> bool:
     count = expected.byte_len()
-    # Callers pass 0 or one past a found dot: 0 <= start <= len(text).
-    remaining = unchecked:
-        len(text) - start
     if remaining != count:
         return False
     for index in range(count):
@@ -379,11 +376,15 @@ pub def from_extension(extension: &strview) -> Option[str]:
     lookup(extension, 0)
 
 def lookup(text: &strview, start: i64) -> Option[str]:
+    # Count once for the whole lookup, not once per extension-table candidate.
+    # Callers pass zero or one past a found dot: 0 <= start <= len(text).
+    remaining = unchecked:
+        len(text) - start
     mut index = 0
     while True:
         match table(index):
             case Some(row):
-                if extension_at(text, start, &row[0]):
+                if extension_at(text, start, remaining, &row[0]):
                     return Some(row[1])
             case Nothing:
                 return Nothing
