@@ -40,11 +40,13 @@ pub(super) fn lends_mutably(ty: &Ty) -> bool {
 }
 
 /// Whether an argument of type `ty` holds a borrow other than through a
-/// reference, a view, or a reference-carrying `Option` or `Result`: a
-/// closure environment that captures one.
+/// reference, a view, a reference-carrying `Option` or `Result`, or a
+/// generator frame the argument's own loan keeps: a closure environment
+/// that captures one.
 pub(super) fn borrowing_closure(ty: &Ty) -> bool {
     !matches!(ty, Ty::Ref(..) | Ty::View(..))
         && ty.carried_reference().is_none()
+        && !ty.lends_frame()
         && ty.contains_reference()
 }
 
@@ -297,6 +299,10 @@ impl Lower<'_> {
             return Err(value.at.error(
                 "a view binding requires a direct borrow, named view, or text as_bytes() borrow",
             ));
+        }
+        if ty.lends_frame() {
+            let loan = self.lending_frame_binding(value, ops);
+            return Ok((ty, loan));
         }
         if ty.carried_reference().is_some() {
             if loan_free(value) {
@@ -772,6 +778,70 @@ impl Lower<'_> {
         Ok(())
     }
 
+    /// The loan of a binding of the borrowing generator `value`, derived from
+    /// the loan its frame keeps.
+    #[inline(never)]
+    fn lending_frame_binding(&mut self, value: &Expr, ops: &mut Vec<Op>) -> Option<usize> {
+        // A by-value parameter has no origin: its caller holds the frame's
+        // loans until this call returns, and it cannot be returned.
+        let parent = self.reference_origin(value, ops).ok()?;
+        let mutable = self.loans[parent].mutable;
+        Some(self.new_loan(self.loans[parent].root, mutable, Some(parent), ops))
+    }
+
+    /// Keeps the loan of a reference or borrowing generator returned as the
+    /// final expression `e` of a block live past cleanup. Outlined: blocks
+    /// lower recursively.
+    #[inline(never)]
+    pub(super) fn use_returned_loan(
+        &mut self,
+        e: &Expr,
+        ty: Option<&Ty>,
+        function: bool,
+        ops: &mut Vec<Op>,
+    ) -> Result<()> {
+        if self.return_origin.is_some() && ty.is_some_and(Ty::carries_loan) && !loan_free(e) {
+            let loan = self.check_return_reference(e, ops)?;
+            // As in a `return` statement, a value from a started-empty
+            // holder borrows only the origin parameter, which outlives the
+            // frame.
+            if !self.absent_loan(loan) {
+                ops.push(Op::UseLoan(loan));
+            }
+        }
+        if function && self.yield_type.is_none() && ty.is_some_and(Ty::lends_frame) {
+            let loan = self.check_returned_frame(e, ops)?;
+            ops.push(Op::UseLoan(loan));
+        }
+        Ok(())
+    }
+
+    /// The loan of a returned generator `e` whose frame borrows, after
+    /// checking that it and every loan it keeps borrow only the caller's
+    /// data through reference parameters (issue #899).
+    #[inline(never)]
+    pub(super) fn check_returned_frame(&self, e: &Expr, ops: &[Op]) -> Result<usize> {
+        const MESSAGE: &str =
+            "a returned generator may borrow only through the function's reference parameters";
+        let id = self
+            .reference_origin(e, ops)
+            .map_err(|_| e.at.error(MESSAGE))?;
+        let sig = self.sigs.get(&self.function_name);
+        let external = |loan: usize| {
+            let root = self.loans[loan].root;
+            self.parameter_referents.contains(&root)
+                || sig.is_some_and(|sig| {
+                    sig.inputs
+                        .get(root as usize)
+                        .is_some_and(|(_, ty)| lends(ty))
+                })
+        };
+        if !external(id) || !self.loans[id].dependencies.iter().all(|&d| external(d)) {
+            return Err(e.at.error(MESSAGE));
+        }
+        Ok(id)
+    }
+
     pub(super) fn check_return_reference(&mut self, e: &Expr, ops: &[Op]) -> Result<usize> {
         let id = self.reference_origin(e, ops)?;
         self.check_returned_value(id, &e.at)?;
@@ -889,6 +959,10 @@ impl Lower<'_> {
         loans: &[usize],
         ops: &mut Vec<Op>,
     ) {
+        if sig.outputs.first().is_some_and(Ty::lends_frame) {
+            self.lending_frame_result(loans, ops);
+            return;
+        }
         if let Some(output) = sig.outputs.first().filter(|ty| ty.carries_loan()) {
             let parent = loans[0];
             let mutable = output.carries_mutable_loan();
@@ -905,6 +979,28 @@ impl Lower<'_> {
             if let Some(Op::Loan(fact)) = ops.last_mut() {
                 *fact = self.loans[id].clone();
             }
+        }
+    }
+
+    /// Gives a call's generator result, whose frame keeps every borrowed
+    /// argument, a loan derived from the first argument loan that keeps the
+    /// others live: the frame may read through any of them until its last
+    /// use (issue #899).
+    #[inline(never)]
+    pub(super) fn lending_frame_result(&mut self, loans: &[usize], ops: &mut Vec<Op>) {
+        let Some((&first, rest)) = loans.split_first() else {
+            return;
+        };
+        let (root, mutable) = (self.loans[first].root, self.loans[first].mutable);
+        let id = self.new_loan(root, mutable, Some(first), ops);
+        self.loans[id].precise = false;
+        for &other in rest {
+            let inherited = self.loans[other].dependencies.clone();
+            self.loans[id].dependencies.push(other);
+            self.loans[id].dependencies.extend(inherited);
+        }
+        if let Some(Op::Loan(fact)) = ops.last_mut() {
+            *fact = self.loans[id].clone();
         }
     }
 
@@ -928,12 +1024,15 @@ impl Lower<'_> {
                         .checked_sub(self.parameters)
                         .and_then(|i| self.locals.get(i))
                 })
-                .and_then(|ty| {
-                    if let Ty::Closure(t) = ty {
-                        self.closure_loans.get(&t.name).cloned()
-                    } else {
-                        None
-                    }
+                .and_then(|ty| match ty {
+                    Ty::Closure(t) => self.closure_loans.get(&t.name).cloned(),
+                    // Borrowing a generator that borrows keeps its loan.
+                    ty if ty.lends_frame() => self.reference_locals.get(&root).map(|&loan| {
+                        let mut loans = vec![loan];
+                        loans.extend_from_slice(&self.loans[loan].dependencies);
+                        loans
+                    }),
+                    _ => None,
                 })
                 .unwrap_or_default()
         };

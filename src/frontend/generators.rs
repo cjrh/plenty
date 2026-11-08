@@ -520,7 +520,7 @@ impl Lower<'_> {
     pub(super) fn refine_return(&mut self, actual: Type, at: &Token) -> Result<()> {
         if actual
             .as_ref()
-            .is_some_and(|t| !t.carries_loan() && t.contains_reference())
+            .is_some_and(|t| !t.carries_loan() && !t.lends_frame() && t.contains_reference())
         {
             return Err(at.error("a closure with borrowed captures cannot escape its function"));
         }
@@ -972,6 +972,9 @@ impl Lower<'_> {
         }
         self.mark(at, ops);
         ops.push(Op::Next(local.slot));
+        if let Some(&loan) = self.reference_locals.get(&local.slot) {
+            ops.push(Op::UseLoan(loan));
+        }
         Ok(Some(crate::sum::option(element.element.clone())))
     }
 }

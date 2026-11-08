@@ -41,10 +41,11 @@ Pipelines cannot be returned, passed by value, shared, captured, or put in
 stored data. In generator functions, a pipeline must be consumed by a terminal
 in the expression that creates it, such as `yield iter(&flags).any()`; a
 pipeline local or a loop over a pipeline is rejected. A pipeline can be [lent](#lending-a-pipeline) to a
-`&mut Iter[T]` parameter, and an eligible owned pipeline can leave its scope
-after explicit `.generator()` conversion. A pipeline over borrowed data, or
-with borrowed captures, cannot leave its scope: conversion requires owned
-state, since a generator frame cannot hold references (issue #899).
+`&mut Iter[T]` parameter, and an eligible pipeline can leave its scope after
+explicit [`.generator()` conversion](#returning-a-resumable-stream). A pipeline
+over data borrowed through a shared reference or view parameter converts to a
+frame that keeps that borrow; a pipeline over a borrowed local owner, or with
+borrowed captures, cannot leave its scope.
 
 ## Advancing one item
 
@@ -201,12 +202,34 @@ def total(values: Generator[i64]) -> i64:
 ```
 
 The result can be returned, passed to a generator-consuming helper, moved,
-advanced with `next`, or used as another fluent source. Owned sources and
-owned captures are required. Borrowed sources and borrowed captures are
-rejected even when a later `map` produces owned items; conversion never copies
-borrowed state. Items must satisfy the ordinary generator yield restrictions.
-The existing concrete-producer and finite-frame rules apply, including the
-restriction against joining unrelated generator producer types.
+advanced with `next`, or used as another fluent source. Callback captures must
+be owned. The source may be owned, or borrowed through a shared reference or
+view parameter of the converting function or a borrowing generator:
+
+```plenty
+def evens(xs: &list[i64]) -> Generator[i64]:
+    iter(xs).filter(def(x: &i64) -> bool: *x % 2 == 0).map(def(x: &i64) -> i64: *x).generator()
+
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = [1, 2, 3, 4]?
+    for v in evens(&xs):
+        print(v)?
+    xs.append(6)?
+    Ok(())
+```
+```output
+2
+4
+```
+
+The frame then [borrows like a generator function's](03-generators.md#borrowing-frames):
+the caller keeps `xs` borrowed until the stream's last use, so changing `xs`
+while the stream may still resume is rejected. Conversion never copies borrowed
+state. It rejects a borrow of a local owner, as in `iter(&values)`, a `&mut`
+source, and a callback that borrows. Items must satisfy the ordinary generator
+yield restrictions, so map borrowed items to owned values first. The existing
+concrete-producer and finite-frame rules apply, including the restriction
+against joining unrelated generator producer types.
 
 Dropping an unstarted or partly consumed frame releases all its owned state
 without invoking more callbacks. Exhaustion is stable. A zip frame preserves

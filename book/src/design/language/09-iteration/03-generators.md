@@ -193,9 +193,52 @@ cost is counted in passes over it:
 A suspended frame retains its live owned locals. Completion releases them;
 dropping a suspended or never-started frame releases remaining locals and
 captures without resuming the body or allocating. Short local borrows completed
-within one resume are permitted, but generator parameters cannot be references
-and no live loan may cross `yield`. `yield` inside `with` is unsupported.
-There is no yield-from, send/throw, or async/await.
+within one resume are permitted; no loan of the frame's own locals may cross
+`yield`. `yield` inside `with` is unsupported. There is no yield-from,
+send/throw, or async/await.
+
+### Borrowing frames
+
+A generator can take `&T`, `&mut T` and view parameters. Its frame reads the
+caller's data through them, and a loan through one may cross `yield`:
+
+```plenty
+def evens(xs: &list[i64]) -> Generator[i64]:
+    for x in xs:
+        if *x % 2 == 0:
+            yield *x
+
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = [1, 2, 3, 4]?
+    mut g = evens(&xs)
+    print(next(g))?
+    for v in g:
+        print(v)?
+    xs.append(6)?
+    print(evens(&xs).count())?
+    Ok(())
+```
+```output
+Option[i64].Some(2)
+4
+3
+```
+
+The call result keeps every argument loan until the generator's last use, as
+a returned reference keeps its origin. Changing, moving or dropping `xs` while
+`g` may still resume is a borrow error; once `g` is exhausted, dropped or no
+longer used, `xs` is free again. A `&mut` argument stays exclusively borrowed
+for the same span. A function may return such a generator when it borrows only
+through that function's own reference or view parameters; returning one that
+borrows a local or an owned parameter is rejected.
+
+A borrowing generator can be bound, advanced, iterated, consumed by a
+fluent terminal, passed by value to a function, or returned. It cannot be stored
+where its loan would be lost: in an `Option` or `Result` payload, a tuple, a
+class field or a closure capture. A generator parameter that is itself a
+borrowing generator, a carried reference such as `Option[&T]`, or a lent
+pipeline is rejected with "generators cannot capture references". Yielded
+items stay owned: `Generator[&T]` remains unsupported (backlog B12).
 
 ## Fluent transformations
 
@@ -204,12 +247,13 @@ Generators expose the [pipeline adapters and terminals](06-pipelines.md):
 through a fused adapter loop. Source resumption retains its ordinary cost;
 the fluent adapters do not each construct another suspended frame.
 
-An owned pipeline can become a returnable resumable stream through explicit
+A pipeline can become a returnable resumable stream through explicit
 `.generator()`. It transfers already prepared source and capture state into
-one frame without advancing any item. Borrowed sources or callback captures
-are ineligible, including when mapped items are owned. There is no implicit
-conversion at a `Generator[T]` parameter or return annotation. The resulting
-frame follows the specialization, suspension and cleanup rules above.
+one frame without advancing any item. The source may be owned or borrowed
+through a shared reference or view parameter, which makes a
+[borrowing frame](#borrowing-frames); callback captures must be owned. There is
+no implicit conversion at a `Generator[T]` parameter or return annotation. The
+resulting frame follows the specialization, suspension and cleanup rules above.
 
 ## Generator expressions
 

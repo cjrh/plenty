@@ -2641,8 +2641,12 @@ impl Checker<'_, '_> {
                 let mut found = None;
                 // A hint naming the cause, reported after the borrow's notes.
                 let mut hint = None;
+                // A loan through a reference parameter borrows the caller's
+                // data, which the caller keeps borrowed while the frame lives
+                // (issue #899); a loan of the frame's own state cannot be
+                // suspended, since the frame may move.
                 if let Some(Op::Yield(_)) = &nodes[i].op
-                    && let Some(&id) = after.0.first()
+                    && let Some(&id) = after.0.iter().find(|id| !self.external(loans[id].root))
                 {
                     let loan = &loans[&id];
                     let place = self.place(loan.root, &loan.fields, loan.precise);
@@ -2859,6 +2863,15 @@ impl Checker<'_, '_> {
             }
             first.map_or(Ok(()), Err)
         })
+    }
+}
+
+impl Checker<'_, '_> {
+    /// Whether loans rooted at `slot` borrow data outside the frame: a
+    /// reference or view parameter.
+    fn external(&self, slot: u8) -> bool {
+        (slot as usize) < self.parameters
+            && matches!(self.locals[slot as usize], Ty::Ref(..) | Ty::View(..))
     }
 }
 
