@@ -73,7 +73,9 @@ impl Lower<'_> {
             .iter()
             .filter(|arg| !matches!(arg.kind, Expression::NamedArgument(..)))
             .collect();
-        let declared = params.iter().filter(|(name, _)| !name.starts_with("<lent "));
+        let declared = params
+            .iter()
+            .filter(|(name, _)| !name.starts_with("<lent "));
         for (index, (param, ty)) in declared.enumerate() {
             let lent = pipelines::lent_identity(ty)
                 .is_some_and(|id| self.generics.lent[id].hidden().any(|t| holds_frame(&t)));
