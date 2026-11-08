@@ -379,7 +379,9 @@ fn extrema_propagate_nan_and_preserve_ordered_values(#[case] ty: &str, #[case] o
 #[rstest::rstest]
 #[case(false)]
 #[case(true)]
-fn extrema_compare_tuples_with_their_operators(#[case] optimize: bool) {
+/// Tuple extrema use sorting's total order, so argument order never changes
+/// the result and it agrees with `sorted` (issue #616).
+fn extrema_keep_tuple_total_order(#[case] optimize: bool) {
     let body = r#"    first = (1.0, f64.NAN)
     last = (2.0, f64.NAN)
     middle = (1.5, 0.0)
@@ -396,13 +398,21 @@ fn extrema_compare_tuples_with_their_operators(#[case] optimize: bool) {
     zeros = [(0.0,), (-0.0,)]?
     print(math.min_all(&zeros).unwrap()[0])?
     print(math.max_all(&zeros).unwrap()[0])?
+    print(math.min((0.0,), (-0.0,))[0])?
+    print(math.min((-0.0,), (0.0,))[0])?
+    print(math.max((-0.0,), (0.0,))[0])?
+    flipped = [(1.0,), (f64.NAN,)]?
+    print(math.min_all(&flipped).unwrap()[0])?
+    print(math.isnan(math.max_all(&flipped).unwrap()[0]))?
+    ordered = sorted(&tuples)?
+    print(math.min_all(&tuples).unwrap()[0] == ordered[0][0])?
+    print(math.max_all(&tuples).unwrap()[0] == ordered[-1][0])?
     print(math.min("z", "a"))?
     print(math.max("z", "a"))?
 "#;
     assert_eq!(
         run_mode(body, optimize),
-        // Unordered and equal tuples keep the first value (issue #616).
-        "1.0\n1.5\n1.5\n2.0\n1.0\n2.0\nNaN\nTrue\n0.0\n0.0\na\nz\n"
+        "1.0\n1.5\n1.5\n2.0\n1.0\n2.0\n1.0\nTrue\n-0.0\n0.0\n-0.0\n-0.0\n0.0\n1.0\nTrue\nTrue\nTrue\na\nz\n"
     );
 }
 

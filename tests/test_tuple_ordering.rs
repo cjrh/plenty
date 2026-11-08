@@ -115,13 +115,16 @@ nan = 0.0 / 0.0
 mut values = [(nan, 2), (0.0, 0), (-0.0, 9), (-2.0, 8), (nan, 1)].unwrap()
 values.sort()
 print(values).unwrap()
+# The sort placed -0.0 first, but the operators see equal zeros and compare
+# the second field, so they report this sorted pair reversed.
+print(values[1] > values[2], values[3] < values[4]).unwrap()
 values.sort(True)
 print(values).unwrap()
 mut keyed = [3, 1, 2].unwrap()
 keyed.sort_by_key(def(x: &i64) -> (f64, i64): (f64.NAN if *x == 2 else -0.0 if *x == 1 else 0.0, *x))
 print(keyed).unwrap()
 "#,
-        "[(-2.0, 8), (-0.0, 9), (0.0, 0), (NaN, 1), (NaN, 2)]\n[(NaN, 2), (NaN, 1), (0.0, 0), (-0.0, 9), (-2.0, 8)]\n[1, 3, 2]\n",
+        "[(-2.0, 8), (-0.0, 9), (0.0, 0), (NaN, 1), (NaN, 2)]\nTrue False\n[(NaN, 2), (NaN, 1), (0.0, 0), (-0.0, 9), (-2.0, 8)]\n[1, 3, 2]\n",
     );
 }
 

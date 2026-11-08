@@ -49,7 +49,9 @@ fn float_method(name: &str) -> Option<NumericOp> {
 /// `__max_replaces`) share this rule. Floats follow IEEE 754-2019
 /// `minimum`/`maximum`: -0.0 orders below 0.0, and a NaN candidate replaces a
 /// non-NaN `held` while nothing replaces a NaN, so a scan keeps its first NaN.
-/// Other types compare with `<` or `>`, so equal values keep `held`. Both
+/// Other types compare with `<` or `>`, so equal values keep `held`;
+/// `std.math` routes tuples to sorting's total order instead (see
+/// `Lower::extremum_call`). Both
 /// operands must be places: each is read more than once.
 pub(super) fn extremum_replaces(min: bool, ty: &Ty, candidate: Expr, held: Expr) -> Expr {
     let at = candidate.at.clone();
@@ -188,6 +190,24 @@ impl Lower<'_> {
         let Some(ty) = self.place_type(held) else {
             return Err(at.error(format!("{name} requires places")));
         };
+        if matches!(&ty, Ty::Enum(t) if t.tuple()) {
+            // Tuples use sorting's total order rather than their IEEE
+            // operators, so a scan's result does not depend on argument order
+            // and agrees with `sorted(xs)[0]` and `[-1]` (issue #616).
+            let (candidate_ty, mut loans) = self.observe(candidate, ops)?;
+            self.same(Some(candidate_ty), Some(ty.clone()), &candidate.at)?;
+            let (_, held_loans) = self.observe(held, ops)?;
+            loans.extend(held_loans);
+            ops.push(Op::Collection(CollectionOp::OrderCompare(ty)));
+            Self::end_reads(loans, ops);
+            ops.push(Op::PushInt(Value::I64(0)));
+            ops.push(if name == "__min_replaces" {
+                Op::Lt
+            } else {
+                Op::Gt
+            });
+            return Ok(Ty::Bool);
+        }
         let test = extremum_replaces(
             name == "__min_replaces",
             &ty,

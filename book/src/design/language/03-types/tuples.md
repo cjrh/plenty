@@ -111,9 +111,12 @@ False True True
 Sorting is the explicit total order. [`sort()`](../../facilities/01-builtins/lists.md#reordering-and-extending),
 `sorted`, `sort_by_key` and their stable forms must place every value, so
 negative zero precedes positive zero and all NaNs compare equal and follow every
-number. The operators agree with the sort except where a signed zero or a NaN
-decides; an operator never reports a sorted pair as out of order, but may report
-it unordered or equal. The
+number. The operators and the sort disagree where a signed zero or a NaN
+decides. A NaN makes a sorted pair unordered. A signed zero can reverse one:
+sorting `[(0.0, 0), (-0.0, 9)]` gives `[(-0.0, 9), (0.0, 0)]`, yet `>` sees
+equal zeros, compares `9` with `0` and reports the first element greater.
+[`std.math`](../../stdlib/math.md) `min`, `max`, `min_all` and `max_all` use
+the sort's order for tuples, so they agree with `sorted`. The
 [ordering proposal](../../../proposals/user-type-ordering.md#total-and-partial-order)
 records the decision (issue #616).
 
