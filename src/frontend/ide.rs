@@ -999,7 +999,12 @@ fn public_declaration(text: &str) -> String {
             }
             continue;
         }
-        if c == '_' && chars.as_str().starts_with("_open_mode") && out.trim_end().ends_with("str") {
+        if c == '_'
+            && chars.as_str().starts_with("_open_mode")
+            && ["str", "strview", "substr"]
+                .iter()
+                .any(|name| out.trim_end().ends_with(name))
+        {
             for _ in 0.."_open_mode".len() {
                 chars.next();
             }

@@ -18,6 +18,8 @@ pub const KEY_VIEW_TO_SET: i64 = 585;
 pub const LIST_SLICE: i64 = 590;
 pub const TEXT_SLICE: i64 = 591;
 pub const BYTES_SLICE: i64 = 283;
+/// Linear reverse search over two arbitrary byte views.
+pub const BYTES_RFIND: i64 = 284;
 pub const CLIST_SLICE: i64 = 532;
 /// Bits of a slice's flags operand: which bounds the source wrote. An omitted
 /// bound's default depends on the step's sign, so no bound value can stand
@@ -56,6 +58,12 @@ pub const GET_OR_INSERT_HIT: i64 = 2;
 pub const LIST_INSERT: i64 = 602;
 /// Borrowed list[str] to a private packed C pointer table and string owner.
 pub const C_STRINGS: i64 = 603;
+/// Checked text view, ASCII byte set, membership flag -> scalar position or -1.
+pub const TEXT_VIEW_FIND_IN: i64 = 604;
+pub const TEXT_VIEW_ASCII_EQUAL_FOLDED: i64 = 605;
+/// An existing text builtin executed on checked UTF-8 range operands. The
+/// original opcode still defines its result metadata, errors and native arity.
+pub const TEXT_RANGE_BASE: i64 = 1000;
 
 /// Operands after the three fixed input words of `plenty_op_<N>` calls.
 /// The result occupies word 3; only actual fourth/fifth inputs initialize
@@ -66,6 +74,9 @@ pub const C_STRINGS: i64 = 603;
 /// native ABI arity, including hidden operands such as a column field index.
 #[inline(always)]
 pub const fn scratch_operand_count(op: i64) -> usize {
+    if op >= TEXT_RANGE_BASE && op <= TEXT_RANGE_BASE + 640 {
+        return scratch_operand_count(op - TEXT_RANGE_BASE);
+    }
     match op {
         // Float formatting; datagram receive.
         281 | 417 => 2,

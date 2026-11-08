@@ -716,3 +716,70 @@ print("__test_small_live_heap__")?
     );
     assert_eq!(output(&source), "failed\n1");
 }
+
+/// Small blocks come from per-thread caches of the size-class pool (issue
+/// #814): a block freed on another thread joins that thread's cache, and an
+/// exiting worker returns its cache. Chains built on one thread and dropped
+/// on another, and a shared chain whose last owner is a worker, must free
+/// every block once; allocation-checks builds also check that none leak.
+#[test]
+fn small_blocks_freed_on_other_threads_are_reused() {
+    let source = r#"
+class Node:
+    value: i64
+    label: str
+    next: Option[Box[Node]]
+
+class Linked:
+    head: Option[Box[Node]]
+
+def build(n: i64) -> Result[Linked, AllocError | FormatError]:
+    mut xs = Linked(Nothing)
+    for value in range(n):
+        mut node = Box(Node(value, f"n{value}"?, Nothing))?
+        node.next = replace(xs.head, Nothing)
+        xs.head = Some(node)
+    Ok(xs)
+
+def total(xs: &Linked) -> Result[i64, OverflowError[i64]]:
+    mut sum = 0
+    match &xs.head:
+        case Some(head):
+            mut cursor: &Node = head
+            while True:
+                sum += cursor.value + len(cursor.label)
+                match &cursor.next:
+                    case Some(next):
+                        cursor = next
+                    case Nothing:
+                        break
+        case Nothing:
+            pass
+    Ok(sum)
+
+def consume(xs: Linked) -> Result[i64, OverflowError[i64]]:
+    total(&xs)
+
+def read(xs: Shared[Linked]) -> Result[i64, OverflowError[i64]]:
+    total(&*xs)
+
+def main() -> Result[(), AllocError | IoError | FormatError | SpawnError[()] | OverflowError[i64]]:
+    mut sum = 0
+    for _ in range(3):
+        moved = build(20000)?
+        made = build(20000)?
+        shared = Shared(build(20000)?)?
+        with spawn(consume, moved).drop_job()? as a, spawn(read, shared.share()).drop_job()? as b:
+            sum += a.join()?
+            drop(shared)
+            sum += b.join()?
+        sum += total(&made)?
+    print(sum)?
+    Ok(())
+"#;
+    // Each chain sums 0..20000 plus the label lengths (2 to 6 bytes).
+    let chain: i64 = (0..20000i64)
+        .map(|v| v + 1 + v.to_string().len() as i64)
+        .sum();
+    assert_eq!(output(source), (9 * chain).to_string());
+}

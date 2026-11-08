@@ -255,7 +255,13 @@ impl Lower<'_> {
             Expression::Method(..) if self.text_bytes_receiver(e).is_some() => {
                 Some(crate::bytes::byte_view())
             }
-            Expression::Method(base, name, _, _) => {
+            Expression::Method(base, name, args, _) => {
+                if let Some(result) = self.byte_string_method_hint(base, name, args) {
+                    return Some(result);
+                }
+                if let Some(output) = self.text_method_output_hint(base, name) {
+                    return Some(output);
+                }
                 match self.place_type(base) {
                     Some(Ty::Atomic(element)) => {
                         return super::atomic::method_output(&element, name);
@@ -328,6 +334,21 @@ impl Lower<'_> {
                     kind: Expression::Member(base.clone(), name.clone(), Pos::default()),
                 };
                 output(&self.place_type(&field)?)
+            }
+            Expression::Try(inner) => match self.expression_type_hint(inner)? {
+                Ty::Enum(sum) if sum.is_result() || sum.is_option() => sum.get().variants
+                    [usize::from(sum.is_option())]
+                .fields
+                .first()
+                .cloned(),
+                _ => None,
+            },
+            Expression::Binary(op, left, right)
+                if op == "+"
+                    && self.slice_view_type(left, false) == Some(text_view())
+                    && self.slice_view_type(right, false) == Some(text_view()) =>
+            {
+                Some(crate::sum::result(Ty::Str, crate::sum::alloc_error()))
             }
             Expression::Member(..) | Expression::Index(..) => self.place_type(e),
             _ => None,

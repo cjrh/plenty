@@ -22,6 +22,7 @@ mod annotations;
 mod atomic;
 mod bounded;
 mod byte_buffers;
+mod byte_methods;
 mod callables;
 mod calls;
 mod casts;
@@ -75,6 +76,7 @@ mod sorting;
 mod sum_methods;
 mod tail_calls;
 mod target;
+mod text_methods;
 mod threads;
 mod value_generics;
 mod views;
@@ -1819,6 +1821,9 @@ impl Lower<'_> {
         if let Some(result) = self.quantity_format_method(base, name, args, &e.at, ops) {
             return result;
         }
+        if let Some(result) = self.text_range_method(base, name, args, ops) {
+            return result;
+        }
         if name == "format"
             && let Some(ty) = self.format_method(base, args, &e.at, ops)
         {
@@ -1852,6 +1857,19 @@ impl Lower<'_> {
         let Expression::Binary(op, left, right) = &e.kind else {
             unreachable!("binary_expression lowers its own expression kind")
         };
+        if self.is_text_view(left) || self.is_text_view(right) {
+            if op == "+" {
+                return self.system_call(
+                    crate::text::TextViewOp::apply(CollectionOp::TextTryConcat),
+                    &[(**left).clone(), (**right).clone()],
+                    &e.at,
+                    ops,
+                );
+            }
+            if op == "*" {
+                return Err(e.at.error(STR_REPETITION));
+            }
+        }
         if let Some(result) = self.overloaded_binary(op, left, right, &e.at, ops)? {
             return Ok(result);
         }
@@ -2136,6 +2154,31 @@ impl Lower<'_> {
         let Expression::Binary(op, left, right) = &e.kind else {
             unreachable!("membership_expression lowers its own expression kind")
         };
+        if let Some(result) = self.byte_membership(op, left, right, ops)? {
+            return Ok(result);
+        }
+        if (self.is_text_view(left) || self.is_text_view(right))
+            && self.slice_view_type(left, false) == Some(text_view())
+            && self.slice_view_type(right, false) == Some(text_view())
+        {
+            let (_, left_loan) = self.view_argument(left, false, true, ops)?;
+            let (_, right_loan) = self.view_argument(right, false, true, ops)?;
+            ops.push(Op::Swap);
+            ops.push(Op::PushInt(Value::I64(
+                crate::collection_opcodes::TEXT_SEARCH_CONTAINS << 1,
+            )));
+            ops.push(Op::Collection(CollectionOp::TextView(
+                crate::text::TextViewOp::Search {
+                    needle_text: false,
+                    find: false,
+                },
+            )));
+            Self::end_reads(vec![left_loan, right_loan], ops);
+            if op == "not in" {
+                ops.push(Op::Not);
+            }
+            return Ok(Some(Ty::Bool));
+        }
         Ok({
             let (a, mut loans) = self.observe(left, ops)?;
             let (b, other_loans) = self.observe(right, ops)?;
@@ -2299,6 +2342,11 @@ impl Lower<'_> {
                 } else {
                     CollectionOp::TextChr
                 };
+                if name == "ord" && self.is_text_view(argument) {
+                    return self
+                        .system_call(crate::text::TextViewOp::apply(operation), args, &e.at, ops)
+                        .map(Some);
+                }
                 let (inputs, output) = operation.signature();
                 let (actual, loans) =
                     self.observe_expected(argument, Some(inputs[0].clone()), ops)?;
@@ -2517,6 +2565,16 @@ impl Lower<'_> {
             if let Some(operation) = crate::text::TextOp::named(name) {
                 if operation == crate::text::TextOp::FindIn {
                     return self.text_find_in(args, &e.at, ops).map(Some);
+                }
+                if args.iter().any(|arg| self.is_text_view(arg)) {
+                    return self
+                        .system_call(
+                            CollectionOp::TextView(crate::text::TextViewOp::AsciiEqualFolded),
+                            args,
+                            &e.at,
+                            ops,
+                        )
+                        .map(Some);
                 }
                 if args.len() == 2 && args.iter().all(|arg| self.place_type(arg) == Some(Ty::Str)) {
                     // Compare text places in place (issue #364).
