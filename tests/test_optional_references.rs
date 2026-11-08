@@ -2029,3 +2029,41 @@ def pick(items: &list[Item], other: &list[Item], first: bool) -> &Item:
         "returned reference must originate from the first reference parameter, `items`; this one borrows `other`",
     );
 }
+
+/// A conditional's view has no join loan, so it is rejected rather than
+/// left unborrowed (local PR #1126 review).
+#[test]
+fn conditional_views_are_rejected() {
+    const VIEW: &str =
+        "a conditional expression cannot produce a view or a closure with borrowed captures";
+    rejects(
+        r#"
+mut d = {"x": [1, 2, 3].unwrap()}.unwrap()
+c = len(d) > 0
+r = d.values() if c else d.values()
+for v in r:
+    d.clear()
+    print(v).unwrap()
+"#,
+        VIEW,
+    );
+    rejects(
+        r#"
+mut d = {"x": 1}.unwrap()
+e = {"y": 2}.unwrap()
+k = d.keys() if len(d) > 0 else e.keys()
+d.clear()
+print(len(k)).unwrap()
+"#,
+        VIEW,
+    );
+    rejects(
+        r#"
+mut d = {"x": [1].unwrap()}.unwrap()
+for v in (d.values() if len(d) > 0 else d.values()):
+    d.clear()
+    print(v).unwrap()
+"#,
+        VIEW,
+    );
+}

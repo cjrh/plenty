@@ -661,6 +661,14 @@ impl Lower<'_> {
         if matches!(ty, Some(Ty::View(..))) {
             return Err(e.at.error("conditional expressions cannot produce slice views; select an owning value or branch around the view's use"));
         }
+        // A view or borrowing closure has no join loan to keep its owners
+        // borrowed, so it cannot leave the conditional.
+        if ty
+            .as_ref()
+            .is_some_and(|ty| ty.contains_reference() && !BranchJoin::carries(ty))
+        {
+            return Err(e.at.error("a conditional expression cannot produce a view or a closure with borrowed captures; produce an owned value, or choose with an `if` statement that assigns or returns each value"));
+        }
         if !ty.as_ref().is_some_and(BranchJoin::carries) {
             ops.push(super::branch(a, b));
             return Ok(ty);
