@@ -587,7 +587,10 @@ print(fullf.candidates()?[0].upper == u64.MAX)?
 # A maximal decrement budget plus one retained count sums exactly to MAX.
 mut balanced = fbefore.copy()?
 for index in range(8):
-    balanced.set(20 + index, u8(((u64.MAX // 2u64) >> u64(index * 8)) & 255u64))
+    # index is in 0..8, so the shift count is below 64.
+    byte = unchecked:
+        ((u64.MAX // 2u64) >> u64(index * 8)) & 255u64
+    balanced.set(20 + index, u8(byte))
     balanced.set(36 + index, 0u8)
 balanced.set(36, 1u8)
 restored = sketch.frequent_items_from_bytes(&balanced)?
