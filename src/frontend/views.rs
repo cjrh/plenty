@@ -16,8 +16,8 @@ use crate::text::TextViewOp;
 /// The operations a view supports, for diagnostics that reject others.
 pub(super) const OPERATIONS: &str = "a view supports `len(v)`, `v[i]`, `&v[a:b]`, `==`, `for x in v`, `iter(v)`, and `print(v)`, and a `&mut [T]` view also `v[i] = x` and `v.swap(i, j)`";
 
-/// The operations a `&substr` supports, for diagnostics that reject others.
-pub(super) const TEXT_OPERATIONS: &str = "a `&substr` supports `len(v)`, `v.byte_len()`, `v.as_bytes()`, `v[i]`, `&v[a:b]`, `v[a:b]?`, comparisons, `in`, `startswith`, `endswith`, `find`, `for c in v`, and `print(v)`; copy it to a `str` with `v[:]?` for other `str` methods";
+/// The operations a `&strview` supports, for diagnostics that reject others.
+pub(super) const TEXT_OPERATIONS: &str = "a `&strview` supports `len(v)`, `v.byte_len()`, `v.as_bytes()`, `v[i]`, `&v[a:b]`, `v[a:b]?`, comparisons, `in`, `startswith`, `endswith`, `find`, `for c in v`, and `print(v)`; copy it to a `str` with `v[:]?` for other `str` methods";
 
 const STEPPED_VIEW: &str = "a slice view selects adjacent elements, so it takes no step; copy every k-th element with `xs[a:b:k]?`";
 
@@ -339,7 +339,7 @@ impl Lower<'_> {
         }
     }
 
-    /// Whether `e` is a `&substr`: `&s[a:b]` of a `str` or `&substr`, or a
+    /// Whether `e` is a `&strview`: `&s[a:b]` of a `str` or `&strview`, or a
     /// view binding of that type.
     pub(super) fn is_text_view(&self, e: &Expr) -> bool {
         match &ungroup(e).kind {
@@ -551,7 +551,7 @@ impl Lower<'_> {
 
     /// A `&[T]` or `&mut [T]` argument: `&xs[a:b]`, `&mut xs[a:b]`, a view
     /// binding, or an owner that [`Self::owner_view`] converts. `text`
-    /// marks a `&substr`, which also borrows whole strings as a `&str` call
+    /// marks a `&strview`, which also borrows whole strings as a `&str` call
     /// argument does.
     pub(super) fn view_argument(
         &mut self,
@@ -700,7 +700,7 @@ impl Lower<'_> {
         })
     }
 
-    /// The loop over the `&substr` on the stack: one-scalar `str` values, as
+    /// The loop over the `&strview` on the stack: one-scalar `str` values, as
     /// `for c in s` yields, which are inline and so allocate nothing. The
     /// cursor is a byte offset that advances by each scalar's width.
     fn text_view_iteration(
@@ -818,7 +818,7 @@ impl Lower<'_> {
         Ok(Some(Ty::Bool))
     }
 
-    /// `v.name(args)` on a `&substr`: the `str` searches that need no new
+    /// `v.name(args)` on a `&strview`: the `str` searches that need no new
     /// string, plus `byte_len`.
     pub(super) fn text_view_method(
         &mut self,
@@ -834,7 +834,7 @@ impl Lower<'_> {
             "find" => Some(TEXT_SEARCH_FIND),
             _ => {
                 return Err(base.at.error(format!(
-                    "a `&substr` has no method `{name}`; {TEXT_OPERATIONS}"
+                    "a `&strview` has no method `{name}`; {TEXT_OPERATIONS}"
                 )));
             }
         };
@@ -858,7 +858,7 @@ impl Lower<'_> {
             _ if needle == text_view() => false,
             _ => {
                 return Err(args[0].at.error(format!(
-                    "{name} on a `&substr` takes a `str` or `&substr`, not {needle}"
+                    "{name} on a `&strview` takes a `str` or `&strview`, not {needle}"
                 )));
             }
         };
@@ -874,7 +874,7 @@ impl Lower<'_> {
         Ok(Some(result))
     }
 
-    /// A comparison of a `&substr` with a `str` or another `&substr`, by
+    /// A comparison of a `&strview` with a `str` or another `&strview`, by
     /// Unicode scalars, as two strings compare.
     fn text_comparison(
         &mut self,
@@ -894,7 +894,7 @@ impl Lower<'_> {
             ">=" => Op::Ge,
             _ => {
                 return Err(at.error(format!(
-                    "`&substr` supports comparisons, not `{op}`; copy the text with `v[:]?` to build a new string"
+                    "`&strview` supports comparisons, not `{op}`; copy the text with `v[:]?` to build a new string"
                 )));
             }
         };
@@ -907,7 +907,7 @@ impl Lower<'_> {
         };
         let (Some(a_text), Some(b_text)) = (text(&a), text(&b)) else {
             return Err(at.error(format!(
-                "cannot compare {a} with {b}; a `&substr` compares with a `str` or another `&substr`"
+                "cannot compare {a} with {b}; a `&strview` compares with a `str` or another `&strview`"
             )));
         };
         ops.extend(rhs);

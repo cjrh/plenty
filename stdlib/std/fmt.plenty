@@ -215,7 +215,7 @@ pub class Formatter[W]:
             Ok(())
 
     # The text of a borrowed substring, `&s[a:b]`, written without a copy.
-    pub def substr(self: &mut Formatter[W], value: &substr) -> Result[(), FormatError]:
+    pub def substr(self: &mut Formatter[W], value: &strview) -> Result[(), FormatError]:
         for scalar in value:
             self.text(&scalar)?
         Ok(())
@@ -297,7 +297,7 @@ pub class Formatter[W]:
         self.text("\"")
 
     # `debug_text` for a borrowed substring.
-    pub def debug_substr(self: &mut Formatter[W], value: &substr) -> Result[(), FormatError]:
+    pub def debug_substr(self: &mut Formatter[W], value: &strview) -> Result[(), FormatError]:
         self.text("\"")?
         for scalar in value:
             self.debug_scalar(&scalar)?
@@ -444,7 +444,7 @@ pub class Formatter[W]:
             self.repeat_fill(&spec.fill, padding - before)
 
     # `text_spec` for a borrowed substring.
-    pub def substr_spec(self: &mut Formatter[W], value: &substr, spec: &Spec) -> Result[(), FormatError]:
+    pub def substr_spec(self: &mut Formatter[W], value: &strview, spec: &Spec) -> Result[(), FormatError]:
         # width <= 4096 and shown <= len(value); counters and signed padding fit i64.
         unchecked:
             if not valid_layout(spec) or spec.align == "=" or spec.sign != "" or spec.coerce_zero or spec.alternate or spec.zero or spec.grouping != "" or (spec.kind != "" and spec.kind != "s"):
@@ -826,7 +826,7 @@ pub def debug_string(value: &str) -> Result[str, FormatError]:
     output.debug_text(value)?
     finish(&output)
 
-pub def repr_substr_string(value: &substr) -> Result[str, FormatError]:
+pub def repr_substr_string(value: &strview) -> Result[str, FormatError]:
     mut output = string_formatter(9223372036854775807, 0)?
     output.debug_substr(value)?
     finish(&output)

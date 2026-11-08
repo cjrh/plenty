@@ -14,7 +14,7 @@ enforce a size limit before copying or encoding text. `str` has no `len`
 method, so the two counts cannot be confused at a call site.
 
 `s[a:b]?` copies the scalars from `a` to `b` into a new `str`;
-`&s[a:b]` borrows them in place as a `&substr`, which loops, compares, and
+`&s[a:b]` borrows them in place as a `&strview`, which loops, compares, and
 searches without allocating. Both count bounds in scalars; see
 [substring views](../../language/04-expressions/slices.md#substring-views).
 
@@ -41,8 +41,10 @@ For ownership, assignment costs, mutation, and views across languages, see
 it keeps the source usable and never duplicates a large text buffer: heap
 strings retain shared immutable storage, tiny strings copy their inline bytes,
 and literals need no retain.
-A `&str` borrows a whole string; a `&substr` borrows a run within it. Neither
-borrow independently keeps the string alive.
+A `&str` borrows a whole string; a `&strview` borrows a run within it. Neither
+borrow independently keeps the string alive. `&substr` remains a compatible
+alias for `&strview`. A plain `&s` still has type `&str`; a view annotation or
+view parameter can convert it to `&strview`.
 
 The tables assume `s: str`, `r: &str` initialized as `r = &s`, scalar bounds
 `a` and `b`, and a new, unannotated binding `x`. **R** abbreviates
@@ -130,10 +132,10 @@ f(r)</code></pre></td>
 &#10;s: str
 f(&amp;s[a:b])</code></pre></td>
 <td>No</td>
-<td>A substring view is <code>&amp;substr</code>, not <code>&amp;str</code>. Use a <code>&amp;substr</code> parameter, or create an owned slice with <code>s[a:b]?</code> and lend it to the call.</td>
+<td>A substring view is <code>&amp;strview</code>, not <code>&amp;str</code>. Use a <code>&amp;strview</code> parameter, or create an owned slice with <code>s[a:b]?</code> and lend it to the call.</td>
 </tr>
 <tr>
-<td><pre><code class="language-plenty">def f(val: &amp;substr) -&gt; ():
+<td><pre><code class="language-plenty">def f(val: &amp;strview) -&gt; ():
     ...
 &#10;s: str
 f(s)</code></pre></td>
@@ -141,7 +143,7 @@ f(s)</code></pre></td>
 <td>Implicitly borrows the whole string as a view for the call; no text copy, retain, or allocation. <code>s</code> stays usable.</td>
 </tr>
 <tr>
-<td><pre><code class="language-plenty">def f(val: &amp;substr) -&gt; ():
+<td><pre><code class="language-plenty">def f(val: &amp;strview) -&gt; ():
     ...
 &#10;s: str
 f(&amp;s)</code></pre></td>
@@ -149,7 +151,7 @@ f(&amp;s)</code></pre></td>
 <td>Converts the whole string borrow to a view; no text copy, retain, or allocation.</td>
 </tr>
 <tr>
-<td><pre><code class="language-plenty">def f(val: &amp;substr) -&gt; ():
+<td><pre><code class="language-plenty">def f(val: &amp;strview) -&gt; ():
     ...
 &#10;s: str
 r = &amp;s
@@ -158,14 +160,14 @@ f(r)</code></pre></td>
 <td>Converts the existing <code>&amp;str</code> to a view of the whole string; no text copy, retain, or allocation.</td>
 </tr>
 <tr>
-<td><pre><code class="language-plenty">def f(val: &amp;substr) -&gt; ():
+<td><pre><code class="language-plenty">def f(val: &amp;strview) -&gt; ():
     ...
 &#10;f("hello")</code></pre></td>
 <td>Yes</td>
 <td>Borrows the whole literal as a view; no text copy, retain, or allocation.</td>
 </tr>
 <tr>
-<td><pre><code class="language-plenty">def f(val: &amp;substr) -&gt; ():
+<td><pre><code class="language-plenty">def f(val: &amp;strview) -&gt; ():
     ...
 &#10;s: str
 f(&amp;s[a:b])</code></pre></td>
@@ -173,7 +175,7 @@ f(&amp;s[a:b])</code></pre></td>
 <td>Borrows just the selected text; no text copy, retain, or allocation. Finding scalar bounds may scan the text.</td>
 </tr>
 <tr>
-<td><pre><code class="language-plenty">def f(val: &amp;substr) -&gt; ():
+<td><pre><code class="language-plenty">def f(val: &amp;strview) -&gt; ():
     ...
 &#10;s: str
 v = &amp;s[a:b]
@@ -182,7 +184,7 @@ f(v)</code></pre></td>
 <td>Reborrows the existing substring view; no text copy, retain, or allocation.</td>
 </tr>
 <tr>
-<td><pre><code class="language-plenty">def f(val: &amp;substr) -&gt; ():
+<td><pre><code class="language-plenty">def f(val: &amp;strview) -&gt; ():
     ...
 &#10;def make_text() -&gt; str:
     ...
@@ -194,7 +196,7 @@ f(v)</code></pre></td>
 </table>
 </div>
 
-A `&substr` parameter is the most general borrowed text interface among these
+A `&strview` parameter is the most general borrowed text interface among these
 three types: it accepts whole strings and substring views. Use it when its
 supported operations are sufficient. It currently has fewer operations than
 `&str`: for example, it supports `find`, but not `rfind`, `strip`, or `upper`.
@@ -210,9 +212,9 @@ from it requires a value copy such as `*value`. See
 
 **Efficiency note:** For a heap-backed string, an owning copy can require an
 atomic reference-count increment and a later release. Borrowing as `&str` or
-`&substr` avoids that ownership bookkeeping. Tiny inline strings and literals need no
+`&strview` avoids that ownership bookkeeping. Tiny inline strings and literals need no
 reference counting, and compiler optimizations can eliminate unnecessary
-retains and releases. Prefer `&substr` when its supported operations suffice
+retains and releases. Prefer `&strview` when its supported operations suffice
 and the function should accept both whole strings and substrings; use `&str`
 when it needs the full string operations. Use `str` when it needs an owning
 value, for example to keep it after the call.
@@ -230,7 +232,7 @@ in every case; measure when the cost matters.
 | `x = s[a:b]` | **R** | Evaluates the copying slice now. On success, owns a new string containing the selected text; it does not retain the original buffer. Handle the result later. |
 | `x = s[a:b]?` | `str` | The same copying slice, with its successful string extracted; allocation failure returns from the enclosing function. |
 | `x = &s` | `&str` | Borrows the whole string binding without copying its text or retaining its heap storage. |
-| `x = &s[a:b]` | `&substr` | Borrows the selected run in place, without a text copy, retain, or allocation. Finding scalar bounds may scan the text. |
+| `x = &s[a:b]` | `&strview` | Borrows the selected run in place, without a text copy, retain, or allocation. Finding scalar bounds may scan the text. |
 | `x: str = s[a:b]` | Rejected | The slice returns **R**, not `str`. Use `?` or match the result. |
 | `x = &mut s[a:b]` | Rejected | String contents are immutable; there is no mutable substring view. Use a shared view or construct changed text. |
 
@@ -247,7 +249,7 @@ An owning copy remains valid if `s` is later reassigned or destroyed. A borrow
 requires `s` to remain valid and prevents reassignment while that borrow is
 still used. `mut s` permits replacing the binding, not editing the text. See
 [substring views](../../language/04-expressions/slices.md#substring-views) for
-the operations and lifetime limits of `&substr`.
+the operations and lifetime limits of `&strview`.
 
 ### Explicit `copy`
 

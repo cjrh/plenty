@@ -21,4 +21,4 @@ position to a scalar position scans the preceding prefix.
 `needle in text` and `needle not in text` provide substring membership. A
 [substring view](../../language/04-expressions/slices.md#substring-views)
 `&s[a:b]` supports `in`, `startswith`, `endswith`, and `find`, with a `str` or
-`&substr` argument.
+`&strview` argument.

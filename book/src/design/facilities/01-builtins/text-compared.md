@@ -43,7 +43,7 @@ explicitly. See [Python assignment](https://docs.python.org/3/reference/simple_s
 
 | Type | Can the existing text change? | What happens when editing or appending? | Substring without copying text? | Effect on another identifier sharing the text |
 | --- | --- | --- | --- | --- |
-| **Plenty `str`** | No | Builds a resulting string; allocation is fallible | Yes: borrowed `&substr` | It keeps seeing the original text |
+| **Plenty `str`** | No | Builds a resulting string; allocation is fallible | Yes: borrowed `&strview` | It keeps seeing the original text |
 | **Python `str`** | No | Produces a resulting string; implementations may optimize construction | Ordinary slicing generally copies; no built-in borrowed string view | It keeps seeing the original text |
 | **Rust `String`** | Yes, with exclusive mutable access | Can reuse capacity; growth may reallocate | Yes: borrowed `&str` | Shared borrows prevent mutation while they remain in use |
 | **Rust `&str`** | Not through this shared reference | Construct an owned string to edit independently | Yes: another borrowed `&str` | Safe Rust prevents conflicting mutation |

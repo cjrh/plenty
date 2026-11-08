@@ -19,7 +19,7 @@ available on the supported x86-64 Linux GNU target.
 | `std.bytes.empty()` | `Result[Bytes, AllocError]` | Empty buffer with no reserved capacity |
 | `std.bytes.with_capacity(capacity)` | `Result[Bytes, AllocError]` | Empty buffer with exactly `capacity` bytes reserved; negative is `CapacityOverflow` |
 | `std.bytes.from_list(values: &list[u8])` | `Result[Bytes, AllocError]` | Independent copy of the list's bytes |
-| `std.bytes.from_text(text: &substr)` | `Result[Bytes, AllocError]` | Independent copy of the exact UTF-8 bytes of a whole string or substring view |
+| `std.bytes.from_text(text: &strview)` | `Result[Bytes, AllocError]` | Independent copy of the exact UTF-8 bytes of a whole string or substring view |
 | `std.bytes.from_bytes(source: &[u8])` | `Result[Bytes, AllocError]` | Independent copy of a [byte view](#byte-views): a literal, `Bytes`, `list[u8]`, or part of one |
 
 `Bytes` has no public constructor and its storage field is private. Every

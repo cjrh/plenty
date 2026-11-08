@@ -430,6 +430,11 @@ of issue #864; text-operation parity and broader read-only std inputs remain
 tracked there. The [Text reference](../design/facilities/01-builtins/text.md) and
 [byte views](../design/stdlib/bytes.md#byte-views) describe the contracts.
 
+The separate borrowed text view is named `&strview`; the original `&substr`
+spelling remains a compatible alias. Ordinary `&str` references, generic `&T`
+and the two-word view layout keep their existing semantics. See
+[substring views](../design/language/04-expressions/slices.md#substring-views).
+
 Text-file iteration, uniform borrowed iteration and borrowed temporary source
 lifetimes shipped (issues #30/#75). Allocation-free enumerate/zip/reversed
 sources and boolean reductions (issue #35) now compose through B75 pipelines;
