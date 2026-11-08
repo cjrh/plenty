@@ -86,6 +86,11 @@ to their defining module, regardless of directory ancestry. All reachable module
 are checked before execution. Imported modules need no entrypoint, and their
 `main` functions are ordinary functions.
 
+The replacement builtin resolves in the module that declares the code. A
+declaration or import named `replace` shadows the builtin in that module; it does
+not change builtin calls in other modules, including their generic functions and
+unused methods. Function-local bindings can shadow it within their scope.
+
 The [concurrency standard modules](../../stdlib/index.md) export existing builtin
 identities. An explicit import such as `from std.thread import spawn` may bind
 the matching builtin name; an import cannot replace a builtin with a different

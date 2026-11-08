@@ -5,6 +5,14 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## Module-local replacement calls (issue #892)
+
+Builtin `replace` calls bind in their defining module before imported declarations
+are combined. An entrypoint helper named `replace` no longer breaks imported
+`std.test` methods. Regression coverage exercises imported generic functions and
+methods, user aliases, direct and indirect user calls, local shadowing, and public
+diagnostic spelling. See [module name resolution](../design/language/02-source/modules.md).
+
 ## Documentation fragment labels
 
 The book marks `plenty fragment` excerpts with a bordered **Fragment · not
