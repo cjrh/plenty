@@ -11,7 +11,6 @@
 //! overwrite the hasher, which holds the HMAC key's padded forms.
 use super::byte_storage::{Storage, result, size};
 use crate::memory::{self, AllocError, Header};
-use crate::strings;
 use hmac::{Hmac, Mac};
 use sha1::Sha1;
 use sha2::{Digest, Sha256, Sha512};
@@ -308,10 +307,7 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
             }
             301 => result(create(keyed(a, view(b)))),
             302 => update(a, view(b)) as u128,
-            303 => {
-                let text = b as *const strings::Text;
-                update(a, strings::bytes(&text)) as u128
-            }
+            303 => update(a, super::text_views::bytes(b)) as u128,
             304 => {
                 let target = &mut (*(b as *mut Storage)).bytes;
                 finish(a, target, size(c)) as u128
@@ -319,9 +315,8 @@ pub(super) unsafe fn call(op: i64, operands: [u128; 4]) -> u128 {
             305 => verify(a, view(b)) as u128,
             306 => bool::from(view(a).ct_eq(view(b))) as u128,
             307 => {
-                let text = a as *const strings::Text;
-                // Plenty strings always contain valid UTF-8.
-                let context = std::str::from_utf8_unchecked(strings::bytes(&text));
+                // The text-view signature guarantees UTF-8 and scalar boundaries.
+                let context = super::text_views::text(a);
                 result(create_blake3(blake3::Hasher::new_derive_key(context)))
             }
             _ => crate::fail("unknown crypto operation"),

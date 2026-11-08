@@ -78,7 +78,7 @@ pub(crate) use native::{
 ))]
 mod native {
     use super::*;
-    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::alloc::{GlobalAlloc, Layout};
     use std::cell::{Cell, UnsafeCell};
     use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
 
@@ -329,6 +329,82 @@ mod native {
         unsafe { (*table()).heaps[index].give(pointer, layout) }
     }
 
+    /// System allocations, with small layouts served by the size-class pool
+    /// (`crate::small_pool`). Whether a block is pooled depends only on its
+    /// layout, so every System-path block of a small layout must come from
+    /// here, including copies out of a heap.
+    mod system {
+        use crate::small_pool;
+        use std::alloc::{GlobalAlloc, Layout, System};
+
+        #[inline(always)]
+        pub(super) unsafe fn alloc(layout: Layout) -> *mut u8 {
+            match small_pool::class_of(layout) {
+                Some(class) => small_pool::alloc(class),
+                // SAFETY: as GlobalAlloc requires of the caller.
+                None => unsafe { System.alloc(layout) },
+            }
+        }
+
+        pub(super) unsafe fn alloc_zeroed(layout: Layout) -> *mut u8 {
+            match small_pool::class_of(layout) {
+                Some(class) => {
+                    let block = small_pool::alloc(class);
+                    if !block.is_null() {
+                        // SAFETY: a reused block may be dirty; it holds at
+                        // least `layout.size()` bytes.
+                        unsafe { block.write_bytes(0, layout.size()) };
+                    }
+                    block
+                }
+                // SAFETY: as GlobalAlloc requires; keeps calloc's fresh pages.
+                None => unsafe { System.alloc_zeroed(layout) },
+            }
+        }
+
+        #[inline(always)]
+        pub(super) unsafe fn dealloc(pointer: *mut u8, layout: Layout) {
+            match small_pool::class_of(layout) {
+                Some(class) => small_pool::free(pointer, class),
+                // SAFETY: as GlobalAlloc requires of the caller.
+                None => unsafe { System.dealloc(pointer, layout) },
+            }
+        }
+
+        /// A block keeps its class when it grows or shrinks within it;
+        /// moving between classes, or between the pool and System, copies.
+        pub(super) unsafe fn realloc(pointer: *mut u8, old: Layout, size: usize) -> *mut u8 {
+            let Ok(new) = Layout::from_size_align(size, old.align()) else {
+                return std::ptr::null_mut();
+            };
+            match (small_pool::class_of(old), small_pool::class_of(new)) {
+                // SAFETY: as GlobalAlloc requires of the caller.
+                (None, None) => unsafe { System.realloc(pointer, old, size) },
+                // Wrapped realloc spends an injected-failure unit even in
+                // place; so does staying in a class.
+                (Some(from), Some(to)) if from == to => {
+                    if small_pool::refused() {
+                        std::ptr::null_mut()
+                    } else {
+                        pointer
+                    }
+                }
+                _ => {
+                    // SAFETY: `new` has a nonzero size; both blocks hold the
+                    // copied prefix, and the old one is freed with its layout.
+                    unsafe {
+                        let moved = alloc(new);
+                        if !moved.is_null() {
+                            std::ptr::copy_nonoverlapping(pointer, moved, old.size().min(size));
+                            dealloc(pointer, old);
+                        }
+                        moved
+                    }
+                }
+            }
+        }
+    }
+
     /// Routes allocations to the thread's arena or current actor heap, and
     /// frees to their owner.
     pub(crate) struct Router;
@@ -357,7 +433,7 @@ mod native {
             }
             match current() {
                 // SAFETY: as GlobalAlloc requires of the caller.
-                0 => unsafe { System.alloc(layout) },
+                0 => unsafe { system::alloc(layout) },
                 // SAFETY: CURRENT only ever names a live heap of this thread.
                 current => unsafe { heap_alloc(current - 1, layout) },
             }
@@ -370,7 +446,7 @@ mod native {
             } else {
                 match current() {
                     // SAFETY: as GlobalAlloc requires; keeps calloc's fresh pages.
-                    0 => return unsafe { System.alloc_zeroed(layout) },
+                    0 => return unsafe { system::alloc_zeroed(layout) },
                     // SAFETY: as in `alloc`.
                     current => unsafe { heap_alloc(current - 1, layout) },
                 }
@@ -395,7 +471,7 @@ mod native {
                 // reclaimed when its heap is discarded.
                 Some(_) => {}
                 // SAFETY: as GlobalAlloc requires of the caller.
-                None => unsafe { System.dealloc(pointer, layout) },
+                None => unsafe { system::dealloc(pointer, layout) },
             }
         }
         unsafe fn realloc(&self, pointer: *mut u8, old: Layout, size: usize) -> *mut u8 {
@@ -423,7 +499,7 @@ mod native {
                 // Memory allocated outside every heap stays outside, even when
                 // a handler grows it: the actor does not own it.
                 // SAFETY: as GlobalAlloc requires of the caller.
-                return unsafe { System.realloc(pointer, old, size) };
+                return unsafe { system::realloc(pointer, old, size) };
             };
             let Ok(new) = Layout::from_size_align(size, old.align()) else {
                 return std::ptr::null_mut();
@@ -431,7 +507,7 @@ mod native {
             if !owning() {
                 // As in `dealloc`: copy out to System and leave the block.
                 // SAFETY: `new` has a nonzero size and a valid alignment.
-                let moved = unsafe { System.alloc(new) };
+                let moved = unsafe { system::alloc(new) };
                 if !moved.is_null() {
                     // SAFETY: both blocks hold the copied prefix.
                     unsafe { std::ptr::copy_nonoverlapping(pointer, moved, old.size().min(size)) };

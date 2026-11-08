@@ -374,20 +374,36 @@ temporary.
 | `v.as_bytes()` | Shared `&[u8]` over the selected UTF-8 bytes, without copying, allocating or scanning |
 | `v[i]` | Scalar `i` as a one-scalar `str`; a negative index counts from the end, and an index outside the view traps |
 | `&v[a:b]` | Narrower view; bounds count scalars from the start of `v` |
-| `v[a:b]?` | An owned copy of part of the view, `Result[str, AllocError]` |
+| `v[a:b:step]?`, `v.slice(a, b)` | An owned scalar slice, `Result[str, AllocError]`; copying slices support a step |
 | `for c in v` | Each scalar as a one-scalar `str`; `reversed(v)`, `enumerate(v)`, and `iter(v)` also work |
 | `v == w`, `v != w`, `<`, `<=`, `>`, `>=` | Compare by Unicode scalar value, as `str` does; either side may be a `str` or a `&strview` |
-| `needle in v`, `needle not in v` | Substring membership; the needle is a `str` or a `&strview` |
+| `needle in text`, `needle not in text` | Substring membership; either operand may be a `str` or a `&strview` |
 | `v.startswith(x)`, `v.endswith(x)` | Exact prefix or suffix; `x` is a `str` or a `&strview` |
-| `v.find(x)` | First matching scalar position within the view, or `Nothing` |
+| `v.find(x)`, `v.rfind(x)`, `v.count(x)` | First or last scalar position (`Option[i64]`), or nonoverlapping match count |
+| `v.get(i)`, `ord(v)` | Optional scalar string at `i`, or the scalar value when the view contains exactly one scalar |
+| `v.isascii()`, `v.isspace()`, `v.isdigit()`, `v.isalpha()`, `v.isalnum()` | The same predicates as on `str`; letter/digit predicates are ASCII, whitespace follows Unicode |
+| `v.lower()`, `v.upper()`, `v.strip()`, `v.lstrip()`, `v.rstrip()` | Owned transformed text, `Result[str, AllocError]` |
+| `v.concat(x)`, `v + x`, `x + v`, `v.repeat(n)` | Owned concatenated or repeated text, `Result[str, AllocError]` |
+| `v.replace(old, new)`, `v.removeprefix(x)`, `v.removesuffix(x)` | Owned replacement or removal result; all text arguments accept strings or views |
+| `v.split()`, `v.split(sep)`, `v.splitlines(keepends=False)` | Owned fields with the same separators, empty-field rules and line boundaries as `str` |
+| `v.join(parts)` | Owned joined text; `parts` may be an existing iterable of `str` or a text view |
+| `T.parse(v)` | Typed integer or floating-point parsing, with the same `ParseError` results as `str` |
 | `print(v)`, `f"{v}"` | The text itself; `str.repr(v)` and `f"{v!r}"` quote it as a `str` |
 
 Each scalar a loop or index yields fits in a string's inline form, so these
-operations allocate nothing. Finding a bound, `len(v)`, `v[i]`, and `v.find(x)`
-scan the text before the position, as they do on a `str`. `str` methods other
-than those listed are not available on a view; copy it with `v[:]?` to use one.
-A `str` method does not take a `&strview` argument, and `v in s` for a `str`
-`s` is written `v in &s[:]`.
+operations allocate nothing. Finding a bound, `len(v)`, `v[i]`, and searches
+scan the selected text; an owning `str` caches its scalar count, a view does
+not. Cache `len(v)` locally when a loop needs it repeatedly.
+
+All text methods above accept either strings or views in their text operands,
+including methods called on an owning string. They read the selected UTF-8
+range directly and allocate only an owned result when required. A view cannot
+stand in for an owning `str` argument to an arbitrary function, or be stored in
+a collection or returned. Joining collections or generators of views therefore
+remains unsupported. String repetition uses `repeat(n)?`; `*` is rejected for
+both strings and views. `str.from` converts numeric and boolean values, rather
+than copying text, and there is no `str.format` method: formatting uses f-strings
+and `std.fmt.Formatter`.
 
 The byte view returned by `as_bytes()` keeps the text view's original loan,
 including inline bytes stored in a string slot. It can be bound locally, passed

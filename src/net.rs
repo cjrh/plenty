@@ -72,7 +72,7 @@ impl NetOp {
             // The sender's address is written into the last buffer.
             Self::ReceiveFrom => ([range(), vec![Ty::ByteStorage]].concat(), Ty::I64),
             // A socket carrying the reply of a lookup on a helper thread.
-            Self::Resolve => (vec![Ty::Str], Ty::File),
+            Self::Resolve => (vec![crate::frontend::text_view()], Ty::File),
             // Handle, interest, timeout in nanoseconds; readiness bits.
             Self::ReadyWait => (
                 vec![Ty::File, Ty::U8, Ty::U64, Ty::CancellationToken],

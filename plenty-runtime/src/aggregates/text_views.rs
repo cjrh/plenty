@@ -7,9 +7,9 @@
 use super::{fallible, index};
 use crate::collection_opcodes::{
     SLICE_START, SLICE_STOP, TEXT_SEARCH_CONTAINS, TEXT_SEARCH_ENDS, TEXT_SEARCH_FIND,
-    TEXT_SEARCH_STARTS, TEXT_VIEW_COMPARE, TEXT_VIEW_COPY, TEXT_VIEW_INDEX, TEXT_VIEW_LEN,
-    TEXT_VIEW_OF_STR, TEXT_VIEW_SCALAR, TEXT_VIEW_SCALAR_BEFORE, TEXT_VIEW_SEARCH,
-    TEXT_VIEW_SUBVIEW,
+    TEXT_SEARCH_STARTS, TEXT_VIEW_ASCII_EQUAL_FOLDED, TEXT_VIEW_COMPARE, TEXT_VIEW_COPY,
+    TEXT_VIEW_FIND_IN, TEXT_VIEW_INDEX, TEXT_VIEW_LEN, TEXT_VIEW_OF_STR, TEXT_VIEW_SCALAR,
+    TEXT_VIEW_SCALAR_BEFORE, TEXT_VIEW_SEARCH, TEXT_VIEW_SUBVIEW,
 };
 use crate::strings::{self, Text};
 use std::cmp::Ordering;
@@ -112,6 +112,11 @@ pub(crate) unsafe fn call(op: i64, [a, b, c, d, _]: [u128; 5], site: *const crat
             }
             TEXT_VIEW_SUBVIEW => pack(select(text(a), b as i64, c as i64, d as i64).as_bytes()),
             TEXT_VIEW_LEN => text(a).chars().count() as u128,
+            TEXT_VIEW_ASCII_EQUAL_FOLDED => {
+                (bytes(a).is_ascii() && bytes(a).eq_ignore_ascii_case(bytes(b))) as u128
+            }
+            TEXT_VIEW_FIND_IN => super::byte_scan::text_find_in(bytes(a), bytes(b), c != 0)
+                .map_or(-1, |position| position as i64) as u128,
             TEXT_VIEW_COMPARE => {
                 let (left, right) = (a as u64 as *const Text, b as u64 as *const Text);
                 let left = operand(a, c & 1 != 0, &left);

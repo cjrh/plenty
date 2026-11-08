@@ -1,5 +1,8 @@
 # std.process
 
+Read-only text inputs accept whole strings and scalar-aligned substring views; see
+[Text inputs and substring views](text-input-views.md) for borrowing and native-copy contracts.
+
 `import std.process` starts child processes from an argument vector and owns
 them until they are reaped. Arguments, variables, and directories are
 operating-system byte strings; pipes carry [`std.bytes`](bytes.md) data.
@@ -38,9 +41,9 @@ True hello from a child
 
 | Function | Result | Contract |
 |---|---|---|
-| `command(program: &str)` | `Result[Command, IoError]` | A command with no arguments |
+| `command(program: &strview)` | `Result[Command, IoError]` | A command with no arguments |
 | `command_bytes(program: &list[u8])` | `Result[Command, IoError]` | The same for a name that is not UTF-8 |
-| `shell(script: &str)` | `Result[Command, IoError]` | `/bin/sh -c script` |
+| `shell(script: &strview)` | `Result[Command, IoError]` | `/bin/sh -c script` |
 
 A program name containing `/` is a path. Any other name is looked up in the
 directories of the child's `PATH`. The name is also the child's `argv[0]`.
@@ -53,12 +56,12 @@ input. Pass such data as an argument or a variable instead.
 
 | Method | Result | Effect |
 |---|---|---|
-| `arg(value: &str)` | `Result[(), IoError]` | Append one argument |
+| `arg(value: &strview)` | `Result[(), IoError]` | Append one argument |
 | `arg_bytes(value: &list[u8])` | `Result[(), IoError]` | Append one argument of any bytes |
 | `arg_path(value: &Path)` | `Result[(), IoError]` | Append a [path](path.md) losslessly |
-| `env(name: &str, value: &str)` | `Result[(), IoError]` | Set a variable for the child |
+| `env(name: &strview, value: &strview)` | `Result[(), IoError]` | Set a variable for the child |
 | `env_bytes(name: &list[u8], value: &list[u8])` | `Result[(), IoError]` | The same for any bytes |
-| `env_remove(name: &str)`, `env_remove_bytes(name: &list[u8])` | `Result[(), IoError]` | The child does not inherit it |
+| `env_remove(name: &strview)`, `env_remove_bytes(name: &list[u8])` | `Result[(), IoError]` | The child does not inherit it |
 | `env_clear()` | `()` | The child inherits nothing; earlier edits are dropped |
 | `current_dir(path: &Path)` | `Result[(), IoError]` | The child's working directory |
 | `inherit_file(file: &File)` | `Result[i32, IoError]` | Own a copy selected for child inheritance; return its descriptor |

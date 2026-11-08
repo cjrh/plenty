@@ -148,11 +148,11 @@ pub class Connection:
 
     # Runs every statement in `sql` to completion, discarding rows. For
     # schema and fixed SQL; anything with values belongs in `prepare`.
-    pub def execute(self: &mut Connection, sql: &str) -> Result[(), DbError]:
+    pub def execute(self: &mut Connection, sql: &strview) -> Result[(), DbError]:
         status(__sqlite_execute(self._handle, sql))
 
     # Compiles exactly one statement; more is TrailingSql, none EmptySql.
-    pub def prepare(self: &mut Connection, sql: &str) -> Result[Statement, DbError]:
+    pub def prepare(self: &mut Connection, sql: &strview) -> Result[Statement, DbError]:
         owner = handle(__sqlite_prepare(self._handle, sql))?
         columns = __sqlite_column_count(owner)
         Ok(Statement(owner, columns, False, False))
@@ -185,21 +185,21 @@ pub class Connection:
 
     # Loads trusted native code into this connection. Empty entrypoint asks
     # SQLite to discover the initialization symbol. SQL loading stays disabled.
-    pub def load_extension(self: &mut Connection, path: &str, entrypoint: &str = "") -> Result[(), DbError]:
+    pub def load_extension(self: &mut Connection, path: &strview, entrypoint: &strview = "") -> Result[(), DbError]:
         status(__sqlite_load_extension(self._handle, path, entrypoint))
 
     # Closes now, reporting failure. Later operations report Closed.
     pub def close(self: &mut Connection) -> Result[(), DbError]:
         status(__sqlite_close(self._handle))
 
-def opened(path: &str, flags: i64, limit: i64) -> Result[Connection, DbError]:
+def opened(path: &strview, flags: i64, limit: i64) -> Result[Connection, DbError]:
     if limit < min_length_limit or limit > max_length_limit:
         return Err(DbError.OutOfRange)
     Ok(Connection(handle(__sqlite_open(path, flags, limit))?))
 
 # Opens the database file at `path`. No text, blob or row longer than
 # `max_length` bytes can be stored or read through the connection.
-pub def connect(path: &str, mode: Mode, max_length: i64) -> Result[Connection, DbError]:
+pub def connect(path: &strview, mode: Mode, max_length: i64) -> Result[Connection, DbError]:
     if path == "" or path == ":memory:":
         return Err(DbError.InvalidPath)
     flags = match mode:
@@ -234,7 +234,7 @@ pub class Statement:
         __sqlite_parameter_count(self._handle)
 
     # The number of a named parameter such as `:name`, including its prefix.
-    pub def parameter_index(self, name: &str) -> Result[i64, DbError]:
+    pub def parameter_index(self, name: &strview) -> Result[i64, DbError]:
         index = __sqlite_parameter_index(self._handle, name)
         if index < 0:
             return Err(DbError.Allocation(AllocError.OutOfMemory))
@@ -257,7 +257,7 @@ pub class Statement:
         self.rewound()
         status(__sqlite_bind_real(self._handle, index, value))
 
-    pub def bind_text(self: &mut Statement, index: i64, value: &str) -> Result[(), DbError]:
+    pub def bind_text(self: &mut Statement, index: i64, value: &strview) -> Result[(), DbError]:
         self.rewound()
         status(__sqlite_bind_text(self._handle, index, value))
 

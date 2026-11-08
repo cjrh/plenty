@@ -507,3 +507,27 @@ complex at present, and Plenty's safety posture will not be changed to
 accommodate this use case now. The prototype is retained as experimental
 evidence; any future support may be explored in a separate library outside the
 standard library. No further implementation or publication is scheduled.
+
+## Binary string operations
+
+Byte literals, `Bytes` and byte views support byte/subsequence membership and
+[ASCII/binary string methods](../design/stdlib/bytes-stringlike.md), including
+optional-index forward/reverse search, classification/case conversion,
+stripping, splitting, replacement and list-based separator joining. The core
+implementation is Plenty over shared byte views; reverse subsequence search
+uses the runtime's existing pinned memchr dependency for linear worst-case
+time. High bytes and NUL are preserved, owned results remain fallible, and
+existing explicit-range `Bytes.find`/`count` calls keep their signatures.
+General list-view parity and iterator-based joins are not claimed here.
+
+## Runtime-backed text input views (issue #864)
+
+Forty-nine read-only text declarations across 13 standard-library modules accept
+`&strview`, preserving ordinary `&str` reference semantics. Domain native hooks
+read an address/count UTF-8 range; retained SQLite/TLS/resolver inputs are copied
+before the loan ends. IP parsers and temporary-name validation scan byte views
+without an intermediate encoding buffer. `Bytes.matches_text` also accepts a
+text view, retaining byte offsets. `std.bytes.to_text` validates and copies a
+selected byte range directly into an owned string. See
+[Text inputs and substring views](../design/stdlib/text-input-views.md) for the
+module matrix and native-copy/NUL contracts.

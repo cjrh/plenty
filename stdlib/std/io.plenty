@@ -713,7 +713,7 @@ pub class FileStream:
     pub def close(self: &mut FileStream) -> Result[(), StreamError]:
         finished(self.file.close())
 
-pub def open_file(path: &str, mode: &str __open_mode) -> Result[FileStream, StreamError]:
+pub def open_file(path: &strview, mode: &strview __open_mode) -> Result[FileStream, StreamError]:
     match open(path, mode):
         case Ok(file):
             Ok(FileStream(file))
@@ -721,7 +721,7 @@ pub def open_file(path: &str, mode: &str __open_mode) -> Result[FileStream, Stre
             Err(classify(error))
 
 # Ordinary file opening without decoding or changing native path bytes.
-pub def open_path(path: &Path, mode: &str __open_mode) -> Result[FileStream, StreamError]:
+pub def open_path(path: &Path, mode: &strview __open_mode) -> Result[FileStream, StreamError]:
     match __fs_open_file_path(path.as_bytes(), mode):
         case Ok(file):
             Ok(FileStream(file))

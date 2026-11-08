@@ -340,7 +340,7 @@ pub def server(net: Connection, config: &ServerConfig, input: Positive[i64]) -> 
 
 # A client session over `net` that verifies the server against `config`
 # and `server_name`.
-pub def client(net: Connection, config: &ClientConfig, server_name: &str, input: Positive[i64]) -> Result[TlsConnection, TlsError]:
+pub def client(net: Connection, config: &ClientConfig, server_name: &strview, input: Positive[i64]) -> Result[TlsConnection, TlsError]:
     over(net, client_session(config, server_name)?, input)
 
 # Callers keep 0 <= start <= stop <= len, so the overlapping copy cannot fail.

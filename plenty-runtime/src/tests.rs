@@ -116,6 +116,29 @@ fn ascii_folded_equality_needs_ascii_and_equal_lengths() {
     }
 }
 
+/// A small block freed into a thread cache is reused without reaching the
+/// system, but the accounting allocator wraps the pool, so the reuse still
+/// counts and injected failures still apply (issue #814).
+#[cfg(all(
+    feature = "allocation-checks",
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+#[test]
+fn pooled_reuse_is_counted_and_can_fail() {
+    drop(Vec::<u8>::with_capacity(48));
+    crate::accounting::fail_after(Some(0));
+    let mut refused = Vec::<u8>::new();
+    let failed = refused.try_reserve_exact(48).is_err();
+    crate::accounting::fail_after(Some(1));
+    let mut reused = Vec::<u8>::new();
+    let first = reused.try_reserve_exact(48).is_ok();
+    let mut next = Vec::<u8>::new();
+    let second = next.try_reserve_exact(48).is_err();
+    crate::accounting::fail_after(None);
+    assert!(failed && first && second);
+}
+
 #[cfg(feature = "allocation-checks")]
 #[test]
 fn c_string_conversion_failure_preserves_source_without_allocating_an_error() {

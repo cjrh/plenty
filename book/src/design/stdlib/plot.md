@@ -1,5 +1,8 @@
 # `std.plot`
 
+Read-only text inputs accept whole strings and scalar-aligned substring views; see
+[Text inputs and substring views](text-input-views.md) for borrowing and native-copy contracts.
+
 `std.plot` draws layered charts as deterministic SVG files or byte streams.
 It is implemented in Plenty and needs no plotting runtime, R installation,
 display server, or external shared library. Import it with `import std.plot as gg`.

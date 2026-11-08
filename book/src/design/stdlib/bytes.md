@@ -31,10 +31,14 @@ read another byte sequence take a [`&[u8]` view](#byte-views), so they accept a
 literal, a buffer, a list, or part of any of them without copying.
 
 `len(buffer)` calls its shared `len` method and returns the number of bytes,
-just as `len` does for a byte literal or byte slice view. Membership operators
-are unsupported on `Bytes`; use the explicit search methods below.
+just as `len` does for a byte literal or byte slice view. Membership accepts a
+single `u8` or a byte subsequence. [Binary string operations](bytes-stringlike.md)
+add view-based searching, ASCII processing, splitting, replacement and joining.
 
 ## Operations
+
+The [binary string methods](bytes-stringlike.md) also operate on byte literals
+and byte views, without a temporary owning buffer.
 
 `start`, `stop`, `index`, `offset`, `count`, and sizes are `i64`; elements are `u8`.
 
@@ -50,7 +54,7 @@ are unsupported on `Bytes`; use the explicit search methods below.
 | `find_bytes(needle, start, stop)` | shared | `Option[i64]` | First index where all of `needle` occurs inside the range |
 | `count(value, start, stop)` | shared | `i64` | Occurrences of `value` within the range |
 | `matches(offset, source)` | shared | `bool` | Whether `source` occurs at `offset` |
-| `matches_text(offset, text: &str)` | shared | `bool` | Whether the UTF-8 bytes of `text` occur at `offset` |
+| `matches_text(offset, text: &strview)` | shared | `bool` | Whether the UTF-8 bytes of `text` occur at `offset` |
 | `ascii_run(start, stop)` | shared | `i64` | Index after the run of bytes below 128 that begins at `start` |
 | `utf8_run(start, stop)` | shared | `i64` | Index after the longest valid UTF-8 that begins at `start` |
 | `slice(start, stop)` | shared | `Result[Bytes, AllocError]` | Independent copy of a range, with exact capacity |
@@ -459,8 +463,17 @@ The older [binary I/O builtins](../facilities/02-io/bytes-paths.md) and
 [`std.path`](path.md) still take and return `list[u8]`. Convert explicitly with
 `from_list` and `to_list`; each conversion allocates and copies.
 
+## Decode a byte view
+
+`std.bytes.to_text(source: &[u8]) -> Result[str, BytesError]` validates UTF-8
+and copies the selected range directly into an owned `str`, without creating
+an intermediate `Bytes` buffer. Select a range with `&source[start:stop]`. Invalid
+UTF-8 returns `BytesError.InvalidUtf8`; allocation failure returns
+`BytesError.Allocation`. Embedded NUL is valid text.
 
 ## Acknowledgements
 
 - `find_bytes` uses the [two-way](https://doi.org/10.1145/116825.116845) string-matching algorithm by Maxime Crochemore and Dominique Perrin (1991), as Rust's `core` string search does.
 - Word-at-a-time scans use the zero-byte test from Sean Eron Anderson's [Bit Twiddling Hacks](https://graphics.stanford.edu/~seander/bithacks.html#ZeroInWord), which credits a 1987 newsgroup post by Alan Mycroft.
+- [Python bytes operations](https://docs.python.org/3/library/stdtypes.html#bytes-and-bytearray-operations) model the binary string method semantics; Plenty keeps optional indices and fallible owned results.
+- [memchr](https://github.com/BurntSushi/memchr), licensed MIT OR Unlicense, supplies linear-time, constant-space reverse substring search through the runtime's existing pinned dependency.

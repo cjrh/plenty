@@ -185,7 +185,7 @@ pub class TrustRoots:
 # not decode is InvalidCertificate. A decoded certificate unusable as a trust
 # anchor is skipped, as system bundles may hold some; none usable is
 # NoTrustRoots.
-pub def roots_from_pem(pem: &str) -> Result[TrustRoots, TlsError]:
+pub def roots_from_pem(pem: &strview) -> Result[TrustRoots, TlsError]:
     Ok(TrustRoots(opened(__tls_roots(pem))?))
 
 def bundle(path: &str) -> Option[str]:
@@ -294,12 +294,12 @@ pub class ClientBuilder:
     # The chain, leaf first, and private key this client presents when a
     # server asks for a certificate. A chain or key that does not parse, a key
     # that does not match the leaf, or a second chain is InvalidConfiguration.
-    pub def certificate(self: &mut ClientBuilder, chain_pem: &str, key_pem: &str) -> Result[(), TlsError]:
+    pub def certificate(self: &mut ClientBuilder, chain_pem: &strview, key_pem: &strview) -> Result[(), TlsError]:
         status(__tls_builder_certificate(self._handle, chain_pem, key_pem))
 
     # Offers the application protocol `name` (ALPN), after those already
     # offered. A name of 0 or more than 255 bytes is InvalidConfiguration.
-    pub def application_protocol(self: &mut ClientBuilder, name: &str) -> Result[(), TlsError]:
+    pub def application_protocol(self: &mut ClientBuilder, name: &strview) -> Result[(), TlsError]:
         status(__tls_builder_protocol(self._handle, name))
 
     # Tls13 refuses TLS 1.2 servers; the default, Tls12, accepts both.
@@ -316,7 +316,7 @@ pub class ClientBuilder:
     # Rejects server certificates that a revocation list in `crl_pem` names.
     # PEM without a CRL block is InvalidConfiguration; a list whose signature
     # does not verify is InvalidConfiguration at `build`.
-    pub def revocation_list(self: &mut ClientBuilder, crl_pem: &str) -> Result[(), TlsError]:
+    pub def revocation_list(self: &mut ClientBuilder, crl_pem: &strview) -> Result[(), TlsError]:
         status(__tls_builder_revocations(self._handle, crl_pem))
 
     # Allowed suites that cover no allowed version are InvalidConfiguration.
@@ -342,7 +342,7 @@ pub class ServerBuilder:
 
     # Another chain and key. A session presents the first chain whose leaf
     # names the host the client asked for (SNI), or else the first chain.
-    pub def certificate(self: &mut ServerBuilder, chain_pem: &str, key_pem: &str) -> Result[(), TlsError]:
+    pub def certificate(self: &mut ServerBuilder, chain_pem: &strview, key_pem: &strview) -> Result[(), TlsError]:
         status(__tls_builder_certificate(self._handle, chain_pem, key_pem))
 
     # Asks clients for a certificate and verifies it against `roots`. With
@@ -360,7 +360,7 @@ pub class ServerBuilder:
     # Accepts the application protocol `name` (ALPN). The server picks the
     # first of its names, in the order given, that the client offers; a
     # client that offers names but none of these is Incompatible.
-    pub def application_protocol(self: &mut ServerBuilder, name: &str) -> Result[(), TlsError]:
+    pub def application_protocol(self: &mut ServerBuilder, name: &strview) -> Result[(), TlsError]:
         status(__tls_builder_protocol(self._handle, name))
 
     pub def minimum_version(self: &mut ServerBuilder, version: TlsVersion) -> ():
@@ -373,7 +373,7 @@ pub class ServerBuilder:
 
     # Rejects client certificates that a revocation list in `crl_pem` names.
     # Without `verify_clients`, `build` is InvalidConfiguration.
-    pub def revocation_list(self: &mut ServerBuilder, crl_pem: &str) -> Result[(), TlsError]:
+    pub def revocation_list(self: &mut ServerBuilder, crl_pem: &strview) -> Result[(), TlsError]:
         status(__tls_builder_revocations(self._handle, crl_pem))
 
     pub def build(self) -> Result[ServerConfig, TlsError]:
@@ -381,7 +381,7 @@ pub class ServerBuilder:
 
 # Starts a server configuration presenting `chain_pem`, leaf first, with its
 # private key (PKCS#8, PKCS#1 or SEC1), both PEM.
-pub def server_builder(chain_pem: &str, key_pem: &str) -> Result[ServerBuilder, TlsError]:
+pub def server_builder(chain_pem: &strview, key_pem: &strview) -> Result[ServerBuilder, TlsError]:
     mut builder = ServerBuilder(opened(__tls_builder(1))?)
     builder.certificate(chain_pem, key_pem)?
     Ok(builder)
@@ -389,7 +389,7 @@ pub def server_builder(chain_pem: &str, key_pem: &str) -> Result[ServerBuilder, 
 # The server's certificate chain, leaf first, and its private key. A chain or
 # key that does not parse, or a key that does not match the leaf, is
 # InvalidConfiguration. Clients are not asked for certificates.
-pub def server_config(chain_pem: &str, key_pem: &str) -> Result[ServerConfig, TlsError]:
+pub def server_config(chain_pem: &strview, key_pem: &strview) -> Result[ServerConfig, TlsError]:
     Ok(ServerConfig(opened(__tls_server_config(chain_pem, key_pem))?))
 
 # A session detail copied into the whole of `target`: the negotiated
@@ -808,7 +808,7 @@ def started(tcp: TcpStream, session: ByteStorage, server: bool) -> Result[TlsStr
 # Starts a client session on a connected stream without waiting; the
 # handshake runs in the stream's first reads and writes, or `try_handshake`.
 # No application data passes before the server is verified.
-pub def start_connect(tcp: TcpStream, config: &ClientConfig, server_name: &str) -> Result[TlsStream, TlsError]:
+pub def start_connect(tcp: TcpStream, config: &ClientConfig, server_name: &strview) -> Result[TlsStream, TlsError]:
     session = opened(__tls_client(config._handle, server_name))?
     started(tcp, session, False)
 
@@ -820,7 +820,7 @@ pub def start_accept(tcp: TcpStream, config: &ServerConfig) -> Result[TlsStream,
 # Starts a client session on a connected stream and completes the handshake
 # before the deadline. The server's certificate must chain to the
 # configuration's roots and name `server_name`, a DNS name or IP address.
-pub def connect(tcp: TcpStream, config: &ClientConfig, server_name: &str, deadline: &Deadline, cancel: &CancellationToken) -> Result[TlsStream, TlsError]:
+pub def connect(tcp: TcpStream, config: &ClientConfig, server_name: &strview, deadline: &Deadline, cancel: &CancellationToken) -> Result[TlsStream, TlsError]:
     mut stream = start_connect(tcp, config, server_name)?
     stream.handshake_before(deadline, cancel)?
     Ok(stream)
@@ -924,7 +924,7 @@ pub class Session:
 
 # A client session that verifies the server against `config` and
 # `server_name`, as `connect` does.
-pub def client_session(config: &ClientConfig, server_name: &str) -> Result[Session, TlsError]:
+pub def client_session(config: &ClientConfig, server_name: &strview) -> Result[Session, TlsError]:
     Ok(Session(opened(__tls_client(config._handle, server_name))?, False))
 
 pub def server_session(config: &ServerConfig) -> Result[Session, TlsError]:

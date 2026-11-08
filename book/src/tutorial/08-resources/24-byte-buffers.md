@@ -23,8 +23,7 @@ def main() -> Result[(), AllocError | IoError | BytesError | OverflowError[i64]]
     frame.push(255u8)?
     print(frame.len(), frame.capacity(), frame)?
     print(checksum(&frame, 1, 3)?)?
-    payload = frame.slice(1, 3)?
-    print(payload.to_text()?)?
+    print(std.bytes.to_text(&frame[1:3])?)?
     print(str.repr(frame.to_text())?)?
     Ok(())
 ```
@@ -215,11 +214,10 @@ True False False
 ```
 
 The literal is never converted into a `Bytes` behind your back. To change bytes,
-or to call a `Bytes` method such as `find` on them, copy any view
-with `from_bytes`, as `header` does; the copy allocates, so it returns a
-`Result`. A slice of a literal, such as `b"GET /index"[4:]?`, is also an owned
-`Bytes`. Stream writes in `std.io` accept a literal the same way, as the next
-lessons show.
+copy a view with `from_bytes`, as `header` does; the copy allocates, so it
+returns a `Result`. Read-only searches can use the literal or view directly.
+A slice of a literal, such as `b"GET /index"[4:]?`, is also an owned `Bytes`.
+Stream writes in `std.io` accept a literal the same way.
 
 A byte literal accepts only ASCII characters, so `b"é"` is an error; use
 `from_text` for the UTF-8 encoding of text. See
@@ -227,3 +225,39 @@ A byte literal accepts only ASCII characters, so `b"é"` is an error; use
 
 See [the module reference](../../design/stdlib/bytes.md) for every operation,
 its costs, and what views cannot do yet.
+
+## Process ASCII fields without decoding
+
+Byte literals, buffers and borrowed byte ranges support familiar binary string
+operations. Searches return byte positions; ASCII case conversion leaves bytes
+above 127 intact. The transformations below create independent buffers and can
+fail to allocate.
+
+```plenty
+def main() -> Result[(), AllocError | IoError]:
+    wire = b"  NAME=\xff\x00  "
+    print(b"=" in wire, wire.find(b"="))?
+    fields = wire.strip()?.lower()?.split(b"=")?
+    print(b":".join(&fields)?)?
+    Ok(())
+```
+```output
+True Option[i64].Some(6)
+b"name:\xff\x00"
+```
+
+`split()` without a separator splits runs of ASCII whitespace. An explicit
+separator preserves empty fields. A separator's `join` reads a borrowed list of
+byte literals or buffers. See [binary string operations](../../design/stdlib/bytes-stringlike.md)
+for byte-view arguments, empty-pattern behavior and allocation costs.
+
+## Decode a selected byte range
+
+`std.bytes.to_text(view)` validates and copies a byte view directly into an
+owned string. It avoids copying the range into a temporary `Bytes` first.
+Invalid UTF-8 is `BytesError.InvalidUtf8`; a NUL byte is ordinary text data.
+
+Read-only text APIs also accept a scalar-aligned substring borrow directly,
+for example `std.net.parse_address(&line[start:stop])`. A callee that retains
+text copies it before the borrow ends. See
+[Text inputs and substring views](../../design/stdlib/text-input-views.md).

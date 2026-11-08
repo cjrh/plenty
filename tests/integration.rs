@@ -794,3 +794,9 @@ mod test_std_serial_derive;
 mod test_std_serial_reader;
 #[path = "test_std_serial_toml.rs"]
 mod test_std_serial_toml;
+
+#[path = "test_binary_string_ops.rs"]
+mod test_binary_string_ops;
+
+#[path = "test_std_runtime_text_views.rs"]
+mod test_std_runtime_text_views;

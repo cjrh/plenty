@@ -16,10 +16,13 @@ impl Parser {
                     "`__open_mode` is reserved for standard-library parameter and field declarations",
                 ));
             }
-            let text = |ty: &TypeRef| ty.name.as_deref() == Some("str") && ty.args.is_empty();
+            let text = |ty: &TypeRef| {
+                matches!(ty.name.as_deref(), Some("str" | "strview" | "substr"))
+                    && ty.args.is_empty()
+            };
             let borrowed = ty.name.as_deref() == Some("&") && ty.args.len() == 1;
             if !(text(&ty) || borrowed && text(&ty.args[0])) {
-                return Err(at.error("`__open_mode` requires str or &str"));
+                return Err(at.error("`__open_mode` requires str, &str or &strview"));
             }
             ty.metadata = Some(Box::new(TypeMetadata {
                 check: Some(StaticCheck::OpenMode),

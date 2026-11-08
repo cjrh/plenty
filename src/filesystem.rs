@@ -102,7 +102,7 @@ impl FsOp {
         let (inputs, output) = match self {
             Self::LockOpen => (vec![bytes()], Ty::File),
             Self::LockTry => (vec![Ty::File, Ty::Bool], Ty::Bool),
-            Self::OpenFilePath => (vec![bytes(), Ty::Str], Ty::File),
+            Self::OpenFilePath => (vec![bytes(), crate::frontend::text_view()], Ty::File),
             Self::Open => (vec![bytes()], Ty::FsReadDir),
             Self::Next => (vec![Ty::FsReadDir], sum::option(Ty::FsDirEntry)),
             Self::Close => (vec![Ty::FsReadDir], Ty::Unit),

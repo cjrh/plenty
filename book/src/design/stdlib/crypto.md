@@ -1,5 +1,8 @@
 # std.crypto
 
+Read-only text inputs accept whole strings and scalar-aligned substring views; see
+[Text inputs and substring views](text-input-views.md) for borrowing and native-copy contracts.
+
 > **Cryptography here is upstream code, used as-is.** Plenty implements no
 > cryptographic algorithm. Every hash, MAC, cipher, signature, key agreement,
 > key derivation and constant-time comparison is the upstream Rust
@@ -85,7 +88,7 @@ pieces gives the same output as one call over the joined input.
 |---|---|---|
 | `size()` | `i64` | The output size in bytes |
 | `update(data: &[u8])` | `Result[(), CryptoError]` | Absorb `data`; pass `&buffer[a:b]` for part of a buffer |
-| `update_text(text: &str)` | `Result[(), CryptoError]` | Absorb the UTF-8 bytes of `text` |
+| `update_text(text: &strview)` | `Result[(), CryptoError]` | Absorb the UTF-8 bytes of `text` |
 | `finish()` | `Result[Bytes, CryptoError]` | The output in a new buffer |
 | `finish_into(target: &mut Bytes, offset: i64)` | `Result[(), CryptoError]` | Write the output at `target[offset:offset + size()]` |
 | `Mac.verify(expected: &[u8])` | `Result[bool, CryptoError]` | Finish, and compare the tag with `expected` in constant time |

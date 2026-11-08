@@ -1,5 +1,8 @@
 # std.io
 
+Read-only text inputs accept whole strings and scalar-aligned substring views; see
+[Text inputs and substring views](text-input-views.md) for borrowing and native-copy contracts.
+
 `import std.io` provides byte streams with explicit partial progress: the
 stream contracts, helpers that retry until a range is complete, fixed-capacity
 buffering, and adapters for files, the process streams, and memory. Data moves
@@ -207,8 +210,8 @@ is no method returning the inner stream; exchange it with
 
 | Constructor | Stream | Protocols |
 |---|---|---|
-| `open_file(path: &str, mode: &str)` | `Result[FileStream, StreamError]` | `Reader`, `Writer`, `Seeker`, `Closer` |
-| `open_path(path: &Path, mode: &str)` | `Result[FileStream, StreamError]` | the same, preserving native path bytes |
+| `open_file(path: &strview, mode: &strview)` | `Result[FileStream, StreamError]` | `Reader`, `Writer`, `Seeker`, `Closer` |
+| `open_path(path: &Path, mode: &strview)` | `Result[FileStream, StreamError]` | the same, preserving native path bytes |
 | `from_file(file: File)` | `FileStream` | the same |
 | `stdin()` | `Stdin` | `Reader` |
 | `stdout()`, `stderr()` | `Stdout`, `Stderr` | `Writer` |
