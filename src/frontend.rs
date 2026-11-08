@@ -3104,7 +3104,7 @@ impl Lower<'_> {
         ops.push(Op::Forwards(Forward::Call(id, results.into())));
     }
     /// Emits a call, preceded by its lifetime fact when every reference it
-    /// passes was borrowed through a reference parameter of this function.
+    /// passes was borrowed through a reference or view parameter of this function.
     /// `loans` holds the loan of each reference input. A loan inherits its
     /// root from the loan it was derived from, so a reborrow, projection,
     /// payload, or alias of a reference parameter is rooted at that
@@ -3130,11 +3130,16 @@ impl Lower<'_> {
         // of its own here, so it never qualifies.
         let forwards = !loans.is_empty()
             && references.clone().count() == loans.len()
-            && references.clone().all(|(_, ty)| matches!(ty, Ty::Ref(..)))
+            && references
+                .clone()
+                .all(|(_, ty)| matches!(ty, Ty::Ref(..) | Ty::View(..)))
             && loans.iter().all(|&loan| {
                 let root = usize::from(self.loans[loan].root);
                 root < self.parameters
-                    && matches!(parameters.and_then(|p| p.get(root)), Some((_, Ty::Ref(..))))
+                    && matches!(
+                        parameters.and_then(|p| p.get(root)),
+                        Some((_, Ty::Ref(..) | Ty::View(..)))
+                    )
             });
         if let Op::Call(callee) = &call
             && self.generics.serial_stack.contains_key(callee)
