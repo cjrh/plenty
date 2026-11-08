@@ -2277,6 +2277,74 @@ end\ndrop 3\n",
     );
 }
 
+/// `next` on a `&mut` pipeline returns `Option[&mut T]`, whose payload
+/// borrows the holder exclusively, as any such holder does (issue #901).
+#[test]
+fn next_payload_on_a_mutable_reference_pipeline_borrows_its_holder() {
+    for program in [
+        r#"def main() -> Result[(), AllocError | IoError]:
+    mut xs = [1, 2]?
+    mut p = iter(&mut xs)
+    x = next(p)
+    match x:
+        case Some(i):
+            print(x)?
+            *i = 5
+        case Nothing:
+            pass
+    Ok(())
+"#,
+        r#"def main() -> Result[(), AllocError | IoError]:
+    mut xs = [1, 2]?
+    mut p = iter(&mut xs).take(1)
+    x = next(p)
+    match x:
+        case Some(i):
+            print(x)?
+            *i = 5
+        case Nothing:
+            pass
+    Ok(())
+"#,
+    ] {
+        let error = support::check_error(program);
+        assert!(
+            error.contains("cannot read `xs` (through `x`) while it is exclusively borrowed"),
+            "{error}"
+        );
+    }
+    // Reading the holder after the payload's last use, or once it is replaced
+    // on a later iteration, stays accepted.
+    assert_eq!(
+        support::run_stdout(
+            r#"def main() -> Result[(), AllocError | IoError]:
+    mut xs = [1, 2]?
+    mut p = iter(&mut xs)
+    x = next(p)
+    match x:
+        case Some(i):
+            *i = 5
+            print(x)?
+        case Nothing:
+            pass
+    print(x)?
+    mut y = next(p)
+    while True:
+        match y:
+            case Some(i):
+                *i = 9
+            case Nothing:
+                break
+        print(y)?
+        y = next(p)
+    print(xs)?
+    Ok(())
+"#
+        ),
+        "Option[&mut i64].Some(5)\nOption[&mut i64].Some(5)\nOption[&mut i64].Some(9)\n[5, 9]\n",
+    );
+}
+
 #[test]
 fn next_rejects_immutable_consumed_and_nested_reference_pipelines() {
     let immutable = support::check_error(
