@@ -45,6 +45,7 @@ process with permission to rename entries in the same tree.
 | `open_dir(&name)` | New independently owned Root; final symlink refused |
 | `read_file(&name)` | Read-only `std.io.FileStream`; regular files only |
 | `create_dir(&name, unix_mode=0o700u32)` | Exclusive directory creation; mode restricted by umask |
+| `create_dirs(&path, unix_mode=0o700u32)` | Open or create each component of a relative path; returns the last as a Root |
 | `create_file(&name, unix_mode=0o600u32)` | Exclusive regular-file creation; owned read/write `FileStream`, mode restricted by umask |
 | `set_unix_mode(unix_mode)` | Change ordinary permission bits on this held directory |
 | `remove_file(&name)` | Unlink one non-directory, including a symlink itself |
@@ -88,7 +89,7 @@ successful creation remains named after close, drop or a later write failure.
 Use [anonymous staging](temporary.md) when partial contents must stay unnamed.
 
 `create_dir` returns `Result[(), IoError]` and creates only the named directory,
-not its parents. Existing directories and symlinks fail too. Open the result
+not its parents; [`create_dirs`](#creating-a-directory-tree) creates a path. Existing directories and symlinks fail too. Open the result
 with `open_dir` when a held directory handle is needed. Creation and this
 subsequent open are not atomic; the parent must be trusted against concurrent
 entry replacement, as for the other rooted helpers.
@@ -119,3 +120,58 @@ the same 64-bit Linux scope as the rooted helpers; unsupported hosts return
 `IoError.Unsupported`. Native code is limited to descriptor creation and
 `fchmod`, because these operations require OS syscalls; mode validation and
 public policy remain Plenty code.
+
+## Creating a directory tree
+
+`Root.create_dirs(&path, unix_mode=0o700u32) -> Result[Root, IoError]` makes
+sure every component of a relative path exists as a directory below this root.
+It returns the last one as an owned `Root`, so the caller can create entries
+in it without reopening a pathname.
+
+```plenty
+import std.fs as fs
+import std.path as path
+
+def main() -> Result[(), AllocError | IoError]:
+    parent = fs.root(&path.from_text(".")?)?
+    state = parent.create_dirs(&path.from_text("app/state/cache")?)?
+    state.create_dir(&path.from_text("2024")?)?
+    # Existing directories are accepted, so repeating the call succeeds.
+    drop(parent.create_dirs(&path.from_text("app/state/cache")?)?)
+    print(state.open_dir(&path.from_text("2024")?).is_ok())?
+    Ok(())
+```
+```output
+True
+```
+
+The path is one or more child names separated by `/`. Repeated and trailing
+slashes are ignored. An empty or absolute path, or any `.` or `..` component,
+returns `IoError.InvalidInput` before anything is created. To start elsewhere,
+open that directory with `fs.root` or `open_dir`.
+
+Each component is visited in order, holding one directory at a time:
+
+- An existing directory is opened and used. Its mode is not changed.
+- A missing component is created with `unix_mode`, through the same `mkdirat`
+  as `create_dir`, and then opened. Every directory the call creates gets the
+  mode, subject to umask and default ACLs as described in
+  [private creation](#private-creation-and-permission-changes).
+- A symlink is never followed, even to a directory inside the root. A symlink,
+  file or other non-directory component fails with the native open error,
+  `ENOTDIR` on Linux (`IoError.System(20)`).
+- If another process creates the component between the open and `mkdirat`,
+  the call opens that directory instead. Its mode is whatever its creator chose.
+
+Creation is not atomic and is not rolled back. On failure, directories that
+were already created remain, and the call returns the first error. Repeating the
+call after fixing the cause continues from what exists. A process that can
+rename entries in the tree can still swap a component between creation and
+open; the open then refuses a symlink or non-directory, but accepts any
+directory it finds.
+
+Work and temporary storage are proportional to the path length. Besides the
+receiver, at most two descriptors are open at once: the current directory and
+its child. Allocation failure returns
+`IoError.Data(DataError.Allocation(...))`. Use `create_dir` when the final
+directory must not already exist.

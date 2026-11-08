@@ -67,6 +67,17 @@ pub class Root:
         valid_unix_mode(unix_mode)?
         __fs_make_dir(self._handle, name.as_bytes(), unix_mode)
 
+    # Every component is opened like open_dir, so a symlink or non-directory
+    # stops the walk instead of redirecting it outside this root.
+    pub def create_dirs(self, path: &Path, unix_mode: u32 = 0o700u32) -> Result[Root, IoError]:
+        valid_unix_mode(unix_mode)?
+        # Validate the whole path before creating anything.
+        names = relative_names(path.as_bytes())?
+        mut current = open_or_create_dir(self, &names[0], unix_mode)?
+        for index in range(1, len(names)):
+            current = open_or_create_dir(&current, &names[index], unix_mode)?
+        Ok(current)
+
     pub def create_file(self, name: &Path, unix_mode: u32 = 0o600u32) -> Result[FileStream, IoError]:
         valid_unix_mode(unix_mode)?
         Ok(FileStream(__fs_create_file(self._handle, name.as_bytes(), unix_mode)?))
@@ -89,6 +100,59 @@ pub class Root:
 
     def duplicate(self) -> Result[Root, IoError]:
         Ok(Root(__fs_duplicate_root(self._handle)?))
+
+def io_alloc[T](result: Result[T, AllocError]) -> Result[T, IoError]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            Err(IoError.Data(DataError.Allocation(error)))
+
+# Slash-separated child names; repeated and trailing slashes separate nothing.
+# Absolute paths, NUL, `.` and `..` are rejected rather than resolved, so the walk
+# never leaves the root and never depends on lexical normalization.
+def relative_names(bytes: &list[u8]) -> Result[list[Path], IoError]:
+    if len(bytes) == 0 or bytes[0] == 47u8:
+        return Err(IoError.InvalidInput)
+    mut names = io_alloc(list[Path]())?
+    mut name = io_alloc(list[u8]())?
+    for byte in bytes:
+        if byte == 0u8:
+            return Err(IoError.InvalidInput)
+        if byte != 47u8:
+            io_alloc(name.append(*byte))?
+        elif len(name) > 0:
+            push_name(&mut names, name)?
+            name = io_alloc(list[u8]())?
+    if len(name) > 0:
+        push_name(&mut names, name)?
+    Ok(names)
+
+def push_name(names: &mut list[Path], name: list[u8]) -> Result[(), IoError]:
+    dots = len(name) == 1 or (len(name) == 2 and name[1] == 46u8)
+    if dots and name[0] == 46u8:
+        return Err(IoError.InvalidInput)
+    io_alloc(names.append(from_bytes(name)))
+
+# Open first: an existing directory needs no write permission on its parent.
+# EEXIST after ENOENT is a concurrent creator; the reopen then decides whether
+# what it made is a directory.
+def open_or_create_dir(parent: &Root, name: &Path, unix_mode: u32) -> Result[Root, IoError]:
+    match parent.open_dir(name):
+        case Ok(child):
+            return Ok(child)
+        case Err(IoError.System(2i32)):
+            pass
+        case Err(error):
+            return Err(error)
+    match __fs_make_dir(parent._handle, name.as_bytes(), unix_mode):
+        case Ok(_):
+            pass
+        case Err(IoError.System(17i32)):
+            pass
+        case Err(error):
+            return Err(error)
+    parent.open_dir(name)
 
 # Only ordinary permission bits; no accidental file-type, set-ID or sticky bits.
 def valid_unix_mode(unix_mode: u32) -> Result[(), IoError]:
