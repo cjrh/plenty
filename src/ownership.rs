@@ -674,9 +674,21 @@ pub struct Loan {
 pub struct Assigned {
     /// The holder's declaration loan.
     pub holder: usize,
-    /// Whether the loan is the value of an `if` or `match` arm and the holder
-    /// is that expression's join loan.
-    pub arm: bool,
+    /// How the loan joined the holder.
+    pub kind: Joined,
+}
+
+/// How a loan joined the holder it is [`Assigned`] to.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Joined {
+    /// Assigned to a `mut` holder that started empty.
+    Assignment,
+    /// The value of an `if` or `match` arm; the holder is that expression's
+    /// join loan, and each arm ends the others' loans.
+    Arm,
+    /// The payload or the default of `unwrap_or`; the holder is its result's
+    /// join loan.
+    Fallback,
 }
 /// Live loan ids, sorted ascending: the order in which conflicts are tried.
 /// Liveness revisits every node until nothing changes, so a set is rebuilt in
@@ -2711,10 +2723,10 @@ impl Checker<'_, '_> {
                     {
                         error.notes.push((
                             at,
-                            if loan.holder.is_some_and(|assigned| assigned.arm) {
-                                format!("`{holder}` holds this arm's value: an `if` or `match` value keeps the value of every arm borrowed")
-                            } else {
-                                format!("`{holder}` started empty, so it keeps every value assigned to it borrowed; use a separate binding per value")
+                            match loan.holder.map(|assigned| assigned.kind) {
+                                Some(Joined::Arm) => format!("`{holder}` holds this arm's value: an `if` or `match` value keeps the value of every arm borrowed"),
+                                Some(Joined::Fallback) => format!("`{holder}` holds an `unwrap_or` result, which keeps both the payload and the default borrowed"),
+                                _ => format!("`{holder}` started empty, so it keeps every value assigned to it borrowed; use a separate binding per value"),
                             },
                         ));
                     }
@@ -2915,7 +2927,7 @@ fn loan_flow(ops: &[Op]) -> Option<LoanFlow<'_>> {
         .values()
         .filter_map(|l| {
             l.holder
-                .filter(|assigned| assigned.arm)
+                .filter(|assigned| assigned.kind == Joined::Arm)
                 .map(|assigned| (l.id, assigned.holder))
         })
         .collect();

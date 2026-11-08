@@ -526,9 +526,10 @@ enum Checked {
     Wildcard,
     Binding(String),
     Variant {
-        /// Contents of the boxes around the enum at this position, outermost
-        /// first: a variant pattern matches through them.
-        boxes: Vec<Ty>,
+        /// The boxes and payload reference around the enum at this position,
+        /// outermost first, as [`Step::Unbox`] and [`Step::Deref`]: a
+        /// variant pattern matches through them.
+        boxes: Vec<Step>,
         t: Nominal<EnumType>,
         tag: usize,
         fields: Vec<Checked>,
@@ -537,7 +538,7 @@ enum Checked {
     Or(Vec<(Token, Checked)>),
     Literal {
         /// As for a variant: a literal matches through the boxes around it.
-        boxes: Vec<Ty>,
+        boxes: Vec<Step>,
         ty: Ty,
         value: Constant,
     },
@@ -545,7 +546,7 @@ enum Checked {
     /// so only its subpatterns test anything.
     Class {
         at: Token,
-        boxes: Vec<Ty>,
+        boxes: Vec<Step>,
         t: Nominal<ClassType>,
         fields: Vec<Checked>,
     },
@@ -628,6 +629,7 @@ impl Checked {
     /// `__del__`, which a consuming match cannot take apart.
     fn destructed(&self) -> Option<(&Token, &Nominal<ClassType>)> {
         match self {
+            _ if dereferences(self) => None,
             Checked::Wildcard
             | Checked::Binding(_)
             | Checked::Residual { .. }
@@ -759,7 +761,7 @@ impl Checked {
                 fields,
             } => {
                 let start = prefix.len();
-                prefix.extend(boxes.iter().cloned().map(Step::Unbox));
+                prefix.extend(boxes.iter().cloned());
                 for (field, pattern) in fields.iter().enumerate() {
                     prefix.push(Step::Field(t.clone(), *tag, field));
                     pattern.paths(prefix, out);
@@ -771,7 +773,7 @@ impl Checked {
                 boxes, t, fields, ..
             } => {
                 let start = prefix.len();
-                prefix.extend(boxes.iter().cloned().map(Step::Unbox));
+                prefix.extend(boxes.iter().cloned());
                 for (field, pattern) in fields.iter().enumerate() {
                     prefix.push(Step::ClassField(t.clone(), field));
                     pattern.paths(prefix, out);
@@ -816,9 +818,14 @@ enum Step {
     Field(Nominal<EnumType>, usize, usize),
     ClassField(Nominal<ClassType>, usize),
     Unbox(Ty),
+    /// Through the reference, of this `Ty::Ref` type, that a payload of a
+    /// reference-carrying value holds: a pattern below it matches the
+    /// referent, and its bindings borrow it.
+    Deref(Ty),
 }
 
-fn project(steps: &[Step], mutable: bool, ops: &mut Vec<Op>) {
+/// Returns whether the projected place is writable.
+fn project(steps: &[Step], mut mutable: bool, ops: &mut Vec<Op>) -> bool {
     for step in steps {
         ops.push(match step {
             Step::Field(t, tag, field) => {
@@ -826,8 +833,24 @@ fn project(steps: &[Step], mutable: bool, ops: &mut Vec<Op>) {
             }
             Step::ClassField(t, field) => Op::Class(ClassOp::FieldRef(t.clone(), *field, mutable)),
             Step::Unbox(content) => Op::Box(BoxOp::Ref(content.clone(), mutable)),
+            Step::Deref(reference) => {
+                // Below the payload reference, places are as writable as it.
+                mutable = matches!(reference, Ty::Ref(_, true));
+                Op::ReadRef(reference.clone())
+            }
         });
     }
+    mutable
+}
+
+/// Whether a pattern matches through a payload reference, so its bindings
+/// borrow the referent instead of moving out of the matched value.
+fn dereferences(pattern: &Checked) -> bool {
+    matches!(
+        pattern,
+        Checked::Variant { boxes, .. } | Checked::Class { boxes, .. } | Checked::Literal { boxes, .. }
+            if matches!(boxes.first(), Some(Step::Deref(_)))
+    )
 }
 
 struct Row<'a> {
@@ -1002,7 +1025,7 @@ impl<'a> Compiler<'a> {
             }
         }
         let mut steps = occurrences[column].clone();
-        steps.extend(boxes.iter().cloned().map(Step::Unbox));
+        steps.extend(boxes.iter().cloned());
         let mut missing = Vec::new();
         let mut branches = Vec::new();
         for (tag, named) in &groups {
@@ -1099,7 +1122,7 @@ impl<'a> Compiler<'a> {
         rows: Vec<Row<'a>>,
         occurrences: &[Vec<Step>],
         column: usize,
-        boxes: &[Ty],
+        boxes: &[Step],
         t: &Nominal<ClassType>,
     ) -> (Tree, Vec<Vec<String>>) {
         let arity = t.get().fields.len();
@@ -1120,7 +1143,7 @@ impl<'a> Compiler<'a> {
             })
             .collect();
         let mut steps = occurrences[column].clone();
-        steps.extend(boxes.iter().cloned().map(Step::Unbox));
+        steps.extend(boxes.iter().cloned());
         let mut inner = occurrences[..column].to_vec();
         inner.extend((0..arity).map(|field| {
             let mut steps = steps.clone();
@@ -1147,11 +1170,11 @@ impl<'a> Compiler<'a> {
         rows: Vec<Row<'a>>,
         occurrences: &[Vec<Step>],
         column: usize,
-        boxes: &[Ty],
+        boxes: &[Step],
         ty: &Ty,
     ) -> (Tree, Vec<Vec<String>>) {
         let mut steps = occurrences[column].clone();
-        steps.extend(boxes.iter().cloned().map(Step::Unbox));
+        steps.extend(boxes.iter().cloned());
         let mut outer = occurrences.to_vec();
         outer.remove(column);
 
@@ -1285,10 +1308,18 @@ impl Lower<'_> {
         root: bool,
         bound: &mut Vec<(String, Ty)>,
     ) -> Result<Checked> {
+        if let Ty::Ref(referent, mutable) = ty
+            && !matches!(
+                pattern.kind,
+                PatKind::Binding(_) | PatKind::Wildcard | PatKind::Or(_)
+            )
+        {
+            return self.check_through_reference(pattern, ty, referent, *mutable, root, bound);
+        }
         let mut boxes = Vec::new();
         let mut content = ty;
         while let Ty::Box(inner) = content {
-            boxes.push((**inner).clone());
+            boxes.push(Step::Unbox((**inner).clone()));
             content = inner;
         }
         match &pattern.kind {
@@ -1586,6 +1617,38 @@ impl Lower<'_> {
     /// `case name: B | C:`, which `match_patterns` checks against the members
     /// earlier cases leave. See
     /// book/src/design/language/03-types/anonymous-sums.md#residual-members.
+    /// A pattern that tests the referent of a payload reference of type
+    /// `reference`, as in `case Some(Some(v))` on `Option[&Option[i64]]`. Its
+    /// bindings borrow the referent, as a match on a reference binds them.
+    fn check_through_reference(
+        &self,
+        pattern: &Pat,
+        reference: &Ty,
+        referent: &Ty,
+        mutable: bool,
+        root: bool,
+        bound: &mut Vec<(String, Ty)>,
+    ) -> Result<Checked> {
+        let start = bound.len();
+        let mut checked = self.check_pattern(pattern, referent, root, bound)?;
+        for (_, ty) in &mut bound[start..] {
+            *ty = Ty::Ref(Arc::new(ty.clone()), mutable);
+        }
+        match &mut checked {
+            Checked::Variant { boxes, .. }
+            | Checked::Class { boxes, .. }
+            | Checked::Literal { boxes, .. } => boxes.insert(0, Step::Deref(reference.clone())),
+            Checked::Residual { .. } => {
+                return Err(pattern.at.error(
+                    "a residual member pattern cannot match through a payload reference; bind the reference and match it",
+                ));
+            }
+            // A member pattern naming the referent's type binds the reference.
+            Checked::Binding(_) | Checked::Wildcard | Checked::Or(_) => {}
+        }
+        Ok(checked)
+    }
+
     fn check_residual(
         &self,
         pattern: &Pat,
@@ -1637,7 +1700,7 @@ impl Lower<'_> {
         let mut boxes = Vec::new();
         let mut content = ty;
         while let Ty::Box(inner) = content {
-            boxes.push((**inner).clone());
+            boxes.push(Step::Unbox((**inner).clone()));
             content = inner;
         }
         let name = owner.name.as_deref().unwrap_or_default();
@@ -2122,7 +2185,7 @@ impl Lower<'_> {
         if let Some((loan, mutable)) = subject.borrowed {
             ops.push(Op::LoadLocal(subject.source));
             ops.push(Op::Access(self.loans[loan].root, false, Some(loan)));
-            project(steps, mutable, ops);
+            let mutable = project(steps, mutable, ops);
             ops.push(Op::Enum(EnumOp::TagRef(t.clone(), mutable)));
             ops.push(Op::UseLoan(loan));
         } else if steps.is_empty() {
@@ -2132,8 +2195,8 @@ impl Lower<'_> {
             // The reference is consumed by the tag read, so nothing can observe
             // the hidden slot through it and no loan is recorded.
             ops.push(Op::BorrowLocal(subject.source, false));
-            project(steps, false, ops);
-            ops.push(Op::Enum(EnumOp::TagRef(t.clone(), false)));
+            let mutable = project(steps, false, ops);
+            ops.push(Op::Enum(EnumOp::TagRef(t.clone(), mutable)));
         }
     }
 
@@ -2273,10 +2336,15 @@ impl Lower<'_> {
                 // alternatives it covers the part of the path they share.
                 if self.loans[loan].precise {
                     let fields = |row: usize| {
-                        path(row, name).iter().filter_map(|step| match step {
-                            Step::Field(_, _, field) | Step::ClassField(_, field) => Some(*field),
-                            Step::Unbox(_) => None,
-                        })
+                        path(row, name)
+                            .iter()
+                            .take_while(|step| !matches!(step, Step::Deref(_)))
+                            .filter_map(|step| match step {
+                                Step::Field(_, _, field) | Step::ClassField(_, field) => {
+                                    Some(*field)
+                                }
+                                Step::Unbox(_) | Step::Deref(_) => None,
+                            })
                     };
                     let mut shared: Vec<usize> = fields(0).collect();
                     for row in 1..alternatives.len() {
@@ -2307,18 +2375,28 @@ impl Lower<'_> {
                 }
             }
         } else if single {
+            borrowed_through(&alternatives[0], subject.source, slots, body);
             owned_root(&alternatives[0], subject.source, slots, true, body);
         } else if !bound.is_empty() {
             for pattern in alternatives {
                 let mut fill = Vec::new();
+                borrowed_through(pattern, subject.source, slots, &mut fill);
                 owned_root(pattern, subject.source, slots, false, &mut fill);
                 fills.push(fill);
             }
         }
         if let Some(parent) = subject.carried {
+            // The bindings that carry the loan are the payload reference or
+            // distinct leaves below it, so they never overlap. One loan
+            // covers them all: a loan relative to the referent has no
+            // field path in the origin's root, so separate exclusive loans
+            // would conflict with each other.
+            let mut shared = None;
             for (name, ty) in bound.iter().filter(|(_, ty)| ty.carries_loan()) {
-                let root = self.loans[parent].root;
-                let loan = self.new_loan(root, ty.carries_mutable_loan(), Some(parent), body);
+                let loan = *shared.get_or_insert_with(|| {
+                    let root = self.loans[parent].root;
+                    self.new_loan(root, ty.carries_mutable_loan(), Some(parent), body)
+                });
                 self.reference_locals.insert(slots[name.as_str()], loan);
             }
         }
@@ -2359,6 +2437,20 @@ fn numbered(bodies: Vec<Vec<Op>>) -> Arc<[MatchArm]> {
             body: body.into(),
         })
         .collect()
+}
+
+/// Bind each name below a payload reference in an owned matched value to a
+/// reference into the referent, before [`owned_root`] moves the value.
+fn borrowed_through(pattern: &Checked, source: u8, slots: &HashMap<&str, u8>, ops: &mut Vec<Op>) {
+    let mut paths = Vec::new();
+    pattern.paths(&mut Vec::new(), &mut paths);
+    for (name, steps) in paths {
+        if steps.iter().any(|step| matches!(step, Step::Deref(_))) {
+            ops.push(Op::BorrowLocal(source, false));
+            project(&steps, false, ops);
+            ops.push(Op::StoreLocal(slots[name]));
+        }
+    }
 }
 
 /// Move the matched value out of its slot into the bindings. A consuming match
@@ -2411,6 +2503,8 @@ fn owned_root(
 /// Consume the value on top of the operand stack.
 fn owned(pattern: &Checked, slots: &HashMap<&str, u8>, ops: &mut Vec<Op>) {
     match pattern {
+        // The payload is a reference; `borrowed_through` binds below it.
+        _ if dereferences(pattern) => ops.push(Op::Drop),
         Checked::Binding(name) => ops.push(Op::StoreLocal(slots[name.as_str()])),
         Checked::Variant { .. } if pattern.binds() => owned_variant(pattern, slots, ops),
         Checked::Class { .. } if pattern.binds() => owned_class(pattern, slots, ops),
@@ -2428,7 +2522,10 @@ fn owned_variant(pattern: &Checked, slots: &HashMap<&str, u8>, ops: &mut Vec<Op>
     else {
         unreachable!()
     };
-    for content in boxes {
+    for step in boxes {
+        let Step::Unbox(content) = step else {
+            unreachable!("`owned` binds below a payload reference by borrowing")
+        };
         ops.push(Op::Box(BoxOp::Take(content.clone())));
     }
     if let [field] = fields.as_slice() {
@@ -2456,7 +2553,10 @@ fn owned_class(pattern: &Checked, slots: &HashMap<&str, u8>, ops: &mut Vec<Op>) 
     else {
         unreachable!()
     };
-    for content in boxes {
+    for step in boxes {
+        let Step::Unbox(content) = step else {
+            unreachable!("`owned` binds below a payload reference by borrowing")
+        };
         ops.push(Op::Box(BoxOp::Take(content.clone())));
     }
     if let [field] = fields.as_slice() {
