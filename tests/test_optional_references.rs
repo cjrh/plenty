@@ -413,6 +413,48 @@ def escape(words: &list[str]) -> Option[&str]:
 "#,
         "returned reference must originate from the first reference parameter",
     );
+    // The empty holder's loan precedes the real borrow in these returned
+    // values, so the real borrow must still be the origin that is checked.
+    rejects(
+        r#"
+def escape(words: &list[str]) -> Option[&str]:
+    local = "x"
+    s = &local
+    o: Option[&str] = Nothing
+    drop(o)
+    Some(s)
+"#,
+        "returned reference must originate from the first reference parameter",
+    );
+    rejects(
+        r#"
+def h(text: &str, flag: bool) -> &str:
+    text
+def escape(words: &list[str]) -> &str:
+    local = "x"
+    o: Option[&str] = Nothing
+    h(&local, o.is_none())
+"#,
+        "returned reference must originate from the first reference parameter",
+    );
+    // A conflict on the hidden referent names the empty holder.
+    rejects(
+        r#"
+o: Option[&mut i64] = Nothing
+q = o
+match o:
+    case Some(v):
+        *v = 2
+    case Nothing:
+        pass
+match q:
+    case Some(w):
+        *w = 3
+    case Nothing:
+        pass
+"#,
+        "cannot modify or exclusively borrow `o` (through `o`)",
+    );
     rejects(
         "o = Nothing\ndrop(o)\n",
         "cannot infer `Nothing`; provide an Option annotation",

@@ -3621,7 +3621,11 @@ impl Lower<'_> {
                         && !references::loan_free(e)
                     {
                         let loan = self.check_return_reference(e, ops)?;
-                        ops.push(Op::UseLoan(loan));
+                        // A value from an empty holder borrows nothing past
+                        // the frame, as in a `return` statement.
+                        if !self.absent_loan(loan) {
+                            ops.push(Op::UseLoan(loan));
+                        }
                     }
                     if last && self.yield_type.is_none() {
                         self.refine_return(ty.clone(), &e.at)?;
@@ -3862,6 +3866,11 @@ impl Lower<'_> {
                         if let Some(origin) = origin {
                             self.check_stored_reference(origin, &value.at)?;
                             self.bind_reference(slot, origin, *mutable, ops);
+                            if self.absent_loan(origin) && self.loans[origin].parent.is_none() {
+                                // Conflicts on the hidden referent name the
+                                // holder rather than a temporary value.
+                                self.name_slot(self.loans[origin].root, name);
+                            }
                         }
                         slot
                     };

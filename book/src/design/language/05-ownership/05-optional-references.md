@@ -73,10 +73,11 @@ Copying it shares that loan.
 A holder initialized with a value that holds no reference, such as
 `Nothing`, `Err(e)`, or `Some(Nothing)`, borrows nothing. Give it a type
 annotation, since `Nothing` alone does not name the payload type. Its origin
-stays free to change while the holder is live, and the function may return it
-whatever its origin. Matching, predicates, `?`, `unwrap()`, printing and
+stays free to change while the holder is live, and any function with a
+reference-carrying result may return it. Matching, predicates, `?`, `unwrap()`, printing and
 copying work as for any holder; a payload reference taken from it can never
-exist at run time.
+exist at run time. Each such holder uses one extra hidden local slot, which
+counts toward the limit of 256 parameter and local slots per function.
 
 ```plenty
 def first_long(words: &mut list[str], limit: i64) -> Option[&str]:
