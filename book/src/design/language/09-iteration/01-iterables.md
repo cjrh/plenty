@@ -53,8 +53,9 @@ yield `&u8` or `&mut u8` into it. Comparisons and printing observe references un
 dereference explicitly when passing an element to a function that takes a value
 or storing it in a new collection. Other arithmetic observes numeric references
 as well.
-Borrowed generators cannot be loop sources; advance one with `next(&mut g)`
-instead. Use `for item in copy(values)?` for an explicit independent snapshot
+`for value in &mut g` [lends a generator](03-generators.md#lending-a-generator):
+it advances the owner in place and keeps its remaining progress after `break`.
+A shared generator reference cannot be a loop source. Use `for item in copy(values)?` for an explicit independent snapshot
 when the original must be mutated during iteration.
 
 `for key, value in dictionary.items():` borrows a named dictionary or field

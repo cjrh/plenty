@@ -481,6 +481,18 @@ spelling remains a compatible alias. Ordinary `&str` references, generic `&T`
 and the two-word view layout keep their existing semantics. See
 [substring views](../design/language/04-expressions/slices.md#substring-views).
 
+`for value in &mut g` and `for value in g` through a `&mut Generator[T]`
+parameter advance a lent generator in place (issue #872, slice 1). Items are
+owned; `break`, `return` and `?` leave the remaining items with the owner,
+which drops the suspended frame at its own scope end. Comprehensions and
+`enumerate` accept the lent source. The loop holds the exclusive loan, so
+advancing the generator again in the body is a borrow error, and the loan
+cannot cross `yield`. The [generator reference](../design/language/09-iteration/03-generators.md#lending-a-generator)
+adds a capability matrix of where item types suffice and where producer
+identity must match; mismatched producers now name the frame identity in the
+diagnostic. Joining different producers and borrowed-item pipeline `next`
+remain under B12.
+
 Text-file iteration, uniform borrowed iteration and borrowed temporary source
 lifetimes shipped (issues #30/#75). Allocation-free enumerate/zip/reversed
 sources and boolean reductions (issue #35) now compose through B75 pipelines;
