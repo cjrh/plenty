@@ -92,12 +92,23 @@ ordinary retain of a loaded owner. Construction rejects contents that reach an
 executor or future, or that reach the same `Shared[T]` through a `Mutex` or a
 channel endpoint.
 
-Locking follows mutex 2 of Drepper's "Futexes Are Tricky": state 0 is
-unlocked, 1 locked, and 2 locked with possible waiters. Lock is an inline
-`atomic_cas` from 0 to 1. On failure, `plenty_mutex_lock_slow` exchanges in 2
-and, until the exchange returns 0, sleeps with `FUTEX_WAIT_PRIVATE` on value 2;
-`EINTR` and `EAGAIN` retry the exchange. Unlock is an inline `atomic_rmw`
-exchange to 0, and calls `plenty_mutex_wake` (`FUTEX_WAKE_PRIVATE` of one
-waiter) only when it replaced 2. The runtime issues the `futex` system call
-directly. Nothing allocates; a held lock is never abandoned by unwinding,
+Locking follows mutex 2 of Drepper's "Futexes Are Tricky" in the state word's
+low two bits: 0 is unlocked, 1 locked, and 2 locked with possible waiters. Bit
+2 (4) records `lock_when` waiters, which sleep on a separate sequence word.
+Lock is an inline `atomic_cas` from 0 to 1. On failure,
+`plenty_mutex_lock_slow` compare-exchanges the lock bits to 2, keeping bit 2,
+and sleeps with `FUTEX_WAIT_PRIVATE` until it finds them 0; `EINTR` and
+`EAGAIN` retry. Unlock is an inline `atomic_rmw` exchange to 0, and calls
+`plenty_mutex_release` only when it replaced a value above 1: lock bits 2 wake
+one lock waiter (`FUTEX_WAKE_PRIVATE`), and bit 2 increments the sequence word
+and wakes all of its sleepers. `lock_now()` calls `plenty_mutex_try_lock` only
+when its compare-exchange found 4, an unlocked word with condition waiters.
+`plenty_mutex_wait`, one `lock_when` round, returns at once if the monotonic
+deadline has passed; otherwise it reads the sequence word, exchanges the state
+to 4 (waking a lock waiter if the lock bits were 2), sleeps on the sequence
+word for at most 10 ms, and relocks with the slow path. Reading the sequence
+under the lock means an unlock between the release and the sleep changes the
+word first, so no wake is lost. The runtime issues the `futex` system call
+directly; Apple targets use one shared pthread condition variable, and Windows
+`WaitOnAddress`. Nothing allocates; a held lock is never abandoned by unwinding,
 because traps terminate the process.

@@ -113,25 +113,30 @@ An arithmetic failure unlocks the mutex on exit, retaining earlier mutations.
 | `Mutex[T](value)`, `Mutex(value)` | `Mutex[T]` | Store `value` unlocked, inline |
 | `with mutex.lock() as value:` | binds `value: &mut T` | Wait for the lock, hold it for the block |
 | `with mutex.lock_now()? as value:` | binds `value: &mut T`, or propagates `Err(LockError.WouldBlock)` | Take the lock only if it is free, hold it for the block |
+| `with mutex.lock_when(ready, &deadline, &cancel)? as value:` | binds `value: &mut T`, or propagates `Err(LockError.TimedOut)` or `Err(LockError.Cancelled)` | Take the lock, wait until `ready(value)` holds, hold it for the block |
 | `mutex.into_inner()` | `T` | Consume an owned mutex and return its value |
 
 `T` is any type a generic class field can hold: no references, generators, or
 borrowed environments. A mutex is affine, with no copy, equality, or
-formatting. It is stored inline (a 32-bit state word beside `T`); construction,
-locking, and unlocking allocate nothing. An uncontended lock and unlock are
+formatting. It is stored inline (32-bit state and sequence words beside `T`);
+construction, locking, waiting, and unlocking allocate nothing. An uncontended lock and unlock are
 inline atomic instructions; a contended one waits in the kernel.
 
-`lock()` is valid only as a `with` manager, and `lock_now()` only as a
-propagated one. Both borrow the mutex shared, so no `mut` is needed, and every
-exit from the block unlocks. `lock_now()` never waits and allocates nothing; a
-failure leaves the lock to its holder. See
+`lock()` is valid only as a `with` manager, and `lock_now()` and `lock_when()`
+only as propagated ones. All borrow the mutex shared, so no `mut` is needed,
+and every exit from the block unlocks. `lock_now()` never waits and allocates
+nothing; a failure leaves the lock to its holder. See
 [locking without waiting](../facilities/03-concurrency/mutex.md#locking-without-waiting).
-There is no timed or cancellable lock wait, poisoning, reentrant locking, or
-fairness guarantee.
+`lock_when()` takes a predicate over `&T`, a `std.time.Deadline`, and a
+`CancellationToken`; every unlock after a change wakes its waiters, and the
+compiler rejects a predicate that can wait. See
+[waiting for a condition](../facilities/03-concurrency/mutex.md#waiting-for-a-condition).
+There is no deadline or cancellation for waiting on the lock itself, and no
+poisoning, reentrant locking, or fairness guarantee.
 
 `enum LockError: WouldBlock | TimedOut | Cancelled` reports a lock that was not
-acquired. Only `WouldBlock` is produced; `TimedOut` and `Cancelled` are for
-planned deadline and cancellable lock waits (backlog B56). The variants match
+acquired. `lock_now()` produces `WouldBlock`, and `lock_when()` produces
+`TimedOut` and `Cancelled`. The variants match
 [`std.fs.lock.LockError`](fs/lock.md); import one under an alias when a module
 uses both.
 `into_inner()` needs no lock: owning the mutex proves no other thread can hold
@@ -139,7 +144,8 @@ it.
 
 Atomic integers and booleans are in [`std.atomic`](atomic.md). The shared
 owner `Shared[T]` is a [prelude type](../facilities/01-builtins/shared.md).
-Semaphores, condition variables, and read-write locks are not exported.
+Semaphores, separate condition variables, and read-write locks are not
+exported; `lock_when()` is the condition wait.
 
 ## Acknowledgements
 

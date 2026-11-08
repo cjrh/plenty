@@ -145,6 +145,10 @@ busy
 other threads contend for these locks, compare the indices first and lock once
 when they are equal, or retry the transfer.
 
+To wait under a lock until another thread changes the value, use
+`lock_when` with a deadline; see
+[wait for a change under a mutex](deadlines.md#wait-for-a-change-under-a-mutex).
+
 The compiler cannot see a relock inside a called
 function, a join inside a function called while the lock is held, or two
 threads taking two locks in opposite orders. Keep lock blocks short and take
