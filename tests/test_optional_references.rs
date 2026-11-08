@@ -2168,3 +2168,41 @@ def main() -> Result[(), AllocError | IoError]:
          Option[&mut Item].Some(Item(name=\"ada\", count=6))\n",
     );
 }
+
+/// A copy of an exclusive holder reborrows it, so the original cannot be
+/// read while the copy is live (issue #901); shared copies coexist.
+#[test]
+fn an_exclusive_holder_copy_borrows_the_original() {
+    let error = check_error(&with_find(
+        "mut a = [Item(\"ada\", 1)].unwrap()\nx = find_mut(&mut a, \"ada\")\ny = x\nprint(x).unwrap()\nprint(y).unwrap()\n",
+    ));
+    for message in [
+        "cannot read `a` (through `x`) while it is exclusively borrowed",
+        "`y` copies `x` and shares its exclusive borrow, so `x` cannot be used while `y` is live; use `y` instead",
+    ] {
+        assert!(error.contains(message), "expected {message:?}, got {error}");
+    }
+    assert_stdout(
+        &format!(
+            "{FIND}{}",
+            r#"
+def main() -> Result[(), AllocError | IoError]:
+    a = [Item("ada", 1)]?
+    x = find(&a, "ada")
+    y = x
+    print(x)?
+    print(y)?
+    mut b = [Item("bob", 2)]?
+    p = find_mut(&mut b, "bob")
+    q = p
+    print(q)?
+    print(p)?
+    Ok(())
+"#
+        ),
+        "Option[&Item].Some(Item(name=\"ada\", count=1))\n\
+         Option[&Item].Some(Item(name=\"ada\", count=1))\n\
+         Option[&mut Item].Some(Item(name=\"bob\", count=2))\n\
+         Option[&mut Item].Some(Item(name=\"bob\", count=2))\n",
+    );
+}
