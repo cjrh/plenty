@@ -1,0 +1,43 @@
+# Issue #655: per-row instruction counts of today's clist filter/count paths.
+# run.py rewrites ROWS, REPS and KIND, then subtracts the counts of a
+# REPS = 1 build from a REPS = 101 build to cancel startup and construction.
+const ROWS: i64 = 1048576
+const REPS: i64 = 1
+const KIND: i64 = 0
+
+class Row:
+    wide: i32
+    mid: u16
+    narrow: u8
+
+def count_i32(rows: &clist[Row]) -> i64:
+    rows.column(Row.wide).filter(def(x: &i32) -> bool: *x > 127i32).count()
+
+def count_u16(rows: &clist[Row]) -> i64:
+    rows.column(Row.mid).filter(def(x: &u16) -> bool: *x > 127u16).count()
+
+def count_u8(rows: &clist[Row]) -> i64:
+    rows.column(Row.narrow).filter(def(x: &u8) -> bool: *x > 127u8).count()
+
+def count_once(rows: &clist[Row]) -> i64:
+    if KIND == 0:
+        count_i32(rows)
+    elif KIND == 1:
+        count_u16(rows)
+    else:
+        count_u8(rows)
+
+def main() -> Result[(), IoError | AllocError | AppendError[Row]]:
+    mut rows = clist[Row].with_capacity(ROWS)?
+    mut seed = 12345u32
+    for _ in range(ROWS):
+        seed = seed.wrapping_mul(1664525u32).wrapping_add(1013904223u32)
+        byte = u8(seed >> 24u32)
+        rows.append(Row(i32(byte), u16(byte), byte))?
+    mut total = 0
+    for _ in range(REPS):
+        # Each count is at most ROWS and REPS is small.
+        unchecked:
+            total += count_once(&rows)
+    print(total)?
+    Ok(())
