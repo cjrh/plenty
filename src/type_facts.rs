@@ -478,6 +478,7 @@ mod tests {
                 slots: OnceLock::new(),
                 layout: OnceLock::new(),
                 members: Vec::new(),
+                lends: false,
             })),
             Ty::Task(Arc::new(crate::threading::Task {
                 adapter: "adapter".into(),

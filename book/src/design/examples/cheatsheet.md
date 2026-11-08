@@ -602,7 +602,9 @@ with a loop or a terminal such as `fold(initial, callback)` or `count()`.
 Borrowed sources and callback captures stay borrowed until the pipeline is
 consumed. Generators expose the same fluent methods directly. An unfinished
 pipeline stays local; `.generator()` explicitly transfers owned sources and
-owned captures into one resumable frame that can be passed or returned. See
+owned captures into one resumable frame that can be passed or returned. A
+source borrowed through a `&T` or view parameter makes a frame that keeps that
+argument borrowed until its last use. See
 [local iterator pipelines](../language/09-iteration/06-pipelines.md).
 `enumerate` and `zip` produce pair items: mapping takes two parameters,
 predicates borrow both, and folds take the accumulator followed by the pair's

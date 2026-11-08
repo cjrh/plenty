@@ -535,7 +535,12 @@ impl Ty {
             self,
             Self::Ref(..) | Self::KeyView(_) | Self::DictView(..) | Self::View(..)
         ) || matches!(self, Self::Closure(t) if t.borrowed)
+            || self.lends_frame()
             || self.carried_reference().is_some()
+    }
+    /// Whether this is a generator whose frame borrows its caller's data.
+    pub fn lends_frame(&self) -> bool {
+        matches!(self, Self::Generator(t) if t.lends)
     }
     /// The `&T` or `&mut T` that a reference-carrying `Option` or `Result`
     /// holds in its success payload, directly or through further

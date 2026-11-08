@@ -1957,6 +1957,10 @@ impl Lower<'_> {
                 let hint = self.join_hint(&e.at);
                 let ty = self.expr_expected(yes, hint.clone(), &mut a)?;
                 let other = self.expr_expected(no, hint, &mut b)?;
+                let owned = (
+                    references::owned_frame(&ty),
+                    references::owned_frame(&other),
+                );
                 let ty = match self.join_conditional(&ty, &other, &mut a, &mut b) {
                     Some(joined) => Some(joined),
                     None => {
@@ -1966,7 +1970,7 @@ impl Lower<'_> {
                         ty
                     }
                 };
-                self.conditional_value(e, (yes, no), (a, b), ty, ops)?
+                self.conditional_value(e, (yes, no), owned, (a, b), ty, ops)?
             }
             Expression::Call(..)
             | Expression::Method(..)
@@ -3091,6 +3095,7 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<Vec<usize>> {
         let mut argument_loans = Vec::new();
+        let mut frames = Vec::new();
         for (arg, (_, expected)) in args.iter().zip(inputs) {
             if let Ty::View(_, mutable) = expected {
                 let text = *expected == text_view();
@@ -3120,9 +3125,15 @@ impl Lower<'_> {
             self.same(Some(ty), Some(expected.clone()), &arg.at)?;
             if expected.carried_reference().is_some() {
                 argument_loans.push(self.carried_argument(arg, expected, ops)?);
+            } else if expected.lends_frame() {
+                frames.extend(self.frame_argument(arg, ops));
             }
         }
-
+        // A borrowing generator passed by value keeps its loans until the
+        // call returns, as a reference argument does. They follow the
+        // reference loans, so a borrowed result still derives from the
+        // first reference argument.
+        argument_loans.extend(frames);
         Ok(argument_loans)
     }
     /// Name the future and pool slots that a call's arguments, `ops[start..]`,
@@ -3438,6 +3449,7 @@ impl Lower<'_> {
         // binding, to drop it before the join.
         let marker = self.returning(at, &returned);
         let ty = self.join_returned_frame(ty, &mut returned);
+        let lends_frame = ty.as_ref().is_some_and(Ty::lends_frame);
         self.refine_return(ty, at)?;
         let returned_loan = if self.return_origin.is_some() && !references::loan_free(e.unwrap()) {
             // A value from a started-empty holder names no real loan; the
@@ -3445,6 +3457,8 @@ impl Lower<'_> {
             // parameter, which cleanup cannot reach.
             Some(self.check_return_reference(e.unwrap(), &returned)?)
                 .filter(|loan| !self.absent_loan(*loan))
+        } else if lends_frame {
+            Some(self.check_returned_frame(e.unwrap(), &returned)?)
         } else {
             None
         };
@@ -3815,7 +3829,10 @@ impl Lower<'_> {
                         && !self.branch_joins.is_empty()
                         && ty.as_ref().is_some_and(references::BranchJoin::carries)
                     {
-                        self.branch_arm_value(e, ops)?;
+                        // An owned generator arm holds no loan to join.
+                        if !self.owned_frame_value(e) {
+                            self.branch_arm_value(e, ops)?;
+                        }
                     } else if matches!(tail, Tail::Value(_))
                         && ty.as_ref().is_some_and(Ty::contains_reference)
                     {
@@ -3829,18 +3846,13 @@ impl Lower<'_> {
                             "an `if` or `match` block used as a value cannot produce a view or a closure with borrowed captures; produce an owned value, or assign in each arm"
                         }));
                     }
-                    if last
-                        && self.return_origin.is_some()
-                        && ty.as_ref().is_some_and(Ty::carries_loan)
-                        && !references::loan_free(e)
-                    {
-                        let loan = self.check_return_reference(e, ops)?;
-                        // As in a `return` statement, a value from a
-                        // started-empty holder borrows only the origin
-                        // parameter, which outlives the frame.
-                        if !self.absent_loan(loan) {
-                            ops.push(Op::UseLoan(loan));
-                        }
+                    if last {
+                        self.use_returned_loan(
+                            e,
+                            ty.as_ref(),
+                            matches!(tail, Tail::Function),
+                            ops,
+                        )?;
                     }
                     let ty = if last && self.yield_type.is_none() {
                         self.join_returned_frame(ty, ops)
@@ -4074,6 +4086,7 @@ impl Lower<'_> {
                                 .at
                                 .error(format!("`{name}` is immutable; declare it with `mut`")));
                         }
+                        references::check_frame_reassignment(name, &local.ty, &ty, &stmt.at)?;
                         let ty = self.join_reassigned(local.slot, &local.ty, ty.clone(), ops);
                         self.same(Some(ty), Some(local.ty.clone()), &stmt.at)?;
                         if let Some(origin) = origin {
@@ -4938,9 +4951,15 @@ fn register_with_body(
     if generators::yields(body)
         && let Some(Ty::Generator(t)) = &output
     {
-        output = Some(crate::generator::ty(
+        // A frame holding a reference or view parameter borrows the caller's
+        // data; other borrowing parameters are rejected when the body lowers.
+        let lends = inputs
+            .iter()
+            .any(|(_, ty)| matches!(ty, Ty::Ref(..) | Ty::View(..)));
+        output = Some(crate::generator::producer(
             t.element.clone(),
             Some(f.name.clone()),
+            lends,
         ));
     }
     let outputs = output.into_iter().collect();
@@ -5196,6 +5215,17 @@ fn lower_body(
             // Parameter loans start at the function header.
             lower.mark(&f.at, &mut body);
             for (i, (name, ty)) in sig.inputs.iter().enumerate() {
+                // A generator frame keeps reference and view parameters, whose
+                // loans its caller holds while the frame lives (issue #899).
+                // A borrowing parameter of another kind, or a lent pipeline,
+                // has no loan the result could keep.
+                if yield_type.is_some()
+                    && (ty.lends_frame()
+                        || ty.carried_reference().is_some()
+                        || pipelines::lent_identity(ty).is_some())
+                {
+                    return Err(f.at.error("generators cannot capture references"));
+                }
                 let (root, mutable) = match ty {
                     Ty::Ref(_, mutable) | Ty::View(_, mutable) => (i as u8, *mutable),
                     ty if ty.carried_reference().is_some() => {
@@ -5210,9 +5240,6 @@ fn lower_body(
                     }
                     _ => continue,
                 };
-                if yield_type.is_some() {
-                    return Err(f.at.error("generators cannot capture references"));
-                }
                 let loan = lower.new_loan(root, mutable, None, &mut body);
                 lower.reference_locals.insert(i as u8, loan);
             }
