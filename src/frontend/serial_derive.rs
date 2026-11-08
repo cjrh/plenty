@@ -155,6 +155,56 @@ fn wire_names<'a>(
     Ok(wire)
 }
 
+/// Constructor error domains automatic decoding can map without a choice from
+/// the author. Validation uses the adapter's `reject`; allocation failure keeps
+/// its typed cause in the adapter's allocation domain. Any other spelling is
+/// generated as `Fault` here; `constructor_matches` then requires the
+/// specialized domain to be the one generated for. A type-parameter domain is
+/// generated before specialization, so it too decodes only as `Fault` (#914).
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum Domain {
+    Unit,
+    Fault,
+    Parameter,
+    Allocation,
+    Both,
+}
+
+impl Domain {
+    fn of(error: &TypeRef, parameters: &[(String, Option<TypeRef>)]) -> Self {
+        let is = |ty: &TypeRef, name: &str| ty.args.is_empty() && ty.name.as_deref() == Some(name);
+        if parameters.iter().any(|(name, _)| is(error, name)) {
+            Domain::Parameter
+        } else if is(error, "AllocError") {
+            Domain::Allocation
+        } else if error.name.as_deref() == Some("|")
+            && error.args.len() == 2
+            && error.args.iter().any(|t| is(t, "AllocError"))
+            && error.args.iter().any(|t| is(t, "std.serial.Fault"))
+        {
+            Domain::Both
+        } else {
+            Domain::Fault
+        }
+    }
+    fn spelling(self) -> &'static str {
+        match self {
+            Domain::Unit => unreachable!("an infallible initializer has no error domain"),
+            Domain::Fault | Domain::Parameter => "SER.Fault",
+            Domain::Allocation => "AllocError",
+            Domain::Both => "AllocError | SER.Fault",
+        }
+    }
+    fn bridge(self) -> &'static str {
+        match self {
+            Domain::Unit => unreachable!("an infallible initializer has no error domain"),
+            Domain::Fault | Domain::Parameter => "constructed",
+            Domain::Allocation => "allocated",
+            Domain::Both => "constructed_or_allocated",
+        }
+    }
+}
+
 pub(super) fn class(
     c: &mut classes::ClassDecl,
     resolve: &dyn Fn(&TypeRef) -> Result<TypeRef>,
@@ -213,21 +263,22 @@ pub(super) fn class(
     } else {
         (0..c.fields.len()).collect()
     };
-    let fallible = if let Some(init) = init {
+    let domain = if let Some(init) = init {
         let output = resolve(&init.output)?;
         if output.name.is_none() {
-            false
+            None
         } else if output.name.as_deref() == Some("Result")
             && output.args.len() == 2
             && output.args[0].name.is_none()
         {
-            true
+            Some(Domain::of(&output.args[1], &c.type_params))
         } else {
             return Ok(vec![]);
         }
     } else {
-        false
+        None
     };
+    let fallible = domain.is_some();
     let mut helpers = vec![];
     let mut default_calls = HashMap::default();
     if let Some(init) = init {
@@ -238,8 +289,8 @@ pub(super) fn class(
             let helper = format!("$serial_default_{}_{}", c.name, field);
             let placeholder = format!("default{field}");
             names.push((placeholder.clone(), helper.clone()));
-            let ret = if fallible {
-                format!("Result[FieldType{field}, SER.Fault]")
+            let ret = if let Some(domain) = domain {
+                format!("Result[FieldType{field}, {}]", domain.spelling())
             } else {
                 format!("FieldType{field}")
             };
@@ -321,7 +372,8 @@ pub(super) fn class(
         let name = &wire[i];
         let value = match default_calls.get(&i) {
             Some(call) if fallible => format!(
-                "SER.at(SER.constructed[FieldType{i}, ErrType, Adapter]({call}, source), SER.Step.Field({name:?}))?"
+                "SER.at(SER.{}[FieldType{i}, ErrType, Adapter]({call}, source), SER.Step.Field({name:?}))?",
+                domain.unwrap().bridge()
             ),
             Some(call) => call.clone(),
             None => format!(
@@ -331,10 +383,11 @@ pub(super) fn class(
         args.push(format!("field{i}={value}"));
     }
     let ctor = format!("OwnerType({})", args.join(", "));
-    if fallible {
+    if let Some(domain) = domain {
         writeln!(
             construction,
-            "    SER.constructed[OwnerType, ErrType, Adapter]({ctor}, source)"
+            "    SER.{}[OwnerType, ErrType, Adapter]({ctor}, source)",
+            domain.bridge()
         )
         .unwrap();
     } else {
@@ -373,7 +426,7 @@ pub(super) fn class(
         )
         .unwrap();
     }
-    c.derived_decode = true;
+    c.derived_decode = Some(domain.unwrap_or(Domain::Unit));
     let mut generated = hook(&source, &c.name, &c.type_params, &c.at, &names, &types)?;
     if !c.fields.is_empty() {
         let Statement::While { body, .. } = &mut generated.body[2].kind else {
@@ -550,6 +603,15 @@ pub(super) fn enumeration(e: &mut enums::EnumDecl) -> Result<()> {
     Ok(())
 }
 
+/// Whether `ty`'s derived decoding was generated for a type-parameter error
+/// domain, so a rejection can name the actual restriction.
+pub(super) fn parameter_domain(ty: &Ty, aliases: &TypeAliases) -> bool {
+    aliases
+        .data
+        .origin_class(ty)
+        .is_some_and(|(declaration, _)| declaration.derived_decode == Some(Domain::Parameter))
+}
+
 /// Constructor eligibility is semantic, after constants and generic nominal
 /// identities have been resolved. Declaration AST spelling is not type identity.
 pub(super) fn constructor_matches(ty: &Ty, aliases: &TypeAliases) -> Result<bool> {
@@ -559,9 +621,9 @@ pub(super) fn constructor_matches(ty: &Ty, aliases: &TypeAliases) -> Result<bool
     let Some((declaration, arguments)) = aliases.data.origin_class(ty) else {
         return Ok(true);
     };
-    if !declaration.derived_decode {
+    let Some(domain) = declaration.derived_decode else {
         return Ok(true);
-    }
+    };
     let Some(init) = declaration.methods.iter().find(|f| f.name == "__init__") else {
         return Ok(true);
     };
@@ -574,10 +636,22 @@ pub(super) fn constructor_matches(ty: &Ty, aliases: &TypeAliases) -> Result<bool
     let mut output = init.output.clone();
     generics::substitute(&mut output, &substitutions)?;
     if let Some(output) = output.resolve(aliases)? {
-        let fault = type_ref(&init.at, "std.serial.Fault").resolve(aliases)?;
+        let fault = type_ref(&init.at, "std.serial.Fault");
+        let allocation = type_ref(&init.at, "AllocError");
+        let expected = match domain {
+            Domain::Unit => return Ok(false),
+            Domain::Fault | Domain::Parameter => fault,
+            Domain::Allocation => allocation,
+            Domain::Both => {
+                let mut both = type_ref(&init.at, "|");
+                both.args = vec![allocation, fault];
+                both
+            }
+        };
+        let expected = expected.resolve(aliases)?;
         if !matches!(output, Ty::Enum(ref result) if result.is_result()
             && result.get().variants[0].fields == [Ty::Unit]
-            && Some(&result.get().variants[1].fields[0]) == fault.as_ref())
+            && Some(&result.get().variants[1].fields[0]) == expected.as_ref())
         {
             return Ok(false);
         }

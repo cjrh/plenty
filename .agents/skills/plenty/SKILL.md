@@ -75,8 +75,9 @@ write either hook for a custom schema. `@serial.name("wire")` on the line
 above a field or variant sets its encoded key or tag; the source name is then
 rejected on input. Constructor defaults apply only to
 absent fields; a missing optional field without a default becomes `Nothing`.
-Validated constructors returning `Fault` retain typed failures; other domain
-errors need a handwritten decoding hook. TOML omits null class fields and
+Constructors and defaults returning `Fault`, `AllocError` or
+`AllocError | Fault` retain typed failures; other domain errors need a
+handwritten decoding hook. TOML omits null class fields and
 rejects null dictionary values. Bytes use canonical padded base64; runtime
 decoding returns owning `Bytes`, not static `bytes` literals. Read the
 [codec contract](../../../book/src/design/stdlib/serial.md) and
