@@ -408,7 +408,7 @@ impl Lower<'_> {
             return Ok(());
         }
         if self.absent_loan(held) && !self.loans[held].precise {
-            return self.assign_holder(name, slot, held, origin, source, at, ops);
+            return self.assign_holder(name, slot, held, origin, at, ops);
         }
         if self.check_retargeted_reference(name, slot, origin, at)? {
             ops.push(Op::EndLoan(held));
@@ -422,10 +422,10 @@ impl Lower<'_> {
         slot: u8,
         held: usize,
         origin: usize,
-        source: Option<usize>,
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
+        let source = self.holder_of(origin);
         let holder = self.holders.entry(held).or_default();
         let (returned, first) = (holder.returned, holder.first);
         if returned {
