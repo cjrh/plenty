@@ -10,10 +10,9 @@ would add.
 separate read-only representation. On the SSE2 baseline the decode costs about
 as much per row as the native vector comparison it replaces. A narrower native
 field type gives a larger speedup and keeps every mutation contract. The
-follow-up is to extend the automatic counts to 8- and 16-bit columns
-(issue #904). Large wins on sorted or clustered data come from skipping blocks
-by their min/max, which needs no bitpacking and belongs with
-[chunk statistics](chunks.md).
+automatic counts now cover 8- and 16-bit columns (issue #904). Large wins on
+sorted or clustered data come from skipping blocks by their min/max, which needs
+no bitpacking and belongs with [chunk statistics](chunks.md).
 
 ## Method
 
@@ -176,7 +175,7 @@ because rows move across block boundaries.
   columns larger than cache with irregular ranges, together with wider vectors
   and runtime ISA selection ([B23](../../backlog.md)).
 - **Extend the automatic SIMD counts to 8- and 16-bit integer columns**
-  (issue #904). Choosing the narrowest field type already reduces memory as
+  (issue #904, done). Choosing the narrowest field type already reduces memory as
   much as 8- or 16-bit bitpacking; the vector count would make those columns
   the fastest to scan rather than the slowest.
 - **Block statistics, not packing, are the route to skipping.** Evaluate them

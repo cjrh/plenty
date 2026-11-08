@@ -129,8 +129,9 @@ compare these paths with the initial implementation.
 
 ## Automatic SIMD counts
 
-With the default optimized profile, a column of `i32` or `u32` followed by one `filter` and
-`count()` uses four-lane SIMD when the predicate compares its borrowed argument
+With the default optimized profile, an integer column of up to 32 bits (`i8`,
+`u8`, `i16`, `u16`, `i32` or `u32`) followed by one `filter` and `count()` uses
+SIMD when the predicate compares its borrowed argument
 against a constant or immutable by-value capture of the same type
 (`==`, `!=`, `<`, `<=`, `>`, `>=`). Either operand order is recognized. The
 predicate may also join two such comparisons with `and`, for example
@@ -143,9 +144,14 @@ The ordinary scalar program remains valid with `--fast-compile`.
 
 The compiler proves this small pattern from the checked operations; it requires
 no user annotation, temporary collection, allocation, aligned column start or
-lane-count bookkeeping. Full groups use unaligned-safe vector loads; the scalar
-loop handles the remaining zero to three rows. Counts use 64-bit accumulators,
-including for columns larger than a 32-bit lane counter could represent.
+lane-count bookkeeping. A 128-bit vector holds 16 rows of an 8-bit column, 8 of
+a 16-bit column or 4 of a 32-bit column, so narrower fields scan proportionally
+more rows per instruction. Full groups use unaligned-safe vector loads; the
+scalar loop handles the remaining rows, fewer than one vector. Unsigned columns
+use signed vector comparisons after flipping the sign bit of both operands.
+Lane counters are as wide as the column and are added into 64-bit totals before
+they can wrap (every 255 vectors for 8-bit lanes, 65,535 for 16-bit lanes), so
+counts are exact for any column length.
 The generated instructions use the existing x86-64 SSE2 baseline, so this slice
 needs neither a newer CPU nor runtime feature dispatch.
 

@@ -3,7 +3,8 @@
 `scan.plenty` compares the same `i32 > 5` operation with an eligible constant
 predicate and an explicit scalar column loop. `threshold.plenty` uses a runtime
 captured threshold, and `range.plenty` uses two runtime captured bounds joined
-by `and`. All use the production compiler and `--release`. The scalar reference
+by `and`. `narrow.plenty` counts a `u8` column, so the guard-page check covers
+16-row vectors. All use the production compiler and `--release`. The scalar reference
 has no per-row callback call, so it does not inflate gains with callback overhead.
 The original reports used a captured threshold to force scalar execution; that
 is now eligible for SIMD, so the current runner deliberately uses a loop instead.
@@ -14,6 +15,7 @@ python3 experiments/simd/clist/run.py target/release/plenty --out /tmp/clist-sim
 python3 experiments/simd/clist/run.py target/release/plenty --out /tmp/clist-simd
 python3 experiments/simd/clist/run.py target/release/plenty --scenario threshold --out /tmp/clist-threshold
 python3 experiments/simd/clist/run.py target/release/plenty --scenario range --out /tmp/clist-range
+python3 experiments/simd/clist/run.py target/release/plenty --scenario narrow --out /tmp/clist-narrow --verify-only
 ```
 
 Requires Linux x86-64, Python, a C compiler, GNU binutils and (for timings) `perf`

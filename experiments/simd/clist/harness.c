@@ -42,6 +42,13 @@ extern int64_t __plenty_fn_scalar_count(unsigned __int128, int32_t, int32_t);
 #define SCALAR_COUNT __plenty_fn_scalar_count
 #endif
 
+#ifdef SCAN_NARROW
+typedef uint8_t value_t;
+#else
+typedef int32_t value_t;
+#endif
+#define WIDTH sizeof(value_t)
+
 #ifdef SCAN_RANGE
 static const int32_t low = -1073741824, high = 1073741824;
 #else
@@ -60,10 +67,16 @@ static int64_t fill(unsigned char *owner, size_t length) {
     for (size_t i = 0; i < length; ++i) {
         // Mix sign and high bits without implementation-defined narrowing.
         uint32_t bits = (uint32_t)i * UINT32_C(2147483647);
+#ifdef SCAN_NARROW
+        value_t value = (value_t)bits;
+        expected += value > 127;
+#else
         int32_t value;
         memcpy(&value, &bits, 4);
-        memcpy(owner + 40 + i * 4, &value, 4);
-#ifdef SCAN_RANGE
+#endif
+        memcpy(owner + 40 + i * WIDTH, &value, WIDTH);
+#ifdef SCAN_NARROW
+#elif defined(SCAN_RANGE)
         expected += value >= low && value < high;
 #else
         expected += value > low;
@@ -86,15 +99,17 @@ static void guarded(void) {
     assert(mapping != MAP_FAILED);
     assert(mprotect(mapping + page, page, PROT_READ | PROT_WRITE) == 0);
     for (size_t n = 0; n <= 129; ++n) {
-        // Header needs eight-byte alignment. Odd lengths leave one scalar
-        // of poison before the guard; every full vector overread still traps
-        // except a three-row tail, whose poison would corrupt the count.
-        size_t padding = (n & 1) * 4;
-        unsigned char *owner = mapping + page * 2 - padding - n * 4 - 40;
+        // Header needs eight-byte alignment, so up to seven bytes of poison
+        // can precede the guard. A 16-byte overread past the last full vector
+        // traps, unless tail and poison fill exactly one vector (an i32
+        // three-row tail, a u8 tail of 9 to 15 rows); the poison matches the
+        // predicate, so it would then corrupt the count.
+        size_t padding = (8 - n * WIDTH % 8) % 8;
+        unsigned char *owner = mapping + page * 2 - padding - n * WIDTH - 40;
         assert((uintptr_t)owner % 8 == 0);
         header(owner, n);
         int64_t expected = fill(owner, n);
-        if (padding) memset(owner + 40 + n * 4, 0x7f, padding);
+        if (padding) memset(owner + 40 + n * WIDTH, WIDTH == 1 ? 0xff : 0x7f, padding);
         assert(call(owner, 0) == expected);
         assert(call(owner, 1) == expected);
     }
@@ -115,7 +130,7 @@ int main(int argc, char **argv) {
     size_t n = strtoull(argv[1], NULL, 10);
     size_t repeats = strtoull(argv[2], NULL, 10);
     int scalar = atoi(argv[3]);
-    unsigned char *owner = malloc(40 + n * 4);
+    unsigned char *owner = malloc(40 + n * WIDTH);
     assert(owner);
     header(owner, n);
     int64_t expected = fill(owner, n), total = 0;
