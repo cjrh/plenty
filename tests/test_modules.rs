@@ -1649,7 +1649,10 @@ fn generic_iteration_builtin_calls_name_the_builtin() {
     let error = plenty::check_file(&dir.path().join("main.plenty"), None)
         .unwrap_err()
         .to_string();
-    assert!(error.contains("`iter` is not a generic function"), "{error}");
+    assert!(
+        error.contains("`iter` is not a generic function"),
+        "{error}"
+    );
     assert!(!error.contains("api.iter"), "{error}");
     assert!(!error.contains("$builtin"), "{error}");
 }
