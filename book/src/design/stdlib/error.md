@@ -164,6 +164,160 @@ uses the allocating `Path.display`; failure is returned as
 `FormatError.Allocation(...)`, preserving the cause and any
 already-written prefix. Operation and cause text are emitted unchanged.
 
+## One application error with context
+
+A `Context[E]` changes the error type at every layer: `Context[ParseError]` does
+not widen to `Context[AllocError | ParseError]`, and wrapping a context gives
+`Context[Context[E]]`. An application that wants one error type for all of its
+functions, with operation labels added at several layers, can define a small
+class for the labelled case and add it to its error sum. No `std` type is
+needed, and no cause is turned into text:
+
+```plenty
+from std.io import Partial, StreamError, write_all
+
+type Base = AllocError | IoError | ParseError | Partial
+
+# Caps how many labels one error keeps, so a retry loop cannot grow it.
+# Labels are normally literals; a formatted label adds its own length.
+const FRAMES: i64 = 8
+
+# A typed cause with the innermost operation and later labels, innermost
+# first. Wrapping allocates nothing; the label list is made on first use. A
+# label past FRAMES, or one without memory to store it, is only counted.
+class Trace:
+    pub cause: Base
+    pub operation: str
+    pub outer: Option[list[str]]
+    pub omitted: i64
+
+    def add(self: &mut Trace, operation: str) -> ():
+        if self.kept() < FRAMES:
+            match &mut self.outer:
+                case Some(labels):
+                    if labels.append(operation).is_ok():
+                        return
+                case Nothing:
+                    match [operation]:
+                        case Ok(labels):
+                            self.outer = Some(labels)
+                            return
+                        case Err(_):
+                            pass
+        if self.omitted < i64.MAX:
+            unchecked:
+                self.omitted += 1
+
+    def kept(self) -> i64:
+        match &self.outer:
+            case Some(labels):
+                len(labels)
+            case Nothing:
+                0
+
+    # Outermost first, as nested `Context` descriptions read.
+    def describe(self) -> Result[str, AllocError]:
+        mut text = self.operation.concat(": ")?.concat(&str.repr(self.cause)?)?
+        match &self.outer:
+            case Some(labels):
+                for label in labels:
+                    text = label.concat(": ")?.concat(&text)?
+            case Nothing:
+                pass
+        if self.omitted > 0:
+            text = f"[{self.omitted} omitted] {text}"?
+        Ok(text)
+
+type Error = Base | Trace
+
+def context[T](result: Result[T, Error], operation: str) -> Result[T, Error]:
+    match result:
+        case Ok(value):
+            Ok(value)
+        case Err(error):
+            match error:
+                case trace: Trace:
+                    mut traced = trace
+                    traced.add(operation)
+                    Err(traced)
+                case rest: Base:
+                    Err(Trace(rest, operation, Nothing, 0))
+
+# Accepts `room` bytes, then reports no progress.
+pub class Limited:
+    pub room: i64
+
+    pub def write(self: &mut Limited, source: &[u8]) -> Result[i64, StreamError]:
+        mut taken = len(source)
+        if taken > self.room:
+            taken = self.room
+        unchecked:
+            self.room -= taken
+        Ok(taken)
+
+    pub def flush(self: &mut Limited) -> Result[(), StreamError]:
+        Ok(())
+
+def save(out: &mut Limited) -> Result[(), Error]:
+    context(write_all(out, b"settings"), "write settings")
+
+def setup(out: &mut Limited) -> Result[i64, Error]:
+    context(save(out), "save settings")?
+    Ok(i64.parse("10")?)
+
+def main() -> Result[(), Error]:
+    mut out = Limited(3)
+    match context(setup(&mut out), "setup"):
+        case Ok(limit):
+            print(limit)?
+        case Err(error):
+            match error:
+                case trace: Trace:
+                    match &trace.cause:
+                        # A full device is expected here: report the progress
+                        # and continue. Forward every other failure.
+                        case partial: Partial:
+                            print(trace.describe()?)?
+                            print(partial.completed, "bytes written")?
+                        case _:
+                            return Err(trace)
+                case rest: Base:
+                    return Err(rest)
+    Ok(())
+```
+```output
+setup: save settings: write settings: std.io.Partial(completed=3, cause=std.io.StreamError.WriteZero)
+3 bytes written
+```
+
+`Error` is `Base | Trace`. Plain `?` still propagates any `Base` member, and
+`context` accepts any `Result` whose error widens to `Error`, such as the
+`Result[(), Partial]` of `write_all`. It wraps a plain member once and extends
+an existing `Trace`, so nesting keeps one type. The
+[residual member pattern](../language/03-types/anonymous-sums.md#residual-members)
+`case rest: Base:` binds every remaining member with the smaller type; the
+alias name is accepted there.
+
+The pattern keeps the contracts of `Context`:
+
+- The cause keeps its type, including the progress in `Partial`; match
+  `trace.cause` to recover from it.
+- Wrapping a cause allocates nothing. Each later label may allocate the label
+  list. A label that cannot be stored, for lack of memory or past `FRAMES`, is
+  counted in `omitted`; the cause and earlier labels are kept.
+- `FRAMES` caps the number of labels, so a retry loop cannot grow an error
+  without limit. It does not cap a label's length; labels are normally string
+  literals, and a formatted label costs its own size.
+- A `Trace` can cross threads when every `Base` member can, so a worker can
+  return `Result[T, Error]` through `join`.
+
+`describe` uses `str.repr` for the cause, as `Context.describe` does. To give
+the whole error a `std.report` format instead, every `Base` member needs a
+`format` method; builtin errors such as `IoError` do not have one.
+Collapsing a cause into a message string, or propagating into `Failure`,
+discards what the caller could match. A shared `std` type for this pattern is
+[recorded in the backlog](../../backlog.md) (B71).
+
 ## Reports
 
 `report` flushes standard output, then writes `error: `, the description, and a
