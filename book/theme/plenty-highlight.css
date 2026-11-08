@@ -41,6 +41,24 @@ html:not(.js) .hljs-type {
     color: #f29668;
 }
 
+/* Real text outside the copyable source; retain normal syntax contrast. */
+.plenty-fragment-label {
+    margin-top: 1em;
+    text-align: right;
+    font-size: 0.75em;
+}
+.plenty-fragment-label span {
+    display: inline-block;
+    padding: 0.15em 0.5em;
+    border: 1px solid var(--quote-border);
+    border-radius: 0.25em;
+    color: var(--fg);
+    background: var(--bg);
+}
+.plenty-fragment-label + pre {
+    margin-top: 0.35em;
+}
+
 /* Compiler diagnostics get an error-coloured rule; output stays plain. */
 code.language-error {
     border-left: 3px solid #d70025;

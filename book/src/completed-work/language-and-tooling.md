@@ -5,6 +5,13 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## Documentation fragment labels
+
+The book marks `plenty fragment` excerpts with a bordered **Fragment · not
+executed** label above the code. Syntax colours remain unchanged; the label
+stays outside copied source. These excerpts remain excluded from runnable
+documentation tests. See [runnable documentation](../development/workflow.md#runnable-documentation).
+
 ## Completed proposal classification
 
 The [completed proposal index](../proposals/completed/index.md) and book
