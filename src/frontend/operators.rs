@@ -937,6 +937,7 @@ impl Lower<'_> {
                                 at: at.clone(),
                                 kind: patterns::PatKind::Binding(binding.into()),
                             }]),
+                            Pos::default(),
                         ),
                     },
                     body: vec![Stmt {

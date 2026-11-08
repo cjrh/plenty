@@ -3261,6 +3261,7 @@ fn resolve(
             let public = m.exports.contains(&f.name);
             if public {
                 signature_public_types(f, &[], false, &mut result.public_api);
+                super::ide::export_parameters(f);
             }
             qualify(&m.name, &mut f.name);
             if let Some(constant) = constants.get(&f.name) {
@@ -3374,6 +3375,7 @@ fn resolve(
                 );
                 if exposed {
                     signature_public_types(f, &e.type_params, true, &mut result.public_api);
+                    super::ide::export_parameters(f);
                 }
             }
         }
@@ -3441,6 +3443,7 @@ fn resolve(
                 );
                 if exposed {
                     signature_public_types(f, &c.type_params, true, &mut result.public_api);
+                    super::ide::export_parameters(f);
                 }
             }
         }

@@ -199,31 +199,27 @@ fn subject(
     };
     let symbol = &analysis.symbols[reference.symbol];
     let short = symbol.name.rsplit('.').next().unwrap_or(&symbol.name);
-    let not_yet = |what: &str, missed: &str| {
+    let not_yet = |what: &str, reason: &str| {
         Err(format!(
-            "renaming {what} is not supported yet: the editor analysis does not record {missed} (issue #876)"
+            "renaming {what} is not supported yet: {reason} (issue #876)"
         ))
     };
+    let generic = "the editor analysis does not record members used in generic bodies that no call instantiates";
     match symbol.kind {
-        SymbolKind::Field => {
-            return not_yet(
-                "a field",
-                "the field names of constructor calls and class patterns",
-            );
-        }
-        SymbolKind::Method => {
-            return not_yet(
-                "a method",
-                "method calls in generic bodies that no call instantiates",
-            );
-        }
+        SymbolKind::Field => return not_yet("a field", generic),
+        SymbolKind::Method => return not_yet("a method", generic),
         SymbolKind::Variant => {
             return not_yet(
                 "an enum variant",
-                "variants in `case` patterns and constructor calls",
+                "rename does not yet edit variant names, though find references lists their uses",
             );
         }
-        SymbolKind::Parameter => return not_yet("a parameter", "named arguments"),
+        SymbolKind::Parameter => {
+            return not_yet(
+                "a parameter",
+                "rename does not yet edit named arguments, though find references lists them",
+            );
+        }
         SymbolKind::Module => {
             let spelled = written(text, &name_at(text, &reference.location));
             if spelled != short {
