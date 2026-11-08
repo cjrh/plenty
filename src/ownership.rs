@@ -307,6 +307,13 @@ pub enum Kind {
     Uncancelled {
         message: String,
     },
+    /// A `lock_when` predicate that can wait, or whose body is not visible.
+    /// It runs while the mutex is held, so a wait there could hold the lock
+    /// forever, and the waiters it notifies would wait with it.
+    WaitingPredicate {
+        /// The predicate's function, when the call names one.
+        function: Option<String>,
+    },
 }
 
 /// What a `Kind::BlockedLock` waits for.
@@ -565,6 +572,16 @@ impl Error {
                 self.holder()
             ),
             Kind::Uncancelled { message } => message.clone(),
+            Kind::WaitingPredicate {
+                function: Some(function),
+            } => format!(
+                "the `lock_when` predicate `{function}` can wait, lock a mutex, or call a \
+                 function whose body is not known here; it runs while the mutex is locked"
+            ),
+            Kind::WaitingPredicate { function: None } => "the `lock_when` predicate can wait, \
+                 lock a mutex, or call a function whose body is not known here; it runs while \
+                 the mutex is locked"
+                .to_owned(),
         };
         let explained =
             self.required
@@ -2100,6 +2117,18 @@ impl Checker<'_, '_> {
                 }
                 Op::Executor(ExecutorOp::Shutdown) => self.shutdown(None, state, site)?,
                 Op::Mutex(MutexOp::Unlock(slot)) => state[*slot as usize] = Slot::Unset,
+                Op::Mutex(MutexOp::Wait(_, ready)) => {
+                    let waits = ready
+                        .as_deref()
+                        .is_none_or(|ready| self.program.can_wait(ready));
+                    if waits {
+                        let function = ready
+                            .as_deref()
+                            .filter(|ready| !internal(ready))
+                            .map(|ready| short(ready).into_owned());
+                        return Err(self.error(Kind::WaitingPredicate { function }, None, site));
+                    }
+                }
                 Op::Executor(ExecutorOp::Result(_)) => {
                     self.future_result(&ops[..index], state, site)?;
                 }

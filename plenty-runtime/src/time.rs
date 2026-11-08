@@ -15,7 +15,7 @@ thread_local! {
     static WALL_NANOSECONDS: Cell<u32> = const { Cell::new(0) };
 }
 
-fn monotonic() -> u64 {
+pub(crate) fn monotonic() -> u64 {
     let elapsed = ORIGIN.get_or_init(Instant::now).elapsed();
     // 2^64 nanoseconds is more than 584 years of process uptime.
     u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX)
