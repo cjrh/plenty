@@ -76,9 +76,76 @@ busy
 ```
 
 A failure in a comma header unwinds the managers before it: above, a busy
-`cells[target]` releases `cells[source]` before `add` returns. `LockError`
-also declares `TimedOut` and `Cancelled` for planned deadline and cancellable
-lock waits; `lock_now()` produces only `WouldBlock`.
+`cells[target]` releases `cells[source]` before `add` returns. `lock_now()`
+produces only `WouldBlock`.
+
+## Waiting for a condition
+
+`with place.lock_when(ready, &deadline, &cancel)? as value:` takes the lock as
+`lock()` does, then waits until `ready(value)` returns `True`, and runs the
+block with the lock held. Use it when a thread must wait for another thread to
+change the guarded value, such as a queue becoming non-empty or a phase
+finishing. `ready` is called with `&T` and returns `bool`. Between checks the
+waiter releases the lock and sleeps. Every unlock that follows a change wakes
+the mutex's waiters, so the changing thread needs no notify call; each waiter
+then relocks and checks its predicate again.
+
+The wait ends with `std.sync.LockError.TimedOut` once the `std.time.Deadline`
+passes, or `LockError.Cancelled` once the `CancellationToken` is cancelled; `?`
+propagates the error after unlocking. Each round checks the token first and
+then the predicate, so a predicate that holds when the deadline passes still
+succeeds. A token cancelled during a sleep is seen within 10 ms. The deadline
+is read once, when the manager starts, and compared with the real monotonic
+clock, so a `Deadline` made from a [`FakeClock`](../../stdlib/test.md#test-doubles)
+times out on real time. The place forms, `as` binding, and
+unlock on every exit are those of `lock()`. `lock_when()` is valid only in this
+propagated form.
+
+```plenty
+from std.sync import CancellationToken, Mutex, LockError
+from std.time import Deadline, deadline_after, monotonic_now, seconds
+
+class Jobs:
+    done: i64
+
+def finish(jobs: &Mutex[Jobs]) -> Result[(), OverflowError[i64]]:
+    for _ in range(3):
+        with jobs.lock() as j:
+            j.done = j.done + 1
+    Ok(())
+
+def all_done(jobs: &Jobs) -> bool:
+    jobs.done == 3
+
+def main() -> Result[(), AllocError | IoError | LockError | RangeError | OverflowError[i64] | SpawnError[()]]:
+    jobs = Mutex(Jobs(0))
+    cancel = CancellationToken()?
+    deadline = deadline_after(&monotonic_now(), &seconds(5))?
+    with spawn(finish, &jobs)? as worker:
+        with jobs.lock_when(all_done, &deadline, &cancel)? as j:
+            print(j.done)?
+        worker.join()?
+    Ok(())
+```
+
+```output
+3
+```
+
+`ready` is the name of a function, a local anonymous function, or a reference
+to either, optionally written `&ready`. It takes the value as `&T`; `&mut T`
+is an error, because a change made by the predicate would not wake other
+waiters. The predicate runs while the lock is
+held, so the compiler rejects one that can wait: one that locks a mutex, waits
+on a channel, token, task, or pool, or calls a function whose body is not
+visible, such as a `Callable` parameter or a boxed callable. Pass a named
+function or an anonymous function instead; through a generic parameter, an
+anonymous function is checked at each instantiation. A predicate is checked
+the way [worker waits](executors.md) are, through its calls.
+
+`lock_when()` is an error inside another lock block, or after a lock in the
+same `with` header: the outer lock would stay held for the whole wait. A wait
+inside a function called while a lock is held is not detected.
 
 ## Waits the compiler rejects
 
@@ -121,7 +188,8 @@ patterns that would wait forever:
 - **Yielding under a lock.** `yield` inside a lock block is an error: a
   suspended generator would keep the lock indefinitely.
 
-A lock taken by `lock_now()` is held like any other for these rules.
+A lock taken by `lock_now()` or `lock_when()` is held like any other for these
+rules.
 
 Locking two mutexes in different orders on different threads can still
 deadlock; take nested locks in one fixed order.
@@ -134,18 +202,27 @@ a holder fails mid-update. A Plenty mutex therefore has no poisoned state and
 
 ## Not provided
 
-There is no timed or cancellable lock wait, reentrant lock, condition variable,
-read-write lock, or fairness guarantee (backlog B56), and no unlocked access through
+There is no timed or cancellable wait for the lock itself (`lock_when()` waits
+for the lock without a deadline, as `lock()` does), separate condition
+variable or explicit notify, reentrant lock, read-write lock, or fairness
+guarantee (backlog B56), and no unlocked access through
 `&mut Mutex[T]` (Rust's `get_mut`); lock it instead. Executor and pool jobs own
 their inputs and cannot borrow a mutex; give each job a share of a
 `Shared[Mutex[T]]` instead.
 
 ## Lowering
 
-The state word is 0 when unlocked, 1 when locked, and 2 when locked with
-possible waiters. Lock is an inline compare-exchange from 0 to 1; on failure the
-runtime exchanges in 2 and sleeps on the word with a Linux futex until an
-exchange finds 0. Unlock is an inline exchange to 0 that calls the runtime to
-wake one waiter only if it replaced 2. `lock_now()` is the same inline
-compare-exchange with no slow path: a failure leaves the word unchanged. See the
+A mutex holds a state word, a sequence word, and the value. The state word's
+low two bits are 0 when unlocked, 1 when locked, and 2 when locked with
+possible lock waiters; bit 2 (4) records `lock_when()` waiters. Lock is an
+inline compare-exchange from 0 to 1; on failure the runtime marks the word
+contended and sleeps on it with a Linux futex until it acquires the lock.
+Unlock is an inline exchange to 0 that calls the runtime only if it replaced a
+value above 1: it then wakes one lock waiter if the lock bits were 2, and, if
+bit 2 was set, advances the sequence word and wakes every thread sleeping on
+it. `lock_now()` is the same inline compare-exchange; a failure leaves the word
+unchanged, and only a word holding just the waiter bit calls the runtime to
+retry. A `lock_when()` round reads the sequence word under the lock, releases
+the lock leaving only the waiter bit, and sleeps while the sequence is
+unchanged, for at most 10 ms, before relocking. See the
 [runtime mechanisms](../../toolchain/02-architecture/concurrency.md#mutexes).

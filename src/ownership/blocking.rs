@@ -30,7 +30,7 @@ pub(super) fn blocks(op: &Op) -> bool {
             ChannelOp::New(_) => false,
         },
         Op::Mutex(op) => match op {
-            MutexOp::Lock(_) => true,
+            MutexOp::Lock(_) | MutexOp::Wait(..) => true,
             MutexOp::LockNow(_)
             | MutexOp::Unlock(_)
             | MutexOp::Exclusive(_)

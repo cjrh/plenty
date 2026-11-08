@@ -184,7 +184,8 @@ impl Liveness {
             | Op::Mutex(
                 crate::mutex::MutexOp::Lock(slot)
                 | crate::mutex::MutexOp::LockNow(slot)
-                | crate::mutex::MutexOp::Unlock(slot),
+                | crate::mutex::MutexOp::Unlock(slot)
+                | crate::mutex::MutexOp::Wait(slot, _),
             )
             | Op::Thread(
                 crate::threading::ThreadOp::Start(_, slot, _)

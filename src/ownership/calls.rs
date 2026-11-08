@@ -102,6 +102,11 @@ impl<'p> Program<'p> {
         })
     }
 
+    /// Whether calling `function` can wait; see [`Self::waits`].
+    pub(super) fn can_wait(&self, function: &str) -> bool {
+        self.waits(&[function], &[])
+    }
+
     /// Whether a scoped task's worker can wait for anything.
     pub(super) fn task_waits(&self, task: &crate::threading::Task) -> bool {
         let roots: Vec<&str> = std::iter::once(task.worker.as_str())

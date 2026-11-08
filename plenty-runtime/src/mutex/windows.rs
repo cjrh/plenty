@@ -14,26 +14,42 @@ unsafe extern "system" {
         timeout: u32,
     ) -> i32;
     fn WakeByAddressSingle(address: *const c_void);
+    fn WakeByAddressAll(address: *const c_void);
 }
 
-pub(super) fn wait(state: &AtomicU32) {
-    let expected = 2_u32;
-    // SAFETY: the caller keeps the aligned four-byte word live. The comparison
-    // value is live for this call, and INFINITE cannot produce a timeout.
-    if unsafe {
+/// Sleep while `word` holds `expected`, at most `timeout`.
+pub(super) fn wait(word: &AtomicU32, expected: u32, timeout: Option<Duration>) {
+    // Whole milliseconds, rounded up so a short slice still sleeps; INFINITE
+    // is u32::MAX.
+    let milliseconds = timeout.map_or(u32::MAX, |timeout| {
+        timeout
+            .as_nanos()
+            .div_ceil(1_000_000)
+            .min(u128::from(u32::MAX - 1)) as u32
+    });
+    // SAFETY: the caller keeps the aligned four-byte word live, and the
+    // comparison value is live for this call.
+    let woken = unsafe {
         WaitOnAddress(
-            state.as_ptr().cast(),
+            word.as_ptr().cast(),
             (&raw const expected).cast(),
             size_of::<u32>(),
-            u32::MAX,
+            milliseconds,
         )
-    } == 0
-    {
+    };
+    // A timed wait reports its timeout as failure; the caller rechecks.
+    if woken == 0 && timeout.is_none() {
         crate::fail("mutex address wait failed");
     }
 }
 
-pub(super) fn wake(state: &AtomicU32) {
+pub(super) fn wake(word: &AtomicU32, all: bool) {
     // SAFETY: the word remains live; the OS uses its address as a wait key.
-    unsafe { WakeByAddressSingle(state.as_ptr().cast()) };
+    unsafe {
+        if all {
+            WakeByAddressAll(word.as_ptr().cast());
+        } else {
+            WakeByAddressSingle(word.as_ptr().cast());
+        }
+    }
 }
