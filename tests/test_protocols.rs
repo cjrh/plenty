@@ -78,7 +78,6 @@ fn constraints_check_every_required_method_and_exact_signature() {
     for source in [
         "protocol P:\n    def f(self) -> i64:\n        1",
         "protocol P:\n    def f(self: i64) -> i64:\n        pass",
-        "protocol P:\n    def f(self, x: ()) -> ():\n        pass",
         "protocol P:\n    def f(self) -> Missing:\n        pass",
         "protocol P:\n    def f(self) -> i64:\n        pass\ndef f(x: P) -> ():\n    pass",
     ] {

@@ -322,25 +322,40 @@ messages, so construction allocates the fixed queue header whatever the
 capacity, and no capacity reports `CapacityOverflow`. Every other message type
 takes at least one 16-byte slot per unit of capacity.
 
-Unit still follows the [unit type's limits](../../language/03-types/index.md):
-no by-value unit parameter, no unit binding, and no unit type argument to a
-user-defined generic enum or class. So a generic function that takes or binds a
-`T` value cannot be instantiated with `T = ()`:
+Unit is an [ordinary value type](../../language/03-types/index.md), so generic
+helpers instantiate with `T = ()`: `std.sync.send_before(&sender, (), &deadline, &cancel)`
+returns `Result[(), std.sync.SendBeforeError[()]]`, and a generic relay that
+binds a received value and resends it works for a unit channel:
 
-- `std.sync.send_before(&sender, (), &deadline, &cancel)` is rejected, because
-  `send_before` takes `value: T`, and `std.sync.SendBeforeError[()]` cannot be
-  named.
-- A user generic such as `relay[T]` that binds `value = receiver.recv()?` is
-  rejected for `T = ()`. Match the result instead of binding it.
+```plenty
+import std.sync
+import std.time
+
+def relay[T](inbox: &Receiver[T], outbox: &Sender[T]) -> Result[(), RecvError | SendError[T]]:
+    value = inbox.recv()?
+    outbox.send(value)?
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | RecvError | SendError[()]]:
+    cancel = CancellationToken()?
+    deadline = std.time.deadline_at(&std.time.monotonic_now())
+    tx, rx = channel[()](1)?
+    out_tx, out_rx = channel[()](1)?
+    print(str.repr(std.sync.send_before(&tx, (), &deadline, &cancel))?)?
+    relay(&rx, &out_tx)?
+    print(out_rx.recv()?)?
+    Ok(())
+```
+
+```output
+Result[(), std.sync.SendBeforeError[()]].Ok(())
+()
+```
 
 A unit channel rarely needs a bounded send. Its capacity costs nothing, so a
 channel created with a capacity larger than the number of signals it will carry
 never blocks in `send(())`. With a small capacity, such as 1,
 `send_nowait(())` returning `Full` means a signal is already pending, which is
-usually enough.
-Only code that must bound how long it waits for space needs a loop of
-`send_timeout_ms((), timeout_ms)` that checks its cancellation token between
-attempts.
+usually enough. Code that must bound how long it waits for space uses
+`std.sync.send_before`.
 
-Lifting these limits is part of B16 in the [backlog](../../../backlog.md)
-(standalone unit bindings, parameters and storage).

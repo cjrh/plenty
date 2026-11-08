@@ -155,7 +155,6 @@ fn native_generators(#[case] source: &str, #[case] expected: &str) {
 #[case("def g() -> i64:\n    yield 1", "yield requires")]
 #[case("def g() -> Generator[i64]:\n    yield True", "expected i64, got bool")]
 #[case("def g() -> Generator[i64]:\n    yield 1\n    return 2", "bare return")]
-#[case("def g() -> Generator[()]:\n    yield ()", "cannot be unit")]
 #[case(
     "def g() -> Generator[Generator[i64]]:\n    yield count(1)",
     "cannot yield generators"

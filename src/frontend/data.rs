@@ -456,15 +456,10 @@ impl TypeAliases {
             if bound.as_ref().is_some_and(dimensions::bound) {
                 continue;
             }
-            if let Some(ty) = arg.as_type() {
-                if *ty == Ty::Unit {
-                    return Err(written
-                        .at
-                        .error("unit type arguments are not supported yet"));
-                }
-                if let Some(barrier) = ty.storage_barrier() {
-                    return Err(written.at.error(barrier.message("generic data")));
-                }
+            if let Some(ty) = arg.as_type()
+                && let Some(barrier) = ty.storage_barrier()
+            {
+                return Err(written.at.error(barrier.message("generic data")));
             }
         }
         if let Some(domain) = crate::op::IntegerDomain::named(name)

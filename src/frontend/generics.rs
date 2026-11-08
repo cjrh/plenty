@@ -1612,9 +1612,7 @@ impl Lower<'_> {
                     .as_ref()
                     .is_some_and(Ty::unresolved_generator)
             {
-                let expected = pattern
-                    .resolve(self.aliases)?
-                    .ok_or_else(|| pattern.at.error("unit parameters are not supported yet"))?;
+                let expected = pattern.resolve(self.aliases)?.unwrap_or(Ty::Unit);
                 loans.extend(self.call_arguments(
                     std::slice::from_ref(arg),
                     &[(String::new(), expected.clone())],
@@ -1647,8 +1645,8 @@ impl Lower<'_> {
                 let ty = if let Some(context) =
                     hinted_parameter(pattern, &template, &context, self.aliases)?
                 {
-                    self.expr_expected(arg, Some(context), ops)?
-                        .ok_or_else(|| arg.at.error("expected a value, got ()"))?
+                    let ty = self.expr_expected(arg, Some(context), ops)?;
+                    self.stored(ty, ops)
                 } else {
                     self.value(arg, ops)?
                 };

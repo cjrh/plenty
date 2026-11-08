@@ -17,7 +17,8 @@ Keys with custom `__del__` cleanup are supported, including nested cleanup,
 but cannot be duplicated: copying collections, non-mutating set algebra and
 key-view `to_set()` reject these keys. Borrowing and ownership transfers work normally. User-defined hash/equality hooks remain unsupported. See the
 [heterogeneous collections tutorial](../../../tutorial/heterogeneous-collections/index.md).
-Unit elements are rejected. Sets of supported finite enums or tuples with at most 256 possible values
+Lists and dictionary values can hold [unit](../../language/03-types/index.md),
+but unit is not a key type. Sets of supported finite enums or tuples with at most 256 possible values
 use [bitsets](sets.md#small-enum-bitsets) instead; they do not hash or request entropy.
 
 Dictionary and hash-backed set bucket selection uses SipHash-1-3 over the complete key,

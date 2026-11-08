@@ -408,10 +408,6 @@ fn kind_specific_algorithms_are_rejected_on_the_other_kind() {
         "graph = nodes(2)?\nprint(graph.minimum_spanning_tree(&cost)?)?",
     ));
     assert!(tree.contains("minimum_spanning_tree"), "{tree}");
-    let unit = support::check_file_error(
-        "from std.graph import DiGraph\n\ndef main() -> Result[(), AllocError]:\n    graph = DiGraph[i64, ()]()?\n    Ok(())\n",
-    );
-    assert!(unit.contains("unit type arguments"), "{unit}");
 }
 
 #[test]

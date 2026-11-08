@@ -100,7 +100,7 @@ Protocols constrain class and enum arguments, the built-in `bytes`, and an
 explicit [protocol box](boxed-protocols.md) exposing the identical protocol.
 A protocol alone is not a runtime value type. `bytes` has one
 method, `len(self) -> i64`; other built-in types have none to offer. Protocol
-parameters cannot have their own bounds; protocol arguments exclude unit,
+parameters cannot have their own bounds; protocol arguments can be unit but exclude
 references, generators, and closure environments. Fields, inheritance, multiple
 bounds, defaults, associated types, and lifecycle requirements are unsupported.
 

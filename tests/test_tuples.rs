@@ -123,7 +123,6 @@ fn tuple_shape_and_storage_errors_are_static() {
         "x = (1, 2)\nprint(x[2]).unwrap()",
         "x = (1, 2)\ni = 1\nprint(x[i]).unwrap()",
         "x = 1\ny = (&x, 2)",
-        "print(((), 1)[0]).unwrap()",
     ] {
         assert!(support::check_source(&program(source)).is_err(), "{source}");
     }

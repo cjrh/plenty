@@ -1578,14 +1578,6 @@ def main() -> ():
         error.contains("reduce after .par cannot store borrowed items"),
         "{error}"
     );
-    // Zero-field tuples are unit; collection item storage already rejects it.
-    let unit_error = support::check_source("drop([(), ()].unwrap())")
-        .unwrap_err()
-        .to_string();
-    assert!(
-        unit_error.contains("collection elements cannot be unit"),
-        "{unit_error}"
-    );
 }
 
 #[test]

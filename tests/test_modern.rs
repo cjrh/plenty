@@ -127,8 +127,6 @@ fn expressions(#[case] source: &str, #[case] ty: &str, #[case] expected: &str) {
 #[case("x = 1\nmut x = 2", "duplicate binding")]
 #[case("if True:\n    x = 1\nx", "unknown binding")]
 #[case("def f(x: i64) -> i64:\n    x = 2\n    x", "immutable")]
-#[case("x = ()", "expected a value")]
-#[case("def f(x: ()) -> ():\n    pass", "unit parameters")]
 #[case(
     "def print() -> ():\n    pass",
     "cannot redefine builtin `print` as a function"
@@ -151,7 +149,6 @@ fn expressions(#[case] source: &str, #[case] ty: &str, #[case] expected: &str) {
 #[case("x = [1, 2", "unclosed `[`")]
 #[case("x = {1: 2", "unclosed `{`")]
 #[case("1 + 2)", "unmatched")]
-#[case("print(())", "expected a value")]
 #[case("contains('a', 1)", "expected str")]
 fn diagnostics(#[case] source: &str, #[case] message: &str) {
     let error = support::check_source(source).expect_err(source).to_string();

@@ -223,10 +223,7 @@ impl TypeRef {
             let signature = crate::op::CallableSig {
                 inputs: inputs
                     .iter()
-                    .map(|t| {
-                        t.resolve(aliases)?
-                            .ok_or_else(|| t.at.error("callable parameters cannot have unit type"))
-                    })
+                    .map(|t| Ok(t.resolve(aliases)?.unwrap_or(Ty::Unit)))
                     .collect::<Result<_>>()?,
                 output: output.resolve(aliases)?,
             };
@@ -332,18 +329,14 @@ impl TypeRef {
             let [element] = self.args.as_slice() else {
                 return Err(self.at.error("Iter requires one item type"));
             };
-            let element = element
-                .resolve(aliases)?
-                .ok_or_else(|| self.at.error("iterator items cannot be unit"))?;
+            let element = element.resolve(aliases)?.unwrap_or(Ty::Unit);
             return Ok(Some(Ty::Iter(Arc::new(element), usize::MAX)));
         }
         if name == "Generator" {
             if self.args.len() != 1 {
                 return Err(self.at.error("Generator requires 1 type argument"));
             }
-            let element = self.args[0]
-                .resolve(aliases)?
-                .ok_or_else(|| self.at.error("generator elements cannot be unit"))?;
+            let element = self.args[0].resolve(aliases)?.unwrap_or(Ty::Unit);
             if element.restricted_storage() {
                 // Closures stay rejected even when a heap owner could store
                 // them: generator expressions reject them too.
@@ -365,9 +358,7 @@ impl TypeRef {
             if let Some(protocol) = protocols::boxed_type(&self.args[0], aliases)? {
                 return Ok(Some(Ty::BoxedProtocol(protocol)));
             }
-            let content = self.args[0]
-                .resolve(aliases)?
-                .ok_or_else(|| self.at.error("a box cannot hold unit"))?;
+            let content = self.args[0].resolve(aliases)?.unwrap_or(Ty::Unit);
             if let Some(barrier) = content.storage_barrier() {
                 return Err(self.at.error(barrier.message("a box")));
             }
@@ -377,9 +368,7 @@ impl TypeRef {
             if self.args.len() != 1 {
                 return Err(self.at.error("Shared requires 1 type argument"));
             }
-            let content = self.args[0]
-                .resolve(aliases)?
-                .ok_or_else(|| self.at.error("a shared owner cannot hold unit"))?;
+            let content = self.args[0].resolve(aliases)?.unwrap_or(Ty::Unit);
             if let Some(barrier) = content.storage_barrier() {
                 return Err(self.at.error(barrier.message("a shared owner")));
             }
@@ -499,9 +488,7 @@ impl TypeRef {
             if self.args.len() != 1 {
                 return Err(self.at.error("KeyView requires one key type"));
             }
-            let key = self.args[0]
-                .resolve(aliases)?
-                .ok_or_else(|| self.at.error("KeyView keys cannot be unit"))?;
+            let key = self.args[0].resolve(aliases)?.unwrap_or(Ty::Unit);
             if !key.hashable() {
                 return Err(self
                     .at
@@ -519,10 +506,7 @@ impl TypeRef {
             let args: Vec<Ty> = self
                 .args
                 .iter()
-                .map(|t| {
-                    t.resolve(aliases)?
-                        .ok_or_else(|| t.at.error("collection elements cannot be unit"))
-                })
+                .map(|t| Ok(t.resolve(aliases)?.unwrap_or(Ty::Unit)))
                 .collect::<Result<_>>()?;
             if let Some(barrier) = args.iter().find_map(Ty::storage_barrier) {
                 return Err(self.at.error(barrier.message("collections")));
@@ -1434,9 +1418,20 @@ impl Lower<'_> {
         };
         refined
     }
+    /// Evaluates `e` as an operand. A unit expression pushes the unit word, so
+    /// unit captures, scrutinees and accumulators work (issue #870); callers
+    /// that need a particular type reject `()` by type.
     fn value(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Ty> {
-        self.expr(e, ops)?
-            .ok_or_else(|| e.at.error("expected a value, got ()"))
+        let ty = self.expr(e, ops)?;
+        Ok(self.stored(ty, ops))
+    }
+    /// An expression type as a stored value: unit pushes the unit word
+    /// (issue #870).
+    pub(super) fn stored(&mut self, ty: Type, ops: &mut Vec<Op>) -> Ty {
+        ty.unwrap_or_else(|| {
+            ops.push(Op::PushUnit);
+            Ty::Unit
+        })
     }
     fn propagation_target(
         &self,
@@ -1633,7 +1628,7 @@ impl Lower<'_> {
         if self.is_pipeline(e) && !self.is_dictionary_projection(e) {
             return Err(e.at.error("iterator pipelines cannot escape their creating scope; bind locally or consume with a loop or terminal"));
         }
-        match &e.kind {
+        let ty = match &e.kind {
             Expression::Call(name, _) if !self.names_dimension(name) => {
                 self.call_expression(e, ops)
             }
@@ -1646,7 +1641,16 @@ impl Lower<'_> {
             Expression::Group(inner) => self.expr(inner, ops),
             Expression::Unary(..) => self.unary_expression(e, ops),
             _ => self.expr_other(e, ops),
+        }?;
+        // A unit expression has no operand: a read of a stored unit (a
+        // field, element, deref or `T = ()` result) drops its word, so every
+        // consumer sees unit the same way and storage pushes it once
+        // (issue #870).
+        if ty == Some(Ty::Unit) {
+            ops.push(Op::Drop);
+            return Ok(None);
         }
+        Ok(ty)
     }
 
     /// Whether `name` here is a dimension, which has no values.
@@ -2992,8 +2996,8 @@ impl Lower<'_> {
                 argument_loans.push(loan);
                 continue;
             }
-            let ty = self.expr_expected(arg, Some(expected.clone()), ops)?;
-            self.same(ty, Some(expected.clone()), &arg.at)?;
+            let ty = self.stored_value(arg, Some(expected.clone()), ops)?;
+            self.same(Some(ty), Some(expected.clone()), &arg.at)?;
             if expected.carried_reference().is_some() {
                 argument_loans.push(self.carried_argument(arg, expected, ops)?);
             }
@@ -3896,9 +3900,7 @@ impl Lower<'_> {
                         .map(provenance::Origin::written)
                         .unwrap_or_else(|| self.value_origin(value));
                     if let Some(expected) = annotation {
-                        let expected = expected.resolve(self.aliases)?.ok_or_else(|| {
-                            expected.at.error("unit bindings are not supported yet")
-                        })?;
+                        let expected = expected.resolve(self.aliases)?.unwrap_or(Ty::Unit);
                         self.same(Some(ty.clone()), Some(expected), &stmt.at)?;
                     }
                     let slot = if let Some(local) = self.names.get(name).cloned() {

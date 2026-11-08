@@ -28,8 +28,8 @@ def main() -> Result[(), IoError]:
 
 Resumption executes until a statement-only `yield value`, bare `return`, or
 fallthrough. Yield types are exact and owned payloads transfer to the caller.
-Reference, generator, closure, and unit yields are rejected; a generator body
-cannot return a value. An ordinary factory without `yield` may return another
+Reference, generator and closure yields are rejected; unit `()` yields are
+ordinary values. A generator body cannot return a value. An ordinary factory without `yield` may return another
 frame by moving it. `?` is unsupported in a generator body; match fallible results
 explicitly. Recoverable arithmetic failures cannot propagate from a generator:
 handle a

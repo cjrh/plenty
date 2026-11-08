@@ -178,12 +178,6 @@ fn reference_and_yield_errors_name_capturing_and_one_shot_closures() {
 
 #[test]
 fn callable_bounds_validate_shape_and_explain_storage_constraints() {
-    for bound in ["Callable[[()], i64]", "OnceCallable[[()], i64]"] {
-        let source =
-            format!("def unused[F: {bound}](f: F) -> ():\n    pass\ndef main() -> ():\n    pass\n");
-        let error = check_source(&source).unwrap_err().to_string();
-        assert!(error.contains("parameters cannot have unit"), "{error}");
-    }
     let error = check_source("def invalid(callback: OnceCallable[[], i64]) -> ():\n    pass\ndef main() -> ():\n    pass\n").unwrap_err().to_string();
     assert!(error.contains("generic constraint"), "{error}");
     for constraint in ["Callable", "OnceCallable"] {
