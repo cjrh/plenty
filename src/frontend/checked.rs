@@ -21,6 +21,9 @@ pub(super) struct Scope {
     pub(super) assume: bool,
     /// The errors the block's arithmetic can produce, in source order.
     pub(super) failures: Vec<Ty>,
+    /// The block itself contains a trapping integer cast, which it does not
+    /// recover; its diagnostic then points at `T.try_from`.
+    pub(super) casts: bool,
 }
 
 impl Lower<'_> {
@@ -53,6 +56,7 @@ impl Lower<'_> {
             arithmetic: true,
             assume: false,
             failures: Vec::new(),
+            casts: false,
         });
         let mut inner = Vec::new();
         let outer = std::mem::replace(&mut self.checked_value_tail, true);
@@ -72,9 +76,14 @@ impl Lower<'_> {
             }
         };
         if scope.failures.is_empty() {
-            return Err(at.error(
-                "this `checked:` block contains no arithmetic that can fail; remove `checked:`, or move the arithmetic it should check into it",
-            ));
+            let hint = if scope.casts {
+                "; casts trap rather than return an error, so use `T.try_from(value)` for a recoverable conversion"
+            } else {
+                ""
+            };
+            return Err(at.error(format!(
+                "this `checked:` block contains no arithmetic that can fail; remove `checked:`, or move the arithmetic it should check into it{hint}",
+            )));
         }
         let error = crate::sum::anonymous(scope.failures);
         // A declared error that includes every possible failure is kept, so
@@ -118,6 +127,7 @@ impl Lower<'_> {
             arithmetic: false,
             assume,
             failures: Vec::new(),
+            casts: false,
         });
         let outer = std::mem::replace(&mut self.checked_value_tail, false);
         let branch = std::mem::replace(&mut self.branch_value_tail, false);

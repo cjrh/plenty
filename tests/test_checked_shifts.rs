@@ -106,6 +106,51 @@ fn function_defaults_require_the_error_in_the_contract() {
     assert!(diagnostic.contains("ShiftCountError[u8]"), "{diagnostic}");
 }
 
+/// A count masked by a literal below the width is in range, so it adds no
+/// error; a mask at or past the width proves nothing.
+#[test]
+fn literal_masks_prove_the_count() {
+    assert_eq!(
+        run_stdout(
+            r#"
+def rotate(x: u64, n: u64) -> u64:
+    (x << (n & 63u64)) | (x >> ((n ^ 63u64) & 63u64) >> 1u64)
+def low(x: i8, n: i8) -> i8:
+    x >> (7i8 & n)
+def main() -> Result[(), IoError]:
+    print(rotate(1u64, 65u64), rotate(3u64, 0u64), low(-128i8, -1i8))?
+    Ok(())
+"#
+        ),
+        "2 3 -1\n"
+    );
+    for body in ["x << (n & 64)", "x << (n & m)", "x << (n | 1)"] {
+        let diagnostic = check_diagnostic(&format!(
+            "def f(x: i64, n: i64, m: i64) -> i64:\n    {body}\ndef main() -> ():\n    drop(f(1, 2, 3))\n"
+        ));
+        assert!(
+            diagnostic.contains("ShiftCountError[i64]"),
+            "{body}: {diagnostic}"
+        );
+    }
+}
+
+#[test]
+fn cast_only_checked_blocks_point_at_try_from() {
+    let diagnostic = check_diagnostic(
+        "def f(x: i64) -> u8:\n    r = checked:\n        u8(x)\n    r.unwrap_or(0u8)\ndef main() -> ():\n    drop(f(1))\n",
+    );
+    assert!(
+        diagnostic.contains("no arithmetic that can fail"),
+        "{diagnostic}"
+    );
+    assert!(diagnostic.contains("T.try_from(value)"), "{diagnostic}");
+    let diagnostic = check_diagnostic(
+        "def f(x: i64) -> i64:\n    r = checked:\n        x\n    r.unwrap_or(0)\ndef main() -> ():\n    drop(f(1))\n",
+    );
+    assert!(!diagnostic.contains("try_from"), "{diagnostic}");
+}
+
 /// A literal proves the count; a module constant or guard does not.
 #[test]
 fn literal_counts_add_no_error_and_out_of_range_literals_are_rejected() {
@@ -273,10 +318,14 @@ def main() -> Result[(), IoError | RangeError]:
     print(show(u8.try_from(f64.NAN)), show(u8.try_from(f64.INF)), show(u8.try_from(-f64.INF)), show(u8.try_from(7.5f32)))?
     print(i64.try_from(-9223372036854775808.0)?, i64.try_from(9223372036854775808.0).is_err())?
     print(i8.try_from(-128.7)?, i8.try_from(-129.0).is_err(), u64.try_from(18446744073709549568.0)?)?
+    # -0.0 truncates to 0; 2^64 and 2^63 are exactly one past the range, and
+    # i64.MAX as a float literal rounds up to 2^63.
+    print(u64.try_from(-0.0)?, u64.try_from(18446744073709551616.0).is_err(), u64.try_from(18446744073709551615.0).is_err())?
+    print(i64.try_from(9223372036854775807.0).is_err(), i64.try_from(9223372036854775808.0).is_err())?
     Ok(())
 "#
         ),
-        "255 0 -1 -1\n-1 -1 -1 7\n-9223372036854775808 True\n-128 True 18446744073709549568\n"
+        "255 0 -1 -1\n-1 -1 -1 7\n-9223372036854775808 True\n-128 True 18446744073709549568\n0 True True\nTrue True\n"
     );
 }
 

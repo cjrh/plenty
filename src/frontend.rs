@@ -4926,6 +4926,7 @@ fn lower_body(
         arithmetic: true,
         assume: false,
         failures: Vec::new(),
+        casts: false,
     });
     let lowered = crate::profile_block!(
         "frontend::lower_function_body",

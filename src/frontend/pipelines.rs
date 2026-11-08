@@ -1915,6 +1915,7 @@ impl Lower<'_> {
                     arithmetic: true,
                     assume: false,
                     failures: Vec::new(),
+                    casts: false,
                 });
             }
             let total = self.slot(ty.clone(), &base.at)?;

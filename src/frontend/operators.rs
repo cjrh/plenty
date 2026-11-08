@@ -1083,6 +1083,7 @@ impl Lower<'_> {
                     arithmetic: false,
                     assume: false,
                     failures: Vec::new(),
+                    casts: false,
                 });
                 let result = self.expr(&inner, ops);
                 self.checked.pop().expect("pushed above");

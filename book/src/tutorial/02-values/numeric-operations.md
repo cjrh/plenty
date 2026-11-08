@@ -191,14 +191,27 @@ count. It follows the same error rules as division by zero:
 def high_bits(value: u8, count: u8) -> Result[u8, ShiftCountError[u8]]:
     Ok(value >> count)
 
+def show(value: u8, count: u8) -> Result[(), IoError]:
+    match high_bits(value, count):
+        case Ok(bits):
+            print(bits)?
+        case Err(ShiftCountError(rejected)):
+            print("invalid shift count", rejected)?
+    Ok(())
+
 def main() -> Result[(), IoError]:
-    print(high_bits(200u8, 4u8).unwrap(), high_bits(200u8, 8u8).is_err())?
+    show(200u8, 4u8)?
+    show(200u8, 8u8)?
     Ok(())
 ```
 
 ```output
-12 True
+12
+invalid shift count 8
 ```
+
+Masking the count with a literal below the width, as in `value >> (count & 7u8)`,
+keeps it in range, so that shift adds no error.
 
 `rotate_left` and `rotate_right` move bits around the ends of an integer
 instead of discarding them. The count has the integer's own type. No count

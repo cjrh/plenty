@@ -33,6 +33,19 @@ pub(super) fn literal_integer(operand: &Expr) -> Option<i128> {
     Some(if negative { -magnitude } else { magnitude })
 }
 
+/// Whether a shift count has the form `n & mask` (either operand order) with
+/// a literal mask in `0..width`. The result then lies in `0..=mask`, so the
+/// count is valid without a check; this is the usual masking idiom.
+fn masked_count(count: &Expr, width: i128) -> bool {
+    let Expression::Binary(op, left, right) = &ungroup(count).kind else {
+        return false;
+    };
+    op == "&"
+        && [left, right]
+            .into_iter()
+            .any(|side| literal_integer(side).is_some_and(|mask| (0..width).contains(&mask)))
+}
+
 impl Lower<'_> {
     fn divisor_type(&self, op: &str, value: &Expr) -> Option<(Ty, Divisor)> {
         if !matches!(op, "//" | "%") {
@@ -142,15 +155,15 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
+        let (min, end) = ty.int_range().expect("shifts require integers");
+        let width = i128::from((end - min).trailing_zeros());
         if let Some(value) = literal_integer(count) {
-            let (min, end) = ty.int_range().expect("shifts require integers");
-            let width = i128::from((end - min).trailing_zeros());
             if !(0..width).contains(&value) {
                 return Err(count.at.error(format!(
                     "shift count {value} is outside 0..{width} for {ty}"
                 )));
             }
-        } else {
+        } else if !masked_count(count, width) {
             let operation = if kind == IntegerOp::ShiftLeft {
                 Checked::ShiftLeft
             } else {
