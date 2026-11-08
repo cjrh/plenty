@@ -17,12 +17,12 @@ def located(index: i64) -> Option[i64]:
 # `find_not_in`: one native call over the whole text, no allocation. A scalar
 # is a member when it is ASCII and its byte is in `set`; set bytes from 0x80
 # match nothing. Results are scalar positions, as for `str.find`.
-pub def find_in(text: &str, set: &[u8]) -> Option[i64]:
+pub def find_in(text: &strview, set: &[u8]) -> Option[i64]:
     located(__text_find_in(text, set, 1u8))
 
 # The first scalar that is not a member: the end of a run. Text made only of
 # members gives `Nothing`.
-pub def find_not_in(text: &str, set: &[u8]) -> Option[i64]:
+pub def find_not_in(text: &strview, set: &[u8]) -> Option[i64]:
     located(__text_find_in(text, set, 0u8))
 
 pub enum TextError:
@@ -48,7 +48,7 @@ pub class Builder:
     pub def limit(self) -> i64:
         self._limit
 
-    pub def append(self: &mut Builder, text: &str) -> Result[(), TextError]:
+    pub def append(self: &mut Builder, text: &strview) -> Result[(), TextError]:
         # Private storage satisfies 0 <= len <= capacity and len <= limit; growth is guarded before reserve.
         unchecked:
             count = text.byte_len()
@@ -68,11 +68,11 @@ pub class Builder:
                     if additional > i64.MAX - self._bytes.len():
                         additional = count
                     text_result(self._bytes.reserve(additional))?
+                bytes = text.as_bytes()
                 for at in range(count):
-                    text_result(self._bytes.push(u8(__regex_text_byte(text, at))))?
+                    text_result(self._bytes.push(bytes[at]))?
                 return Ok(())
-            encoded = text_result(std.bytes.from_text(text))?
-            text_result(self._bytes.extend(&encoded))
+            text_result(self._bytes.extend(text.as_bytes()))
 
     # Tab expansion is a bounded bulk fill, not one append per output space.
     def append_spaces(self: &mut Builder, count: i64) -> Result[(), TextError]:
@@ -100,7 +100,7 @@ pub def builder(max_bytes: NonNegative[i64]) -> Result[Builder, TextError]:
 def bounded(max_bytes: i64) -> Result[Builder, TextError]:
     Ok(Builder(text_result(std.bytes.empty())?, max_bytes))
 
-pub def join(pieces: &list[str], separator: &str, max_bytes: NonNegative[i64]) -> Result[str, TextError]:
+pub def join(pieces: &list[str], separator: &strview, max_bytes: NonNegative[i64]) -> Result[str, TextError]:
     mut output = bounded(max_bytes.get())?
     mut first = True
     for piece in pieces:
@@ -112,7 +112,7 @@ pub def join(pieces: &list[str], separator: &str, max_bytes: NonNegative[i64]) -
 
 # Hard wrap by Unicode scalar count, preserving explicit LF and every input
 # scalar. This is deliberately not display-width or grapheme/word wrapping.
-pub def hard_wrap(text: &str, width: Positive[i64], max_bytes: NonNegative[i64]) -> Result[str, TextError]:
+pub def hard_wrap(text: &strview, width: Positive[i64], max_bytes: NonNegative[i64]) -> Result[str, TextError]:
     # Each increment follows the column == width reset, so 0 <= column <= width <= i64.MAX.
     unchecked:
         columns = width.get()
@@ -134,7 +134,7 @@ pub def hard_wrap(text: &str, width: Positive[i64], max_bytes: NonNegative[i64])
 def text_result[T](value: Result[T, AllocError]) -> Result[T, TextError]:
     value.map_error(TextError.Allocation)
 
-def check_input(text: &str, max_input_bytes: i64) -> Result[(), TextError]:
+def check_input(text: &strview, max_input_bytes: i64) -> Result[(), TextError]:
     if text.byte_len() > max_input_bytes:
         return Err(TextError.LimitExceeded)
     Ok(())
@@ -159,15 +159,13 @@ def utf8_width(code: u32) -> i64:
 
 # All ranges below are derived from valid UTF-8 scalar boundaries. The existing
 # native text primitive copies only that byte range, without rescanning a prefix.
-def text_piece(text: &str, start: i64, stop: i64) -> Result[str, TextError]:
-    if start == 0 and stop == text.byte_len():
-        return Ok(*text)
+def text_piece(text: &strview, start: i64, stop: i64) -> Result[str, TextError]:
     text_result(__regex_text_slice(text, start, stop))
 
 # Retain compact code points for lookaround, and advance a UTF-8 byte cursor.
 # Unlike a list of scalar strings plus sliced temporary lists, this needs one
 # four-byte entry per input scalar and only one string copy per chunk.
-def split_chunks(text: &str, hyphens: bool) -> Result[list[str], TextError]:
+def split_chunks(text: &strview, hyphens: bool) -> Result[list[str], TextError]:
     # Scalar/UTF-8 cursors follow actual input spans; lookahead is clamped and byte advances add only a run length.
     unchecked:
         codes = text_result([ord(scalar).unwrap() for scalar in text])?
@@ -222,7 +220,7 @@ def split_chunks(text: &str, hyphens: bool) -> Result[list[str], TextError]:
                 start = byte_at
         Ok(chunks)
 
-def sentence_ending(text: &str) -> bool:
+def sentence_ending(text: &strview) -> bool:
     # Every subtraction follows a scalar-length check.
     unchecked:
         mut stop = len(text)
@@ -265,14 +263,14 @@ pub class TextWrapper:
                     pass
             Ok(())
 
-    def prepare(self, text: &str) -> Result[str, TextError]:
+    def prepared_chunks(self, text: &strview) -> Result[list[str], TextError]:
         # column is a remainder below positive tabsize; append_spaces checks its output budget before growth.
         unchecked:
             if not self.replace_whitespace:
                 if not self.expand_tabs or find_in(text, b"\t").is_none():
-                    return Ok(*text)
+                    return split_chunks(text, self.break_on_hyphens)
             elif find_in(text, b"\t\n\x0b\x0c\r").is_none():
-                return Ok(*text)
+                return split_chunks(text, self.break_on_hyphens)
             mut output = bounded(self.max_input_bytes.get())?
             mut column = 0
             for scalar in text:
@@ -292,17 +290,17 @@ pub class TextWrapper:
                         column = 0
                     elif self.tabsize.get() > 0:
                         column = (column + 1) % self.tabsize.get()
-            output.finish()
+            normalized = output.finish()?
+            split_chunks(&normalized, self.break_on_hyphens)
 
-    pub def wrap(self, text: &str) -> Result[list[str], TextError]:
+    pub def wrap(self, text: &strview) -> Result[list[str], TextError]:
         # Chunk offsets stay within their scalar/UTF-8 lengths; builders bound cumulative output by max_bytes.
         # A negative available width only permits a one-scalar split or a whole-word
         # fallback; max-lines placeholder arithmetic first validates indent <= width.
         unchecked:
             self.validate()?
             check_input(text, self.max_input_bytes.get())?
-            normalized = self.prepare(text)?
-            mut chunks = split_chunks(&normalized, self.break_on_hyphens)?
+            mut chunks = self.prepared_chunks(text)?
             if self.fix_sentence_endings:
                 for at in range(1, len(chunks)):
                     if chunks[at] == " " and sentence_ending(&chunks[at - 1]):
@@ -421,7 +419,7 @@ pub class TextWrapper:
                     break
             Ok(lines)
 
-    pub def fill(self, text: &str) -> Result[str, TextError]:
+    pub def fill(self, text: &strview) -> Result[str, TextError]:
         lines = self.wrap(text)?
         join(&lines, "\n", self.max_bytes)
 
@@ -430,25 +428,25 @@ pub class TextWrapper:
 pub def text_wrapper(width: Positive[i64] = 70, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> TextWrapper:
     TextWrapper(width, "", "", True, True, False, True, True, True, 8, Nothing, " [...]", max_bytes, max_input_bytes)
 
-pub def wrap(text: &str, width: Positive[i64] = 70, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[list[str], TextError]:
+pub def wrap(text: &strview, width: Positive[i64] = 70, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[list[str], TextError]:
     text_wrapper(width, max_bytes, max_input_bytes).wrap(text)
 
-pub def fill(text: &str, width: Positive[i64] = 70, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]:
+pub def fill(text: &strview, width: Positive[i64] = 70, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]:
     text_wrapper(width, max_bytes, max_input_bytes).fill(text)
 
 # Splitting and joining are native bulk text operations. The normalized byte
 # count cannot exceed the already-checked input cap, and this helper releases
 # the word list before wrapping builds its own chunk metadata.
-def collapse_whitespace(text: &str) -> Result[str, TextError]:
+def collapse_whitespace(text: &strview) -> Result[str, TextError]:
     words = text_result(text.split())?
     text_result(" ".join(&words))
 
-pub def shorten(text: &str, width: Positive[i64], placeholder: &str = " [...]", max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576, fix_sentence_endings: bool = False, break_long_words: bool = True, break_on_hyphens: bool = True) -> Result[str, TextError]:
+pub def shorten(text: &strview, width: Positive[i64], placeholder: &strview = " [...]", max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576, fix_sentence_endings: bool = False, break_long_words: bool = True, break_on_hyphens: bool = True) -> Result[str, TextError]:
     check_input(text, max_input_bytes.get())?
     check_input(placeholder, max_input_bytes.get())?
     mut wrapper = text_wrapper(width, max_bytes, max_input_bytes)
     wrapper.max_lines = Some(1)
-    wrapper.placeholder = *placeholder
+    wrapper.placeholder = text_result(__regex_text_slice(placeholder, 0, placeholder.byte_len()))?
     wrapper.fix_sentence_endings = fix_sentence_endings
     wrapper.break_long_words = break_long_words
     wrapper.break_on_hyphens = break_on_hyphens
@@ -458,7 +456,7 @@ pub def shorten(text: &str, width: Positive[i64], placeholder: &str = " [...]", 
 
 # LF defines dedent lines; other whitespace-only line bodies are normalized,
 # while only literal spaces and tabs contribute to the common margin.
-pub def dedent(text: &str, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]:
+pub def dedent(text: &strview, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]:
     # Margin and common-prefix cursors increment only below actual byte lengths.
     unchecked:
         check_input(text, max_input_bytes.get())?
@@ -497,10 +495,10 @@ pub def dedent(text: &str, max_bytes: NonNegative[i64] = 1048576, max_input_byte
 def nonblank_line(line: &str) -> bool:
     len(line) > 0 and not line.isspace()
 
-pub def indent(text: &str, prefix: &str, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]:
+pub def indent(text: &strview, prefix: &strview, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]:
     indent_with(text, prefix, nonblank_line, max_bytes, max_input_bytes)
 
-pub def indent_with[F: Callable[[&str], bool]](text: &str, prefix: &str, predicate: F, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]:
+pub def indent_with[F: Callable[[&str], bool]](text: &strview, prefix: &strview, predicate: F, max_bytes: NonNegative[i64] = 1048576, max_input_bytes: NonNegative[i64] = 1048576) -> Result[str, TextError]:
     check_input(text, max_input_bytes.get())?
     check_input(prefix, max_input_bytes.get())?
     mut output = bounded(max_bytes.get())?

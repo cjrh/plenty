@@ -1387,3 +1387,38 @@ print(__regex_bytes_find(b"", "abc"))?
         "True\n1\n0\n-1",
     );
 }
+
+#[test]
+fn regex_text_inputs_and_retained_patterns_accept_bounded_views() {
+    assert_eq!(
+        output(&program(
+            r#"
+limits = std.regex.limits()
+mut pattern = "!(?P<word>é+)!"
+regex = std.regex.compile(&pattern[1:-1], &limits)?
+pattern = "replaced after compilation"
+names = "!word!"
+print(regex.group_index(&names[1:-1]).unwrap())?
+source = "!aéé\0éz!"
+text = &source[1:-1]
+print(regex.is_match(text)?)?
+found = regex.find(text)?.unwrap()
+print(found.start, found.end, found.text(text)? == "éé")?
+print(regex.find_at(text, 6)?.unwrap().text(text)? == "é")?
+caps = regex.captures(text)?.unwrap()
+print(caps.name(&names[1:-1]).unwrap().text(text)? == "éé")?
+print(regex.captures_at(text, 6)?.unwrap().get(0).unwrap().text(text)? == "é")?
+mut cursor = regex.cursor()?
+print(regex.next_match(text, &mut cursor)?.unwrap().start)?
+print(regex.find_all(text, 4)?.len())?
+print(regex.split(text, 4)? == ["a", "\0", "z"]?)?
+template = "!${word}x!"
+print(regex.replace(text, &template[1:-1], 30)? == "aééx\0éz")?
+print(regex.replace_all(text, &template[1:-1], 30)? == "aééx\0éxz")?
+empty = &source[1:1]
+print(not regex.is_match(empty)?, regex.find(empty)?.is_none())?
+"#
+        )),
+        "1\nTrue\n1 5 True\nTrue\nTrue\nTrue\n1\n2\nTrue\nTrue\nTrue\nTrue True"
+    );
+}
