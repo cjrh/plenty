@@ -1132,3 +1132,385 @@ print(o.is_some()).unwrap()
         "a reference to a temporary cannot be stored beyond its full expression",
     );
 }
+
+#[test]
+fn branch_values_carry_each_arms_borrow() {
+    assert_stdout(
+        &with_find(
+            r#"
+def pick(items: &list[Item], first: bool) -> Option[&Item]:
+    return if first:
+        find(items, "ada")
+    else:
+        find(items, "bob")
+def pick_tail(items: &list[Item], first: bool) -> Option[&Item]:
+    chosen = match first:
+        case True:
+            find(items, "ada")
+        case False:
+            Nothing
+    chosen
+def first(items: &list[Item]) -> Result[&Item, str]:
+    if len(items) > 0:
+        return Ok(&items[0])
+    Err("empty")
+def main() -> Result[(), AllocError | IoError]:
+    mut items = [Item("ada", 1), Item("bob", 2)]?
+    others = [Item("cy", 3)]?
+    many = len(items) > 1
+    selected = if many:
+        find(&items, "bob")
+    else:
+        find(&others, "cy")
+    print(selected)?
+    nested = match selected:
+        case Some(item):
+            if item.count > 1:
+                find(&items, "ada")
+            else:
+                Nothing
+        case Nothing:
+            Nothing
+    print(nested)?
+    result = if many:
+        first(&items)
+    else:
+        Err("skipped")
+    match result:
+        case Ok(item):
+            print(item.name)?
+        case Err(e):
+            print(e)?
+    print(pick(&items, False))?
+    print(pick_tail(&items, True))?
+    changed = if many:
+        find_mut(&mut items, "ada")
+    else:
+        Nothing
+    match changed:
+        case Some(item):
+            item.count = 7
+        case Nothing:
+            pass
+    items.clear()
+    print(len(items))?
+    Ok(())
+"#,
+        ),
+        "Option[&Item].Some(Item(name=\"bob\", count=2))\n\
+         Option[&Item].Some(Item(name=\"ada\", count=1))\n\
+         ada\n\
+         Option[&Item].Some(Item(name=\"bob\", count=2))\n\
+         Option[&Item].Some(Item(name=\"ada\", count=1))\n\
+         0\n",
+    );
+}
+
+#[test]
+fn branch_values_keep_every_arm_borrowed() {
+    const NOTE: &str =
+        "holds this arm's value: an `if` or `match` value keeps the value of every arm borrowed";
+    for (body, message) in [
+        (
+            r#"
+mut a = [Item("ada", 1)].unwrap()
+b = [Item("bob", 2)].unwrap()
+x = if len(b) > 0:
+    find(&b, "bob")
+else:
+    find(&a, "ada")
+a.clear()
+print(x).unwrap()
+"#,
+            "cannot modify or exclusively borrow `a` while it is borrowed",
+        ),
+        (
+            r#"
+mut items = [Item("ada", 1)].unwrap()
+x = if len(items) > 0:
+    y = if len(items) > 1:
+        find(&items, "ada")
+    else:
+        Nothing
+    y
+else:
+    Nothing
+items.clear()
+print(x).unwrap()
+"#,
+            "cannot modify or exclusively borrow `items` while it is borrowed",
+        ),
+        (
+            r#"
+mut items = [Item("ada", 1)].unwrap()
+a = match len(items):
+    case 0:
+        find_mut(&mut items, "ada")
+    case _:
+        find_mut(&mut items, "bob")
+b = find_mut(&mut items, "ada")
+print(b.is_some()).unwrap()
+print(a.is_some()).unwrap()
+"#,
+            "cannot modify or exclusively borrow `items` while it is exclusively borrowed",
+        ),
+        (
+            r#"
+mut items = [Item("ada", 1)].unwrap()
+mut keep: Option[&Item] = Nothing
+for k in [0, 1].unwrap():
+    x = if k == 0:
+        find(&items, "ada")
+    else:
+        keep
+    keep = x
+    items.clear()
+print(keep).unwrap()
+"#,
+            "cannot modify or exclusively borrow `items` while it is borrowed",
+        ),
+    ] {
+        let source = with_find(body);
+        rejects(&source, message);
+        rejects(&source, NOTE);
+    }
+}
+
+#[test]
+fn branch_values_cannot_outlive_their_arms() {
+    rejects(
+        &with_find(
+            r#"
+items = [Item("ada", 1)].unwrap()
+x = if len(items) > 0:
+    local = [Item("zzz", 1)].unwrap()
+    find(&local, "zzz")
+else:
+    Nothing
+print(x).unwrap()
+"#,
+        ),
+        "cannot drop `local` while it is borrowed",
+    );
+    rejects(
+        &with_find(
+            r#"
+def make() -> Result[list[Item], AllocError]:
+    [Item("ada", 1)]
+x = if True:
+    find(&make().unwrap(), "ada")
+else:
+    Nothing
+print(x).unwrap()
+"#,
+        ),
+        "cannot drop a temporary value while it is borrowed",
+    );
+    rejects(
+        &with_find(
+            r#"
+def pick(items: &list[Item], other: &list[Item], first: bool) -> Option[&Item]:
+    return if first:
+        find(items, "ada")
+    else:
+        find(other, "bob")
+"#,
+        ),
+        "returned reference must originate from the first reference parameter, `items`; this one borrows `other`",
+    );
+    // A plain reference from an arm still needs B11's stored references.
+    rejects(
+        r#"
+items = [1, 2].unwrap()
+x = if len(items) > 0:
+    &items[0]
+else:
+    &items[1]
+print(*x).unwrap()
+"#,
+        "an `if` or `match` block used as a value cannot produce a reference",
+    );
+    rejects(
+        &with_find(
+            r#"
+items = [Item("ada", 1)].unwrap()
+x: Option[&Item] = checked:
+    find(&items, "ada")
+print(x).unwrap()
+"#,
+        ),
+        "a `checked:` block cannot produce a reference",
+    );
+}
+
+#[test]
+fn branch_values_borrow_only_through_the_arm_that_ran() {
+    // Review of local PR #1106: two exclusive arms of one owner, with
+    // arguments that leave no temporary after the loan, and loops whose
+    // value is used only within its iteration.
+    assert_stdout(
+        &with_find(
+            r#"
+def head_mut(xs: &mut list[i64], k: i64) -> Option[&mut i64]:
+    for x in xs:
+        return Some(x)
+    Nothing
+def touch(o: Option[&mut i64]) -> ():
+    pass
+def show(o: Option[&Item]) -> ():
+    pass
+def bump(o: Option[&mut Item]) -> ():
+    match o:
+        case Some(item):
+            item.count = 9
+        case Nothing:
+            pass
+def main() -> Result[(), AllocError | IoError]:
+    mut numbers = [1, 2]?
+    many = len(numbers) > 1
+    z = if many:
+        head_mut(&mut numbers, 1)
+    else:
+        head_mut(&mut numbers, 2)
+    touch(z)
+    always = if True:
+        head_mut(&mut numbers, 1)
+    else:
+        head_mut(&mut numbers, 2)
+    touch(always)
+    who = "ada"
+    mut a = [Item("ada", 1)]?
+    mut b = [Item("bob", 1)]?
+    w = match many:
+        case True:
+            find_mut(&mut a, who)
+        case False:
+            find_mut(&mut a, who)
+    bump(w)
+    print(a[0].count)?
+    for k in [0, 1, 2]?:
+        x = if k == 1:
+            find(&a, "ada")
+        else:
+            Nothing
+        show(x)
+        a.append(Item("cy", 1))?
+        y = if k == 1:
+            find(&a, "ada")
+        else:
+            find(&b, "bob")
+        show(y)
+        a.append(Item("dee", 1))?
+        b.append(Item("eve", 1))?
+        m = if k == 1:
+            find_mut(&mut a, "ada")
+        else:
+            find_mut(&mut a, "bob")
+        bump(m)
+        show(find(&a, "ada"))
+    print(len(a))?
+    Ok(())
+"#,
+        ),
+        "9\n7\n",
+    );
+}
+
+#[test]
+fn branch_values_copied_out_of_an_iteration_stay_borrowed() {
+    for body in [
+        r#"
+mut b = [Item("bob", 1)].unwrap()
+c = [Item("cy", 1)].unwrap()
+mut keep: Option[&Item] = Nothing
+for k in [0, 1, 2].unwrap():
+    b.clear()
+    x = if k == 0:
+        find(&b, "bob")
+    else:
+        find(&c, "cy")
+    if k == 0:
+        keep = x
+    print(keep).unwrap()
+"#,
+        r#"
+mut b = [Item("bob", 1)].unwrap()
+c = [Item("cy", 1)].unwrap()
+mut x: Option[&Item] = Nothing
+for k in [0, 1, 2].unwrap():
+    b.clear()
+    print(x).unwrap()
+    x = if k == 0:
+        find(&b, "bob")
+    else:
+        find(&c, "cy")
+"#,
+        r#"
+mut b = [Item("bob", 1)].unwrap()
+c = [Item("cy", 1)].unwrap()
+mut keep: Option[&Item] = Nothing
+for k in [0, 1, 2].unwrap():
+    b.clear()
+    print(keep).unwrap()
+    x = if k == 0:
+        find(&b, "bob")
+    else:
+        find(&c, "cy")
+    keep = match x:
+        case Some(i):
+            Some(i)
+        case Nothing:
+            Nothing
+"#,
+    ] {
+        rejects(
+            &with_find(body),
+            "cannot modify or exclusively borrow `b` while it is borrowed",
+        );
+    }
+}
+
+#[test]
+fn branch_values_copied_on_some_paths_block_reevaluation() {
+    // Phase guard for B11 (issue #868): a copy kept from an earlier
+    // iteration keeps the branch binding borrowed, so its next evaluation is
+    // rejected although no owner changes. Delete when that is accepted.
+    rejects(
+        &with_find(
+            r#"
+a = [Item("ada", 1)].unwrap()
+b = [Item("bob", 1)].unwrap()
+mut keep: Option[&Item] = Nothing
+for k in [0, 1].unwrap():
+    x = if k == 0:
+        find(&a, "ada")
+    else:
+        find(&b, "bob")
+    if k == 0:
+        keep = x
+print(keep).unwrap()
+"#,
+        ),
+        "cannot assign to `x` while it is borrowed",
+    );
+    assert_stdout(
+        &with_find(
+            r#"
+def main() -> Result[(), AllocError | IoError]:
+    a = [Item("ada", 1)]?
+    b = [Item("bob", 1)]?
+    mut keep: Option[&Item] = Nothing
+    for k in [0, 1]?:
+        if k == 0:
+            x = find(&a, "ada")
+            keep = x
+        else:
+            x = find(&b, "bob")
+            print(x)?
+    print(keep)?
+    Ok(())
+"#,
+        ),
+        "Option[&Item].Some(Item(name=\"bob\", count=1))\nOption[&Item].Some(Item(name=\"ada\", count=1))\n",
+    );
+}
