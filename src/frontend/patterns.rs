@@ -2046,13 +2046,11 @@ impl Lower<'_> {
                     self.cleanup(case_start, &mut body);
                 }
                 if let Some(expected) = &joined {
-                    if let Some(returned) = self
-                        .joined_tail(expected, &ty)
-                        .filter(|_| matches!(tail, Tail::Function))
+                    let function_tail = matches!(tail, Tail::Function);
+                    if let Some(returned) =
+                        self.join_branch(expected, &ty, function_tail, &case.at)?
                     {
                         joined = Some(returned);
-                    } else {
-                        self.same(ty.clone(), expected.clone(), &case.at)?;
                     }
                 } else {
                     // A first continuing case without a value (`pass`) is

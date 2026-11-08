@@ -467,7 +467,8 @@ fn step(
                 );
             }
         }
-        Op::JoinFrame(from, to) => {
+        Op::JoinFrame(join) => {
+            let (from, to) = &**join;
             if !crate::generator::joins_into(from, to) || stack.pop().as_ref() != Some(from) {
                 return Err("frame join requires a member producer of the joined type".into());
             }

@@ -4074,13 +4074,8 @@ impl Lower<'_> {
                     for (at, branch) in branches {
                         result = match (branch, result) {
                             (BlockResult::Continues(ty), BlockResult::Continues(other)) => {
-                                if let Some(joined) = self.joined_tail(&other, &ty).filter(|_| last)
-                                {
-                                    BlockResult::Continues(joined)
-                                } else {
-                                    self.same(other, ty.clone(), at)?;
-                                    BlockResult::Continues(ty)
-                                }
+                                let joined = self.join_branch(&ty, &other, last, at)?;
+                                BlockResult::Continues(joined.unwrap_or(ty))
                             }
                             (BlockResult::Continues(ty), BlockResult::Exits)
                             | (BlockResult::Exits, BlockResult::Continues(ty)) => {

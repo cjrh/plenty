@@ -2866,7 +2866,8 @@ impl Lowerer<'_, '_> {
                 let cast = self.cast(v, src, target.clone());
                 self.stack.push((cast, target.clone()));
             }
-            Op::JoinFrame(from, to) => {
+            Op::JoinFrame(join) => {
+                let (from, to) = &**join;
                 let (value, _) = self.pop_typed(from.clone())?;
                 // Only the member's bytes are copied; the rest of the joined
                 // storage stays unused until a larger member occupies it.

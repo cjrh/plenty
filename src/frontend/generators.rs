@@ -228,10 +228,29 @@ impl Lower<'_> {
         Ok(())
     }
 
+    /// Checks that a branch's type `ty` matches the earlier branches'
+    /// `expected`, or, in a function's tail, that both joined into its
+    /// returned generator; that joined type is returned. Kept out of line so
+    /// deeply nested branches keep their recursion frames small.
+    #[inline(never)]
+    pub(super) fn join_branch(
+        &mut self,
+        expected: &Type,
+        ty: &Type,
+        function_tail: bool,
+        at: &Token,
+    ) -> Result<Option<Type>> {
+        if function_tail && let Some(joined) = self.joined_tail(expected, ty) {
+            return Ok(Some(joined));
+        }
+        self.same(ty.clone(), expected.clone(), at)?;
+        Ok(None)
+    }
+
     /// The function's joined generator type, when two branches of its tail
     /// returned different producers. Each branch already converted its frame
     /// or recorded the join when it returned.
-    pub(super) fn joined_tail(&self, a: &Type, b: &Type) -> Option<Type> {
+    fn joined_tail(&self, a: &Type, b: &Type) -> Option<Type> {
         let (Some(a), Some(b)) = (a, b) else {
             return None;
         };
@@ -257,7 +276,7 @@ impl Lower<'_> {
         if let (Some(Some(expected)), Some(member)) = (&self.return_type, &actual)
             && crate::generator::joins_into(member, expected)
         {
-            ops.push(Op::JoinFrame(member.clone(), expected.clone()));
+            ops.push(Op::JoinFrame(Box::new((member.clone(), expected.clone()))));
             return Some(expected.clone());
         }
         actual
