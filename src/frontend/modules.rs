@@ -349,6 +349,8 @@ struct Module {
     embeds: Vec<Embed>,
     /// Whether the module has slice syntax.
     slices: bool,
+    /// See `Parser::byte_methods`.
+    byte_methods: bool,
     /// See `Parser::mentions_bytes`.
     mentions_bytes: bool,
     serial: HashSet<String>,
@@ -682,6 +684,7 @@ fn parse_items(
         });
     }
     module.slices = parser.slices;
+    module.byte_methods = parser.byte_methods;
     module.mentions_bytes = parser.mentions_bytes;
     Ok((module, parser.peek().clone()))
 }
@@ -1472,18 +1475,17 @@ impl Loader {
         Ok((index, at))
     }
 
-    /// Loads `std.bytes` for a program that might slice a `bytes` value, which
-    /// produces a `std.bytes.Bytes`, when nothing has imported it. A `bytes`
-    /// value comes only from a `b"..."` literal, `include_bytes`, or a type
-    /// spelled `bytes`, so a program whose modules have none of these never
-    /// needs it. An f-string field is not scanned: an f-string imports
-    /// `std.fmt`, which imports `std.bytes`. `entry` is a module not yet in
+    /// Loads `std.bytes` for byte slices or stringlike byte methods when
+    /// nothing has imported it. Byte-producing syntax includes literals,
+    /// `include_bytes`, byte types and `as_bytes` method calls. An f-string
+    /// field is not scanned: an f-string imports `std.fmt`, which imports
+    /// `std.bytes`. `entry` is a module not yet in
     /// `self.modules`.
     fn slice_bytes(&mut self, entry: Option<&Module>) -> Result<()> {
         let source = ModuleSource::Standard("std.bytes");
         let modules = || self.modules.iter().chain(entry);
         if self.loaded.contains_key(&source)
-            || !modules().any(|m| m.slices)
+            || !modules().any(|m| m.slices || m.byte_methods)
             || !modules().any(|m| m.mentions_bytes)
         {
             return Ok(());
@@ -3798,6 +3800,13 @@ mod tests {
         assert!(!loads_bytes(mention));
         assert!(loads_bytes("def main() -> ():\n    ys = b\"ab\"[1:]\n"));
         assert!(loads_bytes("def f(b: bytes) -> ():\n    ys = b[1:]\n"));
+        assert!(loads_bytes(
+            "def f(source: &[u8]) -> bool:\n    source.isascii()\n"
+        ));
+        assert!(loads_bytes(
+            "def f(source: &str) -> bool:\n    source.as_bytes().isascii()\n"
+        ));
+        assert!(loads_bytes("def f() -> bool:\n    b\"ABC\".isascii()\n"));
     }
 
     /// Every repository module goes to one of this many cases, which the

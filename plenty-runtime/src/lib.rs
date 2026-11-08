@@ -41,6 +41,11 @@ mod render_buffer;
 mod serial_stack;
 mod signal_context;
 mod signals;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod small_pool;
 mod stack_overflow;
 mod strings;
 mod system;

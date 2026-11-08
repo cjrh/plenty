@@ -46,10 +46,19 @@ static int path_fails(void) {
     return files >= 0 && spend(&files);
 }
 
+static int8_t allocation_refused(void) {
+    return (int8_t)spend(&allocations);
+}
+
+/* Defined by the runtime's small-block pool, whose reused blocks never reach
+ * malloc; the gate makes them spend the same budget. */
+void plenty_small_pool_gate(int8_t (*gate)(void));
+
 /* kind 0 arms allocations and 1 arms file calls. A negative count restores
  * the call; `code` is the errno a failed file call reports. */
 int8_t plenty_test_fault(int64_t kind, int64_t count, int32_t code) {
     if (kind == 0) {
+        plenty_small_pool_gate(allocation_refused);
         allocations = count < 0 ? -1 : count;
     } else {
         files = count < 0 ? -1 : count;

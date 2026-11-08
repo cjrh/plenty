@@ -22,6 +22,7 @@ mod annotations;
 mod atomic;
 mod bounded;
 mod byte_buffers;
+mod byte_methods;
 mod callables;
 mod calls;
 mod casts;
@@ -2153,6 +2154,9 @@ impl Lower<'_> {
         let Expression::Binary(op, left, right) = &e.kind else {
             unreachable!("membership_expression lowers its own expression kind")
         };
+        if let Some(result) = self.byte_membership(op, left, right, ops)? {
+            return Ok(result);
+        }
         if (self.is_text_view(left) || self.is_text_view(right))
             && self.slice_view_type(left, false) == Some(text_view())
             && self.slice_view_type(right, false) == Some(text_view())
