@@ -443,3 +443,18 @@ On the selected-field kernel, the static innermost-loop instruction span drops
 from 43 to 8 for explicit zip and from 43 to 10 for zip/fold; indexed access stays
 at 8 and scalar C at 7. These spans are not elapsed-time speedups. See the probe
 for traced paths, whole-program instruction counts and remaining limits.
+
+## Conditional callback captures (issue #891)
+
+General call-site inlining now reuses the immutable scalar capture snapshots
+already maintained for leaf callbacks. A conditional fold over two `clist`
+columns no longer reloads the closure address and captured threshold each row;
+its standalone and actual inlined loops both drop from 10 to 8 instructions,
+matching the explicit column loop. Scalar C uses 7 because it folds a field
+load into the floating addition.
+
+The retained probes in `experiments/kernels/scalar-captures/` compare isolated
+IR variants before the compiler change and verify snapshot movement, branch
+assignment, closure replacement, mutable and borrowed captures, and float edge
+cases. Whole-program instructions fall from 44,158,729 to 40,881,853 with the
+same checksum. This is an instruction-count result, not an elapsed-time claim.
