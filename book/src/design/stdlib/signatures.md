@@ -67,46 +67,46 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.image`](#stdimage): 2179-2225
 - [`std.io`](#stdio): 2227-2333
 - [`std.io.typed`](#stdiotyped): 2335-2373
-- [`std.serial`](#stdserial): 2375-2439
-- [`std.json`](#stdjson): 2441-2593
-- [`std.jwt`](#stdjwt): 2595-2642
-- [`std.log`](#stdlog): 2644-2711
-- [`std.markdown`](#stdmarkdown): 2713-2747
-- [`std.template`](#stdtemplate): 2749-2786
-- [`std.math`](#stdmath): 2788-2859
-- [`std.mime`](#stdmime): 2861-2887
-- [`std.net`](#stdnet): 2889-2971
-- [`std.path`](#stdpath): 2973-2990
-- [`std.process`](#stdprocess): 2992-3050
-- [`std.random`](#stdrandom): 3052-3073
-- [`std.ready`](#stdready): 3075-3106
-- [`std.regex`](#stdregex): 3108-3161
-- [`std.report`](#stdreport): 3163-3174
-- [`std.secrets`](#stdsecrets): 3176-3202
-- [`std.shlex`](#stdshlex): 3204-3213
-- [`std.sketch`](#stdsketch): 3215-3253
-- [`std.sketch.xor`](#stdsketchxor): 3255-3266
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3268-3283
-- [`std.signal`](#stdsignal): 3285-3302
-- [`std.simd`](#stdsimd): 3304-3405
-- [`std.stat`](#stdstat): 3407-3440
-- [`std.plot`](#stdplot): 3442-3531
-- [`std.linalg`](#stdlinalg): 3533-3574
-- [`std.sync`](#stdsync): 3576-3608
-- [`std.system`](#stdsystem): 3610-3669
-- [`std.tempfile`](#stdtempfile): 3671-3703
-- [`std.test`](#stdtest): 3705-3747
-- [`std.text`](#stdtext): 3749-3792
-- [`std.thread`](#stdthread): 3794-3798
-- [`std.time`](#stdtime): 3800-3844
-- [`std.tls`](#stdtls): 3846-3928
-- [`std.toml`](#stdtoml): 3930-4029
-- [`std.unicode`](#stdunicode): 4031-4043
-- [`std.units`](#stdunits): 4045-4282
-- [`std.units.catalogue`](#stdunitscatalogue): 4284-5062
-- [`std.url`](#stdurl): 5064-5092
-- [`std.uuid`](#stduuid): 5094-5117
-- [`std.xml`](#stdxml): 5119-5152
+- [`std.serial`](#stdserial): 2375-2440
+- [`std.json`](#stdjson): 2442-2594
+- [`std.jwt`](#stdjwt): 2596-2643
+- [`std.log`](#stdlog): 2645-2712
+- [`std.markdown`](#stdmarkdown): 2714-2748
+- [`std.template`](#stdtemplate): 2750-2787
+- [`std.math`](#stdmath): 2789-2860
+- [`std.mime`](#stdmime): 2862-2888
+- [`std.net`](#stdnet): 2890-2972
+- [`std.path`](#stdpath): 2974-2991
+- [`std.process`](#stdprocess): 2993-3051
+- [`std.random`](#stdrandom): 3053-3074
+- [`std.ready`](#stdready): 3076-3107
+- [`std.regex`](#stdregex): 3109-3162
+- [`std.report`](#stdreport): 3164-3175
+- [`std.secrets`](#stdsecrets): 3177-3203
+- [`std.shlex`](#stdshlex): 3205-3214
+- [`std.sketch`](#stdsketch): 3216-3254
+- [`std.sketch.xor`](#stdsketchxor): 3256-3267
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3269-3284
+- [`std.signal`](#stdsignal): 3286-3303
+- [`std.simd`](#stdsimd): 3305-3406
+- [`std.stat`](#stdstat): 3408-3441
+- [`std.plot`](#stdplot): 3443-3532
+- [`std.linalg`](#stdlinalg): 3534-3575
+- [`std.sync`](#stdsync): 3577-3609
+- [`std.system`](#stdsystem): 3611-3670
+- [`std.tempfile`](#stdtempfile): 3672-3704
+- [`std.test`](#stdtest): 3706-3748
+- [`std.text`](#stdtext): 3750-3793
+- [`std.thread`](#stdthread): 3795-3799
+- [`std.time`](#stdtime): 3801-3845
+- [`std.tls`](#stdtls): 3847-3929
+- [`std.toml`](#stdtoml): 3931-4030
+- [`std.unicode`](#stdunicode): 4032-4044
+- [`std.units`](#stdunits): 4046-4283
+- [`std.units.catalogue`](#stdunitscatalogue): 4285-5063
+- [`std.url`](#stdurl): 5065-5093
+- [`std.uuid`](#stduuid): 5095-5118
+- [`std.xml`](#stdxml): 5120-5153
 
 ## `std.actor`
 
@@ -2436,6 +2436,7 @@ def decode_bytes[E, D: Decoder[E]](source: &mut D) -> Result[Bytes, SerialError[
 def read_field[T, E, D: Decoder[E]](slot: &mut Option[T], source: &mut D, name: &str) -> Result[(), SerialError[E]]
 def require_field[T, E, D: Decoder[E]](slot: &mut Option[T], source: &D, name: &str) -> Result[T, SerialError[E]]
 def constructed[T, E, D: Decoder[E]](value: Result[T, Fault], source: &D) -> Result[T, SerialError[E]]
+def constructed_or_allocated[T, E, D: Decoder[E]](value: Result[T, AllocError | Fault], source: &D) -> Result[T, SerialError[E]]
 ```
 
 ## `std.json`

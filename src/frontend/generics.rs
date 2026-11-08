@@ -2130,7 +2130,7 @@ impl Engine {
                         .serial_field(at)
                         .map(|field| format!("field `{field}`: "))
                         .unwrap_or_default();
-                    return Err(at.error(format!("{context}{ty} has no {hook} serialization hook; use @serial, or write a private {hook}; automatic decoding requires initializer fields/types to match exactly and return () or Result[(), std.serial.Fault]; preserve constructor invariants in custom decoding")));
+                    return Err(at.error(format!("{context}{ty} has no {hook} serialization hook; use @serial, or write a private {hook}; automatic decoding requires initializer fields/types to match exactly and return () or Result[(), E] where E is std.serial.Fault, AllocError or AllocError | std.serial.Fault; preserve constructor invariants in custom decoding")));
                 }
             }
         }

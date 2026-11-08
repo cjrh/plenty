@@ -99,7 +99,9 @@ adapter with its public owned reader retained on failure. Both formats share
 canonical padded base64 for bytes. Runtime decoding returns owning `Bytes`;
 static `bytes` literal storage has no runtime constructor. TOML distinguishes
 optional class fields from map entries, so omission cannot delete dictionary
-keys. Constructor error domains other than `Fault` require a handwritten
+keys. Constructors and defaults may return `Fault`, `AllocError` or
+`AllocError | Fault`; allocation failures use the format's allocation fault
+(issue #905). Other error domains require a handwritten
 decoding hook to choose a typed mapping.
 
 The [measurement record](../development/serialization-measurements.md)
