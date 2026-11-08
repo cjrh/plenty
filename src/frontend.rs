@@ -1035,6 +1035,10 @@ struct Lower<'a> {
     /// Method dispatch passes through many paths, so the expectation travels
     /// here rather than through every one of them.
     expected_method: Option<(usize, String, Ty)>,
+    /// The context of the `?` operand being lowered, whose error position is
+    /// not type-argument evidence (issue #873). A nested expression that
+    /// expects the same type only loses that evidence.
+    propagated: Option<Ty>,
     indexed_lists: Vec<collections::IndexedLists>,
     /// The list place and slot of the last counted `range(..., len(xs))`
     /// whose stop was saved; see [`collections::IndexedLists::stop`].
@@ -1455,6 +1459,7 @@ impl Lower<'_> {
             }
             _ => None,
         };
+        let mut open = None;
         let operand_context = expected.map(|ty| {
             if literal == Some(FixedError::Collection) {
                 crate::sum::result(ty, crate::sum::alloc_error())
@@ -1463,10 +1468,15 @@ impl Lower<'_> {
             {
                 crate::sum::option(ty)
             } else {
-                crate::sum::result(ty, target.get().variants[1].fields[0].clone())
+                let context = crate::sum::result(ty, target.get().variants[1].fields[0].clone());
+                open = Some(context.clone());
+                context
             }
         });
-        let operand = self.expr_expected(value, operand_context, ops)?;
+        let outer = std::mem::replace(&mut self.propagated, open);
+        let operand = self.expr_expected(value, operand_context, ops);
+        self.propagated = outer;
+        let operand = operand?;
         if operand.as_ref().is_some_and(Ty::dictionary_view) {
             return Err(value.at.error("keys() returns a borrowed KeyView without AllocError; remove `?`, or use keys_snapshot(), into_keys(), or to_set() for an owned result"));
         }
@@ -1865,6 +1875,9 @@ impl Lower<'_> {
         let Expression::Method(_, name, _, _) = &e.kind else {
             unreachable!("method_expected lowers method calls")
         };
+        if !self.generics.method_names.contains(name) {
+            return self.expr(e, ops);
+        }
         let outer = self
             .expected_method
             .replace((self.method_depth + 1, name.clone(), expected));
@@ -4880,6 +4893,7 @@ fn lower_body(
                 branch_value_tail: false,
                 method_depth: 0,
                 expected_method: None,
+                propagated: None,
                 yield_type: yield_type.clone(),
                 loans: Vec::new(),
                 reference_locals: HashMap::default(),

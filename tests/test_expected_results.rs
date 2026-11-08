@@ -226,3 +226,94 @@ def bad() -> &i64:
         "reference parameter",
     );
 }
+
+#[test]
+fn propagated_errors_are_not_evidence() {
+    // `?` converts the operand's error into the function's error type, so
+    // only the operand's payload is evidence for its type arguments.
+    run(
+        r#"
+def passthrough[T, E](r: Result[T, E]) -> Result[T, E]:
+    r
+
+def check[E](error: E) -> Result[i64, E]:
+    Err(error)
+
+def fails[T, E](error: E) -> Result[T, E]:
+    Err(error)
+
+def erased() -> Result[i64, Failure]:
+    r: Result[i64, str] = Ok(5)
+    v: i64 = passthrough(r)?
+    Ok(v)
+
+def checked() -> Result[i64, Failure]:
+    v: i64 = check("bad")?
+    Ok(v)
+
+def payload() -> Result[u8, Failure]:
+    v: u8 = fails("oops")?
+    Ok(v)
+
+def widened() -> Result[u8, str | AllocError]:
+    v: u8 = fails("wide")?
+    Ok(v)
+
+def report(result: Result[i64, Failure]) -> Result[(), IoError]:
+    match result:
+        case Ok(v):
+            print(v)?
+        case Err(_):
+            print("err")?
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError]:
+    report(erased())?
+    report(checked())?
+    match payload():
+        case Ok(v):
+            print(v)?
+        case Err(_):
+            print("payload err")?
+    match widened():
+        case Err(e):
+            print(e)?
+        case Ok(_):
+            print("ok")?
+    Ok(())
+"#,
+        "5\nerr\npayload err\n\"wide\"\n",
+    );
+    reject(
+        r#"
+def fails[T, E]() -> Result[T, E]:
+    panic("unreachable")
+
+def attempt() -> Result[i64, IoError]:
+    v: i64 = fails()?
+    Ok(v)
+
+def main() -> ():
+    drop(attempt())
+"#,
+        "cannot infer type parameter `E` for `fails`",
+    );
+}
+
+#[test]
+fn bound_conflicts_name_the_expected_result() {
+    reject(
+        r#"
+def apply[T, F: Callable[[], T]](f: &F) -> T:
+    f()
+
+def three() -> i64:
+    3
+
+def main() -> ():
+    x: u8 = apply(&three)
+    drop(x)
+"#,
+        "type parameter `T` for `apply` is i64 from its arguments but u8 from the expected result type",
+    );
+}

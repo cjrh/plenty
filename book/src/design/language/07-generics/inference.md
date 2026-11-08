@@ -44,14 +44,20 @@ A `?` operand's expected success payload is the binding's type, so
 `empty()?` learns `T = u8` from `list[u8]`. Only exact positions are
 evidence. A value widens into an anonymous sum, so a parameter matched
 against one learns nothing: `x: Option[u8] | str = none()` still needs
-`none[u8]()`. A `?` operand's expected error is the enclosing function's error
-type, so it is evidence only when that type is not a sum. With no expected type,
+`none[u8]()`. A `?` operand's error is never evidence, because `?` converts
+it into the enclosing function's error type: erased into `Failure` or widened
+into a sum. In a function returning `Result[i64, Failure]`,
+`v: i64 = passthrough(r)?` with `r: Result[i64, str]` keeps `E = str`, and a
+generic error that only the result type names, as in `fails[T, E]() -> Result[T, E]`,
+needs explicit arguments. With no expected type,
 as in `x = none()`, the call needs explicit arguments.
 
 Evidence from arguments, constraints, and the expected result must agree. A
 disagreement is an error, never a choice between them: `x: u8 = same(n)` for
 an `i64` `n` reports that `T` is `i64` from the arguments but `u8` from the
-expected result.
+expected result. The same error names a disagreement between a callable
+constraint and the expected result, such as `x: u8 = apply(&three)` for a
+`three` returning `i64`.
 
 ## Literals
 

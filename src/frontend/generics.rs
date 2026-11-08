@@ -189,6 +189,7 @@ pub(super) fn prepare(
         protocols: declarations,
         methods,
         templates: HashMap::default(),
+        method_names: HashSet::default(),
         defaults: HashMap::default(),
         ceilings: HashMap::default(),
         constants: HashMap::default(),
@@ -247,6 +248,7 @@ pub(super) fn prepare(
             if !matches!(f.name.as_str(), "OverflowError" | "Quantity") {
                 engine.specializable += 1;
             }
+            engine.method_name(&f.name);
             engine.templates.insert(f.name.clone(), Arc::new(f));
         }
     }
@@ -266,6 +268,9 @@ pub(super) struct Engine {
     protocols: HashMap<String, protocols::Protocol>,
     pub(super) methods: HashMap<String, Signature>,
     pub(super) templates: HashMap<String, Arc<Function>>,
+    /// The method names of generic method templates, so that only a call that
+    /// may reach one records its expected result (issue #873).
+    pub(super) method_names: HashSet<String>,
     /// Retained after lowering without keeping complete function bodies alive.
     pub(super) defaults: HashMap<String, Vec<Option<Expr>>>,
     pub(super) ceilings: HashMap<String, Vec<(String, Option<StaticCheck>)>>,
@@ -749,23 +754,47 @@ fn infer(
 /// sum, so a parameter matched against one, such as the error of a `?`
 /// operand inside a function with a wider error type, learns nothing. A
 /// parameter matched twice against different types learns nothing either.
+///
+/// `open_error` marks the context of a `?` operand, whose error `?` converts
+/// into the function's error type (erasing it into `Failure`, or widening it
+/// into a sum), so only a declared `Result[...]` output's payload is evidence.
 fn result_evidence(
     template: &Function,
     expected: &Ty,
+    open_error: bool,
     aliases: &TypeAliases,
     at: &Token,
 ) -> HashMap<String, Argument> {
     let mut evidence = HashMap::default();
     let mut ambiguous = Vec::new();
-    match_result(
-        &template.output,
-        &Argument::Type(expected.clone()),
-        template,
-        aliases,
-        at,
-        &mut evidence,
-        &mut ambiguous,
-    );
+    if open_error {
+        if let Ty::Enum(result) = expected
+            && result.is_result()
+            && template.output.name.as_deref() == Some("Result")
+            && let [payload, _] = template.output.args.as_slice()
+        {
+            let expected = Argument::Type(result.get().variants[0].fields[0].clone());
+            match_result(
+                payload,
+                &expected,
+                template,
+                aliases,
+                at,
+                &mut evidence,
+                &mut ambiguous,
+            );
+        }
+    } else {
+        match_result(
+            &template.output,
+            &Argument::Type(expected.clone()),
+            template,
+            aliases,
+            at,
+            &mut evidence,
+            &mut ambiguous,
+        );
+    }
     for name in ambiguous {
         evidence.remove(&name);
     }
@@ -875,29 +904,39 @@ fn hinted_parameter(
 /// than a choice between them.
 fn combine_result_evidence(
     name: &str,
-    hint: HashMap<String, Argument>,
+    hint: &HashMap<String, Argument>,
     inferred: &mut HashMap<String, Argument>,
     at: &Token,
-) -> Result<()> {
+) -> Result<Vec<String>> {
+    let mut filled = Vec::new();
     for (param, expected) in hint {
-        match inferred.get(&param) {
+        match inferred.get(param) {
             None => {
-                inferred.insert(param, expected);
+                inferred.insert(param.clone(), expected.clone());
+                filled.push(param.clone());
             }
-            Some(actual) if *actual == expected => {}
+            Some(actual) if actual == expected => {}
             Some(Argument::Type(actual))
                 if expected.as_type().is_some_and(|expected| {
                     crate::generator::refine(expected, actual).is_some()
                         || crate::sum::accepts(expected, actual)
                 }) => {}
-            Some(actual) => {
-                return Err(at.error(format!(
-                    "type parameter `{param}` for `{name}` is {actual} from its arguments but {expected} from the expected result type; make them agree or supply explicit type arguments"
-                )));
-            }
+            Some(actual) => return Err(result_disagreement(name, param, actual, expected, at)),
         }
     }
-    Ok(())
+    Ok(filled)
+}
+
+fn result_disagreement(
+    name: &str,
+    param: &str,
+    actual: &Argument,
+    expected: &Argument,
+    at: &Token,
+) -> Box<dyn Error> {
+    at.error(format!(
+        "type parameter `{param}` for `{name}` is {actual} from its arguments but {expected} from the expected result type; make them agree or supply explicit type arguments"
+    ))
 }
 
 /// Check an argument against a parameter type that mentions no type parameter.
@@ -1303,6 +1342,31 @@ impl Lower<'_> {
         self.generic_call_inner(name, types, args, at, false, None, ops)
     }
 
+    /// When bound inference fails after the expected result filled `filled`,
+    /// the disagreement between the bounds and the expected result, named
+    /// as one; `None` when the arguments and bounds conflict on their own.
+    #[cold]
+    fn result_bound_conflict(
+        &self,
+        name: &str,
+        template: &Function,
+        hint: &HashMap<String, Argument>,
+        filled: Vec<String>,
+        mut from_arguments: HashMap<String, Argument>,
+        at: &Token,
+    ) -> Option<Box<dyn Error>> {
+        if filled.is_empty() {
+            return None;
+        }
+        self.generics
+            .infer_bounds(template, &mut from_arguments, self.aliases, self.access, at)
+            .ok()?;
+        filled.iter().find_map(|param| {
+            let actual = from_arguments.get(param)?;
+            let expected = &hint[param];
+            (actual != expected).then(|| result_disagreement(name, param, actual, expected, at))
+        })
+    }
     /// A call of generic function `name` whose context expects a result of
     /// type `expected`, which supplies the type arguments that its output
     /// determines (issue #873).
@@ -1428,7 +1492,10 @@ impl Lower<'_> {
         }
         let mut inferred = HashMap::default();
         let hint = expected
-            .map(|ty| result_evidence(&template, ty, self.aliases, at))
+            .map(|ty| {
+                let open_error = self.propagated.as_ref() == Some(ty);
+                result_evidence(&template, ty, open_error, self.aliases, at)
+            })
             .unwrap_or_default();
         let mut loans = Vec::new();
         let mut arguments = Vec::new();
@@ -1541,9 +1608,16 @@ impl Lower<'_> {
             }
         }
         self.sync_data()?;
-        combine_result_evidence(name, hint, &mut inferred, at)?;
-        self.generics
-            .infer_bounds(&template, &mut inferred, self.aliases, self.access, at)?;
+        let from_arguments = inferred.clone();
+        let filled = combine_result_evidence(name, &hint, &mut inferred, at)?;
+        if let Err(error) =
+            self.generics
+                .infer_bounds(&template, &mut inferred, self.aliases, self.access, at)
+        {
+            return Err(self
+                .result_bound_conflict(name, &template, &hint, filled, from_arguments, at)
+                .unwrap_or(error));
+        }
         let actual = template.type_params.iter().map(|(param, _)| {
             inferred.remove(param).ok_or_else(|| at.error(format!("cannot infer type parameter `{param}` for `{name}` from its arguments; supply explicit type arguments")))
         }).collect::<Result<_>>()?;
@@ -1653,6 +1727,11 @@ pub(super) fn substitute(t: &mut TypeRef, replacements: &Substitution) -> Result
 }
 
 impl Engine {
+    pub(super) fn method_name(&mut self, template: &str) {
+        if let Some((_, method)) = template.rsplit_once('.') {
+            self.method_names.insert(method.to_owned());
+        }
+    }
     /// Code lifted out of `parent`, or copied from it, is checked on behalf of
     /// the same use.
     pub(super) fn inherit_requirement(
