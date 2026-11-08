@@ -1059,6 +1059,11 @@ struct Lower<'a> {
     /// its join loan and the loans of the borrowing values its arms produce;
     /// see [`Lower::branch_value`].
     branch_joins: Vec<references::BranchJoin>,
+    /// Set for the next [`Lower::branch_value`] only: its arms may produce a
+    /// plain reference, as the `match` a borrowed sum method lowers to does.
+    /// A user-written `if` or `match` value still carries only a reference
+    /// inside an Option or Result (backlog B11).
+    plain_reference_arms: bool,
     /// Value slots of shared `values()`/`items()` loops, so a write through
     /// one can name the `(&mut d).values()` form (issue #803).
     shared_dictionary_values: HashSet<u8>,
@@ -3705,10 +3710,11 @@ impl Lower<'_> {
                     )?;
                     if matches!(tail, Tail::Value(_))
                         && !self.checked_value_tail
-                        && ty
-                            .as_ref()
-                            .is_some_and(|ty| ty.carried_reference().is_some())
-                        && !self.branch_joins.is_empty()
+                        && ty.as_ref().is_some_and(|ty| {
+                            self.branch_joins
+                                .last()
+                                .is_some_and(|branch| branch.carries(ty))
+                        })
                     {
                         self.branch_arm_value(e, ops)?;
                     } else if matches!(tail, Tail::Value(_))
@@ -4984,6 +4990,7 @@ fn lower_body(
                 parameter_referents: HashSet::default(),
                 holders: HashMap::default(),
                 branch_joins: Vec::new(),
+                plain_reference_arms: false,
                 shared_dictionary_values: HashSet::default(),
                 indexed_lists: Vec::new(),
                 range_stop: None,

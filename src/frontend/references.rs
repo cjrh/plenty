@@ -141,6 +141,16 @@ pub(super) struct BranchJoin {
     next: usize,
     /// The loans of the arm values that borrow.
     assigned: Vec<usize>,
+    /// Whether arms may produce a plain reference; see
+    /// `Lower::plain_reference_arms`.
+    plain: bool,
+}
+
+impl BranchJoin {
+    /// Whether an arm value of type `ty` joins this branch's loan.
+    pub(super) fn carries(&self, ty: &Ty) -> bool {
+        ty.carried_reference().is_some() || (self.plain && matches!(ty, Ty::Ref(..)))
+    }
 }
 
 /// A `mut` holder of a reference-carrying type that started empty.
@@ -335,12 +345,21 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<usize> {
-        let referent = self.slot(Ty::Unit, at)?;
-        // Reads through a payload reference check that their root is
-        // initialized, although such a read can never run.
-        ops.extend([Op::PushUnit, Op::StoreLocal(referent)]);
-        self.absent_referents.insert(referent);
+        let referent = self.absent_referent(at)?;
         Ok(self.new_loan(referent, ty.carries_mutable_loan(), None, ops))
+    }
+
+    /// A unit slot that roots loans no real place backs. Reads through a
+    /// payload reference check that their root is initialized, although such
+    /// a read can never run, so the slot is initialized once at function
+    /// entry: a store at each evaluation, as in a loop, would conflict with a
+    /// copy of an earlier evaluation's value that is still live.
+    pub(super) fn absent_referent(&mut self, at: &Token) -> Result<u8> {
+        let referent = self.slot(Ty::Unit, at)?;
+        self.function_initializers
+            .extend([Op::PushUnit, Op::StoreLocal(referent)]);
+        self.absent_referents.insert(referent);
+        Ok(referent)
     }
 
     /// The loan an argument `arg` of reference-carrying type `ty` lends a
@@ -598,16 +617,15 @@ impl Lower<'_> {
             reserved,
             next: 0,
             assigned: Vec::new(),
+            plain: std::mem::take(&mut self.plain_reference_arms),
         });
         let result = lower(self, ops);
         let branch = self.branch_joins.pop().expect("pushed above");
         let result = result?;
         if let super::BlockResult::Continues(Some(ty)) = &result
-            && ty.carried_reference().is_some()
+            && branch.carries(ty)
         {
-            let referent = self.slot(Ty::Unit, at)?;
-            ops.extend([Op::PushUnit, Op::StoreLocal(referent)]);
-            self.absent_referents.insert(referent);
+            let referent = self.absent_referent(at)?;
             let loan = &mut self.loans[join];
             loan.root = referent;
             loan.mutable = ty.carries_mutable_loan();
@@ -648,9 +666,14 @@ impl Lower<'_> {
             let id = own.unwrap_or(fresh);
             let mut loan = self.loans[fresh].clone();
             loan.id = id;
+            let plain = self.branch_joins.last().is_some_and(|branch| branch.plain);
             loan.holder = Some(crate::ownership::Assigned {
                 holder: join,
-                kind: crate::ownership::Joined::Arm,
+                kind: if plain {
+                    crate::ownership::Joined::Method
+                } else {
+                    crate::ownership::Joined::Arm
+                },
             });
             if let Some(Op::Loan(fact)) = ops.last_mut() {
                 *fact = loan.clone();
@@ -696,9 +719,7 @@ impl Lower<'_> {
             }
             assigned.push(id);
         }
-        let referent = self.slot(Ty::Unit, at)?;
-        ops.extend([Op::PushUnit, Op::StoreLocal(referent)]);
-        self.absent_referents.insert(referent);
+        let referent = self.absent_referent(at)?;
         let loan = &mut self.loans[join];
         loan.root = referent;
         loan.mutable = mutable;
@@ -750,20 +771,27 @@ impl Lower<'_> {
             return Ok(());
         }
         for (index, assigned) in holder.assigned.clone().into_iter().enumerate() {
-            let fallback = self.loans[assigned]
-                .holder
-                .is_some_and(|joined| joined.kind == crate::ownership::Joined::Fallback);
+            use crate::ownership::Joined;
+            let kind = self.loans[assigned].holder.map(|joined| joined.kind);
             // An `unwrap_or` join holds the receiver's loan, then the default's.
+            let operand = match kind {
+                Some(Joined::Fallback) if index == 0 => "value of `unwrap_or`",
+                Some(Joined::Fallback) => "default of `unwrap_or`",
+                // Its `match` lists the payload's arm first.
+                Some(Joined::Method) if index == 0 => "method's mapped payload",
+                Some(Joined::Method) => "method's fallback",
+                _ => "",
+            };
             let checked = self.check_returned_value(assigned, at);
-            if fallback && index == 1 && checked.is_err() {
+            if !operand.is_empty() && checked.is_err() {
                 let origin = self
                     .return_origin
                     .and_then(|slot| self.slot_names.get(slot as usize).cloned().flatten());
                 return Err(at.error(match origin {
                     Some(origin) => format!(
-                        "returned reference must originate from the first reference parameter, `{origin}`; the default of `unwrap_or` must also borrow from `{origin}`"
+                        "returned reference must originate from the first reference parameter, `{origin}`; the {operand} must also borrow from `{origin}`"
                     ),
-                    None => "returned reference must originate from the first reference parameter; the default of `unwrap_or` must also borrow from it".into(),
+                    None => format!("returned reference must originate from the first reference parameter; the {operand} must also borrow from it"),
                 }));
             }
             checked?;

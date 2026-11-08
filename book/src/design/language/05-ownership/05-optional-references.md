@@ -114,8 +114,41 @@ ada has three
 [Option[i64].Some(11)]
 ```
 
-`unwrap_or_else`, `map_or`, and `map_or_else` still take only owned payloads;
-use `match` for a borrowed one.
+With a borrowed payload, `map_or`, `map_or_else` and `unwrap_or_else` mean
+the `match` they abbreviate. The mapper takes the payload reference, as in
+`def (item: &Item) -> i64`, and `map_or` evaluates its default first. A
+result that is itself a reference, such as `map_or(&other.name, name_of)`
+with `def name_of(item: &Item) -> &str`, keeps both owners borrowed while it
+is used, like `unwrap_or`. Arguments evaluate left to right before the
+selected callback runs. An `unwrap_or_else` callback takes no reference parameter on an
+`Option`, so it cannot return a borrow; use `unwrap_or(&default)` there.
+
+```plenty
+class Item:
+    name: str
+    count: i64
+
+def find(items: &list[Item], name: &str) -> Option[&Item]:
+    for item in items:
+        if item.name == name:
+            return Some(item)
+    Nothing
+
+def name_of(item: &Item) -> &str:
+    &item.name
+
+def main() -> Result[(), AllocError | IoError]:
+    items = [Item("ada", 3)]?
+    other = Item("guest", 0)
+    print(find(&items, "ada").map_or(0, def (item: &Item) -> i64: item.count))?
+    print(find(&items, "bob").map_or(&other.name, name_of))?
+    Ok(())
+```
+
+```output
+3
+guest
+```
 
 ## Holding the result
 
@@ -330,10 +363,8 @@ arm. An arm's value cannot be a plain reference such as `&items[0]`, and a
 Each evaluation borrows afresh. In a loop, a result used only within its
 iteration does not keep the owners borrowed into the next one. A copy that
 outlives the iteration, such as one assigned to a `mut` holder declared
-before the loop, keeps every arm's owner borrowed wherever the copy is live,
-and keeps the binding it was copied from borrowed too: the loop cannot
-evaluate the `if` into that binding again while the copy is live. See
-[Current limits](#current-limits) for the workaround.
+before the loop, keeps every arm's owner borrowed wherever the copy is live.
+The loop may still evaluate the `if` again into the same binding.
 
 ## Passing a holder
 
@@ -412,24 +443,17 @@ it first and store an owned copy or an index instead.
 - A `mut` holder that started empty keeps every value ever assigned to it
   borrowed while it is used, even after a later assignment replaced that
   value.
-- A branch value copied into a holder declared before a loop, such as
-  `if k == 0: keep = x`, keeps `x` borrowed, so the next iteration's
-  `x = if ...` is rejected with "cannot assign to `x` while it is borrowed",
-  although no owner changes. Bind each arm's value separately and copy it
-  inside that arm:
-
-  ```plenty fragment
-  for k in [0, 1]?:
-      if k == 0:
-          x = find(&staff, "ada")
-          keep = x
-      else:
-          x = find(&guests, "bob")
-          print(x)?
-  ```
-
-- `unwrap_or_else`, `map_or` and `map_or_else` reject borrowed payloads; use
-  `match` or `unwrap_or(&default)`.
+- Copying one name bound below an exclusive payload out of its arm, as in
+  `kk = k` or `keep = Some(k)` after `case Some(Item(name=n, count=k))`,
+  keeps the other names bound by that pattern unusable while the copy is
+  live. The names share one loan; use the copy last, or write through `k`
+  directly.
+- A parameter cannot borrow a reference-carrying value, as in
+  `&Option[&Item]`, since references to references are not supported; pass
+  the `Option[&Item]` itself, which lends its borrow to the call.
+- A generator cannot take a reference-carrying parameter, as it cannot take
+  a reference parameter: its frame would store the borrow, which needs
+  stored references (backlog B11).
 - A returned reference from a temporary argument follows the
   [returned-reference rule](04-returned-references.md): the result cannot be
   bound to a local.

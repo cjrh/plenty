@@ -1,5 +1,6 @@
 //! Sum conveniences specialize ordinary Plenty helpers, preserving callback
 //! ownership and cleanup through the same checks as user-written matches.
+use super::patterns::{Pat, PatKind};
 use super::*;
 
 const HELPERS: &str = include_str!("sum_methods.plenty");
@@ -63,17 +64,15 @@ impl Lower<'_> {
         if name == "expect" {
             return self.sum_expect(base, args, sum, start, ops);
         }
-        if payload.carries_loan() {
-            return Err(base.at.error(format!(
-                "{name} consumes an owned payload; use `match` for a borrowed payload"
-            )));
-        }
         let count = if name.starts_with("map_or") { 2 } else { 1 };
         if args.len() != count {
             return Err(base.at.error(format!(
                 "{name} takes {count} argument(s), got {}",
                 args.len()
             )));
+        }
+        if payload.carries_loan() {
+            return self.borrowed_sum_method(base, name, args, sum, expected, start, ops);
         }
         let source_name = self.hide(Ty::Enum(sum.clone()), &base.at, ops)?;
         let mut names = vec![source_name];
@@ -175,6 +174,131 @@ impl Lower<'_> {
             .collect::<Vec<_>>();
         let result = self.generic_call(&helper, None, &arguments, &base.at, ops);
         for name in names {
+            self.names.remove(&name);
+        }
+        let result = result?;
+        self.cleanup(start, ops);
+        Ok(result)
+    }
+
+    /// A borrowed payload cannot move into a generic helper, which would have
+    /// to return a borrow of its own parameter. The method lowers as the
+    /// `match` it abbreviates instead, so the payload binding, the callbacks'
+    /// results and an eager `map_or` default join like the arms of any
+    /// value-producing `match`.
+    #[allow(clippy::too_many_arguments)]
+    fn borrowed_sum_method(
+        &mut self,
+        base: &Expr,
+        name: &str,
+        args: &[Expr],
+        sum: crate::nominal::Nominal<crate::sum::EnumType>,
+        expected: Type,
+        start: usize,
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let at = &base.at;
+        let parent = self.reference_origin(base, ops)?;
+        let source = self.hide(Ty::Enum(sum.clone()), at, ops)?;
+        self.reference_locals
+            .insert(self.names[&source].slot, parent);
+        let mut hidden = vec![source.clone()];
+        let name_expr = |name: &str| Expr {
+            at: at.clone(),
+            kind: Expression::Name(name.into()),
+        };
+        let call = |callee: &Expr, inputs: Vec<Expr>| Expr {
+            at: callee.at.clone(),
+            kind: Expression::Invoke(Box::new(callee.clone()), inputs),
+        };
+        let payload = sum.get().variants[usize::from(sum.is_option())].fields[0].clone();
+        let error = sum
+            .get()
+            .variants
+            .get(1)
+            .and_then(|v| v.fields.first().cloned());
+        // Arguments evaluate eagerly, left to right, as for an owned payload.
+        let mut operands = Vec::with_capacity(args.len());
+        for (index, arg) in args.iter().enumerate() {
+            let hint = if name == "map_or" && index == 0 {
+                expected.clone()
+            } else {
+                let inputs = match (index, error.clone()) {
+                    (1, _) => vec![payload.clone()],
+                    (_, Some(error)) if sum.is_result() => vec![error],
+                    _ => vec![],
+                };
+                let output = if name == "unwrap_or_else" {
+                    Some(payload.clone())
+                } else {
+                    expected.clone()
+                };
+                output.map(|output| {
+                    Ty::Callable(Arc::new(crate::op::CallableSig {
+                        inputs,
+                        output: (output != Ty::Unit).then_some(output),
+                    }))
+                })
+            };
+            let ty = self
+                .expr_hinted(arg, hint, ops)?
+                .ok_or_else(|| arg.at.error(format!("{name} requires a value")))?;
+            let origin = (ty.carries_loan() && !references::loan_free(arg))
+                .then(|| self.reference_origin(arg, ops))
+                .transpose()?;
+            let operand = self.hide(ty, &arg.at, ops)?;
+            if let Some(origin) = origin {
+                self.reference_locals
+                    .insert(self.names[&operand].slot, origin);
+            }
+            hidden.push(operand.clone());
+            operands.push(name_expr(&operand));
+        }
+        let payload_name = format!("__plenty_payload{}", self.locals.len());
+        let error_name = format!("__plenty_error{}", self.locals.len());
+        let mapped = match name {
+            "unwrap_or_else" => name_expr(&payload_name),
+            _ => call(&operands[1], vec![name_expr(&payload_name)]),
+        };
+        let fallback = match name {
+            "map_or" => operands[0].clone(),
+            _ if sum.is_result() => call(&operands[0], vec![name_expr(&error_name)]),
+            _ => call(&operands[0], vec![]),
+        };
+        let binding = |name: &str| Pat {
+            at: at.clone(),
+            kind: PatKind::Binding(name.into()),
+        };
+        let variant = |variant: &str, fields: Option<Vec<Pat>>, body: Expr| enums::Case {
+            at: at.clone(),
+            pattern: Pat {
+                at: at.clone(),
+                kind: PatKind::Variant(None, variant.into(), fields),
+            },
+            body: vec![Stmt {
+                at: body.at.clone(),
+                kind: Statement::Expr(body),
+            }],
+        };
+        let empty = if sum.is_option() {
+            variant("Nothing", None, fallback)
+        } else if name == "map_or" {
+            let wildcard = Pat {
+                at: at.clone(),
+                kind: PatKind::Wildcard,
+            };
+            variant("Err", Some(vec![wildcard]), fallback)
+        } else {
+            variant("Err", Some(vec![binding(&error_name)]), fallback)
+        };
+        let full = variant(
+            if sum.is_option() { "Some" } else { "Ok" },
+            Some(vec![binding(&payload_name)]),
+            mapped,
+        );
+        self.plain_reference_arms = true;
+        let result = self.match_value(at, &name_expr(&source), &[full, empty], expected, ops);
+        for name in hidden {
             self.names.remove(&name);
         }
         let result = result?;

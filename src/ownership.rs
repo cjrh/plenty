@@ -689,6 +689,9 @@ pub enum Joined {
     /// The payload or the default of `unwrap_or`; the holder is its result's
     /// join loan.
     Fallback,
+    /// An [`Self::Arm`] of the `match` that `map_or`, `map_or_else` or
+    /// `unwrap_or_else` with a borrowed payload lowers to.
+    Method,
 }
 /// Live loan ids, sorted ascending: the order in which conflicts are tried.
 /// Liveness revisits every node until nothing changes, so a set is rebuilt in
@@ -2726,6 +2729,7 @@ impl Checker<'_, '_> {
                             match loan.holder.map(|assigned| assigned.kind) {
                                 Some(Joined::Arm) => format!("`{holder}` holds this arm's value: an `if` or `match` value keeps the value of every arm borrowed"),
                                 Some(Joined::Fallback) => format!("`{holder}` holds an `unwrap_or` result, which keeps both the payload and the default borrowed"),
+                                Some(Joined::Method) => format!("`{holder}` holds a method result that is the mapped payload or the method's other value, which keeps both borrowed"),
                                 _ => format!("`{holder}` started empty, so it keeps every value assigned to it borrowed; use a separate binding per value"),
                             },
                         ));
@@ -2927,7 +2931,7 @@ fn loan_flow(ops: &[Op]) -> Option<LoanFlow<'_>> {
         .values()
         .filter_map(|l| {
             l.holder
-                .filter(|assigned| assigned.kind == Joined::Arm)
+                .filter(|assigned| matches!(assigned.kind, Joined::Arm | Joined::Method))
                 .map(|assigned| (l.id, assigned.holder))
         })
         .collect();
