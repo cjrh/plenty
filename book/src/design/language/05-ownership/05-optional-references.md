@@ -381,7 +381,9 @@ def main() -> Result[(), AllocError | IoError]:
 An arm cannot produce a borrow of an owner it declares, or of a temporary,
 since that owner is dropped when the arm ends. A returned `if` or `match`
 value follows the [returned-reference rule](04-returned-references.md) in each
-arm. A `checked:` block cannot produce a reference-carrying value.
+arm. A `checked:` block cannot produce a reference-carrying value. Neither form
+can produce a slice or dictionary view, which has no join loan; choose its
+owner first and borrow the view afterwards.
 
 Each evaluation borrows afresh. In a loop, a result used only within its
 iteration does not keep the owners borrowed into the next one. A copy that
