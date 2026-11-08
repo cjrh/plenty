@@ -913,3 +913,81 @@ def main() -> Result[(), AllocError | IoError | std.template.TemplateError]:
 "#;
     assert_eq!(output_with_optimization(source, false), "True True\nTrue");
 }
+
+#[test]
+fn long_quoted_literals_and_include_names_preserve_unicode_and_escapes() {
+    let source = program(
+        r#"
+name = ("a".repeat(8192)? + "é🙂'tail")?
+content = ("a".repeat(8192)? + "é🙂\n\t'\\\"")?
+bounds = std.template.limits()
+mut templates = std.template.engine(&bounds)?
+templates.add(name, "included")?
+quoted_name = ("a".repeat(8192)? + "é🙂\\'tail")?
+include = (("{% include '" + quoted_name)? + "' %}")?
+templates.add("include", include)?
+context = Json.Object([]?)
+print(templates.render("include", &context, html=False)? == "included")?
+quoted_value = ("a".repeat(8192)? + "é🙂\\n\\t\\'\\\\\"")?
+literal = (("{{ '" + quoted_value)? + "' }}")?
+templates.add("literal", literal)?
+print(templates.render("literal", &context, html=False)? == content)?
+templates.add("double", "{{ \"é🙂\\\"'\" }}")?
+print(templates.render("double", &context, html=False)? == "é🙂\"'")?
+for invalid in ["{{ 'unterminated }}", "{% include 'unterminated %}", "{% include x %}"]?:
+    print(templates.add("invalid", invalid).is_err())?
+"#,
+    );
+    for optimize in [false, true] {
+        assert_eq!(
+            output_with_optimization(&source, optimize),
+            "True\nTrue\nTrue\nTrue\nTrue\nTrue"
+        );
+    }
+}
+
+#[test]
+fn template_quote_loops_do_not_rescan_scalar_indices() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("main.plenty");
+    std::fs::write(
+        &path,
+        program("bounds = std.template.limits()\nmut templates = std.template.engine(&bounds)?\ntemplates.add(\"page\", \"{{ 'quoted' }}{% include 'fragment' %}\")?"),
+    )
+    .unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_plenty"))
+        .env("PLENTY_CACHE", "off")
+        .args([
+            "--release",
+            "--dump",
+            "ops",
+            "--dump-std",
+            "--dump-filter",
+            "std.template.",
+        ])
+        .arg(&path)
+        .args(["-o", "-"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let dump = String::from_utf8(output.stdout).unwrap();
+    for name in ["quoted", "include_expression"] {
+        let header = format!("std.template.{name} ");
+        let function = dump
+            .split("\n==== ")
+            .find(|function| function.starts_with(&header))
+            .unwrap_or_else(|| panic!("{header} missing from dump"));
+        let (_, loop_and_tail) = function.split_once("\nLoop\n").expect("scalar loop");
+        // Indexing a text view counts the entire input before locating the
+        // scalar. Repeating even index zero in these loops makes ASCII inputs
+        // quadratic; sequential scalar iteration must remain the only scan.
+        assert!(
+            !loop_and_tail.contains("Collection(TextView(Index))"),
+            "{function}"
+        );
+        assert!(
+            loop_and_tail.contains("Collection(TextView(Scalar))"),
+            "{function}"
+        );
+    }
+}

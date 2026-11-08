@@ -125,7 +125,11 @@ def empty_expression() -> Result[Expression, TemplateError]:
 
 def quoted(text: &strview, at: i64) -> Result[str, TemplateError]:
     count = len(text)
-    if count < 2 or text[-1] != text[0]:
+    if count < 2:
+        return Err(TemplateError.Syntax(at))
+    # View indexing scans; keep the delimiter outside the scalar loop.
+    quote = text[0]
+    if text[-1] != quote:
         return Err(TemplateError.Syntax(at))
     mut pieces: list[str] = allocated(list[str]())?
     mut escaped = False
@@ -149,7 +153,7 @@ def quoted(text: &strview, at: i64) -> Result[str, TemplateError]:
             escaped = False
         elif scalar == "\\":
             escaped = True
-        elif scalar == text[0]:
+        elif scalar == quote:
             return Err(TemplateError.Syntax(at))
         else:
             allocated(pieces.append(scalar))?
@@ -426,7 +430,10 @@ def push_token(tokens: &mut list[Token], token: Token, bounds: &Limits) -> Resul
 
 def include_expression(source: &strview, at: i64, bounds: &Limits, remaining: &mut i64) -> Result[(str, Expression, i64), TemplateError]:
     count = len(source)
-    if count < 2 or (source[0] != "'" and source[0] != "\""):
+    if count < 2:
+        return Err(TemplateError.Syntax(at))
+    quote = source[0]
+    if quote != "'" and quote != "\"":
         return Err(TemplateError.Syntax(at))
     mut escaped = False
     for index, scalar in enumerate(source):
@@ -436,7 +443,7 @@ def include_expression(source: &strview, at: i64, bounds: &Limits, remaining: &m
             escaped = False
         elif scalar == "\\":
             escaped = True
-        elif scalar == source[0]:
+        elif scalar == quote:
             # enumerate supplies a scalar position below len(source).
             after = unchecked:
                 index + 1

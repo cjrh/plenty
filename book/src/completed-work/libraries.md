@@ -379,6 +379,16 @@ branches/loops, preformatted content, mixed line endings, Unicode, inheritance,
 syntax failures and exact source/token limits. See
 [the template contract](../design/stdlib/template.md#whitespace-control).
 
+## Template quote scanning
+
+Issue #881: quoted literals and include names read their opening delimiter once
+before iterating Unicode scalars. This removes repeated full-view indexing
+scans introduced by accepting `&strview`, including on long ASCII input.
+Escapes, syntax positions, allocation errors and registration limits retain
+their existing contracts; text views remain two words without a scalar cache.
+Behavior checks cover long names/literals, Unicode, escaped quotes and malformed
+input, and operation dumps guard against scalar indexing inside either loop.
+
 ## Declared template context shapes
 
 Issue #838: [recursive Shape declarations](../design/stdlib/template-schema.md)

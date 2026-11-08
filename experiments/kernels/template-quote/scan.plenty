@@ -1,0 +1,23 @@
+# The fixed-index comparison used by template quoted()/include_expression().
+# Keep both variants so the same compiler/runtime measures the loop change.
+def before(text: &strview) -> i64:
+    mut matches = 0
+    for scalar in text:
+        if scalar == text[0]:
+            unchecked:
+                matches += 1
+    matches
+
+def after(text: &strview) -> i64:
+    quote = text[0]
+    mut matches = 0
+    for scalar in text:
+        if scalar == quote:
+            unchecked:
+                matches += 1
+    matches
+
+def main() -> Result[(), AllocError | IoError]:
+    text = "a".repeat(32768)?
+    print(before(text), after(text))?
+    Ok(())
