@@ -105,11 +105,12 @@ True
 
 A `mut` holder can be reassigned, following
 [reference rebinding](03-reference-rebinding.md): later values must borrow
-within the place its first value borrowed, and assigning `Nothing` or `Err(e)`
-keeps that place. A `mut` holder that starts empty borrows nothing until its
-first assignment of a borrowing value, which fixes its place from there on,
-including on paths that skipped that assignment. Assigning values that borrow
-different owners needs one holder per owner.
+within the place its first value borrowed. A `mut` holder that starts empty
+borrows nothing until its first assignment of a borrowing value, the first in
+the source, which fixes its place. Every use of the holder keeps every value
+assigned to it borrowed, on each path where one of those assignments ran,
+including through a loop to a use written before the assignment. A copy of
+the holder keeps them borrowed too.
 
 ```plenty
 class Item:
@@ -143,7 +144,30 @@ Option[&Item].Some(Item(name="grace"))
 `items` can change before `last` is first assigned, but not while `last` is
 live afterwards. A `return` of a `mut` holder that is still empty can run
 again after a later assignment in a loop, so once a function returns such a
-holder, every later assignment to it must borrow the origin parameter.
+holder, every assignment to it must borrow the origin parameter.
+
+Assigning `Nothing` or `Err(e)` does not release the place: the holder still
+borrows that owner, and values that borrow a different owner need one holder
+per owner.
+
+```plenty-error
+class Item:
+    name: str
+
+def main() -> Result[(), AllocError | IoError]:
+    a = [Item("ada")]?
+    b = [Item("bob")]?
+    mut pick: Option[&Item] = Nothing
+    pick = Some(&a[0])
+    pick = Nothing
+    pick = Some(&b[0])
+    print(pick)?
+    Ok(())
+```
+
+```error
+holder `pick` borrows another owner, since its first borrowing assignment at line 8
+```
 
 ## Passing a holder
 
@@ -202,6 +226,11 @@ only after the call and any result that keeps its borrow are no longer used,
 so two live `&mut` capabilities never exist. Passing `Nothing` or `Err(e)`
 lends nothing. Generic helpers (`def kept[T](found: Option[&T]) -> Option[&T]`),
 methods, and `Callable[[Option[&T]], R]` signatures take these parameters too.
+A generic helper that takes the callable by reference, as in
+`apply[F: Callable[[Option[&T]], Option[&T]]](f: &F, found: Option[&T])`,
+cannot return `found`'s borrow: `f` is its first reference parameter, so
+under the [returned-reference rule](04-returned-references.md) a returned
+borrow must come from `f`. Put `found` first.
 A parameter cannot borrow a holder, as in `&Option[&T]`; pass the holder
 itself. Generators cannot take one.
 
@@ -214,6 +243,9 @@ it first and store an owned copy or an index instead.
 
 - A `mut` holder stays within the owner its first value borrowed; a holder
   that should choose between owners needs one holder per owner.
+- A `mut` holder that started empty keeps every value ever assigned to it
+  borrowed while it is used, even after a later assignment replaced that
+  value.
 - An `if` or `match` used as a value cannot produce one.
 - Patterns cannot match nested variants through the carried reference:
   `case Some(Some(v))` on `Option[&Option[i64]]` needs a second `match`.

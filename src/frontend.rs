@@ -1044,9 +1044,10 @@ struct Lower<'a> {
     /// would make moving an affine `Option[&mut T]` parameter conflict with
     /// that parameter's own loan.
     parameter_referents: HashSet<u8>,
-    /// Empty-holder loans some `return` returned; see
+    /// `mut` holders that started empty, by declaration loan, and loans
+    /// derived from one that some `return` returned; see
     /// [`Lower::retarget_reference`].
-    returned_absent: HashSet<usize>,
+    holders: HashMap<usize, references::Holder>,
     /// Value slots of shared `values()`/`items()` loops, so a write through
     /// one can name the `(&mut d).values()` form (issue #803).
     shared_dictionary_values: HashSet<u8>,
@@ -4883,7 +4884,7 @@ fn lower_body(
                 reference_locals: HashMap::default(),
                 absent_referents: HashSet::default(),
                 parameter_referents: HashSet::default(),
-                returned_absent: HashSet::default(),
+                holders: HashMap::default(),
                 shared_dictionary_values: HashSet::default(),
                 indexed_lists: Vec::new(),
                 range_stop: None,

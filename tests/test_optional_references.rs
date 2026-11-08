@@ -562,7 +562,7 @@ else:
 print(pick.is_some()).unwrap()
 "#,
         ),
-        "reference binding `pick` can be reassigned only to a reference into the owner it first borrowed",
+        "holder `pick` borrows another owner, since its first borrowing assignment at line 22; it can be assigned only borrows of that owner, and assigning `Nothing` does not release it",
     );
     // An earlier `return` in a loop can return a value assigned later.
     rejects(
@@ -600,6 +600,181 @@ mut b: Option[&mut Item] = Nothing
 a = find_mut(&mut items, "ada")
 b = find_mut(&mut items, "bob")
 print(a.is_some()).unwrap()
+"#,
+        ),
+        "cannot modify or exclusively borrow `items` while it is exclusively borrowed",
+    );
+}
+
+/// Every use of a holder that started empty keeps every value assigned to
+/// it borrowed, whatever their order in the body, on the paths where some
+/// assignment ran.
+#[test]
+fn mut_holders_keep_every_assigned_borrow() {
+    // A use earlier in a loop body than the assignment sees the previous iteration's value.
+    rejects(
+        &with_find(
+            r#"
+def main() -> Result[(), AllocError | IoError]:
+    mut items = [Item("ada", 1)]?
+    mut best: Option[&Item] = Nothing
+    for k in [1, 2, 3]?:
+        items.clear()
+        items.append(Item("zzz", k))?
+        print(best)?
+        best = find(&items, "zzz")
+    Ok(())
+"#,
+        ),
+        "cannot modify or exclusively borrow `items` while it is borrowed",
+    );
+    rejects(
+        &with_find(
+            r#"
+def put(o: Option[&mut Item], v: i64) -> ():
+    match o:
+        case Some(i):
+            i.count = v
+        case Nothing:
+            pass
+def main() -> Result[(), AllocError | IoError]:
+    mut items = [Item("ada", 1)]?
+    mut cur: Option[&mut Item] = Nothing
+    for k in [1, 2, 3]?:
+        other = find_mut(&mut items, "ada")
+        put(cur, 10)
+        put(other, 20)
+        cur = find_mut(&mut items, "ada")
+    Ok(())
+"#,
+        ),
+        "cannot modify or exclusively borrow `items` while it is exclusively borrowed",
+    );
+    // An assignment on a path that skips the first one lowered still holds its borrow.
+    rejects(
+        &with_find(
+            r#"
+def main() -> Result[(), AllocError | IoError]:
+    mut items = [Item("ada", 1)]?
+    mut best: Option[&Item] = Nothing
+    if len(items) > 5:
+        best = find(&items, "ada")
+        print(best)?
+        return Ok(())
+    best = find(&items, "ada")
+    items.clear()
+    print(best)?
+    Ok(())
+"#,
+        ),
+        "cannot modify or exclusively borrow `items` while it is borrowed",
+    );
+    rejects(
+        &with_find(
+            r#"
+def main() -> Result[(), AllocError | IoError]:
+    mut items = [Item("ada", 1)]?
+    mut best: Option[&Item] = Nothing
+    if len(items) > 5:
+        best = find(&items, "ada")
+        print(best)?
+        return Ok(())
+    else:
+        best = find(&items, "ada")
+    items.clear()
+    print(best)?
+    Ok(())
+"#,
+        ),
+        "cannot modify or exclusively borrow `items` while it is borrowed",
+    );
+    rejects(
+        &with_find(
+            r#"
+def main() -> Result[(), AllocError | IoError]:
+    mut items = [Item("ada", 1)]?
+    mut best: Option[&Item] = Nothing
+    for k in [1, 2, 3]?:
+        if k == 1:
+            best = find(&items, "ada")
+            print(best)?
+            return Ok(())
+        best = find(&items, "bob")
+        items.append(Item("x", k))?
+        print(best)?
+    Ok(())
+"#,
+        ),
+        "cannot modify or exclusively borrow `items` while it is borrowed",
+    );
+    rejects(
+        &with_find(
+            r#"
+def put(o: Option[&mut Item], v: i64) -> ():
+    match o:
+        case Some(i):
+            i.count = v
+        case Nothing:
+            pass
+def main() -> Result[(), AllocError | IoError]:
+    mut items = [Item("ada", 1)]?
+    mut cur: Option[&mut Item] = Nothing
+    if len(items) > 5:
+        cur = find_mut(&mut items, "ada")
+        put(cur, 1)
+        return Ok(())
+    cur = find_mut(&mut items, "ada")
+    items.clear()
+    put(cur, 10)
+    Ok(())
+"#,
+        ),
+        "cannot modify or exclusively borrow `items` while it is exclusively borrowed",
+    );
+    // A copy, or a payload taken before a reassignment, keeps the earlier value.
+    rejects(
+        &with_find(
+            r#"
+def put(o: Option[&mut Item], v: i64) -> ():
+    match o:
+        case Some(i):
+            i.count = v
+        case Nothing:
+            pass
+def main() -> Result[(), AllocError | IoError]:
+    mut items = [Item("ada", 1), Item("bob", 2)]?
+    mut cur: Option[&mut Item] = Nothing
+    cur = find_mut(&mut items, "ada")
+    keep = cur
+    cur = find_mut(&mut items, "bob")
+    put(keep, 1)
+    put(cur, 2)
+    Ok(())
+"#,
+        ),
+        "cannot modify or exclusively borrow `items` while it is exclusively borrowed",
+    );
+    rejects(
+        &with_find(
+            r#"
+def put(o: Option[&mut Item], v: i64) -> ():
+    match o:
+        case Some(i):
+            i.count = v
+        case Nothing:
+            pass
+def main() -> Result[(), AllocError | IoError]:
+    mut items = [Item("ada", 1), Item("bob", 2)]?
+    mut cur: Option[&mut Item] = Nothing
+    cur = find_mut(&mut items, "ada")
+    match cur:
+        case Some(i):
+            cur = find_mut(&mut items, "bob")
+            i.count = 9
+        case Nothing:
+            pass
+    put(cur, 1)
+    Ok(())
 "#,
         ),
         "cannot modify or exclusively borrow `items` while it is exclusively borrowed",
