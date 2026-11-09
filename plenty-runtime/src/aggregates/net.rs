@@ -749,9 +749,17 @@ mod tests {
     use std::time::{Duration, Instant};
 
     static SLOW_DONE: AtomicBool = AtomicBool::new(false);
+    static SLOW_RELEASED: AtomicBool = AtomicBool::new(false);
 
+    /// A resolver that answers only once the test releases it, so whether a
+    /// drop waited for it does not depend on scheduling (issue #889). The
+    /// limit ends a lookup that a waiting drop would otherwise block forever.
     fn slow(_: &[u8]) -> Reply {
-        std::thread::sleep(Duration::from_millis(300));
+        let started = Instant::now();
+        while !SLOW_RELEASED.load(Ordering::Acquire) && started.elapsed() < Duration::from_secs(30)
+        {
+            std::thread::sleep(Duration::from_millis(1));
+        }
         SLOW_DONE.store(true, Ordering::Release);
         ([0; 5], vec![4, 0, 80, 127, 0, 0, 1])
     }
@@ -773,12 +781,12 @@ mod tests {
 
     #[test]
     fn an_abandoned_lookup_finishes_without_its_reader() {
-        let started = Instant::now();
         let reader = start_lookup("slow", slow).unwrap();
         // Closing the reader before the reply exists must not wait for the
         // lookup, and its later send must not raise SIGPIPE.
         drop(reader);
-        assert!(started.elapsed() < Duration::from_millis(250));
+        assert!(!SLOW_DONE.load(Ordering::Acquire));
+        SLOW_RELEASED.store(true, Ordering::Release);
         wait_for_lookups();
         assert!(SLOW_DONE.load(Ordering::Acquire));
     }
