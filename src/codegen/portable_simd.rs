@@ -49,6 +49,7 @@ enum Action {
     Sub,
     Mul,
     Div,
+    Sqrt,
     Compare(IntCC, FloatCC),
     Select,
     WrappingSum,
@@ -210,6 +211,7 @@ pub(super) fn operation(name: &str, decl: &UserFn, optimize: bool) -> Option<Ope
         "sub" if float => Action::Sub,
         "mul" if float => Action::Mul,
         "div" if float => Action::Div,
+        "sqrt" if float => Action::Sqrt,
         "simd_eq" => Action::Compare(IntCC::Equal, FloatCC::Equal),
         "simd_ne" => Action::Compare(IntCC::NotEqual, FloatCC::NotEqual),
         "simd_lt" => Action::Compare(
@@ -255,6 +257,16 @@ pub(super) fn operation(name: &str, decl: &UserFn, optimize: bool) -> Option<Ope
         return (input.len() == 1
             && borrowed(&input[0].1, name, &shape.lane(), shape.lanes())
             && *output == shape.lane())
+        .then(|| Operation {
+            shape,
+            action,
+            output: output.clone(),
+        });
+    }
+    if matches!(action, Action::Sqrt) {
+        return (input.len() == 1
+            && borrowed(&input[0].1, name, &shape.lane(), shape.lanes())
+            && logical_type(output, name, &shape.lane(), shape.lanes()))
         .then(|| Operation {
             shape,
             action,
@@ -473,6 +485,12 @@ impl Lowerer<'_, '_> {
             self.stack.push((sum, op.output.clone()));
             return;
         }
+        if matches!(op.action, Action::Sqrt) {
+            let result = self.bcx.ins().sqrt(left);
+            let value = self.materialize_simd(result, op.shape, &op.output);
+            self.stack.push((value, op.output.clone()));
+            return;
+        }
         let right = self.simd_lanes(
             args[if matches!(op.action, Action::Select) {
                 2
@@ -501,7 +519,7 @@ impl Lowerer<'_, '_> {
                     .bitcast(op.shape.vector(), MemFlagsData::new(), mask);
                 self.bcx.ins().bitselect(mask, left, right)
             }
-            Action::WrappingSum => unreachable!("unary reduction lowered above"),
+            Action::WrappingSum | Action::Sqrt => unreachable!("unary operation lowered above"),
         };
         let comparison = matches!(op.action, Action::Compare(..));
         if !comparison {
