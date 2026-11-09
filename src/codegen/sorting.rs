@@ -1,6 +1,6 @@
 //! Native comparators for runtime-driven key sorts.
 //!
-//! `plenty_list_sort_by` and `plenty_view_sort_by` move rows inside the runtime and calls one of these
+//! `plenty_list_sort_by` and `plenty_view_sort_by` move rows inside the runtime and call one of these
 //! adapters per comparison with the key callback reference and two row values.
 //! The adapter computes both keys through the specialized `key_of` helper and
 //! compares them in the total sort order.

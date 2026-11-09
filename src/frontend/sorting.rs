@@ -270,9 +270,25 @@ impl Lower<'_> {
         self.key_sort_call(base, args, &base.at, true, ops)
     }
 
+    /// `sorted` copies a list; a view has no owned copy to return, so the
+    /// diagnostic names the copy or the in-place sort.
+    fn sorted_view_message(exclusive: bool) -> String {
+        let in_place = if exclusive {
+            "; or sort the view in place with `v.sort()`"
+        } else {
+            ""
+        };
+        format!(
+            "sorted takes a list, not a slice view: copy the view with `list(v)?` and sort the copy{in_place}"
+        )
+    }
+
     pub(super) fn sorted(&mut self, args: &[Expr], at: &Token, ops: &mut Vec<Op>) -> Result<Type> {
         if !(1..=2).contains(&args.len()) {
             return Err(at.error("sorted takes a list and an optional descending bool; use sort_by_key on the copied list for key ordering"));
+        }
+        if let Some(Ty::View(_, exclusive)) = self.list_view_type(&args[0]) {
+            return Err(at.error(Self::sorted_view_message(exclusive)));
         }
         // Reject non-orderable elements here; otherwise the helper's body
         // reports them as a rejected instantiation of an internal name.

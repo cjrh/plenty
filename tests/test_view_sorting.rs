@@ -250,6 +250,18 @@ def main() -> Result[(), AllocError | IoError]:
 
 #[rstest::rstest]
 #[case(
+    "xs = [2, 1].unwrap()\nys = sorted(&xs[:]).unwrap()",
+    "sorted takes a list, not a slice view: copy the view with `list(v)?` and sort the copy"
+)]
+#[case(
+    "xs = [2, 1].unwrap()\nv = &xs[1:]\nys = sorted(v).unwrap()",
+    "sorted takes a list, not a slice view"
+)]
+#[case(
+    "mut xs = [2, 1].unwrap()\nys = sorted(&mut xs[1:]).unwrap()",
+    "or sort the view in place with `v.sort()`"
+)]
+#[case(
     "mut xs = [1, 2].unwrap()\nv = &xs[:]\nv.sort()",
     "a shared slice view is read-only, so it has no `sort`"
 )]
