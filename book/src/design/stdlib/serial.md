@@ -106,6 +106,8 @@ budget without heap allocation. `constructed` maps `Result[T, Fault]` from a
 validated constructor into the decoder's concrete error domain;
 `allocated` maps `Result[T, AllocError]` through `allocation`, and
 `constructed_or_allocated` maps `Result[T, AllocError | Fault]` by member.
+Compiler-specialized `constructed_in[X, ...]` selects one of these three for a
+generic constructor's domain `X` once it is known, and rejects any other.
 Constructors with other error types need an explicit decoding hook to choose
 that mapping.
 

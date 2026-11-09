@@ -1679,6 +1679,9 @@ impl Lower<'_> {
                 };
                 if ty.carried_reference().is_some() {
                     loans.push(self.carried_argument(arg, &ty, ops)?);
+                } else if references::item_lender(&ty) {
+                    // Possibly the origin of a returned reference (issue #921).
+                    loans.extend(self.item_lender_argument(arg, &ty, ops)?);
                 }
                 ty
             };
@@ -1744,7 +1747,7 @@ impl Lower<'_> {
         self.record_direct_call(&callee, at, &loans, ops);
         self.passes(start, &sig.inputs, sig.outputs.first(), ops);
         self.push_call(Op::Call(callee.clone()), &sig.inputs, &loans, at, ops)?;
-        self.call_reference_result(&callee, &sig, &loans, ops);
+        self.call_reference_result(&callee, &sig, &loans, at, ops)?;
         Self::end_reads(loans, ops);
         ops.extend(lent_loans.into_iter().map(Op::UseLoan));
         Ok(sig.outputs.first().cloned())
@@ -2182,23 +2185,14 @@ impl Engine {
                         .serial_field(at)
                         .map(|field| format!("field `{field}`: "))
                         .unwrap_or_default();
-                    let domains = if name.ends_with("decode")
-                        && serial_derive::parameter_domain(ty, aliases)
-                    {
-                        "; an initializer error domain that is a type parameter decodes automatically only when that parameter is std.serial.Fault (issue #914)"
-                    } else {
-                        " where E is std.serial.Fault, AllocError or AllocError | std.serial.Fault"
-                    };
-                    return Err(at.error(format!("{context}{ty} has no {hook} serialization hook; use @serial, or write a private {hook}; automatic decoding requires initializer fields/types to match exactly and return () or Result[(), E]{domains}; preserve constructor invariants in custom decoding")));
+                    return Err(at.error(format!("{context}{ty} has no {hook} serialization hook; use @serial, or write a private {hook}; automatic decoding requires initializer fields/types to match exactly and return () or Result[(), E] where E is std.serial.Fault, AllocError or AllocError | std.serial.Fault; preserve constructor invariants in custom decoding")));
                 }
             }
         }
-        let generated =
-            serial::expand(name, actual, template, &mut replacements, at).map_err(|error| {
-                match aliases.data.serial_field(at) {
-                    Some(field) => at.error(format!("field `{field}`: {error}")),
-                    None => error,
-                }
+        let generated = serial::expand(name, actual, template, &mut replacements, aliases, at)
+            .map_err(|error| match aliases.data.serial_field(at) {
+                Some(field) => at.error(format!("field `{field}`: {error}")),
+                None => error,
             })?;
         let template = generated.as_ref().unwrap_or(template);
         let mut demanded = Vec::new();

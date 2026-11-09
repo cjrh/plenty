@@ -1498,7 +1498,7 @@ impl Lower<'_> {
         } else {
             self.push_call(Op::Call(callee.clone()), &sig.inputs, &loans, &base.at, ops)?;
         }
-        self.call_reference_result(&callee, &sig, &loans, ops);
+        self.call_reference_result(&callee, &sig, &loans, &base.at, ops)?;
         Self::end_reads(loans, ops);
         Ok(sig.outputs.first().cloned())
     }

@@ -339,3 +339,245 @@ def main() -> Result[(), AllocError | IoError]:
     ));
     assert!(!error.is_empty());
 }
+
+const FIRST: &str = r#"
+def first(g: Generator[&str]) -> Option[&str]:
+    mut h = g
+    next(h)
+
+def last(g: Generator[&str]) -> Option[&str]:
+    mut keep: Option[&str] = Nothing
+    for v in g:
+        keep = Some(v)
+    keep
+"#;
+
+fn with_first(body: &str) -> String {
+    main_body(body).replacen(NAMES, &format!("{NAMES}{FIRST}"), 1)
+}
+
+#[test]
+fn an_item_returns_through_a_by_value_generator_parameter() {
+    // Issue #921: the item borrows the generator's sources, not its frame.
+    assert_stdout(
+        &with_first(
+            r#"xs = ["a", "b"]?
+print(first(names(&xs)))?
+print(last(relay(names(&xs))))?
+g = names(&xs)
+f = first(g)
+print(f)?"#,
+        ),
+        "Option[&str].Some(\"a\")\nOption[&str].Some(\"b\")\nOption[&str].Some(\"a\")\n",
+    );
+}
+
+#[test]
+fn a_returned_item_keeps_the_generator_sources_borrowed() {
+    for call in ["first(names(&xs))", "last(relay(names(&xs)))"] {
+        let error = check_error(&with_first(&format!(
+            r#"mut xs = ["a", "b"]?
+r = {call}
+xs.clear()
+print(r)?"#
+        )));
+        assert!(error.contains("borrowed"), "{call}: {error}");
+    }
+}
+
+#[test]
+fn a_returned_item_keeps_a_mut_source_of_the_frame_borrowed() {
+    let source = |change: &str| {
+        format!(
+            r#"
+def tagged(log: &mut list[i64], xs: &list[str]) -> Generator[&str]:
+    for x in xs:
+        log[0] = 1
+        yield x
+
+def first(g: Generator[&str]) -> Option[&str]:
+    mut h = g
+    next(h)
+
+def main() -> Result[(), AllocError | IoError]:
+    mut log = [0]?
+    xs = ["a", "b"]?
+    r = first(tagged(&mut log, &xs))
+    {change}
+    print(r)?
+    Ok(())
+"#
+        )
+    };
+    let error = check_error(&source("log[0] = 5"));
+    assert!(error.contains("while `log` is borrowed"), "{error}");
+    assert_stdout(&source("print(log[0])?"), "1\nOption[&str].Some(\"a\")\n");
+}
+
+#[test]
+fn a_by_value_generator_parameter_is_the_origin_in_parameter_order() {
+    let error = check_error(&with_names(
+        r#"
+def pick(g: Generator[&str], s: &str) -> &str:
+    s
+
+def main() -> Result[(), AllocError | IoError]:
+    xs = ["a"]?
+    print(pick(names(&xs), "b"))?
+    Ok(())
+"#,
+    ));
+    assert!(error.contains("first reference parameter, `g`"), "{error}");
+    let error = check_error(&with_names(
+        r#"
+def pick(s: &str, g: Generator[&str]) -> Option[&str]:
+    mut h = g
+    next(h)
+
+def main() -> Result[(), AllocError | IoError]:
+    xs = ["a"]?
+    print(pick("b", names(&xs)))?
+    Ok(())
+"#,
+    ));
+    assert!(error.contains("first reference parameter, `s`"), "{error}");
+    // A later reference argument's loan ends with the call.
+    assert_stdout(
+        &with_names(
+            r#"
+def pick(g: Generator[&str], s: &str) -> Option[&str]:
+    for v in g:
+        if v == s:
+            return Some(v)
+    Nothing
+
+def main() -> Result[(), AllocError | IoError]:
+    xs = ["a", "b"]?
+    mut ys = ["b"]?
+    r = pick(names(&xs), ys[0])
+    ys.clear()
+    print(r)?
+    Ok(())
+"#,
+        ),
+        "Option[&str].Some(\"b\")\n",
+    );
+}
+
+#[test]
+fn a_by_value_generator_origin_rejects_other_returns() {
+    for (output, body, expected) in [
+        (
+            "Option[&str]",
+            "s = \"x\"\n    Some(&s)",
+            "originate from the first reference parameter, `g`",
+        ),
+        ("Option[&mut str]", "Nothing", "to be `&mut`"),
+    ] {
+        let error = check_error(&with_names(&format!(
+            r#"
+def bad(g: Generator[&str]) -> {output}:
+    {body}
+
+def main() -> Result[(), AllocError | IoError]:
+    xs = ["a"]?
+    print(bad(names(&xs)))?
+    Ok(())
+"#
+        )));
+        assert!(error.contains(expected), "{output}: {error}");
+    }
+}
+
+#[test]
+fn a_generic_function_returns_an_item_of_a_by_value_generator() {
+    let source = |order: &str| {
+        format!(
+            r#"
+def items[T](xs: &list[T]) -> Generator[&T]:
+    for x in xs:
+        yield x
+
+def first[T](g: Generator[&T]) -> Option[&T]:
+    mut h = g
+    next(h)
+
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = [1, 2]?
+    r = first(items(&xs))
+    {order}
+    Ok(())
+"#
+        )
+    };
+    assert_stdout(
+        &source("print(r)?\n    xs.clear()"),
+        "Option[&i64].Some(1)\n",
+    );
+    let error = check_error(&source("xs.clear()\n    print(r)?"));
+    assert!(error.contains("borrowed"), "{error}");
+}
+
+#[test]
+fn a_generator_yields_an_item_returned_through_its_generator_parameter() {
+    // A generator body's by-value generator parameter has no loan of its
+    // own; the returned item is rooted at the parameter, as `next` is.
+    assert_stdout(
+        &main_body(
+            r#"for v in heads(names(&xs)):
+    print(v)?"#,
+        )
+        .replacen(
+            NAMES,
+            &format!(
+                "{NAMES}{FIRST}
+def heads(g: Generator[&str]) -> Generator[&str]:
+    match first(g):
+        case Some(v):
+            yield v
+        case Nothing:
+            pass
+"
+            ),
+            1,
+        )
+        .replacen(
+            "    for v in heads",
+            "    xs = [\"a\", \"b\"]?\n    for v in heads",
+            1,
+        ),
+        "a\n",
+    );
+}
+
+#[test]
+fn a_generator_yields_an_item_returned_through_a_relayed_or_generic_call() {
+    // Each call path roots its argument loan at the generator body's own
+    // generator parameter, which has no loan (issue #921).
+    for call in ["first(relay(g))", "first_of(g)"] {
+        let source = main_body(
+            r#"xs = ["a", "b"]?
+for v in heads(names(&xs)):
+    print(v)?"#,
+        )
+        .replacen(
+            NAMES,
+            &format!(
+                "{NAMES}{FIRST}
+def first_of[T](g: Generator[&T]) -> Option[&T]:
+    mut h = g
+    next(h)
+
+def heads(g: Generator[&str]) -> Generator[&str]:
+    match {call}:
+        case Some(v):
+            yield v
+        case Nothing:
+            pass
+"
+            ),
+            1,
+        );
+        assert_stdout(&source, "a\n");
+    }
+}

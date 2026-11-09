@@ -113,7 +113,8 @@ static `bytes` literal storage has no runtime constructor. TOML distinguishes
 optional class fields from map entries, so omission cannot delete dictionary
 keys. Constructors and defaults may return `Fault`, `AllocError` or
 `AllocError | Fault`; allocation failures use the format's allocation fault
-(issue #905). Other error domains require a handwritten
+(issue #905), including through a class type parameter such as
+`Result[(), E]` (issue #914). Other error domains require a handwritten
 decoding hook to choose a typed mapping.
 
 The [measurement record](../development/serialization-measurements.md)
@@ -597,6 +598,14 @@ item of such a generator; `Generator[&mut T]` is rejected. Collecting reference
 items into a collection, and assigning a borrowing generator through a
 `&mut Generator` reference, are rejected. See
 [reference items](../design/language/09-iteration/03-generators.md#reference-items).
+A by-value `Generator[&T]` parameter is a returned-reference origin (issue
+#921), ordered with reference parameters, so a function consuming the
+generator can return one of its items; the caller's result keeps the
+argument's frame loans, including any `&mut` source the frame borrows.
+Because the origin is positional, a function whose first such parameter is the
+generator, such as `def f(g: Generator[&str], xs: &list[str]) -> &str`, can no
+longer return a borrow of the later `xs`; no code in the repository used that
+form.
 
 Generator parameters may carry a reference, as `Option[&T]` or
 `Result[&mut T, E]` (issue #913). The frame keeps the argument's loan as it

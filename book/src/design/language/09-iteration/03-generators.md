@@ -369,6 +369,36 @@ it borrows the caller's data, not the frame. Changing, moving or dropping
 element. A function may return an item, or a generator of items, when it
 borrows only through the function's reference or view parameters.
 
+A by-value `Generator[&T]` parameter can also be the
+[origin of a returned reference](../05-ownership/04-returned-references.md):
+the function consumes the generator, but its items borrow the caller's data,
+which the caller keeps borrowed for as long as the result is live.
+
+```plenty
+def names(xs: &list[str]) -> Generator[&str]:
+    for x in xs:
+        yield x
+
+def longest(g: Generator[&str]) -> Option[&str]:
+    mut best: Option[&str] = Nothing
+    for v in g:
+        match best:
+            case Some(b):
+                if len(v) > len(b):
+                    best = Some(v)
+            case Nothing:
+                best = Some(v)
+    best
+
+def main() -> Result[(), AllocError | IoError]:
+    xs = ["ab", "abc", "c"]?
+    print(longest(names(&xs)))?
+    Ok(())
+```
+```output
+Option[&str].Some("abc")
+```
+
 A yielded reference must borrow through a shared reference, view,
 `Option[&T]` or `Result[&T, E]` parameter, or be an item of a generator that
 does, or of a generator parameter. Yielding a reference to a local, an owned
@@ -386,8 +416,9 @@ by an anonymous function. Copy an item to keep it beyond its source's borrow.
 Limits:
 
 - An item keeps every loan of its frame, including a `&mut` argument that
-  the item does not read, so that argument stays exclusively borrowed while
-  any item is live.
+  the item does not read, so while any item is live that argument cannot be
+  written or borrowed with `&mut`. It can be read once the generator is no
+  longer used.
 - An item returned by `next` through a `&mut Generator[&T]` parameter keeps
   the generator borrowed, not only its source.
 - `.generator()`, comprehensions, `sorted`, `join` and `extend` reject
