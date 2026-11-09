@@ -627,3 +627,67 @@ fn unproven_result_steps_still_return_errors(#[case] function: &str) {
         );
     }
 }
+
+#[test]
+fn checked_index_increment_uses_only_dominating_bounds_checks() {
+    let source = r#"def dominated(xs: &list[i64], i: i64) -> Result[i64, OverflowError[i64]]:
+    value = xs[i]
+    Ok(i + 1)
+def joined(xs: &list[i64], i: i64, take: bool) -> Result[i64, OverflowError[i64]]:
+    if take:
+        value = xs[i]
+    Ok(i + 1)
+def changed(xs: &list[i64], i: i64) -> Result[i64, OverflowError[i64]]:
+    value = xs[i]
+    mut next = i
+    next = i64.MAX
+    Ok(next + 1)
+def main() -> ():
+    xs = [7i64].unwrap()
+    print(dominated(&xs, -1).unwrap(), dominated(&xs, 0).unwrap(), joined(&xs, i64.MAX, False).is_err(), changed(&xs, 0).is_err()).unwrap()
+"#;
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("index.plenty");
+    std::fs::write(&input, source).unwrap();
+    for fast in [false, true] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_plenty"));
+        command.env("PLENTY_CACHE", "off");
+        if fast {
+            command.arg("--fast-compile");
+        }
+        let out = command.arg(&input).output().unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(out.stdout, b"0 1 True True\n");
+    }
+    for (function, overflow) in [("dominated", false), ("joined", true)] {
+        let out = Command::new(env!("CARGO_BIN_EXE_plenty"))
+            .env("PLENTY_CACHE", "off")
+            .args(["--dump", "clif", "--dump-filter", function])
+            .arg(&input)
+            .args(["-o", "-"])
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let dump = String::from_utf8_lossy(&out.stdout);
+        assert_eq!(dump.contains("sadd_overflow"), overflow, "{dump}");
+    }
+    for index in ["1", "i64.MAX", "i64.MIN", "-2"] {
+        let invalid = source.replace("    print(dominated(&xs, -1).unwrap(), dominated(&xs, 0).unwrap(), joined(&xs, i64.MAX, False).is_err(), changed(&xs, 0).is_err()).unwrap()", &format!("    print(dominated(&xs, {index})).unwrap()"));
+        std::fs::write(&input, invalid).unwrap();
+        let out = Command::new(env!("CARGO_BIN_EXE_plenty"))
+            .env("PLENTY_CACHE", "off")
+            .arg(&input)
+            .output()
+            .unwrap();
+        assert!(!out.status.success());
+        assert!(String::from_utf8_lossy(&out.stderr).contains("index"));
+    }
+}
