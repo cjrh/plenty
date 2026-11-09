@@ -727,6 +727,7 @@ impl Items<'_, '_> {
         for (at, annotation) in &annotations {
             let applies = declaration.is_some_and(|token| match annotation {
                 annotations::Annotation::ThreadSafe => token.is("extern") || token.is("export"),
+                annotations::Annotation::HostCallback => token.is("extern"),
                 annotations::Annotation::ThreadMovable
                 | annotations::Annotation::ThreadShareable => token.is("opaque"),
                 annotations::Annotation::Redacted | annotations::Annotation::Serial => {
@@ -781,6 +782,26 @@ impl Items<'_, '_> {
                 self.parser.expect("def")?;
                 self.parser.pos -= 1;
                 let mut f = self.parser.function_header(None, true, false, false)?;
+                if let Some((at, _)) = annotations
+                    .iter()
+                    .find(|(_, a)| *a == annotations::Annotation::HostCallback)
+                {
+                    if annotations
+                        .iter()
+                        .any(|(_, a)| *a == annotations::Annotation::ThreadSafe)
+                    {
+                        return Err(
+                            at.error("`@host_callback` and `@thread_safe` are mutually exclusive")
+                        );
+                    }
+                    let declaration = f.foreign.as_mut().expect("an extern declaration");
+                    if !matches!(declaration.target, crate::foreign::Target::Parameter(_)) {
+                        return Err(at.error(
+                            "`@host_callback` requires a function-address parameter target",
+                        ));
+                    }
+                    declaration.host_callback = true;
+                }
                 if let Some((at, _)) = annotations
                     .iter()
                     .find(|(_, a)| *a == annotations::Annotation::ThreadSafe)

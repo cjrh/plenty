@@ -20,7 +20,7 @@ transfer contract. Unannotated exports retain the serialized caller-thread
 contract in the [generated C interface](exports.md).
 
 Certification follows helpers, generic instances, callable targets and
-reachable destructors. Foreign calls must declare `@thread_safe`; opaque
+reachable destructors. Fixed-symbol foreign calls must declare `@thread_safe`; opaque
 pointers held by the body need `@thread_movable` or `@thread_shareable`.
 Host-supplied pointers are checked as local values: the host, rather than a
 Plenty move expression, supplies the lifetime and synchronization proof.
@@ -33,6 +33,42 @@ exclusive reference. A binding must not label a writable resource
 `@thread_shareable` merely to pass checking. A movable pointer may be accessed
 on different threads with ordered handoff, and separate pointees may be
 accessed concurrently.
+
+## Host protocol callbacks
+
+A host can supply a table of native function addresses whose calls are valid
+only during a particular protocol callback. A trusted binding can declare:
+
+```text
+@thread_movable
+pub opaque Pointer
+@host_callback
+pub extern def count(function: Pointer, context: Pointer) -> u32 = function
+```
+
+`@host_callback` applies only to an indirect `extern def` with an opaque address
+parameter as its target. It is mutually exclusive with `@thread_safe` and is
+rejected on fixed symbols, intrinsics and exports. The binding author promises:
+
+- the address is non-null, resident and has exactly the declared native ABI;
+- the current host callback and thread permit this operation;
+- host data and callback lifetimes, synchronization and reentrancy rules hold;
+- borrowed arguments are not retained beyond the call;
+- no native unwind or nonlocal jump crosses the Plenty frame.
+
+The compiler trusts these promises; it cannot infer host protocol state from a
+pointer. A certified export may reach these calls through helpers, generic
+instances, thin callables or destructors. Its C callers must supply the required
+host context: certification does not make the callback valid on arbitrary
+threads. Ordinary Plenty workers, executor jobs and parallel callbacks still
+reject such calls, including when they call an exported Plenty function.
+Serial code retains its existing trusted-FFI obligations.
+
+Generated import wrappers omit `@thread_safe` for exports that depend on this
+permission, preventing ordinary workers from recovering permission through a
+fixed-symbol wrapper. A host-context requirement appears in the C header and
+generated interface contract, including its fingerprint. Exports with no such
+dependency retain their existing wrapper certification.
 
 ## Runtime entry
 

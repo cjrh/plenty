@@ -5692,6 +5692,7 @@ fn lower(
                 signature: sigs[&f.name].clone(),
                 documentation: f.doc.clone(),
                 thread_safe: f.export_thread_safe,
+                host_context: false,
                 exact,
             });
         }
@@ -5833,7 +5834,7 @@ fn lower(
     let mut ops = std::mem::take(&mut generics.compiled);
     validate_frames(&ops).map_err(|message| at.error(message))?;
     tail_calls::validate(&ops, &generics, &sigs)?;
-    crate::threading::check_exports(&ops, &exports)?;
+    crate::threading::check_exports(&ops, &mut exports)?;
     if require_main {
         ops.push(Op::Call("main".into()));
         if let [Ty::Enum(t)] = sigs["main"].outputs.as_slice() {

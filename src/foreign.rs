@@ -53,6 +53,9 @@ pub struct Declaration {
     /// trusts it; without it a reachable call rejects the worker. See
     /// book/src/design/facilities/04-interop/trusted-declarations.md#worker-threads.
     pub thread_safe: bool,
+    /// A trusted indirect call permitted only in the foreign host protocol
+    /// context, not on arbitrary Plenty workers.
+    pub host_callback: bool,
 }
 
 impl Declaration {

@@ -173,16 +173,18 @@ collection; `@copy` instances copy. `__hash__` and `__eq__` hooks are unsupporte
 An annotation is `@name` alone on a line directly before a declaration. The
 set is closed and compiler-known; there are no user decorators. The
 annotations are `@copy`, `@newtype`, `@redacted`, `@serial`, `@thread_safe`,
-`@thread_movable`, and `@thread_shareable`. `@copy`
+`@host_callback`, `@thread_movable`, and `@thread_shareable`. `@copy`
 and `@newtype` apply only to class declarations, including `pub class`;
 `@redacted` also applies to enums. [`@serial`](../../stdlib/serial-derive.md)
 applies to classes and enums and generates missing format-neutral codec hooks.
 Inside such a type, `@serial.name("wire")` above a field or variant is the one
 member annotation; it sets the member's
 [wire name](../../stdlib/serial-derive.md#wire-names).
-`@thread_safe` applies only to `extern def`
-in a `.plentyi` interface; see
+`@thread_safe` applies to `extern def` in a trusted interface and to
+[`export def`](../../facilities/04-interop/host-threads.md); see
 [worker threads](../../facilities/04-interop/trusted-declarations.md#worker-threads).
+[`@host_callback`](../../facilities/04-interop/host-threads.md#host-protocol-callbacks)
+applies only to trusted indirect `extern def` declarations.
 `@thread_movable` and `@thread_shareable` apply only to `opaque` declarations;
 see [opaque types on worker threads](../../facilities/04-interop/trusted-declarations.md#opaque-types-on-worker-threads).
 An unknown name, arguments, a repeated annotation, or an

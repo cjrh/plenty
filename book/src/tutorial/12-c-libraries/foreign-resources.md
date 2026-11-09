@@ -145,3 +145,16 @@ through it. See
 for the rules and when a binding may promise each contract.
 [How std.dataframe wraps its engine](../../design/facilities/04-interop/dataframe-binding.md)
 shows a library that builds values with movable builders and then shares them.
+
+## Host-supplied callback tables
+
+For a library called by a native host, keep protocol-specific pointer operations
+in a trusted interface. Mark its indirect native declarations `@host_callback`
+only when the host guarantees the current callback context, exact ABI, live
+addresses and synchronized data. A `@thread_safe` Plenty export can then call
+those declarations. The annotation does not authorize those operations on
+Plenty-created workers, even through an export or a helper.
+
+This is a trusted binding contract, not automatic C record layout or a real-time
+guarantee. See [host protocol callbacks](../../design/facilities/04-interop/host-threads.md#host-protocol-callbacks)
+for the declaration and full obligations.

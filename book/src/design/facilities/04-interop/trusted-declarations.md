@@ -88,7 +88,9 @@ The rules have no exceptions:
   or destructors. The diagnostic names the C symbol and the call path.
 - Every declaration of one C symbol in a program agrees on `@thread_safe`.
 - A [function-address declaration](#calling-a-native-address) cannot be
-  annotated: its callee is chosen at run time.
+  annotated `@thread_safe`: its callee is chosen at run time. The separate
+  [`@host_callback` contract](host-threads.md#host-protocol-callbacks) applies
+  only to foreign host entry contexts, never ordinary Plenty workers.
 - The annotation certifies calls, not values. Which native values worker
   code may hold is the [opaque type's thread contract](#opaque-types-on-worker-threads).
 

@@ -72,7 +72,7 @@ impl Task {
 /// source data and recursive functions terminate through their nominal identity.
 /// Thin callable targets are bounded by the addresses in this closed program.
 pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
-    check_with_exports(ops, &[])
+    check_with_exports(ops, &[], false)
 }
 
 /// Foreign hosts supply the storage and synchronize each instance themselves.
@@ -80,10 +80,27 @@ pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
 /// aliasing promises. Managed handles need a separate transfer contract.
 pub(crate) fn check_exports(
     ops: &[Op],
-    exports: &[crate::exports::Export],
+    exports: &mut [crate::exports::Export],
 ) -> Result<(), Box<dyn std::error::Error>> {
     if exports.iter().any(|export| export.thread_safe) {
-        check_with_exports(ops, exports)?;
+        check_with_exports(ops, exports, true)?;
+        let mut has_host_callbacks = false;
+        walk(ops, &mut |op| {
+            if matches!(op, Op::ForeignCall { declaration, .. } if declaration.host_callback) {
+                has_host_callbacks = true;
+            }
+        });
+        // Ordinary libraries need no additional per-export traversal.
+        for export in exports
+            .iter_mut()
+            .filter(|export| has_host_callbacks && export.thread_safe)
+        {
+            // Generated fixed-symbol interfaces must not turn a context-bound
+            // callback into a general any-thread contract. The host check above
+            // already ruled out every failure except this stricter permission.
+            export.host_context =
+                check_with_exports(ops, std::slice::from_ref(export), false).is_err();
+        }
     }
     Ok(())
 }
@@ -91,6 +108,7 @@ pub(crate) fn check_exports(
 fn check_with_exports(
     ops: &[Op],
     exports: &[crate::exports::Export],
+    allow_host_callbacks: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut roots = Vec::new();
     for export in exports.iter().filter(|export| export.thread_safe) {
@@ -181,6 +199,7 @@ fn check_with_exports(
     let mut checked = HashSet::default();
     let mut checked_receivers = HashSet::default();
     for (kind, mut queue, mut types) in roots {
+        let host_context = allow_host_callbacks && kind == "thread-safe export";
         let origin = match queue.first() {
             Some(worker) => format!("{kind} {}", describe(worker, &functions)),
             None => kind.to_owned(),
@@ -229,7 +248,7 @@ fn check_with_exports(
                 }
             }
             let Some(name) = queue.pop() else { break };
-            if !checked.insert(name.clone()) {
+            if !checked.insert((host_context, name.clone())) {
                 continue;
             }
             let function = functions
@@ -237,7 +256,7 @@ fn check_with_exports(
                 .ok_or_else(|| format!("{origin}: unavailable function `{name}`"))?;
             let queued = queue.len();
             let mut local = Vec::new();
-            let inspected = inspect(function, &mut local, &mut queue);
+            let inspected = inspect_context(function, &mut local, &mut queue, host_context);
             types.extend(local.into_iter().map(|ty| (ty, Reach::Local)));
             inspected.map_err(|reason| {
                 format!(
@@ -612,6 +631,15 @@ pub(crate) fn inspect(
     types: &mut Vec<Ty>,
     calls: &mut Vec<String>,
 ) -> Result<(), String> {
+    inspect_context(function, types, calls, false)
+}
+
+fn inspect_context(
+    function: &CompiledFn,
+    types: &mut Vec<Ty>,
+    calls: &mut Vec<String>,
+    host_context: bool,
+) -> Result<(), String> {
     types.extend(function.sig.inputs.iter().map(|(_, t)| t.clone()));
     types.extend(function.sig.outputs.iter().cloned());
     types.extend(function.locals.iter().cloned());
@@ -623,8 +651,13 @@ pub(crate) fn inspect(
             // only as a temporary or returned inside a stored callback owner.
             types.push(Ty::Closure(t.clone()));
         }
-        // The binding author's `@thread_safe` is the only effect contract a
-        // C function can have; the compiler cannot inspect native code.
+        // Host callback permission belongs to the entry context, never the
+        // callee itself: a Plenty worker may call an exported Plenty function.
+        Op::ForeignCall { declaration, .. } if declaration.host_callback => {
+            if !host_context {
+                error = Some("`@host_callback` requires a foreign host entry context; ordinary Plenty workers cannot call host callbacks".into());
+            }
+        }
         Op::ForeignCall { declaration, .. } if !declaration.thread_safe => {
             error = Some(match declaration.symbol() {
                 Some(symbol) => format!(

@@ -184,6 +184,7 @@ mod tests {
         ];
         let exports = [crate::exports::Export {
             thread_safe: false,
+            host_context: false,
             exact: false,
             function: "std.export".into(),
             name: "export".into(),
