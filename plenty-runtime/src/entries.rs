@@ -405,6 +405,31 @@ impl Entries {
         );
         self.read_row(index)
     }
+    /// Read only the key used by a hash-table equality probe. Unlike `get`,
+    /// this does not decode an unused dictionary value or return a full row.
+    #[inline]
+    pub fn key(&self, index: usize) -> u128 {
+        if let Some(bits) = self.bits() {
+            assert!(bits.contains(index));
+            return enum_bits::value(self.key, index);
+        }
+        assert!(index < self.data.len() / self.stride);
+        debug_assert!(
+            self.order
+                .linked()
+                .map_or(index < self.len(), |order| order.contains(index))
+        );
+        // SAFETY: the bounds and live-row checks are the same as `get`.
+        unsafe {
+            let base = self.data.as_ptr().add(index * self.stride);
+            if self.packed() {
+                read_scalar(base, self.key)
+            } else {
+                base.cast::<u128>().read()
+            }
+        }
+    }
+
     fn packed(&self) -> bool {
         self.order.is_none() && self.value.is_none() && scalar_bytes(self.key).is_some()
     }
