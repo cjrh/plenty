@@ -770,3 +770,32 @@ def main() -> Result[(), AllocError | IoError]:
         "{error}"
     );
 }
+
+#[test]
+fn a_generator_body_cannot_retarget_a_moved_generator_parameter() {
+    // Issue #926 gave a generator body's borrowing generator parameters a
+    // frame loan, so the body follows an ordinary function's retarget rule,
+    // even between two parameters that both borrow caller data.
+    let error = check_error(&with_evens(
+        r#"
+def pick(g: Generator[i64], k: Generator[i64]) -> Generator[i64]:
+    mut h = g
+    for x in h:
+        yield x
+    h = k
+    for y in h:
+        yield y
+
+def main() -> Result[(), AllocError | IoError]:
+    xs = [1, 2]?
+    ys = [4]?
+    for v in pick(evens(&xs), evens(&ys)):
+        print(v)?
+    Ok(())
+"#,
+    ));
+    assert!(
+        error.contains("`h` holds a generator that borrows `g`; a generator borrowing another owner needs a new binding"),
+        "{error}"
+    );
+}

@@ -259,6 +259,12 @@ arm's loans, and a returned choice checks each arm; an arm producing an
 owned generator contributes no loan. A `mut` binding that holds an owned
 generator cannot be assigned a borrowing one; bind it to a new name.
 
+A `mut` binding that holds a borrowing generator cannot be reassigned one that
+borrows another owner, even another generator parameter, in an ordinary
+function or a generator body: "`h` holds a generator that borrows `g`; a
+generator borrowing another owner needs a new binding". Bind the second
+generator to a new name.
+
 A borrowing generator can be bound, advanced, iterated, consumed by a
 fluent terminal, passed by value to a function, or returned. A generator
 passed by value keeps its loans until the call returns, so a later argument
