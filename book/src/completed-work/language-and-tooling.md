@@ -606,6 +606,9 @@ Because the origin is positional, a function whose first such parameter is the
 generator, such as `def f(g: Generator[&str], xs: &list[str]) -> &str`, can no
 longer return a borrow of the later `xs`; no code in the repository used that
 form.
+A generator body may also hold an item taken with `next` through a
+`&mut Generator[&T]` parameter across `yield` (issue #922): the item's hidden
+referent is marked as caller data, as a carried-reference parameter's is.
 
 Generator parameters may carry a reference, as `Option[&T]` or
 `Result[&mut T, E]` (issue #913). The frame keeps the argument's loan as it
@@ -1517,8 +1520,9 @@ remaining interface scope.
 `plenty test` compiles them, without linking or running them, so tests that
 need a native library built are checkable.
 [Checking tests](../design/toolchain/01-building/packages.md#checking-tests)
-documents the flag. `experiments/check_arithmetic.py` uses it in place of
-wrapping each test file in a temporary consumer package.
+documents the flag. The experiment checks in `tests/test_experiments.rs`
+(issue #918) use it in place of wrapping each test file in a temporary
+consumer package.
 
 ## C boolean interoperability
 
