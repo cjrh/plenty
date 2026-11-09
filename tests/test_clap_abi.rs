@@ -22,8 +22,13 @@ fn clap_entry_event_callbacks_and_real_unload() {
         options.compile.optimize = optimize;
         options.unloadable = true;
         options.compile.link_args.push("-Wl,--gc-sections".into());
-        plenty::compile_file_to_library(&root.join("library.plenty"), &library, None, &options)
-            .unwrap();
+        let artifacts =
+            plenty::compile_file_to_library(&root.join("library.plenty"), &library, None, &options)
+                .unwrap();
+        let contract = std::fs::read_to_string(artifacts.interface).unwrap();
+        assert!(contract.contains("# C object: clap_entry; size 40; align 8;"));
+        assert!(contract.contains("# unloadable-profile: linux-gnu-x86_64-v1"));
+        assert!(contract.contains("# Requires the foreign host protocol callback context"));
         let bytes = std::fs::read(&library).unwrap();
         let object = object::File::parse(bytes.as_slice()).unwrap();
         let entry = object
