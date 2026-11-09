@@ -1102,10 +1102,14 @@ impl Lower<'_> {
         let (l, r) = (left.iteration, right.iteration);
         let mut first_ended = r.absent.clone();
         first_ended.push(Op::PushBool(true));
+        // Every condition path initializes the second side's pending item, as
+        // `take` and `zip` do: a generator's body moves it (issue #920).
+        let mut second_absent = r.absent.clone();
+        second_absent.push(Op::PushBool(false));
         let mut first_exhausted = switch.to_vec();
         first_exhausted.extend([
             Op::LoadLocal(second),
-            branch(r.condition.clone(), vec![Op::PushBool(false)]),
+            branch(r.condition.clone(), second_absent),
         ]);
         let mut first = l.condition;
         first.push(branch(first_ended, first_exhausted));

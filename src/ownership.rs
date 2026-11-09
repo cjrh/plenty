@@ -830,6 +830,8 @@ struct Checker<'a, 'p> {
     /// A binding can hold a receiver or the function takes a lock, so a
     /// call's own pool shutdown can wait for this frame (issue #860).
     holds_waited: std::cell::OnceCell<bool>,
+    /// Slots marked by `Op::CallerReferent`, as a bitset over `u8` slots.
+    caller_referents: [u64; 4],
 }
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
@@ -861,6 +863,7 @@ pub fn check(
         fields,
         state_waits: Default::default(),
         holds_waited: Default::default(),
+        caller_referents: caller_referents(ops),
         futures: crate::profile_block!(
             "ownership::prepare_futures",
             futures::Futures::new(ops, locals.len(), program)
@@ -2635,9 +2638,9 @@ impl Checker<'_, '_> {
                 let mut found = None;
                 // A hint naming the cause, reported after the borrow's notes.
                 let mut hint = None;
-                // A loan through a reference parameter borrows the caller's
-                // data, which the caller keeps borrowed while the frame lives
-                // (issue #899); a loan of the frame's own state cannot be
+                // A loan through a reference parameter or a parameter's
+                // referent borrows the caller's data, which the caller keeps
+                // borrowed while the frame lives (issues #899, #913); a loan of the frame's own state cannot be
                 // suspended, since the frame may move.
                 if let Some(Op::Yield(_)) = &nodes[i].op
                     && let Some(&id) = after.0.iter().find(|id| !self.external(loans[id].root))
@@ -2868,11 +2871,22 @@ impl Checker<'_, '_> {
 
 impl Checker<'_, '_> {
     /// Whether loans rooted at `slot` borrow data outside the frame: a
-    /// reference or view parameter.
+    /// reference or view parameter, or a parameter's caller referent.
     fn external(&self, slot: u8) -> bool {
-        (slot as usize) < self.parameters
-            && matches!(self.locals[slot as usize], Ty::Ref(..) | Ty::View(..))
+        ((slot as usize) < self.parameters
+            && matches!(self.locals[slot as usize], Ty::Ref(..) | Ty::View(..)))
+            || self.caller_referents[slot as usize / 64] & (1 << (slot % 64)) != 0
     }
+}
+
+fn caller_referents(ops: &[Op]) -> [u64; 4] {
+    let mut slots = [0u64; 4];
+    for op in ops {
+        if let Op::CallerReferent(slot) = op {
+            slots[*slot as usize / 64] |= 1 << (slot % 64);
+        }
+    }
+    slots
 }
 
 /// Mark `id` live, with the loans it depends on.

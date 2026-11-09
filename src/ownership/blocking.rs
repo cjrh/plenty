@@ -147,6 +147,7 @@ pub(super) fn blocks(op: &Op) -> bool {
         | Op::ForeignNull { .. }
         | Op::TailCall { .. }
         | Op::ForwardsReferences
+        | Op::CallerReferent(_)
         | Op::Return
         | Op::Break
         | Op::Continue

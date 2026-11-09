@@ -175,3 +175,25 @@ impl Parser {
         Ok(chosen.unwrap_or_default())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_error_message_compiles_both_target_branches() {
+        let module = include_str!("../../stdlib/std/error.plenty");
+        let (_, body) = module.split_once("pub def native_message").unwrap();
+        let source = format!(
+            "def native_message{body}\ndef main() -> ():\n    drop(native_message(13i32))\n"
+        );
+        // Select each OS arm on every host, without pretending the native
+        // backend can emit another target. Issue #923 failed only off Linux.
+        for condition in ["target.pointer_width == 64", "target.pointer_width != 64"] {
+            let source = source.replace("target.os != \"linux\"", condition);
+            let mut heap = Heap::default();
+            super::super::compile(&source, &mut heap)
+                .unwrap_or_else(|error| panic!("{condition}: {error}"));
+        }
+    }
+}

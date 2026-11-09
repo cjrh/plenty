@@ -596,6 +596,15 @@ items into a collection, and assigning a borrowing generator through a
 `&mut Generator` reference, are rejected. See
 [reference items](../design/language/09-iteration/03-generators.md#reference-items).
 
+Generator parameters may carry a reference, as `Option[&T]` or
+`Result[&mut T, E]` (issue #913). The frame keeps the argument's loan as it
+keeps a reference parameter's, and may yield references through a shared one.
+Generators do not take lent pipelines: the caller converts the pipeline with
+`.generator()` and passes `&mut Generator[T]`, and the diagnostic says so. A
+resumable lent-pipeline representation in the frame was considered and
+rejected, since the conversion already works and adds no frame representation. See
+[borrowing frames](../design/language/09-iteration/03-generators.md#borrowing-frames).
+
 List slice views `&[T]` and `&mut [T]` gained list read and fixed-length
 operations (issue #866): `in`, `count`, `find` and `rfind` search the view with
 the element type's `==` and allocate nothing; `v.get(i)` copies a non-affine

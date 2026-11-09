@@ -557,3 +557,8 @@ allocates nothing, is locale- and thread-independent, and keeps the same text
 under any C library. Error values still keep `IoError.System(code)`; see
 [describing a native code](../design/stdlib/error.md#describing-a-native-code).
 Formatting builtin `IoError` causes in `describe`/`format` is not included.
+
+Issue #923 puts the Linux table in the alternate compile-time branch, so
+non-Linux imports no longer fail with an unreachable-statement diagnostic.
+A compiler regression test selects both branches on every host; native OS
+qualification also exercises the real target selection through JSON imports.

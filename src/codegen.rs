@@ -2697,6 +2697,7 @@ impl Lowerer<'_, '_> {
             // Consumed by `tail_abi::prepare`, which decides whether the call
             // after it keeps this frame.
             Op::ForwardsReferences => {}
+            Op::CallerReferent(_) => {}
             Op::BorrowLocal(i, mutable) => {
                 if let Some(reference) = self.borrow_simd_local(*i) {
                     debug_assert!(!mutable);
