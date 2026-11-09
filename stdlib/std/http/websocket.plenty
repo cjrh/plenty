@@ -285,7 +285,6 @@ pub class WebSocket[T]:
                 return Ok(())
             opcode = op_continuation
             at = end
-        Ok(())
 
     # Sends `text` as one text message, reading its UTF-8 bytes directly.
     # `send` with Kind.Text accepts bytes the caller already holds.
@@ -348,7 +347,6 @@ pub class WebSocket[T]:
             self.skip(length, deadline, cancel)?
             if opcode == op_close:
                 return Ok(())
-        Ok(())
 
     def next(self: &mut WebSocket[T], out: &mut Bytes, base: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[Message, WebSocketError]:
         mut kind = op_continuation
@@ -393,7 +391,6 @@ pub class WebSocket[T]:
                             return Err(WebSocketError.InvalidText)
                         return Ok(Message.Text)
                     return Ok(Message.Binary)
-        Err(WebSocketError.Protocol)
 
     # The peer's close payload is out[mark:]. Answers it, unless this side
     # closed first, and leaves only its reason after `base`.
@@ -655,7 +652,6 @@ pub class WebSocket[T]:
                 if end == stop:
                     return Ok(())
                 at = end
-            Ok(())
 
     def flush(self: &mut WebSocket[T], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WebSocketError]:
         # at starts at zero; Transport writes at most size-at bytes,

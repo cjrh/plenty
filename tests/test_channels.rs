@@ -76,7 +76,6 @@ def collect(receiver: Receiver[i64]) -> Result[i64, OverflowError[i64]]:
                 total = total + n
             case Err(_):
                 return Ok(total)
-    Ok(total)
 sender, receiver = channel[i64](2).unwrap()
 second_sender = sender.share()
 second_receiver = receiver.share()
@@ -1203,7 +1202,6 @@ fn joins_without_a_matching_live_receiver_are_accepted() {
                 count = count + 1
             case Err(_):
                 return Ok(count)
-    Ok(count)
 def idle(n: i64) -> Result[i64, OverflowError[i64]]:
     Ok(n + 1)
 def drain(sender: Sender[i64], receiver: Receiver[i64]) -> Result[(), IoError | RecvError | SpawnError[()]]:

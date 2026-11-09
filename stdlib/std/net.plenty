@@ -238,7 +238,6 @@ def transfer_wait(file: &File, interest: u8) -> Result[(), StreamError]:
                     return Ok(())
             case Err(error):
                 return Err(classify(error))
-    Ok(())
 
 # A ready descriptor can still return EAGAIN. Recheck the original budget
 # before waiting again, including when the readiness report stays stale.
@@ -692,7 +691,6 @@ pub class Lookup:
                     case Err(error):
                         self._data.truncate(at)
                         return Err(streamed(error))
-            Err(NetError.WouldBlock)
 
 # Starts looking up `host` and returns at once. An IP literal needs no
 # lookup; `parse_ip` it first, as `resolve` does.
@@ -722,7 +720,6 @@ pub class TcpStream:
                     if not blocked(error):
                         return Err(error)
                     transfer_wait(&self._stream.file, 1u8)?
-        Ok(0)
 
     pub def write(self: &mut TcpStream, source: &[u8]) -> Result[i64, StreamError]:
         while True:
@@ -733,7 +730,6 @@ pub class TcpStream:
                     if not blocked(error):
                         return Err(error)
                     transfer_wait(&self._stream.file, 2u8)?
-        Ok(0)
 
     # Writes are not buffered.
     pub def flush(self: &mut TcpStream) -> Result[(), StreamError]:
@@ -771,7 +767,6 @@ pub class TcpStream:
                     return Ok(count)
                 case Err(error):
                     retry_transfer(error, deadline, cancel)?
-        Err(NetError.TimedOut)
 
     # Waits for space, then offers the whole range in one nonblocking write.
     # The returned count can be smaller than stop - start.
@@ -783,7 +778,6 @@ pub class TcpStream:
                     return Ok(count)
                 case Err(error):
                     retry_transfer(error, deadline, cancel)?
-        Err(NetError.TimedOut)
 
     # Writes all of source[start:stop]. On failure, an unknown prefix has
     # been sent.
@@ -873,7 +867,6 @@ pub class TcpListener:
                     # skipped, as an empty queue is.
                     if not transient(error) and error != IoError.System(aborted):
                         return Err(named(error))
-        Err(NetError.TimedOut)
 
     pub def close(self: &mut TcpListener) -> Result[(), NetError]:
         match self._file.close():
@@ -906,7 +899,6 @@ pub def connect(address: &SocketAddress, deadline: &Deadline, cancel: &Cancellat
             case Err(error):
                 if not transient(error):
                     return Err(named(error))
-    Err(NetError.TimedOut)
 
 # A TCP connection still being established, for an event loop that must not
 # block: watch it, then call `finish_now` when it is writable. Dropping it
@@ -990,7 +982,6 @@ pub class UdpSocket:
                     if not transient(error):
                         return Err(named(error))
             ready_for(&self._file, Interest.Write, deadline, cancel)?
-        Err(NetError.TimedOut)
 
     # Receives one datagram into buffer[start:stop].
     pub def receive_from(self: &mut UdpSocket, buffer: &mut Bytes, start: i64, stop: i64, deadline: &Deadline, cancel: &CancellationToken) -> Result[Datagram, NetError]:
@@ -1010,7 +1001,6 @@ pub class UdpSocket:
                     case Err(error):
                         if not transient(error):
                             return Err(named(error))
-            Err(NetError.TimedOut)
 
     pub def close(self: &mut UdpSocket) -> Result[(), NetError]:
         match self._file.close():

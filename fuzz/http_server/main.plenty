@@ -133,7 +133,6 @@ def check(output: &Bytes, at: i64) -> Result[i64, AllocError | BytesError | Harn
                 if output.len() - next > marker.len():
                     return Ok(output.len() - marker.len())
                 return Ok(next)
-    Ok(next)
 
 def main() -> Result[(), AllocError | BytesError | ServerError | OverflowError[i64] | ZeroDivisionError]:
     size = i64.wrapping_from(fuzz_input.size())

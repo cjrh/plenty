@@ -298,7 +298,6 @@ def read_fields[R: Reader](conn: &mut BufReader[R], line: &mut Bytes, max_line: 
             if len(headers) >= max_headers:
                 return Err(HttpError.TooManyHeaders)
             listed(headers.append(parse_field(&line[:size])?))?
-        Ok(())
 
 # `HTTP/1.0` or `HTTP/1.1` at data[start:stop]; another well-formed
 # `HTTP/d.d` is unsupported, anything else is `invalid`.
@@ -709,7 +708,6 @@ pub class BodyReader[R]:
                             case Err(cause):
                                 if not interrupted(&cause):
                                     return Err(from_stream(cause))
-                    Ok(0)
                 case Nothing:
                     Err(HttpError.Broken)
 
@@ -791,7 +789,6 @@ pub class BodyReader[R]:
                         else:
                             self._state = chunk_end
                     return Ok(count)
-            Ok(0)
 
     # Fills part of buffer[start:stop] with decoded body bytes; zero from a
     # non-empty range is the end of the body. An empty range returns zero
@@ -879,7 +876,6 @@ pub def read_to_end[R: Reader](body: &mut BodyReader[R], out: &mut Bytes) -> Res
                 case Err(error):
                     out.truncate(filled)
                     return Err(error)
-        Ok(total)
 
 # Reads and drops the rest of the body, still under `max_body`.
 pub def discard[R: Reader](body: &mut BodyReader[R]) -> Result[i64, HttpError]:
@@ -893,7 +889,6 @@ pub def discard[R: Reader](body: &mut BodyReader[R]) -> Result[i64, HttpError]:
             if count == 0:
                 return Ok(total)
             total += count
-        Ok(total)
 
 # Returns the connection once the whole body has been read, positioned at
 # the next message: pipelined input already buffered is kept. A body with

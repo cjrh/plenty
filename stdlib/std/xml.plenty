@@ -375,7 +375,6 @@ pub class Reader[R]:
                     if matches:
                         return allocated(out.slice(0, out.len() - ending.len()))
 
-            Err(Fault.UnexpectedEnd)
 
     def event(self: &mut Reader[R]) -> Result[Event, Fault]:
         self._token_start = self._offset

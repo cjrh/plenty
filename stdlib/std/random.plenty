@@ -66,7 +66,6 @@ pub class Rng:
             value = self.next_u64()
             if value >= threshold:
                 return Ok(value % divisor)
-        Err(RandomError.EmptyRange)
 
     # Uniform in the half-open range [low, high).
     pub def between(self: &mut Rng, low: i64, high: i64) -> Result[i64, RandomError]:

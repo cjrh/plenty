@@ -970,12 +970,6 @@ fn in_body(ops: &[Op], visit: &mut impl FnMut(&Op)) {
     }
 }
 
-/// A loop condition that is the literal `True`, which never exits the loop.
-fn always_true(condition: &[Op]) -> bool {
-    let mut ops = condition.iter().filter(|op| !matches!(op, Op::Site(_)));
-    matches!((ops.next(), ops.next()), (Some(Op::PushBool(true)), None))
-}
-
 /// A value is owned after a join only if every continuing path owns it. One
 /// moving path is kept as the move to report.
 fn merge(states: &[State], into: &mut State) {
@@ -2397,7 +2391,7 @@ impl Checker<'_, '_> {
                 }
                 Op::Loop { condition, body } => {
                     // `while True:` leaves only through `break` (issue #857).
-                    let forever = always_true(condition);
+                    let forever = crate::op::forever_condition(condition);
                     let mut entry = state.clone();
                     let mut exits = Vec::new();
                     let submitted = self.submitted.borrow().len();

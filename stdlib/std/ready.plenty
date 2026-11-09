@@ -91,7 +91,6 @@ pub def wait(file: &File, interest: Interest, deadline: &Deadline, cancel: &Canc
             return Err(WaitError.Cancelled)
         if deadline.expired(&monotonic_now()):
             return Err(WaitError.TimedOut)
-    Err(WaitError.TimedOut)
 
 def moved(result: Result[i64, StreamError]) -> Result[i64, WaitError]:
     match result:
@@ -167,7 +166,6 @@ pub class Selector:
                 return Err(WaitError.Cancelled)
             if deadline.expired(&monotonic_now()):
                 return Err(WaitError.TimedOut)
-        Err(WaitError.TimedOut)
 
     # Event `index` of the last wait, for 0 <= index < its count.
     pub def event(self, index: i64) -> Result[Event, WaitError]:

@@ -63,7 +63,6 @@ pub def recv_before[T](receiver: &Receiver[T], deadline: &Deadline, cancel: &Can
                     return Err(WaitError.Cancelled)
                 if deadline.expired(&monotonic_now()):
                     return Err(WaitError.TimedOut)
-    Err(WaitError.TimedOut)
 
 pub def send_before[T](sender: &Sender[T], value: T, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), SendBeforeError[T]]:
     mut pending = value
@@ -81,7 +80,6 @@ pub def send_before[T](sender: &Sender[T], value: T, deadline: &Deadline, cancel
                     return Err(SendBeforeError[T].Cancelled(pending))
                 if deadline.expired(&monotonic_now()):
                     return Err(SendBeforeError[T].TimedOut(pending))
-    Err(SendBeforeError[T].TimedOut(pending))
 
 pub def future_before[T](future: &Future[T], deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WaitError]:
     while True:
@@ -93,7 +91,6 @@ pub def future_before[T](future: &Future[T], deadline: &Deadline, cancel: &Cance
             return Err(WaitError.Cancelled)
         if deadline.expired(&monotonic_now()):
             return Err(WaitError.TimedOut)
-    Err(WaitError.TimedOut)
 
 pub def cancelled_before(token: &CancellationToken, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), WaitError]:
     while True:
@@ -105,7 +102,6 @@ pub def cancelled_before(token: &CancellationToken, deadline: &Deadline, cancel:
             return Err(WaitError.Cancelled)
         if deadline.expired(&monotonic_now()):
             return Err(WaitError.TimedOut)
-    Err(WaitError.TimedOut)
 
 pub def select_recv_before[A, B](first: &Receiver[A], second: &Receiver[B], deadline: &Deadline, cancel: &CancellationToken) -> Result[Selected[A, B], WaitError]:
     while True:
@@ -121,7 +117,6 @@ pub def select_recv_before[A, B](first: &Receiver[A], second: &Receiver[B], dead
                     return Err(WaitError.Cancelled)
                 if deadline.expired(&monotonic_now()):
                     return Err(WaitError.TimedOut)
-    Err(WaitError.TimedOut)
 
 # Results of pool jobs, collected in completion order. Each accepted job keeps
 # its future in one of `capacity` slots until its result is taken, so a worker
@@ -192,7 +187,6 @@ pub class Completions[T]:
             if index >= 0:
                 return Some(self.take(index))
             self.pause(10u64)
-        Nothing
 
     # Ok(Nothing) when no job is outstanding.
     pub def next_before(self: &mut Completions[T], deadline: &Deadline, cancel: &CancellationToken) -> Result[Option[Result[T, FutureError]], WaitError]:
@@ -207,7 +201,6 @@ pub class Completions[T]:
             if deadline.expired(&monotonic_now()):
                 return Err(WaitError.TimedOut)
             self.pause(wait_slice(deadline))
-        Err(WaitError.TimedOut)
 
     # Waits for a message or a finished job. A message already waiting wins over
     # finished jobs, so a stop or wake-up is not delayed by a stream of results.
@@ -238,7 +231,6 @@ pub class Completions[T]:
                         return Err(WaitError.Disconnected)
                     case Err(RecvTimeoutError.TimedOut):
                         pass
-        Err(WaitError.TimedOut)
 
     # Cancels jobs that have not started. Their results arrive from `next` as
     # `FutureError.Cancelled`; running jobs finish normally.

@@ -72,7 +72,6 @@ def parse(text: str, step: i64, bounds: &Limits) -> Result[i64, AllocError | std
                 return Ok(count)
             case _:
                 count += 1
-    Ok(count)
 
 def fault(text: str, bounds: &Limits) -> Fault:
     match parse(text, 1, bounds):

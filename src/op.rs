@@ -1409,6 +1409,54 @@ pub struct ElifArm {
     pub body: Arc<[Op]>,
 }
 
+/// Whether a loop never completes: its condition is the literal `True` and
+/// no `break` in its body leaves it. A `break` inside a nested loop leaves
+/// only that loop; one inside an `if`, `match` or checked suite leaves this
+/// one. The frontend, the operation checker, ownership analysis and codegen
+/// all decide divergence here, so code after such a loop is unreachable in
+/// every pass (issue #896).
+#[inline(never)]
+pub fn loop_diverges(condition: &[Op], body: &[Op]) -> bool {
+    forever_condition(condition) && !breaks_out(body)
+}
+
+/// A loop condition that is the literal `True`, which never exits the loop.
+pub fn forever_condition(condition: &[Op]) -> bool {
+    let mut ops = condition.iter().filter(|op| !matches!(op, Op::Site(_)));
+    matches!((ops.next(), ops.next()), (Some(Op::PushBool(true)), None))
+}
+
+/// Whether `body` has a `break` for the loop that runs it. Nested loops are
+/// skipped. An explicit work list keeps deep nesting off the call stack.
+fn breaks_out(body: &[Op]) -> bool {
+    let mut pending = vec![body];
+    while let Some(ops) = pending.pop() {
+        for op in ops {
+            match op {
+                Op::Break => return true,
+                Op::Match(arms) => pending.extend(arms.iter().map(|arm| &arm.body[..])),
+                Op::If {
+                    then,
+                    elifs,
+                    otherwise,
+                } => {
+                    pending.extend([&then[..], &otherwise[..]]);
+                    for arm in elifs.iter() {
+                        pending.extend([&arm.condition[..], &arm.body[..]]);
+                    }
+                }
+                Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => pending.push(cleanup),
+                Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
+                    pending.push(body)
+                }
+                Op::Assumed(inner) => pending.push(std::slice::from_ref(&**inner)),
+                _ => {}
+            }
+        }
+    }
+    false
+}
+
 /// One arm of a [`Op::Match`]. The pattern is matched against the popped
 /// value; if the match succeeds, `body` is executed against the current
 /// data stack and the enclosing call's locals frame.

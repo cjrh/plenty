@@ -200,7 +200,6 @@ pub def compress(format: Format, data: &[u8], level: i64) -> Result[Bytes, Compr
         state.clear()
         if done == 1:
             return Ok(out)
-    Ok(out)
 
 # Decompresses all of `data`, which must hold exactly one stream (or, for
 # gzip, a sequence of members). More than `limit` output bytes is
@@ -278,7 +277,6 @@ pub class Compressor[W]:
             # Nothing consumed: the step filled the output buffer first.
             if self._state.len() == 0:
                 return Err(StreamError.InvalidProgress)
-        Ok(0)
 
     # Runs one flush mode until the codec reports it complete. An ended
     # codec (finish failed while delivering) has nothing left to flush.
@@ -292,7 +290,6 @@ pub class Compressor[W]:
                 return Err(stream_error(failed(done)))
             if done == 1:
                 return self.drain()
-        Ok(())
 
     # Delivers everything written so far as complete blocks, then flushes
     # `inner`. Frequent flushes cost compression ratio.
@@ -399,7 +396,6 @@ pub class Decompressor[R]:
                             self._in_start += consumed
                     case Err(error):
                         return self.fail(error)
-        Ok(0)
 
 pub def decompressor[R](format: Format, inner: R, limit: NonNegative[i64]) -> Result[Decompressor[R], CompressError]:
     decoder = inflater(format, limit)?

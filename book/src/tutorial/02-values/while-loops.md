@@ -66,9 +66,29 @@ def main() -> Result[(), IoError]:
 the function. `break` cannot carry a value, and loop `else` clauses are not
 supported.
 
-Even after `while True`, a function returning data still needs a result after
-the loop.
-Statements directly after an unconditional exit are rejected:
+A `while True:` loop with no `break` of its own never finishes, so it can end
+a function without a result after it; each pass returns or repeats:
+
+```plenty
+def first_square_over(limit: i64) -> Result[i64, OverflowError[i64]]:
+    mut n = 1
+    while True:
+        if n * n > limit:
+            return Ok(n)
+        n = n + 1
+
+def main() -> Result[(), IoError | OverflowError[i64]]:
+    print(first_square_over(50)?)?
+    Ok(())
+```
+
+```output
+8
+```
+
+If the body can `break` out of this loop, the function still needs a result
+after it. A `break` in a nested loop leaves only that loop. Statements directly
+after an unconditional exit, including such a loop, are rejected:
 
 ```plenty-error
 def main() -> Result[(), IoError]:
