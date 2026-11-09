@@ -114,6 +114,11 @@ return, store or capture `p`, and `&Iter[T]`, by-value `Iter[T]` parameters
 and `Iter` results are rejected, as are `Iter` parameters of exported and
 foreign functions.
 
+The lend is exclusive and lasts until the call returns. A later argument of
+the same call cannot use `p`: `f(&mut p, next(p))` and `f(&mut p, p.count())`
+are conflicting-borrow errors, as they are for a generator. Take the item in
+an earlier statement instead.
+
 `&mut Iter[T]` names only the item type. Like a `&mut Generator[T]`
 parameter, the borrower is compiled once per lent pipeline, as a frame
 specialization; recursive and repeated lends of the same pipeline share it.

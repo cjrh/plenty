@@ -1487,10 +1487,8 @@ impl Lower<'_> {
                 .get(id)
                 .cloned()
                 .ok_or_else(|| at.error("iterator pipeline has no local source plan"))?;
-            // Reading the token rejects a pipeline that a loop or terminal
-            // consumed.
             self.mark(at, ops);
-            ops.extend([Op::LoadLocal(local.slot), Op::Drop]);
+            advance_local(local.slot, ops);
             plan
         } else {
             // A lent parameter: the step runs through a borrow of it, which
@@ -2351,4 +2349,13 @@ fn zero(ty: &Ty) -> Op {
         Ty::U64 => Op::PushInt(Value::U64(0)),
         _ => Op::PushInt(Value::I64(0)),
     }
+}
+
+/// `next(p)` on a pipeline binding. Reading the token rejects a pipeline that
+/// a loop or terminal consumed; the write access makes the step a mutable use
+/// of `p`, so it conflicts with an outstanding lend such as `&mut p` in an
+/// earlier argument of the same call (issue #884).
+#[inline(never)]
+fn advance_local(slot: u8, ops: &mut Vec<Op>) {
+    ops.extend([Op::LoadLocal(slot), Op::Drop, Op::Access(slot, true, None)]);
 }
