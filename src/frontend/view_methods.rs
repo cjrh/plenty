@@ -187,9 +187,13 @@ impl Lower<'_> {
             "get_ref" | "get_mut" => Err(base.at.error(format!(
                 "a slice view cannot `{name}` yet (issue #{LOOKUP_ISSUE}); borrow with `&v[i]` after checking `i < len(v)`, or copy a non-affine element with `v.get(i)`"
             ))),
-            "sort" | "sort_by_key" | "sort_stable_by_key" => Err(base.at.error(format!(
-                "a slice view cannot `{name}` yet (issue #{SORT_ISSUE}); sort the whole list, or reorder the view's elements with `swap`"
+            "sort" | "sort_by_key" | "sort_stable_by_key" if !exclusive => Err(base.at.error(format!(
+                "a shared slice view is read-only, so it has no `{name}`; take an exclusive view with `&mut xs[a:b]`"
             ))),
+            "sort" => self.view_sort(base, &element, args, ops),
+            "sort_by_key" | "sort_stable_by_key" => {
+                self.key_sort_call(base, args, &base.at, name == "sort_stable_by_key", ops)
+            }
             _ if LENGTH_CHANGING.contains(&name) => Err(base.at.error(format!(
                 "`{name}` changes a list's length, and a slice view's length is fixed; call it on the list after the view's last use"
             ))),
@@ -198,6 +202,43 @@ impl Lower<'_> {
                 views::OPERATIONS
             ))),
         }
+    }
+
+    /// `v.sort(descending)` on an exclusive view: sorts its rows in place with
+    /// `list.sort`'s contract (issue #886). The flag is evaluated before the
+    /// view is borrowed, so it may read the view.
+    fn view_sort(
+        &mut self,
+        base: &Expr,
+        element: &Ty,
+        args: &[Expr],
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        if args.len() > 1 {
+            return Err(base
+                .at
+                .error("sort takes no arguments or one descending bool"));
+        }
+        if !element.is_orderable() {
+            return Err(base.at.error(format!(
+                "sort does not order {element} elements; it orders integers, floats, str, and tuples of those"
+            )));
+        }
+        let descending = args.first().cloned().unwrap_or_else(|| Expr {
+            at: base.at.clone(),
+            kind: Expression::Bool(false),
+        });
+        let (actual, loans) = self.observe_expected(&descending, Some(Ty::Bool), ops)?;
+        self.same(Some(actual), Some(Ty::Bool), &descending.at)?;
+        let slot = self.slot(Ty::Bool, &descending.at)?;
+        ops.push(Op::StoreLocal(slot));
+        Self::end_reads(loans, ops);
+        let (view, loan) = self.view_source(base, ops)?;
+        ops.push(Op::MoveLocal(slot));
+        ops.push(Op::Collection(CollectionOp::ViewSort(view)));
+        ops.push(Op::Drop);
+        ops.push(Op::UseLoan(loan));
+        Ok(None)
     }
 
     /// An owned list of copies of every element of `view`, as `list(v)?` and
@@ -225,9 +266,6 @@ impl Lower<'_> {
         Ok(copied.expect("a view copy returns its Result"))
     }
 }
-
-/// The follow-up issue for sorting slice views in place.
-const SORT_ISSUE: u32 = 886;
 
 /// The follow-up issue for optional borrowed lookup on slice views.
 const LOOKUP_ISSUE: u32 = 890;

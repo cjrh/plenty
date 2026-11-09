@@ -1,6 +1,6 @@
 //! Native comparators for runtime-driven key sorts.
 //!
-//! `plenty_list_sort_by` moves rows inside the runtime and calls one of these
+//! `plenty_list_sort_by` and `plenty_view_sort_by` move rows inside the runtime and calls one of these
 //! adapters per comparison with the key callback reference and two row values.
 //! The adapter computes both keys through the specialized `key_of` helper and
 //! compares them in the total sort order.
@@ -54,8 +54,8 @@ pub(super) fn build_adapter(
     runtime: &Runtime,
     out: &mut Worker,
 ) -> Result<()> {
-    let Ty::List(element) = &sort.list else {
-        return Err("key sorting requires a list".into());
+    let Some(element) = sort.element() else {
+        return Err("key sorting requires a list or an exclusive view".into());
     };
     let item = Ty::Ref(element.clone(), false);
     let mut module = out.symbols();

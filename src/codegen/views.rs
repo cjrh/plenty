@@ -68,6 +68,25 @@ impl Lowerer<'_, '_> {
                 let unit = self.unpack(unit, &Ty::Unit);
                 self.stack.push((unit, Ty::Unit));
             }
+            CollectionOp::ViewSort(view) => {
+                let element = view_element(view);
+                let (descending, _) = self.pop_typed(Ty::Bool)?;
+                let (value, _) = self.pop_typed(view.clone())?;
+                let (rows, count) = self.split_view(value);
+                let descending = self.bcx.ins().uextend(types::I64, descending);
+                let id = self.module.metadata(&element);
+                let gv = self.module.declare_data_in_func(id, self.bcx.func);
+                let descriptor = self.bcx.ins().symbol_value(PTR_TY, gv);
+                let helper = self
+                    .module
+                    .declare_func_in_func(self.runtime.view_sort, self.bcx.func);
+                self.bcx
+                    .ins()
+                    .call(helper, &[rows, count, descending, descriptor]);
+                let unit = self.bcx.ins().iconst(types::I64, 0);
+                let unit = self.unpack(unit, &Ty::Unit);
+                self.stack.push((unit, Ty::Unit));
+            }
             CollectionOp::ViewEqual(view) => {
                 let element = view_element(view);
                 let (b, _) = self.pop_typed(view.clone())?;

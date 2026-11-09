@@ -271,7 +271,7 @@ fixed: a method that would add or remove elements belongs to the owner.
 | `in`, `count`, `find`, `rfind` | yes | yes | yes |
 | `list(v)?`, `v[a:b]?` | yes | yes | yes |
 | `v[a:b:k]?` with a step | yes | copy from the owner | copy from the owner |
-| `sort`, `sort_by_key`, `sort_stable_by_key` | yes | read-only | not yet (issue #886) |
+| `sort`, `sort_by_key`, `sort_stable_by_key` | yes | read-only | yes |
 | `append`, `extend`, `insert`, `pop`, `clear`, `reserve` | yes | length is fixed | length is fixed |
 | `get` | yes | yes | yes |
 | `get_ref`, `get_mut` | yes | not yet (issue #890) | not yet (issue #890) |
@@ -306,8 +306,7 @@ must not be affine; borrow an affine element with `&v[i]`. Optional borrowed
 lookup on views is issue #890.
 
 `v.reverse()` reorders an exclusive view's elements with `list.reverse`'s
-contract: every element type, and no allocation, copy, retain, or drop. Sorting
-a view in place is issue #886, recorded under B39 in the [backlog](../../../backlog.md).
+contract: every element type, and no allocation, copy, retain, or drop.
 
 ```plenty
 class Point:
@@ -332,6 +331,38 @@ True 2 Option[i64].Some(0) Option[i64].Some(2)
 [2, 1] [1, 3]
 [4, 3, 1, 2, 1]
 True
+```
+
+`v.sort()`, `v.sort_by_key(key)` and `v.sort_stable_by_key(key)?` order an
+exclusive view's elements with the list
+[sorts](../../facilities/01-builtins/lists.md#reordering-and-extending)'
+contracts: the same element types, key callbacks, positional descending flag
+and results. The unstable sorts allocate nothing; the stable sort reserves its
+scratch before moving any element, so an `AllocError` leaves the view
+unchanged. Elements outside the view stay in place. Each calls the runtime
+sort that the list uses, so a view sort runs the same code as sorting a list of
+the same elements. A shared view is read-only and has no sorts.
+
+```plenty
+def length(word: &str) -> i64:
+    len(word)
+
+def main() -> Result[(), AllocError | IoError]:
+    mut scores = [9, 4, 7, 1, 8]?
+    (&mut scores[1:4]).sort()
+    print(scores)?
+    (&mut scores[:]).sort(True)
+    print(scores)?
+    mut words = ["kiwi", "plum", "fig", "pear", "date"]?
+    (&mut words[1:]).sort_stable_by_key(length)?
+    print(words)?
+    Ok(())
+```
+
+```output
+[9, 1, 4, 7, 8]
+[9, 8, 7, 4, 1]
+["kiwi", "fig", "plum", "pear", "date"]
 ```
 
 ### Views borrow their owner
@@ -520,7 +551,7 @@ until stored references land (backlog B11).
 | `width(s)` for `width(v: &[u8])` and `s: str` | ``this parameter takes a slice view; a `str` is text, so pass `s.as_bytes()` for its UTF-8 bytes`` |
 | `fill(xs)` for `fill(v: &mut [i64])` | ``this parameter takes a slice view: pass `&mut xs` for a whole list or buffer, or `&mut xs[a:b]` for part of it`` |
 | `v.append(x)` on a view | `` `append` changes a list's length, and a slice view's length is fixed; call it on the list after the view's last use `` |
-| `v.sort()` on a view | ``a slice view cannot `sort` yet (issue #886); sort the whole list, or reorder the view's elements with `swap` `` |
+| `v.sort()` on a shared view | ``a shared slice view is read-only, so it has no `sort`; take an exclusive view with `&mut xs[a:b]` `` |
 | `v[a:b]?` on a `&[u8]` | ``a copying slice of &[u8] could be a `list[u8]` or a `Bytes` buffer; write `list(&v[a:b])?` for a list, or `extend` an empty `Bytes` with `&v[a:b]` `` |
 | `xs[1:3] = ys` | `slice assignment is not supported; assign elements by index, or build a new list` |
 | `m[1:2, 0]` | `a slice cannot have several dimensions` |

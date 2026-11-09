@@ -60,7 +60,9 @@ impl Lower<'_> {
         Ok(None)
     }
 
-    fn key_sort_call(
+    /// `base.sort_by_key(key, descending)` or its stable form, for a list
+    /// place or an exclusive slice view (issue #886).
+    pub(super) fn key_sort_call(
         &mut self,
         base: &Expr,
         args: &[Expr],
@@ -78,9 +80,13 @@ impl Lower<'_> {
                 "{method} takes a key callback and an optional descending bool"
             )));
         }
-        let list = classes::unbox(self.place_type(base).expect("list place"));
-        let Ty::List(element) = list else {
-            unreachable!()
+        let view = self.list_view_type(base);
+        let element = match &view {
+            Some(Ty::View(element, _)) => element.clone(),
+            _ => match classes::unbox(self.place_type(base).expect("list place")) {
+                Ty::List(element) => element,
+                _ => unreachable!(),
+            },
         };
         // A closure literal is lowered into a hidden local first, so it
         // passes the same way as a stored closure.
@@ -167,17 +173,27 @@ impl Lower<'_> {
         )?;
         // The runtime sorts the rows and calls back into the generated
         // adapter, so elements move without per-access calls or refcounting.
+        let receiver = if view.is_some() { "_view" } else { "" };
         let sort_name = if stable {
-            format!("{key_of}_stable_sort")
+            format!("{key_of}{receiver}_stable_sort")
         } else {
-            format!("{key_of}_sort")
+            format!("{key_of}{receiver}_sort")
         };
         if !self.sigs.contains_key(&sort_name) {
             let callback = self.sigs[&key_of].inputs[0].1.clone();
-            let list = Ty::List(element.clone());
+            let list = if view.is_some() {
+                Ty::View(element.clone(), true)
+            } else {
+                Ty::List(element.clone())
+            };
+            let items = if view.is_some() {
+                list.clone()
+            } else {
+                Ty::Ref(Arc::new(list.clone()), true)
+            };
             let sig = Arc::new(crate::op::FnSig {
                 inputs: vec![
-                    ("items".into(), Ty::Ref(Arc::new(list.clone()), true)),
+                    ("items".into(), items),
                     ("key".into(), callback.clone()),
                     ("descending".into(), Ty::Bool),
                 ],
@@ -219,9 +235,14 @@ impl Lower<'_> {
             ));
         }
         let descending = Self::reverse_argument(&args[1..], at);
-        let receiver = Expr {
-            at: base.at.clone(),
-            kind: Expression::Unary("&mut".into(), Box::new(base.clone())),
+        // A view is already the exclusive reference the sort takes.
+        let receiver = if view.is_some() {
+            base.clone()
+        } else {
+            Expr {
+                at: base.at.clone(),
+                kind: Expression::Unary("&mut".into(), Box::new(base.clone())),
+            }
         };
         self.call_named(
             &sort_name,

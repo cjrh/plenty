@@ -91,6 +91,21 @@ def main() -> Result[(), AllocError | IoError]:
 [70, 65, 90, 85, 88]
 ```
 
+The view sorts in place too, with the same `sort`, `sort(True)` and
+[key sorts](key-sorting.md) as a list. Only the view's elements move:
+
+```plenty
+def main() -> Result[(), AllocError | IoError]:
+    mut scores = [70, 85, 90, 65, 88]?
+    (&mut scores[1:]).sort(True)
+    print(scores)?
+    Ok(())
+```
+
+```output
+[70, 90, 88, 85, 65]
+```
+
 ## Assign several targets at once
 
 An assignment can name several targets, separated by commas. The whole right
