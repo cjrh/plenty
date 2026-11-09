@@ -562,3 +562,78 @@ def main() -> ():
         release,
     );
 }
+
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn square_roots_match_scalar_lanes_and_preserve_zero_sign(#[case] release: bool) {
+    for (ty, vector, count, tiny) in [
+        ("f32", "f32x4", 4, "1e-40f32"),
+        ("f64", "f64x2", 2, "1e-310"),
+    ] {
+        let lanes = (0..count)
+            .map(|i| format!("values[(start + {i}) % len(values)]"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        passes(
+            &format!(
+                r#"import std.simd as s
+from std.test import check
+def borrowed(value: &s.{vector}) -> s.{vector}:
+    value.sqrt()
+def main() -> ():
+    values = [{ty}.NAN, {ty}.INF, -{ty}.INF, 0.0{ty}, -0.0{ty}, 2.0{ty}, -2.0{ty}, {tiny}, 1e30{ty}].unwrap()
+    unchecked trap:
+        for start in range(len(values)):
+            v = s.{vector}.Lanes({lanes})
+            saved = v
+            direct = v.sqrt()
+            indirect = borrowed(&v)
+            for lane in range({count}):
+                expected = values[(start + lane) % len(values)].sqrt()
+                a = direct.lane(lane).unwrap()
+                b = indirect.lane(lane).unwrap()
+                check(a == expected or (a != a and expected != expected), "direct sqrt").unwrap()
+                check(b == expected or (b != b and expected != expected), "borrowed sqrt").unwrap()
+                if expected == 0.0{ty}:
+                    check((1.0{ty}).copysign(a) == (1.0{ty}).copysign(expected), "direct zero sign").unwrap()
+                    check((1.0{ty}).copysign(b) == (1.0{ty}).copysign(expected), "borrowed zero sign").unwrap()
+                original = saved.lane(lane).unwrap()
+                input = values[(start + lane) % len(values)]
+                check(original == input or (original != original and input != input), "input unchanged").unwrap()
+    print("ok").unwrap()
+"#
+            ),
+            release,
+        );
+    }
+}
+
+#[test]
+#[cfg(target_arch = "x86_64")]
+fn square_root_chains_stay_in_vector_registers() {
+    for (vector, opcode) in [("f32x4", "sqrtps"), ("f64x2", "sqrtpd")] {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("sqrt.plenty");
+        std::fs::write(&input, format!("import std.simd as s\ndef kernel(a: &s.{vector}, b: &s.{vector}) -> s.{vector}:\n    v = a.mul(b)\n    root = v.sqrt()\n    root.div(v)\ndef main() -> ():\n    a = s.splat_{vector}(4.0)\n    print(kernel(&a, &a).to_tuple()).unwrap()\n")).unwrap();
+        let out = Command::new(support::plenty_bin())
+            .env("PLENTY_CACHE", "off")
+            .args(["--dump", "clif-opt,asm", "--dump-filter", "kernel"])
+            .arg(input)
+            .args(["-o", "-"])
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let dump = String::from_utf8_lossy(&out.stdout);
+        assert!(dump.contains(opcode), "{dump}");
+        assert!(!dump.contains("call "), "{dump}");
+        assert!(
+            !dump.contains("stack_load") && !dump.contains("stack_store"),
+            "{dump}"
+        );
+    }
+}

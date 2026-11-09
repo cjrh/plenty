@@ -45,3 +45,17 @@ so explicit lanes do not promise packed storage or faster code. The default opti
 enables supported native SIMD operations on x86-64. AArch64 currently uses the
 scalar implementation, which preserves the same results. See the [reference](../../design/stdlib/simd.md)
 for the exact operations, bounds contracts and current limits.
+
+Float vectors also support `sqrt()` without allocation or a `Result`. Each lane
+follows scalar float square root, including NaNs for negative inputs:
+
+```plenty
+import std.simd as simd
+def main() -> Result[(), IoError]:
+    values = simd.f64x2.Lanes(4.0, 9.0)
+    print(values.sqrt().to_tuple())?
+    Ok(())
+```
+```output
+(2.0, 3.0)
+```

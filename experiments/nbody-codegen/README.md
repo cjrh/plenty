@@ -261,3 +261,6 @@ here are retained unchanged under the [Benchmarks Game BSD-3-Clause
 license](../../benchmarks/game/LICENSE-benchmarks-game.txt); k-nucleotide's
 reference was contributed by Renat Galimov. This experiment adds no shipped
 runtime code or data.
+
+The [sqrt implementation follow-up](sqrt.md) measures the public SIMD path and
+records why the benchmark still uses scalar magnitudes.

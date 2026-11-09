@@ -1,0 +1,33 @@
+# Public list transfers deliberately expose the current storage boundary costs.
+import std.simd as simd
+from std.test import check
+
+def magnitude_simd(x: &list[f64], y: &list[f64], z: &list[f64], out: &mut list[f64], n: i64, dt: f64) -> Result[(), OverflowError[i64]]:
+    step = simd.splat_f64x2(dt)
+    for pair in range(n // 2):
+        p = pair * 2
+        a = simd.load_f64x2(x, p).unwrap()
+        b = simd.load_f64x2(y, p).unwrap()
+        c = simd.load_f64x2(z, p).unwrap()
+        d2 = a.mul(a).add(b.mul(b)).add(c.mul(c))
+        result = step.div(d2.mul(d2.sqrt()))
+        check(result.store(out, p), "output capacity").unwrap()
+    if n % 2 == 1:
+        p = n - 1
+        d2 = x[p] * x[p] + y[p] * y[p] + z[p] * z[p]
+        out[p] = dt / (d2 * d2.sqrt())
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    for n in range(18):
+        x = [f64(i + 1) for i in range(n)]?
+        y = [f64(i + 2) for i in range(n)]?
+        z = [f64(i + 3) for i in range(n)]?
+        mut out = [-1.0 for i in range(n + 1)]?
+        magnitude_simd(&x, &y, &z, &mut out, n, 0.01)?
+        for i in range(n):
+            d2 = x[i] * x[i] + y[i] * y[i] + z[i] * z[i]
+            check(out[i] == 0.01 / (d2 * d2.sqrt()), "scalar equivalence").unwrap()
+        check(out[n] == -1.0, "tail sentinel").unwrap()
+    print("ok")?
+    Ok(())

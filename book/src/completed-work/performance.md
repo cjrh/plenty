@@ -233,6 +233,12 @@ This changes test synchronization, not runtime handler behavior.
 
 ## B23: SIMD
 
+Float vectors now provide allocation-free `sqrt()` with scalar fallback and
+baseline x86-64 packed lowering (issue #929). IEEE edge cases and chained
+vector-register operations are tested. Public list-transfer overhead still
+prevents the n-body magnitude path from approaching the packed-pointer probe;
+this adds a numerical primitive, not a benchmark speedup.
+
 [Automatic integer-column filter/count](../proposals/columnar-list/simd-counts.md)
 uses baseline SSE2 SIMD with scalar tails in optimized builds: 16 lanes for
 8-bit, 8 for 16-bit and 4 for 32-bit integer columns (issue #904).
