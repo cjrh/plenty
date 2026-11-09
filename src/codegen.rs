@@ -3140,6 +3140,24 @@ impl Lowerer<'_, '_> {
         b: cranelift_codegen::ir::Value,
     ) -> Option<(cranelift_codegen::ir::Value, cranelift_codegen::ir::Value)> {
         let dfg = &self.bcx.func.dfg;
+        if signed && kind == ArithKind::Add && dfg.value_type(a) == types::I64 {
+            let index = if known::known_signed(dfg, b) == Some(1) {
+                Some(a)
+            } else if known::known_signed(dfg, a) == Some(1) {
+                Some(b)
+            } else {
+                None
+            };
+            if index.is_some_and(|index| {
+                self.counters
+                    .checked
+                    .index_below_max(self.bcx.current_block(), dfg.resolve_aliases(index))
+            }) {
+                let sum = self.bcx.ins().iadd(a, b);
+                let overflow = self.bcx.ins().iconst(types::I8, 0);
+                return Some((sum, overflow));
+            }
+        }
         let constant_operand =
             known::known_int(dfg, a).is_some() || known::known_int(dfg, b).is_some();
         let rematerialized = self.module.optimizes() && constant_operand;

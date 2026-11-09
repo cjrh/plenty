@@ -9,6 +9,13 @@ only to the [backlog](../backlog.md).
 
 ## B19: Generated code and storage
 
+A successful list/view bounds check now proves that incrementing the same
+`i64` index by one cannot overflow, while its dominance chain remains valid
+(issue #930). This removes three instructions per n-body velocity pair and
+reduces the complete benchmark from 2.050B to 1.996B instructions at one million
+steps, with identical output. Bounds checks and non-dominating overflow checks
+remain.
+
 - The CPU audit (`examples/cpu_codegen_audit/`, local PR #431) led to issues
   #360–#392. `--dump` exposes operations/CLIF/assembly (issue #360). Unborrowed
   locals stay in registers, narrow helpers replace dispatcher calls in borrowed

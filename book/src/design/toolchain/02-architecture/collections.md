@@ -135,6 +135,13 @@ ordinary locals rather than in loads marked `readonly`: Cranelift treats a
 `readonly` load as valid for the whole function, which a later `append` would
 violate.
 
+After a successful row bounds check, the original `i64` index cannot equal
+`i64.MAX`: collection/view lengths fit in `i64`, and negative-index
+normalization cannot admit a positive maximum. While the cached check still
+dominates the current block, adding one to that same SSA value needs no
+overflow exit (issue #930). A branch join or a changed index does not inherit
+this proof. The original bounds check and its trap remain.
+
 The same analysis caches a `std.bytes.Bytes` place (a local, a reference
 parameter, or a field path such as `holder.data`) for `data.get(i)` and
 `data.set(i, value)` (issue #843). Before the loop the frontend reads the
