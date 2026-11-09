@@ -15,6 +15,10 @@ pub(super) struct Function {
     pub(super) inputs: Vec<(String, TypeRef)>,
     /// Aligned with inputs; synthetic declarations may leave this empty.
     pub(super) defaults: Vec<Option<Expr>>,
+    /// Where each parameter is named, aligned with inputs, for diagnostics
+    /// about a parameter rather than its type. Synthetic declarations may
+    /// leave this empty.
+    pub(super) input_at: Vec<Token>,
     pub(super) output: TypeRef,
     pub(super) doc: String,
     /// Where the docstring was written, for diagnostics about a body that is only a docstring.

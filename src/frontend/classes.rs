@@ -66,6 +66,7 @@ pub(super) fn header(method: &Function) -> Function {
         at: method.at.clone(),
         inputs: method.inputs.clone(),
         defaults: method.defaults.clone(),
+        input_at: method.input_at.clone(),
         output: method.output.clone(),
         doc: method.doc.clone(),
         doc_at: method.doc_at.clone(),
@@ -414,6 +415,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
                 at: at.clone(),
                 inputs,
                 defaults: vec![],
+                input_at: Vec::new(),
                 output: TypeRef {
                     concrete: None,
                     metadata: None,
@@ -514,6 +516,7 @@ pub(super) fn expand(classes: Vec<ClassDecl>, aliases: &TypeAliases) -> Result<V
                 at: at.clone(),
                 inputs: constructor_inputs.clone(),
                 defaults: constructor_defaults,
+                input_at: Vec::new(),
                 output,
                 doc: String::new(),
                 doc_at: None,

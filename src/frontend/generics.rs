@@ -2270,6 +2270,7 @@ impl Engine {
             at: template.at.clone(),
             inputs: template.inputs.clone(),
             defaults: template.defaults.clone(),
+            input_at: template.input_at.clone(),
             output: template.output.clone(),
             doc: template.doc.clone(),
             doc_at: template.doc_at.clone(),

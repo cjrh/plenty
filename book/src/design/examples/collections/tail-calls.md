@@ -90,7 +90,7 @@ def main() -> ():
 ```
 
 ```error
-recursive call to `skip_then_take` is in tail position but cannot be a tail call: the state of lent pipeline `p` (declared at 1:23) is written back to the lender after the call returns; bind the call's result to a local and return the local instead
+recursive call to `skip_then_take` is in tail position but cannot be a tail call: the state of lent pipeline `p` (declared at 1:20) is written back to the lender after the call returns; bind the call's result to a local and return the local instead
 ```
 
 Binding the result first makes it an ordinary recursive call:
@@ -115,6 +115,7 @@ Option[i64].Some(1)
 Option[i64].Some(2)
 ```
 
-A `with` block whose exit runs after the call is rejected the same way. Non-tail recursion still uses the
-native stack. Calls through function values are outside this direct-recursion
-diagnostic; using a callback does not promise bounded stack use.
+A `with` block whose exit runs after the call is rejected the same way.
+Non-tail recursion still uses the native stack. Calls through function values
+are outside this direct-recursion diagnostic; using a callback does not
+promise bounded stack use.

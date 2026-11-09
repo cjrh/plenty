@@ -282,6 +282,7 @@ impl DataTypes {
                     type_params: class.type_params.clone(),
                     at: at.clone(),
                     inputs,
+                    input_at: Vec::new(),
                     output,
                     doc: String::new(),
                     doc_at: None,

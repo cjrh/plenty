@@ -52,6 +52,7 @@ impl Lower<'_> {
                     .map(|ty| vec![("$result".into(), generics::type_ref(ty, at))])
                     .unwrap_or_default(),
                 defaults: vec![],
+                input_at: Vec::new(),
                 output: generics::type_ref(signature.outputs.first().unwrap_or(&Ty::Unit), at),
                 doc: String::new(),
                 doc_at: None,
@@ -265,6 +266,7 @@ impl Lower<'_> {
                 .map(|&index| inputs[index].clone())
                 .collect(),
             defaults: vec![],
+            input_at: Vec::new(),
             output,
             doc: String::new(),
             doc_at: None,

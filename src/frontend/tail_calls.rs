@@ -333,17 +333,10 @@ pub(super) fn validate(
                     .then(|| candidate.fallback.to_string())
                 });
             if let Some(reason) = reason {
-                let cycle = if caller_index == callee_index {
-                    String::new()
-                } else {
-                    format!(
-                        " (in the same direct recursion cycle as `{}`)",
-                        generics.diagnostic_name(name)
-                    )
-                };
+                let callee = generics.diagnostic_name(&candidate.callee);
                 let message = format!(
-                    "recursive call to `{}`{cycle} is in tail position but cannot be a tail call: {reason}",
-                    generics.diagnostic_name(&candidate.callee)
+                    "recursive call to `{callee}`{} is in tail position but cannot be a tail call: {reason}",
+                    cycle_note(generics, name, &callee, caller_index == callee_index)
                 );
                 return Err(match generics.requirement_of(sigs, name) {
                     Some(required) => required
@@ -438,6 +431,21 @@ fn components(graph: &[Vec<usize>]) -> Vec<usize> {
         }
     }
     components
+}
+
+/// Names the caller when the cycle passes through another function. Two
+/// specializations of one source function, such as frames for swapped lent
+/// arguments, read as direct recursion (issue #885).
+#[inline(never)]
+fn cycle_note(generics: &generics::Engine, caller: &str, callee: &str, same: bool) -> String {
+    if same {
+        return String::new();
+    }
+    let caller = generics.diagnostic_name(caller);
+    if caller == callee {
+        return String::new();
+    }
+    format!(" (in the same direct recursion cycle as `{caller}`)")
 }
 
 #[cfg(test)]
