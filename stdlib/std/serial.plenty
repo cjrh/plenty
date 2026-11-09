@@ -345,3 +345,9 @@ pub def constructed_or_allocated[T, E, D: Decoder[E]](value: Result[T, AllocErro
                     Err(error(source.allocation(allocation)))
                 case fault: Fault:
                     Err(error(source.reject(fault)))
+
+# A generic constructor's error domain `X` is known only at specialization.
+# The compiler expands this to `constructed`, `allocated` or
+# `constructed_or_allocated` for that domain, and rejects any other.
+pub def constructed_in[X, T, E, D: Decoder[E]](value: Result[T, X], source: &D) -> Result[T, SerialError[E]]:
+    __serial_constructed_in[X, T, E, D](value, source)
