@@ -83,6 +83,57 @@ def main() -> ():
     );
 }
 
+// A rejected item must not advance the other zip arm or the enumerate
+// counter; generator bodies once lowered builtin zip/enumerate separately.
+#[test]
+fn generator_body_zip_and_enumerate_advance_each_pipeline_arm_alone() {
+    output(
+        r#"
+def inner(xs: list[i64]) -> Generator[i64]:
+    for x in xs:
+        yield x
+def not_twenty(v: &i64) -> bool:
+    *v != 20
+def skipped_right(xs: list[i64], ys: list[i64]) -> Generator[i64]:
+    for (a, b) in zip(inner(xs), iter(ys).skip(1)):
+        yield a
+        yield b
+def skipped_left(xs: list[i64], ys: list[i64]) -> Generator[i64]:
+    for (a, b) in zip(iter(ys).skip(1), inner(xs)):
+        yield a
+        yield b
+def filtered_right(xs: list[i64], ys: list[i64]) -> Generator[i64]:
+    for (a, b) in zip(inner(xs), iter(ys).filter(not_twenty)):
+        yield a
+        yield b
+def bound_right(xs: list[i64], ys: list[i64]) -> Generator[i64]:
+    p = iter(ys).filter(not_twenty)
+    for (a, b) in zip(inner(xs), p):
+        yield a
+        yield b
+def filtered_count(ys: list[i64]) -> Generator[i64]:
+    for (i, v) in enumerate(iter(ys).filter(not_twenty)):
+        yield i
+        yield v
+def skipped_count(ys: list[i64]) -> Generator[i64]:
+    p = iter(ys).skip(1)
+    for (i, v) in enumerate(p, 5):
+        yield i
+        yield v
+def main() -> ():
+    xs = [1, 2, 3].unwrap()
+    ys = [10, 20, 30, 40].unwrap()
+    print(list(skipped_right(copy(&xs).unwrap(), copy(&ys).unwrap())).unwrap()).unwrap()
+    print(list(skipped_left(copy(&xs).unwrap(), copy(&ys).unwrap())).unwrap()).unwrap()
+    print(list(filtered_right(copy(&xs).unwrap(), copy(&ys).unwrap())).unwrap()).unwrap()
+    print(list(bound_right(copy(&xs).unwrap(), copy(&ys).unwrap())).unwrap()).unwrap()
+    print(list(filtered_count(copy(&ys).unwrap())).unwrap()).unwrap()
+    print(list(skipped_count(ys)).unwrap()).unwrap()
+"#,
+        "[1, 20, 2, 30, 3, 40]\n[20, 1, 30, 2, 40, 3]\n[1, 10, 2, 30, 3, 40]\n[1, 10, 2, 30, 3, 40]\n[0, 10, 1, 30, 2, 40]\n[5, 20, 6, 30, 7, 40]\n",
+    );
+}
+
 #[test]
 fn a_suspended_pipeline_drops_its_remaining_items_with_the_frame() {
     output(

@@ -2298,13 +2298,10 @@ impl Lower<'_> {
                 };
                 return self.iteration_source(names, source, hint, true, ops);
             }
-            if self.yield_type.is_none() {
-                return self.pipeline_iteration(names, iterable, ops);
-            }
-            return self.iteration_adapter(names, function, args, &iterable.at, ops);
+            // Pull plans let a filtered arm skip items without advancing the
+            // other zip arm or the enumerate counter.
+            return self.pipeline_iteration(names, iterable, ops);
         }
-        // Raw adapter loops inside generators retain their legacy lowering.
-        // Other adapters use pull plans so filters advance each zip arm alone.
         if dictionary_items(iterable).is_none() && self.is_pipeline(iterable) {
             return self.pipeline_iteration(names, iterable, ops);
         }
@@ -2768,151 +2765,6 @@ impl Lower<'_> {
         ops.push(Op::Collection(operation));
         Self::end_reads(loans, ops);
         Ok(result)
-    }
-
-    fn iteration_adapter(
-        &mut self,
-        names: &[String],
-        function: &str,
-        args: &[Expr],
-        at: &Token,
-        ops: &mut Vec<Op>,
-    ) -> Result<Iteration> {
-        if (function == "enumerate" && !(1..=2).contains(&args.len()))
-            || (function == "zip" && args.len() != 2)
-        {
-            return Err(at.error(if function == "enumerate" {
-                "enumerate requires an iterable and an optional i64 start"
-            } else {
-                "zip requires two iterables"
-            }));
-        }
-        let internal = format!("<iteration {}>", self.locals.len());
-        let mut left = self.iteration(std::slice::from_ref(&internal), &args[0], None, ops)?;
-        let left_local = self.names.remove(&internal).unwrap();
-        let (fields, slots) = if function == "enumerate"
-            && args.len() == 1
-            && let Some(counter) = left.counter
-        {
-            (vec![Ty::I64, left_local.ty], vec![counter, left.target])
-        } else if function == "enumerate" {
-            let counter = self.slot(Ty::I64, at)?;
-            let first = self.slot(Ty::Bool, at)?;
-            if let Some(start) = args.get(1) {
-                let actual = self.expr_expected(start, Some(Ty::I64), ops)?;
-                self.same(actual, Some(Ty::I64), &start.at)?;
-            } else {
-                ops.push(Op::PushInt(Value::I64(0)));
-            }
-            ops.extend([
-                Op::StoreLocal(counter),
-                Op::PushBool(true),
-                Op::StoreLocal(first),
-            ]);
-            // Increment only when another item exists, so a final i64::MAX
-            // index is valid. The next index reports checked overflow.
-            let mut advance = Vec::new();
-            self.mark(at, &mut advance);
-            increment(counter, &mut advance);
-            let mut body = vec![
-                Op::LoadLocal(first),
-                branch(vec![Op::PushBool(false), Op::StoreLocal(first)], advance),
-            ];
-            body.extend(left.body);
-            left.body = body;
-            (vec![Ty::I64, left_local.ty], vec![counter, left.target])
-        } else {
-            let right = self.iteration(std::slice::from_ref(&internal), &args[1], None, ops)?;
-            let right_local = self.names.remove(&internal).unwrap();
-            // Test left before right, including next() on a generator. Stop
-            // immediately when either input ends.
-            let mut skipped = right.absent.clone();
-            skipped.push(Op::PushBool(false));
-            left.condition.push(branch(right.condition, skipped));
-            left.absent.extend(right.absent);
-            left.exact_len = None;
-            left.cleanup.extend(right.cleanup);
-            left.body.extend(right.body);
-            left.step.extend(right.step);
-            (
-                vec![left_local.ty, right_local.ty],
-                vec![left.target, right.target],
-            )
-        };
-        if fields.iter().any(|ty| matches!(ty, Ty::Ref(..))) {
-            if names.len() != 2 {
-                return Err(at.error("borrowed enumerate/zip requires two unpacked loop bindings"));
-            }
-            if names[0] == names[1] && names[0] != "_" {
-                return Err(at.error("duplicate unpacking binding"));
-            }
-            for ((name, ty), slot) in names.iter().zip(fields).zip(slots) {
-                if name != "_" {
-                    self.bind(
-                        name.clone(),
-                        Local {
-                            slot,
-                            ty,
-                            mutable: false,
-                        },
-                    );
-                }
-            }
-        } else {
-            if let Some(barrier) = fields.iter().find_map(Ty::storage_barrier) {
-                return Err(at.error(barrier.message("iteration item tuples")));
-            }
-            if Ty::identity_names_exceed_limit(&fields)
-                || fields.iter().any(|ty| ty.layout_depth() >= 64)
-            {
-                return Err(at.error("type nesting exceeds the implementation limit of 64"));
-            }
-            let field_types = fields.clone();
-            let ty = crate::sum::tuple(fields);
-            let Ty::Enum(tuple) = &ty else { unreachable!() };
-            for (slot, ty) in slots.into_iter().zip(field_types) {
-                left.body.push(if ty.affine() {
-                    Op::MoveLocal(slot)
-                } else {
-                    Op::LoadLocal(slot)
-                });
-            }
-            left.body
-                .push(Op::Enum(crate::sum::EnumOp::New(tuple.clone(), 0)));
-            let target = self.slot(ty.clone(), at)?;
-            left.body.push(Op::StoreLocal(target));
-            left.step.push(Op::DropLocal(target));
-            left.target = target;
-            let name = format!("<adapter {target}>");
-            self.bind(
-                name.clone(),
-                Local {
-                    slot: target,
-                    ty,
-                    mutable: false,
-                },
-            );
-            if names.len() == 1 {
-                let local = self.names.remove(&name).unwrap();
-                self.bind(names[0].clone(), local);
-            } else {
-                for name in names {
-                    self.names.remove(name);
-                }
-                self.unpack_tuple(
-                    names,
-                    false,
-                    &Expr {
-                        at: at.clone(),
-                        kind: Expression::Name(name.clone()),
-                    },
-                    &mut left.body,
-                )?;
-                self.names.remove(&name);
-            }
-        }
-        left.counter = None;
-        Ok(left)
     }
 
     /// Iterates a borrowed list through a row cursor. The loop holds the
