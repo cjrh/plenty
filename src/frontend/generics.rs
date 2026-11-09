@@ -2145,14 +2145,7 @@ impl Engine {
                         .serial_field(at)
                         .map(|field| format!("field `{field}`: "))
                         .unwrap_or_default();
-                    let domains = if name.ends_with("decode")
-                        && serial_derive::parameter_domain(ty, aliases)
-                    {
-                        "; an initializer error domain that is a type parameter decodes automatically only when that parameter is std.serial.Fault (issue #914)"
-                    } else {
-                        " where E is std.serial.Fault, AllocError or AllocError | std.serial.Fault"
-                    };
-                    return Err(at.error(format!("{context}{ty} has no {hook} serialization hook; use @serial, or write a private {hook}; automatic decoding requires initializer fields/types to match exactly and return () or Result[(), E]{domains}; preserve constructor invariants in custom decoding")));
+                    return Err(at.error(format!("{context}{ty} has no {hook} serialization hook; use @serial, or write a private {hook}; automatic decoding requires initializer fields/types to match exactly and return () or Result[(), E] where E is std.serial.Fault, AllocError or AllocError | std.serial.Fault; preserve constructor invariants in custom decoding")));
                 }
             }
         }

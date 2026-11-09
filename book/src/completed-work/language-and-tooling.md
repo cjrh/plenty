@@ -113,7 +113,8 @@ static `bytes` literal storage has no runtime constructor. TOML distinguishes
 optional class fields from map entries, so omission cannot delete dictionary
 keys. Constructors and defaults may return `Fault`, `AllocError` or
 `AllocError | Fault`; allocation failures use the format's allocation fault
-(issue #905). Other error domains require a handwritten
+(issue #905), including through a class type parameter such as
+`Result[(), E]` (issue #914). Other error domains require a handwritten
 decoding hook to choose a typed mapping.
 
 The [measurement record](../development/serialization-measurements.md)

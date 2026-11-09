@@ -144,6 +144,25 @@ class Service:
         self.tags = tags
         self.tags.append("decoded")?
         Ok(())
+
+def default_port() -> Result[i64, AllocError]:
+    Ok(8)
+
+# The domain mentions a type parameter, so its bridge is chosen when `E` is known.
+@serial
+class GenericService[E]:
+    name: str
+    @serial.name("listen-port")
+    port: i64
+    tags: list[str]
+    def __init__(self, name: str, port: i64 = default_port()?, tags: list[str] = ["default tag"]?) -> Result[(), AllocError | E]:
+        if port < 1:
+            return Err(Fault.OutOfRange)
+        self.name = name
+        self.port = port
+        self.tags = tags
+        self.tags.append("decoded")?
+        Ok(())
 "#;
 
 #[test]
@@ -623,14 +642,18 @@ def attempt(which: i64) -> i64:
         toml_outcome(std.toml.load[AgentConfig]("command = \"a command longer than inline storage\"\n", &toml))
     elif which == 6:
         toml_outcome(std.toml.load[Service]("name = \"a service name longer than inline storage\"\nlisten-port = 8\n", &toml))
-    else:
+    elif which == 7:
         toml_outcome(std.toml.load[Service]("name = \"a service name longer than inline storage\"\nlisten-port = 0\n", &toml))
+    elif which == 8:
+        json_outcome(std.json.load[GenericService[Fault]](b"{{\"name\":\"a service name longer than inline storage\"}}", &options))
+    else:
+        json_outcome(std.json.load[GenericService[Fault]](b"{{\"name\":\"a service name longer than inline storage\",\"listen-port\":0}}", &options))
 
 def main() -> Result[(), IoError | AllocError]:
     mut markers = list[str]()?
     for count in range(128):
         markers.append("".join(&["__test_fail_allocations_after_", str.from(count)?, "__"]?)?)?
-    for which in range(8):
+    for which in range(10):
         mut seen = [False, False, False, False]?
         for count in range(128):
             print(markers[count])?
@@ -641,7 +664,7 @@ def main() -> Result[(), IoError | AllocError]:
     Ok(())
 "#
         ),
-        "True True False False\nTrue True False False\nTrue True False False\nTrue False True False\nTrue True False False\nTrue True False False\nTrue True False False\nTrue False True False",
+        "True True False False\nTrue True False False\nTrue True False False\nTrue False True False\nTrue True False False\nTrue True False False\nTrue True False False\nTrue False True False\nTrue True False False\nTrue False True False",
     );
 }
 
@@ -792,46 +815,44 @@ fn missing_nested_hook_diagnostic_names_the_offending_field() {
     }
 }
 
+/// A constructor domain that mentions a class type parameter is mapped after
+/// specialization, like a concrete one (#914).
 #[test]
-fn generic_constructor_error_domain_is_checked_at_specialization() {
+fn generic_constructor_error_domain_is_mapped_at_specialization() {
     support::assert_stdout(
-        r#"
-import std.json
-import std.serial
+        &format!(
+            r#"{ALLOCATING}
 @serial
 class Config[E]:
     value: i64
     def __init__(self, value: i64 = 7) -> Result[(), E]:
         self.value = value
         Ok(())
-def main() -> Result[(), AllocError | IoError]:
+
+def main() -> Result[(), IoError | AllocError | std.serial.SerialError[std.json.JsonError] | std.serial.SerialError[std.toml.TomlError]]:
     options = std.json.codec_options()
-    value = std.json.load[Config[std.serial.Fault]](b"{}", &options).unwrap()
-    print(value.value)?
+    print(std.json.load[Config[Fault]](b"{{}}", &options)?.value)?
+    print(std.json.load[Config[AllocError]](b"{{\"value\":2}}", &options)?.value)?
+    print(std.json.load[Config[AllocError | Fault]](b"{{}}", &options)?.value)?
+    print(std.json.load[Config[Fault | AllocError]](b"{{\"value\":3}}", &options)?.value)?
+    service = std.json.load[GenericService[Fault]](b"{{\"name\":\"web\"}}", &options)?
+    print(service.port, service.tags)?
+    match std.json.load[GenericService[Fault]](b"{{\"name\":\"web\",\"listen-port\":0}}", &options):
+        case Ok(_):
+            print("unexpected")?
+        case Err(error):
+            print(error.cause.fault, error.path.is_none())?
+    toml = std.toml.codec_options()
+    print(std.toml.load[GenericService[Fault]]("name = \"web\"\n", &toml)?.tags)?
     Ok(())
-"#,
-        "7\n",
+"#
+        ),
+        "7\n2\n7\n3\n8 [\"default tag\", \"decoded\"]\nstd.json.JsonFault.Serialization(std.serial.Fault.OutOfRange) True\n[\"default tag\", \"decoded\"]\n",
     );
-    let error = support::check_error(
-        r#"
-import std.json
-@serial
-class Config[E]:
-    value: i64
-    def __init__(self, value: i64) -> Result[(), E]:
-        self.value = value
-        Ok(())
-def main() -> ():
-    drop(std.json.load[Config[AllocError]](b"{}", &std.json.codec_options()))
-"#,
-    );
-    assert!(error.contains("private __decode__"), "{error}");
-    // Generated before specialization, so only `Fault` decodes (issue #914).
-    for domain in ["AllocError", "AllocError | std.serial.Fault"] {
+    for domain in ["IoError", "AllocError | IoError", "i64"] {
         let error = support::check_error(&format!(
             r#"
 import std.json
-import std.serial
 @serial
 class Config[E]:
     value: i64
@@ -843,8 +864,10 @@ def main() -> ():
 "#
         ));
         assert!(
-            error.contains("type parameter decodes automatically only when that parameter is std.serial.Fault (issue #914)")
-                && !error.contains("where E is"),
+            error.contains("private __decode__")
+                && error.contains(
+                    "where E is std.serial.Fault, AllocError or AllocError | std.serial.Fault"
+                ),
             "{domain}: {error}"
         );
     }

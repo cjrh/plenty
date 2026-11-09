@@ -66,8 +66,10 @@ is mapped through the adapter's `reject` method and an `AllocError` through its
 allocation fault, never `Failure` or an abort. A failing default keeps its
 field path; an initializer body failure has no path. Other construction error
 domains, including sums with further members, require a handwritten decoding
-hook to choose a mapping. A type-parameter error domain, as in
-`Result[(), E]`, decodes only when `E` specializes to `std.serial.Fault`.
+hook to choose a mapping. A domain that uses a class type parameter, as in
+`Result[(), E]` or `Result[(), AllocError | E]`, is checked and mapped for each
+specialization: `Config[AllocError]` decodes, while `Config[IoError]` requires a
+handwritten hook.
 Encoding remains independent of construction.
 
 Slots are grouped in a typed tuple rather than requiring a temporary chain per
