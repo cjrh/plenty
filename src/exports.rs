@@ -325,6 +325,15 @@ impl Interface {
         exports: &[Export],
         objects: &[crate::foreign::ExportObject],
     ) -> Result<Self, Box<dyn std::error::Error>> {
+        Self::with_unloading(name, exports, objects, false)
+    }
+
+    pub(crate) fn with_unloading(
+        name: &str,
+        exports: &[Export],
+        objects: &[crate::foreign::ExportObject],
+        unloadable: bool,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         check_library_name(name)?;
         if exports.is_empty() && objects.is_empty() {
             return Err(
@@ -607,6 +616,12 @@ impl Interface {
                 object.relocations
             ));
             header.push_str(&format!("/* Native data object: {}; size {}; alignment {}. Include its native ABI header for the declaration. */\n", object.symbol, object.bytes.len(), object.align));
+        }
+        if unloadable {
+            // Lifetime promises are part of compatibility, so extracted
+            // contracts and guards distinguish certified and ordinary builds.
+            source.push_str("# unloadable-profile: linux-gnu-x86_64-v1\n");
+            header.push_str(crate::unloading::HEADER_CONTRACT);
         }
         let fingerprint = crate::library_metadata::fingerprint(source.as_bytes());
         let contract_guard = format!("{name}_plenty_contract_v1_{fingerprint}");

@@ -95,6 +95,7 @@ mod tls;
 mod toolchain;
 mod type_facts;
 mod unicode;
+mod unloading;
 mod value;
 
 /// Editor queries over a checked file, for the language server (issue #155).

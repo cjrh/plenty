@@ -333,6 +333,7 @@ mod native {
     /// (`crate::small_pool`). Whether a block is pooled depends only on its
     /// layout, so every System-path block of a small layout must come from
     /// here, including copies out of a heap.
+    #[cfg(any(plenty_runtime_embedded, test))]
     mod system {
         use crate::small_pool;
         use std::alloc::{GlobalAlloc, Layout, System};
@@ -402,6 +403,31 @@ mod native {
                     }
                 }
             }
+        }
+    }
+
+    // A library must not register pool-cache TLS destructors on foreign
+    // threads: glibc keeps the DSO mapped until those threads exit. System
+    // allocations also leave no process-lifetime slab mappings to tear down.
+    #[cfg(not(any(plenty_runtime_embedded, test)))]
+    mod system {
+        use std::alloc::{GlobalAlloc, Layout, System};
+
+        pub(super) unsafe fn alloc(layout: Layout) -> *mut u8 {
+            // SAFETY: the router preserves GlobalAlloc's layout contract.
+            unsafe { System.alloc(layout) }
+        }
+        pub(super) unsafe fn alloc_zeroed(layout: Layout) -> *mut u8 {
+            // SAFETY: the router preserves GlobalAlloc's layout contract.
+            unsafe { System.alloc_zeroed(layout) }
+        }
+        pub(super) unsafe fn dealloc(pointer: *mut u8, layout: Layout) {
+            // SAFETY: the router selected this allocation's original owner.
+            unsafe { System.dealloc(pointer, layout) }
+        }
+        pub(super) unsafe fn realloc(pointer: *mut u8, old: Layout, size: usize) -> *mut u8 {
+            // SAFETY: the router preserves the allocation and layout contract.
+            unsafe { System.realloc(pointer, old, size) }
         }
     }
 

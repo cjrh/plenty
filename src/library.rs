@@ -79,6 +79,8 @@ pub struct LibraryOptions {
     pub name: String,
     pub kind: LibraryKind,
     pub compile: CompileOptions,
+    /// Certify the initial Linux GNU unloadable runtime subset.
+    pub unloadable: bool,
     /// An ar-compatible program, used only for static library output.
     pub archiver: PathBuf,
 }
@@ -89,6 +91,7 @@ impl LibraryOptions {
             name: name.into(),
             kind,
             compile: CompileOptions::default(),
+            unloadable: false,
             archiver: "ar".into(),
         }
     }
@@ -111,6 +114,20 @@ pub fn compile_file_to_library(
 ) -> Result<LibraryArtifacts> {
     crate::validate_target(options.compile.target.as_deref())?;
     crate::exports::check_library_name(&options.name)?;
+    if options.unloadable {
+        if options.kind != LibraryKind::Shared {
+            return Err("unloadable libraries require shared library output".into());
+        }
+        if !cfg!(all(
+            target_os = "linux",
+            target_env = "gnu",
+            target_arch = "x86_64"
+        )) {
+            return Err(
+                "unloadable libraries are currently supported on Linux GNU x86_64 only".into(),
+            );
+        }
+    }
     let mut heap = crate::value::Heap::default();
     let mut program = crate::frontend::compile_file(
         path,
@@ -121,10 +138,14 @@ pub fn compile_file_to_library(
         options.compile.unchecked,
     )?;
     crate::op::check(&program.ops)?;
-    let interface = Interface::new(
+    if options.unloadable {
+        crate::unloading::check(&program.ops, &program.exports)?;
+    }
+    let interface = Interface::with_unloading(
         &options.name,
         &program.exports,
         &crate::foreign::exported_objects(&program.ops),
+        options.unloadable,
     )?;
     interface.validate_imports(&program.imported_symbols)?;
     let directory = output

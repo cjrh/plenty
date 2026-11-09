@@ -332,6 +332,8 @@ mod test_lent_generators;
 mod test_library_metadata;
 #[path = "test_library_publication.rs"]
 mod test_library_publication;
+#[path = "test_library_unloading.rs"]
+mod test_library_unloading;
 #[path = "test_lints.rs"]
 mod test_lints;
 #[path = "test_list_element_refs.rs"]

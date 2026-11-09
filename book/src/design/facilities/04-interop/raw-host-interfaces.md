@@ -102,4 +102,5 @@ assumptions. Native targets currently have 64-bit pointers; this is not a
 portable replacement for target-specific C layout calculation.
 
 Generated import wrappers keep raw opaque types thread-bound conservatively.
-Real-time execution guarantees and unloading remain outside this contract.
+Real-time execution guarantees remain outside this contract. Actual unloading
+requires the explicit [unloadable library profile](unloading.md).

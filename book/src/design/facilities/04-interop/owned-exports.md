@@ -18,7 +18,8 @@ without changing out_ok. Destroy each successful handle exactly once with its
 originating destroy function; never use free or another library instance's
 function. Null destruction is a no-op. Destruction runs ordinary class and field
 cleanup and invalidates all aliases. No borrow or concurrent/reentrant access may
-remain; calls stay on the creating thread and code stays resident.
+remain; calls stay on the creating thread and code stays resident while handles
+exist. Final unloading requires the [unloadable library profile](unloading.md).
 
 Generated `.plentyi` wrappers own private pointers and destroy them automatically.
 Wrapper construction is inline and allocates nothing. Factory failure drops an

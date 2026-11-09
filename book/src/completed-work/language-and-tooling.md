@@ -1540,3 +1540,16 @@ invocation, data/self relocations and zero padding. GNU/Linux 64-bit layouts are
 admitted; execution is tested on x86-64. Automatic C class layout, typed callback
 validation, signed/floating initializer expressions and header import remain
 outside this subset. See [initialized exports](../design/facilities/04-interop/exported-objects.md).
+
+## Unloadable shared-library profile
+
+Linux GNU x86_64 shared libraries can opt into `--unloadable-library`.
+Transitive checks admit audited computation, ordinary allocations and collections,
+and reject runtime facilities without teardown contracts. The library runtime
+uses the system allocator, avoiding application pool TLS destructors that pin
+code on long-lived foreign threads. Native tests exercise repeated physical
+unloading with concurrent persistent host threads, allocation/free, owned handle
+destruction, and fresh static storage after reload. Trusted foreign bindings
+must leave no callbacks, background work or registrations behind. Other targets,
+generators, thread facilities, IO/native engines and Plenty's resident generated
+loaders remain outside this increment. See the [contract](../design/facilities/04-interop/unloading.md).
