@@ -10,8 +10,9 @@ export def add(a: i32, b: i32) -> i32 = "calc_add":
     a + b
 ```
 
-Parameters can be numeric scalars, opaque pointers, owned exported classes, or shared/exclusive
-references to either. Returns can be numeric, opaque pointers, unit, or `Result[T, E]`, where T is
+Parameters can be numeric scalars, opaque pointers, owned exported classes, or
+shared/exclusive references to numeric scalars or exported classes. Returns can
+be numeric, opaque pointers, unit, or `Result[T, E]`, where T is
 numeric/unit and E is numeric, `AllocError`, `ParseError`, `RangeError`, `Failure`,
 or a nongeneric user enum whose variants have no payloads.
 `Result[Class, AllocError]` factories use [owned handles](owned-exports.md).
