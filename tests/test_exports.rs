@@ -1049,7 +1049,7 @@ fn export_diagnostics_reject_unsupported_and_ambiguous_interfaces() {
             "numeric scalar",
         ),
         (
-            "export def bad() -> bool = \"calc_bad\":\n    True\n",
+            "export def bad() -> Result[(), bool] = \"calc_bad\":\n    Err(True)\n",
             "numeric scalar",
         ),
         (

@@ -103,10 +103,10 @@ fn check_with_exports(
             .collect();
         if types
             .iter()
-            .any(|ty| !ty.is_numeric() && !matches!(ty, Ty::ForeignPtr(..)))
+            .any(|ty| !ty.is_numeric() && **ty != Ty::Bool && !matches!(ty, Ty::ForeignPtr(..)))
         {
             return Err(format!(
-                "thread-safe export `{}` supports only numeric and opaque pointer parameters/results, or (); managed handles and borrows need a separate host transfer contract",
+                "thread-safe export `{}` supports only numeric, bool and opaque pointer parameters/results, or (); managed handles and borrows need a separate host transfer contract",
                 export.name
             ).into());
         }

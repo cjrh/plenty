@@ -71,7 +71,8 @@ pub(super) fn generate(export: &Export, index: usize, interface: &Interface) -> 
                 output = format!("Result[{name}, AllocError]");
                 body.push_str(&format!("        mut owner = {name}(self._origin, self._drop_{name}, {storage}.null())\n        mut out_ok = {storage}.null()\n"));
             } else {
-                body.push_str(&format!("        mut out_ok: {ok} = 0\n"));
+                let initial = if *ok == Ty::Bool { "False" } else { "0" };
+                body.push_str(&format!("        mut out_ok: {ok} = {initial}\n"));
             }
         }
         if owner.is_none() {

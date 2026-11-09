@@ -73,7 +73,7 @@ pub(super) fn check_signature(f: &Function, inputs: &[(String, Ty)], output: &Ty
     if let crate::foreign::Target::Intrinsic(intrinsic) = &f.foreign.as_ref().unwrap().target {
         use crate::foreign::Intrinsic;
         let pointer = |ty: &Ty| matches!(ty, Ty::ForeignPtr(..));
-        let scalar = |ty: &Ty| ty.is_numeric() || pointer(ty);
+        let scalar = |ty: &Ty| ty.is_numeric() || *ty == Ty::Bool || pointer(ty);
         let valid = match intrinsic.as_ref() {
             Intrinsic::Load => {
                 inputs.len() == 2
@@ -132,7 +132,7 @@ pub(super) fn check_signature(f: &Function, inputs: &[(String, Ty)], output: &Ty
             .at
             .error("a C declaration permits only one errno output adapter"));
     }
-    let scalar = |ty: &Ty| ty.is_numeric() || matches!(ty, Ty::ForeignPtr(..));
+    let scalar = |ty: &Ty| ty.is_numeric() || *ty == Ty::Bool || matches!(ty, Ty::ForeignPtr(..));
     for ((_, ty), mode) in inputs.iter().zip(&declaration.arguments) {
         let valid = match mode {
             Argument::Direct => scalar(ty) || matches!(ty, Ty::Ref(t, _) if scalar(t)),

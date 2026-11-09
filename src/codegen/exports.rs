@@ -130,6 +130,7 @@ pub(super) fn emit(
                     4,
                 ));
                 let temporary = b.ins().stack_addr(PTR_TY, slot, 0);
+                let value = foreign::canonical_bool(&mut b, value, inner);
                 let packed = enums::pack_value(&mut b, value, inner);
                 b.ins().store(
                     cranelift_codegen::ir::MemFlagsData::trusted(),
@@ -141,6 +142,8 @@ pub(super) fn emit(
                     writebacks.push((*argument, temporary, scalar_type));
                 }
                 *argument = b.ins().uextend(types::I128, temporary);
+            } else {
+                *argument = foreign::canonical_bool(&mut b, *argument, ty);
             }
         }
         let callee = module.declare_func_in_func(functions[&export.function].id, b.func);

@@ -1503,3 +1503,12 @@ need a native library built are checkable.
 [Checking tests](../design/toolchain/01-building/packages.md#checking-tests)
 documents the flag. `experiments/check_arithmetic.py` uses it in place of
 wrapping each test file in a temporary consumer package.
+
+## C boolean interoperability
+
+B27 now includes C `_Bool`/C++ `bool` imports and exports, direct and indirect
+calls, shared/exclusive scalar borrows, `Result[bool, E]` success outputs and
+generated static/runtime wrappers. Trusted raw boolean access reads or writes
+exactly one byte; loads normalize zero/nonzero and stores write 0/1. Native
+C/C++ tests cover both truth values and adjacent-byte canaries. See the
+[ABI contract](../design/facilities/04-interop/trusted-declarations.md).

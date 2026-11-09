@@ -16,12 +16,18 @@ C symbol or function-address parameter. Bodies, generics, varargs, defaults,
 and implicit header translation are unsupported. `pub` only controls source
 imports. Checking does not invoke native functions or inspect C headers.
 
-The raw ABI supports `i8`–`i64`, `u8`–`u64`, `f32`, `f64`, nominal opaque
+The raw ABI supports `i8`–`i64`, `u8`–`u64`, `f32`, `f64`, `bool`, nominal opaque
 pointers, and unit for void results, plus the
 [explicit borrowing/text adapters](borrowing-text.md). On x86-64 and AArch64 GNU/Linux,
 these match C `intN_t`, `uintN_t`, `float`, `double`, and pointers. Binding aliases
 can name C types: `int` is `i32`, `long` and `ptrdiff_t` are `i64`, and `size_t`
-is `u64`. Bool, aggregate values, and private Plenty layouts have no raw ABI.
+is `u64`. `bool` matches C `_Bool` (the `<stdbool.h>` `bool` spelling) and
+C++ `bool`, with one-byte size and alignment. Arguments, results and scalar
+borrows are supported, including indirect calls and text adapters returning
+`Result[bool, CStrError]`. C must supply valid boolean objects and matching
+prototypes. Imported values are normalized to Plenty
+`False`/`True`; outbound values are 0/1. Aggregate values and private Plenty
+layouts have no raw ABI.
 
 `opaque Name` declares a nominal pointer without a pointee layout. Distinct names
 do not interchange. Values can be copied, compared for address equality, passed
