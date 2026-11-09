@@ -2631,9 +2631,9 @@ impl Checker<'_, '_> {
                 let mut found = None;
                 // A hint naming the cause, reported after the borrow's notes.
                 let mut hint = None;
-                // A loan through a reference parameter borrows the caller's
-                // data, which the caller keeps borrowed while the frame lives
-                // (issue #899); a loan of the frame's own state cannot be
+                // A loan through a reference parameter or a parameter's
+                // referent borrows the caller's data, which the caller keeps
+                // borrowed while the frame lives (issues #899, #913); a loan of the frame's own state cannot be
                 // suspended, since the frame may move.
                 if let Some(Op::Yield(_)) = &nodes[i].op
                     && let Some(&id) = after.0.iter().find(|id| !self.external(loans[id].root))
@@ -2864,10 +2864,14 @@ impl Checker<'_, '_> {
 
 impl Checker<'_, '_> {
     /// Whether loans rooted at `slot` borrow data outside the frame: a
-    /// reference or view parameter.
+    /// reference or view parameter, or a parameter's caller referent.
     fn external(&self, slot: u8) -> bool {
-        (slot as usize) < self.parameters
-            && matches!(self.locals[slot as usize], Ty::Ref(..) | Ty::View(..))
+        ((slot as usize) < self.parameters
+            && matches!(self.locals[slot as usize], Ty::Ref(..) | Ty::View(..)))
+            || self
+                .body
+                .iter()
+                .any(|op| matches!(op, Op::CallerReferent(s) if *s == slot))
     }
 }
 

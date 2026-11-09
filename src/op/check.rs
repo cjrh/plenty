@@ -286,7 +286,8 @@ fn step(
         | Op::Forwards(_)
         | Op::Tokens(_)
         | Op::FieldMove(_)
-        | Op::ForwardsReferences => {}
+        | Op::ForwardsReferences
+        | Op::CallerReferent(_) => {}
         Op::BorrowLocal(i, mutable) => {
             let ty = locals.get(*i as usize).ok_or("invalid borrowed place")?;
             stack.push(Ty::Ref(Arc::new(ty.clone()), *mutable));

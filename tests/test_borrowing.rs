@@ -193,10 +193,6 @@ fn native(#[case] source: &str, #[case] expected: &str) {
 )]
 // A `&i64` generator parameter borrows through the frame's loan (issue #899);
 // a carried reference has no loan the frame could keep (backlog B12).
-#[case(
-    "def g(x: Option[&i64]) -> Generator[i64]:\n    yield 1",
-    "capture references"
-)]
 #[case("x = 1\ndrop(&x)", "owned value")]
 #[case(
     "s = ('a' + 'b').unwrap()\nfor n in range(2):\n    print(s).unwrap()\n    drop(s)",

@@ -453,15 +453,15 @@ impl Lower<'_> {
     }
 
     /// Checks that the yielded reference `e` borrows only data the frame's
-    /// caller keeps borrowed: through a shared reference or view parameter,
-    /// or as an item of a generator that borrows only through the function's
+    /// caller keeps borrowed: through a shared reference, view or
+    /// carried-reference parameter, or as an item of a generator that borrows only through the function's
     /// parameters (issue #912). A borrow of the frame's own state, including
     /// an owned parameter, would dangle once the frame moves or ends, and one
     /// through a `&mut` parameter could be invalidated by the frame's own
     /// writes while the caller holds the item.
     #[inline(never)]
     pub(super) fn check_yielded_reference(&self, e: &Expr, ops: &[Op]) -> Result<()> {
-        const MESSAGE: &str = "a yielded reference must borrow through the generator's shared reference or view parameters, not the generator's own state";
+        const MESSAGE: &str = "a yielded reference must borrow through the generator's shared reference, view, `Option[&T]` or `Result[&T, E]` parameters, not the generator's own state";
         let id = self
             .reference_origin(e, ops)
             .map_err(|_| e.at.error(MESSAGE))?;
@@ -492,11 +492,33 @@ impl Lower<'_> {
         let root = self.loans[id].root;
         self.parameter_type(root)
             .is_some_and(|ty| matches!(ty, Ty::Ref(_, false) | Ty::View(_, false)))
+            || self.shared_carried(id)
+    }
+
+    /// Whether `loan` and its ancestors borrow through the referent of a
+    /// shared carried-reference parameter, such as `Option[&T]` (issue #913).
+    /// A carried `&mut` stays writable by the frame, as a `&mut` parameter
+    /// does.
+    fn shared_carried(&self, loan: usize) -> bool {
+        let root = self.loans[loan].root;
+        let mut ancestor = Some(loan);
+        while let Some(id) = ancestor {
+            if self.loans[id].mutable {
+                return false;
+            }
+            ancestor = self.loans[id].parent;
+        }
+        self.parameter_referents.contains(&root)
+            && !self.item_referents.values().any(|&r| r == root)
+            && self
+                .reference_locals
+                .values()
+                .any(|&l| self.loans[l].root == root && !self.loans[l].mutable)
     }
 
     /// Whether `loan`, its ancestors and every loan they depend on are rooted
-    /// at the function's shared reference or view parameters, its generator
-    /// parameters, or their items' referents.
+    /// at the function's shared reference, view or carried-reference
+    /// parameters, its generator parameters, or their items' referents.
     fn borrows_only_parameters(&self, loan: usize) -> bool {
         let mut ancestor = Some(loan);
         while let Some(id) = ancestor {
@@ -512,6 +534,7 @@ impl Lower<'_> {
             // caller's generators qualify (writes through a `&mut
             // Generator` are rejected).
             let external = self.item_referents.values().any(|&r| r == fact.root)
+                || self.shared_carried(id)
                 || self.parameter_type(fact.root).is_some_and(|ty| match ty {
                     Ty::Ref(inner, _) if matches!(**inner, Ty::Generator(_)) => true,
                     Ty::Ref(_, mutable) | Ty::View(_, mutable) => !mutable,

@@ -273,9 +273,45 @@ def main() -> Result[(), AllocError | IoError]:
 3
 ```
 
-A generator parameter that carries a reference, such as `Option[&T]`, or a
-lent pipeline is rejected with "generators cannot capture references" (issue
-#913).
+A parameter that carries a reference, such as `Option[&T]` or
+`Result[&mut T, E]`, borrows like a reference parameter (issue #913): the
+call result keeps the argument's loan, and the frame may hold a reference
+from its payload across `yield`.
+
+```plenty
+def find(xs: &list[str], key: &str) -> Option[&str]:
+    for x in xs:
+        if *x == *key:
+            return Some(x)
+    Nothing
+
+def repeated(o: Option[&str], times: i64) -> Generator[&str]:
+    match o:
+        case Some(s):
+            for _ in range(times):
+                yield s
+        case Nothing:
+            pass
+
+def main() -> Result[(), AllocError | IoError]:
+    xs = ["ada", "bob"]?
+    for name in repeated(find(&xs, "bob"), 2):
+        print(name)?
+    print(repeated(find(&xs, "eve"), 2).count())?
+    Ok(())
+```
+```output
+bob
+bob
+0
+```
+
+A generator cannot take a lent pipeline (`&mut Iter[T]`): lending copies the
+pipeline's state into the borrower and writes it back when the call returns,
+and a suspended frame has not returned. Take `&mut Generator[T]` instead and
+have the caller convert its pipeline with
+[`.generator()`](06-pipelines.md#returning-a-resumable-stream). Otherwise the
+error is "a generator cannot take a lent pipeline".
 
 ### Reference items
 
@@ -309,12 +345,13 @@ it borrows the caller's data, not the frame. Changing, moving or dropping
 element. A function may return an item, or a generator of items, when it
 borrows only through the function's reference or view parameters.
 
-A yielded reference must borrow through a shared reference or view parameter,
-or be an item of a generator that does, or of a generator parameter. Yielding a
-reference to a local, an owned parameter or data behind a `&mut` parameter,
-including an item of a generator over that data, is rejected with "a yielded
-reference must borrow through the generator's shared reference or view
-parameters, not the generator's own state".
+A yielded reference must borrow through a shared reference, view,
+`Option[&T]` or `Result[&T, E]` parameter, or be an item of a generator that
+does, or of a generator parameter. Yielding a reference to a local, an owned
+parameter or data behind a `&mut` or `Option[&mut T]` parameter, including an
+item of a generator over that data, is rejected with "a yielded reference must
+borrow through the generator's shared reference, view, `Option[&T]` or
+`Result[&T, E]` parameters, not the generator's own state".
 `Generator[&mut T]` is rejected with "generators cannot yield mutable
 references".
 

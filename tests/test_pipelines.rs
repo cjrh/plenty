@@ -2823,7 +2823,7 @@ fn lending_keeps_borrow_and_signature_rules() {
         ),
         (
             "def g(p: &mut Iter[i64]) -> Generator[i64]:\n    for x in p:\n        yield x\ndef main() -> ():\n    mut p = iter(range(3))\n    drop(g(&mut p))\n",
-            "generators cannot capture references",
+            "a generator cannot take a lent pipeline: take `&mut Generator[T]` instead",
         ),
         (
             "def f(p: &mut Iter[&i64]) -> &i64:\n    for x in p:\n        return x\n    p.count()\ndef main() -> Result[(), AllocError]:\n    xs = [1, 2]?\n    mut p = iter(&xs)\n    drop(*f(&mut p))\n    Ok(())\n",
