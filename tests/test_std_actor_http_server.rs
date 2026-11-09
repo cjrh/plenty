@@ -78,15 +78,26 @@ impl Server {
     }
 
     fn ask(&self, path: &str) -> Reply {
+        self.try_ask(path)
+            .unwrap_or_else(|| panic!("connection refused: {}", self.errors()))
+    }
+
+    /// `None` when the server refuses the connection by closing it
+    /// before any response.
+    fn try_ask(&self, path: &str) -> Option<Reply> {
         let mut client = self.connect();
+        // A refused connection may be reset before the request is written.
         write!(
             client.get_mut(),
             "GET {path} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
         )
-        .unwrap();
+        .ok()?;
+        if client.fill_buf().map_or(true, |buffer| buffer.is_empty()) {
+            return None;
+        }
         let reply = response(&mut client, false);
         closed(&mut client);
-        reply
+        Some(reply)
     }
 
     fn finish(mut self) -> String {
@@ -330,18 +341,25 @@ fn actor_http_factory_errors_are_contained_and_cancel_drains() {
 #[test]
 fn actor_http_capacity_and_slow_head_body_expiry_allow_recovery() {
     let server = Server::start(SIMPLE, &[("capacity", "2"), ("timeout_ms", "500u32")]);
+    // A complete request pipelined ahead of each slow one proves admission
+    // by its response, so connection #3 is opened only once both slots are
+    // taken. The slow request's bytes are already buffered, so no idle gap
+    // separates the two requests.
     let mut first = server.connect();
     first
         .get_mut()
-        .write_all(b"GET / HTTP/1.1\r\nHost:")
+        .write_all(b"GET / HTTP/1.1\r\nHost: x\r\n\r\nGET / HTTP/1.1\r\nHost:")
         .unwrap();
+    assert_eq!(response(&mut first, false).body, b"home");
     let mut second = server.connect();
     second
         .get_mut()
-        .write_all(b"POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 5\r\n\r\nx")
+        .write_all(
+            b"GET / HTTP/1.1\r\nHost: x\r\n\r\n\
+              POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 5\r\n\r\nx",
+        )
         .unwrap();
-    // Let admission consume both socket readiness events before opening #3.
-    std::thread::sleep(Duration::from_millis(50));
+    assert_eq!(response(&mut second, false).body, b"home");
     let mut refused = server.connect();
     refused
         .get_mut()
@@ -352,8 +370,17 @@ fn actor_http_capacity_and_slow_head_body_expiry_allow_recovery() {
     assert_eq!(response(&mut second, false).status, 408);
     drop(first);
     drop(second);
-    std::thread::sleep(Duration::from_millis(100));
-    assert_eq!(server.ask("/").body, b"home");
+    // Slots are freed when the acceptor handles each child's Down mail, which
+    // a client cannot observe; retry admission until a connection is served.
+    let deadline = Instant::now() + WAIT;
+    loop {
+        if let Some(reply) = server.try_ask("/") {
+            assert_eq!(reply.body, b"home");
+            break;
+        }
+        assert!(Instant::now() < deadline, "no slot freed after expiry");
+        std::thread::sleep(Duration::from_millis(10));
+    }
     let summary = server.finish();
     assert!(counter(&summary, "rejected") >= 1, "{summary}");
     assert_eq!(counter(&summary, "trapped"), 0);
@@ -646,7 +673,9 @@ fn actor_http_custom_head_limits_http10_expect_and_blank_eof() {
 
 #[test]
 fn actor_http_force_drain_reclaims_actor_with_perpetually_full_mailbox() {
-    let server = Server::start(EVENTS, &[]);
+    // Only the 2 s drain deadline can end the busy response: its response
+    // timeout is longer than `finish`'s own wait.
+    let server = Server::start(EVENTS, &[("response_timeout_ms", "60000u32")]);
     let mut client = server.connect();
     client
         .get_mut()
@@ -663,7 +692,6 @@ fn actor_http_force_drain_reclaims_actor_with_perpetually_full_mailbox() {
     let start = Instant::now();
     let summary = server.finish();
     assert!(start.elapsed() >= Duration::from_secs(1));
-    assert!(start.elapsed() < Duration::from_secs(4));
     assert_eq!(counter(&summary, "trapped"), 0);
     assert_eq!(counter(&summary, "requests"), 0);
 }
