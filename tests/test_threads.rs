@@ -401,7 +401,7 @@ def main() -> Result[(), SpawnError[()]]:
 }
 
 /// A rejection reached through a generic function names that function by its
-/// definition and lists the functions between the worker and it (issue #146).
+/// instance and lists the functions between the worker and it (issue #146).
 #[test]
 fn worker_rejections_name_generic_functions_and_the_call_path() {
     let root = tempfile::tempdir().unwrap();
@@ -433,7 +433,7 @@ def main() -> Result[(), SpawnError[()]]:
     let error = plenty::check_file(&path, None).unwrap_err().to_string();
     assert!(
         error.contains(
-            "worker `work` reaches `std.env.set_current_dir` through `outer` -> `Parser.parse` -> the generic function at std/error.plenty:7:5 -> `wrap`: changing the working directory"
+            "worker `work` reaches `std.env.set_current_dir` through `outer` -> `Parser.parse` -> `std.error.map_error[i64, ParseError, str, Callable[[ParseError], str]]` -> `wrap`: changing the working directory"
         ),
         "{error}"
     );
@@ -1193,7 +1193,7 @@ def main() -> Result[(), SpawnError[()]]:
             "conflicting borrow: cannot modify or exclusively borrow `p` while it is exclusively borrowed",
         ),
         // Callbacks the worker runs pass the worker checks; the borrower's
-        // specialization is named by its definition.
+        // specialization is named as written.
         (
             "
 import std.env
@@ -1208,7 +1208,7 @@ def main() -> Result[(), SpawnError[()]]:
         pass
     Ok(())
 ",
-            "main.plenty:3:1 reaches `std.env.set_current_dir` through `moved`: changing the working directory",
+            "worker `total` reaches `std.env.set_current_dir` through `moved`: changing the working directory",
         ),
         (
             "

@@ -781,6 +781,12 @@ impl Lower<'_> {
         }
         register_signature(&f, self.aliases, self.sigs)?;
         self.generics.frames.insert(key, symbol.clone());
+        // A frame is named by its consumer, which may itself be an instance.
+        let display = match self.generics.display_names.get(name) {
+            Some(display) => Arc::clone(display),
+            None => crate::record::method_display(name).into(),
+        };
+        self.generics.display_names.insert(symbol.clone(), display);
         self.generics.inherit_requirement(self.sigs, name, &symbol);
         let frame = self.sigs.intern(&symbol);
         self.generics.specialization_depths.insert(frame, depth);

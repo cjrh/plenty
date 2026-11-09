@@ -1123,7 +1123,10 @@ fn cmp_int(stack: &mut Vec<Ty>, op_label: &str) -> Result<()> {
 
 /// Whether `actual` may be passed where a callee declares `expected`. A
 /// pipeline's identity names the plan its holder lowers; the borrower of a
-/// lent pipeline knows it by another.
+/// lent pipeline knows it by another. At calls and thread starts alike, the
+/// frontend owns plan identity: it specializes the borrower for the lent plan,
+/// and this check only compares item types. The hidden state arguments that
+/// follow are still compared exactly.
 fn argument_matches(actual: &Ty, expected: &Ty) -> bool {
     actual == expected
         || matches!((actual, expected), (Ty::Ref(a, true), Ty::Ref(b, true))

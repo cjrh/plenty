@@ -247,18 +247,18 @@ impl CallableTargets {
 
 /// A function's name for a diagnostic. Generic instances and the frame
 /// specializations of borrowers of lent pipelines and generators have
-/// internal symbols, so they are named by the location of their definition.
+/// internal symbols, so they are named by their source name.
 fn describe(name: &str, functions: &HashMap<&str, &CompiledFn>) -> String {
-    let kind = if name.starts_with("__plenty_generic_") {
-        "generic function"
-    } else if name.starts_with("__plenty_frame_call_") {
-        "function"
-    } else {
+    let function = functions.get(name);
+    if let Some(display) = function.and_then(|f| f.origins.display.as_deref()) {
+        return format!("`{display}`");
+    }
+    if !name.starts_with("__plenty_generic_") && !name.starts_with("__plenty_frame_call_") {
         return format!("`{}`", crate::record::method_display(name));
-    };
-    match functions.get(name).and_then(|f| f.location.as_ref()) {
-        Some(location) => format!("the {kind} at {location}"),
-        None => format!("a {kind}"),
+    }
+    match function.and_then(|f| f.location.as_ref()) {
+        Some(location) => format!("the function at {location}"),
+        None => "a generated function".into(),
     }
 }
 

@@ -36,11 +36,12 @@ the environment.
 
 When the rejected function is reached through others, the diagnostic lists
 them from the worker outward. A rejected type in a called function's
-signature or locals names that function and its path the same way. A generic function is named by the location of
-its definition, and a method as `Class.method`:
+signature or locals names that function and its path the same way. A generic function is named by its instance,
+with its type arguments, and a method as `Class.method`. A function that
+takes a lent pipeline or generator is named as written:
 
 ```text
-error: worker `work` reaches `std.env.set_current_dir` through `outer` -> `Parser.parse` -> the generic function at std/error.plenty:7:5 -> `wrap`: changing the working directory affects every thread's relative paths; change it on the main thread before starting workers
+error: worker `work` reaches `std.env.set_current_dir` through `outer` -> `Parser.parse` -> `std.error.map_error[i64, ParseError, str, Callable[[ParseError], str]]` -> `wrap`: changing the working directory affects every thread's relative paths; change it on the main thread before starting workers
 ```
 
 ## Thin callable targets
