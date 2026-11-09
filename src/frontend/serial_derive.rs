@@ -159,8 +159,9 @@ fn wire_names<'a>(
 /// the author. Validation uses the adapter's `reject`; allocation failure keeps
 /// its typed cause in the adapter's allocation domain. Any other spelling is
 /// generated as `Fault` here; `constructor_matches` then requires the
-/// specialized domain to be the one generated for. A type-parameter domain is
-/// generated before specialization, so it too decodes only as `Fault` (#914).
+/// specialized domain to be the one generated for. A domain that mentions a
+/// class type parameter is only known at specialization, so it is generated
+/// through `constructed_in`, which `serial::expand` maps by its actual type.
 #[derive(Clone, Copy, PartialEq)]
 pub(super) enum Domain {
     Unit,
@@ -172,8 +173,15 @@ pub(super) enum Domain {
 
 impl Domain {
     fn of(error: &TypeRef, parameters: &[(String, Option<TypeRef>)]) -> Self {
+        fn mentions(ty: &TypeRef, parameters: &[(String, Option<TypeRef>)]) -> bool {
+            (ty.args.is_empty()
+                && parameters
+                    .iter()
+                    .any(|(name, _)| ty.name.as_ref() == Some(name)))
+                || ty.args.iter().any(|arg| mentions(arg, parameters))
+        }
         let is = |ty: &TypeRef, name: &str| ty.args.is_empty() && ty.name.as_deref() == Some(name);
-        if parameters.iter().any(|(name, _)| is(error, name)) {
+        if mentions(error, parameters) {
             Domain::Parameter
         } else if is(error, "AllocError") {
             Domain::Allocation
@@ -187,20 +195,37 @@ impl Domain {
             Domain::Fault
         }
     }
+    /// The domain of a specialized error type, by its members. Identity is the
+    /// resolved type, as for the concrete domains in `constructor_matches`.
+    pub(super) fn of_type(error: &Ty, aliases: &TypeAliases, at: &Token) -> Result<Option<Self>> {
+        let allocation = type_ref(at, "AllocError").resolve(aliases)?;
+        let fault = type_ref(at, "std.serial.Fault").resolve(aliases)?;
+        let members = crate::sum::members(error);
+        let has = |ty: &Option<Ty>| ty.as_ref().is_some_and(|ty| members.contains(ty));
+        Ok(match (members.len(), has(&allocation), has(&fault)) {
+            (1, false, true) => Some(Domain::Fault),
+            (1, true, false) => Some(Domain::Allocation),
+            (2, true, true) => Some(Domain::Both),
+            _ => None,
+        })
+    }
     fn spelling(self) -> &'static str {
         match self {
             Domain::Unit => unreachable!("an infallible initializer has no error domain"),
-            Domain::Fault | Domain::Parameter => "SER.Fault",
+            Domain::Fault => "SER.Fault",
+            Domain::Parameter => "DomainType",
             Domain::Allocation => "AllocError",
             Domain::Both => "AllocError | SER.Fault",
         }
     }
-    fn bridge(self) -> &'static str {
+    /// The bridge call's leading type arguments.
+    pub(super) fn bridge(self) -> &'static str {
         match self {
             Domain::Unit => unreachable!("an infallible initializer has no error domain"),
-            Domain::Fault | Domain::Parameter => "constructed",
-            Domain::Allocation => "allocated",
-            Domain::Both => "constructed_or_allocated",
+            Domain::Fault => "constructed[",
+            Domain::Parameter => "constructed_in[DomainType, ",
+            Domain::Allocation => "allocated[",
+            Domain::Both => "constructed_or_allocated[",
         }
     }
 }
@@ -224,7 +249,8 @@ pub(super) fn class(
     for (i, (name, _)) in c.type_params.iter().enumerate() {
         names.push((format!("OwnerParam{i}"), name.clone()));
     }
-    let types = add_types(&c.fields, owner_type(&c.at, &c.name, &c.type_params));
+    names.push(("DomainType".into(), "$serial_domain".into()));
+    let mut types = add_types(&c.fields, owner_type(&c.at, &c.name, &c.type_params));
     if !c.methods.iter().any(|f| f.name == "__encode__") {
         let mut source = "def __encode__[ErrType, Adapter: SER.Encoder[ErrType]](self, out: &mut Adapter) -> Result[(), SER.SerialError[ErrType]]:\n    SER.wrap(out.start_object())?\n".to_string();
         for (i, name) in wire.iter().enumerate() {
@@ -271,7 +297,11 @@ pub(super) fn class(
             && output.args.len() == 2
             && output.args[0].name.is_none()
         {
-            Some(Domain::of(&output.args[1], &c.type_params))
+            let domain = Domain::of(&output.args[1], &c.type_params);
+            if domain == Domain::Parameter {
+                types.insert("$serial_domain".into(), output.args[1].clone());
+            }
+            Some(domain)
         } else {
             return Ok(vec![]);
         }
@@ -372,7 +402,7 @@ pub(super) fn class(
         let name = &wire[i];
         let value = match default_calls.get(&i) {
             Some(call) if fallible => format!(
-                "SER.at(SER.{}[FieldType{i}, ErrType, Adapter]({call}, source), SER.Step.Field({name:?}))?",
+                "SER.at(SER.{}FieldType{i}, ErrType, Adapter]({call}, source), SER.Step.Field({name:?}))?",
                 domain.unwrap().bridge()
             ),
             Some(call) => call.clone(),
@@ -386,7 +416,7 @@ pub(super) fn class(
     if let Some(domain) = domain {
         writeln!(
             construction,
-            "    SER.{}[OwnerType, ErrType, Adapter]({ctor}, source)",
+            "    SER.{}OwnerType, ErrType, Adapter]({ctor}, source)",
             domain.bridge()
         )
         .unwrap();
@@ -603,15 +633,6 @@ pub(super) fn enumeration(e: &mut enums::EnumDecl) -> Result<()> {
     Ok(())
 }
 
-/// Whether `ty`'s derived decoding was generated for a type-parameter error
-/// domain, so a rejection can name the actual restriction.
-pub(super) fn parameter_domain(ty: &Ty, aliases: &TypeAliases) -> bool {
-    aliases
-        .data
-        .origin_class(ty)
-        .is_some_and(|(declaration, _)| declaration.derived_decode == Some(Domain::Parameter))
-}
-
 /// Constructor eligibility is semantic, after constants and generic nominal
 /// identities have been resolved. Declaration AST spelling is not type identity.
 pub(super) fn constructor_matches(ty: &Ty, aliases: &TypeAliases) -> Result<bool> {
@@ -636,23 +657,33 @@ pub(super) fn constructor_matches(ty: &Ty, aliases: &TypeAliases) -> Result<bool
     let mut output = init.output.clone();
     generics::substitute(&mut output, &substitutions)?;
     if let Some(output) = output.resolve(aliases)? {
+        let Ty::Enum(nominal) = &output else {
+            return Ok(false);
+        };
+        let result = nominal.get();
+        if !nominal.is_result() || result.variants[0].fields != [Ty::Unit] {
+            return Ok(false);
+        }
+        let error = &result.variants[1].fields[0];
         let fault = type_ref(&init.at, "std.serial.Fault");
         let allocation = type_ref(&init.at, "AllocError");
         let expected = match domain {
             Domain::Unit => return Ok(false),
-            Domain::Fault | Domain::Parameter => fault,
-            Domain::Allocation => allocation,
+            // `constructed_in` maps any domain `of_type` classifies.
+            Domain::Parameter => None,
+            Domain::Fault => Some(fault),
+            Domain::Allocation => Some(allocation),
             Domain::Both => {
                 let mut both = type_ref(&init.at, "|");
                 both.args = vec![allocation, fault];
-                both
+                Some(both)
             }
         };
-        let expected = expected.resolve(aliases)?;
-        if !matches!(output, Ty::Enum(ref result) if result.is_result()
-            && result.get().variants[0].fields == [Ty::Unit]
-            && Some(&result.get().variants[1].fields[0]) == expected.as_ref())
-        {
+        let accepted = match expected {
+            Some(expected) => expected.resolve(aliases)?.as_ref() == Some(error),
+            None => Domain::of_type(error, aliases, &init.at)?.is_some(),
+        };
+        if !accepted {
             return Ok(false);
         }
     }
