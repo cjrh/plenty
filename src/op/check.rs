@@ -211,8 +211,13 @@ fn step(
                 if locals.get(*slot as usize) != Some(&Ty::Task(task.clone())) {
                     return Err("invalid scoped thread slot".into());
                 }
+                // A lent pipeline enters the worker as a call argument does
+                // (issue #911): the worker's input names the lent plan.
                 for ty in task.inputs.iter().rev() {
-                    if stack.pop().as_ref() != Some(ty) {
+                    if !stack
+                        .pop()
+                        .is_some_and(|actual| argument_matches(&actual, ty))
+                    {
                         return Err("invalid scoped thread argument".into());
                     }
                 }
@@ -1117,6 +1122,18 @@ fn cmp_int(stack: &mut Vec<Ty>, op_label: &str) -> Result<()> {
     Ok(())
 }
 
+/// Whether `actual` may be passed where a callee declares `expected`. A
+/// pipeline's identity names the plan its holder lowers; the borrower of a
+/// lent pipeline knows it by another. At calls and thread starts alike, the
+/// frontend owns plan identity: it specializes the borrower for the lent plan,
+/// and this check only compares item types. The hidden state arguments that
+/// follow are still compared exactly.
+fn argument_matches(actual: &Ty, expected: &Ty) -> bool {
+    actual == expected
+        || matches!((actual, expected), (Ty::Ref(a, true), Ty::Ref(b, true))
+            if matches!((&**a, &**b), (Ty::Iter(a, _), Ty::Iter(b, _)) if a == b))
+}
+
 /// Stack effect for a `Call(name)`: verify the top of the stack matches
 /// the function's declared inputs in declaration order, then replace them
 /// with the declared outputs.
@@ -1136,11 +1153,7 @@ fn check_call(name: &str, stack: &mut Vec<Ty>, sigs: &Sigs) -> Result<()> {
     let split = stack.len() - n;
     for (i, (param, expected)) in sig.inputs.iter().enumerate() {
         let actual = stack[split + i].clone();
-        // A pipeline's identity names the plan its holder lowers; the
-        // borrower of a lent pipeline knows it by another.
-        let lent = matches!((&actual, expected), (Ty::Ref(a, true), Ty::Ref(b, true))
-            if matches!((&**a, &**b), (Ty::Iter(a, _), Ty::Iter(b, _)) if a == b));
-        if actual != *expected && !lent {
+        if !argument_matches(&actual, expected) {
             return Err(format!(
                 "calling `{name}`: argument `{param}` (position {i}) \
                  expects {expected}, got {actual}"

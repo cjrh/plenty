@@ -52,6 +52,10 @@ pub struct Origins {
     pub parameter_values: Vec<Option<Ty>>,
     /// Present when the function is a generic instance.
     pub required: Option<Arc<Instantiation>>,
+    /// The source name of a function whose symbol is internal: a generic
+    /// instance, such as `f[i64]`, or a frame specialization, named by its
+    /// consumer. Worker diagnostics name it, since they run after lowering.
+    pub display: Option<Arc<str>>,
 }
 
 /// The use that first required a generic instance. A body is checked once per

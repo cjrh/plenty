@@ -245,15 +245,20 @@ impl CallableTargets {
     }
 }
 
-/// A function's name for a diagnostic. A generic instance's symbol is
-/// internal, so it is named by the location of the definition it instantiates.
+/// A function's name for a diagnostic. Generic instances and the frame
+/// specializations of borrowers of lent pipelines and generators have
+/// internal symbols, so they are named by their source name.
 fn describe(name: &str, functions: &HashMap<&str, &CompiledFn>) -> String {
-    if !name.starts_with("__plenty_generic_") {
+    let function = functions.get(name);
+    if let Some(display) = function.and_then(|f| f.origins.display.as_deref()) {
+        return format!("`{display}`");
+    }
+    if !name.starts_with("__plenty_generic_") && !name.starts_with("__plenty_frame_call_") {
         return format!("`{}`", crate::record::method_display(name));
     }
-    match functions.get(name).and_then(|f| f.location.as_ref()) {
-        Some(location) => format!("the generic function at {location}"),
-        None => "a generic function".into(),
+    match function.and_then(|f| f.location.as_ref()) {
+        Some(location) => format!("the function at {location}"),
+        None => "a generated function".into(),
     }
 }
 

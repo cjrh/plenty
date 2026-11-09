@@ -5492,6 +5492,7 @@ fn lower_body(
                 names: lower.slot_names,
                 parameter_values,
                 required: lower.generics.requirement(symbol).cloned(),
+                display: lower.generics.display_names.get(&f.name).cloned(),
             }),
             generator: yield_type,
             sig,

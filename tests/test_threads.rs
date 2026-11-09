@@ -401,7 +401,7 @@ def main() -> Result[(), SpawnError[()]]:
 }
 
 /// A rejection reached through a generic function names that function by its
-/// definition and lists the functions between the worker and it (issue #146).
+/// instance and lists the functions between the worker and it (issue #146).
 #[test]
 fn worker_rejections_name_generic_functions_and_the_call_path() {
     let root = tempfile::tempdir().unwrap();
@@ -433,7 +433,7 @@ def main() -> Result[(), SpawnError[()]]:
     let error = plenty::check_file(&path, None).unwrap_err().to_string();
     assert!(
         error.contains(
-            "worker `work` reaches `std.env.set_current_dir` through `outer` -> `Parser.parse` -> the generic function at std/error.plenty:7:5 -> `wrap`: changing the working directory"
+            "worker `work` reaches `std.env.set_current_dir` through `outer` -> `Parser.parse` -> `std.error.map_error[i64, ParseError, str, Callable[[ParseError], str]]` -> `wrap`: changing the working directory"
         ),
         "{error}"
     );
@@ -1088,5 +1088,143 @@ def main() -> Result[(), PoolError | SubmitError[()] | FutureError]:
             error.contains(&format!("{at}: {expected} holds a generator frame")),
             "{source}\n{error}"
         );
+    }
+}
+
+#[test]
+fn lent_pipelines_run_in_scoped_workers_and_write_their_state_back() {
+    // Issue #911: the op verifier rejected the start. The worker resumes the
+    // pipeline where the lender left it, and the lender resumes after the
+    // items the worker took, including counters (`take`, `enumerate`) and
+    // borrowed captures. A borrower relays its own lent pipeline on.
+    runs(
+        r#"
+def take_two(g: &mut Iter[i64]) -> i64:
+    mut sum = 0
+    for _ in range(2):
+        match next(g):
+            case Some(x):
+                unchecked:
+                    sum += x
+            case Nothing:
+                pass
+    sum
+def total(g: &mut Iter[i64]) -> i64:
+    mut sum = 0
+    for x in g:
+        unchecked:
+            sum += x
+    sum
+def first_pair(g: &mut Iter[(i64, i64)]) -> i64:
+    match next(g):
+        case Some(pair):
+            unchecked:
+                pair[0] * 100 + pair[1]
+        case Nothing:
+            -1
+def longest(g: &mut Iter[&str]) -> i64:
+    mut best = 0
+    for s in g:
+        if len(s) > best:
+            best = len(s)
+    best
+def relay(g: &mut Iter[i64]) -> Result[i64, SpawnError[()]]:
+    with spawn(take_two, g)? as task:
+        return Ok(task.join())
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
+    mut p = iter(range(10)).filter(def(x: &i64) -> bool: *x > 1)
+    print(next(&mut p))?
+    with spawn(take_two, &mut p)? as task:
+        print(task.join())?
+    print(next(&mut p))?
+    print(relay(&mut p)?)?
+    print(next(&mut p))?
+    limit = 1
+    weights = [10, 20, 30, 40]?
+    mut q = iter(range(4)).filter(def [&limit](x: &i64) -> bool: *x > limit).map(def [&weights](x: &i64) -> i64: weights[*x]).take(1)
+    with spawn(total, &mut q)? as task:
+        print(task.join())?
+    print(next(&mut q))?
+    mut r = iter(range(4)).enumerate().skip(1)
+    with spawn(first_pair, &mut r)? as task:
+        print(task.join())?
+    print(next(&mut r))?
+    names = ["ab", "abcd", "a"]?
+    mut a = iter(&names)
+    mut b = iter(&names).skip(2)
+    with spawn(longest, &mut a)? as x, spawn(longest, &mut b)? as y:
+        print(x.join(), y.join())?
+    print(next(&mut a).is_none())?
+    Ok(())
+"#,
+        "Option[i64].Some(2)\n7\nOption[i64].Some(5)\n13\nOption[i64].Some(8)\n30\n\
+         Option[i64].Nothing\n101\nOption[tuple[i64, i64]].Some((2, 2))\n4 1\nTrue\n",
+    );
+}
+
+#[test]
+fn lent_pipelines_stay_borrowed_and_checked_in_scoped_workers() {
+    for (source, expected) in [
+        // The lend lasts until the end of the `with` block, and the
+        // diagnostic names the lender's binding, not its state slots.
+        (
+            "
+def total(g: &mut Iter[i64]) -> i64:
+    7
+def main() -> Result[(), IoError | SpawnError[()]]:
+    mut p = iter(range(4)).map(def(x: &i64) -> i64: *x)
+    with spawn(total, &mut p)? as task:
+        print(next(&mut p))?
+        print(task.join())?
+    Ok(())
+",
+            "conflicting borrow: cannot read or borrow `p` while it is exclusively borrowed",
+        ),
+        (
+            "
+def total(g: &mut Iter[i64]) -> i64:
+    7
+def main() -> Result[(), SpawnError[()]]:
+    mut p = iter(range(4))
+    with spawn(total, &mut p)?, spawn(total, &mut p)?:
+        pass
+    Ok(())
+",
+            "conflicting borrow: cannot modify or exclusively borrow `p` while it is exclusively borrowed",
+        ),
+        // Callbacks the worker runs pass the worker checks; the borrower's
+        // specialization is named as written.
+        (
+            "
+import std.env
+def total(g: &mut Iter[bool]) -> i64:
+    g.count()
+def moved(x: &i64) -> bool:
+    path = std.env.current_dir().unwrap()
+    std.env.set_current_dir(&path).is_ok()
+def main() -> Result[(), SpawnError[()]]:
+    mut p = iter(range(2)).map(moved)
+    with spawn(total, &mut p)?:
+        pass
+    Ok(())
+",
+            "worker `total` reaches `std.env.set_current_dir` through `moved`: changing the working directory",
+        ),
+        (
+            "
+def total(g: &mut Iter[i64]) -> i64:
+    7
+def main() -> Result[(), PoolError | SubmitError[()] | FutureError]:
+    mut p = iter(range(4))
+    with ThreadPoolExecutor(1, 1)? as pool:
+        future = pool.submit(total, &mut p).drop_job()?
+        _ = future.result()?
+    Ok(())
+",
+            "executor arguments must be owned",
+        ),
+    ] {
+        let error = support::check_file_error(source);
+        assert!(error.contains(expected), "{source}\n{error}");
     }
 }
