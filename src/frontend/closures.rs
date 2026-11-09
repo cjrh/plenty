@@ -43,10 +43,10 @@ impl Lower<'_> {
                     capture.name
                 )));
             }
+            // In a generator body the capture loans are ordinary local loans:
+            // the ownership check's yield rule rejects one live across
+            // `yield` (issue #927).
             let ty = if capture.borrowed {
-                if self.yield_type.is_some() {
-                    return Err(at.error("borrowed captures cannot be suspended in generators"));
-                }
                 let (ty, loan) = self.borrow(&source, capture.mutable, ops)?;
                 loans.push(loan);
                 ty
