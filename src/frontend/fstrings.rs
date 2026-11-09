@@ -991,6 +991,7 @@ fn method_function(symbol: &str, method_name: &str, write: bool, at: &Token) -> 
         type_params,
         at: at.clone(),
         defaults: vec![None; inputs.len()],
+        input_at: Vec::new(),
         inputs,
         output: type_ref(
             at,
@@ -1971,6 +1972,7 @@ fn format_function(
         type_params,
         at: at.clone(),
         defaults: vec![None; inputs.len()],
+        input_at: Vec::new(),
         inputs,
         output: type_ref(
             at,

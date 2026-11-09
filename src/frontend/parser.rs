@@ -655,6 +655,7 @@ impl Parser {
         // Empty unless a parameter has a default; then aligned with inputs.
         let mut defaults = Vec::new();
         let mut adapters = Vec::new();
+        let mut input_at = Vec::new();
         let inputs = self.exact_list(
             |parser| &mut parser.scratch_inputs,
             |parser| {
@@ -666,6 +667,7 @@ impl Parser {
                     (foreign, exported, anonymous),
                     &mut defaults,
                     &mut adapters,
+                    &mut input_at,
                 )
             },
         )?;
@@ -727,6 +729,7 @@ impl Parser {
                 at,
                 inputs,
                 defaults,
+                input_at,
                 output,
                 doc: String::new(),
                 doc_at: None,
@@ -745,6 +748,7 @@ impl Parser {
                 at,
                 inputs,
                 defaults,
+                input_at,
                 output,
                 doc: String::new(),
                 doc_at: None,
@@ -797,6 +801,7 @@ impl Parser {
             at,
             inputs,
             defaults,
+            input_at,
             output,
             doc,
             doc_at,
@@ -816,6 +821,7 @@ impl Parser {
         (foreign, exported, anonymous): (bool, bool, bool),
         defaults: &mut Vec<Option<Expr>>,
         adapters: &mut Vec<crate::foreign::Argument>,
+        input_at: &mut Vec<Token>,
     ) -> Result<()> {
         let base = self.scratch_inputs.len();
         while !self.eat(")") {
@@ -906,6 +912,7 @@ impl Parser {
                 );
             }
             self.scratch_inputs.push((param, ty));
+            input_at.push(param_at);
             if self.eat(")") {
                 break;
             }

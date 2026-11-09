@@ -119,6 +119,11 @@ the same call cannot use `p`: `f(&mut p, next(p))` and `f(&mut p, p.count())`
 are conflicting-borrow errors, as they are for a generator. Take the item in
 an earlier statement instead.
 
+The borrower writes the pipeline's state back when it returns, so a
+recursive call in tail position cannot reuse its frame and is rejected; bind
+the result to a local and return the local. See
+[recursion and tail calls](../06-functions/06-tail-calls.md).
+
 `&mut Iter[T]` names only the item type. Like a `&mut Generator[T]`
 parameter, the borrower is compiled once per lent pipeline, as a frame
 specialization; recursive and repeated lends of the same pipeline share it.
