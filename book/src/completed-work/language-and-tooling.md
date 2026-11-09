@@ -1494,3 +1494,18 @@ addresses and overlapping scalar buffers, and by rejection checks for unsafe
 worker effects. C-layout classes, typed callback values, inferred raw-pointer
 lifetimes and real-time guarantees are not delivered. B27/B28 retain the
 remaining interface scope.
+
+## Host-context native callbacks
+
+Trusted indirect `extern def` declarations accept `@host_callback` for native
+operations permitted by the current foreign host protocol context. Certified
+exports follow the permission through helpers, callables and destructors;
+ordinary Plenty workers retain the stricter any-thread requirement. Generated
+interfaces omit worker certification for host-context-dependent exports and
+include the distinction in their contract fingerprint. Native coverage includes
+count/get/void record callbacks, independent concurrent records and ordered
+handoff. See [host protocol callbacks](../design/facilities/04-interop/host-threads.md#host-protocol-callbacks).
+
+This does not infer callback signatures, record layout, protocol phase,
+reentrancy or lifetimes. Those remain trusted binding obligations; real-time
+execution and unload safety remain outside this change.

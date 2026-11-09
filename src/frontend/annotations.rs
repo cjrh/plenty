@@ -1,6 +1,6 @@
 //! Declaration annotations: compiler-known facts written alone on the lines
 //! above a declaration, such as `@copy`, `@newtype`, `@redacted`,
-//! `@thread_safe`, `@thread_movable` or `@thread_shareable`. The set
+//! `@thread_safe`, `@host_callback`, `@thread_movable` or `@thread_shareable`. The set
 //! is closed; there are no user decorators. `@serial.name("wire")` is the one
 //! member annotation and the one that takes an argument. Names live after `@`, outside the
 //! value namespace, so `@copy` does not reserve the builtin `copy` function's
@@ -32,6 +32,7 @@ pub(super) enum Annotation {
     Newtype,
     Redacted,
     ThreadSafe,
+    HostCallback,
     ThreadMovable,
     ThreadShareable,
 }
@@ -44,6 +45,7 @@ impl Annotation {
             "newtype" => Some(Self::Newtype),
             "redacted" => Some(Self::Redacted),
             "thread_safe" => Some(Self::ThreadSafe),
+            "host_callback" => Some(Self::HostCallback),
             "thread_movable" => Some(Self::ThreadMovable),
             "thread_shareable" => Some(Self::ThreadShareable),
             _ => None,
@@ -56,6 +58,7 @@ impl Annotation {
             Self::Newtype => "newtype",
             Self::Redacted => "redacted",
             Self::ThreadSafe => "thread_safe",
+            Self::HostCallback => "host_callback",
             Self::ThreadMovable => "thread_movable",
             Self::ThreadShareable => "thread_shareable",
         }
@@ -66,6 +69,7 @@ impl Annotation {
             Self::Redacted | Self::Serial => "class and enum declarations",
             Self::Copy | Self::Newtype => "class declarations",
             Self::ThreadSafe => "`extern def` and `export def` declarations",
+            Self::HostCallback => "indirect `extern def` declarations",
             Self::ThreadMovable | Self::ThreadShareable => "`opaque` declarations",
         }
     }
@@ -87,7 +91,7 @@ impl Parser {
             }
             let Some(annotation) = Annotation::named(spelling) else {
                 return Err(name.error(format!(
-                    "unknown annotation `@{spelling}`; the annotations are `@copy`, `@newtype`, `@redacted`, `@thread_safe`, `@thread_movable`, `@thread_shareable` and `@serial`"
+                    "unknown annotation `@{spelling}`; the annotations are `@copy`, `@newtype`, `@redacted`, `@thread_safe`, `@host_callback`, `@thread_movable`, `@thread_shareable` and `@serial`"
                 )));
             };
             if self.peek().kind != Kind::Newline {

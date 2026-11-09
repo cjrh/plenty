@@ -12,6 +12,8 @@ pub(crate) struct Export {
     pub signature: Arc<FnSig>,
     pub documentation: String,
     pub thread_safe: bool,
+    /// Requires the foreign host protocol's current callback context.
+    pub host_context: bool,
     pub exact: bool,
 }
 
@@ -387,13 +389,18 @@ impl Interface {
         let errors = pointer_source + &enum_source;
         for export in exports {
             let result = export.signature.outputs.first().and_then(result_payloads);
-            let thread_annotation = if export.thread_safe {
+            let thread_annotation = if export.host_context {
+                "# Requires the foreign host protocol callback context; not a Plenty worker entry.\n"
+            } else if export.thread_safe {
                 "@thread_safe\n"
             } else {
                 ""
             };
             if export.thread_safe {
                 header.push_str("\n/* Thread-safe entry: may run on foreign host threads concurrently.\n * Caller must obey pointer validity, ownership and synchronization contracts;\n * this does not authorize concurrent mutation of one instance or promise real-time safety. */\n");
+            }
+            if export.host_context {
+                header.push_str("/* Requires the foreign host protocol callback context, including its thread,\n * lifetime, reentrancy and synchronization rules. Not an arbitrary-thread entry. */\n");
             }
             header.push_str("\n/* Plenty declaration: ");
             header.push_str(&export.name);

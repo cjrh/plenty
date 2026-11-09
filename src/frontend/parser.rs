@@ -779,6 +779,7 @@ impl Parser {
                     },
                     arguments: adapters,
                     thread_safe: false,
+                    host_callback: false,
                 }),
                 export: None,
                 export_thread_safe: false,

@@ -828,3 +828,5 @@ mod test_binary_string_ops;
 
 #[path = "test_std_runtime_text_views.rs"]
 mod test_std_runtime_text_views;
+
+mod test_host_callbacks;

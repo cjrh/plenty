@@ -708,3 +708,7 @@ modules. `= exact "symbol"` selects a protocol-required native symbol, and
 [Raw host interfaces](../facilities/04-interop/raw-host-interfaces.md) explain
 trusted scalar loads/stores, C callback addresses, resident storage and aliasing.
 These operations do not relax ordinary Plenty reference rules.
+`@host_callback` on a trusted indirect `extern def` promises that the host
+protocol permits the call in the current certified host-entry context. It
+does not permit calls from ordinary Plenty workers; see
+[host protocol callbacks](../facilities/04-interop/host-threads.md#host-protocol-callbacks).
