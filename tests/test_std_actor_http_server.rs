@@ -92,8 +92,11 @@ impl Server {
             "GET {path} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
         )
         .ok()?;
-        if client.fill_buf().map_or(true, |buffer| buffer.is_empty()) {
-            return None;
+        match client.fill_buf() {
+            Ok([]) => return None,
+            Ok(_) => (),
+            Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => return None,
+            Err(error) => panic!("reading response: {error}: {}", self.errors()),
         }
         let reply = response(&mut client, false);
         closed(&mut client);
@@ -340,17 +343,19 @@ fn actor_http_factory_errors_are_contained_and_cancel_drains() {
 
 #[test]
 fn actor_http_capacity_and_slow_head_body_expiry_allow_recovery() {
-    let server = Server::start(SIMPLE, &[("capacity", "2"), ("timeout_ms", "500u32")]);
-    // A complete request pipelined ahead of each slow one proves admission
-    // by its response, so connection #3 is opened only once both slots are
-    // taken. The slow request's bytes are already buffered, so no idle gap
-    // separates the two requests.
+    // The 2 s timeouts plus the 2 s close linger after each 408 bound how
+    // long both slots stay held: #3 must be refused within about 4 s of
+    // `first` being accepted.
+    let server = Server::start(SIMPLE, &[("capacity", "2"), ("timeout_ms", "2000u32")]);
     let mut first = server.connect();
     first
         .get_mut()
-        .write_all(b"GET / HTTP/1.1\r\nHost: x\r\n\r\nGET / HTTP/1.1\r\nHost:")
+        .write_all(b"GET / HTTP/1.1\r\nHost:")
         .unwrap();
-    assert_eq!(response(&mut first, false).body, b"home");
+    // Admission accepts in listen-queue order, so the response to the request
+    // pipelined ahead of `second`'s slow body proves both connections hold a
+    // slot before #3 opens. Its slow bytes arrive in the same write, so no
+    // idle gap precedes them.
     let mut second = server.connect();
     second
         .get_mut()
@@ -939,7 +944,11 @@ fn actor_http_completion_pressure_preserves_application_messages_and_timers() {
     for client in &mut clients {
         assert_eq!(response(client, false).body, b"scheduled");
     }
-    std::thread::sleep(Duration::from_millis(20));
+    // No wait is needed before /count. Each self-message was queued before
+    // the next request's Ready, and the stage alternates due notices with
+    // mailbox mail, so the 0 s timer is delivered before that Ready too: at
+    // most one private retry timer can be due ahead of it. See
+    // `deliver` in stdlib/std/actor.plenty and book/src/design/stdlib/actor.md.
     for client in &mut clients {
         client
             .get_mut()
