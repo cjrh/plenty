@@ -355,3 +355,32 @@ def main() -> Result[(), IoError | OverflowError[i64]]:
     );
     assert_eq!(String::from_utf8_lossy(&output.stdout), "7\n");
 }
+
+// Issue #916: a keyword call reaches its callee through a synthesized
+// wrapper. Diagnostics name the callee and report the user's call, as for
+// the positional form.
+#[test]
+fn keyword_tail_calls_name_the_callee_at_the_users_call() {
+    for (source, expected) in [
+        (
+            "def r(n: i64, s: &i64) -> i64:\n    if n == 0:\n        return 0\n    v = 1\n    return r(s=&v, n=n)\n\ndef main() -> Result[(), IoError]:\n    print(r(s=&1, n=3))?\n    Ok(())\n",
+            &[
+                "main.plenty:5:12: recursive call to `r` is in tail position",
+                "local `v`",
+            ][..],
+        ),
+        (
+            "def r(n: i64, p: &mut Iter[i64]) -> Result[i64, OverflowError[i64]]:\n    if n == 0:\n        return Ok(0)\n    return r(p=p, n=n - 1)\n\ndef main() -> Result[(), IoError | OverflowError[i64]]:\n    mut p = iter(range(3))\n    print(r(p=&mut p, n=3)?)?\n    Ok(())\n",
+            &[
+                "main.plenty:4:12: recursive call to `r` is in tail position",
+                "lent pipeline `p` (declared at 1:15)",
+            ][..],
+        ),
+    ] {
+        let error = support::check_file_error(source);
+        assert!(!error.contains("__plenty"), "{error}");
+        for text in expected {
+            assert!(error.contains(text), "missing {text:?} in {error}");
+        }
+    }
+}

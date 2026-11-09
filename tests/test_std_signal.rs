@@ -222,23 +222,19 @@ def main() -> Result[(), AllocError | IoError | RangeError | std.ready.WaitError
     );
 }
 
-/// Listens, optionally closes the handle, then sleeps without reading.
-fn sleeper(close: bool) -> String {
-    let closing = if close { "    signals.close()?\n" } else { "" };
-    format!(
-        r##"import std.ready
+/// Listens, closes the handle, then sleeps.
+const CLOSED_SLEEPER: &str = r##"import std.ready
 import std.signal
 import std.time
 
 def main() -> Result[(), IoError | std.ready.WaitError | std.signal.SignalError]:
     mut signals = std.signal.listen()?
-{closing}    print("ready")?
+    signals.close()?
+    print("ready")?
     std.time.sleep(&std.time.seconds(20u32))
     print("slept")?
     Ok(())
-"##
-    )
-}
+"##;
 
 fn assert_ends_by(program: Running, signal: i32) {
     let started = Instant::now();
@@ -249,11 +245,28 @@ fn assert_ends_by(program: Running, signal: i32) {
 
 #[test]
 fn a_second_signal_ends_the_program_at_once() {
-    let mut program = Running::start(&sleeper(false));
+    let mut program = Running::start(
+        r##"import std.ready
+import std.signal
+import std.time
+from std.sync import CancellationToken
+from std.time import deadline_after, monotonic_now, seconds
+
+def main() -> Result[(), AllocError | IoError | RangeError | std.ready.WaitError | std.signal.SignalError]:
+    mut signals = std.signal.listen()?
+    print("ready")?
+    deadline = deadline_after(&monotonic_now(), &seconds(20u32))?
+    print("caught", signals.wait(&deadline, &CancellationToken()?)?)?
+    std.time.sleep(&seconds(20u32))
+    print("slept")?
+    Ok(())
+"##,
+    );
     assert_eq!(program.line(), "ready");
     send(&program.child, SIGTERM);
-    // The first is caught and queued for a reader; the program sleeps on.
-    std::thread::sleep(Duration::from_millis(200));
+    // Waiting for the report orders the signals: pending together, SIGINT
+    // could be handled first and SIGTERM would end the program instead.
+    assert_eq!(program.line(), "caught std.signal.Signal.Terminate");
     assert!(program.child.try_wait().unwrap().is_none());
     send(&program.child, SIGINT);
     assert_ends_by(program, SIGINT);
@@ -261,7 +274,7 @@ fn a_second_signal_ends_the_program_at_once() {
 
 #[test]
 fn a_closed_handle_restores_the_default_action() {
-    let mut program = Running::start(&sleeper(true));
+    let mut program = Running::start(CLOSED_SLEEPER);
     assert_eq!(program.line(), "ready");
     send(&program.child, SIGTERM);
     assert_ends_by(program, SIGTERM);
