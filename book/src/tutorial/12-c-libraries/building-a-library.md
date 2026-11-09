@@ -76,9 +76,26 @@ For C callers, `increment` takes an `int32_t *` to an initialized value, borrowe
 exclusively for the call. Plenty callers get this borrowing contract from the
 generated interface.
 
-Exports support numeric scalars, borrows, unit, supported `Result` values, and
+Exports support numeric scalars, `bool`, borrows, unit, supported `Result` values, and
 [owned class handles](export-owned-objects.md). Read the generated
 header's requirements even for simple APIs: runtime traps can terminate the
 process, and current libraries require serialized calls on one caller thread.
 See the [library reference](../../design/facilities/04-interop/exports.md)
 for supported export types and packaging details.
+
+Boolean exports map directly to C `_Bool` and C++ `bool`:
+
+```plenty
+export def invert(value: bool) -> bool = "flags_invert":
+    not value
+
+def main() -> Result[(), IoError]:
+    print(invert(False))?
+    Ok(())
+```
+```output
+True
+```
+
+The generated header includes `<stdbool.h>` and declares `bool flags_invert(bool p0)`.
+Boolean borrows and `Result[bool, E]` success values also cross the C boundary.

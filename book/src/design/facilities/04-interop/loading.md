@@ -6,7 +6,7 @@ the consumer needs no link argument for the loaded library. Generation currently
 requires the original export source and differs from a linked `.plentyi`
 interface. See [commands](../../toolchain/01-building/commands.md).
 
-Methods preserve supported numeric/unit inputs and results, scalar borrows,
+Methods preserve supported numeric/boolean/unit inputs and results, scalar borrows,
 Result error types, and [owned class handles](owned-exports.md). Borrowed input
 mutations remain visible on Err. The generated module is checked before publication.
 

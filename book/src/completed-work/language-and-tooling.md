@@ -1494,3 +1494,12 @@ addresses and overlapping scalar buffers, and by rejection checks for unsafe
 worker effects. C-layout classes, typed callback values, inferred raw-pointer
 lifetimes and real-time guarantees are not delivered. B27/B28 retain the
 remaining interface scope.
+
+## C boolean interoperability
+
+B27 now includes C `_Bool`/C++ `bool` imports and exports, direct and indirect
+calls, shared/exclusive scalar borrows, `Result[bool, E]` success outputs and
+generated static/runtime wrappers. Trusted raw boolean access reads or writes
+exactly one byte; loads normalize zero/nonzero and stores write 0/1. Native
+C/C++ tests cover both truth values and adjacent-byte canaries. See the
+[ABI contract](../design/facilities/04-interop/trusted-declarations.md).

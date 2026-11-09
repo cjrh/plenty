@@ -237,14 +237,7 @@ fn declarations_are_explicit_and_private_layouts_do_not_cross_c() {
         main,
         "conflicting C signatures",
     );
-    for ty in [
-        "str",
-        "bool",
-        "list[i64]",
-        "Option[i64]",
-        "&str",
-        "&mut list[u8]",
-    ] {
+    for ty in ["str", "list[i64]", "Option[i64]", "&str", "&mut list[u8]"] {
         rejected(
             &format!("extern def bad(value: {ty}) -> () = \"fixture_bad\"\n"),
             main,

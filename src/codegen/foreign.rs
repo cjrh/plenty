@@ -10,8 +10,22 @@ pub(super) fn parameter(ty: &Ty) -> AbiParam {
     });
     match ty {
         Ty::I8 | Ty::I16 | Ty::I32 => parameter.sext(),
-        Ty::U8 | Ty::U16 | Ty::U32 => parameter.uext(),
+        Ty::Bool | Ty::U8 | Ty::U16 | Ty::U32 => parameter.uext(),
         _ => parameter,
+    }
+}
+
+/// C booleans occupy one byte. Keep Plenty's boolean values canonical even
+/// when trusted raw memory or a foreign implementation provides another byte.
+pub(super) fn canonical_bool(
+    b: &mut FunctionBuilder<'_>,
+    value: cranelift_codegen::ir::Value,
+    ty: &Ty,
+) -> cranelift_codegen::ir::Value {
+    if *ty == Ty::Bool {
+        b.ins().icmp_imm_u(IntCC::NotEqual, value, 0)
+    } else {
+        value
     }
 }
 
@@ -67,6 +81,7 @@ impl Lowerer<'_, '_> {
             }
         };
         if let Some(value) = value {
+            let value = canonical_bool(self.bcx, value, &sig.outputs[0]);
             self.stack.push((value, sig.outputs[0].clone()));
         }
         Ok(())
@@ -231,7 +246,12 @@ impl Lowerer<'_, '_> {
             let callee = self.module.declare_func_in_func(id, self.bcx.func);
             self.bcx.ins().call(callee, &native_arguments)
         };
-        let result = self.bcx.inst_results(call).first().copied();
+        let result = self
+            .bcx
+            .inst_results(call)
+            .first()
+            .copied()
+            .map(|value| canonical_bool(self.bcx, value, c_output.unwrap()));
         if let Some(output) = errno_output {
             // This must be the first call after native return: releases and
             // adapter cleanup may invoke native code and change errno.

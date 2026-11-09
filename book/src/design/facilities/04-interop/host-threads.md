@@ -13,7 +13,7 @@ export def scale(value: f32) -> f32 = "audio_scale":
     value * 0.5
 ```
 
-The first supported signatures contain numeric scalars and opaque pointers,
+The first supported signatures contain numeric scalars, `bool`, and opaque pointers,
 with scalar, opaque or unit results. Managed class handles, scalar loans and
 aggregate results are not supported on annotated exports. They need a separate
 transfer contract. Unannotated exports retain the serialized caller-thread

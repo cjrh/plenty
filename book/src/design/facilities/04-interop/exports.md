@@ -10,13 +10,13 @@ export def add(a: i32, b: i32) -> i32 = "calc_add":
     a + b
 ```
 
-Parameters can be numeric scalars, opaque pointers, owned exported classes, or
-shared/exclusive references to numeric scalars or exported classes. Returns can
-be numeric, opaque pointers, unit, or `Result[T, E]`, where T is
-numeric/unit and E is numeric, `AllocError`, `ParseError`, `RangeError`, `Failure`,
+Parameters can be numeric scalars, `bool`, opaque pointers, owned exported classes, or
+shared/exclusive references to numeric scalars, `bool` or exported classes. Returns can
+be numeric, `bool`, opaque pointers, unit, or `Result[T, E]`, where T is
+numeric/`bool`/unit and E is numeric, `AllocError`, `ParseError`, `RangeError`, `Failure`,
 or a nongeneric user enum whose variants have no payloads.
 `Result[Class, AllocError]` factories use [owned handles](owned-exports.md).
-Bool, other managed objects, returned references, generic exports,
+Other managed objects, returned references, generic exports,
 and other aggregate results are unsupported; bodies can use ordinary features.
 Enums with payload variants and error sums such as `AllocError | ParseError`
 are rejected; sums are planned with the broader C representations (B27).
@@ -28,6 +28,11 @@ source names are reserved for generated metadata and compatibility adapters.
 Duplicate symbols, import/export collisions, and generated-name collisions fail
 checking or artifact validation. The same namespace applies to imported source
 modules' exports. Library builds require at least one export but no main.
+
+Generated headers include `<stdbool.h>` and spell boolean parameters and
+results `bool` for both C and C++. `Result[bool, E]` writes one byte through
+`bool *out_ok`; boolean error codes remain unsupported. Generated static and
+runtime-loaded Plenty wrappers preserve the boolean success type.
 
 ## Scalar borrows
 

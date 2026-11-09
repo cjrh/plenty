@@ -14,7 +14,7 @@ pub extern def write_sample(p: Pointer, offset: u64, value: f32) -> () = intrins
 pub extern def advance(p: Pointer, offset: u64) -> Pointer = intrinsic "offset"
 ```
 
-Offsets count bytes. `load` and `store` accept numeric scalars or opaque pointer
+Offsets count bytes. `load` and `store` accept numeric scalars, `bool`, or opaque pointer
 values, using precisely their target C size. `offset` returns the same nominal
 pointer type. These lower to native loads, stores and address arithmetic; there
 is no generated C helper, allocation, copy-back adapter or retained Plenty loan.
@@ -25,6 +25,10 @@ representation, and no data races. Pointer arithmetic must remain within its
 allocation (or one past for an address never dereferenced), without wrapping.
 Null pointers may be passed around and tested, but never dereferenced.
 A pointer may be retained only while the host keeps the allocation alive.
+
+A boolean load reads exactly one byte, treating zero as `False` and any nonzero
+byte as `True`. A boolean store writes exactly one byte, 0 or 1. Neither
+operation touches adjacent bytes.
 
 Raw access permits aliases. A load returns a copied scalar, and a store writes
 one scalar: neither operation creates an ordinary `&T` or `&mut T`. Sequential
