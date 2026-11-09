@@ -751,8 +751,8 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     "share the handle with `v[index].share()`"
 )]
 #[case(
-    "xs = [[1].unwrap()].unwrap()\nv = &xs[:]\nn = v.get_ref(0)",
-    "a slice view cannot `get_ref` yet (issue #890)"
+    "mut xs = [[1].unwrap()].unwrap()\nv = &xs[:]\nn = v.get_mut(0)",
+    "a shared slice view is read-only, so it has no `get_mut`"
 )]
 #[case(
     "xs = [1, 2].unwrap()\nv = &xs[:]\nn = v.get()",
