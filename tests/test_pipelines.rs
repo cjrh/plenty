@@ -2862,23 +2862,23 @@ fn lending_keeps_borrow_and_signature_rules() {
         // conflicts with `&mut p` lent by an earlier argument of the call.
         (
             "def f(p: &mut Iter[i64], x: Option[i64]) -> ():\n    pass\ndef main() -> ():\n    mut p = iter(range(3))\n    f(&mut p, next(p))\n",
-            "cannot modify `p` while it is exclusively borrowed",
+            "cannot advance `p` while it is exclusively borrowed",
         ),
         (
             "def f(p: &mut Iter[i64], x: Option[i64]) -> ():\n    pass\ndef main() -> ():\n    mut p = iter(range(3))\n    f(&mut p, next(&mut p))\n",
-            "cannot modify `p` while it is exclusively borrowed",
+            "cannot advance `p` while it is exclusively borrowed",
         ),
         (
             "def tagged[T, K](p: &mut Iter[T], tag: K) -> Option[(K, T)]:\n    match next(p):\n        case Some(value):\n            Some((tag, value))\n        case Nothing:\n            Nothing\ndef main() -> ():\n    mut p = iter(range(3)).map(def(x: i64) -> i64: x)\n    drop(tagged(&mut p, next(p)))\n",
-            "cannot modify `p` while it is exclusively borrowed",
+            "cannot advance `p` while it is exclusively borrowed",
         ),
         (
             "class Sink:\n    pub n: i64\n    def take(self, p: &mut Iter[i64], x: Option[i64]) -> ():\n        pass\ndef main() -> ():\n    mut p = iter(range(3))\n    Sink(0).take(&mut p, next(p))\n",
-            "cannot modify `p` while it is exclusively borrowed",
+            "cannot advance `p` while it is exclusively borrowed",
         ),
         (
             "def f(p: &mut Iter[i64], x: Option[i64]) -> ():\n    pass\ndef main() -> ():\n    mut p = iter(range(3))\n    f(&mut p, Some(next(p).unwrap_or(0)))\n",
-            "cannot modify `p` while it is exclusively borrowed",
+            "cannot advance `p` while it is exclusively borrowed",
         ),
         (
             "def f(p: &mut Iter[i64], x: Option[i64]) -> ():\n    pass\ndef g(p: &mut Iter[i64]) -> ():\n    f(p, next(p))\ndef main() -> ():\n    mut p = iter(range(3))\n    g(&mut p)\n",
