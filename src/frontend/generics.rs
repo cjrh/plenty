@@ -1736,6 +1736,9 @@ impl Lower<'_> {
         loans.extend(state);
         if lent {
             // As for a frame call: the call is the lend's next use (issue #916).
+            // Every frame call passes a lent pipeline or generator, but most
+            // generic calls lend nothing, and an unconditional marker would
+            // move their later unmarked operations to the call.
             self.mark(at, ops);
         }
         self.record_direct_call(&callee, at, &loans, ops);
@@ -1856,18 +1859,46 @@ impl Engine {
     /// new instance's name from `instantiate`. A method is `Class.method`,
     /// without its internal symbol prefix.
     pub(super) fn diagnostic_name(&self, symbol: &str) -> String {
+        if let Some(callee) = self.wrapped(symbol) {
+            return self.diagnostic_name(callee);
+        }
         self.cache
             .iter()
             .find_map(|((id, types), instance)| {
                 (instance == symbol).then(|| {
+                    let template = &self.instantiated[*id as usize].0;
                     instance_name(
-                        crate::record::method_display(&self.instantiated[*id as usize].0),
+                        crate::record::method_display(self.wrapped(template).unwrap_or(template)),
                         types,
                     )
                 })
             })
             .or_else(|| self.frame_name(symbol))
             .unwrap_or_else(|| crate::record::method_display(symbol).into())
+    }
+
+    /// The callee a named-argument wrapper forwards to. The source never
+    /// names a wrapper, so diagnostics name its callee (issue #916).
+    pub(super) fn wrapped(&self, symbol: &str) -> Option<&str> {
+        if !symbol.starts_with("__plenty_call_wrapper_") {
+            return None;
+        }
+        self.call_wrappers
+            .iter()
+            .find_map(|((callee, _), wrapper)| (wrapper == symbol).then_some(callee.as_str()))
+    }
+
+    /// Whether `symbol` is a named-argument wrapper or a specialization of
+    /// one, whose body is synthesized at its first call site.
+    pub(super) fn is_wrapper(&self, symbol: &str) -> bool {
+        self.wrapped(symbol).is_some()
+            || self
+                .frames
+                .iter()
+                .any(|((name, _), instance)| instance == symbol && self.is_wrapper(name))
+            || self.cache.iter().any(|((id, _), instance)| {
+                instance == symbol && self.wrapped(&self.instantiated[*id as usize].0).is_some()
+            })
     }
 
     /// A frame specializes its consumer for the argument types at one call,
