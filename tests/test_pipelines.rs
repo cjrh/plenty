@@ -3151,7 +3151,7 @@ fn reassigned_pipeline_local_names_each_plan() {
     let source = "mut p = iter(range(3))\nq = iter(range(3))\np = q\ndrop(p)\n";
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(
-        error.contains("expected Iter[i64] from `iter(range(3))` at line 3, got Iter[i64] from `q` at line 5; a pipeline local holds one pipeline for its whole scope, even over the same source"),
+        error.contains("expected Iter[i64] from `iter(range(3))` at line 3, got Iter[i64] from `iter(range(3))` at line 4; a pipeline local holds one pipeline for its whole scope, even over the same source"),
         "{error}"
     );
 }
@@ -3163,7 +3163,8 @@ fn reassigned_lent_pipeline_local_names_each_parameter() {
     let source = "def fixture_take(g: &mut Iter[i64], h: &mut Iter[i64]) -> ():\n    mut r = g\n    r = h\n    drop(r)\nmut a = iter(range(3))\nmut b = iter(range(3))\nfixture_take(&mut a, &mut b)\n";
     let error = support::check_source(source).unwrap_err().to_string();
     assert!(
-        error.contains("expected Iter[i64] from `g` at line 2, got Iter[i64] from `h` at line 3"),
+        error.contains("expected Iter[i64] from `g` at line 2, got Iter[i64] from `h` at line 3; a pipeline local holds one pipeline for its whole scope, even over the same source; bind the new pipeline to a new name"),
         "{error}"
     );
+    assert!(!error.contains("choose the source"), "{error}");
 }
