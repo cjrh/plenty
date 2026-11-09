@@ -26,7 +26,9 @@ A `while` loop diverges when both hold:
 No other condition counts, including a `const` that is `True` or an expression
 such as `not False`. A diverging loop is a control-flow exit like `return`: it
 can end a function or suite that must produce a value, and a statement after it
-is an unreachable error. Its body leaves only by `return`, `?`, or a trap.
+is an unreachable error. Its body leaves only by `return`, `?`, or a trap. In a
+generator, `yield` suspends the loop as usual, and a suspended generator can be
+dropped without resuming it.
 Type checking, ownership analysis, and code generation apply the same rule, so
 no path, drop, or result is assumed after the loop.
 
