@@ -14,8 +14,7 @@ import std.path as path
 def main() -> Result[(), AllocError | IoError | fs.WalkError]:
     current = path.from_text(".")?
     root = fs.root(&current)?
-    root.create_dir(&path.from_text("site")?)?
-    root.open_dir(&path.from_text("site")?)?.create_dir(&path.from_text("posts")?)?
+    drop(root.create_dirs(&path.from_text("site/posts")?)?)
     write_text("site/index.html", "home")?
     write_text("site/posts/first.html", "hello")?
     top = path.from_text("site")?

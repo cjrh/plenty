@@ -121,3 +121,36 @@ staging, a named file remains after a write failure; use the staging pattern
 when readers must see only complete output. See the
 [permission contracts](../../design/stdlib/fs/helpers.md#private-creation-and-permission-changes)
 for custom modes, ACLs, umask and errors.
+
+## Create a directory tree
+
+An application often needs a private directory and its parents, and must accept
+them if an earlier run already made them. `Root.create_dirs` takes a relative
+path, creates each missing directory with mode 0700 by default and returns the
+last one as a `Root`:
+
+```plenty
+import std.io
+import std.fs as fs
+import std.path as path
+
+def main() -> Result[(), AllocError | IoError | std.io.StreamError]:
+    parent = fs.root(&path.from_text(".")?)?
+    state = parent.create_dirs(&path.from_text("app/state")?)?
+    mut file = state.create_file(&path.from_text("token")?)?
+    file.file.write("secret")?
+    file.close()?
+    # A second run finds the directories and opens them.
+    again = parent.create_dirs(&path.from_text("app/state")?)?
+    again.remove_file(&path.from_text("token")?)?
+    Ok(())
+```
+
+```output
+```
+
+Existing directories keep their modes. A component that is a file or a symlink
+stops the call with an error, as does `..`, so the walk stays inside `parent`.
+Directories made before a failure remain. See
+[creating a directory tree](../../design/stdlib/fs/helpers.md#creating-a-directory-tree)
+for concurrent creators and the exact path rules.

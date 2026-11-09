@@ -19,6 +19,7 @@ scope decision, not a second task list.
 | --- | --- |
 | [XML](../design/stdlib/xml.md) | Bounded UTF-8 events and validating writes without DTDs/external entities (issue #462). |
 | [Advisory file locks](../design/stdlib/fs/lock.md) | Owned shared/exclusive Linux locks, nonblocking acquisition and cancellable deadline waits; close-only lifetime preserves inherited descriptions (issue #774), with [explicit child inheritance](#explicit-child-file-inheritance) (issue #777). |
+| [Directory trees](../design/stdlib/fs/helpers.md#creating-a-directory-tree) | `Root.create_dirs` opens or creates each relative component with an explicit mode, refuses symlinks/non-directories/`..`, accepts concurrent creators and keeps partial creation (issue #906). |
 | [Filesystem watch](../design/stdlib/fs/watch.md) | Bounded Linux inotify batches, overflow reporting and readiness integration (issue #484). |
 | [Templates](../design/stdlib/template.md) | Bounded Jinja-style interpolation, filters, conditions, named inheritance and HTML escaping over explicit JSON (issue #499); reusable bounded text and quote-specific attribute escaping (issue #823); raw-value per-placeholder escape contexts with explicit filter chaining (issue #834); registered fragment composition with isolated object/loop/inheritance scopes and shared render budgets (issue #835); bounded scalar comparisons, boolean composition and flat `elif` chains (issue #836). |
 | [Linalg](../design/stdlib/linalg.md) | Finite f64 matrices, solves and dense decompositions over allocation-safe faer kernels, with engine-parameterized build/packaging/CI (issue #490). |
@@ -546,3 +547,13 @@ text view, retaining byte offsets. `std.bytes.to_text` validates and copies a
 selected byte range directly into an owned string. See
 [Text inputs and substring views](../design/stdlib/text-input-views.md) for the
 module matrix and native-copy/NUL contracts.
+
+## Native error descriptions (issue #907)
+
+`std.error.native_message(code)` returns the C-locale GNU C library text for
+each Linux (x86-64 and aarch64) error number (1 to 133, except the unassigned
+41 and 58) as a string literal, and `Nothing` otherwise and on other targets. The table is Plenty, so the call
+allocates nothing, is locale- and thread-independent, and keeps the same text
+under any C library. Error values still keep `IoError.System(code)`; see
+[describing a native code](../design/stdlib/error.md#describing-a-native-code).
+Formatting builtin `IoError` causes in `describe`/`format` is not included.

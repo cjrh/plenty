@@ -767,3 +767,91 @@ def main() -> Result[(), AllocError | IoError]:
         "",
     );
 }
+
+const MESSAGE: &str = r#"from std.error import native_code, native_message
+
+def text(code: i32) -> str:
+    native_message(code).unwrap_or("unknown")
+"#;
+
+// Issue #907: the description is fixed in std.error, so its wording is part
+// of the contract and can be checked exactly.
+#[test]
+fn native_message_describes_linux_error_numbers_and_keeps_the_code() {
+    run_both(
+        &format!(
+            r#"{MESSAGE}
+def main() -> Result[(), AllocError | IoError]:
+    print(text(1i32))?
+    print(text(2i32))?
+    print(text(13i32))?
+    print(text(28i32))?
+    print(text(133i32))?
+    print(text(0i32), text(41i32), text(58i32), text(134i32), text(-1i32), text(i32.MAX))?
+    match read_bytes(encode_utf8("missing/settings")?):
+        case Ok(_):
+            print("read")?
+        case Err(error):
+            match native_code(error):
+                case Some(code):
+                    print(f"{{text(code)}} (os error {{code}})"?)?
+                case Nothing:
+                    print("no code")?
+            print(error == IoError.System(2i32))?
+    Ok(())
+"#
+        ),
+        0,
+        "Operation not permitted\nNo such file or directory\nPermission denied\nNo space left on device\nMemory page has hardware error\nunknown unknown unknown unknown unknown unknown\nNo such file or directory (os error 2)\nTrue\n",
+        "",
+    );
+}
+
+#[test]
+fn native_message_runs_on_a_worker() {
+    run_both(
+        &format!(
+            r#"{MESSAGE}
+def main() -> Result[(), AllocError | IoError | SpawnError[()]]:
+    with spawn(def once () -> str: text(110i32)).drop_job()? as task:
+        print(task.join())?
+    Ok(())
+"#
+        ),
+        0,
+        "Connection timed out\n",
+        "",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn native_message_allocates_nothing() {
+    run_both(
+        &format!(
+            r#"{MESSAGE}
+def main() -> Result[(), AllocError | IoError]:
+    mut known = 0
+    mut code = -2i32
+    print("__test_fail_allocations_after_0__")?
+    print("__test_begin_no_allocations__")?
+    while code < 140i32:
+        match native_message(code):
+            case Some(_):
+                unchecked:
+                    known += 1
+            case Nothing:
+                pass
+        unchecked:
+            code += 1i32
+    print("__test_end_no_allocations__")?
+    print("__test_restore_allocations__")?
+    print(known)?
+    Ok(())
+"#
+        ),
+        0,
+        "131\n",
+        "",
+    );
+}

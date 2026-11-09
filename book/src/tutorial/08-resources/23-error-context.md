@@ -6,7 +6,7 @@ and, optionally, a path. The original error stays inside as `cause`, with its
 type.
 
 ```plenty
-from std.error import Context, Subject, context, path_context, native_code
+from std.error import Context, Subject, context, path_context, native_code, native_message
 from std.path import Path, from_text
 
 def read_limit(path: &Path) -> Result[list[u8], Context[IoError]]:
@@ -23,8 +23,13 @@ def limit(path: &Path) -> Result[i64, AllocError | IoError | Context[ParseError]
         case Ok(bytes):
             Ok(parse_limit(&decode_utf8(bytes)?)?)
         case Err(error):
-            print(error.describe()?)?
-            print(native_code(error.cause))?
+            match native_code(error.cause):
+                case Some(code):
+                    message = native_message(code).unwrap_or("unknown error")
+                    cause = f"{message} (os error {code})"?
+                    print(error.describe_with(&cause)?)?
+                case Nothing:
+                    print(error.describe()?)?
             Ok(10)
 
 def run() -> Result[(), AllocError | IoError | Context[IoError] | Context[ParseError]]:
@@ -48,8 +53,7 @@ def main() -> i32:
             1i32
 ```
 ```output
-read limit "limit.txt": IoError.System(2)
-Option[i32].Some(2)
+read limit "limit.txt": No such file or directory (os error 2)
 10
 parse limit: ParseError.Invalid
 True
@@ -65,6 +69,11 @@ and callers can include that context in an error sum.
 `describe()` builds one line: the label, the quoted path if there is one, and
 the cause. It allocates, so it returns a Result. `error.cause` is the untouched
 typed error; match it, compare it, or ask `native_code` for the OS number.
+`native_message` turns that number into fixed English text without
+allocating; it returns `Nothing` for a number it does not know, so the
+program picks the fallback. `describe_with(&text)` builds the same line with
+that text in place of the cause, which is how `limit` reports a missing file.
+See [describing a native code](../../design/stdlib/error.md#describing-a-native-code).
 
 `report()` is for the edge of the program. It flushes standard output and
 writes `error: ` plus the description to standard error. It returns nothing and

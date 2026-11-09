@@ -43,70 +43,70 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.diff`](#stddiff): 1163-1192
 - [`std.encoding`](#stdencoding): 1194-1261
 - [`std.env`](#stdenv): 1263-1277
-- [`std.error`](#stderror): 1279-1299
-- [`std.fmt`](#stdfmt): 1301-1368
-- [`std.fs`](#stdfs): 1370-1469
-- [`std.fs.dirs`](#stdfsdirs): 1471-1481
-- [`std.fs.lock`](#stdfslock): 1483-1498
-- [`std.fs.watch`](#stdfswatch): 1500-1535
-- [`std.graph`](#stdgraph): 1537-1625
-- [`std.http`](#stdhttp): 1627-1698
-- [`std.http.decoder`](#stdhttpdecoder): 1700-1717
-- [`std.http.body`](#stdhttpbody): 1719-1754
-- [`std.http.client`](#stdhttpclient): 1756-1866
-- [`std.http.cookie`](#stdhttpcookie): 1868-1900
-- [`std.http.files`](#stdhttpfiles): 1902-1915
-- [`std.http.https`](#stdhttphttps): 1917-1931
-- [`std.http.proxy`](#stdhttpproxy): 1933-1954
-- [`std.http.server`](#stdhttpserver): 1956-2057
-- [`std.http.sse`](#stdhttpsse): 2059-2078
-- [`std.http.tls`](#stdhttptls): 2080-2097
-- [`std.http.typed`](#stdhttptyped): 2099-2132
-- [`std.http.websocket`](#stdhttpwebsocket): 2134-2169
-- [`std.http.wss`](#stdhttpwss): 2171-2177
-- [`std.image`](#stdimage): 2179-2225
-- [`std.io`](#stdio): 2227-2333
-- [`std.io.typed`](#stdiotyped): 2335-2373
-- [`std.serial`](#stdserial): 2375-2440
-- [`std.json`](#stdjson): 2442-2594
-- [`std.jwt`](#stdjwt): 2596-2643
-- [`std.log`](#stdlog): 2645-2712
-- [`std.markdown`](#stdmarkdown): 2714-2748
-- [`std.template`](#stdtemplate): 2750-2787
-- [`std.math`](#stdmath): 2789-2860
-- [`std.mime`](#stdmime): 2862-2888
-- [`std.net`](#stdnet): 2890-2972
-- [`std.path`](#stdpath): 2974-2991
-- [`std.process`](#stdprocess): 2993-3051
-- [`std.random`](#stdrandom): 3053-3074
-- [`std.ready`](#stdready): 3076-3107
-- [`std.regex`](#stdregex): 3109-3162
-- [`std.report`](#stdreport): 3164-3175
-- [`std.secrets`](#stdsecrets): 3177-3203
-- [`std.shlex`](#stdshlex): 3205-3214
-- [`std.sketch`](#stdsketch): 3216-3254
-- [`std.sketch.xor`](#stdsketchxor): 3256-3267
-- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3269-3284
-- [`std.signal`](#stdsignal): 3286-3303
-- [`std.simd`](#stdsimd): 3305-3406
-- [`std.stat`](#stdstat): 3408-3441
-- [`std.plot`](#stdplot): 3443-3532
-- [`std.linalg`](#stdlinalg): 3534-3575
-- [`std.sync`](#stdsync): 3577-3609
-- [`std.system`](#stdsystem): 3611-3670
-- [`std.tempfile`](#stdtempfile): 3672-3704
-- [`std.test`](#stdtest): 3706-3748
-- [`std.text`](#stdtext): 3750-3793
-- [`std.thread`](#stdthread): 3795-3799
-- [`std.time`](#stdtime): 3801-3845
-- [`std.tls`](#stdtls): 3847-3929
-- [`std.toml`](#stdtoml): 3931-4030
-- [`std.unicode`](#stdunicode): 4032-4044
-- [`std.units`](#stdunits): 4046-4283
-- [`std.units.catalogue`](#stdunitscatalogue): 4285-5063
-- [`std.url`](#stdurl): 5065-5093
-- [`std.uuid`](#stduuid): 5095-5118
-- [`std.xml`](#stdxml): 5120-5153
+- [`std.error`](#stderror): 1279-1300
+- [`std.fmt`](#stdfmt): 1302-1369
+- [`std.fs`](#stdfs): 1371-1471
+- [`std.fs.dirs`](#stdfsdirs): 1473-1483
+- [`std.fs.lock`](#stdfslock): 1485-1500
+- [`std.fs.watch`](#stdfswatch): 1502-1537
+- [`std.graph`](#stdgraph): 1539-1627
+- [`std.http`](#stdhttp): 1629-1700
+- [`std.http.decoder`](#stdhttpdecoder): 1702-1719
+- [`std.http.body`](#stdhttpbody): 1721-1756
+- [`std.http.client`](#stdhttpclient): 1758-1868
+- [`std.http.cookie`](#stdhttpcookie): 1870-1902
+- [`std.http.files`](#stdhttpfiles): 1904-1917
+- [`std.http.https`](#stdhttphttps): 1919-1933
+- [`std.http.proxy`](#stdhttpproxy): 1935-1956
+- [`std.http.server`](#stdhttpserver): 1958-2059
+- [`std.http.sse`](#stdhttpsse): 2061-2080
+- [`std.http.tls`](#stdhttptls): 2082-2099
+- [`std.http.typed`](#stdhttptyped): 2101-2134
+- [`std.http.websocket`](#stdhttpwebsocket): 2136-2171
+- [`std.http.wss`](#stdhttpwss): 2173-2179
+- [`std.image`](#stdimage): 2181-2227
+- [`std.io`](#stdio): 2229-2335
+- [`std.io.typed`](#stdiotyped): 2337-2375
+- [`std.serial`](#stdserial): 2377-2442
+- [`std.json`](#stdjson): 2444-2596
+- [`std.jwt`](#stdjwt): 2598-2645
+- [`std.log`](#stdlog): 2647-2714
+- [`std.markdown`](#stdmarkdown): 2716-2750
+- [`std.template`](#stdtemplate): 2752-2789
+- [`std.math`](#stdmath): 2791-2862
+- [`std.mime`](#stdmime): 2864-2890
+- [`std.net`](#stdnet): 2892-2974
+- [`std.path`](#stdpath): 2976-2993
+- [`std.process`](#stdprocess): 2995-3053
+- [`std.random`](#stdrandom): 3055-3076
+- [`std.ready`](#stdready): 3078-3109
+- [`std.regex`](#stdregex): 3111-3164
+- [`std.report`](#stdreport): 3166-3177
+- [`std.secrets`](#stdsecrets): 3179-3205
+- [`std.shlex`](#stdshlex): 3207-3216
+- [`std.sketch`](#stdsketch): 3218-3256
+- [`std.sketch.xor`](#stdsketchxor): 3258-3269
+- [`std.sketch.cuckoo`](#stdsketchcuckoo): 3271-3286
+- [`std.signal`](#stdsignal): 3288-3305
+- [`std.simd`](#stdsimd): 3307-3408
+- [`std.stat`](#stdstat): 3410-3443
+- [`std.plot`](#stdplot): 3445-3534
+- [`std.linalg`](#stdlinalg): 3536-3577
+- [`std.sync`](#stdsync): 3579-3611
+- [`std.system`](#stdsystem): 3613-3672
+- [`std.tempfile`](#stdtempfile): 3674-3706
+- [`std.test`](#stdtest): 3708-3750
+- [`std.text`](#stdtext): 3752-3795
+- [`std.thread`](#stdthread): 3797-3801
+- [`std.time`](#stdtime): 3803-3847
+- [`std.tls`](#stdtls): 3849-3931
+- [`std.toml`](#stdtoml): 3933-4032
+- [`std.unicode`](#stdunicode): 4034-4046
+- [`std.units`](#stdunits): 4048-4285
+- [`std.units.catalogue`](#stdunitscatalogue): 4287-5065
+- [`std.url`](#stdurl): 5067-5095
+- [`std.uuid`](#stduuid): 5097-5120
+- [`std.xml`](#stdxml): 5122-5155
 
 ## `std.actor`
 
@@ -1296,6 +1296,7 @@ class Context[E]
 def context[T, E](result: Result[T, E], operation: str) -> Result[T, Context[E]]
 def path_context[T, E](result: Result[T, E], operation: str, path: &Path) -> Result[T, Context[E]]
 def native_code(error: IoError) -> Option[i32]
+def native_message(code: i32) -> Option[str]
 ```
 
 ## `std.fmt`
@@ -1378,6 +1379,7 @@ class Root
     def open_dir(self, name: &Path) -> Result[Root, IoError]
     def read_file(self, name: &Path) -> Result[FileStream, IoError]
     def create_dir(self, name: &Path, unix_mode: u32 = 0o700u32) -> Result[(), IoError]
+    def create_dirs(self, path: &Path, unix_mode: u32 = 0o700u32) -> Result[Root, IoError]
     def create_file(self, name: &Path, unix_mode: u32 = 0o600u32) -> Result[FileStream, IoError]
     def set_unix_mode(self, unix_mode: u32) -> Result[(), IoError]
     def remove_file(self, name: &Path) -> Result[(), IoError]
