@@ -26,7 +26,7 @@ Project commands (run inside a directory containing plenty.toml or below it):
        plenty script [OPTIONS] [--] FILE [ARGS...]
        plenty new PATH [--lib] [--name NAME]
        plenty init [--lib] [--name NAME]
-       plenty check [--locked] [--offline] [--check-all-methods]
+       plenty check [--tests] [--locked] [--offline] [--check-all-methods]
        plenty build [--fast-compile] [--unchecked MODE] [--no-strip] [--locked] [--offline]
        plenty run [--fast-compile] [--unchecked MODE] [--no-strip] [--locked] [--offline]
                   [--bin NAME] [-- ARGS...]
@@ -44,7 +44,8 @@ Project commands (run inside a directory containing plenty.toml or below it):
 new / init: create a package with src/main.plenty (or src/lib.plenty with --lib).
 check: type-check every target and warn about .plenty/.p files under src/ that no
 target imports; --check-all-methods also checks every method
-of every generic instance, including methods nothing calls. build: compile executables into target/optimized,
+of every generic instance, including methods nothing calls; --tests also checks
+tests/*.plenty as plenty test compiles them, without linking or running them. build: compile executables into target/optimized,
 or target/fast-compile with --fast-compile. --unchecked MODE: `trap` (default)
 or `assume` for plain `unchecked:` blocks outside std (see plentyc --help). run: build one executable and run it with
 ARGS. test: run each test_* function in tests/*.plenty in its own process, or
@@ -136,9 +137,16 @@ fn run(args: Vec<String>) -> Result<ExitCode, Box<dyn Error>> {
                 rest.remove(index);
                 check.all_methods = true;
             }
+            let tests = match rest.iter().position(|a| a == "--tests") {
+                Some(index) => {
+                    rest.remove(index);
+                    true
+                }
+                None => false,
+            };
             let (mut options, _, _) = build_options(&rest, false, false)?;
             options.check = check;
-            project::check(here, &options)?;
+            project::check(here, &options, tests)?;
         }
         "build" => {
             let (options, _, _) = build_options(rest, true, false)?;

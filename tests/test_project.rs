@@ -2111,3 +2111,71 @@ fn unused_imports_keep_validation_coverage_across_package_targets() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("helper.plenty"));
 }
+
+#[test]
+fn check_tests_type_checks_test_files_without_linking_or_running_them() {
+    let dir = tempfile::tempdir().unwrap();
+    // The library calls a C symbol nothing defines: `plenty test` needs a
+    // native library built to link, which `check --tests` never does.
+    package(
+        dir.path(),
+        "native",
+        "",
+        &[
+            (
+                "src/backend.plentyi",
+                "pub extern def answer() -> i64 = \"issue_919_unbuilt\"\n",
+            ),
+            (
+                "src/lib.plenty",
+                "import backend\npub def value() -> i64:\n    backend.answer()\n",
+            ),
+            (
+                "tests/functions.plenty",
+                "import native\ndef test_value() -> Result[(), str]:\n    if native.value() != 42:\n        return Err(\"wrong\")\n    Ok(())\n",
+            ),
+            // Fails when run; checking does not run it.
+            ("tests/exits.plenty", "def main() -> i32:\n    1\n"),
+        ],
+    );
+    let root = dir.path().join("native");
+    let lines = status_lines(&root, &["check", "--tests", "--check-all-methods"]);
+    assert!(
+        lines.contains("Checked native v0.1.0: library, 2 test files; 1 of 1 files in src/"),
+        "{lines}"
+    );
+    assert!(!root.join("target").exists());
+    fails(&root, &["test"], "issue_919_unbuilt");
+
+    write(
+        &root.join("tests/broken.plenty"),
+        "def test_broken() -> ():\n    x: i64 = \"text\"\n",
+    );
+    // Without --tests, test files are still not checked.
+    let lines = status_lines(&root, &["check"]);
+    assert!(
+        lines.contains("Checked native v0.1.0: library; 1 of 1 files in src/"),
+        "{lines}"
+    );
+    fails(&root, &["check", "--tests"], "tests/broken.plenty:2:");
+    // A test function's signature is checked as the test runner requires.
+    write(
+        &root.join("tests/broken.plenty"),
+        "def test_broken() -> i64:\n    1\n",
+    );
+    fails(
+        &root,
+        &["check", "--tests"],
+        "test function `test_broken` must take",
+    );
+    fails(
+        &root,
+        &["check", "--tests", "x"],
+        "unexpected argument \"x\"",
+    );
+    fails(
+        &root,
+        &["--check", "src/lib.plenty", "--tests"],
+        "--tests requires a package",
+    );
+}

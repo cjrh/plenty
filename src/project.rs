@@ -1295,9 +1295,19 @@ fn check_sources(
     require_main: bool,
     options: &crate::CheckOptions,
 ) -> Result<(Vec<crate::Warning>, crate::frontend::Inputs)> {
+    check_program(options, |heap| {
+        crate::frontend::compile_graph(entry, graph, require_main, heap, *options)
+    })
+}
+
+/// Check the operations of the program `compile` lowers, returning its lint
+/// warnings and what it read.
+fn check_program(
+    options: &crate::CheckOptions,
+    compile: impl FnOnce(&mut crate::value::Heap) -> Result<crate::frontend::Program>,
+) -> Result<(Vec<crate::Warning>, crate::frontend::Inputs)> {
     let mut heap = crate::value::Heap::default();
-    let mut program =
-        crate::frontend::compile_graph(entry, graph, require_main, &mut heap, *options)?;
+    let mut program = compile(&mut heap)?;
     let checked = crate::op::check(&program.ops);
     let warnings = std::mem::take(&mut program.warnings);
     let inputs = std::mem::take(&mut program.inputs);
@@ -1316,9 +1326,19 @@ fn title(package: &Package) -> String {
 /// Check every target of the selected packages, printing each package's lint
 /// warnings once on stderr after its targets pass. A target's check covers the
 /// files its import graph reaches, so afterwards each `.plenty` or `.p` file below the
-/// package's `src/` that no target reached is reported as unchecked.
-pub fn check(directory: &Path, options: &BuildOptions) -> Result<()> {
+/// package's `src/` that no target reached is reported as unchecked. With
+/// `tests`, each package's test files are also checked as `plenty test` would
+/// compile them, without linking or running them.
+pub fn check(directory: &Path, options: &BuildOptions, tests: bool) -> Result<()> {
     let project = open(directory, options)?;
+    let mut test_files = vec![];
+    if tests {
+        // Discovery reads every selected package's tests before any check,
+        // as `plenty test` does, so a malformed test file fails early.
+        for &member in &project.selected {
+            discover_tests(&project, member, false, &mut test_files, &mut vec![])?;
+        }
+    }
     for &member in &project.selected {
         let package = project.member(member);
         status("Checking", title(package));
@@ -1348,6 +1368,28 @@ pub fn check(directory: &Path, options: &BuildOptions) -> Result<()> {
             warnings.extend(found);
             reached.extend(inputs.sources().map(Path::to_path_buf));
         }
+        let member_tests: Vec<_> = test_files.iter().filter(|t| t.member == member).collect();
+        if !member_tests.is_empty() {
+            let graph = project.test_graph(member);
+            for TestSource { path, kind, .. } in &member_tests {
+                let appendix = match kind {
+                    crate::frontend::TestFile::Program => None,
+                    crate::frontend::TestFile::Functions(functions) => {
+                        Some(crate::frontend::test_appendix(functions))
+                    }
+                };
+                let (found, _) = check_program(&options.check, |heap| {
+                    crate::frontend::compile_test_graph(
+                        path,
+                        &graph,
+                        appendix.as_deref(),
+                        heap,
+                        options.check,
+                    )
+                })?;
+                warnings.extend(found);
+            }
+        }
         crate::diagnostic::settle(&mut warnings);
         for warning in &warnings {
             eprintln!("{warning}");
@@ -1366,9 +1408,14 @@ pub fn check(directory: &Path, options: &BuildOptions) -> Result<()> {
         status(
             "Checked",
             format!(
-                "{}: {}; {} of {} files in src/",
+                "{}: {}{}; {} of {} files in src/",
                 title(package),
                 describe_targets(&package.manifest),
+                match (tests, member_tests.len()) {
+                    (false, _) => String::new(),
+                    (true, 1) => ", 1 test file".into(),
+                    (true, n) => format!(", {n} test files"),
+                },
                 sources.len() - unreached.len(),
                 sources.len()
             ),

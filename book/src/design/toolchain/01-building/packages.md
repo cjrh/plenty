@@ -11,7 +11,7 @@ graph; imports never fetch or resolve packages.
 |---|---|
 | `plenty new PATH [--lib] [--name NAME]` | Create `PATH` with a manifest, `src/main.plenty` (or `src/lib.plenty`), and `.gitignore` |
 | `plenty init [--lib] [--name NAME]` | Create a package in the current directory; refuses to replace a manifest or source |
-| `plenty check [--locked] [--offline] [--check-all-methods]` | Check the library (without requiring `main`) and every executable, and report [unchecked sources](#check-coverage); [`--check-all-methods`](../../language/07-generics/index.md#checking-every-method) also checks unused methods of the package's own generic instances, not those of `std` or dependency types; prints each package's [warnings](warnings.md) once |
+| `plenty check [--tests] [--locked] [--offline] [--check-all-methods]` | Check the library (without requiring `main`) and every executable, and report [unchecked sources](#check-coverage); [`--tests`](#checking-tests) also checks the [test files](#tests); [`--check-all-methods`](../../language/07-generics/index.md#checking-every-method) also checks unused methods of the package's own generic instances, not those of `std` or dependency types; prints each package's [warnings](warnings.md) once |
 | `plenty build [--fast-compile] [--no-strip] [--locked] [--offline]` | Check the library and compile every executable to `target/PROFILE/NAME` |
 | `plenty run [--fast-compile] [--no-strip] [--locked] [--offline] [--bin NAME] [-- ARGS...]` | Build one executable and run it with `ARGS` |
 | `plenty test [--fast-compile] [--locked] [--offline] [--no-capture] [--seed N] [--list] [--jobs N] [--timeout SECONDS] [FILTER...]` | Compile and run the package's [tests](#tests) |
@@ -61,11 +61,27 @@ warning: src/util/orphan.plenty is not imported by any target of `tools`; it was
 The warning does not change the exit status. The summary names the targets
 checked and counts the files below `src/` that they reached. Test files are
 not targets: `plenty test` checks `tests/` when it compiles them, and
-`plenty check` ignores that directory. Every `.plenty` or `.p` file below `src/` is
+`plenty check` ignores that directory unless given [`--tests`](#checking-tests). Every `.plenty` or `.p` file below `src/` is
 package source, which [build reuse](#build-reuse) also fingerprints; keep
 fixtures, generated samples and other intentionally unbuilt `.plenty` files in
 another directory, such as `tests/fixtures/` or `fixtures/`. Files without the
 `.plenty` or `.p` extension are never reported.
+
+### Checking tests
+
+`plenty check --tests` checks everything `plenty check` does, then each test
+file directly in `tests/` as `plenty test` would compile it: a file with
+`main` as a program, a file of test functions with the test runner's
+generated `main`, so a malformed test function's signature is reported too.
+It neither links nor runs anything, so a package whose tests need a native
+library built first, or whose tests would fail when run, can still be
+checked. Errors name the test file, and the summary adds the count, as in
+`Checked memmap v0.0.1: library, 1 test file; 1 of 1 files in src/`. The
+`src/` coverage count and its warnings still describe the targets only.
+
+`--tests` combines with `--locked`, `--offline` and `--check-all-methods`,
+which then also applies to the test files. It takes no test filter. The
+single-file `--check FILE` has no `tests/` directory and rejects `--tests`.
 
 ## Tests
 

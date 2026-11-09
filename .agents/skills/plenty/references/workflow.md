@@ -39,7 +39,7 @@ Keep one spelling per imported module; duplicate candidates are ambiguous.
 
 | Command | Use |
 |---|---|
-| `plenty check` | Type-check the library and every executable; warn about `src/` files no target imports |
+| `plenty check [--tests]` | Type-check the library and every executable (and `tests/` with `--tests`, without running them); warn about `src/` files no target imports |
 | `plenty run [-- ARGS...]` | Build and run the executable |
 | `plenty test [FILTER...]` | Run tests in `tests/` |
 | `plenty build [--fast-compile]` | Write `target/PROFILE/NAME` |
