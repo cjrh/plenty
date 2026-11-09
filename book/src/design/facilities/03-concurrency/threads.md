@@ -46,7 +46,12 @@ Scoped work may borrow or own its inputs. Named arguments use ordinary call
 semantics: `&T` and `&mut T` borrow, copyable values copy, and affine values move
 into the worker. A generator argument, owned or borrowed, is rejected with a
 diagnostic naming the parameter, because generator frames cannot enter workers;
-collect its items into a list and pass that. Pool jobs must own their inputs instead; only
+collect its items into a list and pass that. A
+[lent pipeline](../../language/09-iteration/06-pipelines.md#lending-a-pipeline),
+`spawn(worker, &mut p)` with `worker` taking `&mut Iter[T]`, runs in the worker
+and writes its state back when the worker returns; the lender continues after
+the items the worker took once the `with` block ends. Callbacks the worker
+runs pass the worker checks. Pool jobs must own their inputs instead; only
 [`.par` chunks](../../language/09-iteration/06-pipelines.md#parallel-pipelines)
 read a borrowed list internally, because the terminal waits for every chunk
 before it returns. Borrowing callbacks
