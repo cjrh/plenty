@@ -587,6 +587,15 @@ generator can wrap or relay one and keep its loans, and lets `.generator()`
 convert a pipeline over a borrowed local, a `&mut` source or a reference
 binding; the frame keeps the source borrowed as the pipeline does.
 
+Generators yield shared references (issue #912). `Generator[&T]` lends: each
+item borrows the frame's sources, not the frame, so it outlives advancing or
+dropping the generator and conflicts with changes to the source. A yielded
+reference must borrow through a shared reference or view parameter or be an
+item of such a generator; `Generator[&mut T]` is rejected. Collecting reference
+items into a collection, and assigning a borrowing generator through a
+`&mut Generator` reference, are rejected. See
+[reference items](../design/language/09-iteration/03-generators.md#reference-items).
+
 List slice views `&[T]` and `&mut [T]` gained list read and fixed-length
 operations (issue #866): `in`, `count`, `find` and `rfind` search the view with
 the element type's `==` and allocate nothing; `v.get(i)` copies a non-affine
@@ -948,6 +957,13 @@ machinery. Guards, general aliases and starred targets remain unsupported; see
 Remaining inference/value candidates stay **B16** in the [backlog](../backlog.md).
 
 ## B17: Tooling and packaging
+
+The [multiple-version dependency proposal](../proposals/multiversion-dependencies.md)
+records the design for independent transitive upgrades, direct-name uniqueness,
+structural protocol boundaries, shared-instance restrictions and edge-specific
+locks. It includes Node/npm evidence and a source-based implementation sketch.
+This delivers the design document only; resolver/compiler behavior is unchanged,
+and implementation remains in B17.
 
 [`plenty script`](../design/toolchain/01-building/scripts.md) delivers executable
 shebang scripts, lossless Unix argument forwarding, strict optional embedded
