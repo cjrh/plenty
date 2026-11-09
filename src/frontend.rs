@@ -5288,7 +5288,7 @@ fn lower_body(
                 .iter()
                 .any(|(_, ty)| pipelines::lent_identity(ty).is_some())
             {
-                lower.receive_lent(&f.at, &mut body)?
+                lower.receive_lent(&f.at, &f.inputs, &mut body)?
             } else {
                 Vec::new()
             };

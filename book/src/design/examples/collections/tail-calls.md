@@ -70,6 +70,51 @@ recursive call to `walk` is in tail position but cannot be a tail call: the refe
 ```
 
 Pass a reference borrowed from the caller, carry owned scalar state, or use a
-loop when the next step needs local storage. Non-tail recursion still uses the
+loop when the next step needs local storage.
+
+Work that runs after the call also keeps the caller's frame. A function that
+borrows a [lent pipeline](../../language/09-iteration/06-pipelines.md#lending-a-pipeline)
+writes the pipeline's state back to the lender when it returns, so it cannot
+tail-call itself:
+
+```plenty-error
+def skip_then_take(p: &mut Iter[i64], skip: bool) -> Option[i64]:
+    if skip:
+        drop(next(p))
+        return skip_then_take(p, False)
+    next(p)
+
+def main() -> ():
+    mut p = iter(range(10))
+    drop(skip_then_take(&mut p, True))
+```
+
+```error
+recursive call to `skip_then_take` is in tail position but cannot be a tail call: the state of lent pipeline `p` (declared at 1:23) is written back to the lender after the call returns; bind the call's result to a local and return the local instead
+```
+
+Binding the result first makes it an ordinary recursive call:
+
+```plenty
+def skip_then_take(p: &mut Iter[i64], skip: bool) -> Option[i64]:
+    if skip:
+        drop(next(p))
+        found = skip_then_take(p, False)
+        return found
+    next(p)
+
+def main() -> Result[(), IoError]:
+    mut p = iter(range(10))
+    print(skip_then_take(&mut p, True))?
+    print(next(p))?
+    Ok(())
+```
+
+```output
+Option[i64].Some(1)
+Option[i64].Some(2)
+```
+
+A `with` block whose exit runs after the call is rejected the same way. Non-tail recursion still uses the
 native stack. Calls through function values are outside this direct-recursion
 diagnostic; using a callback does not promise bounded stack use.

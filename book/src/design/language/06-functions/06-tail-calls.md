@@ -28,9 +28,18 @@ These restrictions retain the caller for an ordinary call:
 - Any reference argument into the caller's locals, owned parameters, or
   temporaries, including a receiver in that storage.
 - A pending `with` exit action after the call.
+- A [lent pipeline](../09-iteration/06-pipelines.md#lending-a-pipeline)
+  parameter. The borrower writes the pipeline's state back to the lender when
+  it returns, so a recursive call that forwards `p` in tail position is
+  rejected. This also applies when the call does not mention `p`.
 - An owned inline argument, such as a range, record, closure, or generator frame.
 - A result requiring conversion, wrapping, propagation, or incompatible result
   storage.
+
+The diagnostic names the source function, method or generic instance, the
+`with` statement or lent parameter, and the rewrite for a pending exit: bind
+the call's result to a local and return the local. That call is ordinary
+recursion and uses native stack.
 
 Nonrecursive ordinary fallbacks are legal. Reference arguments originating in
 the caller's reference parameters may be forwarded, including reborrows,
