@@ -376,6 +376,10 @@ pub enum CollectionOp {
     /// View, index -> reference to that row. Negative indices count from the
     /// end, and an out-of-range index traps, as list indexing does.
     ViewRow(Ty, bool),
+    /// View, index -> `Option[&element]`, or `Option[&mut element]` from an
+    /// exclusive view: `get_ref` and `get_mut` (issue #890). Negative indices
+    /// count from the end; outside the view the result is `Nothing`.
+    ViewGetRef(Ty, bool),
     /// View, in-bounds index -> reference to that row, for iteration. The
     /// index is not checked.
     ViewItem(Ty, bool),
@@ -1026,6 +1030,15 @@ impl CollectionOp {
                     Ty::Ref(element.clone(), *mutable),
                 )
             }
+            ViewGetRef(view, mutable) => {
+                let Ty::View(element, _) = view else {
+                    unreachable!("a view operation on {view}")
+                };
+                (
+                    vec![view.clone(), Ty::I64],
+                    crate::sum::option(Ty::Ref(element.clone(), *mutable)),
+                )
+            }
             ViewEqual(view) => (vec![view.clone(), view.clone()], Ty::Bool),
             ViewSwap(view) => (vec![view.clone(), Ty::I64, Ty::I64], Ty::Unit),
             ViewSort(view) => (vec![view.clone(), Ty::Bool], Ty::Unit),
@@ -1374,6 +1387,7 @@ impl CollectionOp {
             | Self::ViewLen(_)
             | Self::ViewRow(..)
             | Self::ViewItem(..)
+            | Self::ViewGetRef(..)
             | Self::ViewEqual(_)
             | Self::ViewSwap(_)
             | Self::ViewSort(_)

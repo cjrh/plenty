@@ -245,6 +245,7 @@ impl CollectionOp {
             | ViewLen(_)
             | ViewRow(..)
             | ViewItem(..)
+            | ViewGetRef(..)
             | ViewEqual(_)
             | ViewSwap(_)
             | ViewSort(_)

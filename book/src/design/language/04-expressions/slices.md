@@ -275,7 +275,8 @@ fixed: a method that would add or remove elements belongs to the owner.
 | `sorted(v)?` | yes | copy with `list(v)?`, then sort | copy with `list(v)?`, then sort |
 | `append`, `extend`, `insert`, `pop`, `clear`, `reserve` | yes | length is fixed | length is fixed |
 | `get` | yes | yes | yes |
-| `get_ref`, `get_mut` | yes | not yet (issue #890) | not yet (issue #890) |
+| `get_ref` | yes | yes | yes |
+| `get_mut` | yes | read-only | yes |
 
 `x in v`, `v.count(x)`, `v.find(x)`, and `v.rfind(x)` compare `x` with each
 element using the element type's `==`, so they take the element types a list's
@@ -303,8 +304,36 @@ rejected with a pointer to `list(v)?`.
 `v.get(i)` returns `Some` copy of element `i`, or `Nothing` outside the view,
 with [`list.get`](../../facilities/01-builtins/lists.md#lookup-and-removal)'s
 contract: a negative index counts from the view's end, and the element type
-must not be affine; borrow an affine element with `&v[i]`. Optional borrowed
-lookup on views is issue #890.
+must not be affine; borrow an affine element with `v.get_ref(i)`.
+
+`v.get_ref(i)` and, on an exclusive view, `v.get_mut(i)` lend element `i` in
+place with the contracts of
+[`list.get_ref` and `list.get_mut`](../../facilities/01-builtins/lists.md#lookup-and-removal):
+every element type, a negative index counts from the view's end, and the result
+is `Nothing` outside the view instead of trapping as `&v[i]` does. The index is
+observed before the view. The result holds a loan of the whole view, shared for
+`get_ref` and exclusive for `get_mut`, and so of the view's owner, until its
+last use. The lookup compiles inline to one bounds comparison, with no runtime
+call or allocation.
+
+```plenty
+def main() -> Result[(), AllocError | IoError]:
+    mut rows = [[1]?, [2]?, [3]?]?
+    tail = &mut rows[1:]
+    match tail.get_mut(-1):
+        case Some(row):
+            row.append(30)?
+        case Nothing:
+            pass
+    print(tail.get_ref(0), tail.get_ref(2).is_some())?
+    print(rows)?
+    Ok(())
+```
+
+```output
+Option[&list[i64]].Some([2]) False
+[[1], [2], [3, 30]]
+```
 
 `v.reverse()` reorders an exclusive view's elements with `list.reverse`'s
 contract: every element type, and no allocation, copy, retain, or drop.
