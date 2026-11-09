@@ -529,6 +529,7 @@ impl Parser {
             at: at.clone(),
             inputs: vec![],
             defaults: vec![],
+            input_at: Vec::new(),
             output,
             doc: String::new(),
             doc_at: None,

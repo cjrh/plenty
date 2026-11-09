@@ -104,9 +104,141 @@ def walk(n: i64) -> Result[i64, OverflowError[i64]]:
 "#,
         &[
             "recursive call to `walk`",
-            "context opened at",
-            "post-call exit action",
+            "the `with` context opened at 9:10 runs its exit after the call returns; \
+             bind the call's result to a local and return the local instead",
         ],
+    );
+}
+
+/// A borrower writes a lent pipeline's state back to the lender when it
+/// returns, so forwarding the pipeline in tail position cannot reuse the
+/// frame. The diagnostic names the source function or instance, never a
+/// frame or method symbol, and gives the rewrite (issue #885).
+#[test]
+fn lent_pipeline_write_back_names_the_source_function_and_the_rewrite() {
+    let reason = |name: &str, at: &str| {
+        format!(
+            " in tail position but cannot be a tail call: the state of lent pipeline `{name}` \
+             (declared at {at}) is written back to the lender after the call returns; \
+             bind the call's result to a local and return the local instead"
+        )
+    };
+    let cases = [
+        (
+            "def nested(p: &mut Iter[i64], again: bool) -> Option[i64]:
+    if again:
+        drop(next(p))
+        return nested(p, False)
+    next(p)
+mut p = iter(range(10))
+drop(nested(&mut p, True))
+",
+            "4:16: recursive call to `nested` is",
+            "1:12",
+        ),
+        (
+            "def tagged[T](p: &mut Iter[i64], label: T, again: bool) -> Option[i64]:
+    if again:
+        drop(next(p))
+        return tagged(p, label, False)
+    next(p)
+mut p = iter(range(10))
+drop(tagged(&mut p, \"x\", True))
+",
+            "in instantiation `tagged[str]`: recursive call to `tagged[str]` is",
+            "1:15",
+        ),
+        (
+            "def first[T](items: &mut Iter[i64], tag: T, again: bool) -> Option[i64]:
+    if again:
+        return second(items, tag)
+    next(items)
+def second[T](items: &mut Iter[i64], tag: T) -> Option[i64]:
+    drop(next(items))
+    first(items, tag, False)
+mut p = iter(range(10))
+drop(first(&mut p, 1u8, True))
+",
+            "recursive call to `second[u8]` (in the same direct recursion cycle as `first[u8]`) is",
+            "1:14",
+        ),
+        (
+            "class Walker:
+    n: i64
+    def walk(self, p: &mut Iter[i64], again: bool) -> Option[i64]:
+        if again:
+            drop(next(p))
+            return self.walk(p, False)
+        next(p)
+w = Walker(0)
+mut p = iter(range(10))
+drop(w.walk(&mut p, True))
+",
+            "6:20: recursive call to `Walker.walk` is",
+            "3:20",
+        ),
+        (
+            "class Walker[T]:
+    tag: T
+    def walk(self, p: &mut Iter[i64], again: bool) -> Option[i64]:
+        if again:
+            drop(next(p))
+            return self.walk(p, False)
+        next(p)
+w = Walker(1u8)
+mut p = iter(range(10))
+drop(w.walk(&mut p, True))
+",
+            "recursive call to `Walker[u8].walk` is",
+            "3:20",
+        ),
+        // Swapped lent arguments reach a second frame of `nested`; the note
+        // must not name the function as its own cycle partner.
+        (
+            "def nested(p: &mut Iter[i64], q: &mut Iter[i64], again: bool) -> Option[i64]:
+    if again:
+        drop(next(p))
+        return nested(q, p, False)
+    next(p)
+mut a = iter(range(10))
+mut b = iter(range(10))
+drop(nested(&mut a, &mut b, True))
+",
+            "4:16: recursive call to `nested` is",
+            "1:12",
+        ),
+    ];
+    for (source, call, at) in cases {
+        let error = support::check_diagnostic(source);
+        let name = if source.contains("items") {
+            "items"
+        } else {
+            "p"
+        };
+        assert!(
+            error.contains(&format!("{call}{}", reason(name, at))),
+            "{error}"
+        );
+        assert!(!error.contains("__plenty"), "{error}");
+    }
+}
+
+#[test]
+fn lent_pipeline_recursion_with_a_bound_result_keeps_the_items() {
+    assert_eq!(
+        support::run_stdout(
+            "def nested(p: &mut Iter[i64], again: bool) -> Option[i64]:
+    if again:
+        drop(next(p))
+        found = nested(p, False)
+        return found
+    next(p)
+mut p = iter(range(10))
+print(nested(&mut p, True)).unwrap()
+print(next(p)).unwrap()
+"
+        ),
+        "Option[i64].Some(1)\nOption[i64].Some(2)\n"
     );
 }
 
@@ -164,7 +296,7 @@ class Walker:
         child = Walker()
         child.walk(n - 1)
 "#,
-        &["recursive call to", "local `child`"],
+        &["recursive call to `Walker.walk`", "local `child`"],
     );
 }
 

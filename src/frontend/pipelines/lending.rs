@@ -652,6 +652,7 @@ impl Lower<'_> {
     pub(in crate::frontend) fn receive_lent(
         &mut self,
         at: &Token,
+        parameters: &[Token],
         ops: &mut Vec<Op>,
     ) -> Result<Vec<Op>> {
         let inputs = self.sigs[&self.function_name].inputs.clone();
@@ -862,7 +863,7 @@ impl Lower<'_> {
                 slot: marker,
                 exit: exit.clone(),
                 loan: None,
-                kind: contexts::Kind::Lent,
+                kind: first_lent(&inputs, parameters, at),
                 at: site(at, false),
             });
         }
@@ -886,4 +887,14 @@ impl Lower<'_> {
         ops.push(Op::Drop);
         Ok(self.pipeline.plans[index].clone())
     }
+}
+
+/// The first lent parameter's name and declared position, which a rejected
+/// tail call names instead of the function header (issue #885).
+#[inline(never)]
+fn first_lent(inputs: &[(String, Ty)], parameters: &[Token], at: &Token) -> contexts::Kind {
+    let index = inputs.iter().position(|(_, ty)| identity(ty).is_some());
+    let name = index.map_or("", |i| inputs[i].0.as_str());
+    let declared = index.and_then(|i| parameters.get(i)).unwrap_or(at);
+    contexts::Kind::Lent(name.into(), site(declared, false))
 }

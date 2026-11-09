@@ -1843,20 +1843,31 @@ impl Engine {
     }
 
     /// Scans every instance, so it is for diagnostics only: lowering takes a
-    /// new instance's name from `instantiate`.
+    /// new instance's name from `instantiate`. A method is `Class.method`,
+    /// without its internal symbol prefix.
     pub(super) fn diagnostic_name(&self, symbol: &str) -> String {
         self.cache
             .iter()
             .find_map(|((id, types), instance)| {
-                (instance == symbol)
-                    .then(|| instance_name(&self.instantiated[*id as usize].0, types))
-            })
-            .or_else(|| {
-                self.frames.iter().find_map(|((name, types), instance)| {
-                    (instance == symbol).then(|| instance_name(name, types))
+                (instance == symbol).then(|| {
+                    instance_name(
+                        crate::record::method_display(&self.instantiated[*id as usize].0),
+                        types,
+                    )
                 })
             })
-            .unwrap_or_else(|| symbol.into())
+            .or_else(|| self.frame_name(symbol))
+            .unwrap_or_else(|| crate::record::method_display(symbol).into())
+    }
+
+    /// A frame specializes its consumer for the argument types at one call,
+    /// which the source never wrote as type arguments, so it is named by its
+    /// consumer: the source function or its generic instance (issue #885).
+    #[inline(never)]
+    fn frame_name(&self, symbol: &str) -> Option<String> {
+        self.frames.iter().find_map(|((name, _), instance)| {
+            (instance == symbol).then(|| self.diagnostic_name(name))
+        })
     }
 
     fn infer_bounds(
@@ -2259,6 +2270,7 @@ impl Engine {
             at: template.at.clone(),
             inputs: template.inputs.clone(),
             defaults: template.defaults.clone(),
+            input_at: template.input_at.clone(),
             output: template.output.clone(),
             doc: template.doc.clone(),
             doc_at: template.doc_at.clone(),

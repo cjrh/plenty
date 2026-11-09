@@ -9,9 +9,26 @@ pub(super) struct Candidate {
 
 enum Rejection {
     ContextExit(crate::ownership::Site),
+    /// A lent pipeline parameter, written back to its lender after the call.
+    LentWriteBack(Arc<str>, crate::ownership::Site),
     LocalReference(Option<Arc<str>>, Option<crate::ownership::Site>),
     ReferenceProof,
     PostCall,
+}
+
+/// The rewrite for a call that work after it keeps out of tail position: an
+/// ordinary call followed by a return uses native stack, as non-tail
+/// recursion does.
+const BIND_FIRST: &str = "bind the call's result to a local and return the local instead";
+
+/// A context exit that would run after the call. A lent pipeline's exit
+/// is the write-back the callee's caller depends on (issue #885).
+#[inline(never)]
+fn context_rejection(context: &contexts::Context) -> Rejection {
+    match &context.kind {
+        contexts::Kind::Lent(name, at) => Rejection::LentWriteBack(Arc::clone(name), *at),
+        _ => Rejection::ContextExit(context.at),
+    }
 }
 
 impl std::fmt::Display for Rejection {
@@ -19,7 +36,12 @@ impl std::fmt::Display for Rejection {
         match self {
             Self::ContextExit(at) => write!(
                 f,
-                "the context opened at {}:{} requires a post-call exit action",
+                "the `with` context opened at {}:{} runs its exit after the call returns; {BIND_FIRST}",
+                at.line, at.column
+            ),
+            Self::LentWriteBack(name, at) => write!(
+                f,
+                "the state of lent pipeline `{name}` (declared at {}:{}) is written back to the lender after the call returns; {BIND_FIRST}",
                 at.line, at.column
             ),
             Self::LocalReference(name, at) => {
@@ -90,7 +112,7 @@ impl Lower<'_> {
         }
         self.mark(at, ops);
         let fallback = if let Some(context) = self.contexts.last() {
-            Rejection::ContextExit(context.at)
+            context_rejection(context)
         } else if let Some(loan) = loans.iter().map(|id| &self.loans[*id]).find(|loan| {
             !self.sigs[&self.function_name]
                 .inputs
@@ -311,17 +333,10 @@ pub(super) fn validate(
                     .then(|| candidate.fallback.to_string())
                 });
             if let Some(reason) = reason {
-                let cycle = if caller_index == callee_index {
-                    String::new()
-                } else {
-                    format!(
-                        " (in the same direct recursion cycle as `{}`)",
-                        generics.diagnostic_name(name)
-                    )
-                };
+                let callee = generics.diagnostic_name(&candidate.callee);
                 let message = format!(
-                    "recursive call to `{}`{cycle} is in tail position but cannot be a tail call: {reason}",
-                    generics.diagnostic_name(&candidate.callee)
+                    "recursive call to `{callee}`{} is in tail position but cannot be a tail call: {reason}",
+                    cycle_note(generics, name, &callee, caller_index == callee_index)
                 );
                 return Err(match generics.requirement_of(sigs, name) {
                     Some(required) => required
@@ -416,6 +431,21 @@ fn components(graph: &[Vec<usize>]) -> Vec<usize> {
         }
     }
     components
+}
+
+/// Names the caller when the cycle passes through another function. Two
+/// specializations of one source function, such as frames for swapped lent
+/// arguments, read as direct recursion (issue #885).
+#[inline(never)]
+fn cycle_note(generics: &generics::Engine, caller: &str, callee: &str, same: bool) -> String {
+    if same {
+        return String::new();
+    }
+    let caller = generics.diagnostic_name(caller);
+    if caller == callee {
+        return String::new();
+    }
+    format!(" (in the same direct recursion cycle as `{caller}`)")
 }
 
 #[cfg(test)]

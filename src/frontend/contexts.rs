@@ -13,8 +13,9 @@ pub(super) enum Kind {
     Lock(String, Ty, bool),
     /// The exit cancels the token share the slot holds.
     Cancel,
-    /// The exit writes a lent pipeline's state back to its lender.
-    Lent,
+    /// The exit writes a lent pipeline's state back to its lender. Names the
+    /// first lent parameter and where it is declared, for diagnostics.
+    Lent(Arc<str>, crate::ownership::Site),
 }
 
 pub(super) struct Context {
