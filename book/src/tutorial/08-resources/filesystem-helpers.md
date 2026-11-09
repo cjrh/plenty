@@ -124,6 +124,31 @@ for custom modes, ACLs, umask and errors.
 
 ## Create a directory tree
 
+For an ordinary configured path, use `fs.create_dirs`. It follows symlinks and
+resolves `.` and `..` as the OS does, accepts absolute paths, and needs no
+readable directory handle:
+
+```plenty
+import std.fs as fs
+import std.path as path
+
+def main() -> Result[(), AllocError | IoError]:
+    state = path.from_text("app/state/runs")?
+    fs.create_dirs(&state)?
+    fs.create_dirs(&state)?
+    Ok(())
+```
+```output
+```
+
+Each missing level requests mode 0700 by default, subject to OS permissions,
+umask and ACLs. Existing directories keep their modes, so success does not
+certify that an existing path is private. See the
+[ordinary-path contract and API comparison](../../design/stdlib/fs/creation.md).
+
+For traversal from an already-open directory that must reject symlinks and dot
+segments, use the rooted operation:
+
 An application often needs a private directory and its parents, and must accept
 them if an earlier run already made them. `Root.create_dirs` takes a relative
 path, creates each missing directory with mode 0700 by default and returns the

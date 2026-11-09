@@ -160,6 +160,37 @@ def valid_unix_mode(unix_mode: u32) -> Result[(), IoError]:
         return Err(IoError.InvalidInput)
     Ok(())
 
+# Preserve raw prefixes: lexical normalization would change link/.. resolution.
+# Validate all arguments before the first native call can create a directory.
+pub def create_dirs(path: &Path, unix_mode: u32 = 0o700u32) -> Result[(), IoError]:
+    valid_unix_mode(unix_mode)?
+    bytes = path.as_bytes()
+    if len(bytes) == 0 or 0u8 in bytes:
+        return Err(IoError.InvalidInput)
+    mut prefix = io_alloc(list[u8].with_capacity(len(bytes)))?
+    for byte in bytes:
+        if byte == 47u8 and len(prefix) > 0:
+            ensure_directory(&prefix, unix_mode)?
+        io_alloc(prefix.append(*byte))?
+    ensure_directory(&prefix, unix_mode)
+
+def ensure_directory(path: &list[u8], unix_mode: u32) -> Result[(), IoError]:
+    match __fs_check_dir_path(path):
+        case Ok(_):
+            return Ok(())
+        case Err(IoError.System(2i32)):
+            pass
+        case Err(error):
+            return Err(error)
+    match __fs_make_dir_path(path, unix_mode):
+        case Ok(_):
+            return Ok(())
+        case Err(IoError.System(17i32)):
+            # A concurrent creator or a dangling symlink: lookup decides.
+            return __fs_check_dir_path(path)
+        case Err(error):
+            return Err(error)
+
 # Changes the held inode, never a replacement reached through its old pathname.
 pub def set_file_unix_mode(stream: &FileStream, unix_mode: u32) -> Result[(), IoError]:
     valid_unix_mode(unix_mode)?

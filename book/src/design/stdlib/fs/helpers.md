@@ -1,6 +1,6 @@
 # Rooted filesystem helpers
 
-`std.fs` mutation helpers operate on an owned `Root`, opened by
+The rooted `std.fs` mutation helpers operate on an owned `Root`, opened by
 `root(&path) -> Result[Root, IoError]`. The handle anchors operations to that
 directory even if its pathname changes. Opening rejects a final symlink,
 including a path with trailing slashes. Ancestor components of the initial
@@ -122,6 +122,10 @@ the same 64-bit Linux scope as the rooted helpers; unsupported hosts return
 public policy remain Plenty code.
 
 ## Creating a directory tree
+
+For absolute paths or ordinary symlink and dot-segment resolution, use the
+separate [`fs.create_dirs`](creation.md) operation. It returns unit and leaves
+this rooted method’s strict path contract unchanged.
 
 `Root.create_dirs(&path, unix_mode=0o700u32) -> Result[Root, IoError]` makes
 sure every component of a relative path exists as a directory below this root.

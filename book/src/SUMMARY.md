@@ -443,6 +443,7 @@
             - [Metadata and links](design/stdlib/fs/metadata.md)
             - [Walking a tree](design/stdlib/fs/walking.md)
             - [Rooted filesystem helpers](design/stdlib/fs/helpers.md)
+            - [Ordinary-path directory creation](design/stdlib/fs/creation.md)
             - [Temporary resources](design/stdlib/fs/temporary.md)
             - [Bounded operations](design/stdlib/fs/operations.md)
             - [Filesystem copying](design/stdlib/fs/copying.md)

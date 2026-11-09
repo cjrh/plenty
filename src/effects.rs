@@ -76,6 +76,8 @@ impl FsOp {
             | Self::Metadata
             | Self::ReadLink
             | Self::Symlink
+            | Self::MakeDirPath
+            | Self::CheckDirPath
             | Self::Canonicalize
             | Self::Root
             | Self::WatchAdd

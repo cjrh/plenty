@@ -761,6 +761,21 @@ mod native {
         // borrows end before the caller releases its temporary retained inputs.
         unsafe {
             match op {
+                632 => {
+                    let path = bounded_path(a)?;
+                    checked(libc::mkdir(path.as_ptr(), b as libc::mode_t))?;
+                    Ok(0)
+                }
+                633 => {
+                    let path = bounded_path(a)?;
+                    let mut info = std::mem::MaybeUninit::<libc::stat>::uninit();
+                    checked(libc::stat(path.as_ptr(), info.as_mut_ptr()))?;
+                    // stat follows links without requiring directory read access.
+                    if info.assume_init().st_mode & libc::S_IFMT != libc::S_IFDIR {
+                        return Err(std::io::Error::from_raw_os_error(libc::ENOTDIR).into());
+                    }
+                    Ok(0)
+                }
                 630 => symlink(a, b),
                 631 => canonicalize(a, descriptor.variants[0].fields[0]),
                 150 => open(a),
