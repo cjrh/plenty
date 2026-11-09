@@ -649,6 +649,25 @@ fn a_generator_yields_only_through_shared_carried_references() {
     }
 }
 
+/// A copy of a carried parameter may stay live across `yield`; a `mut`
+/// holder declared empty and assigned the parameter later may not, as the
+/// generators reference documents.
+#[test]
+fn a_generator_holds_copies_of_carried_parameters() {
+    let program = |bind: &str| {
+        format!(
+            "def g(o: Option[&str]) -> Generator[i64]:\n{bind}    yield 1\n    match keep:\n        case Some(s):\n            print(s).unwrap()\n        case Nothing:\n            pass\n\ndef main() -> Result[(), AllocError | IoError]:\n    s = ('a' + 'b')?\n    for x in g(Some(&s)):\n        print(x)?\n    Ok(())\n"
+        )
+    };
+    for bind in ["    keep = o\n", "    mut keep = o\n"] {
+        assert_stdout(&program(bind), "1\nab\n");
+    }
+    rejects(
+        &program("    mut keep: Option[&str] = Nothing\n    keep = o\n"),
+        "a borrow of `keep` cannot remain live across yield",
+    );
+}
+
 /// Issue #868: a `mut` holder that starts empty borrows the place of the
 /// first value assigned to it, from that assignment on.
 #[test]
