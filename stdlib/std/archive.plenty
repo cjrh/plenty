@@ -570,7 +570,6 @@ pub class TarReader[R]:
                     pending.link = Some(value)
             else:
                 return Ok(Some(self.entry(flag, size, &mut pending)?))
-        Ok(Nothing)
 
     def entry(self: &mut TarReader[R], flag: i64, header_size: i64, pending: &mut Pending) -> Result[Entry, ArchiveError]:
         block = &self._block
@@ -1307,7 +1306,6 @@ pub class ZipReader[R]:
                 # Native consumption <= in_stop-in_start; both cursors <= chunk.
                 unchecked:
                     self._in_start += coded(self._decoder.step(&self._input[self._in_start:self._in_stop]))?
-        Ok(0)
 
     # Errors from `inner` leave the entry intact, so Interrupted and other
     # transient failures can be retried.
@@ -1747,7 +1745,6 @@ def tar_entries[R](archive: &mut TarReader[R], job: &mut Job, policy: &Policy, c
                 return Ok(())
             case Some(entry):
                 place(job, archive, &entry.name, entry.kind, entry.size, entry.compressed, policy, cancel)?
-    Ok(())
 
 def zip_entries[R](archive: &mut ZipReader[R], job: &mut Job, policy: &Policy, cancel: &CancellationToken) -> Result[(), ArchiveError]:
     if archive.len() > policy.max_entries:

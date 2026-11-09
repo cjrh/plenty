@@ -377,7 +377,6 @@ def lookup(text: &[u8]) -> Option[str]:
         # table returns Nothing at 20, before the counter can grow further.
         unchecked:
             index += 1
-    Nothing
 
 # The Content-Type for the extension of the file name or path `name`, or
 # application/octet-stream when it has none in the table. Allocates nothing.

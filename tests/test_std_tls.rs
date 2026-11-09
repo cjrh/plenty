@@ -38,7 +38,6 @@ def drain(stream: &mut TlsStream, deadline: &Deadline, cancel: &CancellationToke
         if count == 0:
             return Ok(total)
         total += count
-    Ok(total)
 
 "#;
 
@@ -117,7 +116,6 @@ def echo(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, can
             return Ok(total)
         stream.write_all_before(&buffer[:count], deadline, cancel)?
         total += count
-    Ok(total)
 "#;
 
 #[test]
@@ -493,7 +491,6 @@ def serve(listener: &TcpListener, config: &ServerConfig, deadline: &Deadline, ca
             return Ok(total)
         stream.write_all_before(&buffer[:count], deadline, cancel)?
         total += count
-    Ok(total)
 
 def ping(stream: &mut TlsStream, deadline: &Deadline, cancel: &CancellationToken) -> Result[(), TlsError]:
     message = std.bytes.from_text("ping").unwrap()
@@ -836,7 +833,6 @@ def nonblocking_echo(listener: &TcpListener, config: &ServerConfig, deadline: &D
             selector.wait(deadline, cancel).unwrap()
             if selector.event(0).unwrap().key != 7u64:
                 return Err(TlsError.Protocol)
-    Ok(total)
 "#;
 
 #[test]

@@ -30,6 +30,7 @@ start with `error: FILE:LINE:COLUMN:`.
 | `` `from` imports declarations, and `pkg.sub` is a module `` | Python's `from pkg import sub` for a module | `import pkg.sub` or `import pkg.sub as sub` |
 | `` `pkg.sub` is a module, not a declaration `` | A module used as a value | Name one of its members: `pkg.sub.f()` |
 | `expected Result[...], got ()` at the end of `main` | Missing final value | End with `Ok(())` |
+| ``unreachable statement after a `while True:` loop with no `break` `` | A fallback result after a loop that only returns | Delete it: the loop ends the function |
 
 ## Examples
 

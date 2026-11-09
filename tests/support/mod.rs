@@ -46,7 +46,15 @@ pub fn program(source: &str) -> String {
         return source.into();
     }
     let (declarations, statements) = split_fragment(source);
-    format!("{declarations}\ndef main() -> ():\n{statements}    pass\n")
+    // A loop is unit-valued, and a statement after `while True:` without a
+    // `break` would be unreachable (issue #896), so a final loop needs no
+    // `pass` to end `main`.
+    let last = statements
+        .lines()
+        .rfind(|line| !line.trim().is_empty() && !line[4..].starts_with([' ', '#']));
+    let ends_in_loop = last.is_some_and(|line| line[4..].starts_with("while "));
+    let tail = if ends_in_loop { "" } else { "    pass\n" };
+    format!("{declarations}\ndef main() -> ():\n{statements}{tail}")
 }
 
 fn split_fragment(source: &str) -> (String, String) {

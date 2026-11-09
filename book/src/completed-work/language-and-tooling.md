@@ -5,6 +5,18 @@
 These records describe delivered subsets and concluded decisions. References
 own current contracts; extensions of a mixed B item stay in the backlog.
 
+## Diverging `while True:` loops (issue #896)
+
+A `while` loop whose condition is the literal `True` and whose body has no
+`break` leaving it is a control-flow exit, like `return`. It can end a function
+that returns a value, and a statement after it is rejected as unreachable. A
+`break` in a nested loop does not count; one in an `if`, `match`, `with` or
+checked suite does. One shared predicate decides this for type checking, the
+operation checker, ownership analysis and code generation. The standard
+library, tutorial and tests no longer write unreachable fallback results after
+such loops. See
+[loops that never finish](../design/language/04-expressions/loops.md#loops-that-never-finish).
+
 ## Module-local iteration builtins (issue #898)
 
 Calls to `iter`, `enumerate`, `zip`, `reversed`, `any` and `all` bind in the

@@ -111,7 +111,6 @@ def collect(receiver: &Receiver[i64]) -> Result[i64, OverflowError[i64]]:
                 total = total + n
             case Err(_):
                 return Ok(total)
-    Ok(total)
 
 def count(stats: &Mutex[i64], rounds: i64) -> Result[(), OverflowError[i64]]:
     for _ in range(rounds):

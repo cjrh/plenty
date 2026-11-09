@@ -489,7 +489,6 @@ pub class Child:
                 drop(cancel.wait_timeout_ms(10u64))
             else:
                 drop(cancel.wait_timeout_ms(left))
-        Ok(Nothing)
 
     # Sends a signal to a child that has not been reaped; afterwards a no-op,
     # so the number can never reach an unrelated process that reused the pid.

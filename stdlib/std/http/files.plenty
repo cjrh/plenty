@@ -137,7 +137,6 @@ pub def open_file(root: &Root, path: &strview) -> Result[Option[FileStream], Fil
         # stop<count<=max_path=4096; the next segment starts within data.
         unchecked:
             at = stop + 1
-    Ok(Nothing)
 
 # The media type for `name`'s extension, compared without case;
 # application/octet-stream for any other. The table is std.mime's.

@@ -45,7 +45,6 @@ pub class Echo:
                     return Ok(())
                 case Message.Close(code):
                     return Ok(())
-        Ok(())
 
 def chat(port: u16, stop: CancellationToken) -> Result[(), ChatError | IoError]:
     with stop.cancel_on_exit():

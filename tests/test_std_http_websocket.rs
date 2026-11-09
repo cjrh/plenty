@@ -313,7 +313,6 @@ def echo(socket: &mut ws.WebSocket[TcpStream]) -> Result[str, WebSocketError | s
                 return Ok("closed ".concat(&str.from(code)?)?.concat(" ")?.concat(&buffer.to_text()?)?)
             case Err(error):
                 return Ok(str.repr(&error)?)
-    Ok("")
 
 def main() -> Result[(), std.net.NetError | std.http.server.ServerError | AllocError | IoError]:
     mut table = std.http.server.router[Route]()?
@@ -787,7 +786,6 @@ pub class App:
                 case Message.Close(code):
                     print("server saw", code, buffer.to_text()?)?
                     return Ok(())
-        Ok(())
 
 def later() -> Result[Deadline, RangeError]:
     Ok(std.time.deadline_after(&std.time.monotonic_now(), &std.time.seconds(10u32))?)

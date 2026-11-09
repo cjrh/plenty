@@ -267,7 +267,6 @@ def transfer[R: Reader](source: &mut R, target: &mut FileStream, scratch: &mut B
                     total += count
                 case Err(partial):
                     return Err(FsError.Stream(partial.cause))
-        Ok(total)
 
 def copy_buffer() -> Result[Bytes, FsError]:
     mut scratch = fs_alloc(std.bytes.with_capacity(8192))?
@@ -550,7 +549,6 @@ pub def glob(parent: &Root, pattern: &Path, max_entries: NonNegative[i64], max_m
                     if len(result) == max_matches.get():
                         return Err(FsError.Limit)
                     fs_alloc(result.append(name))?
-    Ok(result)
 
 pub enum FileType:
     File
@@ -760,7 +758,6 @@ def scan_open(path: Path, owner: ReadDir) -> Result[WalkDir, WalkError]:
                         return Ok(WalkDir(path, directories, files))
             case Err(error):
                 return Err(WalkError.Io(path, "next", error))
-    Ok(WalkDir(path, directories, files))
 
 # Only scan owns a native directory stream. Pending frames are detached values;
 # bottom-up retains a row at each active level until its children finish.
@@ -826,7 +823,6 @@ pub class Walk:
                                         stored(self._pending.append(child))?
                                     case Nothing:
                                         pass
-        Ok(False)
 
 pub def walk(root: &Path, top_down: bool) -> Result[Walk, AllocError]:
     mut pending = list[Frame].with_capacity(1)?
