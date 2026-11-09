@@ -244,7 +244,6 @@ pub def copy_all[R: Reader, W: Writer](reader: &mut R, writer: &mut W, scratch: 
             case Err(cause):
                 if not interrupted(&cause):
                     return Err(CopyError.Read(total, cause))
-    Ok(total)
 
 # A fixed-capacity read buffer in front of `inner`. The buffer is allocated
 # once and never grows. `inner` is public so its owner can be closed or

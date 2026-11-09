@@ -977,6 +977,49 @@ enum BlockResult {
 }
 
 impl Lower<'_> {
+    /// Lowers a `while` statement and reports whether the loop never
+    /// completes ([`crate::op::loop_diverges`]). Kept out of line so deeply
+    /// nested blocks keep their recursion frames small.
+    #[inline(never)]
+    fn while_statement(
+        &mut self,
+        condition: &Expr,
+        body: &[Stmt],
+        temporary_start: usize,
+        ops: &mut Vec<Op>,
+    ) -> Result<bool> {
+        self.indexed_lists.push(collections::IndexedLists::new(
+            self.parameters + self.locals.len(),
+        ));
+        let mut test = Vec::new();
+        let ty = self.expr(condition, &mut test);
+        let mut lowered = Vec::new();
+        let result = ty.and_then(|ty| {
+            self.same(ty, Some(Ty::Bool), &condition.at)?;
+            self.building(&condition.at, 0, &mut test, false);
+            self.finish_temporaries(temporary_start, &mut test);
+            let saved = self.names.clone();
+            self.loop_steps.push(Vec::new());
+            self.loop_scopes.push(self.locals.len());
+            let result = self.block(body, &mut lowered, &Tail::Discard);
+            self.loop_steps.pop();
+            self.loop_scopes.pop();
+            self.names = saved;
+            result
+        });
+        let setup = self.finish_loop(&mut [&mut test, &mut lowered]);
+        result?;
+        ops.extend(setup);
+        let diverges = crate::op::loop_diverges(&test, &lowered);
+        ops.push(Op::Loop {
+            condition: test.into(),
+            body: lowered.into(),
+        });
+        Ok(diverges)
+    }
+}
+
+impl Lower<'_> {
     /// The operation of an `if` statement, after joining the different producers
     /// its branches choose when `join` (see [`Lower::join_values`]). Kept
     /// out of line so deeply nested blocks keep their recursion frames small.
@@ -1047,6 +1090,18 @@ fn exited_block(body: &[Stmt], index: usize) -> Result<BlockResult> {
         return Err(next
             .at
             .error("unreachable statement after a control-flow exit"));
+    }
+    Ok(BlockResult::Exits)
+}
+
+/// [`exited_block`] for a `while` loop that never completes; see
+/// [`crate::op::loop_diverges`].
+#[inline(never)]
+fn diverged_block(body: &[Stmt], index: usize) -> Result<BlockResult> {
+    if let Some(next) = body.get(index + 1) {
+        return Err(next
+            .at
+            .error("unreachable statement after a `while True:` loop with no `break`"));
     }
     Ok(BlockResult::Exits)
 }
@@ -3924,33 +3979,13 @@ impl Lower<'_> {
                     ops.push(if is_continue { Op::Continue } else { Op::Break });
                     return exited_block(body, i);
                 }
-                Statement::While { condition, body } => {
-                    self.indexed_lists.push(collections::IndexedLists::new(
-                        self.parameters + self.locals.len(),
-                    ));
-                    let mut test = Vec::new();
-                    let ty = self.expr(condition, &mut test);
-                    let mut lowered = Vec::new();
-                    let result = ty.and_then(|ty| {
-                        self.same(ty, Some(Ty::Bool), &condition.at)?;
-                        self.building(&condition.at, 0, &mut test, false);
-                        self.finish_temporaries(temporary_start, &mut test);
-                        let saved = self.names.clone();
-                        self.loop_steps.push(Vec::new());
-                        self.loop_scopes.push(self.locals.len());
-                        let result = self.block(body, &mut lowered, &Tail::Discard);
-                        self.loop_steps.pop();
-                        self.loop_scopes.pop();
-                        self.names = saved;
-                        result
-                    });
-                    let setup = self.finish_loop(&mut [&mut test, &mut lowered]);
-                    result?;
-                    ops.extend(setup);
-                    ops.push(Op::Loop {
-                        condition: test.into(),
-                        body: lowered.into(),
-                    });
+                Statement::While {
+                    condition,
+                    body: inner,
+                } => {
+                    if self.while_statement(condition, inner, temporary_start, ops)? {
+                        return diverged_block(body, i);
+                    }
                     None
                 }
                 Statement::For {

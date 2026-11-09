@@ -85,7 +85,6 @@ def lines(out: &mut Bytes, name: &strview, text: &[u8]) -> Result[(), SseError]:
             # at<stop proves the CRLF's second byte can be consumed.
             unchecked:
                 at += 1
-    Ok(())
 
 # The byte scan found a break at found>=0 inside text[at:]. Thus
 # at+found < len(text) <= i64.MAX, and its successor is at most len(text).
@@ -216,7 +215,6 @@ pub class EventStream[T]:
                     return Err(SseError.Stopping)
                 case Err(error):
                     return self.failed(net_error(error))
-        Ok(())
 
     # Ends the response: the client sees the connection close. Closing a
     # closed stream does nothing.

@@ -43,7 +43,6 @@ pub class Shout:
                     return Ok(())
                 case _:
                     socket.send_text(&message.to_text()?.upper()?, &soon()?, &wait_cancel)?
-        Ok(())
 
 def chat(port: u16, stop: CancellationToken) -> Result[(), ChatError | IoError]:
     with stop.cancel_on_exit():

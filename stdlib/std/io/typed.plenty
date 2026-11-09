@@ -210,4 +210,3 @@ pub def copy_all[E, G, R: Reader[E], W: Writer[G]](reader: &mut R, writer: &mut 
                     pass
                 case Err(StepError.Source(cause)):
                     return Err(CopyFailure[E, G].Read(total, ReadFailure[E].Source(cause)))
-        Ok(total)

@@ -1139,7 +1139,6 @@ def closes(stream: &mut TcpStream) -> bool:
                 return False
             case Err(_):
                 return True
-    False
 
 def client(port: u16, stop: CancellationToken) -> ():
     mut first = secure(port)
@@ -1255,7 +1254,6 @@ def closes(stream: &mut TcpStream) -> bool:
                 return False
             case Err(_):
                 return True
-    False
 
 def client(port: u16, stop: CancellationToken) -> ():
     start = std.time.monotonic_now()

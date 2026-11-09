@@ -385,4 +385,3 @@ pub def drain[S: Sink](receiver: &Receiver[Event], sink: &mut S) -> Drained:
                         failed = increment_stat(failed)
             case Err(_):
                 return Drained(delivered, failed)
-    Drained(delivered, failed)

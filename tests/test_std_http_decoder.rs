@@ -108,7 +108,6 @@ def reference(input: &Bytes, limits: &std.http.Limits) -> Result[(i64, i64), Htt
                 total += std.http.discard(&mut body)?
                 requests += 1
                 reader = std.http.finish(&mut body)?
-    Ok((requests, total))
 
 def incremental(input: &Bytes, limits: &std.http.Limits, step: i64) -> Result[(i64, i64), HttpError | OverflowError[i64]]:
     mut parser = std.http.decoder.decoder(limits)?

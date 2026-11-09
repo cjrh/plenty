@@ -83,4 +83,3 @@ pub def acquire_before(path: &Path, mode: Mode, deadline: &Deadline, cancel: &Ca
         slice = 10u64 if remaining > 10u64 else remaining
         if cancel.wait_timeout_ms(slice):
             return Err(LockError.Cancelled)
-    Err(LockError.TimedOut)

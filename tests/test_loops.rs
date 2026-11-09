@@ -120,6 +120,32 @@ fn run(source: &str) -> std::process::Output {
     "mut n = 0\nwhile n < 3:\n    n = n + 1\n    if n > 0:\n        if n < 3:\n            continue\n        else:\n            break\nprint(n).unwrap()",
     "3\n"
 )]
+// `while True:` with no `break` of its own needs no result after it, even
+// when a nested loop has a `break` (issue #896).
+#[case(
+    "def f() -> i64:\n    while True:\n        return 42\nprint(f()).unwrap()",
+    "42\n"
+)]
+#[case(
+    "def f() -> i64:\n    while (True):\n        return 42\nprint(f()).unwrap()",
+    "42\n"
+)]
+#[case(
+    "def f(limit: i64) -> i64:\n    while True:\n        for n in range(10):\n            if n == limit:\n                break\n        while True:\n            break\n        match limit:\n            case 0:\n                return -1\n            case _:\n                return limit\nprint(f(3)).unwrap()\nprint(f(0)).unwrap()",
+    "3\n-1\n"
+)]
+#[case(
+    "class Res:\n    id: i64\n    def __del__(self) -> ():\n        print(\"drop\", self.id).unwrap()\ndef f(r: Res) -> i64:\n    held = Res(2)\n    while True:\n        inner = Res(3)\n        if r.id > 0:\n            return r.id\n        return held.id\nprint(f(Res(1))).unwrap()",
+    "drop 3\ndrop 2\ndrop 1\n1\n"
+)]
+#[case(
+    "def one() -> Generator[i64]:\n    yield 1\ndef two() -> Generator[i64]:\n    yield 2\n    yield 3\ndef pick(flag: bool) -> Generator[i64]:\n    while True:\n        if flag:\n            return one()\n        return two()\nprint(list(pick(True)).unwrap()).unwrap()\nprint(list(pick(False)).unwrap()).unwrap()",
+    "[1]\n[2, 3]\n"
+)]
+#[case(
+    "class Holder:\n    v: i64\n    def get(self) -> i64:\n        while True:\n            return self.v\ndef first[T](x: T) -> T:\n    while True:\n        return x\nprint(Holder(4).get()).unwrap()\nprint(first(5)).unwrap()",
+    "4\n5\n"
+)]
 fn native_loops(#[case] source: &str, #[case] expected: &str) {
     let output = run(source);
     assert!(
@@ -166,9 +192,37 @@ fn native_loops(#[case] source: &str, #[case] expected: &str) {
 #[case("while missing:\n    missing = True", "unknown binding")]
 #[case("for n in range(2):\n    pass\ncontinue", "continue outside a loop")]
 #[case("while False:\n    pass\nbreak", "break outside a loop")]
+// A `break` anywhere in the body except a nested loop leaves `while True:`,
+// so the function still needs a result after the loop (issue #896).
 #[case(
-    "def f() -> i64:\n    while True:\n        return 42",
+    "def f() -> i64:\n    while True:\n        if True:\n            break\n        return 42",
     "expected i64, got ()"
+)]
+#[case(
+    "def f(n: i64) -> i64:\n    while True:\n        match n:\n            case 0:\n                break\n            case _:\n                return n",
+    "expected i64, got ()"
+)]
+#[case(
+    "def f(n: i64) -> i64:\n    while True:\n        unchecked:\n            if n > 0:\n                break\n        return n",
+    "expected i64, got ()"
+)]
+// Only the literal `True` makes a loop diverge, not a constant or another
+// expression that is always true.
+#[case(
+    "const FOREVER: bool = True\ndef f() -> i64:\n    while FOREVER:\n        return 42\ndef main() -> ():\n    drop(f())",
+    "expected i64, got ()"
+)]
+#[case(
+    "def f() -> i64:\n    while not False:\n        return 42",
+    "expected i64, got ()"
+)]
+#[case(
+    "def f() -> i64:\n    while True:\n        return 1\n    2",
+    "4:5: unreachable statement"
+)]
+#[case(
+    "def f() -> ():\n    while True:\n        pass\n    print(1).unwrap()",
+    "4:5: unreachable statement"
 )]
 #[case(
     "def f() -> i64:\n    while False:\n        return True\n    42",

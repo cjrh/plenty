@@ -474,7 +474,6 @@ pub class TlsStream:
             # TCP consumes at most the remaining ciphertext buffer.
             unchecked:
                 self._out_start += written
-        Ok(())
 
     def flush_blocking(self: &mut TlsStream) -> Result[(), StreamError]:
         while True:
@@ -486,7 +485,6 @@ pub class TlsStream:
             # TCP consumes at most the remaining ciphertext buffer.
             unchecked:
                 self._out_start += written
-        Ok(())
 
     # Feeds buffered ciphertext; false when none is buffered.
     def feed_pending(self: &mut TlsStream) -> Result[bool, TlsError]:
@@ -579,7 +577,6 @@ pub class TlsStream:
                         case _:
                             pass
                     return Err(error)
-        Ok(())
 
     # Advances the handshake without waiting; true once it is complete. On a
     # TLS failure the alert is sent if the socket takes it at once.
@@ -599,7 +596,6 @@ pub class TlsStream:
                         case _:
                             pass
                     return Err(error)
-        Ok(True)
 
     # Sends buffered ciphertext without waiting; true once none is left.
     pub def try_flush(self: &mut TlsStream) -> Result[bool, TlsError]:
@@ -615,7 +611,6 @@ pub class TlsStream:
                     return Ok(False)
                 case Err(error):
                     return Err(TlsError.Net(error))
-        Ok(True)
 
     # Decrypted bytes into buffer[start:stop] if any can be had without
     # waiting, finishing the handshake first; Nothing otherwise. Some(0) is
@@ -634,7 +629,6 @@ pub class TlsStream:
             self.try_flush()?
             if not self.try_receive()?:
                 return Ok(Nothing)
-        Ok(Nothing)
 
     # Encrypts at most 16 KiB of source[start:stop] and sends what the socket
     # takes at once; the count taken. Nothing, with nothing taken, while the
@@ -679,7 +673,6 @@ pub class TlsStream:
                 return Ok(count)
             self.flush_before(deadline, cancel)?
             self.receive_before(deadline, cancel)?
-        Ok(0)
 
     # Encrypts at most 16 KiB of source[start:stop] and sends it before the
     # deadline; the count taken. On failure, an unknown prefix has been sent
@@ -739,7 +732,6 @@ pub class TlsStream:
                 return Ok(count)
             self.flush_blocking()?
             flowed(self.receive_blocking())?
-        Ok(0)
 
     pub def write(self: &mut TlsStream, source: &[u8]) -> Result[i64, StreamError]:
         if self._closed:

@@ -303,7 +303,6 @@ pub class Reader[R]:
                 case Err(cause):
                     if not interrupted(&cause):
                         return Err(CsvError.Stream(cause))
-        Ok(0)
 
     # Bytes the open field, which began at `begin`, can still take. None is
     # the limit fault, reported at the byte that does not fit.
@@ -448,7 +447,6 @@ pub class Reader[R]:
             self._start = end
             state = 1
             started = True
-        Ok(False)
 
     # Replaces `record` with the next record. Ok(False) is end of input. A
     # Width error leaves the record filled and the reader usable; any other

@@ -341,7 +341,6 @@ def descriptors() -> Result[i64, AllocError | IoError | OverflowError[i64]]:
                 count += 1
             case Nothing:
                 return Ok(count)
-    Ok(count)
 
 def probe(parent: &fs.Root, name: &path.Path, marker: &str) -> Result[(), AllocError | IoError | OverflowError[i64]]:
     before = descriptors()?
@@ -692,7 +691,6 @@ def descriptors() -> Result[i64, AllocError | IoError | OverflowError[i64]]:
                 count += 1
             case Nothing:
                 return Ok(count)
-    Ok(count)
 
 def probe(parent: &fs.Root, source: &path.Path, file: &path.Path, destination: &path.Path, cancel: &CancellationToken, limits: &fs.CopyLimits, marker: &str, tree: bool) -> Result[(), AllocError | IoError | fs.FsError | OverflowError[i64]]:
     before = descriptors()?

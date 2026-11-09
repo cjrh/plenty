@@ -54,7 +54,6 @@ def requests_from(data: Bytes, limits: &Limits) -> Result[(), HttpError]:
                 text = body_text(&mut body)?
                 print("req", head.method, head.target, head.minor, len(head.headers), str.repr(&framing).unwrap(), std.http.request_keeps_alive(&head), str.repr(&text).unwrap()).unwrap()
                 conn = std.http.finish(&mut body)?
-    Ok(())
 
 def responses_from(data: Bytes, method: &str, limits: &Limits) -> Result[(), HttpError]:
     mut conn = std.io.buffered_reader(std.io.cursor(data), 7).unwrap()
@@ -69,7 +68,6 @@ def responses_from(data: Bytes, method: &str, limits: &Limits) -> Result[(), Htt
                 text = body_text(&mut body)?
                 print("resp", head.minor, head.status, str.repr(&head.reason).unwrap(), str.repr(&framing).unwrap(), std.http.response_keeps_alive(&head, &framing), str.repr(&text).unwrap()).unwrap()
                 conn = std.http.finish(&mut body)?
-    Ok(())
 
 def responses_with_get(data: Bytes, limits: &Limits) -> Result[(), HttpError]:
     responses_from(data, "GET", limits)
@@ -106,7 +104,6 @@ def drain_from(start: BufReader[Cursor]) -> Result[i64, HttpError]:
                 count = unchecked:
                     count + consumed
                 conn = std.http.finish(&mut body)?
-    Ok(count)
 
 def requests(text: &str) -> Result[(), std.bytes.BytesError | AllocError | IoError]:
     shown(requests_from(std.bytes.from_text(text)?, &std.http.limits()))
