@@ -680,6 +680,7 @@ impl Parser {
         let mut address_parameter = None;
         let mut intrinsic = None;
         let mut export_exact = false;
+        let mut object_body = false;
         let symbol = if foreign || exported {
             if !type_params.is_empty() {
                 return Err(at.error(if exported {
@@ -695,7 +696,7 @@ impl Parser {
                 && !inputs.iter().any(|(name, _)| symbol.is(name))
                 && matches!(
                     symbol.text(),
-                    Some("intrinsic" | "address" | "static" | "storage")
+                    Some("intrinsic" | "address" | "static" | "storage" | "object")
                 )
             {
                 use crate::foreign::Intrinsic;
@@ -707,6 +708,10 @@ impl Parser {
                         "offset" => Intrinsic::Offset,
                         _ => return Err(value.error("expected load, store or offset intrinsic")),
                     },
+                    ("object", Kind::Text(target)) => {
+                        object_body = true;
+                        Intrinsic::Object(self.export_object(target.to_string(), &value)?)
+                    }
                     ("address", Kind::Text(target)) => {
                         foreign::check_symbol(target, &value)?;
                         Intrinsic::Address(target.to_string())
@@ -764,7 +769,9 @@ impl Parser {
             None
         };
         if foreign {
-            self.kind(Kind::Newline, "the end of the C declaration")?;
+            if !object_body {
+                self.kind(Kind::Newline, "the end of the C declaration")?;
+            }
             return Ok(Function {
                 once,
                 captures,

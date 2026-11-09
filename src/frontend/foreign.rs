@@ -94,7 +94,7 @@ pub(super) fn check_signature(f: &Function, inputs: &[(String, Ty)], output: &Ty
                     && inputs[1].1 == Ty::U64
                     && output.as_ref() == Some(&inputs[0].1)
             }
-            Intrinsic::Address(_) | Intrinsic::Static { .. } => {
+            Intrinsic::Address(_) | Intrinsic::Static { .. } | Intrinsic::Object(_) => {
                 inputs.is_empty() && output.as_ref().is_some_and(pointer)
             }
         };

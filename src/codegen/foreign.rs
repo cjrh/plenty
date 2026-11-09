@@ -56,6 +56,14 @@ impl Lowerer<'_, '_> {
                 let reference = self.module.declare_func_in_func(id, self.bcx.func);
                 Some(self.bcx.ins().func_addr(PTR_TY, reference))
             }
+            Intrinsic::Object(object) => {
+                let id = self
+                    .module
+                    .declared_data(&object.symbol)
+                    .ok_or("missing C object export")?;
+                let reference = self.module.declare_data_in_func(id, self.bcx.func);
+                Some(self.bcx.ins().symbol_value(PTR_TY, reference))
+            }
             Intrinsic::Static {
                 name,
                 bytes,

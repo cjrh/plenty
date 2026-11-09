@@ -288,6 +288,7 @@ pub(crate) struct Interface {
     pub source: String,
     pub header: String,
     pub handles: Vec<Handle>,
+    pub objects: Vec<String>,
     pub contract_guard: String,
     /// Source declarations of the user error enums the exports return.
     pub errors: String,
@@ -316,10 +317,16 @@ impl Interface {
         Ok(())
     }
 
-    pub fn new(name: &str, exports: &[Export]) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(
+        name: &str,
+        exports: &[Export],
+        objects: &[crate::foreign::ExportObject],
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         check_library_name(name)?;
-        if exports.is_empty() {
-            return Err("library requires at least one `export def` declaration".into());
+        if exports.is_empty() && objects.is_empty() {
+            return Err(
+                "library requires at least one `export def` declaration or C object export".into(),
+            );
         }
         let discovery = format!("{name}_plenty_interface_v1");
         let prefix = format!("{name}_");
@@ -570,6 +577,28 @@ impl Interface {
                 source.push_str(&format!("{thread_annotation}extern def {raw}({}) -> {output} = \"{}\"\npub def {}({}) -> {output}:\n    _plenty_require_contract()\n{transfers}    {raw}({})\n\n", raw_parameters.join(", "), export.symbol, export.name, parameters.join(", "), args.join(", ")));
             }
         }
+        for object in objects {
+            if object.symbol.starts_with(&format!("{name}_plenty_"))
+                || handles.iter().any(|h| h.destroy == object.symbol)
+            {
+                return Err(format!(
+                    "C object `{}` conflicts with a generated library symbol",
+                    object.symbol
+                )
+                .into());
+            }
+            // Preserve object identity, contents and relocations in the contract.
+            // Do not invent C struct declarations that conflict with native headers.
+            source.push_str(&format!(
+                "# C object: {}; size {}; align {}; bytes-sha256 {}; relocations {:?}\n",
+                object.symbol,
+                object.bytes.len(),
+                object.align,
+                crate::library_metadata::fingerprint(&object.bytes),
+                object.relocations
+            ));
+            header.push_str(&format!("/* Native data object: {}; size {}; alignment {}. Include its native ABI header for the declaration. */\n", object.symbol, object.bytes.len(), object.align));
+        }
         let fingerprint = crate::library_metadata::fingerprint(source.as_bytes());
         let contract_guard = format!("{name}_plenty_contract_v1_{fingerprint}");
         source.push_str(&format!("# interface-sha256: {fingerprint}\n@thread_safe\nextern def _plenty_require_contract() -> () = \"{contract_guard}\"\n"));
@@ -581,6 +610,7 @@ impl Interface {
             source,
             header,
             handles,
+            objects: objects.iter().map(|o| o.symbol.clone()).collect(),
             contract_guard,
             errors,
         })

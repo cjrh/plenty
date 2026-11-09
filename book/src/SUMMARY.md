@@ -382,6 +382,7 @@
             - [How std.dataframe wraps its engine](design/facilities/04-interop/dataframe-binding.md)
             - [Exports and generated C contracts](design/facilities/04-interop/exports.md)
             - [Trusted raw host interfaces](design/facilities/04-interop/raw-host-interfaces.md)
+            - [Initialized C data exports](design/facilities/04-interop/exported-objects.md)
             - [Exports called by host threads](design/facilities/04-interop/host-threads.md)
             - [Owned library objects](design/facilities/04-interop/owned-exports.md)
             - [Embedded contracts and compatibility](design/facilities/04-interop/contracts.md)

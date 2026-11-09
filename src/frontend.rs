@@ -45,6 +45,7 @@ mod enums;
 mod executors;
 mod files;
 mod foreign;
+mod foreign_objects;
 mod fstrings;
 mod functions;
 mod generators;
@@ -5679,6 +5680,7 @@ fn lower(
         }
     }
     exports.sort_by(|a, b| a.symbol.cmp(&b.symbol));
+    foreign_objects::check(&boundary, &exports, &imported_symbols)?;
     for f in &boundary {
         if let Some(crate::foreign::Declaration {
             target: crate::foreign::Target::Intrinsic(intrinsic),

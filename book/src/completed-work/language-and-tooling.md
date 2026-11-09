@@ -1494,3 +1494,16 @@ addresses and overlapping scalar buffers, and by rejection checks for unsafe
 worker effects. C-layout classes, typed callback values, inferred raw-pointer
 lifetimes and real-time guarantees are not delivered. B27/B28 retain the
 remaining interface scope.
+
+## Initialized C data exports
+
+Trusted interfaces can emit exact native data symbols with explicit size,
+alignment, unsigned/byte initializers and relocations to exported C functions
+or other objects. Objects survive unused-accessor pruning, work in static and
+shared libraries, and contribute to interface fingerprints. The compiler checks
+field bounds, alignment, overlap, target existence and symbol collisions.
+Native C fixtures cover descriptor discovery before any Plenty call, callback
+invocation, data/self relocations and zero padding. GNU/Linux 64-bit layouts are
+admitted; execution is tested on x86-64. Automatic C class layout, typed callback
+validation, signed/floating initializer expressions and header import remain
+outside this subset. See [initialized exports](../design/facilities/04-interop/exported-objects.md).

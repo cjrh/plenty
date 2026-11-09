@@ -708,3 +708,5 @@ modules. `= exact "symbol"` selects a protocol-required native symbol, and
 [Raw host interfaces](../facilities/04-interop/raw-host-interfaces.md) explain
 trusted scalar loads/stores, C callback addresses, resident storage and aliasing.
 These operations do not relax ordinary Plenty reference rules.
+
+Trusted interfaces can also declare [initialized C data exports](../facilities/04-interop/exported-objects.md) with `= object "symbol"(size=..., align=...):`, followed by explicit offset/type/value initializer fields. These objects are native ABI layouts, not Plenty classes.

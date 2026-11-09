@@ -31,7 +31,11 @@ fn runtime_interface(
         crate::UncheckedMode::Trap,
     )?;
     crate::op::check(&program.ops)?;
-    let interface = Interface::new(name, &program.exports)?;
+    let interface = Interface::new(
+        name,
+        &program.exports,
+        &crate::foreign::exported_objects(&program.ops),
+    )?;
     interface.validate_imports(&program.imported_symbols)?;
     let source = interface.runtime_source(&program.exports)?;
     crate::frontend::check_generated_interface(&source)?;
@@ -117,7 +121,11 @@ pub fn compile_file_to_library(
         options.compile.unchecked,
     )?;
     crate::op::check(&program.ops)?;
-    let interface = Interface::new(&options.name, &program.exports)?;
+    let interface = Interface::new(
+        &options.name,
+        &program.exports,
+        &crate::foreign::exported_objects(&program.ops),
+    )?;
     interface.validate_imports(&program.imported_symbols)?;
     let directory = output
         .parent()
@@ -193,6 +201,7 @@ pub fn compile_file_to_library(
                 .iter()
                 .map(|e| e.symbol.as_str())
                 .chain(interface.handles.iter().map(|h| h.destroy.as_str()))
+                .chain(interface.objects.iter().map(String::as_str))
                 .chain(std::iter::once(interface.discovery.as_str()))
                 .chain(std::iter::once(interface.contract_guard.as_str()))
                 .collect::<Vec<_>>();
@@ -203,6 +212,7 @@ pub fn compile_file_to_library(
             let extra_args = [
                 OsString::from("-shared"),
                 OsString::from("-Wl,-z,defs"),
+                OsString::from("-Wl,-z,relro"),
                 OsString::from("-Xlinker"),
                 OsString::from("--version-script"),
                 OsString::from("-Xlinker"),
