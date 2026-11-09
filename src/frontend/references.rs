@@ -495,7 +495,8 @@ impl Lower<'_> {
     }
 
     /// Whether `loan`, its ancestors and every loan they depend on are rooted
-    /// at the function's reference, view or borrowing generator parameters.
+    /// at the function's shared reference or view parameters, its generator
+    /// parameters, or their items' referents.
     fn borrows_only_parameters(&self, loan: usize) -> bool {
         let mut ancestor = Some(loan);
         while let Some(id) = ancestor {
@@ -506,10 +507,16 @@ impl Lower<'_> {
                     .all(|&loan| self.borrows_only_parameters(loan));
             }
             let fact = &self.loans[id];
-            let external = self.parameter_referents.contains(&fact.root)
-                || self
-                    .parameter_type(fact.root)
-                    .is_some_and(|ty| lends(ty) || ty.lends_frame());
+            // A `&mut` parameter's data stays writable by this frame while
+            // the caller holds the item, so only shared borrows and the
+            // caller's generators qualify (writes through a `&mut
+            // Generator` are rejected).
+            let external = self.item_referents.values().any(|&r| r == fact.root)
+                || self.parameter_type(fact.root).is_some_and(|ty| match ty {
+                    Ty::Ref(inner, _) if matches!(**inner, Ty::Generator(_)) => true,
+                    Ty::Ref(_, mutable) | Ty::View(_, mutable) => !mutable,
+                    ty => ty.lends_frame(),
+                });
             if !external
                 || !fact
                     .dependencies

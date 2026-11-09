@@ -310,8 +310,9 @@ element. A function may return an item, or a generator of items, when it
 borrows only through the function's reference or view parameters.
 
 A yielded reference must borrow through a shared reference or view parameter,
-or be an item of a generator that does. Yielding a reference to a local, an
-owned parameter or data behind a `&mut` parameter is rejected with "a yielded
+or be an item of a generator that does, or of a generator parameter. Yielding a
+reference to a local, an owned parameter or data behind a `&mut` parameter,
+including an item of a generator over that data, is rejected with "a yielded
 reference must borrow through the generator's shared reference or view
 parameters, not the generator's own state".
 `Generator[&mut T]` is rejected with "generators cannot yield mutable

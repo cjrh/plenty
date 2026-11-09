@@ -185,14 +185,76 @@ fn a_yielded_reference_must_borrow_the_caller_data() {
             "def bad(xs: &mut list[i64]) -> Generator[&i64]:\n    yield &xs[0]",
             "yielded reference",
         ),
+        // Items of a generator over a `&mut` parameter: the frame could
+        // clear `xs` while the caller holds them.
+        (
+            "def bad(xs: &mut list[str]) -> Generator[&str]:\n    for x in names(xs):\n        yield x\n    xs.clear()",
+            "yielded reference",
+        ),
+        (
+            "def bad(xs: &mut list[str]) -> Generator[&str]:\n    mut g = names(&*xs)\n    match next(g):\n        case Some(x):\n            yield x\n        case Nothing:\n            pass\n    xs.clear()",
+            "yielded reference",
+        ),
+        (
+            "def bad(xs: &mut list[str]) -> Generator[&str]:\n    r = &*xs\n    for a, b in zip(names(r), relay(names(r))):\n        yield b",
+            "yielded reference",
+        ),
         (
             "def bad(xs: &mut list[i64]) -> Generator[&mut i64]:\n    for x in xs:\n        yield x",
             "generators cannot yield mutable references",
         ),
     ] {
-        let error = check_error(&format!("{source}\n\ndef main() -> ():\n    pass\n"));
+        let error = check_error(&with_names(&format!(
+            "{source}\n\ndef main() -> ():\n    pass\n"
+        )));
         assert!(error.contains(expected), "{source}: {error}");
     }
+}
+
+#[test]
+fn a_caller_cannot_keep_an_item_its_frame_may_invalidate() {
+    let error = check_error(&with_names(
+        r#"
+def bad(xs: &mut list[str]) -> Generator[&str]:
+    for x in names(xs):
+        yield x
+    xs.clear()
+
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = ["a", "b"]?
+    mut keep: Option[&str] = Nothing
+    for v in bad(&mut xs):
+        keep = Some(v)
+    print(keep)?
+    Ok(())
+"#,
+    ));
+    assert!(error.contains("yielded reference"), "{error}");
+}
+
+#[test]
+fn a_generator_relays_items_through_mutable_generator_references() {
+    assert_stdout(
+        &with_names(
+            r#"
+def inner(p: &mut Generator[&str]) -> Generator[&str]:
+    for v in p:
+        yield v
+
+def outer(p: &mut Generator[&str]) -> Generator[&str]:
+    for v in inner(p):
+        yield v
+
+def main() -> Result[(), AllocError | IoError]:
+    xs = ["a", "b"]?
+    mut g = names(&xs)
+    for v in outer(&mut g):
+        print(v)?
+    Ok(())
+"#,
+        ),
+        "a\nb\n",
+    );
 }
 
 #[test]
