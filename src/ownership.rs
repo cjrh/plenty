@@ -2619,13 +2619,9 @@ impl Checker<'_, '_> {
                             "read or borrow"
                         },
                     )),
-                    Some(Op::Access(root, write, via)) => Some((
-                        *root,
-                        *write,
-                        *via,
-                        None,
-                        if *write { "modify" } else { "read" },
-                    )),
+                    Some(Op::Access(root, write, via)) => {
+                        Some((*root, *write, *via, None, self.access_action(*root, *write)))
+                    }
                     Some(Op::MoveLocal(root)) => Some((*root, true, None, None, "move")),
                     Some(Op::StoreLocal(root)) => Some((*root, true, None, None, "assign to")),
                     Some(Op::DropLocal(root)) => Some((*root, true, None, None, "drop")),
@@ -3209,5 +3205,19 @@ fn attempted_lock(before: &[Op]) -> Option<u8> {
     match (ops.next(), ops.next()) {
         (Some(Op::Match(_)), Some(Op::Mutex(MutexOp::LockNow(slot)))) => Some(*slot),
         _ => None,
+    }
+}
+
+impl Checker<'_, '_> {
+    /// The verb for a direct access of local `root`. A write to a pipeline
+    /// binding is `next(p)` stepping it, so it says "advance", as `Op::Next`
+    /// does for a generator (issue #884).
+    #[inline(never)]
+    fn access_action(&self, root: u8, write: bool) -> &'static str {
+        match (write, self.locals.get(usize::from(root))) {
+            (true, Some(Ty::Iter(..))) => "advance",
+            (true, _) => "modify",
+            (false, _) => "read",
+        }
     }
 }
