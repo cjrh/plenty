@@ -1473,6 +1473,104 @@ def main() -> Result[(), AllocError | IoError]:
     );
 }
 
+/// A generator second source keeps its pending item initialized on every
+/// condition path, as the first source does (issue #920): temporary, named,
+/// borrowing, and lent generators, in either position. Breaking or `find`
+/// drops the unconsumed generator and its items once; under `--all-features`
+/// the allocation-checks runtime also checks the balance at exit.
+#[test]
+fn chain_accepts_generators_as_either_source() {
+    output(
+        r#"class Tag:
+    name: str
+    def __del__(self: &mut Tag) -> ():
+        print("drop", self.name).unwrap()
+
+def nums(n: i64) -> Generator[i64]:
+    for i in range(n):
+        yield i
+
+def words(prefix: str, n: i64) -> Generator[str]:
+    for i in range(n):
+        yield f"{prefix}{i}".unwrap()
+
+def tags(prefix: str, n: i64) -> Generator[Tag]:
+    for i in range(n):
+        yield Tag(f"{prefix}{i}".unwrap())
+
+def names(xs: &list[str]) -> Generator[&str]:
+    for x in xs:
+        yield x
+
+def total(g: &mut Generator[i64]) -> i64:
+    mut t = 0
+    for v in iter(range(1)).chain(g):
+        unchecked:
+            t += v
+    t
+
+def main() -> Result[(), AllocError | IoError]:
+    xs = [1, 2]?
+    temporary: list[i64] = iter(xs).chain(nums(3)).collect()?
+    print(temporary)?
+    g = nums(2)
+    h = nums(2)
+    both: list[i64] = g.chain(h).collect()?
+    print(both)?
+    ws: list[str] = words("a", 2).chain(words("b", 2)).collect()?
+    print(ws)?
+    left = ["x", "y"]?
+    right = ["z"]?
+    for s in names(&left).chain(names(&right)):
+        print(s)?
+    mut lent = nums(4)
+    print(total(&mut lent))?
+    for t in tags("p", 1).chain(tags("q", 3)):
+        print("got", t.name)?
+        if t.name == "q0":
+            break
+    found = words("c", 2).chain(words("d", 3)).find(def (s: &str) -> bool: s == "d1")
+    print(found)?
+    for t in tags("r", 2).chain(tags("s", 2)):
+        print("got", t.name)?
+        break
+    print("end")?
+    Ok(())
+"#,
+        "[1, 2, 0, 1, 2]\n[0, 1, 0, 1]\n[\"a0\", \"a1\", \"b0\", \"b1\"]\nx\ny\nz\n6\n\
+         got p0\ndrop p0\ngot q0\ndrop q0\nOption[str].Some(\"d1\")\ngot r0\ndrop r0\nend\n",
+    );
+    output(
+        r#"def nums(n: i64) -> Generator[i64]:
+    for i in range(n):
+        yield i
+
+def first_three(it: &mut Iter[i64]) -> i64:
+    mut n = 0
+    for v in it:
+        unchecked:
+            n += 1
+        if n == 3:
+            return v
+    -1
+
+def main() -> Result[(), AllocError | IoError]:
+    xs = [1, 2]?
+    mut it = iter(xs).chain(nums(3))
+    print(first_three(&mut it))?
+    for v in it:
+        print("rest", v)?
+    mut g = nums(2)
+    for v in iter(&mut g).chain(nums(2)):
+        print("lent first", v)?
+    k: list[i64] = iter(range(2)).chain(nums(3)).take(3).collect()?
+    print(k)?
+    Ok(())
+"#,
+        "0\nrest 1\nrest 2\nlent first 0\nlent first 1\nlent first 0\nlent first 1\n[0, 1, 0]\n",
+    );
+}
+
 #[test]
 fn chain_pairs_borrows_and_mutable_references() {
     // The mapped chain is range(3) then range(7,9): asserted successors are at most 9.
