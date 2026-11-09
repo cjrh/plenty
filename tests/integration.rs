@@ -220,6 +220,8 @@ mod test_executable_size;
 mod test_executor_submitters;
 #[path = "test_executors.rs"]
 mod test_executors;
+#[path = "test_experiments.rs"]
+mod test_experiments;
 #[path = "test_exports.rs"]
 mod test_exports;
 #[path = "test_failure.rs"]

@@ -1513,8 +1513,9 @@ remaining interface scope.
 `plenty test` compiles them, without linking or running them, so tests that
 need a native library built are checkable.
 [Checking tests](../design/toolchain/01-building/packages.md#checking-tests)
-documents the flag. `experiments/check_arithmetic.py` uses it in place of
-wrapping each test file in a temporary consumer package.
+documents the flag. The experiment checks in `tests/test_experiments.rs`
+(issue #918) use it in place of wrapping each test file in a temporary
+consumer package.
 
 ## C boolean interoperability
 
