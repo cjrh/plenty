@@ -112,8 +112,19 @@ unsafe impl Send for Central {}
 
 static CENTRAL: Mutex<Central> = Mutex::new(Central::new());
 
+#[cfg(test)]
+thread_local! {
+    /// Replaces this thread's clock, so decay tests do not depend on how
+    /// long the test thread runs between steps (issue #889).
+    static FIXED_MS: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+}
+
 /// Coarse monotonic milliseconds: a vDSO read with no system call.
 fn now_ms() -> u64 {
+    #[cfg(test)]
+    if let Some(now) = FIXED_MS.with(std::cell::Cell::get) {
+        return now;
+    }
     let mut time = libc::timespec {
         tv_sec: 0,
         tv_nsec: 0,
@@ -587,6 +598,24 @@ mod tests {
         free(again, class);
     }
 
+    /// Fixes this thread's clock until dropped. The thread's allocations
+    /// also reach the shared pool, so a panicking test must not leave its
+    /// thread-exit `give_all` stamping shared slabs with the fixed time.
+    struct FixedClock;
+
+    impl FixedClock {
+        fn at(now: u64) -> Self {
+            FIXED_MS.with(|fixed| fixed.set(Some(now)));
+            Self
+        }
+    }
+
+    impl Drop for FixedClock {
+        fn drop(&mut self) {
+            FIXED_MS.with(|fixed| fixed.set(None));
+        }
+    }
+
     fn empty_list(central: &Central) -> Vec<*mut Slab> {
         let mut slabs = Vec::new();
         let mut slab = central.newest;
@@ -605,6 +634,10 @@ mod tests {
         let class = 3;
         let per_slab = (SLAB_BYTES - HEADER_BYTES) / block_bytes(class);
         let mut central = Central::new();
+        // Every retire stamps and trims at this time, so no slab decays
+        // before the explicit trims below.
+        let now = 1 << 40;
+        let _clock = FixedClock::at(now);
         let blocks: Vec<_> = (0..per_slab + 1).map(|_| central.take(class)).collect();
         let first = Slab::of(blocks[0]);
         let second = Slab::of(blocks[per_slab]);
@@ -640,10 +673,9 @@ mod tests {
         assert_eq!(empty_list(&central).len(), 2);
 
         // Slabs empty for `DECAY_MS` are unmapped.
-        let now = now_ms();
         central.trim(now + DECAY_MS - 1);
         assert_eq!(empty_list(&central).len(), 2);
-        central.trim(now + DECAY_MS + 1);
+        central.trim(now + DECAY_MS);
         assert!(empty_list(&central).is_empty());
         assert!(central.oldest.is_null());
     }

@@ -152,7 +152,7 @@ impl Lower<'_> {
                         "copy with `copy(&v[index])?`"
                     };
                     return Err(base.at.error(format!(
-                        "get cannot return owned {element} values from a view; borrow with `&v[index]`, which traps when absent, or {duplicate}"
+                        "get cannot return owned {element} values from a view; borrow with `v.get_ref(index)`, which returns `Nothing` when absent, or `&v[index]`, which traps; or {duplicate}"
                     )));
                 }
                 self.view_helper(
@@ -184,12 +184,17 @@ impl Lower<'_> {
                 }
                 self.view_helper("view_reverse", &element, std::slice::from_ref(base), &base.at, ops)
             }
-            "get_ref" | "get_mut" => Err(base.at.error(format!(
-                "a slice view cannot `{name}` yet (issue #{LOOKUP_ISSUE}); borrow with `&v[i]` after checking `i < len(v)`, or copy a non-affine element with `v.get(i)`"
+            "get_mut" if !exclusive => Err(base.at.error(
+                "a shared slice view is read-only, so it has no `get_mut`; use `get_ref`, or take an exclusive view with `&mut xs[a:b]`",
+            )),
+            "get_ref" | "get_mut" => self.view_get_ref(base, name == "get_mut", args, ops),
+            "sort" | "sort_by_key" | "sort_stable_by_key" if !exclusive => Err(base.at.error(format!(
+                "a shared slice view is read-only, so it has no `{name}`; take an exclusive view with `&mut xs[a:b]`"
             ))),
-            "sort" | "sort_by_key" | "sort_stable_by_key" => Err(base.at.error(format!(
-                "a slice view cannot `{name}` yet (issue #{SORT_ISSUE}); sort the whole list, or reorder the view's elements with `swap`"
-            ))),
+            "sort" => self.view_sort(base, &element, args, ops),
+            "sort_by_key" | "sort_stable_by_key" => {
+                self.key_sort_call(base, args, &base.at, name == "sort_stable_by_key", ops)
+            }
             _ if LENGTH_CHANGING.contains(&name) => Err(base.at.error(format!(
                 "`{name}` changes a list's length, and a slice view's length is fixed; call it on the list after the view's last use"
             ))),
@@ -198,6 +203,77 @@ impl Lower<'_> {
                 views::OPERATIONS
             ))),
         }
+    }
+
+    /// `v.sort(descending)` on an exclusive view: sorts its rows in place with
+    /// `list.sort`'s contract (issue #886). The flag is evaluated before the
+    /// view is borrowed, so it may read the view.
+    fn view_sort(
+        &mut self,
+        base: &Expr,
+        element: &Ty,
+        args: &[Expr],
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        if args.len() > 1 {
+            return Err(base
+                .at
+                .error("sort takes no arguments or one descending bool"));
+        }
+        if !element.is_orderable() {
+            return Err(base.at.error(format!(
+                "sort does not order {element} elements; it orders integers, floats, str, and tuples of those"
+            )));
+        }
+        let descending = args.first().cloned().unwrap_or_else(|| Expr {
+            at: base.at.clone(),
+            kind: Expression::Bool(false),
+        });
+        let (actual, loans) = self.observe_expected(&descending, Some(Ty::Bool), ops)?;
+        self.same(Some(actual), Some(Ty::Bool), &descending.at)?;
+        let slot = self.slot(Ty::Bool, &descending.at)?;
+        ops.push(Op::StoreLocal(slot));
+        Self::end_reads(loans, ops);
+        let (view, loan) = self.view_source(base, ops)?;
+        ops.push(Op::MoveLocal(slot));
+        ops.push(Op::Collection(CollectionOp::ViewSort(view)));
+        ops.push(Op::Drop);
+        ops.push(Op::UseLoan(loan));
+        Ok(None)
+    }
+
+    /// `v.get_ref(i)` and `v.get_mut(i)`: `list.get_ref`'s and
+    /// `list.get_mut`'s contract over the view's rows (issue #890). The index
+    /// is observed before the view is borrowed, and the result holds a loan
+    /// of the whole view, and so of its owner, until its last use.
+    fn view_get_ref(
+        &mut self,
+        base: &Expr,
+        mutable: bool,
+        args: &[Expr],
+        ops: &mut Vec<Op>,
+    ) -> Result<Type> {
+        let name = if mutable { "get_mut" } else { "get_ref" };
+        let [index] = args else {
+            return Err(base
+                .at
+                .error(format!("{name} requires one i64 index argument")));
+        };
+        let (actual, reads) = self.observe_expected(index, Some(Ty::I64), ops)?;
+        self.same(Some(actual), Some(Ty::I64), &index.at)?;
+        Self::end_reads(reads, ops);
+        let (view, loan) = self.view_source(base, ops)?;
+        ops.push(Op::Swap);
+        let operation = CollectionOp::ViewGetRef(view, mutable);
+        let result = operation.signature().1;
+        ops.push(Op::Collection(operation));
+        let id = self.new_loan(self.loans[loan].root, mutable, Some(loan), ops);
+        self.loans[id].precise = false;
+        if let Some(Op::Loan(fact)) = ops.last_mut() {
+            *fact = self.loans[id].clone();
+        }
+        ops.push(Op::UseLoan(loan));
+        Ok(Some(result))
     }
 
     /// An owned list of copies of every element of `view`, as `list(v)?` and
@@ -225,9 +301,3 @@ impl Lower<'_> {
         Ok(copied.expect("a view copy returns its Result"))
     }
 }
-
-/// The follow-up issue for sorting slice views in place.
-const SORT_ISSUE: u32 = 886;
-
-/// The follow-up issue for optional borrowed lookup on slice views.
-const LOOKUP_ISSUE: u32 = 890;

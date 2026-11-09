@@ -40,6 +40,33 @@ impl Lowerer<'_, '_> {
                 self.stack
                     .push((reference, Ty::Ref(Arc::new(element), *mutable)));
             }
+            CollectionOp::ViewGetRef(view, mutable) => {
+                let element = view_element(view);
+                let output = crate::sum::option(Ty::Ref(Arc::new(element.clone()), *mutable));
+                let (index, _) = self.pop_typed(Ty::I64)?;
+                let (value, _) = self.pop_typed(view.clone())?;
+                let (rows, count) = self.split_view(value);
+                self.note_view_length(value, count);
+                // Branch-free: a negative index counts from the end, and one
+                // unsigned comparison rejects both sides of the view, as the
+                // list lookup's `checked_index` does.
+                let negative = self.bcx.ins().icmp_imm_s(IntCC::SignedLessThan, index, 0);
+                let from_end = self.bcx.ins().iadd(index, count);
+                let normalized = self.bcx.ins().select(negative, from_end, index);
+                let inside = self
+                    .bcx
+                    .ins()
+                    .icmp(IntCC::UnsignedLessThan, normalized, count);
+                let address = self.view_row(rows, normalized, &element);
+                let zero = self.bcx.ins().iconst(types::I64, 0);
+                let address = self.bcx.ins().select(inside, address, zero);
+                // `Some(reference)` is the address with tag 1 in the high
+                // word, the runtime's `wrap(address, 1)`; `Nothing` is zero.
+                let tag = self.bcx.ins().uextend(types::I64, inside);
+                let packed = self.bcx.ins().iconcat(address, tag);
+                let result = self.unpack(packed, &output);
+                self.stack.push((result, output));
+            }
             CollectionOp::ViewSwap(view) => {
                 let element = view_element(view);
                 let (second, _) = self.pop_typed(Ty::I64)?;
@@ -64,6 +91,25 @@ impl Lowerer<'_, '_> {
                         .declare_func_in_func(self.runtime.view_swap, self.bcx.func);
                     self.bcx.ins().call(helper, &[first, second, descriptor]);
                 }
+                let unit = self.bcx.ins().iconst(types::I64, 0);
+                let unit = self.unpack(unit, &Ty::Unit);
+                self.stack.push((unit, Ty::Unit));
+            }
+            CollectionOp::ViewSort(view) => {
+                let element = view_element(view);
+                let (descending, _) = self.pop_typed(Ty::Bool)?;
+                let (value, _) = self.pop_typed(view.clone())?;
+                let (rows, count) = self.split_view(value);
+                let descending = self.bcx.ins().uextend(types::I64, descending);
+                let id = self.module.metadata(&element);
+                let gv = self.module.declare_data_in_func(id, self.bcx.func);
+                let descriptor = self.bcx.ins().symbol_value(PTR_TY, gv);
+                let helper = self
+                    .module
+                    .declare_func_in_func(self.runtime.view_sort, self.bcx.func);
+                self.bcx
+                    .ins()
+                    .call(helper, &[rows, count, descending, descriptor]);
                 let unit = self.bcx.ins().iconst(types::I64, 0);
                 let unit = self.unpack(unit, &Ty::Unit);
                 self.stack.push((unit, Ty::Unit));

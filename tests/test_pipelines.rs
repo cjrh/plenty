@@ -2858,6 +2858,36 @@ fn lending_keeps_borrow_and_signature_rules() {
             "cannot be returned",
         ),
         ("def g(p: &Iter[i64]) -> ():\n    pass\n", "must be `&mut"),
+        // Issue #884: advancing a pipeline binding is a mutable use, so it
+        // conflicts with `&mut p` lent by an earlier argument of the call.
+        (
+            "def f(p: &mut Iter[i64], x: Option[i64]) -> ():\n    pass\ndef main() -> ():\n    mut p = iter(range(3))\n    f(&mut p, next(p))\n",
+            "cannot advance `p` while it is exclusively borrowed",
+        ),
+        (
+            "def f(p: &mut Iter[i64], x: Option[i64]) -> ():\n    pass\ndef main() -> ():\n    mut p = iter(range(3))\n    f(&mut p, next(&mut p))\n",
+            "cannot advance `p` while it is exclusively borrowed",
+        ),
+        (
+            "def tagged[T, K](p: &mut Iter[T], tag: K) -> Option[(K, T)]:\n    match next(p):\n        case Some(value):\n            Some((tag, value))\n        case Nothing:\n            Nothing\ndef main() -> ():\n    mut p = iter(range(3)).map(def(x: i64) -> i64: x)\n    drop(tagged(&mut p, next(p)))\n",
+            "cannot advance `p` while it is exclusively borrowed",
+        ),
+        (
+            "class Sink:\n    pub n: i64\n    def take(self, p: &mut Iter[i64], x: Option[i64]) -> ():\n        pass\ndef main() -> ():\n    mut p = iter(range(3))\n    Sink(0).take(&mut p, next(p))\n",
+            "cannot advance `p` while it is exclusively borrowed",
+        ),
+        (
+            "def f(p: &mut Iter[i64], x: Option[i64]) -> ():\n    pass\ndef main() -> ():\n    mut p = iter(range(3))\n    f(&mut p, Some(next(p).unwrap_or(0)))\n",
+            "cannot advance `p` while it is exclusively borrowed",
+        ),
+        (
+            "def f(p: &mut Iter[i64], x: Option[i64]) -> ():\n    pass\ndef g(p: &mut Iter[i64]) -> ():\n    f(p, next(p))\ndef main() -> ():\n    mut p = iter(range(3))\n    g(&mut p)\n",
+            "conflicting borrow",
+        ),
+        (
+            "def f(p: &mut Iter[i64], x: Option[i64]) -> ():\n    pass\ndef main() -> ():\n    mut p = iter(range(3))\n    f(&mut p, Some(p.count()))\n",
+            "cannot move `p` while it is exclusively borrowed",
+        ),
     ] {
         let error = support::check_source(source).expect_err(source).to_string();
         assert!(error.contains(expected), "{source}\n{error}");
@@ -3087,5 +3117,18 @@ take_three(&mut p, &mut out).unwrap()
 print(out).unwrap()
 "#,
         "True 0\n[\"ccc\", \"dddd\", \"eeeee\"]",
+    );
+}
+
+// Issue #884: the lend ends with its call, so `next` before and after it,
+// and in arguments of a different call, still works.
+#[test]
+fn next_beside_a_lend_after_it_ends() {
+    let out = support::run_stdout(
+        "def take(p: &mut Iter[i64], x: Option[i64]) -> Option[i64]:\n    next(p)\ndef main() -> Result[(), IoError]:\n    mut p = iter(range(5))\n    first = next(p)\n    print(take(&mut p, first))?\n    print(next(p), take(&mut p, Nothing))?\n    print(next(p))?\n    Ok(())\n",
+    );
+    assert_eq!(
+        out,
+        "Option[i64].Some(1)\nOption[i64].Some(2) Option[i64].Some(3)\nOption[i64].Some(4)\n"
     );
 }

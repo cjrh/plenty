@@ -344,18 +344,29 @@ fn step(
                 crate::collection::CollectionOp::ViewLen(ty)
                 | crate::collection::CollectionOp::ViewRow(ty, _)
                 | crate::collection::CollectionOp::ViewItem(ty, _)
+                | crate::collection::CollectionOp::ViewGetRef(ty, _)
                 | crate::collection::CollectionOp::ViewEqual(ty)
                 | crate::collection::CollectionOp::ViewSwap(ty)
+                | crate::collection::CollectionOp::ViewSort(ty)
                     if !matches!(ty, Ty::View(..)) =>
                 {
                     return Err("view operations require a slice view".into());
                 }
                 crate::collection::CollectionOp::ViewRow(Ty::View(_, false), true)
-                | crate::collection::CollectionOp::ViewItem(Ty::View(_, false), true) => {
+                | crate::collection::CollectionOp::ViewItem(Ty::View(_, false), true)
+                | crate::collection::CollectionOp::ViewGetRef(Ty::View(_, false), true) => {
                     return Err("a shared slice view cannot lend a mutable row".into());
                 }
                 crate::collection::CollectionOp::ViewSwap(Ty::View(_, false)) => {
                     return Err("swapping view rows requires an exclusive view".into());
+                }
+                crate::collection::CollectionOp::ViewSort(Ty::View(element, true))
+                    if !element.is_orderable() =>
+                {
+                    return Err("sorting a view requires orderable elements".into());
+                }
+                crate::collection::CollectionOp::ViewSort(Ty::View(_, false)) => {
+                    return Err("sorting view rows requires an exclusive view".into());
                 }
                 crate::collection::CollectionOp::ListScalarGetRef(ty)
                 | crate::collection::CollectionOp::ListScalarGetView(ty)
@@ -383,8 +394,8 @@ fn step(
                     }
                 }
                 crate::collection::CollectionOp::ListSortBy(sort) => {
-                    let Ty::List(element) = &sort.list else {
-                        return Err("key sorting requires a list".into());
+                    let Some(element) = sort.element() else {
+                        return Err("key sorting requires a list or an exclusive view".into());
                     };
                     let item = Ty::Ref(element.clone(), false);
                     let valid = sigs.get(sort.key_of.as_str()).is_some_and(|key_of| {

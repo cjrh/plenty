@@ -2079,10 +2079,10 @@ impl Lower<'_> {
             && let Some(named) = args.iter().find(
                 |arg| matches!(&arg.kind, Expression::NamedArgument(label, _) if label == "reverse"),
             )
-            && self.place_type(base).is_some_and(|ty| match ty {
+            && (self.place_type(base).is_some_and(|ty| match ty {
                 Ty::Ref(inner, _) => matches!(&*inner, Ty::List(_)),
                 other => matches!(other, Ty::List(_)),
-            })
+            }) || self.list_view_type(base).is_some())
         {
             return Err(named.at.error(if name == "sort" {
                 "`sort` takes the descending flag positionally: `items.sort(True)`".to_owned()

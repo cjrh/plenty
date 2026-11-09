@@ -271,10 +271,12 @@ fixed: a method that would add or remove elements belongs to the owner.
 | `in`, `count`, `find`, `rfind` | yes | yes | yes |
 | `list(v)?`, `v[a:b]?` | yes | yes | yes |
 | `v[a:b:k]?` with a step | yes | copy from the owner | copy from the owner |
-| `sort`, `sort_by_key`, `sort_stable_by_key` | yes | read-only | not yet (issue #886) |
+| `sort`, `sort_by_key`, `sort_stable_by_key` | yes | read-only | yes |
+| `sorted(v)?` | yes | copy with `list(v)?`, then sort | copy with `list(v)?`, then sort |
 | `append`, `extend`, `insert`, `pop`, `clear`, `reserve` | yes | length is fixed | length is fixed |
 | `get` | yes | yes | yes |
-| `get_ref`, `get_mut` | yes | not yet (issue #890) | not yet (issue #890) |
+| `get_ref` | yes | yes | yes |
+| `get_mut` | yes | read-only | yes |
 
 `x in v`, `v.count(x)`, `v.find(x)`, and `v.rfind(x)` compare `x` with each
 element using the element type's `==`, so they take the element types a list's
@@ -302,12 +304,39 @@ rejected with a pointer to `list(v)?`.
 `v.get(i)` returns `Some` copy of element `i`, or `Nothing` outside the view,
 with [`list.get`](../../facilities/01-builtins/lists.md#lookup-and-removal)'s
 contract: a negative index counts from the view's end, and the element type
-must not be affine; borrow an affine element with `&v[i]`. Optional borrowed
-lookup on views is issue #890.
+must not be affine; borrow an affine element with `v.get_ref(i)`.
+
+`v.get_ref(i)` and, on an exclusive view, `v.get_mut(i)` lend element `i` in
+place with the contracts of
+[`list.get_ref` and `list.get_mut`](../../facilities/01-builtins/lists.md#lookup-and-removal):
+every element type, a negative index counts from the view's end, and the result
+is `Nothing` outside the view instead of trapping as `&v[i]` does. The index is
+observed before the view. The result holds a loan of the whole view, shared for
+`get_ref` and exclusive for `get_mut`, and so of the view's owner, until its
+last use. The lookup compiles inline to one bounds comparison, with no runtime
+call or allocation.
+
+```plenty
+def main() -> Result[(), AllocError | IoError]:
+    mut rows = [[1]?, [2]?, [3]?]?
+    tail = &mut rows[1:]
+    match tail.get_mut(-1):
+        case Some(row):
+            row.append(30)?
+        case Nothing:
+            pass
+    print(tail.get_ref(0), tail.get_ref(2).is_some())?
+    print(rows)?
+    Ok(())
+```
+
+```output
+Option[&list[i64]].Some([2]) False
+[[1], [2], [3, 30]]
+```
 
 `v.reverse()` reorders an exclusive view's elements with `list.reverse`'s
-contract: every element type, and no allocation, copy, retain, or drop. Sorting
-a view in place is issue #886, recorded under B39 in the [backlog](../../../backlog.md).
+contract: every element type, and no allocation, copy, retain, or drop.
 
 ```plenty
 class Point:
@@ -332,6 +361,39 @@ True 2 Option[i64].Some(0) Option[i64].Some(2)
 [2, 1] [1, 3]
 [4, 3, 1, 2, 1]
 True
+```
+
+`v.sort()`, `v.sort_by_key(key)` and `v.sort_stable_by_key(key)?` order an
+exclusive view's elements with the list
+[sorts](../../facilities/01-builtins/lists.md#reordering-and-extending)'
+contracts: the same element types, key callbacks, positional descending flag
+and results. The unstable sorts allocate nothing; the stable sort reserves its
+scratch before moving any element, so an `AllocError` leaves the view
+unchanged. Elements outside the view stay in place. Each calls the runtime
+sort that the list uses, so a view sort runs the same code as sorting a list of
+the same elements. A shared view is read-only and has no sorts. `sorted`
+takes a list, not a view: copy the view with `list(v)?` and sort the copy.
+
+```plenty
+def length(word: &str) -> i64:
+    len(word)
+
+def main() -> Result[(), AllocError | IoError]:
+    mut scores = [9, 4, 7, 1, 8]?
+    (&mut scores[1:4]).sort()
+    print(scores)?
+    (&mut scores[:]).sort(True)
+    print(scores)?
+    mut words = ["kiwi", "plum", "fig", "pear", "date"]?
+    (&mut words[1:]).sort_stable_by_key(length)?
+    print(words)?
+    Ok(())
+```
+
+```output
+[9, 1, 4, 7, 8]
+[9, 8, 7, 4, 1]
+["kiwi", "fig", "plum", "pear", "date"]
 ```
 
 ### Views borrow their owner
@@ -520,7 +582,8 @@ until stored references land (backlog B11).
 | `width(s)` for `width(v: &[u8])` and `s: str` | ``this parameter takes a slice view; a `str` is text, so pass `s.as_bytes()` for its UTF-8 bytes`` |
 | `fill(xs)` for `fill(v: &mut [i64])` | ``this parameter takes a slice view: pass `&mut xs` for a whole list or buffer, or `&mut xs[a:b]` for part of it`` |
 | `v.append(x)` on a view | `` `append` changes a list's length, and a slice view's length is fixed; call it on the list after the view's last use `` |
-| `v.sort()` on a view | ``a slice view cannot `sort` yet (issue #886); sort the whole list, or reorder the view's elements with `swap` `` |
+| `v.sort()` on a shared view | ``a shared slice view is read-only, so it has no `sort`; take an exclusive view with `&mut xs[a:b]` `` |
+| `sorted(v)` on a view | ``sorted takes a list, not a slice view: copy the view with `list(v)?` and sort the copy`` |
 | `v[a:b]?` on a `&[u8]` | ``a copying slice of &[u8] could be a `list[u8]` or a `Bytes` buffer; write `list(&v[a:b])?` for a list, or `extend` an empty `Bytes` with `&v[a:b]` `` |
 | `xs[1:3] = ys` | `slice assignment is not supported; assign elements by index, or build a new list` |
 | `m[1:2, 0]` | `a slice cannot have several dimensions` |
