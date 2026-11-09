@@ -725,7 +725,7 @@ fn emit_object(
     interface: Option<&crate::exports::Interface>,
     build: Build,
 ) -> Result<()> {
-    let product = object_module(
+    let mut product = object_module(
         ops,
         heap,
         entry,
@@ -735,6 +735,9 @@ fn emit_object(
         build,
     )?
     .finish()?;
+    if let Some(interface) = interface {
+        exports::protect_symbols(&mut product, exports, interface)?;
+    }
     // Written section by section: the file's bytes are never all in memory
     // beside the sections (issue #54).
     let file = std::io::BufWriter::new(std::fs::File::create(output)?);

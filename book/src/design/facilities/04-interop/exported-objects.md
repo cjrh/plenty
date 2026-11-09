@@ -57,6 +57,14 @@ Both static archives and shared libraries retain objects whose accessors are
 unused. For static archives, the native consumer still needs a reference that
 causes its linker to extract the library object. A library may export only data.
 
+ELF exports use protected visibility: callbacks, accessors and data relocations
+bind to their originating library even if the executable exports the same
+names. Discover objects with `dlsym`, or compile direct shared-data consumers
+with `-fPIC` so accesses use the GOT. Non-PIC accesses that require ELF COPY
+relocations are rejected by the linker rather than creating a second object
+with inconsistent pointer identity. Static archive consumers need no such
+indirection because the definition is linked into their executable.
+
 Generated metadata fingerprints object size, alignment, initial contents and
 relocations. The generated C header lists the object names and layout facts,
 but does not invent C declarations: include the protocol's native header for

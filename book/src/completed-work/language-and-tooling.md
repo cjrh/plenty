@@ -1507,3 +1507,8 @@ invocation, data/self relocations and zero padding. GNU/Linux 64-bit layouts are
 admitted; execution is tested on x86-64. Automatic C class layout, typed callback
 validation, signed/floating initializer expressions and header import remain
 outside this subset. See [initialized exports](../design/facilities/04-interop/exported-objects.md).
+
+ELF library ABI symbols also use protected visibility (issue #925): host symbols
+cannot replace native callback addresses or data/self relocations. Incompatible
+shared-data COPY relocations fail at link time; dlsym and PIC consumers preserve
+object identity. Undefined foreign imports continue to resolve dynamically.
