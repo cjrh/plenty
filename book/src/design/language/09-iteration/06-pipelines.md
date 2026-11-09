@@ -127,7 +127,10 @@ the result to a local and return the local. See
 `&mut Iter[T]` names only the item type. Like a `&mut Generator[T]`
 parameter, the borrower is compiled once per lent pipeline, as a frame
 specialization; recursive and repeated lends of the same pipeline share it.
-A method can take a lent pipeline the same way.
+A method can take a lent pipeline the same way, and a
+[scoped worker](../../facilities/03-concurrency/threads.md#scope-and-loans)
+can take one as a `spawn` argument; the lend then lasts until the end of the
+`with` block. Pool jobs own their inputs, so `submit` cannot take one.
 
 A generic borrower infers its type parameters like any generic call: from
 the lent pipelines' item types, the ordinary arguments, callable bounds and

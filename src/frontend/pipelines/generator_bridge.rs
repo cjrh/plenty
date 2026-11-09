@@ -256,6 +256,7 @@ impl Lower<'_> {
                         .map(|slot| self.slot_names.get(*slot as usize).cloned().flatten())
                         .collect(),
                     required: self.generics.requirement_of(self.sigs, &name).cloned(),
+                    display: None,
                 }),
                 generator: Some(plan.item.ty),
                 sig: sig.clone(),

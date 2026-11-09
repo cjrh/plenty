@@ -209,6 +209,7 @@ pub(super) fn prepare(
         tail_candidates: HashMap::default(),
         active: HashSet::default(),
         frames: HashMap::default(),
+        display_names: HashMap::default(),
         frame_instances: HashMap::default(),
         lent: Vec::new(),
         lent_ids: HashMap::default(),
@@ -314,6 +315,9 @@ pub(super) struct Engine {
     pub(super) tail_candidates: HashMap<String, Vec<tail_calls::Candidate>>,
     pub(super) active: HashSet<functions::Symbol>,
     pub(super) frames: HashMap<(String, Vec<Ty>), String>,
+    /// Source names of generic instances and frame specializations, by
+    /// symbol, for diagnostics after lowering (`Origins::display`).
+    pub(super) display_names: HashMap<String, Arc<str>>,
     /// Frame specializations of each generator consumer.
     pub(super) frame_instances: HashMap<String, usize>,
     /// Pipelines lent to `&mut Iter[T]` parameters, by identity, and each
@@ -2287,6 +2291,10 @@ impl Engine {
             self.serial_stack.insert(symbol.clone(), guard);
         }
         let mut display = instance_name(name, actual);
+        self.display_names.insert(
+            symbol.clone(),
+            crate::record::method_display(&display).into(),
+        );
         if let Some(field) = aliases.data.serial_field(at) {
             display = format!("field `{field}` in {display}");
         }
