@@ -6,6 +6,7 @@ of foreign-library builds. Run each experiment's own runner for those checks.
 """
 import argparse
 import importlib.util
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -84,12 +85,14 @@ def main():
                 consumer = work / "packages" / package.name / test.stem
                 (consumer / "src").mkdir(parents=True)
                 (consumer / "src/lib.plenty").write_text(test.read_text())
+                # Each consumer has its own directory, so a fixed name works
+                # for any test file name. JSON strings are valid TOML strings.
                 (consumer / "plenty.toml").write_text(
                     "manifest-version = 1\n\n[package]\n"
-                    f"name = \"{manifest['name']}_{test.stem}\"\nversion = \"0.0.0\"\n\n"
-                    f"[dependencies]\n{manifest['name']} = {{ path = \"{package}\", "
-                    f"version = \"{manifest['version']}\" }}\n\n"
-                    "[lib]\npath = \"src/lib.plenty\"\n")
+                    'name = "consumer"\nversion = "0.0.0"\n\n'
+                    f"[dependencies]\n{manifest['name']} = {{ path = {json.dumps(str(package))}, "
+                    f"version = {json.dumps(manifest['version'])} }}\n\n"
+                    '[lib]\npath = "src/lib.plenty"\n')
                 check_package(consumer, test.relative_to(HERE).as_posix())
 
         def generated(name, source):
