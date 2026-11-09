@@ -79,7 +79,9 @@ generated interface.
 Exports support numeric scalars, `bool`, borrows, unit, supported `Result` values, and
 [owned class handles](export-owned-objects.md). Read the generated
 header's requirements even for simple APIs: runtime traps can terminate the
-process, and current libraries require serialized calls on one caller thread.
+process. Unannotated exports require serialized calls on one caller thread;
+[certified host-thread exports](../../design/facilities/04-interop/host-threads.md)
+can accept the documented host concurrency and thread handoff.
 See the [library reference](../../design/facilities/04-interop/exports.md)
 for supported export types and packaging details.
 
