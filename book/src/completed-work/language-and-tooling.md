@@ -949,6 +949,13 @@ Remaining inference/value candidates stay **B16** in the [backlog](../backlog.md
 
 ## B17: Tooling and packaging
 
+The [multiple-version dependency proposal](../proposals/multiversion-dependencies.md)
+records the design for independent transitive upgrades, direct-name uniqueness,
+structural protocol boundaries, shared-instance restrictions and edge-specific
+locks. It includes Node/npm evidence and a source-based implementation sketch.
+This delivers the design document only; resolver/compiler behavior is unchanged,
+and implementation remains in B17.
+
 [`plenty script`](../design/toolchain/01-building/scripts.md) delivers executable
 shebang scripts, lossless Unix argument forwarding, strict optional embedded
 manifests, isolated path/Git resolution, cached and durable locks, and original-source
