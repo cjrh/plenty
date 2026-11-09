@@ -2,9 +2,11 @@
 
 A function or method returning `&T` or `&mut T` borrows its result from its
 first reference parameter, the *origin*. A [slice view](../04-expressions/slices.md#slice-views)
-parameter, `&[T]` or `&mut [T]`, counts as a reference parameter. A function without a reference
-parameter cannot return a reference, and a mutable result requires an `&mut`
-origin. Every return path must originate in the origin; later reference
+parameter, `&[T]` or `&mut [T]`, counts as a reference parameter, as does a
+by-value [`Generator[&T]`](../09-iteration/03-generators.md#reference-items)
+parameter, whose items borrow the caller's data rather than the generator.
+A function without a reference parameter cannot return a reference, and a
+mutable result requires an `&mut` origin. Every return path must originate in the origin; later reference
 parameters, local owners, and owned parameters cannot escape. Direct parameter
 references, reborrows, field and element projections, borrowed-match payloads,
 and forwarding calls are supported. Each arm of a returned `if`, `match`, or

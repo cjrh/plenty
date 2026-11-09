@@ -563,7 +563,7 @@ impl Lower<'_> {
         )?;
         // A structural callable has no function-specific field projection summary.
         // Retain the full origin loan even when today's value happens to be named.
-        self.call_reference_result("", &function, &loans, ops);
+        self.call_reference_result("", &function, &loans, &callee.at, ops)?;
         Self::end_reads(loans, ops);
         Ok(sig.output.clone())
     }
