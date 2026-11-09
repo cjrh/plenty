@@ -2179,3 +2179,55 @@ fn check_tests_type_checks_test_files_without_linking_or_running_them() {
         "--tests requires a package",
     );
 }
+
+#[test]
+fn check_tests_in_a_workspace_checks_each_members_own_tests() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(
+        &root.join("plenty.toml"),
+        "manifest-version = 1\n\n[workspace]\nmembers = [\"util\", \"app\"]\n",
+    );
+    package(
+        root,
+        "util",
+        "",
+        &[
+            ("src/lib.plenty", "pub def value() -> i64:\n    42\n"),
+            (
+                "tests/unit.plenty",
+                "import util\ndef test_value() -> Result[(), str]:\n    if util.value() != 42:\n        return Err(\"wrong\")\n    Ok(())\n",
+            ),
+        ],
+    );
+    package(
+        root,
+        "app",
+        "util = { path = \"../util\" }\n",
+        &[
+            ("src/main.plenty", "def main() -> ():\n    pass\n"),
+            ("tests/one.plenty", "def main() -> i32:\n    0\n"),
+            ("tests/two.p", "def test_two() -> ():\n    pass\n"),
+        ],
+    );
+    let lines = status_lines(root, &["check", "--tests"]);
+    assert!(
+        lines.contains("Checked util v0.1.0: library, 1 test file; 1 of 1 files in src/"),
+        "{lines}"
+    );
+    assert!(
+        lines.contains("Checked app v0.1.0: 1 executable, 2 test files; 1 of 1 files in src/"),
+        "{lines}"
+    );
+    // A member's broken test fails only that member's check.
+    write(
+        &root.join("app/tests/two.p"),
+        "def test_two() -> ():\n    x: i64 = \"text\"\n",
+    );
+    fails(root, &["check", "--tests"], "app/tests/two.p:2:");
+    let lines = status_lines(&root.join("util"), &["check", "--tests"]);
+    assert!(
+        lines.contains("util v0.1.0: library, 1 test file"),
+        "{lines}"
+    );
+}

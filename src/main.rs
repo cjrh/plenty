@@ -45,7 +45,7 @@ new / init: create a package with src/main.plenty (or src/lib.plenty with --lib)
 check: type-check every target and warn about .plenty/.p files under src/ that no
 target imports; --check-all-methods also checks every method
 of every generic instance, including methods nothing calls; --tests also checks
-tests/*.plenty as plenty test compiles them, without linking or running them. build: compile executables into target/optimized,
+the files in tests/ as plenty test compiles them, without linking or running them. build: compile executables into target/optimized,
 or target/fast-compile with --fast-compile. --unchecked MODE: `trap` (default)
 or `assume` for plain `unchecked:` blocks outside std (see plentyc --help). run: build one executable and run it with
 ARGS. test: run each test_* function in tests/*.plenty in its own process, or
