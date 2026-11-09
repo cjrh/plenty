@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Write programs the experiments' generators produce into OUTPUT.
 
-`tests/test_experiments.rs` type-checks every `.plenty` file written here, so
+`tests/test_experiments.rs` type-checks the `.plenty` files written here, so
 a language change that breaks a generator's output fails the suite. Each call
 uses small representative sizes; the experiments' own runners choose the
 measured ones.

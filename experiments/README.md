@@ -10,8 +10,9 @@ cargo test --locked --test integration test_experiments::
 They supply the foreign-API stubs for `rust-crates/workload.plenty` and check the
 intentional row-reference rejection. A directory with a `plenty.toml`, such as
 `packages/memmap`, is checked as a package, tests included, with
-`plenty check --tests`. `tests/fixtures/experiments/generate.py` lists the
-generator calls; add one there when a new generator should stay checked.
+`plenty check --tests`. `tests/fixtures/experiments/write_generated.py` lists the
+generator calls; add a new generator's call there and its output names to
+`GENERATED` in `tests/test_experiments.rs`.
 They do not rebuild foreign libraries or reproduce performance measurements;
 use each experiment's runner for native execution and its specific invariants.
 

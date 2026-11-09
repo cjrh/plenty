@@ -16,7 +16,7 @@ const REJECTED: &[(&str, &str)] = &[(
 /// Stored inputs checked only through a generated program.
 const GENERATED_ONLY: &[&str] = &[
     // Its runner supplies the selected foreign API stubs; see `rust_crates`
-    // in `tests/fixtures/experiments/generate.py`.
+    // in `tests/fixtures/experiments/write_generated.py`.
     "rust-crates/workload.plenty",
 ];
 
@@ -24,23 +24,64 @@ fn experiments() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("experiments")
 }
 
-/// Files under `directory`, skipping build products left by experiment runs.
+/// Every program `write_generated.py` writes, relative to its output.
+const GENERATED: &[&str] = &[
+    "base/caller.plenty",
+    "base/m0.plenty",
+    "base/m1.plenty",
+    "base/main.plenty",
+    "body/caller.plenty",
+    "body/m0.plenty",
+    "body/m1.plenty",
+    "body/main.plenty",
+    "columns.plenty",
+    "columns_False_False.plenty",
+    "columns_True_False.plenty",
+    "columns_True_True.plenty",
+    "count_one.plenty",
+    "count_random.plenty",
+    "count_stream.plenty",
+    "count_two.plenty",
+    "count_whole.plenty",
+    "emitter.plenty",
+    "interface/caller.plenty",
+    "interface/m0.plenty",
+    "interface/m1.plenty",
+    "interface/main.plenty",
+    "removal_1.plenty",
+    "removal_8.plenty",
+    "rust_crates.plenty",
+    "scalar_layout.plenty",
+];
+
+/// Files under `directory`.
 fn walk(directory: &Path, found: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(directory).unwrap() {
         let path = entry.unwrap().path();
         if path.is_dir() {
-            if path.file_name().is_some_and(|name| name != "target") {
-                walk(&path, found);
-            }
+            walk(&path, found);
         } else {
             found.push(path);
         }
     }
 }
 
+/// Git-tracked files under `experiments/`, so runner outputs and scratch
+/// files in the checkout are not checked as inputs.
 fn tracked_files() -> Vec<PathBuf> {
-    let mut files = Vec::new();
-    walk(&experiments(), &mut files);
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = std::process::Command::new("git")
+        .args(["ls-files", "-z", "--", "experiments"])
+        .current_dir(root)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let mut files: Vec<PathBuf> = String::from_utf8(output.stdout)
+        .unwrap()
+        .split('\0')
+        .filter(|name| !name.is_empty())
+        .map(|name| root.join(name))
+        .collect();
     files.sort();
     files
 }
@@ -73,9 +114,11 @@ fn stored_experiment_inputs_type_check() {
     let files = tracked_files();
     let packages = packages(&files);
     let mut checked = 0;
+    let mut seen = Vec::new();
     let mut failures = Vec::new();
     for path in files.iter().filter(|path| is_plenty(path)) {
         let name = relative(path, &root);
+        seen.push(name.clone());
         if GENERATED_ONLY.contains(&name.as_str())
             || packages.iter().any(|package| path.starts_with(package))
         {
@@ -99,6 +142,14 @@ fn stored_experiment_inputs_type_check() {
         }
     }
     assert!(checked > 0);
+    // A renamed or deleted special case would otherwise drop its check.
+    for special in REJECTED.iter().map(|(name, _)| name).chain(GENERATED_ONLY) {
+        if !seen.iter().any(|name| name == special) {
+            failures.push(format!(
+                "{special}: listed as a special case but not tracked"
+            ));
+        }
+    }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
@@ -111,7 +162,8 @@ fn experiment_packages_type_check_with_their_tests() {
     assert!(!packages.is_empty());
     for package in packages {
         let output = std::process::Command::new(support::plenty_bin())
-            .args(["check", "--tests", "--offline"])
+            // `--locked` fails rather than rewriting the tracked `plenty.lock`.
+            .args(["check", "--tests", "--offline", "--locked"])
             .current_dir(&package)
             .output()
             .unwrap();
@@ -128,8 +180,8 @@ fn experiment_packages_type_check_with_their_tests() {
 #[test]
 fn experiment_generators_produce_checked_programs() {
     let script =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/experiments/generate.py");
-    let dir = tempfile::tempdir().unwrap();
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/experiments/write_generated.py");
+    let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
     let output = std::process::Command::new("python3")
         .arg("-B")
         .arg(&script)
@@ -145,8 +197,14 @@ fn experiment_generators_produce_checked_programs() {
     walk(dir.path(), &mut files);
     files.retain(|path| is_plenty(path));
     files.sort();
-    // Guards against a generator silently writing nothing.
-    assert!(files.len() >= 14, "{files:?}");
+    let mut names: Vec<String> = files
+        .iter()
+        .map(|path| relative(path, dir.path()))
+        .collect();
+    names.sort_unstable();
+    let mut expected: Vec<&str> = GENERATED.to_vec();
+    expected.sort_unstable();
+    assert_eq!(names, expected);
     let failures: Vec<String> = files
         .iter()
         .filter_map(|path| {
