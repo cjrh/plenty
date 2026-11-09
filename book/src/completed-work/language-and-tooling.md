@@ -1494,3 +1494,12 @@ addresses and overlapping scalar buffers, and by rejection checks for unsafe
 worker effects. C-layout classes, typed callback values, inferred raw-pointer
 lifetimes and real-time guarantees are not delivered. B27/B28 retain the
 remaining interface scope.
+
+## Checking package tests (issue #919)
+
+`plenty check --tests` also type-checks each package's `tests/` files as
+`plenty test` compiles them, without linking or running them, so tests that
+need a native library built are checkable.
+[Checking tests](../design/toolchain/01-building/packages.md#checking-tests)
+documents the flag. `experiments/check_arithmetic.py` uses it in place of
+wrapping each test file in a temporary consumer package.

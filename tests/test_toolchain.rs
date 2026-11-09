@@ -749,6 +749,6 @@ def lists() -> Result[Cell[list[i64]], AllocError]:
     let help = success(Command::new(env!("CARGO_BIN_EXE_plenty")).output().unwrap());
     assert!(
         String::from_utf8_lossy(&help.stdout)
-            .contains("plenty check [--locked] [--offline] [--check-all-methods]")
+            .contains("plenty check [--tests] [--locked] [--offline] [--check-all-methods]")
     );
 }

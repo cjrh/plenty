@@ -4720,6 +4720,24 @@ pub(crate) fn compile_graph(
     )
 }
 
+/// The test file at `path` as `plenty test` builds it, for checking without
+/// linking: a test program, or test functions with the runner's `main`
+/// (`appendix`).
+pub(crate) fn compile_test_graph(
+    path: &std::path::Path,
+    graph: &crate::project::SourceGraph,
+    appendix: Option<&str>,
+    heap: &mut Heap,
+    check: crate::CheckOptions,
+) -> Result<Program> {
+    lower(
+        modules::load_graph_with(path, graph, true, appendix, false)?,
+        heap,
+        check,
+        crate::UncheckedMode::Trap,
+    )
+}
+
 pub(crate) fn compile_script(
     path: &std::path::Path,
     graph: &crate::project::SourceGraph,

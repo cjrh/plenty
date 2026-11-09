@@ -283,6 +283,10 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
         args.remove(index);
         options.strip = false;
     }
+    if args.iter().any(|a| a == "--tests") {
+        // A single file has no `tests/` directory; tests belong to packages.
+        return Err("--tests requires a package: run `plenty check --tests` in a directory with plenty.toml".into());
+    }
     // Validate modes only after removing standalone options, so their order
     // cannot hide the selected mode (issue #590).
     if check.all_methods
