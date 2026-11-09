@@ -1,10 +1,6 @@
 //! Compose the C boundary features against pinned native CLAP declarations.
 //! This exports an entry and private ABI-test factory, not an audio plugin.
-#![cfg(all(
-    target_os = "linux",
-    target_env = "gnu",
-    target_arch = "x86_64"
-))]
+#![cfg(all(target_os = "linux", target_env = "gnu", target_arch = "x86_64"))]
 use object::{Object, ObjectSymbol};
 use std::path::Path;
 use std::process::Command;
