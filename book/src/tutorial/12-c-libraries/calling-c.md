@@ -92,3 +92,14 @@ describes the trusted primitives for this case; the
 [host-thread contract](../../design/facilities/04-interop/host-threads.md) explains
 checked concurrent entry. Keep raw operations inside a small binding module and
 keep ordinary Plenty references exclusive where required.
+
+## Hosts that unload plugins
+
+For a native host that closes and later reloads a shared library, add
+`--unloadable-library` to the `--shared-library` build on Linux GNU x86_64.
+The compiler checks the supported runtime subset; ordinary allocations and
+collections are allowed. Before closing, finish all calls, destroy all owned
+handles, and stop callbacks. Host threads may remain alive. Trusted C bindings
+must also finish their background work and remove registrations that refer to
+the library. See the [unloading contract](../../design/facilities/04-interop/unloading.md)
+for the supported operations and complete teardown obligations.

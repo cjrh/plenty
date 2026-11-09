@@ -317,6 +317,14 @@ impl Interface {
     }
 
     pub fn new(name: &str, exports: &[Export]) -> Result<Self, Box<dyn std::error::Error>> {
+        Self::with_unloading(name, exports, false)
+    }
+
+    pub(crate) fn with_unloading(
+        name: &str,
+        exports: &[Export],
+        unloadable: bool,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         check_library_name(name)?;
         if exports.is_empty() {
             return Err("library requires at least one `export def` declaration".into());
@@ -569,6 +577,12 @@ impl Interface {
                 let raw = format!("_plenty_c_{}", export.name);
                 source.push_str(&format!("{thread_annotation}extern def {raw}({}) -> {output} = \"{}\"\npub def {}({}) -> {output}:\n    _plenty_require_contract()\n{transfers}    {raw}({})\n\n", raw_parameters.join(", "), export.symbol, export.name, parameters.join(", "), args.join(", ")));
             }
+        }
+        if unloadable {
+            // Lifetime promises are part of compatibility, so extracted
+            // contracts and guards distinguish certified and ordinary builds.
+            source.push_str("# unloadable-profile: linux-gnu-x86_64-v1\n");
+            header.push_str(crate::unloading::HEADER_CONTRACT);
         }
         let fingerprint = crate::library_metadata::fingerprint(source.as_bytes());
         let contract_guard = format!("{name}_plenty_contract_v1_{fingerprint}");

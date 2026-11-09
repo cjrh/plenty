@@ -386,6 +386,7 @@
             - [Owned library objects](design/facilities/04-interop/owned-exports.md)
             - [Embedded contracts and compatibility](design/facilities/04-interop/contracts.md)
             - [Runtime loading](design/facilities/04-interop/loading.md)
+            - [Unloadable shared libraries](design/facilities/04-interop/unloading.md)
             - [Trusted loading primitives](design/facilities/04-interop/loading-primitives.md)
     - [Standard library](design/stdlib/index.md)
         - [Signature index](design/stdlib/signatures.md)

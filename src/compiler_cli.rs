@@ -53,6 +53,8 @@ Programs require main() returning (), i32, Result[(), E], or Result[i32, E].
 --libfuzzer PATH: libFuzzer archive for --fuzz (default: clang's
   libclang_rt.fuzzer_no_main.a).
 --shared-library / --static-library: emit C exports without requiring main.
+--unloadable-library: check the Linux GNU x86_64 unloadable runtime subset.
+  Requires --shared-library; foreign bindings must honor its teardown contract.
 --runtime-interface: generate an explicit typed loader from checked export source.
 --library-name NAME: namespace for C exports, header, and generated .plentyi.
 --archiver PATH: ar-compatible archiver for --static-library (default: ar).
@@ -125,12 +127,21 @@ fn distribution_filename(stem: &OsStr, suffix: &str) -> OsString {
 pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Error>> {
     let mut options = plenty::CompileOptions::default();
     let mut library_name = None;
+    let mut unloadable = false;
     let mut archiver = None;
     let mut libfuzzer = None;
     let mut dist = None;
     let mut link_options = false;
     let mut index = 0;
     while index < args.len() {
+        if args[index] == "--unloadable-library" {
+            if unloadable {
+                return Err("--unloadable-library may be specified only once".into());
+            }
+            unloadable = true;
+            args.remove(index);
+            continue;
+        }
         if matches!(
             args[index].as_str(),
             "--linker"
@@ -337,6 +348,9 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
     let library = args
         .first()
         .is_some_and(|a| matches!(a.as_str(), "--shared-library" | "--static-library"));
+    if unloadable && !args.first().is_some_and(|a| a == "--shared-library") {
+        return Err("--unloadable-library requires --shared-library".into());
+    }
     let extraction = args.first().is_some_and(|a| a == "--extract-interface");
     let runtime_interface = args.first().is_some_and(|a| a == "--runtime-interface");
     if library_name.is_some() && !library && !extraction && !runtime_interface {
@@ -435,6 +449,7 @@ pub fn run(program: &str, mut args: Vec<String>) -> Result<ExitCode, Box<dyn Err
             };
             let mut library = plenty::LibraryOptions::new(name, kind);
             library.compile = options;
+            library.unloadable = unloadable;
             if let Some(archiver) = archiver {
                 library.archiver = archiver;
             }

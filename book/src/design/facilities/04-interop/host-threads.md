@@ -47,7 +47,7 @@ stack-overflow handler is not installed by a library entry; this interface does
 not add recovery from stack overflow, traps, or explicit unwrap failures.
 Foreign unwinding and nonlocal jumps across Plenty frames remain forbidden.
 Code and static data must stay resident while any pointer or callback is live.
-Library unloading is not supported by this contract.
+Actual unloading additionally requires the explicit [unloadable library profile](unloading.md) and its teardown contract.
 
 The export checker reuses worker eligibility, which permits allocation, locks,
 blocking operations and I/O. **Thread certification is not a real-time execution

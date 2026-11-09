@@ -43,7 +43,8 @@ mod signal_context;
 mod signals;
 #[cfg(all(
     target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    any(plenty_runtime_embedded, test)
 ))]
 mod small_pool;
 mod stack_overflow;

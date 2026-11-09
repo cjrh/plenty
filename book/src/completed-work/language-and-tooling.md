@@ -1494,3 +1494,16 @@ addresses and overlapping scalar buffers, and by rejection checks for unsafe
 worker effects. C-layout classes, typed callback values, inferred raw-pointer
 lifetimes and real-time guarantees are not delivered. B27/B28 retain the
 remaining interface scope.
+
+## Unloadable shared-library profile
+
+Linux GNU x86_64 shared libraries can opt into `--unloadable-library`.
+Transitive checks admit audited computation, ordinary allocations and collections,
+and reject runtime facilities without teardown contracts. The library runtime
+uses the system allocator, avoiding application pool TLS destructors that pin
+code on long-lived foreign threads. Native tests exercise repeated physical
+unloading with concurrent persistent host threads, allocation/free, owned handle
+destruction, and fresh static storage after reload. Trusted foreign bindings
+must leave no callbacks, background work or registrations behind. Other targets,
+generators, thread facilities, IO/native engines and Plenty's resident generated
+loaders remain outside this increment. See the [contract](../design/facilities/04-interop/unloading.md).
