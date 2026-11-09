@@ -1556,6 +1556,8 @@ impl Lower<'_> {
                 // (issue #900); see [`Lower::request_join`].
                 self.joins.mismatched(expected, got);
                 "; different producers join only where a value is chosen or reassigned: a conditional expression (`a if c else b`), an `if` or `match` value, a factory's return, or `x = ...` for a local".into()
+            } else if let Some(message) = self.plan_mismatch(&expected, &got) {
+                return Err(at.error(message));
             } else {
                 expected
                     .as_ref()

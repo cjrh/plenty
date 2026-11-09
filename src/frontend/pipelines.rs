@@ -83,6 +83,57 @@ pub(super) struct State {
     pub(super) generators: usize,
     /// Set while a terminal consumes a pipeline; see `consume_in_place`.
     pub(super) consuming: bool,
+    /// How a diagnostic names each bound plan. `Iter[T]` displays without
+    /// its plan identity, so two plans with one item type print alike
+    /// (issue #903).
+    pub(super) origins: HashMap<usize, Origin>,
+}
+
+/// The expression that built a bound plan and its line.
+#[derive(Clone)]
+pub(super) struct Origin {
+    spelling: String,
+    line: u32,
+    /// Bound from a borrower's `&mut Iter[T]` parameter: the caller chose
+    /// the source, so choosing it where the pipeline is built does not apply.
+    lent: bool,
+}
+
+/// How a diagnostic writes pipeline expression `e`: calls and methods with
+/// their receivers, other arguments elided, as in `iter(&xs).map(...)`.
+pub(super) fn spelling(e: &Expr) -> String {
+    fn arguments(args: &[Expr]) -> String {
+        match args {
+            [] => String::new(),
+            [only] if matches!(ungroup(only).kind, Expression::Anonymous(_)) => "...".into(),
+            [first, rest @ ..] => {
+                let first = spelling(first);
+                if rest.is_empty() {
+                    first
+                } else {
+                    format!("{first}, ...")
+                }
+            }
+        }
+    }
+    match &ungroup(e).kind {
+        Expression::Name(name) => name.clone(),
+        Expression::Number(n) => n.clone(),
+        Expression::Unary(op, inner) if op == "&" || op == "&mut" => {
+            let space = if op == "&mut" { " " } else { "" };
+            format!("{op}{space}{}", spelling(inner))
+        }
+        Expression::Call(function, args) => {
+            let function = builtin_call(function).unwrap_or(function);
+            format!("{function}({})", arguments(args))
+        }
+        Expression::Method(base, method, args, _) => {
+            let args = if args.is_empty() { "" } else { "..." };
+            format!("{}.{method}({args})", spelling(base))
+        }
+        Expression::Member(base, field, _) => format!("{}.{field}", spelling(base)),
+        _ => "...".into(),
+    }
 }
 
 #[derive(Clone)]
@@ -117,6 +168,61 @@ pub(super) struct Pipeline {
 }
 
 impl Lower<'_> {
+    /// The origin of the plan `value` binds: a pipeline local's own origin,
+    /// so `p = q` names where `q` was built.
+    pub(super) fn pipeline_origin(&self, value: &Expr) -> Origin {
+        if let Expression::Name(name) = &ungroup(value).kind
+            && let Some(local) = self.names.get(name)
+        {
+            if let Ty::Iter(_, id) = local.ty
+                && let Some(origin) = self.pipeline.origins.get(&id)
+            {
+                return origin.clone();
+            }
+            if self.pipeline.lent_parameters.contains_key(&local.slot) {
+                return Origin {
+                    spelling: name.clone(),
+                    line: value.at.position().line,
+                    lent: true,
+                };
+            }
+        }
+        Origin {
+            spelling: spelling(value),
+            line: value.at.position().line,
+            lent: false,
+        }
+    }
+
+    /// The diagnostic for types that differ only in their pipeline plans, as
+    /// when a pipeline local is reassigned (issue #903). `Iter[T]` displays
+    /// without its plan, so this names each plan like a generator names its
+    /// producer (issue #872).
+    pub(super) fn plan_mismatch(&self, expected: &Type, got: &Type) -> Option<String> {
+        let (Some(expected @ Ty::Iter(a, want)), Some(got @ Ty::Iter(b, have))) = (expected, got)
+        else {
+            return None;
+        };
+        if a != b {
+            return None;
+        }
+        let origins = [*want, *have].map(|id| self.pipeline.origins.get(&id));
+        let name = |ty: &Ty, origin: Option<&Origin>| match origin {
+            Some(Origin { spelling, line, .. }) => format!("{ty} from `{spelling}` at line {line}"),
+            None => ty.to_string(),
+        };
+        let rewrite = if origins.iter().flatten().any(|origin| origin.lent) {
+            ""
+        } else {
+            ", or choose the source where it is built, as in `iter(&a if c else &b)`"
+        };
+        Some(format!(
+            "expected {}, got {}; a pipeline local holds one pipeline for its whole scope, even over the same source; bind the new pipeline to a new name{rewrite}",
+            name(expected, origins[0]),
+            name(got, origins[1])
+        ))
+    }
+
     pub(super) fn is_generator_source(&self, e: &Expr) -> bool {
         let hint = |e: &Expr| self.place_type(e).or_else(|| self.expression_type_hint(e));
         if matches!(hint(e), Some(Ty::Generator(_))) {
