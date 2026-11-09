@@ -171,6 +171,8 @@ These belong to B17 and are not scheduled implementation commitments:
 B19 is evidence-driven; these are candidates, not an approved optimization batch.
 Dominated index-increment overflow elimination is [delivered](completed-work/performance.md#b19-generated-code-and-storage);
 remaining n-body velocity checks, spills and address work are tracked in issue #930.
+Key-only dictionary probes are [delivered](completed-work/performance.md#b19-generated-code-and-storage);
+remaining k-nucleotide wrapper costs are tracked in issue #931.
 Use [profiling](development/profiling.md), [faster-linking evidence](proposals/faster-linking.md)
 and the [completed measurements](completed-work/performance.md) as baselines.
 The [k-nucleotide counting-loop investigation](completed-work/performance.md#k-nucleotide-counting-loop-investigation-issue-743)

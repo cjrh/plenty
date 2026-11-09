@@ -16,6 +16,12 @@ reduces the complete benchmark from 2.050B to 1.996B instructions at one million
 steps, with identical output. Bounds checks and non-dominating overflow checks
 remain.
 
+Dictionary hash probes read only the key instead of materializing an unused
+key/value row (issue #931). The isolated hit path saves 29 instructions per
+update, and k-nucleotide at fasta 50,000 saves about 3% of instructions with
+identical output. Other helper costs remain; wall-time improvement was not
+established on the shared machine.
+
 - The CPU audit (`examples/cpu_codegen_audit/`, local PR #431) led to issues
   #360–#392. `--dump` exposes operations/CLIF/assembly (issue #360). Unborrowed
   locals stay in registers, narrow helpers replace dispatcher calls in borrowed

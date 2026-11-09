@@ -1030,7 +1030,7 @@ impl Collection {
     unsafe fn probe(&self, key: u128, hash: u64) -> usize {
         let key_ty = self.ty().key();
         self.table.probe(hash, |entry| unsafe {
-            equal(self.entries.get(entry).key, key, key_ty)
+            equal(self.entries.key(entry), key, key_ty)
         })
     }
     unsafe fn find(&self, key: u128) -> Option<usize> {
