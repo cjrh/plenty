@@ -444,6 +444,51 @@ captures must be owned. There is
 no implicit conversion at a `Generator[T]` parameter or return annotation. The
 resulting frame follows the specialization, suspension and cleanup rules above.
 
+### Pipelines in generator bodies
+
+A generator body uses [pipelines](06-pipelines.md) as other functions do: it
+can loop over one, bind one to a local, and advance a binding with `next`,
+with or without `yield` while the pipeline is live (issue #924). A suspended
+pipeline's source, callbacks and progress are frame state; dropping the frame
+drops the items it has not produced.
+
+```plenty
+def larger(x: &i64) -> bool:
+    *x > 1
+
+def large(xs: &list[i64]) -> Generator[i64]:
+    for x in iter(xs).filter(larger):
+        yield *x
+
+def main() -> Result[(), AllocError | IoError]:
+    xs = [1, 2, 3]?
+    for x in large(&xs):
+        print(x)?
+    Ok(())
+```
+```output
+2
+3
+```
+
+A pipeline's loans follow the rule for references: one rooted at a reference
+or view parameter may cross `yield`, while one borrowing a local of the frame
+may not. Move an owned source into the pipeline, as `iter(xs)`, or consume
+the pipeline with a terminal before the next `yield`.
+
+```plenty-error
+def walk() -> Generator[i64]:
+    xs = [1, 2].unwrap()
+    for x in iter(&xs):
+        yield *x
+
+def main() -> ():
+    drop(walk())
+```
+```error
+a borrow of `xs` cannot remain live across yield
+```
+
 ## Generator expressions
 
 `(expression for name in source if condition)` creates a concrete owned

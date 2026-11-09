@@ -42,6 +42,91 @@ fn generator_bridge_rejects_borrowed_callback_captures() {
     assert!(error.contains("owned callback captures"), "{error}");
 }
 
+// Issue #924: a generator body holds a pipeline like any other local. Only a
+// loan of frame state that stays live across `yield` is rejected.
+#[test]
+fn generator_bodies_loop_over_and_bind_pipelines() {
+    output(
+        r#"
+def larger(x: &i64) -> bool:
+    *x > 1
+def last(xs: &list[i64]) -> Generator[i64]:
+    mut seen = 0
+    for x in iter(xs):
+        seen = *x
+    yield seen
+    p = iter(xs).filter(larger)
+    for x in p:
+        seen = *x
+    yield seen
+def each(xs: &list[i64]) -> Generator[i64]:
+    for (i, x) in enumerate(xs).skip(1):
+        yield i
+        yield *x
+def resumed(xs: list[i64]) -> Generator[i64]:
+    mut p = iter(xs).take_while(def(x: &i64) -> bool: *x < 3)
+    match next(p):
+        case Some(x):
+            yield x
+        case Nothing:
+            pass
+    yield 0
+    for x in p:
+        yield x
+def main() -> ():
+    xs = [1, 2, 3].unwrap()
+    print(list(last(&xs)).unwrap()).unwrap()
+    print(list(each(&xs)).unwrap()).unwrap()
+    print(list(resumed([1, 2, 3, 1].unwrap())).unwrap()).unwrap()
+"#,
+        "[3, 3]\n[1, 2, 2, 3]\n[1, 0, 2]\n",
+    );
+}
+
+#[test]
+fn a_suspended_pipeline_drops_its_remaining_items_with_the_frame() {
+    output(
+        r#"
+class Guard:
+    n: i64
+    def __del__(self) -> ():
+        print("drop", self.n).unwrap()
+def odd(g: &Guard) -> bool:
+    g.n != 2
+def guards(values: list[Guard]) -> Generator[i64]:
+    p = iter(values).filter(odd)
+    yield 0
+    for g in p:
+        yield g.n
+def main() -> ():
+    mut g = guards([Guard(1), Guard(2), Guard(3), Guard(5)].unwrap())
+    print(next(g)).unwrap()
+    print(next(g)).unwrap()
+    print(next(g)).unwrap()
+    drop(g)
+    print("done").unwrap()
+"#,
+        "Option[i64].Some(0)\nOption[i64].Some(1)\ndrop 1\ndrop 2\nOption[i64].Some(3)\ndrop 3\ndrop 5\ndone\n",
+    );
+}
+
+#[test]
+fn a_pipeline_borrowing_frame_state_cannot_stay_live_across_yield() {
+    for body in [
+        "    for x in iter(&xs):\n        yield *x\n",
+        "    p = iter(&xs)\n    yield 0\n    yield p.count()\n",
+    ] {
+        let source = format!(
+            "def walk() -> Generator[i64]:\n    xs = [1].unwrap()\n{body}def main() -> ():\n    drop(walk())\n"
+        );
+        let error = support::check_source(&source).unwrap_err().to_string();
+        assert!(
+            error.contains("a borrow of `xs` cannot remain live across yield"),
+            "{error}"
+        );
+    }
+}
+
 #[test]
 fn generator_bridge_cleans_never_started_partial_exhausted_and_zip_pending_owners() {
     let source = r#"
@@ -1288,7 +1373,6 @@ fn unsupported_placements_are_rejected() {
         "p = iter(range(3))\nprint(p).unwrap()\n",
         "p = iter(range(3))\nf = (def [p]() -> i64: p.count())\n",
         "p = iter(range(3))\nvalues = [p].unwrap()\n",
-        "def bad() -> Generator[i64]:\n    p = iter(range(3))\n    yield 1\n",
     ] {
         let error = support::check_source(source).unwrap_err().to_string();
         assert!(error.contains("pipeline"), "{source}\n{error}");

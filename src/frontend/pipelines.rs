@@ -81,8 +81,6 @@ pub(super) struct State {
     /// Generator bridges made so far in this function; the count keeps their
     /// helper names distinct.
     pub(super) generators: usize,
-    /// Set while a terminal consumes a pipeline; see `consume_in_place`.
-    pub(super) consuming: bool,
     /// How a diagnostic names each bound plan. `Iter[T]` displays without
     /// its plan identity, so two plans with one item type print alike
     /// (issue #903).
@@ -336,9 +334,6 @@ impl Lower<'_> {
     }
 
     pub(super) fn pipeline(&mut self, e: &Expr, ops: &mut Vec<Op>) -> Result<Pipeline> {
-        if self.yield_type.is_some() && !self.pipeline.consuming {
-            return Err(e.at.error("iterator pipelines cannot be held across yield"));
-        }
         let start = self.locals.len();
         let ops_start = ops.len();
         let saved = self.names.clone();
@@ -544,11 +539,6 @@ impl Lower<'_> {
     }
 
     fn pipeline_source(&mut self, source: &Expr, ops: &mut Vec<Op>) -> Result<Pipeline> {
-        if self.yield_type.is_some() && !self.pipeline.consuming {
-            return Err(source
-                .at
-                .error("iterator pipelines cannot be held across yield"));
-        }
         if self.is_pipeline(source) {
             return self.pipeline(source, ops);
         }
@@ -1742,19 +1732,7 @@ impl Lower<'_> {
             }
             return self.pipeline_generator(base, ops).map(Some);
         }
-        self.consume_in_place(|this| this.pipeline_consume(base, name, args, ops))
-    }
-
-    /// A terminal consumes its pipeline within one expression, which cannot
-    /// contain `yield`, so generator bodies may use it.
-    pub(super) fn consume_in_place<T>(
-        &mut self,
-        consume: impl FnOnce(&mut Self) -> Result<T>,
-    ) -> Result<T> {
-        let outer = std::mem::replace(&mut self.pipeline.consuming, true);
-        let result = consume(self);
-        self.pipeline.consuming = outer;
-        result
+        self.pipeline_consume(base, name, args, ops)
     }
 
     fn pipeline_consume(

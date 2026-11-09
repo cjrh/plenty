@@ -1558,7 +1558,7 @@ impl Lower<'_> {
                 if matches!(name.as_str(), "collect" | "try_collect")
                     && (self.is_pipeline(base) || self.is_generator_source(base)) =>
             {
-                self.consume_in_place(|this| this.pipeline_collect(base, name, args, expected, ops))
+                self.pipeline_collect(base, name, args, expected, ops)
                     .map(Some)
             }
             Expression::Name(name)

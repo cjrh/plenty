@@ -616,6 +616,13 @@ resumable lent-pipeline representation in the frame was considered and
 rejected, since the conversion already works and adds no frame representation. See
 [borrowing frames](../design/language/09-iteration/03-generators.md#borrowing-frames).
 
+Generator bodies loop over, bind and advance pipelines (issue #924). They
+previously accepted only a pipeline consumed by a terminal in one expression.
+A pipeline's state is ordinary frame state, and the ownership checker's
+existing rule decides which of its loans may cross `yield`: those of reference
+and view parameters may, those of frame locals may not. See
+[pipelines in generator bodies](../design/language/09-iteration/03-generators.md#pipelines-in-generator-bodies).
+
 List slice views `&[T]` and `&mut [T]` gained list read and fixed-length
 operations (issue #866): `in`, `count`, `find` and `rfind` search the view with
 the element type's `==` and allocate nothing; `v.get(i)` copies a non-affine
