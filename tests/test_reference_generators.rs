@@ -622,8 +622,8 @@ def main() -> Result[(), AllocError | IoError]:
 
 #[test]
 fn a_generator_yields_an_item_returned_through_its_generator_parameter() {
-    // A generator body's by-value generator parameter has no loan of its
-    // own; the returned item is rooted at the parameter, as `next` is.
+    // The returned item is rooted at the parameter's hidden referent, as
+    // `next`'s are (issue #926).
     assert_stdout(
         &main_body(
             r#"for v in heads(names(&xs)):
@@ -654,8 +654,8 @@ def heads(g: Generator[&str]) -> Generator[&str]:
 
 #[test]
 fn a_generator_yields_an_item_returned_through_a_relayed_or_generic_call() {
-    // Each call path roots its argument loan at the generator body's own
-    // generator parameter, which has no loan (issue #921).
+    // Each call path derives its argument loan from the generator body's
+    // own generator parameter (issues #921, #926).
     for call in ["first(relay(g))", "first_of(g)"] {
         let source = main_body(
             r#"xs = ["a", "b"]?
@@ -681,5 +681,78 @@ def heads(g: Generator[&str]) -> Generator[&str]:
             1,
         );
         assert_stdout(&source, "a\n");
+    }
+}
+
+const HOLD: &str = r#"
+def twice(g: Generator[&str]) -> Generator[&str]:
+    mut h = g
+    match next(h):
+        case Some(x):
+            yield x
+            yield x
+        case Nothing:
+            pass
+    for y in h:
+        yield y
+        yield y
+"#;
+
+fn with_hold(body: &str) -> String {
+    main_body(body).replacen(NAMES, &format!("{NAMES}{HOLD}"), 1)
+}
+
+#[test]
+fn a_generator_holds_items_of_a_moved_generator_parameter_across_yield() {
+    // Issue #926: moving a by-value `Generator[&T]` parameter to a local
+    // keeps its items rooted at the caller's data, not the local, so they
+    // may be yielded and held across `yield`.
+    assert_stdout(
+        &with_hold(
+            r#"xs = ["a", "b"]?
+for v in twice(names(&xs)):
+    print(v)?"#,
+        ),
+        "a\na\nb\nb\n",
+    );
+}
+
+#[test]
+fn a_generator_holds_items_of_its_generator_parameter_across_yield() {
+    assert_stdout(
+        &main_body(
+            r#"xs = ["a", "b"]?
+for v in pairs(names(&xs)):
+    print(v)?"#,
+        )
+        .replacen(
+            NAMES,
+            &format!(
+                "{NAMES}
+def pairs(g: Generator[&str]) -> Generator[&str]:
+    for x in g:
+        yield x
+        yield x
+"
+            ),
+            1,
+        ),
+        "a\na\nb\nb\n",
+    );
+}
+
+#[test]
+fn items_of_a_moved_generator_parameter_keep_the_callers_source_borrowed() {
+    for change in [
+        "xs.clear()\na = next(t)",
+        "a = next(t)\ndrop(t)\nxs.clear()",
+    ] {
+        let error = check_error(&with_hold(&format!(
+            "mut xs = [\"a\", \"b\"]?\nmut t = twice(names(&xs))\n{change}\nprint(a)?"
+        )));
+        assert!(
+            error.contains("`xs` while it is borrowed"),
+            "{change}: {error}"
+        );
     }
 }

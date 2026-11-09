@@ -413,6 +413,10 @@ lives.
 `Generator[&mut T]` is rejected with "generators cannot yield mutable
 references".
 
+An item of a by-value `Generator[&T]` parameter may likewise be held across
+`yield`, whether taken by `for` or by `next` on a `mut` local the parameter
+was moved into (issue #926).
+
 Items follow the storage rules for references: they cannot be collected by
 `list`, `set` or `dict`, stored in a class field or collection, or captured
 by an anonymous function. Copy an item to keep it beyond its source's borrow.
