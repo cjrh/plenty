@@ -1,4 +1,9 @@
 //! Native hosts discover initialized objects without invoking Plenty first.
+#![cfg(all(
+    target_os = "linux",
+    target_env = "gnu",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
 use object::{Object, ObjectSymbol};
 use std::process::Command;
 
@@ -11,6 +16,7 @@ fn native_initialized_objects_static_and_shared() {
             root.join("raw.plentyi"),
             r#"
 pub opaque Pointer
+pub extern def callback() -> Pointer = address "native_apply"
 pub extern def descriptor() -> Pointer = object "native_descriptor"(size=32, align=8):
     0: u32 = 7
     8: callback = "native_apply"
@@ -30,6 +36,8 @@ export def apply(value: i32) -> i32 = "native_apply":
     value
 export def address() -> raw.Pointer = "native_address":
     raw.descriptor()
+export def callback() -> raw.Pointer = "native_callback":
+    raw.callback()
 "#,
         )
         .unwrap();
@@ -65,6 +73,11 @@ _Static_assert(sizeof(struct descriptor) == 32, "size");
 _Static_assert(offsetof(struct descriptor, apply) == 8, "callback offset");
 #ifndef SHARED
 extern const struct descriptor native_descriptor;
+#else
+/* A host or an earlier global DSO can export the same protocol names. */
+const struct descriptor native_descriptor = {0};
+int32_t native_apply(int32_t value) { return value + 1; }
+void *native_address(void) { return NULL; }
 #endif
 int main(int argc, char **argv) {
 #ifdef SHARED
@@ -73,14 +86,18 @@ int main(int argc, char **argv) {
     assert(library);
     const struct descriptor *d = dlsym(library, "native_descriptor");
     void *(*address)(void) = dlsym(library, "native_address");
-    assert(address);
+    void *(*callback)(void) = dlsym(library, "native_callback");
+    assert(address && callback);
 #else
     (void)argc; (void)argv;
     const struct descriptor *d = &native_descriptor;
     void *(*address)(void) = native_address;
+    void *(*callback)(void) = native_callback;
 #endif
     assert(d && d->version == 7);
     assert(d->apply(-17) == -17);
+    int32_t (*apply)(int32_t) = callback();
+    assert(apply(-17) == -17);
     assert(!strcmp(d->name, "hello"));
     assert(d->self == d && address() == d);
     const unsigned char *bytes = (const unsigned char *)d;
@@ -100,7 +117,7 @@ int main(int argc, char **argv) {
                     .lines(),
             );
         } else {
-            cc.args(["-DSHARED", "-ldl"]);
+            cc.args(["-DSHARED", "-rdynamic", "-ldl"]);
         }
         let output = cc.arg("-o").arg(&executable).output().unwrap();
         assert!(
@@ -110,11 +127,63 @@ int main(int argc, char **argv) {
         );
         assert!(
             Command::new(executable)
-                .arg(library)
+                .arg(&library)
                 .status()
                 .unwrap()
                 .success()
         );
+        if kind == plenty::LibraryKind::Shared {
+            let direct = root.join("direct.c");
+            std::fs::write(&direct, r#"
+#include <assert.h>
+#include <stdint.h>
+struct descriptor { uint32_t version; int32_t (*apply)(int32_t); const char *name; const void *self; };
+extern const struct descriptor native_descriptor;
+extern void *native_address(void);
+int main(void) {
+    assert(native_descriptor.version == 7);
+    assert(native_descriptor.self == &native_descriptor);
+    assert(native_address() == &native_descriptor);
+}
+"#).unwrap();
+            let consumer = root.join("direct");
+            let output = Command::new("cc")
+                .args(["-fPIC", "-pie"])
+                .arg(&direct)
+                .arg(&library)
+                .arg("-o")
+                .arg(&consumer)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(Command::new(&consumer).status().unwrap().success());
+            #[cfg(target_arch = "x86_64")]
+            {
+                let output = Command::new("cc")
+                    .args(["-fno-pic", "-no-pie"])
+                    .arg(&direct)
+                    .arg(&library)
+                    .arg("-o")
+                    .arg(root.join("copy"))
+                    .output()
+                    .unwrap();
+                assert!(
+                    !output.status.success(),
+                    "incompatible COPY relocation must be rejected"
+                );
+                assert!(
+                    String::from_utf8_lossy(&output.stderr)
+                        .to_lowercase()
+                        .contains("protected"),
+                    "{}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+        }
     }
 }
 

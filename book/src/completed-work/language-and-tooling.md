@@ -1540,6 +1540,11 @@ invocation, data/self relocations and zero padding. GNU/Linux 64-bit layouts are
 admitted; execution is tested on x86-64. Automatic C class layout, typed callback
 validation, signed/floating initializer expressions and header import remain
 outside this subset. See [initialized exports](../design/facilities/04-interop/exported-objects.md).
+ELF library ABI symbols also use protected visibility (issue #925): host symbols
+cannot replace native callback addresses or data/self relocations. Incompatible
+shared-data COPY relocations fail at link time; dlsym and PIC consumers preserve
+object identity. Undefined foreign imports continue to resolve dynamically.
+
 
 ## Unloadable shared-library profile
 
@@ -1553,3 +1558,4 @@ destruction, and fresh static storage after reload. Trusted foreign bindings
 must leave no callbacks, background work or registrations behind. Other targets,
 generators, thread facilities, IO/native engines and Plenty's resident generated
 loaders remain outside this increment. See the [contract](../design/facilities/04-interop/unloading.md).
+

@@ -508,3 +508,35 @@ pub(super) fn declare(exports: &[crate::exports::Export], module: &mut ObjectMod
     }
     Ok(())
 }
+
+/// Bind addresses to this image even when a host exports the same ABI names.
+/// Protected data also makes incompatible ELF COPY relocations a link error,
+/// rather than silently splitting a descriptor from its self references.
+pub(super) fn protect_symbols(
+    product: &mut cranelift_object::ObjectProduct,
+    exports: &[crate::exports::Export],
+    interface: &crate::exports::Interface,
+) -> Result<()> {
+    if product.object.format() != object::BinaryFormat::Elf {
+        return Ok(());
+    }
+    for name in exports
+        .iter()
+        .map(|e| e.symbol.as_str())
+        .chain(interface.objects.iter().map(String::as_str))
+        .chain(interface.handles.iter().map(|h| h.destroy.as_str()))
+        .chain([
+            interface.discovery.as_str(),
+            interface.contract_guard.as_str(),
+        ])
+    {
+        let id = product
+            .object
+            .symbol_id(name.as_bytes())
+            .ok_or_else(|| format!("missing library ABI symbol `{name}`"))?;
+        if let object::SymbolFlags::Elf { st_other, .. } = product.object.symbol_flags_mut(id) {
+            *st_other = st_other.with_visibility(object::elf::STV_PROTECTED);
+        }
+    }
+    Ok(())
+}
