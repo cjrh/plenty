@@ -104,6 +104,7 @@ import descriptor
 
 def main() -> Result[(), IoError]:
     print(descriptor.version(descriptor.entry(), 0u64))?
+    Ok(())
 ```
 ```output
 1
