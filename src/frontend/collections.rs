@@ -2608,6 +2608,9 @@ impl Lower<'_> {
         } else {
             self.iteration_on_stack_direction(ty.clone(), reverse, &iterable.at, ops)?
         };
+        if let (Ty::Generator(_), Some(element)) = (&ty, &element) {
+            self.generator_loop_item(iterable, element, &loans, &mut plan, ops)?;
+        }
         if references {
             let loan = loans[0];
             // Each element of a list or view borrows below the source loan at
@@ -3174,6 +3177,51 @@ impl Lower<'_> {
             step: vec![Op::DropLocal(target)],
             target,
         })
+    }
+
+    /// Gives a loop's reference item from a generator its loan, below the
+    /// loan that keeps the frame's sources borrowed (issue #912). Outlined:
+    /// loops lower recursively.
+    #[inline(never)]
+    fn generator_loop_item(
+        &mut self,
+        iterable: &Expr,
+        element: &Ty,
+        loans: &[usize],
+        plan: &mut Iteration,
+        ops: &mut Vec<Op>,
+    ) -> Result<()> {
+        let source = match &ungroup(iterable).kind {
+            Expression::Unary(_, base) => ungroup(base),
+            _ => ungroup(iterable),
+        };
+        let slot = match &source.kind {
+            Expression::Name(name) => self.names.get(name).map(|local| local.slot),
+            _ => None,
+        };
+        let frame = slot
+            .and_then(|slot| self.reference_locals.get(&slot).copied())
+            .or(loans.first().copied());
+        // Outside a generator body one loan covers every item, as one element
+        // loan covers a list's borrowed elements: it starts before the loop,
+        // where pipeline adapters expect their items' origins, so a write to
+        // a source while any item is live conflicts with it. In a generator
+        // body each item takes its own loan, which ends when `yield` moves
+        // the item out: a loan of a generator parameter's items borrows the
+        // caller's data but is rooted in this frame, so it cannot stay live
+        // across `yield`.
+        let id = if self.yield_type.is_some() {
+            let mut loan = Vec::new();
+            let id = self.generator_item(element, frame, slot, &iterable.at, &mut loan)?;
+            plan.body.splice(0..0, loan);
+            id
+        } else {
+            self.generator_item(element, frame, slot, &iterable.at, ops)?
+        };
+        if let Some(id) = id {
+            self.reference_locals.insert(plan.target, id);
+        }
+        Ok(())
     }
 
     fn iteration_on_stack_direction(
@@ -6101,6 +6149,11 @@ impl Lower<'_> {
         let element = ty
             .element()
             .ok_or_else(|| at.error("collection constructor requires an iterable"))?;
+        // A generator's reference items (issue #912) are the first iterable
+        // whose elements a collection could not store.
+        if let Some(barrier) = element.storage_barrier() {
+            return Err(at.error(barrier.message("collections")));
+        }
         let out = match name {
             "list" => Ty::List(Arc::new(element)),
             "set" if element.hashable() => Ty::Set(Arc::new(element)),

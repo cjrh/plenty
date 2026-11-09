@@ -447,6 +447,8 @@ mod test_receiving_joins;
 mod test_recursive_data;
 #[path = "test_recursive_tail_errors.rs"]
 mod test_recursive_tail_errors;
+#[path = "test_reference_generators.rs"]
+mod test_reference_generators;
 #[path = "test_reference_rebinding.rs"]
 mod test_reference_rebinding;
 #[path = "test_reference_tail_calls.rs"]

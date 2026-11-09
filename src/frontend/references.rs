@@ -417,6 +417,119 @@ impl Lower<'_> {
         Ok(self.new_loan(root, ty.carries_mutable_loan(), Some(parent), ops))
     }
 
+    /// Gives a reference item taken from a generator by `next` or a loop a
+    /// loan below `frame`, the loan that keeps the frame's sources borrowed,
+    /// or rooted at `slot`, a generator parameter whose caller keeps them.
+    /// The item points into those sources, never into the frame, so
+    /// advancing, moving or dropping the generator leaves it valid (issue
+    /// #912). Other items need no loan.
+    #[inline(never)]
+    pub(super) fn generator_item(
+        &mut self,
+        element: &Ty,
+        frame: Option<usize>,
+        slot: Option<u8>,
+        at: &Token,
+        ops: &mut Vec<Op>,
+    ) -> Result<Option<usize>> {
+        if !matches!(element, Ty::Ref(..)) {
+            return Ok(None);
+        }
+        let referent = slot.and_then(|slot| self.item_referents.get(&slot).copied());
+        let id = match (referent, frame, slot) {
+            (Some(referent), ..) => self.new_loan(referent, false, None, ops),
+            (None, Some(parent), _) => {
+                self.new_loan(self.loans[parent].root, false, Some(parent), ops)
+            }
+            (None, None, Some(slot)) => self.new_loan(slot, false, None, ops),
+            (None, None, None) => {
+                return Err(at.error(
+                    "reference items of this generator have no named source; bind the generator to a name first",
+                ));
+            }
+        };
+        self.generator_items.insert(id);
+        Ok(Some(id))
+    }
+
+    /// Checks that the yielded reference `e` borrows only data the frame's
+    /// caller keeps borrowed: through a shared reference or view parameter,
+    /// or as an item of a generator that borrows only through the function's
+    /// parameters (issue #912). A borrow of the frame's own state, including
+    /// an owned parameter, would dangle once the frame moves or ends, and one
+    /// through a `&mut` parameter could be invalidated by the frame's own
+    /// writes while the caller holds the item.
+    #[inline(never)]
+    pub(super) fn check_yielded_reference(&self, e: &Expr, ops: &[Op]) -> Result<()> {
+        const MESSAGE: &str = "a yielded reference must borrow through the generator's shared reference or view parameters, not the generator's own state";
+        let id = self
+            .reference_origin(e, ops)
+            .map_err(|_| e.at.error(MESSAGE))?;
+        if self.yielded_loan_sound(id) {
+            Ok(())
+        } else {
+            Err(e.at.error(MESSAGE))
+        }
+    }
+
+    fn yielded_loan_sound(&self, id: usize) -> bool {
+        if let Some(holder) = self.holder_of(id).and_then(|decl| self.holders.get(&decl)) {
+            return holder
+                .assigned
+                .iter()
+                .all(|&loan| self.yielded_loan_sound(loan));
+        }
+        let mut ancestor = Some(id);
+        while let Some(loan) = ancestor {
+            if self.pipeline.lent_item_loans.contains(&loan) {
+                return false;
+            }
+            if self.generator_items.contains(&loan) {
+                return self.borrows_only_parameters(loan);
+            }
+            ancestor = self.loans[loan].parent;
+        }
+        let root = self.loans[id].root;
+        self.parameter_type(root)
+            .is_some_and(|ty| matches!(ty, Ty::Ref(_, false) | Ty::View(_, false)))
+    }
+
+    /// Whether `loan`, its ancestors and every loan they depend on are rooted
+    /// at the function's reference, view or borrowing generator parameters.
+    fn borrows_only_parameters(&self, loan: usize) -> bool {
+        let mut ancestor = Some(loan);
+        while let Some(id) = ancestor {
+            if let Some(holder) = self.holder_of(id).and_then(|decl| self.holders.get(&decl)) {
+                return holder
+                    .assigned
+                    .iter()
+                    .all(|&loan| self.borrows_only_parameters(loan));
+            }
+            let fact = &self.loans[id];
+            let external = self.parameter_referents.contains(&fact.root)
+                || self
+                    .parameter_type(fact.root)
+                    .is_some_and(|ty| lends(ty) || ty.lends_frame());
+            if !external
+                || !fact
+                    .dependencies
+                    .iter()
+                    .all(|&d| self.borrows_only_parameters(d))
+            {
+                return false;
+            }
+            ancestor = fact.parent;
+        }
+        true
+    }
+
+    fn parameter_type(&self, slot: u8) -> Option<&Ty> {
+        self.sigs
+            .get(&self.function_name)
+            .and_then(|sig| sig.inputs.get(slot as usize))
+            .map(|(_, ty)| ty)
+    }
+
     /// The loan of the borrowing generator argument `arg`, which the caller
     /// holds for the call (issue #899). A by-value generator parameter has
     /// none: its own caller holds them.
@@ -477,7 +590,12 @@ impl Lower<'_> {
         at: &Token,
         ops: &mut Vec<Op>,
     ) -> Result<()> {
-        let held = self.reference_locals[&slot];
+        // A borrowing generator parameter of a generator body has no loan:
+        // its loans are the caller's. A binding holding it cannot take a
+        // frame whose loans this body would have to track.
+        let Some(&held) = self.reference_locals.get(&slot) else {
+            return Err(self.frame_retarget_error(name, None, at));
+        };
         let source = self.holder_of(origin);
         if self.absent_loan(origin) && source.is_none() {
             return Ok(());
@@ -562,7 +680,7 @@ impl Lower<'_> {
                 .get(name)
                 .is_some_and(|local| local.ty.lends_frame())
         {
-            return Err(self.frame_retarget_error(name, old.root, at));
+            return Err(self.frame_retarget_error(name, Some(old.root), at));
         }
         if new.root != old.root {
             // Only an `Option` or `Result` holder can start without a borrow.
@@ -590,8 +708,8 @@ impl Lower<'_> {
     /// A generator binding keeps the loans of the frame it first held, so it
     /// cannot take one borrowing another owner (issue #899).
     #[inline(never)]
-    fn frame_retarget_error(&self, name: &str, root: u8, at: &Token) -> Box<dyn Error> {
-        let owner = match self.slot_names.get(usize::from(root)) {
+    fn frame_retarget_error(&self, name: &str, root: Option<u8>, at: &Token) -> Box<dyn Error> {
+        let owner = match root.and_then(|root| self.slot_names.get(usize::from(root))) {
             Some(Some(owner)) => format!("`{owner}`"),
             _ => "its source".into(),
         };
@@ -1029,7 +1147,10 @@ impl Lower<'_> {
             ancestor = self.loans[loan].parent;
         }
         let root = self.loans[id].root;
-        if let Some(origin) = self.return_origin.filter(|origin| *origin != root) {
+        if let Some(origin) = self
+            .return_origin
+            .filter(|origin| *origin != root && self.item_referents.get(origin) != Some(&root))
+        {
             let name = |slot: u8| self.slot_names.get(slot as usize).cloned().flatten();
             let mut message = String::from(
                 "returned reference must originate from the first reference parameter",
@@ -2030,6 +2151,7 @@ impl Lower<'_> {
         }
         let local = self.named_place(base)?;
         let ty = writable_referent(&local.ty, target)?;
+        reject_frame_write(ty, target)?;
         let expected = (*ty != Ty::Unit).then(|| ty.clone());
         let got = self.expr_expected(value, expected.clone(), ops)?;
         self.same(got, expected, &value.at)?;
@@ -2055,6 +2177,7 @@ impl Lower<'_> {
         ops: &mut Vec<Op>,
     ) -> Result<()> {
         let (ty, loan) = self.returned_reference(target, call, ops)?;
+        reject_frame_write(&ty, target)?;
         let expected = (ty != Ty::Unit).then(|| ty.clone());
         let got = self.expr_expected(value, expected.clone(), ops)?;
         self.same(got, expected, &value.at)?;
@@ -2119,4 +2242,18 @@ fn writable_referent<'a>(reference: &'a Ty, target: &Expr) -> Result<&'a Ty> {
             .error("an atomic is written with store(), not through `*`"));
     }
     Ok(ty)
+}
+
+/// A borrowing generator written through a reference would replace a frame
+/// whose loans its owner holds with one that may borrow another owner, even
+/// a local of the writing function; the owner's checks would still follow
+/// the old loans (issues #899, #912).
+#[inline(never)]
+fn reject_frame_write(ty: &Ty, target: &Expr) -> Result<()> {
+    if ty.lends_frame() {
+        return Err(target.at.error(
+            "a generator that borrows cannot be assigned through a reference; advance it with `next`, or assign a new generator to the owning binding",
+        ));
+    }
+    Ok(())
 }
