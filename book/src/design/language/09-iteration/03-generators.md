@@ -96,6 +96,12 @@ and `reversed(&mut g)` is rejected. Inside a generator body the loan cannot
 cross `yield`; consume the owned frame with `for value in g` or call `next`
 between yields instead. A lent loop adds no allocation.
 
+A `&mut Generator[T]` or `Generator[T]` argument can be passed by
+[name](../06-functions/01-signatures-and-calls.md) in any order, and to a
+function whose defaults are omitted, like any other argument. Arguments run
+in written order, so `take(g=&mut g, x=next(g).unwrap_or(0))` is a
+conflicting borrow.
+
 ## Frame ownership and identity
 
 Assignment, arguments, and returns transfer ownership. Standard Option/Result

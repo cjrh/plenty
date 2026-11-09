@@ -282,7 +282,18 @@ impl Lower<'_> {
                 let wrapper = self.sigs.intern(&symbol);
                 self.sigs.set_returned_fields(wrapper, fields);
             }
-            self.generics.declare(wrapper, self.sigs);
+            if self.sigs[&symbol]
+                .inputs
+                .iter()
+                .any(|(_, t)| t.unresolved_generator())
+            {
+                // A wrapper that forwards a lent pipeline or a generator is
+                // specialized per call like its callee, so its declaration
+                // is never lowered on its own (issue #916).
+                self.generics.record(&Arc::new(wrapper), self.sigs);
+            } else {
+                self.generics.declare(wrapper, self.sigs);
+            }
         } else {
             self.generics.retention.keep(&wrapper.body);
             self.generics

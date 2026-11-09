@@ -123,6 +123,14 @@ the same call cannot use `p`: `f(&mut p, next(p))` and `f(&mut p, p.count())`
 are conflicting-borrow errors, as they are for a generator. Take the item in
 an earlier statement instead.
 
+A pipeline can be lent as a
+[named argument](../06-functions/01-signatures-and-calls.md) in any order,
+and to a borrower whose defaults are omitted: `f(p=&mut p, x=1)` is
+`f(1, &mut p)` for `def f(x: i64, p: &mut Iter[i64])`. Arguments still
+run in written order, so `f(p=&mut p, x=next(p).unwrap_or(0))` is a
+conflicting borrow, while `f(x=next(p).unwrap_or(0), p=&mut p)` takes the item
+before the lend.
+
 The borrower writes the pipeline's state back when it returns, so a
 recursive call in tail position cannot reuse its frame and is rejected; bind
 the result to a local and return the local. See
