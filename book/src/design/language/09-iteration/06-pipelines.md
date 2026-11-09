@@ -42,9 +42,10 @@ captures without advancing a generator or calling a callback. Early exit from
 an owning consumer releases the unconsumed source and captures.
 
 Pipelines cannot be returned, passed by value, shared, captured, or put in
-stored data. In generator functions, a pipeline must be consumed by a terminal
-in the expression that creates it, such as `yield iter(&flags).any()`; a
-pipeline local or a loop over a pipeline is rejected. A pipeline can be [lent](#lending-a-pipeline) to a
+stored data. A generator body may loop over a pipeline, bind one and advance
+it with `next`, including across `yield`; see
+[pipelines in generator bodies](03-generators.md#pipelines-in-generator-bodies)
+for the borrow rule. A pipeline can be [lent](#lending-a-pipeline) to a
 `&mut Iter[T]` parameter, and an eligible pipeline can leave its scope after
 explicit [`.generator()` conversion](#returning-a-resumable-stream). A pipeline
 over borrowed data, such as a local, a reference or view parameter, or a

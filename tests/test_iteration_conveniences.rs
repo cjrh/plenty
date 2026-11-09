@@ -364,14 +364,6 @@ for x in stats([1, 2, 3].unwrap()):
 )]
 #[case("saved = reversed(range(3))", "supported directly in for loops")]
 #[case(
-    "def walk(values: list[i64]) -> Generator[i64]:\n    for x in iter(values):\n        yield x\nfor x in walk([1].unwrap()):\n    pass",
-    "iterator pipelines cannot be held across yield"
-)]
-#[case(
-    "def walk(values: list[i64]) -> Generator[i64]:\n    p = iter(values)\n    yield p.count()\nfor x in walk([1].unwrap()):\n    pass",
-    "iterator pipelines cannot be held across yield"
-)]
-#[case(
     "mut values = [1].unwrap()\nfor x in reversed(&values):\n    values.append(2).unwrap()\n    print(*x).unwrap()",
     "borrow"
 )]

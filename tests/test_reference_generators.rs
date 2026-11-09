@@ -355,6 +355,38 @@ def main() -> Result[(), AllocError | IoError]:
 }
 
 #[test]
+fn a_generator_body_zips_a_mutable_reference_generator_parameter() {
+    // A pull plan moves the item's per-item loan into its condition; the
+    // item must still take a loan where the body sees it (issue #924 review).
+    for zipped in ["zip(g, ys)", "iter(g).zip(ys)"] {
+        for body in ["yield *a", "t = *a\n        yield t"] {
+            assert_stdout(
+                &format!(
+                    r#"
+def src(xs: &list[i64]) -> Generator[&i64]:
+    for x in xs:
+        yield x
+
+def pairs(g: &mut Generator[&i64], ys: list[i64]) -> Generator[i64]:
+    for (a, b) in {zipped}:
+        {body}
+        yield b
+
+def main() -> Result[(), AllocError | IoError]:
+    xs = [1, 2, 3]?
+    mut g = src(&xs)
+    for v in pairs(&mut g, [10, 20]?):
+        print(v)?
+    Ok(())
+"#
+                ),
+                "1\n10\n2\n20\n",
+            );
+        }
+    }
+}
+
+#[test]
 fn reference_items_cannot_be_stored_in_collections() {
     let error = check_error(&main_body(
         r#"xs = ["a", "b"]?
