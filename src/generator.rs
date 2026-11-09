@@ -123,8 +123,14 @@ pub fn producers(ty: &Ty) -> Vec<Ty> {
 }
 
 /// Whether every producer `member` stands for is one of `joined`'s, so a
-/// frame of type `member` fits storage laid out for `joined`.
+/// frame of type `member` fits storage laid out for `joined`. The frame may
+/// be held directly or as an `Option`/`Result` success payload, at any
+/// depth: such a value moves its payload into the joined storage and keeps
+/// its tag and error payload (issue #900).
 pub fn joins_into(member: &Ty, joined: &Ty) -> bool {
+    if let (Some(m), Some(j)) = (carried(member), carried(joined)) {
+        return with_carried(member, j.clone()) == *joined && joins_into(&m, &j);
+    }
     let joined_producers = producers(joined);
     member != joined
         && matches!(joined, Ty::Generator(t) if !t.members.is_empty())
