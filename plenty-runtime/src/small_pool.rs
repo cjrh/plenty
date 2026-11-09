@@ -598,6 +598,24 @@ mod tests {
         free(again, class);
     }
 
+    /// Fixes this thread's clock until dropped. The thread's allocations
+    /// also reach the shared pool, so a panicking test must not leave its
+    /// thread-exit `give_all` stamping shared slabs with the fixed time.
+    struct FixedClock;
+
+    impl FixedClock {
+        fn at(now: u64) -> Self {
+            FIXED_MS.with(|fixed| fixed.set(Some(now)));
+            Self
+        }
+    }
+
+    impl Drop for FixedClock {
+        fn drop(&mut self) {
+            FIXED_MS.with(|fixed| fixed.set(None));
+        }
+    }
+
     fn empty_list(central: &Central) -> Vec<*mut Slab> {
         let mut slabs = Vec::new();
         let mut slab = central.newest;
@@ -619,7 +637,7 @@ mod tests {
         // Every retire stamps and trims at this time, so no slab decays
         // before the explicit trims below.
         let now = 1 << 40;
-        FIXED_MS.with(|fixed| fixed.set(Some(now)));
+        let _clock = FixedClock::at(now);
         let blocks: Vec<_> = (0..per_slab + 1).map(|_| central.take(class)).collect();
         let first = Slab::of(blocks[0]);
         let second = Slab::of(blocks[per_slab]);
@@ -660,7 +678,6 @@ mod tests {
         central.trim(now + DECAY_MS);
         assert!(empty_list(&central).is_empty());
         assert!(central.oldest.is_null());
-        FIXED_MS.with(|fixed| fixed.set(None));
     }
 
     #[test]
