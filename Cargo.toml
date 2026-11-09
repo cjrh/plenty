@@ -30,6 +30,7 @@ regex = "1.12.3"
 cranelift-codegen = { version = "0.137.0", features = ["arm64", "x86"] }
 # Reserve refused TCP ports without listening in network fixtures.
 rustix = { version = "1", features = ["net"] }
+rustc-demangle = "0.1.28"
 
 [dependencies]
 log = "0.4.22"

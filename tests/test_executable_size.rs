@@ -346,6 +346,32 @@ fn size_evidence_preserves_the_measured_elf_and_source() {
     }
 }
 
+#[test]
+fn library_symbols_ignore_instantiating_crates() {
+    for symbol in [
+        "_RINvNtCsjv3H08wFURA_4core9panicking13assert_failedjjECsaOydOzhlvhC_7zlib_rs",
+        "_RINvNtCsjv3H08wFURA_4core9panicking13assert_failedjjECsaOydOzhlvhC_7zlib_rs$got",
+        "_RNvXs1g_NtCsjv3H08wFURA_4core3fmtRjNtB6_5Debug3fmtCsaOydOzhlvhC_7zlib_rs",
+    ] {
+        assert!(
+            !support::symbol_mentions_library(symbol, "zlib_rs"),
+            "{symbol}"
+        );
+    }
+    for (symbol, library) in [
+        ("_RNvC7zlib_rs7deflate", "zlib_rs"),
+        ("_RNvC7zlib_rs7deflate$got", "zlib_rs"),
+        ("_ZN7zlib_rs7deflate17h0123456789abcdefE", "zlib_rs"),
+        ("sqlite3_open_v2", "sqlite3_"),
+        ("ring_core_0_17_14_sha256_block_data_order", "ring_core_"),
+    ] {
+        assert!(
+            support::symbol_mentions_library(symbol, library),
+            "{symbol}"
+        );
+    }
+}
+
 /// Evidence that a module's native code is linked.
 enum Pattern {
     /// Runtime operation entries `plenty_op_<N>` for these `N`.
@@ -361,7 +387,7 @@ impl Pattern {
         match self {
             Pattern::Operations(range) => support::operation_in(symbol, range.clone()),
             Pattern::Entry(name) => symbol == *name,
-            Pattern::Library(part) => symbol.contains(part),
+            Pattern::Library(part) => support::symbol_mentions_library(symbol, part),
         }
     }
 

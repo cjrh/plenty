@@ -3,6 +3,17 @@
 use std::path::Path;
 use std::process::{Command, Output};
 
+/// Match library evidence without Rust v0's instantiating-crate suffix.
+///
+/// A shared core helper can be instantiated in zlib-rs without being compression
+/// code (issue #928). Demangling drops that suffix, but preserves library paths
+/// in actual functions and type arguments. Native C names remain unchanged.
+pub fn symbol_mentions_library(symbol: &str, library: &str) -> bool {
+    // mold emits GOT entries with this suffix, which is not Rust mangling.
+    let symbol = symbol.strip_suffix("$got").unwrap_or(symbol);
+    format!("{:#}", rustc_demangle::demangle(symbol)).contains(library)
+}
+
 /// Copy `source` to a new executable at `destination` (issue #125).
 ///
 /// Linux refuses to exec a file while any process holds it open for writing

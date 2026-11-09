@@ -1430,7 +1430,7 @@ fn backends(executable: &Path) -> Vec<String> {
                 || operation_in(name, 440..470)
                 || name.starts_with("sqlite3")
                 || operation_in(name, 320..340)
-                || name.contains("zlib_rs")
+                || support::symbol_mentions_library(name, "zlib_rs")
         })
         .collect()
 }
