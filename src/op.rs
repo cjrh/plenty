@@ -1205,7 +1205,9 @@ pub enum Op {
     Yield(Ty),
     /// Move a member producer's frame into storage laid out for a joined
     /// generator type that lists it (issue #872). The frame describes its own
-    /// resume function and slots, so only the static layout grows.
+    /// resume function and slots, so only the static layout grows. The frame
+    /// may be an `Option`/`Result` success payload, which moves with the
+    /// value's tag and error payload (issue #900).
     JoinFrame(Box<(Ty, Ty)>),
     Next(u8),
     MoveLocal(u8),

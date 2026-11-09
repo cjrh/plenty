@@ -359,7 +359,7 @@ main_body(True)
 #[test]
 fn nested_payload_choices_join_with_the_wider_outer_choice() {
     // An inner choice's recorded join is narrower than the outer one's: each
-    // value is built with their join, not reported as already built.
+    // value is built with their join.
     expect(
         &with_producers(
             r#"
@@ -464,20 +464,126 @@ fn many_join_sites_in_one_function_need_one_extra_pass() {
     assert!(output.ends_with("drop 2\n[2, 2]\n"), "{output}");
 }
 
+const BUILT: &str = r#"
+def show(o: Option[Generator[i64]]) -> ():
+    match o:
+        case Some(g):
+            print(list(g).unwrap()).unwrap()
+        case Nothing:
+            print("none").unwrap()
+def maybe(flag: bool) -> Option[Generator[i64]]:
+    if flag:
+        return Some(two(Res(1)))
+    Nothing
+def fallible(n: i64) -> Result[Generator[i64], str]:
+    if n < 0:
+        return Err(("bad " + str.from(n).unwrap()).unwrap())
+    Ok(two(Res(n)))
+def sized(s: str) -> Generator[i64]:
+    yield len(s)
+def text(flag: bool) -> Option[Generator[i64]]:
+    if flag:
+        return Some(sized(("abc" + "de").unwrap()))
+    Nothing
+"#;
+
+/// Issue #900: an `Option`/`Result` value already built with one producer,
+/// such as a call result or a parameter, joins another where it is chosen:
+/// its payload frame moves into the joined storage, keeping the tag and the
+/// error payload.
 #[test]
-fn an_already_built_payload_keeps_its_producer() {
-    // Phase guard (issue #900): delete when built payloads join.
-    let error = check_error(&with_producers(
-        r#"
-def maybe() -> Option[Generator[i64]]:
+fn already_built_payloads_join_where_chosen() {
+    expect(
+        &with_producers(&format!(
+            "{BUILT}{}",
+            r#"
+def tail(flag: bool) -> Option[Generator[i64]]:
+    if flag:
+        return maybe(True)
     Some(one())
-o = maybe() if True else Some(two(Res(1)))
-drop(o)
-"#,
-    ));
-    assert!(
-        error.contains("already built with one generator producer"),
-        "{error}"
+def reassigned(o: Option[Generator[i64]], flag: bool) -> ():
+    mut v = Some(one())
+    if flag:
+        v = o
+    show(v)
+def report(r: Result[Generator[i64], str]) -> ():
+    match r:
+        case Ok(g):
+            print(list(g).unwrap()).unwrap()
+        case Err(e):
+            print(e).unwrap()
+for flag in [True, False].unwrap():
+    show(maybe(flag) if flag else Some(one()))
+    show(Some(one()) if flag else maybe(flag))
+show(tail(True))
+show(tail(False))
+reassigned(maybe(True), True)
+reassigned(maybe(True), False)
+reassigned(maybe(False), True)
+for k in range(3):
+    w = match k:
+        case 0:
+            maybe(True)
+        case 1:
+            Some(one())
+        case _:
+            Nothing
+    show(w)
+for n in [5, -2].unwrap():
+    r = if n > 0:
+        fallible(n)
+    else:
+        fallible(n) if n > -1 else Ok(one())
+    report(r)
+    report(fallible(n) if n > 0 else Ok(one()))
+    report(Ok(one()) if n > 0 else fallible(n))
+nested = Some(maybe(True)) if True else Some(Some(one()))
+match nested:
+    case Some(o):
+        show(o)
+    case Nothing:
+        pass
+"#
+        )),
+        "drop 1\n[2, 1]\n[1]\n[1]\nnone\ndrop 1\n[2, 1]\n[1]\ndrop 1\n[2, 1]\ndrop 1\n[1]\nnone\n\
+         drop 1\n[2, 1]\n[1]\nnone\ndrop 5\n[2, 5]\ndrop 5\n[2, 5]\n[1]\n[1]\n[1]\nbad -2\n\
+         drop 1\n[2, 1]\n",
+    );
+}
+
+/// An already-built payload that joins drops its frame once whether it is
+/// started, suspended or never run, and a joined `Nothing` or `Err` owns no
+/// frame (issue #900).
+#[test]
+fn joined_built_payloads_drop_their_frames_once() {
+    expect(
+        &with_producers(&format!(
+            "{BUILT}{}",
+            r#"
+unstarted = maybe(True) if True else Some(one())
+drop(unstarted)
+print("after unstarted").unwrap()
+mut o = maybe(True) if True else Some(one())
+match o:
+    case Some(g):
+        mut h = g
+        print(next(h)).unwrap()
+        print("suspended").unwrap()
+    case Nothing:
+        pass
+print("after suspended").unwrap()
+empty = maybe(False) if True else Some(one())
+drop(empty)
+failed = fallible(-3) if True else Ok(one())
+drop(failed)
+held = text(True) if True else Some(one())
+drop(held)
+show(text(True) if True else Some(one()))
+show(Some(one()) if True else text(True))
+print("end").unwrap()
+"#
+        )),
+        "drop 1\nafter unstarted\nOption[i64].Some(2)\nsuspended\ndrop 1\nafter suspended\n[5]\n[1]\nend\n",
     );
 }
 
@@ -542,6 +648,16 @@ def sum(g: Generator[i64]) -> i64:
         unchecked:
             total = total + v
     total
+def maybe(flag: bool) -> Option[Generator[i64]]:
+    if flag:
+        return Some(wide(7, 8, 9))
+    Nothing
+def total(o: Option[Generator[i64]]) -> i64:
+    match o:
+        case Some(g):
+            sum(g)
+        case Nothing:
+            0
 print("__test_fail_allocations_after_0__").unwrap()
 a = sum(choose(True))
 b = sum(choose(False))
@@ -557,9 +673,11 @@ m = match c:
     case _:
         one()
 d = sum(m)
+e = total(maybe(True) if c > 0 else Some(one()))
+f = total(Some(one()) if c > 0 else maybe(False))
 print("__test_restore_allocations__").unwrap()
-print(a, b, first, c, d).unwrap()
+print(a, b, first, c, d, e, f).unwrap()
 "#,
-        "1 9 Option[i64].Some(2) 18 6",
+        "1 9 Option[i64].Some(2) 18 6 24 1",
     );
 }

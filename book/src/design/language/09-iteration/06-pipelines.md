@@ -32,7 +32,11 @@ The call runs once during construction; its owner stays borrowed until the
 pipeline is consumed or dropped. An intermediate reference binding is optional.
 
 A local may have an `Iter[T]` annotation. Its concrete source and callback
-identity remain part of its type. Consuming it, adapting it, or `drop(p)` moves
+identity remain part of its type, so a pipeline local cannot be reassigned to
+another pipeline, even one over the same source; the diagnostic names the
+expression and line that built each. Bind the new pipeline to a new name, or
+choose the source where the pipeline is built, as in `iter(&a if c else &b)`.
+Consuming it, adapting it, or `drop(p)` moves
 it; a second use is rejected. Dropping it releases the owned source and
 captures without advancing a generator or calling a callback. Early exit from
 an owning consumer releases the unconsumed source and captures.

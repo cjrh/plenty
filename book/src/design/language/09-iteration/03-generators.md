@@ -119,9 +119,12 @@ chosen, and their types then join:
 - reassignment of a local, such as `mut g = one()` then `g = two()`,
   including inside a loop; the local's type is the join of every producer
   assigned to it;
-- a `Some(...)` or `Ok(...)` built at any of those positions, such as
+- an `Option` or `Result` value at any of those positions, at any depth of
+  standard `Option`/`Result` wrappers: one built there, such as
   `Some(one()) if c else Some(two())` or a factory returning
-  `Option[Generator[T]]`, at any depth of standard `Option`/`Result` wrappers.
+  `Option[Generator[T]]`, or one already built, such as a call result or a
+  parameter (issue #900). A built value's success payload moves into the
+  joined storage; its tag and any `Err` payload stay as they are.
 
 ```plenty
 def one() -> Generator[i64]:
@@ -145,11 +148,20 @@ def main() -> Result[(), AllocError | IoError]:
             print(chosen.count())?
         case Nothing:
             pass
+    for flag in [True, False]?:
+        o = pick(flag) if flag else Some(two())
+        match o:
+            case Some(chosen):
+                print(chosen.count())?
+            case Nothing:
+                pass
     Ok(())
 ```
 
 ```output
 2
+2
+1
 2
 ```
 
@@ -168,13 +180,11 @@ interchangeable.
 | `if`/`match` value, such as `g = match n: ...` | Yes: the producers join | |
 | Factory return (`return`, tail `if`/`else`, tail `match`) | Yes: the producers join | |
 | Reassignment of a local | Yes: the producers join | |
-| `Some(...)`/`Ok(...)` built at a joining position | Yes: the producers join | |
-| An `Option`/`Result` value already built, such as a call result | | Yes (issue #900) |
+| An `Option`/`Result` value at a joining position, built there or already built | Yes: the producers join | |
 
 When two different producers meet where one identity is required, the
-diagnostic names both and lists where producers join. For an already-built
-`Option` or `Result`, `match` it and rebuild the payload in each arm. There is
-no erased generator: every join above is a fixed set of known members, so
+diagnostic names both and lists where producers join. There is no erased
+generator: every join above is a fixed set of known members, so
 none needs heap allocation or dynamic dispatch.
 
 A join is found while checking the function: when a value's type was fixed

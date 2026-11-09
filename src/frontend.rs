@@ -1551,11 +1551,13 @@ impl Lower<'_> {
                 && !matches!(expected, Ty::Generator(_))
                 && crate::generator::join_carried(expected, got).is_some()
             {
-                // Issue #900: a built payload has one member's frame layout.
-                // A caller that chose this value can build it again with the
-                // joined type; see [`Lower::request_join`].
+                // A caller that chose this value lowers it again expecting
+                // the joined type, which moves a built payload's frame
+                // (issue #900); see [`Lower::request_join`].
                 self.joins.mismatched(expected, got);
-                "; an `Option` or `Result` value already built with one generator producer cannot join another; build `Some(...)` or `Ok(...)` where the value is chosen, or `match` it and rebuild the payload in each arm".into()
+                "; different producers join only where a value is chosen or reassigned: a conditional expression (`a if c else b`), an `if` or `match` value, a factory's return, or `x = ...` for a local".into()
+            } else if let Some(message) = self.plan_mismatch(&expected, &got) {
+                return Err(at.error(message));
             } else {
                 expected
                     .as_ref()

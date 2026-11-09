@@ -563,7 +563,9 @@ where a value is chosen, reassigned or returned joins the producers it holds.
 A value whose type was fixed before a different producer met it makes the
 checker check that function again with the joined type there; no erased
 generator or allocation is needed. An `Option`/`Result` value already built
-with one producer still keeps it (issue #900). `next` on a pipeline of
+with one producer, such as a call result or a parameter, joins too
+(issue #900): its success payload's frame moves into the joined storage,
+keeping the tag and any `Err` payload, and allocates nothing. `next` on a pipeline of
 references returns `Option[&T]` or `Option[&mut T]` borrowing the pipeline's
 source: the item outlives `drop(p)`, may be returned through the source's
 origin parameter, and conflicts with source mutation and a second live
