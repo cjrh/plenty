@@ -306,6 +306,13 @@ bob
 0
 ```
 
+A copy of the parameter, such as `keep = o` or `mut keep = o`, can also be
+held across `yield`. A `mut` holder declared empty and assigned the parameter
+later (`mut keep: Option[&str] = Nothing` then `keep = o`) cannot: the check
+treats the holder as borrowing frame state, and the error is "a borrow of
+`keep` cannot remain live across yield". Initialize the holder from the
+parameter or use the parameter directly.
+
 A generator cannot take a lent pipeline (`&mut Iter[T]`): lending copies the
 pipeline's state into the borrower and writes it back when the call returns,
 and a suspended frame has not returned. Take `&mut Generator[T]` instead and

@@ -826,6 +826,8 @@ struct Checker<'a, 'p> {
     /// A binding can hold a receiver or the function takes a lock, so a
     /// call's own pool shutdown can wait for this frame (issue #860).
     holds_waited: std::cell::OnceCell<bool>,
+    /// Slots marked by `Op::CallerReferent`, as a bitset over `u8` slots.
+    caller_referents: [u64; 4],
 }
 
 #[cfg_attr(feature = "profile", hotpath::measure)]
@@ -857,6 +859,7 @@ pub fn check(
         fields,
         state_waits: Default::default(),
         holds_waited: Default::default(),
+        caller_referents: caller_referents(ops),
         futures: crate::profile_block!(
             "ownership::prepare_futures",
             futures::Futures::new(ops, locals.len(), program)
@@ -2868,11 +2871,18 @@ impl Checker<'_, '_> {
     fn external(&self, slot: u8) -> bool {
         ((slot as usize) < self.parameters
             && matches!(self.locals[slot as usize], Ty::Ref(..) | Ty::View(..)))
-            || self
-                .body
-                .iter()
-                .any(|op| matches!(op, Op::CallerReferent(s) if *s == slot))
+            || self.caller_referents[slot as usize / 64] & (1 << (slot % 64)) != 0
     }
+}
+
+fn caller_referents(ops: &[Op]) -> [u64; 4] {
+    let mut slots = [0u64; 4];
+    for op in ops {
+        if let Op::CallerReferent(slot) = op {
+            slots[*slot as usize / 64] |= 1 << (slot % 64);
+        }
+    }
+    slots
 }
 
 /// Mark `id` live, with the loans it depends on.
