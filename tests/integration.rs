@@ -717,6 +717,8 @@ mod test_unit_values;
 mod test_unsigned_literals;
 #[path = "test_values.rs"]
 mod test_values;
+#[path = "test_view_lookup.rs"]
+mod test_view_lookup;
 #[path = "test_view_sorting.rs"]
 mod test_view_sorting;
 

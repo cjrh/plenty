@@ -120,7 +120,10 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
 The positions clamp as a copying slice's do. A view supports `len`, indexing,
 narrower views, loops, and `==` with another view, and prints as a list of its
 elements. It searches its elements in place with `in`, `count`, `find`, and
-`rfind`, counting positions from the start of the view. `list(v)?` or
+`rfind`, counting positions from the start of the view.
+[`get_ref`](lookup.md#borrow-a-value-that-may-be-absent) lends an element that
+may be outside the view, as it does on a list; an exclusive view also has
+`get_mut`. `list(v)?` or
 `v[a:b]?` copies its elements into a new list:
 
 ```plenty
