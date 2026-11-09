@@ -275,8 +275,65 @@ def main() -> Result[(), AllocError | IoError]:
 
 A generator parameter that carries a reference, such as `Option[&T]`, or a
 lent pipeline is rejected with "generators cannot capture references" (issue
-#913). Yielded items stay owned: `Generator[&T]` remains unsupported (issue
-#912, backlog B12).
+#913).
+
+### Reference items
+
+A borrowing generator can yield shared references into the data it borrows.
+`Generator[&T]` always lends, and each item borrows what the frame borrows:
+
+```plenty
+def names(xs: &list[str]) -> Generator[&str]:
+    for x in xs:
+        yield x
+
+def main() -> Result[(), AllocError | IoError]:
+    xs = ["ab", "c"]?
+    mut g = names(&xs)
+    first = next(g)
+    drop(g)
+    print(first)?
+    for a, b in zip(names(&xs), names(&xs)):
+        print(f"{a}{b}"?)?
+    Ok(())
+```
+```output
+Option[&str].Some("ab")
+abab
+cc
+```
+
+An item stays valid after the generator advances, is consumed or is dropped:
+it borrows the caller's data, not the frame. Changing, moving or dropping
+`xs` while an item is live is a borrow error, as for a reference to a list
+element. A function may return an item, or a generator of items, when it
+borrows only through the function's reference or view parameters.
+
+A yielded reference must borrow through a shared reference or view parameter,
+or be an item of a generator that does, or of a generator parameter. Yielding a
+reference to a local, an owned parameter or data behind a `&mut` parameter,
+including an item of a generator over that data, is rejected with "a yielded
+reference must borrow through the generator's shared reference or view
+parameters, not the generator's own state".
+`Generator[&mut T]` is rejected with "generators cannot yield mutable
+references".
+
+Items follow the storage rules for references: they cannot be collected by
+`list`, `set` or `dict`, stored in a class field or collection, or captured
+by an anonymous function. Copy an item to keep it beyond its source's borrow.
+
+Limits:
+
+- An item keeps every loan of its frame, including a `&mut` argument that
+  the item does not read, so that argument stays exclusively borrowed while
+  any item is live.
+- An item returned by `next` through a `&mut Generator[&T]` parameter keeps
+  the generator borrowed, not only its source.
+- `.generator()`, comprehensions, `sorted`, `join` and `extend` reject
+  reference items.
+- A generator cannot be assigned through a `&mut Generator[T]` reference when
+  it borrows; advance it with `next`, or assign a new generator to the owning
+  binding.
 
 ## Fluent transformations
 

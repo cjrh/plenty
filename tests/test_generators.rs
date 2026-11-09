@@ -164,8 +164,8 @@ fn native_generators(#[case] source: &str, #[case] expected: &str) {
     "generators cannot yield closures"
 )]
 #[case(
-    "def g(x: &i64) -> Generator[&i64]:\n    yield x",
-    "generators cannot yield references"
+    "def g(x: &mut i64) -> Generator[&mut i64]:\n    yield x",
+    "generators cannot yield mutable references"
 )]
 #[case("a = count(2)\nb = a\nlist(a).unwrap()", "use of moved binding `a`")]
 #[case(

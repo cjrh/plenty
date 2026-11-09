@@ -82,6 +82,9 @@ Breaking out of consuming iteration drops the generator without resuming its
 body. Yielding an owned value transfers ownership; to keep it, handle
 `copy(value)`'s result and yield the copy.
 
-Generators cannot yield other generators, references, or closures. For a lazy
-expression producer, use a [generator expression](generator-expressions.md).
+Generators cannot yield other generators or closures. A generator can yield
+shared references into data it borrows through its reference parameters; see
+[reference items](../../design/language/09-iteration/03-generators.md#reference-items).
+For a lazy expression producer, use a
+[generator expression](generator-expressions.md).
 `yield from`, `send`, and async operations are unsupported.

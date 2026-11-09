@@ -587,6 +587,15 @@ generator can wrap or relay one and keep its loans, and lets `.generator()`
 convert a pipeline over a borrowed local, a `&mut` source or a reference
 binding; the frame keeps the source borrowed as the pipeline does.
 
+Generators yield shared references (issue #912). `Generator[&T]` lends: each
+item borrows the frame's sources, not the frame, so it outlives advancing or
+dropping the generator and conflicts with changes to the source. A yielded
+reference must borrow through a shared reference or view parameter or be an
+item of such a generator; `Generator[&mut T]` is rejected. Collecting reference
+items into a collection, and assigning a borrowing generator through a
+`&mut Generator` reference, are rejected. See
+[reference items](../design/language/09-iteration/03-generators.md#reference-items).
+
 List slice views `&[T]` and `&mut [T]` gained list read and fixed-length
 operations (issue #866): `in`, `count`, `find` and `rfind` search the view with
 the element type's `==` and allocate nothing; `v.get(i)` copies a non-affine

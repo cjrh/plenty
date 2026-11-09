@@ -344,19 +344,26 @@ impl TypeRef {
                 return Err(self.at.error("Generator requires 1 type argument"));
             }
             let element = self.args[0].resolve(aliases)?.unwrap_or(Ty::Unit);
-            if element.restricted_storage() {
+            // A shared reference item borrows the caller's data through the
+            // frame's reference parameters, so the frame always lends (issue
+            // #912). Successive `&mut` items could alias one place.
+            let reference = matches!(element, Ty::Ref(_, false));
+            if element.restricted_storage() && !reference {
                 // Closures stay rejected even when a heap owner could store
                 // them: generator expressions reject them too.
                 let subject = match &element {
                     Ty::Generator(_) => "generators",
                     Ty::Closure(_) => "closures",
+                    Ty::Ref(_, true) => {
+                        "mutable references; yield shared references or owned values"
+                    }
                     Ty::Ref(..) => "references",
                     Ty::Task(_) => "scoped tasks",
                     _ => "enums carrying references, generators, closures, or scoped tasks",
                 };
                 return Err(self.at.error(format!("generators cannot yield {subject}")));
             }
-            return Ok(Some(crate::generator::ty(element, None)));
+            return Ok(Some(crate::generator::producer(element, None, reference)));
         }
         if name == "Box" {
             if self.args.len() != 1 {
@@ -1187,6 +1194,14 @@ struct Lower<'a> {
     /// would make moving an affine `Option[&mut T]` parameter conflict with
     /// that parameter's own loan.
     parameter_referents: HashSet<u8>,
+    /// Loans of reference items taken from a generator. Each borrows the
+    /// data its frame's loans keep, not the frame (issue #912).
+    generator_items: HashSet<usize>,
+    /// For a reference parameter to a generator with reference items, the
+    /// hidden referent its items borrow: the caller's data the frame keeps,
+    /// not the parameter, so advancing it again leaves earlier items valid
+    /// (issue #912).
+    item_referents: HashMap<u8, u8>,
     /// `mut` holders that started empty, by declaration loan, and loans
     /// derived from one that some `return` returned; see
     /// [`Lower::retarget_reference`].
@@ -3828,6 +3843,9 @@ impl Lower<'_> {
                     } else {
                         let actual = self.expr_expected(e, Some(expected.clone()), ops)?;
                         self.same(actual, Some(expected.clone()), &e.at)?;
+                        if matches!(expected, Ty::Ref(..)) {
+                            self.check_yielded_reference(e, ops)?;
+                        }
                         expected
                     };
                     self.building(&e.at, value_start, ops, false);
@@ -5001,7 +5019,8 @@ fn register_with_body(
         // are rejected when the body lowers.
         let lends = inputs
             .iter()
-            .any(|(_, ty)| matches!(ty, Ty::Ref(..) | Ty::View(..)) || ty.lends_frame());
+            .any(|(_, ty)| matches!(ty, Ty::Ref(..) | Ty::View(..)) || ty.lends_frame())
+            || matches!(t.element, Ty::Ref(..));
         output = Some(crate::generator::producer(
             t.element.clone(),
             Some(f.name.clone()),
@@ -5212,6 +5231,8 @@ fn lower_body(
                 reference_locals: HashMap::default(),
                 absent_referents: HashSet::default(),
                 parameter_referents: HashSet::default(),
+                generator_items: HashSet::default(),
+                item_referents: HashMap::default(),
                 holders: HashMap::default(),
                 branch_joins: Vec::new(),
                 branch_adapter: None,
@@ -5269,6 +5290,16 @@ fn lower_body(
                     && (ty.carried_reference().is_some() || pipelines::lent_identity(ty).is_some())
                 {
                     return Err(f.at.error("generators cannot capture references"));
+                }
+                if let Ty::Ref(inner, _) = ty
+                    && let Ty::Generator(generator) = &**inner
+                    && matches!(generator.element, Ty::Ref(..))
+                {
+                    let referent = lower.slot(Ty::Unit, &f.at)?;
+                    body.extend([Op::PushUnit, Op::StoreLocal(referent)]);
+                    lower.name_slot(referent, name);
+                    lower.parameter_referents.insert(referent);
+                    lower.item_referents.insert(i as u8, referent);
                 }
                 let (root, mutable) = match ty {
                     Ty::Ref(_, mutable) | Ty::View(_, mutable) => (i as u8, *mutable),
