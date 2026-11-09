@@ -277,6 +277,7 @@ impl Lower<'_> {
             return Ok((view, Some(loan)));
         }
         if self.is_pipeline(value) && !self.is_dictionary_projection(value) {
+            let origin = self.pipeline_origin(value);
             let outer = std::mem::replace(&mut self.pipeline.binding, true);
             let plan = self.pipeline(value, ops);
             self.pipeline.binding = outer;
@@ -284,6 +285,7 @@ impl Lower<'_> {
             let item = Arc::new(plan.item.ty.clone());
             let id = self.pipeline.plans.len();
             self.pipeline.plans.push(plan);
+            self.pipeline.origins.insert(id, origin);
             ops.push(Op::PipelineToken(item.clone(), id));
             return Ok((Ty::Iter(item, id), None));
         }
