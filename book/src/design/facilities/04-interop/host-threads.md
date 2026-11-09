@@ -74,9 +74,10 @@ dependency retain their existing wrapper certification.
 
 The generated C adapter saves and restores diagnostic caller context in
 thread-local storage. The runtime's retain counts are atomic, and destruction
-queues and actor execution context are thread-local. Runtime allocation uses
-thread-local caches backed by synchronized shared storage; it does not require
-a host thread to have started through Plenty's `spawn`.
+queues and actor execution context are thread-local. The separate library runtime
+uses the system allocator; embedded applications retain allocation caches backed
+by synchronized shared storage. Library calls do not require a host thread to
+have started through Plenty's `spawn`.
 
 Libraries leave process signal handlers to their host. The runtime's executable
 stack-overflow handler is not installed by a library entry; this interface does
