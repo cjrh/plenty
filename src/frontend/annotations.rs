@@ -65,7 +65,7 @@ impl Annotation {
         match self {
             Self::Redacted | Self::Serial => "class and enum declarations",
             Self::Copy | Self::Newtype => "class declarations",
-            Self::ThreadSafe => "`extern def` declarations",
+            Self::ThreadSafe => "`extern def` and `export def` declarations",
             Self::ThreadMovable | Self::ThreadShareable => "`opaque` declarations",
         }
     }

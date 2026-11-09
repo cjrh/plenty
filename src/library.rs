@@ -71,7 +71,7 @@ pub enum LibraryKind {
 
 #[derive(Clone, Debug)]
 pub struct LibraryOptions {
-    /// Importable ASCII name; C symbols must start with this name and `_`.
+    /// Importable ASCII name; ordinary C exports use this name and `_`.
     pub name: String,
     pub kind: LibraryKind,
     pub compile: CompileOptions,

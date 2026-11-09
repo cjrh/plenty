@@ -33,8 +33,9 @@ types. Prefer private pointers behind [owning wrappers](foreign-owners.md).
 C symbols must be identifiers outside the `main`, `plenty_`, and `__plenty_`
 namespaces, except the checked [loading primitives](loading-primitives.md).
 Conflicting declarations are rejected. The binding author must supply the exact
-ABI, lifetimes, permissions, and error/ownership rules. Callbacks and C records
-are unsupported.
+ABI, lifetimes, permissions, and error/ownership rules. Typed callback values and C record layouts remain unsupported.
+[Trusted raw host interfaces](raw-host-interfaces.md) provide exported C callback
+addresses, raw scalar memory access and resident storage for explicit bindings.
 
 ## Calling a native address
 

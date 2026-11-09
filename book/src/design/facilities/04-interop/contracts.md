@@ -27,7 +27,8 @@ Generated interfaces carry a SHA-256 fingerprint and require
 lacking that symbol fails linking or symbol resolution. The guard allocates
 nothing; C headers declare it for optional C-side checking.
 
-Signatures, borrowing, cleanup/adaptation rules, namespace, and target affect the
+Signatures, export thread certification, borrowing, cleanup/adaptation rules,
+namespace, and target affect the
 fingerprint. Parameter spelling, docstrings, private layout, and bodies do not.
 Matching is conservative: adding an export changes the fingerprint. This is not
 a general stable Plenty binary ABI or a promise of compatibility between

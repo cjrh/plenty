@@ -174,6 +174,8 @@ impl Lower<'_> {
                 captures: vec![],
                 foreign: None,
                 export: None,
+                export_thread_safe: false,
+                export_exact: false,
                 name: name.clone(),
                 type_params: vec![],
                 at: at.clone(),

@@ -678,6 +678,8 @@ impl Parser {
         self.expect("->")?;
         let output = self.ty()?;
         let mut address_parameter = None;
+        let mut intrinsic = None;
+        let mut export_exact = false;
         let symbol = if foreign || exported {
             if !type_params.is_empty() {
                 return Err(at.error(if exported {
@@ -687,8 +689,59 @@ impl Parser {
                 }));
             }
             self.expect("=")?;
+            export_exact = exported && self.eat("exact");
             let symbol = self.take();
-            if let Kind::Text(ref symbol_name) = symbol.kind {
+            if foreign
+                && !inputs.iter().any(|(name, _)| symbol.is(name))
+                && matches!(
+                    symbol.text(),
+                    Some("intrinsic" | "address" | "static" | "storage")
+                )
+            {
+                use crate::foreign::Intrinsic;
+                let value = self.take();
+                intrinsic = Some(match (symbol.text().unwrap(), &value.kind) {
+                    ("intrinsic", Kind::Text(mode)) => match mode.as_ref() {
+                        "load" => Intrinsic::Load,
+                        "store" => Intrinsic::Store,
+                        "offset" => Intrinsic::Offset,
+                        _ => return Err(value.error("expected load, store or offset intrinsic")),
+                    },
+                    ("address", Kind::Text(target)) => {
+                        foreign::check_symbol(target, &value)?;
+                        Intrinsic::Address(target.to_string())
+                    }
+                    (kind @ ("static" | "storage"), _) => {
+                        use std::hash::{Hash, Hasher};
+                        let mut hash = std::collections::hash_map::DefaultHasher::new();
+                        at.source().hash(&mut hash);
+                        name.hash(&mut hash);
+                        let bytes = match (kind, &value.kind) {
+                            ("static", Kind::Text(text)) => {
+                                let mut bytes = text.as_bytes().to_vec();
+                                bytes.push(0);
+                                bytes
+                            }
+                            ("storage", Kind::Number(count)) => {
+                                let size = count.parse::<usize>().ok().filter(|n| *n > 0 && *n <= 1048576)
+                                    .ok_or_else(|| value.error("storage size must be an unsuffixed integer from 1 through 1048576"))?;
+                                vec![0; size]
+                            }
+                            _ => {
+                                return Err(value
+                                    .error("static requires text; storage requires a byte count"));
+                            }
+                        };
+                        Intrinsic::Static {
+                            name: format!("plenty_c_static_{:016x}", hash.finish()),
+                            bytes,
+                            writable: kind == "storage",
+                        }
+                    }
+                    _ => return Err(value.error("expected intrinsic target literal")),
+                });
+                None
+            } else if let Kind::Text(ref symbol_name) = symbol.kind {
                 if !(foreign && foreign::loader_symbol(symbol_name)) {
                     foreign::check_symbol(symbol_name, &symbol)?;
                 }
@@ -716,14 +769,20 @@ impl Parser {
                 once,
                 captures,
                 foreign: Some(crate::foreign::Declaration {
-                    target: match address_parameter {
-                        Some(index) => crate::foreign::Target::Parameter(index),
-                        None => crate::foreign::Target::Symbol(symbol.unwrap()),
+                    target: if let Some(intrinsic) = intrinsic {
+                        crate::foreign::Target::Intrinsic(std::sync::Arc::new(intrinsic))
+                    } else {
+                        match address_parameter {
+                            Some(index) => crate::foreign::Target::Parameter(index),
+                            None => crate::foreign::Target::Symbol(symbol.unwrap()),
+                        }
                     },
                     arguments: adapters,
                     thread_safe: false,
                 }),
                 export: None,
+                export_thread_safe: false,
+                export_exact: false,
                 type_params,
                 name,
                 at,
@@ -743,6 +802,8 @@ impl Parser {
                 captures,
                 foreign: None,
                 export: None,
+                export_thread_safe: false,
+                export_exact: false,
                 type_params,
                 name,
                 at,
@@ -796,6 +857,8 @@ impl Parser {
             captures,
             foreign: None,
             export: symbol,
+            export_thread_safe: false,
+            export_exact,
             type_params,
             name,
             at,

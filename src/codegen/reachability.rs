@@ -183,6 +183,8 @@ mod tests {
             definition("std.dead", true, vec![]),
         ];
         let exports = [crate::exports::Export {
+            thread_safe: false,
+            exact: false,
             function: "std.export".into(),
             name: "export".into(),
             symbol: "export".into(),

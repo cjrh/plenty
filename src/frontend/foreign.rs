@@ -70,6 +70,46 @@ pub(super) fn check_symbol(name: &str, at: &Token) -> Result<()> {
 }
 
 pub(super) fn check_signature(f: &Function, inputs: &[(String, Ty)], output: &Type) -> Result<()> {
+    if let crate::foreign::Target::Intrinsic(intrinsic) = &f.foreign.as_ref().unwrap().target {
+        use crate::foreign::Intrinsic;
+        let pointer = |ty: &Ty| matches!(ty, Ty::ForeignPtr(..));
+        let scalar = |ty: &Ty| ty.is_numeric() || pointer(ty);
+        let valid = match intrinsic.as_ref() {
+            Intrinsic::Load => {
+                inputs.len() == 2
+                    && pointer(&inputs[0].1)
+                    && inputs[1].1 == Ty::U64
+                    && output.as_ref().is_some_and(scalar)
+            }
+            Intrinsic::Store => {
+                inputs.len() == 3
+                    && pointer(&inputs[0].1)
+                    && inputs[1].1 == Ty::U64
+                    && scalar(&inputs[2].1)
+                    && output.is_none()
+            }
+            Intrinsic::Offset => {
+                inputs.len() == 2
+                    && pointer(&inputs[0].1)
+                    && inputs[1].1 == Ty::U64
+                    && output.as_ref() == Some(&inputs[0].1)
+            }
+            Intrinsic::Address(_) | Intrinsic::Static { .. } => {
+                inputs.is_empty() && output.as_ref().is_some_and(pointer)
+            }
+        };
+        if !valid
+            || f.foreign
+                .as_ref()
+                .unwrap()
+                .arguments
+                .iter()
+                .any(|a| *a != crate::foreign::Argument::Direct)
+        {
+            return Err(f.at.error("invalid trusted C intrinsic signature: load(pointer, u64) -> scalar/pointer; store(pointer, u64, scalar/pointer) -> (); offset(pointer, u64) -> same pointer; address/static/storage () -> pointer"));
+        }
+        return Ok(());
+    }
     check_loader_signature(f, inputs, output)?;
     use crate::foreign::Argument;
     let declaration = f.foreign.as_ref().unwrap();

@@ -12,14 +12,16 @@ nonlocal jump may cross Plenty frames.
   [how std.dataframe wraps its engine](dataframe-binding.md) for worker threads.
 - [Exports and generated C contracts](exports.md), including
   [owned library objects](owned-exports.md).
+- [Trusted raw host interfaces](raw-host-interfaces.md) and
+  [exports called by host threads](host-threads.md).
 - [Embedded contracts and compatibility](contracts.md).
 - [Runtime loading](loading.md) and [trusted loading primitives](loading-primitives.md).
 
 The native ABI targets are `x86_64-unknown-linux-gnu` and
 `aarch64-unknown-linux-gnu`; the compiler, runtime and library object must match.
 See [ARM qualification](../../../development/linux-aarch64.md) for deployment
-limits. Calls and owned exported
+limits. Unannotated calls and owned exported
 objects remain on their creating caller thread, with serialized access as required
-by the generated C contract. Ordinary `pub` controls Plenty imports and does not
+by the generated C contract. Certified scalar/pointer exports support host threads. Ordinary `pub` controls Plenty imports and does not
 export a native symbol. [Building and linking](../../toolchain/01-building/index.md)
 is explicit; source imports alone neither link nor load a library.

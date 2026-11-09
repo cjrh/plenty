@@ -34,7 +34,7 @@ pub(super) fn generate(export: &Export, index: usize, interface: &Interface) -> 
         .signature
         .outputs
         .first()
-        .map(ToString::to_string)
+        .map(handles::source_type)
         .unwrap_or("()".into());
     let mut body = String::new();
     for (i, (_, ty)) in export.signature.inputs.iter().enumerate() {

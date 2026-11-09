@@ -5655,6 +5655,7 @@ fn lower(
     let mut interface_names = HashSet::default();
     for f in &boundary {
         if let Some(symbol) = &f.export {
+            let exact = f.export_exact;
             let name = f.name.rsplit('.').next().unwrap().to_owned();
             if imported_symbols.contains(symbol.as_str()) || !symbols.insert(symbol.clone()) {
                 return Err(f
@@ -5672,10 +5673,25 @@ fn lower(
                 symbol: symbol.clone(),
                 signature: sigs[&f.name].clone(),
                 documentation: f.doc.clone(),
+                thread_safe: f.export_thread_safe,
+                exact,
             });
         }
     }
     exports.sort_by(|a, b| a.symbol.cmp(&b.symbol));
+    for f in &boundary {
+        if let Some(crate::foreign::Declaration {
+            target: crate::foreign::Target::Intrinsic(intrinsic),
+            ..
+        }) = &f.foreign
+            && let crate::foreign::Intrinsic::Address(name) = intrinsic.as_ref()
+            && !exports.iter().any(|export| export.symbol == *name)
+        {
+            return Err(f.at.error(format!(
+                "C address target `{name}` must name an export in this library"
+            )));
+        }
+    }
     let returns_status = if require_main {
         const MAIN_RETURN_TYPES: &str = "(), i32, Result[(), E], or Result[i32, E]";
         let (yields, entry) = sigs
@@ -5799,6 +5815,7 @@ fn lower(
     let mut ops = std::mem::take(&mut generics.compiled);
     validate_frames(&ops).map_err(|message| at.error(message))?;
     tail_calls::validate(&ops, &generics, &sigs)?;
+    crate::threading::check_exports(&ops, &exports)?;
     if require_main {
         ops.push(Op::Call("main".into()));
         if let [Ty::Enum(t)] = sigs["main"].outputs.as_slice() {

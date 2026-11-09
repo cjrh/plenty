@@ -724,6 +724,7 @@ impl Names<'_> {
                     Some(Request::Coverage(counters)) => {
                         format!("{resolved} (coverage counters: {counters})")
                     }
+                    Some(Request::RawStatic(name, ..)) => name.clone(),
                     Some(Request::ProtocolTable(_)) => format!("protocol table {index}"),
                     Some(Request::SerialStackBudget(callee, failure)) => format!(
                         "{resolved} (codec stack budget: {}, failure: {})",

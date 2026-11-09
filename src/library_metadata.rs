@@ -65,7 +65,13 @@ impl LibraryInterface {
             let guard = format!(
                 "extern def _plenty_require_contract() -> () = \"{name}_plenty_contract_v1_{hash}\""
             );
-            if footer.next() != Some(guard.as_str()) || footer.next().is_some() {
+            // New generated wrappers may certify the no-op guard; older
+            // format-1 interfaces retain the unannotated declaration.
+            let mut declaration = footer.next();
+            if declaration == Some("@thread_safe") {
+                declaration = footer.next();
+            }
+            if declaration != Some(guard.as_str()) || footer.next().is_some() {
                 return Err("malformed interface compatibility guard".into());
             }
             Some(hash.into())

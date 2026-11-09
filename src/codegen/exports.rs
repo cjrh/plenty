@@ -473,3 +473,35 @@ fn emit_interface(interface: &crate::exports::Interface, out: &mut Output) -> Re
     out.define(id, func)?;
     Ok(())
 }
+
+/// Address intrinsics need the C adapters declared before Plenty bodies lower.
+pub(super) fn declare(exports: &[crate::exports::Export], module: &mut ObjectModule) -> Result<()> {
+    for export in exports {
+        let mut signature = module.make_signature();
+        signature.params.extend(
+            export
+                .signature
+                .inputs
+                .iter()
+                .map(|(_, ty)| foreign::parameter(ty)),
+        );
+        if let Some((ok, _)) = export
+            .signature
+            .outputs
+            .first()
+            .and_then(crate::exports::result_payloads)
+        {
+            if *ok != Ty::Unit {
+                signature.params.push(AbiParam::new(PTR_TY));
+            }
+            signature.params.push(AbiParam::new(PTR_TY));
+            signature.returns.push(foreign::parameter(&Ty::U32));
+        } else {
+            signature
+                .returns
+                .extend(export.signature.outputs.iter().map(foreign::parameter));
+        }
+        module.declare_function(&export.symbol, Linkage::Export, &signature)?;
+    }
+    Ok(())
+}
