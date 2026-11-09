@@ -313,12 +313,13 @@ treats the holder as borrowing frame state, and the error is "a borrow of
 `keep` cannot remain live across yield". Initialize the holder from the
 parameter or use the parameter directly.
 
-A generator cannot take a lent pipeline (`&mut Iter[T]`): lending copies the
-pipeline's state into the borrower and writes it back when the call returns,
-and a suspended frame has not returned. Take `&mut Generator[T]` instead and
-have the caller convert its pipeline with
-[`.generator()`](06-pipelines.md#returning-a-resumable-stream). Otherwise the
-error is "a generator cannot take a lent pipeline".
+A generator never takes a lent pipeline (`&mut Iter[T]`). To pass a pipeline
+to a generator, convert it with
+[`.generator()`](06-pipelines.md#returning-a-resumable-stream) and pass the
+result as `&mut Generator[T]`. Lending copies the pipeline's state into the
+borrower and writes it back when the call returns, and a suspended frame has
+not returned. A `&mut Iter[T]` generator parameter is an error: "a generator
+cannot take a lent pipeline".
 
 ### Reference items
 

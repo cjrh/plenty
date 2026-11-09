@@ -599,8 +599,10 @@ items into a collection, and assigning a borrowing generator through a
 Generator parameters may carry a reference, as `Option[&T]` or
 `Result[&mut T, E]` (issue #913). The frame keeps the argument's loan as it
 keeps a reference parameter's, and may yield references through a shared one.
-A lent pipeline parameter stays rejected, with a diagnostic naming the
-`&mut Generator[T]` alternative. See
+Generators do not take lent pipelines: the caller converts the pipeline with
+`.generator()` and passes `&mut Generator[T]`, and the diagnostic says so. A
+resumable lent-pipeline representation in the frame was considered and
+rejected, since the conversion already works and adds no frame representation. See
 [borrowing frames](../design/language/09-iteration/03-generators.md#borrowing-frames).
 
 List slice views `&[T]` and `&mut [T]` gained list read and fixed-length
