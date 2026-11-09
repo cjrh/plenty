@@ -1,0 +1,63 @@
+; Packed-pointer experiment: byte length must be a multiple of the stride.
+; a: scalar; b: same arithmetic expressed as f64x2.
+function %magnitude_scalar(i64, i64, i64, i64, i64, f64) system_v {
+block0(v0: i64, v1: i64, v2: i64, v3: i64, v4: i64, v5: f64):
+    v6 = iconst.i64 0
+    v7 = iconst.i64 8
+    v8 = icmp eq v4, v6
+    
+    brif v8, block2, block1(v6)
+block1(v10: i64):
+    v11 = iadd v0, v10
+    v12 = iadd v1, v10
+    v13 = iadd v2, v10
+    v14 = iadd v3, v10
+    v15 = load.f64 v11
+    v16 = load.f64 v12
+    v17 = load.f64 v13
+    v18 = fmul v15, v15
+    v19 = fmul v16, v16
+    v20 = fmul v17, v17
+    v21 = fadd v18, v19
+    v22 = fadd v21, v20
+    v23 = sqrt v22
+    v24 = fmul v22, v23
+    v25 = fdiv v5, v24
+    store v25, v14
+    v26 = iadd v10, v7
+    v27 = icmp ult v26, v4
+    brif v27, block1(v26), block2
+block2:
+    return
+}
+
+function %magnitude_simd(i64, i64, i64, i64, i64, f64) system_v {
+block0(v0: i64, v1: i64, v2: i64, v3: i64, v4: i64, v5: f64):
+    v6 = iconst.i64 0
+    v7 = iconst.i64 16
+    v8 = icmp eq v4, v6
+    v9 = splat.f64x2 v5
+    brif v8, block2, block1(v6)
+block1(v10: i64):
+    v11 = iadd v0, v10
+    v12 = iadd v1, v10
+    v13 = iadd v2, v10
+    v14 = iadd v3, v10
+    v15 = load.f64x2 v11
+    v16 = load.f64x2 v12
+    v17 = load.f64x2 v13
+    v18 = fmul v15, v15
+    v19 = fmul v16, v16
+    v20 = fmul v17, v17
+    v21 = fadd v18, v19
+    v22 = fadd v21, v20
+    v23 = sqrt v22
+    v24 = fmul v22, v23
+    v25 = fdiv v9, v24
+    store v25, v14
+    v26 = iadd v10, v7
+    v27 = icmp ult v26, v4
+    brif v27, block1(v26), block2
+block2:
+    return
+}

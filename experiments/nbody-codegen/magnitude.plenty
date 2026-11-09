@@ -1,0 +1,14 @@
+# Isolated n-body magnitude phase, with the benchmark's checked list access.
+def magnitude(x: &list[f64], y: &list[f64], z: &list[f64], out: &mut list[f64], n: i64, dt: f64) -> ():
+    for i in range(n):
+        d2 = x[i] * x[i] + y[i] * y[i] + z[i] * z[i]
+        out[i] = dt / (d2 * d2.sqrt())
+
+def main() -> Result[(), AllocError | IoError]:
+    x = [3.0, 6.0]?
+    y = [4.0, 8.0]?
+    z = [0.0, 0.0]?
+    mut out = [0.0, 0.0]?
+    magnitude(&x, &y, &z, &mut out, 2, 0.01)
+    print(out)?
+    Ok(())
