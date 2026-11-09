@@ -946,6 +946,13 @@ impl Lower<'_> {
             ops.push(Op::ReadRef((*inner).clone()));
             ops.push(Op::Collection(CollectionOp::Next((*inner).clone())));
             ops.push(Op::UseLoan(loan));
+            // An item borrows the frame's sources, not the lent frame.
+            let slot = match &ungroup(base).kind {
+                Expression::Name(name) => self.names.get(name).map(|local| local.slot),
+                _ => None,
+            };
+            let frame = slot.and_then(|slot| self.reference_locals.get(&slot).copied());
+            self.generator_item(&element.element, frame.or(Some(loan)), slot, at, ops)?;
             return Ok(Some(output));
         }
         let [
@@ -967,9 +974,11 @@ impl Lower<'_> {
                 return Err(at.error("next requires a generator"));
             };
             let output = crate::sum::option(element.element.clone());
+            let item = element.element.clone();
             let (ty, loan) = self.read_place(&local, ops);
             ops.push(Op::Collection(CollectionOp::Next(ty)));
             ops.push(Op::UseLoan(loan));
+            self.generator_item(&item, Some(loan), Some(local.slot), at, ops)?;
             return Ok(Some(output));
         }
         let Ty::Generator(element) = &local.ty else {
@@ -982,10 +991,13 @@ impl Lower<'_> {
         }
         self.mark(at, ops);
         ops.push(Op::Next(local.slot));
-        if let Some(&loan) = self.reference_locals.get(&local.slot) {
+        let frame = self.reference_locals.get(&local.slot).copied();
+        if let Some(loan) = frame {
             ops.push(Op::UseLoan(loan));
         }
-        Ok(Some(crate::sum::option(element.element.clone())))
+        let item = element.element.clone();
+        self.generator_item(&item, frame, Some(local.slot), at, ops)?;
+        Ok(Some(crate::sum::option(item)))
     }
 }
 
