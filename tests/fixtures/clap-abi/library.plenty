@@ -1,0 +1,32 @@
+import native
+
+@thread_safe
+export def initialize(path: native.Pointer) -> bool = exact "fixture_init":
+    not path.is_null()
+
+@thread_safe
+export def deinitialize() -> () = exact "fixture_deinit":
+    pass
+
+@thread_safe
+export def get_factory(identifier: native.Pointer) -> native.Pointer = exact "fixture_get_factory":
+    if identifier.is_null():
+        return native.Pointer.null()
+    if native.compare(identifier, native.factory_id()) == 0:
+        native.factory()
+    else:
+        native.Pointer.null()
+
+@thread_safe
+export def forward(input: native.Pointer, output: native.Pointer) -> u32 = exact "fixture_forward":
+    count = native.pointer(input, 8u64)
+    get = native.pointer(input, 16u64)
+    push = native.pointer(output, 8u64)
+    mut accepted = 0u32
+    for index in range(native.count(count, input)):
+        event = native.get(get, input, index)
+        if native.push(push, output, event):
+            # At most the u32-sized input count can be accepted.
+            unchecked:
+                accepted += 1u32
+    accepted

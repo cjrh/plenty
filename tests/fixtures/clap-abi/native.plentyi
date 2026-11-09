@@ -1,0 +1,30 @@
+# CLAP 1.2.10 ABI subset, checked against the vendored headers by host.c.
+# All pointers are host-owned for each call or immutable library data.
+@thread_movable
+pub opaque Pointer
+
+pub extern def entry() -> Pointer = object "clap_entry"(size=40, align=8):
+    0: u32 = 1
+    4: u32 = 2
+    8: u32 = 10
+    16: callback = "fixture_init"
+    24: callback = "fixture_deinit"
+    32: callback = "fixture_get_factory"
+@thread_safe
+pub extern def factory() -> Pointer = object "fixture_factory"(size=8, align=8):
+    0: callback = "fixture_forward"
+@thread_safe
+pub extern def factory_id() -> Pointer = static "plenty.abi-test"
+@thread_safe
+pub extern def compare(left: Pointer, right: Pointer) -> i32 = "strcmp"
+@thread_safe
+pub extern def pointer(p: Pointer, offset: u64) -> Pointer = intrinsic "load"
+
+# The host provides exact native signatures, resident addresses and lists whose
+# lifetime and current callback context cover the whole forward operation.
+@host_callback
+pub extern def count(function: Pointer, input: Pointer) -> u32 = function
+@host_callback
+pub extern def get(function: Pointer, input: Pointer, index: u32) -> Pointer = function
+@host_callback
+pub extern def push(function: Pointer, output: Pointer, event: Pointer) -> bool = function
