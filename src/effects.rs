@@ -247,6 +247,7 @@ impl CollectionOp {
             | ViewItem(..)
             | ViewEqual(_)
             | ViewSwap(_)
+            | ViewSort(_)
             | ListSortBy(_)
             | IterGet(_)
             | HashIterFirst(_)

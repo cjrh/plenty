@@ -1,5 +1,6 @@
 //! Rust-owned metadata and buffers behind a small, layout-stable native prefix.
 use crate::collection_opcodes::*;
+use crate::entries::sort::Rows;
 use crate::entries::{Entries, Entry};
 use crate::generators::{Generator, plenty_generator_resume};
 use crate::memory::{self, AllocError, Header, plenty_release, plenty_retain};
@@ -2677,6 +2678,51 @@ pub(crate) unsafe extern "C" fn plenty_order_partial(
 /// value slots, returning -1, 0, or 1.
 type KeyOrder = unsafe extern "C" fn(*const u128, *const u128, *const u128) -> i64;
 
+/// The order a key sort's generated comparator gives two row values. Reversing
+/// the comparison, not the output, keeps equal rows in input order when
+/// descending. The comparator calls user code, so the caller's frame state is
+/// saved around it.
+fn key_order(
+    compare: KeyOrder,
+    environment: *const u128,
+    descending: i64,
+) -> impl FnMut(u128, u128) -> Ordering {
+    move |a, b| {
+        let order = {
+            let _caller = crate::CallerScope::save();
+            // SAFETY: the compiler passes the adapter matching the callback
+            // reference in `environment`; both slots hold live row values.
+            unsafe { compare(environment, &a, &b) }.cmp(&0)
+        };
+        if descending != 0 {
+            order.reverse()
+        } else {
+            order
+        }
+    }
+}
+
+/// Sort orderable elements in place, as `list.sort(descending)` does: total
+/// order, unstable, nothing allocated.
+///
+/// # Safety
+/// `rows` hold live values of the orderable type `element`.
+unsafe fn sort_elements(mut rows: Rows<'_>, element: &Type, descending: bool) {
+    let direct = |order: Ordering| if descending { order.reverse() } else { order };
+    // SAFETY: every compared word is a live row value of `element`.
+    unsafe {
+        match FlatTuple::new(element) {
+            Some(tuple) => rows.sort_unstable_by(|x, y| direct(tuple.compare(x, y, element))),
+            None => rows.sort_unstable_by(|x, y| direct(compare(x, y, element))),
+        }
+    }
+}
+
+/// `Result[(), AllocError]`'s high word for a stable sort's reservation.
+fn stable_result(sorted: Result<(), AllocError>) -> u64 {
+    (byte_storage::result(sorted.map(|()| 0)) >> 64) as u64
+}
+
 /// Narrow ABI: sort a live, exclusively borrowed list by a generated key
 /// comparator. Rows move inside the runtime; the comparator only observes
 /// them, so no element is retained, released, or copied, and nothing is
@@ -2691,20 +2737,8 @@ pub(crate) unsafe extern "C" fn plenty_list_sort_by(
 ) {
     // SAFETY: the compiler passes a live dense list it exclusively borrows, its
     // matching adapter, and the adapter's callback reference.
-    unsafe {
-        let entries = &mut (*owner.cast::<Collection>()).entries;
-        entries.sort_unstable_rows_by(|a, b| {
-            let order = {
-                let _caller = crate::CallerScope::save();
-                compare(environment, &a, &b).cmp(&0)
-            };
-            if descending != 0 {
-                order.reverse()
-            } else {
-                order
-            }
-        });
-    }
+    let entries = unsafe { &mut (*owner.cast::<Collection>()).entries };
+    entries.sort_unstable_rows_by(key_order(compare, environment, descending));
 }
 
 /// Narrow ABI: stably sort a live, exclusively borrowed list by a generated
@@ -2719,23 +2753,62 @@ pub(crate) unsafe extern "C" fn plenty_list_sort_stable_by(
     descending: i64,
 ) -> u64 {
     // SAFETY: as for `plenty_list_sort_by`.
-    let sorted = unsafe {
-        let entries = &mut (*owner.cast::<Collection>()).entries;
-        entries.sort_stable_rows_by(|a, b| {
-            let order = {
-                let _caller = crate::CallerScope::save();
-                compare(environment, &a, &b).cmp(&0)
-            };
-            // Reversing the comparison, not the output, keeps equal rows in
-            // input order when descending.
-            if descending != 0 {
-                order.reverse()
-            } else {
-                order
-            }
-        })
-    };
-    (byte_storage::result(sorted.map(|()| 0)) >> 64) as u64
+    let entries = unsafe { &mut (*owner.cast::<Collection>()).entries };
+    stable_result(entries.sort_stable_rows_by(key_order(compare, environment, descending)))
+}
+
+/// Narrow ABI: sort the `len` rows of an exclusive slice view of
+/// `descriptor`'s orderable type in place, as `list.sort` sorts a list's rows
+/// (issue #886). Nothing is allocated.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_view_sort(
+    rows: *mut u8,
+    len: u64,
+    descending: i64,
+    descriptor: *const Type,
+) {
+    // SAFETY: the compiler holds the view's exclusive loan through the call,
+    // so its rows are live and unaliased, and passes the element's static
+    // descriptor.
+    unsafe {
+        let ty = &*descriptor;
+        sort_elements(Rows::view(rows, len as usize, ty), ty, descending != 0);
+    }
+}
+
+/// Narrow ABI: sort an exclusive slice view's rows by a generated key
+/// comparator, as [`plenty_list_sort_by`] sorts a list's. The key cannot reach
+/// the view's owner while the caller holds the view's loan.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_view_sort_by(
+    rows: *mut u8,
+    len: u64,
+    compare: KeyOrder,
+    environment: *const u128,
+    descending: i64,
+    descriptor: *const Type,
+) {
+    // SAFETY: as for `plenty_view_sort` and `plenty_list_sort_by`.
+    let mut rows = unsafe { Rows::view(rows, len as usize, &*descriptor) };
+    rows.sort_unstable_rows_by(key_order(compare, environment, descending));
+}
+
+/// Narrow ABI: stably sort an exclusive slice view's rows, as
+/// [`plenty_list_sort_stable_by`] sorts a list's, and return the high word of
+/// `Result[(), AllocError]`. Workspace is reserved before any row moves, so an
+/// allocation failure leaves the view's rows unchanged.
+#[unsafe(no_mangle)]
+pub(crate) unsafe extern "C" fn plenty_view_sort_stable_by(
+    rows: *mut u8,
+    len: u64,
+    compare: KeyOrder,
+    environment: *const u128,
+    descending: i64,
+    descriptor: *const Type,
+) -> u64 {
+    // SAFETY: as for `plenty_view_sort_by`.
+    let mut rows = unsafe { Rows::view(rows, len as usize, &*descriptor) };
+    stable_result(rows.sort_stable_rows_by(key_order(compare, environment, descending)))
 }
 
 /// Returns the low 64 payload bits of an integer, float, or boolean list row.
@@ -3541,17 +3614,7 @@ pub(crate) unsafe fn collection_at(
             }
             127 => {
                 let c = &mut *(a as *mut Collection);
-                let element = (*c.ty).key();
-                let descending = b != 0;
-                let direct = |order: Ordering| if descending { order.reverse() } else { order };
-                match FlatTuple::new(element) {
-                    Some(tuple) => c
-                        .entries
-                        .sort_unstable_by(|x, y| direct(tuple.compare(x, y, element))),
-                    None => c
-                        .entries
-                        .sort_unstable_by(|x, y| direct(compare(x, y, element))),
-                }
+                sort_elements(c.entries.dense_rows(), (*c.ty).key(), b != 0);
                 0
             }
             57 => {

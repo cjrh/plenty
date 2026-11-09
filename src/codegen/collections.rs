@@ -1077,8 +1077,19 @@ impl Lowerer<'_, '_> {
         if let CollectionOp::ListSortBy(sort) = operation {
             let (descending, _) = self.pop_typed(Ty::Bool)?;
             let (callback, _) = self.pop_typed(sort.callback.clone())?;
-            let (receiver, _) = self.pop_typed(Ty::Ref(Arc::new(sort.list.clone()), true))?;
-            let owner = self.reference_word(receiver);
+            let (receiver, _) = self.pop_typed(sort.receiver())?;
+            // A list passes its owner; a view, its rows and count, and its
+            // element descriptor last (issue #886).
+            let (mut operands, descriptor) = match &sort.list {
+                Ty::View(element, _) => {
+                    let (rows, count) = self.bcx.ins().isplit(receiver);
+                    let id = self.module.metadata(element);
+                    let gv = self.module.declare_data_in_func(id, self.bcx.func);
+                    let descriptor = self.bcx.ins().symbol_value(PTR_TY, gv);
+                    (vec![rows, count], Some(descriptor))
+                }
+                _ => (vec![self.reference_word(receiver)], None),
+            };
             let checked = sort
                 .error
                 .as_ref()
@@ -1100,14 +1111,17 @@ impl Lowerer<'_, '_> {
             let adapter = self.module.declare_func_in_func(adapter, self.bcx.func);
             let adapter = self.bcx.ins().func_addr(PTR_TY, adapter);
             let descending = self.bcx.ins().uextend(types::I64, descending);
+            operands.extend([adapter, environment, descending]);
+            operands.extend(descriptor);
+            let function = match (descriptor.is_some(), sort.stable) {
+                (false, false) => self.runtime.list_sort_by,
+                (false, true) => self.runtime.list_sort_stable_by,
+                (true, false) => self.runtime.view_sort_by,
+                (true, true) => self.runtime.view_sort_stable_by,
+            };
+            let function = self.module.declare_func_in_func(function, self.bcx.func);
             if sort.stable {
-                let function = self
-                    .module
-                    .declare_func_in_func(self.runtime.list_sort_stable_by, self.bcx.func);
-                let call = self
-                    .bcx
-                    .ins()
-                    .call(function, &[owner, adapter, environment, descending]);
+                let call = self.bcx.ins().call(function, &operands);
                 let high = self.bcx.inst_results(call)[0];
                 let low = self.bcx.ins().iconst(types::I64, 0);
                 let reserved = self.bcx.ins().iconcat(low, high);
@@ -1136,12 +1150,7 @@ impl Lowerer<'_, '_> {
                 self.stack.push((result, output));
                 return Ok(());
             }
-            let function = self
-                .module
-                .declare_func_in_func(self.runtime.list_sort_by, self.bcx.func);
-            self.bcx
-                .ins()
-                .call(function, &[owner, adapter, environment, descending]);
+            self.bcx.ins().call(function, &operands);
             if let Some(result) = checked {
                 let value = self.bcx.ins().load(
                     types::I128,

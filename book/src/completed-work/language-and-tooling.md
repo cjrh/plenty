@@ -595,11 +595,15 @@ copying slice does; `v.reverse()` reorders an exclusive view in place. Each
 specializes an ordinary Plenty helper for the element type. A list's `count`,
 `find` and `rfind` now take every element type `in` takes, through the same
 helpers. Optional borrowed lookup on views is issue #890.
-Length-changing methods name the fixed length, `v[a:b]?` on a `&[u8]` asks for
-the result type, and sorting a view is issue #886. A `u8` literal now loads the
+Length-changing methods name the fixed length, and `v[a:b]?` on a `&[u8]` asks for
+the result type. A `u8` literal now loads the
 byte-view methods of `std.bytes`, so `[104u8]` views reach them without an
 import. The [operation table](../design/language/04-expressions/slices.md#operations-on-views)
 compares views with lists.
+Exclusive views gained `sort`, `sort_by_key` and `sort_stable_by_key` (issue
+#886) with the list sorts' contracts. The runtime sorts now run over a borrowed
+row range, which a list and a view both supply, so a view sort executes the
+same code as a list sort of the same elements.
 
 Text-file iteration, uniform borrowed iteration and borrowed temporary source
 lifetimes shipped (issues #30/#75). Allocation-free enumerate/zip/reversed
