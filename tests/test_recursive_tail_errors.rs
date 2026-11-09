@@ -195,8 +195,15 @@ drop(w.walk(&mut p, True))
     ];
     for (source, call, at) in cases {
         let error = support::check_diagnostic(source);
-        let name = if source.contains("items") { "items" } else { "p" };
-        assert!(error.contains(&format!("{call}{}", reason(name, at))), "{error}");
+        let name = if source.contains("items") {
+            "items"
+        } else {
+            "p"
+        };
+        assert!(
+            error.contains(&format!("{call}{}", reason(name, at))),
+            "{error}"
+        );
         assert!(!error.contains("__plenty"), "{error}");
     }
 }
