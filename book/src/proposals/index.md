@@ -5,6 +5,9 @@ Proposals record design rationale and rejected alternatives. The
 [backlog](../backlog.md) tracks future work. If a proposal disagrees with the
 reference, follow the reference.
 
+The [multiple-version dependency design](multiversion-dependencies.md) covers
+independent transitive upgrades and explicit shared-instance restrictions.
+
 ## Status
 
 Each main proposal opens with a status note linking to the governing reference,
