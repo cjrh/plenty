@@ -272,6 +272,8 @@ impl DataTypes {
                     captures: vec![],
                     foreign: None,
                     export: None,
+                    export_thread_safe: false,
+                    export_exact: false,
                     defaults: class
                         .methods
                         .iter()

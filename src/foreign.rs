@@ -18,6 +18,8 @@ pub enum Argument {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Target {
+    /// Trusted compiler operations: raw memory and resident C addresses.
+    Intrinsic(std::sync::Arc<Intrinsic>),
     Symbol(String),
     /// A trusted opaque function address passed as a Plenty-only parameter.
     Parameter(usize),
@@ -57,7 +59,7 @@ impl Declaration {
     pub fn symbol(&self) -> Option<&str> {
         match &self.target {
             Target::Symbol(name) => Some(name),
-            Target::Parameter(_) => None,
+            Target::Parameter(_) | Target::Intrinsic(_) => None,
         }
     }
 
@@ -80,4 +82,18 @@ impl Declaration {
         let payload = &t.local().variants[0].fields[0];
         (payload != &Ty::Unit).then_some(payload)
     }
+}
+
+/// These declarations are available only in trusted interface modules.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Intrinsic {
+    Load,
+    Store,
+    Offset,
+    Address(String),
+    Static {
+        name: String,
+        bytes: Vec<u8>,
+        writable: bool,
+    },
 }

@@ -524,6 +524,8 @@ impl Parser {
             captures: vec![],
             foreign: None,
             export: None,
+            export_thread_safe: false,
+            export_exact: false,
             name,
             type_params: vec![],
             at: at.clone(),
@@ -724,7 +726,7 @@ impl Items<'_, '_> {
         let declaration = self.parser.token(declaration);
         for (at, annotation) in &annotations {
             let applies = declaration.is_some_and(|token| match annotation {
-                annotations::Annotation::ThreadSafe => token.is("extern"),
+                annotations::Annotation::ThreadSafe => token.is("extern") || token.is("export"),
                 annotations::Annotation::ThreadMovable
                 | annotations::Annotation::ThreadShareable => token.is("opaque"),
                 annotations::Annotation::Redacted | annotations::Annotation::Serial => {
@@ -786,7 +788,7 @@ impl Items<'_, '_> {
                     let declaration = f.foreign.as_mut().expect("an extern declaration");
                     // The callee is chosen at run time, so the promise would
                     // cover an unknown function.
-                    if declaration.symbol().is_none() {
+                    if matches!(declaration.target, crate::foreign::Target::Parameter(_)) {
                         return Err(at.error("`@thread_safe` requires a C symbol; a function-address call has no fixed callee to certify"));
                     }
                     declaration.thread_safe = true;
@@ -833,7 +835,10 @@ impl Items<'_, '_> {
         } else if self.parser.eat("export") {
             self.parser.expect("def")?;
             self.parser.pos -= 1;
-            let f = self.parser.function_header(None, false, true, false)?;
+            let mut f = self.parser.function_header(None, false, true, false)?;
+            f.export_thread_safe = annotations
+                .iter()
+                .any(|(_, a)| *a == annotations::Annotation::ThreadSafe);
             let name = f.name.clone();
             module.functions.push(f);
             name

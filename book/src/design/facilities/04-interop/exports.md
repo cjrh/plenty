@@ -10,17 +10,19 @@ export def add(a: i32, b: i32) -> i32 = "calc_add":
     a + b
 ```
 
-Parameters can be numeric scalars, owned exported classes, or shared/exclusive
-references to either. Returns can be numeric, unit, or `Result[T, E]`, where T is
+Parameters can be numeric scalars, opaque pointers, owned exported classes, or shared/exclusive
+references to either. Returns can be numeric, opaque pointers, unit, or `Result[T, E]`, where T is
 numeric/unit and E is numeric, `AllocError`, `ParseError`, `RangeError`, `Failure`,
 or a nongeneric user enum whose variants have no payloads.
 `Result[Class, AllocError]` factories use [owned handles](owned-exports.md).
-Bool, other managed objects, raw pointers, returned references, generic exports,
+Bool, other managed objects, returned references, generic exports,
 and other aggregate results are unsupported; bodies can use ordinary features.
 Enums with payload variants and error sums such as `AllocError | ParseError`
 are rejected; sums are planned with the broader C representations (B27).
 
-C symbols begin with the library name plus `_`. `NAME_plenty_` and `_plenty_`
+C symbols normally begin with the library name plus `_`.
+[`= exact "symbol"`](raw-host-interfaces.md#export-names-and-pointers) opts into a
+protocol-required name. `NAME_plenty_` and `_plenty_`
 source names are reserved for generated metadata and compatibility adapters.
 Duplicate symbols, import/export collisions, and generated-name collisions fail
 checking or artifact validation. The same namespace applies to imported source
@@ -90,7 +92,9 @@ Status and error code are distinct: code zero still means failure when status is
 one. Generated headers list these codes and caller requirements. Author docstrings
 appear as separate escaped documentation.
 
-Headers require serialized calls on one caller thread and prohibit unwinding or
+Unannotated exports require serialized calls on one caller thread;
+[`@thread_safe` exports](host-threads.md) support certified host-thread entry.
+Headers prohibit unwinding or
 nonlocal jumps across Plenty frames. Traps and explicit unwrap failures can
 terminate the process; adapters invent no recovery mechanism. Keep the generated
 header, interface, and binary together; see [contracts](contracts.md) and

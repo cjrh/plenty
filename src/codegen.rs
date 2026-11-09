@@ -857,6 +857,7 @@ fn object_module(
             )?);
         }
     }
+    exports::declare(exports, &mut out.module)?;
     let main_id = match entry {
         Some(_) => Some(out.module.declare_function(
             "plenty_main",

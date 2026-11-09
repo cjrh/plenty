@@ -68,6 +68,7 @@ impl Declared {
 /// A symbol declared on first use while lowering a body.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(super) enum Request {
+    RawStatic(String, Vec<u8>, bool),
     SerialStackBudget(FuncId, FuncId),
     /// Type metadata, as [`metadata::declare`] defines it.
     Metadata(Ty),
@@ -192,6 +193,12 @@ impl Symbols {
     /// One immutable table for these ordered method adapters.
     pub(super) fn protocol_table(&mut self, functions: Vec<FuncId>) -> DataId {
         DataId::from_u32(FIRST_REQUEST + self.request(Request::ProtocolTable(functions)))
+    }
+
+    pub(super) fn raw_static(&mut self, name: &str, bytes: &[u8], writable: bool) -> DataId {
+        DataId::from_u32(
+            FIRST_REQUEST + self.request(Request::RawStatic(name.into(), bytes.into(), writable)),
+        )
     }
 
     /// Type metadata for `ty`.
@@ -382,6 +389,20 @@ pub(super) fn resolve(
     let mut addends = vec![0; requests.len()];
     for (number, request) in requests.iter().enumerate() {
         targets.push(match request {
+            Request::RawStatic(name, bytes, writable) => {
+                let id = match module.get_name(name) {
+                    Some(cranelift_module::FuncOrDataId::Data(id)) => id,
+                    _ => {
+                        let id = module.declare_data(name, Linkage::Local, *writable, false)?;
+                        let mut data = DataDescription::new();
+                        data.define(bytes.clone().into_boxed_slice());
+                        data.set_align(16);
+                        module.define_data(id, &data)?;
+                        id
+                    }
+                };
+                ModuleRelocTarget::user(1, id.as_u32())
+            }
             Request::SerialStackBudget(callee, failure) => {
                 let mut budgets = runtime.serial_stack_budgets.lock().unwrap();
                 let id = match budgets.get(&(*callee, *failure)) {

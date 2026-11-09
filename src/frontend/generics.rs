@@ -2269,6 +2269,8 @@ impl Engine {
             captures: template.captures.clone(),
             foreign: template.foreign.clone(),
             export: template.export.clone(),
+            export_thread_safe: template.export_thread_safe,
+            export_exact: template.export_exact,
             name: symbol.clone(),
             type_params: Vec::new(),
             at: template.at.clone(),

@@ -94,6 +94,7 @@ mod test_byte_literals;
 mod test_byte_sources;
 #[path = "test_byte_views.rs"]
 mod test_byte_views;
+mod test_c_host;
 #[path = "test_call_borrowing.rs"]
 mod test_call_borrowing;
 #[path = "test_call_substitution.rs"]
@@ -266,6 +267,7 @@ mod test_float_negation;
 mod test_float_rounding;
 #[path = "test_fs_permissions.rs"]
 mod test_fs_permissions;
+mod test_host_threads;
 
 #[path = "test_expected_results.rs"]
 mod test_expected_results;

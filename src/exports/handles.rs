@@ -93,6 +93,7 @@ pub(super) fn collect(
 pub(super) fn source_type(ty: &Ty) -> String {
     match ty {
         Ty::Class(class) => short_name(class).into(),
+        Ty::ForeignPtr(name, _) => name.rsplit('.').next().unwrap().into(),
         Ty::Ref(inner, mutable) => format!(
             "&{}{}",
             if *mutable { "mut " } else { "" },
@@ -120,7 +121,7 @@ pub(super) fn arguments(export: &Export) -> (Vec<String>, Vec<String>, String) {
                     let pointer = format!("_plenty_handle_{}", short_name(class));
                     return (format!("p{i}: {pointer}"), format!("p{i}._handle"));
                 }
-            (format!("p{i}: {ty}"), format!("p{i}"))
+            (format!("p{i}: {}", source_type(ty)), format!("p{i}"))
         })
         .unzip();
     (parameters, arguments, transfers)

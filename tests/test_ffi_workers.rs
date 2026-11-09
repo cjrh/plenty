@@ -502,15 +502,15 @@ fn the_annotation_has_one_meaning_and_one_place() {
     for (interface, expected) in [
         (
             "@thread_safe\nopaque Raw\n",
-            "`@thread_safe` applies only to `extern def` declarations; an `opaque` type takes `@thread_movable` or `@thread_shareable`",
+            "`@thread_safe` applies only to `extern def` and `export def` declarations; an `opaque` type takes `@thread_movable` or `@thread_shareable`",
         ),
         (
             "@thread_safe\nclass Box:\n    value: i64\n",
-            "`@thread_safe` applies only to `extern def` declarations",
+            "`@thread_safe` applies only to `extern def` and `export def` declarations",
         ),
         (
             "@thread_safe\ndef helper() -> i64:\n    1\n",
-            "`@thread_safe` applies only to `extern def` declarations",
+            "`@thread_safe` applies only to `extern def` and `export def` declarations",
         ),
         (
             "@copy\nextern def pid() -> i32 = \"getpid\"\n",

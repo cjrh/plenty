@@ -82,3 +82,13 @@ shows one. See
 for the full rules and binding guidelines, and
 [how std.dataframe wraps its engine](../../design/facilities/04-interop/dataframe-binding.md)
 for a complete library binding that follows them.
+
+## Interfaces driven by a host
+
+A plugin host can retain its own buffers and call Plenty through C callbacks.
+Such bindings need different lifetime and aliasing contracts from a call-scoped
+borrow. The [raw host interface reference](../../design/facilities/04-interop/raw-host-interfaces.md)
+describes the trusted primitives for this case; the
+[host-thread contract](../../design/facilities/04-interop/host-threads.md) explains
+checked concurrent entry. Keep raw operations inside a small binding module and
+keep ordinary Plenty references exclusive where required.

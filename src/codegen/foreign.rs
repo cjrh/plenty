@@ -16,11 +16,70 @@ pub(super) fn parameter(ty: &Ty) -> AbiParam {
 }
 
 impl Lowerer<'_, '_> {
+    fn lower_c_intrinsic(
+        &mut self,
+        intrinsic: &crate::foreign::Intrinsic,
+        sig: &FnSig,
+    ) -> Result<()> {
+        use crate::foreign::Intrinsic;
+        use cranelift_codegen::ir::MemFlagsData;
+        let mut args = Vec::new();
+        for (_, ty) in sig.inputs.iter().rev() {
+            args.push(self.pop_typed(ty.clone())?.0);
+        }
+        args.reverse();
+        let value = match intrinsic {
+            Intrinsic::Load => {
+                let address = self.bcx.ins().iadd(args[0], args[1]);
+                Some(self.bcx.ins().load(
+                    clif_type(sig.outputs[0].clone()),
+                    MemFlagsData::new(),
+                    address,
+                    0,
+                ))
+            }
+            Intrinsic::Store => {
+                let address = self.bcx.ins().iadd(args[0], args[1]);
+                self.bcx
+                    .ins()
+                    .store(MemFlagsData::new(), args[2], address, 0);
+                None
+            }
+            Intrinsic::Offset => Some(self.bcx.ins().iadd(args[0], args[1])),
+            Intrinsic::Address(name) => {
+                let Some(id) = self.module.declared_function(name) else {
+                    return Err(format!(
+                        "C address target `{name}` must name an export in this library"
+                    )
+                    .into());
+                };
+                let reference = self.module.declare_func_in_func(id, self.bcx.func);
+                Some(self.bcx.ins().func_addr(PTR_TY, reference))
+            }
+            Intrinsic::Static {
+                name,
+                bytes,
+                writable,
+            } => {
+                let id = self.module.raw_static(name, bytes, *writable);
+                let reference = self.module.declare_data_in_func(id, self.bcx.func);
+                Some(self.bcx.ins().symbol_value(PTR_TY, reference))
+            }
+        };
+        if let Some(value) = value {
+            self.stack.push((value, sig.outputs[0].clone()));
+        }
+        Ok(())
+    }
+
     pub(super) fn lower_foreign_call(
         &mut self,
         declaration: &crate::foreign::Declaration,
         sig: &FnSig,
     ) -> Result<()> {
+        if let crate::foreign::Target::Intrinsic(intrinsic) = &declaration.target {
+            return self.lower_c_intrinsic(intrinsic, sig);
+        }
         use crate::foreign::Argument;
         use cranelift_codegen::ir::MemFlagsData;
         let mut signature = self.module.make_signature();

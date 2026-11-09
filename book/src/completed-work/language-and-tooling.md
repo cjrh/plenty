@@ -1475,3 +1475,20 @@ bounded body dispatches once to the active member through a synthesized
 are unchanged: only `format` forwards. Mutable, consuming,
 `Self`-using and generic protocols are rejected with the reason. See
 [protocols on anonymous sums](../design/language/07-generics/protocols.md#anonymous-sums).
+
+## Raw C host interfaces
+
+Trusted interface declarations now expose scalar/pointer raw loads and stores,
+byte offsets, resident immutable strings and writable storage, and the addresses
+of exported C adapters. Exports accept opaque pointers and opt into exact
+protocol symbol names. `@thread_safe` scalar/pointer exports check their
+reachable effects for host-thread entry. Ordinary references retain their
+aliasing rules; raw pointer bindings carry explicit native lifetime and
+synchronization obligations. See [raw host interfaces](../design/facilities/04-interop/raw-host-interfaces.md)
+and [host threads](../design/facilities/04-interop/host-threads.md).
+
+The implementation is exercised by C callers using stable descriptors, callback
+addresses and overlapping scalar buffers, and by rejection checks for unsafe
+worker effects. C-layout classes, typed callback values, inferred raw-pointer
+lifetimes and real-time guarantees are not delivered. B27/B28 retain the
+remaining interface scope.

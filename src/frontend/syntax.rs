@@ -9,6 +9,8 @@ pub(super) struct Function {
     pub(super) captures: Vec<Capture>,
     pub(super) foreign: Option<crate::foreign::Declaration>,
     pub(super) export: Option<String>,
+    pub(super) export_thread_safe: bool,
+    pub(super) export_exact: bool,
     pub(super) name: String,
     pub(super) type_params: Vec<(String, Option<TypeRef>)>,
     pub(super) at: Token,

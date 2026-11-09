@@ -72,7 +72,53 @@ impl Task {
 /// source data and recursive functions terminate through their nominal identity.
 /// Thin callable targets are bounded by the addresses in this closed program.
 pub fn check(ops: &[Op]) -> Result<(), Box<dyn std::error::Error>> {
+    check_with_exports(ops, &[])
+}
+
+/// Foreign hosts supply the storage and synchronize each instance themselves.
+/// Certification checks the reachable Plenty code, not the host's pointer or
+/// aliasing promises. Managed handles need a separate transfer contract.
+pub(crate) fn check_exports(
+    ops: &[Op],
+    exports: &[crate::exports::Export],
+) -> Result<(), Box<dyn std::error::Error>> {
+    if exports.iter().any(|export| export.thread_safe) {
+        check_with_exports(ops, exports)?;
+    }
+    Ok(())
+}
+
+fn check_with_exports(
+    ops: &[Op],
+    exports: &[crate::exports::Export],
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut roots = Vec::new();
+    for export in exports.iter().filter(|export| export.thread_safe) {
+        let types: Vec<_> = export
+            .signature
+            .inputs
+            .iter()
+            .map(|(_, ty)| ty)
+            .chain(export.signature.outputs.iter())
+            .collect();
+        if types
+            .iter()
+            .any(|ty| !ty.is_numeric() && !matches!(ty, Ty::ForeignPtr(..)))
+        {
+            return Err(format!(
+                "thread-safe export `{}` supports only numeric and opaque pointer parameters/results, or (); managed handles and borrows need a separate host transfer contract",
+                export.name
+            ).into());
+        }
+        roots.push((
+            "thread-safe export",
+            vec![export.function.clone()],
+            types
+                .into_iter()
+                .map(|ty| (ty.clone(), Reach::Local))
+                .collect(),
+        ));
+    }
     // Definitions are recorded during the one walk over every body; only a
     // program with roots indexes them by name.
     let mut definitions = Vec::with_capacity(ops.len());

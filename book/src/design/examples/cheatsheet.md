@@ -699,3 +699,12 @@ use of moved binding `values`
 ```
 
 Run `plenty --check FILE` to type-check without building.
+
+## Foreign host interfaces
+
+C exports can accept and return opaque pointers declared in trusted `.plentyi`
+modules. `= exact "symbol"` selects a protocol-required native symbol, and
+`@thread_safe` on a scalar/pointer export checks host-thread eligibility.
+[Raw host interfaces](../facilities/04-interop/raw-host-interfaces.md) explain
+trusted scalar loads/stores, C callback addresses, resident storage and aliasing.
+These operations do not relax ordinary Plenty reference rules.
