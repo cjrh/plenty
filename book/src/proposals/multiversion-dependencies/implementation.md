@@ -31,11 +31,17 @@ source containment. Two owners using the same mutable tag may retain different
 edge pins; a global `(url, selector)` map must not overwrite one with the other.
 Store one outgoing mapping per resolved package identity.
 
-For an ordinary build, honor every unchanged locked edge. For a replacement
-package revision during an update, carry forward matching old requirements;
-resolve only new/changed requirements. When a new edge reaches an existing
-identity, use its already established outgoing mapping. For conflicting
-retained mappings, fail with a diagnostic rather than choosing traversal order.
+For an ordinary build, honor unchanged independent Git pins and validate path
+edges against their declaring source context. For a replacement package revision,
+carry forward independent Git tag/revision pins only when aliases and source
+requirements match in that context; resolve new/changed independent requirements.
+A snapshot-relative path is derived from its owner's repository, commit and
+package directory, not independently pinned. Recompute it and any further path
+edges within the replacement snapshot even when the manifest text is unchanged.
+Local paths remain live directories resolved relative to their manifests.
+When a new edge reaches an existing identity, use its already established
+outgoing mapping. For conflicting retained mappings, fail with a diagnostic
+rather than choosing traversal order.
 Fresh, identical unpinned requirements should resolve consistently within one
 command. Reuse fetches per repository while keeping existing pins edge-specific.
 
@@ -61,11 +67,16 @@ interface design detail; it must distinguish updating one incoming edge from
 updating an instance's own outgoing edges. Updating the latter affects all
 consumers of that instance and must report that scope.
 
-For `P -> A -> C` and `P -> B -> C`, selecting A's edge to C may split it from
-B's edge. Selecting a dependency edge owned by a shared C changes that same C
-for both A and B; the tool must not manufacture context-dependent C copies.
-An explicit whole-graph update may refresh all mutable selectors. A targeted
-update must never expand its scope silently to satisfy a shared-instance check.
+For `P -> A -> C` and `P -> B -> C`, selecting A's independent Git edge to C
+may split it from B's edge. Selecting a dependency edge owned by a shared C
+changes that same C for both A and B; the tool must not manufacture
+context-dependent C copies.
+Reject an independent update request for a snapshot-relative path edge before
+changing the lockfile. Name the edge and the owning Git dependency that must be
+updated to move its snapshot; for a chain of paths, trace back to that Git
+boundary. Do not silently expand the request to update the parent. An explicit
+whole-graph update may refresh all mutable selectors. A targeted update must
+never expand its scope silently to satisfy a shared-instance check.
 
 Extend inspection to show duplicate names, full identities, versions, sources,
 commits and reverse dependency chains. Version alone is insufficient: two
@@ -91,8 +102,14 @@ The implementation should establish these observable contracts:
   signature types; nominal C types and incompatible boxed protocols fail with
   both origins. Generic instantiations and generated symbols remain distinct.
 - Targeted updates preserve unrelated pins, including two edges using the same
-  tag; matching requirements survive parent revisions; explicit updates to
-  shared outgoing mappings report all consumers.
+  tag; matching independent Git requirements survive parent revisions; explicit
+  updates to shared outgoing mappings report all consumers.
+- In a monorepo, A at R1 uses `c = { path = "../c" }`. Updating A to R2 with
+  that declaration unchanged resolves its C at R2, including any further
+  snapshot-relative paths, while B's retained branch still uses C at R1.
+  An independent update request for A's path edge is rejected, names the owning
+  Git dependency and leaves the lock unchanged. An unchanged independent Git
+  dependency of A retains its old pin, and local paths remain live directories.
 - Lock migration preserves commits; locked/offline failures, malformed identities,
   failed-update atomicity, moved checkouts and deterministic serialization work.
 - Scripts, workspace members, synthetic tests, graph round trips, IDE diagnostics,

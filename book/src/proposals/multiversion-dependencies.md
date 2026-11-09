@@ -130,17 +130,26 @@ inherently required by package management; future registry/range selection is
 separate from this proposal.
 
 A targeted update preserves existing edges outside its selected scope. Updating
-A may introduce a new C while B retains its old C. Unchanged requirements in a
-replacement A should reuse their prior pins where the dependency alias and
-source requirement match. New or changed requirements resolve independently;
-reuse an already locked package's dependency mapping when that source identity
-is reached again. Do not recursively refresh every mutable tag below A.
+A may introduce a new C while B retains its old C. For independent Git
+tag/revision dependencies, a replacement A should reuse prior pins where the
+alias and source requirement match in the declaring package's source context.
+New or changed independent requirements resolve normally; reuse an already
+locked package's dependency mapping when that source identity is reached again.
+Do not recursively refresh every mutable tag below A.
+
+A path dependency inside a Git package instead follows its parent's repository
+snapshot. If A moves from commit R1 to R2, its unchanged `c = { path = "../c" }`
+now names C at R2, not C at R1. Recompute these paths, including chains of paths,
+within the new snapshot; other branches may keep C at R1. Such an edge cannot
+be updated independently of the Git package that supplies its snapshot. Local
+path dependencies remain live directories resolved relative to their manifests.
 
 Updating a shared package's own dependency edge affects all consumers of that
 same package instance. Report those consumers; stability cannot promise that
 an explicitly updated shared node changes for only one caller. Selecting an
-incoming edge to C can move that edge to a different C without moving another
-incoming edge. The [implementation sketch](multiversion-dependencies/implementation.md)
+independent Git edge to C can move that edge to a different C without moving
+another incoming edge. A snapshot-relative path edge is not independently
+retargetable. The [implementation sketch](multiversion-dependencies/implementation.md)
 distinguishes these update scopes and the required lockfile changes.
 
 ## Alternatives and boundaries
