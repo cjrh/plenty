@@ -85,6 +85,7 @@ mod empty_slots;
 mod enums;
 mod executors;
 mod exits;
+mod export_objects;
 mod exports;
 mod extending_loads;
 mod folding;
@@ -769,6 +770,7 @@ fn object_module(
     workers: usize,
     build: Build,
 ) -> Result<Output> {
+    let objects = crate::foreign::exported_objects(&ops);
     reachability::prune_for_emission(&mut ops, exports, build.prune_user);
     small_calls::substitute(&mut ops, build.optimize, workers);
     crate::tail_abi::prepare(&mut ops, workers);
@@ -858,6 +860,7 @@ fn object_module(
         }
     }
     exports::declare(exports, &mut out.module)?;
+    export_objects::define(&objects, &mut out.module)?;
     let main_id = match entry {
         Some(_) => Some(out.module.declare_function(
             "plenty_main",

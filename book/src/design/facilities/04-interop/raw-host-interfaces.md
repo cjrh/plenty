@@ -65,6 +65,10 @@ storage. Neither operation allocates on entry. Never free these pointers;
 they remain valid only while the library stays loaded. Writes to static storage
 need explicit host synchronization, including initialization.
 
+For native protocols that discover data before calling any function, use
+[initialized C data exports](exported-objects.md). Their pointer fields are
+relocated by the native loader rather than populated by an initialization call.
+
 ## Export names and pointers
 
 Numeric and opaque-pointer parameters and results can cross a C export directly.

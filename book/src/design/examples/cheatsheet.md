@@ -712,3 +712,5 @@ These operations do not relax ordinary Plenty reference rules.
 protocol permits the call in the current certified host-entry context. It
 does not permit calls from ordinary Plenty workers; see
 [host protocol callbacks](../facilities/04-interop/host-threads.md#host-protocol-callbacks).
+
+Trusted interfaces can also declare [initialized C data exports](../facilities/04-interop/exported-objects.md) with `= object "symbol"(size=..., align=...):`, followed by explicit offset/type/value initializer fields. These objects are native ABI layouts, not Plenty classes.

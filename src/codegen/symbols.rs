@@ -30,6 +30,7 @@ pub(super) struct Declared {
     /// Colocation and thread-locality by [`DataId`].
     data: Vec<(bool, bool)>,
     names: HashMap<String, FuncId>,
+    data_names: HashMap<String, DataId>,
     /// Record each operation's source line in the IR, for `--dump`. Off
     /// otherwise: source locations are part of the compiled-function cache key.
     pub(super) lines: bool,
@@ -51,15 +52,22 @@ impl Declared {
                 )
             })
             .collect();
+        let mut data_names = HashMap::default();
         let data = declarations
             .get_data_objects()
-            .map(|(_, declaration)| (data_colocated(declaration.linkage), declaration.tls))
+            .map(|(id, declaration)| {
+                if let Some(name) = &declaration.name {
+                    data_names.insert(name.clone(), id);
+                }
+                (data_colocated(declaration.linkage), declaration.tls)
+            })
             .collect();
         Self {
             isa,
             functions,
             data,
             names,
+            data_names,
             lines: false,
         }
     }
@@ -143,6 +151,10 @@ impl Symbols {
     /// The function declared as `name` before bodies were built.
     pub(super) fn declared_function(&self, name: &str) -> Option<FuncId> {
         self.declared.names.get(name).copied()
+    }
+
+    pub(super) fn declared_data(&self, name: &str) -> Option<DataId> {
+        self.declared.data_names.get(name).copied()
     }
 
     /// Whether Cranelift's optimizer runs on the bodies built here.

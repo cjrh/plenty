@@ -97,6 +97,7 @@ mod test_byte_views;
 #[path = "test_c_bool.rs"]
 mod test_c_bool;
 mod test_c_host;
+mod test_c_objects;
 #[path = "test_call_borrowing.rs"]
 mod test_call_borrowing;
 #[path = "test_call_substitution.rs"]

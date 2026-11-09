@@ -94,9 +94,43 @@ pub enum Intrinsic {
     Store,
     Offset,
     Address(String),
+    Object(ExportObject),
     Static {
         name: String,
         bytes: Vec<u8>,
         writable: bool,
     },
+}
+
+/// Explicit native object layout, admitted only by trusted interface modules.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExportObject {
+    pub symbol: String,
+    pub align: u64,
+    pub bytes: Vec<u8>,
+    pub relocations: Vec<ObjectRelocation>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ObjectRelocation {
+    pub offset: u32,
+    pub symbol: String,
+    pub function: bool,
+}
+
+/// Collect before reachability pruning: native hosts discover objects directly,
+/// without calling their Plenty accessors.
+pub(crate) fn exported_objects(ops: &[crate::op::Op]) -> Vec<ExportObject> {
+    let mut objects = std::collections::BTreeMap::new();
+    crate::threading::walk(ops, &mut |op| {
+        if let crate::op::Op::ForeignCall { declaration, .. } = op
+            && let Target::Intrinsic(intrinsic) = &declaration.target
+            && let Intrinsic::Object(object) = intrinsic.as_ref()
+        {
+            objects
+                .entry(object.symbol.clone())
+                .or_insert_with(|| object.clone());
+        }
+    });
+    objects.into_values().collect()
 }

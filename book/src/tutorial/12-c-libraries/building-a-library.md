@@ -99,3 +99,34 @@ True
 
 The generated header includes `<stdbool.h>` and declares `bool flags_invert(bool p0)`.
 Boolean borrows and `Result[bool, E]` success values also cross the C boundary.
+
+Some hosts look up a data descriptor instead of calling an entry function.
+Use a trusted [initialized data export](../../design/facilities/04-interop/exported-objects.md)
+for that ABI. Its fields are ready before any Plenty function runs; filling
+writable storage from a function would not satisfy such a discovery contract.
+Keep the explicit native layout in the binding module and ordinary application
+logic in Plenty functions.
+
+For example, this binding exposes an immutable version field at byte offset zero:
+
+```plenty-file descriptor.plentyi
+pub opaque Pointer
+pub extern def entry() -> Pointer = object "example_descriptor"(size=8, align=8):
+    0: u32 = 1
+pub extern def version(p: Pointer, offset: u64) -> u32 = intrinsic "load"
+```
+
+```plenty
+import descriptor
+
+def main() -> Result[(), IoError]:
+    print(descriptor.version(descriptor.entry(), 0u64))?
+```
+```output
+1
+```
+
+The eight-byte object includes four zero padding bytes. The opaque accessor
+borrows its address for the library's loaded lifetime; it does not allocate an
+owner. A real binding must match the host's native declaration and keep these
+raw operations behind a documented interface.
