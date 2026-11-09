@@ -11,6 +11,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import tomllib
 
 HERE = Path(__file__).resolve().parent
 
@@ -41,9 +42,24 @@ def main():
             assert result.returncode == 0, f"{path}: {result.stderr}"
         count += 1
 
+    def check_package(directory, label):
+        nonlocal count
+        result = subprocess.run([str(compiler), "check", "--offline"], cwd=directory,
+                                env=env, capture_output=True, text=True, timeout=60)
+        assert result.returncode == 0, f"{label}: {result.stderr}"
+        count += 1
+
+    def tracked(path):
+        return "target" not in path.relative_to(HERE).parts
+
+    # A package's modules and tests resolve imports through its manifest, not
+    # relative to each file, so they are checked as packages below (issue #910).
+    packages = sorted(manifest.parent for manifest in HERE.rglob("plenty.toml")
+                      if tracked(manifest))
+
     # Only tracked input directories; ignore build products left by other runs.
     for path in sorted(HERE.rglob("*.plenty")):
-        if "target" in path.relative_to(HERE).parts:
+        if not tracked(path) or any(path.is_relative_to(package) for package in packages):
             continue
         relative = path.relative_to(HERE).as_posix()
         if relative == "rust-crates/workload.plenty":
@@ -54,6 +70,27 @@ def main():
 
     with tempfile.TemporaryDirectory(prefix="plenty-experiment-contracts-") as temporary:
         work = Path(temporary)
+
+        for package in packages:
+            check_package(package, package.relative_to(HERE).as_posix())
+            # `plenty check` covers the library, not `tests/`. `plenty test`
+            # would also run the tests, which need the package's native
+            # library built. Each test file instead becomes the library of a
+            # consumer package with a path dependency, so `import NAME`
+            # resolves as it does under `plenty test`. Issue #919 tracks a
+            # check command for tests that would replace this.
+            manifest = tomllib.loads((package / "plenty.toml").read_text())["package"]
+            for test in sorted((package / "tests").glob("*.plenty")):
+                consumer = work / "packages" / package.name / test.stem
+                (consumer / "src").mkdir(parents=True)
+                (consumer / "src/lib.plenty").write_text(test.read_text())
+                (consumer / "plenty.toml").write_text(
+                    "manifest-version = 1\n\n[package]\n"
+                    f"name = \"{manifest['name']}_{test.stem}\"\nversion = \"0.0.0\"\n\n"
+                    f"[dependencies]\n{manifest['name']} = {{ path = \"{package}\", "
+                    f"version = \"{manifest['version']}\" }}\n\n"
+                    "[lib]\npath = \"src/lib.plenty\"\n")
+                check_package(consumer, test.relative_to(HERE).as_posix())
 
         def generated(name, source):
             path = work / f"{name}.plenty"

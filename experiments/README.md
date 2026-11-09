@@ -11,6 +11,10 @@ python3 -B experiments/check_arithmetic.py target/debug/plenty
 The check covers stored Plenty inputs and representative generated columnar,
 module-cache and Rust-backend fixtures. It supplies the foreign-API stubs for
 `rust-crates/workload.plenty` and checks the intentional row-reference rejection.
+A directory with a `plenty.toml`, such as `packages/memmap`, is checked as a
+package with `plenty check`, and each of its `tests/*.plenty` files as the
+library of a temporary consumer package, so `import NAME` resolves as it does
+under `plenty test`.
 It does not rebuild foreign libraries or reproduce performance measurements;
 use each experiment's runner for native execution and its specific invariants.
 
