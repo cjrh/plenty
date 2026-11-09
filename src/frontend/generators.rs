@@ -855,6 +855,9 @@ impl Lower<'_> {
             }
             if ty.carried_reference().is_some() {
                 loans.push(self.carried_argument(arg, &ty, ops)?);
+            } else if references::item_lender(&ty) {
+                // Possibly the origin of a returned reference (issue #921).
+                loans.extend(self.item_lender_argument(arg, &ty, ops)?);
             } else if ty.lends_frame() {
                 // The frame's loans stay live across the call, as a
                 // reference argument's do (issue #899).

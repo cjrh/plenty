@@ -3208,6 +3208,10 @@ impl Lower<'_> {
             self.same(Some(ty), Some(expected.clone()), &arg.at)?;
             if expected.carried_reference().is_some() {
                 argument_loans.push(self.carried_argument(arg, expected, ops)?);
+            } else if references::item_lender(expected) {
+                // Possibly the origin of a returned reference (issue #921),
+                // so in parameter order.
+                argument_loans.extend(self.item_lender_argument(arg, expected, ops)?);
             } else if expected.lends_frame() {
                 frames.extend(self.frame_argument(arg, ops));
             }
@@ -5026,7 +5030,10 @@ fn register_with_body(
     if let Some(output) = output.as_ref().filter(|ty| ty.carries_loan()) {
         // The first reference or view parameter is the result's origin; later ones
         // are ordinary inputs whose loans end with the call.
-        let Some((_, origin)) = inputs.iter().find(|(_, ty)| references::lends(ty)) else {
+        let Some((_, origin)) = inputs
+            .iter()
+            .find(|(_, ty)| references::returns_through(ty))
+        else {
             return Err(f.at.error(no_origin(output)));
         };
         if output.carries_mutable_loan() && !references::lends_mutably(origin) {
@@ -5267,7 +5274,7 @@ fn lower_body(
                 return_origin: if sig.outputs.first().is_some_and(Ty::carries_loan) {
                     sig.inputs
                         .iter()
-                        .position(|(_, ty)| references::lends(ty))
+                        .position(|(_, ty)| references::returns_through(ty))
                         .map(|i| i as u8)
                 } else {
                     None

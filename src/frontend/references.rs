@@ -33,6 +33,19 @@ pub(super) fn lends(ty: &Ty) -> bool {
     matches!(ty, Ty::Ref(..) | Ty::View(..)) || ty.carried_reference().is_some()
 }
 
+/// Whether a parameter of type `ty` can be the origin of a returned
+/// reference: a lending parameter, or a by-value generator with reference
+/// items, which borrow the caller's data its frame keeps rather than the
+/// frame (issue #921). The first such parameter is the origin.
+pub(super) fn returns_through(ty: &Ty) -> bool {
+    lends(ty) || item_lender(ty)
+}
+
+/// Whether `ty` is a by-value generator with reference items.
+pub(super) fn item_lender(ty: &Ty) -> bool {
+    matches!(ty, Ty::Generator(t) if matches!(t.element, Ty::Ref(..)))
+}
+
 /// Whether a lending parameter of type `ty` can be the origin of an
 /// exclusive returned reference.
 pub(super) fn lends_mutably(ty: &Ty) -> bool {
@@ -568,6 +581,30 @@ impl Lower<'_> {
     #[inline(never)]
     pub(super) fn frame_argument(&self, arg: &Expr, ops: &[Op]) -> Option<usize> {
         self.reference_origin(arg, ops).ok()
+    }
+
+    /// The loan a by-value generator argument `arg` with reference items
+    /// lends a returned reference (issue #921): its frame's loan, or, for a
+    /// generator body's own generator parameter, which has none, an item
+    /// loan rooted at that parameter as `next` would take.
+    #[inline(never)]
+    pub(super) fn item_lender_argument(
+        &mut self,
+        arg: &Expr,
+        ty: &Ty,
+        ops: &mut Vec<Op>,
+    ) -> Result<Option<usize>> {
+        if let Some(loan) = self.frame_argument(arg, ops) {
+            return Ok(Some(loan));
+        }
+        let (Ty::Generator(generator), Expression::Name(name)) = (ty, &ungroup(arg).kind) else {
+            return Ok(None);
+        };
+        let Some(slot) = self.names.get(name).map(|local| local.slot) else {
+            return Ok(None);
+        };
+        let element = generator.element.clone();
+        self.generator_item(&element, None, Some(slot), &arg.at, ops)
     }
 
     /// Whether `loan` descends from an [`Self::empty_holder_loan`], so the

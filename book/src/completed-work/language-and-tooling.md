@@ -597,6 +597,10 @@ item of such a generator; `Generator[&mut T]` is rejected. Collecting reference
 items into a collection, and assigning a borrowing generator through a
 `&mut Generator` reference, are rejected. See
 [reference items](../design/language/09-iteration/03-generators.md#reference-items).
+A by-value `Generator[&T]` parameter is a returned-reference origin (issue
+#921), ordered with reference parameters, so a function consuming the
+generator can return one of its items; the caller's result keeps the
+argument's frame loans, including any `&mut` source the frame borrows.
 
 Generator parameters may carry a reference, as `Option[&T]` or
 `Result[&mut T, E]` (issue #913). The frame keeps the argument's loan as it
