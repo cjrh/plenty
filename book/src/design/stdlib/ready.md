@@ -184,7 +184,6 @@ def drain(stream: FileStream, cancel: CancellationToken) -> Result[i64, WaitErro
         if count == 0:
             return Ok(total)
         total = total + count
-    Ok(total)
 ```
 
 The [tutorial lesson](../../tutorial/11-concurrency/bounded-io.md) runs a

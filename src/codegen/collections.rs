@@ -2122,7 +2122,13 @@ impl Lowerer<'_, '_> {
         self.bcx.switch_to_block(exit);
         self.bcx.seal_block(exit);
         self.stack = initial;
-        self.terminated = false;
+        // Nothing jumps to the exit of a loop that never completes, and the
+        // frontend emits nothing after it (issue #896). The block still needs
+        // a terminator; Cranelift removes it as unreachable.
+        self.terminated = crate::op::loop_diverges(condition, body);
+        if self.terminated {
+            self.bcx.ins().trap(TrapCode::unwrap_user(1));
+        }
         Ok(())
     }
 

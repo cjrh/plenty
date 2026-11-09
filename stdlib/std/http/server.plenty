@@ -523,7 +523,6 @@ def scanned(input: &mut Gathered, limits: &Limits) -> bool:
                 case Nothing:
                     input.searched = end
                     return end == bound
-        True
 
 # Appends input that has already arrived to `input.data`, without waiting.
 # Zero is the end of the peer's stream; TimedOut means nothing has arrived.

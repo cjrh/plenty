@@ -16,7 +16,9 @@ The line begins `error: main returned `. When the concrete error type satisfies
 supplies the message. An anonymous sum takes this path only when every member
 satisfies the protocol. Otherwise the payload is rendered as
 `str.repr` would render it. Errors needing an explanation add one after a colon:
-`IoError.System(code)` uses the OS description, payload-free `IoError` variants
+`IoError.System(code)` uses the C library's description (the text
+[`native_message`](../../stdlib/error.md#describing-a-native-code) fixes for
+glibc), payload-free `IoError` variants
 use fixed descriptions, and `Failure` states that it retains no original details.
 Choose a concrete error type when the report should identify the cause.
 

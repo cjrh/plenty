@@ -2152,7 +2152,6 @@ pub class Parser:
             # Advances consume existing scheme/email/delimiter bytes before subject end.
             unchecked:
                 at += 1
-        Ok(False)
 
     # The index after `word` at or after `from`, or -1. A failed search is
     # remembered under `which`, so repeated failures stay linear.

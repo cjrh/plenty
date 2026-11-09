@@ -519,6 +519,9 @@ fn step(
             {
                 return Err("loop body must preserve operand types".into());
             }
+            if crate::op::loop_diverges(condition, body) {
+                return Ok(Flow::Exits);
+            }
         }
         // Unsuffixed integer literals are `i64`; a suffix records its chosen
         // width directly in the `Value` carried by the operation.

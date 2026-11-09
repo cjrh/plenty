@@ -489,7 +489,6 @@ pub class Decoder:
                     return Ok(event)
                 case Nothing:
                     pass
-        Ok(Event.End)
 
     def at_end(self: &mut Decoder) -> Result[Event, JsonFault]:
         if self._mode == mode_number and number_complete(self._number):
@@ -854,7 +853,6 @@ def refill[R: Reader](source: &mut Decoder, reader: &mut R) -> Result[(), JsonFa
                     case _:
                         source._window.clear()
                         return Err(JsonFault.Stream(cause))
-    Ok(())
 
 # The next event, reading from `reader` whenever the decoder runs dry. Never
 # returns `Pending`. Memory stays bounded by the read window, the current
@@ -875,7 +873,6 @@ pub def read_event[R: Reader](source: &mut Decoder, reader: &mut R) -> Result[Ev
                         return Err(JsonError(fault, source._max_input, 0, 0))
                     case _:
                         return Err(source.here(fault))
-    Ok(Event.End)
 
 enum Frame:
     Items(list[Json])
@@ -2201,7 +2198,6 @@ pub class TreeDecoder:
                         drop(self.next_element()?)
                     case TreeFrame.Members(_):
                         drop(self.next_key()?)
-        Ok(())
 
     pub def finish(self: &mut TreeDecoder) -> Result[(), JsonError]:
         if self._value.is_some() or len(self._frames) != 0:

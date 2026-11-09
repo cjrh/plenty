@@ -84,7 +84,6 @@ def head_fields[E, R: Reader[E]](reader: &mut R, line: &mut Bytes, limits: &Limi
                     pass
                 case Err(cause):
                     return Err(Partial(total, FramingError[E].Protocol(HttpError.Allocation(cause))))
-        Ok(())
 
 def head_buffer[E](limits: &Limits) -> Result[Bytes, Partial[FramingError[E]]]:
     if limits.max_line < 2 or limits.max_head < 2:

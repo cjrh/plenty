@@ -151,7 +151,6 @@ pub class Watcher:
                     pass
                 case Err(error):
                     return Err(WatchError.Wait(error))
-        Ok(0)
 
     pub def count(self) -> i64:
         len(self._offsets)

@@ -24,7 +24,6 @@ def echo(listener: &TcpListener, deadline: &Deadline, cancel: &CancellationToken
             return Ok(total)
         stream.write_all_before(&buffer[:count], deadline, cancel)?
         total = total + count
-    Ok(total)
 
 type SocketOperationError = RangeError | NetError | std.bytes.BytesError
 

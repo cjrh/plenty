@@ -221,7 +221,6 @@ def tunnelled(stream: TcpStream, endpoint: &Endpoint, via: &Tunnel, deadline: &D
             interim += 1
             if interim > max_interim:
                 return Err(ClientError.UnexpectedInterim)
-        Err(ClientError.UnexpectedInterim)
 
 # An HTTP proxy: a forward proxy for `http` URLs and a CONNECT tunnel for
 # `https` ones. `authorization`, when set, is sent as Proxy-Authorization to
@@ -808,7 +807,6 @@ class Incoming[T]:
                         self._body = Nothing
                         self._keep = False
                         return Err(buffered_framing(cause))
-            Err(ClientError.Http(HttpError.Broken))
 
     def read_all(self: &mut Incoming[T], out: &mut Bytes) -> Result[i64, ClientError]:
         match self.read_all_progress(out):
@@ -854,7 +852,6 @@ class Incoming[T]:
                                 return Err(self.failed(total, cause))
                     case Err(cause):
                         return Err(self.failed(total, cause))
-            Ok(total)
 
     def failed(self: &mut Incoming[T], completed: i64, cause: ClientError) -> Partial[ClientError]:
         self._body = Nothing
@@ -981,7 +978,6 @@ pub class Client[T, C]:
                         bump(&self._stats.redirected)
                     case Nothing:
                         return Ok((head, incoming, replace(current.url, ""), hops))
-            Err(ClientError.TooManyRedirects)
 
     # Sends `request` and reads the whole body, within `limits.max_body`.
     pub def fetch(self, request: Request, deadline: &Deadline, cancel: &CancellationToken) -> Result[Fetched, ClientError]:
@@ -1145,7 +1141,6 @@ pub class Client[T, C]:
                             drop(owned)
                 case Taken.Empty:
                     return Ok(Nothing)
-        Ok(Nothing)
 
     def open(self, endpoint: &Endpoint, key: &str, until: u64, cancel: &CancellationToken) -> Result[BufReader[ClientError, Wire[T]], ClientError]:
         limit = least(after(now_ns(), self._config.connect_timeout.as_nanoseconds()), until)
@@ -1237,7 +1232,6 @@ pub class Client[T, C]:
                             bump(&self._stats.retried)
                         else:
                             return Err(error)
-            Err(ClientError.InvalidRequest)
 
     def head_of(self, request: &Request, target: &Target, proxied: bool, upload: &Upload, streamed: bool) -> Result[RequestHead, ClientError]:
         mut form = alloc(origin_form(target))?
@@ -1310,7 +1304,6 @@ pub class Client[T, C]:
                         return Err(ClientError.Http(HttpError.Truncated))
                     case Err(partial):
                         return Err(buffered_framing(partial.cause))
-            Err(ClientError.UnexpectedInterim)
 
     # Waits up to the continue phase for `100 Continue` (Nothing: send the
     # body) or a final response (send no body). Silence until then also
@@ -1339,7 +1332,6 @@ pub class Client[T, C]:
                         if partial.completed == 0 and timed_out(&cause) and conn.inner._received == before and conn.buffered() == 0 and now_ns() < conn.inner._until:
                             return Ok(Nothing)
                         return Err(cause)
-            Err(ClientError.UnexpectedInterim)
 
     # The body that follows `head` on `conn`.
     def incoming(self, conn: BufReader[ClientError, Wire[T]], head: &ResponseHead, method: &strview, complete: bool) -> Result[Incoming[T], ClientError]:

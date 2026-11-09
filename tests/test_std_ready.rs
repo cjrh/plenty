@@ -159,7 +159,6 @@ def drain(stream: FileStream, cancel: CancellationToken) -> Result[i64, WaitErro
         if count == 0:
             return Ok(total)
         total = total + count
-    Ok(total)
 
 def attempt(stream: &mut FileStream, buffer: &mut std.bytes.Bytes, deadline: &Deadline, cancel: &CancellationToken) -> str:
     match read_before(stream, buffer, 0, 4, deadline, cancel):

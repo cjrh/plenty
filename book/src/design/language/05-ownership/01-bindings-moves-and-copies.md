@@ -37,7 +37,9 @@ moved. Reinitializing a mutable binding restores availability. Every loop
 backedge, including `continue`, must preserve outer owners available at loop
 entry. Moving and then reinitializing is accepted; carrying the move to a
 backedge is rejected. Break paths join the path that leaves when the condition
-is false, which `while True:` does not have.
+is false, which `while True:` does not have. A `while True:` loop without a
+`break` of its own leaves no path at all; see
+[loops that never finish](../04-expressions/loops.md#loops-that-never-finish).
 
 ## Moving fields
 
