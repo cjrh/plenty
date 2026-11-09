@@ -213,6 +213,13 @@ within one resume are permitted; no loan of the frame's own locals may cross
 `yield`. `yield` inside `with` is unsupported. There is no yield-from,
 send/throw, or async/await.
 
+A closure with borrowed captures follows the same rule (issue #927). A
+generator body can bind one, such as `keep = def [&limit](x: &i64) -> bool:`,
+and call or lend it before the next `yield`. Using it after a `yield` keeps
+the capture's loan live across that `yield`, which is an error ("a borrow of
+`limit` cannot remain live across yield") when `limit` is a local of the
+frame. A borrowed capture of a reference parameter may cross `yield`.
+
 ### Borrowing frames
 
 A generator can take `&T`, `&mut T` and view parameters. Its frame reads the
