@@ -260,7 +260,10 @@ pub(super) fn validate(
         .filter_map(|name| node(name))
         .collect();
     // Report the first failure in program order, whatever the table order.
-    callers.sort_unstable();
+    // A named-argument wrapper's body carries the position of its first call,
+    // possibly in another function, so the user's own call to the wrapper is
+    // reported first. It usually fails for the same reason (issue #916).
+    callers.sort_by_cached_key(|&index| (generics.is_wrapper(function_at(index).0), index));
     // A candidate is checked only when its callee is in the caller's
     // recursion cycle, and a cycle lies within what the caller reaches. Only
     // that part of the call graph is built: walking every body cost time per

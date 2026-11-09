@@ -224,3 +224,50 @@ drop(source)
         "{error}"
     );
 }
+
+// Issue #916: a generator passed by keyword out of parameter order or with an
+// omitted default reaches the callee through a specialized wrapper.
+#[test]
+fn keyword_lends_in_any_order() {
+    expect(
+        &with_numbers(
+            r#"
+def take(x: i64, g: &mut Generator[i64], n: i64 = 0) -> Option[i64]:
+    next(g)
+
+def last(x: i64, g: Generator[i64]) -> i64:
+    mut seen = x
+    for v in g:
+        seen = v
+    seen
+
+def main() -> Result[(), IoError]:
+    mut g = numbers(5)
+    print(take(x=1, g=&mut g))?
+    print(take(g=&mut g, x=1))?
+    print(take(n=2, g=&mut g, x=1))?
+    print(next(g))?
+    print(last(g=g, x=-1))?
+    Ok(())
+"#,
+        ),
+        "Option[i64].Some(0)\nOption[i64].Some(1)\nOption[i64].Some(2)\nOption[i64].Some(3)\n4\n",
+    );
+}
+
+// Issue #916: the note names the lending call even when it is an argument of
+// another call.
+#[test]
+fn nested_lend_conflict_names_the_call() {
+    let error = check_error(&with_numbers(
+        "def take(g: &mut Generator[i64], x: Option[i64]) -> Option[i64]:\n    next(g)\nmut g = numbers(3)\ndrop(take(&mut g, next(g)))\n",
+    ));
+    assert!(
+        error.contains("cannot advance `g` while it is exclusively borrowed"),
+        "{error}"
+    );
+    assert!(
+        error.contains("note: the borrow is used again here"),
+        "{error}"
+    );
+}

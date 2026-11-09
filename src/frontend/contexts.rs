@@ -208,8 +208,9 @@ impl Lower<'_> {
                 outputs: entry.clone().into_iter().collect(),
             },
             &[entry_loan],
+            &manager.at,
             ops,
-        );
+        )?;
         ops.push(Op::UseLoan(entry_loan));
         let result_loan = matches!(entry, Some(Ty::Ref(..))).then(|| self.loans.len() - 1);
         self.contexts.push(context);

@@ -1569,6 +1569,7 @@ impl Lower<'_> {
         // lender's own loans stay live across the call (issue #874).
         let mut hidden = (Vec::new(), Vec::new());
         let mut lent_loans = Vec::new();
+        let mut lent = false;
         for (index, (arg, (_, pattern))) in args.iter().zip(&template.inputs).enumerate() {
             if let Some(declared) = lent_pattern(pattern)
                 .then(|| self.lendable_type(arg))
@@ -1577,6 +1578,7 @@ impl Lower<'_> {
             {
                 let (ty, loan) =
                     self.lend_argument(arg, &declared, &mut hidden, &mut lent_loans, ops)?;
+                lent = true;
                 loans.push(loan);
                 infer(
                     pattern,
@@ -1677,6 +1679,9 @@ impl Lower<'_> {
                 };
                 if ty.carried_reference().is_some() {
                     loans.push(self.carried_argument(arg, &ty, ops)?);
+                } else if references::item_lender(&ty) {
+                    // Possibly the origin of a returned reference (issue #921).
+                    loans.extend(self.item_lender_argument(arg, &ty, ops)?);
                 }
                 ty
             };
@@ -1732,10 +1737,17 @@ impl Lower<'_> {
         let (pushes, state) = hidden;
         ops.extend(pushes);
         loans.extend(state);
+        if lent {
+            // As for a frame call: the call is the lend's next use (issue #916).
+            // Every frame call passes a lent pipeline or generator, but most
+            // generic calls lend nothing, and an unconditional marker would
+            // move their later unmarked operations to the call.
+            self.mark(at, ops);
+        }
         self.record_direct_call(&callee, at, &loans, ops);
         self.passes(start, &sig.inputs, sig.outputs.first(), ops);
         self.push_call(Op::Call(callee.clone()), &sig.inputs, &loans, at, ops)?;
-        self.call_reference_result(&callee, &sig, &loans, ops);
+        self.call_reference_result(&callee, &sig, &loans, at, ops)?;
         Self::end_reads(loans, ops);
         ops.extend(lent_loans.into_iter().map(Op::UseLoan));
         Ok(sig.outputs.first().cloned())
@@ -1850,18 +1862,46 @@ impl Engine {
     /// new instance's name from `instantiate`. A method is `Class.method`,
     /// without its internal symbol prefix.
     pub(super) fn diagnostic_name(&self, symbol: &str) -> String {
+        if let Some(callee) = self.wrapped(symbol) {
+            return self.diagnostic_name(callee);
+        }
         self.cache
             .iter()
             .find_map(|((id, types), instance)| {
                 (instance == symbol).then(|| {
+                    let template = &self.instantiated[*id as usize].0;
                     instance_name(
-                        crate::record::method_display(&self.instantiated[*id as usize].0),
+                        crate::record::method_display(self.wrapped(template).unwrap_or(template)),
                         types,
                     )
                 })
             })
             .or_else(|| self.frame_name(symbol))
             .unwrap_or_else(|| crate::record::method_display(symbol).into())
+    }
+
+    /// The callee a named-argument wrapper forwards to. The source never
+    /// names a wrapper, so diagnostics name its callee (issue #916).
+    pub(super) fn wrapped(&self, symbol: &str) -> Option<&str> {
+        if !symbol.starts_with("__plenty_call_wrapper_") {
+            return None;
+        }
+        self.call_wrappers
+            .iter()
+            .find_map(|((callee, _), wrapper)| (wrapper == symbol).then_some(callee.as_str()))
+    }
+
+    /// Whether `symbol` is a named-argument wrapper or a specialization of
+    /// one, whose body is synthesized at its first call site.
+    pub(super) fn is_wrapper(&self, symbol: &str) -> bool {
+        self.wrapped(symbol).is_some()
+            || self
+                .frames
+                .iter()
+                .any(|((name, _), instance)| instance == symbol && self.is_wrapper(name))
+            || self.cache.iter().any(|((id, _), instance)| {
+                instance == symbol && self.wrapped(&self.instantiated[*id as usize].0).is_some()
+            })
     }
 
     /// A frame specializes its consumer for the argument types at one call,
