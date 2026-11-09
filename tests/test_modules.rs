@@ -1769,7 +1769,8 @@ fn short_files_distinguish_asset_directories_from_module_namespaces() {
 /// Entry-module declarations are unqualified, so a user type named like a
 /// template's type parameter must not capture it when the template's callable
 /// bound or signature is checked: `G` in `std.error.map_error`, `W` in
-/// `std.fmt`, `T` and `G` in a library module (issue #915).
+/// `std.fmt`, `T`, `G` and `W` in a library module, including a nested
+/// instantiation and a protocol bound (issue #915).
 #[test]
 fn entry_type_names_do_not_capture_template_type_parameters() {
     run(
@@ -1832,7 +1833,20 @@ def main() -> Result[(), Failure]:
         &[
             (
                 "lib.plenty",
-                r#"pub def wrap[G](value: G) -> Option[G]:
+                r#"pub protocol Show[W]:
+    def show(self) -> W:
+        pass
+
+pub def shown[S: Show[G], G](s: &S) -> G:
+    s.show()
+
+def inner[T, G](value: T, other: G) -> tuple[T, G]:
+    (value, other)
+
+pub def outer[G](value: G) -> tuple[G, i64]:
+    inner(value, 1)
+
+pub def wrap[G](value: G) -> Option[G]:
     Some(value)
 
 pub def apply[T, G, F: OnceCallable[[T], G]](value: T, f: F) -> G:
@@ -1848,7 +1862,7 @@ pub class Pair[G]:
             ),
             (
                 "main.plenty",
-                r#"from lib import wrap, apply, Pair
+                r#"from lib import wrap, apply, Pair, outer, shown
 
 class G[A]:
     a: A
@@ -1856,8 +1870,16 @@ class G[A]:
 class T[A]:
     a: A
 
+class W[A]:
+    a: A
+
 class F:
     n: i64
+
+pub class Shower:
+    n: i64
+    pub def show(self) -> i64:
+        self.n
 
 def main() -> Result[(), IoError]:
     w = wrap(G(1))
@@ -1872,12 +1894,16 @@ def main() -> Result[(), IoError]:
     (q, extra) = p.make(F(9), T(3), T(4))
     print(q.left.a)?
     print(extra.n)?
+    (o, one) = outer(W(5))
+    print(o.a)?
+    print(one)?
+    print(shown(&Shower(6)))?
     Ok(())
 "#,
             ),
         ],
         "main.plenty",
-        "1\n3\n4\n9\n",
+        "1\n3\n4\n9\n5\n1\n6\n",
     );
     // A template's own parameter shadows an entry class of the same name in
     // its own module too, including in a callable bound and a protocol.
