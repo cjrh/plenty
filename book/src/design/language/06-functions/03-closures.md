@@ -69,8 +69,10 @@ Capture loans follow moves and remain live through environment borrowing and
 later argument evaluation. Shared captures prohibit owner mutation or destruction;
 exclusive captures also prohibit competing reads. Borrowing environments can
 be passed by reference, including through generic callbacks, but cannot cross
-a function boundary by value, escape their creating function, own-nest, enter
-sum/container storage, or suspend in generators. Borrowing another environment
+a function boundary by value, escape their creating function, own-nest, or
+enter sum/container storage. In a generator body, a capture loan of a frame
+local cannot stay live across `yield`; see
+[generators](../09-iteration/03-generators.md). Borrowing another environment
 retains its transitive loans.
 
 Calls can target temporaries, such as `make(3)(4)` or `wrapped.unwrap()(4)`;
