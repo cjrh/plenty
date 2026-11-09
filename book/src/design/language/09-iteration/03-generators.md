@@ -410,8 +410,9 @@ by an anonymous function. Copy an item to keep it beyond its source's borrow.
 Limits:
 
 - An item keeps every loan of its frame, including a `&mut` argument that
-  the item does not read, so that argument stays exclusively borrowed while
-  any item is live.
+  the item does not read, so while any item is live that argument cannot be
+  written or borrowed with `&mut`. It can be read once the generator is no
+  longer used.
 - An item returned by `next` through a `&mut Generator[&T]` parameter keeps
   the generator borrowed, not only its source.
 - `.generator()`, comprehensions, `sorted`, `join` and `extend` reject

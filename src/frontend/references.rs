@@ -1248,14 +1248,21 @@ impl Lower<'_> {
         name: &str,
         sig: &FnSig,
         loans: &[usize],
+        at: &Token,
         ops: &mut Vec<Op>,
-    ) {
+    ) -> Result<()> {
         if sig.outputs.first().is_some_and(Ty::lends_frame) {
             self.lending_frame_result(loans, ops);
-            return;
+            return Ok(());
         }
         if let Some(output) = sig.outputs.first().filter(|ty| ty.carries_loan()) {
-            let parent = loans[0];
+            // The signature check guarantees an origin parameter, and each
+            // call path records its argument's loan (issue #921).
+            let Some(&parent) = loans.first() else {
+                return Err(at.error(
+                    "internal compiler error: a reference-returning call has no origin argument loan",
+                ));
+            };
             let mutable = output.carries_mutable_loan();
             let id = self.new_loan(self.loans[parent].root, mutable, Some(parent), ops);
             if let Some(fields) = self
@@ -1271,6 +1278,7 @@ impl Lower<'_> {
                 *fact = self.loans[id].clone();
             }
         }
+        Ok(())
     }
 
     /// Gives a call's generator result, whose frame keeps every borrowed

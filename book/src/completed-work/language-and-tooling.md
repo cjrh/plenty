@@ -601,6 +601,10 @@ A by-value `Generator[&T]` parameter is a returned-reference origin (issue
 #921), ordered with reference parameters, so a function consuming the
 generator can return one of its items; the caller's result keeps the
 argument's frame loans, including any `&mut` source the frame borrows.
+Because the origin is positional, a function whose first such parameter is the
+generator, such as `def f(g: Generator[&str], xs: &list[str]) -> &str`, can no
+longer return a borrow of the later `xs`; no code in the repository used that
+form.
 
 Generator parameters may carry a reference, as `Option[&T]` or
 `Result[&mut T, E]` (issue #913). The frame keeps the argument's loan as it

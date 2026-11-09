@@ -549,3 +549,35 @@ def heads(g: Generator[&str]) -> Generator[&str]:
         "a\n",
     );
 }
+
+#[test]
+fn a_generator_yields_an_item_returned_through_a_relayed_or_generic_call() {
+    // Each call path roots its argument loan at the generator body's own
+    // generator parameter, which has no loan (issue #921).
+    for call in ["first(relay(g))", "first_of(g)"] {
+        let source = main_body(
+            r#"xs = ["a", "b"]?
+for v in heads(names(&xs)):
+    print(v)?"#,
+        )
+        .replacen(
+            NAMES,
+            &format!(
+                "{NAMES}{FIRST}
+def first_of[T](g: Generator[&T]) -> Option[&T]:
+    mut h = g
+    next(h)
+
+def heads(g: Generator[&str]) -> Generator[&str]:
+    match {call}:
+        case Some(v):
+            yield v
+        case Nothing:
+            pass
+"
+            ),
+            1,
+        );
+        assert_stdout(&source, "a\n");
+    }
+}

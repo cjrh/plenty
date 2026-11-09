@@ -3123,7 +3123,7 @@ impl Lower<'_> {
             at,
             ops,
         )?;
-        self.call_reference_result(name, &sig, &argument_loans, ops);
+        self.call_reference_result(name, &sig, &argument_loans, at, ops)?;
         Self::end_reads(argument_loans, ops);
         Ok(sig.outputs.first().cloned())
     }

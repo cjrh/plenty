@@ -888,7 +888,7 @@ impl Lower<'_> {
         // A generator wrapping a borrowing frame argument keeps that frame's
         // loans, as it keeps a reference argument's.
         let held: Vec<usize> = loans.iter().chain(&frames).copied().collect();
-        self.call_reference_result(&symbol, &sig, &held, ops);
+        self.call_reference_result(&symbol, &sig, &held, at, ops)?;
         Self::end_reads(loans, ops);
         lent_loans.extend(frames);
         // The lender's own loans, such as of a borrowed source, stay live
