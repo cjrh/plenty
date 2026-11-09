@@ -4888,6 +4888,7 @@ fn check_carried_parameters(f: &Function, inputs: &[(String, Ty)]) -> Result<()>
     }
     Ok(())
 }
+const LENT_GENERATOR_PARAMETER: &str = "a generator cannot take a lent pipeline: take `&mut Generator[T]` instead, and have the caller convert its pipeline with `.generator()`";
 const UNRESOLVED_SUM_MEMBER: &str = "a closure signature in an anonymous sum names no concrete environment; only a function's declared return type can infer it, from the closure the body returns or propagates; use a generic parameter bounded by OnceCallable or Callable";
 
 fn register_signature(
@@ -5014,12 +5015,12 @@ fn register_with_body(
     if generators::yields(body)
         && let Some(Ty::Generator(t)) = &output
     {
-        // A frame holding a reference or view parameter, or a borrowing
-        // generator, borrows the caller's data; other borrowing parameters
-        // are rejected when the body lowers.
+        // A frame holding a reference, view or carried-reference parameter,
+        // or a borrowing generator, borrows the caller's data; a lent
+        // pipeline is rejected when the body lowers.
         let lends = inputs
             .iter()
-            .any(|(_, ty)| matches!(ty, Ty::Ref(..) | Ty::View(..)) || ty.lends_frame())
+            .any(|(_, ty)| references::lends(ty) || ty.lends_frame())
             || matches!(t.element, Ty::Ref(..));
         output = Some(crate::generator::producer(
             t.element.clone(),
@@ -5282,14 +5283,13 @@ fn lower_body(
             // Parameter loans start at the function header.
             lower.mark(&f.at, &mut body);
             for (i, (name, ty)) in sig.inputs.iter().enumerate() {
-                // A generator frame keeps reference and view parameters and
-                // borrowing generators, whose loans its caller holds while the
-                // frame lives (issue #899). A carried reference or a lent
-                // pipeline has no loan the result could keep.
-                if yield_type.is_some()
-                    && (ty.carried_reference().is_some() || pipelines::lent_identity(ty).is_some())
-                {
-                    return Err(f.at.error("generators cannot capture references"));
+                // A generator frame keeps reference, view and carried-reference
+                // parameters and borrowing generators, whose loans its caller
+                // holds while the frame lives (issues #899, #913). A lent
+                // pipeline's state is copied in and written back around each
+                // call, which a suspended frame cannot do.
+                if yield_type.is_some() && pipelines::lent_identity(ty).is_some() {
+                    return Err(f.at.error(LENT_GENERATOR_PARAMETER));
                 }
                 if let Ty::Ref(inner, _) = ty
                     && let Ty::Generator(generator) = &**inner
@@ -5321,6 +5321,9 @@ fn lower_body(
                     }
                     _ => continue,
                 };
+                if root != i as u8 && yield_type.is_some() {
+                    body.push(Op::CallerReferent(root));
+                }
                 let loan = lower.new_loan(root, mutable, None, &mut body);
                 lower.reference_locals.insert(i as u8, loan);
             }

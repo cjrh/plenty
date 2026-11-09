@@ -1348,6 +1348,11 @@ pub enum Op {
     /// returns. The frontend states it per call from loan origins; it is never
     /// derived from types.
     ForwardsReferences,
+    /// The slot stands for the caller's data that a parameter carrying a
+    /// reference borrows. The caller keeps that data borrowed while a
+    /// generator frame lives, so loans rooted there may stay live across
+    /// `yield` (issue #913). Emitted at the function header; no code.
+    CallerReferent(u8),
     /// Leave the current function with its declared results on the stack.
     /// Unlike the end of a match arm, this exits the entire call frame.
     Return,

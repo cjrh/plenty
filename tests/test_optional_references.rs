@@ -477,9 +477,194 @@ print(kept.is_some()).unwrap()
         "def take(o: &Option[&str]) -> ():\n    pass\n",
         "parameter `o` cannot be &Option[&str]: pass the Option[&str] itself",
     );
+}
+
+const CARRIED: &str = r#"
+def find(xs: &list[str], key: &str) -> Option[&str]:
+    for x in xs:
+        if *x == *key:
+            return Some(x)
+    Nothing
+
+def whole(xs: &list[str]) -> Option[&list[str]]:
+    Some(xs)
+
+def whole_mut(xs: &mut list[str]) -> Option[&mut list[str]]:
+    Some(xs)
+
+def each(o: Option[&list[str]]) -> Generator[&str]:
+    match o:
+        case Some(xs):
+            for x in xs:
+                yield x
+        case Nothing:
+            pass
+
+def twice(o: Option[&str]) -> Generator[&str]:
+    match o:
+        case Some(s):
+            yield s
+            yield s
+        case Nothing:
+            pass
+
+def grow(o: Option[&mut list[str]]) -> Generator[i64]:
+    match o:
+        case Some(xs):
+            yield 1
+            xs.append("c").unwrap()
+        case Nothing:
+            pass
+"#;
+
+fn carried(body: &str) -> String {
+    format!(
+        "{CARRIED}\ndef main() -> Result[(), AllocError | IoError]:\n{}\n    Ok(())\n",
+        body.lines()
+            .map(|line| format!("    {line}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
+}
+
+/// Issue #913: a generator frame keeps a carried reference parameter's loan,
+/// as it keeps a reference parameter's, and may yield through a shared one.
+#[test]
+fn generators_take_reference_carrying_parameters() {
+    assert_stdout(
+        &carried(
+            r#"mut xs = ["a", "b"]?
+for v in each(whole(&xs)):
+    print(v)?
+for v in twice(find(&xs, "b")):
+    print(v)?
+print(twice(find(&xs, "z")).count())?
+for v in grow(whole_mut(&mut xs)):
+    print(v)?
+print(xs[2])?"#,
+        ),
+        "a\nb\nb\nb\n0\n1\nc\n",
+    );
+    assert_stdout(
+        &format!(
+            "{CARRIED}{}",
+            r#"
+def first(xs: &list[str]) -> Result[&str, i64]:
+    if len(*xs) == 0:
+        return Err(0)
+    Ok(&xs[0])
+
+def from_result(r: Result[&str, i64]) -> Generator[&str]:
+    match r:
+        case Ok(s):
+            yield s
+        case Err(_):
+            pass
+
+def relay(o: Option[&list[str]]) -> Generator[&str]:
+    for v in each(o):
+        yield v
+
+def make(xs: &list[str]) -> Generator[&str]:
+    each(whole(xs))
+
+def main() -> Result[(), AllocError | IoError]:
+    xs = ["a", "b"]?
+    for v in from_result(first(&xs)):
+        print(v)?
+    print(relay(whole(&xs)).count())?
+    print(make(&xs).count())?
+    Ok(())
+"#
+        ),
+        "a\n2\n2\n",
+    );
+    assert_stdout(
+        r#"
+def at(xs: &mut list[i64]) -> Result[&mut i64, i64]:
+    if len(*xs) == 0:
+        return Err(0)
+    Ok(&mut xs[0])
+
+def bump(r: Result[&mut i64, i64]) -> Generator[i64]:
+    match r:
+        case Ok(v):
+            yield *v
+            *v = 9
+        case Err(_):
+            pass
+
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = [1, 2]?
+    for v in bump(at(&mut xs)):
+        print(v)?
+    print(xs[0])?
+    Ok(())
+"#,
+        "1\n9\n",
+    );
+}
+
+#[test]
+fn a_carried_reference_generator_keeps_its_source_borrowed() {
+    for (body, message) in [
+        (
+            "mut xs = [\"a\"]?\nmut g = each(whole(&xs))\nxs.append(\"c\")?\nprint(next(g))?",
+            "cannot modify or exclusively borrow `xs` while it is borrowed",
+        ),
+        (
+            "xs = [\"a\"]?\nmut g = twice(find(&xs, \"a\"))\ndrop(xs)\nprint(next(g))?",
+            "cannot move `xs` while it is borrowed",
+        ),
+        (
+            "mut xs = [\"a\"]?\nmut g = twice(find(&xs, \"a\"))\nv = next(g)\ndrop(g)\nxs.clear()\nprint(v)?",
+            "cannot modify or exclusively borrow `xs` while it is borrowed",
+        ),
+        (
+            "mut xs = [\"a\"]?\nfor v in grow(whole_mut(&mut xs)):\n    print(len(xs))?",
+            "cannot read or borrow `xs` while it is exclusively borrowed",
+        ),
+    ] {
+        rejects(&carried(body), message);
+    }
     rejects(
-        "def take(o: Option[&str]) -> Generator[i64]:\n    yield 1\n",
-        "generators cannot capture references",
+        &format!(
+            "{CARRIED}\ndef make() -> Generator[&str]:\n    xs = [\"a\"].unwrap()\n    each(whole(&xs))\n"
+        ),
+        "a returned generator may borrow only through the function's reference parameters",
+    );
+}
+
+#[test]
+fn a_generator_yields_only_through_shared_carried_references() {
+    const MESSAGE: &str = "a yielded reference must borrow through the generator's shared reference, view, `Option[&T]` or `Result[&T, E]` parameters";
+    for generator in [
+        // A carried `&mut` stays writable by the frame while the caller
+        // holds the item.
+        "def bad(o: Option[&mut list[str]]) -> Generator[&str]:\n    match o:\n        case Some(xs):\n            yield &xs[0]\n            xs.clear()\n        case Nothing:\n            pass\n",
+        "def bad(o: Option[&mut list[str]]) -> Generator[&str]:\n    match o:\n        case Some(xs):\n            for x in xs:\n                yield &*x\n        case Nothing:\n            pass\n",
+        "def bad(o: Option[&str]) -> Generator[&str]:\n    match o:\n        case Some(s):\n            t = copy(*s).unwrap()\n            yield &t\n        case Nothing:\n            pass\n",
+    ] {
+        rejects(generator, MESSAGE);
+    }
+}
+
+/// A copy of a carried parameter may stay live across `yield`; a `mut`
+/// holder declared empty and assigned the parameter later may not, as the
+/// generators reference documents.
+#[test]
+fn a_generator_holds_copies_of_carried_parameters() {
+    let program = |bind: &str| {
+        format!(
+            "def g(o: Option[&str]) -> Generator[i64]:\n{bind}    yield 1\n    match keep:\n        case Some(s):\n            print(s).unwrap()\n        case Nothing:\n            pass\n\ndef main() -> Result[(), AllocError | IoError]:\n    s = ('a' + 'b')?\n    for x in g(Some(&s)):\n        print(x)?\n    Ok(())\n"
+        )
+    };
+    for bind in ["    keep = o\n", "    mut keep = o\n"] {
+        assert_stdout(&program(bind), "1\nab\n");
+    }
+    rejects(
+        &program("    mut keep: Option[&str] = Nothing\n    keep = o\n"),
+        "a borrow of `keep` cannot remain live across yield",
     );
 }
 
