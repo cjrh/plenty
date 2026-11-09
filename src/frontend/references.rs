@@ -284,6 +284,8 @@ impl Lower<'_> {
             let item = Arc::new(plan.item.ty.clone());
             let id = self.pipeline.plans.len();
             self.pipeline.plans.push(plan);
+            let origin = (pipelines::spelling(value), value.at.position().line);
+            self.pipeline.origins.insert(id, origin);
             ops.push(Op::PipelineToken(item.clone(), id));
             return Ok((Ty::Iter(item, id), None));
         }

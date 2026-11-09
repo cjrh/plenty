@@ -1556,6 +1556,8 @@ impl Lower<'_> {
                 // joined type; see [`Lower::request_join`].
                 self.joins.mismatched(expected, got);
                 "; an `Option` or `Result` value already built with one generator producer cannot join another; build `Some(...)` or `Ok(...)` where the value is chosen, or `match` it and rebuild the payload in each arm".into()
+            } else if let Some(message) = self.plan_mismatch(&expected, &got) {
+                return Err(at.error(message));
             } else {
                 expected
                     .as_ref()

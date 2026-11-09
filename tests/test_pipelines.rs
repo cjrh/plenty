@@ -3132,3 +3132,38 @@ fn next_beside_a_lend_after_it_ends() {
         "Option[i64].Some(1)\nOption[i64].Some(2) Option[i64].Some(3)\nOption[i64].Some(4)\n"
     );
 }
+
+/// Issue #903: `Iter[T]` displays without its plan, so a reassignment names
+/// the expression and line that built each pipeline.
+#[test]
+fn reassigned_pipeline_local_names_each_plan() {
+    let source = "mut p = iter(range(3)).filter(def(x: &i64) -> bool: *x > 0)\np = iter(range(4)).filter(def(x: &i64) -> bool: *x > 1)\ndrop(p)\n";
+    let error = support::check_source(source).unwrap_err().to_string();
+    assert!(
+        error.contains("expected Iter[i64] from `iter(range(3)).filter(...)` at line 3, got Iter[i64] from `iter(range(4)).filter(...)` at line 4"),
+        "{error}"
+    );
+    assert!(
+        error.contains("bind the new pipeline to a new name"),
+        "{error}"
+    );
+
+    let source = "mut p = iter(range(3))\nq = iter(range(3))\np = q\ndrop(p)\n";
+    let error = support::check_source(source).unwrap_err().to_string();
+    assert!(
+        error.contains("expected Iter[i64] from `iter(range(3))` at line 3, got Iter[i64] from `q` at line 5; a pipeline local holds one pipeline for its whole scope, even over the same source"),
+        "{error}"
+    );
+}
+
+/// Issue #903: a borrower's pipeline locals name the lent parameter they
+/// were bound from.
+#[test]
+fn reassigned_lent_pipeline_local_names_each_parameter() {
+    let source = "def fixture_take(g: &mut Iter[i64], h: &mut Iter[i64]) -> ():\n    mut r = g\n    r = h\n    drop(r)\nmut a = iter(range(3))\nmut b = iter(range(3))\nfixture_take(&mut a, &mut b)\n";
+    let error = support::check_source(source).unwrap_err().to_string();
+    assert!(
+        error.contains("expected Iter[i64] from `g` at line 2, got Iter[i64] from `h` at line 3"),
+        "{error}"
+    );
+}
