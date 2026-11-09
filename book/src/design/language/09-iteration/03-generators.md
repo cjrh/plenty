@@ -406,6 +406,10 @@ parameter or data behind a `&mut` or `Option[&mut T]` parameter, including an
 item of a generator over that data, is rejected with "a yielded reference must
 borrow through the generator's shared reference, view, `Option[&T]` or
 `Result[&T, E]` parameters, not the generator's own state".
+A generator body may hold an item it took with `next` through a
+`&mut Generator[&T]` parameter across `yield` and yield it again (issue #922):
+the item borrows the caller's source, which stays borrowed while the frame
+lives.
 `Generator[&mut T]` is rejected with "generators cannot yield mutable
 references".
 

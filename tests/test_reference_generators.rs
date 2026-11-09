@@ -284,6 +284,76 @@ def main() -> Result[(), AllocError | IoError]:
     assert!(error.contains("borrowed"), "{error}");
 }
 
+const TWICE: &str = r#"
+def twice(g: &mut Generator[&str]) -> Generator[&str]:
+    match next(g):
+        case Some(x):
+            yield x
+            match next(g):
+                case Some(y):
+                    yield y
+                case Nothing:
+                    pass
+            yield x
+        case Nothing:
+            pass
+"#;
+
+#[test]
+fn an_item_taken_by_next_through_a_mutable_generator_reference_stays_live_across_yield() {
+    // Issue #922: the item borrows the caller's source, not the frame.
+    assert_stdout(
+        &with_names(&format!(
+            r#"{TWICE}
+def main() -> Result[(), AllocError | IoError]:
+    xs = ["a", "b"]?
+    mut g = names(&xs)
+    for v in twice(&mut g):
+        print(v)?
+    Ok(())
+"#
+        )),
+        "a\nb\na\n",
+    );
+}
+
+#[test]
+fn an_item_held_across_yield_keeps_the_callers_source_borrowed() {
+    let error = check_error(&with_names(&format!(
+        r#"{TWICE}
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = ["a", "b"]?
+    mut g = names(&xs)
+    mut t = twice(&mut g)
+    a = next(t)
+    xs.clear()
+    b = next(t)
+    print(a)?
+    print(b)?
+    Ok(())
+"#
+    )));
+    assert!(error.contains("`xs` while it is borrowed"), "{error}");
+}
+
+#[test]
+fn an_item_kept_after_dropping_the_relay_keeps_the_callers_source_borrowed() {
+    let error = check_error(&with_names(&format!(
+        r#"{TWICE}
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = ["a", "b"]?
+    mut g = names(&xs)
+    mut t = twice(&mut g)
+    a = next(t)
+    drop(t)
+    xs.clear()
+    print(a)?
+    Ok(())
+"#
+    )));
+    assert!(error.contains("`xs` while it is borrowed"), "{error}");
+}
+
 #[test]
 fn reference_items_cannot_be_stored_in_collections() {
     let error = check_error(&main_body(

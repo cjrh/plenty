@@ -606,6 +606,9 @@ Because the origin is positional, a function whose first such parameter is the
 generator, such as `def f(g: Generator[&str], xs: &list[str]) -> &str`, can no
 longer return a borrow of the later `xs`; no code in the repository used that
 form.
+A generator body may also hold an item taken with `next` through a
+`&mut Generator[&T]` parameter across `yield` (issue #922): the item's hidden
+referent is marked as caller data, as a carried-reference parameter's is.
 
 Generator parameters may carry a reference, as `Option[&T]` or
 `Result[&mut T, E]` (issue #913). The frame keeps the argument's loan as it

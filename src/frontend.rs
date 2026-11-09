@@ -5328,6 +5328,12 @@ fn lower_body(
                     lower.name_slot(referent, name);
                     lower.parameter_referents.insert(referent);
                     lower.item_referents.insert(i as u8, referent);
+                    // Items borrow the caller's sources, which stay borrowed
+                    // while this frame lives, so they may be held across
+                    // `yield` (issue #922).
+                    if yield_type.is_some() {
+                        body.push(Op::CallerReferent(referent));
+                    }
                 }
                 let (root, mutable) = match ty {
                     Ty::Ref(_, mutable) | Ty::View(_, mutable) => (i as u8, *mutable),
