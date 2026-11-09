@@ -333,7 +333,25 @@ def main() -> Result[(), AllocError | IoError]:
     Ok(())
 "#
     )));
-    assert!(error.contains("borrowed"), "{error}");
+    assert!(error.contains("`xs` while it is borrowed"), "{error}");
+}
+
+#[test]
+fn an_item_kept_after_dropping_the_relay_keeps_the_callers_source_borrowed() {
+    let error = check_error(&with_names(&format!(
+        r#"{TWICE}
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = ["a", "b"]?
+    mut g = names(&xs)
+    mut t = twice(&mut g)
+    a = next(t)
+    drop(t)
+    xs.clear()
+    print(a)?
+    Ok(())
+"#
+    )));
+    assert!(error.contains("`xs` while it is borrowed"), "{error}");
 }
 
 #[test]
