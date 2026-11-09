@@ -609,6 +609,9 @@ form.
 A generator body may also hold an item taken with `next` through a
 `&mut Generator[&T]` parameter across `yield` (issue #922): the item's hidden
 referent is marked as caller data, as a carried-reference parameter's is.
+A by-value `Generator[&T]` parameter of a generator body now has such a
+referent too (issue #926), so its items, including those taken by `next` after
+moving it to a `mut` local, may be yielded and held across `yield`.
 
 Generator parameters may carry a reference, as `Option[&T]` or
 `Result[&mut T, E]` (issue #913). The frame keeps the argument's loan as it

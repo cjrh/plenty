@@ -576,8 +576,8 @@ impl Lower<'_> {
     }
 
     /// The loan of the borrowing generator argument `arg`, which the caller
-    /// holds for the call (issue #899). A by-value generator parameter has
-    /// none: its own caller holds them.
+    /// holds for the call (issue #899). A by-value generator parameter's is
+    /// the loan of its hidden referent, standing for its own caller's.
     #[inline(never)]
     pub(super) fn frame_argument(&self, arg: &Expr, ops: &[Op]) -> Option<usize> {
         self.reference_origin(arg, ops).ok()
@@ -585,8 +585,8 @@ impl Lower<'_> {
 
     /// The loan a by-value generator argument `arg` with reference items
     /// lends a returned reference (issue #921): its frame's loan, or, for a
-    /// generator body's own generator parameter, which has none, an item
-    /// loan rooted at that parameter as `next` would take.
+    /// generator binding without one, an item loan rooted at that binding as
+    /// `next` would take.
     #[inline(never)]
     pub(super) fn item_lender_argument(
         &mut self,
@@ -1033,8 +1033,6 @@ impl Lower<'_> {
     /// the loan its frame keeps.
     #[inline(never)]
     fn lending_frame_binding(&mut self, value: &Expr, ops: &mut Vec<Op>) -> Option<usize> {
-        // A by-value parameter has no origin: its caller holds the frame's
-        // loans until this call returns, and it cannot be returned.
         let parent = self.reference_origin(value, ops).ok()?;
         let mutable = self.loans[parent].mutable;
         Some(self.new_loan(self.loans[parent].root, mutable, Some(parent), ops))

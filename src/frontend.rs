@@ -5339,11 +5339,11 @@ fn lower_body(
                     Ty::Ref(_, mutable) | Ty::View(_, mutable) => (i as u8, *mutable),
                     // A borrowing generator's loans are its caller's, kept
                     // through a hidden referent as a carried reference's are,
-                    // so a frame returned from it borrows only caller data. A
-                    // generator body needs none: it cannot return the frame.
-                    ty if ty.carried_reference().is_some()
-                        || (ty.lends_frame() && yield_type.is_none()) =>
-                    {
+                    // so a frame returned from it borrows only caller data. In
+                    // a generator body the referent roots the frame's items,
+                    // so they stay valid across `yield` and after the frame
+                    // moves to a local (issue #926).
+                    ty if ty.carried_reference().is_some() || ty.lends_frame() => {
                         let referent = lower.slot(Ty::Unit, &f.at)?;
                         body.extend([Op::PushUnit, Op::StoreLocal(referent)]);
                         lower.name_slot(referent, name);
