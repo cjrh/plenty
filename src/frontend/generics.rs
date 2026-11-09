@@ -1569,6 +1569,7 @@ impl Lower<'_> {
         // lender's own loans stay live across the call (issue #874).
         let mut hidden = (Vec::new(), Vec::new());
         let mut lent_loans = Vec::new();
+        let mut lent = false;
         for (index, (arg, (_, pattern))) in args.iter().zip(&template.inputs).enumerate() {
             if let Some(declared) = lent_pattern(pattern)
                 .then(|| self.lendable_type(arg))
@@ -1577,6 +1578,7 @@ impl Lower<'_> {
             {
                 let (ty, loan) =
                     self.lend_argument(arg, &declared, &mut hidden, &mut lent_loans, ops)?;
+                lent = true;
                 loans.push(loan);
                 infer(
                     pattern,
@@ -1732,6 +1734,10 @@ impl Lower<'_> {
         let (pushes, state) = hidden;
         ops.extend(pushes);
         loans.extend(state);
+        if lent {
+            // As for a frame call: the call is the lend's next use (issue #916).
+            self.mark(at, ops);
+        }
         self.record_direct_call(&callee, at, &loans, ops);
         self.passes(start, &sig.inputs, sig.outputs.first(), ops);
         self.push_call(Op::Call(callee.clone()), &sig.inputs, &loans, at, ops)?;

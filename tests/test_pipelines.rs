@@ -3231,6 +3231,90 @@ fn next_beside_a_lend_after_it_ends() {
     );
 }
 
+// Issue #916: keyword arguments and omitted defaults reach a borrower through
+// a forwarding wrapper, which is specialized for the lent plan like the
+// borrower itself, so argument order does not matter.
+#[test]
+fn lend_by_keyword_in_any_order_or_with_defaults() {
+    let out = support::run_stdout(
+        r#"def take(x: i64, p: &mut Iter[i64]) -> Option[i64]:
+    next(p)
+
+def skip(p: &mut Iter[i64], n: i64 = 1) -> Option[i64]:
+    for _ in range(n):
+        drop(next(p))
+    next(p)
+
+def tagged[T, K](p: &mut Iter[T], tag: K) -> Option[(K, T)]:
+    match next(p):
+        case Some(value):
+            Some((tag, value))
+        case Nothing:
+            Nothing
+
+class Sink:
+    pub n: i64
+    def take(self, x: i64, p: &mut Iter[i64]) -> Option[i64]:
+        next(p)
+
+def main() -> Result[(), IoError]:
+    mut p = iter(range(20))
+    print(take(x=1, p=&mut p))?
+    print(take(p=&mut p, x=1))?
+    print(skip(&mut p))?
+    print(skip(n=2, p=&mut p))?
+    print(tagged(tag="a", p=&mut p))?
+    print(Sink(0).take(p=&mut p, x=1))?
+    mut q = iter(range(3)).map(def(x: i64) -> i64: x)
+    print(skip(n=1, p=&mut q))?
+    print(next(q))?
+    Ok(())
+"#,
+    );
+    assert_eq!(
+        out,
+        "Option[i64].Some(0)\nOption[i64].Some(1)\nOption[i64].Some(3)\nOption[i64].Some(6)\nOption[tuple[str, i64]].Some((\"a\", 7))\nOption[i64].Some(8)\nOption[i64].Some(1)\nOption[i64].Some(2)\n"
+    );
+}
+
+// Issue #916: arguments are still evaluated as written, so a keyword lend
+// conflicts with a later argument that advances the pipeline, and the note
+// names the lending call even when it is an argument of another call.
+#[test]
+fn keyword_and_nested_lend_conflicts_name_the_call() {
+    for (source, expected) in [
+        (
+            "def f(x: i64, p: &mut Iter[i64]) -> Option[i64]:\n    next(p)\ndef main() -> ():\n    mut p = iter(range(3))\n    drop(f(p=&mut p, x=next(p).unwrap_or(9)))\n",
+            [
+                "main.plenty:5:24: conflicting borrow: cannot advance `p` while it is exclusively borrowed",
+                "main.plenty:5:19: note: the exclusive borrow",
+                "main.plenty:5:10: note: the borrow is used again here",
+            ],
+        ),
+        (
+            "def f(p: &mut Iter[i64], x: Option[i64]) -> Option[i64]:\n    next(p)\ndef main() -> ():\n    mut p = iter(range(3))\n    drop(f(&mut p, next(p)))\n",
+            [
+                "main.plenty:5:20: conflicting borrow: cannot advance `p` while it is exclusively borrowed",
+                "main.plenty:5:17: note: the exclusive borrow",
+                "main.plenty:5:10: note: the borrow is used again here",
+            ],
+        ),
+        (
+            "def f(p: &mut Iter[i64], x: Option[i64]) -> Option[i64]:\n    next(p)\ndef main() -> ():\n    mut p = iter(range(3))\n    drop(f(&mut p, next(p) if True else Nothing))\n",
+            [
+                "main.plenty:5:20: conflicting borrow: cannot advance `p` while it is exclusively borrowed",
+                "main.plenty:5:17: note: the exclusive borrow",
+                "main.plenty:5:10: note: the borrow is used again here",
+            ],
+        ),
+    ] {
+        let error = support::check_file_error(source);
+        for part in expected {
+            assert!(error.contains(part), "{source}\n{error}");
+        }
+    }
+}
+
 /// Issue #903: `Iter[T]` displays without its plan, so a reassignment names
 /// the expression and line that built each pipeline.
 #[test]

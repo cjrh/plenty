@@ -879,6 +879,10 @@ impl Lower<'_> {
         let (pushes, state) = hidden;
         ops.extend(pushes);
         loans.extend(state);
+        // The call is the argument loans' next use, which a conflict in a
+        // later argument names even when this call is itself an argument
+        // (issue #916).
+        self.mark(at, ops);
         self.record_direct_call(&symbol, at, &loans, ops);
         self.passes(start, &sig.inputs, sig.outputs.first(), ops);
         self.push_call(Op::Call(symbol.clone()), &sig.inputs, &loans, at, ops)?;
