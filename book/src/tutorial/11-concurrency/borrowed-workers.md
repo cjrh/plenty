@@ -70,6 +70,31 @@ error. A start that borrows reports the job-free `SpawnError[()]`, because an
 error cannot hold a borrow. If such a start fails, its moved arguments drop on
 the parent thread.
 
+A worker can also take a
+[lent pipeline](../10-functions/pipelines.md) as `&mut Iter[T]`. It consumes
+items in the worker, and the parent continues after them once the block ends:
+
+```plenty
+def first_two(rows: &mut Iter[i64]) -> (Option[i64], Option[i64]):
+    a = next(rows)
+    (a, next(rows))
+
+def main() -> Result[(), SpawnError[()] | IoError | AllocError]:
+    values = [1, 4, 12, 30]?
+    mut rows = iter(&values).map(def(x: &i64) -> i64: *x)
+    with spawn(first_two, &mut rows)? as task:
+        print(task.join())?
+    print(rows.count())?
+    Ok(())
+```
+```output
+(Option[i64].Some(1), Option[i64].Some(4))
+2
+```
+
+The worker took two items, so two remain for the parent. The borrow of `rows`
+lasts until the block ends, like the borrow of `count` in the first example.
+
 To preserve creation error details, put the scope in a helper and match its
 result. `SpawnError.Unavailable(job, code)` contains the native error code.
 

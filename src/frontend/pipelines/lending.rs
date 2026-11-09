@@ -482,6 +482,18 @@ impl Lower<'_> {
             Some(parameter) => (parameter.id, parameter.owned, parameter.shared),
             None => self.register_lent(index, &plan, &arg.at)?,
         };
+        // The state slots carry internal names. A borrow that outlives the
+        // call, as a scoped worker's does, reports conflicts against them, so
+        // name them after the lent binding (issue #911).
+        for &slot in owned.iter().chain([&local.slot]) {
+            let internal = self
+                .slot_names
+                .get(usize::from(slot))
+                .is_none_or(|n| n.as_deref().is_none_or(|n| n.starts_with('<')));
+            if internal {
+                self.name_slot(slot, name);
+            }
+        }
         let (pushes, loans) = hidden;
         for slot in owned {
             let loan = self.new_loan(slot, true, None, pushes);
