@@ -1765,3 +1765,159 @@ fn short_files_distinguish_asset_directories_from_module_namespaces() {
         assert!(error.contains("`std` is reserved"), "{error}");
     }
 }
+
+/// Entry-module declarations are unqualified, so a user type named like a
+/// template's type parameter must not capture it when the template's callable
+/// bound or signature is checked: `G` in `std.error.map_error`, `W` in
+/// `std.fmt`, `T` and `G` in a library module (issue #915).
+#[test]
+fn entry_type_names_do_not_capture_template_type_parameters() {
+    run(
+        &[(
+            "main.plenty",
+            r#"import std.json
+from std.error import map_error, context, Context
+
+@serial
+class G[T]:
+    value: T
+
+@serial
+class T[X]:
+    inner: X
+
+@serial
+class E:
+    code: i64
+
+class F[A]:
+    a: A
+
+class W[A]:
+    a: A
+
+class R[A]:
+    a: A
+
+def main() -> Result[(), Failure]:
+    opts = std.json.codec_options()
+    g = std.json.load[G[i64]](b"{\"value\":1}", &opts)?
+    print(g.value)?
+    t = std.json.load[T[G[E]]](b"{\"inner\":{\"value\":{\"code\":7}}}", &opts)?
+    print(t.inner.value.code)?
+    text = std.json.dump(&t, &std.json.limits())?
+    print(len(text))?
+    r: Result[i64, i64] = Err(3)
+    m = map_error(r, def (e: i64) -> F[i64]: F(e))
+    match m:
+        case Err(f):
+            print(f.a)?
+        case Ok(_):
+            pass
+    failed: Result[i64, E] = Err(E(4))
+    c = context(failed, "reading")
+    match c:
+        case Err(ctx):
+            print(ctx.cause.code)?
+            print(f"{ctx}"?)?
+        case Ok(_):
+            pass
+    Ok(())
+"#,
+        )],
+        "main.plenty",
+        "1\n7\n30\n3\n4\nstd.error.Context[E](operation=\"reading\", subject=std.error.Subject.Absent, cause=E(code=4))\n",
+    );
+    run(
+        &[
+            (
+                "lib.plenty",
+                r#"pub def wrap[G](value: G) -> Option[G]:
+    Some(value)
+
+pub def apply[T, G, F: OnceCallable[[T], G]](value: T, f: F) -> G:
+    mut call = f
+    call(value)
+
+pub class Pair[G]:
+    pub left: G
+    pub right: G
+    pub def make[T](self, extra: T, a: G, b: G) -> tuple[Pair[G], T]:
+        (Pair(b, a), extra)
+"#,
+            ),
+            (
+                "main.plenty",
+                r#"from lib import wrap, apply, Pair
+
+class G[A]:
+    a: A
+
+class T[A]:
+    a: A
+
+class F:
+    n: i64
+
+def main() -> Result[(), IoError]:
+    w = wrap(G(1))
+    match w:
+        case Some(g):
+            print(g.a)?
+        case Nothing:
+            pass
+    f = apply(3, def (x: i64) -> F: F(x))
+    print(f.n)?
+    p = Pair(T(1), T(2))
+    (q, extra) = p.make(F(9), T(3), T(4))
+    print(q.left.a)?
+    print(extra.n)?
+    Ok(())
+"#,
+            ),
+        ],
+        "main.plenty",
+        "1\n3\n4\n9\n",
+    );
+    // A template's own parameter shadows an entry class of the same name in
+    // its own module too, including in a callable bound and a protocol.
+    run(
+        &[(
+            "main.plenty",
+            r#"class G[A]:
+    a: A
+
+protocol Show[W]:
+    def show(self, w: W) -> W:
+        pass
+
+class Shower:
+    n: i64
+    def show(self, w: i64) -> i64:
+        w
+
+class W[A]:
+    a: A
+
+def ident[G](value: G) -> G:
+    value
+
+def call[G, F: Callable[[G], G]](value: G, f: F) -> G:
+    f(value)
+
+def shown[S: Show[i64]](s: &S) -> i64:
+    s.show(1)
+
+def main() -> Result[(), IoError]:
+    print(ident(3))?
+    print(call(4, def (x: i64) -> i64: x))?
+    print(shown(&Shower(2)))?
+    g = G(W(1))
+    print(g.a.a)?
+    Ok(())
+"#,
+        )],
+        "main.plenty",
+        "3\n4\n1\n1\n",
+    );
+}

@@ -210,7 +210,7 @@ impl TypeRef {
         if name == "OnceCallable" {
             return Err(self.at.error("OnceCallable is a generic constraint; use Callable or OnceClosure for a value annotation"));
         }
-        if aliases.data.contains(name) {
+        if aliases.data.contains(name) && !probe_placeholder(name, aliases) {
             return aliases.instantiate(self).map(Some);
         }
         if matches!(
@@ -588,6 +588,16 @@ fn named_type(name: &str) -> Type {
         _ => return None,
     })
 }
+/// Whether `name` is a type parameter that a shape probe binds. It shadows a
+/// data type of the same name: entry-module declarations are unqualified, so
+/// otherwise a user class `G` captures a template's own `G` in a callable
+/// bound or signature probe (issue #915). Instances substitute parameters
+/// before resolving, so only probes need this.
+#[inline(never)]
+fn probe_placeholder(name: &str, aliases: &TypeAliases) -> bool {
+    aliases.data.shapes_only() && aliases.contains_key(name)
+}
+
 fn lookup_type(name: &str, aliases: &TypeAliases) -> Option<Type> {
     named_type(name)
         .map(Some)

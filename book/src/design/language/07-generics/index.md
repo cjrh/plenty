@@ -17,6 +17,9 @@ def add[T: IntType](a: T, b: T) -> T:
 Concrete uses preserve ordinary type and ownership rules. Generic bodies are
 checked for each used concrete instance. Calls remain statically dispatched;
 generic syntax adds no runtime type lookup or allocation.
+A type parameter shadows any type of the same name throughout its declaration,
+including bounds and signatures, so a caller's class `G` never replaces a
+library function's parameter `G`.
 The toolchain documents [specialization limits and caching](../../toolchain/02-architecture/emission.md).
 
 Functions and methods accept unconstrained parameters, `IntType`, `FloatType`,
