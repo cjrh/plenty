@@ -258,6 +258,33 @@ def main() -> Result[(), AllocError | IoError]:
 }
 
 #[test]
+fn a_relay_through_mutable_generator_references_keeps_the_source_borrowed() {
+    let error = check_error(&with_names(
+        r#"
+def inner(p: &mut Generator[&str]) -> Generator[&str]:
+    for v in p:
+        yield v
+
+def outer(p: &mut Generator[&str]) -> Generator[&str]:
+    for v in inner(p):
+        yield v
+
+def main() -> Result[(), AllocError | IoError]:
+    mut xs = ["a", "b"]?
+    mut g = names(&xs)
+    mut o = outer(&mut g)
+    a = next(o)
+    xs.append("c")?
+    b = next(o)
+    print(a)?
+    print(b)?
+    Ok(())
+"#,
+    ));
+    assert!(error.contains("borrowed"), "{error}");
+}
+
+#[test]
 fn reference_items_cannot_be_stored_in_collections() {
     let error = check_error(&main_body(
         r#"xs = ["a", "b"]?
