@@ -277,6 +277,12 @@ already have called the key. The two errors never occur together: the
 allocation is attempted only after that check finds an out-of-order pair, and
 after a key error every comparison reports equal, so the check cannot find one.
 
+An exclusive [slice view](../../language/04-expressions/slices.md#operations-on-views),
+`&mut [T]`, has `sort`, `sort_by_key` and `sort_stable_by_key` with these
+contracts, reordering only the view's elements. Its owner stays exclusively
+borrowed, so a key cannot capture the owner either. `sorted` takes a list, not a view;
+copy a view with `list(v)?` and sort the copy.
+
 `sorted(items) -> Result[list[T], AllocError]` observes a list and explicitly
 copies it before sorting by natural order. `sorted(items, True)` gives a
 descending copy. The source survives either result; the element type must

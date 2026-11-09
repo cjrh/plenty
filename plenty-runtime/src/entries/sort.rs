@@ -1,8 +1,184 @@
+//! Sorts over dense rows borrowed from a list or a slice view (issue #886).
 //! Dynamic-width rows cannot use Rust's slice sort: moving an inline payload
 //! must repair its embedded addresses before the next comparison.
 use super::*;
 
-impl Entries {
+/// Live dense rows of one element type, held exclusively: a whole list's rows
+/// or a slice view's. Inline payload addresses are relative to each row, so a
+/// view sorts exactly as the list owning its rows would.
+pub(crate) struct Rows<'a> {
+    data: &'a mut [u8],
+    stride: usize,
+    key: &'static Type,
+    packed: bool,
+}
+
+impl<'a> Rows<'a> {
+    pub(super) fn new(data: &'a mut [u8], stride: usize, key: &'static Type, packed: bool) -> Self {
+        debug_assert_eq!(data.len() % stride, 0);
+        Self {
+            data,
+            stride,
+            key,
+            packed,
+        }
+    }
+
+    /// The `len` dense rows of `key` from `base`, as a slice view addresses them.
+    ///
+    /// # Safety
+    /// `base` addresses `len` live rows of `key`'s dense list layout that the
+    /// caller holds exclusively for `'a`.
+    pub(crate) unsafe fn view(base: *mut u8, len: usize, key: &'static Type) -> Self {
+        let stride = crate::list_layout::row_bytes(
+            key.kind,
+            key.inline_bytes as usize,
+            key.has_inline_range(),
+        );
+        // SAFETY: as the caller guarantees; an empty view may dangle.
+        let data = if len == 0 {
+            &mut []
+        } else {
+            unsafe { std::slice::from_raw_parts_mut(base, len * stride) }
+        };
+        Self::new(data, stride, key, scalar_bytes(key).is_some())
+    }
+
+    fn len(&self) -> usize {
+        self.data.len() / self.stride
+    }
+    fn key_at(&self, index: usize) -> u128 {
+        // SAFETY: callers only name rows below `len`, which are live.
+        unsafe {
+            read_row(
+                self.data.as_ptr().add(index * self.stride),
+                self.key,
+                None,
+                self.packed,
+            )
+            .key
+        }
+    }
+    fn exchange(&mut self, i: usize, j: usize, relocation: Relocation) {
+        if i == j {
+            return;
+        }
+        let (low, high) = if i < j { (i, j) } else { (j, i) };
+        let (left, right) = self.data.split_at_mut(high * self.stride);
+        left[low * self.stride..(low + 1) * self.stride].swap_with_slice(&mut right[..self.stride]);
+        // Each row is read again before the next exchange, so its inline
+        // address must be valid immediately rather than after a final pass.
+        let base = self.data.as_mut_ptr();
+        for row in [i, j] {
+            // SAFETY: both rows are in bounds and hold live values of `key`.
+            unsafe { relocation.repair(base.add(row * self.stride).cast(), self.key) }
+        }
+    }
+    fn reverse(&mut self, relocation: Relocation) {
+        let len = self.len();
+        for i in 0..len / 2 {
+            self.exchange(i, len - 1 - i, relocation);
+        }
+    }
+
+    /// Sort in place without allocating. Rows that compare equal may change
+    /// relative order, so `compare` must not equate distinguishable rows.
+    pub fn sort_unstable_by(&mut self, compare: impl FnMut(u128, u128) -> Ordering) {
+        fn sort<const N: usize>(
+            data: &mut [u8],
+            key: &Type,
+            packed: bool,
+            mut compare: impl FnMut(u128, u128) -> Ordering,
+        ) {
+            let (rows, _) = data.as_chunks_mut::<N>();
+            rows.sort_unstable_by(|a, b| {
+                // These non-inline rows have the selected scalar width
+                // or a complete aligned canonical slot. Array references used
+                // by sorting may point to its temporary copies, so decode
+                // unaligned bytes rather than assuming the buffer's alignment.
+                let read = |row: &[u8; N]| {
+                    let mut word = [0u8; 16];
+                    word[..N].copy_from_slice(row);
+                    let value = u128::from_ne_bytes(word);
+                    if packed {
+                        canonical_scalar(value, key)
+                    } else {
+                        value
+                    }
+                };
+                compare(read(a), read(b))
+            });
+        }
+        let (key, packed) = (self.key, self.packed);
+        match self.stride {
+            1 => return sort::<1>(self.data, key, packed, compare),
+            2 => return sort::<2>(self.data, key, packed, compare),
+            4 => return sort::<4>(self.data, key, packed, compare),
+            8 => return sort::<8>(self.data, key, packed, compare),
+            16 => return sort::<16>(self.data, key, packed, compare),
+            _ => {}
+        }
+        self.sort_unstable_rows_by(compare);
+    }
+
+    /// Sort rows of any layout with this module's introsort. Unlike Rust's
+    /// slice sort, it never panics on an inconsistent `compare`, which makes it
+    /// suitable for user-defined keys; every row remains exactly once.
+    pub fn sort_unstable_rows_by(&mut self, mut compare: impl FnMut(u128, u128) -> Ordering) {
+        let len = self.len();
+        // Partitioning an already ordered run needlessly destroys its locality.
+        // Stop this probe at the first change of direction on mixed input.
+        let relocation = Relocation::of(self.key);
+        let mut direction = Ordering::Equal;
+        let monotonic = (1..len).all(|i| {
+            let next = compare(self.key_at(i - 1), self.key_at(i));
+            if direction == Ordering::Equal {
+                direction = next;
+            }
+            next == Ordering::Equal || next == direction
+        });
+        if monotonic {
+            if direction == Ordering::Greater {
+                self.reverse(relocation);
+            }
+            return;
+        }
+        let depth = 2 * len.checked_ilog2().unwrap_or(0);
+        self.sort_rows(0, len, depth, relocation, &mut compare);
+    }
+
+    pub(in crate::entries) fn heap_sort_rows(
+        &mut self,
+        start: usize,
+        len: usize,
+        relocation: Relocation,
+        compare: &mut impl FnMut(u128, u128) -> Ordering,
+    ) {
+        let mut sift = |rows: &mut Self, mut root: usize, end: usize| loop {
+            let mut child = 2 * root + 1;
+            if child >= end {
+                break;
+            }
+            if child + 1 < end
+                && compare(rows.key_at(start + child), rows.key_at(start + child + 1)).is_lt()
+            {
+                child += 1;
+            }
+            if compare(rows.key_at(start + root), rows.key_at(start + child)).is_ge() {
+                break;
+            }
+            rows.exchange(start + root, start + child, relocation);
+            root = child;
+        };
+        for root in (0..len / 2).rev() {
+            sift(self, root, len);
+        }
+        for end in (1..len).rev() {
+            self.exchange(start, start + end, relocation);
+            sift(self, 0, end);
+        }
+    }
+
     fn median_row(
         &self,
         a: usize,
@@ -19,7 +195,7 @@ impl Entries {
         indices[1]
     }
 
-    pub(super) fn sort_rows(
+    pub(in crate::entries) fn sort_rows(
         &mut self,
         mut start: usize,
         mut end: usize,
@@ -90,10 +266,10 @@ impl Entries {
 /// Runs this short are sorted by stable insertion before merging.
 const STABLE_RUN: usize = 16;
 
-impl Entries {
-    /// Sort dense rows stably: equal rows keep their relative order. Workspace
-    /// for `floor(len / 2)` rows is reserved before any row moves, so failure
-    /// leaves the list unchanged. Already ordered input reserves nothing.
+impl Rows<'_> {
+    /// Sort stably: equal rows keep their relative order. Workspace for
+    /// `floor(len / 2)` rows is reserved before any row moves, so failure
+    /// leaves the rows unchanged. Already ordered input reserves nothing.
     ///
     /// An inconsistent `compare` gives an unspecified order but every row
     /// remains exactly once: each merge step advances one side, and the
@@ -102,7 +278,6 @@ impl Entries {
         &mut self,
         mut compare: impl FnMut(u128, u128) -> Ordering,
     ) -> Result<(), memory::AllocError> {
-        assert!(self.order.is_none(), "only dense lists sort");
         let len = self.len();
         if (1..len).all(|i| !compare(self.key_at(i - 1), self.key_at(i)).is_gt()) {
             return Ok(());
@@ -165,7 +340,7 @@ impl Entries {
         // `left <= len / 2` rows, which the caller reserved.
         debug_assert!(left * stride <= scratch.capacity() * 16);
         let base = self.data.as_mut_ptr();
-        let packed = self.packed();
+        let packed = self.packed;
         let ty = self.key;
         let mut hole = Hole {
             saved: scratch.as_mut_ptr().cast(),
@@ -177,8 +352,8 @@ impl Entries {
             left,
             target: start,
         };
-        // SAFETY: rows `start..end` are live rows of `ty` in this exclusively
-        // held list, and scratch has room for `left` rows. A moved row's bytes
+        // SAFETY: rows `start..end` are live rows of `ty`, held exclusively,
+        // and scratch has room for `left` rows. A moved row's bytes
         // are copied once and its inline address repaired at the destination;
         // no owner is retained or released. List rows `target..j` are the
         // hole whose owners are scratch rows `next..left`; `Hole` fills it

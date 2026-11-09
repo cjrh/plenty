@@ -1118,6 +1118,14 @@ struct Runtime {
     /// `plenty_view_swap(first_row, second_row, descriptor)`, for rows of
     /// non-scalar views whose indices were already checked.
     view_swap: FuncId,
+    /// `plenty_view_sort(rows, count, descending, descriptor)` (issue #886).
+    view_sort: FuncId,
+    /// `plenty_view_sort_by(rows, count, comparator, environment,
+    /// descending, descriptor)`, a view's `list_sort_by`.
+    view_sort_by: FuncId,
+    /// `plenty_view_sort_stable_by(...)`, as `view_sort_by`, returning the
+    /// high word of `Result[(), AllocError]`.
+    view_sort_stable_by: FuncId,
     /// `plenty_byte_view_rows(owner) -> first byte address` and
     /// `plenty_byte_view_len(owner) -> byte count`, for slice views of a
     /// buffer or `bytes` literal.
@@ -1418,6 +1426,24 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             Some(types::I64),
         )?,
         view_swap: helper(module, "plenty_view_swap", &[PTR_TY, PTR_TY, PTR_TY], None)?,
+        view_sort: helper(
+            module,
+            "plenty_view_sort",
+            &[PTR_TY, types::I64, types::I64, PTR_TY],
+            None,
+        )?,
+        view_sort_by: helper(
+            module,
+            "plenty_view_sort_by",
+            &[PTR_TY, types::I64, PTR_TY, PTR_TY, types::I64, PTR_TY],
+            None,
+        )?,
+        view_sort_stable_by: helper(
+            module,
+            "plenty_view_sort_stable_by",
+            &[PTR_TY, types::I64, PTR_TY, PTR_TY, types::I64, PTR_TY],
+            Some(types::I64),
+        )?,
         byte_view_rows: helper(module, "plenty_byte_view_rows", &[PTR_TY], Some(PTR_TY))?,
         byte_view_len: helper(module, "plenty_byte_view_len", &[PTR_TY], Some(types::I64))?,
         // Owner or text word, then index and trap site where the query has them.

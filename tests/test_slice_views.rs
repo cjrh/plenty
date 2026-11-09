@@ -811,10 +811,6 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
     "expected i64, got f64"
 )]
 #[case(
-    "mut xs = [1, 2].unwrap()\nv = &mut xs[:]\nv.sort()",
-    "a slice view cannot `sort` yet (issue #886)"
-)]
-#[case(
     "mut xs = [1, 2].unwrap()\nv = &mut xs[:]\nw = &xs[:]\nv.swap(0, 1)\nprint(w).unwrap()",
     "conflicting borrow"
 )]

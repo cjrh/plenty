@@ -69,6 +69,7 @@ pub struct KeySort {
     pub adapter: String,
     /// `key_of(callback: &F, item: &T) -> K` or `Result[K, E]` for this sort.
     pub key_of: String,
+    /// `list[T]`, or the exclusive view `&mut [T]` (issue #886).
     pub list: Ty,
     /// `&F`, the callback reference the adapter receives as its environment.
     pub callback: Ty,
@@ -77,6 +78,24 @@ pub struct KeySort {
     pub error: Option<Ty>,
     /// A stable merge sort, which reserves workspace and so adds `AllocError`.
     pub stable: bool,
+}
+
+impl KeySort {
+    /// The sorted rows' element type.
+    pub fn element(&self) -> Option<&Arc<Ty>> {
+        match &self.list {
+            Ty::List(element) | Ty::View(element, true) => Some(element),
+            _ => None,
+        }
+    }
+
+    /// The receiver operand: `&mut list[T]`, or the exclusive view itself.
+    pub fn receiver(&self) -> Ty {
+        match &self.list {
+            Ty::View(..) => self.list.clone(),
+            list => Ty::Ref(Arc::new(list.clone()), true),
+        }
+    }
 }
 
 /// An unstable key sort returns `()` or the key's `Result[(), E]`; a stable
@@ -366,6 +385,9 @@ pub enum CollectionOp {
     /// `list.swap` does (issue #729). Both indices are checked before either
     /// row moves; scalar rows move inline, others through the runtime.
     ViewSwap(Ty),
+    /// Exclusive view, descending bool -> (): sorts the view's rows in place,
+    /// as `ListSort` sorts a list's (issue #886).
+    ViewSort(Ty),
     /// Internal to `.par`: first-row address, row size, in-bounds index ->
     /// the owned element, leaving an empty row so the list's drop skips it.
     /// The index is not checked.
@@ -1006,6 +1028,7 @@ impl CollectionOp {
             }
             ViewEqual(view) => (vec![view.clone(), view.clone()], Ty::Bool),
             ViewSwap(view) => (vec![view.clone(), Ty::I64, Ty::I64], Ty::Unit),
+            ViewSort(view) => (vec![view.clone(), Ty::Bool], Ty::Unit),
             QueryRef(query) => (query.inputs(), query.output()),
             ListScalarGetRef(t) => (
                 vec![Ty::Ref(Arc::new(t.clone()), false), Ty::I64],
@@ -1050,11 +1073,7 @@ impl CollectionOp {
                 Ty::Unit,
             ),
             ListSortBy(sort) => (
-                vec![
-                    Ty::Ref(Arc::new(sort.list.clone()), true),
-                    sort.callback.clone(),
-                    Ty::Bool,
-                ],
+                vec![sort.receiver(), sort.callback.clone(), Ty::Bool],
                 key_sort_output(sort.stable, sort.error.as_ref()).unwrap_or(Ty::Unit),
             ),
             ListScalarSetRef(t) => (
@@ -1357,6 +1376,7 @@ impl CollectionOp {
             | Self::ViewItem(..)
             | Self::ViewEqual(_)
             | Self::ViewSwap(_)
+            | Self::ViewSort(_)
             | Self::ListSortBy(_)
             | Self::OrderCompare(_)
             | Self::QueryRef(_) => {

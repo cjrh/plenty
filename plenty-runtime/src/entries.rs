@@ -9,7 +9,7 @@ use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
 
 pub(crate) mod enum_bits;
-mod sort;
+pub(crate) mod sort;
 
 #[cfg(test)]
 mod tests;
@@ -405,10 +405,6 @@ impl Entries {
         );
         self.read_row(index)
     }
-    /// A dense row's key word, without the value lookup `get` performs.
-    fn key_at(&self, index: usize) -> u128 {
-        self.read_row(index).key
-    }
     fn packed(&self) -> bool {
         self.order.is_none() && self.value.is_none() && scalar_bytes(self.key).is_some()
     }
@@ -766,109 +762,33 @@ impl Entries {
         let (left, right) = self.data.split_at_mut(j * self.stride);
         left[i * self.stride..(i + 1) * self.stride].swap_with_slice(&mut right[..self.stride]);
     }
-    /// Sort dense rows in place without allocating. Rows that compare equal may
-    /// change relative order, so `compare` must not equate distinguishable rows.
-    pub fn sort_unstable_by(&mut self, compare: impl FnMut(u128, u128) -> Ordering) {
+    /// This dense list's live rows, for the sorts in [`sort`].
+    pub(crate) fn dense_rows(&mut self) -> sort::Rows<'_> {
         assert!(self.order.is_none(), "only dense lists sort");
-        fn sort<const N: usize>(
-            data: &mut [u8],
-            key: &Type,
-            packed: bool,
-            mut compare: impl FnMut(u128, u128) -> Ordering,
-        ) {
-            let (rows, _) = data.as_chunks_mut::<N>();
-            rows.sort_unstable_by(|a, b| {
-                // These non-inline rows have the selected scalar width
-                // or a complete aligned canonical slot. Array references used
-                // by sorting may point to its temporary copies, so decode
-                // unaligned bytes rather than assuming the buffer's alignment.
-                let read = |row: &[u8; N]| {
-                    let mut word = [0u8; 16];
-                    word[..N].copy_from_slice(row);
-                    let value = u128::from_ne_bytes(word);
-                    if packed {
-                        canonical_scalar(value, key)
-                    } else {
-                        value
-                    }
-                };
-                compare(read(a), read(b))
-            });
-        }
         let len = self.len();
         let packed = self.packed();
-        let data = &mut self.data[..len * self.stride];
-        match self.stride {
-            1 => return sort::<1>(data, self.key, packed, compare),
-            2 => return sort::<2>(data, self.key, packed, compare),
-            4 => return sort::<4>(data, self.key, packed, compare),
-            8 => return sort::<8>(data, self.key, packed, compare),
-            16 => return sort::<16>(data, self.key, packed, compare),
-            _ => {}
-        }
-        self.sort_unstable_rows_by(compare);
+        sort::Rows::new(
+            &mut self.data[..len * self.stride],
+            self.stride,
+            self.key,
+            packed,
+        )
     }
-    /// Sort dense rows of any layout with this module's introsort. Unlike Rust's
-    /// slice sort, it never panics on an inconsistent `compare`, which makes it
-    /// suitable for user-defined keys; every row remains exactly once.
-    pub fn sort_unstable_rows_by(&mut self, mut compare: impl FnMut(u128, u128) -> Ordering) {
-        assert!(self.order.is_none(), "only dense lists sort");
-        let len = self.len();
-        // Partitioning an already ordered run needlessly destroys its locality.
-        // Stop this probe at the first change of direction on mixed input.
-        let relocation = Relocation::of(self.key);
-        let mut direction = Ordering::Equal;
-        let monotonic = (1..len).all(|i| {
-            let next = compare(self.key_at(i - 1), self.key_at(i));
-            if direction == Ordering::Equal {
-                direction = next;
-            }
-            next == Ordering::Equal || next == direction
-        });
-        if monotonic {
-            if direction == Ordering::Greater {
-                self.reverse();
-            }
-            return;
-        }
-        let depth = 2 * len.checked_ilog2().unwrap_or(0);
-        self.sort_rows(0, len, depth, relocation, &mut compare);
+    /// Sort dense rows in place without allocating, as [`sort::Rows::sort_unstable_by`].
+    #[cfg(test)]
+    pub fn sort_unstable_by(&mut self, compare: impl FnMut(u128, u128) -> Ordering) {
+        self.dense_rows().sort_unstable_by(compare);
     }
-
-    fn heap_sort_rows(
+    /// Sort dense rows of any layout, as [`sort::Rows::sort_unstable_rows_by`].
+    pub fn sort_unstable_rows_by(&mut self, compare: impl FnMut(u128, u128) -> Ordering) {
+        self.dense_rows().sort_unstable_rows_by(compare);
+    }
+    /// Sort dense rows stably, as [`sort::Rows::sort_stable_rows_by`].
+    pub fn sort_stable_rows_by(
         &mut self,
-        start: usize,
-        len: usize,
-        relocation: Relocation,
-        compare: &mut impl FnMut(u128, u128) -> Ordering,
-    ) {
-        let mut sift = |entries: &mut Self, mut root: usize, end: usize| loop {
-            let mut child = 2 * root + 1;
-            if child >= end {
-                break;
-            }
-            if child + 1 < end
-                && compare(
-                    entries.key_at(start + child),
-                    entries.key_at(start + child + 1),
-                )
-                .is_lt()
-            {
-                child += 1;
-            }
-            if compare(entries.key_at(start + root), entries.key_at(start + child)).is_ge() {
-                break;
-            }
-            entries.exchange(start + root, start + child, relocation);
-            root = child;
-        };
-        for root in (0..len / 2).rev() {
-            sift(self, root, len);
-        }
-        for end in (1..len).rev() {
-            self.exchange(start, start + end, relocation);
-            sift(self, 0, end);
-        }
+        compare: impl FnMut(u128, u128) -> Ordering,
+    ) -> Result<(), memory::AllocError> {
+        self.dense_rows().sort_stable_rows_by(compare)
     }
     pub fn retain(&mut self, mut keep: impl FnMut(&Entry) -> bool) {
         if self.order.is_some() {
