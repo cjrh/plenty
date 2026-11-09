@@ -218,7 +218,7 @@ generator body can bind one, such as `keep = def [&limit](x: &i64) -> bool:`,
 and call or lend it before the next `yield`. Using it after a `yield` keeps
 the capture's loan live across that `yield`, which is an error ("a borrow of
 `limit` cannot remain live across yield") when `limit` is a local of the
-frame. A borrowed capture of a reference or view parameter may cross `yield`.
+frame. A borrowed capture of a reference parameter may cross `yield`.
 
 ### Borrowing frames
 

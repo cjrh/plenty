@@ -451,6 +451,15 @@ def main() -> Result[(), AllocError | IoError]:
 #[case(
     "def g(xs: &list[i64]) -> Generator[i64]:\n    limit = 1\n    keep = def [&limit](x: &i64) -> bool:\n        *x > limit\n    for x in iter(xs).filter(keep):\n        yield *x"
 )]
+#[case(
+    "def g(xs: &list[i64]) -> Generator[i64]:\n    limit = 1\n    keep = def [&limit](x: &i64) -> bool:\n        *x > limit\n    k2 = keep\n    for x in xs:\n        if k2(x):\n            yield *x"
+)]
+#[case(
+    "def g(xs: &list[i64]) -> Generator[i64]:\n    limit = 1\n    keep = def [&limit](x: &i64) -> bool:\n        *x > limit\n    outer = def [&keep](x: &i64) -> bool:\n        keep(x)\n    for x in xs:\n        if outer(x):\n            yield *x"
+)]
+#[case(
+    "def sel[F: Callable[[&i64], bool]](f: &F, xs: &list[i64]) -> Generator[i64]:\n    for x in xs:\n        if f(x):\n            yield *x\ndef g(xs: &list[i64]) -> Generator[i64]:\n    limit = 1\n    keep = def [&limit](x: &i64) -> bool:\n        *x > limit\n    for v in sel(&keep, xs):\n        yield v"
+)]
 fn named_closure_borrows_cannot_cross_yield(#[case] source: &str) {
     let error = support::check_error(source);
     assert!(
