@@ -195,18 +195,19 @@ impl Domain {
             Domain::Fault
         }
     }
-    /// The domain of a specialized error type, by its members.
-    pub(super) fn of_type(error: &Ty) -> Option<Self> {
-        let named = |ty: &Ty, name: &str| matches!(ty, Ty::Enum(t) if &*t.name == name);
+    /// The domain of a specialized error type, by its members. Identity is the
+    /// resolved type, as for the concrete domains in `constructor_matches`.
+    pub(super) fn of_type(error: &Ty, aliases: &TypeAliases, at: &Token) -> Result<Option<Self>> {
+        let allocation = type_ref(at, "AllocError").resolve(aliases)?;
+        let fault = type_ref(at, "std.serial.Fault").resolve(aliases)?;
         let members = crate::sum::members(error);
-        let allocation = members.iter().any(|t| named(t, "AllocError"));
-        let fault = members.iter().any(|t| named(t, "std.serial.Fault"));
-        match (members.len(), allocation, fault) {
+        let has = |ty: &Option<Ty>| ty.as_ref().is_some_and(|ty| members.contains(ty));
+        Ok(match (members.len(), has(&allocation), has(&fault)) {
             (1, false, true) => Some(Domain::Fault),
             (1, true, false) => Some(Domain::Allocation),
             (2, true, true) => Some(Domain::Both),
             _ => None,
-        }
+        })
     }
     fn spelling(self) -> &'static str {
         match self {
@@ -680,7 +681,7 @@ pub(super) fn constructor_matches(ty: &Ty, aliases: &TypeAliases) -> Result<bool
         };
         let accepted = match expected {
             Some(expected) => expected.resolve(aliases)?.as_ref() == Some(error),
-            None => Domain::of_type(error).is_some(),
+            None => Domain::of_type(error, aliases, &init.at)?.is_some(),
         };
         if !accepted {
             return Ok(false);

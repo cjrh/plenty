@@ -98,6 +98,7 @@ pub(super) fn expand(
     actual: &[Argument],
     template: &Function,
     replacements: &mut generics::Substitution,
+    aliases: &TypeAliases,
     at: &Token,
 ) -> Result<Option<Arc<Function>>> {
     if !matches!(
@@ -146,7 +147,7 @@ pub(super) fn expand(
     if name == "std.serial.constructed_in" {
         // A generic constructor's domain is known only here; derived decoding
         // has already checked it with `serial_derive::constructor_matches`.
-        let bridge = match serial_derive::Domain::of_type(ty) {
+        let bridge = match serial_derive::Domain::of_type(ty, aliases, at)? {
             Some(domain) => domain.bridge(),
             None => {
                 return Err(at.error(format!(

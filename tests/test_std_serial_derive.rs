@@ -873,6 +873,76 @@ def main() -> ():
     }
 }
 
+/// `mentions` recurses into unions of several class parameters; equal
+/// parameters collapse to one domain (#914).
+#[test]
+fn generic_constructor_domain_of_two_parameters() {
+    support::assert_stdout(
+        r#"
+import std.json
+import std.serial
+from std.serial import Fault
+@serial
+class Pair[A, B]:
+    value: i64
+    def __init__(self, value: i64 = 5) -> Result[(), A | B]:
+        self.value = value
+        Ok(())
+def main() -> Result[(), IoError | AllocError | std.serial.SerialError[std.json.JsonError]]:
+    options = std.json.codec_options()
+    print(std.json.load[Pair[AllocError, Fault]](b"{}", &options)?.value)?
+    print(std.json.load[Pair[Fault, Fault]](b"{\"value\":6}", &options)?.value)?
+    Ok(())
+"#,
+        "5\n6\n",
+    );
+}
+
+/// The written domain and fallible defaults resolve in the defining module,
+/// not the module that specializes the class (#914).
+#[test]
+fn imported_generic_constructor_domain_resolves_in_defining_module() {
+    let dir = tempfile::tempdir().unwrap();
+    support::write_file(
+        &dir.path().join("model.plenty"),
+        r#"
+def default_tags() -> Result[list[str], AllocError]:
+    ["remote"]
+
+@serial
+pub class Remote[E]:
+    pub tags: list[str]
+    def __init__(self, tags: list[str] = default_tags()?) -> Result[(), AllocError | E]:
+        self.tags = tags
+        Ok(())
+"#,
+    );
+    let executable = support::compile_file(
+        dir.path(),
+        r#"
+import std.json
+import std.serial
+from std.serial import Fault
+from model import Remote
+def main() -> Result[(), IoError | AllocError | std.serial.SerialError[std.json.JsonError]]:
+    options = std.json.codec_options()
+    print(std.json.load[Remote[Fault]](b"{}", &options)?.tags)?
+    print(std.json.load[Remote[AllocError]](b"{\"tags\":[\"x\"]}", &options)?.tags)?
+    Ok(())
+"#,
+    );
+    let output = std::process::Command::new(executable).output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "[\"remote\"]\n[\"x\"]\n"
+    );
+}
+
 #[test]
 fn wide_recursive_decode_reports_native_stack_limit_before_overflow() {
     for (inline_payload, depth, limit) in [(false, 1026, 1024), (true, 66, 64)] {

@@ -2149,12 +2149,10 @@ impl Engine {
                 }
             }
         }
-        let generated =
-            serial::expand(name, actual, template, &mut replacements, at).map_err(|error| {
-                match aliases.data.serial_field(at) {
-                    Some(field) => at.error(format!("field `{field}`: {error}")),
-                    None => error,
-                }
+        let generated = serial::expand(name, actual, template, &mut replacements, aliases, at)
+            .map_err(|error| match aliases.data.serial_field(at) {
+                Some(field) => at.error(format!("field `{field}`: {error}")),
+                None => error,
             })?;
         let template = generated.as_ref().unwrap_or(template);
         let mut demanded = Vec::new();
