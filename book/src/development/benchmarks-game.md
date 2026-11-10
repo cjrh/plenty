@@ -115,6 +115,12 @@ laptop (AMD Ryzen 7 7840HS, performance governor) at Plenty 0.8.18:
 | reverse-complement | 25,000,000 | 0.32 s | 0.46 s | 1.46 |
 | spectral-norm | 5,500 | 1.12 s | 2.10 s | 1.88 |
 
+This is the recorded **0.8.18 baseline**, not a fresh full-suite run. The later
+[guarded numerical-state measurement](../completed-work/performance.md#guarded-numerical-state-issue-930)
+uses the unchanged n-body source at one million steps: 1,995.713M → 702.713M
+instructions and 104.89ms → 51.82ms in its paired session. Its different size and
+compiler version must not be substituted directly into the baseline table.
+
 Times are median wall-clock seconds. The k-nucleotide and regex-redux
 references are multithreaded while the idiomatic Plenty programs run one
 thread; `user_s` in the JSON gives CPU time (35.8 s for the k-nucleotide

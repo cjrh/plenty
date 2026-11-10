@@ -1,0 +1,8 @@
+{
+  "command": "PLENTY_CACHE=off perf stat -e instructions:u target/release/examples/compile_bench 1000 10 --workload aot",
+  "instructions": 127823739347,
+  "aot_median_ms": 1165.959,
+  "repetitions": 10,
+  "warmup": true,
+  "note": "Final compiler; run overlaps the full suite. Wall time is unpaired."
+}

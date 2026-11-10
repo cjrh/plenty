@@ -365,6 +365,9 @@ stays in the object as a single trap instruction, so code outside Plenty
 that calls it, such as C linked against the object, stops with `SIGILL`
 rather than running into the next function. `--dump` builds keep every body.
 
+Small numerical list loops can also receive [guarded scalar state and bounded
+inner-loop expansion](numerical-loops.md) before last-use analysis.
+
 ## Last-use moves
 
 After substitution, `src/codegen/last_use.rs` turns the last read of a local

@@ -106,6 +106,7 @@ mod references;
 mod relax;
 pub(crate) use output::describe_error;
 pub(crate) use relax::relax_local_addresses;
+mod fixed_state;
 mod inline_calls;
 mod leaf_calls;
 mod reachability;
@@ -776,6 +777,7 @@ fn object_module(
     let objects = crate::foreign::exported_objects(&ops);
     reachability::prune_for_emission(&mut ops, exports, build.prune_user);
     small_calls::substitute(&mut ops, build.optimize, workers);
+    fixed_state::prepare(&mut ops, build.optimize);
     crate::tail_abi::prepare(&mut ops, workers);
     last_use::prepare(&mut ops, workers);
     let opt_level = if build.optimize { "speed" } else { "none" };
