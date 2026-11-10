@@ -22,7 +22,12 @@ writes, and length queries. Each list keeps its own bounds check, and a
 negative index is still normalized; unrelated lists need not have equal
 lengths. Generator bodies and other loops keep ordinary indexed access.
 In nested loops, an immutable shared reference bound before the outer loop is
-read once, before the outermost loop that follows its binding.
+read once, before the outermost loop that follows its binding. Any other list
+is read before the outermost enclosing loop that meets the same condition and
+follows its binding, and sibling inner loops share that read (issue #943). An
+enclosing loop that appends to the list, replaces or retargets the binding, or
+passes it mutably to a call keeps the read inside it, before the inner loop.
+A length that is the inner loop's own `range(len(xs))` stop also stays there.
 
 An access that cannot fail has no bounds check. In
 `for i in range(start, len(xs))` with a nonnegative constant `start` and

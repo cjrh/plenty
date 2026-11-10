@@ -326,6 +326,34 @@ unpatched allocator counted each failure block's use of the lengths of `dy`,
 of a competing value; with that use at depth 0 they are spilled. The lengths
 are reloaded on every outer pass and need not be (issue #943).
 
+## Loop-nest header reads
+
+A loop that caches a list's length and row address, or a clist's row count
+and column addresses, read them before the innermost loop only, so a loop
+nest read them again on every outer pass (issue #943). The reads now move
+before the outermost enclosing loop that cannot resize, replace or retarget
+the collection, and sibling inner loops share them; the
+[collection architecture](../design/toolchain/02-architecture/collections.md)
+has the rule. Instruction counts against `2d20ddf5`, with identical output:
+
+| Program | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| n-body clist 500,000 | 1,234,574,987 | 795,574,670 | −35.6% |
+| fannkuch-redux 9 | 152,071,458 | 145,397,128 | −4.4% |
+| k-nucleotide (250k input) | 6,334,741,790 | 6,333,337,503 | −0.02% |
+| n-body 500,000 | 322,877,583 | 331,377,815 | +2.6% |
+
+fasta, spectral-norm, mandelbrot, binary-trees, reverse-complement and
+regex-redux are unchanged. The clist velocity kernel
+(`experiments/kernels/clist/`) falls from 70 instructions per pass to 58: with
+the row count fixed across the nest, the pair loop gets a copy with four of
+its six bounds checks, and the fully checked copy runs 66. Compiler instructions rise 0.04%
+to 0.1%, and 4.7% for n-body clist, which gains those loop copies.
+
+n-body's guarded scalar loop is the same operations with the header reads
+ahead of it; its 17 extra instructions per step are a spilled step counter
+and 13 register moves.
+
 ## B19: Compiler scale and caching
 
 - Warm single-file executable hits skip bundled-runtime extraction (issue #699).

@@ -115,13 +115,15 @@ enum Val {
     Code(Vec<Op>, Ty),
     Root(u8),
     Rows(u8, bool),
+    /// A root's length read before the candidate loop, with its size hint.
+    Len(u8, i64),
     Cell(u8, i64, Option<usize>),
     Unit,
     Unknown,
 }
 impl Val {
     fn int(&self) -> Option<i64> {
-        if let Self::Int(n) = self {
+        if let Self::Int(n) | Self::Len(_, n) = self {
             Some(*n)
         } else {
             None
@@ -129,7 +131,7 @@ impl Val {
     }
     fn code(self) -> Option<(Vec<Op>, Ty)> {
         match self {
-            Self::Int(n) => Some((vec![Op::PushInt(Literal::I64(n))], Ty::I64)),
+            Self::Int(n) | Self::Len(_, n) => Some((vec![Op::PushInt(Literal::I64(n))], Ty::I64)),
             Self::Bool(b) => Some((vec![Op::PushBool(b)], Ty::Bool)),
             Self::Code(ops, ty) => Some((ops, ty)),
             Self::Unit => Some((vec![Op::PushUnit], Ty::Unit)),
@@ -258,7 +260,7 @@ impl<'a> Eval<'a> {
         let Val::Rows(rows, true) = self.pop()? else {
             return None;
         };
-        let Val::Rows(length, false) = self.pop()? else {
+        let (Val::Rows(length, false) | Val::Len(length, _)) = self.pop()? else {
             return None;
         };
         (rows == length).then_some(Some(rows))
@@ -299,6 +301,9 @@ impl<'a> Eval<'a> {
                         }
                         Val::Int(n)
                     }
+                    // A loop nest's cached length, read before the candidate
+                    // loop (issue #943): later accesses name it as an operand.
+                    Val::Len(r, n) if !self.strict => Val::Len(r, n),
                     Val::Rows(r, rows) => {
                         if self.strict {
                             self.out.extend(root_ref(self.types, r, false));
@@ -351,13 +356,10 @@ impl<'a> Eval<'a> {
                 if self.strict {
                     self.stack.push(Val::Rows(root, false));
                 } else {
-                    self.stack.push(
-                        self.hints
-                            .get(t)
-                            .and_then(|n| *n)
-                            .map(Val::Int)
-                            .unwrap_or(Val::Unknown),
-                    );
+                    self.stack.push(match self.hints.get(t).and_then(|n| *n) {
+                        Some(n) => Val::Len(root, n),
+                        None => Val::Rows(root, false),
+                    });
                 }
             }
             Op::Collection(C::ListRowsRef(_)) => {
@@ -613,7 +615,7 @@ fn specialize(original: &Op, prefix: &Eval<'_>, params: usize) -> Option<(Vec<Op
     induction::local_uses(body, &mut HashSet::default(), &mut written);
     let mut guards = Vec::new();
     for (i, value) in eval.env.iter_mut().enumerate() {
-        if let Val::Int(n) = value {
+        if let Val::Int(n) | Val::Len(_, n) = value {
             if written.contains(&(i as u8)) {
                 *value = Val::Code(vec![Op::LoadLocal(i as u8)], Ty::I64);
             } else {

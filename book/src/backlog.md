@@ -189,7 +189,7 @@ every checked add and subtract (issue #934, in the Cranelift fork); the
 remaining per-pass costs are issue #935 (loads not folded into branch
 compares), in Cranelift, and for fasta issues #937
 (field value bounds), #940 (bounds of loop-carried locals), #938
-(loop-invariant loads) and #939 (spills around cold call blocks). The regalloc2 fork keeps a trap path's call arguments from pinning registers across its loop ([loop-exit blocks](completed-work/performance.md#loop-exit-blocks-kept-off-the-loops-allocation)); n-body clist's per-pass list and column header reloads are issue #943. Known returns of inlined calls skip the `?` test (issue
+(loop-invariant loads) and #939 (spills around cold call blocks). The regalloc2 fork keeps a trap path's call arguments from pinning registers across its loop ([loop-exit blocks](completed-work/performance.md#loop-exit-blocks-kept-off-the-loops-allocation)); n-body clist's list and column headers are read once before the step loop ([loop-nest header reads](completed-work/performance.md#loop-nest-header-reads)). Known returns of inlined calls skip the `?` test (issue
 #936), and a reference parameter's stored field is forwarded to the next read
 (`experiments/kernels/field-rng/`).
 Key-only dictionary probes are [delivered](completed-work/performance.md#b19-generated-code-and-storage);

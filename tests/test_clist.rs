@@ -1221,19 +1221,16 @@ fn row_fields_use_the_loop_cache_unless_the_loop_resizes() {
     let total = dump(dir.path(), "ops", "total");
     assert_eq!(total.matches("GetView(").count(), 2, "{total}");
     assert!(!total.contains("Get("), "{total}");
-    // Only innermost loops cache: the outer loop's three accesses read the
-    // header, the inner loop's five do not.
+    // The outer loop's three accesses and the inner loop's five share one
+    // cache (issue #943).
     let step = dump(dir.path(), "ops", "step");
     assert_eq!(
         step.matches("GetView(").count() + step.matches("SetView(").count(),
-        5,
+        8,
         "{step}"
     );
-    assert_eq!(
-        step.matches("Clist(Get(").count() + step.matches("Clist(Set(").count(),
-        3,
-        "{step}"
-    );
+    assert!(!step.contains("Clist(Get("), "{step}");
+    assert!(!step.contains("Clist(Set("), "{step}");
     for function in ["grow", "call", "shrink"] {
         let ops = dump(dir.path(), "ops", function);
         assert!(ops.contains("Clist(Get("), "{function}: {ops}");
