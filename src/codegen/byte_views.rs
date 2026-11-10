@@ -47,7 +47,9 @@ impl Lowerer<'_, '_> {
         self.stack.extend(args);
         // The loop cannot resize the buffer, so the method sees the cached
         // length and traps on this index; nothing is live across the call.
-        self.lower_call(&operation.bytes_view_method().unwrap())?;
+        // Kept a call, so this block has no successor and the allocator
+        // places its argument moves here instead of in the loop.
+        self.lower_call_out_of_line(&operation.bytes_view_method().unwrap())?;
         if value.is_none() {
             self.pop_typed(output.clone())?;
         }
