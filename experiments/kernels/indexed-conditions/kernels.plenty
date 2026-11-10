@@ -1,0 +1,45 @@
+# Loops whose condition indexes a list or view, and a unit-step range loop.
+
+
+# fasta: the cumulative-limit search, over a view.
+def find_view(limits: &[i64], r: i64) -> Result[i64, OverflowError[i64]]:
+    mut k = 0
+    while limits[k] < r:
+        k += 1
+    Ok(k)
+
+
+# The same search over a borrowed list.
+def find_list(limits: &list[i64], r: i64) -> Result[i64, OverflowError[i64]]:
+    mut k = 0
+    while limits[k] < r:
+        k += 1
+    Ok(k)
+
+
+# The search inside a counted loop: the list header is read once.
+def select_all(limits: &list[i64], targets: &[i64], out: &mut [i64]) -> ():
+    for i in range(len(targets)):
+        unchecked:
+            mut k = 0
+            while limits[k] < targets[i]:
+                k = k + 1
+            out[i] = k
+
+
+# A unit-step range loop.
+def total(values: &[i64]) -> i64:
+    unchecked:
+        mut t = 0
+        for i in range(len(values)):
+            t = t + values[i]
+        t
+
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    limits = [10, 20, 30, 40]?
+    targets = [5, 15, 25, 35]?
+    mut out = [0, 0, 0, 0]?
+    select_all(&limits, &targets, &mut out)
+    print(find_view(&limits, 25)?, find_list(&limits, 25)?, out, total(&limits))?
+    Ok(())

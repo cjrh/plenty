@@ -170,7 +170,8 @@ retain/release; temporary owners are released after obtaining the result.
 
 Text and `bytes` queries that return a scalar (`len`, `byte_len`, `isascii`,
 indexing, `ord`) call one narrow helper each, such as `plenty_text_len` or
-`plenty_bytes_item`; a `bytes` literal index calls `plenty_byte_str_item`.
+`plenty_bytes_item`. `len`, indexing and iteration of a `bytes` value are
+[inline loads](emission.md#bytes-values).
 `plenty_text_ord` returns the code point, or `u64::MAX` when the text is not
 one scalar, and codegen builds the `Result` inline. Results, bounds traps, and
 sites match the generic operations'. A query of a borrowed place reads through

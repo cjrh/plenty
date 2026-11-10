@@ -181,10 +181,14 @@ Preserve checks/aliasing and FP order; bound compile-time and code-size growth.
 Array syntax alone does not deliver the measured gain.
 Value bounds, positive-divisor floor division and counter checks in `and`
 conditions are delivered (spectral-norm, mandelbrot and fasta kernels in
-`experiments/kernels/value-bounds/`); their remaining per-pass costs are
-issue #932 (unrotated loops whose condition indexes a list), issue #933 (a
-trip counter beside the index) and issue #934 (unfused signed overflow flags,
-upstream Cranelift).
+`experiments/kernels/value-bounds/`), as are rotated list-index conditions,
+countdown-free unit-step range loops (issues #932 and #933;
+`experiments/kernels/indexed-conditions/`) and inline `bytes` value reads
+(`experiments/kernels/bytes-literals/`); the remaining per-pass costs are
+issue #934 (unfused signed overflow flags) and issue #935 (loads not folded
+into branch compares), both upstream Cranelift, and for fasta issues #936
+(inlined `Result` tag tests), #937 (field value bounds and store forwarding),
+#938 (loop-invariant loads) and #939 (spills around cold call blocks).
 Key-only dictionary probes are [delivered](completed-work/performance.md#b19-generated-code-and-storage);
 remaining k-nucleotide wrapper costs are tracked in issue #931.
 Use [profiling](development/profiling.md), [faster-linking evidence](proposals/faster-linking.md)

@@ -21,6 +21,8 @@ makes no call and performs no list operation other than scalar element reads,
 writes, and length queries. Each list keeps its own bounds check, and a
 negative index is still normalized; unrelated lists need not have equal
 lengths. Generator bodies and other loops keep ordinary indexed access.
+In nested loops, an immutable shared reference bound before the outer loop is
+read once, before the outermost loop that follows its binding.
 
 An access that cannot fail has no bounds check. In
 `for i in range(start, len(xs))` with a nonnegative constant `start` and

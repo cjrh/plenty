@@ -206,6 +206,34 @@ and [constants in loops](../design/toolchain/02-architecture/emission.md#constan
 Kernels and per-pass attribution are in `experiments/kernels/value-bounds/`;
 issues #932, #933 and #934 record the remaining causes.
 
+## Indexed loop conditions, range loop tests and `bytes` reads (issues #932 and #933)
+
+A loop whose condition indexes a view or a cached list (`while limits[k] < r:`)
+is rotated and its unit step has no overflow check; a unit-step `range` loop
+whose body reads its variable tests it against the stop and keeps no
+countdown; and a shared list's cached length and rows are read once before the
+outermost loop that follows the binding. `len`, indexing and iteration of a
+`bytes` value are inline loads, with a constant length for a known literal,
+and no longer end a loop's cached `Bytes` header. Instruction counts against
+`f0a789a7`, with identical output:
+
+| Program | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| fasta 2,500,000 | 2,186,826,930 | 1,647,914,707 | −24.6% |
+| n-body clist 500,000 | 1,283,860,195 | 1,193,362,116 | −7.0% |
+| fannkuch-redux 9 | 165,231,771 | 160,557,101 | −2.8% |
+| n-body 500,000 | 345,878,086 | 352,880,013 | +2.0% |
+
+The other Benchmarks Game programs change by at most 0.2%. In n-body the
+optimized IR of `advance` is smaller (14 fewer subtractions, 3 fewer
+compares) and its inner loops are equal or shorter, but the expanded step
+loop is 14 instructions longer after register allocation. The lowerings are described under
+[loop layout](../design/toolchain/02-architecture/emission.md#loop-layout),
+[loop counter checks](../design/toolchain/02-architecture/emission.md#loop-counter-checks)
+and [`bytes` values](../design/toolchain/02-architecture/emission.md#bytes-values).
+Kernels and attribution are in `experiments/kernels/indexed-conditions/` and
+`experiments/kernels/bytes-literals/`.
+
 ## B19: Compiler scale and caching
 
 - Warm single-file executable hits skip bundled-runtime extraction (issue #699).

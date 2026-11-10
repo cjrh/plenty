@@ -540,7 +540,9 @@ branch above.
 The condition is lowered twice, so rotation is limited to conditions whose
 second copy adds no observable work: reads of scalar, `bool` and view locals,
 arithmetic, compares, casts, `not`, short-circuit `and`/`or`, module
-constants, and a view's length and items (`rotatable`). Both copies carry the condition's source
+constants, a view's length and items, and a scalar list row read through the
+loop's cached length and rows, as in `while limits[k] < r:` (`rotatable`;
+issue #932). Both copies carry the condition's source
 position, so a failing index or overflow reports the same error and location
 from either copy, and they evaluate in the same order. A condition with a call,
 a list's length, a collection method or a managed value keeps the header test.
@@ -617,6 +619,15 @@ range's computed length, start, and step, and nothing in the body writes them
 except the loop's own step before `continue`. Reversed ranges, other steps,
 narrower elements, and range values in locals keep every check.
 
+Such a loop also tests `i < stop` instead of the frontend's trip countdown
+`remaining > 0` when only the condition and the step read the countdown and
+the body reads the variable (`Facts::counted`; issue #933). A `for _ in
+range(n)` loop keeps the countdown, its only live counter. The two tests agree on every pass: the
+variable starts at `start`, the countdown at `stop - start` or zero, and each
+pass moves both by one. The countdown's stores are then not lowered, so a pass
+ends in `add; cmp; jl`. A range longer than `i64.MAX` fails before the loop
+either way.
+
 Counters in memory, borrowed locals and generator frames, are not analyzed.
 `for` loops over ranges step with wrapping arithmetic. A range over
 an integer type narrower than `i64`, or one with a positive literal step and
@@ -649,7 +660,15 @@ of a `&[u8]` or a list get no bound from it, so their sums keep the check.
 A unit step that follows a successful index check of the same value, as in
 `while limits[k] < r: k += 1`, is below the row count and needs no check.
 In an unrotated loop the check runs in the header, and the body continues
-its dominance chain.
+its dominance chain. A loop whose condition indexes a view or a cached list
+with an `i64` local at its top level also treats that local as its counter
+(`analyze_indexed`): the first unit step of each pass has no check, and an
+index that only grows from a nonnegative start needs no negative-index
+normalization.
+The index check of a `bytes` value counts as well, and the chain continues
+through the in-range arm of a cached `Bytes.get` or `Bytes.set` guard, whose
+other arm is a cold method call: in `block.set(i, ALU[position])` followed by
+`position += 1`, the step is a plain add.
 
 ## Floor division by a positive divisor
 
@@ -692,6 +711,26 @@ extending load. `src/codegen/extending_loads.rs` rewrites a `uextend` or
 like when the load cannot trap, the extension is its only use, and nothing
 between them in the block stores, calls or has other side effects (issue
 #760). The unused narrow load is not lowered.
+
+## `bytes` values
+
+Every `bytes` value is the address of a literal in read-only data: the byte
+count at offset 16 and the bytes from offset 32. `len`, indexing and
+iteration read them inline with `readonly` loads, so repeated reads of one
+value share a load and no runtime call is made. A failing index reports the
+same trap, position and message as before.
+
+- `len` of a literal, or of a constant whose value is a literal, is an
+  integer constant in the operation stream. In codegen, the length of a
+  value known to be a particular literal (`Facts::byte_literals`) is a
+  constant, so `ALU[position]` compares `position` with an immediate.
+- `for byte in value` reads the length once before the loop and compares its
+  index with that local. The index is then an ordinary counter: its step has
+  no overflow check and the loop is rotated.
+- Reading a `bytes` value does not end a loop's cached list or `Bytes`
+  header, since the data is not a list.
+
+Kernels and counts are in `experiments/kernels/bytes-literals/`.
 
 ## Measuring compilation
 

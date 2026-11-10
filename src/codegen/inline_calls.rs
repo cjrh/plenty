@@ -394,6 +394,7 @@ impl Lowerer<'_, '_> {
             counters: induction::Facts {
                 nonnegative: std::mem::take(&mut self.counters.nonnegative),
                 at_most: std::mem::take(&mut self.counters.at_most),
+                byte_literals: std::mem::take(&mut self.counters.byte_literals),
                 ..Default::default()
             },
             position: match caller {
@@ -407,6 +408,7 @@ impl Lowerer<'_, '_> {
         self.collection_scratch = callee.collection_scratch;
         self.counters.nonnegative = std::mem::take(&mut callee.counters.nonnegative);
         self.counters.at_most = std::mem::take(&mut callee.counters.at_most);
+        self.counters.byte_literals = std::mem::take(&mut callee.counters.byte_literals);
         let callee_loops = lowered
             .map_err(|e| -> Box<dyn Error> { format!("in inlined `{name}`: {e}").into() })?;
         if callee_loops && let Some(exits) = &mut self.exits {
