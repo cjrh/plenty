@@ -36,7 +36,11 @@ impl Lowerer<'_, '_> {
         let slow = self.bcx.create_block();
         // Unsigned, so a negative index also fails.
         let in_range = self.bcx.ins().icmp(IntCC::UnsignedLessThan, index, length);
+        let before = self.bcx.current_block();
         self.bcx.ins().brif(in_range, fast, &[], slow, &[]);
+        // Only `before` reaches `fast`, so its row checks still hold there;
+        // the failing path ends in a trap and must not disturb them.
+        let checked = std::mem::take(&mut self.counters.checked);
         self.bcx.set_cold_block(slow);
         self.bcx.switch_to_block(slow);
         self.bcx.seal_block(slow);
@@ -50,6 +54,8 @@ impl Lowerer<'_, '_> {
         self.bcx.ins().trap(TrapCode::unwrap_user(1));
         self.bcx.switch_to_block(fast);
         self.bcx.seal_block(fast);
+        self.counters.checked = checked;
+        self.counters.checked.continue_to(before, fast);
         let result = self.byte_view_access(rows, index, value);
         self.stack.push((result, output));
         Ok(())
@@ -72,6 +78,44 @@ impl Lowerer<'_, '_> {
             }
             None => self.bcx.ins().load(types::I8, flags, address, 0),
         }
+    }
+
+    /// `len` and indexing of a `bytes` value without a runtime call. Every
+    /// `bytes` value is the address of a literal in the immortal text layout
+    /// (`string_literal_bytes`): the byte count at offset 16, the bytes from
+    /// offset 32. Indexing follows the list index rules and reports a
+    /// failure as the runtime's `plenty_byte_str_item` does.
+    pub(super) fn lower_byte_literal(&mut self, operation: &CollectionOp) -> Result<()> {
+        let index = match operation {
+            CollectionOp::Len(_) => None,
+            _ => Some(self.pop_typed(Ty::I64)?.0),
+        };
+        let (literal, _) = self.pop_typed(Ty::ByteStr)?;
+        // The data is never written, so repeated reads share one load.
+        let flags = MemFlagsData::trusted().with_readonly();
+        let rows = |lower: &mut Self| lower.bcx.ins().iadd_imm_s(literal, 32);
+        // Iteration's index runs from zero to below the literal's length.
+        if let (CollectionOp::IterGet(_), Some(index)) = (operation, index) {
+            let rows = rows(self);
+            let address = self.bcx.ins().iadd(rows, index);
+            let byte = self.bcx.ins().load(types::I8, flags, address, 0);
+            self.stack.push((byte, Ty::U8));
+            return Ok(());
+        }
+        let known = self.bcx.func.dfg.resolve_aliases(literal);
+        let length = match self.counters.byte_literals.get(&known) {
+            Some(&length) => self.bcx.ins().iconst(types::I64, length),
+            None => self.bcx.ins().load(types::I64, flags, literal, 16),
+        };
+        let Some(index) = index else {
+            self.stack.push((length, Ty::I64));
+            return Ok(());
+        };
+        let rows = rows(self);
+        let address = self.checked_row(rows, length, index, 1)?;
+        let byte = self.bcx.ins().load(types::I8, flags, address, 0);
+        self.stack.push((byte, Ty::U8));
+        Ok(())
     }
 
     fn unit_value(&mut self) -> NativeValue {

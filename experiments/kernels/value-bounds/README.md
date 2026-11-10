@@ -65,12 +65,13 @@ Cranelift block-layout results, as in issue #720.
 | Useful work | 3 | 3 |
 
 `k` passed the index check of a list of at most `i64.MAX / 8` rows, so
-`k + 1` cannot overflow. The loop stays unrotated because its condition
-indexes a list (issue #932).
+`k + 1` cannot overflow. The loop stayed unrotated because its condition
+indexes a list; issue #932 rotated it later
+(see [`indexed-conditions`](../indexed-conditions/README.md)).
 
 The generator step `(state * 3877 + 29573) % 139968` before the loop went
 from a sign-compare-and-select fixup to `sar; and; add`. Its addition keeps a
 `seto; test; jne` check: Cranelift 0.137 fuses the overflow flag into the
 branch for `smul_overflow` and `uadd_overflow` only (see `compared_add_sub`
-in `src/codegen.rs`; issue #934). The trip counter of `a_times_u` is
-issue #933.
+in `src/codegen.rs`; issue #934). The trip counter of `a_times_u` was
+removed later by issue #933.

@@ -57,6 +57,14 @@ pub(super) struct Facts {
     /// recorded bound: a view's count, a counter below it, and sums and
     /// products of these that cannot overflow.
     pub at_most: HashMap<Value, u64>,
+    /// The byte count of each `bytes` literal address this function
+    /// materialized, so `len` and index checks of it use a constant.
+    pub byte_literals: HashMap<Value, i64>,
+    /// The countdown and loop variable slots of the unit-step range loops
+    /// being lowered, with each range's stop. Such a loop runs while its
+    /// variable is below the stop, which holds exactly while the countdown
+    /// is positive, so stores to the countdown are dropped (issue #933).
+    pub counted: Vec<(u8, u8, Value)>,
     /// Row bounds checks done on the current path; see [`Checked`].
     pub checked: Checked,
     /// Facts that prove a row index below a list's length; see [`Bounds`].
@@ -306,6 +314,43 @@ pub(super) struct RangeLoop {
     pub advance: u8,
     /// Body indices of top-level `target + 1` additions.
     pub unit_steps: Vec<usize>,
+    /// Only the condition and the step read `remaining`, and the body reads
+    /// `target`. With a unit step the loop can then test `target < stop` and
+    /// keep no countdown (issue #933); the frontend reads the slot nowhere
+    /// after the loop.
+    pub countdown_private: bool,
+}
+
+/// How often `ops` and their nested bodies contain an operation `counted`
+/// accepts.
+fn count(ops: &[Op], counted: &dyn Fn(&Op) -> bool) -> usize {
+    ops.iter()
+        .map(|op| {
+            let nested = |ops: &[Op]| count(ops, counted);
+            usize::from(counted(op))
+                + match op {
+                    Op::Loop { condition, body } => nested(condition) + nested(body),
+                    Op::If {
+                        then,
+                        elifs,
+                        otherwise,
+                    } => {
+                        nested(then)
+                            + nested(otherwise)
+                            + elifs
+                                .iter()
+                                .map(|arm| nested(&arm.condition) + nested(&arm.body))
+                                .sum::<usize>()
+                    }
+                    Op::Match(arms) => arms.iter().map(|arm| nested(&arm.body)).sum(),
+                    Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => nested(cleanup),
+                    Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
+                        nested(body)
+                    }
+                    _ => 0,
+                }
+        })
+        .sum()
 }
 
 /// Match a counted `range` loop; [`RangeLoop`] states what the caller must
@@ -353,11 +398,25 @@ pub(super) fn analyze_range(condition: &[Op], body: &[Op]) -> Option<RangeLoop> 
             )
         })
         .collect();
+    // Every write is a step, and each step reads the slot once.
+    let countdown_private = count(
+        body,
+        &|op| matches!(op, Op::LoadLocal(i) if *i == remaining),
+    ) == count(
+        body,
+        &|op| matches!(op, Op::StoreLocal(i) if *i == remaining),
+    );
+    // A body that never reads the variable (`for _ in range(n)`) counts
+    // passes with the countdown alone; the stop would be one more live value.
+    let countdown_private = countdown_private
+        && count(body, &|op| matches!(op, Op::LoadLocal(i) if *i == target))
+            > count(body, &|op| matches!(op, Op::StoreLocal(i) if *i == target));
     Some(RangeLoop {
         target,
         remaining,
         advance,
         unit_steps,
+        countdown_private,
     })
 }
 
@@ -552,6 +611,44 @@ pub(super) fn analyze(condition: &[Op], body: &[Op], locals: &[Ty]) -> Option<Co
         }
         None => right_counter,
     }
+}
+
+/// Analyze a loop whose condition indexes a list or view with a local, at
+/// the condition's top level, as `while limits[k] < r: k += 1` does. Each
+/// pass runs after that access succeeded, so the index was below a length,
+/// which fits the signed type: a first step of 1 cannot overflow. A negative
+/// index passes the check too, and its step cannot overflow either.
+pub(super) fn analyze_indexed(condition: &[Op], body: &[Op], locals: &[Ty]) -> Option<Counter> {
+    use crate::collection::CollectionOp as C;
+    let ops: Vec<&Op> = condition.iter().filter(|op| !transparent(op)).collect();
+    let local = ops
+        .iter()
+        .enumerate()
+        .find_map(|(at, op)| match (op, &ops[..at]) {
+            (
+                Op::Collection(C::ListScalarGetView(_)),
+                [.., Op::LoadLocal(i), Op::LoadLocal(_), Op::LoadLocal(_)],
+            )
+            | (Op::Collection(C::ViewRow(..)), [.., Op::LoadLocal(i)]) => Some(*i),
+            _ => None,
+        })?;
+    if locals.get(local as usize) != Some(&Ty::I64) || condition.iter().any(|op| writes(op, local))
+    {
+        return None;
+    }
+    let mut only_grows = true;
+    if !writes_are_steps(condition, local, &mut true)
+        || !writes_are_steps(body, local, &mut only_grows)
+    {
+        return None;
+    }
+    let proven_step = first_step(body, local).filter(|&(_, delta)| delta == 1);
+    Some(Counter {
+        local,
+        proven_step: proven_step.map(|(index, _)| index),
+        only_grows,
+        bound_step: None,
+    })
 }
 
 fn analyze_counter(

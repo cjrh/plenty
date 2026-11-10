@@ -1,0 +1,34 @@
+# Loops that read a `bytes` literal.
+import std.bytes
+
+const ALU: bytes = b"GGCCGGGCGCGGTGGCTCACGCCTGTAATCCCAGCACTTTGGGAGGCCGAGGCGGGCGGATCACCTGAGGTCAGGAGTTCGAGACCAGCCTGGCCAACATGGTGAAACCCCGTCTCTACTAAAAATACAAAAATTAGCCGGGCGTGGTGGCGCGCGCCTGTAATCCCAGCTACTCGGGAGGCTGAGGCAGGAGAATCGCTTGAACCCGGGAGGCGGAGGTTGCAGTGAGCCGAGATCGCGCCACTGCACTCCAGCCTGGGCGACAGAGCGAGACTCCGTCTCAAAAA"
+
+
+# fasta: the repeated sequence copied into the output block.
+def fill(block: &mut std.bytes.Bytes, count: i64, start: i64) -> Result[i64, OverflowError[i64]]:
+    mut position = start
+    for i in range(count):
+        block.set(i, ALU[position])
+        position += 1
+        if position == len(ALU):
+            position = 0
+    Ok(position)
+
+
+# Iteration over a literal.
+def checksum() -> u64:
+    unchecked:
+        mut total = 0u64
+        for byte in ALU:
+            total = total + u64(byte)
+        total
+
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    mut block = std.bytes.with_capacity(61440)?
+    block.resize(61440, 0u8)?
+    mut position = 0
+    for _ in range(100):
+        position = fill(&mut block, 61440, position)?
+    print(position, block.get(100), checksum())?
+    Ok(())

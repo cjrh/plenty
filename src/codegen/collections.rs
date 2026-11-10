@@ -888,6 +888,12 @@ impl Lowerer<'_, '_> {
         if let CollectionOp::BytesGetView(_) | CollectionOp::BytesSetView(_) = operation {
             return self.lower_bytes_view(operation);
         }
+        if let CollectionOp::Len(Ty::ByteStr)
+        | CollectionOp::Get(Ty::ByteStr)
+        | CollectionOp::IterGet(Ty::ByteStr) = operation
+        {
+            return self.lower_byte_literal(operation);
+        }
         if matches!(
             operation,
             CollectionOp::TextView(crate::text::TextViewOp::Bytes)
@@ -1919,6 +1925,7 @@ impl Lowerer<'_, '_> {
         let rotated = self.rotatable(condition);
         let types: Vec<Ty> = self.locals.iter().map(|(_, ty)| ty.clone()).collect();
         let counter = super::induction::analyze(condition, body, &types)
+            .or_else(|| super::induction::analyze_indexed(condition, body, &types))
             .filter(|counter| self.local_address(counter.local).is_none());
         let proven_step = counter.as_ref().and_then(|counter| counter.proven_step);
         let bound_step = counter
@@ -2002,6 +2009,12 @@ impl Lowerer<'_, '_> {
         if let Some(below) = below {
             self.counters.bounds.below_locals.push(below);
         }
+        let counted = range
+            .as_ref()
+            .zip(stop)
+            .filter(|(range, _)| range.countdown_private && types[range.target as usize] == Ty::I64)
+            .map(|(range, stop)| (range.remaining, range.target, stop));
+        self.counters.counted.extend(counted);
         let low = nonnegative.as_ref().map(|counter| counter.local);
         let mut relation = if rotated {
             self.enter_relation(condition, body, low, &types, invariant)?
@@ -2105,6 +2118,9 @@ impl Lowerer<'_, '_> {
                 self.bcx.seal_block(header);
             }
         }
+        if counted.is_some() {
+            self.counters.counted.pop();
+        }
         if below.is_some() {
             self.counters.bounds.below_locals.pop();
         }
@@ -2205,10 +2221,7 @@ impl Lowerer<'_, '_> {
             self.counters.nonnegative_locals.extend(high);
             test?
         } else {
-            for op in condition {
-                self.lower(op)?;
-            }
-            self.pop_typed(Ty::Bool)?.0
+            self.lower_condition(condition)?
         };
         // Branch to the exit on the complemented test where one is free, so
         // the exit is the first successor. Cranelift lowers blocks in the
@@ -2292,9 +2305,27 @@ impl Lowerer<'_, '_> {
         facts: usize,
     ) -> Result<cranelift_codegen::ir::Value> {
         let own = self.counters.bounds.below_locals.split_off(facts);
-        let lowered = condition.iter().try_for_each(|op| self.lower(op));
+        let lowered = self.lower_condition(condition);
         self.counters.bounds.below_locals.extend(own);
-        lowered?;
+        lowered
+    }
+
+    /// Lowers a loop condition and returns its test. A counted range loop's
+    /// `remaining > 0` becomes `target < stop`; see `Facts::counted`.
+    fn lower_condition(&mut self, condition: &[Op]) -> Result<cranelift_codegen::ir::Value> {
+        if let [Op::LoadLocal(countdown), ..] = condition
+            && let Some(&(_, target, stop)) = self
+                .counters
+                .counted
+                .iter()
+                .find(|(counted, ..)| counted == countdown)
+        {
+            let index = self.read_local(target);
+            return Ok(self.bcx.ins().icmp(IntCC::SignedLessThan, index, stop));
+        }
+        for op in condition {
+            self.lower(op)?;
+        }
         Ok(self.pop_typed(Ty::Bool)?.0)
     }
 
@@ -2305,6 +2336,9 @@ impl Lowerer<'_, '_> {
     /// managed values keep the condition at the header.
     fn rotatable(&self, condition: &[Op]) -> bool {
         let plain = |ty: &Ty| ty.is_numeric() || *ty == Ty::Bool;
+        // The receiver of a cached row read: a pointer copy, never released.
+        let shared_list =
+            |ty: &Ty| matches!(ty, Ty::Ref(inner, false) if matches!(**inner, Ty::List(_)));
         condition.iter().all(|op| match op {
             Op::Site(_)
             | Op::CallerSite(_)
@@ -2332,12 +2366,18 @@ impl Lowerer<'_, '_> {
             | Op::Not
             | Op::Dup
             | Op::Swap
-            | Op::Collection(CollectionOp::ViewLen(_) | CollectionOp::ViewRow(..)) => true,
+            | Op::Collection(
+                CollectionOp::ViewLen(_)
+                | CollectionOp::ViewRow(..)
+                // Reads the row through the loop's cached length and rows,
+                // which are scalar locals (issue #932).
+                | CollectionOp::ListScalarGetView(_),
+            ) => true,
             Op::LoadLocal(i) => {
                 let ty = &self.locals[*i as usize].1;
-                plain(ty) || matches!(ty, Ty::View(..))
+                plain(ty) || matches!(ty, Ty::View(..)) || shared_list(ty)
             }
-            Op::Reborrow(ty) => matches!(ty, Ty::View(..)),
+            Op::Reborrow(ty) => matches!(ty, Ty::View(..)) || shared_list(ty),
             Op::ReadRef(ty) | Op::Cast(ty) | Op::CheckedCast(ty) => plain(ty),
             // A short-circuit `and` or `or`.
             Op::Match(arms) => arms.iter().all(|arm| {

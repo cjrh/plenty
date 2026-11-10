@@ -55,6 +55,7 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
     let incoming = bcx.block_params(entry).to_vec();
     let strings = StrData {
         literals: HashMap::default(),
+        byte_lens: HashMap::default(),
         tables: HashMap::default(),
     };
     let mut lower = Lowerer {

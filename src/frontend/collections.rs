@@ -194,6 +194,9 @@ impl Scan {
                     | C::ListRowsRef(_)
                     | C::ListRowBytesRef(_)
                     | C::Len(_)
+                    // A `bytes` literal is immortal data, not a list.
+                    | C::Get(Ty::ByteStr)
+                    | C::IterGet(Ty::ByteStr)
                     | C::ViewLen(_)
                     | C::ViewNew(..)
                     | C::ViewRow(..)
@@ -226,6 +229,7 @@ impl Scan {
                 | Op::PushInt(_)
                 | Op::PushFloat { .. }
                 | Op::PushBool(_)
+                | Op::PushBytes(_)
                 | Op::PushUnit
                 | Op::FloatNeg
                 | Op::Add
@@ -3165,6 +3169,20 @@ impl Lower<'_> {
         } else {
             ops.extend([Op::PushInt(Value::I64(0)), Op::StoreLocal(index)]);
         }
+        // `bytes` is immutable, so its length is read once: the loop then
+        // compares its index with a local, as a range loop does, and a
+        // literal's length is a constant.
+        let byte_stop = if ty == Ty::ByteStr && !reverse {
+            let stop = self.slot(Ty::I64, at)?;
+            ops.extend([
+                Op::LoadLocal(source),
+                Op::Collection(CollectionOp::Len(ty.clone())),
+                Op::StoreLocal(stop),
+            ]);
+            Some(stop)
+        } else {
+            None
+        };
         let scalar_list = list && (element.is_numeric() || element == Ty::Bool);
         let exact_len = list.then(|| {
             vec![
@@ -3176,6 +3194,8 @@ impl Lower<'_> {
             vec![Op::LoadLocal(index), Op::PushInt(Value::I64(0)), Op::Ne]
         } else if reverse {
             vec![Op::LoadLocal(index), Op::PushInt(Value::I64(0)), Op::Gt]
+        } else if let Some(stop) = byte_stop {
+            vec![Op::LoadLocal(index), Op::LoadLocal(stop), Op::Lt]
         } else {
             vec![
                 Op::LoadLocal(index),
@@ -3402,6 +3422,29 @@ impl Lower<'_> {
         if let Some(view) = context.views.get(&place.key) {
             return Ok(Some(*view));
         }
+        let stop = self.cached_stop(&place.key);
+        // A stable place cannot change while its binding lives, so its
+        // header is read once, before the outermost enclosing loop the
+        // binding precedes: `while limits[k] < r` inside a `for` reads the
+        // header once, not on every outer pass (issue #932). A length taken
+        // from this loop's range stop belongs to this loop alone.
+        let innermost = self.indexed_lists.len() - 1;
+        let home = if place.stable && stop.is_none() {
+            let enclosing = self.indexed_lists.iter().rev();
+            innermost
+                - enclosing
+                    .skip(1)
+                    .take_while(|context| usize::from(place.source) < context.before)
+                    .count()
+        } else {
+            innermost
+        };
+        if let Some(view) = self.indexed_lists[home].views.get(&place.key).copied() {
+            for context in &mut self.indexed_lists[home..] {
+                context.views.insert(place.key.clone(), view);
+            }
+            return Ok(Some(view));
+        }
         let view = [self.slot(Ty::I64, &base.at)?, self.slot(Ty::I64, &base.at)?];
         let mut setup = Vec::new();
         self.mark(&base.at, &mut setup);
@@ -3409,7 +3452,7 @@ impl Lower<'_> {
             (CollectionOp::ListLenRef(ty.clone()), view[0]),
             (CollectionOp::ListRowsRef(ty.clone()), view[1]),
         ];
-        if let Some(stop) = self.cached_stop(&place.key) {
+        if let Some(stop) = stop {
             setup.extend([Op::LoadLocal(stop), Op::StoreLocal(view[0])]);
             reads.remove(0);
         }
@@ -3421,9 +3464,10 @@ impl Lower<'_> {
                 Op::UseLoan(loan),
             ]);
         }
-        let context = self.indexed_lists.last_mut().unwrap();
-        context.views.insert(place.key.clone(), view);
-        Self::cache_setup(context, &place, view, setup);
+        for context in &mut self.indexed_lists[home..] {
+            context.views.insert(place.key.clone(), view);
+        }
+        Self::cache_setup(&mut self.indexed_lists[home], &place, view, setup);
         Ok(Some(view))
     }
 
@@ -5854,6 +5898,29 @@ impl Lower<'_> {
         Ok(())
     }
 
+    /// The byte count of a `bytes` literal or of a read of a `bytes` module
+    /// constant, whose initializer `consts::fold` replaced with its literal.
+    fn literal_byte_count(&self, e: &Expr) -> Option<i64> {
+        let value = match &ungroup(e).kind {
+            Expression::Call(name, args) if args.is_empty() => {
+                match self.generics.constants.get(name)?.body.as_slice() {
+                    [
+                        Stmt {
+                            kind: Statement::Expr(value),
+                            ..
+                        },
+                    ] => value,
+                    _ => return None,
+                }
+            }
+            _ => e,
+        };
+        match &ungroup(value).kind {
+            Expression::Bytes(literal) => Some(literal.len() as i64),
+            _ => None,
+        }
+    }
+
     pub(super) fn builtin_collection(
         &mut self,
         name: &str,
@@ -5887,6 +5954,10 @@ impl Lower<'_> {
                 }
                 _ => &args[0],
             };
+            if let Some(length) = self.literal_byte_count(arg) {
+                ops.push(Op::PushInt(Value::I64(length)));
+                return Ok(Ty::I64);
+            }
             // A projection borrows its enclosing owner, including when that
             // owner is a temporary or returned reference. Reuse method receiver
             // lowering rather than asking a projected field/element to move.

@@ -1669,12 +1669,14 @@ fn declare_str_data(ops: &[Op], heap: &Heap, module: &mut ObjectModule) -> Resul
     collect_str_ids(ops, &mut ids, &mut seen, &mut matches);
 
     let mut out: HashMap<StrId, DataId> = HashMap::default();
+    let mut byte_lens: HashMap<StrId, i64> = HashMap::default();
     for (i, id) in ids.into_iter().enumerate() {
         // The name only has to be unique within the module; the linker
         // never sees it externally (Linkage::Local). A stable index
         // keeps the symbol names predictable when reading disassembly.
         let name = format!("plenty_str_{i}");
         let data_id = module.declare_data(&name, Linkage::Local, false, false)?;
+        byte_lens.insert(id, heap.data(id).0.len() as i64);
         let bytes = string_literal_bytes(heap.data(id));
         let mut desc = DataDescription::new();
         desc.define(bytes.into_boxed_slice());
@@ -1685,6 +1687,7 @@ fn declare_str_data(ops: &[Op], heap: &Heap, module: &mut ObjectModule) -> Resul
     let tables = matching::declare_str_tables(&matches, heap, module)?;
     Ok(StrData {
         literals: out,
+        byte_lens,
         tables,
     })
 }
@@ -1693,6 +1696,8 @@ fn declare_str_data(ops: &[Op], heap: &Heap, module: &mut ObjectModule) -> Resul
 /// tables that large string matches search (issue #565).
 pub(super) struct StrData {
     literals: HashMap<StrId, DataId>,
+    /// Each literal's byte count.
+    byte_lens: HashMap<StrId, i64>,
     tables: matching::StrTables,
 }
 
@@ -2950,11 +2955,14 @@ impl Lowerer<'_, '_> {
             Op::StoreLocal(i) => {
                 let ty = self.locals[*i as usize].1.clone();
                 let (value, _) = self.pop_typed(ty.clone())?;
-                if ty.managed() {
-                    let old = self.read_local(*i);
-                    self.release(old, &ty);
+                let countdown = |&(countdown, ..): &(u8, u8, _)| countdown == *i;
+                if !self.counters.counted.iter().any(countdown) {
+                    if ty.managed() {
+                        let old = self.read_local(*i);
+                        self.release(old, &ty);
+                    }
+                    self.write_local(*i, value);
                 }
-                self.write_local(*i, value);
             }
             Op::Call(name) => self.lower_call(name)?,
             Op::FunctionAddress(name, signature) => {
@@ -3855,6 +3863,11 @@ impl Lowerer<'_, '_> {
             })?;
         let gv = self.module.declare_data_in_func(data_id, self.bcx.func);
         let addr = self.bcx.ins().symbol_value(PTR_TY, gv);
+        if ty == Ty::ByteStr {
+            self.counters
+                .byte_literals
+                .insert(addr, self.str_data.byte_lens[&id]);
+        }
         self.stack.push((addr, ty));
         Ok(())
     }

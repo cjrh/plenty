@@ -251,7 +251,8 @@ fn ord_literals_and_owned_receivers_return_the_dispatcher_results() {
 fn ord_literals_and_owned_receivers_skip_the_dispatcher_and_retain() {
     for (function, expected) in [
         ("code", &["plenty_text_ord"][..]),
-        ("literal", &["plenty_byte_str_item"][..]),
+        // A `bytes` literal is read and measured inline.
+        ("literal", &[][..]),
         // Sorted. Both return paths share the parameter's drop (issue #407).
         (
             "sizes",
@@ -262,14 +263,7 @@ fn ord_literals_and_owned_receivers_skip_the_dispatcher_and_retain() {
                 "plenty_text_len",
             ][..],
         ),
-        (
-            "literal_sum",
-            &[
-                "plenty_byte_str_item",
-                "plenty_text_byte_len",
-                "plenty_text_byte_len",
-            ][..],
-        ),
+        ("literal_sum", &[][..]),
     ] {
         let mut calls = runtime_calls(OWNED, function);
         calls.sort();
