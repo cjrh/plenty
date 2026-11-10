@@ -20,7 +20,7 @@ use std::net::{TcpListener, TcpStream, UdpSocket};
 use std::path::Path;
 use std::process::{Child, ChildStdout, Command, Output, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
 const SERVER: &str = include_str!("fixtures/proxy/server.plenty");
@@ -35,6 +35,33 @@ const CADDY_IMAGE: &str = "caddy:2.11.7-alpine";
 const MOUNT: &str = "/etc/plenty-proxy";
 
 const SIGTERM: i32 = 15;
+
+#[test]
+fn proxy_bind_guard_excludes_concurrent_upstream_startup() {
+    let guard = proxy_bind_guard();
+    let reserved = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = reserved.local_addr().unwrap();
+    drop(reserved);
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (acquired_tx, acquired_rx) = std::sync::mpsc::channel();
+    let thread = std::thread::spawn(move || {
+        started_tx.send(()).unwrap();
+        let _guard = proxy_bind_guard();
+        acquired_tx
+            .send(TcpListener::bind(address).is_err())
+            .unwrap();
+    });
+    started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(matches!(
+        acquired_rx.try_recv(),
+        Err(std::sync::mpsc::TryRecvError::Empty)
+    ));
+    let proxy_listener = TcpListener::bind(address).unwrap();
+    drop(guard);
+    assert!(acquired_rx.recv_timeout(Duration::from_secs(5)).unwrap());
+    drop(proxy_listener);
+    thread.join().unwrap();
+}
 
 #[test]
 fn proxy_fixture_type_checks_without_docker() {
@@ -70,6 +97,13 @@ pub(super) fn enabled(test: &str) -> bool {
         panic!("PLENTY_DOCKER_TESTS=1 but curl cannot run: {error}");
     }
     true
+}
+
+// Cooperating upstreams bind ephemeral ports. Keep them from binding a proxy
+// port after its reservation is dropped and before the container listens.
+pub(super) fn proxy_bind_guard() -> MutexGuard<'static, ()> {
+    static BIND: Mutex<()> = Mutex::new(());
+    BIND.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 type PortRegistry = Arc<Mutex<HashSet<u16>>>;
@@ -172,6 +206,7 @@ impl Server {
         plenty::compile_file_to_executable(&source, &built, None)
             .unwrap_or_else(|error| panic!("{error}"));
         support::install_executable(&built, &executable);
+        let bind_guard = proxy_bind_guard();
         let mut child = Command::new(executable)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -187,6 +222,7 @@ impl Server {
             .unwrap_or_else(|| panic!("no port line: {line:?}"))
             .parse()
             .unwrap();
+        drop(bind_guard);
         Server {
             child,
             lines,
@@ -315,6 +351,7 @@ impl Proxy {
         // the unavoidable external handoff window short. Retain logical ownership
         // so another fixture in this process cannot select either port meanwhile.
         // Identity probes still reject foreign listeners immediately.
+        let bind_guard = proxy_bind_guard();
         let lease = ports.release_sockets();
         let docker = Command::new("docker")
             .args(["run", "--rm", "--name", &name, "--network", "host"])
@@ -338,6 +375,7 @@ impl Proxy {
             _ports: lease,
         };
         proxy.wait_ready();
+        drop(bind_guard);
         proxy
     }
 
