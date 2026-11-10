@@ -252,6 +252,9 @@ impl Lowerer<'_, '_> {
         ty: &Ty,
     ) -> (NativeValue, NativeValue) {
         let signed = is_signed(ty.clone());
+        if signed && let Some(value) = self.lower_bounded_arith(kind, a, b) {
+            return (value, self.bcx.ins().iconst(types::I8, 0));
+        }
         match self.compared_add_sub(kind, signed, a, b) {
             Some(checked) => checked,
             None => match (kind, signed) {
@@ -322,6 +325,7 @@ impl Lowerer<'_, '_> {
         ty: &Ty,
         proof: crate::numeric::Divisor,
     ) -> (NativeValue, Vec<(NativeValue, TrapKind)>) {
+        let positive = proof == crate::numeric::Divisor::Positive;
         let (zero, minus_one) = self.divisor_flags(a, b, ty, proof);
         let divisor = self.safe_divisor(b, ty, &[zero, minus_one]);
         let mut failures: Vec<_> = zero
@@ -330,13 +334,13 @@ impl Lowerer<'_, '_> {
             .collect();
         let Some(minus_one) = minus_one else {
             let value = if is_signed(ty.clone()) && !self.nonnegative_division(a, b, proof) {
-                self.floored(a, divisor)
+                self.floored(a, divisor, positive)
             } else {
                 self.bcx.ins().udiv(a, divisor)
             };
             return (value, failures);
         };
-        let quotient = self.floored(a, divisor);
+        let quotient = self.floored(a, divisor, positive);
         let negated = self.bcx.ins().ineg(a);
         let value = self.bcx.ins().select(minus_one, negated, quotient);
         let int_min = match ty {
@@ -352,16 +356,73 @@ impl Lowerer<'_, '_> {
     }
 
     /// Signed division rounded toward negative infinity, by a divisor that
-    /// is neither zero nor `-1`.
-    fn floored(&mut self, a: NativeValue, divisor: NativeValue) -> NativeValue {
+    /// is neither zero nor `-1`. `positive` states that the divisor is
+    /// greater than zero.
+    ///
+    /// An arithmetic shift already rounds toward negative infinity, so a
+    /// power-of-two divisor needs no division. For any positive divisor the
+    /// truncated quotient is one too high exactly when the remainder is
+    /// negative, and the remainder's sign word is that `-1` or `0`.
+    pub(super) fn floored(
+        &mut self,
+        a: NativeValue,
+        divisor: NativeValue,
+        positive: bool,
+    ) -> NativeValue {
+        let dfg = &self.bcx.func.dfg;
+        let sign_shift = i64::from(dfg.value_type(a).bits()) - 1;
+        let constant = known::known_signed(dfg, divisor).filter(|c| *c > 0);
+        if let Some(power) = constant.filter(|c| c.count_ones() == 1) {
+            return self
+                .bcx
+                .ins()
+                .sshr_imm_u(a, i64::from(power.trailing_zeros()));
+        }
         let quotient = self.bcx.ins().sdiv(a, divisor);
         let remainder = self.bcx.ins().srem(a, divisor);
+        if positive || constant.is_some() {
+            let sign = self.bcx.ins().sshr_imm_u(remainder, sign_shift);
+            return self.bcx.ins().iadd(quotient, sign);
+        }
         let nonzero = self.bcx.ins().icmp_imm_s(IntCC::NotEqual, remainder, 0);
         let signs = self.bcx.ins().bxor(a, divisor);
         let different = self.bcx.ins().icmp_imm_s(IntCC::SignedLessThan, signs, 0);
         let round_down = self.bcx.ins().band(nonzero, different);
         let below = self.bcx.ins().iadd_imm_s(quotient, -1);
         self.bcx.ins().select(round_down, below, quotient)
+    }
+
+    /// Signed remainder with the sign of `b`, dividing by `divisor`: `b`, or
+    /// its replacement where `b` is `-1`. `positive` states that `b` is
+    /// greater than zero.
+    ///
+    /// A power-of-two modulus keeps the low bits. For any positive modulus
+    /// the truncated remainder is too low by `b` exactly when it is negative.
+    pub(super) fn floored_remainder(
+        &mut self,
+        a: NativeValue,
+        divisor: NativeValue,
+        b: NativeValue,
+        positive: bool,
+    ) -> NativeValue {
+        let dfg = &self.bcx.func.dfg;
+        let sign_shift = i64::from(dfg.value_type(a).bits()) - 1;
+        let constant = known::known_signed(dfg, b).filter(|c| *c > 0);
+        if let Some(power) = constant.filter(|c| c.count_ones() == 1) {
+            return self.bcx.ins().band_imm_s(a, power - 1);
+        }
+        let remainder = self.bcx.ins().srem(a, divisor);
+        if positive || constant.is_some() {
+            let sign = self.bcx.ins().sshr_imm_u(remainder, sign_shift);
+            let correction = self.bcx.ins().band(sign, b);
+            return self.bcx.ins().iadd(remainder, correction);
+        }
+        let nonzero = self.bcx.ins().icmp_imm_s(IntCC::NotEqual, remainder, 0);
+        let signs = self.bcx.ins().bxor(remainder, b);
+        let different = self.bcx.ins().icmp_imm_s(IntCC::SignedLessThan, signs, 0);
+        let adjust = self.bcx.ins().band(nonzero, different);
+        let corrected = self.bcx.ins().iadd(remainder, b);
+        self.bcx.ins().select(adjust, corrected, remainder)
     }
 
     /// Modulo with the divisor's sign. `MIN % -1` is 0, which a divisor of
@@ -380,13 +441,8 @@ impl Lowerer<'_, '_> {
             .into_iter()
             .collect();
         let value = if is_signed(ty.clone()) && !self.nonnegative_division(a, b, proof) {
-            let remainder = self.bcx.ins().srem(a, divisor);
-            let nonzero = self.bcx.ins().icmp_imm_s(IntCC::NotEqual, remainder, 0);
-            let signs = self.bcx.ins().bxor(remainder, divisor);
-            let different = self.bcx.ins().icmp_imm_s(IntCC::SignedLessThan, signs, 0);
-            let adjust = self.bcx.ins().band(nonzero, different);
-            let corrected = self.bcx.ins().iadd(remainder, divisor);
-            self.bcx.ins().select(adjust, corrected, remainder)
+            let positive = proof == crate::numeric::Divisor::Positive;
+            self.floored_remainder(a, divisor, b, positive)
         } else {
             self.bcx.ins().urem(a, divisor)
         };

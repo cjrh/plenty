@@ -2298,6 +2298,11 @@ fn width_bits(ty: Ty) -> u8 {
     }
 }
 
+/// The largest value of the signed integer type `ty`.
+fn signed_max(ty: cranelift_codegen::ir::Type) -> u64 {
+    (1u64 << (ty.bits() - 1)) - 1
+}
+
 fn is_signed(ty: Ty) -> bool {
     matches!(ty, Ty::I8 | Ty::I16 | Ty::I32 | Ty::I64)
 }
@@ -3099,6 +3104,10 @@ impl Lowerer<'_, '_> {
             return Ok(());
         }
         let signed = is_signed(ty.clone());
+        if signed && let Some(result) = self.lower_bounded_arith(kind, a, b) {
+            self.stack.push((result, ty));
+            return Ok(());
+        }
         let (result, of) = match self.compared_add_sub(kind, signed, a, b) {
             Some(checked) => checked,
             None => match (kind, signed) {
@@ -3258,10 +3267,83 @@ impl Lowerer<'_, '_> {
         let entry = bounds.invariant_locals.iter().rev().find(|(l, _)| *l == i);
         if let Some(&(_, entry)) = entry {
             bounds.canonical.insert(value, entry);
+            // The local holds its entry value throughout the loop, so the
+            // entry value's facts hold for this read.
+            if self.counters.nonnegative.contains(&entry) {
+                self.counters.nonnegative.insert(value);
+            }
+            if let Some(&limit) = self.counters.at_most.get(&entry) {
+                self.counters.at_most.insert(value, limit);
+            }
         }
+        let bounds = &mut self.counters.bounds;
         if let Some(&(_, stop)) = bounds.below_locals.iter().rev().find(|(l, _)| *l == i) {
             bounds.below.insert(value, stop);
+            let stop = bounds.canonical(&self.bcx.func.dfg, stop);
+            // A nonnegative value below `stop` is at most one less.
+            if self.counters.nonnegative.contains(&value)
+                && let Some(limit) = self.upper_bound(stop)
+                && limit > 0
+            {
+                self.counters.at_most.insert(value, limit - 1);
+            }
         }
+    }
+
+    /// The largest value a signed integer known to be nonnegative can hold:
+    /// its recorded bound, its constant, or its type's maximum.
+    fn upper_bound(&self, value: cranelift_codegen::ir::Value) -> Option<u64> {
+        let dfg = &self.bcx.func.dfg;
+        let resolved = dfg.resolve_aliases(value);
+        let facts = &self.counters;
+        if let Some(&limit) = facts.at_most.get(&value).or(facts.at_most.get(&resolved)) {
+            return Some(limit);
+        }
+        if let Some(constant) = known::known_signed(dfg, value) {
+            return u64::try_from(constant).ok();
+        }
+        if let Some(limit) = known::zero_extended_max(dfg, value) {
+            return Some(limit);
+        }
+        self.nonnegative_operand(value)
+            .then(|| signed_max(dfg.value_type(value)))
+    }
+
+    /// Signed `a + b` or `a * b` when the operands' bounds prove that it
+    /// cannot overflow, and signed `a - b` of nonnegative operands, which
+    /// never can: the plain instruction, with the result's bound recorded.
+    pub(super) fn lower_bounded_arith(
+        &mut self,
+        kind: ArithKind,
+        a: cranelift_codegen::ir::Value,
+        b: cranelift_codegen::ir::Value,
+    ) -> Option<cranelift_codegen::ir::Value> {
+        // A nonnegative value plus a negative constant stays in range.
+        if kind == ArithKind::Add {
+            let dfg = &self.bcx.func.dfg;
+            let negative = |v| known::known_signed(dfg, v).is_some_and(|c| c < 0);
+            if (negative(b) && self.nonnegative_operand(a))
+                || (negative(a) && self.nonnegative_operand(b))
+            {
+                return Some(self.bcx.ins().iadd(a, b));
+            }
+        }
+        let (x, y) = (self.upper_bound(a)?, self.upper_bound(b)?);
+        let limit = match kind {
+            ArithKind::Add => x.checked_add(y),
+            ArithKind::Mul => x.checked_mul(y),
+            ArithKind::Sub => None,
+        };
+        let max = signed_max(self.bcx.func.dfg.value_type(a));
+        let result = match kind {
+            ArithKind::Sub => return Some(self.bcx.ins().isub(a, b)),
+            _ if limit.is_none_or(|limit| limit > max) => return None,
+            ArithKind::Add => self.bcx.ins().iadd(a, b),
+            ArithKind::Mul => self.bcx.ins().imul(a, b),
+        };
+        self.counters.nonnegative.insert(result);
+        self.counters.at_most.insert(result, limit?);
+        Some(result)
     }
 
     fn nonnegative_operand(&self, value: cranelift_codegen::ir::Value) -> bool {
@@ -3408,20 +3490,26 @@ impl Lowerer<'_, '_> {
             self.trap_if(overflow, TrapKind::Overflow)?;
         }
 
-        let mut v = if signed {
-            self.bcx.ins().sdiv(a, b)
+        let v = if !signed {
+            let quotient = self.bcx.ins().udiv(a, b);
+            // Nonnegative operands: the quotient is at most the dividend,
+            // divided by a constant divisor.
+            if is_signed(ty.clone())
+                && let Some(limit) = self.upper_bound(a)
+            {
+                let divisor = known::known_signed(&self.bcx.func.dfg, b)
+                    .and_then(|b| u64::try_from(b).ok())
+                    .filter(|&b| b > 0)
+                    .unwrap_or(1);
+                self.counters.nonnegative.insert(quotient);
+                self.counters.at_most.insert(quotient, limit / divisor);
+            }
+            quotient
+        } else if floor {
+            self.floored(a, b, proof == crate::numeric::Divisor::Positive)
         } else {
-            self.bcx.ins().udiv(a, b)
+            self.bcx.ins().sdiv(a, b)
         };
-        if floor && signed {
-            let remainder = self.bcx.ins().srem(a, b);
-            let nonzero = self.bcx.ins().icmp_imm_s(IntCC::NotEqual, remainder, 0);
-            let signs = self.bcx.ins().bxor(a, b);
-            let different = self.bcx.ins().icmp_imm_s(IntCC::SignedLessThan, signs, 0);
-            let round_down = self.bcx.ins().band(nonzero, different);
-            let below = self.bcx.ins().iadd_imm_s(v, -1);
-            v = self.bcx.ins().select(round_down, below, v);
-        }
         self.stack.push((v, ty));
         Ok(())
     }
@@ -3445,13 +3533,7 @@ impl Lowerer<'_, '_> {
                 let one = self.bcx.ins().iconst(clif_type(ty.clone()), 1);
                 self.bcx.ins().select(minus_one, one, b)
             };
-            let rem = self.bcx.ins().srem(a, divisor);
-            let nonzero = self.bcx.ins().icmp_imm_s(IntCC::NotEqual, rem, 0);
-            let signs = self.bcx.ins().bxor(rem, b);
-            let different = self.bcx.ins().icmp_imm_s(IntCC::SignedLessThan, signs, 0);
-            let adjust = self.bcx.ins().band(nonzero, different);
-            let corrected = self.bcx.ins().iadd(rem, b);
-            self.bcx.ins().select(adjust, corrected, rem)
+            self.floored_remainder(a, divisor, b, proof == crate::numeric::Divisor::Positive)
         } else {
             self.bcx.ins().urem(a, b)
         };
@@ -3593,7 +3675,7 @@ impl Lowerer<'_, '_> {
                 IntCC::SignedGreaterThanOrEqual => FloatCC::GreaterThanOrEqual,
                 _ => unreachable!(),
             };
-            let value = self.bcx.ins().fcmp(cc, a, b);
+            let value = self.float_compare(cc, a, b);
             self.stack.push((value, Ty::Bool));
             return Ok(());
         }

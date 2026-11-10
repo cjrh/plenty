@@ -179,6 +179,12 @@ SIMD continuity through calls and list transfers remains issue #929 (B83/B23).
 Native constructors and tuple unpacking are [delivered](completed-work/performance.md#b23-simd).
 Preserve checks/aliasing and FP order; bound compile-time and code-size growth.
 Array syntax alone does not deliver the measured gain.
+Value bounds, positive-divisor floor division and counter checks in `and`
+conditions are delivered (spectral-norm, mandelbrot and fasta kernels in
+`experiments/kernels/value-bounds/`); their remaining per-pass costs are
+issue #932 (unrotated loops whose condition indexes a list), issue #933 (a
+trip counter beside the index) and issue #934 (unfused signed overflow flags,
+upstream Cranelift).
 Key-only dictionary probes are [delivered](completed-work/performance.md#b19-generated-code-and-storage);
 remaining k-nucleotide wrapper costs are tracked in issue #931.
 Use [profiling](development/profiling.md), [faster-linking evidence](proposals/faster-linking.md)

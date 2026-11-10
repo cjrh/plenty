@@ -186,6 +186,26 @@ initial state and eighty randomized cases; fallback and allocation-failure
 checks retain their original behavior. Broader aggregate eligibility, automatic
 SIMD packing and backend register use remain issue #930 in the [backlog](../backlog.md).
 
+## Value bounds and loop conditions
+
+Instruction counts (`instructions:u`, x86-64, `--release`) against `28cb7214`,
+with identical output:
+
+| Program | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| spectral-norm 2000 | 7,044,670,022 | 2,724,670,912 | −61.3% |
+| mandelbrot 2000 | 2,813,304,987 | 2,096,572,752 | −25.5% |
+| fasta 2,500,000 | 2,793,851,083 | 2,186,823,727 | −21.7% |
+| n-body 500,000 | 351,380,217 | 345,880,163 | −1.6% |
+
+The other Benchmarks Game programs change by at most 0.4%. The lowerings are
+described under [value bounds](../design/toolchain/02-architecture/emission.md#value-bounds),
+[floor division by a positive divisor](../design/toolchain/02-architecture/emission.md#floor-division-by-a-positive-divisor),
+[loop counter checks](../design/toolchain/02-architecture/emission.md#loop-counter-checks)
+and [constants in loops](../design/toolchain/02-architecture/emission.md#constants-in-loops).
+Kernels and per-pass attribution are in `experiments/kernels/value-bounds/`;
+issues #932, #933 and #934 record the remaining causes.
+
 ## B19: Compiler scale and caching
 
 - Warm single-file executable hits skip bundled-runtime extraction (issue #699).

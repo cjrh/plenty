@@ -389,7 +389,13 @@ impl Lowerer<'_, '_> {
             slot_copies: Vec::new(),
             empty_slot: Some((empty_word, empty_double)),
             exits: Some(exits::Exits::returning_to(returned, body)),
-            counters: Default::default(),
+            // A fact about an SSA value holds wherever the value is used, so
+            // the callee keeps what the caller knows about its arguments.
+            counters: induction::Facts {
+                nonnegative: std::mem::take(&mut self.counters.nonnegative),
+                at_most: std::mem::take(&mut self.counters.at_most),
+                ..Default::default()
+            },
             position: match caller {
                 Some(caller) => sites::Position::inlined(decl.source.clone(), caller),
                 None => sites::Position::in_file(decl.source.clone(), decl.standard_library),
@@ -399,6 +405,8 @@ impl Lowerer<'_, '_> {
         };
         let lowered = callee.lower_body(body, inputs);
         self.collection_scratch = callee.collection_scratch;
+        self.counters.nonnegative = std::mem::take(&mut callee.counters.nonnegative);
+        self.counters.at_most = std::mem::take(&mut callee.counters.at_most);
         let callee_loops = lowered
             .map_err(|e| -> Box<dyn Error> { format!("in inlined `{name}`: {e}").into() })?;
         if callee_loops && let Some(exits) = &mut self.exits {
