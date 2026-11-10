@@ -184,9 +184,10 @@ conditions are delivered (spectral-norm, mandelbrot and fasta kernels in
 `experiments/kernels/value-bounds/`), as are rotated list-index conditions,
 countdown-free unit-step range loops (issues #932 and #933;
 `experiments/kernels/indexed-conditions/`) and inline `bytes` value reads
-(`experiments/kernels/bytes-literals/`); the remaining per-pass costs are
-issue #934 (unfused signed overflow flags) and issue #935 (loads not folded
-into branch compares), both upstream Cranelift, and for fasta issues #937
+(`experiments/kernels/bytes-literals/`), and x86-64 branches on the flags of
+every checked add and subtract (issue #934, in the Cranelift fork); the
+remaining per-pass costs are issue #935 (loads not folded into branch
+compares), in Cranelift, and for fasta issues #937
 (field value bounds), #940 (bounds of loop-carried locals), #938
 (loop-invariant loads) and #939 (spills around cold call blocks). Known returns of inlined calls skip the `?` test (issue
 #936), and a reference parameter's stored field is forwarded to the next read

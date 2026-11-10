@@ -162,6 +162,13 @@ impl Symbols {
         self.declared.isa.flags().opt_level() != cranelift_codegen::settings::OptLevel::None
     }
 
+    /// Whether the backend branches on the flags of every `*_overflow`
+    /// instruction. The fork's x86-64 backend does (Wasmtime #14717); its
+    /// AArch64 backend does so only for `uadd_overflow` and the multiplies.
+    pub(super) fn fuses_overflow_flags(&self) -> bool {
+        self.declared.isa.triple().architecture == target_lexicon::Architecture::X86_64
+    }
+
     pub(super) fn make_signature(&self) -> ir::Signature {
         ir::Signature::new(self.declared.isa.default_call_conv())
     }
