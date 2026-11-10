@@ -37,6 +37,39 @@ const MOUNT: &str = "/etc/plenty-proxy";
 const SIGTERM: i32 = 15;
 
 #[test]
+fn proxy_handoff_blocks_upstream_and_port_selection() {
+    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let handoff = std::thread::spawn(move || {
+        with_proxy_bind(|| {
+            entered_tx.send(()).unwrap();
+            release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        })
+    });
+    entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    let upstream_tx = done_tx.clone();
+    let upstream = std::thread::spawn(move || with_proxy_bind(|| upstream_tx.send(()).unwrap()));
+    let selection = std::thread::spawn(move || {
+        let registry = PortRegistry::default();
+        let _ports = Ports::reserve_with(&registry, || {
+            (
+                TcpListener::bind("127.0.0.1:0").unwrap(),
+                TcpListener::bind("127.0.0.1:0").unwrap(),
+            )
+        });
+        done_tx.send(()).unwrap();
+    });
+    assert!(done_rx.recv_timeout(Duration::from_millis(100)).is_err());
+    release_tx.send(()).unwrap();
+    done_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    done_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    handoff.join().unwrap();
+    upstream.join().unwrap();
+    selection.join().unwrap();
+}
+
+#[test]
 fn proxy_fixture_type_checks_without_docker() {
     plenty::check_source(SERVER).unwrap();
 }
@@ -70,6 +103,14 @@ pub(super) fn enabled(test: &str) -> bool {
         panic!("PLENTY_DOCKER_TESTS=1 but curl cannot run: {error}");
     }
     true
+}
+
+// Cooperating upstreams bind ephemeral ports. Keep them from binding a proxy
+// port after its reservation is dropped and before the container listens.
+pub(super) fn with_proxy_bind<T>(action: impl FnOnce() -> T) -> T {
+    static BIND: Mutex<()> = Mutex::new(());
+    let _guard = BIND.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    action()
 }
 
 type PortRegistry = Arc<Mutex<HashSet<u16>>>;
@@ -129,21 +170,23 @@ impl Ports {
         mut candidate: impl FnMut() -> (TcpListener, TcpListener),
     ) -> Self {
         for _ in 0..100 {
-            let (http, tls) = candidate();
-            let numbers = [
-                http.local_addr().unwrap().port(),
-                tls.local_addr().unwrap().port(),
-            ];
-            let Some(lease) = PortLease::claim(registry, numbers) else {
-                continue;
-            };
-            if let Ok(quic) = UdpSocket::bind(tls.local_addr().unwrap()) {
-                return Self {
+            let ports = with_proxy_bind(|| {
+                let (http, tls) = candidate();
+                let numbers = [
+                    http.local_addr().unwrap().port(),
+                    tls.local_addr().unwrap().port(),
+                ];
+                let lease = PortLease::claim(registry, numbers)?;
+                let quic = UdpSocket::bind(tls.local_addr().unwrap()).ok()?;
+                Some(Self {
                     http,
                     tls,
                     _quic: quic,
                     lease,
-                };
+                })
+            });
+            if let Some(ports) = ports {
+                return ports;
             }
         }
         panic!("cannot reserve two TCP ports and a matching UDP port");
@@ -172,27 +215,29 @@ impl Server {
         plenty::compile_file_to_executable(&source, &built, None)
             .unwrap_or_else(|error| panic!("{error}"));
         support::install_executable(&built, &executable);
-        let mut child = Command::new(executable)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(std::fs::File::create(dir.path().join("stderr")).unwrap())
-            .spawn()
-            .unwrap();
-        let mut lines = BufReader::new(child.stdout.take().unwrap());
-        let mut line = String::new();
-        lines.read_line(&mut line).unwrap();
-        let port = line
-            .trim()
-            .strip_prefix("port ")
-            .unwrap_or_else(|| panic!("no port line: {line:?}"))
-            .parse()
-            .unwrap();
-        Server {
-            child,
-            lines,
-            port,
-            _dir: dir,
-        }
+        with_proxy_bind(|| {
+            let mut child = Command::new(executable)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(std::fs::File::create(dir.path().join("stderr")).unwrap())
+                .spawn()
+                .unwrap();
+            let mut lines = BufReader::new(child.stdout.take().unwrap());
+            let mut line = String::new();
+            lines.read_line(&mut line).unwrap();
+            let port = line
+                .trim()
+                .strip_prefix("port ")
+                .unwrap_or_else(|| panic!("no port line: {line:?}"))
+                .parse()
+                .unwrap();
+            Server {
+                child,
+                lines,
+                port,
+                _dir: dir,
+            }
+        })
     }
 
     /// Sends `SIGTERM`, then returns the report the server prints as it exits.
@@ -315,30 +360,32 @@ impl Proxy {
         // the unavoidable external handoff window short. Retain logical ownership
         // so another fixture in this process cannot select either port meanwhile.
         // Identity probes still reject foreign listeners immediately.
-        let lease = ports.release_sockets();
-        let docker = Command::new("docker")
-            .args(["run", "--rm", "--name", &name, "--network", "host"])
-            .args(["--label", "plenty-test=proxy", "-v"])
-            .arg(format!("{}:{MOUNT}:ro,z", dir.path().display()))
-            .arg(image)
-            .args(command)
-            .stdin(Stdio::null())
-            .stdout(log.try_clone().unwrap())
-            .stderr(log)
-            .spawn()
-            .unwrap();
-        let mut proxy = Proxy {
-            kind,
-            name: name.clone(),
-            http,
-            tls,
-            identity: name,
-            docker,
-            dir,
-            _ports: lease,
-        };
-        proxy.wait_ready();
-        proxy
+        with_proxy_bind(|| {
+            let lease = ports.release_sockets();
+            let docker = Command::new("docker")
+                .args(["run", "--rm", "--name", &name, "--network", "host"])
+                .args(["--label", "plenty-test=proxy", "-v"])
+                .arg(format!("{}:{MOUNT}:ro,z", dir.path().display()))
+                .arg(image)
+                .args(command)
+                .stdin(Stdio::null())
+                .stdout(log.try_clone().unwrap())
+                .stderr(log)
+                .spawn()
+                .unwrap();
+            let mut proxy = Proxy {
+                kind,
+                name: name.clone(),
+                http,
+                tls,
+                identity: name,
+                docker,
+                dir,
+                _ports: lease,
+            };
+            proxy.wait_ready();
+            proxy
+        })
     }
 
     fn wait_ready(&mut self) {
