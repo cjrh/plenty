@@ -95,55 +95,73 @@ skipped.
 `quick` sizes finish in about half a minute in total. `full` sizes are the
 site's except reverse-complement, which uses the 25,000,000 fasta input shared
 with k-nucleotide (about 250 MB) instead of the site's 100,000,000 (about
-1 GB). `benchmarks/game/baseline.json` holds a full run on the reference
-laptop (AMD Ryzen 7 7840HS, performance governor) at Plenty 0.8.18:
+1 GB). `benchmarks/game/baseline.json` holds the full run measured on
+2026-11-10 at Plenty 0.8.25, commit `bbcab15a`, on the reference laptop
+(AMD Ryzen 7 7840HS, performance governor). References were rebuilt and rerun
+in the same session with the manifest's native-target flags. Each timing is
+the median of three runs pinned to cores `0,2,4,6,8,10,12,14`.
 
 | Benchmark | Size | Reference | Plenty | Ratio |
 |---|---:|---:|---:|---:|
-| binary-trees | 21 | 11.61 s | 24.71 s | 2.13 |
-| fannkuch-redux | 12 | 25.27 s | 24.68 s | 0.98 |
-| fannkuch-redux (parallel, 8 threads) | 12 | 25.27 s | 2.83 s | 0.11 |
-| fasta | 25,000,000 | 1.52 s | 2.56 s | 1.69 |
-| k-nucleotide | 25,000,000 | 11.22 s (7 threads) | 32.25 s | 2.88 |
-| k-nucleotide (parallel, 7 threads) | 25,000,000 | 11.22 s (7 threads) | 9.02 s | 0.80 |
-| mandelbrot | 16,000 | 11.30 s | 12.01 s | 1.06 |
-| n-body | 50,000,000 | 1.24 s | 4.91 s | 3.97 |
-| n-body (clist) | 50,000,000 | 1.24 s | 6.10 s | 4.94 |
-| n-body (unchecked) | 50,000,000 | 1.24 s | 3.47 s | 2.81 |
+| binary-trees | 21 | 11.03 s | 20.04 s | 1.82 |
+| fannkuch-redux | 12 | 25.31 s | 24.69 s | 0.98 |
+| fannkuch-redux (parallel, 8 threads) | 12 | 25.31 s | 2.96 s | 0.12 |
+| fasta | 25,000,000 | 1.33 s | 2.67 s | 2.00 |
+| k-nucleotide | 25,000,000 | 11.20 s (7 threads) | 32.68 s | 2.92 |
+| k-nucleotide (parallel, 7 threads) | 25,000,000 | 11.20 s (7 threads) | 9.17 s | 0.82 |
+| mandelbrot | 16,000 | 11.76 s | 12.52 s | 1.06 |
+| n-body | 50,000,000 | 1.29 s | 2.57 s | 1.99 |
+| n-body (clist) | 50,000,000 | 1.29 s | 6.31 s | 4.88 |
+| n-body (unchecked) | 50,000,000 | 1.29 s | 3.54 s | 2.74 |
 | pidigits | 10,000 | blocked | blocked | |
-| regex-redux | 5,000,000 | 0.71 s (9 threads) | 3.42 s | 4.79 |
-| reverse-complement | 25,000,000 | 0.32 s | 0.46 s | 1.46 |
-| spectral-norm | 5,500 | 1.12 s | 2.10 s | 1.88 |
+| regex-redux | 5,000,000 | 0.73 s (9 threads) | 3.38 s | 4.60 |
+| reverse-complement | 25,000,000 | 0.38 s | 0.54 s | 1.41 |
+| spectral-norm | 5,500 | 1.17 s | 2.16 s | 1.85 |
 
-This is the recorded **0.8.18 baseline**, not a fresh full-suite run. The later
-[guarded numerical-state measurement](../completed-work/performance.md#guarded-numerical-state-issue-930)
-uses the unchanged n-body source at one million steps: 1,995.713M → 702.713M
-instructions and 104.89ms → 51.82ms in its paired session. Its different size and
-compiler version must not be substituted directly into the baseline table.
+Times are median wall-clock seconds; ratios use the unrounded medians. The
+JSON retains all three samples, CPU time, peak RSS, instruction/cycle counts,
+build commands, tool versions and machine details. Every measured Plenty
+variant passed both the small expected-output check and comparison with its
+reference at the full size. pidigits remains blocked.
 
-Times are median wall-clock seconds. The k-nucleotide and regex-redux
-references are multithreaded while the idiomatic Plenty programs run one
-thread; `user_s` in the JSON gives CPU time (35.8 s for the k-nucleotide
-reference, 0.60 s for regex-redux).
+Compared with the historical 0.8.18 baseline in Git, instruction counts fell
+65.7% for original-source n-body, 30.0% for binary-trees, 4.9% for regex-redux,
+and about 1% for both k-nucleotide variants. Timing differences across these
+separate sessions also include machine conditions; use instruction counts to
+identify generated-code changes. This run collected one hardware-counter
+sample per program, separately from the three timing repetitions.
+
+The [guarded numerical-state optimization](../completed-work/performance.md#guarded-numerical-state-issue-930)
+applies to the unchanged original n-body source. At the table's 50 million
+steps it now runs 35.1 billion instructions against native Rust's 11.5 billion,
+with a 1.99x wall-time ratio. The earlier one-million-step investigation remains
+a separate measurement with its own C/Rust comparisons and instruction ledger.
+
+The k-nucleotide and regex-redux references are multithreaded while the
+idiomatic Plenty programs run one thread; `user_s` in the JSON gives CPU time
+(35.78 s for the k-nucleotide reference, 0.63 s for regex-redux).
 
 k-nucleotide's parallel variant counts the seven frame lengths on seven pool
 workers, as the reference does, and is the suite's threaded workload for
 reference-count changes (issue #751): each job owns a `Shared` handle to the
 sequence, and its dictionary, with heap-string keys for the 12- and 18-byte
 frames, returns through a future and is released on the main thread. It uses
-37.3 s of CPU time against the reference's 35.8 s.
+36.43 s of CPU time against the reference's 35.78 s.
 
 n-body's clist variant stores the bodies in a `clist[Body]`, one column per
 field, instead of a `list[Body]`, and tracks the cost of indexed clist field
-access in loops (issue #759). It runs 129.2 billion instructions against
-102.5 billion for the `list[Body]` program and 11.4 billion for the reference.
+access in loops (issue #759). It runs 127.9 billion instructions against
+35.1 billion for the `list[Body]` program and 11.5 billion for the reference.
+These variants do not currently receive equivalent compiler optimizations.
 
 n-body's unchecked variant is the idiomatic program with the index arithmetic
 of `energy` and `advance` in
 [`unchecked:` suites](../design/language/03-types/numbers.md#unchecked-blocks),
-built with `--unchecked assume`, so it measures what integer overflow checks
-cost. List bounds checks remain, since no build setting removes them. It runs
-59.9 billion instructions against 102.5 billion for the idiomatic program.
+built with `--unchecked assume`. List bounds checks remain, since no build
+setting removes them. It runs 59.9 billion instructions against 35.1 billion
+for the idiomatic program and is now slower. This comparison no longer isolates
+overflow-check cost: the guarded numerical-state optimization benefits the
+original program, while the unchecked variant retains a different loop shape.
 
 ## Blocked benchmarks
 
