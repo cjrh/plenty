@@ -60,6 +60,9 @@ pub(super) struct Facts {
     /// The byte count of each `bytes` literal address this function
     /// materialized, so `len` and index checks of it use a constant.
     pub byte_literals: HashMap<Value, i64>,
+    /// The address and tag-shift words of each reference parameter split in
+    /// the entry block; see `Lowerer::split_reference`.
+    pub reference_words: HashMap<Value, (Value, Value)>,
     /// The countdown and loop variable slots of the unit-step range loops
     /// being lowered, with each range's stop. Such a loop runs while its
     /// variable is below the stop, which holds exactly while the countdown
@@ -102,6 +105,10 @@ pub(super) struct Bounds {
     /// Counter locals of the loops being lowered and the value every one of
     /// their reads in the body is below.
     pub below_locals: Vec<(u8, Value)>,
+    /// Reference locals the loops being lowered never write and that held a
+    /// parameter of the function on entry, with the parameter's words; see
+    /// `Lowerer::split_reference`.
+    pub parameter_locals: Vec<(u8, (Value, Value))>,
     /// Values and a value each is below.
     pub below: HashMap<Value, Value>,
     /// The versioned loop copy being lowered, if any; see [`Version`].

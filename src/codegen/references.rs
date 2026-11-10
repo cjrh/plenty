@@ -7,6 +7,7 @@
 //! region: any partition would let a load move past a store to the same
 //! bytes (issue #440, `tests/test_memory_order.rs`).
 use super::*;
+use cranelift_codegen::cursor::{Cursor, FuncCursor};
 use cranelift_codegen::ir::{
     InstructionData, MemFlagsData, Opcode, Value as NativeValue, ValueDef,
 };
@@ -25,8 +26,57 @@ impl Lowerer<'_, '_> {
         {
             return (arg, None);
         }
-        let (address, shift) = self.bcx.ins().isplit(reference);
+        let (address, shift) = self.split_reference(reference);
         (address, Some(shift))
+    }
+
+    /// The two words of `reference`. Cranelift numbers no `isplit`, so two
+    /// splits of one value give addresses it cannot tell are equal, and a
+    /// load would not see the store before it (issue #937). The words of a
+    /// built reference are its operands, and a parameter of the function is
+    /// split once in the entry block, which dominates every use.
+    pub(super) fn split_reference(&mut self, reference: NativeValue) -> (NativeValue, NativeValue) {
+        if let Some(parts) = self.parameter_words(reference) {
+            return parts;
+        }
+        let dfg = &self.bcx.func.dfg;
+        if let ValueDef::Result(inst, _) = dfg.value_def(dfg.resolve_aliases(reference))
+            && let InstructionData::Binary {
+                opcode: Opcode::Iconcat,
+                args: [low, high],
+            } = dfg.insts[inst]
+        {
+            return (low, high);
+        }
+        self.bcx.ins().isplit(reference)
+    }
+
+    /// The words of `reference` from the entry block, when it is a parameter
+    /// of the function or a value recorded as equal to one: a read, inside a
+    /// loop, of a reference local the loop never writes
+    /// (`Bounds::parameter_locals`).
+    pub(super) fn parameter_words(
+        &mut self,
+        reference: NativeValue,
+    ) -> Option<(NativeValue, NativeValue)> {
+        let func = &mut *self.bcx.func;
+        let reference = func.dfg.resolve_aliases(reference);
+        if let Some(&parts) = self.counters.reference_words.get(&reference) {
+            return Some(parts);
+        }
+        let entry = func.layout.entry_block()?;
+        let ValueDef::Param(block, _) = func.dfg.value_def(reference) else {
+            return None;
+        };
+        if block != entry || func.dfg.value_type(reference) != types::I128 {
+            return None;
+        }
+        let parts = FuncCursor::new(func)
+            .at_first_insertion_point(entry)
+            .ins()
+            .isplit(reference);
+        self.counters.reference_words.insert(reference, parts);
+        Some(parts)
     }
 
     /// The low payload word of a referenced slot: the owner of a referenced

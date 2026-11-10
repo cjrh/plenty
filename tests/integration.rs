@@ -324,6 +324,8 @@ mod test_insert_ownership;
 mod test_iteration_conveniences;
 #[path = "test_key_sorting.rs"]
 mod test_key_sorting;
+#[path = "test_known_returns.rs"]
+mod test_known_returns;
 #[path = "test_large_functions.rs"]
 mod test_large_functions;
 #[path = "test_last_use_moves.rs"]

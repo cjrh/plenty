@@ -368,6 +368,41 @@ rather than running into the next function. `--dump` builds keep every body.
 Small numerical list loops can also receive [guarded scalar state and bounded
 inner-loop expansion](numerical-loops.md) before last-use analysis.
 
+## Known returns
+
+An inlined callee's returns jump to one block that takes the returned value,
+and a `?` applied to the call tests that value's tag. Cranelift threads no
+jump through a block parameter, so a return that had just built `Ok(x)` still
+ran the test. When `?` directly follows an inlined call whose `Result` or
+`Option` payload fits one word, `src/codegen/known_returns.rs` moves each
+return that built the success variant to the code after `?`, passing the
+payload (issue #936). A return that built the failure variant keeps its path
+to the caller's failure handling. A return of any other value, such as a
+parameter or a call's result, keeps the test; when there is none, the test is
+not emitted and the remaining path is cold.
+
+The error exits of a `Result`-returning callee's checked arithmetic are
+returns that build `Err`, and a nested inlined call's return block forwards
+to the outer one; both are followed, up to three blocks deep. In
+
+```plenty fragment
+class Rng:
+    seed: i64
+
+    def next(self: &mut Rng) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
+        self.seed = (self.seed * IA + IC) % IM
+        Ok(self.seed)
+```
+
+`rng.next()?` in a loop runs no tag test and no jump for the `Ok`: the two
+overflow exits go to the caller's error return in cold code. Traps, error
+values, cleanup and source positions are unchanged; only the jumps' targets
+differ.
+
+The frontend cannot retarget a jump into a sealed block, so the return block
+of an inlined call and the exit of an inlined checked body stay unsealed
+until the next operation that is not `?`.
+
 ## Last-use moves
 
 After substitution, `src/codegen/last_use.rs` turns the last read of a local
@@ -651,6 +686,8 @@ of arithmetic that the bounds keep in range, in trapping and
   bounded value by a positive constant divides the bound.
 - `a - b` of two nonnegative values and a nonnegative value plus a negative
   constant cannot overflow.
+- A signed `%` by a positive divisor is nonnegative; by a positive constant
+  `M` it is at most `M - 1`, so `x % 1000 * 3877 + 29573` has no check.
 
 In `spectral-norm`, `(i + j) * (i + j + 1) // 2 + i + 1` with `i` and `j`
 below the length of a `&[f64]` keeps one check, for the product: the sums and
@@ -682,6 +719,22 @@ type, needs less (`floored` and `floored_remainder` in
 - Otherwise the truncated quotient is one too high exactly when the remainder
   is negative, so the quotient adds the remainder's sign word (`r >> 63` for
   `i64`), and the remainder adds `divisor & (r >> 63)`.
+
+## Reference parameters
+
+A reference is two words, an address and a tag shift, taken apart by `isplit`
+at each access. Cranelift numbers no multi-result instruction, so two accesses
+through one reference had two address values, and its store-to-load
+forwarding, which compares addresses by value, did not apply: after
+`self.seed = x`, `self.seed` read memory again (issue #937). A reference
+parameter is now split once, in the entry block, and every access uses those
+words (`split_reference` in `src/codegen/references.rs`). Inside a loop a
+local's read is a new value until the loop's header is sealed, so a reference
+local that the loop never writes and that held a parameter on entry is
+recorded on entry (`Bounds::parameter_locals`) and its reads use the
+parameter's words, in inlined callees as well. A reference built in view from
+an address uses that address. References that are neither, such as a local
+assigned in a branch, are split at each access as before.
 
 ## Short circuits in conditions
 

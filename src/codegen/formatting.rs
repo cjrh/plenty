@@ -97,6 +97,7 @@ pub(super) fn build_adapter(
         position: Default::default(),
         trap_blocks: HashMap::default(),
         moves: Default::default(),
+        joins: Default::default(),
     };
     let reference = lower.bcx.ins().uextend(types::I128, params[0]);
     lower
@@ -118,6 +119,7 @@ pub(super) fn build_adapter(
     );
     lower.bcx.ins().return_(&[]);
     lower.seal_trap_blocks();
+    lower.seal_joins();
     bcx.finalize(crate::codegen::FRONTEND);
     out.define(id, func, module);
     Ok(())

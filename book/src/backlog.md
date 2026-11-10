@@ -186,9 +186,11 @@ countdown-free unit-step range loops (issues #932 and #933;
 `experiments/kernels/indexed-conditions/`) and inline `bytes` value reads
 (`experiments/kernels/bytes-literals/`); the remaining per-pass costs are
 issue #934 (unfused signed overflow flags) and issue #935 (loads not folded
-into branch compares), both upstream Cranelift, and for fasta issues #936
-(inlined `Result` tag tests), #937 (field value bounds and store forwarding),
-#938 (loop-invariant loads) and #939 (spills around cold call blocks).
+into branch compares), both upstream Cranelift, and for fasta issues #937
+(field value bounds), #940 (bounds of loop-carried locals), #938
+(loop-invariant loads) and #939 (spills around cold call blocks). Known returns of inlined calls skip the `?` test (issue
+#936), and a reference parameter's stored field is forwarded to the next read
+(`experiments/kernels/field-rng/`).
 Key-only dictionary probes are [delivered](completed-work/performance.md#b19-generated-code-and-storage);
 remaining k-nucleotide wrapper costs are tracked in issue #931.
 Use [profiling](development/profiling.md), [faster-linking evidence](proposals/faster-linking.md)

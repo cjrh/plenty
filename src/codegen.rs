@@ -95,6 +95,7 @@ mod generators;
 mod induction;
 mod inline;
 mod known;
+mod known_returns;
 mod last_use;
 mod matching;
 mod metadata;
@@ -2112,6 +2113,7 @@ fn build_user_function(
             position: sites::Position::in_file(decl.source.clone(), decl.standard_library),
             trap_blocks: HashMap::default(),
             moves: inline::Moves::find(body),
+            joins: Default::default(),
         };
         lower.note_stable_inputs(decl.sig.inputs.len());
         // Argument addresses belong to the caller. Snapshot inline values into
@@ -2150,6 +2152,7 @@ fn build_user_function(
             .finish_exits()
             .map_err(|e| -> Box<dyn Error> { format!("in `{name}`: {e}").into() })?;
         lower.seal_trap_blocks();
+        lower.seal_joins();
         lower.finish_portable_simd();
         bcx.finalize(crate::codegen::FRONTEND);
     }
@@ -2240,6 +2243,7 @@ fn build_main(
             position: Default::default(),
             trap_blocks: HashMap::default(),
             moves: Default::default(),
+            joins: Default::default(),
         };
         if let Some((register, table)) = runtime.signal_traps {
             let table = lower.module.declare_data_in_func(table, lower.bcx.func);
@@ -2260,6 +2264,7 @@ fn build_main(
         lower.release_stack();
         lower.bcx.ins().return_(&[status]);
         lower.seal_trap_blocks();
+        lower.seal_joins();
         bcx.finalize(crate::codegen::FRONTEND);
     }
     out.define(main_id, func, module);
@@ -2464,6 +2469,8 @@ struct Lowerer<'a, 'b> {
     trap_blocks: HashMap<(TrapKind, Option<i64>), Block>,
     /// Moves read in place; see [`inline::Moves`].
     moves: inline::Moves,
+    /// Return blocks a `?` may bypass; see [`known_returns`].
+    joins: known_returns::Joins,
     /// Blocks shared by a user function's exits; `None` lowers each exit
     /// inline. See [`exits`].
     exits: Option<exits::Exits>,
@@ -2650,6 +2657,19 @@ impl Lowerer<'_, '_> {
         }
     }
     fn lower(&mut self, op: &Op) -> Result<()> {
+        if self.joins.pending()
+            && !matches!(
+                op,
+                Op::Try { .. }
+                    | Op::Return
+                    | Op::Loan(_)
+                    | Op::UseLoan(_)
+                    | Op::EndLoan(_)
+                    | Op::Access(..)
+            )
+        {
+            self.seal_joins();
+        }
         if !self.moves.pending.is_empty()
             && !inline::Moves::passes(op)
             && !matches!(op, Op::Call(_) | Op::Return)
@@ -3272,6 +3292,10 @@ impl Lowerer<'_, '_> {
     /// from local `i`.
     fn note_bounds(&mut self, i: u8, value: cranelift_codegen::ir::Value) {
         let bounds = &mut self.counters.bounds;
+        if let Some(&(_, words)) = bounds.parameter_locals.iter().rev().find(|(l, _)| *l == i) {
+            self.counters.reference_words.insert(value, words);
+        }
+        let bounds = &mut self.counters.bounds;
         let entry = bounds.invariant_locals.iter().rev().find(|(l, _)| *l == i);
         if let Some(&(_, entry)) = entry {
             bounds.canonical.insert(value, entry);
@@ -3545,8 +3569,33 @@ impl Lowerer<'_, '_> {
         } else {
             self.bcx.ins().urem(a, b)
         };
+        self.note_remainder(result, b, &ty, proof);
         self.stack.push((result, ty));
         Ok(())
+    }
+
+    /// A signed remainder by a positive divisor is nonnegative and below
+    /// the divisor.
+    pub(super) fn note_remainder(
+        &mut self,
+        remainder: cranelift_codegen::ir::Value,
+        b: cranelift_codegen::ir::Value,
+        ty: &Ty,
+        proof: crate::numeric::Divisor,
+    ) {
+        if !is_signed(ty.clone()) {
+            return;
+        }
+        let constant = known::known_signed(&self.bcx.func.dfg, b);
+        if constant.is_some_and(|b| b > 0) || proof == crate::numeric::Divisor::Positive {
+            self.counters.nonnegative.insert(remainder);
+            let limit = constant
+                .and_then(|b| u64::try_from(b).ok())
+                .or_else(|| self.counters.at_most.get(&b).copied());
+            if let Some(limit) = limit.filter(|limit| *limit > 0) {
+                self.counters.at_most.insert(remainder, limit - 1);
+            }
+        }
     }
 
     /// Branch to a fresh trap block when `flag` is non-zero (Plenty

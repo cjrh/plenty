@@ -650,16 +650,16 @@ fn row_caches_fall_back_when_the_loop_can_resize_the_list() {
     assert!(!swap.contains("ListScalarSetRef("), "{swap}");
 }
 
-/// The reversal loop reads the list's flag byte only for `len(xs)` and the
-/// loop's setup, and
-/// a nonnegative index takes one unsigned comparison: no `cmov`
-/// normalization (issue #715).
+/// The reversal loop reads the list's flag byte once, for `len(xs)` and the
+/// loop's setup together: `xs` is a reference parameter, so both reads have
+/// one address (issue #937). A nonnegative index takes one unsigned
+/// comparison: no `cmov` normalization (issue #715).
 #[cfg(target_arch = "x86_64")]
 #[test]
 fn cached_rows_read_the_header_once_and_skip_normalization() {
     let asm = dump("asm", "reverse", REVERSE);
     let removed = regex::Regex::new(r"movzb\S*\s+0x30\(").unwrap();
-    assert_eq!(removed.find_iter(&asm).count(), 2, "{asm}");
+    assert_eq!(removed.find_iter(&asm).count(), 1, "{asm}");
     assert!(!asm.contains("cmov"), "{asm}");
 }
 

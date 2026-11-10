@@ -24,6 +24,9 @@ pub(super) struct Target {
     base: usize,
     /// The block's `Result[T, E]`.
     result: Ty,
+    /// The block is the body of a function lowered into its caller, whose
+    /// `?` may bypass `exit`; see [`super::known_returns`].
+    inlined: bool,
 }
 
 impl Lowerer<'_, '_> {
@@ -37,10 +40,16 @@ impl Lowerer<'_, '_> {
             return Err("AOT: a checked block must produce a Result".into());
         };
         let base = self.stack.len();
+        let inlined = function
+            && self
+                .exits
+                .as_ref()
+                .is_some_and(|exits| exits.returns_to.is_some());
         let exit = self.bcx.create_block();
         self.bcx.append_block_param(exit, clif_type(result.clone()));
         self.checked_targets.push(Target {
             exit,
+            inlined,
             base: self.stack.len(),
             result: result.clone(),
         });
@@ -59,10 +68,14 @@ impl Lowerer<'_, '_> {
                 self.lower_enum(&EnumOp::New(sum.clone(), 0))?;
             }
             let (ok, _) = self.stack.pop().ok_or("AOT: missing checked block value")?;
-            self.bcx.ins().jump(exit, &[BlockArg::Value(ok)]);
+            let jump = self.bcx.ins().jump(exit, &[BlockArg::Value(ok)]);
+            if inlined {
+                self.note_join(exit, jump);
+            }
         }
         self.bcx.switch_to_block(exit);
-        self.bcx.seal_block(exit);
+        // The caller's `?` may move these jumps on to its own blocks.
+        self.seal_join_later(exit, inlined);
         let value = self.bcx.block_params(exit)[0];
         // An explicit return terminates its path with return values still on
         // the lowering stack. Only the block's entry operands dominate this join.
@@ -167,6 +180,7 @@ impl Lowerer<'_, '_> {
             .last()
             .ok_or("AOT: checked arithmetic outside a checked block")?;
         let (exit, base, result) = (target.exit, target.base, target.result.clone());
+        let inlined = target.inlined;
         let Ty::Enum(sum) = &result else {
             unreachable!("checked block results are Result enums")
         };
@@ -190,7 +204,10 @@ impl Lowerer<'_, '_> {
         for op in cleanup {
             self.lower(op)?;
         }
-        self.bcx.ins().jump(exit, &[BlockArg::Value(err)]);
+        let jump = self.bcx.ins().jump(exit, &[BlockArg::Value(err)]);
+        if inlined {
+            self.note_join(exit, jump);
+        }
         self.stack = pending;
         // Only `before` reaches `success`, so its row checks still hold
         // there (issue #721), as after a trap guard.
@@ -446,6 +463,7 @@ impl Lowerer<'_, '_> {
         } else {
             self.bcx.ins().urem(a, divisor)
         };
+        self.note_remainder(value, b, ty, proof);
         (value, failures)
     }
 }

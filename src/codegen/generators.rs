@@ -154,6 +154,7 @@ pub(super) fn build_generator(
             position: sites::Position::in_file(decl.source.clone(), decl.standard_library),
             trap_blocks: HashMap::default(),
             moves: Default::default(),
+            joins: Default::default(),
             generator: Some(GeneratorContext {
                 frame,
                 out,
@@ -170,6 +171,7 @@ pub(super) fn build_generator(
             lower.complete_generator();
         }
         lower.seal_trap_blocks();
+        lower.seal_joins();
         let continuations = lower.generator.take().unwrap().continuations;
         b.switch_to_block(choose_state);
         let state = b.ins().load(types::I64, MemFlagsData::trusted(), frame, 24);

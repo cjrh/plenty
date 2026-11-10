@@ -234,6 +234,34 @@ and [`bytes` values](../design/toolchain/02-architecture/emission.md#bytes-value
 Kernels and attribution are in `experiments/kernels/indexed-conditions/` and
 `experiments/kernels/bytes-literals/`.
 
+## Known returns and reference parameters (issues #936 and #937)
+
+A return of an inlined call that built `Ok` or `Some` jumps past the caller's
+`?` test, and the returns that built the failure variant go to the failure
+path, so `rng.next()?` on a small method has no tag test. A reference
+parameter is split into its address and tag shift once per function, which
+lets Cranelift forward a stored field to the read after it, and a signed
+remainder by a positive constant has a recorded bound. Instruction counts
+against `5f43644d`, with identical output:
+
+| Program | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| n-body 500,000 | 353,093,346 | 328,092,973 | −7.1% |
+| n-body unchecked 500,000 | 353,093,216 | 328,093,105 | −7.1% |
+| fasta 2,500,000 | 1,648,133,194 | 1,608,132,163 | −2.4% |
+| fannkuch-redux 9 | 160,775,453 | 160,372,355 | −0.3% |
+| k-nucleotide (250k input) | 6,374,860,845 | 6,363,526,628 | −0.2% |
+| reverse-complement (2.5M input) | 655,885,665 | 656,760,580 | +0.1% |
+
+The other Benchmarks Game programs change by less than 0.01%. The fasta
+generator still runs two overflow checks and a floor fixup per number,
+because the range of the `seed` field is unknown: issue #937 stays open for
+field value bounds. The lowerings are described under
+[known returns](../design/toolchain/02-architecture/emission.md#known-returns),
+[reference parameters](../design/toolchain/02-architecture/emission.md#reference-parameters)
+and [value bounds](../design/toolchain/02-architecture/emission.md#value-bounds).
+Kernels and attribution are in `experiments/kernels/field-rng/`.
+
 ## B19: Compiler scale and caching
 
 - Warm single-file executable hits skip bundled-runtime extraction (issue #699).
