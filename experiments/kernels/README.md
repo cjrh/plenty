@@ -31,6 +31,16 @@ target/kernel-harness/release/plenty-kernel-harness experiments/kernels/clif/rev
   | python3 experiments/kernels/loops.py
 ```
 
+For executable IR experiments, set `PLENTY_KERNEL_CODE_DIR=DIR` to write each
+compiled function's raw bytes to `FILE_INDEX-FUNCTION_INDEX.bin` (zero-based).
+The harness rejects external relocations instead of silently dropping them.
+The [n-body structural probes](../nbody-structural/README.md) demonstrate linking
+these bytes to a C driver and checking complete output state. This facility is
+for kernels with explicit valid-memory preconditions, not arbitrary CLIF programs.
+The default ISA remains Plenty's baseline. `PLENTY_KERNEL_AVX=1` enables only AVX
+for a labelled target experiment and checks that the host supports it; it does
+not change the compiler's target or enable FMA.
+
 gcc 16.2.1 gives the same counts at `-O1` and `-O2`. At `-O2`, gcc turns
 `rotate_left` into `memmove` unless `-fno-tree-loop-distribute-patterns` is
 given.

@@ -144,6 +144,26 @@ revisions; their percentages must not be added or treated as a fresh combined
 speedup. The original serial-versus-seven-thread wall-time ratio is likewise
 not a current per-core comparison.
 
+## n-body structural feasibility (issues #929 and #930)
+
+The investigation in `experiments/nbody-structural/README.md` executes and checks
+fixed-state scalar/vector IR against Plenty, C and Rust. At main `c7ca5a95`, one
+million steps take 1,996M instructions in current Plenty, 857M in a fused-source
+probe, and 673M with explicit five-body scalar locals. Cranelift vector IR takes
+488M on baseline SSE2 and 389M with AVX enabled; native Rust takes 230M.
+In one pinned timing session, current Plenty takes 102ms, the AVX prototype
+38ms and Rust 28ms. These are feasibility probes, not shipped compiler gains.
+
+Full state is bit-identical across the Plenty/C/IR probes over short and long
+runs, with 2,560 additional randomized C/IR checks. Public Plenty SIMD still
+loses the target shape through lane-extraction calls and aggregate storage.
+The study provides complete loop instruction ledgers, reproducible generators,
+counter observations, timing ranges and limitations. It supports scalar
+replacement plus bounded expansion and native SIMD continuity; neither array
+syntax alone nor indiscriminately higher inlining limits establishes that result.
+The production benchmark, compiler and baseline ISA remain unchanged. Outstanding
+implementation scope belongs to B19/B23/B83 in the [backlog](../backlog.md).
+
 ## B19: Compiler scale and caching
 
 - Warm single-file executable hits skip bundled-runtime extraction (issue #699).

@@ -171,6 +171,12 @@ These belong to B17 and are not scheduled implementation commitments:
 B19 is evidence-driven; these are candidates, not an approved optimization batch.
 Dominated index-increment overflow elimination is [delivered](completed-work/performance.md#b19-generated-code-and-storage);
 remaining n-body velocity checks, spills and address work are tracked in issue #930.
+The [structural n-body study](completed-work/performance.md#n-body-structural-feasibility-issues-929-and-930)
+supports prioritizing small fixed-size numeric aggregate scalar replacement,
+bounded loop expansion and SIMD continuity through lane projections/calls
+(issues #930/#929, B83/B23). The executable IR target is evidence, not a
+delivered optimizer. Preserve checks/aliasing and FP order; bound compile-time
+and code-size growth. Array syntax alone does not deliver the measured gain.
 Key-only dictionary probes are [delivered](completed-work/performance.md#b19-generated-code-and-storage);
 remaining k-nucleotide wrapper costs are tracked in issue #931.
 Use [profiling](development/profiling.md), [faster-linking evidence](proposals/faster-linking.md)
