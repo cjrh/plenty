@@ -1,0 +1,26 @@
+; C-ABI variant: preserve the vector through lane extraction without storage.
+function %projection(f64, f64, i64) -> f64 system_v {
+block0(v0: f64, v1: f64, v2: i64):
+    v3 = splat.f64x2 v0
+    v4 = insertlane v3, v1, 1
+    v5 = f64const 0x1.0p-3
+    v6 = f64const -0x1.0p-4
+    v7 = splat.f64x2 v5
+    v8 = insertlane v7, v6, 1
+    v9 = f64const 0x0.0p0
+    v10 = iconst.i64 0
+    v11 = iconst.i64 1
+    v12 = icmp sgt v2, v10
+    brif v12, block1(v4, v9, v2), block2(v9)
+block1(v13: f64x2, v14: f64, v15: i64):
+    v16 = fadd v13, v8
+    v17 = extractlane v16, 0
+    v18 = extractlane v16, 1
+    v19 = fmul v17, v18
+    v20 = fadd v14, v19
+    v21 = isub v15, v11
+    v22 = icmp sgt v21, v10
+    brif v22, block1(v16, v20, v21), block2(v20)
+block2(v23: f64):
+    return v23
+}

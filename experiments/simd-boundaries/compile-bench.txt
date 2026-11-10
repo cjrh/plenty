@@ -1,0 +1,2 @@
+profile=release target=x86_64-linux requested_units=1000 units=1000 lines=40003 bytes=1171034 repetitions=10 workload=aot warmup=true codegen=optimized
+aot_including_check_archive_link_median_ms=1015.176

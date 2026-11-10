@@ -50,6 +50,7 @@ enum Action {
     Mul,
     Div,
     Sqrt,
+    ToTuple,
     Compare(IntCC, FloatCC),
     Select,
     WrappingSum,
@@ -61,7 +62,8 @@ pub(super) struct Operation {
     output: Ty,
 }
 
-/// Only exact numeric vector locals without mutable borrows are promoted. A
+/// Exact numeric vector locals without mutable borrows and split numeric tuple
+/// locals without any borrows are promoted. A
 /// materialized shared borrow is a snapshot: the ownership checker prevents
 /// mutation of the source for its entire lifetime. Mutable borrows and moved
 /// slots retain the ordinary canonical storage path throughout the function.
@@ -96,53 +98,73 @@ impl State {
         if !enabled || !cfg!(target_arch = "x86_64") {
             return Self::default();
         }
+        // Destructuring introduces a temporary StoreLocal/MoveLocal/Split.
+        // Preserve a native tuple through that temporary as well as the stack.
+        let mut tuples = Vec::new();
+        crate::threading::walk(body, &mut |op| {
+            if let Op::Split(t, 0) = op {
+                let ty = Ty::Enum(t.clone());
+                for shape in [Shape::I32, Shape::U32, Shape::F32, Shape::F64] {
+                    if ty == crate::sum::tuple(vec![shape.lane(); shape.lanes()])
+                        && !tuples.iter().any(|(tuple, _)| tuple == &ty)
+                    {
+                        tuples.push((ty.clone(), shape));
+                    }
+                }
+            }
+        });
         if !locals
             .iter()
             .skip(inputs)
-            .any(|(_, ty)| shape_of(ty).is_some())
+            .any(|(_, ty)| shape_of(ty).is_some() || tuples.iter().any(|(tuple, _)| tuple == ty))
         {
             return Self::default();
         }
         let mut excluded = vec![false; locals.len()];
-        fn visit(body: &[Op], excluded: &mut [bool]) {
+        fn visit(body: &[Op], excluded: &mut [bool], locals: &[(Variable, Ty)]) {
             for op in body {
                 match op {
-                    Op::BorrowLocal(index, true) | Op::MoveLocal(index) => {
-                        excluded[*index as usize] = true
+                    Op::BorrowLocal(index, true) => excluded[*index as usize] = true,
+                    Op::MoveLocal(index) if shape_of(&locals[*index as usize].1).is_some() => {
+                        excluded[*index as usize] = true;
+                    }
+                    // Addressable tuples retain ordinary mutable/copy semantics.
+                    Op::BorrowLocal(index, _) if shape_of(&locals[*index as usize].1).is_none() => {
+                        excluded[*index as usize] = true;
                     }
                     Op::If {
                         then,
                         elifs,
                         otherwise,
                     } => {
-                        visit(then, excluded);
+                        visit(then, excluded, locals);
                         for arm in elifs.iter() {
-                            visit(&arm.condition, excluded);
-                            visit(&arm.body, excluded);
+                            visit(&arm.condition, excluded, locals);
+                            visit(&arm.body, excluded, locals);
                         }
-                        visit(otherwise, excluded);
+                        visit(otherwise, excluded, locals);
                     }
                     Op::Loop { condition, body } => {
-                        visit(condition, excluded);
-                        visit(body, excluded);
+                        visit(condition, excluded, locals);
+                        visit(body, excluded, locals);
                     }
                     Op::Match(arms) => {
                         for arm in arms.iter() {
-                            visit(&arm.body, excluded);
+                            visit(&arm.body, excluded, locals);
                         }
                     }
                     Op::Try { cleanup, .. } | Op::CheckedArith { cleanup, .. } => {
-                        visit(cleanup, excluded)
+                        visit(cleanup, excluded, locals)
                     }
                     Op::CheckedBlock { body, .. } | Op::CheckedFunction { body, .. } => {
-                        visit(body, excluded)
+                        visit(body, excluded, locals)
                     }
 
                     _ => {}
                 }
             }
         }
-        visit(body, &mut excluded);
+        visit(body, &mut excluded, locals);
         let locals = locals
             .iter()
             .enumerate()
@@ -151,7 +173,11 @@ impl State {
                 if excluded[index] {
                     return None;
                 }
-                let shape = shape_of(ty)?;
+                let shape = shape_of(ty).or_else(|| {
+                    tuples
+                        .iter()
+                        .find_map(|(tuple, shape)| (tuple == ty).then_some(*shape))
+                })?;
                 Some((index as u8, (builder.declare_var(shape.vector()), shape)))
             })
             .collect();
@@ -212,6 +238,7 @@ pub(super) fn operation(name: &str, decl: &UserFn, optimize: bool) -> Option<Ope
         "mul" if float => Action::Mul,
         "div" if float => Action::Div,
         "sqrt" if float => Action::Sqrt,
+        "to_tuple" => Action::ToTuple,
         "simd_eq" => Action::Compare(IntCC::Equal, FloatCC::Equal),
         "simd_ne" => Action::Compare(IntCC::NotEqual, FloatCC::NotEqual),
         "simd_lt" => Action::Compare(
@@ -257,6 +284,16 @@ pub(super) fn operation(name: &str, decl: &UserFn, optimize: bool) -> Option<Ope
         return (input.len() == 1
             && borrowed(&input[0].1, name, &shape.lane(), shape.lanes())
             && *output == shape.lane())
+        .then(|| Operation {
+            shape,
+            action,
+            output: output.clone(),
+        });
+    }
+    if matches!(action, Action::ToTuple) {
+        return (input.len() == 1
+            && borrowed(&input[0].1, name, &shape.lane(), shape.lanes())
+            && *output == crate::sum::tuple(vec![shape.lane(); shape.lanes()]))
         .then(|| Operation {
             shape,
             action,
@@ -389,6 +426,66 @@ impl Lowerer<'_, '_> {
         value
     }
 
+    /// Constructors use the same private native value and lazy canonical snapshot
+    /// as arithmetic results. Escapes retain the snapshot through ordinary uses.
+    pub(super) fn construct_simd(&mut self, ty: &Ty) -> Result<bool> {
+        if !self.module.optimizes() || !cfg!(target_arch = "x86_64") {
+            return Ok(false);
+        }
+        let Some(shape) = shape_of(ty) else {
+            return Ok(false);
+        };
+        let mut lanes = Vec::with_capacity(shape.lanes());
+        for _ in 0..shape.lanes() {
+            lanes.push(self.pop_typed(shape.lane())?.0);
+        }
+        lanes.reverse();
+        let mut vector = self.bcx.ins().splat(shape.vector(), lanes[0]);
+        for (index, &lane) in lanes.iter().enumerate().skip(1) {
+            vector = self.bcx.ins().insertlane(vector, lane, index as u8);
+        }
+        let value = self.materialize_simd(vector, shape, ty);
+        self.stack.push((value, ty.clone()));
+        Ok(true)
+    }
+
+    /// Only values produced by native lowering are eligible. Ordinary tuples,
+    /// addressable copies and values crossing an ABI boundary keep their layout.
+    pub(super) fn split_simd(&mut self, value: NativeValue, fields: &[Ty]) -> bool {
+        let Some(&vector) = self.portable_simd.values.get(&value) else {
+            return false;
+        };
+        let vector_ty = self.bcx.func.dfg.value_type(vector);
+        if fields.len() != vector_ty.lane_count() as usize
+            || fields
+                .iter()
+                .any(|ty| clif_type(ty.clone()) != vector_ty.lane_type())
+        {
+            return false;
+        }
+        for (index, ty) in fields.iter().enumerate() {
+            let lane = self.bcx.ins().extractlane(vector, index as u8);
+            self.stack.push((lane, ty.clone()));
+        }
+        true
+    }
+
+    /// Empty ownership slots have no observable value. Do not interpret their
+    /// null canonical pointer as lane storage when clearing a promoted tuple.
+    pub(super) fn clear_simd_local(&mut self, index: u8) -> bool {
+        let Some(&(variable, shape)) = self.portable_simd.locals.get(&index) else {
+            return false;
+        };
+        let zero = match shape {
+            Shape::F32 => self.bcx.ins().f32const(0.0),
+            Shape::F64 => self.bcx.ins().f64const(0.0),
+            Shape::I32 | Shape::U32 => self.bcx.ins().iconst(types::I32, 0),
+        };
+        let zero = self.bcx.ins().splat(shape.vector(), zero);
+        self.bcx.def_var(variable, zero);
+        true
+    }
+
     pub(super) fn read_simd_local(&mut self, index: u8) -> Option<NativeValue> {
         let (variable, shape) = *self.portable_simd.locals.get(&index)?;
         let vector = self.bcx.use_var(variable);
@@ -485,6 +582,11 @@ impl Lowerer<'_, '_> {
             self.stack.push((sum, op.output.clone()));
             return;
         }
+        if matches!(op.action, Action::ToTuple) {
+            let value = self.materialize_simd(left, op.shape, &op.output);
+            self.stack.push((value, op.output.clone()));
+            return;
+        }
         if matches!(op.action, Action::Sqrt) {
             let result = self.bcx.ins().sqrt(left);
             let value = self.materialize_simd(result, op.shape, &op.output);
@@ -519,7 +621,9 @@ impl Lowerer<'_, '_> {
                     .bitcast(op.shape.vector(), MemFlagsData::new(), mask);
                 self.bcx.ins().bitselect(mask, left, right)
             }
-            Action::WrappingSum | Action::Sqrt => unreachable!("unary operation lowered above"),
+            Action::WrappingSum | Action::Sqrt | Action::ToTuple => {
+                unreachable!("unary operation lowered above")
+            }
         };
         let comparison = matches!(op.action, Action::Compare(..));
         if !comparison {

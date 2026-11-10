@@ -325,8 +325,11 @@ impl Lowerer<'_, '_> {
     ) -> Result<()> {
         let ty = Ty::Enum(t.clone());
         let (value, _) = self.pop_typed(ty)?;
-        let payload = self.tagged_payload(value, t.tag_bits());
         let fields = t.get().variants[tag].fields.clone();
+        if t.get().variants.len() == 1 && self.split_simd(value, &fields) {
+            return Ok(());
+        }
+        let payload = self.tagged_payload(value, t.tag_bits());
         let mut offset = 0;
         for field in fields {
             let (value, _) = self.record_field(payload, offset, &field);
@@ -374,6 +377,9 @@ impl Lowerer<'_, '_> {
 
     pub(super) fn lower_enum(&mut self, op: &EnumOp) -> Result<()> {
         let (inputs, output) = op.signature().ok_or("invalid enum operation")?;
+        if matches!(op, EnumOp::New(_, 0)) && self.construct_simd(&output)? {
+            return Ok(());
+        }
         if let EnumOp::Widen(source, target) | EnumOp::Narrow(source, target) = op {
             let (value, _) = self.pop_typed((**source).clone())?;
             let packed = self.pack(value, source);

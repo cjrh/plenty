@@ -1,0 +1,19 @@
+import std.simd as simd
+
+def projection(a: f64, b: f64, n: i64) -> f64:
+    mut v = simd.f64x2.Lanes(a, b)
+    mut total = 0.0
+    for _ in range(n):
+        v = v.add(&simd.f64x2.Lanes(0.125, -0.0625))
+        x, y = v.to_tuple()
+        total += x * y
+    total
+
+def main() -> Result[(), AllocError | IoError | ParseError]:
+    argv = args()?
+    n = if len(argv) > 1:
+        i64.parse(&argv[1])?
+    else:
+        1000
+    print(projection(1.0, 2.0, n))?
+    Ok(())
