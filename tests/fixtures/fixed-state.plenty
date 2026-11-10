@@ -1,0 +1,31 @@
+
+@copy
+class Point:
+    x: f64
+    y: f64
+
+def update(values: &mut list[Point], steps: i64, scratch_size: i64) -> Result[(), AllocError]:
+    count = len(values)
+    mut scratch = list[f64].with_capacity(scratch_size)?
+    for _ in range(scratch_size):
+        scratch.append(0.0)?
+    for _ in range(steps):
+        for i in range(count):
+            scratch[i] = values[i].x + values[i].y
+        for i in range(count):
+            values[i].x = scratch[i] * 0.5
+            values[i].y = values[i].y - values[i].x
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | ParseError]:
+    argv = args()?
+    steps = i64.parse(&argv[1])?
+    extra = i64.parse(&argv[2])?
+    scratch_size = i64.parse(&argv[3])?
+    mut points = [Point(1.25, -0.0), Point(-2.5, 3.75), Point(0.125, -7.0)]?
+    for _ in range(extra):
+        points.append(Point(1.0, 2.0))?
+    update(&mut points, steps, scratch_size)?
+    for p in &points:
+        print(f"{p.x:.17e} {p.y:.17e}"?)?
+    Ok(())

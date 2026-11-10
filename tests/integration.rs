@@ -839,3 +839,6 @@ mod test_std_runtime_text_views;
 mod test_host_callbacks;
 
 mod test_clap_abi;
+
+#[path = "test_fixed_state.rs"]
+mod test_fixed_state;

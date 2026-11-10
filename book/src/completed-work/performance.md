@@ -164,6 +164,28 @@ syntax alone nor indiscriminately higher inlining limits establishes that result
 The production benchmark, compiler and baseline ISA remain unchanged. Outstanding
 implementation scope belongs to B19/B23/B83 in the [backlog](../backlog.md).
 
+## Guarded numerical state (issue #930)
+
+Optimized builds now automatically expand bounded inner ranges and promote small
+numerical list/record cells across an outer loop, with size/fact guards and the
+original loop as fallback. The [implemented limits and safety argument](../design/toolchain/02-architecture/numerical-loops.md)
+cover preserved allocation failures, aliasing, floating expression order and
+empty ranges. No source rewrite is needed for the original n-body benchmark.
+
+`experiments/fixed-state/README.md` and its retained measurements report one
+million steps falling from 1,995.713M to 702.713M instructions (64.8% fewer), and
+104.89ms to 51.82ms in one rotating, pinned timing session. Native Rust rerun in
+that session takes 229.636M instructions and 28.04ms. The fast loop has 280 scalar
+FP instructions, 254 stack moves, 153 register copies, ten zeroing instructions
+and five control instructions; no list accesses or checks remain inside it.
+
+The cost is 12.0% more n-body compilation instructions and `advance` growing
+from 6,259 to 14,286 bytes, including its fallback. Limits bound expansion,
+promoted cells and added locals. Complete-state checks include the original
+initial state and eighty randomized cases; fallback and allocation-failure
+checks retain their original behavior. Broader aggregate eligibility, automatic
+SIMD packing and backend register use remain issue #930 in the [backlog](../backlog.md).
+
 ## B19: Compiler scale and caching
 
 - Warm single-file executable hits skip bundled-runtime extraction (issue #699).

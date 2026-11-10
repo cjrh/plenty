@@ -1,0 +1,412 @@
+{
+  "baseline": "c8d502b6b4f738cadb41bbf7ef995974857c4125",
+  "steps": 1000000,
+  "exact_state_steps": [
+    -1,
+    0,
+    1,
+    2,
+    3,
+    10,
+    1000,
+    10000,
+    1000000
+  ],
+  "instructions": {
+    "before": [
+      1995712834,
+      1995713086,
+      1995712806
+    ],
+    "after": [
+      702713366,
+      702713210,
+      702713356
+    ],
+    "rust-baseline": [
+      451636400,
+      451636395,
+      451636923
+    ],
+    "rust-native": [
+      229636680,
+      229636367,
+      229636423
+    ],
+    "clang-locals": [
+      334497464,
+      334497561,
+      334497217
+    ],
+    "clang-native-locals": [
+      227497189,
+      227497272,
+      227497247
+    ]
+  },
+  "seconds": {
+    "before": [
+      0.10489427018910646,
+      0.10333006805740297,
+      0.10309958783909678,
+      0.10616666707210243,
+      0.102699751034379,
+      0.11627922812476754,
+      0.10429914901033044,
+      0.1050176308490336,
+      0.10602914006449282
+    ],
+    "after": [
+      0.05076157604344189,
+      0.05092337797395885,
+      0.05183159513399005,
+      0.05206931894645095,
+      0.05547051294706762,
+      0.05379247898235917,
+      0.05182139598764479,
+      0.05168964993208647,
+      0.05173976393416524
+    ],
+    "rust-baseline": [
+      0.03454557410441339,
+      0.03525015013292432,
+      0.03593511902727187,
+      0.03716426598839462,
+      0.03555146302096546,
+      0.0355559210292995,
+      0.03701884392648935,
+      0.035612106090411544,
+      0.03725569602102041
+    ],
+    "rust-native": [
+      0.027534306049346924,
+      0.02948402799665928,
+      0.02804102306254208,
+      0.028036855161190033,
+      0.029909613076597452,
+      0.028064446058124304,
+      0.027674368117004633,
+      0.029882072005420923,
+      0.027708320878446102
+    ],
+    "clang-locals": [
+      0.034610596019774675,
+      0.033080387162044644,
+      0.032578329090029,
+      0.03290409711189568,
+      0.032513015903532505,
+      0.034530566073954105,
+      0.03254809183999896,
+      0.03289027092978358,
+      0.03319153399206698
+    ],
+    "clang-native-locals": [
+      0.03102334402501583,
+      0.03090250794775784,
+      0.030993177788332105,
+      0.031037671025842428,
+      0.03251513093709946,
+      0.03147720079869032,
+      0.03302417206577957,
+      0.03110643895342946,
+      0.032695498084649444
+    ]
+  },
+  "compile_instructions": {
+    "nbody-before": [
+      430068797,
+      430064229,
+      430073786
+    ],
+    "nbody-after": [
+      481708030,
+      481726177,
+      481738565
+    ],
+    "knucleotide-before": [
+      420441209,
+      420443774,
+      420505689
+    ],
+    "knucleotide-after": [
+      418671103,
+      418691991,
+      418677038
+    ],
+    "spectral-before": [
+      379487553,
+      379509530,
+      379509360
+    ],
+    "spectral-after": [
+      378041462,
+      378066503,
+      378075036
+    ]
+  },
+  "loops": {
+    "before": [
+      {
+        "name": "advance",
+        "start": "0x3e0",
+        "end": "0x620",
+        "instructions": 71,
+        "categories": {
+          "stack moves": 40,
+          "zeroing": 8,
+          "register copies": 4,
+          "calls (callees excluded)": 4,
+          "integer/control": 12,
+          "other memory moves": 3
+        }
+      },
+      {
+        "name": "advance",
+        "start": "0x7ac",
+        "end": "0x879",
+        "instructions": 39,
+        "categories": {
+          "stack moves": 6,
+          "integer/control": 19,
+          "other memory moves": 9,
+          "register copies": 1,
+          "other: shl": 1,
+          "scalar FP arithmetic": 3
+        }
+      },
+      {
+        "name": "advance",
+        "start": "0x8f2",
+        "end": "0x98d",
+        "instructions": 31,
+        "categories": {
+          "other memory moves": 9,
+          "register copies": 1,
+          "other: shl": 1,
+          "stack moves": 2,
+          "integer/control": 15,
+          "scalar FP arithmetic": 3
+        }
+      },
+      {
+        "name": "advance",
+        "start": "0xabf",
+        "end": "0xb49",
+        "instructions": 29,
+        "categories": {
+          "integer/control": 13,
+          "other memory moves": 4,
+          "scalar FP arithmetic": 8,
+          "zeroing": 1,
+          "stack moves": 2,
+          "register copies": 1
+        }
+      },
+      {
+        "name": "advance",
+        "start": "0xb7b",
+        "end": "0xbc5",
+        "instructions": 18,
+        "categories": {
+          "other memory moves": 4,
+          "scalar FP arithmetic": 8,
+          "zeroing": 1,
+          "register copies": 1,
+          "integer/control": 4
+        }
+      },
+      {
+        "name": "advance",
+        "start": "0xd86",
+        "end": "0xeff",
+        "instructions": 69,
+        "categories": {
+          "stack moves": 12,
+          "integer/control": 22,
+          "other memory moves": 15,
+          "register copies": 5,
+          "other: shl": 1,
+          "scalar FP arithmetic": 14
+        }
+      },
+      {
+        "name": "advance",
+        "start": "0xf8a",
+        "end": "0x10d4",
+        "instructions": 61,
+        "categories": {
+          "other memory moves": 15,
+          "stack moves": 8,
+          "integer/control": 18,
+          "register copies": 5,
+          "other: shl": 1,
+          "scalar FP arithmetic": 14
+        }
+      },
+      {
+        "name": "advance",
+        "start": "0x117b",
+        "end": "0x11eb",
+        "instructions": 24,
+        "categories": {
+          "integer/control": 7,
+          "register copies": 4,
+          "other: shl": 1,
+          "other memory moves": 6,
+          "scalar FP arithmetic": 6
+        }
+      },
+      {
+        "name": "advance",
+        "start": "0x121a",
+        "end": "0x127e",
+        "instructions": 22,
+        "categories": {
+          "register copies": 4,
+          "other: shl": 1,
+          "integer/control": 5,
+          "other memory moves": 6,
+          "scalar FP arithmetic": 6
+        }
+      }
+    ],
+    "after": [
+      {
+        "name": "advance",
+        "start": "0x3e7",
+        "end": "0x62d",
+        "instructions": 71,
+        "categories": {
+          "stack moves": 40,
+          "zeroing": 8,
+          "register copies": 4,
+          "calls (callees excluded)": 4,
+          "integer/control": 12,
+          "other memory moves": 3
+        }
+      },
+      {
+        "name": "advance",
+        "start": "0x8b6",
+        "end": "0x983",
+        "instructions": 39,
+        "categories": {
+          "stack moves": 6,
+          "integer/control": 19,
+          "other memory moves": 9,
+          "register copies": 1,
+          "other: shl": 1,
+          "scalar FP arithmetic": 3
+        }
+      },
+      {
+        "name": "advance",
+        "start": "0x9fc",
+        "end": "0xa97",
+        "instructions": 31,
+        "categories": {
+          "other memory moves": 9,
+          "register copies": 1,
+          "other: shl": 1,
+          "stack moves": 2,
+          "integer/control": 15,
+          "scalar FP arithmetic": 3
+        }
+      },
+      {
+        "name": "advance",
+        "start": "0xbc9",
+        "end": "0xc53",
+        "instructions": 29,
+        "categories": {
+          "integer/control": 13,
+          "other memory moves": 4,
+          "scalar FP arithmetic": 8,
+          "zeroing": 1,
+          "stack moves": 2,
+          "register copies": 1
+        }
+      },
+      {
+        "name": "advance",
+        "start": "0xc85",
+        "end": "0xccf",
+        "instructions": 18,
+        "categories": {
+          "other memory moves": 4,
+          "scalar FP arithmetic": 8,
+          "zeroing": 1,
+          "register copies": 1,
+          "integer/control": 4
+        }
+      },
+      {
+        "name": "advance",
+        "start": "0xe92",
+        "end": "0x100f",
+        "instructions": 69,
+        "categories": {
+          "stack moves": 12,
+          "integer/control": 22,
+          "other memory moves": 15,
+          "register copies": 5,
+          "other: shl": 1,
+          "scalar FP arithmetic": 14
+        }
+      },
+      {
+        "name": "advance",
+        "start": "0x109f",
+        "end": "0x11e9",
+        "instructions": 61,
+        "categories": {
+          "other memory moves": 15,
+          "stack moves": 8,
+          "integer/control": 18,
+          "register copies": 5,
+          "other: shl": 1,
+          "scalar FP arithmetic": 14
+        }
+      },
+      {
+        "name": "advance",
+        "start": "0x128e",
+        "end": "0x12fe",
+        "instructions": 24,
+        "categories": {
+          "integer/control": 7,
+          "register copies": 4,
+          "other: shl": 1,
+          "other memory moves": 6,
+          "scalar FP arithmetic": 6
+        }
+      },
+      {
+        "name": "advance",
+        "start": "0x132d",
+        "end": "0x1391",
+        "instructions": 22,
+        "categories": {
+          "register copies": 4,
+          "other: shl": 1,
+          "integer/control": 5,
+          "other memory moves": 6,
+          "scalar FP arithmetic": 6
+        }
+      },
+      {
+        "name": "advance",
+        "start": "0x1a05",
+        "end": "0x2b36",
+        "instructions": 702,
+        "categories": {
+          "stack moves": 254,
+          "integer/control": 5,
+          "register copies": 153,
+          "scalar FP arithmetic": 280,
+          "zeroing": 10
+        }
+      }
+    ]
+  }
+}
