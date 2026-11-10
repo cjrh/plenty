@@ -547,6 +547,27 @@ pub fn clean(mode: &CacheMode) -> io::Result<Option<(u64, u64)>> {
 
 #[cfg(test)]
 mod tests {
+    mod backend_sources {
+        include!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/backend_sources.rs"
+        ));
+    }
+
+    #[test]
+    fn backend_sources_accept_lf_and_crlf_lockfiles() {
+        let lock = "[[package]]\nname = \"cranelift-codegen\"\nsource = \"git+https://example.test/wasmtime#abc\"\n\n[[package]]\nname = \"regalloc2\"\nsource = \"git+https://example.test/regalloc2#def\"\n";
+        let expected = "cranelift-codegen git+https://example.test/wasmtime#abc; regalloc2 git+https://example.test/regalloc2#def";
+        assert_eq!(backend_sources::backend_sources(lock), expected);
+        assert_eq!(
+            backend_sources::backend_sources(&lock.replace('\n', "\r\n")),
+            expected
+        );
+        assert_eq!(
+            backend_sources::backend_sources("[[package]]\nname = \"regalloc2\"\n"),
+            "cranelift-codegen unknown; regalloc2 path"
+        );
+    }
     use super::*;
 
     fn cache(dir: &Path) -> Arc<Cache> {
