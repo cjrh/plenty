@@ -127,7 +127,7 @@ defect whose cause is in either can be fixed there:
 | Crate | Repository | Branch | Base |
 |---|---|---|---|
 | `cranelift-*` | <https://github.com/cjrh/wasmtime> (Cranelift is in `cranelift/`) | `fork` | Wasmtime 50.0.0, Cranelift 0.137.0, with upstream #14717 (issue #934) |
-| `regalloc2` | <https://github.com/cjrh/regalloc2> | `fork` | 0.15.2 and later upstream commits |
+| `regalloc2` | <https://github.com/cjrh/regalloc2> | `fork` | 0.15.2 and later upstream commits, with the loop-exit block fix (`docs/cold-exit-block-splits.md` in the fork) |
 
 `Cargo.toml` names the `cranelift-*` crates as Git dependencies. Cranelift
 itself names the crates.io `regalloc2`, so `[patch.crates-io]` replaces it; the
