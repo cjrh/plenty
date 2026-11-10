@@ -113,6 +113,12 @@ the PR. When Cranelift or regalloc2 changes, rerun object-identity checks and
 affected performance comparisons. See the
 [development workflow](book/src/development/workflow.md#dependency-versions).
 
+Cranelift and regalloc2 come from the project's forks, branch `fork` of
+`cjrh/wasmtime` and `cjrh/regalloc2`, checked out beside the primary worktree
+as `../wasmtime` and `../regalloc2`. A code generation fix may be made there;
+see [Cranelift and regalloc2 forks](book/src/development/workflow.md#cranelift-and-regalloc2-forks)
+for the procedure.
+
 Use explicit worktree directories for commands. Shell directory changes and
 environment variables may not persist between tool calls. For summarized test
 output, use the available output-filtering tools or capture a log while retaining
@@ -269,9 +275,10 @@ few sampled pages establish the quality of the whole tutorial.
 - **Phase-guard tests**: a test that asserts a feature is *rejected* only until
   later work lands should say so in a comment naming the backlog ID, so it is
   deleted when that work completes.
-- **Cranelift API** is not indexed by context7. Read the registry source under
-  `~/.cargo/registry/src/` for the pinned `cranelift-*` version. We depend on
-  the individual crates, not the umbrella `cranelift` crate.
+- **Cranelift API** is not indexed by context7. Read the fork's source in
+  `../wasmtime/cranelift` (branch `fork`), or the locked revision under
+  `~/.cargo/git/checkouts/`. We depend on the individual crates, not the
+  umbrella `cranelift` crate.
 
 ## Issues register
 

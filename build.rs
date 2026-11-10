@@ -219,6 +219,29 @@ const RUNTIME_EXTERNS: &[&str] = &[
     "libc",
 ];
 
+/// The locked sources of Cranelift and regalloc2, for the compiled-function
+/// cache key: both are built from forks whose revision can change without a
+/// version change. A path override has no recorded revision and reads `path`;
+/// see book/src/development/workflow.md#cranelift-and-regalloc2-forks.
+fn backend_sources() -> String {
+    let lock = std::fs::read_to_string("Cargo.lock").unwrap_or_default();
+    ["cranelift-codegen", "regalloc2"]
+        .map(|name| {
+            let source = lock
+                .split("[[package]]")
+                .find(|package| package.contains(&format!("\nname = \"{name}\"\n")))
+                .map(|package| {
+                    package
+                        .lines()
+                        .find_map(|line| line.strip_prefix("source = "))
+                        .map_or("path", |source| source.trim_matches('"'))
+                })
+                .unwrap_or("unknown");
+            format!("{name} {source}")
+        })
+        .join("; ")
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=plenty-runtime/src");
     println!("cargo:rerun-if-changed=plenty-runtime/Cargo.toml");
@@ -234,6 +257,11 @@ fn main() {
     println!(
         "cargo:rustc-env=PLENTY_COMPILER_HOST={}",
         std::env::var("TARGET").unwrap()
+    );
+    println!("cargo:rerun-if-changed=Cargo.lock");
+    println!(
+        "cargo:rustc-env=PLENTY_BACKEND_SOURCES={}",
+        backend_sources()
     );
     let vendor = build_vendored(&out);
     timed("SQLite", || build_sqlite(&vendor));

@@ -149,6 +149,10 @@ Group hints from earlier runs:
   Cranelift version to its Wasmtime release through that tag's workspace
   `Cargo.toml`; there is no fixed offset. Most Wasmtime advisories concern the
   Wasm runtime; a Cranelift miscompilation advisory applies to Plenty too.
+  Plenty builds both from its forks (branch `fork` of `cjrh/wasmtime` and
+  `cjrh/regalloc2`); the locked revision's base release is in
+  `book/src/development/workflow.md#cranelift-and-regalloc2-forks`. Compare
+  upstream against that base, and note that an update is a rebase of `fork`.
 - `dataframe`: polars pins its own transitive crates, so its advisories are
   usually blocked until a polars release relaxes a requirement.
 - `data`: tzdata releases are listed at `https://www.iana.org/time-zones`;

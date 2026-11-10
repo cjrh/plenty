@@ -7,7 +7,11 @@ publish = false
 [workspace]
 
 [dependencies]
-# The compiler's pinned Cranelift; the reader parses hand-written CLIF.
-cranelift-codegen = { version = "=0.137.0", features = ["x86", "disas"] }
-cranelift-control = "=0.137.0"
-cranelift-reader = "=0.137.0"
+# The compiler's Cranelift and regalloc2 forks, at the revisions its lockfile
+# records; the reader parses hand-written CLIF.
+cranelift-codegen = { git = "https://github.com/cjrh/wasmtime", branch = "fork", features = ["x86", "disas"] }
+cranelift-control = { git = "https://github.com/cjrh/wasmtime", branch = "fork" }
+cranelift-reader = { git = "https://github.com/cjrh/wasmtime", branch = "fork" }
+
+[patch.crates-io]
+regalloc2 = { git = "https://github.com/cjrh/regalloc2", branch = "fork" }

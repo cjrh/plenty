@@ -24,6 +24,8 @@
 
 - Use the [plenty-search skill](.agents/skills/plenty-search/SKILL.md) for related concepts across docs, source documentation and local issue/PR descriptions. It covers freshness checks, synchronization, source verification and missing setup. Use `rg` for exact symbols and implementation code.
 
+- Cranelift and regalloc2 are built from the project's forks (branch `fork` of `cjrh/wasmtime` and `cjrh/regalloc2`, both Apache-2.0 WITH LLVM-exception), pinned by revision in `Cargo.lock`. A code generation defect whose cause is in either may be fixed there, following [Cranelift and regalloc2 forks](book/src/development/workflow.md#cranelift-and-regalloc2-forks): commit to `fork` with the upstream project's own tests, measure with Plenty, and update Plenty's lockfile in a Plenty PR. Pushing a fork needs the user's authorization. Keep each fork change small and suitable for an upstream report.
+
 - Use the [consistency-check skill](.agents/skills/consistency-check/SKILL.md) to check one question, such as stale syntax or a renamed API, across every repository area with small read-only agents, and the [upstream-check skill](.agents/skills/upstream-check/SKILL.md) to review pinned dependencies, data and tools for releases and advisories. Both report only; neither edits files or pins.
 
 - For work that makes generated programs faster (bounds, overflow and other checks, register use, loop shape, inlining), follow `book/src/development/emitted-code.md` with the [emitted-code skill](.agents/skills/emitted-code/SKILL.md): isolate small kernels, compare their machine code with C's, and attribute every extra instruction before changing the compiler. Measure optimized builds by instruction count.

@@ -199,9 +199,10 @@ fn warn(message: &str) {
 /// Everything outside the IR and the ISA that the cached code depends on.
 pub(crate) fn key_prefix() -> Vec<u8> {
     format!(
-        "plenty compiled-function cache {SCHEMA}\nplenty {}\ncranelift {}\n",
+        "plenty compiled-function cache {SCHEMA}\nplenty {}\ncranelift {}\nbackend {}\n",
         env!("CARGO_PKG_VERSION"),
         cranelift_codegen::VERSION,
+        env!("PLENTY_BACKEND_SOURCES"),
     )
     .into_bytes()
 }
@@ -618,6 +619,17 @@ mod tests {
         assert!(prefix.contains(&format!("cache {SCHEMA}\n")));
         assert!(prefix.contains(&format!("plenty {}\n", env!("CARGO_PKG_VERSION"))));
         assert!(prefix.contains(&format!("cranelift {}\n", cranelift_codegen::VERSION)));
+        // The forks' locked revisions: a fork commit changes generated code
+        // without changing a version.
+        let backend = env!("PLENTY_BACKEND_SOURCES");
+        assert!(prefix.contains(&format!("backend {backend}\n")));
+        for name in ["cranelift-codegen ", "regalloc2 "] {
+            let source = backend
+                .split("; ")
+                .find_map(|s| s.strip_prefix(name))
+                .unwrap();
+            assert!(source == "path" || source.contains('#'), "{source}");
+        }
 
         let dir = tempfile::tempdir().unwrap();
         let cache = cache(dir.path());

@@ -19,5 +19,8 @@ and follow its steps in order; this skill only lists what to have ready.
    kinds, positions and messages for checks that can.
 5. Report with the template at the end of the procedure page: kernel table,
    attribution by cause, IR variant table, whole-program and compile-time
-   counts. File issues for causes left unfixed; write up regalloc2 or
-   Cranelift causes for upstream instead of patching pinned dependencies.
+   counts. File issues for causes left unfixed. A regalloc2 or Cranelift
+   cause may be fixed in the project's forks (`../regalloc2`, `../wasmtime`,
+   branch `fork`) by the procedure in
+   `book/src/development/workflow.md#cranelift-and-regalloc2-forks`; keep the
+   write-up for an upstream report.
