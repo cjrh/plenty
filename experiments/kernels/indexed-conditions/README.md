@@ -63,6 +63,8 @@ for the trap path.
 | Overflow check on the sum (`seto; test; jne`, issue #934) | 3 | 3 |
 | Useful work | 2 | 2 |
 
+The sum's check became one `jo` with issue #934, which leaves 6.
+
 A range with step 1 runs while its variable is below the stop, so the loop
 tests `add; cmp; jl` and the countdown is gone. `a_times_u` in
 [`value-bounds`](../value-bounds/README.md) goes from 15 to 14 for the same

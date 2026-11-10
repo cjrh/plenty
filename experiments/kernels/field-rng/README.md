@@ -45,8 +45,9 @@ Two of the removed moves carried the loop's stop across the tag test.
 
 The remaining 8 instructions of checks and fixup depend on the field's range,
 which the compiler does not know (issue #937): a seed in `0..IM` cannot
-overflow `seed * IA + IC` and has a nonnegative remainder. `seto; test; jne`
-would be one `jo` with fused flags (issue #934). In the 18 instructions of
+overflow `seed * IA + IC` and has a nonnegative remainder. The fork's
+Cranelift later fused `seto; test; jne` into one `jo` (issue #934): `fill`
+is 27 and `fill_local` 20. In the 18 instructions of
 useful work C needs 15: it folds the load into the multiply and steps a
 pointer in place of an index.
 

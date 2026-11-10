@@ -2,8 +2,9 @@
 //! when the mathematical result leaves the type's range, for every integer
 //! width, with variable and constant operands, in debug and release builds.
 //! Unlike the public Result default, these fixtures exercise primitive trap
-//! guards. Debug code tests most with an `icmp` on the wrapped result rather
-//! than an overflow flag (issue #425), so boundaries use exact arithmetic.
+//! guards. AArch64 debug code tests most with an `icmp` on the wrapped result
+//! rather than an overflow flag (issue #425), so boundaries use exact
+//! arithmetic.
 mod support;
 use rstest::rstest;
 use std::fmt::Write as _;
@@ -244,21 +245,20 @@ fn add_and_sub_trap_exactly_outside_the_range(#[case] release: bool) {
     }
 }
 
-/// Debug code checks an add of a constant with `cmp; jl` instead of
-/// materializing the overflow flag with `seto; test; jne` (issue #425).
-#[test]
-fn constant_add_compares_instead_of_materializing_the_flag() {
+/// The assembly of the functions matching `filter` in `source`.
+fn asm(source: &str, filter: &str, release: bool) -> String {
     let dir = tempfile::tempdir().unwrap();
-    let source = dir.path().join("constant.plenty");
-    std::fs::write(
-        &source,
-        "def step(x: i64) -> i64:\n    unchecked:\n        x + 7\n\ndef main() -> i32:\n    i32(step(3))\n",
-    )
-    .unwrap();
+    let path = dir.path().join("flags.plenty");
+    std::fs::write(&path, source).unwrap();
+    let mode = if release {
+        "--release"
+    } else {
+        "--fast-compile"
+    };
     let output = Command::new(support::plenty_bin())
         .env("PLENTY_CACHE", "off")
-        .args(["--fast-compile", "--dump", "asm", "--dump-filter", "step"])
-        .arg(&source)
+        .args([mode, "--dump", "asm", "--dump-filter", filter])
+        .arg(&path)
         .args(["-o", "-"])
         .output()
         .unwrap();
@@ -267,12 +267,50 @@ fn constant_add_compares_instead_of_materializing_the_flag() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let asm = String::from_utf8(output.stdout).unwrap();
-    assert!(!asm.contains("seto"), "{asm}");
-    let branch = if cfg!(target_arch = "aarch64") {
-        "b.lt "
-    } else {
-        "jl "
-    };
-    assert!(asm.contains(branch), "{asm}");
+    String::from_utf8(output.stdout).unwrap()
+}
+
+/// x86-64 code branches on the flags of the add or subtract itself
+/// (`add; jo`, `sub; jb`) instead of materializing the overflow flag with
+/// `seto; test; jne` or comparing the operands again (issue #934).
+#[cfg(target_arch = "x86_64")]
+#[rstest]
+#[case("i64", "a + b", "jo ")]
+#[case("i64", "a - b", "jo ")]
+#[case("i64", "a + 7", "jo ")]
+#[case("i64", "a - 7", "jo ")]
+#[case("i32", "a + b", "jo ")]
+#[case("u64", "a - b", "jb ")]
+#[case("u64", "a + b", "jb ")]
+#[case("u32", "a - b", "jb ")]
+fn add_and_sub_branch_on_their_own_flags(
+    #[case] ty: &str,
+    #[case] body: &str,
+    #[case] branch: &str,
+    #[values(false, true)] release: bool,
+) {
+    let source = format!(
+        "def step(a: {ty}, b: {ty}) -> {ty}:\n    unchecked:\n        {body}\n\n\
+         def main() -> i32:\n    i32(step(3, 2))\n"
+    );
+    let asm = asm(&source, "step", release);
+    let context = format!("{ty} `{body}` release={release}\n{asm}");
+    assert!(asm.contains(branch), "{context}");
+    for absent in ["  set", "  test ", "  cmp "] {
+        assert!(!asm.contains(absent), "{context}");
+    }
+}
+
+/// AArch64 debug code checks an add of a constant with `cmp; b.lt` instead
+/// of materializing the overflow flag with `cset` (issue #425).
+#[cfg(target_arch = "aarch64")]
+#[test]
+fn constant_add_compares_instead_of_materializing_the_flag() {
+    let asm = asm(
+        "def step(x: i64) -> i64:\n    unchecked:\n        x + 7\n\ndef main() -> i32:\n    i32(step(3))\n",
+        "step",
+        false,
+    );
+    assert!(!asm.contains("cset"), "{asm}");
+    assert!(asm.contains("b.lt "), "{asm}");
 }

@@ -262,6 +262,36 @@ field value bounds. The lowerings are described under
 and [value bounds](../design/toolchain/02-architecture/emission.md#value-bounds).
 Kernels and attribution are in `experiments/kernels/field-rng/`.
 
+## Overflow flags fused into branches (issue #934)
+
+Cranelift 0.137 branched on the flags of `uadd_overflow` and the multiplies
+only; a signed checked add or subtract was `add; seto; test; jne`. The
+[Cranelift fork](../development/workflow.md#cranelift-and-regalloc2-forks)
+takes the upstream rules for `sadd_overflow`, `ssub_overflow` and
+`usub_overflow` (Wasmtime #14717), so each kept check is `add; jo` or
+`sub; jb`. On x86-64 the compiler no longer replaces unsigned subtraction and
+debug-build constant steps with an `icmp` on the result (issue #425); AArch64,
+whose backend has no such rules, keeps that form. Instruction counts against
+`5e7906ad`, with identical output:
+
+| Program | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| reverse-complement (2.5M input) | 656,759,429 | 603,009,387 | −8.2% |
+| fasta 2,500,000 | 1,608,130,869 | 1,521,464,243 | −5.4% |
+| fannkuch-redux 9 | 160,371,176 | 152,285,422 | −5.0% |
+| regex-redux (250k input) | 2,541,075,263 | 2,505,730,957 | −1.4% |
+| binary-trees 14 | 1,576,540,003 | 1,562,091,571 | −0.9% |
+| k-nucleotide (250k input) | 6,365,167,778 | 6,326,091,692 | −0.6% |
+| mandelbrot 2000 | 2,092,776,724 | 2,085,276,431 | −0.4% |
+| n-body 500,000 | 328,091,878 | 327,091,479 | −0.3% |
+| n-body clist 500,000 | 1,193,573,891 | 1,203,573,620 | +0.8% |
+
+spectral-norm is unchanged. Program text shrinks 0.04% to 0.40% and compiler
+instructions 0.2% to 0.3%. In n-body clist every innermost loop of `advance`
+has the same per-pass count and the optimized IR is identical; the 20
+instructions per step are 5 moves and a jump in outer-loop code whose
+register assignment changed.
+
 ## B19: Compiler scale and caching
 
 - Warm single-file executable hits skip bundled-runtime extraction (issue #699).

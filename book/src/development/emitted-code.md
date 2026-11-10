@@ -84,7 +84,7 @@ Line up the two hot paths and give each extra Plenty instruction one cause:
 |---|---|---|
 | Bounds check | `cmp` + `jae` to a cold block | Plenty: prove the index in range, reuse a dominating check, hoist |
 | Negative-index join | `lea` of `index + len` and a second `cmp` | Plenty: prove the index nonnegative |
-| Overflow check | `add`/`seto`/`test`/`jne`, or `jo` | Plenty: prove no overflow (loop counters, range facts) |
+| Overflow check | `add` + `jo` (`jb` unsigned) | Plenty: prove no overflow (loop counters, range facts) |
 | Header or length reload | `mov` from the list owner each pass | Plenty: row caching across the loop |
 | Register move | `mov reg, reg` with no other effect | Usually regalloc2; check whether a value passed to a cold call causes it |
 | Spill or reload | `mov` to or from the stack | regalloc2, or too many live values from Plenty's IR |

@@ -70,8 +70,9 @@ indexes a list; issue #932 rotated it later
 (see [`indexed-conditions`](../indexed-conditions/README.md)).
 
 The generator step `(state * 3877 + 29573) % 139968` before the loop went
-from a sign-compare-and-select fixup to `sar; and; add`. Its addition keeps a
+from a sign-compare-and-select fixup to `sar; and; add`. Its addition kept a
 `seto; test; jne` check: Cranelift 0.137 fuses the overflow flag into the
-branch for `smul_overflow` and `uadd_overflow` only (see `compared_add_sub`
-in `src/codegen.rs`; issue #934). The trip counter of `a_times_u` was
+branch for `smul_overflow` and `uadd_overflow` only. The fork's Cranelift
+takes the upstream rules for the other additions and subtractions, so the
+check is `add; jo` (issue #934). The trip counter of `a_times_u` was
 removed later by issue #933.

@@ -3166,11 +3166,13 @@ impl Lowerer<'_, '_> {
     /// constant right operand (or left, for addition). `None` leaves the
     /// operation to the `*_overflow` instruction.
     ///
-    /// Cranelift 0.137's x86-64 backend fuses `brif` with the flag of
-    /// `uadd_overflow` (`add; jb`), `umul_overflow` and `smul_overflow`
-    /// (`jo`), but materializes the others (`seto; test; jne`, 13 bytes)
-    /// where an `icmp` becomes `cmp; jcc` (9 bytes). In a large program
-    /// every check's bytes stream through the instruction cache (issue #425).
+    /// The x86-64 backend branches on the flags of every `*_overflow`
+    /// instruction (`add; jo`, issue #934), so only the proven counter step
+    /// applies there. The AArch64 backend fuses `brif` with the flag of
+    /// `uadd_overflow`, `umul_overflow` and `smul_overflow`, but
+    /// materializes the others (`cset`, then a test) where an `icmp` becomes
+    /// `cmp; b.cc`. In a large program every check's bytes stream through
+    /// the instruction cache (issue #425).
     ///
     /// The optimizer rematerializes an add or subtract of a constant in each
     /// block that uses it, so a comparison of such a result would compute it
@@ -3201,6 +3203,10 @@ impl Lowerer<'_, '_> {
                 return Some((sum, overflow));
             }
         }
+        if self.module.fuses_overflow_flags() {
+            return None;
+        }
+        let dfg = &self.bcx.func.dfg;
         let constant_operand =
             known::known_int(dfg, a).is_some() || known::known_int(dfg, b).is_some();
         let rematerialized = self.module.optimizes() && constant_operand;
