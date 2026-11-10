@@ -29,37 +29,37 @@ impl Server {
     pub(super) fn start_with(source: &str) -> Self {
         let (dir, executable) = support::build_file(source);
         let stderr = dir.path().join("stderr");
-        let bind_guard = super::test_std_http_server_proxy::proxy_bind_guard();
-        let mut child = Command::new(executable)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(std::fs::File::create(&stderr).unwrap())
-            .spawn()
-            .unwrap();
-        let stdout = child.stdout.take().unwrap();
-        let (sender, lines) = mpsc::channel();
-        std::thread::spawn(move || {
-            for line in BufReader::new(stdout).lines() {
-                if sender.send(line.unwrap()).is_err() {
-                    break;
+        super::test_std_http_server_proxy::with_proxy_bind(|| {
+            let mut child = Command::new(executable)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(std::fs::File::create(&stderr).unwrap())
+                .spawn()
+                .unwrap();
+            let stdout = child.stdout.take().unwrap();
+            let (sender, lines) = mpsc::channel();
+            std::thread::spawn(move || {
+                for line in BufReader::new(stdout).lines() {
+                    if sender.send(line.unwrap()).is_err() {
+                        break;
+                    }
                 }
-            }
-        });
-        let mut server = Self {
-            child,
-            lines,
-            port: 0,
-            stderr,
-            _dir: dir,
-        };
-        server.port = server
-            .lines
-            .recv_timeout(WAIT)
-            .unwrap_or_else(|error| panic!("server startup: {error}: {}", server.errors()))
-            .parse()
-            .unwrap();
-        drop(bind_guard);
-        server
+            });
+            let mut server = Self {
+                child,
+                lines,
+                port: 0,
+                stderr,
+                _dir: dir,
+            };
+            server.port = server
+                .lines
+                .recv_timeout(WAIT)
+                .unwrap_or_else(|error| panic!("server startup: {error}: {}", server.errors()))
+                .parse()
+                .unwrap();
+            server
+        })
     }
 
     fn errors(&self) -> String {
