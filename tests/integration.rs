@@ -840,5 +840,8 @@ mod test_host_callbacks;
 
 mod test_clap_abi;
 
+#[path = "test_fs_create_dirs.rs"]
+mod test_fs_create_dirs;
+
 #[path = "test_fixed_state.rs"]
 mod test_fixed_state;

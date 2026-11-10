@@ -46,11 +46,15 @@ pub enum FsOp {
     LockTry,
     CreateFile,
     SetUnixMode,
+    MakeDirPath,
+    CheckDirPath,
 }
 
 impl FsOp {
     pub fn named(name: &str) -> Option<Self> {
         Some(match name {
+            "__fs_make_dir_path" => Self::MakeDirPath,
+            "__fs_check_dir_path" => Self::CheckDirPath,
             "__fs_lock_open" => Self::LockOpen,
             "__fs_lock_try" => Self::LockTry,
             "__fs_create_file" => Self::CreateFile,
@@ -100,6 +104,8 @@ impl FsOp {
     pub fn signature(self) -> (Vec<Ty>, Ty) {
         let bytes = || Ty::List(Arc::new(Ty::U8));
         let (inputs, output) = match self {
+            Self::MakeDirPath => (vec![bytes(), Ty::U32], Ty::Unit),
+            Self::CheckDirPath => (vec![bytes()], Ty::Unit),
             Self::LockOpen => (vec![bytes()], Ty::File),
             Self::LockTry => (vec![Ty::File, Ty::Bool], Ty::Bool),
             Self::OpenFilePath => (vec![bytes(), crate::frontend::text_view()], Ty::File),
@@ -154,6 +160,8 @@ impl FsOp {
             Self::SetUnixMode => return 611,
             Self::Symlink => return 630,
             Self::Canonicalize => return 631,
+            Self::MakeDirPath => return 632,
+            Self::CheckDirPath => return 633,
             _ => {}
         }
         match self as i64 {

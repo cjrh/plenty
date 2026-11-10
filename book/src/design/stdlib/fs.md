@@ -1,6 +1,8 @@
 # std.fs — directory enumeration
 
 Import `std.fs` and pass a borrowed [Path](path.md).
+For recursive creation with ordinary symlink and dot-segment resolution, use
+[`create_dirs`](fs/creation.md).
 [Metadata and links](fs/metadata.md) covers native-byte `symlink` creation and
 `canonicalize` resolution as well as file observations.
 For owned temporary resources, copy/move/remove and bounded glob filtering,

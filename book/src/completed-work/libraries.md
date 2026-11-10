@@ -19,6 +19,7 @@ scope decision, not a second task list.
 | --- | --- |
 | [XML](../design/stdlib/xml.md) | Bounded UTF-8 events and validating writes without DTDs/external entities (issue #462). |
 | [Advisory file locks](../design/stdlib/fs/lock.md) | Owned shared/exclusive Linux locks, nonblocking acquisition and cancellable deadline waits; close-only lifetime preserves inherited descriptions (issue #774), with [explicit child inheritance](#explicit-child-file-inheritance) (issue #777). |
+| [Ordinary-path directory creation](../design/stdlib/fs/creation.md) | New `fs.create_dirs` follows OS symlink and dot-segment resolution, applies the requested mode to each missing level and returns unit without opening readable handles. The rooted API remains strict. |
 | [Directory trees](../design/stdlib/fs/helpers.md#creating-a-directory-tree) | `Root.create_dirs` opens or creates each relative component with an explicit mode, refuses symlinks/non-directories/`..`, accepts concurrent creators and keeps partial creation (issue #906). |
 | [Filesystem watch](../design/stdlib/fs/watch.md) | Bounded Linux inotify batches, overflow reporting and readiness integration (issue #484). |
 | [Templates](../design/stdlib/template.md) | Bounded Jinja-style interpolation, filters, conditions, named inheritance and HTML escaping over explicit JSON (issue #499); reusable bounded text and quote-specific attribute escaping (issue #823); raw-value per-placeholder escape contexts with explicit filter chaining (issue #834); registered fragment composition with isolated object/loop/inheritance scopes and shared render budgets (issue #835); bounded scalar comparisons, boolean composition and flat `elif` chains (issue #836). |
@@ -37,6 +38,13 @@ Issue #705 corrects the [archive PAX decimal parser](../design/stdlib/archive.md
 to accept every nonnegative `i64`, including its final eight values. Boundary
 tests cover both optimization modes, overflow and malformed digits; the separate
 TAR content-length cap remains 2⁶² bytes.
+
+### Release note: ordinary-path directory creation
+
+`std.fs.create_dirs(&path, unix_mode=0o700u32)` is a new operation for ordinary
+absolute or relative paths, including symlinks and dot segments. It returns
+`Result[(), IoError]` and leaves existing permissions unchanged. This is an
+addition, not a relaxation of `Root.create_dirs` or `fs.root`.
 
 ## B39–B70: Initial delivery slices
 
