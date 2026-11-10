@@ -400,7 +400,7 @@ impl Lowerer<'_, '_> {
                 EnumOp::FieldRef(_, tag, field, _) => {
                     let fields = &t.get().variants[*tag].fields;
                     if fields.len() == 1 {
-                        let (address, shift) = self.bcx.ins().isplit(reference);
+                        let (address, shift) = self.split_reference(reference);
                         let shift = self.bcx.ins().iadd_imm_s(shift, t.tag_bits() as i64);
                         self.bcx.ins().iconcat(address, shift)
                     } else {

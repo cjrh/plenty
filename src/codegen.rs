@@ -3292,6 +3292,10 @@ impl Lowerer<'_, '_> {
     /// from local `i`.
     fn note_bounds(&mut self, i: u8, value: cranelift_codegen::ir::Value) {
         let bounds = &mut self.counters.bounds;
+        if let Some(&(_, words)) = bounds.parameter_locals.iter().rev().find(|(l, _)| *l == i) {
+            self.counters.reference_words.insert(value, words);
+        }
+        let bounds = &mut self.counters.bounds;
         let entry = bounds.invariant_locals.iter().rev().find(|(l, _)| *l == i);
         if let Some(&(_, entry)) = entry {
             bounds.canonical.insert(value, entry);
@@ -3565,8 +3569,33 @@ impl Lowerer<'_, '_> {
         } else {
             self.bcx.ins().urem(a, b)
         };
+        self.note_remainder(result, b, &ty, proof);
         self.stack.push((result, ty));
         Ok(())
+    }
+
+    /// A signed remainder by a positive divisor is nonnegative and below
+    /// the divisor.
+    pub(super) fn note_remainder(
+        &mut self,
+        remainder: cranelift_codegen::ir::Value,
+        b: cranelift_codegen::ir::Value,
+        ty: &Ty,
+        proof: crate::numeric::Divisor,
+    ) {
+        if !is_signed(ty.clone()) {
+            return;
+        }
+        let constant = known::known_signed(&self.bcx.func.dfg, b);
+        if constant.is_some_and(|b| b > 0) || proof == crate::numeric::Divisor::Positive {
+            self.counters.nonnegative.insert(remainder);
+            let limit = constant
+                .and_then(|b| u64::try_from(b).ok())
+                .or_else(|| self.counters.at_most.get(&b).copied());
+            if let Some(limit) = limit.filter(|limit| *limit > 0) {
+                self.counters.at_most.insert(remainder, limit - 1);
+            }
+        }
     }
 
     /// Branch to a fresh trap block when `flag` is non-zero (Plenty

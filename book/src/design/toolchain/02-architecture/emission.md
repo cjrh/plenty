@@ -686,6 +686,8 @@ of arithmetic that the bounds keep in range, in trapping and
   bounded value by a positive constant divides the bound.
 - `a - b` of two nonnegative values and a nonnegative value plus a negative
   constant cannot overflow.
+- A signed `%` by a positive divisor is nonnegative; by a positive constant
+  `M` it is at most `M - 1`, so `x % 1000 * 3877 + 29573` has no check.
 
 In `spectral-norm`, `(i + j) * (i + j + 1) // 2 + i + 1` with `i` and `j`
 below the length of a `&[f64]` keeps one check, for the product: the sums and
@@ -717,6 +719,22 @@ type, needs less (`floored` and `floored_remainder` in
 - Otherwise the truncated quotient is one too high exactly when the remainder
   is negative, so the quotient adds the remainder's sign word (`r >> 63` for
   `i64`), and the remainder adds `divisor & (r >> 63)`.
+
+## Reference parameters
+
+A reference is two words, an address and a tag shift, taken apart by `isplit`
+at each access. Cranelift numbers no multi-result instruction, so two accesses
+through one reference had two address values, and its store-to-load
+forwarding, which compares addresses by value, did not apply: after
+`self.seed = x`, `self.seed` read memory again (issue #937). A reference
+parameter is now split once, in the entry block, and every access uses those
+words (`split_reference` in `src/codegen/references.rs`). Inside a loop a
+local's read is a new value until the loop's header is sealed, so a reference
+local that the loop never writes and that held a parameter on entry is
+recorded on entry (`Bounds::parameter_locals`) and its reads use the
+parameter's words, in inlined callees as well. A reference built in view from
+an address uses that address. References that are neither, such as a local
+assigned in a branch, are split at each access as before.
 
 ## Short circuits in conditions
 

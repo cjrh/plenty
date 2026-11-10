@@ -395,6 +395,7 @@ impl Lowerer<'_, '_> {
                 nonnegative: std::mem::take(&mut self.counters.nonnegative),
                 at_most: std::mem::take(&mut self.counters.at_most),
                 byte_literals: std::mem::take(&mut self.counters.byte_literals),
+                reference_words: std::mem::take(&mut self.counters.reference_words),
                 ..Default::default()
             },
             position: match caller {
@@ -411,6 +412,7 @@ impl Lowerer<'_, '_> {
         self.counters.nonnegative = std::mem::take(&mut callee.counters.nonnegative);
         self.counters.at_most = std::mem::take(&mut callee.counters.at_most);
         self.counters.byte_literals = std::mem::take(&mut callee.counters.byte_literals);
+        self.counters.reference_words = std::mem::take(&mut callee.counters.reference_words);
         let callee_loops = lowered
             .map_err(|e| -> Box<dyn Error> { format!("in inlined `{name}`: {e}").into() })?;
         if callee_loops && let Some(exits) = &mut self.exits {

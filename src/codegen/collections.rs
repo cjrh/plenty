@@ -1890,6 +1890,13 @@ impl Lowerer<'_, '_> {
                 continue;
             }
             let ty = &self.locals[local as usize].1;
+            if matches!(ty, Ty::Ref(..)) {
+                let entry = self.read_local(local);
+                if let Some(words) = self.parameter_words(entry) {
+                    self.counters.bounds.parameter_locals.push((local, words));
+                }
+            }
+            let ty = &self.locals[local as usize].1;
             let shared_list = matches!(ty, Ty::Ref(inner, false) if matches!(**inner, Ty::List(_)));
             let view = matches!(ty, Ty::View(..));
             if !shared_list && !view && *ty != Ty::I64 {
@@ -1998,6 +2005,7 @@ impl Lowerer<'_, '_> {
             && !self.gathering()
             && super::induction::versionable(condition, body);
         let invariant = self.counters.bounds.invariant_locals.len();
+        let parameters = self.counters.bounds.parameter_locals.len();
         self.enter_invariant_locals(condition, body, stop, versioned);
         // Each body value of the counter is an element of the range, so it
         // is below the range's stop.
@@ -2125,6 +2133,7 @@ impl Lowerer<'_, '_> {
             self.counters.bounds.below_locals.pop();
         }
         self.counters.bounds.invariant_locals.truncate(invariant);
+        self.counters.bounds.parameter_locals.truncate(parameters);
         if cursor_below.is_some() {
             self.counters.bounds.below_locals.pop();
             self.counters.nonnegative_locals.pop();

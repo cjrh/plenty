@@ -463,6 +463,7 @@ impl Lowerer<'_, '_> {
         } else {
             self.bcx.ins().urem(a, divisor)
         };
+        self.note_remainder(value, b, ty, proof);
         (value, failures)
     }
 }

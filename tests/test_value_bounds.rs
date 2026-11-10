@@ -348,3 +348,87 @@ fn a_counter_compared_before_and_steps_without_a_check() {
     // the bottom test of the stepped counter.
     assert_eq!(body.matches("icmp slt").count(), 1, "{body}");
 }
+
+const REMAINDERS: &str = r#"
+class Counter:
+    n: i64
+
+    def bump(self: &mut Counter) -> i64:
+        unchecked:
+            self.n = self.n + 1
+        self.n
+
+
+def scaled(x: i64) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
+    Ok(x % 1000 * 3877 + 29573)
+
+
+def scaled_by(x: i64, d: i64) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
+    Ok(x % d * 3877 + 29573)
+
+
+def wrapped(x: i8) -> Result[i8, OverflowError[i8] | ZeroDivisionError]:
+    Ok(x % 100i8 + 27i8)
+
+
+def over(x: i8) -> Result[i8, OverflowError[i8] | ZeroDivisionError]:
+    Ok(x % 100i8 + 29i8)
+
+
+def bump_all(counter: &mut Counter, out: &mut [i64]) -> ():
+    for i in range(len(out)):
+        out[i] = counter.bump()
+
+
+def show(r: Result[i8, OverflowError[i8] | ZeroDivisionError]) -> Result[(), IoError]:
+    match r:
+        case Ok(v):
+            print("ok", v)?
+        case Err(_):
+            print("error")?
+    Ok(())
+
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | ZeroDivisionError]:
+    mut counter = Counter(40)
+    mut out = [0, 0, 0]?
+    bump_all(&mut counter, &mut out)
+    print(out, counter.n)?
+    print(scaled(-1)?, scaled(999)?, scaled(i64.MIN)?, scaled_by(-1, 1000)?, scaled_by(7, -1000)?)?
+    show(wrapped(-1i8))?
+    show(wrapped(i8.MIN))?
+    show(over(-1i8))?
+    show(over(98i8))?
+    Ok(())
+"#;
+
+/// A signed remainder by a positive constant `M` lies in `0..M`, so sums and
+/// products that fit lose their checks; a variable divisor or a sum that can
+/// leave the type keeps them (issue #937).
+#[test]
+fn a_remainder_by_a_positive_constant_is_bounded() {
+    let expected = "[41, 42, 43] 43\n3902696 3902696 773957 3902696 -3820288\n\
+                    ok 126\nok 99\nerror\nok 127\n";
+    for flags in [&["--fast-compile"][..], &["--release"]] {
+        assert_eq!(run(REMAINDERS, flags), expected, "{flags:?}");
+    }
+    let clif = dump(REMAINDERS, "clif-opt");
+    let checks = |name: &str| {
+        let body = support::asm_body(&clif, name);
+        ["sadd_overflow", "smul_overflow"].map(|needle| body.matches(needle).count())
+    };
+    assert_eq!(checks("scaled"), [0, 0]);
+    assert_eq!(checks("scaled_by"), [1, 1]);
+    assert_eq!(checks("wrapped"), [0, 0]);
+    assert_eq!(checks("over"), [1, 0]);
+}
+
+/// A reference parameter has one address value in the function, so the field
+/// stored by the inlined `bump` is forwarded to the read after it: one load
+/// per pass, where two splits of `counter` gave two (issue #937).
+#[test]
+fn a_field_stored_through_a_reference_parameter_is_not_read_again() {
+    let clif = dump(REMAINDERS, "clif-opt");
+    let body = support::asm_body(&clif, "bump_all");
+    assert_eq!(body.matches("load.i64").count(), 1, "{body}");
+}
