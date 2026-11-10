@@ -58,6 +58,12 @@ Every damaged or stale entry is a miss, never an error: an entry carries a
 checksum of its payload, and Cranelift rejects entries written by another
 version of itself.
 
+The key also holds the locked sources of Cranelift and regalloc2, read from
+`Cargo.lock` when the compiler is built: both come from
+[the project's forks](../../../development/workflow.md#cranelift-and-regalloc2-forks),
+whose revision can change generated code without changing a version. A local
+path override has no revision; run with `PLENTY_CACHE=off` while using one.
+
 Plenty buffers the key's `Hash` byte stream before feeding it to SHA-256.
 The byte stream and serialized entries remain compatible with the pinned
 Cranelift version (0.137.0); unit tests compare buffered keys to Cranelift's

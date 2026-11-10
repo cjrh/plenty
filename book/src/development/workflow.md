@@ -141,7 +141,10 @@ To change a fork:
 1. Work in the fork's checkout beside the primary worktree (`../wasmtime`,
    `../regalloc2`), on a branch from `fork` or in a worktree of it.
 2. Build Plenty against the checkout with an uncommitted override in the task
-   worktree's `Cargo.toml`, without `--locked`:
+   worktree's `Cargo.toml`, without `--locked`. Set `PLENTY_CACHE=off` for
+   every compiler run: the compiled-function cache key holds the locked fork
+   revisions, and a path override has none, so cached code from an earlier
+   edit would be reused:
 
    ```toml
    [patch.crates-io]
