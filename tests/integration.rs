@@ -726,6 +726,8 @@ mod test_typed_stream_prototype;
 mod test_unit_values;
 #[path = "test_unsigned_literals.rs"]
 mod test_unsigned_literals;
+#[path = "test_value_bounds.rs"]
+mod test_value_bounds;
 #[path = "test_values.rs"]
 mod test_values;
 #[path = "test_view_lookup.rs"]

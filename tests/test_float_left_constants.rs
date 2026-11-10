@@ -274,3 +274,96 @@ fn float_constants_are_read_from_the_constant_pool() {
         assert!(!body.contains("vconst"), "{name}:\n{body}");
     }
 }
+
+const COMPARISONS: &str = r#"
+def le_r(x: f64) -> bool:
+    x <= 4.0
+
+def lt_r(x: f64) -> bool:
+    x < 4.0
+
+def ge_l(x: f64) -> bool:
+    4.0 >= x
+
+def gt_l32(x: f32) -> bool:
+    4.0 > x
+
+def gt_r(x: f64) -> bool:
+    x > 4.0
+
+def le_l(x: f64) -> bool:
+    4.0 <= x
+
+def steps(c: f64) -> i64:
+    mut x = 0.0
+    mut n = 0
+    while n < 100 and x <= 4.0:
+        x = x * x + c
+        unchecked:
+            n += 1
+    n
+
+def show(x: f64) -> Result[(), IoError]:
+    print(le_r(x), lt_r(x), ge_l(x), gt_l32(f32(x)), gt_r(x), le_l(x))
+
+def main() -> Result[(), IoError]:
+    zero = f64(steps(9.0)) - 1.0
+    nan = zero / zero
+    show(3.5)?
+    show(4.0)?
+    show(4.5)?
+    show(nan)?
+    print(steps(0.25), steps(1.0), steps(nan))?
+    Ok(())
+"#;
+
+/// x86-64 `ucomisd` keeps one operand in a register: the right operand of
+/// `<` and `<=`, the left one of `>` and `>=`. A constant there was built
+/// with `movabs` + `movq`, once per pass in a loop condition such as
+/// mandelbrot's `tr + ti <= 4.0`. It is now read from the constant pool, and
+/// a loop holds it in a register.
+#[test]
+fn compared_float_constants_are_read_from_the_constant_pool() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("compare.plenty"), COMPARISONS).unwrap();
+    for mode in ["--fast-compile", "--release"] {
+        assert_eq!(
+            plenty(dir.path(), &[mode, "compare.plenty"]),
+            "True True True True False False\n\
+             True False True False False True\n\
+             False False False False True True\n\
+             False False False False False False\n\
+             100 3 1\n",
+            "{mode}"
+        );
+    }
+    plenty(
+        dir.path(),
+        &[
+            "--release",
+            "--dump",
+            "clif-opt,asm",
+            "compare.plenty",
+            "-o",
+            "out",
+        ],
+    );
+    if cfg!(target_arch = "x86_64") {
+        for name in ["le_r", "lt_r", "ge_l", "gt_l32", "gt_r", "le_l", "steps"] {
+            let body = section(dir.path(), "asm.txt", name);
+            assert!(
+                !body.contains("movabs") && !body.contains("movq"),
+                "{name}:\n{body}"
+            );
+        }
+    }
+    for name in ["le_r", "ge_l", "steps"] {
+        let body = section(dir.path(), "clif-opt.txt", name);
+        assert!(body.contains("vconst"), "{name}:\n{body}");
+    }
+    // The memory-operand side needs no pooled vector.
+    for name in ["gt_r", "le_l"] {
+        let body = section(dir.path(), "clif-opt.txt", name);
+        assert!(!body.contains("vconst"), "{name}:\n{body}");
+    }
+}

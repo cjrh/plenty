@@ -82,6 +82,42 @@ impl Lowerer<'_, '_> {
         self.pooled_float(value, bits)
     }
 
+    /// An ordered float comparison whose constant operand, if it would
+    /// occupy a register, comes from the constant pool. The x86-64 backend
+    /// lowers `fcmp` to `ucomisd` with the left operand in a register and the
+    /// right as a memory operand, and swaps the operands of `<` and `<=`, so
+    /// `x <= 4.0` in a loop condition rebuilt the constant with `movabs` +
+    /// `movq` on every pass (see [`Self::float_left_operand`]).
+    pub(super) fn float_compare(
+        &mut self,
+        cc: FloatCC,
+        a: NativeValue,
+        b: NativeValue,
+    ) -> NativeValue {
+        let dfg = &self.bcx.func.dfg;
+        // Cranelift does not fold an `fcmp` of two constants, which a
+        // rotated loop's entry test often is.
+        if let (Some(x), Some(y)) = (known::known_float(dfg, a), known::known_float(dfg, b)) {
+            let holds = match cc {
+                FloatCC::LessThan => Some(x < y),
+                FloatCC::LessThanOrEqual => Some(x <= y),
+                FloatCC::GreaterThan => Some(x > y),
+                FloatCC::GreaterThanOrEqual => Some(x >= y),
+                _ => None,
+            };
+            if let Some(holds) = holds {
+                return self.bcx.ins().iconst(types::I8, i64::from(holds));
+            }
+        }
+        let swapped = matches!(cc, FloatCC::LessThan | FloatCC::LessThanOrEqual);
+        let (a, b) = if swapped {
+            (a, self.float_left_operand(b, a))
+        } else {
+            (self.float_left_operand(a, b), b)
+        };
+        self.bcx.ins().fcmp(cc, a, b)
+    }
+
     /// A float constant with the type of `value` as lane 0 of a `vconst`,
     /// which x86-64 loads from the constant pool with one `movupd` and no
     /// general-purpose register. Cranelift does not rematerialize it per

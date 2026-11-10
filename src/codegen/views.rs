@@ -15,9 +15,23 @@ impl Lowerer<'_, '_> {
         match operation {
             CollectionOp::ViewNew(source, mutable) => self.view_new(source, *mutable)?,
             CollectionOp::ViewLen(view) => {
+                let element = view_element(view);
+                // Wider rows only lower the bound; other elements keep the
+                // type's maximum.
+                let row_bytes = if element.is_numeric() {
+                    metadata::list_row_bytes(&element).max(1) as u64
+                } else {
+                    1
+                };
                 let (view, _) = self.pop_typed(view.clone())?;
                 let (_, count) = self.bcx.ins().isplit(view);
                 self.note_view_length(view, count);
+                // The rows lie in one allocation of at most `isize::MAX`
+                // bytes, which bounds the count.
+                self.counters.nonnegative.insert(count);
+                self.counters
+                    .at_most
+                    .insert(count, i64::MAX as u64 / row_bytes);
                 self.stack.push((count, Ty::I64));
             }
             CollectionOp::ViewRow(view, mutable) | CollectionOp::ViewItem(view, mutable) => {

@@ -124,7 +124,8 @@ scalar row access, row references, length queries, view construction, calls, and
 the binding). A direct call is allowed when none of its arguments can resize
 the list: Plenty has no globals, so a callee reaches a list only through its
 arguments. Shared borrows and `&mut` passed to a slice view cannot resize it,
-nor can `&mut` to an unrelated owned local. The loop falls back for a `&mut`
+nor can `&mut` to an unrelated owned local, or `&mut` to a value that holds
+no managed value or reference, such as a class of scalar fields. The loop falls back for a `&mut`
 list or class argument, including a method receiver, that reaches the cached
 list or its owner or that is borrowed from a reference parameter; for a
 by-value argument that holds references; for indirect and closure calls; and

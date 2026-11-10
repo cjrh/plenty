@@ -2218,6 +2218,7 @@ impl Lowerer<'_, '_> {
         // linear order: with the body last, a value used after the loop but
         // live across it can keep a register through the body while the
         // header holds it on the stack, a reload each pass (issue #767).
+        let tested = self.bcx.current_block();
         match self.complement_compare(test) {
             Some(done) => self.bcx.ins().brif(done, exit, &[], iteration, &[]),
             None => self.bcx.ins().brif(test, iteration, &[], exit, &[]),
@@ -2225,6 +2226,9 @@ impl Lowerer<'_, '_> {
         self.bcx.switch_to_block(iteration);
         if !rotated {
             self.bcx.seal_block(iteration);
+            // Only the condition reaches the body, so the condition's row
+            // checks hold there: `while xs[k] < r: k += 1` cannot overflow.
+            self.counters.checked.continue_to(tested, iteration);
         }
         self.loop_targets.push((latch, exit));
         self.enter_loop_exits(latch, exit);
@@ -2303,6 +2307,7 @@ impl Lowerer<'_, '_> {
         let plain = |ty: &Ty| ty.is_numeric() || *ty == Ty::Bool;
         condition.iter().all(|op| match op {
             Op::Site(_)
+            | Op::CallerSite(_)
             | Op::Access(..)
             | Op::Loan(_)
             | Op::UseLoan(_)

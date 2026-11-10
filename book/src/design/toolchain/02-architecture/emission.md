@@ -438,6 +438,15 @@ change lowers cycles from 8.8 to 5.4 billion, matching the same loop with the
 constants passed as arguments; in a loop bounded by a dependency chain the
 `movabs` was off the chain and the cycles do not change.
 
+An ordered comparison has the same register operand. x86-64 `ucomisd` keeps
+one operand in a register and reads the other from memory, and Cranelift swaps
+the operands of `<` and `<=`, so the register holds the right operand of `<`
+and `<=` and the left operand of `>` and `>=`. A non-zero constant in that
+position is a `vconst` lane too (`float_compare` in `src/codegen/numeric.rs`):
+`tr + ti <= 4.0` in a loop condition keeps `4.0` in a register for the whole
+loop. The lowerer folds a comparison of two constants, which Cranelift leaves
+as an `fcmp` and a rotated loop's entry test often is.
+
 `x.fabs()` and `x.copysign(y)` are bit masks rather than runtime calls: `band`
 with the magnitude mask, and `bor` of that with `band(y, sign mask)`. Each
 mask is lane 0 of a `vconst`, loaded from the constant pool with one `movupd`;
@@ -530,8 +539,8 @@ branch above.
 
 The condition is lowered twice, so rotation is limited to conditions whose
 second copy adds no observable work: reads of scalar, `bool` and view locals,
-arithmetic, compares, casts, `not`, short-circuit `and`/`or`, and a view's
-length and items (`rotatable`). Both copies carry the condition's source
+arithmetic, compares, casts, `not`, short-circuit `and`/`or`, module
+constants, and a view's length and items (`rotatable`). Both copies carry the condition's source
 position, so a failing index or overflow reports the same error and location
 from either copy, and they evaluate in the same order. A condition with a call,
 a list's length, a collection method or a managed value keeps the header test.
@@ -579,7 +588,9 @@ not remove them, since it does not track value ranges. The lowerer drops two
 kinds that a `while` loop's own condition makes impossible (issue #369,
 `src/codegen/induction.rs`). Both apply to a counter kept in a CLIF variable
 whose condition compares it with another local or a literal, as in
-`while i < n` or `while i >= 0`:
+`while i < n` or `while i >= 0`. The comparison may be the left operand of
+`and`, as in `while i < LIMIT and x <= 4.0`: the body still runs only after
+it held, and the rest of the condition must not write the counter:
 
 - **Step overflow.** The first write to the counter in the body, if it is a
   top-level `i = i + k` or `i = i - k` with a literal `k`, runs at most once
@@ -611,6 +622,47 @@ Counters in memory, borrowed locals and generator frames, are not analyzed.
 an integer type narrower than `i64`, or one with a positive literal step and
 a start known nonnegative, cannot have more than `i64.MAX` elements, so its
 length needs no overflow check (issue #721).
+
+## Value bounds
+
+The lowerer also records an upper bound for some nonnegative signed values
+(`Facts::at_most` in `src/codegen/induction.rs`) and drops the overflow check
+of arithmetic that the bounds keep in range, in trapping and
+`Result`-returning functions alike:
+
+- A view of numeric items holds at most `i64.MAX / item size` of them, so
+  `len(xs)` of a `&[f64]` is at most `i64.MAX / 8`.
+- A nonnegative loop counter below a bounded stop is at most the stop's bound
+  minus one. A read of a local the loop never writes has its entry value's
+  bound.
+- `a + b` and `a * b` whose bounds' sum or product fits the type are a plain
+  add or multiply, and the result gets that bound. Unsigned division of a
+  bounded value by a positive constant divides the bound.
+- `a - b` of two nonnegative values and a nonnegative value plus a negative
+  constant cannot overflow.
+
+In `spectral-norm`, `(i + j) * (i + j + 1) // 2 + i + 1` with `i` and `j`
+below the length of a `&[f64]` keeps one check, for the product: the sums and
+the final additions are bounded by `i64.MAX / 4`. Counters below the length
+of a `&[u8]` or a list get no bound from it, so their sums keep the check.
+
+A unit step that follows a successful index check of the same value, as in
+`while limits[k] < r: k += 1`, is below the row count and needs no check.
+In an unrotated loop the check runs in the header, and the body continues
+its dominance chain.
+
+## Floor division by a positive divisor
+
+Signed `//` and `%` round toward negative infinity, which the truncating
+`sdiv` and `srem` do not. The general lowering compares signs and selects.
+A divisor known to be positive, by its literal, constant or `Positive[T]`
+type, needs less (`floored` and `floored_remainder` in
+`src/codegen/checked.rs`):
+
+- A power of two is an arithmetic shift for `//` and a mask for `%`.
+- Otherwise the truncated quotient is one too high exactly when the remainder
+  is negative, so the quotient adds the remainder's sign word (`r >> 63` for
+  `i64`), and the remainder adds `divisor & (r >> 63)`.
 
 ## Short circuits in conditions
 

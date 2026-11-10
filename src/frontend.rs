@@ -3470,12 +3470,16 @@ impl Lower<'_> {
         } else {
             let exclusive = inputs.iter().filter(|(_, ty)| borrowed(ty)).zip(loans);
             for ((_, ty), &loan) in exclusive {
-                // A view cannot resize its list, and an exclusive scalar
-                // reference holds none.
+                // A view cannot resize its list, and an exclusive reference
+                // to a scalar, or to a value with no part that needs cleanup
+                // (a class of scalar fields), holds none.
                 let Ty::Ref(inner, true) = ty else {
                     continue;
                 };
-                if inner.is_numeric() || matches!(**inner, Ty::Bool | Ty::Unit | Ty::Str) {
+                if inner.is_numeric()
+                    || matches!(**inner, Ty::Bool | Ty::Unit | Ty::Str)
+                    || !(inner.managed() || inner.contains_reference())
+                {
                     continue;
                 }
                 let root = self.loans[loan].root;

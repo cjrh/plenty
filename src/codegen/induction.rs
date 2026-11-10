@@ -24,7 +24,7 @@ use cranelift_codegen::ir::{DataFlowGraph, Value};
 
 use crate::hash::{HashMap, HashSet};
 use crate::numeric::Checked as Arith;
-use crate::op::{Op, Ty};
+use crate::op::{Op, Pattern, Ty};
 
 /// What the analysis proved about one loop's counter.
 pub(super) struct Counter {
@@ -53,6 +53,10 @@ pub(super) struct Facts {
     /// SSA values known to be nonnegative. A fact about an SSA value holds
     /// wherever the value is used.
     pub nonnegative: HashSet<Value>,
+    /// SSA values known to be nonnegative as signed integers and at most the
+    /// recorded bound: a view's count, a counter below it, and sums and
+    /// products of these that cannot overflow.
+    pub at_most: HashMap<Value, u64>,
     /// Row bounds checks done on the current path; see [`Checked`].
     pub checked: Checked,
     /// Facts that prove a row index below a list's length; see [`Bounds`].
@@ -452,7 +456,12 @@ fn only_steps(ops: &[Op], slots: &[u8], step: &[Op]) -> bool {
 fn transparent(op: &Op) -> bool {
     matches!(
         op,
-        Op::Site(_) | Op::Access(..) | Op::Loan(_) | Op::UseLoan(_) | Op::EndLoan(_)
+        Op::Site(_)
+            | Op::CallerSite(_)
+            | Op::Access(..)
+            | Op::Loan(_)
+            | Op::UseLoan(_)
+            | Op::EndLoan(_)
     )
 }
 
@@ -495,20 +504,44 @@ impl Side {
     }
 }
 
+/// The right operand of `comparison and rest`, which lowers to a match on the
+/// comparison whose `false` arm is `false`.
+fn conjunct(op: &Op) -> Option<&[Op]> {
+    let Op::Match(arms) = op else {
+        return None;
+    };
+    let [held, failed] = &arms[..] else {
+        return None;
+    };
+    let fails =
+        failed.pattern == Pattern::Bool(false) && matches!(failed.body[..], [Op::PushBool(false)]);
+    (held.pattern == Pattern::Bool(true) && fails).then_some(&held.body[..])
+}
+
 /// Analyze a loop whose condition compares a counter local with another
-/// local or a literal.
+/// local or a literal, alone or as the left operand of `and`: the body runs
+/// only after the comparison held either way.
 pub(super) fn analyze(condition: &[Op], body: &[Op], locals: &[Ty]) -> Option<Counter> {
     let condition_ops: Vec<&Op> = condition.iter().filter(|op| !transparent(op)).collect();
-    let [left, right, compare] = condition_ops[..] else {
-        return None;
+    let (left, right, compare, rest) = match condition_ops[..] {
+        [left, right, compare] => (left, right, compare, &[][..]),
+        [left, right, compare, and] => (left, right, compare, conjunct(and)?),
+        _ => return None,
+    };
+    // The rest of the condition runs between the comparison and the step.
+    let untouched = |local: u8| {
+        !rest.iter().any(|op| writes(op, local)) && writes_are_steps(rest, local, &mut true)
+    };
+    let analyze_counter = |local: u8, bound: &Op, side: Side| {
+        analyze_counter(local, bound, side, body, locals).filter(|_| untouched(local))
     };
     let side = Side::of(compare)?;
     let left_counter = match left {
-        Op::LoadLocal(i) => analyze_counter(*i, right, side, body, locals),
+        Op::LoadLocal(i) => analyze_counter(*i, right, side),
         _ => None,
     };
     let right_counter = match right {
-        Op::LoadLocal(i) => analyze_counter(*i, left, side.mirrored(), body, locals),
+        Op::LoadLocal(i) => analyze_counter(*i, left, side.mirrored()),
         _ => None,
     };
     match left_counter {

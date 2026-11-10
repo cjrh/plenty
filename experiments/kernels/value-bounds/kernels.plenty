@@ -1,0 +1,55 @@
+# Hot loops of the spectral-norm, mandelbrot and fasta benchmark programs as
+# standalone functions; kernels.c has the same loops in C. See README.md.
+const ITERATIONS: i64 = 50
+const LIMIT_SQUARED: f64 = 4.0
+
+
+# spectral-norm: v = A u, with A[i][j] = 1 / ((i+j)(i+j+1)/2 + i + 1).
+def a_times_u(u: &[f64], v: &mut [f64]) -> ():
+    n = len(u)
+    for i in range(n):
+        mut total = 0.0
+        for j in range(n):
+            unchecked:
+                total += u[j] / f64((i + j) * (i + j + 1) // 2 + i + 1)
+        v[i] = total
+
+
+# mandelbrot: the escape loop for one point.
+def escape(cr: f64, ci: f64) -> bool:
+    mut zr = 0.0
+    mut zi = 0.0
+    mut tr = 0.0
+    mut ti = 0.0
+    mut i = 0
+    while i < ITERATIONS and tr + ti <= LIMIT_SQUARED:
+        zi = 2.0 * zr * zi + ci
+        zr = tr - ti + cr
+        tr = zr * zr
+        ti = zi * zi
+        unchecked:
+            i += 1
+    tr + ti <= LIMIT_SQUARED
+
+
+# fasta: step the generator and select by cumulative limit.
+def select(seed: i64, limits: &list[i64], codes: &[u8], out: &mut [u8]) -> Result[i64, OverflowError[i64]]:
+    mut state = seed
+    for i in range(len(out)):
+        state = (state * 3877 + 29573) % 139968
+        mut k = 0
+        while limits[k] < state:
+            k += 1
+        out[i] = codes[k]
+    Ok(state)
+
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    u = [1.0, 2.0, 3.0]?
+    limits = [40000, 90000, 139968]?
+    mut out = [0u8, 0u8, 0u8, 0u8]?
+    state = select(42, &limits, b"abc", &mut out)?
+    mut v = [0.0, 0.0, 0.0]?
+    a_times_u(&u, &mut v)
+    print(v, escape(0.1, 0.1), state, out)?
+    Ok(())
