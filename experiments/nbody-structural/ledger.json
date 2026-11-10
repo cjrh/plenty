@@ -1,0 +1,120 @@
+{
+  "plenty-locals": {
+    "start": "0x721",
+    "end": "0x1751",
+    "total": 672,
+    "categories": {
+      "integer/control": 5,
+      "stack moves": 245,
+      "register copies": 132,
+      "scalar FP arithmetic": 280,
+      "zeroing": 10
+    }
+  },
+  "clang-locals": {
+    "start": "0x1a0",
+    "end": "0x8af",
+    "total": 334,
+    "categories": {
+      "stack moves": 53,
+      "register copies": 74,
+      "packed FP arithmetic": 129,
+      "lane rearrangements": 44,
+      "scalar FP arithmetic": 26,
+      "other memory moves": 5,
+      "zeroing": 1,
+      "integer/control": 2
+    }
+  },
+  "clang-scalar-locals": {
+    "start": "0x1e0",
+    "end": "0xc05",
+    "total": 495,
+    "categories": {
+      "stack moves": 98,
+      "register copies": 97,
+      "scalar FP arithmetic": 280,
+      "zeroing": 10,
+      "other memory moves": 8,
+      "integer/control": 2
+    }
+  },
+  "clif-baseline-scalar": {
+    "start": "0x251",
+    "end": "0x11ba",
+    "total": 645,
+    "categories": {
+      "integer/control": 4,
+      "stack moves": 232,
+      "register copies": 119,
+      "scalar FP arithmetic": 280,
+      "zeroing": 10
+    }
+  },
+  "clif-baseline-xy": {
+    "start": "0x1b9",
+    "end": "0xd45",
+    "total": 493,
+    "categories": {
+      "integer/control": 4,
+      "stack moves": 153,
+      "register copies": 86,
+      "packed FP arithmetic": 70,
+      "lane rearrangements": 30,
+      "scalar FP arithmetic": 140,
+      "zeroing": 10
+    }
+  },
+  "clif-baseline-xy_pairs": {
+    "start": "0x1b9",
+    "end": "0xd36",
+    "total": 488,
+    "categories": {
+      "integer/control": 4,
+      "stack moves": 162,
+      "register copies": 87,
+      "packed FP arithmetic": 85,
+      "lane rearrangements": 40,
+      "scalar FP arithmetic": 110
+    }
+  },
+  "clif-avx-scalar": {
+    "start": "0x237",
+    "end": "0xdce",
+    "total": 490,
+    "categories": {
+      "integer/control": 4,
+      "stack moves": 189,
+      "scalar FP arithmetic": 280,
+      "zeroing": 10,
+      "register copies": 7
+    }
+  },
+  "clif-avx-xy": {
+    "start": "0x1a4",
+    "end": "0xaac",
+    "total": 395,
+    "categories": {
+      "integer/control": 4,
+      "stack moves": 135,
+      "packed FP arithmetic": 70,
+      "lane rearrangements": 30,
+      "scalar FP arithmetic": 140,
+      "zeroing": 10,
+      "register copies": 6
+    }
+  },
+  "clif-avx-xy_pairs": {
+    "start": "0x1a4",
+    "end": "0xac0",
+    "total": 389,
+    "categories": {
+      "integer/control": 4,
+      "stack moves": 138,
+      "packed FP arithmetic": 85,
+      "lane rearrangements": 40,
+      "scalar FP arithmetic": 110,
+      "register copies": 12
+    }
+  }
+}
