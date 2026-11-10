@@ -2,6 +2,9 @@
 //!
 //! Native compilation stays with the native toolchain. Runtime archive keys
 //! include its finished artifacts as well as runtime source/configuration.
+#[path = "../../src/hash_hex.rs"]
+mod hash_hex;
+
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io;
@@ -55,7 +58,7 @@ impl Fingerprint {
     }
 
     pub fn finish(self) -> String {
-        format!("{:x}", self.0.finalize())
+        hash_hex::encode(&self.0.finalize())
     }
 }
 
@@ -103,7 +106,10 @@ fn manifest(dir: &Path, files: &[String]) -> io::Result<String> {
         if bytes.is_empty() {
             return Err(io::Error::other("empty cached runtime dependency"));
         }
-        text.push_str(&format!("{:x} {file}\n", Sha256::digest(bytes)));
+        text.push_str(&format!(
+            "{} {file}\n",
+            hash_hex::encode(&Sha256::digest(bytes))
+        ));
     }
     Ok(text)
 }

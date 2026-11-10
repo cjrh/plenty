@@ -245,7 +245,7 @@ fn copy_engine_inner(engine: &Engine, selected: &Path, bundle: &Path) -> Result<
     copy_file(selected, &copied)?;
     // Hash the staged bytes, then link those same bytes, not the mutable source.
     let bytes = std::fs::read(&copied)?;
-    let digest = format!("{:x}", Sha256::digest(&bytes));
+    let digest = crate::hash_hex::encode(&Sha256::digest(&bytes));
     if manifest.get("library_sha256").and_then(|v| v.as_str()) != Some(&digest) {
         return Err("engine.json library_sha256 does not match the selected library".into());
     }
