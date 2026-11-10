@@ -751,16 +751,40 @@ impl Lowerer<'_, '_> {
         cleanup: &Arc<[Op]>,
     ) -> Result<()> {
         let (value, _) = self.pop_typed(Ty::Enum(source.clone()))?;
-        let tag = self.sum_tag(value);
-        let payload = self.sum_payload(value);
         let success_tag = usize::from(source.is_option());
-        let success = self.bcx.create_block();
         let failure = self.bcx.create_block();
-        let ready = self
-            .bcx
-            .ins()
-            .icmp_imm_s(IntCC::Equal, tag, success_tag as i64);
-        self.bcx.ins().brif(ready, success, &[], failure, &[]);
+        let ty = source.get().variants[success_tag].fields[0].clone();
+        // Returns of an inlined callee known to succeed skip the test.
+        let bypass = self.bypass_try(value, success_tag as u64, &ty, failure);
+        self.seal_joins();
+        let payload = self.sum_payload(value);
+        let success = match bypass {
+            // Only known failures still arrive here.
+            Some((success, true)) => {
+                self.bcx.ins().jump(failure, &[]);
+                success
+            }
+            _ => {
+                let tag = self.sum_tag(value);
+                let ready = self
+                    .bcx
+                    .ins()
+                    .icmp_imm_s(IntCC::Equal, tag, success_tag as i64);
+                match bypass {
+                    Some((success, _)) => {
+                        let word = self.raw_word(payload);
+                        let word = BlockArg::Value(word);
+                        self.bcx.ins().brif(ready, success, &[word], failure, &[]);
+                        success
+                    }
+                    None => {
+                        let success = self.bcx.create_block();
+                        self.bcx.ins().brif(ready, success, &[], failure, &[]);
+                        success
+                    }
+                }
+            }
+        };
         self.bcx.switch_to_block(failure);
         self.bcx.seal_block(failure);
         let residual = if target.discards_error() {
@@ -791,7 +815,10 @@ impl Lowerer<'_, '_> {
         self.stack = pending;
         self.bcx.switch_to_block(success);
         self.bcx.seal_block(success);
-        let ty = source.get().variants[success_tag].fields[0].clone();
+        let payload = match bypass {
+            Some((success, _)) => self.bcx.block_params(success)[0],
+            None => payload,
+        };
         let payload = self.unpack(payload, &ty);
         self.stack.push((payload, ty));
         Ok(())

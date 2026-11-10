@@ -1,0 +1,39 @@
+# fasta's linear congruential generator: a class field updated through a
+# `&mut` receiver by a small fallible method, called with `?` in a loop.
+
+const IM: i64 = 139968
+const IA: i64 = 3877
+const IC: i64 = 29573
+
+
+class Rng:
+    seed: i64
+
+    def next(self: &mut Rng) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
+        self.seed = (self.seed * IA + IC) % IM
+        Ok(self.seed)
+
+
+# The generator inlined into a loop that stores each value.
+def fill(rng: &mut Rng, out: &mut [i64]) -> Result[(), OverflowError[i64] | ZeroDivisionError]:
+    for i in range(len(out)):
+        out[i] = rng.next()?
+    Ok(())
+
+
+# The same recurrence on a local: the remainder bounds the carried value.
+def fill_local(seed: i64, out: &mut [i64]) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
+    mut s = seed % IM
+    for i in range(len(out)):
+        s = (s * IA + IC) % IM
+        out[i] = s
+    Ok(s)
+
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | ZeroDivisionError]:
+    mut rng = Rng(42)
+    mut out = [0, 0, 0, 0]?
+    fill(&mut rng, &mut out)?
+    last = fill_local(42, &mut out)?
+    print(out, last, rng.seed)?
+    Ok(())

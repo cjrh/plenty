@@ -403,8 +403,10 @@ impl Lowerer<'_, '_> {
             },
             trap_blocks: HashMap::default(),
             moves: Default::default(),
+            joins: std::mem::take(&mut self.joins),
         };
         let lowered = callee.lower_body(body, inputs);
+        self.joins = std::mem::take(&mut callee.joins);
         self.collection_scratch = callee.collection_scratch;
         self.counters.nonnegative = std::mem::take(&mut callee.counters.nonnegative);
         self.counters.at_most = std::mem::take(&mut callee.counters.at_most);
@@ -415,7 +417,8 @@ impl Lowerer<'_, '_> {
             exits.mark_loop();
         }
         self.bcx.switch_to_block(returned);
-        self.bcx.seal_block(returned);
+        // A `?` right after the call may move returns out of this block.
+        self.seal_join_later(returned, matches!(&decl.sig.outputs[..], [Ty::Enum(_)]));
         self.bcx.set_srcloc(srcloc);
         self.leave_call(saved);
         let results = self.bcx.block_params(returned).to_vec();

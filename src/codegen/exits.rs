@@ -808,7 +808,12 @@ impl Lowerer<'_, '_> {
         match returns_to {
             Some(block) => {
                 let args: Vec<BlockArg> = values.iter().map(|v| BlockArg::Value(*v)).collect();
-                self.bcx.ins().jump(block, &args);
+                let jump = self.bcx.ins().jump(block, &args);
+                if let [value] = values
+                    && self.bcx.func.dfg.value_type(*value) == types::I128
+                {
+                    self.note_join(block, jump);
+                }
             }
             None => {
                 self.bcx.ins().return_(values);

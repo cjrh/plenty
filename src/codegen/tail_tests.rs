@@ -86,6 +86,7 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
         position: Default::default(),
         trap_blocks: HashMap::default(),
         moves: Default::default(),
+        joins: Default::default(),
     };
     lower.lower_tail_call("callee").unwrap();
     assert!(lower.terminated);
@@ -97,5 +98,6 @@ fn approved_reference_and_result_addresses_are_forwarded_without_snapshots() {
     assert_eq!(lower.bcx.func.dfg.inst_args(last), incoming);
     assert!(lower.bcx.func.sized_stack_slots.is_empty());
     lower.seal_trap_blocks();
+    lower.seal_joins();
     bcx.finalize(crate::codegen::FRONTEND);
 }

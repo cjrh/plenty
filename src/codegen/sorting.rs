@@ -95,6 +95,7 @@ pub(super) fn build_adapter(
         position: Default::default(),
         trap_blocks: HashMap::default(),
         moves: Default::default(),
+        joins: Default::default(),
     };
     // References are slot addresses: the runtime passes each row's value word
     // through a slot it owns for the duration of the call.
@@ -148,6 +149,7 @@ pub(super) fn build_adapter(
     let (order, _) = lower.pop_typed(Ty::I64)?;
     lower.bcx.ins().return_(&[order]);
     lower.seal_trap_blocks();
+    lower.seal_joins();
     bcx.finalize(crate::codegen::FRONTEND);
     out.define(id, func, module);
     Ok(())

@@ -88,6 +88,7 @@ pub(super) fn build_adapter(
             position: Default::default(),
             trap_blocks: HashMap::default(),
             moves: Default::default(),
+            joins: Default::default(),
         };
         let packed = lower
             .bcx
@@ -137,6 +138,7 @@ pub(super) fn build_adapter(
         lower.store_slot(output, value, &job.output);
         lower.bcx.ins().return_(&[]);
         lower.seal_trap_blocks();
+        lower.seal_joins();
         bcx.finalize(crate::codegen::FRONTEND);
         out.define(id, func, module);
     }

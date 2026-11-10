@@ -95,6 +95,7 @@ mod generators;
 mod induction;
 mod inline;
 mod known;
+mod known_returns;
 mod last_use;
 mod matching;
 mod metadata;
@@ -2112,6 +2113,7 @@ fn build_user_function(
             position: sites::Position::in_file(decl.source.clone(), decl.standard_library),
             trap_blocks: HashMap::default(),
             moves: inline::Moves::find(body),
+            joins: Default::default(),
         };
         lower.note_stable_inputs(decl.sig.inputs.len());
         // Argument addresses belong to the caller. Snapshot inline values into
@@ -2150,6 +2152,7 @@ fn build_user_function(
             .finish_exits()
             .map_err(|e| -> Box<dyn Error> { format!("in `{name}`: {e}").into() })?;
         lower.seal_trap_blocks();
+        lower.seal_joins();
         lower.finish_portable_simd();
         bcx.finalize(crate::codegen::FRONTEND);
     }
@@ -2240,6 +2243,7 @@ fn build_main(
             position: Default::default(),
             trap_blocks: HashMap::default(),
             moves: Default::default(),
+            joins: Default::default(),
         };
         if let Some((register, table)) = runtime.signal_traps {
             let table = lower.module.declare_data_in_func(table, lower.bcx.func);
@@ -2260,6 +2264,7 @@ fn build_main(
         lower.release_stack();
         lower.bcx.ins().return_(&[status]);
         lower.seal_trap_blocks();
+        lower.seal_joins();
         bcx.finalize(crate::codegen::FRONTEND);
     }
     out.define(main_id, func, module);
@@ -2464,6 +2469,8 @@ struct Lowerer<'a, 'b> {
     trap_blocks: HashMap<(TrapKind, Option<i64>), Block>,
     /// Moves read in place; see [`inline::Moves`].
     moves: inline::Moves,
+    /// Return blocks a `?` may bypass; see [`known_returns`].
+    joins: known_returns::Joins,
     /// Blocks shared by a user function's exits; `None` lowers each exit
     /// inline. See [`exits`].
     exits: Option<exits::Exits>,
@@ -2650,6 +2657,19 @@ impl Lowerer<'_, '_> {
         }
     }
     fn lower(&mut self, op: &Op) -> Result<()> {
+        if self.joins.pending()
+            && !matches!(
+                op,
+                Op::Try { .. }
+                    | Op::Return
+                    | Op::Loan(_)
+                    | Op::UseLoan(_)
+                    | Op::EndLoan(_)
+                    | Op::Access(..)
+            )
+        {
+            self.seal_joins();
+        }
         if !self.moves.pending.is_empty()
             && !inline::Moves::passes(op)
             && !matches!(op, Op::Call(_) | Op::Return)

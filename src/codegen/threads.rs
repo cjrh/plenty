@@ -82,6 +82,7 @@ pub(super) fn build_adapter(
             position: Default::default(),
             trap_blocks: HashMap::default(),
             moves: Default::default(),
+            joins: Default::default(),
         };
         for (i, ty) in task.inputs.iter().enumerate() {
             let packed = lower.bcx.ins().load(
@@ -129,6 +130,7 @@ pub(super) fn build_adapter(
         let zero = lower.bcx.ins().iconst(PTR_TY, 0);
         lower.bcx.ins().return_(&[zero]);
         lower.seal_trap_blocks();
+        lower.seal_joins();
         bcx.finalize(crate::codegen::FRONTEND);
         out.define(id, func, module);
     }

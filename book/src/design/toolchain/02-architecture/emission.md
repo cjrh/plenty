@@ -368,6 +368,41 @@ rather than running into the next function. `--dump` builds keep every body.
 Small numerical list loops can also receive [guarded scalar state and bounded
 inner-loop expansion](numerical-loops.md) before last-use analysis.
 
+## Known returns
+
+An inlined callee's returns jump to one block that takes the returned value,
+and a `?` applied to the call tests that value's tag. Cranelift threads no
+jump through a block parameter, so a return that had just built `Ok(x)` still
+ran the test. When `?` directly follows an inlined call whose `Result` or
+`Option` payload fits one word, `src/codegen/known_returns.rs` moves each
+return that built the success variant to the code after `?`, passing the
+payload (issue #936). A return that built the failure variant keeps its path
+to the caller's failure handling. A return of any other value, such as a
+parameter or a call's result, keeps the test; when there is none, the test is
+not emitted and the remaining path is cold.
+
+The error exits of a `Result`-returning callee's checked arithmetic are
+returns that build `Err`, and a nested inlined call's return block forwards
+to the outer one; both are followed, up to three blocks deep. In
+
+```plenty fragment
+class Rng:
+    seed: i64
+
+    def next(self: &mut Rng) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
+        self.seed = (self.seed * IA + IC) % IM
+        Ok(self.seed)
+```
+
+`rng.next()?` in a loop runs no tag test and no jump for the `Ok`: the two
+overflow exits go to the caller's error return in cold code. Traps, error
+values, cleanup and source positions are unchanged; only the jumps' targets
+differ.
+
+The frontend cannot retarget a jump into a sealed block, so the return block
+of an inlined call and the exit of an inlined checked body stay unsealed
+until the next operation that is not `?`.
+
 ## Last-use moves
 
 After substitution, `src/codegen/last_use.rs` turns the last read of a local
