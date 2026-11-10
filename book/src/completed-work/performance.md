@@ -292,6 +292,40 @@ has the same per-pass count and the optimized IR is identical; the 20
 instructions per step are 5 moves and a jump in outer-loop code whose
 register assignment changed.
 
+## Loop-exit blocks kept off the loop's allocation
+
+A loop whose bounds-check failure path calls a reporting function before it
+traps ran extra register moves on every pass. regalloc2 gave the failure
+block the loop's depth, because Cranelift hands it over inside the loop's
+span of the block order, and a value used by that call shared one bundle with
+its uses in the loop, so the call's argument register became a requirement of
+the whole loop. The
+[regalloc2 fork](../development/workflow.md#cranelift-and-regalloc2-forks)
+gives a block without successors depth 0 and, when it is entered from inside
+a loop, gives each value's ranges in it a bundle of their own: the move into
+the argument register runs on the exit edge. The fork's
+`docs/cold-exit-block-splits.md` has the reproductions. Instruction counts
+against `761f7813`, with identical output:
+
+| Program | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| n-body 500,000 | 327,092,611 | 323,092,572 | −1.2% |
+| reverse-complement (2.5M input) | 603,009,834 | 602,718,127 | −0.05% |
+| mandelbrot 2000 | 2,085,277,533 | 2,084,277,546 | −0.05% |
+| regex-redux (250k input) | 2,505,731,496 | 2,505,963,327 | +0.01% |
+| n-body clist 500,000 | 1,203,574,655 | 1,234,574,648 | +2.6% |
+
+fasta, spectral-norm, binary-trees and fannkuch-redux are unchanged, and
+k-nucleotide is within its run-to-run spread. The clist velocity kernel
+(`experiments/kernels/clist/`) falls from 74 to 70 instructions per pass; the
+other kernels are unchanged. Compiler instructions rise 0.07% to 0.22%.
+
+n-body clist loses 62 instructions per step in `advance`'s velocity nest. The
+unpatched allocator counted each failure block's use of the lengths of `dy`,
+`dz` and `mag` at the inner loop's depth, which kept them in registers ahead
+of a competing value; with that use at depth 0 they are spilled. The lengths
+are reloaded on every outer pass and need not be (issue #943).
+
 ## B19: Compiler scale and caching
 
 - Warm single-file executable hits skip bundled-runtime extraction (issue #699).
