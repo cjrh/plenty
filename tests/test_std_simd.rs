@@ -383,10 +383,9 @@ fn optimized_operations_emit_vectors_while_checked_arithmetic_stays_scalar() {
             String::from_utf8_lossy(&out.stderr)
         );
         let dump = String::from_utf8_lossy(&out.stdout);
-        assert_eq!(dump.contains("splat.i32x4"), vector, "{dump}");
-        if vector {
-            assert!(dump.contains("paddd"), "{dump}");
-        }
+        // Constructors may assemble vectors even in the scalar checked body;
+        // only wrapping addition may become packed arithmetic.
+        assert_eq!(dump.contains("paddd"), vector, "{dump}");
     }
 }
 
@@ -636,4 +635,89 @@ fn square_root_chains_stay_in_vector_registers() {
             "{dump}"
         );
     }
+}
+
+#[test]
+#[cfg(target_arch = "x86_64")]
+fn vector_projection_loop_avoids_storage_and_calls() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("projection.plenty");
+    std::fs::write(
+        &input,
+        include_str!("../experiments/simd-boundaries/projection.plenty"),
+    )
+    .unwrap();
+    let out = Command::new(support::plenty_bin())
+        .env("PLENTY_CACHE", "off")
+        .args(["--dump", "clif-opt,asm", "--dump-filter", "projection"])
+        .arg(input)
+        .args(["-o", "-"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let dump = String::from_utf8_lossy(&out.stdout);
+    assert!(dump.contains("addpd"), "{dump}");
+    assert!(!dump.contains("call "), "{dump}");
+    assert!(
+        !dump.contains(" = load")
+            && !dump.contains("    store")
+            && !dump.contains("stack_store")
+            && !dump.contains("stack_load"),
+        "{dump}"
+    );
+}
+
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn vector_tuple_copies_mutation_and_escapes(#[case] release: bool) {
+    passes(
+        r#"
+import std.simd as s
+from std.test import check
+
+def escaped(a: f64, b: f64) -> (f64, f64):
+    s.f64x2.Lanes(a, b).to_tuple()
+
+def change(t: &mut (f64, f64)) -> ():
+    match t:
+        case (a, b):
+            *a = 100.0
+            *b = 200.0
+
+def main() -> ():
+    mut v = s.f64x2.Lanes(1.0, -0.0)
+    mut tuple = v.to_tuple()
+    saved = tuple
+    change(&mut tuple)
+    a, b = saved
+    check(a == 1.0 and (1.0).copysign(b) == -1.0, "tuple snapshot").unwrap()
+    check(tuple == (100.0, 200.0), "tuple mutation").unwrap()
+    v = s.f64x2.Lanes(3.0, 4.0)
+    check(saved == (1.0, 0.0), "vector reassignment").unwrap()
+    for n in range(10):
+        pair = if n % 2 == 0:
+            v.to_tuple()
+        else:
+            escaped(5.0, 6.0)
+        x, y = pair
+        expected = if n % 2 == 0:
+            7.0
+        else:
+            11.0
+        check(x + y == expected, "tuple join").unwrap()
+    ia, ib, ic, id = s.i32x4.Lanes(i32.MIN, i32.MAX, -1i32, 7i32).to_tuple()
+    check((ia, ib, ic, id) == (i32.MIN, i32.MAX, -1i32, 7i32), "signed lanes").unwrap()
+    ua, ub, uc, ud = s.u32x4.Lanes(0u32, u32.MAX, 1u32, 42u32).to_tuple()
+    check((ua, ub, uc, ud) == (0u32, u32.MAX, 1u32, 42u32), "unsigned lanes").unwrap()
+    fa, fb, fc, fd = s.f32x4.Lanes(-0.0f32, f32.NAN, f32.INF, 1e-40f32).to_tuple()
+    check((1.0f32).copysign(fa) == -1.0f32 and fb != fb and fc == f32.INF and fd == 1e-40f32, "float lane bits").unwrap()
+    print("ok").unwrap()
+"#,
+        release,
+    );
 }

@@ -266,6 +266,23 @@ This changes test synchronization, not runtime handler behavior.
 
 ## B23: SIMD
 
+Numeric `std.simd` constructors and `to_tuple()` now preserve native lanes through
+unpacking on optimized x86-64 builds (issue #929). Unborrowed matching numeric
+tuples used by destructuring can remain in vector SSA; calls and addressable
+values retain the ordinary representation. The scalar fallback and public ABI
+are unchanged.
+
+The retained `experiments/simd-boundaries/` probes compare unchanged source at
+main `56365416` with this lowering. The projection loop falls from 129 executed
+instructions per iteration (including caller-context helpers) to 9, matching
+C's loop. At one million steps, the public fixed-state x/y n-body probe falls
+from 2,024.686M instructions to 545.684M, with same-session median time falling
+from 253.75 ms to 51.12 ms. All 35 state fields and both energy lines are exact
+across nine step counts. These are explicit-SIMD source probes: the original
+list-based benchmark remains at 1,995.708M instructions. Automatic aggregate
+scalar replacement and bounded loop expansion remain separate work.
+
+
 Float vectors now provide allocation-free `sqrt()` with scalar fallback and
 baseline x86-64 packed lowering (issue #929). IEEE edge cases and chained
 vector-register operations are tested. Public list-transfer overhead still

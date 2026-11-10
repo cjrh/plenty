@@ -1,0 +1,13 @@
+# started on Tue Nov 10 02:25:32 2026
+
+
+ Performance counter stats for 'target/release/examples/compile_bench 1000 10 --workload aot':
+
+      127845512162      instructions:u                                                        
+
+      10.165181151 seconds time elapsed
+
+      27.316392000 seconds user
+       1.629820000 seconds sys
+
+

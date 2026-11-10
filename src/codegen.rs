@@ -2796,9 +2796,11 @@ impl Lowerer<'_, '_> {
             Op::Next(i) => self.lower_next(*i)?,
             Op::DropLocal(i) => self.drop_local(*i),
             Op::EmptyLocal(i) => {
-                let ty = self.locals[*i as usize].1.clone();
-                let zero = self.empty_slot(&ty);
-                self.write_local(*i, zero);
+                if !self.clear_simd_local(*i) {
+                    let ty = self.locals[*i as usize].1.clone();
+                    let zero = self.empty_slot(&ty);
+                    self.write_local(*i, zero);
+                }
             }
             Op::MoveLocal(i) => {
                 let value = self.read_local(*i);
@@ -2809,8 +2811,10 @@ impl Lowerer<'_, '_> {
                 } else {
                     self.snapshot_inline(value, &ty)
                 };
-                let zero = self.empty_slot(&ty);
-                self.write_local(*i, zero);
+                if !self.clear_simd_local(*i) {
+                    let zero = self.empty_slot(&ty);
+                    self.write_local(*i, zero);
+                }
                 self.stack.push((value, ty));
             }
             Op::Unreachable => {
