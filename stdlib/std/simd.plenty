@@ -331,6 +331,11 @@ pub enum f32x4:
                     case f32x4.Lanes(b0, b1, b2, b3):
                         f32x4.Lanes(*a0 * *b0, *a1 * *b1, *a2 * *b2, *a3 * *b3)
 
+    pub def sqrt(self) -> f32x4:
+        match self:
+            case f32x4.Lanes(a0, a1, a2, a3):
+                f32x4.Lanes((*a0).sqrt(), (*a1).sqrt(), (*a2).sqrt(), (*a3).sqrt())
+
     pub def div(self, other: &f32x4) -> f32x4:
         match self:
             case f32x4.Lanes(a0, a1, a2, a3):
@@ -456,6 +461,11 @@ pub enum f64x2:
                 match other:
                     case f64x2.Lanes(b0, b1):
                         f64x2.Lanes(*a0 * *b0, *a1 * *b1)
+
+    pub def sqrt(self) -> f64x2:
+        match self:
+            case f64x2.Lanes(a0, a1):
+                f64x2.Lanes((*a0).sqrt(), (*a1).sqrt())
 
     pub def div(self, other: &f64x2) -> f64x2:
         match self:

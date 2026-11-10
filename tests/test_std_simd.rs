@@ -383,10 +383,9 @@ fn optimized_operations_emit_vectors_while_checked_arithmetic_stays_scalar() {
             String::from_utf8_lossy(&out.stderr)
         );
         let dump = String::from_utf8_lossy(&out.stdout);
-        assert_eq!(dump.contains("splat.i32x4"), vector, "{dump}");
-        if vector {
-            assert!(dump.contains("paddd"), "{dump}");
-        }
+        // Constructors may assemble vectors even in the scalar checked body;
+        // only wrapping addition may become packed arithmetic.
+        assert_eq!(dump.contains("paddd"), vector, "{dump}");
     }
 }
 
@@ -557,6 +556,166 @@ def main() -> ():
                 check(False, "missing closure callback error").unwrap()
         check(invoke(&named, simd.splat_i32x4(1i32)).unwrap().to_tuple() == (2i32, 2i32, 2i32, 2i32), "named success").unwrap()
         check(invoke(&callback, simd.splat_i32x4(1i32)).unwrap().to_tuple() == (3i32, 3i32, 3i32, 3i32), "closure success").unwrap()
+    print("ok").unwrap()
+"#,
+        release,
+    );
+}
+
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn square_roots_match_scalar_lanes_and_preserve_zero_sign(#[case] release: bool) {
+    for (ty, vector, count, tiny) in [
+        ("f32", "f32x4", 4, "1e-40f32"),
+        ("f64", "f64x2", 2, "1e-310"),
+    ] {
+        let lanes = (0..count)
+            .map(|i| format!("values[(start + {i}) % len(values)]"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        passes(
+            &format!(
+                r#"import std.simd as s
+from std.test import check
+def borrowed(value: &s.{vector}) -> s.{vector}:
+    value.sqrt()
+def main() -> ():
+    values = [{ty}.NAN, {ty}.INF, -{ty}.INF, 0.0{ty}, -0.0{ty}, 2.0{ty}, -2.0{ty}, {tiny}, 1e30{ty}].unwrap()
+    unchecked trap:
+        for start in range(len(values)):
+            v = s.{vector}.Lanes({lanes})
+            saved = v
+            direct = v.sqrt()
+            indirect = borrowed(&v)
+            for lane in range({count}):
+                expected = values[(start + lane) % len(values)].sqrt()
+                a = direct.lane(lane).unwrap()
+                b = indirect.lane(lane).unwrap()
+                check(a == expected or (a != a and expected != expected), "direct sqrt").unwrap()
+                check(b == expected or (b != b and expected != expected), "borrowed sqrt").unwrap()
+                if expected == 0.0{ty}:
+                    check((1.0{ty}).copysign(a) == (1.0{ty}).copysign(expected), "direct zero sign").unwrap()
+                    check((1.0{ty}).copysign(b) == (1.0{ty}).copysign(expected), "borrowed zero sign").unwrap()
+                original = saved.lane(lane).unwrap()
+                input = values[(start + lane) % len(values)]
+                check(original == input or (original != original and input != input), "input unchanged").unwrap()
+    print("ok").unwrap()
+"#
+            ),
+            release,
+        );
+    }
+}
+
+#[test]
+#[cfg(target_arch = "x86_64")]
+fn square_root_chains_stay_in_vector_registers() {
+    for (vector, opcode) in [("f32x4", "sqrtps"), ("f64x2", "sqrtpd")] {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("sqrt.plenty");
+        std::fs::write(&input, format!("import std.simd as s\ndef kernel(a: &s.{vector}, b: &s.{vector}) -> s.{vector}:\n    v = a.mul(b)\n    root = v.sqrt()\n    root.div(v)\ndef main() -> ():\n    a = s.splat_{vector}(4.0)\n    print(kernel(&a, &a).to_tuple()).unwrap()\n")).unwrap();
+        let out = Command::new(support::plenty_bin())
+            .env("PLENTY_CACHE", "off")
+            .args(["--dump", "clif-opt,asm", "--dump-filter", "kernel"])
+            .arg(input)
+            .args(["-o", "-"])
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let dump = String::from_utf8_lossy(&out.stdout);
+        assert!(dump.contains(opcode), "{dump}");
+        assert!(!dump.contains("call "), "{dump}");
+        assert!(
+            !dump.contains("stack_load") && !dump.contains("stack_store"),
+            "{dump}"
+        );
+    }
+}
+
+#[test]
+#[cfg(target_arch = "x86_64")]
+fn vector_projection_loop_avoids_storage_and_calls() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("projection.plenty");
+    std::fs::write(
+        &input,
+        include_str!("../experiments/simd-boundaries/projection.plenty"),
+    )
+    .unwrap();
+    let out = Command::new(support::plenty_bin())
+        .env("PLENTY_CACHE", "off")
+        .args(["--dump", "clif-opt,asm", "--dump-filter", "projection"])
+        .arg(input)
+        .args(["-o", "-"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let dump = String::from_utf8_lossy(&out.stdout);
+    assert!(dump.contains("addpd"), "{dump}");
+    assert!(!dump.contains("call "), "{dump}");
+    assert!(
+        !dump.contains(" = load")
+            && !dump.contains("    store")
+            && !dump.contains("stack_store")
+            && !dump.contains("stack_load"),
+        "{dump}"
+    );
+}
+
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn vector_tuple_copies_mutation_and_escapes(#[case] release: bool) {
+    passes(
+        r#"
+import std.simd as s
+from std.test import check
+
+def escaped(a: f64, b: f64) -> (f64, f64):
+    s.f64x2.Lanes(a, b).to_tuple()
+
+def change(t: &mut (f64, f64)) -> ():
+    match t:
+        case (a, b):
+            *a = 100.0
+            *b = 200.0
+
+def main() -> ():
+    mut v = s.f64x2.Lanes(1.0, -0.0)
+    mut tuple = v.to_tuple()
+    saved = tuple
+    change(&mut tuple)
+    a, b = saved
+    check(a == 1.0 and (1.0).copysign(b) == -1.0, "tuple snapshot").unwrap()
+    check(tuple == (100.0, 200.0), "tuple mutation").unwrap()
+    v = s.f64x2.Lanes(3.0, 4.0)
+    check(saved == (1.0, 0.0), "vector reassignment").unwrap()
+    for n in range(10):
+        pair = if n % 2 == 0:
+            v.to_tuple()
+        else:
+            escaped(5.0, 6.0)
+        x, y = pair
+        expected = if n % 2 == 0:
+            7.0
+        else:
+            11.0
+        check(x + y == expected, "tuple join").unwrap()
+    ia, ib, ic, id = s.i32x4.Lanes(i32.MIN, i32.MAX, -1i32, 7i32).to_tuple()
+    check((ia, ib, ic, id) == (i32.MIN, i32.MAX, -1i32, 7i32), "signed lanes").unwrap()
+    ua, ub, uc, ud = s.u32x4.Lanes(0u32, u32.MAX, 1u32, 42u32).to_tuple()
+    check((ua, ub, uc, ud) == (0u32, u32.MAX, 1u32, 42u32), "unsigned lanes").unwrap()
+    fa, fb, fc, fd = s.f32x4.Lanes(-0.0f32, f32.NAN, f32.INF, 1e-40f32).to_tuple()
+    check((1.0f32).copysign(fa) == -1.0f32 and fb != fb and fc == f32.INF and fd == 1e-40f32, "float lane bits").unwrap()
     print("ok").unwrap()
 "#,
         release,

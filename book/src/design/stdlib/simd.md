@@ -37,6 +37,7 @@ def main() -> Result[(), IoError]:
 | Operation | Contract |
 | --- | --- |
 | `add`, `sub`, `mul` | Integer vectors return `Result[Vector, OverflowError[Lane]]`; float vectors stay infallible |
+| Float `sqrt()` | Per-lane scalar square root: negative inputs yield NaN, signed zero and positive infinity are preserved |
 | Float `div` | Scalar IEEE division, including infinities and NaNs |
 | Integer `wrapping_add`, `wrapping_sub`, `wrapping_mul` | Modular lane arithmetic |
 | Integer `wrapping_sum()` | Modular sum of all lanes |
@@ -137,8 +138,12 @@ the ordinary value handle; this is **not** a packed 16-byte vector or a native
 register ABI. Mask variants expose logical booleans, not hardware masks. Neither
 vector nor mask layout is a C, serialization, Arrow or Parquet contract.
 
-On x86-64, the default optimized profile lowers wrapping arithmetic, float arithmetic, comparisons
-and selection to baseline 128-bit SIMD. Integer `wrapping_sum` reduces lanes
+On x86-64, the default optimized profile lowers wrapping arithmetic, float arithmetic (including `sqrt`), comparisons
+and selection to baseline 128-bit SIMD. Numeric `Lanes` constructors and
+`to_tuple()` followed by unpacking preserve native lanes without a scalar call
+or a round trip through tuple storage. Unborrowed matching numeric tuple locals
+used by unpacking can also stay native; escaping tuples retain their ordinary ABI.
+Integer `wrapping_sum` reduces lanes
 directly without calling the scalar module body. Numeric vector locals without mutable
 borrows stay in vector registers across supported operations and loops. Values
 materialize in ordinary tagged storage at calls, containers and observable

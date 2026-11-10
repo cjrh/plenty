@@ -1,0 +1,35 @@
+@copy
+class Body:
+    x: f64
+    y: f64
+    z: f64
+    vx: f64
+    vy: f64
+    vz: f64
+    mass: f64
+
+
+def velocity(bodies: &mut list[Body], dx: &list[f64], dy: &list[f64], dz: &list[f64], mag: &list[f64], n: i64) -> Result[(), OverflowError[i64]]:
+    mut k = 0
+    for i in range(n):
+        for j in range(i + 1, n):
+            mi = bodies[i].mass * mag[k]
+            mj = bodies[j].mass * mag[k]
+            bodies[i].vx -= dx[k] * mj
+            bodies[i].vy -= dy[k] * mj
+            bodies[i].vz -= dz[k] * mj
+            bodies[j].vx += dx[k] * mi
+            bodies[j].vy += dy[k] * mi
+            bodies[j].vz += dz[k] * mi
+            k += 1
+    Ok(())
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    mut bodies = [Body(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0), Body(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0)]?
+    x = [1.0]?
+    y = [2.0]?
+    z = [3.0]?
+    mag = [0.5]?
+    velocity(&mut bodies, &x, &y, &z, &mag, 2)?
+    print(bodies[0].vx, bodies[1].vx)?
+    Ok(())

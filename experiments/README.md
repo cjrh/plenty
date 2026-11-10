@@ -29,3 +29,10 @@ instead document their representability invariants.
 
 Recorded JSON, instruction counts and timing tables remain historical evidence;
 this source migration does not refresh those measurements.
+
+The [n-body and k-nucleotide investigation](nbody-codegen/README.md) separates
+scalar loop overhead, SIMD capability, target ISA and runtime-helper costs.
+Its stored kernels are ordinary checked programs; `run.py` generates a separate
+unchecked diagnostic, and `unroll.py` generates fixed-size specialization probes.
+The fully unrolled probes intentionally expose the current 256-local-slot limit
+and are not correctness fixtures.

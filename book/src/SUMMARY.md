@@ -539,6 +539,7 @@
         - [Compiler and runtime architecture](design/toolchain/02-architecture/index.md)
             - [Frontend and checking](design/toolchain/02-architecture/frontend.md)
             - [Specialization and native emission](design/toolchain/02-architecture/emission.md)
+            - [Small numerical loop state](design/toolchain/02-architecture/numerical-loops.md)
             - [Value representations](design/toolchain/02-architecture/values.md)
             - [Memory and destruction](design/toolchain/02-architecture/memory.md)
             - [Collection storage and costs](design/toolchain/02-architecture/collections.md)

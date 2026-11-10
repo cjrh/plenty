@@ -740,3 +740,30 @@ fn inconsistent_or_panicking_stable_comparison_keeps_every_row_and_address() {
         check(&entries, 32);
     }
 }
+
+#[test]
+fn key_only_reads_match_full_rows_across_layouts_and_removal() {
+    for ty in SCALARS.iter().chain([&RANGE, &NESTED]) {
+        for ordered in [false, true] {
+            let mut entries = if ordered {
+                Entries::ordered(ty, Some(&INTEGER))
+            } else {
+                Entries::new(ty, None)
+            };
+            entries.try_reserve(8).unwrap();
+            for n in 0..8 {
+                push(&mut entries, n);
+            }
+            for index in entries.indices() {
+                assert_eq!(entries.key(index), entries.get(index).key);
+            }
+            // SAFETY: row 3 is live; its extracted payload is discarded before mutation.
+            unsafe {
+                entries.remove(3);
+            }
+            for index in entries.indices() {
+                assert_eq!(entries.key(index), entries.get(index).key);
+            }
+        }
+    }
+}

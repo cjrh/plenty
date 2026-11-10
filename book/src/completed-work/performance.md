@@ -9,6 +9,19 @@ only to the [backlog](../backlog.md).
 
 ## B19: Generated code and storage
 
+A successful list/view bounds check now proves that incrementing the same
+`i64` index by one cannot overflow, while its dominance chain remains valid
+(issue #930). This removes three instructions per n-body velocity pair and
+reduces the complete benchmark from 2.050B to 1.996B instructions at one million
+steps, with identical output. Bounds checks and non-dominating overflow checks
+remain.
+
+Dictionary hash probes read only the key instead of materializing an unused
+key/value row (issue #931). The isolated hit path saves 29 instructions per
+update, and k-nucleotide at fasta 50,000 saves about 3% of instructions with
+identical output. Other helper costs remain; wall-time improvement was not
+established on the shared machine.
+
 - The CPU audit (`examples/cpu_codegen_audit/`, local PR #431) led to issues
   #360–#392. `--dump` exposes operations/CLIF/assembly (issue #360). Unborrowed
   locals stay in registers, narrow helpers replace dispatcher calls in borrowed
@@ -131,6 +144,48 @@ revisions; their percentages must not be added or treated as a fresh combined
 speedup. The original serial-versus-seven-thread wall-time ratio is likewise
 not a current per-core comparison.
 
+## n-body structural feasibility (issues #929 and #930)
+
+The investigation in `experiments/nbody-structural/README.md` executes and checks
+fixed-state scalar/vector IR against Plenty, C and Rust. At main `c7ca5a95`, one
+million steps take 1,996M instructions in current Plenty, 857M in a fused-source
+probe, and 673M with explicit five-body scalar locals. Cranelift vector IR takes
+488M on baseline SSE2 and 389M with AVX enabled; native Rust takes 230M.
+In one pinned timing session, current Plenty takes 102ms, the AVX prototype
+38ms and Rust 28ms. These are feasibility probes, not shipped compiler gains.
+
+Full state is bit-identical across the Plenty/C/IR probes over short and long
+runs, with 2,560 additional randomized C/IR checks. Public Plenty SIMD still
+loses the target shape through lane-extraction calls and aggregate storage.
+The study provides complete loop instruction ledgers, reproducible generators,
+counter observations, timing ranges and limitations. It supports scalar
+replacement plus bounded expansion and native SIMD continuity; neither array
+syntax alone nor indiscriminately higher inlining limits establishes that result.
+The production benchmark, compiler and baseline ISA remain unchanged. Outstanding
+implementation scope belongs to B19/B23/B83 in the [backlog](../backlog.md).
+
+## Guarded numerical state (issue #930)
+
+Optimized builds now automatically expand bounded inner ranges and promote small
+numerical list/record cells across an outer loop, with size/fact guards and the
+original loop as fallback. The [implemented limits and safety argument](../design/toolchain/02-architecture/numerical-loops.md)
+cover preserved allocation failures, aliasing, floating expression order and
+empty ranges. No source rewrite is needed for the original n-body benchmark.
+
+`experiments/fixed-state/README.md` and its retained measurements report one
+million steps falling from 1,995.713M to 702.713M instructions (64.8% fewer), and
+104.89ms to 51.82ms in one rotating, pinned timing session. Native Rust rerun in
+that session takes 229.636M instructions and 28.04ms. The fast loop has 280 scalar
+FP instructions, 254 stack moves, 153 register copies, ten zeroing instructions
+and five control instructions; no list accesses or checks remain inside it.
+
+The cost is 12.0% more n-body compilation instructions and `advance` growing
+from 6,259 to 14,286 bytes, including its fallback. Limits bound expansion,
+promoted cells and added locals. Complete-state checks include the original
+initial state and eighty randomized cases; fallback and allocation-failure
+checks retain their original behavior. Broader aggregate eligibility, automatic
+SIMD packing and backend register use remain issue #930 in the [backlog](../backlog.md).
+
 ## B19: Compiler scale and caching
 
 - Warm single-file executable hits skip bundled-runtime extraction (issue #699).
@@ -232,6 +287,29 @@ regressions retain the later checked-overflow report in debug and optimized buil
 This changes test synchronization, not runtime handler behavior.
 
 ## B23: SIMD
+
+Numeric `std.simd` constructors and `to_tuple()` now preserve native lanes through
+unpacking on optimized x86-64 builds (issue #929). Unborrowed matching numeric
+tuples used by destructuring can remain in vector SSA; calls and addressable
+values retain the ordinary representation. The scalar fallback and public ABI
+are unchanged.
+
+The retained `experiments/simd-boundaries/` probes compare unchanged source at
+main `56365416` with this lowering. The projection loop falls from 129 executed
+instructions per iteration (including caller-context helpers) to 9, matching
+C's loop. At one million steps, the public fixed-state x/y n-body probe falls
+from 2,024.686M instructions to 545.684M, with same-session median time falling
+from 253.75 ms to 51.12 ms. All 35 state fields and both energy lines are exact
+across nine step counts. These are explicit-SIMD source probes: the original
+list-based benchmark remains at 1,995.708M instructions. Automatic aggregate
+scalar replacement and bounded loop expansion remain separate work.
+
+
+Float vectors now provide allocation-free `sqrt()` with scalar fallback and
+baseline x86-64 packed lowering (issue #929). IEEE edge cases and chained
+vector-register operations are tested. Public list-transfer overhead still
+prevents the n-body magnitude path from approaching the packed-pointer probe;
+this adds a numerical primitive, not a benchmark speedup.
 
 [Automatic integer-column filter/count](../proposals/columnar-list/simd-counts.md)
 uses baseline SSE2 SIMD with scalar tails in optimized builds: 16 lanes for

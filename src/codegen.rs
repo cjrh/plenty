@@ -106,6 +106,7 @@ mod references;
 mod relax;
 pub(crate) use output::describe_error;
 pub(crate) use relax::relax_local_addresses;
+mod fixed_state;
 mod inline_calls;
 mod leaf_calls;
 mod reachability;
@@ -776,6 +777,7 @@ fn object_module(
     let objects = crate::foreign::exported_objects(&ops);
     reachability::prune_for_emission(&mut ops, exports, build.prune_user);
     small_calls::substitute(&mut ops, build.optimize, workers);
+    fixed_state::prepare(&mut ops, build.optimize);
     crate::tail_abi::prepare(&mut ops, workers);
     last_use::prepare(&mut ops, workers);
     let opt_level = if build.optimize { "speed" } else { "none" };
@@ -2796,9 +2798,11 @@ impl Lowerer<'_, '_> {
             Op::Next(i) => self.lower_next(*i)?,
             Op::DropLocal(i) => self.drop_local(*i),
             Op::EmptyLocal(i) => {
-                let ty = self.locals[*i as usize].1.clone();
-                let zero = self.empty_slot(&ty);
-                self.write_local(*i, zero);
+                if !self.clear_simd_local(*i) {
+                    let ty = self.locals[*i as usize].1.clone();
+                    let zero = self.empty_slot(&ty);
+                    self.write_local(*i, zero);
+                }
             }
             Op::MoveLocal(i) => {
                 let value = self.read_local(*i);
@@ -2809,8 +2813,10 @@ impl Lowerer<'_, '_> {
                 } else {
                     self.snapshot_inline(value, &ty)
                 };
-                let zero = self.empty_slot(&ty);
-                self.write_local(*i, zero);
+                if !self.clear_simd_local(*i) {
+                    let zero = self.empty_slot(&ty);
+                    self.write_local(*i, zero);
+                }
                 self.stack.push((value, ty));
             }
             Op::Unreachable => {
@@ -3140,6 +3146,24 @@ impl Lowerer<'_, '_> {
         b: cranelift_codegen::ir::Value,
     ) -> Option<(cranelift_codegen::ir::Value, cranelift_codegen::ir::Value)> {
         let dfg = &self.bcx.func.dfg;
+        if signed && kind == ArithKind::Add && dfg.value_type(a) == types::I64 {
+            let index = if known::known_signed(dfg, b) == Some(1) {
+                Some(a)
+            } else if known::known_signed(dfg, a) == Some(1) {
+                Some(b)
+            } else {
+                None
+            };
+            if index.is_some_and(|index| {
+                self.counters
+                    .checked
+                    .index_below_max(self.bcx.current_block(), dfg.resolve_aliases(index))
+            }) {
+                let sum = self.bcx.ins().iadd(a, b);
+                let overflow = self.bcx.ins().iconst(types::I8, 0);
+                return Some((sum, overflow));
+            }
+        }
         let constant_operand =
             known::known_int(dfg, a).is_some() || known::known_int(dfg, b).is_some();
         let rematerialized = self.module.optimizes() && constant_operand;

@@ -193,6 +193,18 @@ pub(super) struct RowKey {
 const CHECKED_ROWS: usize = 16;
 
 impl Checked {
+    /// A successful bounds check excludes i64::MAX, even when the original
+    /// index was negative: normalization only applies to negative indices and
+    /// every collection/view length fits in i64. Restrict this fact to the
+    /// same dominance chain as cached row addresses; joins forget it.
+    pub(super) fn index_below_max(
+        &self,
+        block: Option<cranelift_codegen::ir::Block>,
+        index: Value,
+    ) -> bool {
+        self.block == block && self.rows.iter().any(|(key, _, _)| key.index == Err(index))
+    }
+
     pub(super) fn find(
         &mut self,
         block: Option<cranelift_codegen::ir::Block>,
