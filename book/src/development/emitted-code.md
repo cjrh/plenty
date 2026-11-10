@@ -114,17 +114,23 @@ Record a variant table (letter, change, count). The best variant shows what
 Cranelift can reach; the gap between it and C is the backend's part. The
 [Cranelift IR reference](https://github.com/bytecodealliance/wasmtime/blob/main/cranelift/docs/ir.md)
 and the [ISLE reference](https://github.com/bytecodealliance/wasmtime/blob/main/cranelift/isle/docs/language-reference.md)
-describe the IR and the lowering rules. For the pinned version, read the
-mid-end rules (`opts/*.isle`) and x64 lowering (`lower.isle`) in the
-`cranelift-codegen` source under `~/.cargo/registry/src/`.
+describe the IR and the lowering rules. For the version Plenty builds, read
+the mid-end rules (`opts/*.isle`) and x64 lowering (`lower.isle`) in the
+[fork's](workflow.md#cranelift-and-regalloc2-forks) `cranelift/codegen` source,
+checked out as `../wasmtime` on branch `fork`.
 
 ### 7. Decide where the fix lives
 
 - **Plenty's frontend or lowering:** facts that remove checks, IR shapes that
   Cranelift lowers better. Implement these.
 - **Cranelift mid-end or lowering rules, regalloc2:** write the finding up
-  with the variant that demonstrates it, for an upstream report. Do not patch
-  pinned dependencies in a Plenty PR.
+  with the variant that demonstrates it. Prefer a Plenty-side IR shape when
+  one reaches the same code. Otherwise fix it in the project's fork, following
+  [Cranelift and regalloc2 forks](workflow.md#cranelift-and-regalloc2-forks):
+  the fork's own tests, Plenty's suite, and before/after counts for every
+  benchmark program and for compile time, since an allocator or lowering
+  change affects all generated code. Keep the write-up for an upstream
+  report.
 
 ### 8. Implement and verify
 

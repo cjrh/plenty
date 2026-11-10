@@ -119,6 +119,60 @@ require rerunning object-identity checks and affected compiler performance
 comparisons. Record the dependency versions with benchmark results so results
 from different dependency graphs are not compared as if only Plenty changed.
 
+### Cranelift and regalloc2 forks
+
+Plenty builds Cranelift and regalloc2 from its own forks, so a code generation
+defect whose cause is in either can be fixed there:
+
+| Crate | Repository | Branch | Base |
+|---|---|---|---|
+| `cranelift-*` | <https://github.com/cjrh/wasmtime> (Cranelift is in `cranelift/`) | `fork` | Wasmtime 50.0.0, Cranelift 0.137.0 |
+| `regalloc2` | <https://github.com/cjrh/regalloc2> | `fork` | 0.15.2 and later upstream commits |
+
+`Cargo.toml` names the `cranelift-*` crates as Git dependencies. Cranelift
+itself names the crates.io `regalloc2`, so `[patch.crates-io]` replaces it; the
+fork's version must satisfy Cranelift's requirement. `Cargo.lock` records the
+exact revision of each fork, and `--locked` builds use it. Both projects are
+licensed Apache-2.0 WITH LLVM-exception; keep their license files and headers,
+and state changes in commit messages.
+
+To change a fork:
+
+1. Work in the fork's checkout beside the primary worktree (`../wasmtime`,
+   `../regalloc2`), on a branch from `fork` or in a worktree of it.
+2. Build Plenty against the checkout with an uncommitted override in the task
+   worktree's `Cargo.toml`, without `--locked`:
+
+   ```toml
+   [patch.crates-io]
+   regalloc2 = { path = "../regalloc2" }
+
+   [patch."https://github.com/cjrh/wasmtime"]
+   cranelift-codegen = { path = "../wasmtime/cranelift/codegen" }
+   cranelift-frontend = { path = "../wasmtime/cranelift/frontend" }
+   cranelift-module = { path = "../wasmtime/cranelift/module" }
+   cranelift-object = { path = "../wasmtime/cranelift/object" }
+   cranelift-native = { path = "../wasmtime/cranelift/native" }
+   ```
+
+3. Run the fork's own tests (`cargo test` in regalloc2, which includes its
+   fuzz targets' smoke runs; the Cranelift filetests for a Cranelift change),
+   then Plenty's suite and the [emitted-code](emitted-code.md) measurements
+   against the override.
+4. Commit to the fork's `fork` branch and push it. Pushing publishes; an agent
+   needs the user's authorization.
+5. In the Plenty PR, remove the override, run
+   `cargo update -p regalloc2` or `cargo update -p cranelift-codegen`, and
+   commit the lockfile with the measurements. Update
+   `experiments/kernels/harness/Cargo.lock` the same way so hand-written CLIF
+   is compiled by the same backend.
+
+Keep each fork commit small and self-contained, with the reproduction in its
+message, so it can be offered upstream. To take an upstream release, rebase
+`fork` onto the release tag, resolve conflicts with the fork's commits, and
+treat the result as a dependency update. `scripts/aarch64-probe` and the older
+experiments keep their own crates.io pins.
+
 <span id="rust-build-profiles"></span><span id="ci-build-caches-and-timings"></span><span id="dependency-cache"></span><span id="compiled-function-cache"></span><span id="timings"></span><span id="github-source-highlighting"></span>
 
 ## Build profiles and CI

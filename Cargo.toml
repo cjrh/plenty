@@ -27,7 +27,7 @@ profile-alloc = ["profile", "hotpath/hotpath-alloc"]
 rstest = "0.23.0"
 regex = "1.12.3"
 # Exercise both Linux ISA baselines without shipping an extra native backend.
-cranelift-codegen = { version = "0.137.0", features = ["arm64", "x86"] }
+cranelift-codegen = { git = "https://github.com/cjrh/wasmtime", branch = "fork", features = ["arm64", "x86"] }
 # Reserve refused TCP ports without listening in network fixtures.
 rustix = { version = "1", features = ["net"] }
 rustc-demangle = "0.1.28"
@@ -42,11 +42,11 @@ pretty_env_logger = "0.5.0"
 # finished module to a native object file via the `object` crate.
 # `incremental-cache` gives the per-function cache key and the serialized
 # compiled stencil behind the compiled-function cache (issue #144).
-cranelift-codegen = { version = "0.137.0", features = ["incremental-cache"] }
-cranelift-frontend = "0.137.0"
-cranelift-module = "0.137.0"
-cranelift-object = "0.137.0"
-cranelift-native = "0.137.0"
+cranelift-codegen = { git = "https://github.com/cjrh/wasmtime", branch = "fork", features = ["incremental-cache"] }
+cranelift-frontend = { git = "https://github.com/cjrh/wasmtime", branch = "fork" }
+cranelift-module = { git = "https://github.com/cjrh/wasmtime", branch = "fork" }
+cranelift-object = { git = "https://github.com/cjrh/wasmtime", branch = "fork" }
+cranelift-native = { git = "https://github.com/cjrh/wasmtime", branch = "fork" }
 target-lexicon = "0.13"
 tempfile = "3.27.0"
 object = { version = "0.40.0", default-features = false, features = ["read_core", "elf", "archive", "std", "macho", "coff", "pe"] }
@@ -96,3 +96,9 @@ tempfile = "3.27.0"
 
 [target."cfg(windows)".dependencies]
 cc = "1"
+
+# Cranelift's register allocator, from the project's fork. Cranelift names the
+# crates.io release, so the fork replaces it here; its version must satisfy
+# Cranelift's requirement. See book/src/development/workflow.md.
+[patch.crates-io]
+regalloc2 = { git = "https://github.com/cjrh/regalloc2", branch = "fork" }
