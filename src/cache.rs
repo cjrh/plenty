@@ -262,7 +262,7 @@ impl Cache {
         let mut hash = Sha256::new();
         hash.update(&self.key_prefix);
         hash.update(key);
-        let hex = format!("{:x}", hash.finalize());
+        let hex = crate::hash_hex::encode(&hash.finalize());
         self.dir.join(ENTRIES).join(&hex[..2]).join(hex)
     }
 

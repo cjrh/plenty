@@ -231,7 +231,7 @@ pub fn run(args: Vec<OsString>) -> Result<ExitCode> {
     let directory = path.parent().unwrap();
     // Even with artifact reuse disabled, dependency pins/sources need storage.
     let cache = storage_root()?;
-    let key = format!("{:x}", Sha256::digest(path.as_os_str().as_encoded_bytes()));
+    let key = crate::hash_hex::encode(&Sha256::digest(path.as_os_str().as_encoded_bytes()));
     let scripts = cache.join("scripts");
     private_directory(&scripts)?;
     let _guard = lock(&scripts, &key)?;
@@ -264,8 +264,8 @@ pub fn run(args: Vec<OsString>) -> Result<ExitCode> {
             );
         }
         let key = format!(
-            "durable-{:x}",
-            Sha256::digest(destination.as_os_str().as_encoded_bytes())
+            "durable-{}",
+            crate::hash_hex::encode(&Sha256::digest(destination.as_os_str().as_encoded_bytes()))
         );
         Some(lock(&scripts, &key)?)
     } else {
@@ -404,7 +404,7 @@ pub(crate) fn editor_graph(path: &Path, text: &str) -> Option<project::SourceGra
         &path,
     )
     .ok()?;
-    let key = format!("{:x}", Sha256::digest(path.as_os_str().as_encoded_bytes()));
+    let key = crate::hash_hex::encode(&Sha256::digest(path.as_os_str().as_encoded_bytes()));
     let storage = storage_root().ok()?.join("scripts/state").join(key);
     let lockfile = storage.join(project::LOCKFILE);
     let directory = path.parent()?;

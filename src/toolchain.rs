@@ -314,7 +314,7 @@ fn probe_key(
         field(&metadata.len().to_le_bytes());
         field(&modified.as_nanos().to_le_bytes());
     }
-    Some(format!("{:x}", hash.finalize()))
+    Some(crate::hash_hex::encode(&hash.finalize()))
 }
 
 /// The choice recorded for `key`: `Some(None)` records that no candidate

@@ -77,7 +77,7 @@ pub(super) fn digest(
     // A graph the frontend rejects, such as one with a linked source root,
     // is not walked: the build reports the error instead.
     if identity.is_none() {
-        return Ok(format!("{:x}", hash.finalize()));
+        return Ok(crate::hash_hex::encode(&hash.finalize()));
     }
     for package in &graph.packages {
         field(&package.identity);
@@ -105,7 +105,7 @@ pub(super) fn digest(
             }
         }
     }
-    Ok(format!("{:x}", hash.finalize()))
+    Ok(crate::hash_hex::encode(&hash.finalize()))
 }
 
 /// The regular files and symbolic links below `directory`. Links are not
