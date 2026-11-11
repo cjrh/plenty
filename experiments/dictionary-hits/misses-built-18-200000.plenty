@@ -1,0 +1,15 @@
+# Miss-only dictionary updates: every 18-byte window of a pseudo-random
+# sequence is a new key, built with to_text_range before the lookup.
+import std.bytes
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | std.bytes.BytesError]:
+    mut sequence = std.bytes.with_capacity(200000 + 18)?
+    mut state = 42
+    for i in range(200000 + 18):
+        state = (state * 1103515245 + 12345) % 2147483648
+        sequence.push(u8(65 + state // 65536 % 26))?
+    mut counts: dict[str, i64] = {}?
+    for i in range(200000):
+        *counts.get_or_insert(sequence.to_text_range(i, i + 18)?, 0)? += 1
+    print(len(counts))?
+    Ok(())

@@ -1,4 +1,4 @@
-# Dictionary update hits (issue #931)
+# Dictionary update hits (issues #931 and #949)
 
 `*counts.get_or_insert(key, 0)? += 1` on a key that is present is the
 k-nucleotide counting step. This directory isolates it.
@@ -10,6 +10,15 @@ k-nucleotide counting step. This directory isolates it.
 - [`built-K-N.plenty`](built-3-1000000.plenty): the key is built per pass with
   `Bytes.to_text_range`, as k-nucleotide does; a 3-byte key is inline text and
   an 18-byte key is allocated and released per pass.
+- [`borrowed-K-N.plenty`](borrowed-3-1000000.plenty): the same update with
+  `get_or_insert_bytes(&sequence[a:b], 0)`, which reads the key's bytes in
+  place (issue #949); see [borrowed keys](#borrowed-keys-issue-949).
+- [`misses-built-K-N.plenty`](misses-built-7-200000.plenty) and
+  [`misses-borrowed-K-N.plenty`](misses-borrowed-7-200000.plenty): N updates
+  that each insert a new K-byte key, in both forms.
+- [`borrowed.rs`](borrowed.rs): owned keys looked up by a borrowed byte range,
+  as `HashMap<String, i64>` by a checked `&str` and as `HashMap<Vec<u8>, i64>`
+  by `&[u8]`.
 - [`hits.rs`](hits.rs): `HashMap<&str, i64>` with `entry(key).or_insert(0)`
   (SipHash-1-3, SwissTable). [`hits.c`](hits.c): SipHash-1-3 and one linear
   probe over a word table.
@@ -50,9 +59,94 @@ the longest; the likely cause, not verified, is its tail `memcpy` of a variable
 length into the final block, a store the following load cannot forward from.
 Instruction counts rank these programs wrongly; time is the measure.
 
-The Rust and C programs correspond to the `hits` kernels only. The `built`
+`hits.rs` and `hits.c` correspond to the `hits` kernels only. The `built`
 columns include key construction (about 105 instructions for an inline key;
 see [`../key-construction/`](../key-construction/README.md)).
+
+## Borrowed keys (issue #949)
+
+`get_or_insert` takes an owned key, so the `built` kernels allocate, validate,
+copy and release an 18-byte key on every hit. `get_or_insert_bytes` hashes and
+compares the bytes in the buffer and builds the key on a miss only. Per pass,
+main at 1d091967 against the branch, same machine, load average 2 to 3.5;
+cycles and time are two interleaved rounds of `perf stat -r 12` pinned to one
+core:
+
+| Program | Instructions | Cycles | ns |
+|---|---:|---:|---:|
+| `built` k=3, main | 292 | 62.3 to 63.0 | 13.4 to 13.6 |
+| `built` k=3, branch | 293 | 63.0 to 63.2 | 13.7 |
+| `borrowed` k=3 | 204 | 44.0 to 48.9 | 9.7 to 10.6 |
+| Rust `String` by checked `&str`, k=3 | 316 | 69.6 to 70.8 | 15.0 to 15.6 |
+| Rust `Vec<u8>` by `&[u8]`, k=3 | 260 | 59.4 to 59.5 | 12.8 |
+| `built` k=18, main | 613 | 131.4 to 131.7 | 28.3 to 28.6 |
+| `built` k=18, branch | 613 | 129.3 to 133.4 | 27.9 to 28.8 |
+| `borrowed` k=18 | 247 | 53.8 to 54.4 | 11.6 to 11.7 |
+| Rust `String` by checked `&str`, k=18 | 470 | 96.7 to 97.0 | 20.9 to 21.3 |
+| Rust `Vec<u8>` by `&[u8]`, k=18 | 304 | 76.7 to 82.8 | 16.9 to 17.9 |
+
+In the same rounds the `hits` kernels (a literal key, no construction) took
+226 and 262 instructions, 49.7 to 50.1 and 58.8 to 58.9 cycles; Rust's
+`hits.rs` 56.3 to 57.1 and 64.1 to 74.1 cycles; C 79.6 and 85.2.
+
+The borrowed update runs fewer instructions and cycles than either Rust form.
+Safe Rust validates the range before every lookup (`from_utf8`); here a hit
+validates nothing, because bytes equal to a stored key are valid UTF-8. The
+C kernel runs 158 and 208 instructions. The 46 and 39 more here are, read
+from the disassembly (approximate):
+
+| Where | Instructions | Cause |
+|---|---:|---|
+| `main` | 8 | `plenty_byte_view` reads the buffer's address and length on every pass; the call is not hoisted out of the loop |
+| `main` | 4 | The range check of `&sequence[1:1 + K]` and the view's address |
+| `main` | 4 | Three helper arguments reloaded from stack slots and one moved |
+| `main` | 4 | The hit flag is tested and cleared, then the `Result` tag tested |
+| `main` | 3 | The count is loaded, added with an overflow branch and stored |
+| Helper | 14 | Six callee-saved registers and a frame, pushed and popped on the hit although only the tail-call paths need them |
+| Helper | 8 | Empty-table and hash-key-initialized checks; the address of an empty view replaced by a non-null one |
+
+The helper's hash, probe and comparison otherwise match the C function's
+count (153 at k=3) to within a few instructions: the row bounds check and the
+length dispatch of the final block here against C's `memcpy` and `memcmp`
+calls.
+
+Self instructions per pass (callgrind): `plenty_dict_get_or_insert_bytes` 175
+(k=3) and 218 (k=18), `main` 23, `plenty_byte_view` 6.
+
+Misses, each pass inserting a new key (difference between the 400,000 and
+200,000 pass programs; two rounds):
+
+| Program | Instructions | Cycles |
+|---|---:|---:|
+| `misses-built` k=7, main | 1137 | 441 to 593 |
+| `misses-built` k=7, branch | 1137 | 429 to 473 |
+| `misses-borrowed` k=7 | 1083 | 424 to 466 |
+| `misses-built` k=18, main | 1438 | 579 to 609 |
+| `misses-built` k=18, branch | 1438 | 601 to 611 |
+| `misses-borrowed` k=18 | 1340 | 557 to 652 |
+
+The owned-key insert is unchanged. A borrowed miss runs fewer instructions
+(it hashes once and inserts at the probed bucket); its time is within the
+run-to-run spread, which growth and page faults dominate.
+
+k-nucleotide at fasta 25,000,000, three runs per round, two interleaved
+rounds, output identical:
+
+| Program | Instructions | Cycles | Time |
+|---|---:|---:|---:|
+| Serial, main | 355.8B | 118.8B to 124.6B | 25.7 to 27.4 s |
+| Serial, branch | 204.0B to 204.2B | 68.9B to 69.6B | 15.1 to 15.4 s |
+| Parallel (7 workers), main | 357.8B to 358.1B | 129.6B to 130.8B | 9.40 to 9.57 s |
+| Parallel (7 workers), branch | 205.7B to 205.9B | 81.3B to 82.1B | 5.43 to 5.62 s |
+
+The Rust reference (7 threads) took 12.3 s, 329.5B instructions and 177.7B
+cycles in the same session.
+
+Memory now dominates. In the serial program 91.8% of cycle samples are in
+`plenty_dict_get_or_insert_bytes`, and 44% of that function's samples are on
+the instruction after the first bucket load; the stored key word's load has
+5% and the heap key comparison 2.5%. Cache misses are 256M per run on main
+and on the branch: the change removed key construction, not misses.
 
 ## Attribution
 
@@ -93,10 +187,15 @@ After the heap-key steps, hits k=18 is `get_or_insert_heap_text` 222, `main`
 - **Releasing a literal key.** A literal key's hit still calls
   `plenty_release` on the immortal literal (12 instructions).
 - **Caller context around `to_text_range`.** 21 instructions per key; issue
-  #948.
-- **Memory.** In k-nucleotide the heap-key hit's time is in two loads: the
-  bucket (18% of the function's samples) and the first key block (18%). The
-  kernels here keep three keys in cache and do not show this.
+  #948. A key looked up with `get_or_insert_bytes` is not built on a hit.
+- **Memory.** With an owned key, k-nucleotide's heap-key hit spent its time in
+  two loads: the bucket (18% of the function's samples) and the first key
+  block (18%). With a borrowed key the bucket load alone has 44% of the hit
+  function's samples. The kernels here keep three keys in cache and do not
+  show this.
+- **The byte view per pass.** `&sequence[a:b]` in a loop calls
+  `plenty_byte_view` on every pass (9 instructions with the call) although the
+  buffer is borrowed for the whole loop.
 - **Table layout.** One 64-bit bucket per slot at load 1/2 with linear probing
   answers these kernels' hits at the first bucket. Probe lengths and cache
   misses in k-nucleotide's larger dictionaries were not measured against
