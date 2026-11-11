@@ -196,9 +196,11 @@ compares), in Cranelift, and for fasta issues #937
 (`experiments/kernels/field-rng/`).
 Key-only dictionary probes are [delivered](completed-work/performance.md#b19-generated-code-and-storage);
 key construction from a byte range skips validated clamps and the dispatcher
-(`experiments/key-construction/`); the remaining k-nucleotide costs (the
-dictionary update helper, hashing, and caller-site bookkeeping) are tracked in
-issue #931.
+(`experiments/key-construction/`), and `get_or_insert` hits skip the
+dispatcher, the general key comparison and the streaming hasher
+(`experiments/dictionary-hits/`); the remaining k-nucleotide costs (helper
+frames on a heap key's hit and caller-site bookkeeping around
+`Bytes.to_text_range`) are tracked in issue #931.
 Use [profiling](development/profiling.md), [faster-linking evidence](proposals/faster-linking.md)
 and the [completed measurements](completed-work/performance.md) as baselines.
 The [k-nucleotide counting-loop investigation](completed-work/performance.md#k-nucleotide-counting-loop-investigation-issue-743)

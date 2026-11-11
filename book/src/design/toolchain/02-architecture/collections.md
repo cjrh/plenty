@@ -46,6 +46,13 @@ worker threads; dictionary insertion order remains independent of bucket placeme
 See the [hashing contract](../../facilities/01-builtins/collections.md) for
 initialization, failure behavior, and complexity limits.
 
+A `str` or `bytes` key is hashed without the streaming hasher: an inline
+text's bytes are the final SipHash block already, and a heap text is read in
+whole words. A probe for such a key compares candidate words first, since an
+equal word is the same inline text or the same object; bytes are compared out
+of line only when the words differ, which a literal against an inline text of
+the same bytes still needs (issue #931). Hash values are unchanged.
+
 Top-level `str`, `bytes`, integer and `bool` keys hash their contents
 directly. Tuple keys recursively hash scalar fields, string bytes, and byte-literal
 contents using their static metadata. Inline storage addresses never participate in the hash, so copied
@@ -209,7 +216,16 @@ operand codegen passes is owned, whether its read moved it or counted a copy,
 so `insert`, `add`, `append`, and a `get_or_insert` miss make that count the
 collection's, and a failed insert releases it once. A `get_or_insert` hit
 keeps the stored entry: the runtime releases affine operands, and codegen
-tests a hit flag in the result and releases copyable ones inline. A mutation
+tests a hit flag in the result and releases copyable ones inline.
+`get_or_insert` does not go through the operation dispatcher: codegen calls
+`plenty_dict_get_or_insert(dictionary, key, value)` with the operands in
+registers and reads the two result words from the return registers. A `str`
+key with a value type that is not affine calls
+`plenty_dict_get_or_insert_text` instead. That helper hashes and probes an
+inline key (at most seven bytes) itself and returns a hit whose stored key is
+the same word without a call; a heap key, a miss, and a candidate with equal
+hash bits but another word leave through a tail call. The hit reads no `Slot`
+record; only a miss builds one (issue #931). A mutation
 of a receiver through `&mut` (`counts.insert(k, v)` on a parameter or local,
 `pop`, `discard`, `clear`, set updates, `reverse`, `sort`, and so on) reads the
 collection's owner in place under the exclusive loan, so the receiver is
