@@ -969,7 +969,7 @@ dependencies = [
 [[package]]
 name = "regalloc2"
 version = "0.15.2"
-source = "git+https://github.com/cjrh/regalloc2?branch=fork#a39b52001b2f130705dda9608d9dda5f8865951b"
+source = "git+https://github.com/cjrh/regalloc2?branch=fork#b2dc24bb703c3bcd7e781e58e70aa4ff6d5b70d1"
 dependencies = [
  "allocator-api2",
  "bumpalo",
