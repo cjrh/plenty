@@ -174,7 +174,9 @@ actual `std.serial.Kind` values. Rendering borrows and preserves the error.
   borrow.
 - Dictionaries have no indexed assignment: `d.insert(k, v)?` adds or
   replaces, and `d.get_mut(k)` returns `Option[&mut V]` to change a value in
-  place. To change every value, loop over `(&mut d).values()` or
+  place. Count with `*d.get_or_insert(k, 0)? += 1`; for a `str` key still
+  held as bytes, `d.get_or_insert_bytes(&buffer[a:b], 0)?` builds the key only
+  on a miss and returns `Result[&mut V, DataError]`. To change every value, loop over `(&mut d).values()` or
   `(&mut d).items()`; there is no `values_mut()`. Reading `d[k]` traps on a missing key; `d.get(k)` returns an `Option`.
 - Slices copy and allocate: `xs[1:3]?`, `s[::-1]?`. A computed step needs
   `NonZero.try_from(step)?`. Slice assignment is rejected.

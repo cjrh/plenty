@@ -144,6 +144,52 @@ def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
 {"to": 2, "be": 2, "or": 1, "not": 1} {2: ["to", "be", "or"], 3: ["not"]}
 ```
 
+`dictionary.get_or_insert_bytes(source: &[u8], default) -> Result[&mut V, DataError]`
+is `get_or_insert` for a `dict[str, V]` whose key is still bytes in a buffer.
+It looks the key up by the bytes of `source` and builds the `str` only when
+the key is absent, so a present key costs no allocation, copy or validation.
+`source` is any byte view: `&buffer[a:b]` of a `std.bytes.Bytes` or `list[u8]`,
+a `bytes` literal, or `text.as_bytes()` of a `str` or `&strview`. It is
+borrowed for the call only; the result's loan covers the dictionary, not the
+source.
+
+The bytes are hashed as the `str` holding them is, so both forms find the
+same entry. Stored keys are valid UTF-8, so bytes equal to one are valid and a
+hit checks nothing further. A miss validates `source` before anything is
+stored:
+
+- `DataError.InvalidUtf8`: `source` is not UTF-8 and matches no key. No key
+  is built and the dictionary is unchanged.
+- `DataError.Allocation(error)`: the key or the dictionary's growth could not
+  be allocated. The dictionary is unchanged.
+
+The default moves into the call and is dropped on a hit and on either error.
+Other key types have no borrowed form; the call is a compile error for them.
+
+```plenty
+import std.bytes
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | DataError]:
+    sequence = std.bytes.from_text("GGTATTGGT")?
+    mut counts: dict[str, i64] = {}?
+    for start in range(sequence.len() - 2):
+        *counts.get_or_insert_bytes(&sequence[start:start + 3], 0)? += 1
+    print(counts)?
+    match counts.get_or_insert_bytes(b"\xff", 0):
+        case Ok(count):
+            print(*count)?
+        case Err(DataError.InvalidUtf8):
+            print("not UTF-8", len(counts))?
+        case Err(DataError.Allocation(error)):
+            return Err(error)
+    Ok(())
+```
+
+```output
+{"GGT": 2, "GTA": 1, "TAT": 1, "ATT": 1, "TTG": 1, "TGG": 1}
+not UTF-8 6
+```
+
 `dictionary.pop(key) -> Option[V]` requires exclusive access and supports all
 permitted value types. A hit removes the entry, drops its stored key, and transfers
 the value's owner into `Some`; a miss returns `Nothing` without mutation.
@@ -194,7 +240,7 @@ moving a named set or view.
 result explicitly.
 
 A bound view holds a shared loan on the whole dictionary until its last use.
-Insertion, `get_mut`, `get_or_insert`, update, removal, clearing, and moving the owner
+Insertion, `get_mut`, `get_or_insert`, `get_or_insert_bytes`, update, removal, clearing, and moving the owner
 conflict with that loan, including through aliases. Views cannot be stored in
 fields, collections, tuples, enum payloads, generators or worker/closure
 captures, or passed to or returned from user functions. Binding a view of a

@@ -87,6 +87,13 @@ The default is built before the lookup, even when the key is present. A
 default like `0` costs nothing; one that allocates, such as `[]?`, allocates on
 every call, so use `get_mut` when the key is usually present.
 
+`get_or_insert` takes an owned key. When a `str` key is still a range of a
+[byte buffer](../08-resources/24-byte-buffers.md), building it for every lookup
+allocates and copies even when the key is present.
+`counts.get_or_insert_bytes(&buffer[a:b], 0)?` looks the key up by those bytes
+and builds the `str` only when it is absent; see
+[dictionary lookup](../../design/facilities/01-builtins/dictionaries.md#lookup-and-removal).
+
 `keys()` and `values()` borrow elements in insertion order without allocating.
 The references protect the dictionary from mutation while they are used.
 Keep a key view in a local when checking several properties:

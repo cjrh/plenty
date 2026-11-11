@@ -59,6 +59,25 @@ Benchmarks Game program's instruction count changes. An insert-heavy run of
 400,000 new 12-byte keys takes 0.3% more instructions and the same time
 within run-to-run variation.
 
+`dict[str, V].get_or_insert_bytes(source, default)` looks a key up by a
+borrowed view of its bytes and builds the owned `str` only on a miss (issue
+#949, `experiments/dictionary-hits/`). `get_or_insert` takes an owned key, so
+k-nucleotide built one per window and, on a hit, allocated, validated, copied,
+compared and released it. An update of a present 18-byte key read from a byte
+range falls from 613 to 247 instructions and from 131 to 54 cycles (28.5 to
+11.6 ns); a 3-byte key from 292 to 204 instructions and 63 to 44-49 cycles.
+Rust's `HashMap<String, i64>` looked up by a `&str` checked from the same
+range takes 470 and 316 instructions, 97 and 70 cycles. A hit validates
+nothing, because bytes equal to a stored key are valid UTF-8; a miss validates
+before the key is built and returns `DataError.InvalidUtf8` without storing
+anything. k-nucleotide at fasta 25,000,000 falls from 355.8B to 204.0B
+instructions, 118.8B-124.6B to 68.9B-69.6B cycles and 25.7-27.4 s to
+15.1-15.4 s on one pinned core; the parallel program from 9.40-9.57 s to
+5.43-5.62 s on seven workers (the Rust reference: 12.3 s on seven threads).
+Output is identical. The remaining hit time is memory: 44% of the hit
+function's cycle samples are on the first bucket load, and cache misses per
+run are unchanged at 256M.
+
 - The CPU audit (`examples/cpu_codegen_audit/`, local PR #431) led to issues
   #360–#392. `--dump` exposes operations/CLIF/assembly (issue #360). Unborrowed
   locals stay in registers, narrow helpers replace dispatcher calls in borrowed
@@ -169,8 +188,9 @@ The original issue was split into issues #744–#750, with follow-ups #755,
 | Text-range allocation and validation | Builders fill uninitialized storage; ASCII ranges avoid separate UTF-8 validation and scalar counting; matched sum values avoid rebuilding wrapper payloads. | #943, #953 |
 | Trap-site bookkeeping | Code-free releases and proven read-only std accessors omit caller-site bookkeeping. | #948 |
 
-Both serial and parallel k-nucleotide benchmarks use `get_or_insert` for
-counting. This closes the original investigation, not every possible counting
+Both serial and parallel k-nucleotide benchmarks used `get_or_insert` for
+counting when the investigation closed; they now use `get_or_insert_bytes`
+(issue #949). This closes the original investigation, not every possible counting
 optimization: required UTF-8 validation, eager default construction and
 bookkeeping for helpers that can trap retain their contracts. See
 [dictionary operations](../design/facilities/01-builtins/collections.md),

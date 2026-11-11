@@ -57,7 +57,9 @@ These exclusive methods return `Result[(), AllocError]`:
 
 `dictionary.get_or_insert(key: K, default: V)` follows the same growth and
 failure rules but returns `Result[&mut V, AllocError]`: a present key keeps its
-entry and drops both arguments; see
+entry and drops both arguments. `get_or_insert_bytes(source: &[u8], default: V)`
+on a `dict[str, V]` looks the key up by borrowed bytes, builds it only when it
+is absent, and returns `Result[&mut V, DataError]`. See
 [dictionary lookup](dictionaries.md#lookup-and-removal).
 
 Growth reserves all required storage before mutation. Failure preserves contents,
