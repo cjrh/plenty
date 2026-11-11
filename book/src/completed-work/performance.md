@@ -22,6 +22,16 @@ update, and k-nucleotide at fasta 50,000 saves about 3% of instructions with
 identical output. Other helper costs remain; wall-time improvement was not
 established on the shared machine.
 
+Building a string from a byte range (`Bytes.to_text_range`) reads the buffer's
+address and length with one helper, skips slice clamps when two unsigned
+comparisons show the bounds in range, converts through a register-only helper
+instead of the dispatcher, and packs an ASCII key of at most seven bytes
+without a loop (issue #931, `experiments/key-construction/`). One key costs 105
+instructions instead of 173; k-nucleotide at fasta 50,000 falls from 1.403B to
+1.282B instructions (8.6%) with identical output, fasta by 1.3% and regex-redux
+by 0.4%. The in-range slice path applies to every list, view and byte slice
+with a written bound.
+
 - The CPU audit (`examples/cpu_codegen_audit/`, local PR #431) led to issues
   #360–#392. `--dump` exposes operations/CLIF/assembly (issue #360). Unborrowed
   locals stay in registers, narrow helpers replace dispatcher calls in borrowed
