@@ -58,7 +58,10 @@ mod frontend;
 mod generator;
 mod hash;
 mod hash_hex;
-mod interval;
+// Public for the integration test that runs compiled operators against
+// `interval::exact`, the reference the interval rules are tested against.
+#[doc(hidden)]
+pub mod interval;
 mod library;
 mod library_metadata;
 #[path = "../plenty-runtime/src/list_layout.rs"]

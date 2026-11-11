@@ -83,6 +83,71 @@ fn floor_div(a: i128, b: i128) -> Option<i128> {
     }
 }
 
+/// What one integer operation does at run time on a type of `bits` bits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Exact {
+    Value(i128),
+    Overflow,
+    ZeroDivision,
+    BadCount,
+}
+
+/// The reference semantics of `a operator b` for operands inside the type:
+/// what the interval rules are tested against here, and what compiled
+/// programs are tested against in `tests/test_intervals.rs`, so the two
+/// cannot drift apart unnoticed.
+///
+/// - `+ - *`: the mathematical result, or an overflow when the type cannot
+///   hold it.
+/// - `//`: the quotient rounded toward negative infinity. `%`: the
+///   remainder with the divisor's sign, `a - (a // b) * b`. A zero divisor
+///   fails; `MIN // -1` overflows and `MIN % -1` is zero.
+/// - `&`: the bits both two's-complement operands have. Sign extension to
+///   `i128` keeps every bit of the type, so `i128`'s `&` is that result.
+/// - `<<`: the low `bits` bits of `a * 2**b`, read in the type; never an
+///   overflow. `>>`: `a // 2**b`, an arithmetic shift for a signed type. A
+///   count outside `0..bits - 1` fails.
+pub fn exact(operator: Operator, signed: bool, bits: u32, a: i128, b: i128) -> Exact {
+    let (lo, hi) = if signed {
+        (-(1i128 << (bits - 1)), (1i128 << (bits - 1)) - 1)
+    } else {
+        (0, (1i128 << bits) - 1)
+    };
+    debug_assert!((lo..=hi).contains(&a) && (lo..=hi).contains(&b));
+    let division = matches!(operator, Operator::FloorDiv | Operator::Modulo);
+    let shift = matches!(operator, Operator::ShiftLeft | Operator::ShiftRight);
+    if division && b == 0 {
+        return Exact::ZeroDivision;
+    }
+    if shift && !(0..i128::from(bits)).contains(&b) {
+        return Exact::BadCount;
+    }
+    // Operands of at most 64 bits: only the `u64` product can leave `i128`,
+    // and then it is an overflow of the type as well.
+    let quotient = |a, b| floor_div(a, b).expect("a nonzero divisor");
+    let value = match operator {
+        Operator::Add => a + b,
+        Operator::Sub => a - b,
+        Operator::Mul => match a.checked_mul(b) {
+            Some(product) => product,
+            None => return Exact::Overflow,
+        },
+        Operator::FloorDiv => quotient(a, b),
+        Operator::Modulo => a - quotient(a, b) * b,
+        Operator::And => a & b,
+        Operator::ShiftLeft => {
+            let low = (a << b) & ((1i128 << bits) - 1);
+            if low > hi { low - (1i128 << bits) } else { low }
+        }
+        Operator::ShiftRight => quotient(a, 1i128 << b),
+    };
+    if (lo..=hi).contains(&value) {
+        Exact::Value(value)
+    } else {
+        Exact::Overflow
+    }
+}
+
 /// The smallest interval holding every value in `values`, or `None` when
 /// one of them does not fit `i128`.
 fn hull(values: impl IntoIterator<Item = Option<i128>>) -> Option<Interval> {
@@ -295,7 +360,7 @@ impl Interval {
 
 #[cfg(test)]
 mod tests {
-    use super::{Interval, Operator, Outcome};
+    use super::{Exact, Interval, Operator, Outcome, exact};
     use crate::numeric::{Checked, Divisor};
     use crate::op::Ty;
 
@@ -309,50 +374,6 @@ mod tests {
         Operator::ShiftLeft,
         Operator::ShiftRight,
     ];
-
-    /// What the operation does on values of an 8-bit type: the result, or
-    /// which failure.
-    #[derive(Debug, PartialEq)]
-    enum Actual {
-        Value(i128),
-        Overflow,
-        ZeroDivision,
-        BadCount,
-    }
-
-    fn floor(a: i128, b: i128) -> i128 {
-        (a as f64 / b as f64).floor() as i128
-    }
-
-    fn actual(operator: Operator, signed: bool, a: i128, b: i128) -> Actual {
-        let full = if signed { -128..=127 } else { 0..=255 };
-        let wrap = |value: i128| {
-            if signed {
-                i128::from(value as i8)
-            } else {
-                i128::from(value as u8)
-            }
-        };
-        let exact = match operator {
-            Operator::Add => a + b,
-            Operator::Sub => a - b,
-            Operator::Mul => a * b,
-            Operator::FloorDiv | Operator::Modulo if b == 0 => return Actual::ZeroDivision,
-            Operator::FloorDiv => floor(a, b),
-            Operator::Modulo => a - floor(a, b) * b,
-            Operator::And => return Actual::Value(wrap(i128::from(a as u8 & b as u8))),
-            Operator::ShiftLeft | Operator::ShiftRight if !(0..8).contains(&b) => {
-                return Actual::BadCount;
-            }
-            Operator::ShiftLeft => return Actual::Value(wrap(a << b)),
-            Operator::ShiftRight => a >> b,
-        };
-        if full.contains(&exact) {
-            Actual::Value(exact)
-        } else {
-            Actual::Overflow
-        }
-    }
 
     fn intervals(signed: bool) -> Vec<Interval> {
         let points: &[i128] = if signed {
@@ -392,15 +413,15 @@ mod tests {
         let (mut overflowed, mut divided, mut miscounted) = (false, false, false);
         for x in a.lo..=a.hi {
             for y in b.lo..=b.hi {
-                match actual(operator, signed, x, y) {
-                    Actual::Value(value) => assert!(
+                match exact(operator, signed, 8, x, y) {
+                    Exact::Value(value) => assert!(
                         outcome.value.contains(value),
                         "{x} {operator:?} {y} = {value} is outside {} for {a} and {b}",
                         outcome.value
                     ),
-                    Actual::Overflow => overflowed = true,
-                    Actual::ZeroDivision => divided = true,
-                    Actual::BadCount => miscounted = true,
+                    Exact::Overflow => overflowed = true,
+                    Exact::ZeroDivision => divided = true,
+                    Exact::BadCount => miscounted = true,
                 }
             }
         }

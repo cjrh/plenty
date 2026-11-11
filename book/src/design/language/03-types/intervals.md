@@ -43,11 +43,11 @@ so `advance` declares no error, and the remainder fits `Seed`.
 | Expression of integer type `T` | Interval |
 | --- | --- |
 | Integer literal; integer [module constant](../02-source/modules.md#constants) | Its value |
-| `T.MIN`, `T.MAX` | Its value |
+| `T.MIN`, `T.MAX`, where `T` is an integer type, an alias of one, or a type parameter instantiated with one | Its value |
 | `b.get()` on a `Bounded[T, lo, hi]` | `lo..hi` |
 | `n.get()` on a `NonNegative[T]` | `0..T.MAX` |
 | `n.get()` on a `Positive[T]`, or on a `NonZero[T]` with unsigned `T` | `1..T.MAX` |
-| `len(x)` | `0..i64.MAX` |
+| `len(x)` of a built-in collection, string or view | `0..i64.MAX` |
 | An immutable local bound by `name = e` or `name: T = e` | The interval of `e` |
 | Parenthesized `(e)`; unary `+e` | The interval of `e` |
 | Every other expression | `T.MIN..T.MAX` |
@@ -56,6 +56,11 @@ so `advance` declares no error, and the remainder fits `Seed`.
 pattern bindings, fields, elements, calls, and a `NonZero[T]` of a signed
 `T`. A comparison in an `if` or `while` does not
 narrow an interval.
+
+A source is decided by the resolved type or callee, never by spelling.
+`len(x)` on a class, enum or protocol value calls its own `len` method and
+has the full range of `i64`, as does `get()` on a class. A parameter or local
+that shadows a module constant is not that constant.
 
 ## Operators
 
@@ -130,7 +135,8 @@ signature is always allowed, and callers then stop handling it.
 
 A `checked:` block is different: a block with no arithmetic that can fail is a
 [compile error](numbers.md#checked-blocks), so a block whose arithmetic is all
-proved must be removed.
+proved must be removed. Proofs also narrow a block's error type: its
+`Result` lists only the errors of the operations that were not proved.
 
 ```plenty-error
 def sum(a: u8, b: u8) -> i64:
@@ -145,6 +151,15 @@ def main() -> ():
 this `checked:` block contains no arithmetic that can fail
 ```
 
+The same expression in a generic function can therefore be valid for one
+instantiation and rejected for another: `checked:` around
+`a % T(100) + T(100)` has an `OverflowError[i8]` to handle for `i8` and
+nothing to check for `i16`.
+
+Both rules can reject a program that compiled before intervals existed: a
+`match` arm for an error the block can no longer produce, and a block that
+is now fully proved.
+
 ## Generated code
 
 The checker's verdict is the only thing that removes an error from a contract,
@@ -152,6 +167,11 @@ and it is passed to code generation with the operation: an operation the
 checker proved is lowered without its check, and one it did not prove keeps
 the check. The two cannot disagree, because code generation does not repeat
 the interval computation.
+
+The [operation validator](../../toolchain/02-architecture/emission.md#value-bounds)
+recomputes a proof from its operands where their intervals are visible in the
+operation sequence, and otherwise checks only that the claimed interval fits
+the type.
 
 Code generation also derives [value bounds](../../toolchain/02-architecture/emission.md#value-bounds)
 of its own, for example for a loop counter or a local assigned a remainder in

@@ -180,6 +180,117 @@ def remainder(a: {ty}) -> {ty}:
     }
 }
 
+/// Compiled programs agree with `plenty::interval::exact`, the reference
+/// the interval rules are tested against: every pair of values of the 8-bit
+/// types, and the values around zero, the width and both limits of the
+/// wider ones.
+#[test]
+fn compiled_operators_match_the_reference_semantics() {
+    use plenty::interval::{Exact, Operator, exact};
+    const OPERATORS: [(&str, Operator); 8] = [
+        ("+", Operator::Add),
+        ("-", Operator::Sub),
+        ("*", Operator::Mul),
+        ("//", Operator::FloorDiv),
+        ("%", Operator::Modulo),
+        ("&", Operator::And),
+        ("<<", Operator::ShiftLeft),
+        (">>", Operator::ShiftRight),
+    ];
+    let mut source = String::new();
+    let mut main = String::new();
+    let mut expected = String::new();
+    for (ty, bits, signed) in WIDTHS {
+        let (min, max) = limits(bits, signed);
+        let error = format!("OverflowError[{ty}] | ZeroDivisionError | ShiftCountError[{ty}]");
+        for (index, (symbol, _)) in OPERATORS.iter().enumerate() {
+            source += &format!(
+                "def op{index}_{ty}(a: {ty}, b: {ty}) -> Result[{ty}, {error}]:\n    Ok(a {symbol} b)\n"
+            );
+        }
+        let values: Vec<i128> = if bits == 8 {
+            (min..=max).collect()
+        } else {
+            let width = i128::from(bits);
+            let mut values = vec![min, min + 1, max - 1, max, max / 2, max / 2 + 1];
+            for near in [0, width] {
+                values.extend((near - 2..=near + 2).filter(|value| (min..=max).contains(value)));
+            }
+            if signed {
+                values.extend([-width - 1, -width, -width + 1, min / 2]);
+            }
+            values.sort_unstable();
+            values.dedup();
+            values
+        };
+        let literal = |value: i128| {
+            if value == min {
+                format!("{ty}.MIN")
+            } else if value < 0 {
+                format!("{ty}.MIN + {ty}({})", value - min)
+            } else {
+                format!("{value}{ty}")
+            }
+        };
+        let list: Vec<String> = values.iter().map(|&value| literal(value)).collect();
+        // One line per left operand and operator: a count of each failure
+        // and a sum of the results weighted by the right operand's place,
+        // in wrapping `u64` arithmetic.
+        source += &format!(
+            "def run_{ty}() -> Result[(), AllocError | IoError]:
+    xs: list[{ty}] = [{list}]?
+    for i in range(len(xs)):
+        a = xs[i]
+",
+            list = list.join(", ")
+        );
+        for index in 0..OPERATORS.len() {
+            source += &format!(
+                "        mut sum{index} = 0u64
+        mut overflow{index} = 0u64
+        mut zero{index} = 0u64
+        mut count{index} = 0u64
+        mut weight{index} = 0u64
+        for j in range(len(xs)):
+            weight{index} = weight{index}.wrapping_add(1u64)
+            weight = weight{index}
+            match op{index}_{ty}(a, xs[j]):
+                case Ok(v):
+                    sum{index} = sum{index}.wrapping_add(u64.wrapping_from(v).wrapping_mul(weight))
+                case Err(OverflowError(_)):
+                    overflow{index} = overflow{index}.wrapping_add(weight)
+                case Err(ZeroDivisionError()):
+                    zero{index} = zero{index}.wrapping_add(weight)
+                case Err(ShiftCountError(_)):
+                    count{index} = count{index}.wrapping_add(weight)
+        print(sum{index}, overflow{index}, zero{index}, count{index})?
+"
+            );
+        }
+        for &a in &values {
+            for (_, operator) in OPERATORS {
+                let (mut sum, mut overflow, mut zero, mut count) = (0u64, 0u64, 0u64, 0u64);
+                for (place, &b) in values.iter().enumerate() {
+                    let weight = place as u64 + 1;
+                    match exact(operator, signed, bits, a, b) {
+                        Exact::Value(value) => {
+                            sum = sum.wrapping_add((value as u64).wrapping_mul(weight));
+                        }
+                        Exact::Overflow => overflow += weight,
+                        Exact::ZeroDivision => zero += weight,
+                        Exact::BadCount => count += weight,
+                    }
+                }
+                expected += &format!("{sum} {overflow} {zero} {count}\n");
+            }
+        }
+        source += "    Ok(())\n";
+        main += &format!("    run_{ty}()?\n");
+    }
+    source += &format!("def main() -> Result[(), AllocError | IoError]:\n{main}    Ok(())\n");
+    runs(&source, &expected);
+}
+
 /// `Bounded.from` accepts exactly the interval `lo..hi` for `expression`: the
 /// same bounds are accepted, and each bound moved inward by one is rejected
 /// with the interval named.
@@ -682,6 +793,45 @@ def main() -> Result[(), IoError]:
 }
 
 /// The `--release` CLIF of function `name` in `source`.
+/// Both programs compiled before intervals (issue #952, PR #1215 comment
+/// 2903). The `checked:` rule that rejects them is undecided; update or
+/// delete this test when it is settled.
+#[test]
+fn a_proof_inside_a_checked_block_narrows_what_the_block_accepts() {
+    // `i64(a) + 1` is proved, so the block's error is `ZeroDivisionError`
+    // alone and the arm for the overflow it once listed is rejected.
+    rejected(
+        "def f(a: u8, d: i64) -> i64:
+    r = checked:
+        (i64(a) + 1) // d
+    match r:
+        case Ok(v):
+            v
+        case Err(OverflowError(w)):
+            w
+        case Err(_):
+            0
+def main() -> ():
+    drop(f(3u8, 2))
+",
+        "a `OverflowError` pattern cannot match a payload of type ZeroDivisionError",
+    );
+    // The same generic body has something to check for `i8` and nothing
+    // for `i16`.
+    let generic = "def f[T: IntType](a: T) -> T:
+    r = checked:
+        a % T(100) + T(100)
+    r.unwrap_or(T(0))
+";
+    accepted(&format!(
+        "{generic}def main() -> ():\n    drop(f(i8(50)))\n"
+    ));
+    rejected(
+        &format!("{generic}def main() -> ():\n    drop(f(i16(5)))\n"),
+        "in instantiation `f[i16]`: this `checked:` block contains no arithmetic that can fail",
+    );
+}
+
 fn clif(source: &str, name: &str) -> String {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("main.plenty"), source).unwrap();
