@@ -671,10 +671,20 @@ length needs no overflow check (issue #721).
 
 ## Value bounds
 
-The lowerer also records an upper bound for some nonnegative signed values
-(`Facts::at_most` in `src/codegen/induction.rs`) and drops the overflow check
-of arithmetic that the bounds keep in range, in trapping and
-`Result`-returning functions alike:
+Two mechanisms remove arithmetic checks. The checker's
+[intervals](../../language/03-types/intervals.md) decide which operations are
+infallible in the language: such an operation arrives as `Op::Proved` (or a
+division with a `Divisor` proof) and is lowered as the plain instruction. Code
+generation does not recompute the interval, so it cannot disagree with the
+error contract. A proved operation's nonnegative signed interval also seeds
+the bounds below.
+
+Separately, the lowerer records an upper bound for some nonnegative signed
+values (`Facts::at_most` in `src/codegen/induction.rs`) and drops the overflow
+check of arithmetic that the bounds keep in range, in trapping and
+`Result`-returning functions alike. These bounds see what the interval rules
+do not, such as loop counters and locals written in a loop. They remove
+instructions only: the operation's error stays in the function's contract.
 
 - A view of numeric items holds at most `i64.MAX / item size` of them, so
   `len(xs)` of a `&[f64]` is at most `i64.MAX / 8`.

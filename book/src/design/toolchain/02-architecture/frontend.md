@@ -29,9 +29,20 @@ Quantity constant output types resolve lazily with cycle detection. The
 [`Bounded` checker](../../language/03-types/bounded.md) validates each concrete
 interval and lowers admitted literals, checked conversions and `from` on a
 [proved range](../../language/03-types/bounded.md#proved-ranges) to a retyping
-of the integer (`ClassOp::WrapBounded`), not a constructor call. `from` reads
-the range off the argument's syntax and requires the last lowered operation to
-be the integer `%` or `&`; the checker tracks no other ranges.
+of the integer (`ClassOp::WrapBounded`), not a constructor call. `from`
+compares the argument's [interval](../../language/03-types/intervals.md) with
+the bounds.
+
+The checker computes intervals while lowering (`src/frontend/intervals.rs`,
+with the arithmetic in `src/interval.rs`). Lowering an integer expression
+leaves its interval in a one-entry register keyed by the expression's syntax
+node; the operator that lowered it as an operand reads the register, and any
+other consumer finds a different node and gets the type's full range. An
+immutable local's interval is stored by slot when its binding is lowered.
+Bounds are `i128`, and a bound that does not fit proves nothing. An operation
+proved infallible is emitted as `Op::Proved`, or as a division with a
+`Divisor` proof, and adds nothing to the function's or block's error set: one
+decision both drops the error and selects the unchecked instruction.
 
 The compiler's own hash tables (`src/hash.rs`) use FxHash rather than std's
 SipHash. Their keys are names and types from the program being compiled, so

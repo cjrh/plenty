@@ -116,8 +116,15 @@ actual `std.serial.Kind` values. Rendering borrows and preserves the error.
   overflow). A nonzero literal or integer module-constant divisor adds
   neither, except that `x // -1` can overflow: `x // 2` cannot fail.
   `<<` and `>>` add `ShiftCountError[T]` unless the count is a literal or
-  constant, or a mask `n & L` with such an `L` below the width. Locals and
-  negated constants prove nothing. Casts such as `u8(x)` trap; use `u8.try_from(x)` (integers or floats)
+  constant, or a mask `n & L` with such an `L` below the width. More
+  generally, an operation the compiler's fixed interval rules prove
+  infallible adds no error: literals, module constants, `.get()` on
+  `Bounded`/`NonNegative`/`Positive`, `len(x)`, `x % c`, `x & c`, integer
+  casts and immutable locals bound to those have known ranges, combined by
+  `+ - * // % & << >>` and unary `-`. So `i64(a_u8) * 3 + 1` needs no
+  `OverflowError`, while parameters, `mut` locals, loop variables, fields and
+  call results have the full range of their type. A `checked:` block whose
+  arithmetic is all proved is a compile error; remove it. Casts such as `u8(x)` trap; use `u8.try_from(x)` (integers or floats)
   to recover.
   Write explicit `Ok(...)` on success. Use `checked:` for local recovery or a
   small, justified `unchecked trap:` suite for deliberate termination. Plain
@@ -141,8 +148,9 @@ actual `std.serial.Kind` values. Rendering borrows and preserves the error.
 - `Bounded[T, lo, hi]` is an inclusive interval over any integer type. Literals
   convert where expected; computed values use a complete instance or alias,
   such as `Percent.try_from(n)?`. `Slot.from(n % 16)` converts with no check
-  and no `Result`; `from` accepts only `x % c` (constant `c > 0`), `x & c`
-  (constant `c >= 0`) or a `Bounded` inside the target, and is a compile error
+  and no `Result`; `from` accepts a value whose interval (same rules as
+  arithmetic, for example `x % c`, `x & c`, `b.get() + 1`) or `Bounded` type
+  lies inside the target, and is a compile error naming the interval
   otherwise. Read `.get()` for arithmetic. Value generic
   parameters use `const N: i64` or a preceding integer parameter
   `[T: IntType, const N: T]`; bracket arguments are literals, module constants

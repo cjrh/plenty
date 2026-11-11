@@ -51,10 +51,30 @@ def main() -> Result[(), IoError]:
 5 15
 ```
 
-`from` also accepts `x & c` with a constant `c` of at least zero, and another
-`Bounded` whose interval lies inside the target. For anything else, including
-`key % SLOTS + 1`, it is a compile error that points to `try_from`: there is no
-conversion that skips the check on trust.
+The compiler follows fixed [interval rules](../../design/language/03-types/intervals.md)
+for this: a literal, a constant, `b.get()` on a `Bounded`, a remainder and a
+mask each have a known range, and `+`, `-`, `*` and `//` combine ranges. The
+same ranges decide whether arithmetic can overflow, so the next slot needs
+neither a check nor an error type:
+
+```plenty
+type Slot = Bounded[i64, 0, 15]
+type Next = Bounded[i64, 1, 16]
+
+def after(slot: Slot) -> Next:
+    Next.from(slot.get() + 1)
+
+def main() -> Result[(), IoError]:
+    print(after(15).get())?
+    Ok(())
+```
+```output
+16
+```
+
+A plain parameter has the full range of its type, so `from` rejects it and
+names the range it found. There is no conversion that skips the check on
+trust:
 
 ```plenty-error
 type Slot = Bounded[i64, 0, 15]
@@ -66,13 +86,13 @@ def main() -> ():
     slot(37)
 ```
 ```error
-use `Bounded.try_from(value)?` to check a value at run time
+use `Bounded.try_from(value)?` to check it at run time
 ```
 
 Prefer `from` when it applies, `try_from` at input boundaries, and a literal
 for a fixed value. The
 [bounded integer reference](../../design/language/03-types/bounded.md#proved-ranges)
-lists the accepted forms.
+lists common forms.
 
 ## Abstract over the bounds
 

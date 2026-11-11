@@ -55,18 +55,22 @@ outside `Bounded[u8, 0, 100]`'s inclusive bounds
 
 ## Proved ranges
 
-`from` converts a value whose range the checker proves from the expression
-alone. It has no run-time check and no `Result`. The argument is one of:
+`from` converts a value whose [interval](intervals.md) lies inside `lo..hi`.
+It has no run-time check and no `Result`. The interval comes from the
+argument expression alone, by the
+[interval rules](intervals.md#operators). The argument is an integer `T`, or a
+`Bounded[T, a, b]` of the same `T`, whose interval is `a..b`.
 
-| Argument | Proved range |
+| Argument | Interval |
 | --- | --- |
 | `x % c`, with `c` a literal or module constant above zero | `0..c - 1` |
 | `x & c` or `c & x`, with `c` a literal or module constant of at least zero | `0..c` |
+| `b.get() + 1`, with `b` a `Bounded[T, 0, 9]` | `1..10` |
 | A `Bounded[T, a, b]` value of the same `T` | `a..b` |
+| A parameter, `mut` local, field or call result of type `T` | `T.MIN..T.MAX` |
 
-The proved range must lie inside `lo..hi`; otherwise the call is a compile
-error. So is every other argument, including a sum of two accepted forms and
-a `%` or `&` implemented by a class's operator method. There is no unchecked
+An interval outside `lo..hi` is a compile error that names it. A `%` or `&`
+implemented by a class's operator method proves nothing. There is no unchecked
 conversion: a value the checker cannot prove goes through `try_from`.
 
 ```plenty
@@ -74,16 +78,17 @@ const MODULUS: i64 = 139968
 const LARGEST: i64 = MODULUS - 1
 type Seed = Bounded[i64, 0, LARGEST]
 
-def advance(seed: Seed) -> Result[Seed, OverflowError[i64] | ZeroDivisionError]:
-    Ok(Seed.from((seed.get() * 3877 + 29573) % MODULUS))
+def advance(seed: Seed) -> Seed:
+    Seed.from((seed.get() * 3877 + 29573) % MODULUS)
 
-def main() -> Result[(), IoError | OverflowError[i64] | ZeroDivisionError]:
-    wider = Bounded[i64, 0, 1000000].from(advance(42)?)
-    print(advance(42)?.get(), wider.get(), Bounded[u8, 0, 15].from(0xabu8 & 0x0f).get())?
+def main() -> Result[(), IoError]:
+    wider = Bounded[i64, 0, 1000000].from(advance(42))
+    next = Bounded[i64, 1, 1000001].from(wider.get() + 1)
+    print(advance(42).get(), next.get(), Bounded[u8, 0, 15].from(0xabu8 & 0x0f).get())?
     Ok(())
 ```
 ```output
-52439 52439 11
+52439 52440 11
 ```
 
 ```plenty-error
@@ -102,7 +107,7 @@ def main() -> ():
     index(3)
 ```
 ```error
-use `Bounded.try_from(value)?` to check a value at run time
+this value is in -9223372036854775808..9223372036854775807, which is not inside `Bounded[i64, 0, 9]`'s inclusive bounds 0..9; use `Bounded.try_from(value)?` to check it at run time
 ```
 
 ## Value behavior
@@ -113,20 +118,12 @@ borrowing, equality, hashing and cleanup behavior. Equality requires matching
 bounded types. Default formatting shows the class and its value; `.get()` gives
 the ordinary integer's formatting and ordering operations.
 
-Arithmetic requires `.get()`. The checker does not derive new intervals for
-arithmetic or widen intervals automatically. Convert the result with `from`
-when its range is [proved](#proved-ranges), or check it again with `try_from`.
-Arithmetic on the extracted integer retains ordinary overflow/error contracts:
-a function computing `seed.get() * 3877 + 29573` still declares
-`OverflowError`.
-
-The generated code does use the bounds. For `lo >= 0` and `hi` no larger than the
-largest signed value of `T`'s width, the integer returned by `.get()` is known
-to be in `0..hi`, so arithmetic that
-those [value bounds](../../toolchain/02-architecture/emission.md#value-bounds)
-keep inside `T` has no overflow check, and its remainder by a positive
-constant no sign correction. An interval with a negative lower bound gives the
-generated code no bound.
+Arithmetic requires `.get()`, which returns an integer whose
+[interval](intervals.md) is `lo..hi`. Arithmetic on it that stays inside `T`
+cannot fail, so a function computing `seed.get() * 3877 + 29573` from a
+`Bounded[i64, 0, 139967]` declares no `OverflowError`. The result is an
+ordinary integer: convert it with `from` when its interval is
+[proved](#proved-ranges), or check it with `try_from`.
 
 `Positive[T]` and `NonNegative[T]` remain useful for their fixed lower bounds
 and domain-preserving operations. Use `Bounded` when a ceiling or another lower
