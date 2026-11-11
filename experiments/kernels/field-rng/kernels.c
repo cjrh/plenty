@@ -69,6 +69,15 @@ int64_t fill_unbounded(int64_t seed, int64_t *out, size_t n) {
     return s;
 }
 
+int64_t fill_product(int64_t seed, int64_t *out, size_t n) {
+    int64_t s = seed % IM;
+    for (size_t i = 0; i < n; i++) {
+        s = (s * IA) % IM;
+        out[i] = s;
+    }
+    return s;
+}
+
 /* `kernels KERNEL ROUNDS`: run one kernel ROUNDS times over 4096 elements.
    Build with -fno-inline so the timed loops are the ones counted above. */
 int main(int argc, char **argv) {
@@ -98,6 +107,9 @@ int main(int argc, char **argv) {
     } else if (!strcmp(kernel, "fill_unbounded")) {
         for (int64_t r = 0; r < rounds; r++)
             last = fill_unbounded(last, out, 4096);
+    } else if (!strcmp(kernel, "fill_product")) {
+        for (int64_t r = 0; r < rounds; r++)
+            last = fill_product(last, out, 4096);
     }
     printf("%s %lld\n", kernel, (long long)last);
     return 0;

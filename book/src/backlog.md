@@ -198,6 +198,14 @@ bound across passes (issue #940), and a nonnegative `Bounded` field supplies
 its bounds to arithmetic on `get` (issue #937), with `Bounded.from` storing a
 proved range without a check:
 [remainder locals and bounded fields](completed-work/performance.md#remainder-locals-and-bounded-fields-issues-940-and-937).
+An unsigned division or remainder by a constant uses a one-word reciprocal
+chosen from the dividend's bound (issues #953 and #954):
+[division by a constant](design/toolchain/02-architecture/emission.md#division-by-a-constant).
+Remaining there: an add of the precomputed dividend in place of the subtract
+and its two register copies needs a change to Cranelift's x86-64 address
+folding; a low-product multiplier for dividends below `2**32`; unsigned
+remainders record no bound; signed dividends that may be negative keep
+Cranelift's sequence.
 Not done: a plain integer field gets no bound (whole-program inference from
 its writes was rejected), `Bounded` intervals with a negative lower bound give
 codegen no bound, and the checker still requires `OverflowError` in the
