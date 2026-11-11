@@ -6312,7 +6312,7 @@ impl Lower<'_> {
         }
         Self::push_query(CollectionOp::Len(ty), ops);
         Self::end_reads(vec![loan], ops);
-        return Ok(Length::Collection);
+        Ok(Length::Collection)
     }
 
     pub(super) fn builtin_collection(
