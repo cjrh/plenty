@@ -350,6 +350,45 @@ unpatched allocator counted each failure block's use of the lengths of `dy`,
 of a competing value; with that use at depth 0 they are spilled. The lengths
 are reloaded on every outer pass and need not be (issue #943).
 
+## Loop-nest header reads
+
+A loop that caches a list's length and row address, or a clist's row count
+and column addresses, read them before the innermost loop only, so a loop
+nest read them again on every outer pass (issue #943). The reads now move
+before the outermost enclosing loop that cannot resize, replace or retarget
+the collection, and sibling inner loops share them; the
+[collection architecture](../design/toolchain/02-architecture/collections.md)
+has the rule. Instruction counts against `2d20ddf5`, with identical output:
+
+| Program | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| n-body clist 500,000 | 1,234,359,590 | 795,359,303 | −35.6% |
+| fannkuch-redux 9 | 152,071,444 | 145,396,704 | −4.4% |
+| k-nucleotide (250k input) | 6,333,662,438 | 6,331,082,087 | −0.04% |
+| n-body 500,000 | 322,877,362 | 321,377,416 | −0.5% |
+| n-body unchecked 500,000 | 322,877,023 | 321,377,198 | −0.5% |
+
+fasta, spectral-norm, mandelbrot, binary-trees, reverse-complement and
+regex-redux are unchanged. The clist velocity kernel
+(`experiments/kernels/clist/`) falls from 70 instructions per pass to 58: with
+the row count fixed across the nest, the pair loop gets a copy with four of
+its six bounds checks, which is the copy that runs. Compiling these programs
+takes 0.04% to 0.1% more instructions, and 4.7% for n-body clist, which gains
+those loop copies; `compile_bench 1000 10 --workload aot` is unchanged (125.35
+billion instructions, within 0.01%).
+
+n-body's `advance` runs in the
+[guarded numerical state pass](../design/toolchain/02-architecture/numerical-loops.md)'s
+scalar loop, which uses no cached header. With the nest's ten header reads
+left ahead of the guard, that loop had the same optimized Cranelift IR as
+before and 17 more instructions per step (+2.6%): the allocator spilled the
+step counter and added 13 register moves. The pass now returns those reads to
+the fallback path, each before the loops that use it, and the scalar loop is
+642 instructions per step against 645. Reads placed at the start of the
+fallback instead leave it at 649, again with identical IR, so the remaining
+variation is register allocation responding to code elsewhere in the
+function; split placement is issue #939.
+
 ## B19: Compiler scale and caching
 
 - Warm single-file executable hits skip bundled-runtime extraction (issue #699).
