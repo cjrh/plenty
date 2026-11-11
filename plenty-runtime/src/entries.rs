@@ -453,6 +453,21 @@ impl Entries {
         }
     }
 
+    /// `key_word(index)` and `slot_address(index, true)` for a text key,
+    /// with one row check. A text key is one slot word, so the value slot
+    /// needs no descriptor read (issue #931).
+    #[inline]
+    pub fn text_row(&self, index: usize) -> (u64, *mut u128) {
+        debug_assert!(self.bits().is_none() && !self.packed());
+        debug_assert_eq!(self.key.slot_words(), 1);
+        let start = self.row_start(index);
+        // SAFETY: the row lies inside the initialized rows.
+        unsafe {
+            let row = self.data.base().add(start);
+            (row.cast::<u64>().read(), row.add(16).cast())
+        }
+    }
+
     fn packed(&self) -> bool {
         self.order.is_none() && self.value.is_none() && scalar_bytes(self.key).is_some()
     }

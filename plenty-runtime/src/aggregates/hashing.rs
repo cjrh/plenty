@@ -63,6 +63,15 @@ pub(super) fn inline_text(word: u64) -> Option<u64> {
         .map(|key| unsafe { text_with_key(word as usize as *const Text, key) })
 }
 
+/// The hash of a heap or literal text, computed in the caller; `None`
+/// before the first hash of the process has read the key.
+#[inline(always)]
+pub(super) unsafe fn heap_text(text: *const Text) -> Option<u64> {
+    // SAFETY: the caller passes a live text that is not inline.
+    KEY.get()
+        .map(|key| sip13_bytes(key, unsafe { strings::heap_bytes(text) }))
+}
+
 #[inline(never)]
 pub(super) unsafe fn hash_text(text: *const Text) -> u64 {
     // SAFETY: forwarded from `hash`.
@@ -151,6 +160,7 @@ fn sip13_word(key: &[u8; 16], word: u64) -> u64 {
 
 /// `SipHasher13::hash(bytes)` without the streaming hasher's buffer: whole
 /// blocks from the slice, then the tail from fixed-width loads (issue #931).
+#[inline(always)]
 fn sip13_bytes(key: &[u8; 16], bytes: &[u8]) -> u64 {
     let mut v = sip13_start(key);
     let (blocks, rest) = bytes.as_chunks::<8>();
