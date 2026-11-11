@@ -17,9 +17,9 @@ the cold `set` call block that sits inside `fill`'s loop range.
 
 The "Issue #939" column is the compiler at `2d20ddf5` with the lowering
 change for issue #939; `2d20ddf5` itself still measured 26. The last column
-is that compiler built against branch `issue-939-loop-splits` of the
-regalloc2 fork (`docs/spill-bundle-registers.md` there) through a path
-override; the fork revision in `Cargo.lock` does not have the change yet.
+is that compiler with the regalloc2 fork at `a39b520`, which moves a split
+value's pieces into its spill bundle's register
+(`docs/spill-bundle-registers.md` in the fork); `Cargo.lock` pins it.
 
 The whole program (100 calls of `fill` over 61,440 bytes, where `fill` is
 inlined into `main`) runs 461,119,314 instructions before and 129,290,430

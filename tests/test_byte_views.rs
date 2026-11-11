@@ -354,3 +354,66 @@ fn failing_cached_index_calls_the_method_out_of_line() {
         assert!(!hot.contains(" jmp "), "{function}:\n{body}");
     }
 }
+
+const FILL: &str = r#"
+import std.bytes
+
+const TEXT: bytes = b"GGCCGGGCGCGGTGGCTCACGCCTGTAATCCCAGCACTTTGG"
+
+def fill(block: &mut std.bytes.Bytes, count: i64, start: i64) -> Result[i64, OverflowError[i64]]:
+    mut position = start
+    for i in range(count):
+        block.set(i, TEXT[position])
+        position += 1
+        if position == len(TEXT):
+            position = 0
+    Ok(position)
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    mut block = std.bytes.with_capacity(64)?
+    block.resize(64, 0u8)?
+    print(fill(&mut block, 64, 5)?, block.get(63))?
+    Ok(())
+"#;
+
+// Issue #939: the count, the position and the cached length are live across
+// the row-address call before the loop, so the allocator splits them there.
+// Each piece used in the loop is moved into the register its value has
+// around the loop (regalloc2 fork, `docs/spill-bundle-registers.md`). Left
+// in registers of their own, the pieces were copied in before the use and
+// back on the back edge on every pass.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn values_split_before_a_loop_keep_one_register_in_it() {
+    assert_eq!(support::run_file_stdout(FILL).trim(), "27 65");
+    let asm = dump(FILL, &["--release"], "asm");
+    let body = support::asm_body(&asm, "fill");
+    let hot = body.split_once(" ret").unwrap().0;
+    let address = |line: &str| {
+        let (address, _) = line.trim_start().split_once(':')?;
+        usize::from_str_radix(address, 16).ok()
+    };
+    let target = |line: &str| {
+        let mut fields = line.split_whitespace().skip(1);
+        let jump = fields.next().is_some_and(|field| field.starts_with('j'));
+        let target = fields.next()?.strip_prefix("0x")?;
+        jump.then(|| usize::from_str_radix(target, 16).ok())?
+    };
+    let (start, end) = hot
+        .lines()
+        .filter_map(|line| Some((target(line)?, address(line)?)))
+        .rfind(|(target, from)| target < from)
+        .unwrap_or_else(|| panic!("no loop:\n{body}"));
+    let moves: Vec<&str> = hot
+        .lines()
+        .filter(|line| address(line).is_some_and(|at| (start..=end).contains(&at)))
+        .filter(|line| {
+            let mut fields = line.split_whitespace().skip(1);
+            fields.next() == Some("mov")
+                && fields
+                    .next()
+                    .is_some_and(|operands| operands.split(',').all(|op| op.starts_with('%')))
+        })
+        .collect();
+    assert!(moves.is_empty(), "{moves:?}\n{body}");
+}
