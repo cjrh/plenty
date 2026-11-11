@@ -70,6 +70,14 @@ pub(super) fn check_symbol(name: &str, at: &Token) -> Result<()> {
 }
 
 pub(super) fn check_signature(f: &Function, inputs: &[(String, Ty)], output: &Type) -> Result<()> {
+    if let Some((domain, element)) = inputs
+        .iter()
+        .map(|(_, ty)| ty)
+        .chain(output)
+        .find_map(Ty::foreign_domain)
+    {
+        return Err(f.at.error(Ty::foreign_domain_error(&domain, &element)));
+    }
     if let crate::foreign::Target::Intrinsic(intrinsic) = &f.foreign.as_ref().unwrap().target {
         use crate::foreign::Intrinsic;
         let pointer = |ty: &Ty| matches!(ty, Ty::ForeignPtr(..));

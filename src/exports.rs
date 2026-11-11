@@ -25,6 +25,14 @@ pub(crate) fn check_signature(inputs: &[(String, Ty)], output: &Option<Ty>) -> R
             _ => false,
         }
     }
+    if let Some((domain, element)) = inputs
+        .iter()
+        .map(|(_, ty)| ty)
+        .chain(output)
+        .find_map(Ty::foreign_domain)
+    {
+        return Err(Ty::foreign_domain_error(&domain, &element));
+    }
     if inputs.iter().any(|(_, ty)| generic_class(ty))
         || output
             .as_ref()

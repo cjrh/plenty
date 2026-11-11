@@ -29,6 +29,13 @@ prototypes. Imported values are normalized to Plenty
 `False`/`True`; outbound values are 0/1. Aggregate values and private Plenty
 layouts have no raw ABI.
 
+The integer domain types `NonZero[T]`, `Positive[T]`, `NonNegative[T]` and
+`Bounded[T, lo, hi]` have no raw ABI in any position, including arguments,
+results, borrows, strided lists and the raw memory intrinsics. Generated code
+relies on their invariants, which a trusted declaration cannot establish.
+Declare the underlying integer and convert with `try_from` or `.get()`; see
+[domain types and foreign code](../../language/03-types/numbers.md#domain-types-and-foreign-code).
+
 `opaque Name` declares a nominal pointer without a pointee layout. Distinct names
 do not interchange. Values can be copied, compared for address equality, passed
 back to C, or tested with `.is_null()`; `Name.null()` constructs null. They cannot

@@ -21,6 +21,11 @@ and other aggregate results are unsupported; bodies can use ordinary features.
 Enums with payload variants and error sums such as `AllocError | ParseError`
 are rejected; sums are planned with the broader C representations (B27).
 
+An integer domain type such as `NonZero[T]` or `Bounded[T, lo, hi]` cannot
+appear in an export signature, as a parameter or a result: C callers are
+unchecked. Take the underlying integer and convert it with `try_from`; see
+[domain types and foreign code](../../language/03-types/numbers.md#domain-types-and-foreign-code).
+
 C symbols normally begin with the library name plus `_`.
 [`= exact "symbol"`](raw-host-interfaces.md#export-names-and-pointers) opts into a
 protocol-required name. `NAME_plenty_` and `_plenty_`

@@ -131,3 +131,6 @@ bound is part of the type. Existing standard-library limit signatures retain
 their documented types and dynamic checks; the availability of `Bounded` does
 not itself change them. Module constants may supply the bounds, but a module
 constant cannot yet have a `Bounded` result type.
+
+A bounded integer has no C ABI: see
+[domain types and foreign code](numbers.md#domain-types-and-foreign-code).
