@@ -153,11 +153,10 @@ fn sip13_word(key: &[u8; 16], word: u64) -> u64 {
 /// blocks from the slice, then the tail from fixed-width loads (issue #931).
 fn sip13_bytes(key: &[u8; 16], bytes: &[u8]) -> u64 {
     let mut v = sip13_start(key);
-    let mut blocks = bytes.chunks_exact(8);
-    for block in &mut blocks {
-        sip13_block(&mut v, u64::from_le_bytes(block.try_into().unwrap()));
+    let (blocks, rest) = bytes.as_chunks::<8>();
+    for block in blocks {
+        sip13_block(&mut v, u64::from_le_bytes(*block));
     }
-    let rest = blocks.remainder();
     let tail = if let Some(last) = bytes.last_chunk::<8>() {
         // The slice's last eight bytes end with the tail; shift out the
         // bytes before it. A whole number of blocks leaves no tail.
