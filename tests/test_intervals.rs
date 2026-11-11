@@ -763,18 +763,7 @@ def main() -> Result[(), IoError | OverflowError[i64] | ZeroDivisionError]:
 ",
         "52439 102040 255 254\n",
     );
-    // A `checked:` block must contain arithmetic that can fail.
-    rejected(
-        "def f(a: u8, b: u8) -> i64:
-    result = checked:
-        i64(a) + i64(b)
-    result.unwrap_or(0)
-def main() -> ():
-    pass
-",
-        "this `checked:` block contains no arithmetic that can fail",
-    );
-    // One that keeps a fallible operation reports only that operation's error.
+    // A `checked:` block with a proved and an unproved operation.
     runs(
         "def f(a: i64, b: i64) -> i64:
     result = checked:
@@ -792,16 +781,44 @@ def main() -> Result[(), IoError]:
     );
 }
 
-/// The `--release` CLIF of function `name` in `source`.
-/// Both programs compiled before intervals (issue #952, PR #1215 comment
-/// 2903). The `checked:` rule that rejects them is undecided; update or
-/// delete this test when it is settled.
-#[test]
-fn a_proof_inside_a_checked_block_narrows_what_the_block_accepts() {
-    // `i64(a) + 1` is proved, so the block's error is `ZeroDivisionError`
-    // alone and the arm for the overflow it once listed is rejected.
-    rejected(
-        "def f(a: u8, d: i64) -> i64:
+// A `checked:` block's error type is the one its operators have with no
+// interval proof, so a block compiles the same whether or not its
+// arithmetic is proved (issue #952, PR #1215 comments 2903 and 2904).
+const CHECKED_BLOCKS: &str = "\
+def all_proved(a: u8, b: u8) -> i64:
+    r = checked:
+        i64(a) + i64(b) * 2
+    match r:
+        case Ok(v):
+            v
+        case Err(OverflowError(w)):
+            w
+
+def shifts(a: u8, n: u8) -> i64:
+    r = checked:
+        k = n % 8
+        (i64(a) << i64(k)) // (i64(k) + 1)
+    match r:
+        case Ok(v):
+            v
+        case Err(ShiftCountError(c)):
+            c
+        case Err(ZeroDivisionError()):
+            -1
+        case Err(OverflowError(w)):
+            w
+
+def unit(a: u8) -> bool:
+    r = checked:
+        x = i64(a) + 1
+        drop(x)
+    match r:
+        case Ok(_):
+            True
+        case Err(_):
+            False
+
+def payload(a: u8, d: i64) -> i64:
     r = checked:
         (i64(a) + 1) // d
     match r:
@@ -811,27 +828,243 @@ fn a_proof_inside_a_checked_block_narrows_what_the_block_accepts() {
             w
         case Err(_):
             0
-def main() -> ():
-    drop(f(3u8, 2))
-",
-        "a `OverflowError` pattern cannot match a payload of type ZeroDivisionError",
+
+def mixed(a: u8, d: i64) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
+    checked:
+        (i64(a) + 1) // d + i64.MAX
+
+def gen[T: IntType](a: T) -> Result[T, OverflowError[T] | ZeroDivisionError]:
+    checked:
+        a % T(100) + T(100)
+
+def main() -> Result[(), IoError]:
+    print(all_proved(3u8, 4u8), shifts(3u8, 10u8), unit(1u8))?
+    print(payload(3u8, 2), payload(3u8, 0), payload(255u8, -1))?
+    print(mixed(3u8, 2).is_err(), mixed(3u8, 0).is_err(), mixed(3u8, 5).unwrap_or(-1) == i64.MAX)?
+    print(gen(i8(50)).is_err(), gen(i16(50)).unwrap_or(i16(0)), gen(-7i64).unwrap_or(0))?
+    Ok(())
+";
+
+#[test]
+fn a_checked_block_has_the_error_type_it_has_without_interval_proofs() {
+    runs(
+        CHECKED_BLOCKS,
+        "11 4 True\n2 0 -256\nTrue True True\nTrue 150 193\n",
     );
-    // The same generic body has something to check for `i8` and nothing
-    // for `i16`.
+    // The proved operations are still emitted without their checks.
+    assert_eq!(checks(&clif(CHECKED_BLOCKS, "all_proved")).0, 0);
+    // Only the zero divisor is tested: `0..255 << 0..7` and `k + 1` are
+    // proved, and the quotient of a nonnegative dividend cannot overflow.
+    assert_eq!(checks(&clif(CHECKED_BLOCKS, "shifts")).0, 0);
+    assert_eq!(checks(&clif(CHECKED_BLOCKS, "mixed")).0, 1);
+
+    // One generic body is accepted for every instantiation, with the same
+    // error type, although `i16` proves the addition and `i8` does not.
     let generic = "def f[T: IntType](a: T) -> T:
     r = checked:
         a % T(100) + T(100)
-    r.unwrap_or(T(0))
+    match r:
+        case Ok(v):
+            v
+        case Err(OverflowError(w)):
+            w
+        case Err(ZeroDivisionError()):
+            T(0)
+def main() -> Result[(), IoError]:
+    print(f(i8(50)), f(i16(5)), f(-7i64))?
+    Ok(())
 ";
-    accepted(&format!(
-        "{generic}def main() -> ():\n    drop(f(i8(50)))\n"
-    ));
-    rejected(
-        &format!("{generic}def main() -> ():\n    drop(f(i16(5)))\n"),
-        "in instantiation `f[i16]`: this `checked:` block contains no arithmetic that can fail",
+    runs(generic, "-106 105 193\n");
+
+    // An arm for an error no operation produces at run time is dead code,
+    // and so is a `?` that propagates it.
+    accepted(
+        "def f(a: u8) -> Result[i64, OverflowError[i64]]:
+    r = checked:
+        i64(a) * 2
+    Ok(r?)
+def main() -> ():
+    drop(f(3u8))
+",
     );
 }
 
+#[test]
+fn a_checked_block_without_fallible_operators_is_still_rejected() {
+    let empty = "this `checked:` block contains no arithmetic that can fail";
+    for body in [
+        // Infallible before intervals: a literal divisor of an unsigned
+        // dividend, a widening conversion, a literal shift count, a
+        // masked count, a comparison.
+        "x // 2u64",
+        "u64(u8(3)) | x",
+        "x << 3",
+        "x >> (x & 63u64)",
+        "x == 2u64",
+    ] {
+        rejected(
+            &format!(
+                "def f(x: u64) -> ():\n    r = checked:\n        {body}\n    drop(r)\ndef main() -> ():\n    f(1u64)\n"
+            ),
+            empty,
+        );
+    }
+    // A proved operator is arithmetic the block checks, so each of these
+    // is accepted with the error type of the unproved operator.
+    for (body, error) in [
+        ("i64(a) + 1", "OverflowError[i64]"),
+        ("i64(a) - 1", "OverflowError[i64]"),
+        ("i64(a) * 2", "OverflowError[i64]"),
+        ("-i64(a)", "OverflowError[i64]"),
+        (
+            "7 // (i64(a) + 1)",
+            "OverflowError[i64] | ZeroDivisionError",
+        ),
+        ("7 % (i64(a) + 1)", "OverflowError[i64] | ZeroDivisionError"),
+        ("1 << i64(a % 8u8)", "ShiftCountError[i64]"),
+    ] {
+        accepted(&format!(
+            "def f(a: u8) -> Result[i64, {error}]:\n    checked:\n        {body}\ndef main() -> ():\n    drop(f(3u8))\n"
+        ));
+    }
+}
+
+// A `Proved` interval is derived inside one function body from parameters
+// that have the full range of their type, so it holds for every caller the
+// body is inlined into; a generic body is checked once per instantiation.
+#[test]
+fn proofs_hold_for_every_caller_and_are_made_per_instantiation() {
+    let source = r#"def widen[T: IntType](a: u8) -> Result[T, OverflowError[T]]:
+    Ok(T(a) + T(100))
+
+def twice[T: IntType](a: T) -> Result[T, OverflowError[T]]:
+    half = a // T(2)
+    Ok(half + half)
+
+def step(n: i64) -> i64:
+    n % 10 + 1
+
+def small(n: u8) -> i64:
+    i64(n) * 1000
+
+def caller(n: i64) -> Result[i64, OverflowError[i64]]:
+    x = step(n)
+    y = small(255u8)
+    Ok(step(i64.MAX) + step(i64.MIN) + x * y + small(u8(x)))
+
+def main() -> Result[(), IoError]:
+    print(widen[i8](100u8).is_err(), widen[i16](100u8).unwrap_or(i16(0)), widen[u8](200u8).is_err(), widen[i64](255u8).unwrap_or(0))?
+    print(twice(i8(-128)).unwrap_or(i8(0)), twice(i8(127)).unwrap_or(i8(0)), twice(255u8).unwrap_or(0u8), twice(i64.MIN).unwrap_or(0))?
+    print(caller(-1).unwrap_or(-1), caller(i64.MAX).unwrap_or(-1))?
+    Ok(())
+"#;
+    runs(
+        source,
+        "True 200 True 355\n-128 126 254 -9223372036854775808\n2560011 2048011\n",
+    );
+    // `step` and `small` are proved for every argument. The checker gives
+    // a call's result the full range, so `caller` declares its error; code
+    // generation's own bounds then cover the inlined results.
+    assert_eq!(checks(&clif(source, "caller")).0, 0);
+}
+
+// A proved operation in an `unchecked:` suite is the same plain operation,
+// and the suite still contributes no error to an enclosing `checked:` block.
+#[test]
+fn unchecked_suites_keep_their_contract() {
+    runs(
+        r#"def all_proved(a: u8, b: u8) -> i64:
+    unchecked:
+        i64(a) + i64(b) * 2
+
+def partly(a: u8, d: i64) -> i64:
+    unchecked:
+        (i64(a) + 1) // d + (i64(a) << 3)
+
+def nested(a: u8, d: i64) -> Result[i64, OverflowError[i64] | ZeroDivisionError]:
+    checked:
+        x = unchecked:
+            i64(a) * 3
+        y = unchecked:
+            x // d
+        y + x
+
+def inner(a: u8, d: i64) -> i64:
+    unchecked:
+        r = checked:
+            i64(a) + 1
+        r.unwrap_or(0) // d
+
+def main() -> Result[(), IoError]:
+    print(all_proved(3u8, 4u8), partly(3u8, 2), nested(3u8, 2).unwrap_or(-1), inner(9u8, 5))?
+    Ok(())
+"#,
+        "11 26 13 2\n",
+    );
+    rejected(
+        r#"def f(a: u8, d: i64) -> Result[i64, OverflowError[i64]]:
+    checked:
+        unchecked:
+            i64(a) * 3
+def main() -> ():
+    drop(f(1u8, 2))
+"#,
+        "this `checked:` block contains no arithmetic that can fail",
+    );
+}
+
+// A literal operand of an integer domain type is checked by value (issue
+// #955); the interval of the forwarded arithmetic removes a check only where
+// the plain integer operation cannot fail.
+#[test]
+fn domain_literal_operands_keep_their_checks() {
+    let source = r#"class Scale:
+    by: NonZero[i64]
+    up: Positive[i64]
+    count: NonNegative[i8]
+
+def bump(s: &mut Scale) -> Result[(), OverflowError[i64] | OverflowError[i8]]:
+    s.by *= 1
+    s.by *= -1
+    s.up += 1
+    s.up *= 2
+    s.count += 0
+    s.count += 100
+    Ok(())
+
+def div(n: i64, p: Positive[i64], z: NonZero[i64]) -> Result[i64, OverflowError[i64]]:
+    Ok(n // p + n % p + n % z + (n % 7) // z)
+
+def lit(n: i64) -> i64:
+    n // -(-3) + n % -(-(4))
+
+def main() -> Result[(), IoError]:
+    mut s = Scale(-9223372036854775807, 4611686018427387902, 27)
+    print(bump(&mut s).is_ok(), s.by, s.up, s.count)?
+    print(bump(&mut s).is_err(), s.by, s.up, s.count)?
+    mut t = Scale(-3, 1, 56)
+    print(bump(&mut t).is_err(), t.by, t.up, t.count)?
+    print(div(-7, 2, -1).unwrap_or(0), div(i64.MIN, 1, -1).unwrap_or(0), lit(-7))?
+    Ok(())
+"#;
+    runs(
+        source,
+        "True 9223372036854775807 9223372036854775806 127\n\
+         True -9223372036854775807 9223372036854775807 127\n\
+         True 3 4 56\n-3 0 -2\n",
+    );
+    // An interval is not a domain proof: only a literal converts.
+    rejected(
+        "def f(a: u8) -> NonZero[i64]:
+    i64(a) + 1
+def main() -> ():
+    pass
+",
+        "expected NonZero[i64], got i64",
+    );
+}
+
+/// The `--release` CLIF of function `name` in `source`.
 fn clif(source: &str, name: &str) -> String {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("main.plenty"), source).unwrap();

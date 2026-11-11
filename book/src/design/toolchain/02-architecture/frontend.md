@@ -41,8 +41,11 @@ other consumer finds a different node and gets the type's full range. An
 immutable local's interval is stored by slot when its binding is lowered.
 Bounds are `i128`, and a bound that does not fit proves nothing. An operation
 proved infallible is emitted as `Op::Proved`, or as a division with a
-`Divisor` proof, and adds nothing to the function's or block's error set: one
-decision both drops the error and selects the unchecked instruction.
+`Divisor` proof, and adds nothing to the function's error set: one
+decision both drops the error and selects the unchecked instruction. A
+`checked:` block records the errors its operators have without interval proofs
+(`block_errors`), so its type is the same whether or not an operation is
+proved.
 
 The compiler's own hash tables (`src/hash.rs`) use FxHash rather than std's
 SipHash. Their keys are names and types from the program being compiled, so

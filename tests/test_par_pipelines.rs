@@ -869,7 +869,7 @@ def sum_{ty}(pool: &ThreadPoolExecutor) -> Result[bool, AllocError]:
         values = [{ty}.MAX, {ty}(2), {ty}(0)]?
         normal = overflow_{ty}(iter(&values).par(pool, chunks=Positive.try_from(chunks).unwrap()).sum())
         local = checked:
-            mode_marker = len("") * 2
+            mode_marker = 0 + 0
             overflow_{ty}(iter(&values).par(pool, chunks=Positive.try_from(chunks).unwrap()).sum())
         deliberate = unchecked:
             overflow_{ty}(iter(&values).par(pool, chunks=Positive.try_from(chunks).unwrap()).sum())
@@ -879,7 +879,7 @@ def sum_{ty}(pool: &ThreadPoolExecutor) -> Result[bool, AllocError]:
         body.push_str(&format!(
             r#"        normal_{ty} = sum_{ty}(&pool)?
         local_{ty} = checked:
-            mode_marker = len("") * 2
+            mode_marker = 0 + 0
             sum_{ty}(&pool)
         trapping_{ty} = unchecked:
             sum_{ty}(&pool)
@@ -1126,7 +1126,7 @@ fn enumerate_indices_keep_their_explicit_trapping_contract_in_every_mode() {
                     format!("        {expression}\n")
                 } else {
                     format!(
-                        "        value = {mode}:\n            mode_marker = len(\"\") * 2\n            {expression}\n            0\n        drop(value)\n"
+                        "        value = {mode}:\n            mode_marker = 0 + 0\n            {expression}\n            0\n        drop(value)\n"
                     )
                 };
                 let source = format!(
@@ -1293,7 +1293,7 @@ def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError | str |
             case Ok(_):
                 print("missed overflow")?
         print(len(values))?
-        mut start = 1
+        start = 1
         nested = checked:
             stop = start + 5
             iter(range(start, stop)).par(&pool, chunks=2).reduce(add)
@@ -1540,7 +1540,7 @@ def main() -> Result[(), AllocError | IoError | PoolError | PoolMapError | str |
         print(iter([(1,), (2,)]?).par(&pool, chunks=1).reduce(first)?)?
         print(iter([(1, 2, 3), (4, 5, 6)]?).par(&pool, chunks=1).reduce(first)?)?
         print(iter([(1, 2, 3, 4), (5, 6, 7, 8)]?).par(&pool, chunks=1).reduce(first)?)?
-        mut n = 1
+        n = 1
         checked_result = checked:
             end = n + 2
             iter(range(end)).par(&pool, chunks=1).map(pair).reduce(first)

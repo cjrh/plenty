@@ -9,7 +9,7 @@ The checker uses an interval in three ways:
 
 | Use | Rule |
 | --- | --- |
-| Arithmetic | An operation whose result interval lies inside its type cannot fail. It adds no error to the function's contract or to a `checked:` block, and the generated code has no check for it. |
+| Arithmetic | An operation whose result interval lies inside its type cannot fail. It adds no error to the function's contract, and the generated code has no check for it. A [`checked:` block](#checked-blocks) keeps its error type. |
 | Division | `//` and `%` whose divisor interval excludes zero add no `ZeroDivisionError`. `//` adds no `OverflowError[T]` unless the dividend can be `T.MIN` and the divisor can be `-1`. |
 | Conversion | [`Bounded[T, lo, hi].from(e)`](bounded.md#proved-ranges) accepts `e` exactly when its interval lies inside `lo..hi`. An integer cast `T(e)` whose operand interval lies inside `T` has no run-time check. |
 
@@ -133,32 +133,48 @@ interval proves infallible therefore never makes a declared `OverflowError`,
 `ZeroDivisionError` or `ShiftCountError` wrong. Removing the error from the
 signature is always allowed, and callers then stop handling it.
 
-A `checked:` block is different: a block with no arithmetic that can fail is a
-[compile error](numbers.md#checked-blocks), so a block whose arithmetic is all
-proved must be removed. Proofs also narrow a block's error type: its
-`Result` lists only the errors of the operations that were not proved.
+## Checked blocks
 
-```plenty-error
+A [`checked:` block](numbers.md#checked-blocks) exists so that a function can
+resolve the arithmetic errors of some operations in one place instead of
+declaring them in its signature. That must keep working when an interval
+proves one of those operations infallible, and for every instantiation of a
+generic function. So the block's error type does not depend on interval
+proofs: it is the error type the block's operators and operand types give by
+the [operation table](numbers.md#checked-blocks) alone, including that
+table's exceptions for a literal or constant divisor or count, a masked count
+and a `NonZero` or `Positive` divisor.
+
+```plenty
 def sum(a: u8, b: u8) -> i64:
     result = checked:
         i64(a) + i64(b)
-    result.unwrap_or(0)
+    match result:
+        case Ok(value):
+            value
+        case Err(OverflowError(wrapped)):
+            wrapped
 
-def main() -> ():
-    sum(1, 2)
+def main() -> Result[(), IoError]:
+    print(sum(200, 100))?
+    Ok(())
 ```
-```error
-this `checked:` block contains no arithmetic that can fail
+```output
+300
 ```
 
-The same expression in a generic function can therefore be valid for one
-instantiation and rejected for another: `checked:` around
-`a % T(100) + T(100)` has an `OverflowError[i8]` to handle for `i8` and
-nothing to check for `i16`.
+`result` is a `Result[i64, OverflowError[i64]]` although the addition cannot
+overflow. The proof still removes the check from the generated code, so the
+`Err` arm is never taken; an arm for an error that cannot occur is legal and
+has no warning. A generic body is accepted alike for every instantiation:
+`checked:` around `a % T(100) + T(100)` is a
+`Result[T, OverflowError[T] | ZeroDivisionError]` for `i8`, where the
+addition can overflow, and for `i16`, where it cannot.
 
-Both rules can reject a program that compiled before intervals existed: a
-`match` arm for an error the block can no longer produce, and a block that
-is now fully proved.
+A block with no arithmetic that the table lists as able to fail is still a
+[compile error](numbers.md#checked-blocks). That rule does not depend on
+intervals either: `checked:` around `i64(a) + i64(b)` is accepted, and around
+`n // 2` it is rejected.
 
 ## Generated code
 
@@ -188,5 +204,7 @@ contract.
 - Conditions do not narrow: after `if n < 10:`, `n` still has its full range.
 - A generic function is checked for each instantiation, with the intervals of
   that integer type: `a % 100 + 100` cannot fail for `i16` and can for `i8`.
+  A signature that must be valid for every instantiation declares the error;
+  a [`checked:` block](#checked-blocks) has the same type for each.
 - `len(x)` has an interval for built-in collections, strings and views. A
   class's own `len` method returns any `i64`.

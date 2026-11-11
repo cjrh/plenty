@@ -390,10 +390,11 @@ program runs.
 
 A comparison does not narrow a range: after `if n < 10:`, `n * 2` still
 requires its error. To carry a range in a parameter or field, give it a
-[bounded type](../09-generics/value-parameters.md). A `checked:` block whose
-arithmetic cannot fail is a compile error, since it would have nothing to
-check. The [interval reference](../../design/language/03-types/intervals.md)
-lists every rule.
+[bounded type](../09-generics/value-parameters.md). A `checked:` block keeps
+its error type when a range proves its arithmetic, so the block and the
+`match` on its result stay valid. The
+[interval reference](../../design/language/03-types/intervals.md) lists every
+rule.
 
 ## Validate a divisor once
 

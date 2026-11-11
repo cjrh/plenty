@@ -277,10 +277,13 @@ operators can produce:
 | `//` and `%` with a plain integer divisor, unless the divisor is a nonzero literal or module constant | `ZeroDivisionError` |
 | `<<` and `>>` on `T`, unless the count is an integer literal or module constant, or `n & L` with such an `L` below the width | `ShiftCountError[T]` |
 
-Each row applies only to an operation that can fail: one whose operand
-[intervals](intervals.md) prove a result inside `T`, a nonzero divisor or a
-valid count adds no error. The literal and constant exceptions in the table
-are cases of that rule.
+The table is the whole rule for a block. An operand
+[interval](intervals.md) that proves an operation infallible removes its check
+from the generated code and its error from a
+[function's contract](#function-arithmetic-contracts), but a block's error
+type [does not depend on such proofs](intervals.md#checked-blocks), so a block
+means the same when a proof appears and for every instantiation of a generic
+function.
 
 `OverflowError[T]` has one field, `wrapped: T`, the exact result modulo
 2<sup>N</sup> for an N-bit `T`. `ShiftCountError[T]` has one field, `count: T`,
@@ -339,12 +342,11 @@ def main() -> Result[(), IoError]:
 48 0
 ```
 
-The error type follows the operators, the operand types and the operands'
-[intervals](intervals.md), never the values they have when the program runs.
-A divisor or shift count written as an integer literal, such as `4`, `-3` or
-`(4u8)`, or as an integer
-[module constant](../02-source/modules.md#constants), has a one-value interval
-and removes the failures it rules out. A constant proves what the literal it
+The error type follows the operators and operand types, not their values,
+with one exception: a divisor or shift count written as an integer literal,
+such as `4`, `-3` or `(4u8)`, or as an integer
+[module constant](../02-source/modules.md#constants), removes the failures it
+rules out. A constant proves what the literal it
 evaluates to proves, whether it is local, imported or aliased, and whatever
 constant expression initializes it. A nonzero divisor cannot
 divide by zero, and one other than `-1` cannot overflow, so `n // 4`
@@ -352,10 +354,11 @@ and `n % -3` add no error, `n // -1` adds only `OverflowError[T]` for a signed
 `T`, and `n // 0` still adds `ZeroDivisionError`; the same holds for
 `n // step` after `const step: i64 = 4`. A valid shift count, as in `x << 3`,
 adds no error, nor does a count masked by such a literal or constant, as in
-`x << (n & 7)`. An immutable local carries the interval of its initializer,
-and arithmetic such as `1 + 1` or `-step` has the interval of its result. A
-`mut` local, a parameter and a guard such as
-`if d != 0:` or `if n < 64:` prove nothing; use
+`x << (n & 7)`. In a block the rule applies to the operand's form
+only. A variable assigned from a literal or constant, a negated constant such
+as `-step`, a guard such as
+`if d != 0:` or `if n < 64:` and arithmetic such as `1 + 1` leave the block's
+error type unchanged, whatever their [intervals](intervals.md) prove; use
 a [`NonZero[T]`](#nonzero-integers) or [`Positive[T]`](#positive-and-non-negative-integers)
 divisor to carry a proof checked elsewhere. Guards do not narrow other
 operations either: `-x` adds `OverflowError[T]` even inside

@@ -303,13 +303,13 @@ fn malformed_class_patterns_are_rejected() {
     );
     assert_eq!(
         rejects(
-            "r = checked:\n    len(\"a\") * 3\nmatch r:\n    case Ok(v):\n        pass\n    case Err(OverflowError):\n        pass"
+            "r = checked:\n    1 + 2\nmatch r:\n    case Ok(v):\n        pass\n    case Err(OverflowError):\n        pass"
         ),
         "23:18: `OverflowError` names a class, so it cannot name a binding; write `OverflowError(...)` to match it"
     );
     assert_eq!(
         rejects(
-            "r = checked:\n    len(\"a\") * 3\nmatch r:\n    case Ok(v):\n        pass\n    case Err(ZeroDivisionError()):\n        pass"
+            "r = checked:\n    1 + 2\nmatch r:\n    case Ok(v):\n        pass\n    case Err(ZeroDivisionError()):\n        pass"
         ),
         "23:18: a `ZeroDivisionError` pattern cannot match a payload of type OverflowError[i64]; bind it with a name or skip it with `_`"
     );

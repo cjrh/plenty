@@ -123,8 +123,8 @@ actual `std.serial.Kind` values. Rendering borrows and preserves the error.
   casts and immutable locals bound to those have known ranges, combined by
   `+ - * // % & << >>` and unary `-`. So `i64(a_u8) * 3 + 1` needs no
   `OverflowError`, while parameters, `mut` locals, loop variables, fields and
-  call results have the full range of their type. A `checked:` block whose
-  arithmetic is all proved is a compile error; remove it. Casts such as `u8(x)` trap; use `u8.try_from(x)` (integers or floats)
+  call results have the full range of their type. A `checked:` block's error type
+  ignores these proofs, so a block stays valid when its arithmetic is proved. Casts such as `u8(x)` trap; use `u8.try_from(x)` (integers or floats)
   to recover.
   Write explicit `Ok(...)` on success. Use `checked:` for local recovery or a
   small, justified `unchecked trap:` suite for deliberate termination. Plain

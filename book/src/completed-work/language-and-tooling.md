@@ -1519,9 +1519,9 @@ fields and call results have the full range, and conditions do not narrow.
 
 A proved operation reaches code generation as `Op::Proved` or a `Divisor`
 proof, so one decision removes both the error and the check. A signature may
-still declare an error its body cannot return. A `checked:` block whose
-arithmetic is all proved is rejected by the existing rule for blocks with
-nothing to check. fasta's generator now returns a plain `i64`;
+still declare an error its body cannot return. A `checked:` block's error type
+[ignores interval proofs](../design/language/03-types/intervals.md#checked-blocks),
+so a block stays valid when its arithmetic is proved. fasta's generator now returns a plain `i64`;
 [measurements](performance.md#checker-intervals-issue-952).
 
 ## Raw C host interfaces
