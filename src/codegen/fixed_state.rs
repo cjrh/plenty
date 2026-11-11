@@ -23,7 +23,9 @@ use crate::hash::HashSet;
 use crate::numeric::{Checked, NumericOp};
 use crate::op::{CompiledFn, IntegerOp};
 use crate::record::ClassOp;
+use crate::sum::EnumOp;
 use crate::value::Value as Literal;
+use portable_simd::Numerical;
 
 const MAX_OPS: usize = 12000;
 const MAX_ITERATIONS: usize = 128;
@@ -101,11 +103,51 @@ pub(super) fn prepare(ops: &mut [Op], optimize: bool) {
     if hints.is_empty() {
         return;
     }
+    let mut simd = Simd::default();
+    for op in ops.iter() {
+        let Op::DefineFn(name, f) = op else {
+            continue;
+        };
+        if !name.contains("std.simd.") {
+            continue;
+        }
+        let operation = portable_simd::classify(name, &f.sig, f.origins.standard_library, optimize);
+        let Some((kind, lanes)) = operation.and_then(|operation| operation.numerical()) else {
+            continue;
+        };
+        let output = f.sig.outputs.first().cloned();
+        if let (Numerical::Pure | Numerical::Get, Some(vector)) = (kind, &output) {
+            simd.vectors.insert(vector.clone());
+        }
+        let function = Function {
+            kind,
+            lanes,
+            inputs: f.sig.inputs.iter().map(|(_, ty)| ty.clone()).collect(),
+            output,
+        };
+        simd.functions.insert(name.clone(), function);
+    }
     for op in ops {
         if let Op::DefineFn(_, f) = op {
-            optimize_fn(f, &hints);
+            optimize_fn(f, &hints, &simd);
         }
     }
+}
+
+/// The floating `std.simd` functions that the backend lowers to vector
+/// instructions, by callee name, and their vector types. Such a call is no
+/// call: lane arithmetic is a value of its operands, and a view access reads
+/// or writes list rows.
+#[derive(Default)]
+struct Simd {
+    functions: HashMap<String, Function>,
+    vectors: HashSet<Ty>,
+}
+struct Function {
+    kind: Numerical,
+    lanes: i64,
+    inputs: Vec<Ty>,
+    output: Option<Ty>,
 }
 
 #[derive(Clone)]
@@ -118,6 +160,8 @@ enum Val {
     /// A root's length read before the candidate loop, with its size hint.
     Len(u8, i64),
     Cell(u8, i64, Option<usize>),
+    /// A view of all of a root's rows.
+    View(u8),
     Unit,
     Unknown,
 }
@@ -157,13 +201,20 @@ struct Eval<'a> {
     cells: Vec<Cell>,
     strict: bool,
     iterations: usize,
+    simd: &'a Simd,
+    /// The position of the next call.
+    site: Option<Op>,
+    /// Speculative lengths of roots, from counted loops of appends.
+    lengths: HashMap<u8, i64>,
+    /// Roots whose speculative length the expansion used.
+    exact: HashSet<u8>,
     /// Nested loop bodies by address: those evaluated, and those whose loop
     /// ran no iteration at some entry.
     entered: HashSet<*const Op>,
     skipped: HashSet<*const Op>,
 }
 impl<'a> Eval<'a> {
-    fn new(types: &'a [Ty], hints: &'a HashMap<Ty, Option<i64>>) -> Self {
+    fn new(types: &'a [Ty], hints: &'a HashMap<Ty, Option<i64>>, simd: &'a Simd) -> Self {
         let env = types
             .iter()
             .enumerate()
@@ -186,6 +237,10 @@ impl<'a> Eval<'a> {
             cells: vec![],
             strict: false,
             iterations: 0,
+            simd,
+            site: None,
+            lengths: HashMap::default(),
+            exact: HashSet::default(),
             entered: HashSet::default(),
             skipped: HashSet::default(),
         }
@@ -206,13 +261,7 @@ impl<'a> Eval<'a> {
         }
         self.stack.clear();
     }
-    fn cell(
-        &mut self,
-        root: u8,
-        index: i64,
-        field: Option<usize>,
-        write: bool,
-    ) -> Option<(u8, Ty)> {
+    fn cell_ty(&self, root: u8, index: i64, field: Option<usize>) -> Option<Ty> {
         if !(0..64).contains(&index) {
             return None;
         }
@@ -225,9 +274,77 @@ impl<'a> Eval<'a> {
             (Some(f), Ty::Class(c)) if c.get().copy => c.get().fields.get(f)?.1.clone(),
             _ => return None,
         };
-        if !float(&ty) {
+        float(&ty).then_some(ty)
+    }
+    /// The promoted cells of vector `index` of a root, in lane order. A
+    /// vector is assembled from and split into the same locals that scalar
+    /// accesses use, so neither kind of access waits on the other's store.
+    fn lanes(&mut self, root: u8, index: i64, lanes: i64, write: bool) -> Option<Vec<u8>> {
+        let first = index.checked_mul(lanes)?;
+        (0..lanes)
+            .map(|lane| Some(self.cell(root, first.checked_add(lane)?, None, write)?.0))
+            .collect()
+    }
+    /// A root's speculative length, which the guard then requires exactly.
+    fn length(&mut self, root: u8) -> Option<i64> {
+        let n = *self.lengths.get(&root)?;
+        self.exact.insert(root);
+        Some(n)
+    }
+    fn vector(&self, ty: &Ty) -> bool {
+        self.simd.vectors.contains(ty)
+    }
+    /// A counted loop of appends before the candidate suggests each
+    /// appended list's length. Only the guard makes a suggestion a fact.
+    fn appended(&mut self, condition: &[Op], body: &[Op]) -> Option<()> {
+        let range = induction::analyze_range(condition, body)?;
+        let Val::Int(n @ 1..=64) = self.env[range.remaining as usize] else {
             return None;
+        };
+        let mut owner = None;
+        let mut appends: HashMap<u8, usize> = HashMap::default();
+        for op in body {
+            match op {
+                Op::BorrowLocal(root, true)
+                    if matches!(self.types[*root as usize], Ty::List(_)) =>
+                {
+                    owner = Some(*root)
+                }
+                Op::Collection(C::TryInsert(Ty::List(_))) => {
+                    *appends.entry(owner.take()?).or_default() += 1
+                }
+                _ => {}
+            }
         }
+        for (root, count) in appends {
+            if count == 1 {
+                *self.lengths.entry(root).or_default() += n;
+            }
+        }
+        Some(())
+    }
+    /// A store may not change what a deferred stack value will read. The
+    /// borrow of another vector local is the one deferred value kept across
+    /// a store: no store of the fast loop writes that local.
+    fn settled(&self, local: Option<u8>) -> Option<()> {
+        self.stack
+            .iter()
+            .all(|value| match value {
+                Val::Code(ops, _) => {
+                    matches!(ops.as_slice(), [Op::BorrowLocal(i, false)] if Some(*i) != local)
+                }
+                _ => true,
+            })
+            .then_some(())
+    }
+    fn cell(
+        &mut self,
+        root: u8,
+        index: i64,
+        field: Option<usize>,
+        write: bool,
+    ) -> Option<(u8, Ty)> {
+        let ty = self.cell_ty(root, index, field)?;
         if let Some(c) = self
             .cells
             .iter_mut()
@@ -271,10 +388,10 @@ impl<'a> Eval<'a> {
         };
         (rows == length).then_some(Some(rows))
     }
-    fn no_pending_reads(&self) -> Option<()> {
-        (!self.stack.iter().any(|v| matches!(v, Val::Code(..)))).then_some(())
-    }
     fn step(&mut self, op: &Op) -> Option<()> {
+        if let Op::CallerSite(_) = op {
+            self.site = Some(op.clone());
+        }
         if marker(op) {
             return Some(());
         }
@@ -287,15 +404,21 @@ impl<'a> Eval<'a> {
             Op::BorrowLocal(i, _) if list(&self.types[*i as usize]).is_some() => {
                 self.stack.push(Val::Root(*i))
             }
-            Op::Reborrow(_) => {
-                if !matches!(self.stack.last(), Some(Val::Root(_))) {
-                    return None;
-                }
+            Op::BorrowLocal(i, false) if self.vector(&self.types[*i as usize]) => {
+                let ty = Ty::Ref(Arc::new(self.types[*i as usize].clone()), false);
+                self.stack.push(Val::Code(vec![op.clone()], ty));
             }
+            // A vector is a copy of lanes; nothing is released.
+            Op::DropLocal(i) if self.vector(&self.types[*i as usize]) => {}
+            Op::Reborrow(t) => match self.stack.last() {
+                Some(Val::Root(_)) => {}
+                Some(Val::View(_)) if matches!(t, Ty::View(..)) => {}
+                _ => return None,
+            },
             Op::StoreLocal(i) => {
                 let value = self.pop()?;
-                if self.strict && self.stack.iter().any(|v| matches!(v, Val::Code(..))) {
-                    return None;
+                if self.strict {
+                    self.settled(Some(*i))?;
                 }
                 if self.strict && list(&self.types[*i as usize]).is_some() {
                     return None;
@@ -328,6 +451,11 @@ impl<'a> Eval<'a> {
                     // their own roots (and rejected by the alias eligibility
                     // check), rather than trusting a stale parameter slot.
                     Val::Root(_) if !self.strict => Val::Root(*i),
+                    // The fast loop reads a view's rows from cells, so it
+                    // never creates the view.
+                    Val::View(root) if matches!(self.types[*i as usize], Ty::View(..)) => {
+                        Val::View(root)
+                    }
                     Val::Unknown if !self.strict => Val::Unknown,
                     value => {
                         let (mut code, ty) = value.code()?;
@@ -396,6 +524,102 @@ impl<'a> Eval<'a> {
                     self.stack.push(Val::Code(vec![Op::LoadLocal(slot)], ty));
                 }
             }
+            Op::Collection(C::ViewNew(source @ Ty::List(_), _)) => {
+                // No written bound: the view covers every row.
+                for _ in 0..3 {
+                    if !matches!(self.pop()?, Val::Int(0)) {
+                        return None;
+                    }
+                }
+                let Val::Root(root) = self.pop()? else {
+                    return None;
+                };
+                if list(&self.types[root as usize]).as_ref() != Some(source) {
+                    return None;
+                }
+                self.stack.push(Val::View(root));
+            }
+            Op::Collection(C::ViewLen(_)) if self.strict => {
+                let Val::View(root) = self.pop()? else {
+                    return None;
+                };
+                let n = self.length(root)?;
+                self.stack.push(Val::Int(n));
+            }
+            Op::Collection(C::ViewRow(..)) if self.strict => {
+                let index = self.pop()?.int()?;
+                let Val::View(root) = self.pop()? else {
+                    return None;
+                };
+                self.stack.push(Val::Cell(root, index, None));
+            }
+            Op::Call(name) => {
+                let simd = self.simd.functions.get(name)?;
+                let site = self.site.take();
+                match simd.kind {
+                    Numerical::Pure => {
+                        let mut operands = Vec::new();
+                        for input in simd.inputs.iter().rev() {
+                            let (code, ty) = self.pop()?.code()?;
+                            if &ty != input {
+                                return None;
+                            }
+                            operands.push(code);
+                        }
+                        let mut code: Vec<Op> = operands.into_iter().rev().flatten().collect();
+                        code.extend(site);
+                        code.push(op.clone());
+                        self.stack.push(Val::Code(code, simd.output.clone()?));
+                    }
+                    Numerical::Len | Numerical::Tail if self.strict => {
+                        let Val::View(root) = self.pop()? else {
+                            return None;
+                        };
+                        let whole = self.length(root)? / simd.lanes;
+                        self.stack.push(Val::Int(if simd.kind == Numerical::Len {
+                            whole
+                        } else {
+                            whole * simd.lanes
+                        }));
+                    }
+                    // The length guard proves the vector's rows.
+                    Numerical::Get if self.strict => {
+                        let index = self.pop()?.int()?;
+                        let Val::View(root) = self.pop()? else {
+                            return None;
+                        };
+                        let Some(Ty::Enum(vector)) = &simd.output else {
+                            return None;
+                        };
+                        let cells = self.lanes(root, index, simd.lanes, false)?;
+                        let mut code: Vec<Op> = cells.into_iter().map(Op::LoadLocal).collect();
+                        code.push(Op::Enum(EnumOp::New(vector.clone(), 0)));
+                        self.stack.push(Val::Code(code, simd.output.clone()?));
+                    }
+                    Numerical::Set if self.strict && simd.output.is_none() => {
+                        let index = self.pop()?.int()?;
+                        let Val::View(root) = self.pop()? else {
+                            return None;
+                        };
+                        let Val::Code(code, Ty::Ref(vector, false)) = self.pop()? else {
+                            return None;
+                        };
+                        let ([Op::BorrowLocal(local, false)], Ty::Enum(t)) = (&code[..], &*vector)
+                        else {
+                            return None;
+                        };
+                        if simd.inputs.first() != Some(&Ty::Ref(vector.clone(), false)) {
+                            return None;
+                        }
+                        self.settled(None)?;
+                        let cells = self.lanes(root, index, simd.lanes, true)?;
+                        self.out
+                            .extend([Op::LoadLocal(*local), Op::Split(t.clone(), 0)]);
+                        self.out.extend(cells.into_iter().rev().map(Op::StoreLocal));
+                    }
+                    _ => return None,
+                }
+            }
             Op::Collection(c @ (C::ListScalarSetView(_) | C::ListScalarSetRef(_)))
                 if self.strict =>
             {
@@ -408,7 +632,7 @@ impl<'a> Eval<'a> {
                 if view.is_some_and(|v| v != root) {
                     return None;
                 }
-                self.no_pending_reads()?;
+                self.settled(None)?;
                 let (slot, ct) = self.cell(root, index, None, true)?;
                 if ct != ty {
                     return None;
@@ -441,7 +665,7 @@ impl<'a> Eval<'a> {
                 if &vt != ty {
                     return None;
                 }
-                self.no_pending_reads()?;
+                self.settled(None)?;
                 let (slot, ct) = self.cell(root, index, field, true)?;
                 if &ct != ty {
                     return None;
@@ -490,6 +714,10 @@ impl<'a> Eval<'a> {
                     self.entered.insert(body.as_ptr());
                     self.run(body)?;
                 }
+            }
+            Op::Loop { condition, body } => {
+                self.appended(condition, body);
+                return None;
             }
             Op::Numeric(NumericOp::Sqrt) | Op::FloatNeg => {
                 let (mut code, ty) = self.pop()?.code()?;
@@ -755,8 +983,9 @@ fn specialize(
     if !matches!(prefix.env[range.remaining as usize], Val::Code(..)) {
         return None;
     }
-    let mut eval = Eval::new(prefix.types, prefix.hints);
+    let mut eval = Eval::new(prefix.types, prefix.hints, prefix.simd);
     eval.env = prefix.env.clone();
+    eval.lengths = prefix.lengths.clone();
     eval.strict = true;
     // Facts about locals written by an iteration cannot persist into the next.
     let mut written = HashSet::default();
@@ -766,6 +995,10 @@ fn specialize(
         let root = match value {
             Val::Int(_) => None,
             Val::Len(root, _) => Some(*root),
+            Val::View(..) if written.contains(&(i as u8)) => {
+                *value = Val::Unknown;
+                continue;
+            }
             _ => continue,
         };
         let n = value.int()?;
@@ -781,7 +1014,12 @@ fn specialize(
         return None;
     }
     // One borrowed root, plus distinct owned lists: no two promoted roots alias.
-    let roots: HashSet<u8> = eval.cells.iter().map(|c| c.root).collect();
+    let roots: HashSet<u8> = eval
+        .cells
+        .iter()
+        .map(|c| c.root)
+        .chain(eval.exact.iter().copied())
+        .collect();
     if roots
         .iter()
         .any(|r| *r as usize >= params && matches!(prefix.types[*r as usize], Ty::Ref(..)))
@@ -821,13 +1059,21 @@ fn specialize(
             .iter()
             .filter(|c| c.root == root)
             .map(|c| c.index)
-            .max()?;
+            .max();
         let mut guard = root_ref(prefix.types, root, false);
-        guard.extend([
-            Op::Collection(C::ListLenRef(list(&prefix.types[root as usize])?)),
-            Op::PushInt(Literal::I64(max)),
-            Op::Gt,
-        ]);
+        guard.push(Op::Collection(C::ListLenRef(list(
+            &prefix.types[root as usize],
+        )?)));
+        // A length the expansion used as a fact is required exactly.
+        if eval.exact.contains(&root) {
+            let n = eval.lengths[&root];
+            if max.is_some_and(|max| max >= n) {
+                return None;
+            }
+            guard.extend([Op::PushInt(Literal::I64(n)), Op::Eq]);
+        } else {
+            guard.extend([Op::PushInt(Literal::I64(max?)), Op::Gt]);
+        }
         checks.push(guard);
     }
     for (slot, n, root) in guards.into_iter().rev() {
@@ -875,7 +1121,7 @@ fn specialize(
     Some((fast, eval.cells.iter().map(|c| c.ty.clone()).collect()))
 }
 
-fn optimize_fn(f: &mut CompiledFn, hints: &HashMap<Ty, Option<i64>>) {
+fn optimize_fn(f: &mut CompiledFn, hints: &HashMap<Ty, Option<i64>>, simd: &Simd) {
     if f.generator.is_some() {
         return;
     }
@@ -897,7 +1143,7 @@ fn optimize_fn(f: &mut CompiledFn, hints: &HashMap<Ty, Option<i64>>) {
         [Op::CheckedFunction { body, result }] => (body.as_ref(), Some(result)),
         body => (body, None),
     };
-    let mut prefix = Eval::new(&types, hints);
+    let mut prefix = Eval::new(&types, hints, simd);
     let mut output = Vec::new();
     let mut extra = Vec::new();
     for (i, op) in body.iter().enumerate() {

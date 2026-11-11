@@ -1,0 +1,51 @@
+# Guarded numerical state over std.simd view accesses. The Rust tests
+# replace VECTOR, TYPE, COUNT, VALUES and the literals; `extra` makes the lists
+# longer than the lengths the compiler guessed, which selects the fallback.
+import std.simd as s
+
+def update(values: &mut list[TYPE], steps: i64, extra: i64) -> Result[(), AllocError]:
+    count = len(values)
+    mut scratch = list[TYPE].with_capacity(COUNT)?
+    mut roots = list[TYPE].with_capacity(COUNT)?
+    for _ in range(COUNT):
+        scratch.append(ZERO)?
+        roots.append(ZERO)?
+    for _ in range(extra):
+        scratch.append(ZERO)?
+        roots.append(ZERO)?
+    for _ in range(steps):
+        for i in range(count):
+            scratch[i] = values[i] * HALF + HALF
+        xs: &[TYPE] = &scratch
+        out: &mut [TYPE] = &mut roots
+        half = s.splat_VECTOR(HALF)
+        for i in range(s.len_VECTOR(xs)):
+            v = s.get_VECTOR(xs, i)
+            v.mul(v).add(half).sqrt().set(out, i)
+        for i in range(s.tail_VECTOR(xs), len(xs)):
+            out[i] = (xs[i] * xs[i] + HALF).sqrt()
+        for i in range(count):
+            values[i] = values[i] + roots[i]
+    Ok(())
+
+def reference(values: &mut list[TYPE], steps: i64) -> ():
+    for _ in range(steps):
+        for value in values:
+            moved = *value * HALF + HALF
+            *value = *value + (moved * moved + HALF).sqrt()
+
+def main() -> Result[(), AllocError | IoError | ParseError]:
+    argv = args()?
+    steps = i64.parse(&argv[1])?
+    extra = i64.parse(&argv[2])?
+    mut values: list[TYPE] = [VALUES]?
+    mut expected: list[TYPE] = [VALUES]?
+    for _ in range(extra):
+        values.append(HALF)?
+        expected.append(HALF)?
+    update(&mut values, steps, extra)?
+    reference(&mut expected, steps)
+    print(values == expected)?
+    for value in &values:
+        print(f"{*value:.9e}"?)?
+    Ok(())

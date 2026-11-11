@@ -95,16 +95,40 @@ public transfers; outputs are identical. Instructions at 500,000 steps:
 | `get_f64x2` and `set` over views | | | 827,591,840 |
 | Scalar magnitude loop in a view function | | | 858,591,916 |
 
-The SIMD variants remain slower than the scalar source. The scalar `advance`
-qualifies for [guarded numerical state](../../book/src/design/toolchain/02-architecture/numerical-loops.md),
+At that point the SIMD variants were slower than the scalar source. The scalar
+`advance` qualifies for [guarded numerical state](../../book/src/design/toolchain/02-architecture/numerical-loops.md),
 which runs a whole step in one 645-instruction pass; a body containing a
 transfer does not qualify, so every other loop of the step keeps its checks
 and header reloads. The magnitude loop itself is 77 instructions per two
 pairs with transfers and 17 with view accesses. The last row isolates the
 cause: the scalar magnitude loop moved into a function over views, with no
 vectors, costs 859M, more than the view-access variant. Any call in `advance`,
-a vector operation included, abandons the guarded-state candidate. The
-benchmark source therefore stays scalar.
+a vector operation included, abandoned the guarded-state candidate.
+
+### Guarded state over view accesses
+
+Guarded numerical state now treats `get_*`, `set`, `len_*`, `tail_*` and float
+lane arithmetic on a view of all rows of a promoted list as cell accesses.
+Instructions at 500,000 steps, and cycles and time at 5,000,000 steps
+(`perf stat -r 10`, one pinned core, load average below 2):
+
+| Variant | Main `22b70d80` | Guarded view accesses | Cycles | Time |
+|---|---|---|---|---|
+| Scalar benchmark source | 321,591,798 | 321,591,791 | 1,185M | 254 ms |
+| `unwrap()` loads, `check(store)` | 1,299,591,456 | 1,299,591,411 | | |
+| Nested `match` | 844,591,314 | 844,591,313 | | |
+| `get_f64x2` and `set` over views | 722,091,354 | 314,091,771 | 1,080M | 232 ms |
+| Scalar magnitude loop in a view function | 743,091,434 | 743,091,395 | | |
+
+The view-access variant is below the scalar source in instructions, cycles
+and time; main's ran 1,437M cycles in 311 ms. Each vector is built from the
+scalar variables of its lanes (`pshufd`, `movlhps`) and split back into them,
+as C and Rust sources do with `loadl`/`loadh`. Reading the lists in place
+with unchecked packed moves was tried first: 398M instructions and slower
+than scalar, because a packed load after scalar stores to the same rows
+cannot be forwarded from the store buffer. The kernel figures are unchanged:
+`magnitude.plenty` has no loop that qualifies. The benchmark source stays
+scalar.
 
 ## Remaining
 
@@ -112,9 +136,10 @@ benchmark source therefore stays scalar.
   in the loop list-header cache.
 - The `Option` retest (9): needs the load's two outcomes to reach the `match`
   or `unwrap` without merging.
-- Guarded numerical state does not accept loops containing transfers or view
-  accesses: it would need to treat `get_*`/`set` on a view of a promoted list
-  as vector cell reads and writes (`src/codegen/fixed_state.rs`).
+- Guarded numerical state does not accept loops containing `load_*`/`store`
+  transfers, whose `Option`/`bool` results it would have to evaluate, or
+  views received as parameters, which are not list roots
+  (`src/codegen/fixed_state.rs`).
 - View accesses: the index scaling instruction (1 of 17).
 - A `match` over a tuple of loads still copies through runtime payload
   helpers: 4,813 instructions per two pairs (issue #944).

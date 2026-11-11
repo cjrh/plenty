@@ -1,0 +1,29 @@
+# One vector read and one vector write at a constant index, in a loop that
+# guarded numerical state specializes. A list shorter than two vectors
+# fails the guard, and the fallback's own check traps. HINT has two vectors of
+# values: a literal of that length is what makes the compiler try the size.
+import std.simd as s
+
+def update(sources: i64, sinks: i64, steps: i64) -> Result[TYPE, AllocError]:
+    mut a = list[TYPE].with_capacity(sources)?
+    mut b = list[TYPE].with_capacity(sinks)?
+    for _ in range(sources):
+        a.append(HALF)?
+    for _ in range(sinks):
+        b.append(ZERO)?
+    for _ in range(steps):
+        xs: &[TYPE] = &a
+        out: &mut [TYPE] = &mut b
+        v = s.get_VECTOR(xs, 1)
+        v.add(v).set(out, 1)
+        for i in range(LANES):
+            a[i] = a[i] + b[LAST]
+    Ok(a[0] + b[LAST])
+
+def main() -> Result[(), AllocError | IoError | ParseError]:
+    argv = args()?
+    sources = i64.parse(&argv[1])?
+    sinks = i64.parse(&argv[2])?
+    hint: list[TYPE] = [HINT]?
+    print(update(sources, sinks, 3)? + hint[0])?
+    Ok(())

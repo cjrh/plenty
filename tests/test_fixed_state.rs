@@ -67,6 +67,66 @@ fn original_nbody_preserves_all_fields_after_repeated_steps() {
     }
 }
 
+/// The magnitude loop of the benchmark through `std.simd` view accesses, as
+/// `experiments/simd-transfers/measure.py` writes it.
+const VIEW_MAGNITUDES: &str = "        xs: &[f64] = &dx
+        ys: &[f64] = &dy
+        zs: &[f64] = &dz
+        out: &mut [f64] = &mut mag
+        step = simd.splat_f64x2(dt)
+        for pair in range(simd.len_f64x2(xs)):
+            a = simd.get_f64x2(xs, pair)
+            b = simd.get_f64x2(ys, pair)
+            c = simd.get_f64x2(zs, pair)
+            d2 = a.mul(a).add(b.mul(b)).add(c.mul(c))
+            step.div(d2.mul(d2.sqrt())).set(out, pair)
+        for p in range(simd.tail_f64x2(xs), len(xs)):
+            d2 = xs[p] * xs[p] + ys[p] * ys[p] + zs[p] * zs[p]
+            out[p] = dt / (d2 * d2.sqrt())
+";
+
+#[test]
+fn nbody_with_vector_magnitudes_matches_the_scalar_source() {
+    let dir = tempfile::tempdir().unwrap();
+    let original = include_str!("../benchmarks/game/n-body/plenty/nbody.plenty");
+    let scalar = original.replace("    print(f\"{energy(&bodies)?:.9f}\"?)?\n    Ok(())",
+        "    print(f\"{energy(&bodies)?:.9f}\"?)?\n    for b in &bodies:\n        print(f\"{b.x:.17e} {b.y:.17e} {b.z:.17e} {b.vx:.17e} {b.vy:.17e} {b.vz:.17e} {b.mass:.17e}\"?)?\n    Ok(())");
+    assert!(scalar.contains("{b.mass:.17e}"));
+    let start = scalar.find("        for p in range(pairs):").unwrap();
+    let end = start + scalar[start..].find("        k = 0").unwrap();
+    let vector = format!("{}{VIEW_MAGNITUDES}{}", &scalar[..start], &scalar[end..]).replace(
+        "import std.math",
+        "import std.math\nimport std.simd as simd",
+    );
+    let mut programs = Vec::new();
+    for (name, source, optimize) in [
+        ("scalar", &scalar, true),
+        ("slow", &vector, false),
+        ("fast", &vector, true),
+    ] {
+        let path = dir.path().join(format!("{name}.plenty"));
+        std::fs::write(&path, source).unwrap();
+        let program = dir.path().join(name);
+        compile(&path, &program, optimize);
+        programs.push(program);
+    }
+    for steps in [-1, 0, 1, 2, 10, 1000, 10000] {
+        let run = |program| {
+            support::assert_success(
+                Command::new(program)
+                    .arg(steps.to_string())
+                    .output()
+                    .unwrap(),
+            )
+            .stdout
+        };
+        let expected = run(&programs[0]);
+        assert_eq!(String::from_utf8_lossy(&expected).lines().count(), 7);
+        assert_eq!(run(&programs[1]), expected, "unoptimized, steps {steps}");
+        assert_eq!(run(&programs[2]), expected, "optimized, steps {steps}");
+    }
+}
+
 #[cfg(feature = "runtime-checks")]
 #[test]
 fn scratch_allocation_failure_stays_before_the_specialized_loop() {
@@ -160,5 +220,125 @@ fn moved_owned_scratch_is_read_from_its_destination_slot() {
                 .unwrap(),
         );
         assert_eq!(a.stdout, b.stdout);
+    }
+}
+
+/// The `std.simd` shapes of the vector fixtures: vector, element, lanes and
+/// a literal suffix.
+const VECTORS: [(&str, &str, usize, &str); 2] =
+    [("f64x2", "f64", 2, ""), ("f32x4", "f32", 4, "f32")];
+
+fn vector_source(template: &str, shape: (&str, &str, usize, &str), count: usize) -> String {
+    let (vector, ty, lanes, suffix) = shape;
+    let literals = |n: usize| {
+        (0..n)
+            .map(|i| format!("{}.25{suffix}", i * 3 % 7))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    template
+        .replace("VECTOR", vector)
+        .replace("VALUES", &literals(count))
+        .replace("HINT", &literals(2 * lanes))
+        .replace("COUNT", &count.to_string())
+        .replace("LANES", &lanes.to_string())
+        .replace("LAST", &(2 * lanes - 1).to_string())
+        .replace("ZERO", &format!("0.0{suffix}"))
+        .replace("HALF", &format!("0.5{suffix}"))
+        .replace("TYPE", ty)
+}
+
+fn both_profiles(source: &str) -> (tempfile::TempDir, [std::path::PathBuf; 2]) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.plenty");
+    std::fs::write(&path, source).unwrap();
+    let programs = [dir.path().join("slow"), dir.path().join("fast")];
+    compile(&path, &programs[0], false);
+    compile(&path, &programs[1], true);
+    (dir, programs)
+}
+
+#[test]
+fn vector_view_accesses_match_scalar_code_for_sizes_and_tails() {
+    for shape in VECTORS {
+        // Whole vectors only, every tail length, and fewer rows than a vector.
+        for count in [3, 4, 5, 6, 7, 8] {
+            let source = vector_source(
+                include_str!("fixtures/fixed-state-simd.plenty"),
+                shape,
+                count,
+            );
+            let (_dir, [slow, fast]) = both_profiles(&source);
+            // `extra` rows make the lists longer than the guessed lengths:
+            // the guard fails and the checked loop runs.
+            for extra in [0, 1, 5] {
+                for steps in [-1, 0, 1, 2, 9] {
+                    let args = [steps.to_string(), extra.to_string()];
+                    let a =
+                        support::assert_success(Command::new(&slow).args(&args).output().unwrap());
+                    let b =
+                        support::assert_success(Command::new(&fast).args(&args).output().unwrap());
+                    let case = format!("{} count {count} {args:?}", shape.0);
+                    assert_eq!(a.stdout, b.stdout, "{case}");
+                    let text = String::from_utf8(b.stdout).unwrap();
+                    assert!(text.starts_with("True\n"), "{case}: {text}");
+                    assert_eq!(text.lines().count(), 1 + count + extra, "{case}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn vector_view_accesses_outside_a_short_list_trap_in_the_fallback() {
+    for shape in VECTORS {
+        let (vector, _, lanes, _) = shape;
+        let source = vector_source(
+            include_str!("fixtures/fixed-state-simd-bounds.plenty"),
+            shape,
+            0,
+        );
+        let line = |needle: &str| 1 + source.lines().position(|l| l.contains(needle)).unwrap();
+        let get = format!(
+            ": std.simd.get_{vector}: index is outside 0..len_{vector}(values)\nnote: called from main.plenty:{}:",
+            line("s.get_")
+        );
+        let set = format!(
+            ": {vector}.set: index is outside 0..len_{vector}(values)\nnote: called from main.plenty:{}:",
+            line(".set(out, 1)")
+        );
+        let (_dir, programs) = both_profiles(&source);
+        let mut passing = Vec::new();
+        for program in &programs {
+            let run = |sources: usize, sinks: usize| {
+                Command::new(program)
+                    .args([sources.to_string(), sinks.to_string()])
+                    .output()
+                    .unwrap()
+            };
+            // Two vectors exactly pass the guard; longer lists and lists of
+            // different lengths run the checked loop.
+            for (sources, sinks) in [
+                (2 * lanes, 2 * lanes),
+                (2 * lanes + 3, 2 * lanes + 3),
+                (2 * lanes + 1, 2 * lanes),
+            ] {
+                passing.push(support::assert_success(run(sources, sinks)).stdout);
+            }
+            for (sources, sinks, message) in [
+                (2 * lanes - 1, 2 * lanes, &get),
+                (0, 2 * lanes, &get),
+                (2 * lanes, 2 * lanes - 1, &set),
+                (2 * lanes + 3, lanes, &set),
+            ] {
+                let out = run(sources, sinks);
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                let case = format!("{vector} {sources} {sinks}: {stderr}");
+                assert_eq!(out.status.code(), Some(1), "{case}");
+                assert!(out.stdout.is_empty(), "{case}");
+                assert!(stderr.contains(message.as_str()), "{case}");
+            }
+        }
+        assert_eq!(passing[..3], passing[3..], "{vector}");
     }
 }
