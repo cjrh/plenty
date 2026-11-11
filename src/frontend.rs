@@ -1227,13 +1227,10 @@ struct Lower<'a> {
     interval: Option<(usize, Ty, crate::interval::Interval)>,
     /// The interval of each immutable integer local, by slot.
     slot_intervals: HashMap<u8, crate::interval::Interval>,
-    /// The interval of the `.get()` an integer domain's method call just
-    /// lowered, with the address of the receiver's token and the integer
-    /// type.
-    accessor: Option<(usize, Ty, crate::interval::Interval)>,
-    /// Set when `len(x)` called a class's `len` method, whose result has no
-    /// interval.
-    length_method: bool,
+    /// The interval of each `.get()` resolved to an integer domain's method
+    /// while the enclosing method calls are lowered, with the address of
+    /// the receiver's token and the integer type.
+    accessors: Vec<(usize, Ty, crate::interval::Interval)>,
     contexts: Vec<contexts::Context>,
     return_origin: Option<u8>,
     /// Source name of each slot, kept after the binding leaves scope so an
@@ -2134,12 +2131,19 @@ impl Lower<'_> {
         }
         ide::enter_method(*pos, name);
         self.method_depth += 1;
-        self.accessor = None;
+        // Calls lowered inside the receiver or arguments push and remove
+        // their own entries above this mark, so none of them can replace or
+        // discard what this call's resolution records.
+        let mark = self.accessors.len();
         let ty = self.method(base, name, args, ops);
         self.method_depth -= 1;
         ide::leave_method();
-        if let Some((receiver, element, interval)) = self.accessor.take()
-            && receiver == intervals::node(&base.at)
+        let receiver = intervals::node(&base.at);
+        let accessor = self
+            .accessors
+            .drain(mark..)
+            .find(|(node, ..)| *node == receiver);
+        if let Some((_, element, interval)) = accessor
             && matches!(&ty, Ok(Some(ty)) if *ty == element)
         {
             self.note_interval(intervals::node(&e.at), &element, interval);
@@ -2230,7 +2234,24 @@ impl Lower<'_> {
             match self.qualified_type(base)? {
                 Some(ty) => {
                     if ty.is_numeric() {
-                        return self.numeric_constant(ty, name, &e.at, ops).map(Some);
+                        let limit = crate::interval::Interval::of(&ty).and_then(|full| match name
+                            .as_str()
+                        {
+                            "MIN" => Some(full.lo),
+                            "MAX" => Some(full.hi),
+                            _ => None,
+                        });
+                        let constant = self.numeric_constant(ty.clone(), name, &e.at, ops)?;
+                        // Recorded where the constant is lowered, so the
+                        // type is the one `base` resolved to: a built-in
+                        // name, an alias or an instantiated type parameter.
+                        if let Some(limit) = limit
+                            && constant == ty
+                        {
+                            let point = crate::interval::Interval::point(limit);
+                            self.note_interval(intervals::node(&e.at), &ty, point);
+                        }
+                        return Ok(Some(constant));
                     }
                     self.variant(ty, name, None, &e.at, ops)?
                 }
@@ -3045,17 +3066,20 @@ impl Lower<'_> {
             } {
                 return self.system_call(operation, args, &e.at, ops).map(Some);
             }
-            if matches!(name.as_str(), "len" | "range" | "list" | "set" | "dict") {
-                self.length_method = false;
-                let ty = self.builtin_collection(name, args, &e.at, ops)?;
-                if name == "len" && ty == Ty::I64 && !self.length_method {
-                    // A built-in collection's length is never negative.
+            if name == "len" {
+                // Only a built-in collection's length is never negative: a
+                // class's `len` method returns any i64.
+                if self.length(args, &e.at, ops)? == collections::Length::Collection {
                     let length = crate::interval::Interval {
                         lo: 0,
                         hi: i128::from(i64::MAX),
                     };
-                    self.note_interval(intervals::node(&e.at), &ty, length);
+                    self.note_interval(intervals::node(&e.at), &Ty::I64, length);
                 }
+                return Ok(Some(Some(Ty::I64)));
+            }
+            if matches!(name.as_str(), "range" | "list" | "set" | "dict") {
+                let ty = self.builtin_collection(name, args, &e.at, ops)?;
                 return Ok(Some(Some(ty)));
             }
             if let Some(Some(Ty::Class(t))) = lookup_type(name, self.aliases) {
@@ -5356,8 +5380,7 @@ fn lower_body(
                 spare_operands: Vec::new(),
                 interval: None,
                 slot_intervals: HashMap::default(),
-                accessor: None,
-                length_method: false,
+                accessors: Vec::new(),
                 contexts: Vec::new(),
                 return_origin: if sig.outputs.first().is_some_and(Ty::carries_loan) {
                     sig.inputs

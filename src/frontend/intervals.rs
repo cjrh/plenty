@@ -43,8 +43,6 @@ impl Lower<'_> {
         let operand = ungroup(operand);
         let known = if let Some(value) = self.known_integer(operand) {
             Some(Interval::point(value))
-        } else if let Some(limit) = self.type_limit(operand, ty, full) {
-            Some(limit)
         } else if let Expression::Name(name) = &operand.kind {
             self.names
                 .get(name)
@@ -57,24 +55,6 @@ impl Lower<'_> {
                 .map(|(_, _, interval)| *interval)
         };
         Some(known.and_then(|known| known.meet(full)).unwrap_or(full))
-    }
-
-    /// `T.MIN` or `T.MAX` of the integer type `ty` itself.
-    fn type_limit(&self, operand: &Expr, ty: &Ty, full: Interval) -> Option<Interval> {
-        let Expression::Member(base, name, _) = &operand.kind else {
-            return None;
-        };
-        let Expression::Name(base) = &base.kind else {
-            return None;
-        };
-        if self.names.contains_key(base) || named_type(base).as_ref() != Some(ty) {
-            return None;
-        }
-        match name.as_str() {
-            "MIN" => Some(Interval::point(full.lo)),
-            "MAX" => Some(Interval::point(full.hi)),
-            _ => None,
-        }
     }
 
     /// What the operand intervals prove about the integer operator `op`.

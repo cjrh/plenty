@@ -385,6 +385,203 @@ def main() -> ():
     );
 }
 
+/// An interval source is decided by the type or callee the expression
+/// resolved to. A source nested in its receiver or argument, or a
+/// declaration sharing a source's name, changes nothing.
+#[test]
+fn a_source_is_decided_by_the_resolved_type_or_callee() {
+    const OVERFLOW: &str = "arithmetic can fail with OverflowError[i64]";
+    const FULL: &str = "this value is in -9223372036854775808..9223372036854775807";
+    let classes = "class Neg:
+    count: i64
+    def len(self) -> i64:
+        self.count
+    def get(self) -> i64:
+        self.count
+    def pick(self, k: i64) -> i64:
+        self.count
+enum Kind:
+    A
+    B
+    def len(self) -> i64:
+        -7
+protocol Measured:
+    def len(self) -> i64:
+        pass
+def pick(ws: &list[Neg], i: i64) -> &Neg:
+    &ws[i]
+";
+    let program = |function: &str| format!("{classes}{function}\ndef main() -> ():\n    pass\n");
+    for (function, message) in [
+        // A class or enum `len` whose receiver contains a built-in `len`.
+        (
+            "def f(ws: &list[Neg], xs: &list[i64]) -> i64:\n    n = len(ws[len(xs) - 1])\n    n - i64.MAX",
+            OVERFLOW,
+        ),
+        (
+            "def f(ws: &list[Neg], xs: &list[i64]) -> i64:\n    len(pick(ws, len(xs) - 1)) - i64.MAX",
+            OVERFLOW,
+        ),
+        (
+            "def f(ks: &list[Kind], xs: &list[i64]) -> i64:\n    len(ks[len(xs) - 1]) - i64.MAX",
+            OVERFLOW,
+        ),
+        (
+            "def f(ws: &list[Neg], xs: &list[i64]) -> Bounded[i64, 0, 9223372036854775807]:\n    Bounded[i64, 0, 9223372036854775807].from(len(ws[len(xs) - 1]))",
+            FULL,
+        ),
+        // The method called by name.
+        ("def f(w: &Neg) -> i64:\n    w.len() - i64.MAX", OVERFLOW),
+        // A class `get`, also with a domain `get` in its receiver or beside
+        // it as an argument.
+        (
+            "def f(w: &Neg) -> Bounded[i64, 0, 3]:\n    Bounded[i64, 0, 3].from(w.get())",
+            FULL,
+        ),
+        (
+            "def f(ws: &list[Neg], b: Bounded[i64, 0, 3]) -> Bounded[i64, 0, 3]:\n    Bounded[i64, 0, 3].from(ws[b.get()].get())",
+            FULL,
+        ),
+        (
+            "def f(w: &Neg, b: Bounded[i64, 0, 3]) -> Bounded[i64, 0, 3]:\n    Bounded[i64, 0, 3].from(w.pick(b.get()))",
+            FULL,
+        ),
+    ] {
+        rejected(&program(function), message);
+    }
+    // A protocol's `len`, in the instantiation that calls it.
+    rejected(
+        &format!(
+            "{classes}def f[M: Measured](ws: &list[M], xs: &list[i64]) -> i64:
+    len(ws[len(xs) - 1]) - i64.MAX
+def main() -> Result[(), AllocError | IoError]:
+    ws = [Neg(-5)]?
+    xs = [1]?
+    print(f(&ws, &xs))?
+    Ok(())
+"
+        ),
+        OVERFLOW,
+    );
+    for function in [
+        // A built-in `len` whose argument contains a class `len`.
+        "def f(w: &Neg, xs: &list[list[i64]]) -> i64:\n    len(xs[len(w)]) - 1",
+        // A domain `get` whose receiver contains a domain `get` and a
+        // built-in `len`.
+        "def f(bs: &list[Bounded[i64, 0, 3]], b: Bounded[i64, 0, 3]) -> i64:\n    bs[b.get()].get() + (i64.MAX - 3)",
+        "def f(bs: &list[Bounded[i64, 0, 3]]) -> i64:\n    bs[len(bs) - 1].get() + (i64.MAX - 3)",
+    ] {
+        accepted(&program(function));
+    }
+
+    // A parameter, local or value parameter named like a module constant is
+    // not that constant.
+    for function in [
+        "def f(N: i64) -> i64:\n    N + (i64.MAX - 5)",
+        "def f(a: i64) -> i64:\n    N = a\n    N + (i64.MAX - 5)",
+    ] {
+        rejected(
+            &format!("const N: i64 = 5\n{function}\ndef main() -> ():\n    pass\n"),
+            OVERFLOW,
+        );
+    }
+    rejected(
+        "const N: i64 = 5
+def f[const N: i64](a: i64) -> i64:
+    N + (i64.MAX - 5)
+def main() -> Result[(), IoError]:
+    print(f[100](1))?
+    Ok(())
+",
+        OVERFLOW,
+    );
+    accepted(
+        "const N: i64 = 5\ndef f() -> i64:\n    N + (i64.MAX - 5)\ndef main() -> ():\n    pass\n",
+    );
+    // A local named like an integer type is a value, not the type.
+    rejected(
+        "def f(a: i64) -> i64:\n    i8 = a\n    i8 + 1\ndef main() -> ():\n    pass\n",
+        OVERFLOW,
+    );
+    // The names of the sources cannot be redefined.
+    for (declaration, name) in [
+        ("def len(xs: &list[i64]) -> i64:\n    -5", "len"),
+        ("def i32(x: i64) -> i64:\n    x", "i32"),
+        ("class u8:\n    n: i64", "u8"),
+        ("class Bounded:\n    n: i64", "Bounded"),
+    ] {
+        rejected(
+            &format!("{declaration}\ndef main() -> ():\n    pass\n"),
+            &format!("cannot redefine builtin `{name}`"),
+        );
+    }
+
+    // `T.MIN` and `T.MAX` follow the type `T` resolves to: an alias, and a
+    // type parameter per instantiation.
+    accepted(
+        "type Tiny = i8
+type Index = Bounded[i64, 0, 9]
+def f(a: Tiny) -> Tiny:
+    a % 10 + (Tiny.MAX - 9)
+def g(a: i64, i: Index) -> i64:
+    j = Index.from(a % 10)
+    j.get() + i.get() + (i64.MAX - 18)
+def main() -> ():
+    pass
+",
+    );
+    rejected(
+        "type Tiny = i8\ndef f(a: Tiny) -> Tiny:\n    a % 10 + (Tiny.MAX - 8)\ndef main() -> ():\n    pass\n",
+        "arithmetic can fail with OverflowError[i8]",
+    );
+    let generic = |slack: u8, call: &str| {
+        format!(
+            "def f[T: IntType](a: T) -> T:
+    a % T(10) + (T.MAX - T({slack}))
+def main() -> Result[(), IoError]:
+    print({call})?
+    Ok(())
+"
+        )
+    };
+    runs(&generic(9, "f(i8(5)), f(u16(7))"), "123 65533\n");
+    rejected(
+        &generic(8, "f(i8(5))"),
+        "arithmetic can fail with OverflowError[i8]",
+    );
+    rejected(
+        &generic(8, "f(u16(7))"),
+        "arithmetic can fail with OverflowError[u16]",
+    );
+}
+
+/// The run-time effect of the class `len` case: no silent wrap, and a
+/// negative index still counts from the end.
+#[test]
+fn a_class_length_keeps_its_checks_at_run_time() {
+    runs(
+        "class Neg:
+    count: i64
+    def len(self) -> i64:
+        self.count
+def f(ws: &list[Neg], xs: &list[i64]) -> Result[i64, OverflowError[i64]]:
+    n = len(ws[len(xs) - 1])
+    Ok(n - i64.MAX)
+def g(ws: &list[Neg], xs: &list[i64], items: &list[i64]) -> Result[i64, OverflowError[i64]]:
+    n = len(ws[len(xs) - 1])
+    Ok(items[n + 0])
+def main() -> Result[(), AllocError | IoError | OverflowError[i64]]:
+    ws = [Neg(-5)]?
+    last = [Neg(-1)]?
+    xs = [1]?
+    items = [10, 20, 30]?
+    print(f(&ws, &xs).is_err(), g(&last, &xs, &items)?)?
+    Ok(())
+",
+        "True 30\n",
+    );
+}
+
 #[test]
 fn bounded_from_names_the_interval_it_rejects() {
     let program = |body: &str| {
