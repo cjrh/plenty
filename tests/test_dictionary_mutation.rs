@@ -147,6 +147,22 @@ fn get_or_insert_counts_and_groups_with_one_lookup() {
     );
 }
 
+// Issue #931: the update passes its operands in registers; the dispatcher's
+// argument block and descriptor checks are not on the path.
+#[test]
+fn get_or_insert_calls_the_narrow_helper() {
+    let source = "def bump(counts: &mut dict[str, i64], key: str) -> Result[(), AllocError | OverflowError[i64]]:\n    *counts.get_or_insert(key, 0)? += 1\n    Ok(())\ndef main() -> Result[(), AllocError | IoError | OverflowError[i64]]:\n    mut counts = {\"a\": 1}?\n    bump(&mut counts, \"a\")?\n    print(counts)?\n    Ok(())\n";
+    let calls = crate::test_text_bytes_fast_paths::runtime_calls(source, "bump");
+    assert!(
+        calls.iter().any(|name| name == "plenty_dict_get_or_insert"),
+        "{calls:?}"
+    );
+    assert!(
+        !calls.iter().any(|name| name.starts_with("plenty_op_")),
+        "{calls:?}"
+    );
+}
+
 #[test]
 fn get_or_insert_drops_an_unused_default_and_keeps_the_entry() {
     assert_stdout(

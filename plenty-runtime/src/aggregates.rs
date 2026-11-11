@@ -1538,6 +1538,48 @@ impl Collection {
     }
 }
 
+/// `dict.get_or_insert`: Ok(the value slot's address) or Err(AllocError). A
+/// hit sets the high word to `GET_OR_INSERT_HIT`.
+unsafe fn get_or_insert(reference: *const u128, key: u128, value: u128) -> u128 {
+    unsafe {
+        let c = &mut *(*reference as *mut Collection);
+        match c.try_get_or_insert(key, value) {
+            Ok((position, hit)) => {
+                let flag = if hit {
+                    (GET_OR_INSERT_HIT as u128) << 64
+                } else {
+                    0
+                };
+                wrap(c.entries.slot(position, true) as u128, 0) | flag
+            }
+            Err(error) => wrap(wrap(0, error as u64), 1),
+        }
+    }
+}
+
+/// `get_or_insert` with its operands and result words in registers, for
+/// generated code (issue #931).
+#[unsafe(no_mangle)]
+unsafe extern "C" fn plenty_dict_get_or_insert(
+    reference: *const u128,
+    key_low: u64,
+    key_high: u64,
+    value_low: u64,
+    value_high: u64,
+) -> byte_storage::Words {
+    let word = |low: u64, high: u64| u128::from(high) << 64 | u128::from(low);
+    // SAFETY: generated code passes a live exclusive dictionary reference
+    // and owned operands of its key and value types.
+    let result = unsafe {
+        get_or_insert(
+            reference,
+            word(key_low, key_high),
+            word(value_low, value_high),
+        )
+    };
+    byte_storage::Words::new(result)
+}
+
 /// Structural equality. Every value has one owner, so traversal is bounded by
 /// the value's own size; nothing is shared except immutable strings.
 unsafe fn equal(a: u128, b: u128, ty: &Type) -> bool {
@@ -3226,21 +3268,7 @@ pub(crate) unsafe fn collection_at(
             // `dict.get_or_insert`: Ok(the value slot's address) or Err(AllocError).
             // A hit sets the high word to `GET_OR_INSERT_HIT`, which generated
             // code tests to release its copyable operands and then clears.
-            DICT_GET_OR_INSERT => {
-                let owner = *(a as *const u128);
-                let c = &mut *(owner as *mut Collection);
-                match c.try_get_or_insert(b, value) {
-                    Ok((position, hit)) => {
-                        let flag = if hit {
-                            (GET_OR_INSERT_HIT as u128) << 64
-                        } else {
-                            0
-                        };
-                        wrap(c.entries.slot(position, true) as u128, 0) | flag
-                    }
-                    Err(error) => wrap(wrap(0, error as u64), 1),
-                }
-            }
+            DICT_GET_OR_INSERT => get_or_insert(a as *const u128, b, value),
             // `list.get_ref` and `list.get_mut`: the row's address, or Nothing
             // outside the list; never traps.
             LIST_GET_REF => {
