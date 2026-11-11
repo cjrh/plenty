@@ -718,7 +718,6 @@
         - [Units of measure precedents](proposals/units-of-measure/precedents.md)
         - [Units of measure spike evidence](proposals/units-of-measure/evidence.md)
     - [Six rules for a consistent core](proposals/consistency-rules.md)
-    - [Unchecked arithmetic modes](proposals/unchecked-arithmetic-modes.md)
     - [Completed proposals](proposals/completed/index.md)
         - [Checked arithmetic by default](proposals/completed/checked-by-default.md)
             - [Implementation and validation](proposals/completed/checked-by-default/implementation.md)

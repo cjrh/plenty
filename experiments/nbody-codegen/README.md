@@ -6,7 +6,8 @@ Optimized Plenty builds, cache off; no compiler/runtime changes in this study.
 The stored [counts](counts.json) are three `instructions:u` observations per
 n-body executable at 1,000,000 steps, including the `taskset` launcher.
 The unchecked diagnostic rows used the `--unchecked assume` build mode, which
-has since been removed; `run.py` no longer builds them.
+has since been removed; `run.py` no longer builds them, and their raw counts
+were removed from `counts.json`.
 
 The useful result is a separation of costs. Scalar magnitude arithmetic is
 already close to C. Packed magnitude arithmetic is supported by Cranelift but
