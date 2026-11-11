@@ -96,27 +96,27 @@ skipped.
 site's except reverse-complement, which uses the 25,000,000 fasta input shared
 with k-nucleotide (about 250 MB) instead of the site's 100,000,000 (about
 1 GB). `benchmarks/game/baseline.json` holds the full run measured on
-2026-11-10 at Plenty 0.8.25, commit `400dc7c9`, on the reference laptop
+2026-11-11 at Plenty 0.8.25, commit `1ade579c`, on the reference laptop
 (AMD Ryzen 7 7840HS, performance governor). References were rebuilt and rerun
 in the same session with the manifest's native-target flags. Each timing is
 the median of three runs pinned to cores `0,2,4,6,8,10,12,14`.
 
 | Benchmark | Size | Reference | Plenty | Ratio |
 |---|---:|---:|---:|---:|
-| binary-trees | 21 | 11.61 s | 20.38 s | 1.75 |
-| fannkuch-redux | 12 | 25.71 s | 24.86 s | 0.97 |
-| fannkuch-redux (parallel, 8 threads) | 12 | 25.71 s | 2.94 s | 0.11 |
-| fasta | 25,000,000 | 1.35 s | 2.31 s | 1.72 |
-| k-nucleotide | 25,000,000 | 11.74 s (7 threads) | 33.20 s | 2.83 |
-| k-nucleotide (parallel, 7 threads) | 25,000,000 | 11.74 s (7 threads) | 10.09 s | 0.86 |
-| mandelbrot | 16,000 | 11.72 s | 11.93 s | 1.02 |
-| n-body | 50,000,000 | 1.29 s | 2.58 s | 2.00 |
-| n-body (clist) | 50,000,000 | 1.29 s | 6.10 s | 4.73 |
-| n-body (unchecked) | 50,000,000 | 1.29 s | 3.52 s | 2.73 |
+| binary-trees | 21 | 10.96 s | 20.10 s | 1.83 |
+| fannkuch-redux | 12 | 25.40 s | 24.25 s | 0.95 |
+| fannkuch-redux (parallel, 8 threads) | 12 | 25.40 s | 2.77 s | 0.11 |
+| fasta | 25,000,000 | 1.33 s | 1.63 s | 1.22 |
+| k-nucleotide | 25,000,000 | 11.42 s (7 threads) | 13.87 s | 1.21 |
+| k-nucleotide (parallel, 7 threads) | 25,000,000 | 11.42 s (7 threads) | 6.74 s | 0.59 |
+| mandelbrot | 16,000 | 11.80 s | 11.92 s | 1.01 |
+| n-body | 50,000,000 | 1.30 s | 2.60 s | 2.01 |
+| n-body (clist) | 50,000,000 | 1.30 s | 4.07 s | 3.14 |
+| n-body (unchecked) | 50,000,000 | 1.30 s | 2.93 s | 2.26 |
 | pidigits | 10,000 | blocked | blocked | |
-| regex-redux | 5,000,000 | 0.74 s (9 threads) | 3.33 s | 4.52 |
-| reverse-complement | 25,000,000 | 0.38 s | 0.55 s | 1.45 |
-| spectral-norm | 5,500 | 1.16 s | 1.17 s | 1.01 |
+| regex-redux | 5,000,000 | 0.74 s (9 threads) | 3.40 s | 4.60 |
+| reverse-complement | 25,000,000 | 0.39 s | 0.41 s | 1.06 |
+| spectral-norm | 5,500 | 1.18 s | 1.20 s | 1.01 |
 
 Times are median wall-clock seconds; ratios use the unrounded medians. The
 JSON retains all three samples, CPU time, peak RSS, instruction/cycle counts,
@@ -129,32 +129,34 @@ use them to compare generated code across sessions.
 
 The [guarded numerical-state optimization](../completed-work/performance.md#guarded-numerical-state-issue-930)
 applies to the unchanged original n-body source. At the table's 50 million
-steps it now runs 34.6 billion instructions against native Rust's 11.5 billion,
-with a 2.00x wall-time ratio. The earlier one-million-step investigation remains
+steps it now runs 32.1 billion instructions against native Rust's 11.5 billion,
+with a 2.01x wall-time ratio. The earlier one-million-step investigation remains
 a separate measurement with its own C/Rust comparisons and instruction ledger.
 
 The k-nucleotide and regex-redux references are multithreaded while the
 idiomatic Plenty programs run one thread; `user_s` in the JSON gives CPU time
-(37.57 s for the k-nucleotide reference, 0.65 s for regex-redux).
+(37.05 s for the k-nucleotide reference, 0.63 s for regex-redux).
 
 k-nucleotide's parallel variant counts the seven frame lengths on seven pool
 workers, as the reference does, and is the suite's threaded workload for
 reference-count changes (issue #751): each job owns a `Shared` handle to the
 sequence, and its dictionary, with heap-string keys for the 12- and 18-byte
 frames, returns through a future and is released on the main thread. It uses
-38.40 s of CPU time against the reference's 37.57 s.
+19.88 s of CPU time against the reference's 37.05 s. Its three wall-time
+samples were 6.74 s, 6.74 s and 4.82 s; the table retains their median.
+Use instruction counts for comparisons across sessions on a shared machine.
 
 n-body's clist variant stores the bodies in a `clist[Body]`, one column per
 field, instead of a `list[Body]`, and tracks the cost of indexed clist field
-access in loops (issue #759). It runs 128.4 billion instructions against
-34.6 billion for the `list[Body]` program and 11.5 billion for the reference.
+access in loops (issue #759). It runs 78.9 billion instructions against
+32.1 billion for the `list[Body]` program and 11.5 billion for the reference.
 These variants do not currently receive equivalent compiler optimizations.
 
 n-body's unchecked variant is the idiomatic program with the index arithmetic
 of `energy` and `advance` in
 [`unchecked:` suites](../design/language/03-types/numbers.md#unchecked-blocks),
 built with `--unchecked assume`. List bounds checks remain, since no build
-setting removes them. It runs 59.9 billion instructions against 34.6 billion
+setting removes them. It runs 50.6 billion instructions against 32.1 billion
 for the idiomatic program and is now slower. This comparison no longer isolates
 overflow-check cost: the guarded numerical-state optimization benefits the
 original program, while the unchecked variant retains a different loop shape.

@@ -7,6 +7,19 @@ an optimization queue. Workloads, methods and current measurements belong to
 [profiling](../development/profiling.md); remaining B19/B23/B74 scope belongs
 only to the [backlog](../backlog.md).
 
+## Benchmarks Game baseline refresh (2026-11-11)
+
+The [full-suite baseline](../development/benchmarks-game.md#sizes-and-baseline)
+was recalculated at main commit `1ade579c` (Plenty 0.8.25), with rebuilt native
+references, three timed samples and a separate instruction/cycle count per
+program. All 13 Plenty variants passed the small expected-output checks and
+matched their full-size references; pidigits remains blocked on issue #481.
+Against the 2026-11-10 baseline, instruction counts fell 51.4% for fasta,
+67.1% for sequential k-nucleotide, 66.7% for parallel k-nucleotide and 38.5%
+for n-body clist. No variant increased its instruction count. The programs,
+sizes and build flags are unchanged; this refresh delivers measurements only.
+Parallel k-nucleotide's timing spread is recorded beside the current table.
+
 ## B19: Generated code and storage
 
 A successful list/view bounds check now proves that incrementing the same
