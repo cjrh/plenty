@@ -287,7 +287,7 @@ fn default(ty: &Ty, domain: Option<IntegerDomain>) -> Value {
     }
 }
 
-fn admits(domain: IntegerDomain, n: i128) -> bool {
+pub(super) fn admits(domain: IntegerDomain, n: i128) -> bool {
     match domain {
         IntegerDomain::NonZero => n != 0,
         IntegerDomain::Positive => n > 0,

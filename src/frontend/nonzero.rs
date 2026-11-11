@@ -31,25 +31,13 @@ pub(super) fn unsupported(op: &str, ty: &Ty) -> String {
     }
 }
 
-/// An unsuffixed integer literal, possibly negated.
+/// An integer literal, suffixed or not, possibly parenthesized and negated
+/// once. This is syntax only: `domain_constant` decides the value.
 pub(super) fn literal(e: &Expr) -> bool {
     let integer = |e: &Expr| matches!(&ungroup(e).kind, Expression::Number(n) if !n.contains(['.', 'e', 'E']));
     match &ungroup(e).kind {
         Expression::Unary(sign, inner) if sign == "-" => integer(inner),
         _ => integer(e),
-    }
-}
-
-fn zero(value: &Value) -> bool {
-    match *value {
-        Value::I8(v) => v == 0,
-        Value::I16(v) => v == 0,
-        Value::I32(v) => v == 0,
-        Value::I64(v) => v == 0,
-        Value::U8(v) => v == 0,
-        Value::U16(v) => v == 0,
-        Value::U32(v) => v == 0,
-        Value::U64(v) => v == 0,
     }
 }
 
@@ -107,42 +95,41 @@ impl Lower<'_> {
         })
     }
 
-    /// An integer literal, possibly negated, where `NonZero[T]` is expected:
-    /// checked and converted at compile time.
-    pub(super) fn nonzero_literal(&mut self, e: &Expr, ty: &Ty, ops: &mut Vec<Op>) -> Result<Type> {
+    /// The literal `e` as a suffixed literal of `ty`'s integer type. The value
+    /// is computed at compile time and checked against the domain, so the
+    /// result never depends on how `e` would lower: `-(0i64)` lowers as a
+    /// subtraction, which no shape test can inspect (issue #955).
+    pub(super) fn domain_constant(&self, e: &Expr, ty: &Ty) -> Result<Expr> {
         let (domain, element) = ty.integer_domain().unwrap();
-        let mut literal = Vec::new();
-        self.expr_expected(e, Some(element), &mut literal)?;
-        if let [Op::PushInt(value)] = literal.as_slice() {
-            let invalid = match domain {
-                IntegerDomain::NonZero => zero(value),
-                IntegerDomain::Positive => {
-                    !matches!(value, Value::I8(v) if *v > 0)
-                        && !matches!(value, Value::I16(v) if *v > 0)
-                        && !matches!(value, Value::I32(v) if *v > 0)
-                        && !matches!(value, Value::I64(v) if *v > 0)
-                }
-                IntegerDomain::NonNegative => {
-                    matches!(value, Value::I8(v) if *v < 0)
-                        || matches!(value, Value::I16(v) if *v < 0)
-                        || matches!(value, Value::I32(v) if *v < 0)
-                        || matches!(value, Value::I64(v) if *v < 0)
-                }
+        let constant = consts::generic_value(e, &element, self.aliases)?;
+        if !consts::admits(domain, constant.value) {
+            let reason = match domain {
+                IntegerDomain::NonZero => "a NonZero value cannot be zero",
+                IntegerDomain::Positive => "a Positive value must be greater than zero",
+                IntegerDomain::NonNegative => "a NonNegative value cannot be negative",
             };
-            if invalid {
-                let reason = match domain {
-                    IntegerDomain::NonZero => "a NonZero value cannot be zero",
-                    IntegerDomain::Positive => "a Positive value must be greater than zero",
-                    IntegerDomain::NonNegative => "a NonNegative value cannot be negative",
-                };
-                return Err(e.at.error(if domain == IntegerDomain::NonZero {
-                    format!("`0` is not a `{ty}`: {reason}")
-                } else {
-                    format!("literal is not a `{ty}`: {reason}")
-                }));
-            }
+            return Err(e.at.error(if domain == IntegerDomain::NonZero {
+                format!("`0` is not a `{ty}`: {reason}")
+            } else {
+                format!("literal is not a `{ty}`: {reason}")
+            }));
         }
-        let construct = self.nonzero_construct(ty, e.clone())?;
+        Ok(constant.expression(&e.at))
+    }
+
+    /// An integer literal, possibly negated, where `NonZero[T]` is expected:
+    /// checked and converted at compile time. The private constructor
+    /// receives the checked constant, never `e` itself.
+    pub(super) fn nonzero_literal(&mut self, e: &Expr, ty: &Ty, ops: &mut Vec<Op>) -> Result<Type> {
+        let constant = self.domain_constant(e, ty)?;
+        let mut lowered = Vec::new();
+        self.expr(&constant, &mut lowered)?;
+        if !matches!(lowered.as_slice(), [Op::PushInt(_)]) {
+            return Err(e.at.error(format!(
+                "internal error: the checked `{ty}` literal did not lower to one constant"
+            )));
+        }
+        let construct = self.nonzero_construct(ty, constant)?;
         self.expr(&construct, ops)
     }
 
