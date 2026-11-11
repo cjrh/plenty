@@ -157,6 +157,10 @@ struct Eval<'a> {
     cells: Vec<Cell>,
     strict: bool,
     iterations: usize,
+    /// Nested loop bodies by address: those evaluated, and those whose loop
+    /// ran no iteration at some entry.
+    entered: HashSet<*const Op>,
+    skipped: HashSet<*const Op>,
 }
 impl<'a> Eval<'a> {
     fn new(types: &'a [Ty], hints: &'a HashMap<Ty, Option<i64>>) -> Self {
@@ -182,6 +186,8 @@ impl<'a> Eval<'a> {
             cells: vec![],
             strict: false,
             iterations: 0,
+            entered: HashSet::default(),
+            skipped: HashSet::default(),
         }
     }
     fn pop(&mut self) -> Option<Val> {
@@ -465,18 +471,23 @@ impl<'a> Eval<'a> {
             }
             Op::Loop { condition, body } if self.strict => {
                 induction::analyze_range(condition, body)?;
+                let before = self.iterations;
                 loop {
                     self.run(condition)?;
                     let Val::Bool(take) = self.pop()? else {
                         return None;
                     };
                     if !take {
+                        if self.iterations == before {
+                            self.skipped.insert(body.as_ptr());
+                        }
                         break;
                     }
                     self.iterations += 1;
                     if self.iterations > MAX_ITERATIONS {
                         return None;
                     }
+                    self.entered.insert(body.as_ptr());
                     self.run(body)?;
                 }
             }
@@ -599,7 +610,144 @@ fn guarded(condition: Vec<Op>, then: Vec<Op>, otherwise: Vec<Op>) -> Vec<Op> {
     ops
 }
 
-fn specialize(original: &Op, prefix: &Eval<'_>, params: usize) -> Option<(Vec<Op>, Vec<Ty>)> {
+/// A list header read cached in a local before a loop.
+#[derive(Clone)]
+struct Read {
+    slot: u8,
+    root: u8,
+    part: C,
+}
+
+impl Read {
+    fn ops(&self, types: &[Ty]) -> Vec<Op> {
+        let mut ops = root_ref(types, self.root, false);
+        ops.extend([Op::Collection(self.part.clone()), Op::StoreLocal(self.slot)]);
+        ops
+    }
+}
+
+/// The cached header reads that end `ops`, immediately before a candidate
+/// loop, and the index they start at. Each stores a list's length or row
+/// address, or a copy of an earlier one, which is the same read. They
+/// cannot fail and nothing follows them, so they can run on either side of
+/// the guard, and a fresh length read at the guard equals a stored one.
+fn cache_reads(ops: &[Op], types: &[Ty]) -> (usize, Vec<Read>) {
+    let back = |mut at: usize| {
+        while at > 0 && marker(&ops[at - 1]) {
+            at -= 1;
+        }
+        at
+    };
+    let previous = |at: usize| at.checked_sub(1).map(|i| &ops[i]);
+    let mut units = Vec::new();
+    let mut start = ops.len();
+    loop {
+        let at = back(start);
+        let Some(Op::StoreLocal(slot)) = previous(at) else {
+            break;
+        };
+        let at = back(at - 1);
+        let (at, source) = match previous(at) {
+            Some(Op::LoadLocal(from)) => (at - 1, Err(*from)),
+            Some(Op::Collection(part @ (C::ListLenRef(_) | C::ListRowsRef(_)))) => {
+                let at = back(at - 1);
+                let root = match previous(at) {
+                    Some(Op::BorrowLocal(root, false)) => Some((at - 1, *root)),
+                    Some(Op::Reborrow(_)) => match previous(back(at - 1)) {
+                        Some(Op::LoadLocal(root)) => Some((back(at - 1) - 1, *root)),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                match root {
+                    Some((at, root)) if list(&types[root as usize]).is_some() => {
+                        (at, Ok((root, part.clone())))
+                    }
+                    _ => break,
+                }
+            }
+            _ => break,
+        };
+        units.push((at, *slot, source));
+        start = at;
+    }
+    // A copy is a cache read only when its source is one.
+    let mut reads: Vec<Read> = Vec::new();
+    let mut start = ops.len();
+    for (at, slot, source) in units.into_iter().rev() {
+        let read = match source {
+            Ok((root, part)) => Some(Read { slot, root, part }),
+            Err(from) => reads
+                .iter()
+                .find(|read| read.slot == from)
+                .map(|read| Read {
+                    slot,
+                    ..read.clone()
+                }),
+        };
+        let Some(read) = read else {
+            reads.clear();
+            start = ops.len();
+            continue;
+        };
+        if reads.is_empty() {
+            start = at;
+        }
+        reads.push(read);
+    }
+    (start, reads)
+}
+
+fn reads_local(ops: &[Op], slot: u8) -> bool {
+    let mut read = HashSet::default();
+    induction::local_uses(ops, &mut read, &mut HashSet::default());
+    read.contains(&slot)
+}
+
+/// Whether `ops` read `slot` outside their directly nested loops' bodies.
+fn reads_here(ops: &[Op], slot: u8) -> bool {
+    ops.iter().any(|op| match op {
+        Op::Loop { condition, .. } => reads_local(condition, slot),
+        op => reads_local(std::slice::from_ref(op), slot),
+    })
+}
+
+/// `ops` with `read` placed before each outermost loop whose own level
+/// uses it, so no enclosing loop keeps the value across code that does not.
+fn sink(ops: &[Op], read: &Read, types: &[Ty]) -> Vec<Op> {
+    let mut out = Vec::with_capacity(ops.len());
+    for op in ops {
+        match op {
+            Op::Loop { condition, body }
+                if reads_local(condition, read.slot) || reads_local(body, read.slot) =>
+            {
+                if reads_local(condition, read.slot) || reads_here(body, read.slot) {
+                    out.extend(read.ops(types));
+                    out.push(op.clone());
+                } else {
+                    out.push(Op::Loop {
+                        condition: condition.clone(),
+                        body: sink(body, read, types).into(),
+                    });
+                }
+            }
+            op => out.push(op.clone()),
+        }
+    }
+    out
+}
+
+/// `setup` holds the cache reads before the loop that only the original
+/// loop uses. They go on the fallback path, each before the loops that use
+/// it, so neither path keeps a value across code that does not use it
+/// (issue #943).
+fn specialize(
+    original: &Op,
+    prefix: &Eval<'_>,
+    params: usize,
+    setup: &[Read],
+) -> Option<(Vec<Op>, Vec<Ty>)> {
+    let cached: HashSet<u8> = setup.iter().map(|read| read.slot).collect();
     let Op::Loop { condition, body } = original else {
         return None;
     };
@@ -615,15 +763,20 @@ fn specialize(original: &Op, prefix: &Eval<'_>, params: usize) -> Option<(Vec<Op
     induction::local_uses(body, &mut HashSet::default(), &mut written);
     let mut guards = Vec::new();
     for (i, value) in eval.env.iter_mut().enumerate() {
-        if let Val::Int(n) | Val::Len(_, n) = value {
-            if written.contains(&(i as u8)) {
-                *value = Val::Code(vec![Op::LoadLocal(i as u8)], Ty::I64);
-            } else {
-                guards.push((i as u8, *n));
-            }
+        let root = match value {
+            Val::Int(_) => None,
+            Val::Len(root, _) => Some(*root),
+            _ => continue,
+        };
+        let n = value.int()?;
+        if written.contains(&(i as u8)) {
+            *value = Val::Code(vec![Op::LoadLocal(i as u8)], Ty::I64);
+        } else {
+            guards.push((i as u8, n, root));
         }
     }
     eval.run(body)?;
+    let complete = eval.skipped.is_subset(&eval.entered);
     if !eval.stack.is_empty() || eval.cells.len() < 4 || eval.iterations == 0 {
         return None;
     }
@@ -677,12 +830,20 @@ fn specialize(original: &Op, prefix: &Eval<'_>, params: usize) -> Option<(Vec<Op
         ]);
         checks.push(guard);
     }
-    for (slot, n) in guards.into_iter().rev() {
-        checks.push(vec![
-            Op::LoadLocal(slot),
-            Op::PushInt(Literal::I64(n)),
-            Op::Eq,
-        ]);
+    for (slot, n, root) in guards.into_iter().rev() {
+        // A cached length is not read yet on this path; read the list's.
+        let mut check = match root.filter(|_| cached.contains(&slot)) {
+            Some(root) => {
+                let mut read = root_ref(prefix.types, root, false);
+                read.push(Op::Collection(C::ListLenRef(list(
+                    &prefix.types[root as usize],
+                )?)));
+                read
+            }
+            None => vec![Op::LoadLocal(slot)],
+        };
+        check.extend([Op::PushInt(Literal::I64(n)), Op::Eq]);
+        checks.push(check);
     }
     // Empty ranges never read/write cells, including at loop entry.
     let mut test = vec![Op::PushBool(true)];
@@ -690,7 +851,27 @@ fn specialize(original: &Op, prefix: &Eval<'_>, params: usize) -> Option<(Vec<Op
         test = guarded(check, test, vec![Op::PushBool(false)]);
     }
     test = guarded(condition.to_vec(), test, vec![Op::PushBool(false)]);
-    let fast = guarded(test, fast, vec![original.clone()]);
+    let mut read = HashSet::default();
+    induction::local_uses(&test, &mut read, &mut HashSet::default());
+    induction::local_uses(&fast, &mut read, &mut HashSet::default());
+    if read.iter().any(|slot| cached.contains(slot)) {
+        return None;
+    }
+    // Strict evaluation accepts no op that resizes or rebinds a list, so
+    // when it saw every op of the loop, a header read made anywhere inside
+    // equals the one made before it. The cleanup of checked arithmetic is
+    // not evaluated; it leaves the function.
+    let mut fallback = vec![original.clone()];
+    for read in setup {
+        let at = fallback.len() - 1;
+        if complete && !written.contains(&read.slot) {
+            let sunk = sink(&fallback[at..], read, prefix.types);
+            fallback.splice(at.., sunk);
+        } else {
+            fallback.splice(at..at, read.ops(prefix.types));
+        }
+    }
+    let fast = guarded(test, fast, fallback);
     Some((fast, eval.cells.iter().map(|c| c.ty.clone()).collect()))
 }
 
@@ -719,12 +900,38 @@ fn optimize_fn(f: &mut CompiledFn, hints: &HashMap<Ty, Option<i64>>) {
     let mut prefix = Eval::new(&types, hints);
     let mut output = Vec::new();
     let mut extra = Vec::new();
-    for op in body {
-        if extra.is_empty()
-            && let Some((replacement, locals)) = specialize(op, &prefix, f.sig.inputs.len())
-        {
-            output.extend(replacement);
-            extra = locals;
+    for (i, op) in body.iter().enumerate() {
+        if extra.is_empty() && matches!(op, Op::Loop { .. }) {
+            let params = f.sig.inputs.len();
+            let (mut start, mut reads) = cache_reads(&output, &types);
+            let (mut read, mut written) = (HashSet::default(), HashSet::default());
+            induction::local_uses(&output[..start], &mut read, &mut written);
+            induction::local_uses(&body[i + 1..], &mut read, &mut written);
+            if reads
+                .iter()
+                .any(|r| read.contains(&r.slot) || written.contains(&r.slot))
+            {
+                (start, reads) = (output.len(), Vec::new());
+            }
+            let moved = specialize(op, &prefix, params, &reads);
+            if moved.is_some() {
+                // A source position after the last read belongs to the loop.
+                let tail = output
+                    .iter()
+                    .rposition(|op| !matches!(op, Op::Site(_)))
+                    .map_or(0, |i| i + 1);
+                let tail = output.split_off(tail.max(start));
+                output.truncate(start);
+                output.extend(tail);
+            }
+            if let Some((replacement, locals)) =
+                moved.or_else(|| specialize(op, &prefix, params, &[]))
+            {
+                output.extend(replacement);
+                extra = locals;
+            } else {
+                output.push(op.clone());
+            }
         } else {
             output.push(op.clone());
         }

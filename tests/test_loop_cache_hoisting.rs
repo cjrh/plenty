@@ -177,6 +177,20 @@ def calls(n: i64) -> Result[i64, AllocError | AppendError[i64] | OverflowError[i
     Ok(total)
 
 
+# A closure called in the outer loop receives the list mutably.
+def closure(n: i64) -> Result[i64, AllocError | AppendError[i64] | OverflowError[i64]]:
+    mut xs = [1]?
+    mut total = 0
+    for step in range(n):
+        grow = def [step](ys: &mut list[i64]) -> Result[(), AllocError | AppendError[i64]]:
+            ys.append(step)?
+            Ok(())
+        for i in range(len(xs)):
+            total += xs[i]
+        grow(&mut xs)?
+    Ok(total)
+
+
 # The list is bound inside the outer loop.
 def inner_binding(n: i64) -> Result[i64, AllocError | OverflowError[i64]]:
     mut total = 0
@@ -217,7 +231,7 @@ def main() -> Result[(), AllocError | AppendError[i64] | IoError | OverflowError
     tables = [[1, 2]?, [30, 40, 50]?]?
     print(kept(3, 4)?, deep(&mut xs, 3)?, field(&mut holder, 2)?)?
     print(grows(4)?, replaces(3)?, retargets(&tables)?)?
-    print(calls(3)?, inner_binding(3)?, stop(&mut xs)?, middle(3)?)?
+    print(calls(3)?, closure(3)?, inner_binding(3)?, stop(&mut xs)?, middle(3)?)?
     print(shrinks(2)?)?
     print(shrinks(3)?)?
     Ok(())
@@ -245,6 +259,7 @@ fn list_headers_move_out_of_loops_that_cannot_change_the_list() {
         "shrinks",
         "replaces",
         "calls",
+        "closure",
         "inner_binding",
         "stop",
         "middle",
@@ -262,7 +277,7 @@ fn hoisted_list_headers_keep_results_and_traps() {
     let source = format!("{LISTS}{LISTS_MAIN}");
     for flags in [&["--release"][..], &["--fast-compile"]] {
         let (out, err) = run(&source, flags);
-        assert_eq!(out, "54 45 24\n20 24 73\n24 9 45 8\n6\n", "{flags:?}");
+        assert_eq!(out, "54 45 24\n20 24 73\n24 4 9 45 8\n6\n", "{flags:?}");
         assert_eq!(
             err, "error: main.plenty:63:22: index out of bounds: index 2, length 2\n",
             "{flags:?}"

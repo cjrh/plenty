@@ -149,6 +149,10 @@ the length in one local; a `Bytes` cache; and any cache in a loop the test
 rejects, such as a `for` loop over a collection. An inner `range` loop's
 `RangeLength` passes the test.
 
+Where the [guarded numerical state pass](numerical-loops.md) replaces the
+outer loop, it returns these reads to the fallback path, so its guarded
+version carries no cached header.
+
 After a successful row bounds check, the original `i64` index cannot equal
 `i64.MAX`: collection/view lengths fit in `i64`, and negative-index
 normalization cannot admit a positive maximum. While the cached check still

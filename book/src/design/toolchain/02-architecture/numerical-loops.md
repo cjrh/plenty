@@ -33,6 +33,19 @@ has fewer initialized rows than its capacity. Failed guards execute the original
 loop, including its original checks, source positions and errors. Allocations
 and initialization preceding the loop remain in their original order.
 
+List header reads that a loop nest cached immediately before the candidate
+loop (see the [collection architecture](collections.md)) belong to the
+fallback alone (issue #943). The guard reads each length from the list, the
+guarded version uses no cached header, and nothing else in the function may
+read those locals. A header read ahead of the guard would stay live across the
+guarded loop, whose promoted cells already exceed the registers. On the
+fallback path each read runs before the outermost loops that use it directly,
+as it did before the nest shared its caches. That placement needs every nested
+loop body to have been evaluated, which shows that no operation of the loop
+resizes or rebinds a list; when an inner loop ran no iteration under the
+guarded facts, or the loop writes the cached local, the read runs once at the
+start of the fallback instead.
+
 ## Eligibility and limits
 
 Only `f32`/`f64` cells and fields of copyable numerical records are promoted.

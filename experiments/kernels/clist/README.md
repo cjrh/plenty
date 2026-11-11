@@ -54,5 +54,7 @@ instructions per pass.
 Issue #943 moved the velocity kernel's header reads before the outer loop.
 Measured on 2026-11-10 against `2d20ddf5`: 70 instructions per pass before,
 58 in a copy with four of the six bounds checks, which the fixed row count
-allows, and 66 in the fully checked copy. `positions` stays at 18; `potential` goes from 29 to 24
+allows, and 66 in the fully checked copy. The 58-instruction copy is the one
+that runs: with breakpoints on both back edges, the kernel takes the first
+six times (ten passes in four entered inner loops) and the second never. `positions` stays at 18; `potential` goes from 29 to 24
 and 28.
