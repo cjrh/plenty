@@ -1136,11 +1136,15 @@ struct Runtime {
     /// `plenty_view_sort_stable_by(...)`, as `view_sort_by`, returning the
     /// high word of `Result[(), AllocError]`.
     view_sort_stable_by: FuncId,
-    /// `plenty_byte_view_rows(owner) -> first byte address` and
-    /// `plenty_byte_view_len(owner) -> byte count`, for slice views of a
-    /// buffer or `bytes` literal.
+    /// `plenty_byte_view_rows(owner) -> first byte address`, for an index
+    /// into a buffer or `bytes` literal.
     byte_view_rows: FuncId,
-    byte_view_len: FuncId,
+    /// `plenty_byte_view(owner) -> (first byte address, byte count)`, for
+    /// slice views of a buffer or `bytes` literal.
+    byte_view: FuncId,
+    /// `plenty_bytes_to_text(address, count) -> the two words of
+    /// Result[Option[str], AllocError]`.
+    bytes_to_text: FuncId,
     /// Narrow byte and text queries on a borrowed owner (issue #364); see
     /// `CollectionCodegen::narrow_query`.
     bytes_len: FuncId,
@@ -1262,6 +1266,19 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
         sig.params
             .extend(params.iter().map(|ty| AbiParam::new(*ty)));
         sig.returns.extend(ret.map(AbiParam::new));
+        Ok(module.declare_function(name, Linkage::Import, &sig)?)
+    }
+    /// A helper that returns two words in the C ABI's two return registers.
+    fn pair_helper(
+        module: &mut ObjectModule,
+        name: &str,
+        params: &[types::Type],
+    ) -> Result<FuncId> {
+        let mut sig = module.make_signature();
+        sig.call_conv = crate::target::native_call_conv();
+        sig.params
+            .extend(params.iter().map(|ty| AbiParam::new(*ty)));
+        sig.returns.extend([AbiParam::new(types::I64); 2]);
         Ok(module.declare_function(name, Linkage::Import, &sig)?)
     }
     Ok(Runtime {
@@ -1455,7 +1472,8 @@ fn declare_runtime(module: &mut ObjectModule, test_hooks: bool) -> Result<Runtim
             Some(types::I64),
         )?,
         byte_view_rows: helper(module, "plenty_byte_view_rows", &[PTR_TY], Some(PTR_TY))?,
-        byte_view_len: helper(module, "plenty_byte_view_len", &[PTR_TY], Some(types::I64))?,
+        byte_view: pair_helper(module, "plenty_byte_view", &[PTR_TY])?,
+        bytes_to_text: pair_helper(module, "plenty_bytes_to_text", &[PTR_TY, types::I64])?,
         // Owner or text word, then index and trap site where the query has them.
         bytes_len: helper(module, "plenty_bytes_len", &[PTR_TY], Some(types::I64))?,
         bytes_get: helper(

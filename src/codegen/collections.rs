@@ -544,6 +544,26 @@ impl Lowerer<'_, '_> {
         Ok(())
     }
 
+    /// `__bytes_to_text` (issue #931): the helper takes the view's address
+    /// and count and returns the two words of the dispatcher's
+    /// `Result[Option[str], AllocError]`. A view owns nothing to release.
+    fn lower_bytes_to_text(&mut self, operation: &CollectionOp) -> Result<()> {
+        let (inputs, output) = operation.signature();
+        let (view, _) = self.pop_typed(inputs[0].clone())?;
+        let (address, count) = self.bcx.ins().isplit(view);
+        let function = self
+            .module
+            .declare_func_in_func(self.runtime.bytes_to_text, self.bcx.func);
+        let call = self.bcx.ins().call(function, &[address, count]);
+        let &[low, high] = self.bcx.inst_results(call) else {
+            unreachable!("the helper returns two words")
+        };
+        let result = self.bcx.ins().iconcat(low, high);
+        let result = self.unpack(result, &output);
+        self.stack.push((result, output));
+        Ok(())
+    }
+
     /// `Bytes.push` (issue #389): the helper appends through the exclusive
     /// field reference and returns the high word of the dispatcher's
     /// `Result[(), AllocError]`; the low word is always zero.
@@ -1253,6 +1273,9 @@ impl Lowerer<'_, '_> {
         }
         if let CollectionOp::Bytes(crate::bytes::BytesOp::Push) = operation {
             return self.lower_bytes_push(operation);
+        }
+        if let CollectionOp::Bytes(crate::bytes::BytesOp::ToText) = operation {
+            return self.lower_bytes_to_text(operation);
         }
         if let CollectionOp::TextOrd | CollectionOp::QueryRef(Query::TextOrd) = operation {
             return self.lower_text_ord(operation);

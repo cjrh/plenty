@@ -806,3 +806,76 @@ def main() -> Result[(), AllocError | IoError]:
         }
     }
 }
+
+const KEYS: &str = r#"
+import std.bytes as by
+from std.bytes import Bytes, BytesError
+
+def key(data: &Bytes, start: i64, stop: i64) -> Result[str, BytesError]:
+    data.to_text_range(start, stop)
+
+def main() -> Result[(), AllocError | IoError | BytesError]:
+    data = by.from_text("GGTATTAC0123é456")?
+    for stop in range(1, 11):
+        print(key(&data, 1, stop)?)?
+    print(key(&data, 12, 14)?, key(&data, 11, 16)?, key(&data, 0, data.len())?, key(&data, 16, 17)? == "6")?
+    print(str.repr(key(&data, 12, 13))?, str.repr(key(&data, 9, 13))?)?
+    Ok(())
+"#;
+
+// Issue #931: `to_text_range` read the buffer's address and length through
+// two helpers, clamped bounds it had already validated, and converted through
+// the dispatcher's argument block.
+#[test]
+fn text_range_keys_of_every_inline_length_and_heap_text() {
+    expect(
+        KEYS,
+        "\nG\nGT\nGTA\nGTAT\nGTATT\nGTATTA\nGTATTAC\nGTATTAC0\nGTATTAC01\n\
+         \u{e9} 3\u{e9}45 GGTATTAC0123\u{e9}456 True\n\
+         Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.InvalidUtf8) \
+         Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.InvalidUtf8)\n",
+    );
+}
+
+#[test]
+fn text_range_calls_only_narrow_helpers() {
+    let mut calls = runtime_calls(KEYS, "__plenty_class_std.bytes.Bytes.to_text_range");
+    calls.extend(runtime_calls(KEYS, "std.bytes.text_in"));
+    calls.retain(|name| name.starts_with("plenty_"));
+    calls.sort();
+    calls.dedup();
+    assert_eq!(
+        calls,
+        [
+            "plenty_byte_view",
+            "plenty_bytes_len",
+            "plenty_bytes_to_text"
+        ]
+    );
+}
+
+// A failed conversion allocates nothing after the change either, and a long
+// key reports allocation failure as before.
+#[cfg(feature = "runtime-checks")]
+#[test]
+fn text_range_reports_allocation_failure_for_heap_text_only() {
+    support::assert_visible_stdout(
+        r#"
+import std.bytes as by
+from std.bytes import Bytes, BytesError
+
+def main() -> Result[(), AllocError | IoError | BytesError]:
+    data = by.from_text("GGTATTTTAATTTATAGT")?
+    print("__test_fail_allocations_after_0__")?
+    print("__test_begin_no_allocations__")?
+    short = data.to_text_range(2, 9)
+    long = data.to_text_range(2, 10)
+    print("__test_end_no_allocations__")?
+    print("__test_restore_allocations__")?
+    print(str.repr(short)?, str.repr(long)?)?
+    Ok(())
+"#,
+        "Result[str, std.bytes.BytesError].Ok(\"TATTTTA\") \
+         Result[str, std.bytes.BytesError].Err(std.bytes.BytesError.Allocation(AllocError.OutOfMemory))",
+    );
+}
