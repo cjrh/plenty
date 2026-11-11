@@ -463,6 +463,20 @@ from 11,304M to 985M instructions at 500,000 steps and remains above the
 scalar source's 323M, which alone qualifies for guarded numerical state; the
 benchmark source stays scalar and every benchmark binary is unchanged.
 
+Indexed access through slice views (issue #929) adds `len_*`, `tail_*`,
+`get_*` and `set` for the four vector types: a vector index into a `&[Lane]` or
+`&mut [Lane]` view, trapping outside the view's whole vectors. Optimized x86-64
+builds test the index with one comparison and move one packed vector; a `range`
+loop over views bound before it tests each count once and keeps the original
+loop as the trapping fallback. The same kernel runs 17 instructions per two
+pairs against C's 16 and 75 through transfers; the extra instruction doubles
+the vector index, where C steps a byte offset. The n-body variant falls to
+828M instructions at 500,000 steps. It remains above the scalar source's 323M
+because its `advance` holds calls and so does not qualify for guarded numerical
+state: the same step with a scalar magnitude loop in a view function runs
+859M. The benchmark source stays scalar and every benchmark binary is
+unchanged.
+
 [Automatic integer-column filter/count](../proposals/columnar-list/simd-counts.md)
 uses baseline SSE2 SIMD with scalar tails in optimized builds: 16 lanes for
 8-bit, 8 for 16-bit and 4 for 32-bit integer columns (issue #904).

@@ -483,6 +483,25 @@ def main() -> ():
 
 #[cfg(feature = "runtime-checks")]
 #[test]
+fn indexed_view_accesses_do_not_allocate() {
+    support::assert_visible_stdout(
+        r#"import std.simd as s
+def main() -> ():
+    mut values = [1.0, 2.0, 3.0, 4.0, 5.0].unwrap()
+    print("__test_fail_allocations_after_0__").unwrap()
+    for i in range(s.len_f64x2(&values)):
+        v = s.get_f64x2(&values, i)
+        v.add(v).set(&mut values, i)
+    tail = s.tail_f64x2(&values)
+    print("__test_restore_allocations__").unwrap()
+    print(tail, values).unwrap()
+"#,
+        "4 [2.0, 4.0, 6.0, 8.0, 5.0]",
+    );
+}
+
+#[cfg(feature = "runtime-checks")]
+#[test]
 fn fallible_integer_operations_allocate_nothing() {
     let source = r#"import std.simd as simd
 def main() -> Result[(), IoError]:
@@ -939,4 +958,357 @@ fn list_transfers_are_packed_without_calls_or_enum_storage() {
             "{dump}"
         );
     }
+}
+
+/// Lane type, lane count, zero and a nonzero lane literal for each shape.
+const VIEW_SHAPES: [(&str, &str, i64, &str, &str); 4] = [
+    ("f64x2", "f64", 2, "0.0", "7.0"),
+    ("f32x4", "f32", 4, "0.0f32", "7.0f32"),
+    ("i32x4", "i32", 4, "0i32", "7i32"),
+    ("u32x4", "u32", 4, "0u32", "7u32"),
+];
+
+fn view_source(template: &str, shape: (&str, &str, i64, &str, &str)) -> String {
+    let (vector, ty, lanes, zero, seven) = shape;
+    template
+        .replace("VECTOR", vector)
+        .replace("LANES", &lanes.to_string())
+        .replace("ZERO", zero)
+        .replace("SEVEN", seven)
+        .replace("TYPE", ty)
+}
+
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn indexed_views_cover_whole_vectors_and_leave_the_tail(#[case] release: bool) {
+    for shape in VIEW_SHAPES {
+        passes(
+            &view_source(
+                r#"import std.simd as s
+from std.test import check
+
+def transfer(values: &[TYPE], out: &mut [TYPE]) -> ():
+    for i in range(s.len_VECTOR(values)):
+        s.get_VECTOR(values, i).set(out, i)
+    for i in range(s.tail_VECTOR(values), len(values)):
+        out[i] = values[i]
+
+def through_lists(values: &list[TYPE], out: &mut list[TYPE]) -> ():
+    for i in range(s.len_VECTOR(values)):
+        s.get_VECTOR(values, i).set(out, i)
+
+def cases() -> Result[(), AllocError | OverflowError[i64]]:
+    for length in range(2 * LANES + 2):
+        values: list[TYPE] = [TYPE(i + 1) for i in range(length)]?
+        vectors = length // LANES
+        tail = vectors * LANES
+        check(s.len_VECTOR(&values) == vectors, "len").unwrap()
+        check(s.tail_VECTOR(&values) == tail, "tail").unwrap()
+        mut out: list[TYPE] = [ZERO for i in range(length)]?
+        for i in range(vectors):
+            vector = s.get_VECTOR(&values, i)
+            check(vector == s.load_VECTOR(&values, i * LANES).unwrap(), "get").unwrap()
+            vector.set(&mut out, i)
+            check(out[i * LANES + LANES - 1] == values[i * LANES + LANES - 1], "set is visible").unwrap()
+        for i in range(tail):
+            check(out[i] == values[i], "covered element").unwrap()
+        for i in range(tail, length):
+            check(out[i] == ZERO, "tail untouched").unwrap()
+        mut copied: list[TYPE] = [ZERO for i in range(length)]?
+        transfer(&values, &mut copied)
+        check(copied == values, "loop and scalar tail").unwrap()
+        mut listed: list[TYPE] = [ZERO for i in range(length)]?
+        through_lists(&values, &mut listed)
+        check(listed == out, "list references").unwrap()
+        if length > 0:
+            rest = (length - 1) // LANES
+            check(s.len_VECTOR(&values[1:]) == rest, "slice len").unwrap()
+            check(s.tail_VECTOR(&values[1:]) == rest * LANES, "slice tail").unwrap()
+            mut shifted: list[TYPE] = [ZERO for i in range(length)]?
+            for i in range(rest):
+                check(s.get_VECTOR(&values[1:], i) == s.load_VECTOR(&values, i * LANES + 1).unwrap(), "slice get").unwrap()
+                s.splat_VECTOR(SEVEN).set(&mut shifted[1:], i)
+            check(shifted[0] == ZERO, "before the slice").unwrap()
+            for i in range(1, rest * LANES + 1):
+                check(shifted[i] == SEVEN, "slice set").unwrap()
+            for i in range(rest * LANES + 1, length):
+                check(shifted[i] == ZERO, "slice tail").unwrap()
+    Ok(())
+
+def main() -> ():
+    cases().unwrap()
+    print("ok").unwrap()
+"#,
+                shape,
+            ),
+            release,
+        );
+    }
+}
+
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn indexed_view_accesses_trap_outside_the_whole_vectors(#[case] release: bool) {
+    for shape in VIEW_SHAPES {
+        let vector = shape.0;
+        let source = view_source(
+            r#"import std.simd as s
+
+def total(values: &[TYPE], stop: i64) -> s.VECTOR:
+    mut sum = s.splat_VECTOR(ZERO)
+    for i in range(stop):
+        sum = s.get_VECTOR(values, i)
+    sum
+
+def fill(values: &mut [TYPE], stop: i64) -> ():
+    for i in range(stop):
+        s.splat_VECTOR(SEVEN).set(values, i)
+
+def main() -> Result[(), AllocError | IoError | ParseError | OverflowError[i64]]:
+    argv = args()?
+    which = i64.parse(&argv[1])?
+    mut values: list[TYPE] = [ZERO for i in range(2 * LANES + 1)]?
+    mut empty: list[TYPE] = []?
+    vector = s.splat_VECTOR(SEVEN)
+    if which == 0:
+        drop(s.get_VECTOR(&values, -1))
+    elif which == 1:
+        drop(s.get_VECTOR(&values, 2))
+    elif which == 2:
+        drop(s.get_VECTOR(&values, i64.MAX))
+    elif which == 3:
+        drop(s.get_VECTOR(&values, i64.MIN))
+    elif which == 4:
+        drop(s.get_VECTOR(&empty, 0))
+    elif which == 5:
+        drop(s.get_VECTOR(&values[LANES:], 1))
+    elif which == 6:
+        drop(total(&values, 3))
+    elif which == 7:
+        vector.set(&mut values, -1)
+    elif which == 8:
+        vector.set(&mut values, 2)
+    elif which == 9:
+        vector.set(&mut values, i64.MAX)
+    elif which == 10:
+        vector.set(&mut values, i64.MIN)
+    elif which == 11:
+        vector.set(&mut empty, 0)
+    elif which == 12:
+        vector.set(&mut values[LANES:], 1)
+    elif which == 13:
+        fill(&mut values, 3)
+    else:
+        drop(total(&values, 2))
+        fill(&mut values, 2)
+        drop(s.get_VECTOR(&values, 1))
+        vector.set(&mut values, 1)
+        print(values[2 * LANES - 1] == SEVEN and values[2 * LANES] == ZERO)?
+    Ok(())
+"#,
+            shape,
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("main.plenty");
+        let executable = dir.path().join("program");
+        std::fs::write(&path, &source).unwrap();
+        let mut compile = Command::new(support::plenty_bin());
+        compile.env("PLENTY_CACHE", "off");
+        if !release {
+            compile.arg("--fast-compile");
+        }
+        let compiled = compile
+            .arg("--compile")
+            .arg(&path)
+            .arg("-o")
+            .arg(&executable)
+            .output()
+            .unwrap();
+        assert!(
+            compiled.status.success(),
+            "{}",
+            String::from_utf8_lossy(&compiled.stderr)
+        );
+        // The call site named by the trap: the line holding `needle`.
+        let line = |needle: &str| {
+            1 + source
+                .lines()
+                .position(|line| line.contains(needle))
+                .unwrap()
+        };
+        let get = format!("std.simd.get_{vector}: index is outside 0..len_{vector}(values)");
+        let set = format!("{vector}.set: index is outside 0..len_{vector}(values)");
+        let get_call = format!("s.get_{vector}(");
+        let sites = [
+            line(&format!("{get_call}&values, -1)")),
+            line(&format!("{get_call}&values, 2)")),
+            line(&format!("{get_call}&values, i64.MAX)")),
+            line(&format!("{get_call}&values, i64.MIN)")),
+            line(&format!("{get_call}&empty, 0)")),
+            line(&format!("{get_call}&values[")),
+            line(&format!("sum = {get_call}values, i)")),
+            line("vector.set(&mut values, -1)"),
+            line("vector.set(&mut values, 2)"),
+            line("vector.set(&mut values, i64.MAX)"),
+            line("vector.set(&mut values, i64.MIN)"),
+            line("vector.set(&mut empty, 0)"),
+            line("vector.set(&mut values["),
+            line(".set(values, i)"),
+        ];
+        for (case, site) in sites.iter().enumerate() {
+            let out = Command::new(&executable)
+                .arg(case.to_string())
+                .output()
+                .unwrap();
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            let message = if case < 7 { &get } else { &set };
+            assert_eq!(out.status.code(), Some(1), "{vector} case {case}: {stderr}");
+            assert!(out.stdout.is_empty(), "{vector} case {case}");
+            assert!(
+                stderr.starts_with("error: std/simd.plenty:")
+                    && stderr.contains(&format!(
+                        ": {message}\nnote: called from main.plenty:{site}:"
+                    )),
+                "{vector} case {case}: {stderr}"
+            );
+        }
+        let out = Command::new(&executable).arg("14").output().unwrap();
+        assert!(out.status.success());
+        assert_eq!(out.stdout, b"True\n", "{vector}");
+    }
+}
+
+#[test]
+fn a_live_view_rejects_resizing_its_list() {
+    for (source, borrow) in [
+        (
+            "import std.simd as s\ndef main() -> Result[(), AllocError]:\n    mut xs = [1.0, 2.0, 3.0, 4.0]?\n    view: &mut [f64] = &mut xs\n    s.splat_f64x2(2.0).set(view, 0)\n    xs.append(5.0)?\n    s.splat_f64x2(3.0).set(view, 1)\n    Ok(())\n",
+            "while `xs[:]` is exclusively borrowed",
+        ),
+        (
+            "import std.simd as s\ndef main() -> Result[(), AllocError]:\n    mut xs = [1i32, 2i32, 3i32, 4i32]?\n    view: &[i32] = &xs\n    drop(s.get_i32x4(view, 0))\n    drop(xs.pop())\n    drop(s.get_i32x4(view, 0))\n    Ok(())\n",
+            "while `xs[:]` is borrowed",
+        ),
+    ] {
+        let output = run(source, true);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!output.status.success());
+        assert!(
+            stderr.contains("conflicting borrow: cannot modify or exclusively borrow `xs`")
+                && stderr.contains(borrow),
+            "{stderr}"
+        );
+    }
+}
+
+#[test]
+#[cfg(target_arch = "x86_64")]
+fn view_loop_is_packed_with_one_count_test_per_view() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("magnitude.plenty");
+    std::fs::write(
+        &input,
+        include_str!("../experiments/simd-transfers/magnitude.plenty"),
+    )
+    .unwrap();
+    let out = Command::new(support::plenty_bin())
+        .env("PLENTY_CACHE", "off")
+        .args(["--dump", "asm", "--dump-filter", "magnitude_views"])
+        .arg(input)
+        .args(["-o", "-"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let dump = String::from_utf8_lossy(&out.stdout);
+    let lines = dump.lines().collect::<Vec<_>>();
+    // Each packed square root sits in one straight-line run between two
+    // branches. The versioned loop's run is a whole pass: every view's count
+    // was tested before the loop, leaving the counter's compare.
+    let fast = (0..lines.len())
+        .filter(|&at| lines[at].contains("sqrtpd"))
+        .any(|root| {
+            let start = lines[..root]
+                .iter()
+                .rposition(|line| support::native_branch(line))
+                .map_or(0, |at| at + 1);
+            let end = root
+                + lines[root..]
+                    .iter()
+                    .position(|line| support::native_branch(line))
+                    .unwrap();
+            let pass = lines[start..=end]
+                .iter()
+                .filter(|line| line.contains(":  "))
+                .collect::<Vec<_>>();
+            let count = |name: &str| pass.iter().filter(|line| line.contains(name)).count();
+            count("movupd") == 4 && count("cmp") == 1 && pass.len() <= 17
+        });
+    assert!(fast, "{dump}");
+}
+
+#[rstest]
+#[case(false)]
+#[case(true)]
+fn vector_locals_held_through_borrows_do_not_alias(#[case] release: bool) {
+    passes(
+        r#"import std.simd as simd
+from std.test import check
+
+def touch(v: &mut simd.f64x2) -> ():
+    pass
+
+def bump(v: &mut simd.f64x2) -> ():
+    *v = v.add(simd.splat_f64x2(100.0))
+
+def rotate(a: simd.f64x2, n: i64) -> (f64, f64, f64, f64):
+    mut b = simd.splat_f64x2(0.0)
+    mut c = simd.splat_f64x2(0.0)
+    touch(&mut b)
+    touch(&mut c)
+    for i in range(n):
+        c = b
+        b = a.add(b)
+    (x, y) = b.to_tuple()
+    (z, w) = c.to_tuple()
+    (x, y, z, w)
+
+def keep(a: simd.f64x2, n: i64) -> Result[list[simd.f64x2], AllocError]:
+    mut out: list[simd.f64x2] = []?
+    mut b = simd.splat_f64x2(0.0)
+    touch(&mut b)
+    for i in range(n):
+        b = a.add(b)
+        held = b
+        out.append(held)?
+        bump(&mut b)
+    Ok(out)
+
+def main() -> ():
+    one = simd.f64x2.Lanes(1.0, 2.0)
+    check(rotate(one, 3) == (3.0, 6.0, 2.0, 4.0), "rotated copies").unwrap()
+    kept = keep(one, 3).unwrap()
+    check(kept[0].to_tuple() == (1.0, 2.0), "first copy").unwrap()
+    check(kept[1].to_tuple() == (102.0, 104.0), "second copy").unwrap()
+    check(kept[2].to_tuple() == (203.0, 206.0), "third copy").unwrap()
+    mut p = simd.splat_f64x2(1.0)
+    mut q = p
+    touch(&mut p)
+    touch(&mut q)
+    for i in range(3):
+        q = p
+        p = p.mul(simd.splat_f64x2(2.0))
+        r = q
+        bump(&mut q)
+        check(q.sub(r).to_tuple() == (100.0, 100.0), "copy before the bump").unwrap()
+    check(p.to_tuple() == (8.0, 8.0) and q.to_tuple() == (104.0, 104.0), "final").unwrap()
+    print("ok").unwrap()
+"#,
+        release,
+    );
 }

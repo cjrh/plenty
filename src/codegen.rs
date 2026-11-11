@@ -2124,7 +2124,9 @@ fn build_user_function(
                 lower.write_local(i as u8, value);
             }
         }
-        let simd = portable_simd::operation(name, decl, lower.module.optimizes());
+        // A view access keeps its scalar body, which reports an invalid index.
+        let simd = portable_simd::operation(name, decl, lower.module.optimizes())
+            .filter(|simd| !simd.indexed());
         if let Some(simd) = &simd {
             let args = (0..decl.sig.inputs.len())
                 .map(|index| lower.read_local(index as u8))
@@ -4166,10 +4168,6 @@ impl Lowerer<'_, '_> {
                 None => self.moves.pending.push(moved),
             }
         }
-        if let Some(simd) = portable_simd::operation(name, decl, optimize) {
-            self.lower_portable_simd(&simd, &args);
-            return Ok(());
-        }
         // User code names itself as the caller of std. Std restores the
         // enclosing user site after a callee that may change it, such as one
         // that tail-calls through user code before it returns.
@@ -4178,6 +4176,23 @@ impl Lowerer<'_, '_> {
         } else {
             (decl.standard_library || decl.source.is_none()) && !decl.reads_no_caller
         };
+        if let Some(simd) = portable_simd::operation(name, decl, optimize) {
+            if simd.indexed() {
+                let mut reported = args.clone();
+                if let Some(hit) = self.guard_simd_view(&simd, &mut reported) {
+                    // The scalar body repeats the test and traps with the
+                    // operation's message at this call's position, so this
+                    // block never rejoins the access.
+                    let depth = self.stack.len();
+                    self.lower_native_call(decl, reported, track_caller, false)?;
+                    self.stack.truncate(depth);
+                    self.bcx.ins().trap(TrapCode::unwrap_user(3));
+                    self.bcx.switch_to_block(hit);
+                }
+            }
+            self.lower_portable_simd(&simd, &args);
+            return Ok(());
+        }
         if let Some(inline) = decl.inline.clone().filter(|_| may_inline) {
             let caller = self.inline_caller(track_caller && decl.names_caller_in_sites);
             let saved = if track_caller && caller.is_none() {
@@ -4195,6 +4210,17 @@ impl Lowerer<'_, '_> {
         {
             return self.lower_inlined_call(name, &body, args, track_caller, captures);
         }
+        self.lower_native_call(decl, args, track_caller, may_inline)
+    }
+
+    /// Calls `decl`'s compiled body, pushing its results.
+    fn lower_native_call(
+        &mut self,
+        decl: &UserFn,
+        mut args: Vec<cranelift_codegen::ir::Value>,
+        track_caller: bool,
+        may_inline: bool,
+    ) -> Result<()> {
         let outputs = decl.sig.outputs.clone();
         let func_id = decl.id;
         let bytes = outputs.iter().map(Ty::inline_bytes).sum();

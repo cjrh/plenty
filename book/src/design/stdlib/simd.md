@@ -96,10 +96,11 @@ whole vector does not fit. Negative offsets are invalid. Bounds are checked
 before adding lane offsets, including for `i64.MAX`.
 
 These operations neither allocate nor grow the list. The list stays an ordinary
-`list` of scalars: no packed view or alignment is exposed. Returned vectors own
+`list` of scalars: no alignment is exposed. Returned vectors own
 copies of their scalar lanes, so no borrow persists after loading. Stores take
-an exclusive borrow and preserve length and capacity. Process full groups and
-then the scalar tail explicitly when writing a manual kernel.
+an exclusive borrow and preserve length and capacity. For a loop over whole lists, prefer
+[indexed access through views](#indexed-access-through-views), which tests each
+list's length once.
 
 Handle a load that may not fit. A failed store leaves every element unchanged:
 
@@ -121,6 +122,76 @@ False
 True
 [11, 12, 13, 14]
 ```
+
+## Indexed access through views
+
+Use these in a loop over lists. A [slice view](../language/04-expressions/slices.md),
+`&[Lane]` or `&mut [Lane]`, is the packed view: it borrows the list for as long
+as it is used, so the list cannot be resized meanwhile, and it allocates
+nothing. `&values`, a `&list[Lane]` reference and a slice such as
+`&values[1:]` all convert to one.
+
+| Operation | Contract |
+| --- | --- |
+| `len_f64x2(values: &[f64]) -> i64` | Whole vectors in the view: `len(values) // 2` |
+| `tail_f64x2(values: &[f64]) -> i64` | Index of the first element no vector covers: `len_f64x2(values) * 2` |
+| `get_f64x2(values: &[f64], index: i64) -> f64x2` | Vector `index`: elements `index * 2` and `index * 2 + 1` |
+| `vector.set(values: &mut [f64], index: i64) -> ()` | Replaces the elements of vector `index` |
+
+`f32x4`, `i32x4` and `u32x4` have the same four operations over `f32`, `i32`
+and `u32` views, four elements to a vector. One naming rule covers the module:
+an operation with a vector operand is a method on it (`set`, like `store`); one
+without is a module function ending in the vector type (`get_f64x2`, like
+`load_f64x2`).
+
+Vector `index` always starts at element `index * lanes` of the view. The
+accesses cover whole vectors only: when the length is not a multiple of the
+lane count, the last `len(values) % lanes` elements belong to no vector and no
+access reads or writes them. Process them as scalars with
+`range(simd.tail_f64x2(values), len(values))`.
+
+An index outside `0..len_f64x2(values)`, negative included, is a
+[trap](conventions.md#invalid-arguments), as an out-of-range list index is. The
+trap report names the operation and the calling line:
+
+```text
+error: std/simd.plenty:666:13: std.simd.get_f64x2: index is outside 0..len_f64x2(values)
+note: called from main.plenty:5:11
+```
+
+The index is a vector position, where `load_*` and `store` take an element
+offset and report a span that does not fit as `Nothing` or `False`. Keep those
+for a single access at an arbitrary offset.
+
+Scale a list in place, then finish the two elements no vector covers:
+
+```plenty
+import std.simd as simd
+
+def scale(values: &mut [f32], factor: f32) -> ():
+    by = simd.splat_f32x4(factor)
+    for i in range(simd.len_f32x4(values)):
+        simd.get_f32x4(values, i).mul(by).set(values, i)
+    for i in range(simd.tail_f32x4(values), len(values)):
+        values[i] = values[i] * factor
+
+def main() -> Result[(), AllocError | IoError]:
+    mut values = [1.0f32, 2.0f32, 3.0f32, 4.0f32, 5.0f32, 6.0f32]?
+    scale(&mut values, 0.5f32)
+    print(values)?
+    print(simd.len_f32x4(&values), simd.tail_f32x4(&values))?
+    print(simd.get_f32x4(&values[2:], 0).to_tuple())?
+    Ok(())
+```
+```output
+[0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
+1 4
+(1.5, 2.0, 2.5, 3.0)
+```
+
+Plenty cannot yet keep a reference in a class field (backlog B11), so there is
+no separate view class with a `len()` method: the builtin slice view carries
+the borrow and `len_<vector>` counts its vectors.
 
 ## Rust relationship and initial limits
 
@@ -153,7 +224,15 @@ List loads and stores read or write all lanes as one unaligned packed vector
 after the same bounds test as the scalar bodies; each call reads the list's
 length and performs that test, and a span that does not fit still yields
 `Nothing` or `False` without a trap. An unborrowed `Option[Vector]` local,
-`match` and `unwrap()` keep a loaded vector native. Checked integer arithmetic,
+`match` and `unwrap()` keep a loaded vector native. `get_*` and `set` test the
+index against the view's vector count with one comparison, then read or write
+one unaligned packed vector. In a `range` loop whose counter is the index and
+whose views were bound before the loop (view parameters, or
+`xs: &[f64] = &values`), the counts are tested once before the loop and the
+loop body keeps no test; the original loop remains as the fallback and reports
+the trap. Converting a list to a view inside the loop keeps the comparison on
+each access. `len_*`, `tail_*` and `splat_*` lower to inline arithmetic.
+Checked integer arithmetic,
 mask summaries and ordered float reductions keep
 their ordinary scalar implementations. On other compiler hosts, the module's
 scalar bodies remain available. The AArch64 implementation currently uses these
@@ -164,7 +243,7 @@ selection or newer CPU feature is required.
 
 Storage boundaries, copying and lane assembly can dominate short operations.
 Explicit SIMD is not a blanket speedup over scalar code, and this module does
-not replace the packed-column lowering used by `clist`. Wider vectors, packed views, generic
+not replace the packed-column lowering used by `clist`. Wider vectors, a view type that owns its vector count, generic
 lane counts, gathers/scatters, casts, shifts and integer division are not in this
 initial surface. See the [tutorial](../../tutorial/07-modules/19-portable-simd.md)
 and the [implementation evidence](../../proposals/std-simd/implementation.md).
