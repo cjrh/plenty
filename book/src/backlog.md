@@ -198,9 +198,9 @@ Key-only dictionary probes are [delivered](completed-work/performance.md#b19-gen
 key construction from a byte range skips validated clamps and the dispatcher
 (`experiments/key-construction/`), and `get_or_insert` hits skip the
 dispatcher, the general key comparison and the streaming hasher
-(`experiments/dictionary-hits/`); the remaining k-nucleotide costs (helper
-frames on a heap key's hit and caller-site bookkeeping around
-`Bytes.to_text_range`) are tracked in issue #931.
+(`experiments/dictionary-hits/`); a heap key's hit is one runtime function. The remaining
+k-nucleotide cost outside the hash is caller-site bookkeeping around
+`Bytes.to_text_range` (issue #948); issue #931 records the measurements.
 Use [profiling](development/profiling.md), [faster-linking evidence](proposals/faster-linking.md)
 and the [completed measurements](completed-work/performance.md) as baselines.
 The [k-nucleotide counting-loop investigation](completed-work/performance.md#k-nucleotide-counting-loop-investigation-issue-743)

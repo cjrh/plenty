@@ -49,9 +49,9 @@ initialization, failure behavior, and complexity limits.
 A `str` or `bytes` key is hashed without the streaming hasher: an inline
 text's bytes are the final SipHash block already, and a heap text is read in
 whole words. A probe for such a key compares candidate words first, since an
-equal word is the same inline text or the same object; bytes are compared out
-of line only when the words differ, which a literal against an inline text of
-the same bytes still needs (issue #931). Hash values are unchanged.
+equal word is the same inline text or the same object; bytes are compared only
+when the words differ, which a literal against an inline text of the same
+bytes still needs (issue #931). Hash values are unchanged.
 
 Top-level `str`, `bytes`, integer and `bool` keys hash their contents
 directly. Tuple keys recursively hash scalar fields, string bytes, and byte-literal
@@ -238,10 +238,13 @@ tests a hit flag in the result and releases copyable ones inline.
 `plenty_dict_get_or_insert(dictionary, key, value)` with the operands in
 registers and reads the two result words from the return registers. A `str`
 key with a value type that is not affine calls
-`plenty_dict_get_or_insert_text` instead. That helper hashes and probes an
-inline key (at most seven bytes) itself and returns a hit whose stored key is
-the same word without a call; a heap key, a miss, and a candidate with equal
-hash bits but another word leave through a tail call. The hit reads no `Slot`
+`plenty_dict_get_or_insert_text` instead. That helper selects by the key's form with a
+tail call. An inline key (at most seven bytes) is hashed and probed in one
+function, which returns a hit whose stored key is the same word without a
+call. A heap or literal key is hashed and probed in another, which returns a
+hit whose stored key is the same object or another heap text with the same
+bytes, also without a call. A miss, an empty table, and a first candidate
+that does not match that way leave through a tail call. The hit reads no `Slot`
 record; only a miss builds one (issue #931). A mutation
 of a receiver through `&mut` (`counts.insert(k, v)` on a parameter or local,
 `pop`, `discard`, `clear`, set updates, `reverse`, `sort`, and so on) reads the
