@@ -694,7 +694,7 @@ impl Lowerer<'_, '_> {
     /// The function's scratch slot for runtime call operands, at least
     /// `bytes` long: created on first use, and grown for a larger use, so a
     /// function that only reports index failures keeps a small frame.
-    fn scratch_slot(&mut self, bytes: u32) -> cranelift_codegen::ir::StackSlot {
+    pub(super) fn scratch_slot(&mut self, bytes: u32) -> cranelift_codegen::ir::StackSlot {
         if let Some(slot) = self.collection_scratch {
             let data = &mut self.bcx.func.sized_stack_slots[slot];
             data.size = data.size.max(bytes);
