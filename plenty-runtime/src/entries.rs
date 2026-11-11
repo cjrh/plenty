@@ -516,6 +516,7 @@ impl Entries {
     /// [`Self::slot`] through a shared reference: lookups that lend an element
     /// (`get_ref`, `get_mut`) must not create a `&mut Entries`, since a shared
     /// loan of the collection may be live on other threads (issue #869).
+    #[inline]
     pub fn slot_address(&self, index: usize, value: bool) -> *mut u128 {
         assert!(
             self.bits().is_none(),

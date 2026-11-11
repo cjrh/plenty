@@ -3,6 +3,7 @@
 //! one after inserting a default for a missing key (issue #748), and
 //! `(&mut d).values()` / `(&mut d).items()` lend every value (issue #803).
 mod support;
+use rstest::rstest;
 use support::{assert_stdout, check_diagnostic as diagnostic};
 
 const ASSIGNMENT: &str =
@@ -148,15 +149,21 @@ fn get_or_insert_counts_and_groups_with_one_lookup() {
 }
 
 // Issue #931: the update passes its operands in registers; the dispatcher's
-// argument block and descriptor checks are not on the path.
-#[test]
-fn get_or_insert_calls_the_narrow_helper() {
-    let source = "def bump(counts: &mut dict[str, i64], key: str) -> Result[(), AllocError | OverflowError[i64]]:\n    *counts.get_or_insert(key, 0)? += 1\n    Ok(())\ndef main() -> Result[(), AllocError | IoError | OverflowError[i64]]:\n    mut counts = {\"a\": 1}?\n    bump(&mut counts, \"a\")?\n    print(counts)?\n    Ok(())\n";
-    let calls = crate::test_text_bytes_fast_paths::runtime_calls(source, "bump");
-    assert!(
-        calls.iter().any(|name| name == "plenty_dict_get_or_insert"),
-        "{calls:?}"
+// argument block and descriptor checks are not on the path. A str key with
+// a copyable value takes the helper whose inline-key hit is a leaf.
+#[rstest]
+#[case::text("str", "\"a\"", "plenty_dict_get_or_insert_text")]
+#[case::integer("i64", "7", "plenty_dict_get_or_insert")]
+fn get_or_insert_calls_the_narrow_helper(
+    #[case] key: &str,
+    #[case] literal: &str,
+    #[case] helper: &str,
+) {
+    let source = format!(
+        "def bump(counts: &mut dict[{key}, i64], key: {key}) -> Result[(), AllocError | OverflowError[i64]]:\n    *counts.get_or_insert(key, 0)? += 1\n    Ok(())\ndef main() -> Result[(), AllocError | IoError | OverflowError[i64]]:\n    mut counts = {{{literal}: 1}}?\n    bump(&mut counts, {literal})?\n    print(counts)?\n    Ok(())\n"
     );
+    let calls = crate::test_text_bytes_fast_paths::runtime_calls(&source, "bump");
+    assert!(calls.iter().any(|name| name == helper), "{calls:?}");
     assert!(
         !calls.iter().any(|name| name.starts_with("plenty_op_")),
         "{calls:?}"

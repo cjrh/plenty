@@ -376,3 +376,70 @@ fn text_probes_find_every_storage_and_pass_hash_collisions() {
         }
     }
 }
+
+static COUNTS: Type = Type {
+    kind: b'D',
+    affine: true,
+    key: Some(&TEXT),
+    value: Some(&INTEGER),
+    ..INTEGER
+};
+
+// Issue #931: the narrow helper answers an inline key held as the same word
+// without a call, and hands every other outcome on with its hash and probed
+// bucket. Each outcome must match the general operation and hash once: a
+// first insertion, hits by word and by bytes, a candidate sharing only the
+// hash bits, and a heap key.
+#[test]
+fn the_narrow_get_or_insert_agrees_with_the_general_one() {
+    let owner = OwnedValue {
+        value: try_collection_new(&COUNTS, 0).unwrap() as u128,
+        ty: &COUNTS,
+    };
+    let reference = &owner.value as *const u128;
+    let hit = GET_OR_INSERT_HIT as u64;
+    // SAFETY: the guard owns the dictionary; keys are inline, immortal
+    // literals, or one owned heap text that the dictionary adopts.
+    unsafe {
+        let narrow = |key: u128, value: u64| {
+            let before = HASHES.with(std::cell::Cell::get);
+            let words = plenty_dict_get_or_insert_text(reference, key as u64, value, 0);
+            assert_eq!(HASHES.with(std::cell::Cell::get), before + 1);
+            (words.0 as *mut u128, words.1)
+        };
+        let inline = |bytes: &[u8]| strings::new(bytes) as u128;
+        // The empty dictionary has no table: the general path inserts.
+        let (ggt, flag) = narrow(inline(b"GGT"), 1);
+        assert_eq!((*ggt as u64, flag), (1, 0));
+        // A second bucket for "GGT" under "A"'s hash, as a full collision
+        // would leave: "A" passes that candidate, here and on later hits.
+        let c = &mut *(owner.value as *mut Collection);
+        c.table.insert_unique(hash(inline(b"A"), &TEXT), 0);
+        // An inline key that misses is inserted at the probed bucket.
+        let (a, flag) = narrow(inline(b"A"), 2);
+        assert_eq!((*a as u64, flag), (2, 0));
+        // A literal is stored in heap format; an inline key with its bytes
+        // hits it by comparison.
+        let stored = literal(b"ACG");
+        let (acg, flag) = narrow(&stored as *const Literal<3> as u128, 3);
+        assert_eq!((*acg as u64, flag), (3, 0));
+        assert_eq!(narrow(inline(b"ACG"), 9), (acg, hit));
+        // Hits by word leave the stored value and report the same slot.
+        assert_eq!(narrow(inline(b"GGT"), 9), (ggt, hit));
+        assert_eq!(narrow(inline(b"A"), 9), (a, hit));
+        let other = literal(b"GGT");
+        assert_eq!(narrow(&other as *const Literal<3> as u128, 9), (ggt, hit));
+        assert_eq!((*ggt as u64, *a as u64, *acg as u64), (1, 2, 3));
+        let long = strings::new(b"GGTATTTTAATTTATAGT") as u128;
+        let (slot, flag) = narrow(long, 4);
+        assert_eq!((*slot as u64, flag), (4, 0));
+        assert_eq!(c.len(), 4);
+        for (row, contents) in [&b"GGT"[..], b"A", b"ACG", b"GGTATTTTAATTTATAGT"]
+            .into_iter()
+            .enumerate()
+        {
+            let key = c.entries.key(row) as usize as *const Text;
+            assert_eq!(strings::bytes(&key), contents);
+        }
+    }
+}

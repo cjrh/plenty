@@ -53,8 +53,18 @@ fn key() -> &'static [u8; 16] {
     })
 }
 
+/// The hash of an inline text, computed in the caller; `None` before the
+/// first hash of the process has read the key.
+#[inline(always)]
+pub(super) fn inline_text(word: u64) -> Option<u64> {
+    debug_assert!(strings::is_inline(word as usize as *const Text));
+    // SAFETY: an inline text is its word; nothing is dereferenced.
+    KEY.get()
+        .map(|key| unsafe { text_with_key(word as usize as *const Text, key) })
+}
+
 #[inline(never)]
-unsafe fn hash_text(text: *const Text) -> u64 {
+pub(super) unsafe fn hash_text(text: *const Text) -> u64 {
     // SAFETY: forwarded from `hash`.
     unsafe { text_with_key(text, key()) }
 }

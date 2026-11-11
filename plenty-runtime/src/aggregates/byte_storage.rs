@@ -458,7 +458,7 @@ pub(crate) unsafe extern "C" fn plenty_byte_view_rows(owner: *const u8) -> *cons
 
 /// Two result words in the two return registers of the C ABI.
 #[repr(C)]
-pub(crate) struct Words(u64, u64);
+pub(crate) struct Words(pub(crate) u64, pub(crate) u64);
 
 impl Words {
     /// The low and high halves of a dispatcher result word.
