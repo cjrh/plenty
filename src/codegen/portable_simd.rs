@@ -58,12 +58,32 @@ enum Action {
     Load,
     /// `vector.store(values, offset)`: the matching guarded packed write.
     Store,
+    /// `get_*(values, index)`: a packed read of vector `index` of a view,
+    /// which traps in the scalar body when the index is out of range.
+    Get,
+    /// `vector.set(values, index)`: the matching packed write.
+    Set,
+    /// `len_*(values)`: the view's whole vectors.
+    Len,
+    /// `tail_*(values)`: the index of the first element after them.
+    Tail,
+    /// `splat_*(value)`: one scalar in every lane.
+    Splat,
 }
 
 pub(super) struct Operation {
     shape: Shape,
     action: Action,
     output: Ty,
+}
+
+impl Operation {
+    /// A view access keeps its scalar body: the body reports an invalid
+    /// index, so a call site lowers the access inline and calls the body
+    /// only from the cold block of a failed check.
+    pub(super) fn indexed(&self) -> bool {
+        matches!(self.action, Action::Get | Action::Set)
+    }
 }
 
 /// Exact numeric vector locals without mutable borrows and split numeric tuple
@@ -261,11 +281,19 @@ pub(super) fn operation(name: &str, decl: &UserFn, optimize: bool) -> Option<Ope
     if !cfg!(target_arch = "x86_64") || !optimize || !decl.standard_library {
         return None;
     }
-    let (name, method) = match name.strip_prefix("std.simd.load_") {
-        Some(vector) => (vector, "load"),
-        None => name
-            .strip_prefix("__plenty_class_std.simd.")?
-            .split_once('.')?,
+    let (name, method) = if let Some(vector) = name.strip_prefix("std.simd.load_") {
+        (vector, "load")
+    } else if let Some(vector) = name.strip_prefix("std.simd.get_") {
+        (vector, "get")
+    } else if let Some(vector) = name.strip_prefix("std.simd.len_") {
+        (vector, "len")
+    } else if let Some(vector) = name.strip_prefix("std.simd.tail_") {
+        (vector, "tail")
+    } else if let Some(vector) = name.strip_prefix("std.simd.splat_") {
+        (vector, "splat")
+    } else {
+        name.strip_prefix("__plenty_class_std.simd.")?
+            .split_once('.')?
     };
     let shape = match name {
         "i32x4" => Shape::I32,
@@ -276,6 +304,33 @@ pub(super) fn operation(name: &str, decl: &UserFn, optimize: bool) -> Option<Ope
     };
     if matches!(method, "load" | "store") {
         return transfer(name, shape, method == "store", decl);
+    }
+    if matches!(method, "get" | "set") {
+        return view_access(name, shape, method == "set", decl);
+    }
+    if matches!(method, "len" | "tail" | "splat") {
+        let lane = shape.lane();
+        let inputs = decl.sig.inputs.iter().map(|(_, ty)| ty).collect::<Vec<_>>();
+        let action = match (method, inputs.as_slice(), decl.sig.outputs.as_slice()) {
+            ("splat", [input], [output])
+                if **input == lane && logical_type(output, name, &lane, shape.lanes()) =>
+            {
+                Action::Splat
+            }
+            (_, [Ty::View(element, false)], [Ty::I64]) if **element == lane => {
+                if method == "len" {
+                    Action::Len
+                } else {
+                    Action::Tail
+                }
+            }
+            _ => return None,
+        };
+        return Some(Operation {
+            shape,
+            action,
+            output: decl.sig.outputs[0].clone(),
+        });
     }
     let float = shape.lane().is_float();
     let unsigned = matches!(shape, Shape::U32);
@@ -417,7 +472,144 @@ fn transfer(name: &str, shape: Shape, store: bool, decl: &UserFn) -> Option<Oper
     })
 }
 
+/// A view access's declared shape: a view of the lane type whose rows are
+/// packed at the lane width, an `i64` vector index, and the vector from a
+/// read or nothing from a write.
+fn view_access(name: &str, shape: Shape, set: bool, decl: &UserFn) -> Option<Operation> {
+    let lane = shape.lane();
+    let rows = |ty: &Ty| {
+        matches!(ty, Ty::View(element, mutable) if *mutable == set
+            && **element == lane
+            && metadata::list_row_bytes(&lane) == clif_type(lane.clone()).bytes() as usize)
+    };
+    let inputs = decl.sig.inputs.iter().map(|(_, ty)| ty).collect::<Vec<_>>();
+    let declared = match (set, inputs.as_slice(), decl.sig.outputs.as_slice()) {
+        (true, [receiver, view, Ty::I64], []) => {
+            borrowed(receiver, name, &lane, shape.lanes()) && rows(view)
+        }
+        (false, [view, Ty::I64], [output]) => {
+            rows(view) && logical_type(output, name, &lane, shape.lanes())
+        }
+        _ => false,
+    };
+    declared.then(|| Operation {
+        shape,
+        action: if set { Action::Set } else { Action::Get },
+        output: decl.sig.outputs.first().cloned().unwrap_or(Ty::Unit),
+    })
+}
+
 impl Lowerer<'_, '_> {
+    /// Tests a view access's vector index against the view's whole vectors,
+    /// `count >> log2(lanes)`: one unsigned comparison, which also rejects a
+    /// negative index. Returns the block that continues with the access,
+    /// leaving the builder in the cold block for an index out of range with
+    /// `args` ready for the scalar body, which reports it. Returns `None`,
+    /// leaving the builder in place, when the enclosing versioned loop's
+    /// test covers the index.
+    pub(super) fn guard_simd_view(
+        &mut self,
+        op: &Operation,
+        args: &mut [NativeValue],
+    ) -> Option<cranelift_codegen::ir::Block> {
+        let set = matches!(op.action, Action::Set);
+        let [view, index] = args[usize::from(set)..] else {
+            unreachable!("view access signature checked by `operation`")
+        };
+        let shift = op.shape.lanes().ilog2();
+        if self.versioned_vector(index, view, shift) {
+            return None;
+        }
+        let source = set.then(|| self.simd_lanes(args[0], op.shape, false));
+        let (_, count) = self.split_view(view);
+        let vectors = self.bcx.ins().ushr_imm_u(count, i64::from(shift));
+        let inside = self.bcx.ins().icmp(IntCC::UnsignedLessThan, index, vectors);
+        let [hit, miss] = std::array::from_fn(|_| self.bcx.create_block());
+        self.bcx.set_cold_block(miss);
+        self.bcx.ins().brif(inside, hit, &[], miss, &[]);
+        self.bcx.seal_block(hit);
+        self.bcx.switch_to_block(miss);
+        self.bcx.seal_block(miss);
+        if let Some(vector) = source {
+            // The scalar body takes the vector by reference to its lanes'
+            // storage. Building that here, not from the caller's lazy
+            // snapshot, keeps the vector in a register on the hot path.
+            let storage = self.inline_storage(op.shape.lanes() * 16);
+            for lane in 0..op.shape.lanes() {
+                let value = self.bcx.ins().extractlane(vector, lane as u8);
+                let slot = self.bcx.ins().iadd_imm_s(storage, (lane * 16) as i64);
+                self.store_slot(slot, value, &op.shape.lane());
+            }
+            let value = self.bcx.ins().uextend(types::I128, storage);
+            let slot = self.inline_storage(16);
+            self.bcx
+                .ins()
+                .store(MemFlagsData::trusted(), value, slot, 0);
+            args[0] = self.bcx.ins().uextend(types::I128, slot);
+        }
+        Some(hit)
+    }
+
+    /// Whether the versioned loop copy being lowered may skip the check of
+    /// the vector index `index` against the whole vectors of `view`,
+    /// recording the test that copy then needs. Only the range counter plus
+    /// a small constant qualifies; see [`super::induction::Version`].
+    fn versioned_vector(&mut self, index: NativeValue, view: NativeValue, shift: u32) -> bool {
+        use super::induction::{Assumed, LengthOf, VERSION_OFFSET, offset};
+        let dfg = &self.bcx.func.dfg;
+        let bounds = &self.counters.bounds;
+        let Some(version) = &bounds.version else {
+            return false;
+        };
+        let view = bounds.canonical(dfg, view);
+        if version.entries.get(&view) != Some(&true) {
+            return false;
+        }
+        let (base, k) = offset(dfg, index);
+        let below_stop = bounds
+            .below
+            .get(&base)
+            .is_some_and(|&bound| Some(bounds.canonical(dfg, bound)) == version.stop);
+        if !(0..=VERSION_OFFSET).contains(&k) || !below_stop || !self.nonnegative_operand(base) {
+            return false;
+        }
+        let assumed = Assumed::Counter(LengthOf::Vectors(view, shift));
+        let version = self.counters.bounds.version.as_mut().unwrap();
+        match version.assumed.iter_mut().find(|(a, _)| *a == assumed) {
+            Some((_, most)) => *most = (*most).max(k),
+            None => version.assumed.push((assumed, k)),
+        }
+        true
+    }
+
+    /// The packed read or write of vector `index`, whose index is in range.
+    pub(super) fn lower_simd_view(&mut self, op: &Operation, args: &[NativeValue]) {
+        let set = matches!(op.action, Action::Set);
+        let source = set.then(|| self.simd_lanes(args[0], op.shape, false));
+        let [view, index] = args[usize::from(set)..] else {
+            unreachable!("view access signature checked by `operation`")
+        };
+        let (rows, _) = self.split_view(view);
+        // x86-64 scales an index by at most 8, so a 16-byte vector's address
+        // is `rows + (index + index) * 8`: one `lea` and the access's own
+        // addressing mode, not a copy and a shift.
+        debug_assert_eq!(op.shape.vector().bytes(), 16);
+        let pairs = self.bcx.ins().iadd(index, index);
+        let address = self.row_address(rows, pairs, 8);
+        let flags = MemFlagsData::trusted();
+        match source {
+            // A write returns `()`, which has no value.
+            Some(vector) => {
+                self.bcx.ins().store(flags, vector, address, 0);
+            }
+            None => {
+                let vector = self.bcx.ins().load(op.shape.vector(), flags, address, 0);
+                let value = self.materialize_simd(vector, op.shape, &op.output);
+                self.stack.push((value, op.output.clone()));
+            }
+        }
+    }
+
     fn record_simd_snapshot(&mut self, before: Option<Inst>) {
         let block = self.bcx.current_block().expect("SIMD snapshot block");
         let layout = &self.bcx.func.layout;
@@ -809,6 +1001,27 @@ impl Lowerer<'_, '_> {
         if matches!(op.action, Action::Load | Action::Store) {
             return self.lower_simd_transfer(op, args);
         }
+        if op.indexed() {
+            return self.lower_simd_view(op, args);
+        }
+        if matches!(op.action, Action::Len | Action::Tail) {
+            let (_, count) = self.split_view(args[0]);
+            let shift = i64::from(op.shape.lanes().ilog2());
+            let mut result = self.bcx.ins().ushr_imm_u(count, shift);
+            if matches!(op.action, Action::Tail) {
+                result = self.bcx.ins().ishl_imm_u(result, shift);
+            }
+            // At most the view's count, which is not negative.
+            self.counters.nonnegative.insert(result);
+            self.stack.push((result, Ty::I64));
+            return;
+        }
+        if matches!(op.action, Action::Splat) {
+            let vector = self.bcx.ins().splat(op.shape.vector(), args[0]);
+            let value = self.materialize_simd(vector, op.shape, &op.output);
+            self.stack.push((value, op.output.clone()));
+            return;
+        }
         let left = self.simd_lanes(args[0], op.shape, false);
         if matches!(op.action, Action::WrappingSum) {
             // Keep the existing modular lane-order fold, without materializing
@@ -861,7 +1074,16 @@ impl Lowerer<'_, '_> {
                     .bitcast(op.shape.vector(), MemFlagsData::new(), mask);
                 self.bcx.ins().bitselect(mask, left, right)
             }
-            Action::WrappingSum | Action::Sqrt | Action::ToTuple | Action::Load | Action::Store => {
+            Action::WrappingSum
+            | Action::Sqrt
+            | Action::ToTuple
+            | Action::Load
+            | Action::Store
+            | Action::Get
+            | Action::Set
+            | Action::Len
+            | Action::Tail
+            | Action::Splat => {
                 unreachable!("lowered above")
             }
         };

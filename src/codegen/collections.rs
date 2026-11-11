@@ -2026,7 +2026,11 @@ impl Lowerer<'_, '_> {
         // `induction::Version`.
         let versioned = (range.is_none() || (range_nonnegative.is_some() && stop.is_some()))
             && !self.gathering()
-            && super::induction::versionable(condition, body);
+            && super::induction::versionable(condition, body, &|name| {
+                self.user_fns.get(name).is_some_and(|decl| {
+                    super::portable_simd::operation(name, decl, self.module.optimizes()).is_some()
+                })
+            });
         let invariant = self.counters.bounds.invariant_locals.len();
         let parameters = self.counters.bounds.parameter_locals.len();
         self.enter_invariant_locals(condition, body, stop, versioned);
@@ -2098,6 +2102,10 @@ impl Lowerer<'_, '_> {
                     let length = match length {
                         LengthOf::Length(length) => length,
                         LengthOf::View(view) => self.bcx.ins().isplit(view).1,
+                        LengthOf::Vectors(view, shift) => {
+                            let count = self.bcx.ins().isplit(view).1;
+                            self.bcx.ins().ushr_imm_u(count, i64::from(shift))
+                        }
                     };
                     let fits = match assumed {
                         Assumed::Index(index, _) => {
