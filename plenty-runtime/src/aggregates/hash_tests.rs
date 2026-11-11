@@ -443,3 +443,68 @@ fn the_narrow_get_or_insert_agrees_with_the_general_one() {
         }
     }
 }
+
+// Issue #931: a heap or literal key's hit is answered in one function, which
+// compares another heap candidate's bytes itself. Each length class of that
+// comparison (under eight bytes, whole words, an overlapping last word) must
+// hit an equal key held by another object, pass a candidate of the same
+// length that differs in its first or last byte, and hash once.
+fn assert_heap_key_hits<const N: usize>() {
+    let owner = OwnedValue {
+        value: try_collection_new(&COUNTS, 0).unwrap() as u128,
+        ty: &COUNTS,
+    };
+    let reference = &owner.value as *const u128;
+    let hit = GET_OR_INSERT_HIT as u64;
+    let contents: [u8; N] = std::array::from_fn(|i| b'a' + (i % 26) as u8);
+    let changed = |index: usize| {
+        let mut bytes = contents;
+        bytes[index] ^= 1;
+        bytes
+    };
+    // Immortal literals outlive the dictionary that stores them.
+    let leak = |bytes: &[u8; N]| Box::leak(Box::new(literal(bytes))) as *const Literal<N> as u128;
+    // SAFETY: the guard owns the dictionary; every key is an immortal literal.
+    unsafe {
+        let narrow = |key: u128, value: u64| {
+            let before = HASHES.with(std::cell::Cell::get);
+            let words = plenty_dict_get_or_insert_text(reference, key as u64, value, 0);
+            assert_eq!(HASHES.with(std::cell::Cell::get), before + 1);
+            (words.0 as *mut u128, words.1)
+        };
+        let stored = leak(&contents);
+        let (slot, flag) = narrow(stored, 1);
+        assert_eq!((*slot as u64, flag), (1, 0));
+        assert_eq!(narrow(stored, 9), (slot, hit), "the same object");
+        assert_eq!(narrow(leak(&contents), 9), (slot, hit), "equal bytes");
+        // A bucket for the stored row under each differing key's hash, as a
+        // full collision would leave: the comparison must reject it.
+        let c = &mut *(owner.value as *mut Collection);
+        for (value, index) in [(2, 0), (3, N - 1)] {
+            let other = leak(&changed(index));
+            c.table.insert_unique(hash(other, &TEXT), 0);
+            let (inserted, flag) = narrow(other, value);
+            assert_eq!((*inserted as u64, flag), (value, 0), "byte {index}");
+            assert_ne!(inserted, slot);
+            assert_eq!(narrow(leak(&changed(index)), 9), (inserted, hit));
+            if N == 1 {
+                break;
+            }
+        }
+        assert_eq!(*slot as u64, 1);
+        assert_eq!(narrow(leak(&contents), 9), (slot, hit));
+    }
+}
+
+#[test]
+fn a_heap_key_hit_compares_every_length_class() {
+    assert_heap_key_hits::<1>();
+    assert_heap_key_hits::<3>();
+    assert_heap_key_hits::<7>();
+    assert_heap_key_hits::<8>();
+    assert_heap_key_hits::<9>();
+    assert_heap_key_hits::<15>();
+    assert_heap_key_hits::<16>();
+    assert_heap_key_hits::<18>();
+    assert_heap_key_hits::<40>();
+}

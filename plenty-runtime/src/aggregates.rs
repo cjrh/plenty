@@ -1062,6 +1062,17 @@ impl Collection {
             unsafe { self.probe_text_bytes(key, hash, bucket, candidate) }
         }
     }
+    /// Where a text key's probe first stops, and the key word and value
+    /// slot of the row there unless the bucket is empty.
+    #[inline(always)]
+    fn first_candidate(&self, hash: u64) -> (usize, Option<(u64, *mut u128)>) {
+        let mut candidate = None;
+        let bucket = self.table.probe(hash, |entry| {
+            candidate = Some(self.entries.text_row(entry));
+            true
+        });
+        (bucket, candidate)
+    }
     /// `probe_text` once `bucket`'s `candidate` is another word than `key`:
     /// a heap text, or a literal against an inline text, may still hold the
     /// same bytes.
@@ -1700,7 +1711,7 @@ unsafe extern "C" fn plenty_dict_get_or_insert_text(
         if strings::is_inline(key as usize as *const Text) {
             get_or_insert_inline_text(reference, key, value_low, value_high)
         } else {
-            get_or_insert_text(reference, key, value_low, value_high)
+            get_or_insert_heap_text(reference, key, value_low, value_high)
         }
     }
 }
@@ -1723,18 +1734,11 @@ unsafe extern "C" fn get_or_insert_inline_text(
         {
             #[cfg(test)]
             HASHES.with(|count| count.set(count.get() + 1));
-            let mut candidate = key;
-            let bucket = c.table.probe(hash, |entry| {
-                candidate = c.entries.key_word(entry);
-                true
-            });
-            if candidate == key
-                && let Some(entry) = c.table.entry(bucket)
+            let (bucket, candidate) = c.first_candidate(hash);
+            if let Some((candidate, slot)) = candidate
+                && candidate == key
             {
-                return byte_storage::Words(
-                    c.entries.slot_address(entry, true) as u64,
-                    GET_OR_INSERT_HIT as u64,
-                );
+                return byte_storage::Words(slot as u64, GET_OR_INSERT_HIT as u64);
             }
             return get_or_insert_text_probed(reference, key, value_low, value_high, hash, bucket);
         }
@@ -1767,9 +1771,45 @@ unsafe extern "C" fn get_or_insert_text_probed(
     byte_storage::Words::new(result)
 }
 
-/// `plenty_dict_get_or_insert_text` for a heap key, an empty table, or the
-/// first hash of the process: `try_get_or_insert` without the dispatch on
-/// the key's kind.
+/// `plenty_dict_get_or_insert_text` for a heap or literal key. A first
+/// candidate that is the same object, or another heap text with the same
+/// bytes, is a hit answered here with no call: the hash, the probe and the
+/// comparison are inline (issue #931).
+#[inline(never)]
+unsafe extern "C" fn get_or_insert_heap_text(
+    reference: *const u128,
+    key: u64,
+    value_low: u64,
+    value_high: u64,
+) -> byte_storage::Words {
+    // SAFETY: forwarded from `plenty_dict_get_or_insert_text`.
+    unsafe {
+        let c = &*(*reference as *const Collection);
+        let text = key as usize as *const Text;
+        if !c.table.is_empty()
+            && let Some(hash) = hashing::heap_text(text)
+        {
+            #[cfg(test)]
+            HASHES.with(|count| count.set(count.get() + 1));
+            let (bucket, candidate) = c.first_candidate(hash);
+            if let Some((candidate, slot)) = candidate
+                && (candidate == key || {
+                    let candidate = candidate as usize as *const Text;
+                    // A literal key may equal an inline candidate; that
+                    // comparison is left to the probed path.
+                    !strings::is_inline(candidate) && strings::heap_bytes_equal(candidate, text)
+                })
+            {
+                return byte_storage::Words(slot as u64, GET_OR_INSERT_HIT as u64);
+            }
+            return get_or_insert_text_probed(reference, key, value_low, value_high, hash, bucket);
+        }
+        get_or_insert_text(reference, key, value_low, value_high)
+    }
+}
+
+/// `plenty_dict_get_or_insert_text` for an empty table or the first hash of
+/// the process: `try_get_or_insert` without the dispatch on the key's kind.
 #[inline(never)]
 unsafe extern "C" fn get_or_insert_text(
     reference: *const u128,
