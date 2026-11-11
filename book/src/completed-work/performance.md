@@ -866,3 +866,40 @@ IR variants before the compiler change and verify snapshot movement, branch
 assignment, closure replacement, mutable and borrowed captures, and float edge
 cases. Whole-program instructions fall from 44,158,729 to 40,881,853 with the
 same checksum. This is an instruction-count result, not an elapsed-time claim.
+
+## Checker intervals (issue #952)
+
+The checker's [integer intervals](../design/language/03-types/intervals.md)
+decide which arithmetic is infallible and pass the verdict to code
+generation as `Op::Proved`, so the check is omitted exactly where the error
+is. Code generation's own
+[value bounds](../design/toolchain/02-architecture/emission.md#value-bounds)
+still remove further checks, with the error left in the contract.
+
+Against `1ade579c`, one pinned core of a Ryzen 7 7840HS, `perf stat -r 5`,
+three interleaved rounds (load average 1.5 to 2.0), identical output:
+
+| Program | Instructions | Cycles | Time |
+| --- | ---: | ---: | ---: |
+| fasta 25,000,000, before | 10,634.6M | 7,214M | 1,552 ms |
+| fasta 25,000,000, after, generator returning `i64` | 10,634.6M | 7,227M | 1,551 ms |
+| `field-rng` `fill_bounded`, before | 5,330.1M | 5,331M | |
+| `field-rng` `fill_bounded`, after, returning `i64` | 5,329.7M | 5,329M | |
+
+fasta's and `field-rng`'s loops are unchanged: value bounds had already
+removed their checks, and intervals now remove the errors from their
+signatures. Where only intervals prove the arithmetic, each loop loses its
+overflow branches (`experiments/kernels/intervals/`, instructions per pass):
+
+| Kernel | Before | After |
+| --- | ---: | ---: |
+| `(x & 1023) * 1000 - 500000` | 10 | 8 |
+| `i64(x) * 3 - 7`, `x` an `i32` | 9 | 7 |
+| `-(x % 1000) * 5` | 20 | 18 |
+
+Compile time, `compile_bench 1000 10 --workload aot` on cores 0-7, five
+interleaved runs: 436 to 480 ms before, 444 to 454 ms after (medians 445 and
+450); 35.16 against 35.23 billion instructions (+0.2%).
+
+A method whose final expression is a call is not inlined (issue #958), so
+fasta's generator returns the local it stored.

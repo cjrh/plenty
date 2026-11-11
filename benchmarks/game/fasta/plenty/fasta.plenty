@@ -32,8 +32,9 @@ class Rng:
     seed: Seed
 
     def next(self: &mut Rng) -> i64:
-        self.seed = Seed.from((self.seed.get() * IA + IC) % IM)
-        self.seed.get()
+        value = (self.seed.get() * IA + IC) % IM
+        self.seed = Seed.from(value)
+        value
 
 
 # Cumulative limits in 0..=IM, accumulated in f32 as the reference does.

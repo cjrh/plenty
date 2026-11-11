@@ -28,8 +28,9 @@ class BoundedRng:
     seed: Seed
 
     def next(self: &mut BoundedRng) -> i64:
-        self.seed = Seed.from((self.seed.get() * IA + IC) % IM)
-        self.seed.get()
+        value = (self.seed.get() * IA + IC) % IM
+        self.seed = Seed.from(value)
+        value
 
 
 # `fill` with the field's range in its type. The checker's interval for

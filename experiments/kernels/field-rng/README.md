@@ -124,3 +124,18 @@ runs 16 against C's 18.
 
 `fill_unbounded` is unchanged: `s = s + i` is not a remainder, so `s` keeps
 both overflow checks and the floor fixup.
+
+## Checker intervals (issue #952)
+
+Plenty before = `1ade579c`. The checker now proves `seed.get() * IA + IC`
+inside `i64`, so `BoundedRng.next` returns a plain `i64` and `fill_bounded`
+returns `()`. The generated loops are unchanged, because code generation's
+value bounds already removed these checks: every kernel has the same
+instructions per pass, and `perf stat -r 5` on one pinned core, three
+interleaved rounds (load average 1.6 to 2.0), gives the same cycles within
+0.1% (`fill_bounded` 5,330M instructions and 5,330M cycles for 409.6 million
+passes, before and after).
+
+`next` returns the local it stored, not `self.seed.get()`: a method whose
+final expression is a call is not inlined (issue #958), which costs 9
+instructions per pass here.
