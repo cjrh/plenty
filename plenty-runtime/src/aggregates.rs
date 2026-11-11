@@ -1471,9 +1471,32 @@ impl Collection {
     ) -> Result<(usize, bool), AllocError> {
         unsafe {
             let ty = &*self.ty;
+            let key_ty = ty.key();
+            // `locate`, with the hit kept in registers: a returned `Slot`
+            // is seven words of stores that only a miss reads (issue #931).
+            let hashed = ty.kind != b'L';
+            let hash = if hashed { hash(key, key_ty) } else { 0 };
+            if hashed && !self.table.is_empty() {
+                let bucket = self.probe(key, hash);
+                self.try_settle(key, value, hash, bucket)
+            } else {
+                self.try_add_missing(key, value, hashed, hash, None)
+                    .map(|i| (i, false))
+            }
+        }
+    }
+    /// `try_get_or_insert` once `key`, with `hash`, has probed to `bucket`.
+    unsafe fn try_settle(
+        &mut self,
+        key: u128,
+        value: u128,
+        hash: u64,
+        bucket: usize,
+    ) -> Result<(usize, bool), AllocError> {
+        unsafe {
+            let ty = &*self.ty;
             let (key_ty, value_ty) = (ty.key(), ty.value.expect("dictionary value"));
-            let slot = self.locate(key);
-            if let Some(i) = slot.found {
+            if let Some(i) = self.table.entry(bucket) {
                 if key_ty.affine {
                     release(key, key_ty);
                 }
@@ -1482,12 +1505,51 @@ impl Collection {
                 }
                 return Ok((i, true));
             }
+            self.try_add_missing(key, value, true, hash, Some(bucket))
+                .map(|i| (i, false))
+        }
+    }
+    /// The Result words of `get_or_insert`: the value slot's address, with
+    /// the high word `GET_OR_INSERT_HIT` on a hit.
+    fn get_or_insert_result(&mut self, settled: Result<(usize, bool), AllocError>) -> u128 {
+        match settled {
+            Ok((position, hit)) => {
+                let flag = if hit {
+                    (GET_OR_INSERT_HIT as u128) << 64
+                } else {
+                    0
+                };
+                wrap(self.entries.slot(position, true) as u128, 0) | flag
+            }
+            Err(error) => wrap(wrap(0, error as u64), 1),
+        }
+    }
+    /// The miss of `try_get_or_insert`, out of line so the hit does not
+    /// carry its frame.
+    #[inline(never)]
+    unsafe fn try_add_missing(
+        &mut self,
+        key: u128,
+        value: u128,
+        hashed: bool,
+        hash: u64,
+        vacant: Option<usize>,
+    ) -> Result<usize, AllocError> {
+        unsafe {
+            let slot = Slot {
+                found: None,
+                hashed,
+                hash,
+                vacant,
+                table_len: self.table.len(),
+            };
             let added = self.try_add(key, value, slot);
             if added.is_err() {
-                release(key, key_ty);
-                release(value, value_ty);
+                let ty = &*self.ty;
+                release(key, ty.key());
+                release(value, ty.value.expect("dictionary value"));
             }
-            added.map(|i| (i, false))
+            added
         }
     }
     /// Hash `key` once and find its row, or the empty bucket a miss would
@@ -1594,17 +1656,8 @@ impl Collection {
 unsafe fn get_or_insert(reference: *const u128, key: u128, value: u128) -> u128 {
     unsafe {
         let c = &mut *(*reference as *mut Collection);
-        match c.try_get_or_insert(key, value) {
-            Ok((position, hit)) => {
-                let flag = if hit {
-                    (GET_OR_INSERT_HIT as u128) << 64
-                } else {
-                    0
-                };
-                wrap(c.entries.slot(position, true) as u128, 0) | flag
-            }
-            Err(error) => wrap(wrap(0, error as u64), 1),
-        }
+        let settled = c.try_get_or_insert(key, value);
+        c.get_or_insert_result(settled)
     }
 }
 

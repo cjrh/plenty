@@ -29,16 +29,57 @@ fn read_key(mut read: impl FnMut(&mut [u8]) -> io::Result<u128>) -> io::Result<[
     Ok(key)
 }
 
+/// Dispatches in the caller, which has the key's kind at hand, so a text
+/// key's hash keeps no frame for the framed encoding of other kinds
+/// (issue #931).
+#[inline]
 pub(super) unsafe fn hash(value: u128, ty: &Type) -> u64 {
+    if matches!(ty.kind, b's' | b'y') {
+        // SAFETY: the caller supplies a live str or bytes key.
+        unsafe { hash_text(value as *const Text) }
+    } else {
+        // SAFETY: forwarded from the typed collection operation.
+        unsafe { hash_other(value, ty) }
+    }
+}
+
+fn key() -> &'static [u8; 16] {
     // Creating or reserving an empty collection does not require entropy.
     // OnceLock publishes one complete key to all workers; no allocation or
     // user code is involved. Never substitute predictable bytes on OS failure.
-    let key = KEY.get_or_init(|| {
+    KEY.get_or_init(|| {
         read_key(crate::entropy::read)
             .unwrap_or_else(|_| crate::fail("collection hashing requires OS entropy"))
-    });
-    // SAFETY: forwarded from the typed collection operation.
-    unsafe { hash_with_key(value, ty, key) }
+    })
+}
+
+#[inline(never)]
+unsafe fn hash_text(text: *const Text) -> u64 {
+    // SAFETY: forwarded from `hash`.
+    unsafe { text_with_key(text, key()) }
+}
+
+#[inline(never)]
+unsafe fn hash_other(value: u128, ty: &Type) -> u64 {
+    // SAFETY: forwarded from `hash`.
+    unsafe { hash_with_key(value, ty, key()) }
+}
+
+/// SipHash-1-3 of a str or bytes value's bytes. Inline and heap texts with
+/// equal contents hash alike.
+#[inline(always)]
+unsafe fn text_with_key(text: *const Text, key: &[u8; 16]) -> u64 {
+    if strings::is_inline(text) {
+        // At most seven bytes: no whole block, and the bytes are already
+        // the low part of the final one (issue #931).
+        let word = text as usize as u64;
+        let len = (word & 0xff) >> 1;
+        let bytes = (word >> 8) & !(u64::MAX << (8 * len));
+        sip13_finish(sip13_start(key), bytes | len << 56)
+    } else {
+        // SAFETY: a str/bytes key that is not inline is a live Text.
+        sip13_bytes(key, unsafe { strings::heap_bytes(text) })
+    }
 }
 
 pub(super) unsafe fn hash_with_key(value: u128, ty: &Type, key: &[u8; 16]) -> u64 {
@@ -47,22 +88,8 @@ pub(super) unsafe fn hash_with_key(value: u128, ty: &Type, key: &[u8; 16]) -> u6
     // block holds the length), so a lone string needs no length prefix either.
     // Keys nested in tuples, classes and enums keep the framed encoding below.
     match ty.kind {
-        b's' | b'y' => {
-            let text = value as *const Text;
-            // Inline and heap texts with equal contents hash alike: both
-            // paths compute SipHash-1-3 of the bytes.
-            if strings::is_inline(text) {
-                // At most seven bytes: no whole block, and the bytes are
-                // already the low part of the final one (issue #931).
-                let word = text as usize as u64;
-                let len = (word & 0xff) >> 1;
-                let bytes = (word >> 8) & !(u64::MAX << (8 * len));
-                sip13_finish(sip13_start(key), bytes | len << 56)
-            } else {
-                // SAFETY: a str/bytes key that is not inline is a live Text.
-                sip13_bytes(key, unsafe { strings::heap_bytes(text) })
-            }
-        }
+        // SAFETY: a str/bytes key is a live Text or an inline word.
+        b's' | b'y' => unsafe { text_with_key(value as *const Text, key) },
         b'1'..=b'8' | b'b' => sip13_word(key, scalar(value, ty.kind)),
         _ => {
             let mut state = SipHasher13::new_with_key(key);

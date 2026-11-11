@@ -437,18 +437,19 @@ impl Entries {
     #[inline]
     pub fn key_word(&self, index: usize) -> u64 {
         debug_assert!(self.bits().is_none() && !self.packed());
-        // Rows are whole, so a row that starts inside the data ends inside
-        // it. This form needs no division, unlike `index < len / stride`.
-        debug_assert!(self.data.len().is_multiple_of(self.stride));
-        let start = index.checked_mul(self.stride);
-        assert!(start.is_some_and(|start| start < self.data.len()));
+        let start = self.row_start(index);
         // SAFETY: the row lies inside the initialized rows.
-        unsafe {
-            self.data
-                .as_ptr()
-                .add(index * self.stride)
-                .cast::<u64>()
-                .read()
+        unsafe { self.data.as_ptr().add(start).cast::<u64>().read() }
+    }
+    /// The byte offset of row `index`, which must exist. Rows are whole, so
+    /// a row that starts inside the data ends inside it; this check needs no
+    /// division, unlike `index < len / stride`.
+    #[inline]
+    fn row_start(&self, index: usize) -> usize {
+        debug_assert!(self.data.len().is_multiple_of(self.stride));
+        match index.checked_mul(self.stride) {
+            Some(start) if start < self.data.len() => start,
+            _ => panic!("row {index} is outside the collection's rows"),
         }
     }
 
@@ -520,7 +521,7 @@ impl Entries {
             self.bits().is_none(),
             "bitset members have no writable slots"
         );
-        assert!(index < self.data.len() / self.stride);
+        let start = self.row_start(index);
         debug_assert!(
             self.order
                 .linked()
@@ -529,7 +530,7 @@ impl Entries {
         unsafe {
             self.data
                 .base()
-                .add(index * self.stride + if value { self.key.slot_words() * 16 } else { 0 })
+                .add(start + if value { self.key.slot_words() * 16 } else { 0 })
                 .cast()
         }
     }
