@@ -10,19 +10,23 @@ gcc 16.2.1 `-O2 -fno-tree-vectorize`. Counts are instructions on the path one
 pass of the loop executes, read from the `asm` dump; `loops.py` also counts
 the cold `set` call block that sits inside `fill`'s loop range.
 
-| Kernel | C | Before | After | Issue #939 |
-| --- | --- | --- | --- | --- |
-| `fill` | 8 | 34, four runtime calls | 26 | 17 |
-| `checksum` | 5 | 18, two runtime calls | 6 | 6 |
+| Kernel | C | Before | After | Issue #939 | regalloc2 change |
+| --- | --- | --- | --- | --- | --- |
+| `fill` | 8 | 34, four runtime calls | 26 | 17 | 14 |
+| `checksum` | 5 | 18, two runtime calls | 6 | 6 | 6 |
 
-The last column is the compiler at `2d20ddf5` with the change for issue #939;
-`2d20ddf5` itself still measured 26.
+The "Issue #939" column is the compiler at `2d20ddf5` with the lowering
+change for issue #939; `2d20ddf5` itself still measured 26. The last column
+is that compiler built against branch `issue-939-loop-splits` of the
+regalloc2 fork (`docs/spill-bundle-registers.md` there) through a path
+override; the fork revision in `Cargo.lock` does not have the change yet.
 
 The whole program (100 calls of `fill` over 61,440 bytes, where `fill` is
 inlined into `main`) runs 461,119,314 instructions before and 129,290,430
 after: 75 and 21 per byte. With the change for issue #939 it runs 117,000,712
 (19 per byte), and the fasta benchmark at 2,500,000 runs 1,431,249,475
-instead of 1,521,250,112.
+instead of 1,521,250,112. With the regalloc2 change they run 104,713,167
+(17 per byte) and 1,384,582,694.
 
 ```sh
 cargo build --locked --release --bin plenty
@@ -37,14 +41,14 @@ objdump -d --no-show-raw-insn /tmp/bl.o | python3 experiments/kernels/loops.py
 
 `fill`:
 
-| Cause | Before | After | Issue #939 |
-| --- | --- | --- | --- |
-| Runtime calls (`plenty_byte_str_item`, `plenty_bytes_len`, `plenty_bytes_set`, `plenty_text_byte_len`) | 4 | 0 | 0 |
-| Argument moves, spills and reloads | 15 | 11 | 2 |
-| Overflow check on `position += 1` (`seto; test; jne`) | 3 | 0 | 0 |
-| Bounds checks on the buffer and, after, the literal (C has none) | 4 | 4 | 4 |
-| Trip counter beside the index, unrotated `jmp` | 4 | 1 | 1 |
-| Useful work (C: 8) | 4 | 10 | 10 |
+| Cause | Before | After | Issue #939 | regalloc2 change |
+| --- | --- | --- | --- | --- |
+| Runtime calls (`plenty_byte_str_item`, `plenty_bytes_len`, `plenty_bytes_set`, `plenty_text_byte_len`) | 4 | 0 | 0 | 0 |
+| Argument moves, spills and reloads | 15 | 11 | 2 | 0 |
+| Overflow check on `position += 1` (`seto; test; jne`) | 3 | 0 | 0 | 0 |
+| Bounds checks on the buffer and, after, the literal (C has none) | 4 | 4 | 4 | 4 |
+| Trip counter beside the index, unrotated `jmp` | 4 | 1 | 1 | 0 |
+| Useful work (C: 8) | 4 | 10 | 10 | 10 |
 
 The useful work grew because the byte load, the store and the address
 arithmetic are now in the loop instead of in the runtime.
@@ -73,7 +77,7 @@ The arguments go through the slot because of `read` in
 `plenty_caller_enter`, and that loop went from 7 instructions to 10
 (`clif/read.clif`, a against f).
 
-What remains, against C's 8 (issue #939 stays open for the first):
+What remained after the lowering change, against C's 8:
 
 | Cause | Instructions |
 | --- | --- |
@@ -85,27 +89,43 @@ What remains, against C's 8 (issue #939 stays open for the first):
 The move pair is regalloc2's and no cold block causes it: `clif/fill.clif`
 variant e, where both failing arms only trap, keeps it. The cached length
 comes from `plenty_bytes_len` before the loop and is live across
-`plenty_byte_view_rows`, so it enters the loop in a callee-saved register;
-the allocator splits it there and restores the header's register on the back
-edge. With the length and row address as function parameters instead, the
-loop is 14 on `loops.py`'s count instead of 17 (a variant not kept in the
-file). In fasta's `random_fasta` the
-same split shows as two values loaded from their stack slots and stored back
-unchanged on each pass (four before).
+`plenty_byte_view_rows`, which clobbers the register it was returned in, so
+its bundle is split there. Splitting trims the piece with the loop's use to
+that use and gives the rest of the live range, including the loop header
+and the back edge, to the value's spill bundle. The piece is allocated
+first and takes a caller-saved register; the spill bundle is allocated last
+and, crossing the call, takes a callee-saved one. The value then changes
+register before its use and changes back on the back edge.
+
+The regalloc2 change moves each such piece into its spill bundle's register
+when that register is free for the whole piece. The three instructions go
+and `fill` is 14: C's 8, the four of the bounds checks, the `lea` and the
+wrap's branch.
+
+In fasta's `random_fasta` the same split leaves two values in stack slots:
+each is loaded before its use and stored back unchanged on each pass (two
+loads and two stores per symbol). Their spill bundles get no register, because the values are live
+across `write_lines` in the enclosing loop and the callee-saved registers
+are taken, so the regalloc2 change has nothing to move them into, although
+`r10` and `r11` are unused in the per-symbol loop. Issue #939 stays open
+for this.
 
 `clif/fill.clif` and `clif/read.clif`, `loops.py` counts (for `fill` they
 include one instruction of the wrap's other arm):
 
-| Variant | `fill` | `read` |
-| --- | --- | --- |
-| a: cold block calls the method between `caller_enter` and `caller_leave`, arguments in registers | 18 | 10 |
-| b: a without `caller_enter` and `caller_leave` | 18 | 7 |
-| c: cold block only traps | 18 | 7 |
-| d (`fill`): a without the negative-index retry block | 17 | |
-| e (`fill`): c and d | 17 | |
-| f (`fill`), d (`read`): cold block calls a helper with a fresh symbol address | 18 | 7 |
-| e (`read`): method call first, then a helper | | 7 |
-| f (`read`): a with the arguments in a stack slot across `caller_enter`, as emitted | 18 | 7 |
+| Variant | `fill` | `fill`, regalloc2 change | `read` |
+| --- | --- | --- | --- |
+| a: cold block calls the method between `caller_enter` and `caller_leave`, arguments in registers | 18 | 15 | 10 |
+| b: a without `caller_enter` and `caller_leave` | 18 | 15 | 7 |
+| c: cold block only traps | 18 | 15 | 7 |
+| d (`fill`): a without the negative-index retry block | 17 | 14 | |
+| e (`fill`): c and d | 17 | 14 | |
+| f (`fill`), d (`read`): cold block calls a helper with a fresh symbol address | 18 | 15 | 7 |
+| e (`read`): method call first, then a helper | | | 7 |
+| f (`read`): a with the arguments in a stack slot across `caller_enter`, as emitted | 18 | 15 | 7 |
+
+`read` is unchanged by the regalloc2 change in every variant, including the
+10 of variant a.
 
 `checksum`:
 
