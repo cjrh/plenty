@@ -88,25 +88,25 @@ Each section's lines in this file, so one module can be read alone.
 - [`std.sketch.xor`](#stdsketchxor): 3260-3271
 - [`std.sketch.cuckoo`](#stdsketchcuckoo): 3273-3288
 - [`std.signal`](#stdsignal): 3290-3307
-- [`std.simd`](#stdsimd): 3309-3412
-- [`std.stat`](#stdstat): 3414-3447
-- [`std.plot`](#stdplot): 3449-3538
-- [`std.linalg`](#stdlinalg): 3540-3581
-- [`std.sync`](#stdsync): 3583-3615
-- [`std.system`](#stdsystem): 3617-3676
-- [`std.tempfile`](#stdtempfile): 3678-3710
-- [`std.test`](#stdtest): 3712-3754
-- [`std.text`](#stdtext): 3756-3799
-- [`std.thread`](#stdthread): 3801-3805
-- [`std.time`](#stdtime): 3807-3851
-- [`std.tls`](#stdtls): 3853-3935
-- [`std.toml`](#stdtoml): 3937-4036
-- [`std.unicode`](#stdunicode): 4038-4050
-- [`std.units`](#stdunits): 4052-4289
-- [`std.units.catalogue`](#stdunitscatalogue): 4291-5069
-- [`std.url`](#stdurl): 5071-5099
-- [`std.uuid`](#stduuid): 5101-5124
-- [`std.xml`](#stdxml): 5126-5159
+- [`std.simd`](#stdsimd): 3309-3428
+- [`std.stat`](#stdstat): 3430-3463
+- [`std.plot`](#stdplot): 3465-3554
+- [`std.linalg`](#stdlinalg): 3556-3597
+- [`std.sync`](#stdsync): 3599-3631
+- [`std.system`](#stdsystem): 3633-3692
+- [`std.tempfile`](#stdtempfile): 3694-3726
+- [`std.test`](#stdtest): 3728-3770
+- [`std.text`](#stdtext): 3772-3815
+- [`std.thread`](#stdthread): 3817-3821
+- [`std.time`](#stdtime): 3823-3867
+- [`std.tls`](#stdtls): 3869-3951
+- [`std.toml`](#stdtoml): 3953-4052
+- [`std.unicode`](#stdunicode): 4054-4066
+- [`std.units`](#stdunits): 4068-4305
+- [`std.units.catalogue`](#stdunitscatalogue): 4307-5085
+- [`std.url`](#stdurl): 5087-5115
+- [`std.uuid`](#stduuid): 5117-5140
+- [`std.xml`](#stdxml): 5142-5175
 
 ## `std.actor`
 
@@ -3328,8 +3328,12 @@ enum i32x4
     def simd_gt(self, other: &i32x4) -> mask32x4
     def simd_ge(self, other: &i32x4) -> mask32x4
     def wrapping_sum(self) -> i32
+    def set(self, values: &mut [i32], index: i64) -> ()
     def store(self, values: &mut list[i32], offset: i64) -> bool
 def splat_i32x4(value: i32) -> i32x4
+def len_i32x4(values: &[i32]) -> i64
+def tail_i32x4(values: &[i32]) -> i64
+def get_i32x4(values: &[i32], index: i64) -> i32x4
 def load_i32x4(values: &list[i32], offset: i64 = 0) -> Option[i32x4]
 enum u32x4
     Lanes(u32, u32, u32, u32)
@@ -3348,8 +3352,12 @@ enum u32x4
     def simd_gt(self, other: &u32x4) -> mask32x4
     def simd_ge(self, other: &u32x4) -> mask32x4
     def wrapping_sum(self) -> u32
+    def set(self, values: &mut [u32], index: i64) -> ()
     def store(self, values: &mut list[u32], offset: i64) -> bool
 def splat_u32x4(value: u32) -> u32x4
+def len_u32x4(values: &[u32]) -> i64
+def tail_u32x4(values: &[u32]) -> i64
+def get_u32x4(values: &[u32], index: i64) -> u32x4
 def load_u32x4(values: &list[u32], offset: i64 = 0) -> Option[u32x4]
 enum f32x4
     Lanes(f32, f32, f32, f32)
@@ -3367,8 +3375,12 @@ enum f32x4
     def simd_gt(self, other: &f32x4) -> mask32x4
     def simd_ge(self, other: &f32x4) -> mask32x4
     def sum_ordered(self, initial: f32) -> f32
+    def set(self, values: &mut [f32], index: i64) -> ()
     def store(self, values: &mut list[f32], offset: i64) -> bool
 def splat_f32x4(value: f32) -> f32x4
+def len_f32x4(values: &[f32]) -> i64
+def tail_f32x4(values: &[f32]) -> i64
+def get_f32x4(values: &[f32], index: i64) -> f32x4
 def load_f32x4(values: &list[f32], offset: i64 = 0) -> Option[f32x4]
 enum f64x2
     Lanes(f64, f64)
@@ -3386,8 +3398,12 @@ enum f64x2
     def simd_gt(self, other: &f64x2) -> mask64x2
     def simd_ge(self, other: &f64x2) -> mask64x2
     def sum_ordered(self, initial: f64) -> f64
+    def set(self, values: &mut [f64], index: i64) -> ()
     def store(self, values: &mut list[f64], offset: i64) -> bool
 def splat_f64x2(value: f64) -> f64x2
+def len_f64x2(values: &[f64]) -> i64
+def tail_f64x2(values: &[f64]) -> i64
+def get_f64x2(values: &[f64], index: i64) -> f64x2
 def load_f64x2(values: &list[f64], offset: i64 = 0) -> Option[f64x2]
 enum mask32x4
     Lanes(bool, bool, bool, bool)

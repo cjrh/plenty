@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Count the public SIMD list-transfer path: the magnitude kernel and n-body
-variants whose magnitude loop uses it. The benchmark source stays scalar.
+"""Count the public SIMD list paths, transfers and indexed view accesses: the
+magnitude kernel and n-body variants whose magnitude loop uses them. The
+benchmark source stays scalar.
 
 Usage: measure.py [COMPILER]   (default target/release/plenty)
 """
@@ -46,6 +47,32 @@ MATCH = """        step = simd.splat_f64x2(dt)
                 case Nothing:
                     pass
 """ + TAIL
+VIEWS = """        xs: &[f64] = &dx
+        ys: &[f64] = &dy
+        zs: &[f64] = &dz
+        out: &mut [f64] = &mut mag
+        step = simd.splat_f64x2(dt)
+        for pair in range(simd.len_f64x2(xs)):
+            a = simd.get_f64x2(xs, pair)
+            b = simd.get_f64x2(ys, pair)
+            c = simd.get_f64x2(zs, pair)
+            d2 = a.mul(a).add(b.mul(b)).add(c.mul(c))
+            step.div(d2.mul(d2.sqrt())).set(out, pair)
+        for p in range(simd.tail_f64x2(xs), len(xs)):
+            d2 = xs[p] * xs[p] + ys[p] * ys[p] + zs[p] * zs[p]
+            out[p] = dt / (d2 * d2.sqrt())
+"""
+# The scalar loop moved into a function over views: the same step structure
+# as the SIMD variants, without vectors.
+HELPER = """
+def magnitudes(xs: &[f64], ys: &[f64], zs: &[f64], out: &mut [f64], dt: f64) -> ():
+    for p in range(len(xs)):
+        d2 = xs[p] * xs[p] + ys[p] * ys[p] + zs[p] * zs[p]
+        out[p] = dt / (d2 * d2.sqrt())
+
+
+def advance("""
+CALL = "        magnitudes(&dx, &dy, &dz, &mut mag, dt)\n"
 
 
 def count(command):
@@ -73,7 +100,7 @@ def main():
     results = {}
     kernel = build("magnitude", HERE / "magnitude.plenty")
     expected = None
-    for mode in ["scalar", "simd"]:
+    for mode in ["scalar", "simd", "views"]:
         low, output = count([kernel, mode, "1000", "100000"])
         high, _ = count([kernel, mode, "1000", "200000"])
         if expected not in (None, output):
@@ -86,12 +113,16 @@ def main():
     header = source.replace("import std.math", "import std.math\nimport std.simd as simd\nfrom std.test import check")
     start = header.index("        for p in range(pairs):")
     end = header.index("        k = 0", start)
+    start_scalar = source.index("        for p in range(pairs):")
+    end_scalar = source.index("        k = 0", start_scalar)
     expected = None
     for name, text in [("scalar", source), ("unwrap", header[:start] + UNWRAP + header[end:]),
-                       ("match", header[:start] + MATCH + header[end:])]:
-        path = work / f"nbody-{name}.plenty"
+                       ("match", header[:start] + MATCH + header[end:]),
+                       ("views", header[:start] + VIEWS + header[end:]),
+                       ("scalar helper", (source[:start_scalar] + CALL + source[end_scalar:]).replace("\ndef advance(", HELPER))]:
+        path = work / f"nbody-{name.replace(' ', '-')}.plenty"
         path.write_text(text)
-        value, output = count([build(f"nbody-{name}", path), STEPS])
+        value, output = count([build(path.stem, path), STEPS])
         if expected not in (None, output):
             raise RuntimeError("n-body output mismatch")
         expected = output

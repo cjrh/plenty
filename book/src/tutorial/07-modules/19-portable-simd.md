@@ -38,15 +38,57 @@ choose modular arithmetic. Floating `sum_ordered(initial)` preserves scalar
 addition order. Selection is eager: compute and handle both inputs before
 selecting between them.
 
-The module also provides checked list loads and stores; they require a complete
-vector to fit and never allocate. Handle any leftover elements with a scalar
-loop. Vector values stored in collections or passed to functions use tagged
-scalar storage, and every load and store checks its bounds, so explicit lanes do
-not promise faster code. The default optimized profile
-enables supported native SIMD operations on x86-64, including packed list loads
-and stores. AArch64 currently uses the
-scalar implementation, which preserves the same results. See the [reference](../../design/stdlib/simd.md)
-for the exact operations, bounds contracts and current limits.
+## Loop over lists
+
+To process whole lists, pass them as [slice views](../04-collections/slices.md)
+and index them by vector. `len_f64x2(xs)` counts the whole vectors in a view,
+`get_f64x2(xs, i)` reads vector `i` (elements `2 * i` and `2 * i + 1`) and
+`vector.set(out, i)` writes one. Five elements hold two whole vectors; no
+vector access touches the fifth. `tail_f64x2(xs)` is the index where those
+leftover elements start, so a scalar loop finishes them:
+
+```plenty
+import std.simd as simd
+
+def distances(xs: &[f64], ys: &[f64], out: &mut [f64]) -> ():
+    for i in range(simd.len_f64x2(xs)):
+        x = simd.get_f64x2(xs, i)
+        y = simd.get_f64x2(ys, i)
+        x.mul(x).add(y.mul(y)).sqrt().set(out, i)
+    for i in range(simd.tail_f64x2(xs), len(xs)):
+        out[i] = (xs[i] * xs[i] + ys[i] * ys[i]).sqrt()
+
+def main() -> Result[(), AllocError | IoError]:
+    xs = [3.0, 6.0, 5.0, 8.0, 0.0]?
+    ys = [4.0, 8.0, 12.0, 15.0, 2.0]?
+    mut out = [0.0, 0.0, 0.0, 0.0, 0.0]?
+    distances(&xs, &ys, &mut out)
+    print(out)?
+    Ok(())
+```
+```output
+[5.0, 10.0, 13.0, 17.0, 2.0]
+```
+
+A vector index outside `0..len_f64x2(view)` traps, like a list index out of
+range: here `ys` and `out` must be at least as long as `xs`. A view borrows its
+list, so the compiler rejects resizing the list while the view is still used.
+The other vector types follow the same names: `len_i32x4`, `tail_i32x4`,
+`get_i32x4` and `set` on an `i32x4`.
+
+Taking view parameters, as `distances` does, lets the optimized x86-64 build
+test each view's length once before the loop instead of on every access.
+
+For one access at an arbitrary element offset, `load_f64x2(values, offset)`
+returns `Option[f64x2]` and `vector.store(&mut values, offset)` returns `bool`;
+they report a vector that does not fit instead of trapping.
+
+Vector values stored in collections or passed to functions use tagged scalar
+storage, so explicit lanes do not promise faster code. The default optimized
+profile enables supported native SIMD operations on x86-64, including packed
+list access. AArch64 currently uses the scalar implementation, which preserves
+the same results. See the [reference](../../design/stdlib/simd.md) for the exact
+operations, bounds contracts and current limits.
 
 Float vectors also support `sqrt()` without allocation or a `Result`. Each lane
 follows scalar float square root, including NaNs for negative inputs:
