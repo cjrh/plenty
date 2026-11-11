@@ -458,7 +458,14 @@ pub(crate) unsafe extern "C" fn plenty_byte_view_rows(owner: *const u8) -> *cons
 
 /// Two result words in the two return registers of the C ABI.
 #[repr(C)]
-pub(crate) struct Words(u64, u64);
+pub(crate) struct Words(pub(crate) u64, pub(crate) u64);
+
+impl Words {
+    /// The low and high halves of a dispatcher result word.
+    pub(crate) fn new(value: u128) -> Self {
+        Self(value as u64, (value >> 64) as u64)
+    }
+}
 
 /// The first byte address and byte count of a live buffer or `bytes`
 /// literal, for a slice view: one call for both words (issue #931).
@@ -476,8 +483,7 @@ pub(crate) unsafe extern "C" fn plenty_byte_view(owner: *const u8) -> Words {
 pub(crate) unsafe extern "C" fn plenty_bytes_to_text(address: *const u8, count: u64) -> Words {
     // SAFETY: the caller's loan keeps the viewed bytes in place.
     let bytes = unsafe { view_bytes(address as usize as u128 | (count as u128) << 64) };
-    let value = to_text(bytes);
-    Words(value as u64, (value >> 64) as u64)
+    Words::new(to_text(bytes))
 }
 
 /// `std.text.find_in`/`find_not_in`: the scalar position of the first scalar

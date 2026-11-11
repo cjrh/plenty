@@ -166,6 +166,16 @@ pub(crate) unsafe fn bytes(text: &*const Text) -> &[u8] {
         )
     }
 }
+/// Whether two live texts hold the same bytes. Equal words are one inline
+/// value or one object, which answers a dictionary hit on a short key
+/// without reading either text (issue #931). Unequal words still compare
+/// bytes: a literal and an inline text may hold the same short string.
+#[inline]
+pub(crate) unsafe fn equal(a: *const Text, b: *const Text) -> bool {
+    // SAFETY: the caller keeps both texts alive.
+    a == b || unsafe { bytes(&a) == bytes(&b) }
+}
+
 /// The data of a text that is never inline, such as a compiler literal, for
 /// as long as the text lives.
 pub(crate) unsafe fn heap_bytes<'a>(text: *const Text) -> &'a [u8] {

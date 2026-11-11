@@ -1,0 +1,14 @@
+# Hit-only dictionary updates with a key built per pass from a byte range,
+# as k-nucleotide does: a 18-byte key is a heap text.
+import std.bytes
+
+def main() -> Result[(), AllocError | IoError | OverflowError[i64] | std.bytes.BytesError]:
+    sequence = std.bytes.from_text("GGTATTTTAATTTATAGTACGTACGTAACCGGTT")?
+    mut counts: dict[str, i64] = {}?
+    for start in range(4):
+        *counts.get_or_insert(sequence.to_text_range(start, start + 18)?, 0)? += 0
+    for i in range(2000000):
+        key = sequence.to_text_range(1, 1 + 18)?
+        *counts.get_or_insert(key, 0)? += 1
+    print(counts[sequence.to_text_range(1, 1 + 18)?])?
+    Ok(())

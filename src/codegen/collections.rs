@@ -1542,11 +1542,14 @@ impl Lowerer<'_, '_> {
             None
         };
         arguments.extend(cell);
-        let result = self.collection_call_at(operation.opcode(), &arguments, descriptor, site)?;
         let result = if let CollectionOp::DictGetOrInsert(_) = operation {
+            // A str key with a value that a hit need not drop takes the
+            // helper whose inline-key hit is a leaf.
+            let text = matches!(inputs[1], Ty::Str) && !inputs[2].affine();
+            let result = self.get_or_insert_call(&arguments, text);
             self.get_or_insert_hit(result, &values[1..], &inputs[1..])
         } else {
-            result
+            self.collection_call_at(operation.opcode(), &arguments, descriptor, site)?
         };
         let result = self.unpack(result, &output);
         let (result, output) = match (&formatted, cell) {
@@ -1570,6 +1573,41 @@ impl Lowerer<'_, '_> {
         }
         self.stack.push((result, output));
         Ok(())
+    }
+
+    /// `dict.get_or_insert` through `plenty_dict_get_or_insert` (issue #931):
+    /// the dictionary reference, key and default travel in registers and the
+    /// dispatcher's two result words come back in registers, so a hit writes
+    /// no argument block. `text` selects `plenty_dict_get_or_insert_text`,
+    /// which takes the key as one word.
+    fn get_or_insert_call(
+        &mut self,
+        arguments: &[cranelift_codegen::ir::Value],
+        text: bool,
+    ) -> cranelift_codegen::ir::Value {
+        let &[dictionary, key, value] = arguments else {
+            unreachable!("get_or_insert takes the dictionary, a key and a default")
+        };
+        let (dictionary, _) = self.bcx.ins().isplit(dictionary);
+        let (key_low, key_high) = self.bcx.ins().isplit(key);
+        let (value_low, value_high) = self.bcx.ins().isplit(value);
+        let (helper, operands) = if text {
+            (
+                self.runtime.dict_get_or_insert_text,
+                vec![dictionary, key_low, value_low, value_high],
+            )
+        } else {
+            (
+                self.runtime.dict_get_or_insert,
+                vec![dictionary, key_low, key_high, value_low, value_high],
+            )
+        };
+        let function = self.module.declare_func_in_func(helper, self.bcx.func);
+        let call = self.bcx.ins().call(function, &operands);
+        let &[low, high] = self.bcx.inst_results(call) else {
+            unreachable!("the helper returns two words")
+        };
+        self.bcx.ins().iconcat(low, high)
     }
 
     /// The `dict.get_or_insert` result word without its hit flag. A hit

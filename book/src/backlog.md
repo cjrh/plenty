@@ -191,14 +191,16 @@ every checked add and subtract (issue #934, in the Cranelift fork); the
 remaining per-pass costs are issue #935 (loads not folded into branch
 compares), in Cranelift, and for fasta issues #937
 (field value bounds), #940 (bounds of loop-carried locals), #938
-(loop-invariant loads) and #939 (a value live across a call before the loop and kept in a stack slot is reloaded and stored back on each pass when no register is free for the whole loop; fasta's `random_fasta`, its cold call blocks and its register-to-register moves are fixed). The regalloc2 fork keeps a trap path's call arguments from pinning registers across its loop ([loop-exit blocks](completed-work/performance.md#loop-exit-blocks-kept-off-the-loops-allocation)) and moves a split value's pieces into its spill bundle's register when that register is free (`docs/spill-bundle-registers.md` in the fork), and extends a stack-held value's register over a loop that uses it on every pass when a register is free there (`docs/loop-extension.md`); n-body clist's list and column headers are read once before the step loop ([loop-nest header reads](completed-work/performance.md#loop-nest-header-reads)). Known returns of inlined calls skip the `?` test (issue
+(loop-invariant loads) and #947 (a value live across a call before the loop and kept in a stack slot is reloaded and stored back on each pass when all registers are in use; issue #939 fixed fasta's `random_fasta`, its cold call blocks and its register-to-register moves). The regalloc2 fork keeps a trap path's call arguments from pinning registers across its loop ([loop-exit blocks](completed-work/performance.md#loop-exit-blocks-kept-off-the-loops-allocation)) and moves a split value's pieces into its spill bundle's register when that register is free (`docs/spill-bundle-registers.md` in the fork), and extends a stack-held value's register over a loop that uses it on every pass when a register is free there (`docs/loop-extension.md`); n-body clist's list and column headers are read once before the step loop ([loop-nest header reads](completed-work/performance.md#loop-nest-header-reads)). Known returns of inlined calls skip the `?` test (issue
 #936), and a reference parameter's stored field is forwarded to the next read
 (`experiments/kernels/field-rng/`).
 Key-only dictionary probes are [delivered](completed-work/performance.md#b19-generated-code-and-storage);
 key construction from a byte range skips validated clamps and the dispatcher
-(`experiments/key-construction/`); the remaining k-nucleotide costs (the
-dictionary update helper, hashing, and caller-site bookkeeping) are tracked in
-issue #931.
+(`experiments/key-construction/`), and `get_or_insert` hits skip the
+dispatcher, the general key comparison and the streaming hasher
+(`experiments/dictionary-hits/`); the remaining k-nucleotide costs (helper
+frames on a heap key's hit and caller-site bookkeeping around
+`Bytes.to_text_range`) are tracked in issue #931.
 Use [profiling](development/profiling.md), [faster-linking evidence](proposals/faster-linking.md)
 and the [completed measurements](completed-work/performance.md) as baselines.
 The [k-nucleotide counting-loop investigation](completed-work/performance.md#k-nucleotide-counting-loop-investigation-issue-743)
