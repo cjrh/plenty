@@ -69,7 +69,7 @@ impl ProgramKey {
         field(crate::native_target().as_bytes());
         field(settings.as_bytes());
         field(request);
-        ProgramKey(format!("{:x}", hash.finalize()))
+        ProgramKey(crate::hash_hex::encode(&hash.finalize()))
     }
 
     fn path(&self, dir: &Path) -> PathBuf {

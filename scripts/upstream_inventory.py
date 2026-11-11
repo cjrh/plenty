@@ -338,7 +338,7 @@ def drift(entries):
     pins = {}
     for e in entries:
         if e["kind"] in ("crate", "vendored C"):
-            pins.setdefault(e["name"].lower(), set()).add(e["pinned"])
+            pins.setdefault(e["name"].lower(), set()).update(e["pinned"].split(", "))
     return [
         {"name": e["name"], "acknowledged": e["pinned"], "pinned": sorted(pins[e["name"].lower()]),
          "where": e["where"]}
