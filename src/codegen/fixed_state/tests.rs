@@ -152,7 +152,8 @@ fn multiple_borrowed_roots_and_resize_are_not_promoted() {
 fn moved_owned_scratch_keeps_the_destination_root() {
     let types = vec![Ty::List(Arc::new(Ty::F64)); 2];
     let hints = HashMap::default();
-    let mut prefix = Eval::new(&types, &hints);
+    let simd = Simd::default();
+    let mut prefix = Eval::new(&types, &hints, &simd);
     prefix.run(&[Op::MoveLocal(0), Op::StoreLocal(1)]).unwrap();
     assert!(matches!(prefix.env[1], Val::Root(1)));
     let text = include_str!("../../../tests/fixtures/fixed-state.plenty")
@@ -220,4 +221,74 @@ fn fallback_keeps_header_reads_before_a_loop_it_did_not_fully_evaluate() {
 
     let sunk = fallback(&source(3, body), "kernel");
     assert!(matches!(&sunk[..], [Op::Loop { .. }]), "{sunk:?}");
+}
+
+fn vector_fixture(template: &str, vector: &str, values: &str) -> String {
+    let (ty, lanes, suffix) = match vector {
+        "f64x2" => ("f64", 2, ""),
+        _ => ("f32", 4, "f32"),
+    };
+    let literals = |n: usize| vec![format!("1.5{suffix}"); n].join(", ");
+    template
+        .replace("VECTOR", vector)
+        .replace("VALUES", values)
+        .replace("HINT", &literals(2 * lanes))
+        .replace("COUNT", &values.split(',').count().to_string())
+        .replace("LANES", &lanes.to_string())
+        .replace("LAST", &(2 * lanes - 1).to_string())
+        .replace("ZERO", &format!("0.0{suffix}"))
+        .replace("HALF", &format!("0.5{suffix}"))
+        .replace("TYPE", ty)
+}
+
+#[test]
+fn vector_view_accesses_read_and_write_promoted_cells() {
+    let template = include_str!("../../../tests/fixtures/fixed-state-simd.plenty");
+    // Five rows each of the parameter and both scratch lists.
+    let text = vector_fixture(template, "f64x2", "1.0, 2.0, 3.0, 4.0, 5.0");
+    let (before, after) = transformed(&text, "update", true);
+    assert_eq!(after - before, 15);
+    // The vector functions are ordinary calls without optimization.
+    let (before, after) = transformed(&text, "update", false);
+    assert_eq!(before, after);
+    let text = vector_fixture(template, "f32x4", "1.0f32, 2.0f32, 3.0f32, 4.0f32, 5.0f32");
+    let (before, after) = transformed(&text, "update", true);
+    assert_eq!(after - before, 15);
+    let template = include_str!("../../../tests/fixtures/fixed-state-simd-bounds.plenty");
+    for (vector, cells) in [("f64x2", 2 + 2 + 2), ("f32x4", 4 + 4 + 4)] {
+        let (before, after) = transformed(&vector_fixture(template, vector, ""), "update", true);
+        assert_eq!(after - before, cells, "{vector}");
+    }
+    // Nothing reads the length of `roots`, so a vector past its appended
+    // rows adds a cell and a length guard that fails for those rows.
+    let template = include_str!("../../../tests/fixtures/fixed-state-simd.plenty");
+    let text = vector_fixture(template, "f64x2", "1.0, 2.0, 3.0, 4.0, 5.0")
+        .replace(".set(out, i)", ".set(out, 2)");
+    let (before, after) = transformed(&text, "update", true);
+    assert_eq!(after - before, 16);
+}
+
+#[test]
+fn vector_view_accesses_outside_the_guarded_rows_decline_promotion() {
+    let template = include_str!("../../../tests/fixtures/fixed-state-simd.plenty");
+    let text = vector_fixture(template, "f64x2", "1.0, 2.0, 3.0, 4.0, 5.0");
+    for (from, to) in [
+        // A vector past the appended length.
+        ("s.get_f64x2(xs, i)", "s.get_f64x2(xs, 2)"),
+        // A negative vector index.
+        ("s.get_f64x2(xs, i)", "s.get_f64x2(xs, -1)"),
+        // A view of part of the list has other rows and another length.
+        ("xs: &[f64] = &scratch", "xs: &[f64] = &scratch[1:]"),
+        (
+            "out: &mut [f64] = &mut roots",
+            "out: &mut [f64] = &mut roots[:4]",
+        ),
+        // No counted loop of appends suggests the length `len_f64x2` needs.
+        ("    for _ in range(5):", "    for _ in range(extra):"),
+    ] {
+        assert!(text.contains(from), "{from}");
+        let text = text.replace(from, to);
+        let (before, after) = transformed(&text, "update", true);
+        assert_eq!(before, after, "{to}");
+    }
 }

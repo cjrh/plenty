@@ -71,6 +71,17 @@ enum Action {
     Splat,
 }
 
+/// A portable SIMD operation as guarded numerical state sees it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Numerical {
+    /// Lane arithmetic and `splat`: a value of its operands alone.
+    Pure,
+    Get,
+    Set,
+    Len,
+    Tail,
+}
+
 pub(super) struct Operation {
     shape: Shape,
     action: Action,
@@ -83,6 +94,28 @@ impl Operation {
     /// only from the cold block of a failed check.
     pub(super) fn indexed(&self) -> bool {
         matches!(self.action, Action::Get | Action::Set)
+    }
+
+    /// What guarded numerical state may do with a floating operation: see
+    /// [`super::fixed_state`]. Other operations abandon its candidate.
+    pub(super) fn numerical(&self) -> Option<(Numerical, i64)> {
+        if !self.shape.lane().is_float() {
+            return None;
+        }
+        let kind = match self.action {
+            Action::Add
+            | Action::Sub
+            | Action::Mul
+            | Action::Div
+            | Action::Sqrt
+            | Action::Splat => Numerical::Pure,
+            Action::Get => Numerical::Get,
+            Action::Set => Numerical::Set,
+            Action::Len => Numerical::Len,
+            Action::Tail => Numerical::Tail,
+            _ => return None,
+        };
+        Some((kind, self.shape.lanes() as i64))
     }
 }
 
@@ -278,7 +311,18 @@ fn borrowed(ty: &Ty, name: &str, lane: &Ty, count: usize) -> bool {
 /// Capability table for the baseline host backend, checked before emitting any
 /// vector IR. Other hosts and unoptimized builds execute the scalar module.
 pub(super) fn operation(name: &str, decl: &UserFn, optimize: bool) -> Option<Operation> {
-    if !cfg!(target_arch = "x86_64") || !optimize || !decl.standard_library {
+    classify(name, &decl.sig, decl.standard_library, optimize)
+}
+
+/// [`operation`] from a declaration's parts, for passes that run before
+/// functions are declared.
+pub(super) fn classify(
+    name: &str,
+    sig: &FnSig,
+    standard_library: bool,
+    optimize: bool,
+) -> Option<Operation> {
+    if !cfg!(target_arch = "x86_64") || !optimize || !standard_library {
         return None;
     }
     let (name, method) = if let Some(vector) = name.strip_prefix("std.simd.load_") {
@@ -303,15 +347,15 @@ pub(super) fn operation(name: &str, decl: &UserFn, optimize: bool) -> Option<Ope
         _ => return None,
     };
     if matches!(method, "load" | "store") {
-        return transfer(name, shape, method == "store", decl);
+        return transfer(name, shape, method == "store", sig);
     }
     if matches!(method, "get" | "set") {
-        return view_access(name, shape, method == "set", decl);
+        return view_access(name, shape, method == "set", sig);
     }
     if matches!(method, "len" | "tail" | "splat") {
         let lane = shape.lane();
-        let inputs = decl.sig.inputs.iter().map(|(_, ty)| ty).collect::<Vec<_>>();
-        let action = match (method, inputs.as_slice(), decl.sig.outputs.as_slice()) {
+        let inputs = sig.inputs.iter().map(|(_, ty)| ty).collect::<Vec<_>>();
+        let action = match (method, inputs.as_slice(), sig.outputs.as_slice()) {
             ("splat", [input], [output])
                 if **input == lane && logical_type(output, name, &lane, shape.lanes()) =>
             {
@@ -329,7 +373,7 @@ pub(super) fn operation(name: &str, decl: &UserFn, optimize: bool) -> Option<Ope
         return Some(Operation {
             shape,
             action,
-            output: decl.sig.outputs[0].clone(),
+            output: sig.outputs[0].clone(),
         });
     }
     let float = shape.lane().is_float();
@@ -382,8 +426,8 @@ pub(super) fn operation(name: &str, decl: &UserFn, optimize: bool) -> Option<Ope
         "selected" => Action::Select,
         _ => return None,
     };
-    let input = &decl.sig.inputs;
-    let [output] = decl.sig.outputs.as_slice() else {
+    let input = &sig.inputs;
+    let [output] = sig.outputs.as_slice() else {
         return None;
     };
     if matches!(action, Action::WrappingSum) {
@@ -443,7 +487,7 @@ pub(super) fn operation(name: &str, decl: &UserFn, optimize: bool) -> Option<Ope
 
 /// A list transfer's declared shape: packed rows of the lane type, an `i64`
 /// offset, and `Option[Vector]` from a load or `bool` from a store.
-fn transfer(name: &str, shape: Shape, store: bool, decl: &UserFn) -> Option<Operation> {
+fn transfer(name: &str, shape: Shape, store: bool, sig: &FnSig) -> Option<Operation> {
     let lane = shape.lane();
     let vector = |ty: &Ty| logical_type(ty, name, &lane, shape.lanes());
     let rows = |ty: &Ty| {
@@ -452,8 +496,8 @@ fn transfer(name: &str, shape: Shape, store: bool, decl: &UserFn) -> Option<Oper
             && list.element().as_ref() == Some(&lane)
             && metadata::list_row_bytes(&lane) == clif_type(lane.clone()).bytes() as usize)
     };
-    let inputs = decl.sig.inputs.iter().map(|(_, ty)| ty).collect::<Vec<_>>();
-    let [output] = decl.sig.outputs.as_slice() else {
+    let inputs = sig.inputs.iter().map(|(_, ty)| ty).collect::<Vec<_>>();
+    let [output] = sig.outputs.as_slice() else {
         return None;
     };
     let declared = match (store, inputs.as_slice()) {
@@ -475,15 +519,15 @@ fn transfer(name: &str, shape: Shape, store: bool, decl: &UserFn) -> Option<Oper
 /// A view access's declared shape: a view of the lane type whose rows are
 /// packed at the lane width, an `i64` vector index, and the vector from a
 /// read or nothing from a write.
-fn view_access(name: &str, shape: Shape, set: bool, decl: &UserFn) -> Option<Operation> {
+fn view_access(name: &str, shape: Shape, set: bool, sig: &FnSig) -> Option<Operation> {
     let lane = shape.lane();
     let rows = |ty: &Ty| {
         matches!(ty, Ty::View(element, mutable) if *mutable == set
             && **element == lane
             && metadata::list_row_bytes(&lane) == clif_type(lane.clone()).bytes() as usize)
     };
-    let inputs = decl.sig.inputs.iter().map(|(_, ty)| ty).collect::<Vec<_>>();
-    let declared = match (set, inputs.as_slice(), decl.sig.outputs.as_slice()) {
+    let inputs = sig.inputs.iter().map(|(_, ty)| ty).collect::<Vec<_>>();
+    let declared = match (set, inputs.as_slice(), sig.outputs.as_slice()) {
         (true, [receiver, view, Ty::I64], []) => {
             borrowed(receiver, name, &lane, shape.lanes()) && rows(view)
         }
@@ -495,7 +539,7 @@ fn view_access(name: &str, shape: Shape, set: bool, decl: &UserFn) -> Option<Ope
     declared.then(|| Operation {
         shape,
         action: if set { Action::Set } else { Action::Get },
-        output: decl.sig.outputs.first().cloned().unwrap_or(Ty::Unit),
+        output: sig.outputs.first().cloned().unwrap_or(Ty::Unit),
     })
 }
 

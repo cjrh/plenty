@@ -27,6 +27,13 @@ original loop as the fallback. Entry checks require:
 - A positive outer range count, so empty ranges do not access state.
 - Equality for every retained speculative integer fact used by the expansion.
 - Sufficient actual length for every accessed list cell.
+- The exact length of every list whose length the expansion used.
+
+A `range` loop with a constant count from 1 to 64 that appends once per pass
+to an owned list suggests that list's length; several such loops add up. The
+suggestion is only a guess: the expansion may use it to evaluate
+`len_*`/`tail_*` of a `std.simd` view or `len` of a view, and the guard then
+requires that exact length.
 
 The size guard can fail after a caller appends elements, or when a scratch list
 has fewer initialized rows than its capacity. Failed guards execute the original
@@ -57,7 +64,18 @@ to constant nonnegative indices. The outer range count must be dynamic at this
 pass; it stays a loop. Inner loop conditions and iteration counts must
 be computable under the guarded facts.
 
-Calls, allocation, resizing, escaping references, unsupported control flow and
+Floating `std.simd` [view accesses](../../stdlib/simd.md#indexed-access-through-views)
+on a view of all rows of a promoted list take part (issue #929). `get_*`
+builds its vector from the lanes' scalar variables and `set` splits a vector
+into them, so scalar and vector accesses to one row share a variable and no
+vector load waits on a scalar store. Lane arithmetic, `sqrt` and `splat_*`
+are values of their operands. The guard proves every vector's rows; an index
+it cannot prove, a negative index or a view of part of a list prevents the
+transformation, and the original loop keeps each access's trap. The
+`load_*`/`store` transfers, integer vectors, masks and views received as
+parameters are not recognized.
+
+Other calls, allocation, resizing, escaping references, unsupported control flow and
 integer arithmetic that might fail prevent the transformation. This ensures
 that delaying writes until loop exit cannot expose intermediate state to another
 operation or change what a failure observes. Floating expressions retain their

@@ -526,6 +526,21 @@ state: the same step with a scalar magnitude loop in a view function runs
 859M. The benchmark source stays scalar and every benchmark binary is
 unchanged.
 
+[Guarded numerical state](../design/toolchain/02-architecture/numerical-loops.md)
+now accepts `get_*`, `set`, `len_*`, `tail_*` and float lane arithmetic on a
+view of all rows of a promoted list (issue #929). A vector is built from and
+split into the scalar variables of its lanes, as C and Rust n-body sources do
+with `loadl`/`loadh`. A first version read and wrote the lists in place with
+unchecked packed moves: it ran 398M instructions and was slower than the
+scalar source, because each packed load followed scalar stores to the same
+rows. At main `22b70d80`, the n-body variant with view accesses falls from
+722.1M to 314.1M instructions at 500,000 steps, below the scalar source's
+321.6M, with identical output. At 5,000,000 steps on one pinned core of a
+quiet machine it runs 1,080M cycles in 232 ms against 1,185M cycles in 254 ms
+for the scalar source (means of three sets of ten runs). The transfer
+variants are unchanged, the benchmark source stays scalar and every benchmark
+binary is unchanged.
+
 [Automatic integer-column filter/count](../proposals/columnar-list/simd-counts.md)
 uses baseline SSE2 SIMD with scalar tails in optimized builds: 16 lanes for
 8-bit, 8 for 16-bit and 4 for 32-bit integer columns (issue #904).
